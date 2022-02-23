@@ -29,6 +29,7 @@ static std::map<std::string,TokenType> g_reserved_map{
         {"is",      TokenType::IS},
         {"in",      TokenType::IN},
         {"int",     TokenType::INT_TYPE},
+        {"float",   TokenType::FLOAT_TYPE},
         {"string",  TokenType::STRING_TYPE},
         {"bool",    TokenType::BOOL_TYPE},
         {"void",    TokenType::VOID_TYPE},

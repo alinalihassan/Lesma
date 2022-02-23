@@ -84,6 +84,8 @@ llvm::Value *Codegen::Visit(Expression* node) {
         return Visit(dynamic_cast<FuncCall*>(node));
     else if (dynamic_cast<BinaryOp*>(node))
         return Visit(dynamic_cast<BinaryOp*>(node));
+    else if (dynamic_cast<CastOp*>(node))
+        return Visit(dynamic_cast<CastOp*>(node));
     else if (dynamic_cast<UnaryOp*>(node))
         return Visit(dynamic_cast<UnaryOp*>(node));
     else if (dynamic_cast<Literal*>(node))
@@ -124,6 +126,8 @@ llvm::Value *Codegen::Visit(Statement* node) {
 llvm::Type *Codegen::Visit(lesma::Type *node) {
     if (node->getType() == TokenType::INT_TYPE)
         return Builder->getInt64Ty();
+    if (node->getType() == TokenType::FLOAT_TYPE)
+        return Builder->getDoubleTy();
     else if (node->getType() == TokenType::BOOL_TYPE)
         return Builder->getInt1Ty();
     else if (node->getType() == TokenType::VOID_TYPE)
@@ -217,7 +221,7 @@ llvm::Value *Codegen::Visit(FuncDecl *node) {
     llvm::raw_string_ostream oss(output);
     if (llvm::verifyFunction(*F, &oss)) {
         F->print(outs());
-        throw CodegenError("Invalid Function {}", node->getName());
+        throw CodegenError("Invalid Function {}\n{}", node->getName(), output);
     }
 
     Scope = Scope->getParent();
@@ -290,11 +294,34 @@ llvm::Value *Codegen::Visit(FuncCall *node) {
         params.push_back(Visit(arg));
 
     auto* func = static_cast<Function *>(symbol->getValue());
-    return Builder->CreateCall(func, params);
+    return Builder->CreateCall(func, params, func->getReturnType()->isVoidTy() ? "" : "tmp");
 }
 
 llvm::Value *Codegen::Visit(BinaryOp *node) {
     print("BINARYOP\n");
+}
+
+llvm::Value *Codegen::cast(llvm::Value* val, llvm::Type* type) {
+    if (val->getType() == type)
+        return val;
+
+    if (type->isIntegerTy()) {
+        if (val->getType()->isFloatingPointTy())
+            return Builder->CreateFPToSI(val, type, ".tmp");
+        else if (val->getType()->isIntegerTy())
+            return Builder->CreateIntCast(val, type, true, ".tmp");
+    } else if (type->isFloatingPointTy()) {
+        if (val->getType()->isIntegerTy())
+            return Builder->CreateSIToFP(val, type, ".tmp");
+        else if (val->getType()->isFloatingPointTy())
+            return Builder->CreateFPCast(val, type, ".tmp");
+    }
+
+    throw CodegenError("Unsupported cast");
+}
+
+llvm::Value *Codegen::Visit(CastOp *node) {
+    return cast(Visit(node->getExpression()), Visit(node->getType()));
 }
 
 llvm::Value *Codegen::Visit(UnaryOp *node) {
@@ -302,14 +329,14 @@ llvm::Value *Codegen::Visit(UnaryOp *node) {
 
     if (node->getOperator() == TokenType::MINUS) {
         if (operand->getType()->isIntegerTy())
-            return Builder->CreateNeg(operand);
+            return Builder->CreateNeg(operand, ".tmp");
         else if (operand->getType()->isFloatingPointTy())
-            return Builder->CreateFNeg(operand);
+            return Builder->CreateFNeg(operand, ".tmp");
         else
             throw CodegenError("Cannot apply {} to {}", NAMEOF_ENUM(node->getOperator()), node->getExpression()->toString(0));
     } else if (node->getOperator() == TokenType::NOT) {
         if (operand->getType()->isIntegerTy(1))
-            return Builder->CreateNot(operand);
+            return Builder->CreateNot(operand, ".tmp");
         else
             throw CodegenError("Cannot apply {} to {}", NAMEOF_ENUM(node->getOperator()), node->getExpression()->toString(0));
     } else
@@ -330,7 +357,7 @@ llvm::Value *Codegen::Visit(Literal *node) {
             throw CodegenError("Unknown variable name {}", node->getValue());
 
         // Load the value.
-        return Builder->CreateLoad(Builder->getInt64Ty(), val->getValue(), node->getValue());
+        return Builder->CreateLoad(val->getType(), val->getValue(), ".tmp");
     } else
         throw CodegenError("Unknown literal {}", node->getValue());
 }

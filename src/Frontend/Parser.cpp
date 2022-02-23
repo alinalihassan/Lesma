@@ -48,7 +48,8 @@ void Parser::Error(const Token &token, const std::string& error_message) {
 // TODO: Parse Type
 Type* Parser::ParseType() {
     auto type = Peek();
-    if (CheckAny<TokenType::INT_TYPE, TokenType::STRING_TYPE, TokenType::BOOL_TYPE>()) {
+    if (CheckAny<TokenType::INT_TYPE, TokenType::FLOAT_TYPE, TokenType::STRING_TYPE, TokenType::BOOL_TYPE,
+            TokenType::VOID_TYPE>()) {
         Advance();
         return new Type(type->loc, type->lexeme, type->type);
     }
@@ -117,11 +118,20 @@ Expression* Parser::ParseUnary() {
     return left == nullptr ? ParseTerm() : left;
 }
 
-Expression* Parser::ParseMult() {
+Expression* Parser::ParseCast() {
     auto left = ParseUnary();
+    while (AdvanceIfMatchAny<TokenType::CAST>()) {
+        auto type = ParseType();
+        left = new CastOp(Peek()->loc, left, type);
+    }
+    return left;
+}
+
+Expression* Parser::ParseMult() {
+    auto left = ParseCast();
     while (AdvanceIfMatchAny<TokenType::STAR, TokenType::SLASH, TokenType::MOD>()) {
         auto op = Previous()->type;
-        auto right = ParseUnary();
+        auto right = ParseCast();
         left = new BinaryOp(Peek()->loc, left, op, right);
     }
     return left;

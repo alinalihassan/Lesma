@@ -63,8 +63,11 @@ namespace lesma {
         llvm::Type  *Visit(lesma::Type *node);
         llvm::Value *Visit(FuncCall *node);
         llvm::Value *Visit(BinaryOp *node);
+        llvm::Value *Visit(CastOp *node);
         llvm::Value *Visit(UnaryOp *node);
         llvm::Value *Visit(Literal *node);
         llvm::Value *Visit(Else *node);
+
+        llvm::Value *cast(llvm::Value* val, llvm::Type* type);
     };
 }

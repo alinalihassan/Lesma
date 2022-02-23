@@ -83,6 +83,7 @@ namespace lesma {
         Expression *ParseCompare();
         Expression *ParseAdd();
         Expression *ParseMult();
+        Expression *ParseCast();
         Expression *ParseUnary();
         Expression *ParseTerm();
         Expression *ParseFunctionCall();

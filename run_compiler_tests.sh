@@ -1,7 +1,8 @@
 #!/bin/bash
 
 # Build source
-if ! mkdir -p build && cd build && cmake .. && make -j8; then
+if ! { cmake -B build -DCMAKE_BUILD_TYPE=Release &> /tmp/compile_output.log &&
+       cmake --build build --config Release &> /tmp/compile_output.log ; }; then
 	echo "Failed to build the compiler"
 	exit 1
 fi

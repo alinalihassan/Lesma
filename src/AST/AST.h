@@ -319,6 +319,22 @@ namespace lesma {
         }
     };
 
+    class CastOp : public Expression {
+        Expression *expr;
+        Type *type;
+    public:
+        CastOp(SourceLocation Loc, Expression *expr, Type *type) : Expression(Loc), expr(expr), type(type) {}
+
+        ~CastOp() override = default;
+
+        [[nodiscard]] Expression *getExpression() const { return expr; }
+        [[nodiscard]] Type *getType() const { return type; }
+
+        std::string toString(int ind) override {
+            return expr->toString(ind) + " as " + type->toString(ind);
+        }
+    };
+
     class UnaryOp : public Expression {
         TokenType op;
         Expression *expr;
