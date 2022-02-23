@@ -242,20 +242,21 @@ namespace lesma {
 
     class FuncCall : public Expression {
         std::string name;
-        std::map<std::string, Type *> arguments;
+        std::vector<Expression*> arguments;
     public:
-        FuncCall(SourceLocation Loc, std::string name) :
-                Expression(Loc), name(std::move(name)) {}
+        FuncCall(SourceLocation Loc, std::string name, std::vector<Expression*> arguments) :
+                Expression(Loc), name(std::move(name)), arguments(std::move(arguments)) {}
 
         ~FuncCall() override = default;
 
         [[nodiscard]] std::string getName() const { return name; }
+        [[nodiscard]] std::vector<Expression*> getArguments() const { return arguments; }
 
         std::string toString(int ind) override {
             auto ret = name + "(";
             for (auto param: arguments) {
-                ret += param.first + ": " + param.second->toString(ind);
-                if (arguments.end()->first != param.first) ret += ", ";
+                ret += param->toString(ind);
+                if (arguments.back() != param) ret += ", ";
             }
             ret += ")";
             return ret;
@@ -281,6 +282,21 @@ namespace lesma {
                        "[" + std::to_string(getLine()) + ':' + std::to_string(getCol()) + "]: ";
             ret += var->toString(ind) + " " + std::string{NAMEOF_ENUM(op)} + " " + expr->toString(ind) + '\n';
             return ret;
+        }
+    };
+
+    class ExpressionStatement : public Statement {
+        Expression *expr;
+    public:
+        ExpressionStatement(SourceLocation Loc, Expression *expr) : Statement(Loc), expr(expr) {}
+        ~ExpressionStatement() override = default;
+
+        [[nodiscard]] Expression *getExpression() const { return expr; }
+
+        std::string toString(int ind) override {
+            return std::string(ind, ' ') + "Expression" +
+                       "[" + std::to_string(getLine()) + ':' + std::to_string(getCol()) + "]: " +
+                       expr->toString(ind) + '\n';
         }
     };
 

@@ -14,7 +14,7 @@ Codegen::Codegen(std::unique_ptr<Parser> parser, const std::string& filename) {
     TheModule->setSourceFileName(filename);
     Builder = std::make_unique<IRBuilder<>>(*TheContext);
     Parser_ = std::move(parser);
-    Scope = std::make_unique<SymbolTable>(nullptr);
+    Scope = new SymbolTable(nullptr);
     TargetMachine = InitializeTargetMachine();
     InitializePasses();
 }
@@ -113,6 +113,8 @@ llvm::Value *Codegen::Visit(Statement* node) {
         return Visit(dynamic_cast<Continue*>(node));
     else if (dynamic_cast<Return*>(node))
         return Visit(dynamic_cast<Return*>(node));
+    else if (dynamic_cast<ExpressionStatement*>(node))
+        return Visit(dynamic_cast<ExpressionStatement*>(node));
     else if (dynamic_cast<Compound*>(node))
         return Visit(dynamic_cast<Compound*>(node));
 
@@ -190,6 +192,8 @@ llvm::Value *Codegen::Visit(While *node) {
 }
 
 llvm::Value *Codegen::Visit(FuncDecl *node) {
+    Scope = Scope->createChildBlock(node->getName());
+
     std::vector<llvm::Type*> paramTypes;
 
     for (const auto& param: node->getParameters())
@@ -216,6 +220,9 @@ llvm::Value *Codegen::Visit(FuncDecl *node) {
         throw CodegenError("Invalid Function {}", node->getName());
     }
 
+    Scope = Scope->getParent();
+    Scope->insertSymbol(node->getName(), F, F->getFunctionType());
+
     return F;
 }
 
@@ -230,6 +237,8 @@ llvm::Value *Codegen::Visit(ExternFuncDecl *node) {
 
     for (auto &param: F->args())
         param.setName(node->getParameters()[param.getArgNo()].first);
+
+    Scope->insertSymbol(node->getName(), F, F->getFunctionType());
 
     return F;
 }
@@ -260,12 +269,28 @@ llvm::Value *Codegen::Visit(Return *node) {
     return Builder->CreateRet(Visit(node->getValue()));
 }
 
+llvm::Value *Codegen::Visit(ExpressionStatement *node) {
+    return Visit(node->getExpression());
+}
+
 llvm::Value *Codegen::Visit(Var *node) {
     print("VAR\n");
 }
 
 llvm::Value *Codegen::Visit(FuncCall *node) {
-    print("FUNCCALL\n");
+    if (Scope->lookup(node->getName()) == nullptr)
+        throw CodegenError("Function {} not in current scope.\n", node->getName());
+
+    auto symbol = Scope->lookup(node->getName());
+    if (!static_cast<llvm::FunctionType*>(symbol->getType()))
+        throw CodegenError("Symbol {} not of FunctionType.\n", node->getName());
+
+    std::vector<llvm::Value*> params;
+    for (auto arg: node->getArguments())
+        params.push_back(Visit(arg));
+
+    auto* func = static_cast<Function *>(symbol->getValue());
+    return Builder->CreateCall(func, params);
 }
 
 llvm::Value *Codegen::Visit(BinaryOp *node) {

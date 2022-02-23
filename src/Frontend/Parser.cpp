@@ -58,6 +58,28 @@ Type* Parser::ParseType() {
 }
 
 // Expression
+Expression* Parser::ParseFunctionCall() {
+    auto token = Peek();
+    Consume(TokenType::IDENTIFIER);
+    Consume(TokenType::LEFT_PAREN);
+
+    std::vector<Expression *> params;
+
+    while(!Check(TokenType::RIGHT_PAREN)) {
+        auto param = ParseExpression();
+
+        if (!Check(TokenType::RIGHT_PAREN))
+            Consume(TokenType::COMMA);
+
+        params.push_back(param);
+    }
+
+    Consume(TokenType::RIGHT_PAREN);
+
+    return new FuncCall(token->loc, token->lexeme, params);
+}
+
+
 Expression* Parser::ParseTerm() {
     switch(Peek()->type) {
         case TokenType::STRING:
@@ -65,6 +87,9 @@ Expression* Parser::ParseTerm() {
         case TokenType::DOUBLE:
         case TokenType::NIL:
         case TokenType::IDENTIFIER: {
+            if (CheckAny<TokenType::LEFT_PAREN>(1))
+                return ParseFunctionCall();
+
             auto token = Peek();
             Consume(token->type);
             return new Literal(token->loc, token->lexeme, token->type);
@@ -266,9 +291,13 @@ Statement* Parser::ParseStatement() {
              CheckAny<TokenType::EQUAL, TokenType::PLUS_EQUAL, TokenType::MINUS_EQUAL, TokenType::STAR_EQUAL,
              TokenType::SLASH_EQUAL, TokenType::MOD_EQUAL, TokenType::POWER_EQUAL>(1))
         return ParseAssignment();
-    else
-        Error(Peek(), "Unknown statement");
 
+    // Check if it's just an expression statement
+    auto expr = ParseExpression();
+    if (expr != nullptr)
+        return new ExpressionStatement({expr->getLine(), expr->getCol()}, expr);
+
+    Error(Peek(), "Unknown statement");
     return nullptr;
 }
 
