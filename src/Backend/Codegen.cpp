@@ -298,30 +298,73 @@ llvm::Value *Codegen::Visit(FuncCall *node) {
 }
 
 llvm::Value *Codegen::Visit(BinaryOp *node) {
-    print("BINARYOP\n");
-}
+    llvm::Value *left = Visit(node->getLeft());
+    llvm::Value *right = Visit(node->getRight());
+    llvm::Type *finalType = GetExtendedType(left->getType(), right->getType());
 
-llvm::Value *Codegen::cast(llvm::Value* val, llvm::Type* type) {
-    if (val->getType() == type)
-        return val;
+    switch (node->getOperator()) {
+        case TokenType::MINUS:
+            left = Cast(left, finalType);
+            right = Cast(right, finalType);
 
-    if (type->isIntegerTy()) {
-        if (val->getType()->isFloatingPointTy())
-            return Builder->CreateFPToSI(val, type, ".tmp");
-        else if (val->getType()->isIntegerTy())
-            return Builder->CreateIntCast(val, type, true, ".tmp");
-    } else if (type->isFloatingPointTy()) {
-        if (val->getType()->isIntegerTy())
-            return Builder->CreateSIToFP(val, type, ".tmp");
-        else if (val->getType()->isFloatingPointTy())
-            return Builder->CreateFPCast(val, type, ".tmp");
+            if (finalType->isFloatingPointTy())
+                return Builder->CreateFSub(left, right, ".tmp");
+            else if (finalType->isIntegerTy())
+                return Builder->CreateSub(left, right, ".tmp");
+            break;
+        case TokenType::PLUS:
+            left = Cast(left, finalType);
+            right = Cast(right, finalType);
+
+            if (finalType->isFloatingPointTy())
+                return Builder->CreateFAdd(left, right, ".tmp");
+            else if (finalType->isIntegerTy())
+                return Builder->CreateAdd(left, right, ".tmp");
+            break;
+        case TokenType::SLASH:
+            left = Cast(left, finalType);
+            right = Cast(right, finalType);
+
+            if (finalType->isFloatingPointTy())
+                return Builder->CreateFDiv(left, right, ".tmp");
+            else if (finalType->isIntegerTy())
+                return Builder->CreateSDiv(left, right, ".tmp");
+            break;
+        case TokenType::STAR:
+            left = Cast(left, finalType);
+            right = Cast(right, finalType);
+
+            if (finalType->isFloatingPointTy())
+                return Builder->CreateFMul(left, right, ".tmp");
+            else if (finalType->isIntegerTy())
+                return Builder->CreateMul(left, right, ".tmp");
+            break;
+        case TokenType::MOD:
+            left = Cast(left, finalType);
+            right = Cast(right, finalType);
+
+            if (finalType->isFloatingPointTy())
+                return Builder->CreateFRem(left, right, ".tmp");
+            else if (finalType->isIntegerTy())
+                return Builder->CreateSRem(left, right, ".tmp");
+            break;
+        case TokenType::POWER:
+            if (!right->getType()->isIntegerTy())
+                throw CodegenError("Cannot use non-integers for power coefficient: {}\n",
+                                   node->getRight()->toString(0));
+            break;
+        default:
+            throw CodegenError("Unimplemented binary operator: {}\n", NAMEOF_ENUM(node->getOperator()));
     }
 
-    throw CodegenError("Unsupported cast");
+    throw CodegenError("Unimplemented binary operator {} for {} and {}\n",
+                       NAMEOF_ENUM(node->getOperator()),
+                       node->getLeft()->toString(0),
+                       node->getRight()->toString(0));
 }
 
 llvm::Value *Codegen::Visit(CastOp *node) {
-    return cast(Visit(node->getExpression()), Visit(node->getType()));
+    return Cast(Visit(node->getExpression()), Visit(node->getType()));
 }
 
 llvm::Value *Codegen::Visit(UnaryOp *node) {
@@ -365,4 +408,50 @@ llvm::Value *Codegen::Visit(Literal *node) {
 llvm::Value *Codegen::Visit(Else *node) {
     print("ELSE\n");
     return nullptr;
+}
+
+
+llvm::Type *Codegen::GetExtendedType(llvm::Type *left, llvm::Type *right) {
+    if (left == right)
+        return left;
+
+    if (left->isIntegerTy() && right->isIntegerTy()) {
+        if (left->getIntegerBitWidth() > right->getIntegerBitWidth())
+            return left;
+        else
+            return right;
+    } else if (left->isIntegerTy() && right->isFloatingPointTy())
+        return right;
+    else if (left->isFloatingPointTy() && right->isIntegerTy())
+        return left;
+    else if (left->isFloatingPointTy() && right->isFloatingPointTy()) {
+        if (left->isFP128Ty() || right->isFP128Ty())
+            return left->isFP128Ty() ? left : right;
+        else if (left->isDoubleTy() || right->isDoubleTy())
+            return left->isDoubleTy() ? left : right;
+        else if (left->isFloatTy() || right->isFloatTy())
+            return left->isFloatTy() ? left : right;
+        else if (left->isHalfTy() || right->isHalfTy())
+            return left->isHalfTy() ? left : right;
+    }
+    return nullptr;
+}
+
+llvm::Value *Codegen::Cast(llvm::Value* val, llvm::Type* type) {
+    if (val->getType() == type)
+        return val;
+
+    if (type->isIntegerTy()) {
+        if (val->getType()->isFloatingPointTy())
+            return Builder->CreateFPToSI(val, type, ".tmp");
+        else if (val->getType()->isIntegerTy())
+            return Builder->CreateIntCast(val, type, true, ".tmp");
+    } else if (type->isFloatingPointTy()) {
+        if (val->getType()->isIntegerTy())
+            return Builder->CreateSIToFP(val, type, ".tmp");
+        else if (val->getType()->isFloatingPointTy())
+            return Builder->CreateFPCast(val, type, ".tmp");
+    }
+
+    throw CodegenError("Unsupported Cast");
 }

@@ -40,6 +40,8 @@ namespace lesma {
         void Compile(const std::string& output);
         int JIT();
 
+        static llvm::Type *GetExtendedType(llvm::Type *left, llvm::Type *right);
+
     protected:
         llvm::TargetMachine *InitializeTargetMachine();
 
@@ -68,6 +70,6 @@ namespace lesma {
         llvm::Value *Visit(Literal *node);
         llvm::Value *Visit(Else *node);
 
-        llvm::Value *cast(llvm::Value* val, llvm::Type* type);
+        llvm::Value *Cast(llvm::Value* val, llvm::Type* type);
     };
 }
