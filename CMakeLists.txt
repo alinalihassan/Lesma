@@ -1,8 +1,6 @@
 cmake_minimum_required(VERSION 3.21)
 project(Lesma)
 
-#set(CMAKE_VERBOSE_MAKEFILE ON)
-
 # External dependencies
 include(FetchContent)
 
