@@ -1,8 +1,3 @@
-#include <map>
-
-#include "lib/nameof.h"
-
-#include "TokenType.h"
 #include "Token.h"
 
 using namespace lesma;

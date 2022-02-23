@@ -5,6 +5,8 @@
 #include <llvm/IR/Value.h>
 #include <llvm/IR/Type.h>
 
+#include "Common/Utils.h"
+
 namespace lesma {
     class SymbolTableEntry { ;
     public:

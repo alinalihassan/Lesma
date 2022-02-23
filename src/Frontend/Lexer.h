@@ -2,6 +2,8 @@
 
 #include <sysexits.h>
 #include <string>
+#include <vector>
+
 #include "Token/Token.h"
 #include "Common/LesmaError.h"
 #include "Common/Utils.h"

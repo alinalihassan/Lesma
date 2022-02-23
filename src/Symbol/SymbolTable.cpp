@@ -1,5 +1,4 @@
 #include "SymbolTable.h"
-#include "Common/Utils.h"
 
 using namespace lesma;
 

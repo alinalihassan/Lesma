@@ -2,6 +2,10 @@
 
 #include <string>
 #include <utility>
+#include <map>
+
+#include "lib/nameof.h"
+
 #include "TokenType.h"
 #include "Common/Utils.h"
 

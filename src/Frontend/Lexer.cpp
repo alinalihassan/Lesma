@@ -1,5 +1,3 @@
-#include <vector>
-#include "Token/Token.h"
 #include "Lexer.h"
 
 using namespace lesma;
