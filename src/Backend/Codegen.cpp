@@ -134,6 +134,8 @@ llvm::Value *Codegen::Visit(Compound *node) {
     for (auto elem: node->getChildren()) {
         Visit(elem);
     }
+
+    return nullptr;
 }
 
 llvm::Value *Codegen::Visit(VarDecl *node) {
