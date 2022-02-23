@@ -1,5 +1,7 @@
 #!/bin/bash
 
+echo "Compiling source code"
+
 # Build source
 if ! { cmake -B build -DCMAKE_BUILD_TYPE=Release &> /tmp/compile_output.log &&
        cmake --build build --config Release &> /tmp/compile_output.log ; }; then
@@ -7,13 +9,16 @@ if ! { cmake -B build -DCMAKE_BUILD_TYPE=Release &> /tmp/compile_output.log &&
 	exit 1
 fi
 
+echo "Sources built"
+echo ""
+
 fail_count=0
 success_count=0
 
 # We currently cannot test compiler errors, since we assume all runs need an exit code > 0
 # We assume compiler errors throw error codes < 100 for now
 for file in tests/*.les; do
-	name=$(basename -s .les ${file})
+	name=$(basename -s .les "${file}")
 	echo "Testing ${name}"
 	build/lesma run "${file}" &> /tmp/compile_output.log
   test_ret_value=$?
