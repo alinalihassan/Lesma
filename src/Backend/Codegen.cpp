@@ -256,6 +256,12 @@ llvm::Value *Codegen::Visit(Assignment *node) {
     switch (node->getOperator()) {
         case TokenType::EQUAL:
             return Builder->CreateStore(value, symbol->getValue());
+        case TokenType::PLUS_EQUAL:
+        case TokenType::MINUS_EQUAL:
+        case TokenType::SLASH_EQUAL:
+        case TokenType::STAR_EQUAL:
+        case TokenType::MOD_EQUAL:
+        case TokenType::POWER_EQUAL:
         default:
             throw CodegenError("Invalid operator: {}", NAMEOF_ENUM(node->getOperator()));
     }
@@ -321,15 +327,6 @@ llvm::Value *Codegen::Visit(BinaryOp *node) {
             else if (finalType->isIntegerTy())
                 return Builder->CreateAdd(left, right, ".tmp");
             break;
-        case TokenType::SLASH:
-            left = Cast(left, finalType);
-            right = Cast(right, finalType);
-
-            if (finalType->isFloatingPointTy())
-                return Builder->CreateFDiv(left, right, ".tmp");
-            else if (finalType->isIntegerTy())
-                return Builder->CreateSDiv(left, right, ".tmp");
-            break;
         case TokenType::STAR:
             left = Cast(left, finalType);
             right = Cast(right, finalType);
@@ -338,6 +335,15 @@ llvm::Value *Codegen::Visit(BinaryOp *node) {
                 return Builder->CreateFMul(left, right, ".tmp");
             else if (finalType->isIntegerTy())
                 return Builder->CreateMul(left, right, ".tmp");
+            break;
+        case TokenType::SLASH:
+            left = Cast(left, finalType);
+            right = Cast(right, finalType);
+
+            if (finalType->isFloatingPointTy())
+                return Builder->CreateFDiv(left, right, ".tmp");
+            else if (finalType->isIntegerTy())
+                return Builder->CreateSDiv(left, right, ".tmp");
             break;
         case TokenType::MOD:
             left = Cast(left, finalType);
@@ -352,6 +358,60 @@ llvm::Value *Codegen::Visit(BinaryOp *node) {
             if (!right->getType()->isIntegerTy())
                 throw CodegenError("Cannot use non-integers for power coefficient: {}\n",
                                    node->getRight()->toString(0));
+            break;
+        case TokenType::EQUAL_EQUAL:
+            left = Cast(left, finalType);
+            right = Cast(right, finalType);
+
+            if (finalType->isFloatingPointTy())
+                return Builder->CreateFCmpOEQ(left, right, ".tmp");
+            else if (finalType->isIntegerTy())
+                return Builder->CreateICmpEQ(left, right, ".tmp");
+            break;
+        case TokenType::BANG_EQUAL:
+            left = Cast(left, finalType);
+            right = Cast(right, finalType);
+
+            if (finalType->isFloatingPointTy())
+                return Builder->CreateFCmpONE(left, right, ".tmp");
+            else if (finalType->isIntegerTy())
+                return Builder->CreateICmpNE(left, right, ".tmp");
+            break;
+        case TokenType::GREATER:
+            left = Cast(left, finalType);
+            right = Cast(right, finalType);
+
+            if (finalType->isFloatingPointTy())
+                return Builder->CreateFCmpOGT(left, right, ".tmp");
+            else if (finalType->isIntegerTy())
+                return Builder->CreateICmpSGT(left, right, ".tmp");
+            break;
+        case TokenType::GREATER_EQUAL:
+            left = Cast(left, finalType);
+            right = Cast(right, finalType);
+
+            if (finalType->isFloatingPointTy())
+                return Builder->CreateFCmpOGE(left, right, ".tmp");
+            else if (finalType->isIntegerTy())
+                return Builder->CreateICmpSGE(left, right, ".tmp");
+            break;
+        case TokenType::LESS:
+            left = Cast(left, finalType);
+            right = Cast(right, finalType);
+
+            if (finalType->isFloatingPointTy())
+                return Builder->CreateFCmpOLT(left, right, ".tmp");
+            else if (finalType->isIntegerTy())
+                return Builder->CreateICmpSLT(left, right, ".tmp");
+            break;
+        case TokenType::LESS_EQUAL:
+            left = Cast(left, finalType);
+            right = Cast(right, finalType);
+
+            if (finalType->isFloatingPointTy())
+                return Builder->CreateFCmpOLE(left, right, ".tmp");
+            else if (finalType->isIntegerTy())
+                return Builder->CreateICmpSLE(left, right, ".tmp");
             break;
         default:
             throw CodegenError("Unimplemented binary operator: {}\n", NAMEOF_ENUM(node->getOperator()));
