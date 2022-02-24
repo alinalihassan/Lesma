@@ -1,0 +1,24 @@
+# TODO List
+
+- [ ] Add analyzer phase (add tree walker interface?)
+- [ ] Add type inference
+- [ ] Add operator overloading
+- [ ] Add name mangling
+- [ ] Add varargs
+- [ ] Add pointers/references?
+- [ ] Add strings
+- [ ] Add lists
+- [ ] Add tuples
+- [ ] Add ranges (1..4 style)
+- [ ] Add dictionaries
+- [ ] Add foreach loops
+- [ ] Add lambda functions
+- [ ] Add classes
+- [ ] Add enums
+- [ ] Add unit tests
+- [ ] Add module system
+- [ ] Add python-style syntax
+- [ ] Add generics
+- [ ] Add inheritance (or traits)
+- [ ] Add string interpolation
+- [ ] Add standard library (things like print, input, etc)
