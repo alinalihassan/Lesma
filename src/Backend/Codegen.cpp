@@ -165,7 +165,8 @@ llvm::Value *Codegen::Visit(If *node) {
 }
 
 llvm::Value *Codegen::Visit(While *node) {
-    print("WHILE\n");
+    Scope = Scope->createChildBlock("while");
+
     llvm::Function* parentFct = Builder->GetInsertBlock()->getParent();
 
     // Create blocks
@@ -191,6 +192,8 @@ llvm::Value *Codegen::Visit(While *node) {
     // Fill loop end block
     parentFct->getBasicBlockList().push_back(bEnd);
     Builder->SetInsertPoint(bEnd);
+
+    Scope = Scope->getParent();
 
     return Builder->getTrue();
 }
