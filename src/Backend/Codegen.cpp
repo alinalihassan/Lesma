@@ -258,8 +258,11 @@ llvm::Value *Codegen::Visit(FuncDecl *node) {
     for (const auto& param: node->getParameters())
         paramTypes.push_back(Visit(param.second));
 
+    auto name = node->getName() == "main" ? "main" : getMangledName(node->getName(), paramTypes);
+    auto linkage = node->getName() == "main" ? Function::ExternalLinkage : Function::InternalLinkage;
+    
     FunctionType *FT = FunctionType::get(Visit(node->getReturnType()), paramTypes, false);
-    Function *F = Function::Create(FT, Function::ExternalLinkage, node->getName(), TheModule.get());
+    Function *F = Function::Create(FT, linkage, name, *TheModule);
 
     for (auto &param: F->args())
         param.setName(node->getParameters()[param.getArgNo()].first);
@@ -547,6 +550,45 @@ llvm::Value *Codegen::Visit(Literal *node) {
 
 llvm::Value *Codegen::Visit(Else *node) {
     return llvm::ConstantInt::getTrue(*TheContext);
+}
+
+std::string Codegen::getTypeMangledName(llvm::Type * type) {
+    if (type->isIntegerTy(1))
+        return "b";
+    else if (type->isIntegerTy())
+        return "i";
+    else if (type->isFloatingPointTy())
+        return "f";
+    else if (type->isVoidTy())
+        return "v";
+    else if (type->isArrayTy())
+        return "(arr_" + getTypeMangledName(type->getArrayElementType()) + ")";
+    else if (type->isPointerTy())
+        return "(ptr_" + getTypeMangledName(type->getPointerElementType()) + ")";
+    else if (type->isFunctionTy()) {
+        std::string param_str;
+        for (unsigned int i = 0; i < type->getFunctionNumParams(); i++)
+            param_str += getTypeMangledName(type->getFunctionParamType(i)) + "_";
+        return "(func_" + param_str + ")";
+    } else if (type->isStructTy()) {
+        std::string param_str;
+        for (unsigned int i = 0; i < type->getStructNumElements(); i++)
+            param_str += getTypeMangledName(type->getStructElementType(i)) + "_";
+        return "(struct_" + param_str + ")";
+    }
+
+    type->print(outs());
+    throw CodegenError("Unknown type found during mangling");
+}
+
+// TODO: Change to support private/public and module system
+std::string Codegen::getMangledName(std::string func_name, const std::vector<llvm::Type*>& paramTypes) {
+    std::string name = std::move(func_name);
+
+    for (auto param_type: paramTypes)
+        name += ":" + getTypeMangledName(param_type);
+
+    return name;
 }
 
 llvm::Type *Codegen::GetExtendedType(llvm::Type *left, llvm::Type *right) {

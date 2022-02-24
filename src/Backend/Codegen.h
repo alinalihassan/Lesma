@@ -49,8 +49,6 @@ namespace lesma {
         void Optimize(llvm::PassBuilder::OptimizationLevel opt);
         int JIT();
 
-        static llvm::Type *GetExtendedType(llvm::Type *left, llvm::Type *right);
-
     protected:
         llvm::TargetMachine *InitializeTargetMachine();
 
@@ -76,6 +74,10 @@ namespace lesma {
         llvm::Value *Visit(Literal *node);
         llvm::Value *Visit(Else *node);
 
+        // TODO: Helper functions, move them out somewhere
         llvm::Value *Cast(llvm::Value* val, llvm::Type* type);
+        llvm::Type *GetExtendedType(llvm::Type *left, llvm::Type *right);
+        std::string getMangledName(std::string func_name, const std::vector<llvm::Type*>& paramTypes);
+        std::string getTypeMangledName(llvm::Type * type);
     };
 }
