@@ -157,11 +157,41 @@ llvm::Value *Codegen::Visit(VarDecl *node) {
 }
 
 llvm::Value *Codegen::Visit(If *node) {
-    print("IF\n");
+    auto parentFct = Builder->GetInsertBlock()->getParent();
+    auto bStart = llvm::BasicBlock::Create(*TheContext, "if.start");
+    auto bEnd = llvm::BasicBlock::Create(*TheContext, "if.end");
+
+    Builder->CreateBr(bStart);
+    parentFct->getBasicBlockList().push_back(bStart);
+    Builder->SetInsertPoint(bStart);
+
     for (unsigned long i = 0; i < node->getConds().size(); i++) {
-        print("IF: \n");
-        Visit(node->getBlocks()[i]);
+        auto bIfTrue = llvm::BasicBlock::Create(*TheContext, "if.true");
+        parentFct->getBasicBlockList().push_back(bIfTrue);
+        auto bIfFalse = bEnd;
+        if (i + 1 < node->getConds().size()) {
+            bIfFalse = llvm::BasicBlock::Create(*TheContext, "if.false");
+            parentFct->getBasicBlockList().push_back(bIfFalse);
+        }
+
+        auto cond = Visit(node->getConds().at(i));
+        Builder->CreateCondBr(cond, bIfTrue, bIfFalse);
+        Builder->SetInsertPoint(bIfTrue);
+
+        Scope = Scope->createChildBlock("if");
+        Visit(node->getBlocks().at(i));
+
+        // TODO: Handle returns and breaks
+        Builder->CreateBr(bEnd);
+
+        Scope = Scope->getParent();
+        Builder->SetInsertPoint(bIfFalse);
     }
+
+    parentFct->getBasicBlockList().push_back(bEnd);
+    Builder->SetInsertPoint(bEnd);
+
+    return nullptr;
 }
 
 llvm::Value *Codegen::Visit(While *node) {
@@ -481,8 +511,7 @@ llvm::Value *Codegen::Visit(Literal *node) {
 }
 
 llvm::Value *Codegen::Visit(Else *node) {
-    print("ELSE\n");
-    return nullptr;
+    return llvm::ConstantInt::getTrue(*TheContext);
 }
 
 

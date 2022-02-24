@@ -39,7 +39,7 @@ namespace lesma {
 
         void insertSymbol(const std::string &name, llvm::Value *value, llvm::Type *type);
 
-        SymbolTable *createChildBlock(const std::string &tableName);
+        SymbolTable *createChildBlock(const std::string& blockName);
 
         SymbolTable *getParent();
 

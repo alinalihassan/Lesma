@@ -41,8 +41,11 @@ SymbolTableEntry* SymbolTable::lookup(const std::string& name) {
  * @return Newly created child table
  */
 SymbolTable* SymbolTable::createChildBlock(const std::string& blockName) {
-    children.insert({blockName, new SymbolTable(this)});
-    return children.at(blockName);
+    int idx = 1;
+    while (children.find(blockName + std::to_string(idx)) != children.end())
+        idx++;
+    children.insert({blockName + std::to_string(idx), new SymbolTable(this)});
+    return children.at(blockName + std::to_string(idx));
 }
 
 /**
