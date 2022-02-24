@@ -421,13 +421,13 @@ llvm::Value *Codegen::Visit(BinaryOp *node) {
                 throw CodegenError("Cannot use non-booleans for and: {} - {}\n",
                                    node->getLeft()->toString(0), node->getRight()->toString(0));
 
-            return Builder->CreateAnd(left, right, ".tmp");
+            return Builder->CreateLogicalAnd(left, right, ".tmp");
         case TokenType::OR:
             if (!left->getType()->isIntegerTy(1) && !right->getType()->isIntegerTy(1))
                 throw CodegenError("Cannot use non-booleans for or: {} - {}\n",
                                    node->getLeft()->toString(0), node->getRight()->toString(0));
 
-            return Builder->CreateOr(left, right, ".tmp");
+            return Builder->CreateLogicalOr(left, right, ".tmp");
         default:
             throw CodegenError("Unimplemented binary operator: {}\n", NAMEOF_ENUM(node->getOperator()));
     }
