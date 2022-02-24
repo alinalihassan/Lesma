@@ -16,7 +16,6 @@ Codegen::Codegen(std::unique_ptr<Parser> parser, const std::string& filename) {
     Parser_ = std::move(parser);
     Scope = new SymbolTable(nullptr);
     TargetMachine = InitializeTargetMachine();
-    InitializePasses();
 }
 
 llvm::TargetMachine *Codegen::InitializeTargetMachine() {
@@ -36,12 +35,23 @@ llvm::TargetMachine *Codegen::InitializeTargetMachine() {
     return target->createTargetMachine(tripletString, "generic", "", opt, rm);
 }
 
-void Codegen::InitializePasses() {
-//    FPM = std::make_unique<FunctionPassManager>();
-//    MPM = std::make_unique<ModulePassManager>();
-//
-//    FPM->addPass(createDeadCodeEliminationPass());
-//    FPM->addPass(createDeadStoreEliminationPass());
+void Codegen::Optimize(llvm::PassBuilder::OptimizationLevel opt) {
+    llvm::LoopAnalysisManager LAM;
+    llvm::FunctionAnalysisManager FAM;
+    llvm::CGSCCAnalysisManager CGAM;
+    llvm::ModuleAnalysisManager MAM;
+
+    llvm::PassBuilder PB(TargetMachine);
+
+    PB.registerModuleAnalyses(MAM);
+    PB.registerCGSCCAnalyses(CGAM);
+    PB.registerFunctionAnalyses(FAM);
+    PB.registerLoopAnalyses(LAM);
+    PB.crossRegisterProxies(LAM, FAM, CGAM, MAM);
+
+    ModulePassManager MPM = PB.buildPerModuleDefaultPipeline(opt);
+
+    MPM.run(*TheModule, MAM);
 }
 
 void Codegen::Compile(const std::string& output) {
@@ -535,7 +545,6 @@ llvm::Value *Codegen::Visit(Literal *node) {
 llvm::Value *Codegen::Visit(Else *node) {
     return llvm::ConstantInt::getTrue(*TheContext);
 }
-
 
 llvm::Type *Codegen::GetExtendedType(llvm::Type *left, llvm::Type *right) {
     if (left == right)

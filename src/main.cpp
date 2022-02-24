@@ -106,7 +106,7 @@ int main(int argc, char** argv) {
     total += results;
     if (debug) {
         print(DEBUG, "Parsing -> {:.2f} ms\n", results);
-        print(DEBUG, "AST:\n{}", parser->getAST()->toString(0));
+//        print(DEBUG, "AST:\n{}", parser->getAST()->toString(0));
     }
 
     // Codegen
@@ -122,12 +122,20 @@ int main(int argc, char** argv) {
 
     results = timer.get_elapsed_ms();
     total += results;
-    if (debug) {
+    if (debug)
         print(DEBUG, "Codegen -> {:.2f} ms\n", results);
-        print(DEBUG, "LLVM IR: \n");
-        codegen->Dump();
-    }
 
+    // Optimization
+    timer.start();
+    codegen->Optimize(llvm::PassBuilder::OptimizationLevel::O3);
+
+    results = timer.get_elapsed_ms();
+    total += results;
+    if (debug) {
+        print(DEBUG, "Optimization -> {:.2f} ms\n", results);
+//        print(DEBUG, "LLVM IR: \n");
+//        codegen->Dump();
+    }
     // Executing
     timer.start();
     int exit_code;

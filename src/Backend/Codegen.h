@@ -8,6 +8,10 @@
 #include <llvm/IR/IRBuilder.h>
 #include <llvm/IR/Verifier.h>
 #include <llvm/Transforms/IPO/PassManagerBuilder.h>
+#include <llvm/IR/PassManager.h>
+#include <llvm/Analysis/CGSCCPassManager.h>
+#include <llvm/Analysis/LoopAnalysisManager.h>
+#include <llvm/Passes/PassBuilder.h>
 #include <llvm/Support/TargetSelect.h>
 #include <llvm/Support/TargetRegistry.h>
 #include <llvm/Support/Host.h>
@@ -42,14 +46,13 @@ namespace lesma {
         void Dump();
         void Run();
         void Compile(const std::string& output);
+        void Optimize(llvm::PassBuilder::OptimizationLevel opt);
         int JIT();
 
         static llvm::Type *GetExtendedType(llvm::Type *left, llvm::Type *right);
 
     protected:
         llvm::TargetMachine *InitializeTargetMachine();
-
-        void InitializePasses();
 
         llvm::Value *Visit(Statement *node);
         llvm::Value *Visit(Expression *node);
