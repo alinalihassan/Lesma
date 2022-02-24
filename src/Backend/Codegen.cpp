@@ -416,6 +416,18 @@ llvm::Value *Codegen::Visit(BinaryOp *node) {
             else if (finalType->isIntegerTy())
                 return Builder->CreateICmpSLE(left, right, ".tmp");
             break;
+        case TokenType::AND:
+            if (!left->getType()->isIntegerTy(1) && !right->getType()->isIntegerTy(1))
+                throw CodegenError("Cannot use non-booleans for and: {} - {}\n",
+                                   node->getLeft()->toString(0), node->getRight()->toString(0));
+
+            return Builder->CreateAnd(left, right, ".tmp");
+        case TokenType::OR:
+            if (!left->getType()->isIntegerTy(1) && !right->getType()->isIntegerTy(1))
+                throw CodegenError("Cannot use non-booleans for or: {} - {}\n",
+                                   node->getLeft()->toString(0), node->getRight()->toString(0));
+
+            return Builder->CreateOr(left, right, ".tmp");
         default:
             throw CodegenError("Unimplemented binary operator: {}\n", NAMEOF_ENUM(node->getOperator()));
     }
