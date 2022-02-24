@@ -182,14 +182,19 @@ llvm::Value *Codegen::Visit(If *node) {
         Visit(node->getBlocks().at(i));
 
         // TODO: Handle returns and breaks
-        Builder->CreateBr(bEnd);
+        if (!isBreak)
+            Builder->CreateBr(bEnd);
 
         Scope = Scope->getParent();
         Builder->SetInsertPoint(bIfFalse);
     }
 
     parentFct->getBasicBlockList().push_back(bEnd);
-    Builder->SetInsertPoint(bEnd);
+
+    if (!isBreak)
+        Builder->SetInsertPoint(bEnd);
+    else
+        isBreak = false;
 
     return nullptr;
 }
@@ -204,6 +209,9 @@ llvm::Value *Codegen::Visit(While *node) {
     llvm::BasicBlock* bLoop = llvm::BasicBlock::Create(*TheContext, "while");
     llvm::BasicBlock* bEnd = llvm::BasicBlock::Create(*TheContext, "while.end");
 
+    breakBlocks.push(bEnd);
+    continueBlocks.push(bCond);
+
     // Jump into condition block
     Builder->CreateBr(bCond);
 
@@ -217,13 +225,19 @@ llvm::Value *Codegen::Visit(While *node) {
     parentFct->getBasicBlockList().push_back(bLoop);
     Builder->SetInsertPoint(bLoop);
     Visit(node->getBlock());
-    Builder->CreateBr(bCond);
+
+    if (!isBreak)
+        Builder->CreateBr(bCond);
+    else
+        isBreak = false;
 
     // Fill loop end block
     parentFct->getBasicBlockList().push_back(bEnd);
     Builder->SetInsertPoint(bEnd);
 
     Scope = Scope->getParent();
+    breakBlocks.pop();
+    continueBlocks.pop();
 
     return Builder->getTrue();
 }
@@ -301,11 +315,25 @@ llvm::Value *Codegen::Visit(Assignment *node) {
 }
 
 llvm::Value *Codegen::Visit(Break *node) {
-    print("BREAK\n");
+    if (breakBlocks.empty())
+        throw CodegenError("Cannot break without being in a loop\n");
+
+    auto block = breakBlocks.top();
+    breakBlocks.pop();
+    isBreak = true;
+
+    return Builder->CreateBr(block);
 }
 
 llvm::Value *Codegen::Visit(Continue *node) {
-    print("CONTINUE\n");
+    if (continueBlocks.empty())
+        throw CodegenError("Cannot continue without being in a loop\n");
+
+    auto block = continueBlocks.top();
+    continueBlocks.pop();
+    isBreak = true;
+
+    return Builder->CreateBr(block);
 }
 
 llvm::Value *Codegen::Visit(Return *node) {

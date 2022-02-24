@@ -32,6 +32,10 @@ namespace lesma {
         std::unique_ptr<Parser> Parser_;
         SymbolTable* Scope;
         std::string filename;
+
+        std::stack<llvm::BasicBlock*> breakBlocks;
+        std::stack<llvm::BasicBlock*> continueBlocks;
+        bool isBreak = false;
     public:
         Codegen(std::unique_ptr<Parser> parser, const std::string& filename);
 

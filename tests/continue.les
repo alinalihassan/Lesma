@@ -1,0 +1,16 @@
+#ret=101
+
+def main() -> int {
+    let x: int = 5
+    let y: int = 0
+
+    while x < 208 {
+        x = x + 1
+        if x % 2 == 0 {
+            continue
+        }
+        y = y + 1
+    }
+
+    return y
+}
