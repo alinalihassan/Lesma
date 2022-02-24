@@ -78,9 +78,7 @@ llvm::Value *Codegen::Visit(Program* node) {
 }
 
 llvm::Value *Codegen::Visit(Expression* node) {
-    if (dynamic_cast<Var*>(node))
-        return Visit(dynamic_cast<Var*>(node));
-    else if (dynamic_cast<FuncCall*>(node))
+    if (dynamic_cast<FuncCall*>(node))
         return Visit(dynamic_cast<FuncCall*>(node));
     else if (dynamic_cast<BinaryOp*>(node))
         return Visit(dynamic_cast<BinaryOp*>(node));
@@ -146,9 +144,9 @@ llvm::Value *Codegen::Visit(Compound *node) {
 
 llvm::Value *Codegen::Visit(VarDecl *node) {
     auto type = Visit(node->getType());
-    auto ptr = Builder->CreateAlloca(type, nullptr, node->getVar()->getName());
+    auto ptr = Builder->CreateAlloca(type, nullptr, node->getIdentifier()->getValue());
 
-    Scope->insertSymbol(node->getVar()->getName(), ptr, type);
+    Scope->insertSymbol(node->getIdentifier()->getValue(), ptr, type);
 
     if (node->getValue().has_value())
         Builder->CreateStore(Visit(node->getValue().value()), ptr);
@@ -295,10 +293,10 @@ llvm::Value *Codegen::Visit(ExternFuncDecl *node) {
 }
 
 llvm::Value *Codegen::Visit(Assignment *node) {
-    auto symbol = Scope->lookup(node->getVar()->getName());
+    auto symbol = Scope->lookup(node->getIdentifier()->getValue());
     auto value = Visit(node->getExpression());
     if (symbol == nullptr)
-        throw CodegenError("Variable not found: {}", node->getVar()->getName());
+        throw CodegenError("Variable not found: {}", node->getIdentifier()->getValue());
 
     switch (node->getOperator()) {
         case TokenType::EQUAL:
@@ -342,10 +340,6 @@ llvm::Value *Codegen::Visit(Return *node) {
 
 llvm::Value *Codegen::Visit(ExpressionStatement *node) {
     return Visit(node->getExpression());
-}
-
-llvm::Value *Codegen::Visit(Var *node) {
-    print("VAR\n");
 }
 
 llvm::Value *Codegen::Visit(FuncCall *node) {

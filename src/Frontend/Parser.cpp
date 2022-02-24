@@ -199,7 +199,8 @@ Statement* Parser::ParseVarDecl() {
         readonly = false;
     }
     auto identifier = Consume(TokenType::IDENTIFIER);
-    auto var = new Var(identifier->loc, identifier->lexeme);
+    auto var = new Literal(identifier->loc, identifier->lexeme, identifier->type);
+
     // TODO: Allow inference at some point
     Consume(TokenType::COLON);
     auto type = ParseType();
@@ -252,7 +253,7 @@ Statement* Parser::ParseFor() {
 
 Statement* Parser::ParseAssignment() {
     auto identifier = Consume(TokenType::IDENTIFIER);
-    auto var = new Var(identifier->loc, identifier->lexeme);
+    auto var = new Literal(identifier->loc, identifier->lexeme, identifier->type);
 
     if (AdvanceIfMatchAny<TokenType::EQUAL, TokenType::PLUS_EQUAL, TokenType::MINUS_EQUAL, TokenType::STAR_EQUAL,
             TokenType::SLASH_EQUAL, TokenType::MOD_EQUAL, TokenType::POWER_EQUAL>()) {

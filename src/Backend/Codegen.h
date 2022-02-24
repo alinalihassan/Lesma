@@ -65,7 +65,6 @@ namespace lesma {
         llvm::Value *Visit(Continue *node);
         llvm::Value *Visit(Return *node);
         llvm::Value *Visit(ExpressionStatement *node);
-        llvm::Value *Visit(Var *node);
         llvm::Type  *Visit(lesma::Type *node);
         llvm::Value *Visit(FuncCall *node);
         llvm::Value *Visit(BinaryOp *node);

@@ -41,6 +41,30 @@ namespace lesma {
         ~Statement() override = default;
     };
 
+
+    class Literal : public Expression {
+        std::string value;
+        TokenType type;
+    public:
+        Literal(SourceLocation Loc, std::string value, TokenType type) : Expression(Loc), value(std::move(value)),
+                                                                         type(type) {}
+
+        ~Literal() override = default;
+
+        [[nodiscard]] std::string getValue() const { return value; }
+        [[nodiscard]] TokenType getType() const { return type; }
+
+        std::string toString(int ind) override {
+            if (type == TokenType::STRING)
+                return '"' + value + '"';
+            else if (type == TokenType::NIL || type == TokenType::INTEGER || type == TokenType::DOUBLE ||
+                     type == TokenType::IDENTIFIER || type == TokenType::BOOL)
+                return value;
+            else
+                return "Unknown literal";
+        }
+    };
+
     class Compound : public Statement {
         std::vector<Statement *> children;
     public:
@@ -76,19 +100,6 @@ namespace lesma {
         }
     };
 
-    class Var : public Expression {
-        std::string name;
-    public:
-        Var(SourceLocation Loc, std::string name) : Expression(Loc), name(std::move(name)) {}
-        ~Var() override = default;
-
-        [[nodiscard]] std::string getName() const { return name; }
-
-        std::string toString(int ind) override {
-            return name;
-        }
-    };
-
     class Type : public Expression {
         std::string name;
         TokenType type;
@@ -105,24 +116,24 @@ namespace lesma {
     };
 
     class VarDecl : public Statement {
-        Var *var;
+        Literal *var;
         Type *type;
         std::optional<Expression *> expr;
         bool readonly;
     public:
-        VarDecl(SourceLocation Loc, Var *var, Type *type) : Statement(Loc), var(var), type(type), expr(std::nullopt),
+        VarDecl(SourceLocation Loc, Literal *var, Type *type) : Statement(Loc), var(var), type(type), expr(std::nullopt),
                                                             readonly(true) {}
-        VarDecl(SourceLocation Loc, Var *var, Type *type, bool readonly) : Statement(Loc), var(var), type(type),
+        VarDecl(SourceLocation Loc, Literal *var, Type *type, bool readonly) : Statement(Loc), var(var), type(type),
                                                                            expr(std::nullopt), readonly(readonly) {}
-        VarDecl(SourceLocation Loc, Var *var, Type *type, std::optional<Expression *> expr) : Statement(Loc), var(var),
+        VarDecl(SourceLocation Loc, Literal *var, Type *type, std::optional<Expression *> expr) : Statement(Loc), var(var),
                                                                                               type(type), expr(expr),
                                                                                               readonly(true) {}
-        VarDecl(SourceLocation Loc, Var *var, Type *type, std::optional<Expression *> expr, bool readonly) : Statement(
+        VarDecl(SourceLocation Loc, Literal *var, Type *type, std::optional<Expression *> expr, bool readonly) : Statement(
                 Loc), var(var), type(type), expr(expr), readonly(readonly) {}
 
         ~VarDecl() override = default;
 
-        [[nodiscard]] Var *getVar() const { return var; }
+        [[nodiscard]] Literal *getIdentifier() const { return var; }
         [[nodiscard]] Type *getType() const { return type; }
         [[nodiscard]] std::optional<Expression *> getValue() const { return expr; }
         [[nodiscard]] bool getReadOnly() const { return readonly; }
@@ -264,16 +275,16 @@ namespace lesma {
     };
 
     class Assignment : public Statement {
-        Var *var;
+        Literal *var;
         TokenType op;
         Expression *expr;
     public:
-        Assignment(SourceLocation Loc, Var *var, TokenType op, Expression *expr) :
+        Assignment(SourceLocation Loc, Literal *var, TokenType op, Expression *expr) :
                 Statement(Loc), var(var), op(op), expr(expr) {}
 
         ~Assignment() override = default;
 
-        [[nodiscard]] Var *getVar() const { return var; }
+        [[nodiscard]] Literal *getIdentifier() const { return var; }
         [[nodiscard]] TokenType getOperator() const { return op; }
         [[nodiscard]] Expression *getExpression() const { return expr; }
 
@@ -347,29 +358,6 @@ namespace lesma {
 
         std::string toString(int ind) override {
             return std::string{NAMEOF_ENUM(op)} + expr->toString(ind);
-        }
-    };
-
-    class Literal : public Expression {
-        std::string value;
-        TokenType type;
-    public:
-        Literal(SourceLocation Loc, std::string value, TokenType type) : Expression(Loc), value(std::move(value)),
-                                                                         type(type) {}
-
-        ~Literal() override = default;
-
-        [[nodiscard]] std::string getValue() const { return value; }
-        [[nodiscard]] TokenType getType() const { return type; }
-
-        std::string toString(int ind) override {
-            if (type == TokenType::STRING)
-                return '"' + value + '"';
-            else if (type == TokenType::NIL || type == TokenType::INTEGER || type == TokenType::DOUBLE ||
-                     type == TokenType::IDENTIFIER || type == TokenType::BOOL)
-                return value;
-            else
-                return "Unknown literal";
         }
     };
 
