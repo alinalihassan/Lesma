@@ -191,12 +191,12 @@ Expression* Parser::ParseExpression() {
 
 // Statements
 Statement* Parser::ParseVarDecl() {
-    bool readonly;
+    bool mutable_;
     if (AdvanceIfMatchAny<TokenType::LET>()) {
-        readonly = true;
+        mutable_ = false;
     } else {
         Consume(TokenType::VAR);
-        readonly = false;
+        mutable_ = true;
     }
     auto identifier = Consume(TokenType::IDENTIFIER);
     auto var = new Literal(identifier->loc, identifier->lexeme, identifier->type);
@@ -209,7 +209,7 @@ Statement* Parser::ParseVarDecl() {
     if (AdvanceIfMatchAny<TokenType::EQUAL>())
         expr = ParseExpression();
 
-    return new VarDecl(Peek()->loc, var, type, expr, readonly);
+    return new VarDecl(Peek()->loc, var, type, expr, mutable_);
 }
 
 Statement* Parser::ParseIf() {

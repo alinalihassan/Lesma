@@ -156,7 +156,7 @@ llvm::Value *Codegen::Visit(VarDecl *node) {
     auto type = Visit(node->getType());
     auto ptr = Builder->CreateAlloca(type, nullptr, node->getIdentifier()->getValue());
 
-    Scope->insertSymbol(node->getIdentifier()->getValue(), ptr, type);
+    Scope->insertSymbol(node->getIdentifier()->getValue(), ptr, type, node->getMutability());
 
     if (node->getValue().has_value())
         Builder->CreateStore(Visit(node->getValue().value()), ptr);
@@ -304,6 +304,9 @@ llvm::Value *Codegen::Visit(ExternFuncDecl *node) {
 
 llvm::Value *Codegen::Visit(Assignment *node) {
     auto symbol = Scope->lookup(node->getIdentifier()->getValue());
+    if (!symbol->getMutability())
+        throw CodegenError("Assigning immutable variable a new value");
+
     auto value = Visit(node->getExpression());
     if (symbol == nullptr)
         throw CodegenError("Variable not found: {}", node->getIdentifier()->getValue());

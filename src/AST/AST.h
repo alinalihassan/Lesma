@@ -119,24 +119,24 @@ namespace lesma {
         Literal *var;
         Type *type;
         std::optional<Expression *> expr;
-        bool readonly;
+        bool mutable_;
     public:
         VarDecl(SourceLocation Loc, Literal *var, Type *type) : Statement(Loc), var(var), type(type), expr(std::nullopt),
-                                                            readonly(true) {}
-        VarDecl(SourceLocation Loc, Literal *var, Type *type, bool readonly) : Statement(Loc), var(var), type(type),
-                                                                           expr(std::nullopt), readonly(readonly) {}
+                                                                mutable_(true) {}
+        VarDecl(SourceLocation Loc, Literal *var, Type *type, bool mutable_) : Statement(Loc), var(var), type(type),
+                                                                           expr(std::nullopt), mutable_(mutable_) {}
         VarDecl(SourceLocation Loc, Literal *var, Type *type, std::optional<Expression *> expr) : Statement(Loc), var(var),
                                                                                               type(type), expr(expr),
-                                                                                              readonly(true) {}
+                                                                                                  mutable_(true) {}
         VarDecl(SourceLocation Loc, Literal *var, Type *type, std::optional<Expression *> expr, bool readonly) : Statement(
-                Loc), var(var), type(type), expr(expr), readonly(readonly) {}
+                Loc), var(var), type(type), expr(expr), mutable_(readonly) {}
 
         ~VarDecl() override = default;
 
         [[nodiscard]] Literal *getIdentifier() const { return var; }
         [[nodiscard]] Type *getType() const { return type; }
         [[nodiscard]] std::optional<Expression *> getValue() const { return expr; }
-        [[nodiscard]] bool getReadOnly() const { return readonly; }
+        [[nodiscard]] bool getMutability() const { return mutable_; }
 
         std::string toString(int ind) override {
             return std::string(ind, ' ') + "VarDecl" +

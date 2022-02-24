@@ -1,8 +1,9 @@
 #pragma once
 
-#include "Token/TokenType.h"
 #include "fmt/core.h"
 #include "fmt/color.h"
+
+#include "Token/TokenType.h"
 
 namespace lesma {
     struct SourceLocation {

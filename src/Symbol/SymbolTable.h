@@ -11,11 +11,16 @@ namespace lesma {
     class SymbolTableEntry { ;
     public:
         explicit SymbolTableEntry(std::string name, llvm::Value *value, llvm::Type *type) : name(std::move(name)),
-                                                                                            value(value), type(type) {}
+                                                                                            value(value), type(type),
+                                                                                            mutable_(false) {}
+        explicit SymbolTableEntry(std::string name, llvm::Value *value, llvm::Type *type, bool mutable_) : name(std::move(name)),
+                                                                                            value(value), type(type),
+                                                                                            mutable_(mutable_) {}
 
         [[nodiscard]] std::string getName() { return name; }
         [[nodiscard]] llvm::Value *getValue() { return value; }
         [[nodiscard]] llvm::Type *getType() { return type; }
+        [[nodiscard]] bool getMutability() const { return mutable_; }
 
         std::string toString() {
             std::string type_str, value_str;
@@ -29,6 +34,7 @@ namespace lesma {
         std::string name;
         llvm::Value *value;
         llvm::Type *type;
+        bool mutable_;
     };
 
     class SymbolTable {
@@ -38,6 +44,7 @@ namespace lesma {
         SymbolTableEntry *lookup(const std::string &symbolName);
 
         void insertSymbol(const std::string &name, llvm::Value *value, llvm::Type *type);
+        void insertSymbol(const std::string &name, llvm::Value *value, llvm::Type *type, bool mutable_);
 
         SymbolTable *createChildBlock(const std::string& blockName);
 
