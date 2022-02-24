@@ -260,7 +260,7 @@ llvm::Value *Codegen::Visit(FuncDecl *node) {
 
     auto name = node->getName() == "main" ? "main" : getMangledName(node->getName(), paramTypes);
     auto linkage = node->getName() == "main" ? Function::ExternalLinkage : Function::InternalLinkage;
-    
+
     FunctionType *FT = FunctionType::get(Visit(node->getReturnType()), paramTypes, false);
     Function *F = Function::Create(FT, linkage, name, *TheModule);
 

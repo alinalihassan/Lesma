@@ -4,8 +4,7 @@ def fib() -> int {
 }
 
 def main() -> int {
-    let y: int = 1
-    y = fib()
+    let y: int = fib()
 
     return y
 }

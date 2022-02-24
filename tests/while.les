@@ -1,7 +1,7 @@
 #ret=101
 
 def main() -> int {
-    let x: int = 0
+    var x: int = 0
     while x < 101 {
         x = x + 1
     }

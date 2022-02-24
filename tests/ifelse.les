@@ -1,8 +1,8 @@
 #ret=101
 
 def main() -> int {
-    let x: int = 5
-    let y: int = 10
+    var x: int = 5
+    var y: int = 10
 
     if x == 6 {
         x = 7
