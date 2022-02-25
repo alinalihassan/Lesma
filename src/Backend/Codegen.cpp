@@ -328,7 +328,7 @@ llvm::Value *Codegen::Visit(Assignment *node) {
     }
 }
 
-llvm::Value *Codegen::Visit(Break *node) {
+llvm::Value *Codegen::Visit(Break */*node*/) {
     if (breakBlocks.empty())
         throw CodegenError("Cannot break without being in a loop\n");
 
@@ -339,7 +339,7 @@ llvm::Value *Codegen::Visit(Break *node) {
     return Builder->CreateBr(block);
 }
 
-llvm::Value *Codegen::Visit(Continue *node) {
+llvm::Value *Codegen::Visit(Continue */*node*/) {
     if (continueBlocks.empty())
         throw CodegenError("Cannot continue without being in a loop\n");
 
@@ -548,7 +548,7 @@ llvm::Value *Codegen::Visit(Literal *node) {
         throw CodegenError("Unknown literal {}", node->getValue());
 }
 
-llvm::Value *Codegen::Visit(Else *node) {
+llvm::Value *Codegen::Visit(Else */*node*/) {
     return llvm::ConstantInt::getTrue(*TheContext);
 }
 
