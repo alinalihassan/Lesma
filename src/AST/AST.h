@@ -122,6 +122,9 @@ namespace lesma {
         Import(SourceLocation Loc, std::string file_path, std::string alias) : Statement(Loc), file_path(std::move(file_path)), alias(std::move(alias)) {};
         ~Import() override = default;
 
+        [[nodiscard]] std::string getFilePath() const { return file_path; }
+        [[nodiscard]] std::string getAlias() const { return alias; }
+
         std::string toString(int ind) override {
             return std::string(ind, ' ') + "Import" +
                    "[" + std::to_string(getLine()) + ':' + std::to_string(getCol()) + "]: " +

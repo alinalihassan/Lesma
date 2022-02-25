@@ -35,6 +35,49 @@ llvm::TargetMachine *Codegen::InitializeTargetMachine() {
     return target->createTargetMachine(tripletString, "generic", "", opt, rm);
 }
 
+void Codegen::CompileModule(const std::string& filepath) {
+
+    print("Module before: {}\n", TheModule->getName());
+    // Read source
+    auto source = readFile(filepath);
+    // Lexer
+    auto lexer = std::make_unique<Lexer>(source, filepath.substr(filepath.find_last_of("/\\") + 1));
+    lexer->ScanAll();
+
+    // Parser
+    auto parser = std::make_unique<Parser>(lexer->getTokens());
+    parser->Parse();
+
+    // Codegen
+    auto codegen = std::make_unique<Codegen>(std::move(parser), filepath);
+    codegen->Run();
+
+    // Optimize
+    codegen->Optimize(llvm::PassBuilder::OptimizationLevel::O3);
+    codegen->Dump();
+
+    codegen->TheModule->setModuleIdentifier(filepath);
+
+    // Add function to main module
+//    Module::iterator it;
+//    Module::iterator end = codegen->TheModule->end();
+//    for (it = codegen->TheModule->begin(); it != end; ++it) {
+//        auto name = std::string{(*it).getName()};
+//        auto new_func = Function::Create((*it).getFunctionType(),
+//                                         Function::ExternalLinkage,
+//                                         name,
+//                                         TheModule.get());
+//
+//        Scope->insertSymbol(name, new_func, new_func->getFunctionType());
+//    }
+
+    // Link modules together
+//    if (Linker::linkModules(*codegen->TheModule, std::move(codegen->TheModule)))
+//        print(ERROR, "Error linking modules together\n");
+
+    Modules.push_back(codegen->getModule());
+}
+
 void Codegen::Optimize(llvm::PassBuilder::OptimizationLevel opt) {
     llvm::LoopAnalysisManager LAM;
     llvm::FunctionAnalysisManager FAM;
@@ -375,6 +418,7 @@ llvm::Value *Codegen::Visit(ExpressionStatement *node) {
 
 // TODO: Implement me
 llvm::Value *Codegen::Visit(Import *node) {
+    CompileModule(node->getFilePath());
     return nullptr;
 }
 

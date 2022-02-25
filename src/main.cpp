@@ -32,13 +32,12 @@ int main(int argc, char** argv) {
         // Lexer
         TIMEIT("Lexer scan",
             auto lexer = std::make_unique<Lexer>(source, options->file.substr(options->file.find_last_of("/\\") + 1));
-            std::vector<Token> tokens;
-            tokens = lexer->ScanAll();
+            lexer->ScanAll();
         )
 
         // Parser
         TIMEIT("Parsing",
-           auto parser = std::make_unique<Parser>(tokens);
+           auto parser = std::make_unique<Parser>(lexer->getTokens());
            parser->Parse();
         )
 
@@ -59,9 +58,8 @@ int main(int argc, char** argv) {
         // Executing
         TIMEIT("Execution",
            int exit_code = 0;
-           std::vector<ThreadSafeModule> import_modules;
            if (options->jit)
-               exit_code = codegen->JIT(std::move(import_modules));
+               exit_code = codegen->JIT(std::move(codegen->Modules));
            else
                codegen->Compile(options->output);
         )

@@ -40,17 +40,22 @@ namespace lesma {
         std::stack<llvm::BasicBlock*> breakBlocks;
         std::stack<llvm::BasicBlock*> continueBlocks;
         bool isBreak = false;
+
     public:
+        std::vector<ThreadSafeModule> Modules;
         Codegen(std::unique_ptr<Parser> parser, const std::string& filename);
 
         void Dump();
         void Run();
         void Compile(const std::string& output);
         void Optimize(llvm::PassBuilder::OptimizationLevel opt);
-        int JIT(std::vector<ThreadSafeModule> modules);
+        int  JIT(std::vector<ThreadSafeModule> modules);
+        ThreadSafeModule getModule() { return ThreadSafeModule(std::move(TheModule), std::move(TheContext)); };
 
     protected:
         llvm::TargetMachine *InitializeTargetMachine();
+        void CompileModule(const std::string& filepath);
+        llvm::Function *getFunction(const std::string& name);
 
         llvm::Value *Visit(Statement *node);
         llvm::Value *Visit(Expression *node);
