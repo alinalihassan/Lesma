@@ -381,11 +381,12 @@ Statement *Parser::ParseImport() {
     Consume(TokenType::IMPORT);
 
     auto token = Consume(TokenType::STRING);
+    auto filepath = token->lexeme.erase(0, 1).erase(token->lexeme.size() - 1);
 
     if (AdvanceIfMatchAny<TokenType::AS>())
         return new Import(Peek()->loc, token->lexeme, Consume(TokenType::IDENTIFIER)->lexeme);
 
-    return new Import(Peek()->loc, token->lexeme, getBasename(token->lexeme));
+    return new Import(Peek()->loc, filepath, getBasename(token->lexeme));
 }
 
 Statement* Parser::ParseTopLevelStatement() {

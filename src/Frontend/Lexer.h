@@ -20,8 +20,8 @@ namespace lesma {
                 : srcs_(&srcs), src_file_name(std::move(src_file_name)) {}
 
         std::vector<Token> ScanAll();
-
         Token ScanOne();
+        std::vector<Token> getTokens() { return tokens; };
 
         void Reset() { Reset(*srcs_); }
 
@@ -62,6 +62,7 @@ namespace lesma {
         unsigned long current_lex_pos_ = 0;
         SourceLocation loc{0, 0};
         std::string src_file_name;
+        std::vector<Token> tokens;
 
         void ResetTokenBeg();
     };

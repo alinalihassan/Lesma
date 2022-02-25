@@ -310,7 +310,7 @@ llvm::Value *Codegen::Visit(ExternFuncDecl *node) {
         paramTypes.push_back(Visit(param.second));
 
     FunctionType *FT = FunctionType::get(Visit(node->getReturnType()), paramTypes, false);
-    Function *F = Function::Create(FT, Function::ExternalLinkage, node->getName(), TheModule.get());
+    Function *F = Function::Create(FT, Function::ExternalLinkage, node->getName(), *TheModule);
 
     for (auto &param: F->args())
         param.setName(node->getParameters()[param.getArgNo()].first);
