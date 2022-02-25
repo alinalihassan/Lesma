@@ -3,6 +3,13 @@
 using namespace lesma;
 
 // Utility
+std::string getBasename(const std::string& file_path) {
+    auto filename = file_path.substr(file_path.find_last_of("/\\") + 1);
+    auto filename_wo_ext = filename.substr(0, filename.find_last_of('.'));
+
+    return filename_wo_ext;
+}
+
 template <TokenType type, TokenType... remained_types>
 bool Parser::AdvanceIfMatchAny() {
     if (CheckAny<type, remained_types...>()) {
@@ -120,7 +127,7 @@ Expression* Parser::ParseUnary() {
 
 Expression* Parser::ParseCast() {
     auto left = ParseUnary();
-    while (AdvanceIfMatchAny<TokenType::CAST>()) {
+    while (AdvanceIfMatchAny<TokenType::AS>()) {
         auto type = ParseType();
         left = new CastOp(Peek()->loc, left, type);
     }
@@ -370,14 +377,25 @@ Statement* Parser::ParseFunctionDeclaration() {
     return new FuncDecl(Peek()->loc, identifier->lexeme, return_type, parameters, body);
 }
 
+Statement *Parser::ParseImport() {
+    Consume(TokenType::IMPORT);
+
+    auto token = Consume(TokenType::STRING);
+    print(token->lexeme);
+    if (AdvanceIfMatchAny<TokenType::AS>())
+        return new Import(Peek()->loc, token->lexeme, Consume(TokenType::IDENTIFIER)->lexeme);
+
+    return new Import(Peek()->loc, token->lexeme, getBasename(token->lexeme));
+}
+
 Statement* Parser::ParseTopLevelStatement() {
-    Statement* Node;
-    if (Check(TokenType::DEF)) {
+    Statement* Node = nullptr;
+    if (Check(TokenType::DEF))
         Node = ParseFunctionDeclaration();
-    } else {
-        Node = nullptr;
+    else if (Check(TokenType::IMPORT))
+        Node = ParseImport();
+    else
         Error(Peek(), "Unknown Top Level expression");
-    }
 
     return Node;
 }

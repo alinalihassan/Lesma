@@ -115,6 +115,20 @@ namespace lesma {
         }
     };
 
+    class Import : public Statement {
+        std::string file_path;
+        std::string alias;
+    public:
+        Import(SourceLocation Loc, std::string file_path, std::string alias) : Statement(Loc), file_path(std::move(file_path)), alias(std::move(alias)) {};
+        ~Import() override = default;
+
+        std::string toString(int ind) override {
+            return std::string(ind, ' ') + "Import" +
+                   "[" + std::to_string(getLine()) + ':' + std::to_string(getCol()) + "]: " +
+                   file_path + " as " + alias + '\n';
+        }
+    };
+
     class VarDecl : public Statement {
         Literal *var;
         std::optional<Type *> type;

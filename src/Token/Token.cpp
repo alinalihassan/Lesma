@@ -25,7 +25,7 @@ static std::map<std::string,TokenType> g_reserved_map{
         {"continue",TokenType::CONTINUE},
         {"super",   TokenType::SUPER},
         {"extern",  TokenType::EXTERN},
-        {"as",      TokenType::CAST},
+        {"as",      TokenType::AS},
         {"is",      TokenType::IS},
         {"in",      TokenType::IN},
         {"int",     TokenType::INT_TYPE},
@@ -33,6 +33,7 @@ static std::map<std::string,TokenType> g_reserved_map{
         {"string",  TokenType::STRING_TYPE},
         {"bool",    TokenType::BOOL_TYPE},
         {"void",    TokenType::VOID_TYPE},
+        {"import",  TokenType::IMPORT},
 };
 
 std::string TokenState::Dump() const {

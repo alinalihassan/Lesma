@@ -47,7 +47,7 @@ namespace lesma {
         void Run();
         void Compile(const std::string& output);
         void Optimize(llvm::PassBuilder::OptimizationLevel opt);
-        int JIT();
+        int JIT(std::vector<ThreadSafeModule> modules);
 
     protected:
         llvm::TargetMachine *InitializeTargetMachine();
@@ -59,6 +59,7 @@ namespace lesma {
         llvm::Value *Visit(VarDecl *node);
         llvm::Value *Visit(If *node);
         llvm::Value *Visit(While *node);
+        llvm::Value *Visit(Import *node);
         llvm::Value *Visit(FuncDecl *node);
         llvm::Value *Visit(ExternFuncDecl *node);
         llvm::Value *Visit(Assignment *node);

@@ -1,9 +1,14 @@
 # TODO List
 
+## Refactoring
+- [ ] Replace SourceLocation by Span
+- [ ] Highlight errors line
+- [x] Add name mangling
+
+## Features
 - [ ] Add analyzer phase (add tree walker interface?)
 - [ ] Add type inference
 - [ ] Add operator overloading
-- [ ] Add name mangling
 - [ ] Add varargs
 - [ ] Add pointers/references?
 - [ ] Add strings

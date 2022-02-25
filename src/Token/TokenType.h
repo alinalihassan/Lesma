@@ -28,7 +28,7 @@ enum class TokenType {
     // Keywords.
     AND, CLASS, ELSE, ELSE_IF, FALSE_, DEF, FOR, IF, NIL, OR, NOT, EXTERN,
     PRINT, RETURN, SUPER, THIS, TRUE_, VAR, LET, WHILE, BREAK, CONTINUE,
-    CAST, IS, IN,
+    AS, IS, IN, IMPORT,
 
     EOF_TOKEN,
 };

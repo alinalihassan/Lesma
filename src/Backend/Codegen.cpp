@@ -65,7 +65,12 @@ void Codegen::Compile(const std::string& output) {
     passManager.run(*TheModule);
 }
 
-int Codegen::JIT() {
+int Codegen::JIT(std::vector<ThreadSafeModule> modules) {
+    for (auto &module: modules) {
+        auto jit_error = TheJIT->addModule(std::move(module));
+        if (jit_error)
+            throw CodegenError("JIT Error:\n{}");
+    }
     auto jit_error = TheJIT->addModule(ThreadSafeModule(std::move(TheModule), std::move(TheContext)));
     if (jit_error)
         throw CodegenError("JIT Error:\n{}");
@@ -113,6 +118,8 @@ llvm::Value *Codegen::Visit(Statement* node) {
         return Visit(dynamic_cast<While*>(node));
     else if (dynamic_cast<FuncDecl*>(node))
         return Visit(dynamic_cast<FuncDecl*>(node));
+    else if (dynamic_cast<Import*>(node))
+        return Visit(dynamic_cast<Import*>(node));
     else if (dynamic_cast<ExternFuncDecl*>(node))
         return Visit(dynamic_cast<ExternFuncDecl*>(node));
     else if (dynamic_cast<Assignment*>(node))
@@ -364,6 +371,11 @@ llvm::Value *Codegen::Visit(Return *node) {
 
 llvm::Value *Codegen::Visit(ExpressionStatement *node) {
     return Visit(node->getExpression());
+}
+
+// TODO: Implement me
+llvm::Value *Codegen::Visit(Import *node) {
+    return nullptr;
 }
 
 llvm::Value *Codegen::Visit(FuncCall *node) {
