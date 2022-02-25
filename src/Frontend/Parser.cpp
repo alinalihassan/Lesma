@@ -201,13 +201,18 @@ Statement* Parser::ParseVarDecl() {
     auto identifier = Consume(TokenType::IDENTIFIER);
     auto var = new Literal(identifier->loc, identifier->lexeme, identifier->type);
 
-    // TODO: Allow inference at some point
-    Consume(TokenType::COLON);
-    auto type = ParseType();
+    std::optional<Type*> type = std::nullopt;
+    if (AdvanceIfMatchAny<TokenType::COLON>())
+        type = ParseType();
 
     std::optional<Expression*> expr = std::nullopt;
     if (AdvanceIfMatchAny<TokenType::EQUAL>())
         expr = ParseExpression();
+
+    if (type == std::nullopt && expr == std::nullopt)
+        throw LexerError("Expected either a type or a value");
+    else if (expr == std::nullopt && !mutable_)
+        throw LexerError("Cannot declare an immutable variable without an initial expression");
 
     return new VarDecl(Peek()->loc, var, type, expr, mutable_);
 }

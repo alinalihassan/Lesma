@@ -153,7 +153,15 @@ llvm::Value *Codegen::Visit(Compound *node) {
 }
 
 llvm::Value *Codegen::Visit(VarDecl *node) {
-    auto type = Visit(node->getType());
+    llvm::Type *type;
+    llvm::Value *value;
+    if (node->getType().has_value())
+        type = Visit(node->getType().value());
+    else {
+        value = Visit(node->getValue().value());
+        type = value->getType();
+    }
+
     auto ptr = Builder->CreateAlloca(type, nullptr, node->getIdentifier()->getValue());
 
     Scope->insertSymbol(node->getIdentifier()->getValue(), ptr, type, node->getMutability());

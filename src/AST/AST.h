@@ -117,31 +117,31 @@ namespace lesma {
 
     class VarDecl : public Statement {
         Literal *var;
-        Type *type;
+        std::optional<Type *> type;
         std::optional<Expression *> expr;
         bool mutable_;
     public:
-        VarDecl(SourceLocation Loc, Literal *var, Type *type) : Statement(Loc), var(var), type(type), expr(std::nullopt),
+        VarDecl(SourceLocation Loc, Literal *var, std::optional<Type *>type) : Statement(Loc), var(var), type(type), expr(std::nullopt),
                                                                 mutable_(true) {}
-        VarDecl(SourceLocation Loc, Literal *var, Type *type, bool mutable_) : Statement(Loc), var(var), type(type),
+        VarDecl(SourceLocation Loc, Literal *var, std::optional<Type *>type, bool mutable_) : Statement(Loc), var(var), type(type),
                                                                            expr(std::nullopt), mutable_(mutable_) {}
-        VarDecl(SourceLocation Loc, Literal *var, Type *type, std::optional<Expression *> expr) : Statement(Loc), var(var),
+        VarDecl(SourceLocation Loc, Literal *var, std::optional<Type *>type, std::optional<Expression *> expr) : Statement(Loc), var(var),
                                                                                               type(type), expr(expr),
                                                                                                   mutable_(true) {}
-        VarDecl(SourceLocation Loc, Literal *var, Type *type, std::optional<Expression *> expr, bool readonly) : Statement(
+        VarDecl(SourceLocation Loc, Literal *var, std::optional<Type *>type, std::optional<Expression *> expr, bool readonly) : Statement(
                 Loc), var(var), type(type), expr(expr), mutable_(readonly) {}
 
         ~VarDecl() override = default;
 
         [[nodiscard]] Literal *getIdentifier() const { return var; }
-        [[nodiscard]] Type *getType() const { return type; }
+        [[nodiscard]] std::optional<Type *> getType() const { return type; }
         [[nodiscard]] std::optional<Expression *> getValue() const { return expr; }
         [[nodiscard]] bool getMutability() const { return mutable_; }
 
         std::string toString(int ind) override {
             return std::string(ind, ' ') + "VarDecl" +
                    "[" + std::to_string(getLine()) + ':' + std::to_string(getCol()) + "]: " +
-                   var->toString(ind) + ": " + type->toString(ind) +
+                   var->toString(ind) + (type.has_value() ? ": " + type.value()->toString(ind) : "") +
                    (expr.has_value() ? " = " + expr.value()->toString(ind) : "")  + '\n';
         }
     };
