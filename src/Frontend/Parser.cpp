@@ -381,7 +381,7 @@ Statement *Parser::ParseImport() {
     Consume(TokenType::IMPORT);
 
     auto token = Consume(TokenType::STRING);
-    print(token->lexeme);
+
     if (AdvanceIfMatchAny<TokenType::AS>())
         return new Import(Peek()->loc, token->lexeme, Consume(TokenType::IDENTIFIER)->lexeme);
 

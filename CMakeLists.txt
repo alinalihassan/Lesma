@@ -55,6 +55,7 @@ include_directories(${CMAKE_SOURCE_DIR})
 add_executable(${EXE_NAME}
         src/LesmaJIT.h
         src/Common/Utils.h
+        src/Common/Utils.cpp
         src/Common/LesmaError.h
         src/Frontend/Lexer.h
         src/Frontend/Lexer.cpp

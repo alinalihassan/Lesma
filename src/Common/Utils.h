@@ -2,8 +2,10 @@
 
 #include "fmt/core.h"
 #include "fmt/color.h"
+#include "lib/CLI11.hpp"
 
 #include "Token/TokenType.h"
+#include "LesmaError.h"
 
 namespace lesma {
     struct SourceLocation {
@@ -17,6 +19,13 @@ namespace lesma {
         DEBUG,
         SUCCESS,
         NONE
+    };
+
+    struct CLIOptions {
+        std::string file;
+        std::string output;
+        bool debug;
+        bool jit;
     };
 
     template<typename S, typename... Args>
@@ -37,4 +46,7 @@ namespace lesma {
     void print(const S &format_str, const Args &... args) {
         print(NONE, format_str, args...);
     }
+
+    std::string readFile(const std::string& path);
+    CLIOptions *parseCLI(int argc, char** argv);
 }
