@@ -1,0 +1,6 @@
+#ret=101
+
+def main() -> int {
+    let x = 101
+    return x
+}
