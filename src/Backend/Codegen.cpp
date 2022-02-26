@@ -195,9 +195,8 @@ llvm::Type *Codegen::Visit(lesma::Type *node) {
 }
 
 llvm::Value *Codegen::Visit(Compound *node) {
-    for (auto elem: node->getChildren()) {
+    for (auto elem: node->getChildren())
         Visit(elem);
-    }
 
     return nullptr;
 }

@@ -41,7 +41,7 @@ int main(int argc, char** argv) {
            parser->Parse();
         )
 
-        print(DEBUG, "AST:\n{}", parser->getAST()->toString(0));
+//        print(DEBUG, "AST:\n{}", parser->getAST()->toString(0));
 
         // Codegen
         TIMEIT("Compiling",
@@ -52,8 +52,8 @@ int main(int argc, char** argv) {
         // Optimization
         TIMEIT("Optimizing", codegen->Optimize(llvm::PassBuilder::OptimizationLevel::O3);)
 
-        print(DEBUG, "LLVM IR: \n");
-        codegen->Dump();
+//        print(DEBUG, "LLVM IR: \n");
+//        codegen->Dump();
 
         // Executing
         TIMEIT("Execution",
