@@ -69,7 +69,7 @@ Type* Parser::ParseType() {
     }
 
     Error(type, "Unknown type");
-    
+
     return nullptr;
 }
 
@@ -360,7 +360,7 @@ Statement* Parser::ParseFunctionDeclaration() {
     Consume(TokenType::DEF);
     bool extern_func = false;
 
-    if (AdvanceIfMatchAny<TokenType::EXTERN>())
+    if (AdvanceIfMatchAny<TokenType::EXTERN_FUNC>())
         extern_func = true;
 
     auto identifier = Consume(TokenType::IDENTIFIER);

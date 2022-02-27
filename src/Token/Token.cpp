@@ -24,7 +24,7 @@ static std::map<std::string,TokenType> g_reserved_map{
         {"break",   TokenType::BREAK},
         {"continue",TokenType::CONTINUE},
         {"super",   TokenType::SUPER},
-        {"extern",  TokenType::EXTERN},
+        {"extern",  TokenType::EXTERN_FUNC},
         {"as",      TokenType::AS},
         {"is",      TokenType::IS},
         {"in",      TokenType::IN},

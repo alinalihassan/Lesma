@@ -35,9 +35,9 @@ int main(int argc, char** argv) {
             lexer->ScanAll();
         )
 
-        print(DEBUG, "TOKENS: \n");
-        for (const auto& tok: lexer->getTokens())
-            print("Token: {}\n", tok->Dump());
+//        print(DEBUG, "TOKENS: \n");
+//        for (const auto& tok: lexer->getTokens())
+//            print("Token: {}\n", tok->Dump());
 
         // Parser
         TIMEIT("Parsing",
