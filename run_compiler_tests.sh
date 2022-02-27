@@ -1,17 +1,5 @@
 #!/bin/bash
 
-echo "Compiling source code"
-
-# Build source
-if ! { cmake -B build -DCMAKE_BUILD_TYPE=Release &> /tmp/compile_output.log &&
-       cmake --build build --config Release &> /tmp/compile_output.log ; }; then
-	echo "Failed to build the compiler"
-	exit 1
-fi
-
-echo "Sources built"
-echo ""
-
 fail_count=0
 success_count=0
 
