@@ -26,6 +26,7 @@ namespace lesma {
 
         Token Consume(TokenType type);
         Token Consume(TokenType type, const std::string &error_message);
+        Token ConsumeNewline();
 
         Token Previous() { return Peek(-1); }
 

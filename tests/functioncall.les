@@ -1,10 +1,8 @@
 #ret=101
-def fib() -> int {
+def fib() -> int
     return 101
-}
 
-def main() -> int {
+def main() -> int
     let y: int = fib()
 
     return y
-}

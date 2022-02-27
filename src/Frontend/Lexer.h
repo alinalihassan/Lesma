@@ -46,6 +46,7 @@ namespace lesma {
         Token AddNumToken();
 
         Token AddToken(TokenType type);
+        Token AddToken(Token tok);
 
         void Error(const std::string &msg) const;
 
@@ -57,12 +58,22 @@ namespace lesma {
 
         Token AddIdentifierToken();
 
+        void HandleWhitespace(char c);
+        bool HandleIndentation(bool continuation);
+        void Fallback();
+
         const std::string *srcs_;
         unsigned long start_lex_pos_ = 0;
         unsigned long current_lex_pos_ = 0;
         SourceLocation loc{0, 0};
         std::string src_file_name;
         std::vector<Token> tokens;
+
+        char first_indent_char;
+        int level_;
+        int indent_;
+        std::vector<int> indent_stack_ = {0};
+        std::vector<int> alt_indent_stack_ = {0};
 
         void ResetTokenBeg();
     };

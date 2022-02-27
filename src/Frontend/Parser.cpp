@@ -48,6 +48,15 @@ Token Parser::Consume(TokenType type, const std::string& error_message) {
     return Token{};
 }
 
+Token Parser::ConsumeNewline() {
+    print("Current token: {}\n", Peek()->Dump());
+    if (Check(TokenType::NEWLINE) || Peek()->type == TokenType::EOF_TOKEN) {
+        return Advance();
+    }
+    Error(Peek(), std::string{"Expected: NEWLINE or EOF, found: " + std::string{NAMEOF_ENUM(Peek()->type)}});
+    return Token{};
+}
+
 void Parser::Error(const Token &token, const std::string& error_message) {
     throw ParserError("{}: {}", token->Dump(), error_message);;
 }
@@ -109,7 +118,7 @@ Expression* Parser::ParseTerm() {
             return new Literal(token->loc, token->lexeme, TokenType::BOOL);
         }
         default:
-            Error(Peek(), std::string{NAMEOF_ENUM(Peek()->type)} + std::string{"Unknown literal"});
+            Error(Peek(), std::string{NAMEOF_ENUM(Peek()->type)} + " " +std::string{"Unknown literal"});
     }
 
     return nullptr;
@@ -221,6 +230,7 @@ Statement* Parser::ParseVarDecl() {
     else if (expr == std::nullopt && !mutable_)
         throw LexerError("Cannot declare an immutable variable without an initial expression");
 
+    ConsumeNewline();
     return new VarDecl(Peek()->loc, var, type, expr, mutable_);
 }
 
@@ -272,6 +282,7 @@ Statement* Parser::ParseAssignment() {
         auto op = Previous()->type;
         auto expr = ParseExpression();
 
+        ConsumeNewline();
         return new Assignment(identifier->loc, var, op, expr);
     }
 
@@ -281,17 +292,22 @@ Statement* Parser::ParseAssignment() {
 }
 
 Statement* Parser::ParseBreak() {
-    return reinterpret_cast<Statement *>(new Break(Consume(TokenType::BREAK)->loc));
+    auto tok = reinterpret_cast<Statement *>(new Break(Consume(TokenType::BREAK)->loc));
+    ConsumeNewline();
+    return tok;
 }
 
 Statement* Parser::ParseContinue() {
-    return reinterpret_cast<Statement *>(new Continue(Consume(TokenType::CONTINUE)->loc));
+    auto tok = reinterpret_cast<Statement *>(new Continue(Consume(TokenType::CONTINUE)->loc));
+    ConsumeNewline();
+    return tok;
 }
 
 Statement* Parser::ParseReturn() {
     auto loc = Peek()->loc;
     Consume(TokenType::RETURN);
     auto val = ParseExpression();
+    ConsumeNewline();
     return reinterpret_cast<Statement *>(new Return(loc, val));
 }
 
@@ -317,8 +333,10 @@ Statement* Parser::ParseStatement() {
 
     // Check if it's just an expression statement
     auto expr = ParseExpression();
-    if (expr != nullptr)
+    if (expr != nullptr) {
+        ConsumeNewline();
         return new ExpressionStatement({expr->getLine(), expr->getCol()}, expr);
+    }
 
     Error(Peek(), "Unknown statement");
     return nullptr;
@@ -327,12 +345,14 @@ Statement* Parser::ParseStatement() {
 Compound* Parser::ParseBlock() {
     auto compound = new Compound(Peek()->loc);
 
-    Consume(TokenType::LEFT_BRACE);
+    Consume(TokenType::NEWLINE);
+    Consume(TokenType::INDENT);
 
-    while (!Check(TokenType::RIGHT_BRACE))
+    while (!CheckAny<TokenType::DEDENT, TokenType::EOF_TOKEN>()) {
         compound->addChildren(ParseStatement());
+    }
 
-    Consume(TokenType::RIGHT_BRACE);
+    AdvanceIfMatchAny<TokenType::DEDENT>();
 
     return compound;
 }
@@ -369,8 +389,10 @@ Statement* Parser::ParseFunctionDeclaration() {
     else
         return_type = new Type(Peek()->loc, "void", TokenType::VOID_TYPE);
 
-    if (extern_func)
+    if (extern_func) {
+        ConsumeNewline();
         return new ExternFuncDecl(Peek()->loc, identifier->lexeme, return_type, parameters);
+    }
 
     auto body = ParseBlock();
 
@@ -404,6 +426,9 @@ Statement* Parser::ParseTopLevelStatement() {
 Compound* Parser::ParseCompound() {
     auto compound = new Compound(Peek()->loc);
     while (!IsAtEnd()) {
+        // Remove lingering newlines
+        while(Peek()->type == TokenType::NEWLINE)
+            Consume(TokenType::NEWLINE);
         compound->addChildren(ParseTopLevelStatement());
     }
     return compound;

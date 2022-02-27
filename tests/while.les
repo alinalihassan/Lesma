@@ -1,9 +1,7 @@
 #ret=101
 
-def main() -> int {
+def main() -> int
     var x: int = 0
-    while x < 101 {
+    while x < 101
         x = x + 1
-    }
     return x
-}

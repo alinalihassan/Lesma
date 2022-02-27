@@ -4,6 +4,9 @@
 namespace lesma {
 
 enum class TokenType {
+    // Whitespace
+    NEWLINE, INDENT, DEDENT,
+
     // Single-character tokens.
     LEFT_PAREN, RIGHT_PAREN, LEFT_BRACE, RIGHT_BRACE,
     LEFT_SQUARE, RIGHT_SQUARE, COLON, ARROW, FAT_ARROW,

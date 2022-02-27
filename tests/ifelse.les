@@ -1,24 +1,21 @@
 #ret=101
 
-def main() -> int {
+def main() -> int
     var x: int = 5
     var y: int = 10
 
-    if x == 6 {
+    if x == 6
         x = 7
-    } elseif x == 5 {
+    elseif x == 5
         x = 50
-    } else {
+    else
         x = 9
-    }
 
-    if y == 9 {
+    if y == 9
         y = 5
-    } elseif y == 11 {
+    elseif y == 11
         y = 6
-    } else {
+    else
         y = 51
-    }
 
     return x + y
-}

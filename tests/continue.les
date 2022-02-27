@@ -1,16 +1,13 @@
 #ret=101
 
-def main() -> int {
+def main() -> int
     var x: int = 5
     var y: int = 0
 
-    while x < 208 {
+    while x < 208
         x = x + 1
-        if x % 2 == 0 {
+        if x % 2 == 0
             continue
-        }
         y = y + 1
-    }
 
     return y
-}

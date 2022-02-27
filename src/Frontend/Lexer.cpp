@@ -13,6 +13,8 @@ Token Lexer::ScanOne() {
         return Token{TokenType::EOF_TOKEN, "EOF", loc};
     ResetTokenBeg();
     char c = Advance();
+    bool continuation = false;
+
     switch (c) {
         case '(': return AddToken(TokenType::LEFT_PAREN);
         case ')': return AddToken(TokenType::RIGHT_PAREN);
@@ -85,10 +87,17 @@ Token Lexer::ScanOne() {
         case ' ':
         case '\r':
         case '\t':
+            HandleWhitespace(c);
+            if (loc.Col == 1)
+                HandleIndentation(false);
             return ScanOne();
         case '\n':
             loc.Line++;
             loc.Col = 0;
+            if(!continuation && level_ == 0)
+                tokens.push_back(AddToken({TokenType::NEWLINE, "NEWLINE", loc}));
+            HandleIndentation(continuation);
+            continuation = false;
             return ScanOne();
         case '"':
             return AddStringToken();
@@ -104,6 +113,94 @@ Token Lexer::ScanOne() {
     return {};
 }
 
+void Lexer::HandleWhitespace(char c) {
+    if (!first_indent_char) {
+        first_indent_char = c;
+    }
+    if (first_indent_char != c)
+        Error(fmt::format("Mixed indentation, first indentation character is: {}", first_indent_char));
+    if(c == '\t')
+        loc.Col += 7;
+}
+
+bool Lexer::HandleIndentation(bool continuation) {
+    const int tab_size = 8;
+    int col = 0, alt_col = 0;
+    char c = 0;
+    int changes = 0;
+    for(;;) {
+        if (IsAtEnd())
+            break;
+        c = Advance();
+        if(c == ' ') {
+            ++col; ++alt_col;
+        }
+        else if(c == '\t') {
+            col = (col/tab_size+1)*tab_size;
+            alt_col += 1;
+        }
+        else {
+            break;
+        }
+    }
+    if (!IsAtEnd())
+        Fallback();
+
+    if(continuation || level_ != 0 || c == '#' || c == '\n' || c == '\r') {
+        if(c == '#' || c == '\n') {
+            // If this line is a commented line or an empty line, don't emit NewLine
+            if(!tokens.empty() && tokens.back()->type == TokenType::NEWLINE) {
+                tokens.pop_back();
+            }
+        }
+        return true;
+    }
+
+    if(col == indent_stack_[indent_]) {
+        if(alt_col != alt_indent_stack_[indent_]) {
+            Error("Indentation error");
+            return false;
+        }
+    }
+    else if(col > indent_stack_[indent_]) {
+        if(alt_col <= alt_indent_stack_[indent_]) {
+            Error("Indentation error");
+            return false;
+        }
+        ++indent_;
+        ++changes;
+        assert(indent_stack_.size() >= size_t(indent_));
+        if(indent_stack_.size() == size_t(indent_)) {
+            alt_indent_stack_.push_back(alt_col);
+            indent_stack_.push_back(col);
+        }
+        else {
+            alt_indent_stack_[indent_] = alt_col;
+            indent_stack_[indent_] = col;
+        }
+    }
+    else {
+        while(indent_ > 0 && col < indent_stack_[indent_]) {
+            --changes;
+            --indent_;
+        }
+        if(col != indent_stack_[indent_]) {
+            Error("Dedentation error");
+            return false;
+        }
+        if(alt_col != alt_indent_stack_[indent_]) {
+            Error("Indentation error");
+            return false;
+        }
+    }
+
+    while(changes != 0) {
+        tokens.push_back(AddToken({changes > 0 ? TokenType::INDENT : TokenType::DEDENT, changes > 0 ? "INDENT" : "DEDENT", loc}));
+        changes += changes > 0 ? -1 : 1;
+    }
+    return true;
+}
+
 // TODO: Could possibly make it more efficient
 Token Lexer::AddToken(TokenType type) {
     auto ret = Token(type, std::string(srcs_->cbegin() + start_lex_pos_, srcs_->cbegin() + current_lex_pos_), loc);
@@ -111,7 +208,19 @@ Token Lexer::AddToken(TokenType type) {
     return ret;
 }
 
-void Lexer::ResetTokenBeg() { start_lex_pos_ = current_lex_pos_; }
+Token Lexer::AddToken(Token tok) {
+    ResetTokenBeg();
+    return tok;
+}
+
+void Lexer::ResetTokenBeg() {
+    start_lex_pos_ = current_lex_pos_;
+}
+
+void Lexer::Fallback() {
+    --current_lex_pos_;
+    --loc.Col;
+}
 
 char Lexer::Advance() {
     auto ret = LastChar();

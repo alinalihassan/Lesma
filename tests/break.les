@@ -1,14 +1,11 @@
 #ret=101
 
-def main() -> int {
+def main() -> int
     var x: int = 5
 
-    while true {
-        if x == 101 {
+    while true
+        if x == 101
             break
-        }
         x = x + 1
-    }
 
     return x
-}

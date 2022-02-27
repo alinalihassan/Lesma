@@ -1,6 +1,5 @@
 #ret=101
 def extern exit(code: int)
 
-def main() {
+def main()
     exit(101)
-}

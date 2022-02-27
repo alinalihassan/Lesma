@@ -1,7 +1,6 @@
 #ret=101
-def main() -> int {
+def main() -> int
     let y: float = 101.5
     let z: int = y as int
 
     return z
-}
