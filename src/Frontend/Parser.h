@@ -44,7 +44,6 @@ namespace lesma {
         }
 
         bool Check(TokenType type, unsigned long pos) {
-            if (IsAtEnd()) return false;
             return Peek(pos)->type == type;
         }
 
@@ -63,21 +62,21 @@ namespace lesma {
 
         static void Error(const Token &token, const std::string &basicString);
 
-        Compound *ParseCompound();
-        Compound *ParseBlock();
-        Statement *ParseTopLevelStatement();
-        Statement *ParseFunctionDeclaration();
-        Statement *ParseImport();
-        Statement *ParseStatement();
-        Statement *ParseIf();
-        Statement *ParseWhile();
-        Statement *ParseFor();
-        Statement *ParseVarDecl();
-        Statement *ParseAssignment();
-        Statement *ParseBreak();
-        Statement *ParseContinue();
-        Statement *ParseReturn();
-        Type      *ParseType();
+        Compound   *ParseCompound();
+        Compound   *ParseBlock();
+        Statement  *ParseTopLevelStatement();
+        Statement  *ParseFunctionDeclaration();
+        Statement  *ParseImport();
+        Statement  *ParseStatement();
+        Statement  *ParseIf();
+        Statement  *ParseWhile();
+        Statement  *ParseFor();
+        Statement  *ParseVarDecl();
+        Statement  *ParseAssignment();
+        Statement  *ParseBreak();
+        Statement  *ParseContinue();
+        Statement  *ParseReturn();
+        Type       *ParseType();
         Expression *ParseExpression();
         Expression *ParseOr();
         Expression *ParseAnd();
