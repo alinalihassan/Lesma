@@ -49,10 +49,8 @@ Token Parser::Consume(TokenType type, const std::string& error_message) {
 }
 
 Token Parser::ConsumeNewline() {
-    print("Current token: {}\n", Peek()->Dump());
-    if (Check(TokenType::NEWLINE) || Peek()->type == TokenType::EOF_TOKEN) {
+    if (Check(TokenType::NEWLINE) || Peek()->type == TokenType::EOF_TOKEN)
         return Advance();
-    }
     Error(Peek(), std::string{"Expected: NEWLINE or EOF, found: " + std::string{NAMEOF_ENUM(Peek()->type)}});
     return Token{};
 }
@@ -71,7 +69,8 @@ Type* Parser::ParseType() {
     }
 
     Error(type, "Unknown type");
-    exit(1);
+    
+    return nullptr;
 }
 
 // Expression
