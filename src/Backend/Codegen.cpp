@@ -218,7 +218,7 @@ llvm::Value *Codegen::Visit(VarDecl *node) {
     Scope->insertSymbol(node->getIdentifier()->getValue(), ptr, type, node->getMutability());
 
     if (node->getValue().has_value())
-        Builder->CreateStore(Visit(node->getValue().value()), ptr);
+        Builder->CreateStore(Cast(Visit(node->getValue().value()), ptr->getAllocatedType()), ptr);
 
     return ptr;
 }
@@ -380,6 +380,7 @@ llvm::Value *Codegen::Visit(Assignment *node) {
         throw CodegenError("Assigning immutable variable a new value");
 
     auto value = Visit(node->getExpression());
+    value = Cast(value, symbol->getType());
 
     switch (node->getOperator()) {
         case TokenType::EQUAL:
