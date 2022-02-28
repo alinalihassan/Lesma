@@ -1,5 +1,4 @@
-#ifndef CLESMA_TOKEN_TYPE_H
-#define CLESMA_TOKEN_TYPE_H
+#pragma once
 
 namespace lesma {
 
@@ -61,7 +60,6 @@ namespace lesma {
         STRING_TYPE,
         BOOL_TYPE,
         VOID_TYPE,
-        CUSTOM_TYPE,
 
         // Keywords.
         AND,
@@ -92,9 +90,7 @@ namespace lesma {
         IN,
         IMPORT,
 
+        // Special tokens
         EOF_TOKEN,
     };
-
 }
-
-#endif//CLESMA_TOKEN_TYPE_H

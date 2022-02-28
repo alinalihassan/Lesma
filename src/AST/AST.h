@@ -18,8 +18,8 @@ namespace lesma {
         explicit AST(SourceLocation Loc) : Loc(Loc) {}
         virtual ~AST() = default;
 
-        [[nodiscard]] unsigned int getLine() const { return Loc.Line; }
-        [[nodiscard]] unsigned int getCol() const { return Loc.Col; }
+        [[nodiscard]] [[maybe_unused]] unsigned int getLine() const { return Loc.Line; }
+        [[nodiscard]] [[maybe_unused]] unsigned int getCol() const { return Loc.Col; }
 
         virtual std::string toString(int ind) {
             return std::string(ind, ' ') + "AST[" + std::to_string(getLine()) + ':' +
@@ -50,10 +50,10 @@ namespace lesma {
 
         ~Literal() override = default;
 
-        [[nodiscard]] std::string getValue() const { return value; }
-        [[nodiscard]] TokenType getType() const { return type; }
+        [[nodiscard]] [[maybe_unused]] std::string getValue() const { return value; }
+        [[nodiscard]] [[maybe_unused]] TokenType getType() const { return type; }
 
-        std::string toString(int ind) override {
+        std::string toString(int /*ind*/) override {
             if (type == TokenType::STRING)
                 return '"' + value + '"';
             else if (type == TokenType::NIL || type == TokenType::INTEGER || type == TokenType::DOUBLE ||
@@ -71,7 +71,7 @@ namespace lesma {
         explicit Compound(SourceLocation Loc) : Statement(Loc) {}
         ~Compound() override = default;
 
-        [[nodiscard]] std::vector<Statement *> getChildren() const { return children; }
+        [[nodiscard]] [[maybe_unused]] std::vector<Statement *> getChildren() const { return children; }
 
         void addChildren(Statement *ast) {
             this->children.push_back(ast);
@@ -94,7 +94,7 @@ namespace lesma {
         Program(SourceLocation Loc, Compound *block) : AST(Loc), block(block) {}
         ~Program() override = default;
 
-        [[nodiscard]] Compound *getBlock() const { return block; }
+        [[nodiscard]] [[maybe_unused]] Compound *getBlock() const { return block; }
 
         std::string toString(int ind) override {
             return std::string(ind, ' ') + "Program" + '\n' + block->toString(ind + 2);
@@ -109,10 +109,10 @@ namespace lesma {
         Type(SourceLocation Loc, std::string name, TokenType type) : Expression(Loc), name(std::move(name)), type(type) {}
         ~Type() override = default;
 
-        [[nodiscard]] std::string getName() const { return name; }
-        [[nodiscard]] TokenType getType() const { return type; }
+        [[nodiscard]] [[maybe_unused]] std::string getName() const { return name; }
+        [[nodiscard]] [[maybe_unused]] TokenType getType() const { return type; }
 
-        std::string toString(int ind) override {
+        std::string toString(int /*ind*/) override {
             return name;
         }
     };
@@ -125,8 +125,8 @@ namespace lesma {
         Import(SourceLocation Loc, std::string file_path, std::string alias) : Statement(Loc), file_path(std::move(file_path)), alias(std::move(alias)){};
         ~Import() override = default;
 
-        [[nodiscard]] std::string getFilePath() const { return file_path; }
-        [[nodiscard]] std::string getAlias() const { return alias; }
+        [[nodiscard]] [[maybe_unused]] std::string getFilePath() const { return file_path; }
+        [[nodiscard]] [[maybe_unused]] std::string getAlias() const { return alias; }
 
         std::string toString(int ind) override {
             return std::string(ind, ' ') + "Import" +
@@ -142,23 +142,13 @@ namespace lesma {
         bool mutable_;
 
     public:
-        VarDecl(SourceLocation Loc, Literal *var, std::optional<Type *> type) : Statement(Loc), var(var), type(type), expr(std::nullopt),
-                                                                                mutable_(true) {}
-        VarDecl(SourceLocation Loc, Literal *var, std::optional<Type *> type, bool mutable_) : Statement(Loc), var(var), type(type),
-                                                                                               expr(std::nullopt), mutable_(mutable_) {}
-        VarDecl(SourceLocation Loc, Literal *var, std::optional<Type *> type, std::optional<Expression *> expr) : Statement(Loc), var(var),
-                                                                                                                  type(type), expr(expr),
-                                                                                                                  mutable_(true) {}
-        VarDecl(SourceLocation Loc, Literal *var, std::optional<Type *> type, std::optional<Expression *> expr, bool readonly) : Statement(
-                                                                                                                                         Loc),
-                                                                                                                                 var(var), type(type), expr(expr), mutable_(readonly) {}
-
+        VarDecl(SourceLocation Loc, Literal *var, std::optional<Type *> type, std::optional<Expression *> expr, bool readonly) : Statement(Loc), var(var), type(type), expr(expr), mutable_(readonly) {}
         ~VarDecl() override = default;
 
-        [[nodiscard]] Literal *getIdentifier() const { return var; }
-        [[nodiscard]] std::optional<Type *> getType() const { return type; }
-        [[nodiscard]] std::optional<Expression *> getValue() const { return expr; }
-        [[nodiscard]] bool getMutability() const { return mutable_; }
+        [[nodiscard]] [[maybe_unused]] Literal *getIdentifier() const { return var; }
+        [[nodiscard]] [[maybe_unused]] std::optional<Type *> getType() const { return type; }
+        [[nodiscard]] [[maybe_unused]] std::optional<Expression *> getValue() const { return expr; }
+        [[nodiscard]] [[maybe_unused]] bool getMutability() const { return mutable_; }
 
         std::string toString(int ind) override {
             return std::string(ind, ' ') + "VarDecl" +
@@ -181,8 +171,8 @@ namespace lesma {
 
         ~If() override = default;
 
-        [[nodiscard]] std::vector<Expression *> getConds() const { return conds; }
-        [[nodiscard]] std::vector<Compound *> getBlocks() const { return blocks; }
+        [[nodiscard]] [[maybe_unused]] std::vector<Expression *> getConds() const { return conds; }
+        [[nodiscard]] [[maybe_unused]] std::vector<Compound *> getBlocks() const { return blocks; }
 
         std::string toString(int ind) override {
             auto ret = std::string(ind, ' ') + "If" +
@@ -204,8 +194,8 @@ namespace lesma {
         While(SourceLocation Loc, Expression *cond, Compound *block) : Statement(Loc), cond(cond), block(block) {}
         ~While() override = default;
 
-        [[nodiscard]] Expression *getCond() const { return cond; }
-        [[nodiscard]] Compound *getBlock() const { return block; }
+        [[nodiscard]] [[maybe_unused]] Expression *getCond() const { return cond; }
+        [[nodiscard]] [[maybe_unused]] Compound *getBlock() const { return block; }
 
         std::string toString(int ind) override {
             return std::string(ind, ' ') + "While" +
@@ -228,10 +218,10 @@ namespace lesma {
 
         ~FuncDecl() override = default;
 
-        [[nodiscard]] std::string getName() const { return name; }
-        [[nodiscard]] Type *getReturnType() const { return return_type; }
-        [[nodiscard]] std::vector<std::pair<std::string, Type *>> getParameters() const { return parameters; }
-        [[nodiscard]] Compound *getBody() const { return body; }
+        [[nodiscard]] [[maybe_unused]] std::string getName() const { return name; }
+        [[nodiscard]] [[maybe_unused]] Type *getReturnType() const { return return_type; }
+        [[nodiscard]] [[maybe_unused]] std::vector<std::pair<std::string, Type *>> getParameters() const { return parameters; }
+        [[nodiscard]] [[maybe_unused]] Compound *getBody() const { return body; }
 
         std::string toString(int ind) override {
             auto ret = std::string(ind, ' ') + "FuncDecl" +
@@ -258,9 +248,9 @@ namespace lesma {
 
         ~ExternFuncDecl() override = default;
 
-        [[nodiscard]] std::string getName() const { return name; }
-        [[nodiscard]] Type *getReturnType() const { return return_type; }
-        [[nodiscard]] std::vector<std::pair<std::string, Type *>> getParameters() const { return parameters; }
+        [[nodiscard]] [[maybe_unused]] std::string getName() const { return name; }
+        [[nodiscard]] [[maybe_unused]] Type *getReturnType() const { return return_type; }
+        [[nodiscard]] [[maybe_unused]] std::vector<std::pair<std::string, Type *>> getParameters() const { return parameters; }
 
         std::string toString(int ind) override {
             auto ret = std::string(ind, ' ') + "ExternFuncDecl" +
@@ -284,8 +274,8 @@ namespace lesma {
 
         ~FuncCall() override = default;
 
-        [[nodiscard]] std::string getName() const { return name; }
-        [[nodiscard]] std::vector<Expression *> getArguments() const { return arguments; }
+        [[nodiscard]] [[maybe_unused]] std::string getName() const { return name; }
+        [[nodiscard]] [[maybe_unused]] std::vector<Expression *> getArguments() const { return arguments; }
 
         std::string toString(int ind) override {
             auto ret = name + "(";
@@ -308,9 +298,9 @@ namespace lesma {
 
         ~Assignment() override = default;
 
-        [[nodiscard]] Literal *getIdentifier() const { return var; }
-        [[nodiscard]] TokenType getOperator() const { return op; }
-        [[nodiscard]] Expression *getExpression() const { return expr; }
+        [[nodiscard]] [[maybe_unused]] Literal *getIdentifier() const { return var; }
+        [[nodiscard]] [[maybe_unused]] TokenType getOperator() const { return op; }
+        [[nodiscard]] [[maybe_unused]] Expression *getExpression() const { return expr; }
 
         std::string toString(int ind) override {
             auto ret = std::string(ind, ' ') + "Assignment" +
@@ -327,7 +317,7 @@ namespace lesma {
         ExpressionStatement(SourceLocation Loc, Expression *expr) : Statement(Loc), expr(expr) {}
         ~ExpressionStatement() override = default;
 
-        [[nodiscard]] Expression *getExpression() const { return expr; }
+        [[nodiscard]] [[maybe_unused]] Expression *getExpression() const { return expr; }
 
         std::string toString(int ind) override {
             return std::string(ind, ' ') + "Expression" +
@@ -347,9 +337,9 @@ namespace lesma {
 
         ~BinaryOp() override = default;
 
-        [[nodiscard]] Expression *getLeft() const { return left; }
-        [[nodiscard]] TokenType getOperator() const { return op; }
-        [[nodiscard]] Expression *getRight() const { return right; }
+        [[nodiscard]] [[maybe_unused]] Expression *getLeft() const { return left; }
+        [[nodiscard]] [[maybe_unused]] TokenType getOperator() const { return op; }
+        [[nodiscard]] [[maybe_unused]] Expression *getRight() const { return right; }
 
         std::string toString(int ind) override {
             return left->toString(ind) + " " + std::string{NAMEOF_ENUM(op)} + " " + right->toString(ind);
@@ -365,8 +355,8 @@ namespace lesma {
 
         ~CastOp() override = default;
 
-        [[nodiscard]] Expression *getExpression() const { return expr; }
-        [[nodiscard]] Type *getType() const { return type; }
+        [[nodiscard]] [[maybe_unused]] Expression *getExpression() const { return expr; }
+        [[nodiscard]] [[maybe_unused]] Type *getType() const { return type; }
 
         std::string toString(int ind) override {
             return expr->toString(ind) + " as " + type->toString(ind);
@@ -381,8 +371,8 @@ namespace lesma {
         UnaryOp(SourceLocation Loc, TokenType op, Expression *expr) : Expression(Loc), op(op), expr(expr) {}
         ~UnaryOp() override = default;
 
-        [[nodiscard]] TokenType getOperator() const { return op; }
-        [[nodiscard]] Expression *getExpression() const { return expr; }
+        [[nodiscard]] [[maybe_unused]] TokenType getOperator() const { return op; }
+        [[nodiscard]] [[maybe_unused]] Expression *getExpression() const { return expr; }
 
         std::string toString(int ind) override {
             return std::string{NAMEOF_ENUM(op)} + expr->toString(ind);
@@ -394,7 +384,7 @@ namespace lesma {
         explicit Else(SourceLocation Loc) : Expression(Loc) {}
         ~Else() override = default;
 
-        std::string toString(int ind) override {
+        std::string toString(int /*ind*/) override {
             return "Else";
         }
     };
@@ -426,7 +416,7 @@ namespace lesma {
         Return(SourceLocation Loc, Expression *value) : Statement(Loc), value(value) {}
         ~Return() override = default;
 
-        [[nodiscard]] Expression *getValue() const { return value; }
+        [[nodiscard]] [[maybe_unused]] Expression *getValue() const { return value; }
 
         std::string toString(int ind) override {
             return std::string(ind, ' ') + "Return " + value->toString(ind) + '\n';
@@ -440,7 +430,7 @@ namespace lesma {
         Defer(SourceLocation Loc, Statement *stmt) : Statement(Loc), stmt(stmt) {}
         ~Defer() override = default;
 
-        [[nodiscard]] Statement *getStatement() const { return stmt; }
+        [[nodiscard]] [[maybe_unused]] Statement *getStatement() const { return stmt; }
 
         std::string toString(int ind) override {
             return std::string(ind, ' ') + "Defer " + stmt->toString(0);

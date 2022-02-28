@@ -57,7 +57,6 @@ Token Parser::ConsumeNewline() {
 
 void Parser::Error(const Token &token, const std::string &error_message) {
     throw ParserError("{}: {}", token->Dump(), error_message);
-    ;
 }
 
 // TODO: Parse Type

@@ -70,8 +70,8 @@ namespace lesma {
         std::vector<Token> tokens;
 
         char first_indent_char;
-        int level_;
-        int indent_;
+        int level_ = 0;
+        int indent_ = 0;
         std::vector<int> indent_stack_ = {0};
         std::vector<int> alt_indent_stack_ = {0};
 
