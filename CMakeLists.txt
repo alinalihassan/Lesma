@@ -26,7 +26,7 @@ endif ()
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_COMPILER "clang++")
-add_definitions(${CMAKE_CXX_FLAGS} -Wall -Wextra -Wpedantic -frtti -isystem)
+add_definitions(${CMAKE_CXX_FLAGS} -Wall -Wextra -Wpedantic -frtti)
 set(CMAKE_CXX_FLAGS_RELEASE "-O3")
 
 # Directories
