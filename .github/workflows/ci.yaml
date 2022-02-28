@@ -18,6 +18,12 @@ jobs:
     steps:
       - uses: actions/checkout@v2
 
+      - name: Lint files with Clang-Format
+        uses: jidicula/clang-format-action@v4.5.0
+        with:
+          clang-format-version: '13'
+          check-path: 'src'
+
       - name: Cache LLVM and Clang
         id: cache-llvm
         uses: actions/cache@v2
