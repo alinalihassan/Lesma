@@ -18,11 +18,22 @@ jobs:
     steps:
       - uses: actions/checkout@v2
 
-      - name: Lint files with Clang-Format
-        uses: jidicula/clang-format-action@v4.5.0
+      - name : Clang Format
+        uses: DoozyX/clang-format-lint-action@v0.13
         with:
-          clang-format-version: '13'
-          check-path: 'src'
+          source: './src/'
+          extensions: 'h,cpp'
+          clangFormatVersion: 13
+          inplace: True
+
+      - name: Commit formatting diff
+        uses: EndBug/add-and-commit@v4
+        with:
+          author_name: Clang Robot
+          author_email: clang-robot@lesma.com
+          message: 'Committing clang-format changes'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Cache LLVM and Clang
         id: cache-llvm
