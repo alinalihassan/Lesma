@@ -23,8 +23,7 @@ namespace lesma {
                 ("d,debug", "Enable debugging", cxxopts::value<bool>(debug))
                 ;
         // clang-format on
-        options.add_options("Hidden")
-                ("f,file", "Input Lesma file", cxxopts::value<std::string>(file));
+        options.add_options("Hidden")("f,file", "Input Lesma file", cxxopts::value<std::string>(file));
 
         options.parse_positional({"file"});
         options.positional_help("<file>");

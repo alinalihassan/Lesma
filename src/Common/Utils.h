@@ -1,7 +1,7 @@
 #pragma once
 
-#include <sstream>
 #include <fstream>
+#include <sstream>
 
 #include "cxxopts.hpp"
 #include "fmt/color.h"
