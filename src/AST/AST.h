@@ -420,6 +420,19 @@ namespace lesma {
             return std::string(ind, ' ') + "Return " + value->toString(ind) + '\n';
         }
     };
+
+    class Defer : public Statement {
+        Statement *stmt;
+    public:
+        Defer(SourceLocation Loc, Statement *stmt) : Statement(Loc), stmt(stmt) {}
+        ~Defer() override = default;
+
+        [[nodiscard]] Statement *getStatement() const { return stmt; }
+
+        std::string toString(int ind) override {
+            return std::string(ind, ' ') + "Defer " + stmt->toString(0);
+        }
+    };
 }
 
 #pragma clang diagnostic pop

@@ -310,6 +310,14 @@ Statement* Parser::ParseReturn() {
     return reinterpret_cast<Statement *>(new Return(loc, val));
 }
 
+Statement* Parser::ParseDefer() {
+    auto loc = Peek()->loc;
+    Consume(TokenType::DEFER);
+    auto val = ParseStatement();
+    //Don't consume newline, since statement will
+    return reinterpret_cast<Statement *>(new Defer(loc, val));
+}
+
 Statement* Parser::ParseStatement() {
     if (Check(TokenType::LET) || Check(TokenType::VAR))
         return ParseVarDecl();
@@ -325,6 +333,8 @@ Statement* Parser::ParseStatement() {
         return ParseContinue();
     else if (Check(TokenType::RETURN))
         return ParseReturn();
+    else if (Check(TokenType::DEFER))
+        return ParseDefer();
     else if (Check(TokenType::IDENTIFIER) &&
              CheckAny<TokenType::EQUAL, TokenType::PLUS_EQUAL, TokenType::MINUS_EQUAL, TokenType::STAR_EQUAL,
              TokenType::SLASH_EQUAL, TokenType::MOD_EQUAL, TokenType::POWER_EQUAL>(1))

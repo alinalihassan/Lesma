@@ -34,6 +34,7 @@ static std::map<std::string,TokenType> g_reserved_map{
         {"bool",    TokenType::BOOL_TYPE},
         {"void",    TokenType::VOID_TYPE},
         {"import",  TokenType::IMPORT},
+        {"defer",   TokenType::DEFER},
 };
 
 std::string TokenState::Dump() const {

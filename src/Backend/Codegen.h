@@ -39,6 +39,7 @@ namespace lesma {
 
         std::stack<llvm::BasicBlock*> breakBlocks;
         std::stack<llvm::BasicBlock*> continueBlocks;
+        std::stack<std::vector<llvm::Value*>> deferStack;
         bool isBreak = false;
 
     public:
@@ -71,6 +72,7 @@ namespace lesma {
         llvm::Value *Visit(Break *node);
         llvm::Value *Visit(Continue *node);
         llvm::Value *Visit(Return *node);
+        llvm::Value *Visit(Defer *node);
         llvm::Value *Visit(ExpressionStatement *node);
         llvm::Type  *Visit(lesma::Type *node);
         llvm::Value *Visit(FuncCall *node);

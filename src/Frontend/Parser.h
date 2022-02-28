@@ -76,6 +76,7 @@ namespace lesma {
         Statement  *ParseBreak();
         Statement  *ParseContinue();
         Statement  *ParseReturn();
+        Statement  *ParseDefer();
         Type       *ParseType();
         Expression *ParseExpression();
         Expression *ParseOr();

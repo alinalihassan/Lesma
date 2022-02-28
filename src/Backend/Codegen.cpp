@@ -173,6 +173,8 @@ llvm::Value *Codegen::Visit(Statement* node) {
         return Visit(dynamic_cast<Continue*>(node));
     else if (dynamic_cast<Return*>(node))
         return Visit(dynamic_cast<Return*>(node));
+    else if (dynamic_cast<Defer*>(node))
+        return Visit(dynamic_cast<Defer*>(node));
     else if (dynamic_cast<ExpressionStatement*>(node))
         return Visit(dynamic_cast<ExpressionStatement*>(node));
     else if (dynamic_cast<Compound*>(node))
@@ -324,10 +326,18 @@ llvm::Value *Codegen::Visit(FuncDecl *node) {
     for (auto &param: F->args())
         param.setName(node->getParameters()[param.getArgNo()].first);
 
+    deferStack.push({});
+
     BasicBlock *BB = BasicBlock::Create(*TheContext, "entry", F);
     Builder->SetInsertPoint(BB);
 
     Visit(node->getBody());
+
+    auto instrs = deferStack.top();
+    for (auto instr: instrs) {
+        instr->print(outs());
+    }
+    deferStack.pop();
 
     if (Visit(node->getReturnType()) == Builder->getVoidTy())
         Builder->CreateRetVoid();
@@ -364,12 +374,12 @@ llvm::Value *Codegen::Visit(ExternFuncDecl *node) {
 
 llvm::Value *Codegen::Visit(Assignment *node) {
     auto symbol = Scope->lookup(node->getIdentifier()->getValue());
+    if (symbol == nullptr)
+        throw CodegenError("Variable not found: {}", node->getIdentifier()->getValue());
     if (!symbol->getMutability())
         throw CodegenError("Assigning immutable variable a new value");
 
     auto value = Visit(node->getExpression());
-    if (symbol == nullptr)
-        throw CodegenError("Variable not found: {}", node->getIdentifier()->getValue());
 
     switch (node->getOperator()) {
         case TokenType::EQUAL:
@@ -409,6 +419,11 @@ llvm::Value *Codegen::Visit(Continue */*node*/) {
 
 llvm::Value *Codegen::Visit(Return *node) {
     return Builder->CreateRet(Visit(node->getValue()));
+}
+
+llvm::Value *Codegen::Visit(Defer */*node*/) {
+    throw CodegenError("Defer functionality unimplemented!");
+    return nullptr;
 }
 
 llvm::Value *Codegen::Visit(ExpressionStatement *node) {
