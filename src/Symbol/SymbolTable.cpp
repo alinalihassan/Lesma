@@ -11,14 +11,14 @@ using namespace lesma;
  * @param isConstant Enabled if the symbol is a constant
  * @param isParameter Enabled if the symbol is a function/procedure parameter
  */
-void SymbolTable::insertSymbol(const std::string& name, llvm::Value* value, llvm::Type* type) {
+void SymbolTable::insertSymbol(const std::string &name, llvm::Value *value, llvm::Type *type) {
     return insertSymbol(name, value, type, false);
 }
-void SymbolTable::insertSymbol(const std::string& name, llvm::Value* value, llvm::Type* type, bool mutable_) {
-//    bool isGlobal = getParent() == nullptr;
-    symbols.insert({name,new SymbolTableEntry(name, value, type, mutable_)});
+void SymbolTable::insertSymbol(const std::string &name, llvm::Value *value, llvm::Type *type, bool mutable_) {
+    //    bool isGlobal = getParent() == nullptr;
+    symbols.insert({name, new SymbolTableEntry(name, value, type, mutable_)});
     // If the symbol is a parameter, add it to the parameters list
-//    if (isParameter) paramNames.push_back(name);
+    //    if (isParameter) paramNames.push_back(name);
 }
 
 /**
@@ -27,7 +27,7 @@ void SymbolTable::insertSymbol(const std::string& name, llvm::Value* value, llvm
  * @param name Name of the desired symbol
  * @return Desired symbol / nullptr if the symbol was not found
  */
-SymbolTableEntry* SymbolTable::lookup(const std::string& name) {
+SymbolTableEntry *SymbolTable::lookup(const std::string &name) {
     // If not available in the current scope, search in the parent scope
     if (symbols.find(name) == symbols.end()) {
         if (parent == nullptr) return nullptr;
@@ -43,7 +43,7 @@ SymbolTableEntry* SymbolTable::lookup(const std::string& name) {
  * @param blockName Name of the child scope
  * @return Newly created child table
  */
-SymbolTable* SymbolTable::createChildBlock(const std::string& blockName) {
+SymbolTable *SymbolTable::createChildBlock(const std::string &blockName) {
     int idx = 1;
     while (children.find(blockName + std::to_string(idx)) != children.end())
         idx++;
@@ -56,7 +56,7 @@ SymbolTable* SymbolTable::createChildBlock(const std::string& blockName) {
  *
  * @return Pointer to the parent symbol table
  */
-SymbolTable* SymbolTable::getParent() {
+SymbolTable *SymbolTable::getParent() {
     return parent;
 }
 
@@ -66,7 +66,7 @@ SymbolTable* SymbolTable::getParent() {
  * @param scopeId Name of the child scope
  * @return Pointer to the child symbol table
  */
-SymbolTable* SymbolTable::getChild(const std::string& scopeId) {
+SymbolTable *SymbolTable::getChild(const std::string &scopeId) {
     if (children.empty()) return nullptr;
     if (children.find(scopeId) == children.end()) return nullptr;
     return children.at(scopeId);

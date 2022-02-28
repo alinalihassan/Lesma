@@ -1,12 +1,12 @@
 #pragma once
 
-#include <sysexits.h>
 #include <string>
+#include <sysexits.h>
 #include <vector>
 
-#include "Token/Token.h"
 #include "Common/LesmaError.h"
 #include "Common/Utils.h"
+#include "Token/Token.h"
 
 namespace lesma {
 
@@ -17,7 +17,7 @@ namespace lesma {
     class Lexer {
     public:
         explicit Lexer(const std::string &srcs, std::string src_file_name)
-                : srcs_(&srcs), src_file_name(std::move(src_file_name)) {}
+            : srcs_(&srcs), src_file_name(std::move(src_file_name)) {}
 
         std::vector<Token> ScanAll();
         Token ScanOne();
@@ -77,4 +77,4 @@ namespace lesma {
 
         void ResetTokenBeg();
     };
-}
+}// namespace lesma

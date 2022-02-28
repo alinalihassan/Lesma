@@ -45,4 +45,4 @@ namespace lesma {
 
         return new CLIOptions{file, output, debug, run->parsed()};
     }
-}
+}// namespace lesma

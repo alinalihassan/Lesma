@@ -1,11 +1,11 @@
 #pragma once
 
-#include "fmt/core.h"
 #include "fmt/color.h"
+#include "fmt/core.h"
 #include "lib/CLI11.hpp"
 
-#include "Token/TokenType.h"
 #include "LesmaError.h"
+#include "Token/TokenType.h"
 
 namespace lesma {
     struct SourceLocation {
@@ -29,7 +29,7 @@ namespace lesma {
     };
 
     template<typename S, typename... Args>
-    void print(LogType typ, const S &format_str, const Args &... args) {
+    void print(LogType typ, const S &format_str, const Args &...args) {
         if (typ == ERROR)
             fmt::print(fg(fmt::color::red) | fmt::emphasis::bold, "[-] Error: ");
         else if (typ == WARNING)
@@ -43,10 +43,10 @@ namespace lesma {
     }
 
     template<typename S, typename... Args>
-    void print(const S &format_str, const Args &... args) {
+    void print(const S &format_str, const Args &...args) {
         print(NONE, format_str, args...);
     }
 
-    std::string readFile(const std::string& path);
-    CLIOptions *parseCLI(int argc, char** argv);
-}
+    std::string readFile(const std::string &path);
+    CLIOptions *parseCLI(int argc, char **argv);
+}// namespace lesma

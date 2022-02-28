@@ -12,14 +12,14 @@ namespace lesma {
         LesmaError() = default;
 
         template<typename S, typename... Args>
-        explicit LesmaError(const S &format_str, const Args &... args) : what_(fmt::format(format_str, args...)) {};
-        explicit LesmaError(std::string what) : what_(std::move(what)) {};
+        explicit LesmaError(const S &format_str, const Args &...args) : what_(fmt::format(format_str, args...)){};
+        explicit LesmaError(std::string what) : what_(std::move(what)){};
 
         const char *what() const noexcept override {
             return what_.c_str();
         }
 
-        uint8_t exit_code = -1;  // if error should cause exit, this should be used.
+        uint8_t exit_code = -1;// if error should cause exit, this should be used.
     protected:
         mutable std::string what_;
     };
@@ -30,10 +30,10 @@ namespace lesma {
         LesmaErrorWithExitCode() = default;
 
         template<typename S, typename... Args>
-        explicit LesmaErrorWithExitCode(const S &format_str, const Args &... args) : LesmaError(fmt::format(format_str, args...)) { exit_code = DEFAULT_EXIT_CODE; };
+        explicit LesmaErrorWithExitCode(const S &format_str, const Args &...args) : LesmaError(fmt::format(format_str, args...)) { exit_code = DEFAULT_EXIT_CODE; };
         explicit LesmaErrorWithExitCode(const std::string &what) : LesmaError(what) { exit_code = DEFAULT_EXIT_CODE; };
 
         explicit LesmaErrorWithExitCode(std::string &&what) : LesmaError(
-                std::move(what)) { exit_code = DEFAULT_EXIT_CODE; };
+                                                                      std::move(what)) { exit_code = DEFAULT_EXIT_CODE; };
     };
-}
+}// namespace lesma

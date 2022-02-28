@@ -32,13 +32,13 @@ namespace lesma {
 
     public:
         LesmaJIT(std::unique_ptr<ExecutionSession> ES,
-                        JITTargetMachineBuilder JTMB, const DataLayout& DL)
-                : ES(std::move(ES)), DL(DL), Mangle(*this->ES, this->DL),
-                  ObjectLayer(*this->ES,
-                              []() { return std::make_unique<SectionMemoryManager>(); }),
-                  CompileLayer(*this->ES, ObjectLayer,
-                               std::make_unique<ConcurrentIRCompiler>(std::move(JTMB))),
-                  MainJD(this->ES->createBareJITDylib("<main>")) {
+                 JITTargetMachineBuilder JTMB, const DataLayout &DL)
+            : ES(std::move(ES)), DL(DL), Mangle(*this->ES, this->DL),
+              ObjectLayer(*this->ES,
+                          []() { return std::make_unique<SectionMemoryManager>(); }),
+              CompileLayer(*this->ES, ObjectLayer,
+                           std::make_unique<ConcurrentIRCompiler>(std::move(JTMB))),
+              MainJD(this->ES->createBareJITDylib("<main>")) {
             MainJD.addGenerator(
                     cantFail(DynamicLibrarySearchGenerator::GetForCurrentProcess(
                             DL.getGlobalPrefix())));
@@ -68,7 +68,7 @@ namespace lesma {
                 return DL.takeError();
 
             return std::make_unique<LesmaJIT>(std::move(ES), std::move(JTMB),
-                                                     std::move(*DL));
+                                              std::move(*DL));
         }
 
         const DataLayout &getDataLayout() const { return DL; }
@@ -86,6 +86,6 @@ namespace lesma {
         }
     };
 
-} // end namespace llvm
+}// namespace lesma
 
-#endif // LLVM_EXECUTIONENGINE_ORC_LESMAJIT_H
+#endif// LLVM_EXECUTIONENGINE_ORC_LESMAJIT_H

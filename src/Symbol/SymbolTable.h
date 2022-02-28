@@ -1,21 +1,21 @@
 #pragma once
 
+#include <llvm/IR/Type.h>
+#include <llvm/IR/Value.h>
 #include <map>
 #include <utility>
-#include <llvm/IR/Value.h>
-#include <llvm/IR/Type.h>
 
 #include "Common/Utils.h"
 
 namespace lesma {
-    class SymbolTableEntry { ;
+    class SymbolTableEntry {
     public:
         explicit SymbolTableEntry(std::string name, llvm::Value *value, llvm::Type *type) : name(std::move(name)),
                                                                                             value(value), type(type),
                                                                                             mutable_(false) {}
         explicit SymbolTableEntry(std::string name, llvm::Value *value, llvm::Type *type, bool mutable_) : name(std::move(name)),
-                                                                                            value(value), type(type),
-                                                                                            mutable_(mutable_) {}
+                                                                                                           value(value), type(type),
+                                                                                                           mutable_(mutable_) {}
 
         [[nodiscard]] std::string getName() { return name; }
         [[nodiscard]] llvm::Value *getValue() { return value; }
@@ -39,14 +39,14 @@ namespace lesma {
 
     class SymbolTable {
     public:
-        explicit SymbolTable(SymbolTable *parent) : parent(parent) {};
+        explicit SymbolTable(SymbolTable *parent) : parent(parent){};
 
         SymbolTableEntry *lookup(const std::string &symbolName);
 
         void insertSymbol(const std::string &name, llvm::Value *value, llvm::Type *type);
         void insertSymbol(const std::string &name, llvm::Value *value, llvm::Type *type, bool mutable_);
 
-        SymbolTable *createChildBlock(const std::string& blockName);
+        SymbolTable *createChildBlock(const std::string &blockName);
 
         SymbolTable *getParent();
 
@@ -69,7 +69,7 @@ namespace lesma {
 
     private:
         SymbolTable *parent;
-        std::map<std::string, SymbolTable*> children;
-        std::map<std::string, SymbolTableEntry*> symbols;
+        std::map<std::string, SymbolTable *> children;
+        std::map<std::string, SymbolTableEntry *> symbols;
     };
-}
+}// namespace lesma

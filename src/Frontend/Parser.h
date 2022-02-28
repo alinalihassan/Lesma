@@ -1,10 +1,10 @@
 #pragma once
 
+#include "AST/AST.h"
+#include "Common/LesmaError.h"
+#include "Lexer.h"
 #include <memory>
 #include <utility>
-#include "Lexer.h"
-#include "Common/LesmaError.h"
-#include "AST/AST.h"
 
 namespace lesma {
     class ParserError : public LesmaErrorWithExitCode<EX_DATAERR> {
@@ -62,22 +62,22 @@ namespace lesma {
 
         static void Error(const Token &token, const std::string &basicString);
 
-        Compound   *ParseCompound();
-        Compound   *ParseBlock();
-        Statement  *ParseTopLevelStatement();
-        Statement  *ParseFunctionDeclaration();
-        Statement  *ParseImport();
-        Statement  *ParseStatement();
-        Statement  *ParseIf();
-        Statement  *ParseWhile();
-        Statement  *ParseFor();
-        Statement  *ParseVarDecl();
-        Statement  *ParseAssignment();
-        Statement  *ParseBreak();
-        Statement  *ParseContinue();
-        Statement  *ParseReturn();
-        Statement  *ParseDefer();
-        Type       *ParseType();
+        Compound *ParseCompound();
+        Compound *ParseBlock();
+        Statement *ParseTopLevelStatement();
+        Statement *ParseFunctionDeclaration();
+        Statement *ParseImport();
+        Statement *ParseStatement();
+        Statement *ParseIf();
+        Statement *ParseWhile();
+        Statement *ParseFor();
+        Statement *ParseVarDecl();
+        Statement *ParseAssignment();
+        Statement *ParseBreak();
+        Statement *ParseContinue();
+        Statement *ParseReturn();
+        Statement *ParseDefer();
+        Type *ParseType();
         Expression *ParseExpression();
         Expression *ParseOr();
         Expression *ParseAnd();
@@ -90,4 +90,4 @@ namespace lesma {
         Expression *ParseTerm();
         Expression *ParseFunctionCall();
     };
-}
+}// namespace lesma

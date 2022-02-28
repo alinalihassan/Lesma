@@ -16,14 +16,22 @@ Token Lexer::ScanOne() {
     bool continuation = false;
 
     switch (c) {
-        case '(': return AddToken(TokenType::LEFT_PAREN);
-        case ')': return AddToken(TokenType::RIGHT_PAREN);
-        case '[': return AddToken(TokenType::LEFT_SQUARE);
-        case ']': return AddToken(TokenType::RIGHT_SQUARE);
-        case '{': return AddToken(TokenType::LEFT_BRACE);
-        case '}': return AddToken(TokenType::RIGHT_BRACE);
-        case ':': return AddToken(TokenType::COLON);
-        case ',': return AddToken(TokenType::COMMA);
+        case '(':
+            return AddToken(TokenType::LEFT_PAREN);
+        case ')':
+            return AddToken(TokenType::RIGHT_PAREN);
+        case '[':
+            return AddToken(TokenType::LEFT_SQUARE);
+        case ']':
+            return AddToken(TokenType::RIGHT_SQUARE);
+        case '{':
+            return AddToken(TokenType::LEFT_BRACE);
+        case '}':
+            return AddToken(TokenType::RIGHT_BRACE);
+        case ':':
+            return AddToken(TokenType::COLON);
+        case ',':
+            return AddToken(TokenType::COMMA);
         case '.': {
             if (MatchAndAdvance(('.'))) {
                 if (MatchAndAdvance('.'))
@@ -39,7 +47,7 @@ Token Lexer::ScanOne() {
             else if (MatchAndAdvance('='))
                 return AddToken(TokenType::MINUS_EQUAL);
 
-            return AddToken( TokenType::MINUS);
+            return AddToken(TokenType::MINUS);
         }
         case '+': {
             if (MatchAndAdvance('='))
@@ -47,13 +55,15 @@ Token Lexer::ScanOne() {
 
             return AddToken(TokenType::PLUS);
         }
-        case ';': return AddToken(TokenType::SEMICOLON);
+        case ';':
+            return AddToken(TokenType::SEMICOLON);
         case '*': {
             if (MatchAndAdvance('='))
                 return AddToken(TokenType::STAR_EQUAL);
             return AddToken(TokenType::STAR);
         }
-        case '!': return AddToken(MatchAndAdvance('=') ? TokenType::BANG_EQUAL : TokenType::BANG);
+        case '!':
+            return AddToken(MatchAndAdvance('=') ? TokenType::BANG_EQUAL : TokenType::BANG);
         case '=': {
             if (MatchAndAdvance('='))
                 return AddToken(TokenType::EQUAL_EQUAL);
@@ -62,8 +72,10 @@ Token Lexer::ScanOne() {
 
             return AddToken(TokenType::EQUAL);
         }
-        case '<': return AddToken(MatchAndAdvance('=') ? TokenType::LESS_EQUAL : TokenType::LESS);
-        case '>': return AddToken(MatchAndAdvance('=') ? TokenType::GREATER_EQUAL : TokenType::GREATER);
+        case '<':
+            return AddToken(MatchAndAdvance('=') ? TokenType::LESS_EQUAL : TokenType::LESS);
+        case '>':
+            return AddToken(MatchAndAdvance('=') ? TokenType::GREATER_EQUAL : TokenType::GREATER);
         case '/': {
             if (MatchAndAdvance('='))
                 return AddToken(TokenType::SLASH_EQUAL);
@@ -94,7 +106,7 @@ Token Lexer::ScanOne() {
         case '\n':
             loc.Line++;
             loc.Col = 0;
-            if(!continuation && level_ == 0)
+            if (!continuation && level_ == 0)
                 tokens.push_back(AddToken({TokenType::NEWLINE, "NEWLINE", loc}));
             HandleIndentation(continuation);
             continuation = false;
@@ -119,7 +131,7 @@ void Lexer::HandleWhitespace(char c) {
     }
     if (first_indent_char != c)
         Error(fmt::format("Mixed indentation, first indentation character is: {}", first_indent_char));
-    if(c == '\t')
+    if (c == '\t')
         loc.Col += 7;
 }
 
@@ -128,73 +140,69 @@ bool Lexer::HandleIndentation(bool continuation) {
     int col = 0, alt_col = 0;
     char c = 0;
     int changes = 0;
-    for(;;) {
+    for (;;) {
         if (IsAtEnd())
             break;
         c = Advance();
-        if(c == ' ') {
-            ++col; ++alt_col;
-        }
-        else if(c == '\t') {
-            col = (col/tab_size+1)*tab_size;
+        if (c == ' ') {
+            ++col;
+            ++alt_col;
+        } else if (c == '\t') {
+            col = (col / tab_size + 1) * tab_size;
             alt_col += 1;
-        }
-        else {
+        } else {
             break;
         }
     }
     if (!IsAtEnd())
         Fallback();
 
-    if(continuation || level_ != 0 || c == '#' || c == '\n' || c == '\r') {
-        if(c == '#' || c == '\n') {
+    if (continuation || level_ != 0 || c == '#' || c == '\n' || c == '\r') {
+        if (c == '#' || c == '\n') {
             // If this line is a commented line or an empty line, don't emit NewLine
-            if(!tokens.empty() && tokens.back()->type == TokenType::NEWLINE) {
+            if (!tokens.empty() && tokens.back()->type == TokenType::NEWLINE) {
                 tokens.pop_back();
             }
         }
         return true;
     }
 
-    if(col == indent_stack_[indent_]) {
-        if(alt_col != alt_indent_stack_[indent_]) {
+    if (col == indent_stack_[indent_]) {
+        if (alt_col != alt_indent_stack_[indent_]) {
             Error("Indentation error");
             return false;
         }
-    }
-    else if(col > indent_stack_[indent_]) {
-        if(alt_col <= alt_indent_stack_[indent_]) {
+    } else if (col > indent_stack_[indent_]) {
+        if (alt_col <= alt_indent_stack_[indent_]) {
             Error("Indentation error");
             return false;
         }
         ++indent_;
         ++changes;
         assert(indent_stack_.size() >= size_t(indent_));
-        if(indent_stack_.size() == size_t(indent_)) {
+        if (indent_stack_.size() == size_t(indent_)) {
             alt_indent_stack_.push_back(alt_col);
             indent_stack_.push_back(col);
-        }
-        else {
+        } else {
             alt_indent_stack_[indent_] = alt_col;
             indent_stack_[indent_] = col;
         }
-    }
-    else {
-        while(indent_ > 0 && col < indent_stack_[indent_]) {
+    } else {
+        while (indent_ > 0 && col < indent_stack_[indent_]) {
             --changes;
             --indent_;
         }
-        if(col != indent_stack_[indent_]) {
+        if (col != indent_stack_[indent_]) {
             Error("Dedentation error");
             return false;
         }
-        if(alt_col != alt_indent_stack_[indent_]) {
+        if (alt_col != alt_indent_stack_[indent_]) {
             Error("Indentation error");
             return false;
         }
     }
 
-    while(changes != 0) {
+    while (changes != 0) {
         tokens.push_back(AddToken({changes > 0 ? TokenType::INDENT : TokenType::DEDENT, changes > 0 ? "INDENT" : "DEDENT", loc}));
         changes += changes > 0 ? -1 : 1;
     }

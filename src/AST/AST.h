@@ -1,21 +1,19 @@
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wunused-parameter"
-
 #pragma once
 
-#include <utility>
-#include <vector>
 #include <iostream>
 #include <map>
+#include <utility>
+#include <vector>
 
 #include "Common/Utils.h"
-#include "Token/TokenType.h"
 #include "Token/Token.h"
+#include "Token/TokenType.h"
 #include "lib/nameof.h"
 
 namespace lesma {
     class AST {
         SourceLocation Loc;
+
     public:
         explicit AST(SourceLocation Loc) : Loc(Loc) {}
         virtual ~AST() = default;
@@ -45,6 +43,7 @@ namespace lesma {
     class Literal : public Expression {
         std::string value;
         TokenType type;
+
     public:
         Literal(SourceLocation Loc, std::string value, TokenType type) : Expression(Loc), value(std::move(value)),
                                                                          type(type) {}
@@ -67,6 +66,7 @@ namespace lesma {
 
     class Compound : public Statement {
         std::vector<Statement *> children;
+
     public:
         explicit Compound(SourceLocation Loc) : Statement(Loc) {}
         ~Compound() override = default;
@@ -89,6 +89,7 @@ namespace lesma {
 
     class Program : public AST {
         Compound *block = {};
+
     public:
         Program(SourceLocation Loc, Compound *block) : AST(Loc), block(block) {}
         ~Program() override = default;
@@ -103,6 +104,7 @@ namespace lesma {
     class Type : public Expression {
         std::string name;
         TokenType type;
+
     public:
         Type(SourceLocation Loc, std::string name, TokenType type) : Expression(Loc), name(std::move(name)), type(type) {}
         ~Type() override = default;
@@ -118,8 +120,9 @@ namespace lesma {
     class Import : public Statement {
         std::string file_path;
         std::string alias;
+
     public:
-        Import(SourceLocation Loc, std::string file_path, std::string alias) : Statement(Loc), file_path(std::move(file_path)), alias(std::move(alias)) {};
+        Import(SourceLocation Loc, std::string file_path, std::string alias) : Statement(Loc), file_path(std::move(file_path)), alias(std::move(alias)){};
         ~Import() override = default;
 
         [[nodiscard]] std::string getFilePath() const { return file_path; }
@@ -137,16 +140,18 @@ namespace lesma {
         std::optional<Type *> type;
         std::optional<Expression *> expr;
         bool mutable_;
+
     public:
-        VarDecl(SourceLocation Loc, Literal *var, std::optional<Type *>type) : Statement(Loc), var(var), type(type), expr(std::nullopt),
-                                                                mutable_(true) {}
-        VarDecl(SourceLocation Loc, Literal *var, std::optional<Type *>type, bool mutable_) : Statement(Loc), var(var), type(type),
-                                                                           expr(std::nullopt), mutable_(mutable_) {}
-        VarDecl(SourceLocation Loc, Literal *var, std::optional<Type *>type, std::optional<Expression *> expr) : Statement(Loc), var(var),
-                                                                                              type(type), expr(expr),
-                                                                                                  mutable_(true) {}
-        VarDecl(SourceLocation Loc, Literal *var, std::optional<Type *>type, std::optional<Expression *> expr, bool readonly) : Statement(
-                Loc), var(var), type(type), expr(expr), mutable_(readonly) {}
+        VarDecl(SourceLocation Loc, Literal *var, std::optional<Type *> type) : Statement(Loc), var(var), type(type), expr(std::nullopt),
+                                                                                mutable_(true) {}
+        VarDecl(SourceLocation Loc, Literal *var, std::optional<Type *> type, bool mutable_) : Statement(Loc), var(var), type(type),
+                                                                                               expr(std::nullopt), mutable_(mutable_) {}
+        VarDecl(SourceLocation Loc, Literal *var, std::optional<Type *> type, std::optional<Expression *> expr) : Statement(Loc), var(var),
+                                                                                                                  type(type), expr(expr),
+                                                                                                                  mutable_(true) {}
+        VarDecl(SourceLocation Loc, Literal *var, std::optional<Type *> type, std::optional<Expression *> expr, bool readonly) : Statement(
+                                                                                                                                         Loc),
+                                                                                                                                 var(var), type(type), expr(expr), mutable_(readonly) {}
 
         ~VarDecl() override = default;
 
@@ -159,13 +164,14 @@ namespace lesma {
             return std::string(ind, ' ') + "VarDecl" +
                    "[" + std::to_string(getLine()) + ':' + std::to_string(getCol()) + "]: " +
                    var->toString(ind) + (type.has_value() ? ": " + type.value()->toString(ind) : "") +
-                   (expr.has_value() ? " = " + expr.value()->toString(ind) : "")  + '\n';
+                   (expr.has_value() ? " = " + expr.value()->toString(ind) : "") + '\n';
         }
     };
 
     class If : public Statement {
         std::vector<Expression *> conds;
         std::vector<Compound *> blocks;
+
     public:
         If(SourceLocation Loc, std::vector<Expression *> conds, std::vector<Compound *> blocks) : Statement(Loc),
                                                                                                   conds(std::move(
@@ -193,6 +199,7 @@ namespace lesma {
     class While : public Statement {
         Expression *cond;
         Compound *block;
+
     public:
         While(SourceLocation Loc, Expression *cond, Compound *block) : Statement(Loc), cond(cond), block(block) {}
         ~While() override = default;
@@ -213,11 +220,11 @@ namespace lesma {
         Type *return_type;
         std::vector<std::pair<std::string, Type *>> parameters;
         Compound *body;
+
     public:
         FuncDecl(SourceLocation Loc, std::string name, Type *return_type,
-                 std::vector<std::pair<std::string, Type *>> parameters, Compound *body) :
-                Statement(Loc), name(std::move(name)), return_type(return_type), parameters(std::move(parameters)),
-                body(body) {}
+                 std::vector<std::pair<std::string, Type *>> parameters, Compound *body) : Statement(Loc), name(std::move(name)), return_type(return_type), parameters(std::move(parameters)),
+                                                                                           body(body) {}
 
         ~FuncDecl() override = default;
 
@@ -244,10 +251,10 @@ namespace lesma {
         std::string name;
         Type *return_type;
         std::vector<std::pair<std::string, Type *>> parameters;
+
     public:
         ExternFuncDecl(SourceLocation Loc, std::string name, Type *return_type,
-                       std::vector<std::pair<std::string, Type *>> parameters) :
-                Statement(Loc), name(std::move(name)), return_type(return_type), parameters(std::move(parameters)) {}
+                       std::vector<std::pair<std::string, Type *>> parameters) : Statement(Loc), name(std::move(name)), return_type(return_type), parameters(std::move(parameters)) {}
 
         ~ExternFuncDecl() override = default;
 
@@ -270,15 +277,15 @@ namespace lesma {
 
     class FuncCall : public Expression {
         std::string name;
-        std::vector<Expression*> arguments;
+        std::vector<Expression *> arguments;
+
     public:
-        FuncCall(SourceLocation Loc, std::string name, std::vector<Expression*> arguments) :
-                Expression(Loc), name(std::move(name)), arguments(std::move(arguments)) {}
+        FuncCall(SourceLocation Loc, std::string name, std::vector<Expression *> arguments) : Expression(Loc), name(std::move(name)), arguments(std::move(arguments)) {}
 
         ~FuncCall() override = default;
 
         [[nodiscard]] std::string getName() const { return name; }
-        [[nodiscard]] std::vector<Expression*> getArguments() const { return arguments; }
+        [[nodiscard]] std::vector<Expression *> getArguments() const { return arguments; }
 
         std::string toString(int ind) override {
             auto ret = name + "(";
@@ -295,9 +302,9 @@ namespace lesma {
         Literal *var;
         TokenType op;
         Expression *expr;
+
     public:
-        Assignment(SourceLocation Loc, Literal *var, TokenType op, Expression *expr) :
-                Statement(Loc), var(var), op(op), expr(expr) {}
+        Assignment(SourceLocation Loc, Literal *var, TokenType op, Expression *expr) : Statement(Loc), var(var), op(op), expr(expr) {}
 
         ~Assignment() override = default;
 
@@ -315,6 +322,7 @@ namespace lesma {
 
     class ExpressionStatement : public Statement {
         Expression *expr;
+
     public:
         ExpressionStatement(SourceLocation Loc, Expression *expr) : Statement(Loc), expr(expr) {}
         ~ExpressionStatement() override = default;
@@ -323,8 +331,8 @@ namespace lesma {
 
         std::string toString(int ind) override {
             return std::string(ind, ' ') + "Expression" +
-                       "[" + std::to_string(getLine()) + ':' + std::to_string(getCol()) + "]: " +
-                       expr->toString(ind) + '\n';
+                   "[" + std::to_string(getLine()) + ':' + std::to_string(getCol()) + "]: " +
+                   expr->toString(ind) + '\n';
         }
     };
 
@@ -332,6 +340,7 @@ namespace lesma {
         Expression *left;
         TokenType op;
         Expression *right;
+
     public:
         BinaryOp(SourceLocation Loc, Expression *left, TokenType op, Expression *right) : Expression(Loc), left(left),
                                                                                           op(op), right(right) {}
@@ -350,6 +359,7 @@ namespace lesma {
     class CastOp : public Expression {
         Expression *expr;
         Type *type;
+
     public:
         CastOp(SourceLocation Loc, Expression *expr, Type *type) : Expression(Loc), expr(expr), type(type) {}
 
@@ -366,6 +376,7 @@ namespace lesma {
     class UnaryOp : public Expression {
         TokenType op;
         Expression *expr;
+
     public:
         UnaryOp(SourceLocation Loc, TokenType op, Expression *expr) : Expression(Loc), op(op), expr(expr) {}
         ~UnaryOp() override = default;
@@ -410,6 +421,7 @@ namespace lesma {
 
     class Return : public Statement {
         Expression *value;
+
     public:
         Return(SourceLocation Loc, Expression *value) : Statement(Loc), value(value) {}
         ~Return() override = default;
@@ -423,6 +435,7 @@ namespace lesma {
 
     class Defer : public Statement {
         Statement *stmt;
+
     public:
         Defer(SourceLocation Loc, Statement *stmt) : Statement(Loc), stmt(stmt) {}
         ~Defer() override = default;
@@ -433,6 +446,4 @@ namespace lesma {
             return std::string(ind, ' ') + "Defer " + stmt->toString(0);
         }
     };
-}
-
-#pragma clang diagnostic pop
+}// namespace lesma
