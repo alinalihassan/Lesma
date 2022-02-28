@@ -183,7 +183,7 @@ llvm::Value *Codegen::Visit(Statement *node) {
     throw CodegenError("Unknown Statement:\n{}", node->toString(0));
 }
 
-llvm::Type* Codegen::Visit(lesma::Type *node) {
+llvm::Type *Codegen::Visit(lesma::Type *node) {
     if (node->getType() == TokenType::INT_TYPE)
         return Builder->getInt64Ty();
     if (node->getType() == TokenType::FLOAT_TYPE)
