@@ -13,36 +13,34 @@ namespace lesma {
 
     CLIOptions *parseCLI(int argc, char **argv) {
         bool debug;
-        std::string output = "output";
         std::string file;
 
-        CLI::App app{"Lesma"};
-        app.set_help_all_flag("--help-all", "Expand all help");
-        app.add_flag("-d,--debug", debug, "Enable debug logging");
+        cxxopts::Options options("Lesma", "Lesma compiler");
+        options.positional_help("[optional args]").show_positional_help();
+        // clang-format off
+        options.add_options()
+                ("h,help", "Print usage")
+                ("d,debug", "Enable debugging", cxxopts::value<bool>(debug))
+                ;
+        // clang-format on
+        options.add_options("Hidden")
+                ("f,file", "Input Lesma file", cxxopts::value<std::string>(file));
 
-        CLI::App *run = app.add_subcommand("run", "Run source code");
-        CLI::App *compile = app.add_subcommand("compile", "Compile source code");
-        app.require_subcommand();
+        options.parse_positional({"file"});
+        options.positional_help("<file>");
 
-        compile->add_option("-o,--output", output, "Enable debug logging");
+        auto result = options.parse(argc, argv);
 
-        run->allow_extras(true);
-        compile->allow_extras(true);
-
-        try {
-            app.parse(argc, argv);
-        } catch (const CLI::ParseError &e) {
-            print(ERROR, e.what());
-            exit(app.exit(e));
+        if (result.count("help")) {
+            print("{}\n", options.help({""}));
+            exit(0);
         }
 
-        if (app.remaining(true).size() != 1) {
-            print(ERROR, "Expected 1 input file");
-            exit(EXIT_FAILURE);
+        if (!result.count("file")) {
+            print(ERROR, "Expected a file input, print usage with -h or --help for more information\n");
+            exit(1);
         }
 
-        file = app.remaining(true).at(0);
-
-        return new CLIOptions{file, output, debug, run->parsed()};
+        return new CLIOptions{debug, file};
     }
 }// namespace lesma

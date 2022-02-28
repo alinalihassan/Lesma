@@ -57,11 +57,7 @@ int main(int argc, char **argv) {
         //        codegen->Dump();
 
         // Executing
-        TIMEIT("Execution",
-               int exit_code = 0;
-               if (options->jit)
-                       exit_code = codegen->JIT(std::move(codegen->Modules));
-               else codegen->Compile(options->output);)
+        TIMEIT("Execution", int exit_code = codegen->JIT(std::move(codegen->Modules)););
 
         if (options->debug)
             print(DEBUG, "Total -> {:.2f} ms\n", total);

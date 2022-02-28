@@ -1,8 +1,11 @@
 #pragma once
 
+#include <sstream>
+#include <fstream>
+
+#include "cxxopts.hpp"
 #include "fmt/color.h"
 #include "fmt/core.h"
-#include "lib/CLI11.hpp"
 
 #include "LesmaError.h"
 #include "Token/TokenType.h"
@@ -22,10 +25,8 @@ namespace lesma {
     };
 
     struct CLIOptions {
-        std::string file;
-        std::string output;
         bool debug;
-        bool jit;
+        std::string file;
     };
 
     template<typename S, typename... Args>

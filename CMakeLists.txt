@@ -2,22 +2,20 @@ cmake_minimum_required(VERSION 3.21)
 project(Lesma)
 
 # External dependencies
+include(cmake/CPM.cmake)
 include(FetchContent)
 
-## fmt
-FetchContent_Declare(fmt
-        GIT_REPOSITORY https://github.com/fmtlib/fmt.git
+CPMAddPackage("gh:Neargye/nameof@0.10.1")
+CPMAddPackage(
+        NAME fmt
         GIT_TAG 8.1.1
+        GITHUB_REPOSITORY fmtlib/fmt
 )
-FetchContent_MakeAvailable(fmt)
-
-# Tests
-enable_testing()
-
-find_program (BASH_PROGRAM bash)
-if (BASH_PROGRAM)
-    add_test(test_lesma_sources ${BASH_PROGRAM} ${CMAKE_CURRENT_SOURCE_DIR}/run_compiler_tests.sh)
-endif (BASH_PROGRAM)
+CPMAddPackage(
+        GITHUB_REPOSITORY jarro2783/cxxopts
+        VERSION 3.0.0
+        OPTIONS "CXXOPTS_BUILD_EXAMPLES NO" "CXXOPTS_BUILD_TESTS NO" "CXXOPTS_ENABLE_INSTALL YES"
+)
 
 # C++ Flags and settings
 if (CMAKE_BUILD_TYPE MATCHES Debug)
@@ -37,6 +35,14 @@ get_filename_component(SRC_DIR ${ROOT_DIR}/src ABSOLUTE)
 get_filename_component(LIB_DIR ${ROOT_DIR}/lib ABSOLUTE)
 get_filename_component(BUILD_DIR ${CMAKE_BINARY_DIR} ABSOLUTE)
 
+# Tests
+enable_testing()
+
+find_program (BASH_PROGRAM bash)
+if (BASH_PROGRAM)
+    add_test(test_lesma_sources ${BASH_PROGRAM} ${CMAKE_CURRENT_SOURCE_DIR}/run_compiler_tests.sh)
+endif (BASH_PROGRAM)
+
 include_directories(${SRC_DIR})
 
 # LLVM configuration
@@ -53,6 +59,7 @@ set(EXE_NAME lesma)
 
 include_directories(${CMAKE_SOURCE_DIR})
 add_executable(${EXE_NAME}
+        src/main.cpp
         src/LesmaJIT.h
         src/Common/Utils.h
         src/Common/Utils.cpp
@@ -64,7 +71,6 @@ add_executable(${EXE_NAME}
         src/Token/Token.cpp
         src/Token/Token.h
         src/Token/TokenType.h
-        src/main.cpp
         src/AST/AST.h
         src/Backend/Codegen.cpp
         src/Backend/Codegen.h
@@ -73,5 +79,7 @@ add_executable(${EXE_NAME}
 
 target_link_libraries(${EXE_NAME} PRIVATE
         ${LLVM_LIBS}
-        fmt::fmt
+        fmt
+        nameof
+        cxxopts
 )

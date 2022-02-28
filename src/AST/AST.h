@@ -8,7 +8,7 @@
 #include "Common/Utils.h"
 #include "Token/Token.h"
 #include "Token/TokenType.h"
-#include "lib/nameof.h"
+#include "nameof.hpp"
 
 namespace lesma {
     class AST {

@@ -4,7 +4,7 @@
 #include <string>
 #include <utility>
 
-#include "lib/nameof.h"
+#include "nameof.hpp"
 
 #include "Common/Utils.h"
 #include "TokenType.h"
