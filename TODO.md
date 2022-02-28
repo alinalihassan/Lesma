@@ -1,7 +1,7 @@
 # TODO List
 
 ## Bug fixes
-- [ ] Parser expects exactly one newline at the end of the file
+- [x] Parser expects exactly one newline at the end of the file
 
 ## Refactoring
 - [ ] Replace SourceLocation by Span
