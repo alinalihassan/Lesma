@@ -2,6 +2,8 @@
 
 ## Bug fixes
 - [x] Parser expects exactly one newline at the end of the file
+- [ ] Disallow return in top level
+- [ ] Allow return void
 
 ## Refactoring
 - [ ] Replace SourceLocation by Span

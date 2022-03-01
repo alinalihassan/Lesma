@@ -50,6 +50,9 @@ jobs:
           version: "13.0"
           cached: ${{ steps.cache-llvm.outputs.cache-hit }}
 
+      - name: Install Ninja
+        uses: seanmiddleditch/gha-setup-ninja@master
+
       - name: Configure CMake
         run: cmake -B ${{github.workspace}}/build -G Ninja -DCMAKE_BUILD_TYPE=${{env.BUILD_TYPE}}
         env:
