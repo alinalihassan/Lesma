@@ -5,8 +5,8 @@
 
 ___
 [![License: MIT](https://img.shields.io/badge/License-MIT-brightgreen.svg)](https://opensource.org/licenses/MIT)
-[![Version](https://img.shields.io/badge/version-0.4.1-brightgreen.svg)](https://github.com/alinalihassan/Lesma/blob/master/LICENSE.md)
-[![Build](https://img.shields.io/github/workflow/status/alinalihassan/Lesma/Build%20and%20Test)](https://github.com/alinalihassan/Lesma/actions/workflows/build.yaml)
+[![Version](https://img.shields.io/badge/version-0.1.0-brightgreen.svg)](https://github.com/alinalihassan/Lesma/blob/master/LICENSE.md)
+[![Build](https://img.shields.io/github/workflow/status/alinalihassan/Lesma/Build)](https://github.com/alinalihassan/Lesma/actions/workflows/build.yaml)
 
 **Lesma** is a compiled, statically typed, imperative and object-oriented programming language with a focus on expressiveness, elegancy, and simplicity, while not sacrificing on performance.
 
