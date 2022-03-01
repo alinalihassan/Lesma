@@ -437,6 +437,10 @@ llvm::Value *Codegen::Visit(Continue * /*node*/) {
 }
 
 llvm::Value *Codegen::Visit(Return *node) {
+    // Check if it's top-level
+    if (Builder->GetInsertBlock()->getParent() == TopLevelFunc)
+        throw CodegenError("Return statements are not allowed at top-level\n");
+
     return Builder->CreateRet(Visit(node->getValue()));
 }
 
