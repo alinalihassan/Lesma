@@ -4,8 +4,8 @@
 </p>
 
 ___
-[![License: MIT](https://img.shields.io/badge/License-MIT-brightgreen.svg)](https://opensource.org/licenses/MIT)
-[![Version](https://img.shields.io/badge/version-0.1.0-brightgreen.svg)](https://github.com/alinalihassan/Lesma/blob/master/LICENSE.md)
+[![License: MIT](https://img.shields.io/badge/License-MIT-brightgreen.svg)](https://github.com/alinalihassan/Lesma/blob/main/LICENSE)
+[![Version](https://img.shields.io/badge/version-0.1.0-brightgreen.svg)](https://github.com/alinalihassan/Lesma/blob/main/LICENSE)
 [![Build](https://img.shields.io/github/workflow/status/alinalihassan/Lesma/Build)](https://github.com/alinalihassan/Lesma/actions/workflows/build.yaml)
 
 **Lesma** is a compiled, statically typed, imperative and object-oriented programming language with a focus on expressiveness, elegancy, and simplicity, while not sacrificing on performance.
@@ -65,3 +65,11 @@ Remember there are examples in the documentation.
 ./lesma run test.les
 ./lesma compile test.les
 ```
+
+## Contributing
+Pull requests are welcome. For major changes, please open an issue first to discuss what you would like to change.
+
+Please make sure to add and/or update tests as appropriate.
+
+## License
+[MIT](https://choosealicense.com/licenses/mit/)
