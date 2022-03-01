@@ -1,8 +1,7 @@
 #ret=101
+def extern exit(x: int)
+
 def fib() -> int
     return 101
 
-def main() -> int
-    let y: int = fib()
-
-    return y
+exit(fib())

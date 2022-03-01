@@ -1,11 +1,11 @@
 #ret=101
+def extern exit(x: int)
 
-def main() -> int
-    var x: int = 5
+var x: int = 5
 
-    while true
-        if x == 101
-            break
-        x = x + 1
+while true
+    if x == 101
+        break
+    x = x + 1
 
-    return x
+exit(x)

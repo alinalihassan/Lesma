@@ -1,5 +1,7 @@
 #ret=101
-def main() -> int
-    var y: int = 100
-    y = 101
-    return y
+def extern exit(x: int)
+
+var y: int = 100
+y = 101
+
+exit(y)

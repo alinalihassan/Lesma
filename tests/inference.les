@@ -1,5 +1,5 @@
 #ret=101
+def extern exit(x: int)
 
-def main() -> int
-    let x = 101
-    return x
+let x = 101
+exit(x)

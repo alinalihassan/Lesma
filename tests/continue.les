@@ -1,13 +1,13 @@
 #ret=101
+def extern exit(x: int)
 
-def main() -> int
-    var x: int = 5
-    var y: int = 0
+var x: int = 5
+var y: int = 0
 
-    while x < 208
-        x = x + 1
-        if x % 2 == 0
-            continue
-        y = y + 1
+while x < 208
+    x = x + 1
+    if x % 2 == 0
+        continue
+    y = y + 1
 
-    return y
+exit(y)
