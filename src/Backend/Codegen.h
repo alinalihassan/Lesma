@@ -40,7 +40,7 @@ namespace lesma {
         std::stack<llvm::BasicBlock *> breakBlocks;
         std::stack<llvm::BasicBlock *> continueBlocks;
         std::stack<std::vector<llvm::Value *>> deferStack;
-        llvm::Function* TopLevelFunc;
+        llvm::Function *TopLevelFunc;
         bool isBreak = false;
 
     public:

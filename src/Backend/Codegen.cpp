@@ -345,15 +345,15 @@ llvm::Value *Codegen::Visit(FuncDecl *node) {
     for (auto &param: F->args())
         param.setName(node->getParameters()[param.getArgNo()].first);
 
-//    deferStack.push({});
+    //    deferStack.push({});
 
     BasicBlock *BB = BasicBlock::Create(*TheContext, "entry", F);
     Builder->SetInsertPoint(BB);
 
     Visit(node->getBody());
 
-//    auto instrs = deferStack.top();
-//    deferStack.pop();
+    //    auto instrs = deferStack.top();
+    //    deferStack.pop();
 
     if (Visit(node->getReturnType()) == Builder->getVoidTy())
         Builder->CreateRetVoid();
