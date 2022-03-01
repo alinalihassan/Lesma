@@ -23,7 +23,7 @@ Codegen::Codegen(std::unique_ptr<Parser> parser, const std::string &filename) {
 llvm::Function *Codegen::InitializeTopLevel() {
     std::vector<llvm::Type *> paramTypes = {};
 
-    FunctionType *FT = FunctionType::get(Builder->getVoidTy(), paramTypes, false);
+    FunctionType *FT = FunctionType::get(Builder->getInt64Ty(), paramTypes, false);
     Function *F = Function::Create(FT, Function::ExternalLinkage, "top-level", *TheModule);
 
     auto entry = BasicBlock::Create(*TheContext, "entry", F);
@@ -149,7 +149,7 @@ llvm::Value *Codegen::Visit(Program *node) {
     auto body = Visit(node->getBlock());
 
     // Return void for top-level function
-    Builder->CreateRetVoid();
+    Builder->CreateRet(ConstantInt::getSigned(Builder->getInt64Ty(), 0));
 
     return body;
 }
