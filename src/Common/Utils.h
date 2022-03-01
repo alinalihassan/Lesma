@@ -15,10 +15,10 @@ namespace lesma {
         unsigned int Line;
         unsigned int Col;
 
-        bool operator==(const SourceLocation& rhs) const {
+        bool operator==(const SourceLocation &rhs) const {
             return (Line == rhs.Line) && (Col == rhs.Col);
         }
-        bool operator!=(const SourceLocation& rhs) const {
+        bool operator!=(const SourceLocation &rhs) const {
             return !operator==(rhs);
         }
     };

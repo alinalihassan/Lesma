@@ -19,13 +19,13 @@ namespace lesma {
         TokenType type;
         SourceLocation loc;
 
-        bool operator==(const TokenState& rhs) const {
+        bool operator==(const TokenState &rhs) const {
             return (lexeme == rhs.lexeme) && (type == rhs.type) && (loc == rhs.loc);
         }
-        bool operator!=(const TokenState& rhs) const {
+        bool operator!=(const TokenState &rhs) const {
             return !operator==(rhs);
         }
-        friend std::ostream& operator<<(std::ostream& os, const TokenState& tok) {
+        friend std::ostream &operator<<(std::ostream &os, const TokenState &tok) {
             os << tok.Dump();
             return os;
         }
@@ -47,13 +47,13 @@ namespace lesma {
         TokenState *operator->() const { return state_.get(); }
         explicit operator bool() const { return static_cast<bool>(state_); }
 
-        bool operator==(const Token& rhs) const {
+        bool operator==(const Token &rhs) const {
             return *state_ == *rhs.state_;
         }
-        bool operator!=(const Token& rhs) const {
+        bool operator!=(const Token &rhs) const {
             return !operator==(rhs);
         }
-        friend std::ostream& operator<<(std::ostream& os, const Token& tok) {
+        friend std::ostream &operator<<(std::ostream &os, const Token &tok) {
             os << tok.state_->Dump();
             return os;
         }
