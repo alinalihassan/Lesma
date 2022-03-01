@@ -16,18 +16,20 @@ ___
 - **it's statically typed** so you don't need to guess the type of the variable if your coworker didn't spend the time to use meaningful names, and you can make use of compile-time checks, autocomplete and more
 - **it's simple and expressive** because the code should be easily readable and it shouldn't make you guess what it does
 
+## Example
+
+```python
+def extern printd(y: float)
+
+let x = 20
+printd(x)
+```
+
 ## Influences
 - Python
 - Swift
 - Typescript
 - Lua
-
-## Installing
-You can pick up the latest release in [**Releases**](https://github.com/alinalihassan/Lesma/releases) and start using it. Lesma is currently being tested and provides binaries only for Unix. Compatibility between operating systems and architectures is not hard to achieve, but simply not a priority at the moment.
-
-Windows is also supported but you need to do additional work if you want to compile Lesma code (need to install clang, but this is not properly tested at the moment) and there are issues with Unicode characters, but all the tests pass and everything else seems to work.
-
-In the case that your platform is not officially supported, you need to build it on your own.
 
 ## Documentation
 
@@ -36,7 +38,7 @@ In the case that your platform is not officially supported, you need to build it
 
 ## Build
 
-In order to build Lesma, you need Clang installed and LLVM 13.x.x. It's currently tested only on Linux/Mac.
+In order to build Lesma, you need Clang installed and LLVM 13. It's currently tested only on Linux and macOS.
 
 Clone the repo:
 ```shell

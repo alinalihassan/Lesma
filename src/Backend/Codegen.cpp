@@ -16,6 +16,20 @@ Codegen::Codegen(std::unique_ptr<Parser> parser, const std::string &filename) {
     Parser_ = std::move(parser);
     Scope = new SymbolTable(nullptr);
     TargetMachine = InitializeTargetMachine();
+
+    TopLevelFunc = InitializeTopLevel();
+}
+
+llvm::Function *Codegen::InitializeTopLevel() {
+    std::vector<llvm::Type *> paramTypes = {};
+
+    FunctionType *FT = FunctionType::get(Builder->getVoidTy(), paramTypes, false);
+    Function *F = Function::Create(FT, Function::ExternalLinkage, "top-level", *TheModule);
+
+    auto entry = BasicBlock::Create(*TheContext, "entry", F);
+    Builder->SetInsertPoint(entry);
+
+    return F;
 }
 
 llvm::TargetMachine *Codegen::InitializeTargetMachine() {
@@ -119,7 +133,7 @@ int Codegen::JIT(std::vector<ThreadSafeModule> modules) {
         throw CodegenError("JIT Error:\n{}");
 
     using MainFnTy = int();
-    auto jit_main = jitTargetAddressToFunction<MainFnTy *>(TheJIT->lookup("main")->getAddress());
+    auto jit_main = jitTargetAddressToFunction<MainFnTy *>(TheJIT->lookup(TopLevelFunc->getName())->getAddress());
     return jit_main();
 }
 
@@ -132,7 +146,12 @@ void Codegen::Dump() {
 }
 
 llvm::Value *Codegen::Visit(Program *node) {
-    return Visit(node->getBlock());
+    auto body = Visit(node->getBlock());
+
+    // Return void for top-level function
+    Builder->CreateRetVoid();
+
+    return body;
 }
 
 llvm::Value *Codegen::Visit(Expression *node) {
@@ -317,8 +336,8 @@ llvm::Value *Codegen::Visit(FuncDecl *node) {
     for (const auto &param: node->getParameters())
         paramTypes.push_back(Visit(param.second));
 
-    auto name = node->getName() == "main" ? "main" : getMangledName(node->getName(), paramTypes);
-    auto linkage = node->getName() == "main" ? Function::ExternalLinkage : Function::InternalLinkage;
+    auto name = getMangledName(node->getName(), paramTypes);
+    auto linkage = Function::ExternalLinkage;
 
     FunctionType *FT = FunctionType::get(Visit(node->getReturnType()), paramTypes, false);
     Function *F = Function::Create(FT, linkage, name, *TheModule);
@@ -326,18 +345,15 @@ llvm::Value *Codegen::Visit(FuncDecl *node) {
     for (auto &param: F->args())
         param.setName(node->getParameters()[param.getArgNo()].first);
 
-    deferStack.push({});
+//    deferStack.push({});
 
     BasicBlock *BB = BasicBlock::Create(*TheContext, "entry", F);
     Builder->SetInsertPoint(BB);
 
     Visit(node->getBody());
 
-    auto instrs = deferStack.top();
-    for (auto instr: instrs) {
-        instr->print(outs());
-    }
-    deferStack.pop();
+//    auto instrs = deferStack.top();
+//    deferStack.pop();
 
     if (Visit(node->getReturnType()) == Builder->getVoidTy())
         Builder->CreateRetVoid();
@@ -351,6 +367,8 @@ llvm::Value *Codegen::Visit(FuncDecl *node) {
 
     Scope = Scope->getParent();
     Scope->insertSymbol(node->getName(), F, F->getFunctionType());
+
+    Builder->SetInsertPoint(&TopLevelFunc->back());
 
     return F;
 }

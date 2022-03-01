@@ -319,7 +319,11 @@ Statement *Parser::ParseDefer() {
 }
 
 Statement *Parser::ParseStatement() {
-    if (Check(TokenType::LET) || Check(TokenType::VAR))
+    if (Check(TokenType::DEF))
+        return ParseFunctionDeclaration();
+    else if (Check(TokenType::IMPORT))
+        return ParseImport();
+    else if (Check(TokenType::LET) || Check(TokenType::VAR))
         return ParseVarDecl();
     else if (Check(TokenType::IF))
         return ParseIf();
@@ -420,25 +424,13 @@ Statement *Parser::ParseImport() {
     return new Import(Peek()->loc, filepath, getBasename(token->lexeme));
 }
 
-Statement *Parser::ParseTopLevelStatement() {
-    Statement *Node = nullptr;
-    if (Check(TokenType::DEF))
-        Node = ParseFunctionDeclaration();
-    else if (Check(TokenType::IMPORT))
-        Node = ParseImport();
-    else
-        Error(Peek(), "Unknown Top Level expression");
-
-    return Node;
-}
-
 Compound *Parser::ParseCompound() {
     auto compound = new Compound(Peek()->loc);
     while (!IsAtEnd()) {
         // Remove lingering newlines
         while (Peek()->type == TokenType::NEWLINE)
             Consume(TokenType::NEWLINE);
-        compound->addChildren(ParseTopLevelStatement());
+        compound->addChildren(ParseStatement());
     }
     return compound;
 }
