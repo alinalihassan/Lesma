@@ -1,6 +1,6 @@
 #include <vector>
 
-#include "lib/plf_nanotimer.h"
+#include "plf_nanotimer.h"
 
 #include "Backend/Codegen.h"
 #include "Common/Utils.h"

@@ -19,6 +19,17 @@ namespace lesma {
         TokenType type;
         SourceLocation loc;
 
+        bool operator==(const TokenState& rhs) const {
+            return (lexeme == rhs.lexeme) && (type == rhs.type) && (loc == rhs.loc);
+        }
+        bool operator!=(const TokenState& rhs) const {
+            return !operator==(rhs);
+        }
+        friend std::ostream& operator<<(std::ostream& os, const TokenState& tok) {
+            os << tok.Dump();
+            return os;
+        }
+
     protected:
         friend struct Token;
         explicit TokenState(const TokenType &type, std::string lexeme, SourceLocation loc)
@@ -35,6 +46,17 @@ namespace lesma {
 
         TokenState *operator->() const { return state_.get(); }
         explicit operator bool() const { return static_cast<bool>(state_); }
+
+        bool operator==(const Token& rhs) const {
+            return *state_ == *rhs.state_;
+        }
+        bool operator!=(const Token& rhs) const {
+            return !operator==(rhs);
+        }
+        friend std::ostream& operator<<(std::ostream& os, const Token& tok) {
+            os << tok.state_->Dump();
+            return os;
+        }
 
     private:
         explicit Token(std::shared_ptr<TokenState> state) : state_(std::move(state)) {}

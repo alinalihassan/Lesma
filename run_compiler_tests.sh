@@ -1,14 +1,16 @@
 #!/bin/bash
 
+SCRIPT_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
+
 fail_count=0
 success_count=0
 
 # We currently cannot test compiler errors, since we assume all runs need an exit code > 0
 # We assume compiler errors throw error codes < 100 for now
-for file in tests/*.les; do
+for file in "$SCRIPT_DIR"/tests/lesma/*.les; do
 	name=$(basename -s .les "${file}")
 	echo "Testing ${name}"
-	build/lesma "${file}" &> /tmp/compile_output.log
+	"$SCRIPT_DIR"/build/lesma "${file}" &> /tmp/compile_output.log
   test_ret_value=$?
   test_expected_ret_value=$(head -n 1 "$file" | cut -b 6-)
   if [ "$test_ret_value" -ne "$test_expected_ret_value" ]; then

@@ -9,6 +9,7 @@ project(
 include(cmake/CPM.cmake)
 
 CPMAddPackage("gh:Neargye/nameof@0.10.1")
+CPMAddPackage("gh:catchorg/Catch2@2.13.8")
 CPMAddPackage(
   NAME fmt
   GIT_TAG 8.1.1
@@ -47,6 +48,7 @@ if (BASH_PROGRAM)
 endif (BASH_PROGRAM)
 
 include_directories(${SRC_DIR})
+include_directories(${LIB_DIR})
 
 # LLVM configuration
 find_package(LLVM 13 CONFIG)
@@ -60,9 +62,7 @@ llvm_map_components_to_libnames(LLVM_LIBS core support demangle mcjit native orc
 # Executable configuration
 set(EXE_NAME lesma)
 
-include_directories(${CMAKE_SOURCE_DIR})
-add_executable(${EXE_NAME}
-  src/main.cpp
+set(COMMON_SOURCES
   src/LesmaJIT.h
   src/Common/Utils.h
   src/Common/Utils.cpp
@@ -80,5 +80,13 @@ add_executable(${EXE_NAME}
   src/Symbol/SymbolTable.cpp
   src/Symbol/SymbolTable.h
 )
+set(TARGET_SOURCES src/main.cpp)
+set(TEST_SOURCES  tests/test.cpp)
+
+add_executable(${EXE_NAME} ${COMMON_SOURCES} ${TARGET_SOURCES})
+add_executable(tests ${COMMON_SOURCES} ${TEST_SOURCES})
 
 target_link_libraries(${EXE_NAME} PRIVATE ${LLVM_LIBS} fmt nameof cxxopts)
+target_link_libraries(tests PRIVATE ${LLVM_LIBS} fmt nameof cxxopts Catch2::Catch2)
+
+add_test(test_unit_tests tests)
