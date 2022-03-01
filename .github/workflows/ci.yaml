@@ -65,3 +65,11 @@ jobs:
       - name: Test
         working-directory: ${{github.workspace}}/build
         run: ctest -C ${{env.BUILD_TYPE}}
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v1
+        with:
+          languages: cpp
+          
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@v1
