@@ -6,7 +6,7 @@
 <div align="center">
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-brightgreen.svg)](https://github.com/alinalihassan/Lesma/blob/main/LICENSE)
-[![Version](https://img.shields.io/badge/version-0.1.0-brightgreen.svg)](https://github.com/alinalihassan/Lesma/releases)
+[![Version](https://img.shields.io/github/v/tag/alinalihassan/Lesma?color=brightgreen)](https://github.com/alinalihassan/Lesma/releases)
 [![Build](https://img.shields.io/github/workflow/status/alinalihassan/Lesma/Build)](https://github.com/alinalihassan/Lesma/actions/workflows/ci.yaml)
 
 </div>
