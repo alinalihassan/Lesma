@@ -90,3 +90,8 @@ target_link_libraries(${EXE_NAME} PRIVATE ${LLVM_LIBS} fmt nameof cxxopts)
 target_link_libraries(tests PRIVATE ${LLVM_LIBS} fmt nameof cxxopts Catch2::Catch2)
 
 add_test(test_unit_tests tests)
+
+# CPack
+install(TARGETS ${EXE_NAME} RUNTIME DESTINATION bin)
+set(CPACK_ABSOLUTE_DESTINATION_FILES ${ROOT_DIR}/dist)
+include(CPack)

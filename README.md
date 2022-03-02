@@ -14,7 +14,8 @@
 **Lesma** is a compiled, statically typed, imperative and object-oriented programming language with a focus on expressiveness, elegancy, and simplicity, while not sacrificing on performance.
 
 ## 📝 Features
-- ⚡ Blazing Fast: because it should be, it's as fast as C, working together with LLVM's state-of-the-art optimizations, but it won't ever oblige you to make an extra effort just for the sake of performance
+- 🚀 Fast Compilation: compiling at a rate of ≈230k loc/s, [because waiting for code to compile is a thing of the past](https://xkcd.com/303/)
+- ⚡ Blazing Fast Execution: because it should be, it's as fast as C, working together with LLVM's state-of-the-art optimizations, but it won't ever oblige you to make an extra effort just for the sake of performance
 - 🔬 Statically Typed: because IDE completion is like heaven, while unknown behaviour and runtime exceptions are like hell
 - 🧑‍🎨 Simple: because the code should be easily readable, and it shouldn't make you guess what it does or take long to learn
 
