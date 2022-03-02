@@ -22,16 +22,18 @@
 ## ✍️ Example
 
 ```python
-def extern printd(y: float)
+def fibonacci(x: int)
+    if x <= 1
+        return x
+    return fibonacci(x - 1) + fibonacci(x - 2)
 
-let x = 20
-printd(x)
+fibonacci(20)
 ```
 
 ## 📖 Documentation
 
-- [Language Documentation](https://alinalihassan.github.io/Lesma)
-- [Lesma code samples](https://alinalihassan.github.io/Lesma/examples/)
+- [Language Documentation](https://alinalihassan.github.io/pyLesma)
+- [Lesma code samples](https://alinalihassan.github.io/pyLesma/examples/)
 
 ## 🔧 Build
 
@@ -55,8 +57,7 @@ Run tests
 ctest
 ```
 
-Done! Now you can run any lesma source file, make a test case or hack your way around. 
-Remember there are examples in the documentation.
+Run Lesma source files
 ```bash
 ./lesma -h
 ./lesma test.les
