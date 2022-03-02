@@ -60,3 +60,8 @@ jobs:
       - name: Test
         working-directory: ${{github.workspace}}/build
         run: ctest -C ${{env.BUILD_TYPE}} --rerun-failed --output-on-failure
+
+      - uses: actions/upload-artifact@v2
+        with:
+          name: lesma
+          path: ${{github.workspace}}/build/lesma
