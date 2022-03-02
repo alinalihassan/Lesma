@@ -34,9 +34,9 @@ int main(int argc, char **argv) {
                auto lexer = std::make_unique<Lexer>(source, options->file.substr(options->file.find_last_of("/\\") + 1));
                lexer->ScanAll();)
 
-        print(DEBUG, "TOKENS: \n");
-        for (const auto &tok: lexer->getTokens())
-            print("Token: {}\n", tok->Dump());
+        //        print(DEBUG, "TOKENS: \n");
+        //        for (const auto &tok: lexer->getTokens())
+        //            print("Token: {}\n", tok->Dump());
 
         // Parser
         TIMEIT("Parsing",
