@@ -56,6 +56,7 @@ namespace lesma {
 
         char Advance();
 
+        Token GetLastToken();
         Token AddIdentifierToken();
 
         void HandleWhitespace(char c);

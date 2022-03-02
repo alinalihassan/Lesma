@@ -6,14 +6,14 @@ var y: int = 10
 
 if x == 6
     x = 7
-elseif x == 5
+else if x == 5
     x = 50
 else
     x = 9
 
 if y == 9
     y = 5
-elseif y == 11
+else if y == 11
     y = 6
 else
     y = 51

@@ -282,10 +282,23 @@ Token Lexer::AddNumToken() {
     }
 }
 
+Token Lexer::GetLastToken() {
+    if (!tokens.empty())
+        return tokens.end()[-1];
+    else
+        return Token{TokenType::EOF_TOKEN, "EOF", loc};
+}
+
 Token Lexer::AddIdentifierToken() {
     while (IsAlphaNumeric(Peek())) Advance();
 
-    return AddToken(Token::GetIdentifierType(std::string(srcs_->cbegin() + start_lex_pos_, srcs_->cbegin() + current_lex_pos_)));
+    auto tok = AddToken(Token::GetIdentifierType(std::string(srcs_->cbegin() + start_lex_pos_, srcs_->cbegin() + current_lex_pos_), GetLastToken()));
+
+    // If it's an 'else if' multiword keyword, remove the last token (which is an 'else' in this case)
+    if (tok->type == TokenType::ELSE_IF)
+        tokens.pop_back();
+
+    return tok;
 }
 
 char Lexer::LastChar() { return srcs_->at(current_lex_pos_); }

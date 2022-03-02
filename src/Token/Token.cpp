@@ -6,7 +6,7 @@ static std::map<std::string, TokenType> g_reserved_map{
         {"and", TokenType::AND},
         {"class", TokenType::CLASS},
         {"else", TokenType::ELSE},
-        {"elseif", TokenType::ELSE_IF},
+        {"else if", TokenType::ELSE_IF},
         {"false", TokenType::FALSE_},
         {"for", TokenType::FOR},
         {"def", TokenType::DEF},
@@ -46,9 +46,11 @@ std::string TokenState::Dump() const {
            ", Col: " + std::to_string(loc.Col) + "]";
 }
 
-TokenType Token::GetIdentifierType(const std::string &identifier) {
+TokenType Token::GetIdentifierType(const std::string &identifier, Token lastTok) {
     if (g_reserved_map.count(identifier) == 0)
         return TokenType::IDENTIFIER;
+    else if (lastTok->type == TokenType::ELSE && identifier == "if")
+        return g_reserved_map["else if"];
     else
         return g_reserved_map[identifier];
 }

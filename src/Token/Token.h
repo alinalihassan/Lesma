@@ -42,7 +42,7 @@ namespace lesma {
             state_ = std::shared_ptr<TokenState>(new TokenState(type, lexeme, loc));
         }
 
-        static TokenType GetIdentifierType(const std::string &identifier);
+        static TokenType GetIdentifierType(const std::string &identifier, Token lastTok);
 
         TokenState *operator->() const { return state_.get(); }
         explicit operator bool() const { return static_cast<bool>(state_); }
