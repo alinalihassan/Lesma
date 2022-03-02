@@ -61,11 +61,12 @@ jobs:
         working-directory: ${{github.workspace}}/build
         run: ctest -C ${{env.BUILD_TYPE}} --rerun-failed --output-on-failure
 
-      - name: Package Artifact
-        working-directory: ${{github.workspace}}/build
-        run: ninja package
-
-      - uses: actions/upload-artifact@v2
-        with:
-          name: lesma-linux
-          path: ${{github.workspace}}/build/Lesma*.tar.gz
+#     Artifact binaries still not working properly
+#      - name: Package Artifact
+#        working-directory: ${{github.workspace}}/build
+#        run: ninja package
+#
+#      - uses: actions/upload-artifact@v2
+#        with:
+#          name: lesma-linux
+#          path: ${{github.workspace}}/build/Lesma*.tar.gz
