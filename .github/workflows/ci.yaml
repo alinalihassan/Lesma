@@ -63,5 +63,5 @@ jobs:
 
       - uses: actions/upload-artifact@v2
         with:
-          name: lesma
-          path: ${{github.workspace}}/build/lesma
+          name: lesma-linux
+          path: ${{github.workspace}}/build/
