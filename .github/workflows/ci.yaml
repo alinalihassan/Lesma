@@ -62,7 +62,8 @@ jobs:
         run: ctest -C ${{env.BUILD_TYPE}} --rerun-failed --output-on-failure
 
   release:
-    name: Build
+    name: Release
+    needs: build
     runs-on: ubuntu-latest
 
     steps:
