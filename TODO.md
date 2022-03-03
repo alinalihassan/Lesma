@@ -12,7 +12,7 @@
 
 ## Features
 - [ ] Add analyzer phase (add tree walker interface?)
-- [ ] Add type inference
+- [x] Add type inference
 - [ ] Add operator overloading
 - [ ] Add varargs
 - [ ] Add pointers/references?
@@ -27,7 +27,7 @@
 - [ ] Add enums
 - [ ] Add unit tests
 - [ ] Add module system
-- [ ] Add python-style syntax
+- [x] Add python-style syntax
 - [ ] Add generics
 - [ ] Add inheritance (or traits)
 - [ ] Add string interpolation
