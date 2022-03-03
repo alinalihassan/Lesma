@@ -1,6 +1,8 @@
 #pragma once
 
 #include "Frontend/Parser.h"
+#include "AST/ExprVisitor.h"
+#include "AST/StmtVisitor.h"
 #include "LesmaJIT.h"
 #include "Symbol/SymbolTable.h"
 #include <llvm/Analysis/CGSCCPassManager.h>
@@ -22,7 +24,7 @@ namespace lesma {
         using LesmaErrorWithExitCode<EX_DATAERR>::LesmaErrorWithExitCode;
     };
 
-    class Codegen {
+    class Codegen: public ExprVisitor<llvm::Value *, llvm::Type *>, public StmtVisitor<void> {
         std::unique_ptr<LLVMContext> TheContext;
         std::unique_ptr<Module> TheModule;
         std::unique_ptr<IRBuilder<>> Builder;
@@ -59,29 +61,28 @@ namespace lesma {
         llvm::Function *InitializeTopLevel();
         void CompileModule(const std::string &filepath);
 
-        llvm::Value *Visit(Statement *node);
-        llvm::Value *Visit(Expression *node);
-        llvm::Value *Visit(Program *node);
-        llvm::Value *Visit(Compound *node);
-        llvm::Value *Visit(VarDecl *node);
-        llvm::Value *Visit(If *node);
-        llvm::Value *Visit(While *node);
-        llvm::Value *Visit(Import *node);
-        llvm::Value *Visit(FuncDecl *node);
-        llvm::Value *Visit(ExternFuncDecl *node);
-        llvm::Value *Visit(Assignment *node);
-        llvm::Value *Visit(Break *node);
-        llvm::Value *Visit(Continue *node);
-        llvm::Value *Visit(Return *node);
-        llvm::Value *Visit(Defer *node);
-        llvm::Value *Visit(ExpressionStatement *node);
-        llvm::Type *Visit(lesma::Type *node);
-        llvm::Value *Visit(FuncCall *node);
-        llvm::Value *Visit(BinaryOp *node);
-        llvm::Value *Visit(CastOp *node);
-        llvm::Value *Visit(UnaryOp *node);
-        llvm::Value *Visit(Literal *node);
-        llvm::Value *Visit(Else *node);
+        void visit(Statement *node) override;
+        void visit(Compound *node) override;
+        void visit(VarDecl *node) override;
+        void visit(If *node) override;
+        void visit(While *node) override;
+        void visit(Import *node) override;
+        void visit(FuncDecl *node) override;
+        void visit(ExternFuncDecl *node) override;
+        void visit(Assignment *node) override;
+        void visit(Break *node) override;
+        void visit(Continue *node) override;
+        void visit(Return *node) override;
+        void visit(Defer *node) override;
+        void visit(ExpressionStatement *node) override;
+        llvm::Type *visit(lesma::Type *node) override;
+        llvm::Value *visit(Expression *node) override;
+        llvm::Value *visit(FuncCall *node) override;
+        llvm::Value *visit(BinaryOp *node) override;
+        llvm::Value *visit(CastOp *node) override;
+        llvm::Value *visit(UnaryOp *node) override;
+        llvm::Value *visit(Literal *node) override;
+        llvm::Value *visit(Else *node) override;
 
         // TODO: Helper functions, move them out somewhere
         llvm::Value *Cast(llvm::Value *val, llvm::Type *type);

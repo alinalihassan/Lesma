@@ -35,14 +35,6 @@ get_filename_component(SRC_DIR ${ROOT_DIR}/src ABSOLUTE)
 get_filename_component(LIB_DIR ${ROOT_DIR}/lib ABSOLUTE)
 get_filename_component(BUILD_DIR ${CMAKE_BINARY_DIR} ABSOLUTE)
 
-# Tests
-enable_testing()
-
-find_program(BASH_PROGRAM bash)
-if (BASH_PROGRAM)
-  add_test(test_lesma_sources ${BASH_PROGRAM} ${CMAKE_CURRENT_SOURCE_DIR}/run_compiler_tests.sh)
-endif (BASH_PROGRAM)
-
 include_directories(${SRC_DIR})
 include_directories(${LIB_DIR})
 
@@ -59,22 +51,12 @@ llvm_map_components_to_libnames(LLVM_LIBS core support demangle mcjit native orc
 set(EXE_NAME lesma)
 
 set(COMMON_SOURCES
-  src/LesmaJIT.h
-  src/Common/Utils.h
   src/Common/Utils.cpp
-  src/Common/LesmaError.h
-  src/Frontend/Lexer.h
   src/Frontend/Lexer.cpp
-  src/Frontend/Parser.h
   src/Frontend/Parser.cpp
   src/Token/Token.cpp
-  src/Token/Token.h
-  src/Token/TokenType.h
-  src/AST/AST.h
   src/Backend/Codegen.cpp
-  src/Backend/Codegen.h
   src/Symbol/SymbolTable.cpp
-  src/Symbol/SymbolTable.h
 )
 set(TARGET_SOURCES src/main.cpp)
 set(TEST_SOURCES  tests/test.cpp)
@@ -84,6 +66,15 @@ add_executable(tests ${COMMON_SOURCES} ${TEST_SOURCES})
 
 target_link_libraries(${EXE_NAME} PRIVATE ${LLVM_LIBS} fmt nameof cxxopts)
 target_link_libraries(tests PRIVATE ${LLVM_LIBS} fmt nameof cxxopts Catch2::Catch2)
+
+
+# Tests
+enable_testing()
+
+find_program(BASH_PROGRAM bash)
+if (BASH_PROGRAM)
+  add_test(test_lesma_sources ${BASH_PROGRAM} ${CMAKE_CURRENT_SOURCE_DIR}/run_compiler_tests.sh)
+endif (BASH_PROGRAM)
 
 add_test(test_unit_tests tests)
 

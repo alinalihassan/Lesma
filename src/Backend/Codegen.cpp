@@ -50,8 +50,6 @@ llvm::TargetMachine *Codegen::InitializeTargetMachine() {
 }
 
 void Codegen::CompileModule(const std::string &filepath) {
-
-    print("Module before: {}\n", TheModule->getName());
     // Read source
     auto source = readFile(filepath);
     // Lexer
@@ -138,71 +136,65 @@ int Codegen::JIT(std::vector<ThreadSafeModule> modules) {
 }
 
 void Codegen::Run() {
-    Visit(Parser_->getAST());
+    visit(Parser_->getAST());
+
+    // Return void for top-level function
+    Builder->CreateRet(ConstantInt::getSigned(Builder->getInt64Ty(), 0));
 }
 
 void Codegen::Dump() {
     TheModule->print(outs(), nullptr);
 }
 
-llvm::Value *Codegen::Visit(Program *node) {
-    auto body = Visit(node->getBlock());
-
-    // Return void for top-level function
-    Builder->CreateRet(ConstantInt::getSigned(Builder->getInt64Ty(), 0));
-
-    return body;
-}
-
-llvm::Value *Codegen::Visit(Expression *node) {
+llvm::Value *Codegen::visit(Expression *node) {
     if (dynamic_cast<FuncCall *>(node))
-        return Visit(dynamic_cast<FuncCall *>(node));
+        return visit(dynamic_cast<FuncCall *>(node));
     else if (dynamic_cast<BinaryOp *>(node))
-        return Visit(dynamic_cast<BinaryOp *>(node));
+        return visit(dynamic_cast<BinaryOp *>(node));
     else if (dynamic_cast<CastOp *>(node))
-        return Visit(dynamic_cast<CastOp *>(node));
+        return visit(dynamic_cast<CastOp *>(node));
     else if (dynamic_cast<UnaryOp *>(node))
-        return Visit(dynamic_cast<UnaryOp *>(node));
+        return visit(dynamic_cast<UnaryOp *>(node));
     else if (dynamic_cast<Literal *>(node))
-        return Visit(dynamic_cast<Literal *>(node));
+        return visit(dynamic_cast<Literal *>(node));
     else if (dynamic_cast<Else *>(node))
-        return Visit(dynamic_cast<Else *>(node));
+        return visit(dynamic_cast<Else *>(node));
 
     throw CodegenError("Unknown Expression: {}", node->toString(0));
 }
 
-llvm::Value *Codegen::Visit(Statement *node) {
+void Codegen::visit(Statement *node) {
     if (dynamic_cast<VarDecl *>(node))
-        return Visit(dynamic_cast<VarDecl *>(node));
+        return visit(dynamic_cast<VarDecl *>(node));
     else if (dynamic_cast<If *>(node))
-        return Visit(dynamic_cast<If *>(node));
+        return visit(dynamic_cast<If *>(node));
     else if (dynamic_cast<While *>(node))
-        return Visit(dynamic_cast<While *>(node));
+        return visit(dynamic_cast<While *>(node));
     else if (dynamic_cast<FuncDecl *>(node))
-        return Visit(dynamic_cast<FuncDecl *>(node));
+        return visit(dynamic_cast<FuncDecl *>(node));
     else if (dynamic_cast<Import *>(node))
-        return Visit(dynamic_cast<Import *>(node));
+        return visit(dynamic_cast<Import *>(node));
     else if (dynamic_cast<ExternFuncDecl *>(node))
-        return Visit(dynamic_cast<ExternFuncDecl *>(node));
+        return visit(dynamic_cast<ExternFuncDecl *>(node));
     else if (dynamic_cast<Assignment *>(node))
-        return Visit(dynamic_cast<Assignment *>(node));
+        return visit(dynamic_cast<Assignment *>(node));
     else if (dynamic_cast<Break *>(node))
-        return Visit(dynamic_cast<Break *>(node));
+        return visit(dynamic_cast<Break *>(node));
     else if (dynamic_cast<Continue *>(node))
-        return Visit(dynamic_cast<Continue *>(node));
+        return visit(dynamic_cast<Continue *>(node));
     else if (dynamic_cast<Return *>(node))
-        return Visit(dynamic_cast<Return *>(node));
+        return visit(dynamic_cast<Return *>(node));
     else if (dynamic_cast<Defer *>(node))
-        return Visit(dynamic_cast<Defer *>(node));
+        return visit(dynamic_cast<Defer *>(node));
     else if (dynamic_cast<ExpressionStatement *>(node))
-        return Visit(dynamic_cast<ExpressionStatement *>(node));
+        return visit(dynamic_cast<ExpressionStatement *>(node));
     else if (dynamic_cast<Compound *>(node))
-        return Visit(dynamic_cast<Compound *>(node));
+        return visit(dynamic_cast<Compound *>(node));
 
     throw CodegenError("Unknown Statement:\n{}", node->toString(0));
 }
 
-llvm::Type *Codegen::Visit(lesma::Type *node) {
+llvm::Type *Codegen::visit(lesma::Type *node) {
     if (node->getType() == TokenType::INT_TYPE)
         return Builder->getInt64Ty();
     if (node->getType() == TokenType::FLOAT_TYPE)
@@ -215,20 +207,18 @@ llvm::Type *Codegen::Visit(lesma::Type *node) {
     throw CodegenError("Unimplemented type {}", NAMEOF_ENUM(node->getType()));
 }
 
-llvm::Value *Codegen::Visit(Compound *node) {
+void Codegen::visit(Compound *node) {
     for (auto elem: node->getChildren())
-        Visit(elem);
-
-    return nullptr;
+        visit(elem);
 }
 
-llvm::Value *Codegen::Visit(VarDecl *node) {
+void Codegen::visit(VarDecl *node) {
     llvm::Type *type;
     llvm::Value *value;
     if (node->getType().has_value())
-        type = Visit(node->getType().value());
+        type = visit(node->getType().value());
     else {
-        value = Visit(node->getValue().value());
+        value = visit(node->getValue().value());
         type = value->getType();
     }
 
@@ -237,12 +227,10 @@ llvm::Value *Codegen::Visit(VarDecl *node) {
     Scope->insertSymbol(node->getIdentifier()->getValue(), ptr, type, node->getMutability());
 
     if (node->getValue().has_value())
-        Builder->CreateStore(Cast(Visit(node->getValue().value()), ptr->getAllocatedType()), ptr);
-
-    return ptr;
+        Builder->CreateStore(Cast(visit(node->getValue().value()), ptr->getAllocatedType()), ptr);
 }
 
-llvm::Value *Codegen::Visit(If *node) {
+void Codegen::visit(If *node) {
     auto parentFct = Builder->GetInsertBlock()->getParent();
     auto bStart = llvm::BasicBlock::Create(*TheContext, "if.start");
     auto bEnd = llvm::BasicBlock::Create(*TheContext, "if.end");
@@ -260,12 +248,12 @@ llvm::Value *Codegen::Visit(If *node) {
             parentFct->getBasicBlockList().push_back(bIfFalse);
         }
 
-        auto cond = Visit(node->getConds().at(i));
+        auto cond = visit(node->getConds().at(i));
         Builder->CreateCondBr(cond, bIfTrue, bIfFalse);
         Builder->SetInsertPoint(bIfTrue);
 
         Scope = Scope->createChildBlock("if");
-        Visit(node->getBlocks().at(i));
+        visit(node->getBlocks().at(i));
 
         // TODO: Handle returns and breaks
         if (!isBreak)
@@ -281,11 +269,9 @@ llvm::Value *Codegen::Visit(If *node) {
         Builder->SetInsertPoint(bEnd);
     else
         isBreak = false;
-
-    return nullptr;
 }
 
-llvm::Value *Codegen::Visit(While *node) {
+void Codegen::visit(While *node) {
     Scope = Scope->createChildBlock("while");
 
     llvm::Function *parentFct = Builder->GetInsertBlock()->getParent();
@@ -304,13 +290,13 @@ llvm::Value *Codegen::Visit(While *node) {
     // Fill condition block
     parentFct->getBasicBlockList().push_back(bCond);
     Builder->SetInsertPoint(bCond);
-    auto condition = Visit(node->getCond());
+    auto condition = visit(node->getCond());
     Builder->CreateCondBr(condition, bLoop, bEnd);
 
     // Fill while body block
     parentFct->getBasicBlockList().push_back(bLoop);
     Builder->SetInsertPoint(bLoop);
-    Visit(node->getBlock());
+    visit(node->getBlock());
 
     if (!isBreak)
         Builder->CreateBr(bCond);
@@ -324,22 +310,20 @@ llvm::Value *Codegen::Visit(While *node) {
     Scope = Scope->getParent();
     breakBlocks.pop();
     continueBlocks.pop();
-
-    return Builder->getTrue();
 }
 
-llvm::Value *Codegen::Visit(FuncDecl *node) {
+void Codegen::visit(FuncDecl *node) {
     Scope = Scope->createChildBlock(node->getName());
 
     std::vector<llvm::Type *> paramTypes;
 
     for (const auto &param: node->getParameters())
-        paramTypes.push_back(Visit(param.second));
+        paramTypes.push_back(visit(param.second));
 
     auto name = getMangledName(node->getName(), paramTypes);
     auto linkage = Function::ExternalLinkage;
 
-    FunctionType *FT = FunctionType::get(Visit(node->getReturnType()), paramTypes, false);
+    FunctionType *FT = FunctionType::get(visit(node->getReturnType()), paramTypes, false);
     Function *F = Function::Create(FT, linkage, name, *TheModule);
 
     for (auto &param: F->args())
@@ -350,12 +334,12 @@ llvm::Value *Codegen::Visit(FuncDecl *node) {
     BasicBlock *BB = BasicBlock::Create(*TheContext, "entry", F);
     Builder->SetInsertPoint(BB);
 
-    Visit(node->getBody());
+    visit(node->getBody());
 
     //    auto instrs = deferStack.top();
     //    deferStack.pop();
 
-    if (Visit(node->getReturnType()) == Builder->getVoidTy())
+    if (visit(node->getReturnType()) == Builder->getVoidTy())
         Builder->CreateRetVoid();
 
     std::string output;
@@ -369,40 +353,37 @@ llvm::Value *Codegen::Visit(FuncDecl *node) {
     Scope->insertSymbol(node->getName(), F, F->getFunctionType());
 
     Builder->SetInsertPoint(&TopLevelFunc->back());
-
-    return F;
 }
 
-llvm::Value *Codegen::Visit(ExternFuncDecl *node) {
+void Codegen::visit(ExternFuncDecl *node) {
     std::vector<llvm::Type *> paramTypes;
 
     for (const auto &param: node->getParameters())
-        paramTypes.push_back(Visit(param.second));
+        paramTypes.push_back(visit(param.second));
 
-    FunctionType *FT = FunctionType::get(Visit(node->getReturnType()), paramTypes, false);
+    FunctionType *FT = FunctionType::get(visit(node->getReturnType()), paramTypes, false);
     Function *F = Function::Create(FT, Function::ExternalLinkage, node->getName(), *TheModule);
 
     for (auto &param: F->args())
         param.setName(node->getParameters()[param.getArgNo()].first);
 
     Scope->insertSymbol(node->getName(), F, F->getFunctionType());
-
-    return F;
 }
 
-llvm::Value *Codegen::Visit(Assignment *node) {
+void Codegen::visit(Assignment *node) {
     auto symbol = Scope->lookup(node->getIdentifier()->getValue());
     if (symbol == nullptr)
         throw CodegenError("Variable not found: {}", node->getIdentifier()->getValue());
     if (!symbol->getMutability())
         throw CodegenError("Assigning immutable variable a new value");
 
-    auto value = Visit(node->getExpression());
+    auto value = visit(node->getExpression());
     value = Cast(value, symbol->getType());
 
     switch (node->getOperator()) {
         case TokenType::EQUAL:
-            return Builder->CreateStore(value, symbol->getValue());
+            Builder->CreateStore(value, symbol->getValue());
+            break;
         case TokenType::PLUS_EQUAL:
         case TokenType::MINUS_EQUAL:
         case TokenType::SLASH_EQUAL:
@@ -414,7 +395,7 @@ llvm::Value *Codegen::Visit(Assignment *node) {
     }
 }
 
-llvm::Value *Codegen::Visit(Break * /*node*/) {
+void Codegen::visit(Break * /*node*/) {
     if (breakBlocks.empty())
         throw CodegenError("Cannot break without being in a loop\n");
 
@@ -422,10 +403,10 @@ llvm::Value *Codegen::Visit(Break * /*node*/) {
     breakBlocks.pop();
     isBreak = true;
 
-    return Builder->CreateBr(block);
+    Builder->CreateBr(block);
 }
 
-llvm::Value *Codegen::Visit(Continue * /*node*/) {
+void Codegen::visit(Continue * /*node*/) {
     if (continueBlocks.empty())
         throw CodegenError("Cannot continue without being in a loop\n");
 
@@ -433,33 +414,31 @@ llvm::Value *Codegen::Visit(Continue * /*node*/) {
     continueBlocks.pop();
     isBreak = true;
 
-    return Builder->CreateBr(block);
+    Builder->CreateBr(block);
 }
 
-llvm::Value *Codegen::Visit(Return *node) {
+void Codegen::visit(Return *node) {
     // Check if it's top-level
     if (Builder->GetInsertBlock()->getParent() == TopLevelFunc)
         throw CodegenError("Return statements are not allowed at top-level\n");
 
-    return Builder->CreateRet(Visit(node->getValue()));
+    Builder->CreateRet(visit(node->getValue()));
 }
 
-llvm::Value *Codegen::Visit(Defer * /*node*/) {
+void Codegen::visit(Defer * /*node*/) {
     throw CodegenError("Defer functionality unimplemented!");
-    return nullptr;
 }
 
-llvm::Value *Codegen::Visit(ExpressionStatement *node) {
-    return Visit(node->getExpression());
+void Codegen::visit(ExpressionStatement *node) {
+    visit(node->getExpression());
 }
 
 // TODO: Implement me
-llvm::Value *Codegen::Visit(Import *node) {
+void Codegen::visit(Import *node) {
     CompileModule(node->getFilePath());
-    return nullptr;
 }
 
-llvm::Value *Codegen::Visit(FuncCall *node) {
+llvm::Value *Codegen::visit(FuncCall *node) {
     if (Scope->lookup(node->getName()) == nullptr)
         throw CodegenError("Function {} not in current scope.\n", node->getName());
 
@@ -469,15 +448,15 @@ llvm::Value *Codegen::Visit(FuncCall *node) {
 
     std::vector<llvm::Value *> params;
     for (auto arg: node->getArguments())
-        params.push_back(Visit(arg));
+        params.push_back(visit(arg));
 
     auto *func = static_cast<Function *>(symbol->getValue());
     return Builder->CreateCall(func, params, func->getReturnType()->isVoidTy() ? "" : "tmp");
 }
 
-llvm::Value *Codegen::Visit(BinaryOp *node) {
-    llvm::Value *left = Visit(node->getLeft());
-    llvm::Value *right = Visit(node->getRight());
+llvm::Value *Codegen::visit(BinaryOp *node) {
+    llvm::Value *left = visit(node->getLeft());
+    llvm::Value *right = visit(node->getRight());
     llvm::Type *finalType = GetExtendedType(left->getType(), right->getType());
 
     switch (node->getOperator()) {
@@ -607,12 +586,12 @@ llvm::Value *Codegen::Visit(BinaryOp *node) {
                        node->getRight()->toString(0));
 }
 
-llvm::Value *Codegen::Visit(CastOp *node) {
-    return Cast(Visit(node->getExpression()), Visit(node->getType()));
+llvm::Value *Codegen::visit(CastOp *node) {
+    return Cast(visit(node->getExpression()), visit(node->getType()));
 }
 
-llvm::Value *Codegen::Visit(UnaryOp *node) {
-    Value *operand = Visit(node->getExpression());
+llvm::Value *Codegen::visit(UnaryOp *node) {
+    Value *operand = visit(node->getExpression());
 
     if (node->getOperator() == TokenType::MINUS) {
         if (operand->getType()->isIntegerTy())
@@ -630,7 +609,7 @@ llvm::Value *Codegen::Visit(UnaryOp *node) {
         throw CodegenError("Unknown unary operator, cannot apply {} to {}", NAMEOF_ENUM(node->getOperator()), node->getExpression()->toString(0));
 }
 
-llvm::Value *Codegen::Visit(Literal *node) {
+llvm::Value *Codegen::visit(Literal *node) {
     if (node->getType() == TokenType::DOUBLE)
         return ConstantFP::get(*TheContext, APFloat(std::stod(node->getValue())));
     else if (node->getType() == TokenType::INTEGER)
@@ -649,7 +628,7 @@ llvm::Value *Codegen::Visit(Literal *node) {
         throw CodegenError("Unknown literal {}", node->getValue());
 }
 
-llvm::Value *Codegen::Visit(Else * /*node*/) {
+llvm::Value *Codegen::visit(Else * /*node*/) {
     return llvm::ConstantInt::getTrue(*TheContext);
 }
 

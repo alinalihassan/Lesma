@@ -18,7 +18,7 @@ namespace lesma {
 
         void Parse();
 
-        Program *getAST() { return tree; }
+        Compound *getAST() { return tree; }
 
     protected:
         const Token &Peek() { return Peek(0); }
@@ -58,7 +58,7 @@ namespace lesma {
 
         const std::vector<Token> tokens;
         unsigned long index;
-        Program *tree;
+        Compound *tree;
 
         static void Error(const Token &token, const std::string &basicString);
 

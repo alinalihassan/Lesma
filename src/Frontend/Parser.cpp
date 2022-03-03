@@ -436,5 +436,5 @@ Compound *Parser::ParseCompound() {
 }
 
 void Parser::Parse() {
-    tree = new Program(Peek()->loc, ParseCompound());
+    tree = ParseCompound();
 }
