@@ -395,12 +395,10 @@ void Codegen::visit(Assignment *node) {
             if (symbol->getType()->isFloatingPointTy()) {
                 auto new_val = Builder->CreateFAdd(value, var_val, ".tmp");
                 Builder->CreateStore(new_val, symbol->getValue());
-            }
-            else if (symbol->getType()->isIntegerTy()) {
+            } else if (symbol->getType()->isIntegerTy()) {
                 auto new_val = Builder->CreateAdd(value, var_val, ".tmp");
                 Builder->CreateStore(new_val, symbol->getValue());
-            }
-            else
+            } else
                 throw CodegenError("Invalid operator: {}", NAMEOF_ENUM(node->getOperator()));
             break;
         case TokenType::MINUS_EQUAL:
@@ -408,12 +406,10 @@ void Codegen::visit(Assignment *node) {
             if (symbol->getType()->isFloatingPointTy()) {
                 auto new_val = Builder->CreateFSub(value, var_val, ".tmp");
                 Builder->CreateStore(new_val, symbol->getValue());
-            }
-            else if (symbol->getType()->isIntegerTy()) {
+            } else if (symbol->getType()->isIntegerTy()) {
                 auto new_val = Builder->CreateSub(value, var_val, ".tmp");
                 Builder->CreateStore(new_val, symbol->getValue());
-            }
-            else
+            } else
                 throw CodegenError("Invalid operator: {}", NAMEOF_ENUM(node->getOperator()));
             break;
         case TokenType::SLASH_EQUAL:
@@ -421,12 +417,10 @@ void Codegen::visit(Assignment *node) {
             if (symbol->getType()->isFloatingPointTy()) {
                 auto new_val = Builder->CreateFDiv(value, var_val, ".tmp");
                 Builder->CreateStore(new_val, symbol->getValue());
-            }
-            else if (symbol->getType()->isIntegerTy()) {
+            } else if (symbol->getType()->isIntegerTy()) {
                 auto new_val = Builder->CreateSDiv(value, var_val, ".tmp");
                 Builder->CreateStore(new_val, symbol->getValue());
-            }
-            else
+            } else
                 throw CodegenError("Invalid operator: {}", NAMEOF_ENUM(node->getOperator()));
             break;
         case TokenType::STAR_EQUAL:
@@ -434,12 +428,10 @@ void Codegen::visit(Assignment *node) {
             if (symbol->getType()->isFloatingPointTy()) {
                 auto new_val = Builder->CreateFMul(value, var_val, ".tmp");
                 Builder->CreateStore(new_val, symbol->getValue());
-            }
-            else if (symbol->getType()->isIntegerTy()) {
+            } else if (symbol->getType()->isIntegerTy()) {
                 auto new_val = Builder->CreateMul(value, var_val, ".tmp");
                 Builder->CreateStore(new_val, symbol->getValue());
-            }
-            else
+            } else
                 throw CodegenError("Invalid operator: {}", NAMEOF_ENUM(node->getOperator()));
             break;
         case TokenType::MOD_EQUAL:
@@ -447,12 +439,10 @@ void Codegen::visit(Assignment *node) {
             if (symbol->getType()->isFloatingPointTy()) {
                 auto new_val = Builder->CreateFRem(value, var_val, ".tmp");
                 Builder->CreateStore(new_val, symbol->getValue());
-            }
-            else if (symbol->getType()->isIntegerTy()) {
+            } else if (symbol->getType()->isIntegerTy()) {
                 auto new_val = Builder->CreateSRem(value, var_val, ".tmp");
                 Builder->CreateStore(new_val, symbol->getValue());
-            }
-            else
+            } else
                 throw CodegenError("Invalid operator: {}", NAMEOF_ENUM(node->getOperator()));
             break;
         case TokenType::POWER_EQUAL:
