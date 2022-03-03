@@ -384,17 +384,79 @@ void Codegen::visit(Assignment *node) {
 
     auto value = visit(node->getExpression());
     value = Cast(value, symbol->getType());
+    llvm::Value *var_val;
 
     switch (node->getOperator()) {
         case TokenType::EQUAL:
             Builder->CreateStore(value, symbol->getValue());
             break;
         case TokenType::PLUS_EQUAL:
+            var_val = Builder->CreateLoad(symbol->getType(), symbol->getValue(), ".tmp");
+            if (symbol->getType()->isFloatingPointTy()) {
+                auto new_val = Builder->CreateFAdd(value, var_val, ".tmp");
+                Builder->CreateStore(new_val, symbol->getValue());
+            }
+            else if (symbol->getType()->isIntegerTy()) {
+                auto new_val = Builder->CreateAdd(value, var_val, ".tmp");
+                Builder->CreateStore(new_val, symbol->getValue());
+            }
+            else
+                throw CodegenError("Invalid operator: {}", NAMEOF_ENUM(node->getOperator()));
+            break;
         case TokenType::MINUS_EQUAL:
+            var_val = Builder->CreateLoad(symbol->getType(), symbol->getValue(), ".tmp");
+            if (symbol->getType()->isFloatingPointTy()) {
+                auto new_val = Builder->CreateFSub(value, var_val, ".tmp");
+                Builder->CreateStore(new_val, symbol->getValue());
+            }
+            else if (symbol->getType()->isIntegerTy()) {
+                auto new_val = Builder->CreateSub(value, var_val, ".tmp");
+                Builder->CreateStore(new_val, symbol->getValue());
+            }
+            else
+                throw CodegenError("Invalid operator: {}", NAMEOF_ENUM(node->getOperator()));
+            break;
         case TokenType::SLASH_EQUAL:
+            var_val = Builder->CreateLoad(symbol->getType(), symbol->getValue(), ".tmp");
+            if (symbol->getType()->isFloatingPointTy()) {
+                auto new_val = Builder->CreateFDiv(value, var_val, ".tmp");
+                Builder->CreateStore(new_val, symbol->getValue());
+            }
+            else if (symbol->getType()->isIntegerTy()) {
+                auto new_val = Builder->CreateSDiv(value, var_val, ".tmp");
+                Builder->CreateStore(new_val, symbol->getValue());
+            }
+            else
+                throw CodegenError("Invalid operator: {}", NAMEOF_ENUM(node->getOperator()));
+            break;
         case TokenType::STAR_EQUAL:
+            var_val = Builder->CreateLoad(symbol->getType(), symbol->getValue(), ".tmp");
+            if (symbol->getType()->isFloatingPointTy()) {
+                auto new_val = Builder->CreateFMul(value, var_val, ".tmp");
+                Builder->CreateStore(new_val, symbol->getValue());
+            }
+            else if (symbol->getType()->isIntegerTy()) {
+                auto new_val = Builder->CreateMul(value, var_val, ".tmp");
+                Builder->CreateStore(new_val, symbol->getValue());
+            }
+            else
+                throw CodegenError("Invalid operator: {}", NAMEOF_ENUM(node->getOperator()));
+            break;
         case TokenType::MOD_EQUAL:
+            var_val = Builder->CreateLoad(symbol->getType(), symbol->getValue(), ".tmp");
+            if (symbol->getType()->isFloatingPointTy()) {
+                auto new_val = Builder->CreateFRem(value, var_val, ".tmp");
+                Builder->CreateStore(new_val, symbol->getValue());
+            }
+            else if (symbol->getType()->isIntegerTy()) {
+                auto new_val = Builder->CreateSRem(value, var_val, ".tmp");
+                Builder->CreateStore(new_val, symbol->getValue());
+            }
+            else
+                throw CodegenError("Invalid operator: {}", NAMEOF_ENUM(node->getOperator()));
+            break;
         case TokenType::POWER_EQUAL:
+            throw CodegenError("Power operator not implemented yet.\n");
         default:
             throw CodegenError("Invalid operator: {}", NAMEOF_ENUM(node->getOperator()));
     }
@@ -518,6 +580,7 @@ llvm::Value *Codegen::visit(BinaryOp *node) {
             if (!right->getType()->isIntegerTy())
                 throw CodegenError("Cannot use non-integers for power coefficient: {}\n",
                                    node->getRight()->toString(0));
+            throw CodegenError("Power operator not implemented yet.\n");
             break;
         case TokenType::EQUAL_EQUAL:
             left = Cast(left, finalType);
