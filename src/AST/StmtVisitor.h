@@ -23,4 +23,4 @@ namespace lesma {
         virtual T visit(Return *node) = 0;
         virtual T visit(Defer *node) = 0;
     };
-}
+}// namespace lesma

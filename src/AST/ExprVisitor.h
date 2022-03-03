@@ -17,4 +17,4 @@ namespace lesma {
         virtual T1 visit(UnaryOp *node) = 0;
         virtual T1 visit(Else *node) = 0;
     };
-}
+}// namespace lesma

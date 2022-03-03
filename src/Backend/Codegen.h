@@ -1,8 +1,8 @@
 #pragma once
 
-#include "Frontend/Parser.h"
 #include "AST/ExprVisitor.h"
 #include "AST/StmtVisitor.h"
+#include "Frontend/Parser.h"
 #include "LesmaJIT.h"
 #include "Symbol/SymbolTable.h"
 #include <llvm/Analysis/CGSCCPassManager.h>
@@ -24,7 +24,7 @@ namespace lesma {
         using LesmaErrorWithExitCode<EX_DATAERR>::LesmaErrorWithExitCode;
     };
 
-    class Codegen: public ExprVisitor<llvm::Value *, llvm::Type *>, public StmtVisitor<void> {
+    class Codegen : public ExprVisitor<llvm::Value *, llvm::Type *>, public StmtVisitor<void> {
         std::unique_ptr<LLVMContext> TheContext;
         std::unique_ptr<Module> TheModule;
         std::unique_ptr<IRBuilder<>> Builder;
