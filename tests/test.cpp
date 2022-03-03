@@ -81,10 +81,10 @@ TEST_CASE("Parser", "AST") {
     auto lexer = initializeLexer(source);
     auto parser = initializeParser(lexer);
 
-    REQUIRE(parser->getAST()->getBlock()->getChildren().size() == 3);
-    REQUIRE(parser->getAST()->getBlock()->getChildren().at(0)->toString(0) == "VarDecl[1:1]: y: int = 100\n");
-    REQUIRE(parser->getAST()->getBlock()->getChildren().at(1)->toString(0) == "Assignment[1:1]: y EQUAL 101\n");
-    REQUIRE(parser->getAST()->getBlock()->getChildren().at(2)->toString(0) == "Expression[2:4]: exit(y)\n");
+    REQUIRE(parser->getAST()->getChildren().size() == 3);
+    REQUIRE(parser->getAST()->getChildren().at(0)->toString(0) == "VarDecl[1:1]: y: int = 100\n");
+    REQUIRE(parser->getAST()->getChildren().at(1)->toString(0) == "Assignment[1:1]: y EQUAL 101\n");
+    REQUIRE(parser->getAST()->getChildren().at(2)->toString(0) == "Expression[2:4]: exit(y)\n");
 
     BENCHMARK("Parser") {
         initializeParser(lexer);
