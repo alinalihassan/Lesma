@@ -339,9 +339,12 @@ void Codegen::visit(FuncDecl *node) {
     //    auto instrs = deferStack.top();
     //    deferStack.pop();
 
-    if (visit(node->getReturnType()) == Builder->getVoidTy())
+    if (visit(node->getReturnType()) == Builder->getVoidTy() && !isReturn)
         Builder->CreateRetVoid();
 
+    isReturn = false;
+
+    // Verify function
     std::string output;
     llvm::raw_string_ostream oss(output);
     if (llvm::verifyFunction(*F, &oss)) {
@@ -349,9 +352,11 @@ void Codegen::visit(FuncDecl *node) {
         throw CodegenError("Invalid Function {}\n{}", node->getName(), output);
     }
 
+    // Insert Function to Symbol Table
     Scope = Scope->getParent();
     Scope->insertSymbol(node->getName(), F, F->getFunctionType());
 
+    // Reset Insert Point to Top Level
     Builder->SetInsertPoint(&TopLevelFunc->back());
 }
 
@@ -422,7 +427,11 @@ void Codegen::visit(Return *node) {
     if (Builder->GetInsertBlock()->getParent() == TopLevelFunc)
         throw CodegenError("Return statements are not allowed at top-level\n");
 
-    Builder->CreateRet(visit(node->getValue()));
+    isReturn = true;
+    if (node->getValue() == nullptr)
+        Builder->CreateRetVoid();
+    else
+        Builder->CreateRet(visit(node->getValue()));
 }
 
 void Codegen::visit(Defer * /*node*/) {

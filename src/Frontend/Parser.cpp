@@ -305,6 +305,10 @@ Statement *Parser::ParseContinue() {
 Statement *Parser::ParseReturn() {
     auto loc = Peek()->loc;
     Consume(TokenType::RETURN);
+    if (Check(TokenType::NEWLINE) || Peek()->type == TokenType::EOF_TOKEN) {
+        ConsumeNewline();
+        return reinterpret_cast<Statement *>(new Return(loc, nullptr));
+    }
     auto val = ParseExpression();
     ConsumeNewline();
     return reinterpret_cast<Statement *>(new Return(loc, val));

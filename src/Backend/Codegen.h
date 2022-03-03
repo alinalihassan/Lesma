@@ -44,6 +44,7 @@ namespace lesma {
         std::stack<std::vector<llvm::Value *>> deferStack;
         llvm::Function *TopLevelFunc;
         bool isBreak = false;
+        bool isReturn = false;
 
     public:
         std::vector<ThreadSafeModule> Modules;
