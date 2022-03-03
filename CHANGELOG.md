@@ -1,3 +1,16 @@
+# [0.1.0](https://github.com/alinalihassan/Lesma/compare/v0.0.2...v0.1.0) (2022-03-03)
+
+
+### Bug Fixes
+
+* ✨ allow empty return in void functions ([b3bde14](https://github.com/alinalihassan/Lesma/commit/b3bde14d2b97469b6939753ee7a0c5db94ae963f))
+* 🐛 Fixed tests not working after refactoring AST ([0495efd](https://github.com/alinalihassan/Lesma/commit/0495efd0968b4149227783be7c90959d864c395e))
+
+
+### Features
+
+* ✨ Added assign operators (+=, -=, *=, /=, %=) ([3fdfb63](https://github.com/alinalihassan/Lesma/commit/3fdfb6362d519c1b45b72d1f12be24585e3c6d55))
+
 ## [0.0.2](https://github.com/alinalihassan/Lesma/compare/v0.0.1...v0.0.2) (2022-03-02)
 
 
