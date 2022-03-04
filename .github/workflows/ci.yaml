@@ -9,6 +9,10 @@ on:
 env:
   BUILD_TYPE: Release
 
+permissions:
+  contents: write
+  deployments: write
+
 jobs:
   build:
     name: Build
@@ -60,6 +64,23 @@ jobs:
       - name: Test
         working-directory: ${{github.workspace}}/build
         run: ctest -C ${{env.BUILD_TYPE}} --rerun-failed --output-on-failure
+
+      - name: Build and run benchmarks with Catch2
+        working-directory: ${{github.workspace}}/build
+        run: ./tests | tee benchmark_result.txt
+
+      - name: Store benchmark result
+        uses: benchmark-action/github-action-benchmark@v1
+        with:
+          name: Catch2 Benchmark
+          tool: 'catch2'
+          output-file-path: ${{github.workspace}}/build/benchmark_result.txt
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          auto-push: true
+          alert-threshold: '200%'
+          comment-on-alert: true
+          fail-on-alert: true
+          alert-comment-cc-users: '@alinalihassan'
 
   release:
     name: Release
