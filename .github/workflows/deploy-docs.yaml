@@ -17,8 +17,10 @@ jobs:
           node-version: 16.x
           cache: yarn
       - name: Install dependencies
+        working-directory: ./docs
         run: yarn install --frozen-lockfile
       - name: Test build website
+        working-directory: ./docs
         run: yarn build
   deploy:
     if: github.event_name != 'pull_request'
@@ -33,6 +35,7 @@ jobs:
         with:
           ssh-private-key: ${{ secrets.GH_PAGES_DEPLOY }}
       - name: Deploy to GitHub Pages
+        working-directory: ./docs
         env:
           USE_SSH: true
         run: |
