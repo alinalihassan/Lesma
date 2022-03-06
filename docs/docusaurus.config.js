@@ -11,8 +11,8 @@ const config = {
   onBrokenLinks: 'throw',
   onBrokenMarkdownLinks: 'warn',
   favicon: 'img/favicon.ico',
-  organizationName: 'alinalihassan', // Usually your GitHub org/user name.
-  projectName: 'lesma', // Usually your repo name.
+  organizationName: 'alinalihassan',
+  projectName: 'lesma',
   deploymentBranch: 'gh-pages',
   trailingSlash: false,
 
