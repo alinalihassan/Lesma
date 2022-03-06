@@ -11,8 +11,8 @@ const config = {
   onBrokenLinks: 'throw',
   onBrokenMarkdownLinks: 'warn',
   favicon: 'img/favicon.ico',
-  organizationName: 'alinalihassan', // Usually your GitHub org/user name.
-  projectName: 'lesma', // Usually your repo name.
+  organizationName: 'alinalihassan',
+  projectName: 'lesma',
   deploymentBranch: 'gh-pages',
   trailingSlash: false,
 
@@ -23,14 +23,12 @@ const config = {
       ({
         docs: {
           sidebarPath: require.resolve('./sidebars.js'),
-          // Please change this to your repo.
-          editUrl: 'https://github.com/facebook/docusaurus/tree/main/packages/create-docusaurus/templates/shared/',
+          editUrl: 'https://github.com/alinalihassan/Lesma/tree/main/docs/',
         },
         blog: {
           showReadingTime: true,
-          // Please change this to your repo.
           editUrl:
-            'https://github.com/facebook/docusaurus/tree/main/packages/create-docusaurus/templates/shared/',
+            'https://github.com/alinalihassan/Lesma/tree/main/docs/',
         },
         theme: {
           customCss: require.resolve('./src/css/custom.css'),
