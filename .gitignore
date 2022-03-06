@@ -1,7 +1,14 @@
+# IDE related
 .idea/
 .vscode/
 
+# Build folders
 cmake-build-debug/
 cmake-build-release/
 build/
+
+# Testing file
 test.les
+
+# File system specific
+**/.DS_Store
