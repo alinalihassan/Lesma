@@ -1,5 +1,5 @@
 <p align="center">
-<img src="docs/img/logo.svg" height="180px" style="height: 180px" alt="Lesma Programming Language" title="Lesma Programming Language">
+<img src="logo.svg" height="180px" style="height: 180px" alt="Lesma Programming Language" title="Lesma Programming Language">
 <br><b style="font-size: 32px;">Lesma</b>
 </p>
 
@@ -11,11 +11,11 @@
 
 </div>
 
-**Lesma** is a compiled, statically typed, imperative and object-oriented programming language with a focus on expressiveness, elegancy, and simplicity, while not sacrificing on performance.
+**Lesma** is a compiled, statically typed, imperative and object-oriented programming language with a focus on expressiveness, elegance, and simplicity, while not sacrificing on performance.
 
 ## 📝 Features
 - 🚀 Fast Compilation: compiling at a rate of ≈230k loc/s, [because waiting for code to compile is a thing of the past](https://xkcd.com/303/)
-- ⚡ Blazing Fast Execution: because it should be, it's as fast as C, working together with LLVM's state-of-the-art optimizations, but it won't ever oblige you to make an extra effort just for the sake of performance
+- ⚡ Blazing Fast Execution: because it should be, it's as fast as C, using LLVM's state-of-the-art optimizations, but it won't ever oblige you to make an extra effort just for the sake of performance
 - 🔬 Statically Typed: because IDE completion is like heaven, while unknown behaviour and runtime exceptions are like hell
 - 🧑‍🎨 Simple: because the code should be easily readable, and it shouldn't make you guess what it does or take long to learn
 
@@ -68,5 +68,5 @@ Pull requests are welcome. For major changes, please open an issue first to disc
 
 Please make sure to add and/or update tests as appropriate.
 
-## ⚠️ License
+## 📎 License
 This software is licensed under the [MIT](https://github.com/alinalihassan/Lesma/blob/main/LICENSE) © [Alin Ali Hassan](https://github.com/alinalihassan).
