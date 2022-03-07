@@ -56,6 +56,7 @@ int main(int argc, char **argv) {
         //        print(DEBUG, "LLVM IR: \n");
         //        codegen->Dump();
 
+        int exit_code = 0;
         if (!options->jit) {
             // Compile to Object File
             TIMEIT("Writing Object File", codegen->WriteToObjectFile(options->output);)
@@ -65,9 +66,10 @@ int main(int argc, char **argv) {
 
             // Remove Object File
             TIMEIT("Remove Object File", remove(fmt::format("{}.o", options->output).c_str());)
+        } else {
+            // Executing
+            TIMEIT("Execution", exit_code = codegen->JIT(std::move(codegen->Modules));)
         }
-        // Executing
-        TIMEIT("Execution", int exit_code = codegen->JIT(std::move(codegen->Modules)););
 
         if (options->debug)
             print(DEBUG, "Total -> {:.2f} ms\n", total);
