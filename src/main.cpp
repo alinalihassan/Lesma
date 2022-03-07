@@ -56,6 +56,16 @@ int main(int argc, char **argv) {
         //        print(DEBUG, "LLVM IR: \n");
         //        codegen->Dump();
 
+        if (!options->jit) {
+            // Compile to Object File
+            TIMEIT("Writing Object File", codegen->WriteToObjectFile(options->output);)
+
+            // Link Object File
+            TIMEIT("Linking Object File", codegen->LinkObjectFile(fmt::format("{}.o", options->output));)
+
+            // Remove Object File
+            TIMEIT("Remove Object File", remove(fmt::format("{}.o", options->output).c_str());)
+        }
         // Executing
         TIMEIT("Execution", int exit_code = codegen->JIT(std::move(codegen->Modules)););
 

@@ -10,7 +10,7 @@ success_count=0
 for file in "$SCRIPT_DIR"/tests/lesma/*.les; do
 	name=$(basename -s .les "${file}")
 	echo "Testing ${name}"
-	"$SCRIPT_DIR"/build/lesma "${file}" &> /tmp/compile_output.log
+	"$SCRIPT_DIR"/build/lesma run "${file}" &> /tmp/compile_output.log
   test_ret_value=$?
   test_expected_ret_value=$(head -n 1 "$file" | cut -b 6-)
   if [ "$test_ret_value" -ne "$test_expected_ret_value" ]; then

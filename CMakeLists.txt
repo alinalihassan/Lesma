@@ -6,15 +6,11 @@ include(cmake/CPM.cmake)
 
 CPMAddPackage("gh:Neargye/nameof@0.10.1")
 CPMAddPackage("gh:catchorg/Catch2@2.13.8")
+CPMAddPackage("gh:CLIUtils/CLI11@2.1.2")
 CPMAddPackage(
   NAME fmt
   GIT_TAG 8.1.1
   GITHUB_REPOSITORY fmtlib/fmt
-)
-CPMAddPackage(
-  GITHUB_REPOSITORY jarro2783/cxxopts
-  VERSION 3.0.0
-  OPTIONS "CXXOPTS_BUILD_EXAMPLES NO" "CXXOPTS_BUILD_TESTS NO" "CXXOPTS_ENABLE_INSTALL YES"
 )
 
 # C++ Flags and settings
@@ -39,13 +35,21 @@ include_directories(${SRC_DIR})
 include_directories(${LIB_DIR})
 
 # LLVM configuration
-find_package(LLVM 13 CONFIG)
+find_package(LLVM 13 CONFIG REQUIRED)
 message(STATUS "Found LLVM ${LLVM_PACKAGE_VERSION}")
 
 include_directories(SYSTEM ${LLVM_INCLUDE_DIRS})
 add_definitions(${LLVM_DEFINITIONS})
 
 llvm_map_components_to_libnames(LLVM_LIBS core support demangle mcjit native orcjit)
+
+# Clang configuration
+find_package(Clang REQUIRED)
+
+include_directories(${CLANG_INCLUDE_DIRS})
+add_definitions(${CLANG_DEFINITIONS})
+
+set(CLANG_LIBS clangTooling)
 
 # Executable configuration
 set(EXE_NAME lesma)
@@ -64,8 +68,8 @@ set(TEST_SOURCES  tests/test.cpp)
 add_executable(${EXE_NAME} ${COMMON_SOURCES} ${TARGET_SOURCES})
 add_executable(tests ${COMMON_SOURCES} ${TEST_SOURCES})
 
-target_link_libraries(${EXE_NAME} PRIVATE ${LLVM_LIBS} fmt nameof cxxopts)
-target_link_libraries(tests PRIVATE ${LLVM_LIBS} fmt nameof cxxopts Catch2::Catch2)
+target_link_libraries(${EXE_NAME} PRIVATE ${LLVM_LIBS} ${CLANG_LIBS} fmt nameof CLI11)
+target_link_libraries(tests PRIVATE ${LLVM_LIBS} ${CLANG_LIBS} fmt nameof Catch2::Catch2 CLI11)
 
 
 # Tests

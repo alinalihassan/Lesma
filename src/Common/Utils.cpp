@@ -11,35 +11,36 @@ namespace lesma {
         return buffer.str();
     }
 
+    std::string getBasename(const std::string &file_path) {
+        auto filename = file_path.substr(file_path.find_last_of("/\\") + 1);
+        auto filename_wo_ext = filename.substr(0, filename.find_last_of('.'));
+
+        return filename_wo_ext;
+    }
+
     CLIOptions *parseCLI(int argc, char **argv) {
         bool debug;
+        std::string output = "output";
         std::string file;
 
-        cxxopts::Options options("Lesma", "Lesma compiler");
-        options.positional_help("[optional args]").show_positional_help();
-        // clang-format off
-        options.add_options()
-                ("h,help", "Print usage")
-                ("d,debug", "Enable debugging", cxxopts::value<bool>(debug))
-                ;
-        // clang-format on
-        options.add_options("Hidden")("f,file", "Input Lesma file", cxxopts::value<std::string>(file));
+        CLI::App app{"Lesma"};
+        app.set_help_all_flag("--help-all", "Expand all help");
+        app.add_flag("-d,--debug", debug, "Enable debug logging");
 
-        options.parse_positional({"file"});
-        options.positional_help("<file>");
+        CLI::App *run = app.add_subcommand("run", "Run source code");
+        CLI::App *compile = app.add_subcommand("compile", "Compile source code");
+        app.require_subcommand();
 
-        auto result = options.parse(argc, argv);
+        run->add_option("file", file, "Lesma source filename");
+        compile->add_option("file", file, "Lesma source filename");
+        compile->add_option("-o,--output", output, "Output filename");
 
-        if (result.count("help")) {
-            print("{}\n", options.help({""}));
-            exit(0);
+        try {
+            app.parse(argc, argv);
+        } catch (const CLI::ParseError &e) {
+            exit(app.exit(e));
         }
 
-        if (!result.count("file")) {
-            print(ERROR, "Expected a file input, print usage with -h or --help for more information\n");
-            exit(1);
-        }
-
-        return new CLIOptions{debug, file};
+        return new CLIOptions{file, output, debug, run->parsed()};
     }
 }// namespace lesma

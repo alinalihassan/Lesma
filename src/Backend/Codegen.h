@@ -5,6 +5,7 @@
 #include "Frontend/Parser.h"
 #include "LesmaJIT.h"
 #include "Symbol/SymbolTable.h"
+#include <clang/Driver/Driver.h>
 #include <llvm/Analysis/CGSCCPassManager.h>
 #include <llvm/Analysis/LoopAnalysisManager.h>
 #include <llvm/IR/IRBuilder.h>
@@ -14,8 +15,10 @@
 #include <llvm/IR/Verifier.h>
 #include <llvm/Passes/PassBuilder.h>
 #include <llvm/Support/Host.h>
+#include <llvm/Support/Program.h>
 #include <llvm/Support/TargetRegistry.h>
 #include <llvm/Support/TargetSelect.h>
+#include <llvm/Support/VirtualFileSystem.h>
 #include <llvm/Transforms/IPO/PassManagerBuilder.h>
 
 namespace lesma {
@@ -52,7 +55,8 @@ namespace lesma {
 
         void Dump();
         void Run();
-        void Compile(const std::string &output);
+        void WriteToObjectFile(const std::string &output);
+        void LinkObjectFile(const std::string &obj_filename);
         void Optimize(llvm::PassBuilder::OptimizationLevel opt);
         int JIT(std::vector<ThreadSafeModule> modules);
         ThreadSafeModule getModule() { return {std::move(TheModule), std::move(TheContext)}; };

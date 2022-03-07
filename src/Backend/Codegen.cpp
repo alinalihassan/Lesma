@@ -24,7 +24,7 @@ llvm::Function *Codegen::InitializeTopLevel() {
     std::vector<llvm::Type *> paramTypes = {};
 
     FunctionType *FT = FunctionType::get(Builder->getInt64Ty(), paramTypes, false);
-    Function *F = Function::Create(FT, Function::ExternalLinkage, "top-level", *TheModule);
+    Function *F = Function::Create(FT, Function::ExternalLinkage, "main", *TheModule);
 
     auto entry = BasicBlock::Create(*TheContext, "entry", F);
     Builder->SetInsertPoint(entry);
@@ -109,7 +109,7 @@ void Codegen::Optimize(llvm::PassBuilder::OptimizationLevel opt) {
     MPM.run(*TheModule, MAM);
 }
 
-void Codegen::Compile(const std::string &output) {
+void Codegen::WriteToObjectFile(const std::string &output) {
     std::error_code err;
     auto out = llvm::raw_fd_ostream(output + ".o", err);
 
@@ -118,6 +118,35 @@ void Codegen::Compile(const std::string &output) {
         throw CodegenError("Target Machine can't emit an object file");
     // Emit object file
     passManager.run(*TheModule);
+}
+
+void Codegen::LinkObjectFile(const std::string &obj_filename) {
+    auto clangPath = llvm::sys::findProgramByName("clang");
+    if (clangPath.getError())
+        throw CodegenError("Unable to find clang path\n");
+
+    std::vector<const char *> args;
+    args.push_back(clangPath.get().c_str());
+    args.push_back(obj_filename.c_str());
+    args.push_back("-o");
+    args.push_back(getBasename(obj_filename).c_str());
+
+    auto DiagOpts = new clang::DiagnosticOptions();
+    auto DiagID = new clang::DiagnosticIDs();
+    clang::DiagnosticsEngine Diags(DiagID, &*DiagOpts);
+    clang::driver::Driver TheDriver(args[0], llvm::sys::getDefaultTargetTriple(), Diags);
+
+    // Create the set of actions to perform
+    auto compilation = TheDriver.BuildCompilation(args);
+
+    // Carry out the actions
+    int Res = 0;
+    SmallVector<std::pair<int, const clang::driver::Command *>, 4> FailingCommands;
+    if (compilation)
+        Res = TheDriver.ExecuteCompilation(*compilation, FailingCommands);
+
+    if (Res)
+        throw CodegenError("Linking Failed\n");
 }
 
 int Codegen::JIT(std::vector<ThreadSafeModule> modules) {

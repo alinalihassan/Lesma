@@ -3,7 +3,7 @@
 #include <fstream>
 #include <sstream>
 
-#include "cxxopts.hpp"
+#include "CLI/CLI.hpp"
 #include "fmt/color.h"
 #include "fmt/core.h"
 
@@ -32,8 +32,10 @@ namespace lesma {
     };
 
     struct CLIOptions {
-        bool debug;
         std::string file;
+        std::string output;
+        bool debug;
+        bool jit;
     };
 
     template<typename S, typename... Args>
@@ -56,5 +58,6 @@ namespace lesma {
     }
 
     std::string readFile(const std::string &path);
+    std::string getBasename(const std::string &file_path);
     CLIOptions *parseCLI(int argc, char **argv);
 }// namespace lesma
