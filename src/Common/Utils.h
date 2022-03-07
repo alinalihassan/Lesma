@@ -56,5 +56,6 @@ namespace lesma {
     }
 
     std::string readFile(const std::string &path);
+    std::string getBasename(const std::string &file_path);
     CLIOptions *parseCLI(int argc, char **argv);
 }// namespace lesma

@@ -2,14 +2,6 @@
 
 using namespace lesma;
 
-// Utility
-std::string getBasename(const std::string &file_path) {
-    auto filename = file_path.substr(file_path.find_last_of("/\\") + 1);
-    auto filename_wo_ext = filename.substr(0, filename.find_last_of('.'));
-
-    return filename_wo_ext;
-}
-
 template<TokenType type, TokenType... remained_types>
 bool Parser::AdvanceIfMatchAny() {
     if (CheckAny<type, remained_types...>()) {

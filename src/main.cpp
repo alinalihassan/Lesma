@@ -57,10 +57,10 @@ int main(int argc, char **argv) {
         //        codegen->Dump();
 
         // Compile to Object File
-        TIMEIT("Writing Object File", codegen->WriteToObjectFile("output");)
+        TIMEIT("Writing Object File", codegen->WriteToObjectFile(getBasename(options->file));)
 
         // Link Object File
-        TIMEIT("Linking Object File", codegen->LinkObjectFile("output.o");)
+        TIMEIT("Linking Object File", codegen->LinkObjectFile(fmt::format("{}.o", getBasename(options->file)));)
 
         // Executing
         TIMEIT("Execution", int exit_code = codegen->JIT(std::move(codegen->Modules)););
