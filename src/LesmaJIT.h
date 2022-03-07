@@ -1,5 +1,4 @@
-#ifndef LLVM_EXECUTIONENGINE_ORC_LESMAJIT_H
-#define LLVM_EXECUTIONENGINE_ORC_LESMAJIT_H
+#pragma once
 
 #include "llvm/ADT/StringRef.h"
 #include "llvm/ExecutionEngine/JITSymbol.h"
@@ -87,5 +86,3 @@ namespace lesma {
     };
 
 }// namespace lesma
-
-#endif// LLVM_EXECUTIONENGINE_ORC_LESMAJIT_H
