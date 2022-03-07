@@ -121,16 +121,15 @@ void Codegen::WriteToObjectFile(const std::string &output) {
 }
 
 void Codegen::LinkObjectFile(const std::string &obj_filename) {
-    auto clangPath = llvm::sys::findProgramByName("clangg");
-    if (clangPath.getError()) {
+    auto clangPath = llvm::sys::findProgramByName("clang");
+    if (clangPath.getError())
         throw CodegenError("Unable to find clang path\n");
-    }
 
     std::vector<const char *> args;
-    args.push_back(obj_filename.c_str());
     args.push_back(clangPath.get().c_str());
-
-    void *UserData;
+    args.push_back(obj_filename.c_str());
+    args.push_back("-o");
+    args.push_back(getBasename(obj_filename).c_str());
 
     auto DiagOpts = new clang::DiagnosticOptions();
     auto DiagID = new clang::DiagnosticIDs();
@@ -146,8 +145,8 @@ void Codegen::LinkObjectFile(const std::string &obj_filename) {
     if (compilation)
         Res = TheDriver.ExecuteCompilation(*compilation, FailingCommands);
 
-    DiagID->Release();
-    DiagOpts->Release();
+    if (Res)
+        throw CodegenError("Linking Failed\n");
 }
 
 int Codegen::JIT(std::vector<ThreadSafeModule> modules) {
