@@ -69,7 +69,7 @@ add_executable(${EXE_NAME} ${COMMON_SOURCES} ${TARGET_SOURCES})
 add_executable(tests ${COMMON_SOURCES} ${TEST_SOURCES})
 
 target_link_libraries(${EXE_NAME} PRIVATE ${LLVM_LIBS} ${CLANG_LIBS} fmt nameof CLI11)
-target_link_libraries(tests PRIVATE ${LLVM_LIBS} ${CLANG_LIBS} fmt nameof Catch2::Catch2)
+target_link_libraries(tests PRIVATE ${LLVM_LIBS} ${CLANG_LIBS} fmt nameof Catch2::Catch2 CLI11)
 
 
 # Tests
