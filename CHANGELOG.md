@@ -1,3 +1,16 @@
+# [0.2.0](https://github.com/alinalihassan/Lesma/compare/v0.1.0...v0.2.0) (2022-03-07)
+
+
+### Bug Fixes
+
+* Better handle cli positional arguments ([eded5c9](https://github.com/alinalihassan/Lesma/commit/eded5c9304bcda50cc56a419691001d933b2206d))
+
+
+### Features
+
+* Finished Linking method ([781536f](https://github.com/alinalihassan/Lesma/commit/781536f03208d2abe949a0c307d4e17b9dd10b69))
+* Initial commit for Object Linking using Clang Driver ([efd2995](https://github.com/alinalihassan/Lesma/commit/efd29959fc841fb89669ef0da50063182bed8a98))
+
 # [0.1.0](https://github.com/alinalihassan/Lesma/compare/v0.0.2...v0.1.0) (2022-03-03)
 
 
