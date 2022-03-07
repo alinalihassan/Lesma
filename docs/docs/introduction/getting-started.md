@@ -94,5 +94,10 @@ Check how to use the CLI and available options
 
 Run one of the Lesma test files
 ```bash
-./build/lesma tests/lesma/inference.les
+./build/lesma run tests/lesma/inference.les
+```
+
+Compile a Lesma file to binary/executable
+```bash
+./build/lesma compile tests/lesma/inference.les
 ```
