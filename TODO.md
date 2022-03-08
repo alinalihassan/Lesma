@@ -26,7 +26,7 @@
 - [ ] Add classes
 - [ ] Add enums
 - [ ] Add unit tests
-- [ ] Add module system
+- [x] Add module system
 - [x] Add python-style syntax
 - [ ] Add generics
 - [ ] Add inheritance (or traits)
