@@ -17,6 +17,7 @@ Codegen::Codegen(std::unique_ptr<Parser> parser, const std::string &filename, bo
     Scope = new SymbolTable(nullptr);
     TargetMachine = InitializeTargetMachine();
 
+    this->filename = filename;
     isJIT = jit;
     isMain = main;
 
@@ -53,8 +54,9 @@ llvm::TargetMachine *Codegen::InitializeTargetMachine() {
 }
 
 void Codegen::CompileModule(const std::string &filepath) {
+    std::filesystem::path mainPath = filename;
     // Read source
-    auto source = readFile(filepath);
+    auto source = readFile(fmt::format("{}/{}", std::filesystem::absolute(mainPath).parent_path().c_str(), filepath));
     // Lexer
     auto lexer = std::make_unique<Lexer>(source, filepath.substr(filepath.find_last_of("/\\") + 1));
     lexer->ScanAll();

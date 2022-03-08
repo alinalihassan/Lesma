@@ -4,6 +4,7 @@
 #include "AST/StmtVisitor.h"
 #include "Frontend/Parser.h"
 #include "LesmaJIT.h"
+#include <filesystem>
 #include "Symbol/SymbolTable.h"
 #include <clang/Driver/Driver.h>
 #include <llvm/Analysis/CGSCCPassManager.h>
