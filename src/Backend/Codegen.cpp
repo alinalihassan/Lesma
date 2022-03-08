@@ -150,7 +150,7 @@ void Codegen::LinkObjectFile(const std::string &obj_filename) {
     std::vector<const char *> args;
     args.push_back(clangPath.get().c_str());
     args.push_back(obj_filename.c_str());
-    for (const auto& obj: ObjectFiles)
+    for (const auto &obj: ObjectFiles)
         args.push_back(obj.c_str());
     args.push_back("-o");
     args.push_back(output.c_str());
@@ -174,17 +174,17 @@ void Codegen::LinkObjectFile(const std::string &obj_filename) {
 
     // Remove object files
     remove(obj_filename.c_str());
-    for (const auto& obj: ObjectFiles)
+    for (const auto &obj: ObjectFiles)
         remove(obj.c_str());
 }
 
 int Codegen::JIT() {
-//    Commented out for now, the linker seems to just copy the functions over to the main module
-//    for (auto &module: Modules) {
-//        auto jit_error = TheJIT->addModule(std::move(module));
-//        if (jit_error)
-//            throw CodegenError("JIT Error:\n{}");
-//    }
+    //    Commented out for now, the linker seems to just copy the functions over to the main module
+    //    for (auto &module: Modules) {
+    //        auto jit_error = TheJIT->addModule(std::move(module));
+    //        if (jit_error)
+    //            throw CodegenError("JIT Error:\n{}");
+    //    }
     auto jit_error = TheJIT->addModule(ThreadSafeModule(std::move(TheModule), std::move(TheContext)));
     if (jit_error)
         throw CodegenError("JIT Error:\n{}");
