@@ -13,6 +13,7 @@
 #include <llvm/IR/Module.h>
 #include <llvm/IR/PassManager.h>
 #include <llvm/IR/Verifier.h>
+#include <llvm/Linker/Linker.h>
 #include <llvm/Passes/PassBuilder.h>
 #include <llvm/Support/Host.h>
 #include <llvm/Support/Program.h>
@@ -45,20 +46,24 @@ namespace lesma {
         std::stack<llvm::BasicBlock *> breakBlocks;
         std::stack<llvm::BasicBlock *> continueBlocks;
         std::stack<std::vector<llvm::Value *>> deferStack;
+
+        std::vector<ThreadSafeModule> Modules;
+        std::vector<std::string> ObjectFiles;
         llvm::Function *TopLevelFunc;
         bool isBreak = false;
         bool isReturn = false;
+        bool isJIT = false;
+        bool isMain = true;
 
     public:
-        std::vector<ThreadSafeModule> Modules;
-        Codegen(std::unique_ptr<Parser> parser, const std::string &filename);
+        Codegen(std::unique_ptr<Parser> parser, const std::string &filename, bool jit, bool main);
 
         void Dump();
         void Run();
+        int JIT();
         void WriteToObjectFile(const std::string &output);
         void LinkObjectFile(const std::string &obj_filename);
         void Optimize(llvm::PassBuilder::OptimizationLevel opt);
-        int JIT(std::vector<ThreadSafeModule> modules);
         ThreadSafeModule getModule() { return {std::move(TheModule), std::move(TheContext)}; };
 
     protected:
