@@ -27,7 +27,7 @@ Parser *initializeParser(Lexer *lexer) {
 Codegen *initializeCodegen(Parser *parser) {
     std::unique_ptr<Parser> parser_pointer;
     parser_pointer.reset(parser);
-    auto codegen = new Codegen(std::move(parser_pointer), "", true, false);
+    auto codegen = new Codegen(std::move(parser_pointer), "", true, true);
     codegen->Run();
 
     return codegen;
