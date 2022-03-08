@@ -2,7 +2,7 @@
 
 using namespace lesma;
 
-Codegen::Codegen(std::unique_ptr<Parser> parser, const std::string &filename) {
+Codegen::Codegen(std::unique_ptr<Parser> parser, const std::string &filename, bool jit, bool main) {
     InitializeNativeTarget();
     InitializeNativeTargetAsmPrinter();
     InitializeNativeTargetAsmParser();
@@ -17,6 +17,10 @@ Codegen::Codegen(std::unique_ptr<Parser> parser, const std::string &filename) {
     Scope = new SymbolTable(nullptr);
     TargetMachine = InitializeTargetMachine();
 
+    this->filename = filename;
+    isJIT = jit;
+    isMain = main;
+
     TopLevelFunc = InitializeTopLevel();
 }
 
@@ -24,7 +28,7 @@ llvm::Function *Codegen::InitializeTopLevel() {
     std::vector<llvm::Type *> paramTypes = {};
 
     FunctionType *FT = FunctionType::get(Builder->getInt64Ty(), paramTypes, false);
-    Function *F = Function::Create(FT, Function::ExternalLinkage, "main", *TheModule);
+    Function *F = Function::Create(FT, isMain ? Function::ExternalLinkage : Function::InternalLinkage, "main", *TheModule);
 
     auto entry = BasicBlock::Create(*TheContext, "entry", F);
     Builder->SetInsertPoint(entry);
@@ -50,8 +54,9 @@ llvm::TargetMachine *Codegen::InitializeTargetMachine() {
 }
 
 void Codegen::CompileModule(const std::string &filepath) {
+    std::filesystem::path mainPath = filename;
     // Read source
-    auto source = readFile(filepath);
+    auto source = readFile(fmt::format("{}/{}", std::filesystem::absolute(mainPath).parent_path().c_str(), filepath));
     // Lexer
     auto lexer = std::make_unique<Lexer>(source, filepath.substr(filepath.find_last_of("/\\") + 1));
     lexer->ScanAll();
@@ -60,34 +65,49 @@ void Codegen::CompileModule(const std::string &filepath) {
     auto parser = std::make_unique<Parser>(lexer->getTokens());
     parser->Parse();
 
+    // TODO: Delete it, memory leak, smart pointer made us lose the references to other modules
     // Codegen
-    auto codegen = std::make_unique<Codegen>(std::move(parser), filepath);
+    auto codegen = new Codegen(std::move(parser), filepath, isJIT, false);
     codegen->Run();
 
     // Optimize
     codegen->Optimize(llvm::PassBuilder::OptimizationLevel::O3);
-    codegen->Dump();
 
     codegen->TheModule->setModuleIdentifier(filepath);
 
-    // Add function to main module
-    //    Module::iterator it;
-    //    Module::iterator end = codegen->TheModule->end();
-    //    for (it = codegen->TheModule->begin(); it != end; ++it) {
-    //        auto name = std::string{(*it).getName()};
-    //        auto new_func = Function::Create((*it).getFunctionType(),
-    //                                         Function::ExternalLinkage,
-    //                                         name,
-    //                                         TheModule.get());
-    //
-    //        Scope->insertSymbol(name, new_func, new_func->getFunctionType());
-    //    }
+    if (isJIT) {
+        // Link modules together
+        if (Linker::linkModules(*TheModule, std::move(codegen->TheModule)))
+            print(ERROR, "Error linking modules together\n");
 
-    // Link modules together
-    //    if (Linker::linkModules(*codegen->TheModule, std::move(codegen->TheModule)))
-    //        print(ERROR, "Error linking modules together\n");
+        //  Add function to main module
+        Module::iterator it;
+        Module::iterator end = TheModule->end();
+        for (it = TheModule->begin(); it != end; ++it) {
+            auto name = std::string{(*it).getName()};
+            if (!Scope->lookup(name))
+                Scope->insertSymbol(name, (Value *) &(*it).getFunction(), (*it).getFunctionType());
+        }
 
-    Modules.push_back(codegen->getModule());
+        Modules.push_back(codegen->getModule());
+    } else {
+        std::string obj_file = fmt::format("tmp{}", ObjectFiles.size());
+        codegen->WriteToObjectFile(obj_file);
+        ObjectFiles.push_back(fmt::format("{}.o", obj_file));
+
+        // Add function definitions
+        Module::iterator it;
+        Module::iterator end = codegen->TheModule->end();
+        for (it = codegen->TheModule->begin(); it != end; ++it) {
+            auto name = std::string{(*it).getName()};
+            auto new_func = Function::Create((*it).getFunctionType(),
+                                             Function::ExternalLinkage,
+                                             name,
+                                             *TheModule);
+
+            Scope->insertSymbol(name, new_func, new_func->getFunctionType());
+        }
+    }
 }
 
 void Codegen::Optimize(llvm::PassBuilder::OptimizationLevel opt) {
@@ -125,11 +145,15 @@ void Codegen::LinkObjectFile(const std::string &obj_filename) {
     if (clangPath.getError())
         throw CodegenError("Unable to find clang path\n");
 
+    std::string output = getBasename(obj_filename);
+
     std::vector<const char *> args;
     args.push_back(clangPath.get().c_str());
     args.push_back(obj_filename.c_str());
+    for (const auto &obj: ObjectFiles)
+        args.push_back(obj.c_str());
     args.push_back("-o");
-    args.push_back(getBasename(obj_filename).c_str());
+    args.push_back(output.c_str());
 
     auto DiagOpts = new clang::DiagnosticOptions();
     auto DiagID = new clang::DiagnosticIDs();
@@ -147,14 +171,20 @@ void Codegen::LinkObjectFile(const std::string &obj_filename) {
 
     if (Res)
         throw CodegenError("Linking Failed\n");
+
+    // Remove object files
+    remove(obj_filename.c_str());
+    for (const auto &obj: ObjectFiles)
+        remove(obj.c_str());
 }
 
-int Codegen::JIT(std::vector<ThreadSafeModule> modules) {
-    for (auto &module: modules) {
-        auto jit_error = TheJIT->addModule(std::move(module));
-        if (jit_error)
-            throw CodegenError("JIT Error:\n{}");
-    }
+int Codegen::JIT() {
+    //    Commented out for now, the linker seems to just copy the functions over to the main module
+    //    for (auto &module: Modules) {
+    //        auto jit_error = TheJIT->addModule(std::move(module));
+    //        if (jit_error)
+    //            throw CodegenError("JIT Error:\n{}");
+    //    }
     auto jit_error = TheJIT->addModule(ThreadSafeModule(std::move(TheModule), std::move(TheContext)));
     if (jit_error)
         throw CodegenError("JIT Error:\n{}");
@@ -748,7 +778,6 @@ std::string Codegen::getTypeMangledName(llvm::Type *type) {
         return "(struct_" + param_str + ")";
     }
 
-    type->print(outs());
     throw CodegenError("Unknown type found during mangling");
 }
 

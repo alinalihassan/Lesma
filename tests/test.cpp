@@ -27,7 +27,7 @@ Parser *initializeParser(Lexer *lexer) {
 Codegen *initializeCodegen(Parser *parser) {
     std::unique_ptr<Parser> parser_pointer;
     parser_pointer.reset(parser);
-    auto codegen = new Codegen(std::move(parser_pointer), "");
+    auto codegen = new Codegen(std::move(parser_pointer), "", true, true);
     codegen->Run();
 
     return codegen;
@@ -101,7 +101,7 @@ TEST_CASE("Codegen", "Run & Optimize") {
     auto parser = initializeParser(lexer);
     auto codegen = initializeCodegen(parser);
     codegen->Optimize(llvm::PassBuilder::OptimizationLevel::O3);
-    int exit_code = codegen->JIT(std::move(codegen->Modules));
+    int exit_code = codegen->JIT();
 
     REQUIRE(exit_code == 0);
 
@@ -116,12 +116,12 @@ TEST_CASE("Codegen", "Run & Optimize") {
 
     BENCHMARK("Codegen & JIT") {
         auto cg = initializeCodegen(parser);
-        cg->JIT(std::move(codegen->Modules));
+        cg->JIT();
     };
 
     BENCHMARK("Codegen, Optimize & JIT") {
         auto cg = initializeCodegen(parser);
         cg->Optimize(llvm::PassBuilder::OptimizationLevel::O3);
-        cg->JIT(std::move(codegen->Modules));
+        cg->JIT();
     };
 }

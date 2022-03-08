@@ -47,7 +47,7 @@ int main(int argc, char **argv) {
 
         // Codegen
         TIMEIT("Compiling",
-               auto codegen = std::make_unique<Codegen>(std::move(parser), options->file);
+               auto codegen = std::make_unique<Codegen>(std::move(parser), options->file, options->jit, true);
                codegen->Run();)
 
         // Optimization
@@ -63,12 +63,9 @@ int main(int argc, char **argv) {
 
             // Link Object File
             TIMEIT("Linking Object File", codegen->LinkObjectFile(fmt::format("{}.o", options->output));)
-
-            // Remove Object File
-            TIMEIT("Remove Object File", remove(fmt::format("{}.o", options->output).c_str());)
         } else {
             // Executing
-            TIMEIT("Execution", exit_code = codegen->JIT(std::move(codegen->Modules));)
+            TIMEIT("Execution", exit_code = codegen->JIT();)
         }
 
         if (options->debug)
