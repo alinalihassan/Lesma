@@ -1,3 +1,17 @@
+# [0.3.0](https://github.com/alinalihassan/Lesma/compare/v0.2.0...v0.3.0) (2022-03-08)
+
+
+### Bug Fixes
+
+* Import path is now relative to the calling file. Added test ([0af010d](https://github.com/alinalihassan/Lesma/commit/0af010da72a06dd6192bde2a244491a464d945df))
+
+
+### Features
+
+* Finished compilation step, fixed jit being executed regardless ([c451467](https://github.com/alinalihassan/Lesma/commit/c4514674c486baf4b016a9bff181e86f541a1f6e))
+* Finished compilation step, fixed jit being executed regardless ([ba47c6c](https://github.com/alinalihassan/Lesma/commit/ba47c6c9fcf5e56842632d9c2c7a7ada5a2f07b6))
+* Functional modules system for both AOT and JIT ([a8e9fee](https://github.com/alinalihassan/Lesma/commit/a8e9fee1f783e66f0152ddc18d9555899fb2e556))
+
 # [0.2.0](https://github.com/alinalihassan/Lesma/compare/v0.1.0...v0.2.0) (2022-03-07)
 
 
