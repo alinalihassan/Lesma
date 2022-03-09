@@ -32,8 +32,8 @@ fibonacci(20)
 
 ## 📖 Documentation
 
-- [Language Documentation](https://alinalihassan.github.io/pyLesma)
-- [Lesma code samples](https://alinalihassan.github.io/pyLesma/examples/)
+- [Official Documentation](https://lesma.alinalihassan.com/)
+- [Examples](https://github.com/alinalihassan/Lesma/blob/main/tests/lesma)
 
 ## 🔧 Build
 
