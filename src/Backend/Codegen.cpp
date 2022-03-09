@@ -46,7 +46,7 @@ llvm::TargetMachine *Codegen::InitializeTargetMachine() {
     std::string error;
     const llvm::Target *target = llvm::TargetRegistry::lookupTarget(tripletString, error);
     if (!target)
-        throw CodegenError("Target not available:\n{}\n", error);
+        throw CodegenError({}, "Target not available:\n{}", error);
 
     llvm::TargetOptions opt;
     llvm::Optional rm = llvm::Optional<llvm::Reloc::Model>();
@@ -78,7 +78,7 @@ void Codegen::CompileModule(const std::string &filepath) {
     if (isJIT) {
         // Link modules together
         if (Linker::linkModules(*TheModule, std::move(codegen->TheModule)))
-            print(ERROR, "Error linking modules together\n");
+            print(ERROR, "Error linking modules together");
 
         //  Add function to main module
         Module::iterator it;
@@ -135,7 +135,7 @@ void Codegen::WriteToObjectFile(const std::string &output) {
 
     llvm::legacy::PassManager passManager;
     if (TargetMachine->addPassesToEmitFile(passManager, out, nullptr, llvm::CGFT_ObjectFile))
-        throw CodegenError("Target Machine can't emit an object file");
+        throw CodegenError({}, "Target Machine can't emit an object file");
     // Emit object file
     passManager.run(*TheModule);
 }
@@ -143,7 +143,7 @@ void Codegen::WriteToObjectFile(const std::string &output) {
 void Codegen::LinkObjectFile(const std::string &obj_filename) {
     auto clangPath = llvm::sys::findProgramByName("clang");
     if (clangPath.getError())
-        throw CodegenError("Unable to find clang path\n");
+        throw CodegenError({}, "Unable to find clang path");
 
     std::string output = getBasename(obj_filename);
 
@@ -170,7 +170,7 @@ void Codegen::LinkObjectFile(const std::string &obj_filename) {
         Res = TheDriver.ExecuteCompilation(*compilation, FailingCommands);
 
     if (Res)
-        throw CodegenError("Linking Failed\n");
+        throw CodegenError({}, "Linking Failed");
 
     // Remove object files
     remove(obj_filename.c_str());
@@ -187,7 +187,7 @@ int Codegen::JIT() {
     //    }
     auto jit_error = TheJIT->addModule(ThreadSafeModule(std::move(TheModule), std::move(TheContext)));
     if (jit_error)
-        throw CodegenError("JIT Error:\n{}");
+        throw CodegenError({}, "JIT Error:\n{}");
 
     using MainFnTy = int();
     auto jit_main = jitTargetAddressToFunction<MainFnTy *>(TheJIT->lookup(TopLevelFunc->getName())->getAddress());
@@ -219,7 +219,7 @@ llvm::Value *Codegen::visit(Expression *node) {
     else if (dynamic_cast<Else *>(node))
         return visit(dynamic_cast<Else *>(node));
 
-    throw CodegenError("Unknown Expression: {}", node->toString(0));
+    throw CodegenError(node->getSpan(), "Unknown Expression: {}", node->toString(0));
 }
 
 void Codegen::visit(Statement *node) {
@@ -250,7 +250,7 @@ void Codegen::visit(Statement *node) {
     else if (dynamic_cast<Compound *>(node))
         return visit(dynamic_cast<Compound *>(node));
 
-    throw CodegenError("Unknown Statement:\n{}", node->toString(0));
+    throw CodegenError(node->getSpan(), "Unknown Statement:\n{}", node->toString(0));
 }
 
 llvm::Type *Codegen::visit(lesma::Type *node) {
@@ -263,7 +263,7 @@ llvm::Type *Codegen::visit(lesma::Type *node) {
     else if (node->getType() == TokenType::VOID_TYPE)
         return Builder->getVoidTy();
 
-    throw CodegenError("Unimplemented type {}", NAMEOF_ENUM(node->getType()));
+    throw CodegenError(node->getSpan(), "Unimplemented type {}", NAMEOF_ENUM(node->getType()));
 }
 
 void Codegen::visit(Compound *node) {
@@ -286,7 +286,7 @@ void Codegen::visit(VarDecl *node) {
     Scope->insertSymbol(node->getIdentifier()->getValue(), ptr, type, node->getMutability());
 
     if (node->getValue().has_value())
-        Builder->CreateStore(Cast(visit(node->getValue().value()), ptr->getAllocatedType()), ptr);
+        Builder->CreateStore(Cast(node->getSpan(), visit(node->getValue().value()), ptr->getAllocatedType()), ptr);
 }
 
 void Codegen::visit(If *node) {
@@ -379,7 +379,7 @@ void Codegen::visit(FuncDecl *node) {
     for (const auto &param: node->getParameters())
         paramTypes.push_back(visit(param.second));
 
-    auto name = getMangledName(node->getName(), paramTypes);
+    auto name = getMangledName(node->getSpan(), node->getName(), paramTypes);
     auto linkage = Function::ExternalLinkage;
 
     FunctionType *FT = FunctionType::get(visit(node->getReturnType()), paramTypes, false);
@@ -408,7 +408,7 @@ void Codegen::visit(FuncDecl *node) {
     llvm::raw_string_ostream oss(output);
     if (llvm::verifyFunction(*F, &oss)) {
         F->print(outs());
-        throw CodegenError("Invalid Function {}\n{}", node->getName(), output);
+        throw CodegenError(node->getSpan(), "Invalid Function {}\n{}", node->getName(), output);
     }
 
     // Insert Function to Symbol Table
@@ -437,12 +437,12 @@ void Codegen::visit(ExternFuncDecl *node) {
 void Codegen::visit(Assignment *node) {
     auto symbol = Scope->lookup(node->getIdentifier()->getValue());
     if (symbol == nullptr)
-        throw CodegenError("Variable not found: {}", node->getIdentifier()->getValue());
+        throw CodegenError(node->getSpan(), "Variable not found: {}", node->getIdentifier()->getValue());
     if (!symbol->getMutability())
-        throw CodegenError("Assigning immutable variable a new value");
+        throw CodegenError(node->getSpan(), "Assigning immutable variable a new value");
 
     auto value = visit(node->getExpression());
-    value = Cast(value, symbol->getType());
+    value = Cast(node->getSpan(), value, symbol->getType());
     llvm::Value *var_val;
 
     switch (node->getOperator()) {
@@ -458,7 +458,7 @@ void Codegen::visit(Assignment *node) {
                 auto new_val = Builder->CreateAdd(value, var_val, ".tmp");
                 Builder->CreateStore(new_val, symbol->getValue());
             } else
-                throw CodegenError("Invalid operator: {}", NAMEOF_ENUM(node->getOperator()));
+                throw CodegenError(node->getSpan(), "Invalid operator: {}", NAMEOF_ENUM(node->getOperator()));
             break;
         case TokenType::MINUS_EQUAL:
             var_val = Builder->CreateLoad(symbol->getType(), symbol->getValue(), ".tmp");
@@ -469,7 +469,7 @@ void Codegen::visit(Assignment *node) {
                 auto new_val = Builder->CreateSub(value, var_val, ".tmp");
                 Builder->CreateStore(new_val, symbol->getValue());
             } else
-                throw CodegenError("Invalid operator: {}", NAMEOF_ENUM(node->getOperator()));
+                throw CodegenError(node->getSpan(), "Invalid operator: {}", NAMEOF_ENUM(node->getOperator()));
             break;
         case TokenType::SLASH_EQUAL:
             var_val = Builder->CreateLoad(symbol->getType(), symbol->getValue(), ".tmp");
@@ -480,7 +480,7 @@ void Codegen::visit(Assignment *node) {
                 auto new_val = Builder->CreateSDiv(value, var_val, ".tmp");
                 Builder->CreateStore(new_val, symbol->getValue());
             } else
-                throw CodegenError("Invalid operator: {}", NAMEOF_ENUM(node->getOperator()));
+                throw CodegenError(node->getSpan(), "Invalid operator: {}", NAMEOF_ENUM(node->getOperator()));
             break;
         case TokenType::STAR_EQUAL:
             var_val = Builder->CreateLoad(symbol->getType(), symbol->getValue(), ".tmp");
@@ -491,7 +491,7 @@ void Codegen::visit(Assignment *node) {
                 auto new_val = Builder->CreateMul(value, var_val, ".tmp");
                 Builder->CreateStore(new_val, symbol->getValue());
             } else
-                throw CodegenError("Invalid operator: {}", NAMEOF_ENUM(node->getOperator()));
+                throw CodegenError(node->getSpan(), "Invalid operator: {}", NAMEOF_ENUM(node->getOperator()));
             break;
         case TokenType::MOD_EQUAL:
             var_val = Builder->CreateLoad(symbol->getType(), symbol->getValue(), ".tmp");
@@ -502,18 +502,18 @@ void Codegen::visit(Assignment *node) {
                 auto new_val = Builder->CreateSRem(value, var_val, ".tmp");
                 Builder->CreateStore(new_val, symbol->getValue());
             } else
-                throw CodegenError("Invalid operator: {}", NAMEOF_ENUM(node->getOperator()));
+                throw CodegenError(node->getSpan(), "Invalid operator: {}", NAMEOF_ENUM(node->getOperator()));
             break;
         case TokenType::POWER_EQUAL:
-            throw CodegenError("Power operator not implemented yet.\n");
+            throw CodegenError(node->getSpan(), "Power operator not implemented yet.");
         default:
-            throw CodegenError("Invalid operator: {}", NAMEOF_ENUM(node->getOperator()));
+            throw CodegenError(node->getSpan(), "Invalid operator: {}", NAMEOF_ENUM(node->getOperator()));
     }
 }
 
-void Codegen::visit(Break * /*node*/) {
+void Codegen::visit(Break * node) {
     if (breakBlocks.empty())
-        throw CodegenError("Cannot break without being in a loop\n");
+        throw CodegenError(node->getSpan(), "Cannot break without being in a loop");
 
     auto block = breakBlocks.top();
     breakBlocks.pop();
@@ -522,9 +522,9 @@ void Codegen::visit(Break * /*node*/) {
     Builder->CreateBr(block);
 }
 
-void Codegen::visit(Continue * /*node*/) {
+void Codegen::visit(Continue * node) {
     if (continueBlocks.empty())
-        throw CodegenError("Cannot continue without being in a loop\n");
+        throw CodegenError(node->getSpan(), "Cannot continue without being in a loop");
 
     auto block = continueBlocks.top();
     continueBlocks.pop();
@@ -536,7 +536,7 @@ void Codegen::visit(Continue * /*node*/) {
 void Codegen::visit(Return *node) {
     // Check if it's top-level
     if (Builder->GetInsertBlock()->getParent() == TopLevelFunc)
-        throw CodegenError("Return statements are not allowed at top-level\n");
+        throw CodegenError(node->getSpan(), "Return statements are not allowed at top-level");
 
     isReturn = true;
     if (node->getValue() == nullptr)
@@ -545,8 +545,8 @@ void Codegen::visit(Return *node) {
         Builder->CreateRet(visit(node->getValue()));
 }
 
-void Codegen::visit(Defer * /*node*/) {
-    throw CodegenError("Defer functionality unimplemented!");
+void Codegen::visit(Defer * node) {
+    throw CodegenError(node->getSpan(), "Defer functionality unimplemented!");
 }
 
 void Codegen::visit(ExpressionStatement *node) {
@@ -560,11 +560,11 @@ void Codegen::visit(Import *node) {
 
 llvm::Value *Codegen::visit(FuncCall *node) {
     if (Scope->lookup(node->getName()) == nullptr)
-        throw CodegenError("Function {} not in current scope.\n", node->getName());
+        throw CodegenError(node->getSpan(), "Function {} not in current scope.", node->getName());
 
     auto symbol = Scope->lookup(node->getName());
     if (!static_cast<llvm::FunctionType *>(symbol->getType()))
-        throw CodegenError("Symbol {} not of FunctionType.\n", node->getName());
+        throw CodegenError(node->getSpan(), "Symbol {} not of FunctionType.", node->getName());
 
     std::vector<llvm::Value *> params;
     for (auto arg: node->getArguments())
@@ -581,8 +581,8 @@ llvm::Value *Codegen::visit(BinaryOp *node) {
 
     switch (node->getOperator()) {
         case TokenType::MINUS:
-            left = Cast(left, finalType);
-            right = Cast(right, finalType);
+            left = Cast(node->getSpan(), left, finalType);
+            right = Cast(node->getSpan(), right, finalType);
 
             if (finalType->isFloatingPointTy())
                 return Builder->CreateFSub(left, right, ".tmp");
@@ -590,8 +590,8 @@ llvm::Value *Codegen::visit(BinaryOp *node) {
                 return Builder->CreateSub(left, right, ".tmp");
             break;
         case TokenType::PLUS:
-            left = Cast(left, finalType);
-            right = Cast(right, finalType);
+            left = Cast(node->getSpan(), left, finalType);
+            right = Cast(node->getSpan(), right, finalType);
 
             if (finalType->isFloatingPointTy())
                 return Builder->CreateFAdd(left, right, ".tmp");
@@ -599,8 +599,8 @@ llvm::Value *Codegen::visit(BinaryOp *node) {
                 return Builder->CreateAdd(left, right, ".tmp");
             break;
         case TokenType::STAR:
-            left = Cast(left, finalType);
-            right = Cast(right, finalType);
+            left = Cast(node->getSpan(), left, finalType);
+            right = Cast(node->getSpan(), right, finalType);
 
             if (finalType->isFloatingPointTy())
                 return Builder->CreateFMul(left, right, ".tmp");
@@ -608,8 +608,8 @@ llvm::Value *Codegen::visit(BinaryOp *node) {
                 return Builder->CreateMul(left, right, ".tmp");
             break;
         case TokenType::SLASH:
-            left = Cast(left, finalType);
-            right = Cast(right, finalType);
+            left = Cast(node->getSpan(), left, finalType);
+            right = Cast(node->getSpan(), right, finalType);
 
             if (finalType->isFloatingPointTy())
                 return Builder->CreateFDiv(left, right, ".tmp");
@@ -617,8 +617,8 @@ llvm::Value *Codegen::visit(BinaryOp *node) {
                 return Builder->CreateSDiv(left, right, ".tmp");
             break;
         case TokenType::MOD:
-            left = Cast(left, finalType);
-            right = Cast(right, finalType);
+            left = Cast(node->getSpan(), left, finalType);
+            right = Cast(node->getSpan(), right, finalType);
 
             if (finalType->isFloatingPointTy())
                 return Builder->CreateFRem(left, right, ".tmp");
@@ -627,13 +627,13 @@ llvm::Value *Codegen::visit(BinaryOp *node) {
             break;
         case TokenType::POWER:
             if (!right->getType()->isIntegerTy())
-                throw CodegenError("Cannot use non-integers for power coefficient: {}\n",
+                throw CodegenError(node->getSpan(), "Cannot use non-integers for power coefficient: {}",
                                    node->getRight()->toString(0));
-            throw CodegenError("Power operator not implemented yet.\n");
+            throw CodegenError(node->getSpan(), "Power operator not implemented yet.");
             break;
         case TokenType::EQUAL_EQUAL:
-            left = Cast(left, finalType);
-            right = Cast(right, finalType);
+            left = Cast(node->getSpan(), left, finalType);
+            right = Cast(node->getSpan(), right, finalType);
 
             if (finalType->isFloatingPointTy())
                 return Builder->CreateFCmpOEQ(left, right, ".tmp");
@@ -641,8 +641,8 @@ llvm::Value *Codegen::visit(BinaryOp *node) {
                 return Builder->CreateICmpEQ(left, right, ".tmp");
             break;
         case TokenType::BANG_EQUAL:
-            left = Cast(left, finalType);
-            right = Cast(right, finalType);
+            left = Cast(node->getSpan(), left, finalType);
+            right = Cast(node->getSpan(), right, finalType);
 
             if (finalType->isFloatingPointTy())
                 return Builder->CreateFCmpONE(left, right, ".tmp");
@@ -650,8 +650,8 @@ llvm::Value *Codegen::visit(BinaryOp *node) {
                 return Builder->CreateICmpNE(left, right, ".tmp");
             break;
         case TokenType::GREATER:
-            left = Cast(left, finalType);
-            right = Cast(right, finalType);
+            left = Cast(node->getSpan(), left, finalType);
+            right = Cast(node->getSpan(), right, finalType);
 
             if (finalType->isFloatingPointTy())
                 return Builder->CreateFCmpOGT(left, right, ".tmp");
@@ -659,8 +659,8 @@ llvm::Value *Codegen::visit(BinaryOp *node) {
                 return Builder->CreateICmpSGT(left, right, ".tmp");
             break;
         case TokenType::GREATER_EQUAL:
-            left = Cast(left, finalType);
-            right = Cast(right, finalType);
+            left = Cast(node->getSpan(), left, finalType);
+            right = Cast(node->getSpan(), right, finalType);
 
             if (finalType->isFloatingPointTy())
                 return Builder->CreateFCmpOGE(left, right, ".tmp");
@@ -668,8 +668,8 @@ llvm::Value *Codegen::visit(BinaryOp *node) {
                 return Builder->CreateICmpSGE(left, right, ".tmp");
             break;
         case TokenType::LESS:
-            left = Cast(left, finalType);
-            right = Cast(right, finalType);
+            left = Cast(node->getSpan(), left, finalType);
+            right = Cast(node->getSpan(), right, finalType);
 
             if (finalType->isFloatingPointTy())
                 return Builder->CreateFCmpOLT(left, right, ".tmp");
@@ -677,8 +677,8 @@ llvm::Value *Codegen::visit(BinaryOp *node) {
                 return Builder->CreateICmpSLT(left, right, ".tmp");
             break;
         case TokenType::LESS_EQUAL:
-            left = Cast(left, finalType);
-            right = Cast(right, finalType);
+            left = Cast(node->getSpan(), left, finalType);
+            right = Cast(node->getSpan(), right, finalType);
 
             if (finalType->isFloatingPointTy())
                 return Builder->CreateFCmpOLE(left, right, ".tmp");
@@ -687,28 +687,29 @@ llvm::Value *Codegen::visit(BinaryOp *node) {
             break;
         case TokenType::AND:
             if (!left->getType()->isIntegerTy(1) && !right->getType()->isIntegerTy(1))
-                throw CodegenError("Cannot use non-booleans for and: {} - {}\n",
+                throw CodegenError(node->getSpan(), "Cannot use non-booleans for and: {} - {}",
                                    node->getLeft()->toString(0), node->getRight()->toString(0));
 
             return Builder->CreateLogicalAnd(left, right, ".tmp");
         case TokenType::OR:
             if (!left->getType()->isIntegerTy(1) && !right->getType()->isIntegerTy(1))
-                throw CodegenError("Cannot use non-booleans for or: {} - {}\n",
+                throw CodegenError(node->getSpan(), "Cannot use non-booleans for or: {} - {}",
                                    node->getLeft()->toString(0), node->getRight()->toString(0));
 
             return Builder->CreateLogicalOr(left, right, ".tmp");
         default:
-            throw CodegenError("Unimplemented binary operator: {}\n", NAMEOF_ENUM(node->getOperator()));
+            throw CodegenError(node->getSpan(), "Unimplemented binary operator: {}", NAMEOF_ENUM(node->getOperator()));
     }
 
-    throw CodegenError("Unimplemented binary operator {} for {} and {}\n",
+    throw CodegenError(node->getSpan(),
+                       "Unimplemented binary operator {} for {} and {}",
                        NAMEOF_ENUM(node->getOperator()),
                        node->getLeft()->toString(0),
                        node->getRight()->toString(0));
 }
 
 llvm::Value *Codegen::visit(CastOp *node) {
-    return Cast(visit(node->getExpression()), visit(node->getType()));
+    return Cast(node->getSpan(), visit(node->getExpression()), visit(node->getType()));
 }
 
 llvm::Value *Codegen::visit(UnaryOp *node) {
@@ -720,14 +721,14 @@ llvm::Value *Codegen::visit(UnaryOp *node) {
         else if (operand->getType()->isFloatingPointTy())
             return Builder->CreateFNeg(operand, ".tmp");
         else
-            throw CodegenError("Cannot apply {} to {}", NAMEOF_ENUM(node->getOperator()), node->getExpression()->toString(0));
+            throw CodegenError(node->getSpan(), "Cannot apply {} to {}", NAMEOF_ENUM(node->getOperator()), node->getExpression()->toString(0));
     } else if (node->getOperator() == TokenType::NOT) {
         if (operand->getType()->isIntegerTy(1))
             return Builder->CreateNot(operand, ".tmp");
         else
-            throw CodegenError("Cannot apply {} to {}", NAMEOF_ENUM(node->getOperator()), node->getExpression()->toString(0));
+            throw CodegenError(node->getSpan(), "Cannot apply {} to {}", NAMEOF_ENUM(node->getOperator()), node->getExpression()->toString(0));
     } else
-        throw CodegenError("Unknown unary operator, cannot apply {} to {}", NAMEOF_ENUM(node->getOperator()), node->getExpression()->toString(0));
+        throw CodegenError(node->getSpan(), "Unknown unary operator, cannot apply {} to {}", NAMEOF_ENUM(node->getOperator()), node->getExpression()->toString(0));
 }
 
 llvm::Value *Codegen::visit(Literal *node) {
@@ -741,19 +742,19 @@ llvm::Value *Codegen::visit(Literal *node) {
         // Look this variable up in the function.
         auto val = Scope->lookup(node->getValue());
         if (val == nullptr)
-            throw CodegenError("Unknown variable name {}", node->getValue());
+            throw CodegenError(node->getSpan(), "Unknown variable name {}", node->getValue());
 
         // Load the value.
         return Builder->CreateLoad(val->getType(), val->getValue(), ".tmp");
     } else
-        throw CodegenError("Unknown literal {}", node->getValue());
+        throw CodegenError(node->getSpan(), "Unknown literal {}", node->getValue());
 }
 
 llvm::Value *Codegen::visit(Else * /*node*/) {
     return llvm::ConstantInt::getTrue(*TheContext);
 }
 
-std::string Codegen::getTypeMangledName(llvm::Type *type) {
+std::string Codegen::getTypeMangledName(Span span, llvm::Type *type) {
     if (type->isIntegerTy(1))
         return "b";
     else if (type->isIntegerTy())
@@ -763,30 +764,30 @@ std::string Codegen::getTypeMangledName(llvm::Type *type) {
     else if (type->isVoidTy())
         return "v";
     else if (type->isArrayTy())
-        return "(arr_" + getTypeMangledName(type->getArrayElementType()) + ")";
+        return "(arr_" + getTypeMangledName(span, type->getArrayElementType()) + ")";
     else if (type->isPointerTy())
-        return "(ptr_" + getTypeMangledName(type->getPointerElementType()) + ")";
+        return "(ptr_" + getTypeMangledName(span, type->getPointerElementType()) + ")";
     else if (type->isFunctionTy()) {
         std::string param_str;
         for (unsigned int i = 0; i < type->getFunctionNumParams(); i++)
-            param_str += getTypeMangledName(type->getFunctionParamType(i)) + "_";
+            param_str += getTypeMangledName(span, type->getFunctionParamType(i)) + "_";
         return "(func_" + param_str + ")";
     } else if (type->isStructTy()) {
         std::string param_str;
         for (unsigned int i = 0; i < type->getStructNumElements(); i++)
-            param_str += getTypeMangledName(type->getStructElementType(i)) + "_";
+            param_str += getTypeMangledName(span, type->getStructElementType(i)) + "_";
         return "(struct_" + param_str + ")";
     }
 
-    throw CodegenError("Unknown type found during mangling");
+    throw CodegenError(span, "Unknown type found during mangling");
 }
 
 // TODO: Change to support private/public and module system
-std::string Codegen::getMangledName(std::string func_name, const std::vector<llvm::Type *> &paramTypes) {
+std::string Codegen::getMangledName(Span span, std::string func_name, const std::vector<llvm::Type *> &paramTypes) {
     std::string name = std::move(func_name);
 
     for (auto param_type: paramTypes)
-        name += ":" + getTypeMangledName(param_type);
+        name += ":" + getTypeMangledName(span, param_type);
 
     return name;
 }
@@ -817,7 +818,7 @@ llvm::Type *Codegen::GetExtendedType(llvm::Type *left, llvm::Type *right) {
     return nullptr;
 }
 
-llvm::Value *Codegen::Cast(llvm::Value *val, llvm::Type *type) {
+llvm::Value *Codegen::Cast(Span span, llvm::Value *val, llvm::Type *type) {
     if (val->getType() == type)
         return val;
 
@@ -833,5 +834,5 @@ llvm::Value *Codegen::Cast(llvm::Value *val, llvm::Type *type) {
             return Builder->CreateFPCast(val, type, ".tmp");
     }
 
-    throw CodegenError("Unsupported Cast");
+    throw CodegenError(span, "Unsupported Cast");
 }

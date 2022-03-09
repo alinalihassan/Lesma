@@ -8,7 +8,6 @@
 #include "fmt/color.h"
 #include "fmt/core.h"
 
-#include "LesmaError.h"
 #include "Token/TokenType.h"
 
 namespace lesma {

@@ -18,14 +18,14 @@ using namespace lesma;
         print(DEBUG, "{} -> {:.2f} ms\n", debug_operation, results);
 
 int main(int argc, char **argv) {
+    // Configure Timer
+    plf::nanotimer timer;
+    double results, total = 0;
+
+    // CLI Parsing
+    TIMEIT("CLI", auto options = parseCLI(argc, argv);)
+
     try {
-        // Configure Timer
-        plf::nanotimer timer;
-        double results, total = 0;
-
-        // CLI Parsing
-        TIMEIT("CLI", auto options = parseCLI(argc, argv);)
-
         // Read Source
         TIMEIT("File read", auto source = readFile(options->file);)
 
@@ -73,7 +73,10 @@ int main(int argc, char **argv) {
 
         return exit_code;
     } catch (const LesmaError &err) {
-        print(ERROR, "{}\n", err.what());
+        if (err.getSpan() == Span{})
+            print(ERROR, err.what());
+        else
+            showInline(err.getSpan(), err.what(), options->file, true);
         return err.exit_code;
     }
 }

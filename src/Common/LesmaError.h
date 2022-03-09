@@ -5,23 +5,29 @@
 #include <utility>
 
 #include "fmt/format.h"
+#include "Utils.h"
 
 namespace lesma {
     class LesmaError : public std::exception {
     public:
-        LesmaError() = default;
+        LesmaError() = delete;
 
         template<typename S, typename... Args>
-        explicit LesmaError(const S &format_str, const Args &...args) : what_(fmt::format(format_str, args...)){};
-        explicit LesmaError(std::string what) : what_(std::move(what)){};
+        explicit LesmaError(Span span, const S &format_str, const Args &...args) : what_(fmt::format(format_str, args...)), span(span){};
+        explicit LesmaError(Span span, std::string what) : what_(std::move(what)), span(span){};
 
         const char *what() const noexcept override {
             return what_.c_str();
         }
 
+        Span getSpan() const {
+            return span;
+        }
+
         uint8_t exit_code = -1;// if error should cause exit, this should be used.
     protected:
         mutable std::string what_;
+        Span span;
     };
 
     template<uint8_t DEFAULT_EXIT_CODE>
@@ -30,10 +36,9 @@ namespace lesma {
         LesmaErrorWithExitCode() = default;
 
         template<typename S, typename... Args>
-        explicit LesmaErrorWithExitCode(const S &format_str, const Args &...args) : LesmaError(fmt::format(format_str, args...)) { exit_code = DEFAULT_EXIT_CODE; };
-        explicit LesmaErrorWithExitCode(const std::string &what) : LesmaError(what) { exit_code = DEFAULT_EXIT_CODE; };
+        explicit LesmaErrorWithExitCode(Span span, const S &format_str, const Args &...args) : LesmaError(span, fmt::format(format_str, args...)) { exit_code = DEFAULT_EXIT_CODE; };
+        explicit LesmaErrorWithExitCode(Span span, const std::string &what) : LesmaError(span, what) { exit_code = DEFAULT_EXIT_CODE; };
 
-        explicit LesmaErrorWithExitCode(std::string &&what) : LesmaError(
-                                                                      std::move(what)) { exit_code = DEFAULT_EXIT_CODE; };
+        explicit LesmaErrorWithExitCode(Span span, std::string &&what) : LesmaError(span, std::move(what)) { exit_code = DEFAULT_EXIT_CODE; };
     };
 }// namespace lesma

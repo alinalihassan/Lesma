@@ -96,9 +96,9 @@ namespace lesma {
         llvm::Value *visit(Else *node) override;
 
         // TODO: Helper functions, move them out somewhere
-        llvm::Value *Cast(llvm::Value *val, llvm::Type *type);
+        llvm::Value *Cast(Span span, llvm::Value *val, llvm::Type *type);
         llvm::Type *GetExtendedType(llvm::Type *left, llvm::Type *right);
-        std::string getMangledName(std::string func_name, const std::vector<llvm::Type *> &paramTypes);
-        std::string getTypeMangledName(llvm::Type *type);
+        std::string getMangledName(Span span, std::string func_name, const std::vector<llvm::Type *> &paramTypes);
+        std::string getTypeMangledName(Span span, llvm::Type *type);
     };
 }// namespace lesma

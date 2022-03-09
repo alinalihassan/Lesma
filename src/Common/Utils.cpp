@@ -1,10 +1,11 @@
 #include "Utils.h"
+#include "LesmaError.h"
 
 namespace lesma {
     std::string readFile(const std::string &path) {
         std::ifstream input_file(path);
         if (!input_file.is_open())
-            throw LesmaError("Could not open file: {}", path);
+            throw LesmaError({}, "Could not open file: {}", path);
 
         std::stringstream buffer;
         buffer << input_file.rdbuf();
@@ -24,7 +25,6 @@ namespace lesma {
         unsigned int lineNum = 1;
         auto color = is_error ? fg(fmt::color::red) : fg(fmt::color::yellow);
         auto accent = fg(static_cast<fmt::color>(0x008EEA)); // 008EEA
-
 
         print(is_error ? ERROR : WARNING, "");
         fmt::print(fmt::emphasis::bold, "{}\n", reason);
