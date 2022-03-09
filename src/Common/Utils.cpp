@@ -18,6 +18,40 @@ namespace lesma {
         return filename_wo_ext;
     }
 
+    void showInline(Span span, const std::string& reason, const std::string& file, bool is_error) {
+        std::ifstream ifs(file);
+        std::string line;
+        unsigned int lineNum = 1;
+        auto color = is_error ? fg(fmt::color::red) : fg(fmt::color::yellow);
+        auto accent = fg(static_cast<fmt::color>(0x008EEA)); // 008EEA
+
+
+        print(is_error ? ERROR : WARNING, "");
+        fmt::print(fmt::emphasis::bold, "{}\n", reason);
+
+        fmt::print(accent, "{}--> ", std::string(int(log10(span.Start.Line) + 1), ' '));
+        fmt::print("{}:{}:{}\n", file, span.Start.Col, span.Start.Line);
+        while(std::getline(ifs, line)) {
+            if (lineNum == span.Start.Line) {
+                // First line
+                fmt::print(accent, "{} |\n", std::string(int(log10(span.Start.Line) + 1), ' '));
+
+                // Second line
+                fmt::print(accent, "{} | ", lineNum);
+                fmt::print("{}\n", line);
+
+                // Third line
+                fmt::print(accent, "{} |", std::string(int(log10(span.Start.Line) + 1), ' '));
+                fmt::print(color | fmt::emphasis::bold, "{}{}\n",
+                           std::string(span.Start.Col, ' '), std::string(span.End.Col - span.Start.Col, '^'));
+
+                // TODO: Support multiline
+                break;
+            }
+            lineNum++;
+        }
+    }
+
     CLIOptions *parseCLI(int argc, char **argv) {
         bool debug;
         std::string output = "output";

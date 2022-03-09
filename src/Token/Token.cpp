@@ -42,8 +42,8 @@ std::string TokenState::Dump() const {
                    "[Type: ") +
            std::string{NAMEOF_ENUM(type)} +
            ", Lexeme: " + lexeme +
-           ", Line: " + std::to_string(loc.Line) +
-           ", Col: " + std::to_string(loc.Col) + "]";
+           ", Line: " + std::to_string(span.Start.Line) + " - " + std::to_string(span.End.Line)+
+           ", Col: " + std::to_string(span.Start.Col) + " - " + std::to_string(span.End.Col) + "]";
 }
 
 TokenType Token::GetIdentifierType(const std::string &identifier, Token lastTok) {

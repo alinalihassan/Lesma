@@ -66,7 +66,8 @@ namespace lesma {
         const std::string *srcs_;
         unsigned long start_lex_pos_ = 0;
         unsigned long current_lex_pos_ = 0;
-        SourceLocation loc{0, 0};
+        SourceLocation begin_loc{1, 1};
+        SourceLocation loc{1, 1};
         std::string src_file_name;
         std::vector<Token> tokens;
 
