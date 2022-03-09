@@ -47,6 +47,7 @@ const config = {
           src: 'img/logo.svg',
         },
         items: [
+          // Left side
           {
             type: 'doc',
             docId: 'introduction/what-is-lesma',
@@ -54,10 +55,12 @@ const config = {
             label: 'Documentation',
           },
           // {to: '/blog', label: 'Blog', position: 'left'},
+          // Right side
           {
             href: 'https://github.com/alinalihassan/lesma',
-            label: 'GitHub',
             position: 'right',
+            className: 'header-github-link',
+            'aria-label': 'GitHub Repository',
           },
         ],
       },
