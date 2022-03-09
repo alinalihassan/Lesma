@@ -60,7 +60,12 @@ ctest
 Run Lesma source files
 ```bash
 ./lesma -h
-./lesma test.les
+
+# Run a file directly (JIT)
+./lesma run test.les
+
+# Compile a file to binary (AOT)
+./lesma compile test.les
 ```
 
 ## 💬 Contributing
