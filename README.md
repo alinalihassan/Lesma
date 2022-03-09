@@ -37,7 +37,9 @@ fibonacci(20)
 
 ## 🔧 Build
 
-In order to build Lesma, you need Clang installed and LLVM 13. It's currently tested only on Linux and macOS.
+In order to build Lesma, you need Clang installed and LLVM 13. It's currently only supported on Linux and macOS.
+For a more comprehensive guide, and more information on how to install the prerequisites,
+read the documentation on [Getting Started](http://localhost:3000/docs/introduction/getting-started)
 
 Clone the repo:
 ```shell
@@ -49,7 +51,7 @@ Build source
 mkdir build
 cd build
 cmake ..
-make -j8
+make
 ```
 
 Run tests
