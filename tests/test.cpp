@@ -44,23 +44,23 @@ TEST_CASE("Lexer", "Tokens" ) {
     REQUIRE(lexer->getTokens().size() > 1);
 
     std::vector<Token> tokens = {
-            Token{TokenType::VAR, "var", SourceLocation{0,3}},
-            Token{TokenType::IDENTIFIER, "y", SourceLocation{0,5}},
-            Token{TokenType::COLON, ":", SourceLocation{0,6}},
-            Token{TokenType::INT_TYPE, "int", SourceLocation{0,10}},
-            Token{TokenType::EQUAL, "=", SourceLocation{0,12}},
-            Token{TokenType::INTEGER, "100", SourceLocation{0,16}},
-            Token{TokenType::NEWLINE, "NEWLINE", SourceLocation{1,0}},
-            Token{TokenType::IDENTIFIER, "y", SourceLocation{1,1}},
-            Token{TokenType::EQUAL, "=", SourceLocation{1,3}},
-            Token{TokenType::INTEGER, "101", SourceLocation{1,7}},
-            Token{TokenType::NEWLINE, "NEWLINE", SourceLocation{2,0}},
-            Token{TokenType::IDENTIFIER, "exit", SourceLocation{2,4}},
-            Token{TokenType::LEFT_PAREN, "(", SourceLocation{2,5}},
-            Token{TokenType::IDENTIFIER, "y", SourceLocation{2,6}},
-            Token{TokenType::RIGHT_PAREN, ")", SourceLocation{2,7}},
-            Token{TokenType::NEWLINE, "NEWLINE", SourceLocation{3,0}},
-            Token{TokenType::EOF_TOKEN, "EOF", SourceLocation{3,0}},
+            Token{TokenType::VAR, "var", Span{{1, 1}, {1, 4}}},
+            Token{TokenType::IDENTIFIER, "y", Span{{1,5}, {1,6}}},
+            Token{TokenType::COLON, ":", Span{{1,6}, {1,7}}},
+            Token{TokenType::INT_TYPE, "int", Span{{1,8}, {1,11}}},
+            Token{TokenType::EQUAL, "=", Span{{1,12}, {1,13}}},
+            Token{TokenType::INTEGER, "100", Span{{1, 14}, {1,17}}},
+            Token{TokenType::NEWLINE, "NEWLINE", Span{{1, 17}, {2, 1}}},
+            Token{TokenType::IDENTIFIER, "y", Span{{2,1}, {2, 2}}},
+            Token{TokenType::EQUAL, "=", Span{{2, 3}, {2,4}}},
+            Token{TokenType::INTEGER, "101", Span{{2,5}, {2,8}}},
+            Token{TokenType::NEWLINE, "NEWLINE", Span{{2,8}, {3,1}}},
+            Token{TokenType::IDENTIFIER, "exit", Span{{3,1}, {3,5}}},
+            Token{TokenType::LEFT_PAREN, "(", Span{{3,5}, {3,6}}},
+            Token{TokenType::IDENTIFIER, "y", Span{{3,6}, {3,7}}},
+            Token{TokenType::RIGHT_PAREN, ")", Span{{3,7}, {3,8}}},
+            Token{TokenType::NEWLINE, "NEWLINE", Span{{3,8}, {4,1}}},
+            Token{TokenType::EOF_TOKEN, "EOF", Span{{4,1}, {4,1}}},
     };
 
     BENCHMARK("Lexer") {
@@ -82,9 +82,9 @@ TEST_CASE("Parser", "AST") {
     auto parser = initializeParser(lexer);
 
     REQUIRE(parser->getAST()->getChildren().size() == 3);
-    REQUIRE(parser->getAST()->getChildren().at(0)->toString(0) == "VarDecl[1:1]: y: int = 100\n");
-    REQUIRE(parser->getAST()->getChildren().at(1)->toString(0) == "Assignment[1:1]: y EQUAL 101\n");
-    REQUIRE(parser->getAST()->getChildren().at(2)->toString(0) == "Expression[2:4]: exit(y)\n");
+    REQUIRE(parser->getAST()->getChildren().at(0)->toString(0) == "VarDecl[Line(1-1):Col(1-17)]: y: int = 100\n");
+    REQUIRE(parser->getAST()->getChildren().at(1)->toString(0) == "Assignment[Line(2-2):Col(1-8)]: y EQUAL 101\n");
+    REQUIRE(parser->getAST()->getChildren().at(2)->toString(0) == "Expression[Line(3-3):Col(1-8)]: exit(y)\n");
 
     BENCHMARK("Parser") {
         initializeParser(lexer);
