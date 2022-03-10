@@ -1,3 +1,10 @@
+## [0.4.2](https://github.com/alinalihassan/Lesma/compare/v0.4.1...v0.4.2) (2022-03-10)
+
+
+### Bug Fixes
+
+* Added timer options alongside debug, fixed incorrect AST print ([19e45e7](https://github.com/alinalihassan/Lesma/commit/19e45e78a7e68eb4c3f9bd56b0dbe914b8e27975))
+
 ## [0.4.1](https://github.com/alinalihassan/Lesma/compare/v0.4.0...v0.4.1) (2022-03-10)
 
 
