@@ -574,7 +574,7 @@ llvm::Value *Codegen::visit(FuncCall *node) {
     auto name = getMangledName(node->getSpan(), node->getName(), paramTypes);
     auto symbol = Scope->lookup(name);
     // Get function without name mangling in case of extern C functions
-    symbol = symbol == nullptr ?  Scope->lookup(node->getName()) : symbol;
+    symbol = symbol == nullptr ? Scope->lookup(node->getName()) : symbol;
 
     if (symbol == nullptr)
         throw CodegenError(node->getSpan(), "Function {} not in current scope.", node->getName());
