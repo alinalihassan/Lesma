@@ -1,3 +1,10 @@
+## [0.4.3](https://github.com/alinalihassan/Lesma/compare/v0.4.2...v0.4.3) (2022-03-10)
+
+
+### Bug Fixes
+
+* Fix cli options being true by default ([1cfbfa9](https://github.com/alinalihassan/Lesma/commit/1cfbfa9afff6b730b55b1bb5067d1f7fa13fb52b))
+
 ## [0.4.2](https://github.com/alinalihassan/Lesma/compare/v0.4.1...v0.4.2) (2022-03-10)
 
 
