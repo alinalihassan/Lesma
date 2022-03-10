@@ -30,7 +30,7 @@ namespace lesma {
         fmt::print(fmt::emphasis::bold, "{}\n", reason);
 
         fmt::print(accent, "{}--> ", std::string(int(log10(span.Start.Line) + 1), ' '));
-        fmt::print("{}:{}:{}\n", file, span.Start.Col, span.Start.Line);
+        fmt::print("{}:{}:{}\n", file, span.Start.Line, span.Start.Col);
         while (std::getline(ifs, line)) {
             if (lineNum == span.Start.Line) {
                 // First line
