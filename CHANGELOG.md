@@ -1,3 +1,10 @@
+## [0.4.1](https://github.com/alinalihassan/Lesma/compare/v0.4.0...v0.4.1) (2022-03-10)
+
+
+### Bug Fixes
+
+* Improved Lexer and Parser error messages ([09a97f3](https://github.com/alinalihassan/Lesma/commit/09a97f3a673299f1808c4f5d7cf39dead25f0a61))
+
 # [0.3.0](https://github.com/alinalihassan/Lesma/compare/v0.2.0...v0.3.0) (2022-03-08)
 
 
