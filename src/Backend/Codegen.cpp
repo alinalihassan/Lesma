@@ -511,7 +511,7 @@ void Codegen::visit(Assignment *node) {
     }
 }
 
-void Codegen::visit(Break * node) {
+void Codegen::visit(Break *node) {
     if (breakBlocks.empty())
         throw CodegenError(node->getSpan(), "Cannot break without being in a loop");
 
@@ -522,7 +522,7 @@ void Codegen::visit(Break * node) {
     Builder->CreateBr(block);
 }
 
-void Codegen::visit(Continue * node) {
+void Codegen::visit(Continue *node) {
     if (continueBlocks.empty())
         throw CodegenError(node->getSpan(), "Cannot continue without being in a loop");
 
@@ -545,7 +545,7 @@ void Codegen::visit(Return *node) {
         Builder->CreateRet(visit(node->getValue()));
 }
 
-void Codegen::visit(Defer * node) {
+void Codegen::visit(Defer *node) {
     throw CodegenError(node->getSpan(), "Defer functionality unimplemented!");
 }
 

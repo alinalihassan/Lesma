@@ -354,7 +354,7 @@ Statement *Parser::ParseStatement() {
 }
 
 Compound *Parser::ParseBlock() {
-    std::vector<Statement*> statements;
+    std::vector<Statement *> statements;
 
     Consume(TokenType::NEWLINE);
     Consume(TokenType::INDENT);
@@ -423,7 +423,7 @@ Statement *Parser::ParseImport() {
 }
 
 Compound *Parser::ParseCompound() {
-    std::vector<Statement*> statements;
+    std::vector<Statement *> statements;
     while (!IsAtEnd()) {
         // Remove lingering newlines
         while (Peek()->type == TokenType::NEWLINE)

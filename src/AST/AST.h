@@ -51,7 +51,7 @@ namespace lesma {
 
     public:
         Literal(Span Loc, std::string value, TokenType type) : Expression(Loc), value(std::move(value)),
-                                                                         type(type) {}
+                                                               type(type) {}
 
         ~Literal() override = default;
 
@@ -125,13 +125,13 @@ namespace lesma {
 
         std::string toString(int ind) override {
             return fmt::format("{}Import[Line({}-{}):Col({}-{})]: {} as {}\n",
-                                   std::string(ind, ' '),
-                                   getStart().Line,
-                                   getEnd().Line,
-                                   getStart().Col,
-                                   getEnd().Col,
-                                   file_path,
-                                   alias);
+                               std::string(ind, ' '),
+                               getStart().Line,
+                               getEnd().Line,
+                               getStart().Col,
+                               getEnd().Col,
+                               file_path,
+                               alias);
         }
     };
 
@@ -152,14 +152,14 @@ namespace lesma {
 
         std::string toString(int ind) override {
             return fmt::format("{}VarDecl[Line({}-{}):Col({}-{})]: {}{}{}\n",
-                                   std::string(ind, ' '),
-                                   getStart().Line,
-                                   getEnd().Line,
-                                   getStart().Col,
-                                   getEnd().Col,
-                                   var->toString(ind),
-                                   (type.has_value() ? ": " + type.value()->toString(ind) : ""),
-                                   (expr.has_value() ? " = " + expr.value()->toString(ind) : ""));
+                               std::string(ind, ' '),
+                               getStart().Line,
+                               getEnd().Line,
+                               getStart().Col,
+                               getEnd().Col,
+                               var->toString(ind),
+                               (type.has_value() ? ": " + type.value()->toString(ind) : ""),
+                               (expr.has_value() ? " = " + expr.value()->toString(ind) : ""));
         }
     };
 
@@ -169,10 +169,10 @@ namespace lesma {
 
     public:
         If(Span Loc, std::vector<Expression *> conds, std::vector<Compound *> blocks) : Statement(Loc),
-                                                                                                  conds(std::move(
-                                                                                                          conds)),
-                                                                                                  blocks(std::move(
-                                                                                                          blocks)) {}
+                                                                                        conds(std::move(
+                                                                                                conds)),
+                                                                                        blocks(std::move(
+                                                                                                blocks)) {}
 
         ~If() override = default;
 
@@ -209,14 +209,14 @@ namespace lesma {
 
         std::string toString(int ind) override {
             return fmt::format("{}While[Line({}-{}):Col({}-{})]:\n{}Cond: {}\n,{}",
-                                   std::string(ind, ' '),
-                                   getStart().Line,
-                                   getEnd().Line,
-                                   getStart().Col,
-                                   getEnd().Col,
-                                   std::string(ind + 2, ' '),
-                                   cond->toString(ind + 2),
-                                   block->toString(ind + 2));
+                               std::string(ind, ' '),
+                               getStart().Line,
+                               getEnd().Line,
+                               getStart().Col,
+                               getEnd().Col,
+                               std::string(ind + 2, ' '),
+                               cond->toString(ind + 2),
+                               block->toString(ind + 2));
         }
     };
 
@@ -326,14 +326,14 @@ namespace lesma {
 
         std::string toString(int ind) override {
             return fmt::format("{}Assignment[Line({}-{}):Col({}-{})]: {} {} {}\n",
-                                   std::string(ind, ' '),
-                                   getStart().Line,
-                                   getEnd().Line,
-                                   getStart().Col,
-                                   getEnd().Col,
-                                   var->toString(ind),
-                                   std::string{NAMEOF_ENUM(op)},
-                                   expr->toString(ind));
+                               std::string(ind, ' '),
+                               getStart().Line,
+                               getEnd().Line,
+                               getStart().Col,
+                               getEnd().Col,
+                               var->toString(ind),
+                               std::string{NAMEOF_ENUM(op)},
+                               expr->toString(ind));
         }
     };
 
@@ -364,7 +364,7 @@ namespace lesma {
 
     public:
         BinaryOp(Span Loc, Expression *left, TokenType op, Expression *right) : Expression(Loc), left(left),
-                                                                                          op(op), right(right) {}
+                                                                                op(op), right(right) {}
 
         ~BinaryOp() override = default;
 

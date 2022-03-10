@@ -4,8 +4,8 @@
 #include <string>
 #include <utility>
 
-#include "fmt/format.h"
 #include "Utils.h"
+#include "fmt/format.h"
 
 namespace lesma {
     class LesmaError : public std::exception {

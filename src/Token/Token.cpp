@@ -42,7 +42,7 @@ std::string TokenState::Dump() const {
                    "[Type: ") +
            std::string{NAMEOF_ENUM(type)} +
            ", Lexeme: " + lexeme +
-           ", Line: " + std::to_string(span.Start.Line) + " - " + std::to_string(span.End.Line)+
+           ", Line: " + std::to_string(span.Start.Line) + " - " + std::to_string(span.End.Line) +
            ", Col: " + std::to_string(span.Start.Col) + " - " + std::to_string(span.End.Col) + "]";
 }
 

@@ -1,8 +1,8 @@
 #pragma once
 
+#include <cmath>
 #include <fstream>
 #include <sstream>
-#include <cmath>
 
 #include "CLI/CLI.hpp"
 #include "fmt/color.h"
@@ -70,7 +70,7 @@ namespace lesma {
     }
 
     std::string readFile(const std::string &path);
-    void showInline(Span span, const std::string& reason, const std::string& file, bool is_error);
+    void showInline(Span span, const std::string &reason, const std::string &file, bool is_error);
     std::string getBasename(const std::string &file_path);
     CLIOptions *parseCLI(int argc, char **argv);
 }// namespace lesma
