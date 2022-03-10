@@ -1,3 +1,10 @@
+## [0.4.4](https://github.com/alinalihassan/Lesma/compare/v0.4.3...v0.4.4) (2022-03-10)
+
+
+### Bug Fixes
+
+* Fixed function parameters not being usable ([086a231](https://github.com/alinalihassan/Lesma/commit/086a231edcf57d4850bec8ff930918749b84bc26))
+
 ## [0.4.3](https://github.com/alinalihassan/Lesma/compare/v0.4.2...v0.4.3) (2022-03-10)
 
 
