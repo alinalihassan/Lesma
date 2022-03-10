@@ -5,6 +5,7 @@
 - [x] Disallow return in top level
 - [x] Allow return void
 - [ ] Fix symbols with same name but different function signatures (mangled and non-manged) overlapping, it should issue a warning and the newest one replace the old one
+- [ ] Fix being able to call function without respective arguments, but throw error
 
 ## Refactoring
 - [ ] Replace SourceLocation by Span
