@@ -53,8 +53,8 @@ namespace lesma {
     }
 
     CLIOptions *parseCLI(int argc, char **argv) {
-        bool debug;
-        bool timer;
+        bool debug = false;
+        bool timer = false;
         std::string output = "output";
         std::string file;
 
