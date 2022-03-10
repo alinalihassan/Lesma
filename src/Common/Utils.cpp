@@ -42,7 +42,7 @@ namespace lesma {
 
                 // Third line
                 fmt::print(accent, "{} |", std::string(int(log10(span.Start.Line) + 1), ' '));
-                fmt::print(color | fmt::emphasis::bold, "{}{}\n",
+                fmt::print(color | fmt::emphasis::bold, "{}{}",
                            std::string(span.Start.Col, ' '), std::string(span.End.Col - span.Start.Col, '^'));
 
                 // TODO: Support multiline
