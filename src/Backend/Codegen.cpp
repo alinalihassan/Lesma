@@ -90,7 +90,6 @@ void Codegen::CompileModule(Span span, const std::string &filepath) {
                     Scope->insertSymbol(name, (Value *) &(*it).getFunction(), (*it).getFunctionType());
             }
 
-            Modules.push_back(codegen->getModule());
         } else {
             std::string obj_file = fmt::format("tmp{}", ObjectFiles.size());
             codegen->WriteToObjectFile(obj_file);
@@ -188,12 +187,6 @@ void Codegen::LinkObjectFile(const std::string &obj_filename) {
 }
 
 int Codegen::JIT() {
-    //    Commented out for now, the linker seems to just copy the functions over to the main module
-    //    for (auto &module: Modules) {
-    //        auto jit_error = TheJIT->addModule(std::move(module));
-    //        if (jit_error)
-    //            throw CodegenError("JIT Error:\n{}");
-    //    }
     auto jit_error = TheJIT->addModule(ThreadSafeModule(std::move(TheModule), std::move(TheContext)));
     if (jit_error)
         throw CodegenError({}, "JIT Error:\n{}");

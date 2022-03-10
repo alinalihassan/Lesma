@@ -48,7 +48,6 @@ namespace lesma {
         std::stack<llvm::BasicBlock *> continueBlocks;
         std::stack<std::vector<llvm::Value *>> deferStack;
 
-        std::vector<ThreadSafeModule> Modules;
         std::vector<std::string> ObjectFiles;
         llvm::Function *TopLevelFunc;
         bool isBreak = false;
