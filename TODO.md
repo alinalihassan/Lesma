@@ -7,6 +7,7 @@
 - [ ] Fix symbols with same name but different function signatures (mangled and non-manged) overlapping, it should issue a warning and the newest one replace the old one
 - [ ] Fix being able to call function without respective arguments, but throw error
 - [x] Fix arguments not being usable (not stored in LLVM IR)
+- [ ] Fix import error being catched by Utils function instead of module, which could show where import was stated
 
 ## Refactoring
 - [ ] Replace SourceLocation by Span

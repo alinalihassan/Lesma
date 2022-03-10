@@ -70,7 +70,7 @@ namespace lesma {
     protected:
         llvm::TargetMachine *InitializeTargetMachine();
         llvm::Function *InitializeTopLevel();
-        void CompileModule(const std::string &filepath);
+        void CompileModule(Span span, const std::string &filepath);
 
         void visit(Statement *node) override;
         void visit(Compound *node) override;
