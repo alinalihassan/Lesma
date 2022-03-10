@@ -6,6 +6,7 @@
 - [x] Allow return void
 - [ ] Fix symbols with same name but different function signatures (mangled and non-manged) overlapping, it should issue a warning and the newest one replace the old one
 - [ ] Fix being able to call function without respective arguments, but throw error
+- [x] Fix arguments not being usable (not stored in LLVM IR)
 
 ## Refactoring
 - [ ] Replace SourceLocation by Span
@@ -13,6 +14,7 @@
 - [x] Add name mangling
 
 ## Features
+- [ ] Add parenthesis support
 - [ ] Add analyzer phase (add tree walker interface?)
 - [x] Add type inference
 - [ ] Add operator overloading

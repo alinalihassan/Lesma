@@ -385,14 +385,20 @@ void Codegen::visit(FuncDecl *node) {
     FunctionType *FT = FunctionType::get(visit(node->getReturnType()), paramTypes, false);
     Function *F = Function::Create(FT, linkage, name, *TheModule);
 
-    for (auto &param: F->args())
-        param.setName(node->getParameters()[param.getArgNo()].first);
-
     //    deferStack.push({});
 
     BasicBlock *BB = BasicBlock::Create(*TheContext, "entry", F);
     Builder->SetInsertPoint(BB);
 
+
+    for (auto &param: F->args()) {
+        param.setName(node->getParameters()[param.getArgNo()].first);
+
+        auto ptr = Builder->CreateAlloca(param.getType(), nullptr, param.getName() + "_ptr");
+        Builder->CreateStore(&param, ptr);
+
+        Scope->insertSymbol(param.getName().str(), ptr, param.getType(), false);
+    }
     visit(node->getBody());
 
     //    auto instrs = deferStack.top();
