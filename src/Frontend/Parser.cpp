@@ -43,12 +43,12 @@ Token Parser::Consume(TokenType type, const std::string &error_message) {
 Token Parser::ConsumeNewline() {
     if (Check(TokenType::NEWLINE) || Peek()->type == TokenType::EOF_TOKEN)
         return Advance();
-    Error(Peek(), std::string{"Expected: NEWLINE or EOF, found: " + std::string{NAMEOF_ENUM(Peek()->type)}});
+    Error(Peek(), fmt::format("Expected: NEWLINE or EOF, found: {}", NAMEOF_ENUM(Peek()->type)));
     return Token{};
 }
 
 void Parser::Error(const Token &token, const std::string &error_message) {
-    throw ParserError(token->span, "{}: {}", token->Dump(), error_message);
+    throw ParserError(token->span, "{}", error_message);
 }
 
 // TODO: Parse Type
@@ -60,7 +60,7 @@ Type *Parser::ParseType() {
         return new Type(type->span, type->lexeme, type->type);
     }
 
-    Error(type, "Unknown type");
+    Error(type, fmt::format("Unknown type: {}", type->lexeme));
 
     return nullptr;
 }
@@ -108,7 +108,7 @@ Expression *Parser::ParseTerm() {
             return new Literal(token->span, token->lexeme, TokenType::BOOL);
         }
         default:
-            Error(Peek(), std::string{NAMEOF_ENUM(Peek()->type)} + " " + std::string{"Unknown literal"});
+            Error(Peek(), fmt::format("Unknown literal: {}", Peek()->lexeme));
     }
 
     return nullptr;
@@ -279,7 +279,7 @@ Statement *Parser::ParseAssignment() {
         return new Assignment({identifier.getStart(), expr->getEnd()}, var, op, expr);
     }
 
-    Error(Peek(), "Unsupported assignment operator");
+    Error(Peek(), fmt::format("Unsupported assignment operator: {}", Peek()->lexeme));
 
     return nullptr;
 }

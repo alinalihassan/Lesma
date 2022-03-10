@@ -305,5 +305,5 @@ Token Lexer::AddIdentifierToken() {
 char Lexer::LastChar() { return srcs_->at(current_lex_pos_); }
 
 void Lexer::Error(const std::string &msg) const {
-    throw LexerError(Span{begin_loc, loc}, "[line {}, col {}] {}", loc.Line, loc.Col, msg);
+    throw LexerError(Span{begin_loc, loc}, msg);
 }
