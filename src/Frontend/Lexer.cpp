@@ -10,7 +10,7 @@ std::vector<Token> Lexer::ScanAll() {
 
 Token Lexer::ScanOne() {
     if (IsAtEnd())
-        return Token{TokenType::EOF_TOKEN, "EOF", loc};
+        return Token{TokenType::EOF_TOKEN, "EOF", Span{begin_loc, loc}};
     ResetTokenBeg();
     char c = Advance();
     bool continuation = false;
@@ -100,14 +100,14 @@ Token Lexer::ScanOne() {
         case '\r':
         case '\t':
             HandleWhitespace(c);
-            if (loc.Col == 1)
+            if (loc.Col == 2)
                 HandleIndentation(false);
             return ScanOne();
         case '\n':
             loc.Line++;
-            loc.Col = 0;
+            loc.Col = 1;
             if (!continuation && level_ == 0)
-                tokens.push_back(AddToken({TokenType::NEWLINE, "NEWLINE", loc}));
+                tokens.push_back(AddToken({TokenType::NEWLINE, "NEWLINE", Span{begin_loc, loc}}));
             HandleIndentation(continuation);
             continuation = false;
             return ScanOne();
@@ -203,7 +203,7 @@ bool Lexer::HandleIndentation(bool continuation) {
     }
 
     while (changes != 0) {
-        tokens.push_back(AddToken({changes > 0 ? TokenType::INDENT : TokenType::DEDENT, changes > 0 ? "INDENT" : "DEDENT", loc}));
+        tokens.push_back(AddToken({changes > 0 ? TokenType::INDENT : TokenType::DEDENT, changes > 0 ? "INDENT" : "DEDENT", Span{begin_loc, loc}}));
         changes += changes > 0 ? -1 : 1;
     }
     return true;
@@ -211,7 +211,7 @@ bool Lexer::HandleIndentation(bool continuation) {
 
 // TODO: Could possibly make it more efficient
 Token Lexer::AddToken(TokenType type) {
-    auto ret = Token(type, std::string(srcs_->cbegin() + start_lex_pos_, srcs_->cbegin() + current_lex_pos_), loc);
+    auto ret = Token(type, std::string(srcs_->cbegin() + start_lex_pos_, srcs_->cbegin() + current_lex_pos_), Span{begin_loc, loc});
     ResetTokenBeg();
     return ret;
 }
@@ -223,6 +223,7 @@ Token Lexer::AddToken(Token tok) {
 
 void Lexer::ResetTokenBeg() {
     start_lex_pos_ = current_lex_pos_;
+    begin_loc = loc;
 }
 
 void Lexer::Fallback() {
@@ -253,7 +254,7 @@ Token Lexer::AddStringToken() {
     while (Peek() != '"' && !IsAtEnd()) {
         if (Peek() == '\n') {
             loc.Line++;
-            loc.Col = 0;
+            loc.Col = 1;
         }
         Advance();
     }
@@ -286,7 +287,7 @@ Token Lexer::GetLastToken() {
     if (!tokens.empty())
         return tokens.end()[-1];
     else
-        return Token{TokenType::EOF_TOKEN, "EOF", loc};
+        return Token{TokenType::EOF_TOKEN, "EOF", Span{begin_loc, loc}};
 }
 
 Token Lexer::AddIdentifierToken() {
@@ -304,5 +305,5 @@ Token Lexer::AddIdentifierToken() {
 char Lexer::LastChar() { return srcs_->at(current_lex_pos_); }
 
 void Lexer::Error(const std::string &msg) const {
-    throw LexerError("[line {}, col {}] {}\n", loc.Line + 1, loc.Col + 1, msg);
+    throw LexerError(Span{begin_loc, loc}, "[line {}, col {}] {}", loc.Line, loc.Col, msg);
 }

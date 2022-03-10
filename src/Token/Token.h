@@ -17,10 +17,10 @@ namespace lesma {
 
         std::string lexeme;
         TokenType type;
-        SourceLocation loc;
+        Span span;
 
         bool operator==(const TokenState &rhs) const {
-            return (lexeme == rhs.lexeme) && (type == rhs.type) && (loc == rhs.loc);
+            return (lexeme == rhs.lexeme) && (type == rhs.type) && (span == rhs.span);
         }
         bool operator!=(const TokenState &rhs) const {
             return !operator==(rhs);
@@ -32,15 +32,18 @@ namespace lesma {
 
     protected:
         friend struct Token;
-        explicit TokenState(const TokenType &type, std::string lexeme, SourceLocation loc)
-            : lexeme(std::move(lexeme)), type(type), loc(loc) {}
+        explicit TokenState(const TokenType &type, std::string lexeme, Span span)
+            : lexeme(std::move(lexeme)), type(type), span(span) {}
     };
 
     struct Token {
         Token() = default;
-        Token(const TokenType &type, const std::string &lexeme, SourceLocation loc) {
+        Token(const TokenType &type, const std::string &lexeme, Span loc) {
             state_ = std::shared_ptr<TokenState>(new TokenState(type, lexeme, loc));
         }
+
+        SourceLocation getStart() { return state_->span.Start; }
+        SourceLocation getEnd() { return state_->span.End; };
 
         static TokenType GetIdentifierType(const std::string &identifier, Token lastTok);
 

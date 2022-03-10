@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cmath>
 #include <fstream>
 #include <sstream>
 
@@ -7,7 +8,6 @@
 #include "fmt/color.h"
 #include "fmt/core.h"
 
-#include "LesmaError.h"
 #include "Token/TokenType.h"
 
 namespace lesma {
@@ -19,6 +19,18 @@ namespace lesma {
             return (Line == rhs.Line) && (Col == rhs.Col);
         }
         bool operator!=(const SourceLocation &rhs) const {
+            return !operator==(rhs);
+        }
+    };
+
+    struct Span {
+        SourceLocation Start;
+        SourceLocation End;
+
+        bool operator==(const Span &rhs) const {
+            return (Start == rhs.Start) && (End == rhs.End);
+        }
+        bool operator!=(const Span &rhs) const {
             return !operator==(rhs);
         }
     };
@@ -43,9 +55,9 @@ namespace lesma {
         if (typ == ERROR)
             fmt::print(fg(fmt::color::red) | fmt::emphasis::bold, "[-] Error: ");
         else if (typ == WARNING)
-            fmt::print(fg(fmt::color::medium_purple) | fmt::emphasis::bold, "[!] Warning: ");
+            fmt::print(fg(fmt::color::yellow) | fmt::emphasis::bold, "[!] Warning: ");
         else if (typ == DEBUG)
-            fmt::print(fg(fmt::color::yellow) | fmt::emphasis::bold, "[?] Debug: ");
+            fmt::print(fg(fmt::color::medium_purple) | fmt::emphasis::bold, "[?] Debug: ");
         else if (typ == SUCCESS)
             fmt::print(fg(fmt::color::forest_green) | fmt::emphasis::bold, "[+] Success: ");
 
@@ -58,6 +70,7 @@ namespace lesma {
     }
 
     std::string readFile(const std::string &path);
+    void showInline(Span span, const std::string &reason, const std::string &file, bool is_error);
     std::string getBasename(const std::string &file_path);
     CLIOptions *parseCLI(int argc, char **argv);
 }// namespace lesma
