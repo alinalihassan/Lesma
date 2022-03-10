@@ -1,0 +1,10 @@
+#ret=101
+def extern exit(x: int)
+
+def sleep(x: float) -> int
+    return 50
+
+def sleep(x: int) -> int
+    return 51
+
+exit(sleep(1.0) + sleep(1))

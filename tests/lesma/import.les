@@ -1,5 +1,5 @@
 #ret=101
-import "functioncall.les"
+import "function_call.les"
 
 def extern exit(x: int)
 

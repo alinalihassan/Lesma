@@ -1,0 +1,9 @@
+#ret=101
+def extern usleep(x: int)
+
+def sleep(x: float)
+    let y: float = x * 1000000
+    usleep(y as int)
+
+def sleep(x: int)
+    usleep(x * 1000000)

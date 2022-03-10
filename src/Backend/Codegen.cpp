@@ -390,7 +390,6 @@ void Codegen::visit(FuncDecl *node) {
     BasicBlock *BB = BasicBlock::Create(*TheContext, "entry", F);
     Builder->SetInsertPoint(BB);
 
-
     for (auto &param: F->args()) {
         param.setName(node->getParameters()[param.getArgNo()].first);
 
@@ -419,7 +418,7 @@ void Codegen::visit(FuncDecl *node) {
 
     // Insert Function to Symbol Table
     Scope = Scope->getParent();
-    Scope->insertSymbol(node->getName(), F, F->getFunctionType());
+    Scope->insertSymbol(name, F, F->getFunctionType());
 
     // Reset Insert Point to Top Level
     Builder->SetInsertPoint(&TopLevelFunc->back());
@@ -565,16 +564,23 @@ void Codegen::visit(Import *node) {
 }
 
 llvm::Value *Codegen::visit(FuncCall *node) {
-    if (Scope->lookup(node->getName()) == nullptr)
+    std::vector<llvm::Value *> params;
+    std::vector<llvm::Type *> paramTypes;
+    for (auto arg: node->getArguments()) {
+        params.push_back(visit(arg));
+        paramTypes.push_back(params.back()->getType());
+    }
+
+    auto name = getMangledName(node->getSpan(), node->getName(), paramTypes);
+    auto symbol = Scope->lookup(name);
+    // Get function without name mangling in case of extern C functions
+    symbol = symbol == nullptr ?  Scope->lookup(node->getName()) : symbol;
+
+    if (symbol == nullptr)
         throw CodegenError(node->getSpan(), "Function {} not in current scope.", node->getName());
 
-    auto symbol = Scope->lookup(node->getName());
     if (!static_cast<llvm::FunctionType *>(symbol->getType()))
-        throw CodegenError(node->getSpan(), "Symbol {} not of FunctionType.", node->getName());
-
-    std::vector<llvm::Value *> params;
-    for (auto arg: node->getArguments())
-        params.push_back(visit(arg));
+        throw CodegenError(node->getSpan(), "Symbol {} is not a function.", node->getName());
 
     auto *func = static_cast<Function *>(symbol->getValue());
     return Builder->CreateCall(func, params, func->getReturnType()->isVoidTy() ? "" : "tmp");
