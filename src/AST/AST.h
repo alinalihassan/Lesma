@@ -208,7 +208,7 @@ namespace lesma {
         [[nodiscard]] [[maybe_unused]] Compound *getBlock() const { return block; }
 
         std::string toString(int ind) override {
-            return fmt::format("{}While[Line({}-{}):Col({}-{})]:\n{}Cond: {}\n,{}",
+            return fmt::format("{}While[Line({}-{}):Col({}-{})]:\n{}Cond: {}\n{}",
                                std::string(ind, ' '),
                                getStart().Line,
                                getEnd().Line,

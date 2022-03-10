@@ -54,12 +54,14 @@ namespace lesma {
 
     CLIOptions *parseCLI(int argc, char **argv) {
         bool debug;
+        bool timer;
         std::string output = "output";
         std::string file;
 
         CLI::App app{"Lesma"};
         app.set_help_all_flag("--help-all", "Expand all help");
         app.add_flag("-d,--debug", debug, "Enable debug logging");
+        app.add_flag("-t,--timer", timer, "Enable compiler timer");
 
         CLI::App *run = app.add_subcommand("run", "Run source code");
         CLI::App *compile = app.add_subcommand("compile", "Compile source code");
@@ -75,6 +77,6 @@ namespace lesma {
             exit(app.exit(e));
         }
 
-        return new CLIOptions{file, output, debug, run->parsed()};
+        return new CLIOptions{file, output, debug, timer, run->parsed()};
     }
 }// namespace lesma

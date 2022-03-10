@@ -47,6 +47,7 @@ namespace lesma {
         std::string file;
         std::string output;
         bool debug;
+        bool timer;
         bool jit;
     };
 

@@ -14,7 +14,7 @@ using namespace lesma;
     statements                                \
             results = timer.get_elapsed_ms(); \
     total += results;                         \
-    if (options->debug)                       \
+    if (options->timer)                       \
         print(DEBUG, "{} -> {:.2f} ms\n", debug_operation, results);
 
 int main(int argc, char **argv) {
@@ -34,16 +34,19 @@ int main(int argc, char **argv) {
                auto lexer = std::make_unique<Lexer>(source, options->file.substr(options->file.find_last_of("/\\") + 1));
                lexer->ScanAll();)
 
-        //        print(DEBUG, "TOKENS: \n");
-        //        for (const auto &tok: lexer->getTokens())
-        //            print("Token: {}\n", tok->Dump());
+        if (options->debug) {
+            print(DEBUG, "TOKENS: \n");
+            for (const auto &tok: lexer->getTokens())
+                print("Token: {}\n", tok->Dump());
+        }
 
         // Parser
         TIMEIT("Parsing",
                auto parser = std::make_unique<Parser>(lexer->getTokens());
                parser->Parse();)
 
-        //        print(DEBUG, "AST:\n{}", parser->getAST()->toString(0));
+        if (options->debug)
+            print(DEBUG, "AST:\n{}", parser->getAST()->toString(0));
 
         // Codegen
         TIMEIT("Compiling",
@@ -53,8 +56,10 @@ int main(int argc, char **argv) {
         // Optimization
         TIMEIT("Optimizing", codegen->Optimize(llvm::PassBuilder::OptimizationLevel::O3);)
 
-        //        print(DEBUG, "LLVM IR: \n");
-        //        codegen->Dump();
+        if (options->debug) {
+            print(DEBUG, "LLVM IR: \n");
+            codegen->Dump();
+        }
 
         int exit_code = 0;
         if (!options->jit) {
@@ -68,7 +73,7 @@ int main(int argc, char **argv) {
             TIMEIT("Execution", exit_code = codegen->JIT();)
         }
 
-        if (options->debug)
+        if (options->timer)
             print(DEBUG, "Total -> {:.2f} ms\n", total);
 
         return exit_code;
