@@ -1,3 +1,18 @@
+# [0.4.0](https://github.com/alinalihassan/Lesma/compare/v0.3.0...v0.4.0) (2022-03-10)
+
+
+### Bug Fixes
+
+* Fixed inverted location (line:col) ([d981a58](https://github.com/alinalihassan/Lesma/commit/d981a58c1b4c3f16d0b7561b6dca4610e0c54ae4))
+* Fixed tests ([35779e3](https://github.com/alinalihassan/Lesma/commit/35779e322188e946cc97bcca7b2d8d961a36f76b))
+* Removed extra newline from error reporting ([2d67d15](https://github.com/alinalihassan/Lesma/commit/2d67d15777c3ffff5a36e1a10060d30a51b20bba))
+
+
+### Features
+
+* Initial change to swap from location to Span, added helper function to generate error messages ([3debf85](https://github.com/alinalihassan/Lesma/commit/3debf856309a2873b10d114fa254fefc807c4989))
+* Proper error handling finished for compiler, parser and lexer ([4299f50](https://github.com/alinalihassan/Lesma/commit/4299f50126c9f3daf371c580f70022018ef48a96))
+
 # [0.3.0](https://github.com/alinalihassan/Lesma/compare/v0.2.0...v0.3.0) (2022-03-08)
 
 
