@@ -101,6 +101,12 @@ Expression *Parser::ParseTerm() {
             Consume(token->type);
             return new Literal(token->span, token->lexeme, token->type);
         }
+        case TokenType::LEFT_PAREN: {
+            Consume(TokenType::LEFT_PAREN);
+            auto expr = ParseExpression();
+            Consume(TokenType::RIGHT_PAREN);
+            return expr;
+        }
         case TokenType::TRUE_:
         case TokenType::FALSE_: {
             auto token = Peek();
