@@ -80,7 +80,7 @@ void Codegen::CompileModule(Span span, const std::string &filepath) {
         if (isJIT) {
             // Link modules together
             if (Linker::linkModules(*TheModule, std::move(codegen->TheModule)))
-                throw CodegenError({},"Error linking modules together");
+                throw CodegenError({}, "Error linking modules together");
 
             //  Add function to main module
             Module::iterator it;
