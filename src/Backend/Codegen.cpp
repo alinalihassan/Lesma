@@ -36,7 +36,7 @@ llvm::Function *Codegen::InitializeTopLevel() {
     return F;
 }
 
-llvm::TargetMachine *Codegen::InitializeTargetMachine() {
+std::unique_ptr<llvm::TargetMachine> Codegen::InitializeTargetMachine() {
     // Configure output target
     auto targetTriple = llvm::Triple(llvm::sys::getDefaultTargetTriple());
     const std::string &tripletString = targetTriple.getTriple();
@@ -50,63 +50,72 @@ llvm::TargetMachine *Codegen::InitializeTargetMachine() {
 
     llvm::TargetOptions opt;
     llvm::Optional rm = llvm::Optional<llvm::Reloc::Model>();
-    return target->createTargetMachine(tripletString, "generic", "", opt, rm);
+    std::unique_ptr<llvm::TargetMachine> target_machine(target->createTargetMachine(tripletString, "generic", "", opt, rm));
+    return target_machine;
 }
 
-void Codegen::CompileModule(const std::string &filepath) {
+void Codegen::CompileModule(Span span, const std::string &filepath) {
     std::filesystem::path mainPath = filename;
     // Read source
     auto source = readFile(fmt::format("{}/{}", std::filesystem::absolute(mainPath).parent_path().c_str(), filepath));
-    // Lexer
-    auto lexer = std::make_unique<Lexer>(source, filepath.substr(filepath.find_last_of("/\\") + 1));
-    lexer->ScanAll();
 
-    // Parser
-    auto parser = std::make_unique<Parser>(lexer->getTokens());
-    parser->Parse();
+    try {
+        // Lexer
+        auto lexer = std::make_unique<Lexer>(source, filepath.substr(filepath.find_last_of("/\\") + 1));
+        lexer->ScanAll();
 
-    // TODO: Delete it, memory leak, smart pointer made us lose the references to other modules
-    // Codegen
-    auto codegen = new Codegen(std::move(parser), filepath, isJIT, false);
-    codegen->Run();
+        // Parser
+        auto parser = std::make_unique<Parser>(lexer->getTokens());
+        parser->Parse();
 
-    // Optimize
-    codegen->Optimize(llvm::PassBuilder::OptimizationLevel::O3);
+        // TODO: Delete it, memory leak, smart pointer made us lose the references to other modules
+        // Codegen
+        auto codegen = new Codegen(std::move(parser), filepath, isJIT, false);
+        codegen->Run();
 
-    codegen->TheModule->setModuleIdentifier(filepath);
+        // Optimize
+        codegen->Optimize(llvm::PassBuilder::OptimizationLevel::O3);
+        codegen->TheModule->setModuleIdentifier(filepath);
 
-    if (isJIT) {
-        // Link modules together
-        if (Linker::linkModules(*TheModule, std::move(codegen->TheModule)))
-            print(ERROR, "Error linking modules together");
+        if (isJIT) {
+            // Link modules together
+            if (Linker::linkModules(*TheModule, std::move(codegen->TheModule)))
+                throw CodegenError({}, "Error linking modules together");
 
-        //  Add function to main module
-        Module::iterator it;
-        Module::iterator end = TheModule->end();
-        for (it = TheModule->begin(); it != end; ++it) {
-            auto name = std::string{(*it).getName()};
-            if (!Scope->lookup(name))
-                Scope->insertSymbol(name, (Value *) &(*it).getFunction(), (*it).getFunctionType());
+            //  Add function to main module
+            Module::iterator it;
+            Module::iterator end = TheModule->end();
+            for (it = TheModule->begin(); it != end; ++it) {
+                auto name = std::string{(*it).getName()};
+                if (!Scope->lookup(name))
+                    Scope->insertSymbol(name, (Value *) &(*it).getFunction(), (*it).getFunctionType());
+            }
+
+        } else {
+            std::string obj_file = fmt::format("tmp{}", ObjectFiles.size());
+            codegen->WriteToObjectFile(obj_file);
+            ObjectFiles.push_back(fmt::format("{}.o", obj_file));
+
+            // Add function definitions
+            Module::iterator it;
+            Module::iterator end = codegen->TheModule->end();
+            for (it = codegen->TheModule->begin(); it != end; ++it) {
+                auto name = std::string{(*it).getName()};
+                auto new_func = Function::Create((*it).getFunctionType(),
+                                                 Function::ExternalLinkage,
+                                                 name,
+                                                 *TheModule);
+
+                Scope->insertSymbol(name, new_func, new_func->getFunctionType());
+            }
         }
+    } catch (const LesmaError &err) {
+        if (err.getSpan() == Span{})
+            print(ERROR, err.what());
+        else
+            showInline(err.getSpan(), err.what(), fmt::format("{}/{}", std::filesystem::absolute(mainPath).parent_path().c_str(), filepath), true);
 
-        Modules.push_back(codegen->getModule());
-    } else {
-        std::string obj_file = fmt::format("tmp{}", ObjectFiles.size());
-        codegen->WriteToObjectFile(obj_file);
-        ObjectFiles.push_back(fmt::format("{}.o", obj_file));
-
-        // Add function definitions
-        Module::iterator it;
-        Module::iterator end = codegen->TheModule->end();
-        for (it = codegen->TheModule->begin(); it != end; ++it) {
-            auto name = std::string{(*it).getName()};
-            auto new_func = Function::Create((*it).getFunctionType(),
-                                             Function::ExternalLinkage,
-                                             name,
-                                             *TheModule);
-
-            Scope->insertSymbol(name, new_func, new_func->getFunctionType());
-        }
+        throw CodegenError(span, "Unable to import {} due to errors", filepath);
     }
 }
 
@@ -116,7 +125,7 @@ void Codegen::Optimize(llvm::PassBuilder::OptimizationLevel opt) {
     llvm::CGSCCAnalysisManager CGAM;
     llvm::ModuleAnalysisManager MAM;
 
-    llvm::PassBuilder PB(TargetMachine);
+    llvm::PassBuilder PB(&*TargetMachine);
 
     PB.registerModuleAnalyses(MAM);
     PB.registerCGSCCAnalyses(CGAM);
@@ -179,12 +188,6 @@ void Codegen::LinkObjectFile(const std::string &obj_filename) {
 }
 
 int Codegen::JIT() {
-    //    Commented out for now, the linker seems to just copy the functions over to the main module
-    //    for (auto &module: Modules) {
-    //        auto jit_error = TheJIT->addModule(std::move(module));
-    //        if (jit_error)
-    //            throw CodegenError("JIT Error:\n{}");
-    //    }
     auto jit_error = TheJIT->addModule(ThreadSafeModule(std::move(TheModule), std::move(TheContext)));
     if (jit_error)
         throw CodegenError({}, "JIT Error:\n{}");
@@ -560,7 +563,7 @@ void Codegen::visit(ExpressionStatement *node) {
 
 // TODO: Implement me
 void Codegen::visit(Import *node) {
-    CompileModule(node->getFilePath());
+    CompileModule(node->getSpan(), node->getFilePath());
 }
 
 llvm::Value *Codegen::visit(FuncCall *node) {
@@ -796,7 +799,7 @@ std::string Codegen::getTypeMangledName(Span span, llvm::Type *type) {
 
 // TODO: Change to support private/public and module system
 std::string Codegen::getMangledName(Span span, std::string func_name, const std::vector<llvm::Type *> &paramTypes) {
-    std::string name = std::move(func_name);
+    std::string name = "_" + std::move(func_name);
 
     for (auto param_type: paramTypes)
         name += ":" + getTypeMangledName(span, param_type);

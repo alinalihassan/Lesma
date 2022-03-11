@@ -39,7 +39,7 @@ namespace lesma {
         ExitOnError ExitOnErr;
 
         std::unique_ptr<LesmaJIT> TheJIT;
-        TargetMachine *TargetMachine;
+        std::unique_ptr<llvm::TargetMachine> TargetMachine;
         std::unique_ptr<Parser> Parser_;
         SymbolTable *Scope;
         std::string filename;
@@ -48,7 +48,6 @@ namespace lesma {
         std::stack<llvm::BasicBlock *> continueBlocks;
         std::stack<std::vector<llvm::Value *>> deferStack;
 
-        std::vector<ThreadSafeModule> Modules;
         std::vector<std::string> ObjectFiles;
         llvm::Function *TopLevelFunc;
         bool isBreak = false;
@@ -68,9 +67,9 @@ namespace lesma {
         ThreadSafeModule getModule() { return {std::move(TheModule), std::move(TheContext)}; };
 
     protected:
-        llvm::TargetMachine *InitializeTargetMachine();
+        std::unique_ptr<llvm::TargetMachine> InitializeTargetMachine();
         llvm::Function *InitializeTopLevel();
-        void CompileModule(const std::string &filepath);
+        void CompileModule(Span span, const std::string &filepath);
 
         void visit(Statement *node) override;
         void visit(Compound *node) override;

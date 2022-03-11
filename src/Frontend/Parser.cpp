@@ -411,15 +411,18 @@ Statement *Parser::ParseFunctionDeclaration() {
 }
 
 Statement *Parser::ParseImport() {
+    auto loc = Peek()->span;
     Consume(TokenType::IMPORT);
 
     auto token = Consume(TokenType::STRING);
     auto filepath = token->lexeme.erase(0, 1).erase(token->lexeme.size() - 1);
 
-    if (AdvanceIfMatchAny<TokenType::AS>())
-        return new Import(Peek()->span, token->lexeme, Consume(TokenType::IDENTIFIER)->lexeme);
+    if (AdvanceIfMatchAny<TokenType::AS>()) {
+        auto alias = Consume(TokenType::IDENTIFIER);
+        return new Import({loc.Start, alias.getEnd()}, token->lexeme, alias->lexeme);
+    }
 
-    return new Import(Peek()->span, filepath, getBasename(token->lexeme));
+    return new Import({loc.Start, token.getEnd()}, filepath, getBasename(token->lexeme));
 }
 
 Compound *Parser::ParseCompound() {

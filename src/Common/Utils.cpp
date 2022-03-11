@@ -52,7 +52,7 @@ namespace lesma {
         }
     }
 
-    CLIOptions *parseCLI(int argc, char **argv) {
+    std::unique_ptr<CLIOptions> parseCLI(int argc, char **argv) {
         bool debug = false;
         bool timer = false;
         std::string output = "output";
@@ -77,6 +77,6 @@ namespace lesma {
             exit(app.exit(e));
         }
 
-        return new CLIOptions{file, output, debug, timer, run->parsed()};
+        return std::make_unique<CLIOptions>(CLIOptions{file, output, debug, timer, run->parsed()});
     }
 }// namespace lesma
