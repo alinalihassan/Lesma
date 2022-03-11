@@ -1,3 +1,10 @@
+## [0.4.6](https://github.com/alinalihassan/Lesma/compare/v0.4.5...v0.4.6) (2022-03-11)
+
+
+### Bug Fixes
+
+* Added support for parenthesis in expressions ([485f2cf](https://github.com/alinalihassan/Lesma/commit/485f2cffb266719e4dcaa43f90df2b7e9be835be))
+
 ## [0.4.5](https://github.com/alinalihassan/Lesma/compare/v0.4.4...v0.4.5) (2022-03-11)
 
 
