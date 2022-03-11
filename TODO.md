@@ -4,18 +4,18 @@
 - [x] Parser expects exactly one newline at the end of the file
 - [x] Disallow return in top level
 - [x] Allow return void
-- [ ] Fix symbols with same name but different function signatures (mangled and non-manged) overlapping, it should issue a warning and the newest one replace the old one
-- [ ] Fix being able to call function without respective arguments, but throw error
+- [x] Fix symbols with same name but different function signatures (mangled and non-manged) overlapping, it should issue a warning and the newest one replace the old one
+- [x] Fix being able to call function without respective arguments, but throw error
 - [x] Fix arguments not being usable (not stored in LLVM IR)
-- [ ] Fix import error being catched by Utils function instead of module, which could show where import was stated
+- [ ] Fix import error while reading file being caught by Utils function instead of module, which could show where import was stated
 
 ## Refactoring
-- [ ] Replace SourceLocation by Span
-- [ ] Highlight errors line
+- [x] Replace SourceLocation by Span
+- [x] Highlight errors line
 - [x] Add name mangling
 
 ## Features
-- [ ] Add parenthesis support
+- [x] Add parenthesis support
 - [ ] Add analyzer phase (add tree walker interface?)
 - [x] Add type inference
 - [ ] Add operator overloading
@@ -30,7 +30,7 @@
 - [ ] Add lambda functions
 - [ ] Add classes
 - [ ] Add enums
-- [ ] Add unit tests
+- [x] Add unit tests
 - [x] Add module system
 - [x] Add python-style syntax
 - [ ] Add generics
