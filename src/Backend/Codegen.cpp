@@ -36,7 +36,7 @@ llvm::Function *Codegen::InitializeTopLevel() {
     return F;
 }
 
-llvm::TargetMachine *Codegen::InitializeTargetMachine() {
+std::unique_ptr<llvm::TargetMachine> Codegen::InitializeTargetMachine() {
     // Configure output target
     auto targetTriple = llvm::Triple(llvm::sys::getDefaultTargetTriple());
     const std::string &tripletString = targetTriple.getTriple();
@@ -50,7 +50,8 @@ llvm::TargetMachine *Codegen::InitializeTargetMachine() {
 
     llvm::TargetOptions opt;
     llvm::Optional rm = llvm::Optional<llvm::Reloc::Model>();
-    return target->createTargetMachine(tripletString, "generic", "", opt, rm);
+    std::unique_ptr<llvm::TargetMachine> target_machine(target->createTargetMachine(tripletString, "generic", "", opt, rm));
+    return target_machine;
 }
 
 void Codegen::CompileModule(Span span, const std::string &filepath) {
@@ -124,7 +125,7 @@ void Codegen::Optimize(llvm::PassBuilder::OptimizationLevel opt) {
     llvm::CGSCCAnalysisManager CGAM;
     llvm::ModuleAnalysisManager MAM;
 
-    llvm::PassBuilder PB(TargetMachine);
+    llvm::PassBuilder PB(&*TargetMachine);
 
     PB.registerModuleAnalyses(MAM);
     PB.registerCGSCCAnalyses(CGAM);
