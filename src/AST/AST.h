@@ -74,7 +74,7 @@ namespace lesma {
 
     public:
         explicit Compound(Span Loc) : Statement(Loc) {}
-        explicit Compound(Span Loc, std::vector<Statement *> children) : Statement(Loc), children(children) {}
+        explicit Compound(Span Loc, std::vector<Statement *> children) : Statement(Loc), children(std::move(children)) {}
         ~Compound() override = default;
 
         [[nodiscard]] [[maybe_unused]] std::vector<Statement *> getChildren() const { return children; }

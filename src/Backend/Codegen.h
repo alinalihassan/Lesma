@@ -29,13 +29,10 @@ namespace lesma {
         using LesmaErrorWithExitCode<EX_DATAERR>::LesmaErrorWithExitCode;
     };
 
-    class Codegen : public ExprVisitor<llvm::Value *, llvm::Type *>, public StmtVisitor<void> {
+    class Codegen final : public ExprVisitor<llvm::Value *, llvm::Type *>, public StmtVisitor<void> {
         std::unique_ptr<LLVMContext> TheContext;
         std::unique_ptr<Module> TheModule;
         std::unique_ptr<IRBuilder<>> Builder;
-        //        std::unique_ptr<PassManagerBuilder> PMB;
-        //        std::unique_ptr<ModulePassManager> MPM;
-        //        std::unique_ptr<FunctionPassManager> FPM;
         ExitOnError ExitOnErr;
 
         std::unique_ptr<LesmaJIT> TheJIT;
@@ -64,7 +61,6 @@ namespace lesma {
         void WriteToObjectFile(const std::string &output);
         void LinkObjectFile(const std::string &obj_filename);
         void Optimize(llvm::PassBuilder::OptimizationLevel opt);
-        ThreadSafeModule getModule() { return {std::move(TheModule), std::move(TheContext)}; };
 
     protected:
         std::unique_ptr<llvm::TargetMachine> InitializeTargetMachine();
