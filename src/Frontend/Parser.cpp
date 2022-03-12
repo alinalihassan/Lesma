@@ -425,9 +425,11 @@ Statement *Parser::ParseImport() {
 
     if (AdvanceIfMatchAny<TokenType::AS>()) {
         auto alias = Consume(TokenType::IDENTIFIER);
+        ConsumeNewline();
         return new Import({loc.Start, alias.getEnd()}, token->lexeme, alias->lexeme);
     }
 
+    ConsumeNewline();
     return new Import({loc.Start, token.getEnd()}, filepath, getBasename(token->lexeme));
 }
 

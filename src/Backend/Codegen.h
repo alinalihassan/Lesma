@@ -3,7 +3,7 @@
 #include "AST/ExprVisitor.h"
 #include "AST/StmtVisitor.h"
 #include "Frontend/Parser.h"
-#include "LesmaJIT.h"
+#include "JIT/LesmaJIT.h"
 #include "Symbol/SymbolTable.h"
 #include <clang/Driver/Driver.h>
 #include <filesystem>
