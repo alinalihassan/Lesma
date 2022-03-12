@@ -1,3 +1,10 @@
+## [0.4.7](https://github.com/alinalihassan/Lesma/compare/v0.4.6...v0.4.7) (2022-03-12)
+
+
+### Bug Fixes
+
+* Fixed import not being parsed correctly ([d515f7b](https://github.com/alinalihassan/Lesma/commit/d515f7bad0dade02eee92a4e57cc1258537e5bee))
+
 ## [0.4.6](https://github.com/alinalihassan/Lesma/compare/v0.4.5...v0.4.6) (2022-03-11)
 
 
