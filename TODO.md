@@ -8,6 +8,7 @@
 - [x] Fix being able to call function without respective arguments, but throw error
 - [x] Fix arguments not being usable (not stored in LLVM IR)
 - [ ] Fix import error while reading file being caught by Utils function instead of module, which could show where import was stated
+- [ ] Fix indentation on the second line after line continuation not working
 
 ## Refactoring
 - [x] Replace SourceLocation by Span
