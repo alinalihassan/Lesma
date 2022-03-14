@@ -120,8 +120,9 @@ Token Lexer::ScanOne(bool continuation) {
             if (c != '\n')
                 Error(fmt::format("Newline expected after line continuation, found {}", c));
 
-            // Newline should be parsed next
-            Fallback();
+            loc.Line++;
+            loc.Col = 1;
+
             return ScanOne(continuation);
         case ' ':
         case '\r':
@@ -166,10 +167,12 @@ bool Lexer::HandleIndentation(bool continuation) {
     int col = 0, alt_col = 0;
     char c = 0;
     int changes = 0;
+    bool advanced = false;
     for (;;) {
         if (IsAtEnd())
             break;
         c = Advance();
+        advanced = true;
         if (c == ' ') {
             ++col;
             ++alt_col;
@@ -180,7 +183,7 @@ bool Lexer::HandleIndentation(bool continuation) {
             break;
         }
     }
-    if (!IsAtEnd())
+    if (!IsAtEnd() || advanced)
         Fallback();
 
     if (continuation || level_ != 0 || c == '#' || c == '\n' || c == '\r') {
