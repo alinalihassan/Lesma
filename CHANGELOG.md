@@ -1,3 +1,10 @@
+## [0.4.10](https://github.com/alinalihassan/Lesma/compare/v0.4.9...v0.4.10) (2022-03-14)
+
+
+### Bug Fixes
+
+* Fixed line continuation, added test ([9f70bb2](https://github.com/alinalihassan/Lesma/commit/9f70bb2baab0bfa59cd85dca0f2521c4acb19173))
+
 ## [0.4.9](https://github.com/alinalihassan/Lesma/compare/v0.4.8...v0.4.9) (2022-03-14)
 
 
