@@ -20,7 +20,7 @@ namespace lesma {
             : srcs_(&srcs), src_file_name(std::move(src_file_name)) {}
 
         std::vector<Token> ScanAll();
-        Token ScanOne();
+        Token ScanOne(bool continuation = false);
         std::vector<Token> getTokens() { return tokens; };
 
         void Reset() { Reset(*srcs_); }

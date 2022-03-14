@@ -4,29 +4,34 @@ using namespace lesma;
 
 std::vector<Token> Lexer::ScanAll() {
     while (tokens.empty() || tokens.back()->type != TokenType::EOF_TOKEN)
-        tokens.push_back(ScanOne());
+        tokens.push_back(ScanOne(false));
     return tokens;
 }
 
-Token Lexer::ScanOne() {
+Token Lexer::ScanOne(bool continuation) {
     if (IsAtEnd())
         return Token{TokenType::EOF_TOKEN, "EOF", Span{begin_loc, loc}};
     ResetTokenBeg();
     char c = Advance();
-    bool continuation = false;
 
     switch (c) {
         case '(':
+            level_++;
             return AddToken(TokenType::LEFT_PAREN);
         case ')':
+            level_--;
             return AddToken(TokenType::RIGHT_PAREN);
         case '[':
+            level_++;
             return AddToken(TokenType::LEFT_SQUARE);
         case ']':
+            level_--;
             return AddToken(TokenType::RIGHT_SQUARE);
         case '{':
+            level_++;
             return AddToken(TokenType::LEFT_BRACE);
         case '}':
+            level_--;
             return AddToken(TokenType::RIGHT_BRACE);
         case ':':
             return AddToken(TokenType::COLON);
@@ -94,23 +99,44 @@ Token Lexer::ScanOne() {
         case '#': {
             // A comment goes until the end of the line.
             while (Peek() != '\n' && !IsAtEnd()) Advance();
-            return ScanOne();
+            return ScanOne(continuation);
         }
+        case '\\':
+            c = Advance();
+            continuation = true;
+
+            // TODO: Keep it DRY
+            while (true) {
+                if (c == ' ' || c == '\r' || c == '\t')
+                    c = Advance();
+                else if (c == '#') {
+                    while (Peek() != '\n' && !IsAtEnd()) c = Advance();
+                    c = Advance();
+                    break;
+                } else
+                    break;
+            }
+
+            if (c != '\n')
+                Error(fmt::format("Newline expected after line continuation, found {}", c));
+
+            // Newline should be parsed next
+            Fallback();
+            return ScanOne(continuation);
         case ' ':
         case '\r':
         case '\t':
             HandleWhitespace(c);
             if (loc.Col == 2)
                 HandleIndentation(false);
-            return ScanOne();
+            return ScanOne(continuation);
         case '\n':
             loc.Line++;
             loc.Col = 1;
             if (!continuation && level_ == 0)
                 tokens.push_back(AddToken({TokenType::NEWLINE, "NEWLINE", Span{begin_loc, loc}}));
             HandleIndentation(continuation);
-            continuation = false;
-            return ScanOne();
+            return ScanOne(false);
         case '"':
             return AddStringToken();
         default:
