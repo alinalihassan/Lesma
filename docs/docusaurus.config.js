@@ -109,6 +109,11 @@ const config = {
       //   ],
       //   copyright: `Copyright © ${new Date().getFullYear()} Alin Ali Hassan.`,
       // },
+      algolia: {
+          appId: 'M5BUTG0MSK',
+          apiKey: '20f194362c3ff492440f7b90b341af55',
+          indexName: 'lesma',
+      },
       prism: {
         theme: lightCodeTheme,
         darkTheme: darkCodeTheme,
