@@ -429,7 +429,7 @@ Statement *Parser::ParseImport() {
 
     if (Peek()->type == TokenType::STRING) {
         token = Consume(TokenType::STRING);
-        filepath = token->lexeme.erase(0, 1).erase(token->lexeme.size() - 1);
+        filepath = token->lexeme;
     } else if (Peek()->type == TokenType::IDENTIFIER) {
         token = Consume(TokenType::IDENTIFIER);
         filepath = getStdDir() + token->lexeme + ".les";
