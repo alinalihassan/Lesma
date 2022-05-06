@@ -1,4 +1,3 @@
-#ret=101
 def extern usleep(x: int)
 
 def sleep(x: float)

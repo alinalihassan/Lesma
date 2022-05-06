@@ -22,6 +22,11 @@ Codegen::Codegen(std::unique_ptr<Parser> parser, const std::string &filename, bo
     isMain = main;
 
     TopLevelFunc = InitializeTopLevel();
+
+    // If it's not base.les stdlib, then import it
+    if (std::filesystem::absolute(filename) != getStdDir() + "base.les") {
+        CompileModule(Span{{0, 0}, {0, 0}}, getStdDir() + "base.les", true);
+    }
 }
 
 llvm::Function *Codegen::InitializeTopLevel() {

@@ -1,0 +1,5 @@
+def extern printf(x: str)
+
+def print(x: str)
+    printf(x)
+    printf("\n")
