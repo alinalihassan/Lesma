@@ -1,3 +1,24 @@
+# [0.5.0](https://github.com/alinalihassan/Lesma/compare/v0.4.10...v0.5.0) (2022-05-06)
+
+
+### Bug Fixes
+
+* Fixed relative imports not working ([cea1f6e](https://github.com/alinalihassan/Lesma/commit/cea1f6ee592a3950ce300c22f9794a7982d77dcc))
+* fixed tests ([0774a19](https://github.com/alinalihassan/Lesma/commit/0774a19168a650ea97d686ba511b28bc175a79ad))
+* fixed tests ([8f45346](https://github.com/alinalihassan/Lesma/commit/8f453465b5866c48d0b610f6a2e6fe4526322f4c))
+* Moved optimization phase after LLVM IR debugging print ([c785973](https://github.com/alinalihassan/Lesma/commit/c78597309da26e07d7d55565ec44bf2e929805b4))
+* Removed print from keywords ([df1ba9a](https://github.com/alinalihassan/Lesma/commit/df1ba9a6d624582791de7c6220e783e61e2c9e0d))
+* Removed print_str example, since current impl depends on output ([09e5f36](https://github.com/alinalihassan/Lesma/commit/09e5f36c8c0792649e960ab7dedd6c2d7f64d283))
+
+
+### Features
+
+* Added a few escape sequences ([1ddba5d](https://github.com/alinalihassan/Lesma/commit/1ddba5dfdf5ea88d1b68cc2e67c04c0e82c2b84d))
+* Added basic string support ([caa3c25](https://github.com/alinalihassan/Lesma/commit/caa3c251c15a5fcd7758a56b5ffa82313185a49f))
+* Added default import to base.les ([09c0d70](https://github.com/alinalihassan/Lesma/commit/09c0d708711501683326797e062335642fcd625b))
+* Added std imports ([be3e0eb](https://github.com/alinalihassan/Lesma/commit/be3e0eb3ebc2e02547407344988247d08a17a38d))
+* Symbols can now be overwritten in the scope ([bad0a28](https://github.com/alinalihassan/Lesma/commit/bad0a28be04d191afdf6b3ec8356e55ca1a7ce06))
+
 ## [0.4.10](https://github.com/alinalihassan/Lesma/compare/v0.4.9...v0.4.10) (2022-03-14)
 
 
