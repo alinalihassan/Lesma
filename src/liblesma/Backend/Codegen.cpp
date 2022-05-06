@@ -84,7 +84,7 @@ void Codegen::CompileModule(Span span, const std::string &filepath, bool isStd) 
 
         if (isJIT) {
             // Link modules together
-            if (Linker::linkModules(*TheModule, std::move(codegen->TheModule)))
+            if (Linker::linkModules(*TheModule, std::move(codegen->TheModule), (1 << 0)))
                 throw CodegenError({}, "Error linking modules together");
 
             //  Add function to main module
@@ -92,8 +92,7 @@ void Codegen::CompileModule(Span span, const std::string &filepath, bool isStd) 
             Module::iterator end = TheModule->end();
             for (it = TheModule->begin(); it != end; ++it) {
                 auto name = std::string{(*it).getName()};
-                if (!Scope->lookup(name))
-                    Scope->insertSymbol(name, (Value *) &(*it).getFunction(), (*it).getFunctionType());
+                Scope->insertSymbol(name, (Value *) &(*it).getFunction(), (*it).getFunctionType());
             }
 
         } else {

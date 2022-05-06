@@ -16,7 +16,7 @@ void SymbolTable::insertSymbol(const std::string &name, llvm::Value *value, llvm
 }
 void SymbolTable::insertSymbol(const std::string &name, llvm::Value *value, llvm::Type *type, bool mutable_) {
     //    bool isGlobal = getParent() == nullptr;
-    symbols.insert({name, new SymbolTableEntry(name, value, type, mutable_)});
+    symbols.insert_or_assign(name, new SymbolTableEntry(name, value, type, mutable_));
     // If the symbol is a parameter, add it to the parameters list
     //    if (isParameter) paramNames.push_back(name);
 }
