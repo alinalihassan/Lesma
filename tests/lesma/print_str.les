@@ -2,6 +2,6 @@
 def extern exit(x: int)
 def extern printf(x: str)
 
-let x = "Hello World!"
+let x = "Hello World! 🎉\n"
 printf(x)
 exit(101)
