@@ -5,7 +5,7 @@
 #include <map>
 #include <utility>
 
-#include "Common/Utils.h"
+#include "liblesma/Common/Utils.h"
 
 namespace lesma {
     class SymbolTableEntry {

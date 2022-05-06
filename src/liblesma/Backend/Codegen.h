@@ -1,10 +1,10 @@
 #pragma once
 
-#include "AST/ExprVisitor.h"
-#include "AST/StmtVisitor.h"
-#include "Frontend/Parser.h"
-#include "JIT/LesmaJIT.h"
-#include "Symbol/SymbolTable.h"
+#include "liblesma/AST/ExprVisitor.h"
+#include "liblesma/AST/StmtVisitor.h"
+#include "liblesma/Frontend/Parser.h"
+#include "liblesma/JIT/LesmaJIT.h"
+#include "liblesma/Symbol/SymbolTable.h"
 #include <clang/Driver/Driver.h>
 #include <filesystem>
 #include <llvm/Analysis/CGSCCPassManager.h>

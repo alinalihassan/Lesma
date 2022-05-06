@@ -5,9 +5,9 @@
 #include <utility>
 #include <vector>
 
-#include "Common/Utils.h"
-#include "Token/Token.h"
-#include "Token/TokenType.h"
+#include "liblesma/Common/Utils.h"
+#include "liblesma/Token/Token.h"
+#include "liblesma/Token/TokenType.h"
 #include "nameof.hpp"
 
 namespace lesma {

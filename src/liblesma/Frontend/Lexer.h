@@ -4,9 +4,9 @@
 #include <sysexits.h>
 #include <vector>
 
-#include "Common/LesmaError.h"
-#include "Common/Utils.h"
-#include "Token/Token.h"
+#include "liblesma/Common/LesmaError.h"
+#include "liblesma/Common/Utils.h"
+#include "liblesma/Token/Token.h"
 
 namespace lesma {
 

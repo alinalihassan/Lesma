@@ -3,10 +3,10 @@
 #include <catch2/catch.hpp>
 
 #include <fmt/printf.h>
-#include "Frontend/Lexer.h"
-#include "Common/Utils.h"
-#include "Frontend/Parser.h"
-#include "Backend/Codegen.h"
+#include "liblesma/Frontend/Lexer.h"
+#include "liblesma/Common/Utils.h"
+#include "liblesma/Frontend/Parser.h"
+#include "liblesma/Backend/Codegen.h"
 
 using namespace lesma;
 

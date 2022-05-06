@@ -4,11 +4,10 @@
 #include <fstream>
 #include <sstream>
 
-#include "CLI/CLI.hpp"
 #include "fmt/color.h"
 #include "fmt/core.h"
 
-#include "Token/TokenType.h"
+#include "liblesma/Token/TokenType.h"
 
 namespace lesma {
     struct SourceLocation {
@@ -73,5 +72,4 @@ namespace lesma {
     std::string readFile(const std::string &path);
     void showInline(Span span, const std::string &reason, const std::string &file, bool is_error);
     std::string getBasename(const std::string &file_path);
-    std::unique_ptr<CLIOptions> parseCLI(int argc, char **argv);
 }// namespace lesma

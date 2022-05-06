@@ -1,7 +1,7 @@
 #pragma once
 
-#include "AST/AST.h"
-#include "Common/LesmaError.h"
+#include "liblesma/AST/AST.h"
+#include "liblesma/Common/LesmaError.h"
 #include "Lexer.h"
 #include <memory>
 #include <utility>

@@ -52,24 +52,28 @@ add_definitions(${CLANG_DEFINITIONS})
 set(CLANG_LIBS clangTooling)
 
 # Executable configuration
-set(EXE_NAME lesma)
+set(CLI_NAME lesma)
 
 set(COMMON_SOURCES
-  src/Common/Utils.cpp
-  src/Frontend/Lexer.cpp
-  src/Frontend/Parser.cpp
-  src/Token/Token.cpp
-  src/Backend/Codegen.cpp
-  src/Symbol/SymbolTable.cpp
+  src/liblesma/Common/Utils.cpp
+  src/liblesma/Frontend/Lexer.cpp
+  src/liblesma/Frontend/Parser.cpp
+  src/liblesma/Token/Token.cpp
+  src/liblesma/Backend/Codegen.cpp
+  src/liblesma/Symbol/SymbolTable.cpp
 )
-set(TARGET_SOURCES src/main.cpp)
+set(CLI_SOURCES src/cli/main.cpp)
+set(WEB_SOURCES src/web/main.cpp)
 set(TEST_SOURCES  tests/test.cpp)
 
-add_executable(${EXE_NAME} ${COMMON_SOURCES} ${TARGET_SOURCES})
+# Libraries required for the compiler itself
+set(COMMON_LIBS ${LLVM_LIBS} ${CLANG_LIBS} fmt nameof)
+
+add_executable(${CLI_NAME} ${COMMON_SOURCES} ${CLI_SOURCES})
 add_executable(tests ${COMMON_SOURCES} ${TEST_SOURCES})
 
-target_link_libraries(${EXE_NAME} PRIVATE ${LLVM_LIBS} ${CLANG_LIBS} fmt nameof CLI11)
-target_link_libraries(tests PRIVATE ${LLVM_LIBS} ${CLANG_LIBS} fmt nameof Catch2::Catch2 CLI11)
+target_link_libraries(${CLI_NAME} PRIVATE ${COMMON_LIBS} CLI11)
+target_link_libraries(tests       PRIVATE ${COMMON_LIBS} Catch2::Catch2)
 
 
 # Tests
@@ -83,6 +87,6 @@ endif (BASH_PROGRAM)
 add_test(test_unit_tests tests)
 
 # CPack
-install(TARGETS ${EXE_NAME} RUNTIME DESTINATION bin)
+install(TARGETS ${CLI_NAME} RUNTIME DESTINATION bin)
 set(CPACK_ABSOLUTE_DESTINATION_FILES ${ROOT_DIR}/dist)
 include(CPack)
