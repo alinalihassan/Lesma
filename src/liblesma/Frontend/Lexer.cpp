@@ -294,22 +294,41 @@ Token Lexer::AddStringToken() {
             continue;
         }
 
-        switch(Peek(1)){
-            case 'n': string.push_back('\n');  break;
-            case 'r': string.push_back('\r');  break;
-            case 't': string.push_back('\t');  break;
-            case 'b': string.push_back('\b');  break;
-            case '0': string.push_back('\0');  break;
-            case '"': string.push_back('"');   break;
-            case 'e': string.push_back(0x1B);  break;
-            case '\'': string.push_back('\''); break;
-            case '\\': string.push_back('\\'); break;
+        switch (Peek(1)) {
+            case 'n':
+                string.push_back('\n');
+                break;
+            case 'r':
+                string.push_back('\r');
+                break;
+            case 't':
+                string.push_back('\t');
+                break;
+            case 'b':
+                string.push_back('\b');
+                break;
+            case '0':
+                string.push_back('\0');
+                break;
+            case '"':
+                string.push_back('"');
+                break;
+            case 'e':
+                string.push_back(0x1B);
+                break;
+            case '\'':
+                string.push_back('\'');
+                break;
+            case '\\':
+                string.push_back('\\');
+                break;
             default:
                 Error("Unknown escape sequence.");
         }
 
         // Skip the backslash and the escape sequence.
-        Advance(); Advance();
+        Advance();
+        Advance();
     }
 
     if (IsAtEnd())
