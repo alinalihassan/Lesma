@@ -1,7 +1,7 @@
 #include <vector>
 
-#include "plf_nanotimer.h"
 #include "CLI/CLI.hpp"
+#include "plf_nanotimer.h"
 
 #include "liblesma/Backend/Codegen.h"
 #include "liblesma/Frontend/Lexer.h"

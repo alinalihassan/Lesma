@@ -6,8 +6,8 @@
 
 #include "nameof.hpp"
 
-#include "liblesma/Common/Utils.h"
 #include "TokenType.h"
+#include "liblesma/Common/Utils.h"
 
 namespace lesma {
 
