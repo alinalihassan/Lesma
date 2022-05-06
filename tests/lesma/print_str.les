@@ -1,0 +1,7 @@
+#ret=101
+def extern exit(x: int)
+def extern printf(x: str)
+
+let x = "Hello World!"
+printf(x)
+exit(101)

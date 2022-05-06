@@ -263,6 +263,8 @@ llvm::Type *Codegen::visit(lesma::Type *node) {
         return Builder->getDoubleTy();
     else if (node->getType() == TokenType::BOOL_TYPE)
         return Builder->getInt1Ty();
+    else if (node->getType() == TokenType::STRING_TYPE)
+        return Builder->getInt8PtrTy();
     else if (node->getType() == TokenType::VOID_TYPE)
         return Builder->getVoidTy();
 
@@ -753,6 +755,8 @@ llvm::Value *Codegen::visit(Literal *node) {
         return ConstantInt::getSigned(Builder->getInt64Ty(), std::stoi(node->getValue()));
     else if (node->getType() == TokenType::BOOL)
         return ConstantInt::getBool(*TheContext, node->getValue() == "true");
+    else if (node->getType() == TokenType::STRING)
+        return Builder->CreateGlobalStringPtr(node->getValue());
     else if (node->getType() == TokenType::IDENTIFIER) {
         // Look this variable up in the function.
         auto val = Scope->lookup(node->getValue());

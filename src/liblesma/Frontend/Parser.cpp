@@ -92,7 +92,12 @@ Expression *Parser::ParseTerm() {
         case TokenType::STRING:
         case TokenType::INTEGER:
         case TokenType::DOUBLE:
-        case TokenType::NIL:
+        case TokenType::NIL: {
+            auto token = Peek();
+            Consume(token->type);
+            auto token_value = token->type == TokenType::STRING ? token->lexeme.substr(1, token->lexeme.size() - 2) : token->lexeme;
+            return new Literal(token->span, token_value, token->type);
+        }
         case TokenType::IDENTIFIER: {
             if (CheckAny<TokenType::LEFT_PAREN>(1))
                 return ParseFunctionCall();
