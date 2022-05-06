@@ -14,7 +14,6 @@ static std::map<std::string, TokenType> g_reserved_map{
         {"not", TokenType::NOT},
         {"null", TokenType::NIL},
         {"or", TokenType::OR},
-        {"print", TokenType::PRINT},
         {"return", TokenType::RETURN},
         {"this", TokenType::THIS},
         {"true", TokenType::TRUE_},
