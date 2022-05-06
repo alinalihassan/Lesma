@@ -115,23 +115,26 @@ namespace lesma {
     class Import : public Statement {
         std::string file_path;
         std::string alias;
+        bool std;
 
     public:
-        Import(Span Loc, std::string file_path, std::string alias) : Statement(Loc), file_path(std::move(file_path)), alias(std::move(alias)){};
+        Import(Span Loc, std::string file_path, std::string alias, bool std) : Statement(Loc), file_path(std::move(file_path)), alias(std::move(alias)), std(std){};
         ~Import() override = default;
 
         [[nodiscard]] [[maybe_unused]] std::string getFilePath() const { return file_path; }
         [[nodiscard]] [[maybe_unused]] std::string getAlias() const { return alias; }
+        [[nodiscard]] [[maybe_unused]] bool isStd() const { return std; }
 
         std::string toString(int ind) override {
-            return fmt::format("{}Import[Line({}-{}):Col({}-{})]: {} as {}\n",
+            return fmt::format("{}Import[Line({}-{}):Col({}-{})]: {} as {} from {}\n",
                                std::string(ind, ' '),
                                getStart().Line,
                                getEnd().Line,
                                getStart().Col,
                                getEnd().Col,
                                file_path,
-                               alias);
+                               alias,
+                               std ? "std" : "file");
         }
     };
 

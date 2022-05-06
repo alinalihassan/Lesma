@@ -424,17 +424,28 @@ Statement *Parser::ParseImport() {
     auto loc = Peek()->span;
     Consume(TokenType::IMPORT);
 
-    auto token = Consume(TokenType::STRING);
-    auto filepath = token->lexeme.erase(0, 1).erase(token->lexeme.size() - 1);
+    Token token;
+    std::string filepath;
+
+    if (Peek()->type == TokenType::STRING) {
+        token = Consume(TokenType::STRING);
+        filepath = token->lexeme.erase(0, 1).erase(token->lexeme.size() - 1);
+    } else if (Peek()->type == TokenType::IDENTIFIER) {
+        token = Consume(TokenType::IDENTIFIER);
+        filepath = getStdDir() + token->lexeme + ".les";
+    } else {
+        Error(Peek(), "Imports must be either strings for files or identifiers for standard library");
+        return nullptr;
+    }
 
     if (AdvanceIfMatchAny<TokenType::AS>()) {
         auto alias = Consume(TokenType::IDENTIFIER);
         ConsumeNewline();
-        return new Import({loc.Start, alias.getEnd()}, token->lexeme, alias->lexeme);
+        return new Import({loc.Start, alias.getEnd()}, token->lexeme, alias->lexeme, token->type == TokenType::IDENTIFIER);
     }
 
     ConsumeNewline();
-    return new Import({loc.Start, token.getEnd()}, filepath, getBasename(token->lexeme));
+    return new Import({loc.Start, token.getEnd()}, filepath, getBasename(token->lexeme), token->type == TokenType::IDENTIFIER);
 }
 
 Compound *Parser::ParseCompound() {

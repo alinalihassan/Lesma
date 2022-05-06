@@ -54,10 +54,10 @@ std::unique_ptr<llvm::TargetMachine> Codegen::InitializeTargetMachine() {
     return target_machine;
 }
 
-void Codegen::CompileModule(Span span, const std::string &filepath) {
+void Codegen::CompileModule(Span span, const std::string &filepath, bool isStd) {
     std::filesystem::path mainPath = filename;
     // Read source
-    auto source = readFile(fmt::format("{}/{}", std::filesystem::absolute(mainPath).parent_path().c_str(), filepath));
+    auto source = readFile(isStd ? filepath : fmt::format("{}/{}", std::filesystem::absolute(mainPath).parent_path().c_str(), filepath));
 
     try {
         // Lexer
@@ -565,7 +565,7 @@ void Codegen::visit(ExpressionStatement *node) {
 
 // TODO: Implement me
 void Codegen::visit(Import *node) {
-    CompileModule(node->getSpan(), node->getFilePath());
+    CompileModule(node->getSpan(), node->getFilePath(), node->isStd());
 }
 
 llvm::Value *Codegen::visit(FuncCall *node) {
