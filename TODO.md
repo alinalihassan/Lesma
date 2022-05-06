@@ -10,6 +10,7 @@
 - [ ] Fix import error while reading file being caught by Utils function instead of module, which could show where import was stated
 - [ ] Fix error reporting not handling multiline errors well
 - [ ] Fix indentation on the second line after line continuation not working
+- [ ] Fix strings escaping all forward slashes, cannot use any escape sequences
 
 ## Refactoring
 - [x] Replace SourceLocation by Span
@@ -39,3 +40,4 @@
 - [ ] Add inheritance (or traits)
 - [ ] Add string interpolation
 - [ ] Add standard library (things like print, input, etc)
+- [ ] Add multithreading using pthread for now (ala Spice)

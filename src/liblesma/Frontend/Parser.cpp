@@ -92,7 +92,11 @@ Expression *Parser::ParseTerm() {
         case TokenType::STRING:
         case TokenType::INTEGER:
         case TokenType::DOUBLE:
-        case TokenType::NIL:
+        case TokenType::NIL: {
+            auto token = Peek();
+            Consume(token->type);
+            return new Literal(token->span, token->lexeme, token->type);
+        }
         case TokenType::IDENTIFIER: {
             if (CheckAny<TokenType::LEFT_PAREN>(1))
                 return ParseFunctionCall();
@@ -420,17 +424,28 @@ Statement *Parser::ParseImport() {
     auto loc = Peek()->span;
     Consume(TokenType::IMPORT);
 
-    auto token = Consume(TokenType::STRING);
-    auto filepath = token->lexeme.erase(0, 1).erase(token->lexeme.size() - 1);
+    Token token;
+    std::string filepath;
+
+    if (Peek()->type == TokenType::STRING) {
+        token = Consume(TokenType::STRING);
+        filepath = token->lexeme;
+    } else if (Peek()->type == TokenType::IDENTIFIER) {
+        token = Consume(TokenType::IDENTIFIER);
+        filepath = getStdDir() + token->lexeme + ".les";
+    } else {
+        Error(Peek(), "Imports must be either strings for files or identifiers for standard library");
+        return nullptr;
+    }
 
     if (AdvanceIfMatchAny<TokenType::AS>()) {
         auto alias = Consume(TokenType::IDENTIFIER);
         ConsumeNewline();
-        return new Import({loc.Start, alias.getEnd()}, token->lexeme, alias->lexeme);
+        return new Import({loc.Start, alias.getEnd()}, token->lexeme, alias->lexeme, token->type == TokenType::IDENTIFIER);
     }
 
     ConsumeNewline();
-    return new Import({loc.Start, token.getEnd()}, filepath, getBasename(token->lexeme));
+    return new Import({loc.Start, token.getEnd()}, filepath, getBasename(token->lexeme), token->type == TokenType::IDENTIFIER);
 }
 
 Compound *Parser::ParseCompound() {

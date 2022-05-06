@@ -280,21 +280,66 @@ char Lexer::Peek(int offset) {
 }
 
 Token Lexer::AddStringToken() {
+    std::string string;
+
     while (Peek() != '"' && !IsAtEnd()) {
+        // Should we allow newlines in strings? Probably not
         if (Peek() == '\n') {
             loc.Line++;
             loc.Col = 1;
         }
+        // If it's not an escape sequence, proceed as usual
+        if (Peek() != '\\') {
+            string.push_back(Advance());
+            continue;
+        }
+
+        switch (Peek(1)) {
+            case 'n':
+                string.push_back('\n');
+                break;
+            case 'r':
+                string.push_back('\r');
+                break;
+            case 't':
+                string.push_back('\t');
+                break;
+            case 'b':
+                string.push_back('\b');
+                break;
+            case '0':
+                string.push_back('\0');
+                break;
+            case '"':
+                string.push_back('"');
+                break;
+            case 'e':
+                string.push_back(0x1B);
+                break;
+            case '\'':
+                string.push_back('\'');
+                break;
+            case '\\':
+                string.push_back('\\');
+                break;
+            default:
+                Error("Unknown escape sequence.");
+        }
+
+        // Skip the backslash and the escape sequence.
+        Advance();
         Advance();
     }
 
     if (IsAtEnd())
         Error("Unterminated string.");
 
-    // The closing ".
+    // Skip the closing ".
     Advance();
 
-    return AddToken(TokenType::STRING);
+    auto ret = Token(TokenType::STRING, string, Span{begin_loc, loc});
+    ResetTokenBeg();
+    return ret;
 }
 Token Lexer::AddNumToken() {
     while (IsDigit(Peek())) Advance();

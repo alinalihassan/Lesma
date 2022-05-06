@@ -65,7 +65,7 @@ namespace lesma {
     protected:
         std::unique_ptr<llvm::TargetMachine> InitializeTargetMachine();
         llvm::Function *InitializeTopLevel();
-        void CompileModule(Span span, const std::string &filepath);
+        void CompileModule(Span span, const std::string &filepath, bool isStd);
 
         void visit(Statement *node) override;
         void visit(Compound *node) override;

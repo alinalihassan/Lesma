@@ -22,6 +22,11 @@ Codegen::Codegen(std::unique_ptr<Parser> parser, const std::string &filename, bo
     isMain = main;
 
     TopLevelFunc = InitializeTopLevel();
+
+    // If it's not base.les stdlib, then import it
+    if (std::filesystem::absolute(filename) != getStdDir() + "base.les") {
+        CompileModule(Span{{0, 0}, {0, 0}}, getStdDir() + "base.les", true);
+    }
 }
 
 llvm::Function *Codegen::InitializeTopLevel() {
@@ -54,10 +59,10 @@ std::unique_ptr<llvm::TargetMachine> Codegen::InitializeTargetMachine() {
     return target_machine;
 }
 
-void Codegen::CompileModule(Span span, const std::string &filepath) {
+void Codegen::CompileModule(Span span, const std::string &filepath, bool isStd) {
     std::filesystem::path mainPath = filename;
     // Read source
-    auto source = readFile(fmt::format("{}/{}", std::filesystem::absolute(mainPath).parent_path().c_str(), filepath));
+    auto source = readFile(isStd ? filepath : fmt::format("{}/{}", std::filesystem::absolute(mainPath).parent_path().c_str(), filepath));
 
     try {
         // Lexer
@@ -79,7 +84,7 @@ void Codegen::CompileModule(Span span, const std::string &filepath) {
 
         if (isJIT) {
             // Link modules together
-            if (Linker::linkModules(*TheModule, std::move(codegen->TheModule)))
+            if (Linker::linkModules(*TheModule, std::move(codegen->TheModule), (1 << 0)))
                 throw CodegenError({}, "Error linking modules together");
 
             //  Add function to main module
@@ -87,8 +92,7 @@ void Codegen::CompileModule(Span span, const std::string &filepath) {
             Module::iterator end = TheModule->end();
             for (it = TheModule->begin(); it != end; ++it) {
                 auto name = std::string{(*it).getName()};
-                if (!Scope->lookup(name))
-                    Scope->insertSymbol(name, (Value *) &(*it).getFunction(), (*it).getFunctionType());
+                Scope->insertSymbol(name, (Value *) &(*it).getFunction(), (*it).getFunctionType());
             }
 
         } else {
@@ -263,6 +267,8 @@ llvm::Type *Codegen::visit(lesma::Type *node) {
         return Builder->getDoubleTy();
     else if (node->getType() == TokenType::BOOL_TYPE)
         return Builder->getInt1Ty();
+    else if (node->getType() == TokenType::STRING_TYPE)
+        return Builder->getInt8PtrTy();
     else if (node->getType() == TokenType::VOID_TYPE)
         return Builder->getVoidTy();
 
@@ -563,7 +569,7 @@ void Codegen::visit(ExpressionStatement *node) {
 
 // TODO: Implement me
 void Codegen::visit(Import *node) {
-    CompileModule(node->getSpan(), node->getFilePath());
+    CompileModule(node->getSpan(), node->getFilePath(), node->isStd());
 }
 
 llvm::Value *Codegen::visit(FuncCall *node) {
@@ -753,6 +759,8 @@ llvm::Value *Codegen::visit(Literal *node) {
         return ConstantInt::getSigned(Builder->getInt64Ty(), std::stoi(node->getValue()));
     else if (node->getType() == TokenType::BOOL)
         return ConstantInt::getBool(*TheContext, node->getValue() == "true");
+    else if (node->getType() == TokenType::STRING)
+        return Builder->CreateGlobalStringPtr(node->getValue());
     else if (node->getType() == TokenType::IDENTIFIER) {
         // Look this variable up in the function.
         auto val = Scope->lookup(node->getValue());

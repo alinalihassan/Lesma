@@ -81,13 +81,13 @@ int main(int argc, char **argv) {
                auto codegen = std::make_unique<Codegen>(std::move(parser), options->file, options->jit, true);
                codegen->Run();)
 
-        // Optimization
-        TIMEIT("Optimizing", codegen->Optimize(llvm::PassBuilder::OptimizationLevel::O3);)
-
         if (options->debug) {
             print(DEBUG, "LLVM IR: \n");
             codegen->Dump();
         }
+
+        // Optimization
+        TIMEIT("Optimizing", codegen->Optimize(llvm::PassBuilder::OptimizationLevel::O3);)
 
         int exit_code = 0;
         if (!options->jit) {

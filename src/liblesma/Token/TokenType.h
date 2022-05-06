@@ -74,7 +74,6 @@ namespace lesma {
         OR,
         NOT,
         EXTERN_FUNC,
-        PRINT,
         RETURN,
         SUPER,
         THIS,
