@@ -63,7 +63,6 @@ set(COMMON_SOURCES
   src/liblesma/Symbol/SymbolTable.cpp
 )
 set(CLI_SOURCES src/cli/main.cpp)
-set(WEB_SOURCES src/web/main.cpp)
 set(TEST_SOURCES  tests/test.cpp)
 
 # Libraries required for the compiler itself
