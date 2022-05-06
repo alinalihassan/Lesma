@@ -6,7 +6,7 @@ const darkCodeTheme = require('prism-react-renderer/themes/dracula');
 const config = {
   title: 'Lesma',
   tagline: 'The Lesma Programming Language',
-  url: 'https://lesma.alinalihassan.com/',
+  url: 'https://lesma-lang.com/',
   baseUrl: '/',
   onBrokenLinks: 'throw',
   onBrokenMarkdownLinks: 'warn',

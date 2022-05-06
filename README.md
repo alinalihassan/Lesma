@@ -32,7 +32,7 @@ fibonacci(20)
 
 ## 📖 Documentation
 
-- [Official Documentation](https://lesma.alinalihassan.com/)
+- [Official Documentation](https://lesma-lang.com/)
 - [Examples](https://github.com/alinalihassan/Lesma/blob/main/tests/lesma)
 
 ## 🔧 Build

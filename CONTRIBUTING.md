@@ -5,7 +5,7 @@ It's good to hear that you want to contribute to Lesma! Below are some guideline
 ## Getting Started
 
 To get started, if you plan to make changes related to parts other than documentation, we strongly suggest to visit the
-[Getting Started](https://lesma.alinalihassan.com/docs/introduction/getting-started) part of the documentation to install
+[Getting Started](https://lesma-lang.com/docs/introduction/getting-started) part of the documentation to install
 the prerequisites.
 
 ## Feature Request
