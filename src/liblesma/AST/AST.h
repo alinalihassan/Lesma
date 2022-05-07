@@ -112,6 +112,32 @@ namespace lesma {
         }
     };
 
+    class Enum : public Statement {
+        std::string identifier;
+        std::vector<std::string> values;
+
+    public:
+        Enum(Span Loc, std::string identifier, std::vector<std::string> values) : Statement(Loc), identifier(std::move(identifier)), values(std::move(values)){};
+        ~Enum() override = default;
+
+        [[nodiscard]] [[maybe_unused]] std::string getIdentifier() const { return identifier; }
+        [[nodiscard]] [[maybe_unused]] std::vector<std::string> getValues() const { return values; }
+
+        std::string toString(int ind) override {
+            std::ostringstream imploded;
+            std::copy(values.begin(), values.end(),
+                      std::ostream_iterator<std::string>(imploded, ", "));
+            return fmt::format("{}Enum[Line({}-{}):Col({}-{})]: {} with: {}\n",
+                               std::string(ind, ' '),
+                               getStart().Line,
+                               getEnd().Line,
+                               getStart().Col,
+                               getEnd().Col,
+                               identifier,
+                               imploded.str());
+        }
+    };
+
     class Import : public Statement {
         std::string file_path;
         std::string alias;

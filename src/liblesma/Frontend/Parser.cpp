@@ -334,6 +334,8 @@ Statement *Parser::ParseStatement(bool isTopLevel) {
         return ParseFunctionDeclaration();
     else if (Check(TokenType::IMPORT))
         return ParseImport();
+    else if (Check(TokenType::ENUM))
+        return ParseEnum();
     else if (Check(TokenType::LET) || Check(TokenType::VAR))
         return ParseVarDecl();
     else if (Check(TokenType::IF))
@@ -449,6 +451,26 @@ Statement *Parser::ParseImport() {
 
     ConsumeNewline();
     return new Import({loc.Start, token.getEnd()}, filepath, getBasename(token->lexeme), token->type == TokenType::IDENTIFIER);
+}
+
+Statement *Parser::ParseEnum() {
+    auto loc = Peek()->span;
+    Consume(TokenType::ENUM);
+
+    auto token = Consume(TokenType::IDENTIFIER);
+    Consume(TokenType::NEWLINE);
+
+    std::vector<std::string> values;
+    Consume(TokenType::INDENT);
+
+    while (!CheckAny<TokenType::DEDENT, TokenType::EOF_TOKEN>()) {
+        values.push_back(Consume(TokenType::IDENTIFIER)->lexeme);
+        Consume(TokenType::NEWLINE);
+    }
+
+    AdvanceIfMatchAny<TokenType::DEDENT>();
+
+    return new Enum(loc, token->lexeme, values);
 }
 
 Compound *Parser::ParseCompound() {

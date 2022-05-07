@@ -73,6 +73,7 @@ namespace lesma {
         void visit(If *node) override;
         void visit(While *node) override;
         void visit(Import *node) override;
+        void visit(Enum *node) override;
         void visit(FuncDecl *node) override;
         void visit(ExternFuncDecl *node) override;
         void visit(Assignment *node) override;

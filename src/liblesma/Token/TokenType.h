@@ -64,6 +64,7 @@ namespace lesma {
         // Keywords.
         AND,
         CLASS,
+        ENUM,
         ELSE,
         ELSE_IF,
         FALSE_,

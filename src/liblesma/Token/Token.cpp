@@ -5,6 +5,7 @@ using namespace lesma;
 static std::map<std::string, TokenType> g_reserved_map{
         {"and", TokenType::AND},
         {"class", TokenType::CLASS},
+        {"enum", TokenType::ENUM},
         {"else", TokenType::ELSE},
         {"else if", TokenType::ELSE_IF},
         {"false", TokenType::FALSE_},

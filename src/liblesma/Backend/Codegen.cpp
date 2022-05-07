@@ -241,6 +241,8 @@ void Codegen::visit(Statement *node) {
         return visit(dynamic_cast<FuncDecl *>(node));
     else if (dynamic_cast<Import *>(node))
         return visit(dynamic_cast<Import *>(node));
+    else if (dynamic_cast<Enum *>(node))
+        return visit(dynamic_cast<Enum *>(node));
     else if (dynamic_cast<ExternFuncDecl *>(node))
         return visit(dynamic_cast<ExternFuncDecl *>(node));
     else if (dynamic_cast<Assignment *>(node))
@@ -324,7 +326,6 @@ void Codegen::visit(If *node) {
         Scope = Scope->createChildBlock("if");
         visit(node->getBlocks().at(i));
 
-        // TODO: Handle returns and breaks
         if (!isBreak)
             Builder->CreateBr(bEnd);
 
@@ -568,9 +569,15 @@ void Codegen::visit(ExpressionStatement *node) {
     visit(node->getExpression());
 }
 
-// TODO: Implement me
 void Codegen::visit(Import *node) {
     CompileModule(node->getSpan(), node->getFilePath(), node->isStd());
+}
+
+void Codegen::visit(Enum *node) {
+    std::vector<llvm::Type*> elementTypes = {Builder->getInt8Ty()};
+
+    llvm::StructType *structType = llvm::StructType::create(*TheContext, elementTypes, node->getIdentifier());
+    // TODO: Add to scope table (currently only symbols, not types), implement "." dot access operator,
 }
 
 llvm::Value *Codegen::visit(FuncCall *node) {
