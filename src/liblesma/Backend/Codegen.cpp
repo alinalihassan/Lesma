@@ -62,7 +62,8 @@ std::unique_ptr<llvm::TargetMachine> Codegen::InitializeTargetMachine() {
 void Codegen::CompileModule(Span span, const std::string &filepath, bool isStd) {
     std::filesystem::path mainPath = filename;
     // Read source
-    auto source = readFile(isStd ? filepath : fmt::format("{}/{}", std::filesystem::absolute(mainPath).parent_path().c_str(), filepath));
+    auto absolute_path = isStd ? filepath : fmt::format("{}/{}", std::filesystem::absolute(mainPath).parent_path().c_str(), filepath);
+    auto source = readFile(absolute_path);
 
     try {
         // Lexer
@@ -117,7 +118,7 @@ void Codegen::CompileModule(Span span, const std::string &filepath, bool isStd) 
         if (err.getSpan() == Span{})
             print(ERROR, err.what());
         else
-            showInline(err.getSpan(), err.what(), fmt::format("{}/{}", std::filesystem::absolute(mainPath).parent_path().c_str(), filepath), true);
+            showInline(err.getSpan(), err.what(), absolute_path, true);
 
         throw CodegenError(span, "Unable to import {} due to errors", filepath);
     }
