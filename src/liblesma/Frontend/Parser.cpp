@@ -321,12 +321,15 @@ Statement *Parser::ParseReturn() {
 Statement *Parser::ParseDefer() {
     auto loc = Peek()->span;
     Consume(TokenType::DEFER);
-    auto val = ParseStatement();
+    auto val = ParseStatement(false);
     //Don't consume newline, since statement will
     return reinterpret_cast<Statement *>(new Defer({loc.Start, val->getEnd()}, val));
 }
 
-Statement *Parser::ParseStatement() {
+Statement *Parser::ParseStatement(bool isTopLevel) {
+    if (CheckAny<TokenType::DEF, TokenType::IMPORT>() && !isTopLevel)
+        Error(Peek(), "Statement not allowed inside a block");
+
     if (Check(TokenType::DEF))
         return ParseFunctionDeclaration();
     else if (Check(TokenType::IMPORT))
@@ -370,7 +373,7 @@ Compound *Parser::ParseBlock() {
     Consume(TokenType::INDENT);
 
     while (!CheckAny<TokenType::DEDENT, TokenType::EOF_TOKEN>())
-        statements.push_back(ParseStatement());
+        statements.push_back(ParseStatement(false));
 
     AdvanceIfMatchAny<TokenType::DEDENT>();
 
@@ -454,7 +457,7 @@ Compound *Parser::ParseCompound() {
         // Remove lingering newlines
         while (Peek()->type == TokenType::NEWLINE)
             Consume(TokenType::NEWLINE);
-        statements.push_back(ParseStatement());
+        statements.push_back(ParseStatement(true));
     }
     return new Compound({statements.front()->getStart(), statements.back()->getEnd()}, statements);
 }

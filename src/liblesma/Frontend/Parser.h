@@ -66,7 +66,7 @@ namespace lesma {
         Compound *ParseBlock();
         Statement *ParseFunctionDeclaration();
         Statement *ParseImport();
-        Statement *ParseStatement();
+        Statement *ParseStatement(bool isTopLevel);
         Statement *ParseIf();
         Statement *ParseWhile();
         Statement *ParseFor();
