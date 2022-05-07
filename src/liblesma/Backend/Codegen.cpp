@@ -442,12 +442,9 @@ void Codegen::visit(ExternFuncDecl *node) {
         paramTypes.push_back(visit(param.second));
 
     FunctionType *FT = FunctionType::get(visit(node->getReturnType()), paramTypes, false);
-    Function *F = Function::Create(FT, Function::ExternalLinkage, node->getName(), *TheModule);
+    auto F = TheModule->getOrInsertFunction(node->getName(), FT);
 
-    for (auto &param: F->args())
-        param.setName(node->getParameters()[param.getArgNo()].first);
-
-    Scope->insertSymbol(node->getName(), F, F->getFunctionType());
+    Scope->insertSymbol(node->getName(), F.getCallee(), F.getFunctionType());
 }
 
 void Codegen::visit(Assignment *node) {
