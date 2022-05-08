@@ -71,7 +71,7 @@ namespace lesma {
         std::string src_file_name;
         std::vector<Token> tokens;
 
-        char first_indent_char = {};
+        std::optional<char> first_indent_char;
         int level_ = 0;
         int indent_ = 0;
         std::vector<int> indent_stack_ = {0};

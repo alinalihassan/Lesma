@@ -153,11 +153,11 @@ Token Lexer::ScanOne(bool continuation) {
 }
 
 void Lexer::HandleWhitespace(char c) {
-    if (!first_indent_char) {
+    if (!first_indent_char.has_value()) {
         first_indent_char = c;
     }
     if (first_indent_char != c)
-        Error(fmt::format("Mixed indentation, first indentation character is: {}", first_indent_char));
+        Error(fmt::format("Mixed indentation, first indentation character is: {}", first_indent_char.value()));
     if (c == '\t')
         loc.Col += 7;
 }
