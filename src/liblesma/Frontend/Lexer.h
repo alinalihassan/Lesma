@@ -9,24 +9,23 @@
 #include "liblesma/Token/Token.h"
 
 namespace lesma {
-
     class LexerError : public LesmaErrorWithExitCode<EX_DATAERR> {
         using LesmaErrorWithExitCode<EX_DATAERR>::LesmaErrorWithExitCode;
     };
 
     class Lexer {
     public:
-        explicit Lexer(const std::string &srcs, std::string src_file_name)
-            : srcs_(&srcs), src_file_name(std::move(src_file_name)) {}
+        explicit Lexer(const std::shared_ptr<llvm::SourceMgr>& srcMgr)
+            : curBuffer(srcMgr->getMemoryBuffer(srcMgr->getNumBuffers())),
+              curPtr(curBuffer->getBufferStart()), begin_loc(llvm::SMLoc::getFromPointer(curPtr)), loc(llvm::SMLoc::getFromPointer(curPtr)), srcMgr(srcMgr) {
+        }
 
         std::vector<Token> ScanAll();
         Token ScanOne(bool continuation = false);
         std::vector<Token> getTokens() { return tokens; };
 
-        void Reset() { Reset(*srcs_); }
-
-        void Reset(const std::string &srcs) {
-            Lexer tmp(srcs, src_file_name);
+        void Reset() {
+            Lexer tmp(srcMgr);
             std::swap(tmp, *this);
         }
 
@@ -50,7 +49,7 @@ namespace lesma {
 
         void Error(const std::string &msg) const;
 
-        bool IsAtEnd() { return current_lex_pos_ >= srcs_->size(); }
+        bool IsAtEnd() { return curPtr == curBuffer->getBufferEnd(); }
 
         char LastChar();
 
@@ -63,13 +62,14 @@ namespace lesma {
         bool HandleIndentation(bool continuation);
         void Fallback();
 
-        const std::string *srcs_;
-        unsigned long start_lex_pos_ = 0;
-        unsigned long current_lex_pos_ = 0;
-        SourceLocation begin_loc{1, 1};
-        SourceLocation loc{1, 1};
-        std::string src_file_name;
+        const llvm::MemoryBuffer *curBuffer;
+        const char *curPtr;
+        unsigned int line = 1;
+        unsigned int col = 1;
+        llvm::SMLoc begin_loc;
+        llvm::SMLoc loc;
         std::vector<Token> tokens;
+        std::shared_ptr<llvm::SourceMgr> srcMgr;
 
         std::optional<char> first_indent_char;
         int level_ = 0;

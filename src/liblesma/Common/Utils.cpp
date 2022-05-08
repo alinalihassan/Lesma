@@ -8,7 +8,7 @@ namespace lesma {
         return filename_wo_ext;
     }
 
-    void showInline(Span span, const std::string &reason, const std::string &file, bool is_error) {
+    void showInline(llvm::SourceMgr *srcMgr, llvm::SMRange span, const std::string &reason, const std::string &file, bool is_error) {
         std::ifstream ifs(file);
         std::string line;
         unsigned int lineNum = 1;
@@ -18,21 +18,23 @@ namespace lesma {
         print(is_error ? ERROR : WARNING, "");
         fmt::print(fmt::emphasis::bold, "{}\n", reason);
 
-        fmt::print(accent, "{}--> ", std::string(int(log10(span.Start.Line) + 1), ' '));
-        fmt::print("{}:{}:{}\n", file, span.Start.Line, span.Start.Col);
+        auto start_loc = srcMgr->getLineAndColumn(span.Start, srcMgr->getNumBuffers() - 1);
+        auto end_loc = srcMgr->getLineAndColumn(span.End, srcMgr->getNumBuffers() - 1);
+        fmt::print(accent, "{}--> ", std::string(int(log10(start_loc.first) + 1), ' '));
+        fmt::print("{}:{}:{}\n", file, start_loc.first, start_loc.second);
         while (std::getline(ifs, line)) {
-            if (lineNum == span.Start.Line) {
+            if (lineNum == start_loc.first) {
                 // First line
-                fmt::print(accent, "{} |\n", std::string(int(log10(span.Start.Line) + 1), ' '));
+                fmt::print(accent, "{} |\n", std::string(int(log10(start_loc.first) + 1), ' '));
 
                 // Second line
                 fmt::print(accent, "{} | ", lineNum);
                 fmt::print("{}\n", line);
 
                 // Third line
-                fmt::print(accent, "{} |", std::string(int(log10(span.Start.Line) + 1), ' '));
+                fmt::print(accent, "{} |", std::string(int(log10(start_loc.first) + 1), ' '));
                 fmt::print(color | fmt::emphasis::bold, "{}{}\n",
-                           std::string(span.Start.Col, ' '), std::string(span.End.Col - span.Start.Col, '^'));
+                           std::string(start_loc.second, ' '), std::string(end_loc.second - start_loc.second, '^'));
 
                 // TODO: Support multiline
                 break;

@@ -62,29 +62,30 @@ int main(int argc, char **argv) {
         TIMEIT("File read",
                auto buffer = MemoryBuffer::getFile(options->file);
                if (buffer.getError() != std::error_code())
-                   throw LesmaError(Span{}, "Could not read file: {}", options->file);
+                   throw LesmaError(llvm::SMRange(), "Could not read file: {}", options->file);
 
                srcMgr->AddNewSourceBuffer(std::move(*buffer), llvm::SMLoc());
                auto source_str = srcMgr->getMemoryBuffer(1)->getBuffer().str();)
 
         // Lexer
         TIMEIT("Lexer scan",
-               auto lexer = std::make_unique<Lexer>(source_str, options->file.substr(options->file.find_last_of("/\\") + 1));
+               auto lexer = std::make_unique<Lexer>(srcMgr);
                lexer->ScanAll();)
 
         if (options->debug) {
             print(DEBUG, "TOKENS: \n");
             for (const auto &tok: lexer->getTokens())
-                print("Token: {}\n", tok->Dump());
+                print("Token: {}\n", tok->Dump(srcMgr));
         }
 
+        exit(0);
         // Parser
         TIMEIT("Parsing",
                auto parser = std::make_unique<Parser>(lexer->getTokens());
                parser->Parse();)
 
         if (options->debug)
-            print(DEBUG, "AST:\n{}", parser->getAST()->toString(0));
+            print(DEBUG, "AST:\n{}", parser->getAST()->toString(srcMgr.get(), 0));
 
         // Codegen
         TIMEIT("Compiling",
@@ -116,10 +117,10 @@ int main(int argc, char **argv) {
 
         return exit_code;
     } catch (const LesmaError &err) {
-        if (err.getSpan() == Span{})
+        if (!err.getSpan().isValid())
             print(ERROR, err.what());
         else
-            showInline(err.getSpan(), err.what(), options->file, true);
+            showInline(srcMgr.get(), err.getSpan(), err.what(), options->file, true);
         return err.exit_code;
     }
 }

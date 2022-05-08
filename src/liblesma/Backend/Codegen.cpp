@@ -26,7 +26,7 @@ Codegen::Codegen(std::unique_ptr<Parser> parser, std::shared_ptr<SourceMgr> srcM
 
     // If it's not base.les stdlib, then import it
     if (std::filesystem::absolute(filename) != getStdDir() + "base.les") {
-        CompileModule(Span{{0, 0}, {0, 0}}, getStdDir() + "base.les", true);
+        CompileModule(llvm::SMRange(), getStdDir() + "base.les", true);
     }
 }
 
@@ -60,20 +60,20 @@ std::unique_ptr<llvm::TargetMachine> Codegen::InitializeTargetMachine() {
     return target_machine;
 }
 
-void Codegen::CompileModule(Span span, const std::string &filepath, bool isStd) {
+void Codegen::CompileModule(llvm::SMRange span, const std::string &filepath, bool isStd) {
     std::filesystem::path mainPath = filename;
     // Read source
     auto absolute_path = isStd ? filepath : fmt::format("{}/{}", std::filesystem::absolute(mainPath).parent_path().c_str(), filepath);
     auto buffer = MemoryBuffer::getFile(absolute_path);
     if (buffer.getError() != std::error_code())
-        throw LesmaError(Span{}, "Could not read file: {}", absolute_path);
+        throw LesmaError(llvm::SMRange(), "Could not read file: {}", absolute_path);
 
     auto file_id = SourceManager->AddNewSourceBuffer(std::move(*buffer), llvm::SMLoc());
     auto source_str = SourceManager->getMemoryBuffer(file_id)->getBuffer().str();
 
     try {
         // Lexer
-        auto lexer = std::make_unique<Lexer>(source_str, filepath.substr(filepath.find_last_of("/\\") + 1));
+        auto lexer = std::make_unique<Lexer>(SourceManager);
         lexer->ScanAll();
 
         // Parser
@@ -121,10 +121,10 @@ void Codegen::CompileModule(Span span, const std::string &filepath, bool isStd) 
             }
         }
     } catch (const LesmaError &err) {
-        if (err.getSpan() == Span{})
+        if (!err.getSpan().isValid())
             print(ERROR, err.what());
         else
-            showInline(err.getSpan(), err.what(), absolute_path, true);
+            showInline(SourceManager.get(), err.getSpan(), err.what(), absolute_path, true);
 
         throw CodegenError(span, "Unable to import {} due to errors", filepath);
     }
@@ -233,7 +233,7 @@ llvm::Value *Codegen::visit(Expression *node) {
     else if (dynamic_cast<Else *>(node))
         return visit(dynamic_cast<Else *>(node));
 
-    throw CodegenError(node->getSpan(), "Unknown Expression: {}", node->toString(0));
+    throw CodegenError(node->getSpan(), "Unknown Expression: {}", node->toString(SourceManager.get(), 0));
 }
 
 void Codegen::visit(Statement *node) {
@@ -266,7 +266,7 @@ void Codegen::visit(Statement *node) {
     else if (dynamic_cast<Compound *>(node))
         return visit(dynamic_cast<Compound *>(node));
 
-    throw CodegenError(node->getSpan(), "Unknown Statement:\n{}", node->toString(0));
+    throw CodegenError(node->getSpan(), "Unknown Statement:\n{}", node->toString(SourceManager.get(), 0));
 }
 
 llvm::Type *Codegen::visit(lesma::Type *node) {
@@ -659,7 +659,7 @@ llvm::Value *Codegen::visit(BinaryOp *node) {
         case TokenType::POWER:
             if (!right->getType()->isIntegerTy())
                 throw CodegenError(node->getSpan(), "Cannot use non-integers for power coefficient: {}",
-                                   node->getRight()->toString(0));
+                                   node->getRight()->toString(SourceManager.get(), 0));
             throw CodegenError(node->getSpan(), "Power operator not implemented yet.");
             break;
         case TokenType::EQUAL_EQUAL:
@@ -719,13 +719,13 @@ llvm::Value *Codegen::visit(BinaryOp *node) {
         case TokenType::AND:
             if (!left->getType()->isIntegerTy(1) && !right->getType()->isIntegerTy(1))
                 throw CodegenError(node->getSpan(), "Cannot use non-booleans for and: {} - {}",
-                                   node->getLeft()->toString(0), node->getRight()->toString(0));
+                                   node->getLeft()->toString(SourceManager.get(), 0), node->getRight()->toString(SourceManager.get(), 0));
 
             return Builder->CreateLogicalAnd(left, right, ".tmp");
         case TokenType::OR:
             if (!left->getType()->isIntegerTy(1) && !right->getType()->isIntegerTy(1))
                 throw CodegenError(node->getSpan(), "Cannot use non-booleans for or: {} - {}",
-                                   node->getLeft()->toString(0), node->getRight()->toString(0));
+                                   node->getLeft()->toString(SourceManager.get(), 0), node->getRight()->toString(SourceManager.get(), 0));
 
             return Builder->CreateLogicalOr(left, right, ".tmp");
         default:
@@ -735,8 +735,8 @@ llvm::Value *Codegen::visit(BinaryOp *node) {
     throw CodegenError(node->getSpan(),
                        "Unimplemented binary operator {} for {} and {}",
                        NAMEOF_ENUM(node->getOperator()),
-                       node->getLeft()->toString(0),
-                       node->getRight()->toString(0));
+                       node->getLeft()->toString(SourceManager.get(), 0),
+                       node->getRight()->toString(SourceManager.get(), 0));
 }
 
 llvm::Value *Codegen::visit(CastOp *node) {
@@ -752,14 +752,14 @@ llvm::Value *Codegen::visit(UnaryOp *node) {
         else if (operand->getType()->isFloatingPointTy())
             return Builder->CreateFNeg(operand, ".tmp");
         else
-            throw CodegenError(node->getSpan(), "Cannot apply {} to {}", NAMEOF_ENUM(node->getOperator()), node->getExpression()->toString(0));
+            throw CodegenError(node->getSpan(), "Cannot apply {} to {}", NAMEOF_ENUM(node->getOperator()), node->getExpression()->toString(SourceManager.get(), 0));
     } else if (node->getOperator() == TokenType::NOT) {
         if (operand->getType()->isIntegerTy(1))
             return Builder->CreateNot(operand, ".tmp");
         else
-            throw CodegenError(node->getSpan(), "Cannot apply {} to {}", NAMEOF_ENUM(node->getOperator()), node->getExpression()->toString(0));
+            throw CodegenError(node->getSpan(), "Cannot apply {} to {}", NAMEOF_ENUM(node->getOperator()), node->getExpression()->toString(SourceManager.get(), 0));
     } else
-        throw CodegenError(node->getSpan(), "Unknown unary operator, cannot apply {} to {}", NAMEOF_ENUM(node->getOperator()), node->getExpression()->toString(0));
+        throw CodegenError(node->getSpan(), "Unknown unary operator, cannot apply {} to {}", NAMEOF_ENUM(node->getOperator()), node->getExpression()->toString(SourceManager.get(), 0));
 }
 
 llvm::Value *Codegen::visit(Literal *node) {
@@ -787,7 +787,7 @@ llvm::Value *Codegen::visit(Else * /*node*/) {
     return llvm::ConstantInt::getTrue(*TheContext);
 }
 
-std::string Codegen::getTypeMangledName(Span span, llvm::Type *type) {
+std::string Codegen::getTypeMangledName(llvm::SMRange span, llvm::Type *type) {
     if (type->isIntegerTy(1))
         return "b";
     else if (type->isIntegerTy())
@@ -816,7 +816,7 @@ std::string Codegen::getTypeMangledName(Span span, llvm::Type *type) {
 }
 
 // TODO: Change to support private/public and module system
-std::string Codegen::getMangledName(Span span, std::string func_name, const std::vector<llvm::Type *> &paramTypes) {
+std::string Codegen::getMangledName(llvm::SMRange span, std::string func_name, const std::vector<llvm::Type *> &paramTypes) {
     std::string name = "_" + std::move(func_name);
 
     for (auto param_type: paramTypes)
@@ -851,7 +851,7 @@ llvm::Type *Codegen::GetExtendedType(llvm::Type *left, llvm::Type *right) {
     return nullptr;
 }
 
-llvm::Value *Codegen::Cast(Span span, llvm::Value *val, llvm::Type *type) {
+llvm::Value *Codegen::Cast(llvm::SMRange span, llvm::Value *val, llvm::Type *type) {
     if (val->getType() == type)
         return val;
 

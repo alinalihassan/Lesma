@@ -37,13 +37,13 @@ static std::map<std::string, TokenType> g_reserved_map{
         {"defer", TokenType::DEFER},
 };
 
-std::string TokenState::Dump() const {
+std::string TokenState::Dump(std::shared_ptr<llvm::SourceMgr> srcMgr) const {
     return std::string(
                    "[Type: ") +
            std::string{NAMEOF_ENUM(type)} +
            ", Lexeme: " + lexeme +
-           ", Line: " + std::to_string(span.Start.Line) + " - " + std::to_string(span.End.Line) +
-           ", Col: " + std::to_string(span.Start.Col) + " - " + std::to_string(span.End.Col) + "]";
+           ", Line: " + std::to_string(srcMgr->getLineAndColumn(span.Start, srcMgr->getNumBuffers() - 1).first) + " - " + std::to_string(srcMgr->getLineAndColumn(span.End, srcMgr->getNumBuffers() - 1).first) +
+           ", Col: " + std::to_string(srcMgr->getLineAndColumn(span.Start, srcMgr->getNumBuffers() - 1).second) + " - " + std::to_string(srcMgr->getLineAndColumn(span.End, srcMgr->getNumBuffers() - 1).second) + "]";
 }
 
 TokenType Token::GetIdentifierType(const std::string &identifier, Token lastTok) {

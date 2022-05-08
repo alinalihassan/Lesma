@@ -66,7 +66,7 @@ namespace lesma {
     protected:
         std::unique_ptr<llvm::TargetMachine> InitializeTargetMachine();
         llvm::Function *InitializeTopLevel();
-        void CompileModule(Span span, const std::string &filepath, bool isStd);
+        void CompileModule(llvm::SMRange span, const std::string &filepath, bool isStd);
 
         void visit(Statement *node) override;
         void visit(Compound *node) override;
@@ -93,9 +93,9 @@ namespace lesma {
         llvm::Value *visit(Else *node) override;
 
         // TODO: Helper functions, move them out somewhere
-        llvm::Value *Cast(Span span, llvm::Value *val, llvm::Type *type);
+        llvm::Value *Cast(llvm::SMRange span, llvm::Value *val, llvm::Type *type);
         llvm::Type *GetExtendedType(llvm::Type *left, llvm::Type *right);
-        std::string getMangledName(Span span, std::string func_name, const std::vector<llvm::Type *> &paramTypes);
-        std::string getTypeMangledName(Span span, llvm::Type *type);
+        std::string getMangledName(llvm::SMRange span, std::string func_name, const std::vector<llvm::Type *> &paramTypes);
+        std::string getTypeMangledName(llvm::SMRange span, llvm::Type *type);
     };
 }// namespace lesma
