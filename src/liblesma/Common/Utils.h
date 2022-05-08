@@ -69,7 +69,6 @@ namespace lesma {
         print(NONE, format_str, args...);
     }
 
-    std::string readFile(const std::string &path);
     void showInline(Span span, const std::string &reason, const std::string &file, bool is_error);
     std::string getBasename(const std::string &file_path);
     std::string getStdDir();

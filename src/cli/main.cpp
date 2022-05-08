@@ -7,6 +7,7 @@
 #include "liblesma/Frontend/Lexer.h"
 #include "liblesma/Frontend/Parser.h"
 
+#include "llvm/Support/SourceMgr.h"
 using namespace lesma;
 
 #define TIMEIT(debug_operation, statements)   \
@@ -50,16 +51,25 @@ int main(int argc, char **argv) {
     plf::nanotimer timer;
     double results, total = 0;
 
+    // Configure Source Manager
+    std::shared_ptr<SourceMgr> srcMgr = std::make_shared<SourceMgr>(SourceMgr());
+
     // CLI Parsing
     TIMEIT("CLI", auto options = parseCLI(argc, argv);)
 
     try {
         // Read Source
-        TIMEIT("File read", auto source = readFile(options->file);)
+        TIMEIT("File read",
+               auto buffer = MemoryBuffer::getFile(options->file);
+               if (buffer.getError() != std::error_code())
+                   throw LesmaError(Span{}, "Could not read file: {}", options->file);
+
+               srcMgr->AddNewSourceBuffer(std::move(*buffer), llvm::SMLoc());
+               auto source_str = srcMgr->getMemoryBuffer(1)->getBuffer().str();)
 
         // Lexer
         TIMEIT("Lexer scan",
-               auto lexer = std::make_unique<Lexer>(source, options->file.substr(options->file.find_last_of("/\\") + 1));
+               auto lexer = std::make_unique<Lexer>(source_str, options->file.substr(options->file.find_last_of("/\\") + 1));
                lexer->ScanAll();)
 
         if (options->debug) {
@@ -78,7 +88,7 @@ int main(int argc, char **argv) {
 
         // Codegen
         TIMEIT("Compiling",
-               auto codegen = std::make_unique<Codegen>(std::move(parser), options->file, options->jit, true);
+               auto codegen = std::make_unique<Codegen>(std::move(parser), srcMgr, options->file, options->jit, true);
                codegen->Run();)
 
         if (options->debug) {

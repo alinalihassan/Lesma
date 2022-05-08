@@ -1,17 +1,6 @@
 #include "Utils.h"
-#include "LesmaError.h"
 
 namespace lesma {
-    std::string readFile(const std::string &path) {
-        std::ifstream input_file(path);
-        if (!input_file.is_open())
-            throw LesmaError({}, "Could not open file: {}", path);
-
-        std::stringstream buffer;
-        buffer << input_file.rdbuf();
-        return buffer.str();
-    }
-
     std::string getBasename(const std::string &file_path) {
         auto filename = file_path.substr(file_path.find_last_of("/\\") + 1);
         auto filename_wo_ext = filename.substr(0, filename.find_last_of('.'));

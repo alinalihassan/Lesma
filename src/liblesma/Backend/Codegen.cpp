@@ -2,7 +2,7 @@
 
 using namespace lesma;
 
-Codegen::Codegen(std::unique_ptr<Parser> parser, const std::string &filename, bool jit, bool main) {
+Codegen::Codegen(std::unique_ptr<Parser> parser, std::shared_ptr<SourceMgr> srcMgr, const std::string &filename, bool jit, bool main) {
     InitializeNativeTarget();
     InitializeNativeTargetAsmPrinter();
     InitializeNativeTargetAsmParser();
@@ -14,6 +14,7 @@ Codegen::Codegen(std::unique_ptr<Parser> parser, const std::string &filename, bo
     TheModule->setSourceFileName(filename);
     Builder = std::make_unique<IRBuilder<>>(*TheContext);
     Parser_ = std::move(parser);
+    SourceManager = std::move(srcMgr);
     Scope = new SymbolTable(nullptr);
     TargetMachine = InitializeTargetMachine();
 
@@ -63,11 +64,16 @@ void Codegen::CompileModule(Span span, const std::string &filepath, bool isStd) 
     std::filesystem::path mainPath = filename;
     // Read source
     auto absolute_path = isStd ? filepath : fmt::format("{}/{}", std::filesystem::absolute(mainPath).parent_path().c_str(), filepath);
-    auto source = readFile(absolute_path);
+    auto buffer = MemoryBuffer::getFile(absolute_path);
+    if (buffer.getError() != std::error_code())
+        throw LesmaError(Span{}, "Could not read file: {}", absolute_path);
+
+    auto file_id = SourceManager->AddNewSourceBuffer(std::move(*buffer), llvm::SMLoc());
+    auto source_str = SourceManager->getMemoryBuffer(file_id)->getBuffer().str();
 
     try {
         // Lexer
-        auto lexer = std::make_unique<Lexer>(source, filepath.substr(filepath.find_last_of("/\\") + 1));
+        auto lexer = std::make_unique<Lexer>(source_str, filepath.substr(filepath.find_last_of("/\\") + 1));
         lexer->ScanAll();
 
         // Parser
@@ -76,7 +82,7 @@ void Codegen::CompileModule(Span span, const std::string &filepath, bool isStd) 
 
         // TODO: Delete it, memory leak, smart pointer made us lose the references to other modules
         // Codegen
-        auto codegen = new Codegen(std::move(parser), filepath, isJIT, false);
+        auto codegen = new Codegen(std::move(parser), SourceManager, filepath, isJIT, false);
         codegen->Run();
 
         // Optimize

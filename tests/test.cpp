@@ -10,6 +10,16 @@
 
 using namespace lesma;
 
+std::shared_ptr<SourceMgr> initializeSrcMgr(const std::string& source) {
+    // Configure Source Manager
+    std::shared_ptr<SourceMgr> srcMgr = std::make_shared<SourceMgr>(SourceMgr());
+
+    auto buffer = MemoryBuffer::getMemBuffer(source);
+    srcMgr->AddNewSourceBuffer(std::move(buffer), llvm::SMLoc());
+
+    return srcMgr;
+}
+
 Lexer *initializeLexer(const std::string& source) {
     auto lexer = new Lexer(source, "");
     lexer->ScanAll();
@@ -24,10 +34,10 @@ Parser *initializeParser(Lexer *lexer) {
     return parser;
 }
 
-Codegen *initializeCodegen(Parser *parser) {
+Codegen *initializeCodegen(Parser *parser, std::shared_ptr<SourceMgr> srcMgr) {
     std::unique_ptr<Parser> parser_pointer;
     parser_pointer.reset(parser);
-    auto codegen = new Codegen(std::move(parser_pointer), __FILE__, true, true);
+    auto codegen = new Codegen(std::move(parser_pointer), std::move(srcMgr), __FILE__, true, true);
     codegen->Run();
 
     return codegen;
@@ -97,30 +107,31 @@ TEST_CASE("Codegen", "Run & Optimize") {
             "var y: int = 100\n"
             "y = 101\n";
 
+    auto srcMgr = initializeSrcMgr(source);
     auto lexer = initializeLexer(source);
     auto parser = initializeParser(lexer);
-    auto codegen = initializeCodegen(parser);
+    auto codegen = initializeCodegen(parser, srcMgr);
     codegen->Optimize(llvm::PassBuilder::OptimizationLevel::O3);
     int exit_code = codegen->JIT();
 
     REQUIRE(exit_code == 0);
 
     BENCHMARK("Codegen") {
-        initializeCodegen(parser);
+        initializeCodegen(parser, srcMgr);
     };
 
     BENCHMARK("Codegen & Optimize") {
-        auto cg = initializeCodegen(parser);
+        auto cg = initializeCodegen(parser, srcMgr);
         cg->Optimize(llvm::PassBuilder::OptimizationLevel::O3);
     };
 
     BENCHMARK("Codegen & JIT") {
-        auto cg = initializeCodegen(parser);
+        auto cg = initializeCodegen(parser, srcMgr);
         cg->JIT();
     };
 
     BENCHMARK("Codegen, Optimize & JIT") {
-        auto cg = initializeCodegen(parser);
+        auto cg = initializeCodegen(parser, srcMgr);
         cg->Optimize(llvm::PassBuilder::OptimizationLevel::O3);
         cg->JIT();
     };
