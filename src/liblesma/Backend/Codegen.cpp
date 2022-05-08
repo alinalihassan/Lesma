@@ -570,11 +570,10 @@ void Codegen::visit(Import *node) {
     CompileModule(node->getSpan(), node->getFilePath(), node->isStd());
 }
 
-void Codegen::visit(Enum *node) {
-    std::vector<llvm::Type*> elementTypes = {Builder->getInt8Ty()};
-
-    llvm::StructType *structType = llvm::StructType::create(*TheContext, elementTypes, node->getIdentifier());
-    // TODO: Add to scope table (currently only symbols, not types), implement "." dot access operator,
+void Codegen::visit(Enum *) {
+//    std::vector<llvm::Type*> elementTypes = {Builder->getInt8Ty()};
+//    llvm::StructType *structType = llvm::StructType::create(*TheContext, elementTypes, node->getIdentifier());
+//    TODO: Add to scope table (currently only symbols, not types), implement "." dot access operator,
 }
 
 llvm::Value *Codegen::visit(FuncCall *node) {
