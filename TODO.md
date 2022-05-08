@@ -40,4 +40,5 @@
 - [ ] Add inheritance (or traits)
 - [ ] Add string interpolation
 - [ ] Add standard library (things like print, input, etc)
-- [ ] Add multithreading using pthread for now (ala Spice)
+- [ ] Add multithreading using pthread for now (async/await? ala Spice)
+- [ ] Add multiple return without having to make structs
