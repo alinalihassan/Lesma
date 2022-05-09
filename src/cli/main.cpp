@@ -78,7 +78,6 @@ int main(int argc, char **argv) {
                 print("Token: {}\n", tok->Dump(srcMgr));
         }
 
-        exit(0);
         // Parser
         TIMEIT("Parsing",
                auto parser = std::make_unique<Parser>(lexer->getTokens());
