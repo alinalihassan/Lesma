@@ -211,7 +211,7 @@ int Codegen::JIT() {
 void Codegen::Run() {
     visit(Parser_->getAST());
 
-    // Return void for top-level function
+    // Return 0 for top-level function
     Builder->CreateRet(ConstantInt::getSigned(Builder->getInt64Ty(), 0));
 }
 
