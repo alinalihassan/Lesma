@@ -61,8 +61,7 @@ int main(int argc, char **argv) {
         // Read Source
         TIMEIT("File read",
                auto buffer = MemoryBuffer::getFile(options->file);
-               if (buffer.getError() != std::error_code())
-                   throw LesmaError(llvm::SMRange(), "Could not read file: {}", options->file);
+               if (buffer.getError() != std::error_code()) throw LesmaError(llvm::SMRange(), "Could not read file: {}", options->file);
 
                srcMgr->AddNewSourceBuffer(std::move(*buffer), llvm::SMLoc());
                auto source_str = srcMgr->getMemoryBuffer(1)->getBuffer().str();)

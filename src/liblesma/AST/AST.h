@@ -51,14 +51,14 @@ namespace lesma {
 
     public:
         Literal(llvm::SMRange Loc, std::string value, TokenType type) : Expression(Loc), value(std::move(value)),
-                                                               type(type) {}
+                                                                        type(type) {}
 
         ~Literal() override = default;
 
         [[nodiscard]] [[maybe_unused]] std::string getValue() const { return value; }
         [[nodiscard]] [[maybe_unused]] TokenType getType() const { return type; }
 
-        std::string toString(llvm::SourceMgr */*srcMgr*/, int /*ind*/) override {
+        std::string toString(llvm::SourceMgr * /*srcMgr*/, int /*ind*/) override {
             if (type == TokenType::STRING)
                 return '"' + value + '"';
             else if (type == TokenType::NIL || type == TokenType::INTEGER || type == TokenType::DOUBLE ||
@@ -107,7 +107,7 @@ namespace lesma {
         [[nodiscard]] [[maybe_unused]] std::string getName() const { return name; }
         [[nodiscard]] [[maybe_unused]] TokenType getType() const { return type; }
 
-        std::string toString(llvm::SourceMgr */*srcMgr*/, int /*ind*/) override {
+        std::string toString(llvm::SourceMgr * /*srcMgr*/, int /*ind*/) override {
             return name;
         }
     };
@@ -198,10 +198,10 @@ namespace lesma {
 
     public:
         If(llvm::SMRange Loc, std::vector<Expression *> conds, std::vector<Compound *> blocks) : Statement(Loc),
-                                                                                        conds(std::move(
-                                                                                                conds)),
-                                                                                        blocks(std::move(
-                                                                                                blocks)) {}
+                                                                                                 conds(std::move(
+                                                                                                         conds)),
+                                                                                                 blocks(std::move(
+                                                                                                         blocks)) {}
 
         ~If() override = default;
 
@@ -393,7 +393,7 @@ namespace lesma {
 
     public:
         BinaryOp(llvm::SMRange Loc, Expression *left, TokenType op, Expression *right) : Expression(Loc), left(left),
-                                                                                op(op), right(right) {}
+                                                                                         op(op), right(right) {}
 
         ~BinaryOp() override = default;
 
@@ -444,7 +444,7 @@ namespace lesma {
         explicit Else(llvm::SMRange Loc) : Expression(Loc) {}
         ~Else() override = default;
 
-        std::string toString(llvm::SourceMgr */*srcMgr*/, int /*ind*/) override {
+        std::string toString(llvm::SourceMgr * /*srcMgr*/, int /*ind*/) override {
             return "Else";
         }
     };
@@ -454,7 +454,7 @@ namespace lesma {
         explicit Break(llvm::SMRange Loc) : Statement(Loc) {}
         ~Break() override = default;
 
-        std::string toString(llvm::SourceMgr */*srcMgr*/, int ind) override {
+        std::string toString(llvm::SourceMgr * /*srcMgr*/, int ind) override {
             return std::string(ind, ' ') + "Break\n";
         }
     };
@@ -464,7 +464,7 @@ namespace lesma {
         explicit Continue(llvm::SMRange Loc) : Statement(Loc) {}
         ~Continue() override = default;
 
-        std::string toString(llvm::SourceMgr */*srcMgr*/, int ind) override {
+        std::string toString(llvm::SourceMgr * /*srcMgr*/, int ind) override {
             return std::string(ind, ' ') + "Continue\n";
         }
     };

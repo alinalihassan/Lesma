@@ -15,7 +15,7 @@ namespace lesma {
 
     class Lexer {
     public:
-        explicit Lexer(const std::shared_ptr<llvm::SourceMgr>& srcMgr)
+        explicit Lexer(const std::shared_ptr<llvm::SourceMgr> &srcMgr)
             : curBuffer(srcMgr->getMemoryBuffer(srcMgr->getNumBuffers())),
               curPtr(curBuffer->getBufferStart()), begin_loc(llvm::SMLoc::getFromPointer(curPtr)), loc(llvm::SMLoc::getFromPointer(curPtr)), srcMgr(srcMgr) {
         }
