@@ -20,8 +20,7 @@ namespace lesma {
         llvm::SMRange span;
 
         bool operator==(const TokenState &rhs) const {
-            return (lexeme == rhs.lexeme) && (type == rhs.type) && (span.Start.getPointer() == rhs.span.Start.getPointer())
-                    && (span.End.getPointer() == rhs.span.End.getPointer());
+            return (lexeme == rhs.lexeme) && (type == rhs.type) && (span.Start.getPointer() == rhs.span.Start.getPointer()) && (span.End.getPointer() == rhs.span.End.getPointer());
         }
         bool operator!=(const TokenState &rhs) const {
             return !operator==(rhs);
