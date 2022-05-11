@@ -38,6 +38,7 @@ namespace lesma {
         std::unique_ptr<LesmaJIT> TheJIT;
         std::unique_ptr<llvm::TargetMachine> TargetMachine;
         std::unique_ptr<Parser> Parser_;
+        std::shared_ptr<SourceMgr> SourceManager;
         SymbolTable *Scope;
         std::string filename;
 
@@ -53,7 +54,7 @@ namespace lesma {
         bool isMain = true;
 
     public:
-        Codegen(std::unique_ptr<Parser> parser, const std::string &filename, bool jit, bool main);
+        Codegen(std::unique_ptr<Parser> parser, std::shared_ptr<SourceMgr> srcMgr, const std::string &filename, bool jit, bool main);
 
         void Dump();
         void Run();
@@ -65,7 +66,7 @@ namespace lesma {
     protected:
         std::unique_ptr<llvm::TargetMachine> InitializeTargetMachine();
         llvm::Function *InitializeTopLevel();
-        void CompileModule(Span span, const std::string &filepath, bool isStd);
+        void CompileModule(llvm::SMRange span, const std::string &filepath, bool isStd);
 
         void visit(Statement *node) override;
         void visit(Compound *node) override;
@@ -73,6 +74,7 @@ namespace lesma {
         void visit(If *node) override;
         void visit(While *node) override;
         void visit(Import *node) override;
+        void visit(Enum *node) override;
         void visit(FuncDecl *node) override;
         void visit(ExternFuncDecl *node) override;
         void visit(Assignment *node) override;
@@ -91,9 +93,9 @@ namespace lesma {
         llvm::Value *visit(Else *node) override;
 
         // TODO: Helper functions, move them out somewhere
-        llvm::Value *Cast(Span span, llvm::Value *val, llvm::Type *type);
+        llvm::Value *Cast(llvm::SMRange span, llvm::Value *val, llvm::Type *type);
         llvm::Type *GetExtendedType(llvm::Type *left, llvm::Type *right);
-        std::string getMangledName(Span span, std::string func_name, const std::vector<llvm::Type *> &paramTypes);
-        std::string getTypeMangledName(Span span, llvm::Type *type);
+        std::string getMangledName(llvm::SMRange span, std::string func_name, const std::vector<llvm::Type *> &paramTypes);
+        std::string getTypeMangledName(llvm::SMRange span, llvm::Type *type);
     };
 }// namespace lesma

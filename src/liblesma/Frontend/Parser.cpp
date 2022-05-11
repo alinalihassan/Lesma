@@ -229,9 +229,9 @@ Statement *Parser::ParseVarDecl() {
         expr = ParseExpression();
 
     if (type == std::nullopt && expr == std::nullopt)
-        throw LexerError(Span{startTok.getStart(), var->getEnd()}, "Expected either a type or a value");
+        throw LexerError(llvm::SMRange{startTok.getStart(), var->getEnd()}, "Expected either a type or a value");
     else if (expr == std::nullopt && !mutable_)
-        throw LexerError(Span{startTok.getStart(), type.value()->getEnd()}, "Cannot declare an immutable variable without an initial expression");
+        throw LexerError(llvm::SMRange{startTok.getStart(), type.value()->getEnd()}, "Cannot declare an immutable variable without an initial expression");
 
     ConsumeNewline();
     return new VarDecl({startTok.getStart(), expr != std::nullopt ? expr.value()->getEnd() : type.value()->getEnd()}, var, type, expr, mutable_);
@@ -321,16 +321,21 @@ Statement *Parser::ParseReturn() {
 Statement *Parser::ParseDefer() {
     auto loc = Peek()->span;
     Consume(TokenType::DEFER);
-    auto val = ParseStatement();
+    auto val = ParseStatement(false);
     //Don't consume newline, since statement will
     return reinterpret_cast<Statement *>(new Defer({loc.Start, val->getEnd()}, val));
 }
 
-Statement *Parser::ParseStatement() {
+Statement *Parser::ParseStatement(bool isTopLevel) {
+    if (CheckAny<TokenType::DEF, TokenType::IMPORT>() && !isTopLevel)
+        Error(Peek(), "Statement not allowed inside a block");
+
     if (Check(TokenType::DEF))
         return ParseFunctionDeclaration();
     else if (Check(TokenType::IMPORT))
         return ParseImport();
+    else if (Check(TokenType::ENUM))
+        return ParseEnum();
     else if (Check(TokenType::LET) || Check(TokenType::VAR))
         return ParseVarDecl();
     else if (Check(TokenType::IF))
@@ -370,7 +375,7 @@ Compound *Parser::ParseBlock() {
     Consume(TokenType::INDENT);
 
     while (!CheckAny<TokenType::DEDENT, TokenType::EOF_TOKEN>())
-        statements.push_back(ParseStatement());
+        statements.push_back(ParseStatement(false));
 
     AdvanceIfMatchAny<TokenType::DEDENT>();
 
@@ -448,13 +453,33 @@ Statement *Parser::ParseImport() {
     return new Import({loc.Start, token.getEnd()}, filepath, getBasename(token->lexeme), token->type == TokenType::IDENTIFIER);
 }
 
+Statement *Parser::ParseEnum() {
+    auto loc = Peek()->span;
+    Consume(TokenType::ENUM);
+
+    auto token = Consume(TokenType::IDENTIFIER);
+    Consume(TokenType::NEWLINE);
+
+    std::vector<std::string> values;
+    Consume(TokenType::INDENT);
+
+    while (!CheckAny<TokenType::DEDENT, TokenType::EOF_TOKEN>()) {
+        values.push_back(Consume(TokenType::IDENTIFIER)->lexeme);
+        Consume(TokenType::NEWLINE);
+    }
+
+    AdvanceIfMatchAny<TokenType::DEDENT>();
+
+    return new Enum(loc, token->lexeme, values);
+}
+
 Compound *Parser::ParseCompound() {
     std::vector<Statement *> statements;
     while (!IsAtEnd()) {
         // Remove lingering newlines
         while (Peek()->type == TokenType::NEWLINE)
             Consume(TokenType::NEWLINE);
-        statements.push_back(ParseStatement());
+        statements.push_back(ParseStatement(true));
     }
     return new Compound({statements.front()->getStart(), statements.back()->getEnd()}, statements);
 }

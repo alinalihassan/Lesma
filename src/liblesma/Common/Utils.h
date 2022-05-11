@@ -4,36 +4,15 @@
 #include <fstream>
 #include <sstream>
 
+#include "llvm/Support/SMLoc.h"
+#include "llvm/Support/SourceMgr.h"
+
 #include "fmt/color.h"
 #include "fmt/core.h"
 
 #include "liblesma/Token/TokenType.h"
 
 namespace lesma {
-    struct SourceLocation {
-        unsigned int Line;
-        unsigned int Col;
-
-        bool operator==(const SourceLocation &rhs) const {
-            return (Line == rhs.Line) && (Col == rhs.Col);
-        }
-        bool operator!=(const SourceLocation &rhs) const {
-            return !operator==(rhs);
-        }
-    };
-
-    struct Span {
-        SourceLocation Start;
-        SourceLocation End;
-
-        bool operator==(const Span &rhs) const {
-            return (Start == rhs.Start) && (End == rhs.End);
-        }
-        bool operator!=(const Span &rhs) const {
-            return !operator==(rhs);
-        }
-    };
-
     enum LogType {
         ERROR,
         WARNING,
@@ -69,8 +48,7 @@ namespace lesma {
         print(NONE, format_str, args...);
     }
 
-    std::string readFile(const std::string &path);
-    void showInline(Span span, const std::string &reason, const std::string &file, bool is_error);
+    void showInline(llvm::SourceMgr *srcMgr, llvm::SMRange span, const std::string &reason, const std::string &file, bool is_error);
     std::string getBasename(const std::string &file_path);
     std::string getStdDir();
 }// namespace lesma

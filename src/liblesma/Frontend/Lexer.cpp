@@ -10,7 +10,7 @@ std::vector<Token> Lexer::ScanAll() {
 
 Token Lexer::ScanOne(bool continuation) {
     if (IsAtEnd())
-        return Token{TokenType::EOF_TOKEN, "EOF", Span{begin_loc, loc}};
+        return Token{TokenType::EOF_TOKEN, "EOF", llvm::SMRange{begin_loc, loc}};
     ResetTokenBeg();
     char c = Advance();
 
@@ -120,22 +120,22 @@ Token Lexer::ScanOne(bool continuation) {
             if (c != '\n')
                 Error(fmt::format("Newline expected after line continuation, found {}", c));
 
-            loc.Line++;
-            loc.Col = 1;
+            line++;
+            col = 1;
 
             return ScanOne(continuation);
         case ' ':
         case '\r':
         case '\t':
             HandleWhitespace(c);
-            if (loc.Col == 2)
+            if (col == 2)
                 HandleIndentation(false);
             return ScanOne(continuation);
         case '\n':
-            loc.Line++;
-            loc.Col = 1;
+            line++;
+            col = 1;
             if (!continuation && level_ == 0)
-                tokens.push_back(AddToken({TokenType::NEWLINE, "NEWLINE", Span{begin_loc, loc}}));
+                tokens.push_back(AddToken({TokenType::NEWLINE, "NEWLINE", llvm::SMRange{begin_loc, loc}}));
             HandleIndentation(continuation);
             return ScanOne(false);
         case '"':
@@ -153,18 +153,18 @@ Token Lexer::ScanOne(bool continuation) {
 }
 
 void Lexer::HandleWhitespace(char c) {
-    if (!first_indent_char) {
+    if (!first_indent_char.has_value()) {
         first_indent_char = c;
     }
     if (first_indent_char != c)
-        Error(fmt::format("Mixed indentation, first indentation character is: {}", first_indent_char));
+        Error(fmt::format("Mixed indentation, first indentation character is: {}", first_indent_char.value()));
     if (c == '\t')
-        loc.Col += 7;
+        col += 7;
 }
 
 bool Lexer::HandleIndentation(bool continuation) {
     const int tab_size = 8;
-    int col = 0, alt_col = 0;
+    int _col = 0, alt_col = 0;
     char c = 0;
     int changes = 0;
     bool advanced = false;
@@ -174,10 +174,10 @@ bool Lexer::HandleIndentation(bool continuation) {
         c = Advance();
         advanced = true;
         if (c == ' ') {
-            ++col;
+            ++_col;
             ++alt_col;
         } else if (c == '\t') {
-            col = (col / tab_size + 1) * tab_size;
+            _col = (_col / tab_size + 1) * tab_size;
             alt_col += 1;
         } else {
             break;
@@ -196,12 +196,12 @@ bool Lexer::HandleIndentation(bool continuation) {
         return true;
     }
 
-    if (col == indent_stack_[indent_]) {
+    if (_col == indent_stack_[indent_]) {
         if (alt_col != alt_indent_stack_[indent_]) {
             Error("Indentation error");
             return false;
         }
-    } else if (col > indent_stack_[indent_]) {
+    } else if (_col > indent_stack_[indent_]) {
         if (alt_col <= alt_indent_stack_[indent_]) {
             Error("Indentation error");
             return false;
@@ -211,17 +211,17 @@ bool Lexer::HandleIndentation(bool continuation) {
         assert(indent_stack_.size() >= size_t(indent_));
         if (indent_stack_.size() == size_t(indent_)) {
             alt_indent_stack_.push_back(alt_col);
-            indent_stack_.push_back(col);
+            indent_stack_.push_back(_col);
         } else {
             alt_indent_stack_[indent_] = alt_col;
-            indent_stack_[indent_] = col;
+            indent_stack_[indent_] = _col;
         }
     } else {
-        while (indent_ > 0 && col < indent_stack_[indent_]) {
+        while (indent_ > 0 && _col < indent_stack_[indent_]) {
             --changes;
             --indent_;
         }
-        if (col != indent_stack_[indent_]) {
+        if (_col != indent_stack_[indent_]) {
             Error("Dedentation error");
             return false;
         }
@@ -232,7 +232,7 @@ bool Lexer::HandleIndentation(bool continuation) {
     }
 
     while (changes != 0) {
-        tokens.push_back(AddToken({changes > 0 ? TokenType::INDENT : TokenType::DEDENT, changes > 0 ? "INDENT" : "DEDENT", Span{begin_loc, loc}}));
+        tokens.push_back(AddToken({changes > 0 ? TokenType::INDENT : TokenType::DEDENT, changes > 0 ? "INDENT" : "DEDENT", llvm::SMRange{begin_loc, loc}}));
         changes += changes > 0 ? -1 : 1;
     }
     return true;
@@ -240,7 +240,7 @@ bool Lexer::HandleIndentation(bool continuation) {
 
 // TODO: Could possibly make it more efficient
 Token Lexer::AddToken(TokenType type) {
-    auto ret = Token(type, std::string(srcs_->cbegin() + start_lex_pos_, srcs_->cbegin() + current_lex_pos_), Span{begin_loc, loc});
+    auto ret = Token(type, std::string(begin_loc.getPointer(), loc.getPointer()), llvm::SMRange{begin_loc, loc});
     ResetTokenBeg();
     return ret;
 }
@@ -251,19 +251,20 @@ Token Lexer::AddToken(Token tok) {
 }
 
 void Lexer::ResetTokenBeg() {
-    start_lex_pos_ = current_lex_pos_;
     begin_loc = loc;
 }
 
 void Lexer::Fallback() {
-    --current_lex_pos_;
-    --loc.Col;
+    loc = llvm::SMLoc::getFromPointer(loc.getPointer() - 1);
+    --curPtr;
+    --col;
 }
 
 char Lexer::Advance() {
     auto ret = LastChar();
-    ++current_lex_pos_;
-    ++loc.Col;
+    curPtr++;
+    loc = llvm::SMLoc::getFromPointer(loc.getPointer() + 1);
+    ++col;
     return ret;
 }
 
@@ -275,8 +276,8 @@ bool Lexer::MatchAndAdvance(char expected) {
 }
 
 char Lexer::Peek(int offset) {
-    if ((current_lex_pos_ + offset) >= srcs_->size()) return '\0';
-    return srcs_->at(current_lex_pos_ + offset);
+    if ((loc.getPointer() + offset) >= curBuffer->getBufferEnd()) return '\0';
+    return *(loc.getPointer() + offset);
 }
 
 Token Lexer::AddStringToken() {
@@ -285,8 +286,8 @@ Token Lexer::AddStringToken() {
     while (Peek() != '"' && !IsAtEnd()) {
         // Should we allow newlines in strings? Probably not
         if (Peek() == '\n') {
-            loc.Line++;
-            loc.Col = 1;
+            line++;
+            col = 1;
         }
         // If it's not an escape sequence, proceed as usual
         if (Peek() != '\\') {
@@ -337,7 +338,7 @@ Token Lexer::AddStringToken() {
     // Skip the closing ".
     Advance();
 
-    auto ret = Token(TokenType::STRING, string, Span{begin_loc, loc});
+    auto ret = Token(TokenType::STRING, string, llvm::SMRange{begin_loc, loc});
     ResetTokenBeg();
     return ret;
 }
@@ -361,13 +362,13 @@ Token Lexer::GetLastToken() {
     if (!tokens.empty())
         return tokens.end()[-1];
     else
-        return Token{TokenType::EOF_TOKEN, "EOF", Span{begin_loc, loc}};
+        return Token{TokenType::EOF_TOKEN, "EOF", llvm::SMRange{begin_loc, loc}};
 }
 
 Token Lexer::AddIdentifierToken() {
     while (IsAlphaNumeric(Peek())) Advance();
 
-    auto tok = AddToken(Token::GetIdentifierType(std::string(srcs_->cbegin() + start_lex_pos_, srcs_->cbegin() + current_lex_pos_), GetLastToken()));
+    auto tok = AddToken(Token::GetIdentifierType(std::string(begin_loc.getPointer(), loc.getPointer()), GetLastToken()));
 
     // If it's an 'else if' multiword keyword, remove the last token (which is an 'else' in this case)
     if (tok->type == TokenType::ELSE_IF)
@@ -376,8 +377,8 @@ Token Lexer::AddIdentifierToken() {
     return tok;
 }
 
-char Lexer::LastChar() { return srcs_->at(current_lex_pos_); }
+char Lexer::LastChar() { return *curPtr; }
 
 void Lexer::Error(const std::string &msg) const {
-    throw LexerError(Span{begin_loc, loc}, msg);
+    throw LexerError(llvm::SMRange{begin_loc, loc}, msg);
 }

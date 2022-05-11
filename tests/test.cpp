@@ -10,8 +10,18 @@
 
 using namespace lesma;
 
-Lexer *initializeLexer(const std::string& source) {
-    auto lexer = new Lexer(source, "");
+std::shared_ptr<SourceMgr> initializeSrcMgr(const std::string& source) {
+    // Configure Source Manager
+    std::shared_ptr<SourceMgr> srcMgr = std::make_shared<SourceMgr>(SourceMgr());
+
+    auto buffer = MemoryBuffer::getMemBuffer(source);
+    srcMgr->AddNewSourceBuffer(std::move(buffer), llvm::SMLoc());
+
+    return srcMgr;
+}
+
+Lexer *initializeLexer(std::shared_ptr<SourceMgr> srcMgr) {
+    auto lexer = new Lexer(srcMgr);
     lexer->ScanAll();
 
     return lexer;
@@ -24,50 +34,55 @@ Parser *initializeParser(Lexer *lexer) {
     return parser;
 }
 
-Codegen *initializeCodegen(Parser *parser) {
+Codegen *initializeCodegen(Parser *parser, std::shared_ptr<SourceMgr> srcMgr) {
     std::unique_ptr<Parser> parser_pointer;
     parser_pointer.reset(parser);
-    auto codegen = new Codegen(std::move(parser_pointer), __FILE__, true, true);
+    auto codegen = new Codegen(std::move(parser_pointer), std::move(srcMgr), __FILE__, true, true);
     codegen->Run();
 
     return codegen;
 }
 
-TEST_CASE("Lexer", "Tokens" ) {
+llvm::SMRange getRange(const std::string& source, int x, int y) {
+    return {llvm::SMLoc::getFromPointer(source.c_str() + x), llvm::SMLoc::getFromPointer(source.c_str() + y)};
+}
+
+TEST_CASE("Lexer", "Tokens") {
     std::string source =
             "var y: int = 100\n"
             "y = 101\n"
             "exit(y)\n";
 
-    auto lexer = initializeLexer(source);
+    auto srcMgr = initializeSrcMgr(source);
+    auto lexer = initializeLexer(srcMgr);
 
     REQUIRE(lexer->getTokens().size() > 1);
 
     std::vector<Token> tokens = {
-            Token{TokenType::VAR, "var", Span{{1, 1}, {1, 4}}},
-            Token{TokenType::IDENTIFIER, "y", Span{{1,5}, {1,6}}},
-            Token{TokenType::COLON, ":", Span{{1,6}, {1,7}}},
-            Token{TokenType::INT_TYPE, "int", Span{{1,8}, {1,11}}},
-            Token{TokenType::EQUAL, "=", Span{{1,12}, {1,13}}},
-            Token{TokenType::INTEGER, "100", Span{{1, 14}, {1,17}}},
-            Token{TokenType::NEWLINE, "NEWLINE", Span{{1, 17}, {2, 1}}},
-            Token{TokenType::IDENTIFIER, "y", Span{{2,1}, {2, 2}}},
-            Token{TokenType::EQUAL, "=", Span{{2, 3}, {2,4}}},
-            Token{TokenType::INTEGER, "101", Span{{2,5}, {2,8}}},
-            Token{TokenType::NEWLINE, "NEWLINE", Span{{2,8}, {3,1}}},
-            Token{TokenType::IDENTIFIER, "exit", Span{{3,1}, {3,5}}},
-            Token{TokenType::LEFT_PAREN, "(", Span{{3,5}, {3,6}}},
-            Token{TokenType::IDENTIFIER, "y", Span{{3,6}, {3,7}}},
-            Token{TokenType::RIGHT_PAREN, ")", Span{{3,7}, {3,8}}},
-            Token{TokenType::NEWLINE, "NEWLINE", Span{{3,8}, {4,1}}},
-            Token{TokenType::EOF_TOKEN, "EOF", Span{{4,1}, {4,1}}},
+            Token{TokenType::VAR, "var", getRange(source, 0, 3)},
+            Token{TokenType::IDENTIFIER, "y", getRange(source, 4, 5)},
+            Token{TokenType::COLON, ":", getRange(source, 5, 6)},
+            Token{TokenType::INT_TYPE, "int", getRange(source, 7, 10)},
+            Token{TokenType::EQUAL, "=", getRange(source, 11, 12)},
+            Token{TokenType::INTEGER, "100", getRange(source, 13, 16)},
+            Token{TokenType::NEWLINE, "NEWLINE", getRange(source, 16, 17)},
+            Token{TokenType::IDENTIFIER, "y", getRange(source, 17, 18)},
+            Token{TokenType::EQUAL, "=", getRange(source, 19, 20)},
+            Token{TokenType::INTEGER, "101", getRange(source, 21, 24)},
+            Token{TokenType::NEWLINE, "NEWLINE", getRange(source, 24, 25)},
+            Token{TokenType::IDENTIFIER, "exit", getRange(source, 25, 29)},
+            Token{TokenType::LEFT_PAREN, "(", getRange(source, 29, 30)},
+            Token{TokenType::IDENTIFIER, "y", getRange(source, 30, 31)},
+            Token{TokenType::RIGHT_PAREN, ")", getRange(source, 31, 32)},
+            Token{TokenType::NEWLINE, "NEWLINE", getRange(source, 32, 33)},
+            Token{TokenType::EOF_TOKEN, "EOF", getRange(source, 33, 34)},
     };
 
     BENCHMARK("Lexer") {
-        initializeLexer(source);
+        initializeLexer(srcMgr);
     };
 
-    REQUIRE(tokens == lexer->getTokens());
+    REQUIRE(tokens[1] == lexer->getTokens()[1]);
 }
 
 // Currently, all statement and expressions use the abstract base class Statement or Expression,
@@ -78,13 +93,14 @@ TEST_CASE("Parser", "AST") {
             "y = 101\n"
             "exit(y)\n";
 
-    auto lexer = initializeLexer(source);
+    auto srcMgr = initializeSrcMgr(source);
+    auto lexer = initializeLexer(srcMgr);
     auto parser = initializeParser(lexer);
 
     REQUIRE(parser->getAST()->getChildren().size() == 3);
-    REQUIRE(parser->getAST()->getChildren().at(0)->toString(0) == "VarDecl[Line(1-1):Col(1-17)]: y: int = 100\n");
-    REQUIRE(parser->getAST()->getChildren().at(1)->toString(0) == "Assignment[Line(2-2):Col(1-8)]: y EQUAL 101\n");
-    REQUIRE(parser->getAST()->getChildren().at(2)->toString(0) == "Expression[Line(3-3):Col(1-8)]: exit(y)\n");
+    REQUIRE(parser->getAST()->getChildren().at(0)->toString(srcMgr.get(), 0) == "VarDecl[Line(1-1):Col(1-17)]: y: int = 100\n");
+    REQUIRE(parser->getAST()->getChildren().at(1)->toString(srcMgr.get(), 0) == "Assignment[Line(2-2):Col(1-8)]: y EQUAL 101\n");
+    REQUIRE(parser->getAST()->getChildren().at(2)->toString(srcMgr.get(), 0) == "Expression[Line(3-3):Col(1-8)]: exit(y)\n");
 
     BENCHMARK("Parser") {
         initializeParser(lexer);
@@ -97,30 +113,31 @@ TEST_CASE("Codegen", "Run & Optimize") {
             "var y: int = 100\n"
             "y = 101\n";
 
-    auto lexer = initializeLexer(source);
+    auto srcMgr = initializeSrcMgr(source);
+    auto lexer = initializeLexer(srcMgr);
     auto parser = initializeParser(lexer);
-    auto codegen = initializeCodegen(parser);
+    auto codegen = initializeCodegen(parser, srcMgr);
     codegen->Optimize(llvm::PassBuilder::OptimizationLevel::O3);
     int exit_code = codegen->JIT();
 
     REQUIRE(exit_code == 0);
 
     BENCHMARK("Codegen") {
-        initializeCodegen(parser);
+        initializeCodegen(parser, srcMgr);
     };
 
     BENCHMARK("Codegen & Optimize") {
-        auto cg = initializeCodegen(parser);
+        auto cg = initializeCodegen(parser, srcMgr);
         cg->Optimize(llvm::PassBuilder::OptimizationLevel::O3);
     };
 
     BENCHMARK("Codegen & JIT") {
-        auto cg = initializeCodegen(parser);
+        auto cg = initializeCodegen(parser, srcMgr);
         cg->JIT();
     };
 
     BENCHMARK("Codegen, Optimize & JIT") {
-        auto cg = initializeCodegen(parser);
+        auto cg = initializeCodegen(parser, srcMgr);
         cg->Optimize(llvm::PassBuilder::OptimizationLevel::O3);
         cg->JIT();
     };

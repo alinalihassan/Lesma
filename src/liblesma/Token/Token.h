@@ -13,37 +13,39 @@ namespace lesma {
 
     class TokenState {
     public:
-        [[nodiscard]] std::string Dump() const;
+        [[nodiscard]] std::string Dump(std::shared_ptr<llvm::SourceMgr> srcMgr) const;
 
         std::string lexeme;
         TokenType type;
-        Span span;
+        llvm::SMRange span;
 
         bool operator==(const TokenState &rhs) const {
-            return (lexeme == rhs.lexeme) && (type == rhs.type) && (span == rhs.span);
+            return (lexeme == rhs.lexeme) && (type == rhs.type) && (span.Start.getPointer() == rhs.span.Start.getPointer())
+                    && (span.End.getPointer() == rhs.span.End.getPointer());
         }
         bool operator!=(const TokenState &rhs) const {
             return !operator==(rhs);
         }
+
         friend std::ostream &operator<<(std::ostream &os, const TokenState &tok) {
-            os << tok.Dump();
+            os << *tok.span.Start.getPointer() << " - " << *tok.span.End.getPointer();
             return os;
         }
 
     protected:
         friend struct Token;
-        explicit TokenState(const TokenType &type, std::string lexeme, Span span)
+        explicit TokenState(const TokenType &type, std::string lexeme, llvm::SMRange span)
             : lexeme(std::move(lexeme)), type(type), span(span) {}
     };
 
     struct Token {
         Token() = default;
-        Token(const TokenType &type, const std::string &lexeme, Span loc) {
+        Token(const TokenType &type, const std::string &lexeme, llvm::SMRange loc) {
             state_ = std::shared_ptr<TokenState>(new TokenState(type, lexeme, loc));
         }
 
-        SourceLocation getStart() { return state_->span.Start; }
-        SourceLocation getEnd() { return state_->span.End; };
+        llvm::SMLoc getStart() { return state_->span.Start; }
+        llvm::SMLoc getEnd() { return state_->span.End; };
 
         static TokenType GetIdentifierType(const std::string &identifier, Token lastTok);
 
@@ -57,7 +59,7 @@ namespace lesma {
             return !operator==(rhs);
         }
         friend std::ostream &operator<<(std::ostream &os, const Token &tok) {
-            os << tok.state_->Dump();
+            os << *tok.state_->span.Start.getPointer() << " - " << *tok.state_->span.End.getPointer();
             return os;
         }
 

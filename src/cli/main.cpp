@@ -7,6 +7,7 @@
 #include "liblesma/Frontend/Lexer.h"
 #include "liblesma/Frontend/Parser.h"
 
+#include "llvm/Support/SourceMgr.h"
 using namespace lesma;
 
 #define TIMEIT(debug_operation, statements)   \
@@ -50,22 +51,31 @@ int main(int argc, char **argv) {
     plf::nanotimer timer;
     double results, total = 0;
 
+    // Configure Source Manager
+    std::shared_ptr<SourceMgr> srcMgr = std::make_shared<SourceMgr>(SourceMgr());
+
     // CLI Parsing
     TIMEIT("CLI", auto options = parseCLI(argc, argv);)
 
     try {
         // Read Source
-        TIMEIT("File read", auto source = readFile(options->file);)
+        TIMEIT("File read",
+               auto buffer = MemoryBuffer::getFile(options->file);
+               if (buffer.getError() != std::error_code())
+                   throw LesmaError(llvm::SMRange(), "Could not read file: {}", options->file);
+
+               srcMgr->AddNewSourceBuffer(std::move(*buffer), llvm::SMLoc());
+               auto source_str = srcMgr->getMemoryBuffer(1)->getBuffer().str();)
 
         // Lexer
         TIMEIT("Lexer scan",
-               auto lexer = std::make_unique<Lexer>(source, options->file.substr(options->file.find_last_of("/\\") + 1));
+               auto lexer = std::make_unique<Lexer>(srcMgr);
                lexer->ScanAll();)
 
         if (options->debug) {
             print(DEBUG, "TOKENS: \n");
             for (const auto &tok: lexer->getTokens())
-                print("Token: {}\n", tok->Dump());
+                print("Token: {}\n", tok->Dump(srcMgr));
         }
 
         // Parser
@@ -74,11 +84,11 @@ int main(int argc, char **argv) {
                parser->Parse();)
 
         if (options->debug)
-            print(DEBUG, "AST:\n{}", parser->getAST()->toString(0));
+            print(DEBUG, "AST:\n{}", parser->getAST()->toString(srcMgr.get(), 0));
 
         // Codegen
         TIMEIT("Compiling",
-               auto codegen = std::make_unique<Codegen>(std::move(parser), options->file, options->jit, true);
+               auto codegen = std::make_unique<Codegen>(std::move(parser), srcMgr, options->file, options->jit, true);
                codegen->Run();)
 
         if (options->debug) {
@@ -106,10 +116,10 @@ int main(int argc, char **argv) {
 
         return exit_code;
     } catch (const LesmaError &err) {
-        if (err.getSpan() == Span{})
+        if (!err.getSpan().isValid())
             print(ERROR, err.what());
         else
-            showInline(err.getSpan(), err.what(), options->file, true);
+            showInline(srcMgr.get(), err.getSpan(), err.what(), options->file, true);
         return err.exit_code;
     }
 }
