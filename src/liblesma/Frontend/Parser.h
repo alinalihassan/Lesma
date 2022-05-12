@@ -82,6 +82,7 @@ namespace lesma {
         Expression *ParseOr();
         Expression *ParseAnd();
         Expression *ParseNot();
+        Expression *ParseDot();
         Expression *ParseCompare();
         Expression *ParseAdd();
         Expression *ParseMult();

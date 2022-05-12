@@ -127,14 +127,26 @@ Expression *Parser::ParseTerm() {
     return nullptr;
 }
 
+Expression *Parser::ParseDot() {
+    Expression *left = ParseTerm();
+
+    while (AdvanceIfMatchAny<TokenType::DOT>()) {
+        auto op = Previous();
+        auto expr = ParseTerm();
+        left = new DotOp({op.getStart(), expr->getEnd()}, left, op->type, expr);
+    }
+
+    return left;
+}
+
 Expression *Parser::ParseUnary() {
-    Expression *left = nullptr;
+    Expression *left = ParseDot();
     while (AdvanceIfMatchAny<TokenType::MINUS>()) {
         auto op = Previous();
         auto expr = ParseTerm();
         left = new UnaryOp({op.getStart(), expr->getEnd()}, op->type, expr);
     }
-    return left == nullptr ? ParseTerm() : left;
+    return left;
 }
 
 Expression *Parser::ParseCast() {
