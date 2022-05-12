@@ -10,6 +10,7 @@ enum SymbolSuperType {
     TY_STRING,
     TY_BOOL,
     TY_FUNCTION,
+    TY_STRUCT,
 };
 
 class SymbolType {

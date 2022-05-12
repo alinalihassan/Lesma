@@ -306,7 +306,7 @@ void Codegen::visit(VarDecl *node) {
 
     auto ptr = Builder->CreateAlloca(type, nullptr, node->getIdentifier()->getValue());
 
-    auto symbol = new SymbolTableEntry(node->getIdentifier()->getValue(), getType(type));
+    auto symbol = new SymbolTableEntry(node->getIdentifier()->getValue(), getType(type), node->getType().has_value() ? INITIALIZED : DECLARED);
     symbol->setLLVMType(type);
     symbol->setLLVMValue(ptr);
     symbol->setMutable(node->getMutability());
@@ -595,9 +595,12 @@ void Codegen::visit(Import *node) {
     CompileModule(node->getSpan(), node->getFilePath(), node->isStd());
 }
 
-void Codegen::visit(Enum *) {
-    //    std::vector<llvm::Type*> elementTypes = {Builder->getInt8Ty()};
-    //    llvm::StructType *structType = llvm::StructType::create(*TheContext, elementTypes, node->getIdentifier());
+void Codegen::visit(Enum *node) {
+    std::vector<llvm::Type*> elementTypes = {Builder->getInt8Ty()};
+    llvm::StructType *structType = llvm::StructType::create(*TheContext, elementTypes, node->getIdentifier());
+
+    auto *type = new SymbolType(TY_STRUCT);
+    Scope->insertType(node->getIdentifier(), type);
     //    TODO: Add to scope table (currently only symbols, not types), implement "." dot access operator,
 }
 

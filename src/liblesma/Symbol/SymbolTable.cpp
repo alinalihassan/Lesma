@@ -12,19 +12,42 @@ void SymbolTable::insertSymbol(SymbolTableEntry* entry) {
 }
 
 /**
+ * Insert a new symbol into the current symbol table. If it is a parameter, append its name to the paramNames vector
+ *
+ * @param entry Symbol Table Entry
+ */
+void SymbolTable::insertType(const std::string& name, SymbolType *type) {
+    types.insert_or_assign(name, type);
+}
+
+/**
  * Check if a symbol exists in the current or any parent scope and return it if possible
  *
  * @param name Name of the desired symbol
  * @return Desired symbol / nullptr if the symbol was not found
  */
 SymbolTableEntry *SymbolTable::lookup(const std::string &name) {
-    // If not available in the current scope, search in the parent scope
     if (symbols.find(name) == symbols.end()) {
         if (parent == nullptr) return nullptr;
         return parent->lookup(name);
     }
-    // Otherwise, return the entry
+
     return symbols.at(name);
+}
+
+/**
+ * Check if a symbol exists in the current or any parent scope and return it if possible
+ *
+ * @param name Name of the desired symbol
+ * @return Desired symbol / nullptr if the symbol was not found
+ */
+SymbolType *SymbolTable::lookupType(const std::string &name) {
+    if (types.find(name) == types.end()) {
+        if (parent == nullptr) return nullptr;
+        return parent->lookupType(name);
+    }
+
+    return types.at(name);
 }
 
 /**

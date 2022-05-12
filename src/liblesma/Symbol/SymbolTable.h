@@ -14,7 +14,9 @@ namespace lesma {
         explicit SymbolTable(SymbolTable *parent) : parent(parent){};
 
         SymbolTableEntry *lookup(const std::string &symbolName);
+        SymbolType *lookupType(const std::string &symbolName);
         void insertSymbol(SymbolTableEntry *symbol);
+        void insertType(const std::string& name, SymbolType *type);
         SymbolTable *createChildBlock(const std::string &blockName);
         SymbolTable *getParent();
         SymbolTable *getChild(const std::string &tableName);
@@ -38,5 +40,6 @@ namespace lesma {
         SymbolTable *parent;
         std::map<std::string, SymbolTable *> children;
         std::map<std::string, SymbolTableEntry *> symbols;
+        std::map<std::string, SymbolType *> types;
     };
 }// namespace lesma
