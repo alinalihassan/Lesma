@@ -60,6 +60,7 @@ namespace lesma {
         STRING_TYPE,
         BOOL_TYPE,
         VOID_TYPE,
+        CUSTOM_TYPE,
 
         // Keywords.
         AND,

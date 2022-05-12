@@ -99,9 +99,11 @@ void Codegen::CompileModule(llvm::SMRange span, const std::string &filepath, boo
             Module::iterator end = TheModule->end();
             for (it = TheModule->begin(); it != end; ++it) {
                 auto name = std::string{(*it).getName()};
-                Scope->insertSymbol(name, (Value *) &(*it).getFunction(), (*it).getFunctionType());
+                auto symbol = new SymbolTableEntry(name, SymbolType(SymbolSuperType::TY_FUNCTION));
+                symbol->setLLVMType((*it).getFunctionType());
+                symbol->setLLVMValue((Value *) &(*it).getFunction());
+                Scope->insertSymbol(symbol);
             }
-
         } else {
             std::string obj_file = fmt::format("tmp{}", ObjectFiles.size());
             codegen->WriteToObjectFile(obj_file);
@@ -117,7 +119,10 @@ void Codegen::CompileModule(llvm::SMRange span, const std::string &filepath, boo
                                                  name,
                                                  *TheModule);
 
-                Scope->insertSymbol(name, new_func, new_func->getFunctionType());
+                auto symbol = new SymbolTableEntry(name, SymbolType(SymbolSuperType::TY_FUNCTION));
+                symbol->setLLVMType(new_func->getFunctionType());
+                symbol->setLLVMValue(new_func);
+                Scope->insertSymbol(symbol);
             }
         }
     } catch (const LesmaError &err) {
@@ -301,7 +306,11 @@ void Codegen::visit(VarDecl *node) {
 
     auto ptr = Builder->CreateAlloca(type, nullptr, node->getIdentifier()->getValue());
 
-    Scope->insertSymbol(node->getIdentifier()->getValue(), ptr, type, node->getMutability());
+    auto symbol = new SymbolTableEntry(node->getIdentifier()->getValue(), getType(type));
+    symbol->setLLVMType(type);
+    symbol->setLLVMValue(ptr);
+    symbol->setMutable(node->getMutability());
+    Scope->insertSymbol(symbol);
 
     if (node->getValue().has_value())
         Builder->CreateStore(Cast(node->getSpan(), visit(node->getValue().value()), ptr->getAllocatedType()), ptr);
@@ -413,7 +422,10 @@ void Codegen::visit(FuncDecl *node) {
         auto ptr = Builder->CreateAlloca(param.getType(), nullptr, param.getName() + "_ptr");
         Builder->CreateStore(&param, ptr);
 
-        Scope->insertSymbol(param.getName().str(), ptr, param.getType(), false);
+        auto symbol = new SymbolTableEntry(param.getName().str(), getType(param.getType()));
+        symbol->setLLVMType(param.getType());
+        symbol->setLLVMValue(ptr);
+        Scope->insertSymbol(symbol);
     }
     visit(node->getBody());
 
@@ -435,7 +447,11 @@ void Codegen::visit(FuncDecl *node) {
 
     // Insert Function to Symbol Table
     Scope = Scope->getParent();
-    Scope->insertSymbol(name, F, F->getFunctionType());
+
+    auto symbol = new SymbolTableEntry(name, SymbolType(SymbolSuperType::TY_FUNCTION));
+    symbol->setLLVMType(F->getFunctionType());
+    symbol->setLLVMValue(F);
+    Scope->insertSymbol(symbol);
 
     // Reset Insert Point to Top Level
     Builder->SetInsertPoint(&TopLevelFunc->back());
@@ -450,7 +466,10 @@ void Codegen::visit(ExternFuncDecl *node) {
     FunctionType *FT = FunctionType::get(visit(node->getReturnType()), paramTypes, false);
     auto F = TheModule->getOrInsertFunction(node->getName(), FT);
 
-    Scope->insertSymbol(node->getName(), F.getCallee(), F.getFunctionType());
+    auto symbol = new SymbolTableEntry(node->getName(), SymbolType(SymbolSuperType::TY_FUNCTION));
+    symbol->setLLVMType(F.getFunctionType());
+    symbol->setLLVMValue(F.getCallee());
+    Scope->insertSymbol(symbol);
 }
 
 void Codegen::visit(Assignment *node) {
@@ -461,65 +480,65 @@ void Codegen::visit(Assignment *node) {
         throw CodegenError(node->getSpan(), "Assigning immutable variable a new value");
 
     auto value = visit(node->getExpression());
-    value = Cast(node->getSpan(), value, symbol->getType());
+    value = Cast(node->getSpan(), value, symbol->getLLVMType());
     llvm::Value *var_val;
 
     switch (node->getOperator()) {
         case TokenType::EQUAL:
-            Builder->CreateStore(value, symbol->getValue());
+            Builder->CreateStore(value, symbol->getLLVMValue());
             break;
         case TokenType::PLUS_EQUAL:
-            var_val = Builder->CreateLoad(symbol->getType(), symbol->getValue(), ".tmp");
-            if (symbol->getType()->isFloatingPointTy()) {
+            var_val = Builder->CreateLoad(symbol->getLLVMType(), symbol->getLLVMValue(), ".tmp");
+            if (symbol->getLLVMType()->isFloatingPointTy()) {
                 auto new_val = Builder->CreateFAdd(value, var_val, ".tmp");
-                Builder->CreateStore(new_val, symbol->getValue());
-            } else if (symbol->getType()->isIntegerTy()) {
+                Builder->CreateStore(new_val, symbol->getLLVMValue());
+            } else if (symbol->getLLVMType()->isIntegerTy()) {
                 auto new_val = Builder->CreateAdd(value, var_val, ".tmp");
-                Builder->CreateStore(new_val, symbol->getValue());
+                Builder->CreateStore(new_val, symbol->getLLVMValue());
             } else
                 throw CodegenError(node->getSpan(), "Invalid operator: {}", NAMEOF_ENUM(node->getOperator()));
             break;
         case TokenType::MINUS_EQUAL:
-            var_val = Builder->CreateLoad(symbol->getType(), symbol->getValue(), ".tmp");
-            if (symbol->getType()->isFloatingPointTy()) {
+            var_val = Builder->CreateLoad(symbol->getLLVMType(), symbol->getLLVMValue(), ".tmp");
+            if (symbol->getLLVMType()->isFloatingPointTy()) {
                 auto new_val = Builder->CreateFSub(value, var_val, ".tmp");
-                Builder->CreateStore(new_val, symbol->getValue());
-            } else if (symbol->getType()->isIntegerTy()) {
+                Builder->CreateStore(new_val, symbol->getLLVMValue());
+            } else if (symbol->getLLVMType()->isIntegerTy()) {
                 auto new_val = Builder->CreateSub(value, var_val, ".tmp");
-                Builder->CreateStore(new_val, symbol->getValue());
+                Builder->CreateStore(new_val, symbol->getLLVMValue());
             } else
                 throw CodegenError(node->getSpan(), "Invalid operator: {}", NAMEOF_ENUM(node->getOperator()));
             break;
         case TokenType::SLASH_EQUAL:
-            var_val = Builder->CreateLoad(symbol->getType(), symbol->getValue(), ".tmp");
-            if (symbol->getType()->isFloatingPointTy()) {
+            var_val = Builder->CreateLoad(symbol->getLLVMType(), symbol->getLLVMValue(), ".tmp");
+            if (symbol->getLLVMType()->isFloatingPointTy()) {
                 auto new_val = Builder->CreateFDiv(value, var_val, ".tmp");
-                Builder->CreateStore(new_val, symbol->getValue());
-            } else if (symbol->getType()->isIntegerTy()) {
+                Builder->CreateStore(new_val, symbol->getLLVMValue());
+            } else if (symbol->getLLVMType()->isIntegerTy()) {
                 auto new_val = Builder->CreateSDiv(value, var_val, ".tmp");
-                Builder->CreateStore(new_val, symbol->getValue());
+                Builder->CreateStore(new_val, symbol->getLLVMValue());
             } else
                 throw CodegenError(node->getSpan(), "Invalid operator: {}", NAMEOF_ENUM(node->getOperator()));
             break;
         case TokenType::STAR_EQUAL:
-            var_val = Builder->CreateLoad(symbol->getType(), symbol->getValue(), ".tmp");
-            if (symbol->getType()->isFloatingPointTy()) {
+            var_val = Builder->CreateLoad(symbol->getLLVMType(), symbol->getLLVMValue(), ".tmp");
+            if (symbol->getLLVMType()->isFloatingPointTy()) {
                 auto new_val = Builder->CreateFMul(value, var_val, ".tmp");
-                Builder->CreateStore(new_val, symbol->getValue());
-            } else if (symbol->getType()->isIntegerTy()) {
+                Builder->CreateStore(new_val, symbol->getLLVMValue());
+            } else if (symbol->getLLVMType()->isIntegerTy()) {
                 auto new_val = Builder->CreateMul(value, var_val, ".tmp");
-                Builder->CreateStore(new_val, symbol->getValue());
+                Builder->CreateStore(new_val, symbol->getLLVMValue());
             } else
                 throw CodegenError(node->getSpan(), "Invalid operator: {}", NAMEOF_ENUM(node->getOperator()));
             break;
         case TokenType::MOD_EQUAL:
-            var_val = Builder->CreateLoad(symbol->getType(), symbol->getValue(), ".tmp");
-            if (symbol->getType()->isFloatingPointTy()) {
+            var_val = Builder->CreateLoad(symbol->getLLVMType(), symbol->getLLVMValue(), ".tmp");
+            if (symbol->getLLVMType()->isFloatingPointTy()) {
                 auto new_val = Builder->CreateFRem(value, var_val, ".tmp");
-                Builder->CreateStore(new_val, symbol->getValue());
-            } else if (symbol->getType()->isIntegerTy()) {
+                Builder->CreateStore(new_val, symbol->getLLVMValue());
+            } else if (symbol->getLLVMType()->isIntegerTy()) {
                 auto new_val = Builder->CreateSRem(value, var_val, ".tmp");
-                Builder->CreateStore(new_val, symbol->getValue());
+                Builder->CreateStore(new_val, symbol->getLLVMValue());
             } else
                 throw CodegenError(node->getSpan(), "Invalid operator: {}", NAMEOF_ENUM(node->getOperator()));
             break;
@@ -598,10 +617,10 @@ llvm::Value *Codegen::visit(FuncCall *node) {
     if (symbol == nullptr)
         throw CodegenError(node->getSpan(), "Function {} not in current scope.", node->getName());
 
-    if (!static_cast<llvm::FunctionType *>(symbol->getType()))
+    if (!static_cast<llvm::FunctionType *>(symbol->getLLVMType()))
         throw CodegenError(node->getSpan(), "Symbol {} is not a function.", node->getName());
 
-    auto *func = static_cast<Function *>(symbol->getValue());
+    auto *func = static_cast<Function *>(symbol->getLLVMValue());
     return Builder->CreateCall(func, params, func->getReturnType()->isVoidTy() ? "" : "tmp");
 }
 
@@ -661,7 +680,6 @@ llvm::Value *Codegen::visit(BinaryOp *node) {
                 throw CodegenError(node->getSpan(), "Cannot use non-integers for power coefficient: {}",
                                    node->getRight()->toString(SourceManager.get(), 0));
             throw CodegenError(node->getSpan(), "Power operator not implemented yet.");
-            break;
         case TokenType::EQUAL_EQUAL:
             left = Cast(node->getSpan(), left, finalType);
             right = Cast(node->getSpan(), right, finalType);
@@ -778,7 +796,7 @@ llvm::Value *Codegen::visit(Literal *node) {
             throw CodegenError(node->getSpan(), "Unknown variable name {}", node->getValue());
 
         // Load the value.
-        return Builder->CreateLoad(val->getType(), val->getValue(), ".tmp");
+        return Builder->CreateLoad(val->getLLVMType(), val->getLLVMValue(), ".tmp");
     } else
         throw CodegenError(node->getSpan(), "Unknown literal {}", node->getValue());
 }
@@ -849,6 +867,21 @@ llvm::Type *Codegen::GetExtendedType(llvm::Type *left, llvm::Type *right) {
             return left->isHalfTy() ? left : right;
     }
     return nullptr;
+}
+
+SymbolType Codegen::getType(llvm::Type* type) {
+    if (type->isIntegerTy(1))
+        return SymbolType(SymbolSuperType::TY_BOOL);
+    else if (type->isIntegerTy(8))
+        return SymbolType(SymbolSuperType::TY_STRING);
+    else if (type->isFloatingPointTy())
+        return  SymbolType(SymbolSuperType::TY_FLOAT);
+    else if (type->isIntegerTy())
+        return  SymbolType(SymbolSuperType::TY_INT);
+    else if (type->isFunctionTy())
+        return  SymbolType(SymbolSuperType::TY_FUNCTION);
+
+    return SymbolType(SymbolSuperType::TY_INVALID);
 }
 
 llvm::Value *Codegen::Cast(llvm::SMRange span, llvm::Value *val, llvm::Type *type) {

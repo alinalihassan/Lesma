@@ -5,51 +5,18 @@
 #include <map>
 #include <utility>
 
+#include "SymbolTableEntry.h"
 #include "liblesma/Common/Utils.h"
 
 namespace lesma {
-    class SymbolTableEntry {
-    public:
-        explicit SymbolTableEntry(std::string name, llvm::Value *value, llvm::Type *type) : name(std::move(name)),
-                                                                                            value(value), type(type),
-                                                                                            mutable_(false) {}
-        explicit SymbolTableEntry(std::string name, llvm::Value *value, llvm::Type *type, bool mutable_) : name(std::move(name)),
-                                                                                                           value(value), type(type),
-                                                                                                           mutable_(mutable_) {}
-
-        [[nodiscard]] std::string getName() { return name; }
-        [[nodiscard]] llvm::Value *getValue() { return value; }
-        [[nodiscard]] llvm::Type *getType() { return type; }
-        [[nodiscard]] bool getMutability() const { return mutable_; }
-
-        std::string toString() {
-            std::string type_str, value_str;
-            llvm::raw_string_ostream rso(type_str), rso2(value_str);
-            type->print(rso);
-            value->print(rso2);
-            return name + ": " + type_str + " = " + value_str;
-        }
-
-    private:
-        std::string name;
-        llvm::Value *value;
-        llvm::Type *type;
-        bool mutable_;
-    };
-
     class SymbolTable {
     public:
         explicit SymbolTable(SymbolTable *parent) : parent(parent){};
 
         SymbolTableEntry *lookup(const std::string &symbolName);
-
-        void insertSymbol(const std::string &name, llvm::Value *value, llvm::Type *type);
-        void insertSymbol(const std::string &name, llvm::Value *value, llvm::Type *type, bool mutable_);
-
+        void insertSymbol(SymbolTableEntry *symbol);
         SymbolTable *createChildBlock(const std::string &blockName);
-
         SymbolTable *getParent();
-
         SymbolTable *getChild(const std::string &tableName);
 
         std::string toString(int ind) {

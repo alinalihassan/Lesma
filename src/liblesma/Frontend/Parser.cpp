@@ -58,6 +58,9 @@ Type *Parser::ParseType() {
                  TokenType::VOID_TYPE>()) {
         Advance();
         return new Type(type->span, type->lexeme, type->type);
+    } else if (Check(TokenType::IDENTIFIER)) {
+        Advance();
+        return new Type(type->span, type->lexeme, TokenType::CUSTOM_TYPE);
     }
 
     Error(type, fmt::format("Unknown type: {}", type->lexeme));

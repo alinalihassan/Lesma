@@ -5,20 +5,10 @@ using namespace lesma;
 /**
  * Insert a new symbol into the current symbol table. If it is a parameter, append its name to the paramNames vector
  *
- * @param name Name of the symbol
- * @param type Type of the symbol
- * @param state State of the symbol (declared or initialized)
- * @param isConstant Enabled if the symbol is a constant
- * @param isParameter Enabled if the symbol is a function/procedure parameter
+ * @param entry Symbol Table Entry
  */
-void SymbolTable::insertSymbol(const std::string &name, llvm::Value *value, llvm::Type *type) {
-    return insertSymbol(name, value, type, false);
-}
-void SymbolTable::insertSymbol(const std::string &name, llvm::Value *value, llvm::Type *type, bool mutable_) {
-    //    bool isGlobal = getParent() == nullptr;
-    symbols.insert_or_assign(name, new SymbolTableEntry(name, value, type, mutable_));
-    // If the symbol is a parameter, add it to the parameters list
-    //    if (isParameter) paramNames.push_back(name);
+void SymbolTable::insertSymbol(SymbolTableEntry* entry) {
+    symbols.insert_or_assign(entry->getName(), entry);
 }
 
 /**
