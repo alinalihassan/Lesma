@@ -602,8 +602,10 @@ void Codegen::visit(Enum *node) {
     llvm::StructType *structType = llvm::StructType::create(*TheContext, elementTypes, node->getIdentifier());
 
     auto *type = new SymbolType(TY_STRUCT);
+    auto *structSymbol = new SymbolTableEntry(node->getIdentifier(), *type);
+    structSymbol->setLLVMType(structType);
     Scope->insertType(node->getIdentifier(), type);
-    //    TODO: Add to scope table (currently only symbols, not types), implement "." dot access operator,
+    Scope->insertSymbol(structSymbol);
 }
 
 llvm::Value *Codegen::visit(FuncCall *node) {
