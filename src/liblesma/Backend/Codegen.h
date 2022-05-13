@@ -87,6 +87,7 @@ namespace lesma {
         llvm::Value *visit(Expression *node) override;
         llvm::Value *visit(FuncCall *node) override;
         llvm::Value *visit(BinaryOp *node) override;
+        llvm::Value *visit(DotOp *node) override;
         llvm::Value *visit(CastOp *node) override;
         llvm::Value *visit(UnaryOp *node) override;
         llvm::Value *visit(Literal *node) override;

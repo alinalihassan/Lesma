@@ -229,6 +229,8 @@ llvm::Value *Codegen::visit(Expression *node) {
         return visit(dynamic_cast<FuncCall *>(node));
     else if (dynamic_cast<BinaryOp *>(node))
         return visit(dynamic_cast<BinaryOp *>(node));
+    else if (dynamic_cast<DotOp *>(node))
+        return visit(dynamic_cast<DotOp *>(node));
     else if (dynamic_cast<CastOp *>(node))
         return visit(dynamic_cast<CastOp *>(node));
     else if (dynamic_cast<UnaryOp *>(node))
@@ -758,6 +760,11 @@ llvm::Value *Codegen::visit(BinaryOp *node) {
                        NAMEOF_ENUM(node->getOperator()),
                        node->getLeft()->toString(SourceManager.get(), 0),
                        node->getRight()->toString(SourceManager.get(), 0));
+}
+
+llvm::Value *Codegen::visit(DotOp *node) {
+    return nullptr;
+//    return Cast(node->getSpan(), visit(node->getExpression()), visit(node->getType()));
 }
 
 llvm::Value *Codegen::visit(CastOp *node) {
