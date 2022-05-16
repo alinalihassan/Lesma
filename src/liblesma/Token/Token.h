@@ -13,7 +13,7 @@ namespace lesma {
 
     class TokenState {
     public:
-        [[nodiscard]] std::string Dump(std::shared_ptr<llvm::SourceMgr> srcMgr) const;
+        [[nodiscard]] std::string Dump(const std::shared_ptr<llvm::SourceMgr>& srcMgr) const;
 
         std::string lexeme;
         TokenType type;
@@ -46,7 +46,7 @@ namespace lesma {
         llvm::SMLoc getStart() { return state_->span.Start; }
         llvm::SMLoc getEnd() { return state_->span.End; };
 
-        static TokenType GetIdentifierType(const std::string &identifier, Token lastTok);
+        static TokenType GetIdentifierType(const std::string &identifier, const Token& lastTok);
 
         TokenState *operator->() const { return state_.get(); }
         explicit operator bool() const { return static_cast<bool>(state_); }
