@@ -58,31 +58,32 @@ TEST_CASE("Lexer", "Tokens") {
 
     REQUIRE(lexer->getTokens().size() > 1);
 
-    std::vector<Token> tokens = {
-            Token{TokenType::VAR, "var", getRange(source, 0, 3)},
-            Token{TokenType::IDENTIFIER, "y", getRange(source, 4, 5)},
-            Token{TokenType::COLON, ":", getRange(source, 5, 6)},
-            Token{TokenType::INT_TYPE, "int", getRange(source, 7, 10)},
-            Token{TokenType::EQUAL, "=", getRange(source, 11, 12)},
-            Token{TokenType::INTEGER, "100", getRange(source, 13, 16)},
-            Token{TokenType::NEWLINE, "NEWLINE", getRange(source, 16, 17)},
-            Token{TokenType::IDENTIFIER, "y", getRange(source, 17, 18)},
-            Token{TokenType::EQUAL, "=", getRange(source, 19, 20)},
-            Token{TokenType::INTEGER, "101", getRange(source, 21, 24)},
-            Token{TokenType::NEWLINE, "NEWLINE", getRange(source, 24, 25)},
-            Token{TokenType::IDENTIFIER, "exit", getRange(source, 25, 29)},
-            Token{TokenType::LEFT_PAREN, "(", getRange(source, 29, 30)},
-            Token{TokenType::IDENTIFIER, "y", getRange(source, 30, 31)},
-            Token{TokenType::RIGHT_PAREN, ")", getRange(source, 31, 32)},
-            Token{TokenType::NEWLINE, "NEWLINE", getRange(source, 32, 33)},
-            Token{TokenType::EOF_TOKEN, "EOF", getRange(source, 33, 34)},
+    std::vector<Token*> tokens = {
+            new Token{TokenType::VAR, "var", getRange(source, 0, 3)},
+            new Token{TokenType::IDENTIFIER, "y", getRange(source, 4, 5)},
+            new Token{TokenType::COLON, ":", getRange(source, 5, 6)},
+            new Token{TokenType::INT_TYPE, "int", getRange(source, 7, 10)},
+            new Token{TokenType::EQUAL, "=", getRange(source, 11, 12)},
+            new Token{TokenType::INTEGER, "100", getRange(source, 13, 16)},
+            new Token{TokenType::NEWLINE, "NEWLINE", getRange(source, 16, 17)},
+            new Token{TokenType::IDENTIFIER, "y", getRange(source, 17, 18)},
+            new Token{TokenType::EQUAL, "=", getRange(source, 19, 20)},
+            new Token{TokenType::INTEGER, "101", getRange(source, 21, 24)},
+            new Token{TokenType::NEWLINE, "NEWLINE", getRange(source, 24, 25)},
+            new Token{TokenType::IDENTIFIER, "exit", getRange(source, 25, 29)},
+            new Token{TokenType::LEFT_PAREN, "(", getRange(source, 29, 30)},
+            new Token{TokenType::IDENTIFIER, "y", getRange(source, 30, 31)},
+            new Token{TokenType::RIGHT_PAREN, ")", getRange(source, 31, 32)},
+            new Token{TokenType::NEWLINE, "NEWLINE", getRange(source, 32, 33)},
+            new Token{TokenType::EOF_TOKEN, "EOF", getRange(source, 33, 33)},
     };
 
     BENCHMARK("Lexer") {
         initializeLexer(srcMgr);
     };
 
-    REQUIRE(tokens[1] == lexer->getTokens()[1]);
+    for (auto [a, b] : zip(tokens, lexer->getTokens()))
+        REQUIRE(*a == *b);
 }
 
 // Currently, all statement and expressions use the abstract base class Statement or Expression,

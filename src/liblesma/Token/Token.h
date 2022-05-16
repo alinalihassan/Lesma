@@ -12,7 +12,7 @@
 namespace lesma {
     struct Token {
         std::string lexeme;
-        TokenType type;
+        TokenType type = TokenType::NULL_TOKEN;
         llvm::SMRange span;
 
         Token() = default;

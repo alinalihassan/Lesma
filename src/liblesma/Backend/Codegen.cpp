@@ -772,9 +772,8 @@ llvm::Value *Codegen::visit(BinaryOp *node) {
                        node->getRight()->toString(SourceManager.get(), 0));
 }
 
-llvm::Value *Codegen::visit(DotOp *node) {
+llvm::Value *Codegen::visit(DotOp */*node*/) {
     return nullptr;
-//    return Cast(node->getSpan(), visit(node->getExpression()), visit(node->getType()));
 }
 
 llvm::Value *Codegen::visit(CastOp *node) {

@@ -93,5 +93,6 @@ namespace lesma {
 
         // Special tokens
         EOF_TOKEN,
+        NULL_TOKEN,
     };
 }
