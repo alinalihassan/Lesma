@@ -29,25 +29,25 @@ bool Parser::CheckAny(unsigned long pos) {
     return true;
 }
 
-Token Parser::Consume(TokenType type) {
+Token *Parser::Consume(TokenType type) {
     return Consume(type, std::string{"Expected: "} + std::string{NAMEOF_ENUM(type)} +
                                  ", found: " + std::string{NAMEOF_ENUM(Peek()->type)});
 }
 
-Token Parser::Consume(TokenType type, const std::string &error_message) {
+Token *Parser::Consume(TokenType type, const std::string &error_message) {
     if (Check(type)) return Advance();
     Error(Peek(), error_message);
-    return Token{};
+    return new Token{};
 }
 
-Token Parser::ConsumeNewline() {
+Token *Parser::ConsumeNewline() {
     if (Check(TokenType::NEWLINE) || Peek()->type == TokenType::EOF_TOKEN)
         return Advance();
     Error(Peek(), fmt::format("Expected: NEWLINE or EOF, found: {}", NAMEOF_ENUM(Peek()->type)));
-    return Token{};
+    return new Token{};
 }
 
-void Parser::Error(const Token &token, const std::string &error_message) {
+void Parser::Error(Token *token, const std::string &error_message) {
     throw ParserError(token->span, "{}", error_message);
 }
 
@@ -58,6 +58,9 @@ Type *Parser::ParseType() {
                  TokenType::VOID_TYPE>()) {
         Advance();
         return new Type(type->span, type->lexeme, type->type);
+    } else if (Check(TokenType::IDENTIFIER)) {
+        Advance();
+        return new Type(type->span, type->lexeme, TokenType::CUSTOM_TYPE);
     }
 
     Error(type, fmt::format("Unknown type: {}", type->lexeme));
@@ -84,7 +87,7 @@ Expression *Parser::ParseFunctionCall() {
 
     auto paren = Consume(TokenType::RIGHT_PAREN);
 
-    return new FuncCall({token.getStart(), paren->span.End}, token->lexeme, params);
+    return new FuncCall({token->getStart(), paren->span.End}, token->lexeme, params);
 }
 
 Expression *Parser::ParseTerm() {
@@ -124,14 +127,26 @@ Expression *Parser::ParseTerm() {
     return nullptr;
 }
 
+Expression *Parser::ParseDot() {
+    Expression *left = ParseTerm();
+
+    while (AdvanceIfMatchAny<TokenType::DOT>()) {
+        auto op = Previous();
+        auto expr = ParseTerm();
+        left = new DotOp({op->getStart(), expr->getEnd()}, left, op->type, expr);
+    }
+
+    return left;
+}
+
 Expression *Parser::ParseUnary() {
-    Expression *left = nullptr;
+    Expression *left = ParseDot();
     while (AdvanceIfMatchAny<TokenType::MINUS>()) {
         auto op = Previous();
         auto expr = ParseTerm();
-        left = new UnaryOp({op.getStart(), expr->getEnd()}, op->type, expr);
+        left = new UnaryOp({op->getStart(), expr->getEnd()}, op->type, expr);
     }
-    return left == nullptr ? ParseTerm() : left;
+    return left;
 }
 
 Expression *Parser::ParseCast() {
@@ -179,7 +194,7 @@ Expression *Parser::ParseNot() {
     while (AdvanceIfMatchAny<TokenType::NOT>()) {
         auto op = Previous();
         auto expr = ParseCompare();
-        left = new UnaryOp({expr->getStart(), op.getEnd()}, TokenType::NOT, expr);
+        left = new UnaryOp({expr->getStart(), op->getEnd()}, TokenType::NOT, expr);
     }
     return left == nullptr ? ParseCompare() : left;
 }
@@ -209,7 +224,7 @@ Expression *Parser::ParseExpression() {
 // Statements
 Statement *Parser::ParseVarDecl() {
     bool mutable_;
-    Token startTok;
+    Token *startTok;
     if (AdvanceIfMatchAny<TokenType::LET>()) {
         startTok = Previous();
         mutable_ = false;
@@ -229,12 +244,12 @@ Statement *Parser::ParseVarDecl() {
         expr = ParseExpression();
 
     if (type == std::nullopt && expr == std::nullopt)
-        throw LexerError(llvm::SMRange{startTok.getStart(), var->getEnd()}, "Expected either a type or a value");
+        throw LexerError(llvm::SMRange{startTok->getStart(), var->getEnd()}, "Expected either a type or a value");
     else if (expr == std::nullopt && !mutable_)
-        throw LexerError(llvm::SMRange{startTok.getStart(), type.value()->getEnd()}, "Cannot declare an immutable variable without an initial expression");
+        throw LexerError(llvm::SMRange{startTok->getStart(), type.value()->getEnd()}, "Cannot declare an immutable variable without an initial expression");
 
     ConsumeNewline();
-    return new VarDecl({startTok.getStart(), expr != std::nullopt ? expr.value()->getEnd() : type.value()->getEnd()}, var, type, expr, mutable_);
+    return new VarDecl({startTok->getStart(), expr != std::nullopt ? expr.value()->getEnd() : type.value()->getEnd()}, var, type, expr, mutable_);
 }
 
 Statement *Parser::ParseIf() {
@@ -286,7 +301,7 @@ Statement *Parser::ParseAssignment() {
         auto expr = ParseExpression();
 
         ConsumeNewline();
-        return new Assignment({identifier.getStart(), expr->getEnd()}, var, op, expr);
+        return new Assignment({identifier->getStart(), expr->getEnd()}, var, op, expr);
     }
 
     Error(Peek(), fmt::format("Unsupported assignment operator: {}", Peek()->lexeme));
@@ -429,7 +444,7 @@ Statement *Parser::ParseImport() {
     auto loc = Peek()->span;
     Consume(TokenType::IMPORT);
 
-    Token token;
+    Token *token;
     std::string filepath;
 
     if (Peek()->type == TokenType::STRING) {
@@ -446,11 +461,11 @@ Statement *Parser::ParseImport() {
     if (AdvanceIfMatchAny<TokenType::AS>()) {
         auto alias = Consume(TokenType::IDENTIFIER);
         ConsumeNewline();
-        return new Import({loc.Start, alias.getEnd()}, token->lexeme, alias->lexeme, token->type == TokenType::IDENTIFIER);
+        return new Import({loc.Start, alias->getEnd()}, token->lexeme, alias->lexeme, token->type == TokenType::IDENTIFIER);
     }
 
     ConsumeNewline();
-    return new Import({loc.Start, token.getEnd()}, filepath, getBasename(token->lexeme), token->type == TokenType::IDENTIFIER);
+    return new Import({loc.Start, token->getEnd()}, filepath, getBasename(token->lexeme), token->type == TokenType::IDENTIFIER);
 }
 
 Statement *Parser::ParseEnum() {
