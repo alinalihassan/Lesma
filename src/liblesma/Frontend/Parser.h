@@ -14,25 +14,25 @@ namespace lesma {
 
     class Parser {
     public:
-        explicit Parser(std::vector<Token> tokens) : tokens(std::move(tokens)), index(0), tree(nullptr) {}
+        explicit Parser(std::vector<Token*> tokens) : tokens(std::move(tokens)), index(0), tree(nullptr) {}
 
         void Parse();
 
         Compound *getAST() { return tree; }
 
     protected:
-        const Token &Peek() { return Peek(0); }
-        const Token &Peek(unsigned long i) { return tokens.at(index + i); }
+        Token *Peek() { return Peek(0); }
+        Token *Peek(unsigned long i) { return tokens.at(index + i); }
 
-        Token Consume(TokenType type);
-        Token Consume(TokenType type, const std::string &error_message);
-        Token ConsumeNewline();
+        Token *Consume(TokenType type);
+        Token *Consume(TokenType type, const std::string &error_message);
+        Token *ConsumeNewline();
 
-        Token Previous() { return Peek(-1); }
+        Token *Previous() { return Peek(-1); }
 
-        bool IsAtEnd() { return Peek().type == TokenType::EOF_TOKEN; }
+        bool IsAtEnd() { return Peek()->type == TokenType::EOF_TOKEN; }
 
-        const Token &Advance() {
+        Token *Advance() {
             if (!IsAtEnd())
                 index++;
 
@@ -44,7 +44,7 @@ namespace lesma {
         }
 
         bool Check(TokenType type, unsigned long pos) {
-            return Peek(pos).type == type;
+            return Peek(pos)->type == type;
         }
 
         template<TokenType type, TokenType... remained_types>
@@ -56,11 +56,11 @@ namespace lesma {
         template<TokenType type, TokenType... remained_types>
         bool CheckAny(unsigned long pos);
 
-        const std::vector<Token> tokens;
+        const std::vector<Token*> tokens;
         unsigned long index;
         Compound *tree;
 
-        static void Error(const Token &token, const std::string &basicString);
+        static void Error(Token *token, const std::string &basicString);
 
         Compound *ParseCompound();
         Compound *ParseBlock();

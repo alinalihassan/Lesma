@@ -21,7 +21,7 @@ namespace lesma {
         [[nodiscard]] llvm::SMLoc getStart() const { return span.Start; }
         [[nodiscard]] llvm::SMLoc getEnd() const { return span.End; };
 
-        static TokenType GetIdentifierType(const std::string &identifier, const Token& lastTok);
+        static TokenType GetIdentifierType(const std::string &identifier, Token *lastTok);
         [[nodiscard]] std::string Dump(const std::shared_ptr<llvm::SourceMgr>& srcMgr) const;
 
         bool operator==(const Token &rhs) const {

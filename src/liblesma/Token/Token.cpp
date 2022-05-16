@@ -11,7 +11,7 @@ std::string Token::Dump(const std::shared_ptr<llvm::SourceMgr>& srcMgr) const {
            ", Col: " + std::to_string(srcMgr->getLineAndColumn(span.Start, srcMgr->getNumBuffers() - 1).second) + " - " + std::to_string(srcMgr->getLineAndColumn(span.End, srcMgr->getNumBuffers() - 1).second) + "]";
 }
 
-TokenType Token::GetIdentifierType(const std::string &identifier, const Token& lastTok) {
+TokenType Token::GetIdentifierType(const std::string &identifier, Token *lastTok) {
     if (identifier == "and")
         return TokenType::AND;
     else if (identifier == "class")
@@ -20,7 +20,7 @@ TokenType Token::GetIdentifierType(const std::string &identifier, const Token& l
         return TokenType::ENUM;
     else if (identifier == "else")
         return TokenType::ELSE;
-    else if (identifier == "if" and lastTok.type == TokenType::ELSE)
+    else if (identifier == "if" and lastTok->type == TokenType::ELSE)
         return TokenType::ELSE_IF;
     else if (identifier == "false")
         return TokenType::FALSE_;
