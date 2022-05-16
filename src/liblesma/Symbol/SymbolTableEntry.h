@@ -10,7 +10,8 @@
 #include <llvm/IR/Value.h>
 
 namespace lesma {
-    enum SymbolState { DECLARED, INITIALIZED };
+    enum SymbolState { DECLARED,
+                       INITIALIZED };
 
     /**
      * Entry of a symbol table, representing an individual symbol with all its properties
@@ -18,8 +19,8 @@ namespace lesma {
     class SymbolTableEntry {
     public:
         SymbolTableEntry(std::string name, const SymbolType &type) : name(std::move(name)), state(INITIALIZED),
-                                                                                        type(type), mutable_(false),
-                                                                                        signed_(true) {}
+                                                                     type(type), mutable_(false),
+                                                                     signed_(true) {}
         SymbolTableEntry(std::string name, const SymbolType &type, SymbolState state) : name(std::move(name)), state(state),
                                                                                         type(type), mutable_(false),
                                                                                         signed_(true) {}
@@ -61,4 +62,4 @@ namespace lesma {
         bool signed_;
         bool used = false;
     };
-} //namespace lesma
+}//namespace lesma

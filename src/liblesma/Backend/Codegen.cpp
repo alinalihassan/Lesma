@@ -606,7 +606,7 @@ void Codegen::visit(Import *node) {
 }
 
 void Codegen::visit(Enum *node) {
-    std::vector<llvm::Type*> elementTypes = {Builder->getInt8Ty()};
+    std::vector<llvm::Type *> elementTypes = {Builder->getInt8Ty()};
     llvm::StructType *structType = llvm::StructType::create(*TheContext, elementTypes, node->getIdentifier());
 
     auto *type = new SymbolType(TY_STRUCT);
@@ -772,7 +772,7 @@ llvm::Value *Codegen::visit(BinaryOp *node) {
                        node->getRight()->toString(SourceManager.get(), 0));
 }
 
-llvm::Value *Codegen::visit(DotOp */*node*/) {
+llvm::Value *Codegen::visit(DotOp * /*node*/) {
     return nullptr;
 }
 
@@ -888,17 +888,17 @@ llvm::Type *Codegen::GetExtendedType(llvm::Type *left, llvm::Type *right) {
     return nullptr;
 }
 
-SymbolType Codegen::getType(llvm::Type* type) {
+SymbolType Codegen::getType(llvm::Type *type) {
     if (type->isIntegerTy(1))
         return SymbolType(SymbolSuperType::TY_BOOL);
     else if (type->isIntegerTy(8))
         return SymbolType(SymbolSuperType::TY_STRING);
     else if (type->isFloatingPointTy())
-        return  SymbolType(SymbolSuperType::TY_FLOAT);
+        return SymbolType(SymbolSuperType::TY_FLOAT);
     else if (type->isIntegerTy())
-        return  SymbolType(SymbolSuperType::TY_INT);
+        return SymbolType(SymbolSuperType::TY_INT);
     else if (type->isFunctionTy())
-        return  SymbolType(SymbolSuperType::TY_FUNCTION);
+        return SymbolType(SymbolSuperType::TY_FUNCTION);
 
     return SymbolType(SymbolSuperType::TY_INVALID);
 }
