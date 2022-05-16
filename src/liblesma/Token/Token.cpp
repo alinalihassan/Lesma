@@ -2,7 +2,7 @@
 
 using namespace lesma;
 
-std::string TokenState::Dump(const std::shared_ptr<llvm::SourceMgr>& srcMgr) const {
+std::string Token::Dump(const std::shared_ptr<llvm::SourceMgr>& srcMgr) const {
     return std::string(
                    "[Type: ") +
            std::string{NAMEOF_ENUM(type)} +
@@ -20,7 +20,7 @@ TokenType Token::GetIdentifierType(const std::string &identifier, const Token& l
         return TokenType::ENUM;
     else if (identifier == "else")
         return TokenType::ELSE;
-    else if (identifier == "if" and lastTok->type == TokenType::ELSE)
+    else if (identifier == "if" and lastTok.type == TokenType::ELSE)
         return TokenType::ELSE_IF;
     else if (identifier == "false")
         return TokenType::FALSE_;

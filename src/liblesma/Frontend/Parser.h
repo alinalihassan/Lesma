@@ -30,7 +30,7 @@ namespace lesma {
 
         Token Previous() { return Peek(-1); }
 
-        bool IsAtEnd() { return Peek()->type == TokenType::EOF_TOKEN; }
+        bool IsAtEnd() { return Peek().type == TokenType::EOF_TOKEN; }
 
         const Token &Advance() {
             if (!IsAtEnd())
@@ -44,7 +44,7 @@ namespace lesma {
         }
 
         bool Check(TokenType type, unsigned long pos) {
-            return Peek(pos)->type == type;
+            return Peek(pos).type == type;
         }
 
         template<TokenType type, TokenType... remained_types>

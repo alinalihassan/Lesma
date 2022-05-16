@@ -3,7 +3,7 @@
 using namespace lesma;
 
 std::vector<Token> Lexer::ScanAll() {
-    while (tokens.empty() || tokens.back()->type != TokenType::EOF_TOKEN)
+    while (tokens.empty() || tokens.back().type != TokenType::EOF_TOKEN)
         tokens.push_back(ScanOne(false));
     return tokens;
 }
@@ -189,7 +189,7 @@ bool Lexer::HandleIndentation(bool continuation) {
     if (continuation || level_ != 0 || c == '#' || c == '\n' || c == '\r') {
         if (c == '#' || c == '\n') {
             // If this line is a commented line or an empty line, don't emit NewLine
-            if (!tokens.empty() && tokens.back()->type == TokenType::NEWLINE) {
+            if (!tokens.empty() && tokens.back().type == TokenType::NEWLINE) {
                 tokens.pop_back();
             }
         }
@@ -371,7 +371,7 @@ Token Lexer::AddIdentifierToken() {
     auto tok = AddToken(Token::GetIdentifierType(std::string(begin_loc.getPointer(), loc.getPointer()), GetLastToken()));
 
     // If it's an 'else if' multiword keyword, remove the last token (which is an 'else' in this case)
-    if (tok->type == TokenType::ELSE_IF)
+    if (tok.type == TokenType::ELSE_IF)
         tokens.pop_back();
 
     return tok;

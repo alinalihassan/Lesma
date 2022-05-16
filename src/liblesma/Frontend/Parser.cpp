@@ -31,7 +31,7 @@ bool Parser::CheckAny(unsigned long pos) {
 
 Token Parser::Consume(TokenType type) {
     return Consume(type, std::string{"Expected: "} + std::string{NAMEOF_ENUM(type)} +
-                                 ", found: " + std::string{NAMEOF_ENUM(Peek()->type)});
+                                 ", found: " + std::string{NAMEOF_ENUM(Peek().type)});
 }
 
 Token Parser::Consume(TokenType type, const std::string &error_message) {
@@ -41,14 +41,14 @@ Token Parser::Consume(TokenType type, const std::string &error_message) {
 }
 
 Token Parser::ConsumeNewline() {
-    if (Check(TokenType::NEWLINE) || Peek()->type == TokenType::EOF_TOKEN)
+    if (Check(TokenType::NEWLINE) || Peek().type == TokenType::EOF_TOKEN)
         return Advance();
-    Error(Peek(), fmt::format("Expected: NEWLINE or EOF, found: {}", NAMEOF_ENUM(Peek()->type)));
+    Error(Peek(), fmt::format("Expected: NEWLINE or EOF, found: {}", NAMEOF_ENUM(Peek().type)));
     return Token{};
 }
 
 void Parser::Error(const Token &token, const std::string &error_message) {
-    throw ParserError(token->span, "{}", error_message);
+    throw ParserError(token.span, "{}", error_message);
 }
 
 // TODO: Parse Type
@@ -57,13 +57,13 @@ Type *Parser::ParseType() {
     if (CheckAny<TokenType::INT_TYPE, TokenType::FLOAT_TYPE, TokenType::STRING_TYPE, TokenType::BOOL_TYPE,
                  TokenType::VOID_TYPE>()) {
         Advance();
-        return new Type(type->span, type->lexeme, type->type);
+        return new Type(type.span, type.lexeme, type.type);
     } else if (Check(TokenType::IDENTIFIER)) {
         Advance();
-        return new Type(type->span, type->lexeme, TokenType::CUSTOM_TYPE);
+        return new Type(type.span, type.lexeme, TokenType::CUSTOM_TYPE);
     }
 
-    Error(type, fmt::format("Unknown type: {}", type->lexeme));
+    Error(type, fmt::format("Unknown type: {}", type.lexeme));
 
     return nullptr;
 }
@@ -87,26 +87,26 @@ Expression *Parser::ParseFunctionCall() {
 
     auto paren = Consume(TokenType::RIGHT_PAREN);
 
-    return new FuncCall({token.getStart(), paren->span.End}, token->lexeme, params);
+    return new FuncCall({token.getStart(), paren.span.End}, token.lexeme, params);
 }
 
 Expression *Parser::ParseTerm() {
-    switch (Peek()->type) {
+    switch (Peek().type) {
         case TokenType::STRING:
         case TokenType::INTEGER:
         case TokenType::DOUBLE:
         case TokenType::NIL: {
             auto token = Peek();
-            Consume(token->type);
-            return new Literal(token->span, token->lexeme, token->type);
+            Consume(token.type);
+            return new Literal(token.span, token.lexeme, token.type);
         }
         case TokenType::IDENTIFIER: {
             if (CheckAny<TokenType::LEFT_PAREN>(1))
                 return ParseFunctionCall();
 
             auto token = Peek();
-            Consume(token->type);
-            return new Literal(token->span, token->lexeme, token->type);
+            Consume(token.type);
+            return new Literal(token.span, token.lexeme, token.type);
         }
         case TokenType::LEFT_PAREN: {
             Consume(TokenType::LEFT_PAREN);
@@ -117,11 +117,11 @@ Expression *Parser::ParseTerm() {
         case TokenType::TRUE_:
         case TokenType::FALSE_: {
             auto token = Peek();
-            Consume(token->type);
-            return new Literal(token->span, token->lexeme, TokenType::BOOL);
+            Consume(token.type);
+            return new Literal(token.span, token.lexeme, TokenType::BOOL);
         }
         default:
-            Error(Peek(), fmt::format("Unknown literal: {}", Peek()->lexeme));
+            Error(Peek(), fmt::format("Unknown literal: {}", Peek().lexeme));
     }
 
     return nullptr;
@@ -133,7 +133,7 @@ Expression *Parser::ParseDot() {
     while (AdvanceIfMatchAny<TokenType::DOT>()) {
         auto op = Previous();
         auto expr = ParseTerm();
-        left = new DotOp({op.getStart(), expr->getEnd()}, left, op->type, expr);
+        left = new DotOp({op.getStart(), expr->getEnd()}, left, op.type, expr);
     }
 
     return left;
@@ -144,7 +144,7 @@ Expression *Parser::ParseUnary() {
     while (AdvanceIfMatchAny<TokenType::MINUS>()) {
         auto op = Previous();
         auto expr = ParseTerm();
-        left = new UnaryOp({op.getStart(), expr->getEnd()}, op->type, expr);
+        left = new UnaryOp({op.getStart(), expr->getEnd()}, op.type, expr);
     }
     return left;
 }
@@ -161,7 +161,7 @@ Expression *Parser::ParseCast() {
 Expression *Parser::ParseMult() {
     auto left = ParseCast();
     while (AdvanceIfMatchAny<TokenType::STAR, TokenType::SLASH, TokenType::MOD>()) {
-        auto op = Previous()->type;
+        auto op = Previous().type;
         auto right = ParseCast();
         left = new BinaryOp({left->getStart(), right->getEnd()}, left, op, right);
     }
@@ -171,7 +171,7 @@ Expression *Parser::ParseMult() {
 Expression *Parser::ParseAdd() {
     auto left = ParseMult();
     while (AdvanceIfMatchAny<TokenType::PLUS, TokenType::MINUS>()) {
-        auto op = Previous()->type;
+        auto op = Previous().type;
         auto right = ParseMult();
         left = new BinaryOp({left->getStart(), right->getEnd()}, left, op, right);
     }
@@ -182,7 +182,7 @@ Expression *Parser::ParseCompare() {
     auto left = ParseAdd();
     while (AdvanceIfMatchAny<TokenType::EQUAL_EQUAL, TokenType::BANG_EQUAL, TokenType::LESS, TokenType::LESS_EQUAL,
                              TokenType::GREATER, TokenType::GREATER_EQUAL>()) {
-        auto op = Previous()->type;
+        auto op = Previous().type;
         auto right = ParseAdd();
         left = new BinaryOp({left->getStart(), right->getEnd()}, left, op, right);
     }
@@ -233,7 +233,7 @@ Statement *Parser::ParseVarDecl() {
         mutable_ = true;
     }
     auto identifier = Consume(TokenType::IDENTIFIER);
-    auto var = new Literal(identifier->span, identifier->lexeme, identifier->type);
+    auto var = new Literal(identifier.span, identifier.lexeme, identifier.type);
 
     std::optional<Type *> type = std::nullopt;
     if (AdvanceIfMatchAny<TokenType::COLON>())
@@ -253,7 +253,7 @@ Statement *Parser::ParseVarDecl() {
 }
 
 Statement *Parser::ParseIf() {
-    auto loc = Peek()->span;
+    auto loc = Peek().span;
     Consume(TokenType::IF);
 
     auto conds = std::vector<Expression *>();
@@ -268,7 +268,7 @@ Statement *Parser::ParseIf() {
         blocks.push_back(ParseBlock());
     }
     if (AdvanceIfMatchAny<TokenType::ELSE>()) {
-        conds.push_back(new Else(Peek()->span));
+        conds.push_back(new Else(Peek().span));
         blocks.push_back(ParseBlock());
     }
 
@@ -276,7 +276,7 @@ Statement *Parser::ParseIf() {
 }
 
 Statement *Parser::ParseWhile() {
-    auto loc = Peek()->span;
+    auto loc = Peek().span;
     Consume(TokenType::WHILE);
 
     auto cond = ParseExpression();
@@ -293,38 +293,38 @@ Statement *Parser::ParseFor() {
 
 Statement *Parser::ParseAssignment() {
     auto identifier = Consume(TokenType::IDENTIFIER);
-    auto var = new Literal(identifier->span, identifier->lexeme, identifier->type);
+    auto var = new Literal(identifier.span, identifier.lexeme, identifier.type);
 
     if (AdvanceIfMatchAny<TokenType::EQUAL, TokenType::PLUS_EQUAL, TokenType::MINUS_EQUAL, TokenType::STAR_EQUAL,
                           TokenType::SLASH_EQUAL, TokenType::MOD_EQUAL, TokenType::POWER_EQUAL>()) {
-        auto op = Previous()->type;
+        auto op = Previous().type;
         auto expr = ParseExpression();
 
         ConsumeNewline();
         return new Assignment({identifier.getStart(), expr->getEnd()}, var, op, expr);
     }
 
-    Error(Peek(), fmt::format("Unsupported assignment operator: {}", Peek()->lexeme));
+    Error(Peek(), fmt::format("Unsupported assignment operator: {}", Peek().lexeme));
 
     return nullptr;
 }
 
 Statement *Parser::ParseBreak() {
-    auto tok = reinterpret_cast<Statement *>(new Break(Consume(TokenType::BREAK)->span));
+    auto tok = reinterpret_cast<Statement *>(new Break(Consume(TokenType::BREAK).span));
     ConsumeNewline();
     return tok;
 }
 
 Statement *Parser::ParseContinue() {
-    auto tok = reinterpret_cast<Statement *>(new Continue(Consume(TokenType::CONTINUE)->span));
+    auto tok = reinterpret_cast<Statement *>(new Continue(Consume(TokenType::CONTINUE).span));
     ConsumeNewline();
     return tok;
 }
 
 Statement *Parser::ParseReturn() {
-    auto loc = Peek()->span;
+    auto loc = Peek().span;
     Consume(TokenType::RETURN);
-    if (Check(TokenType::NEWLINE) || Peek()->type == TokenType::EOF_TOKEN) {
+    if (Check(TokenType::NEWLINE) || Peek().type == TokenType::EOF_TOKEN) {
         ConsumeNewline();
         return reinterpret_cast<Statement *>(new Return(loc, nullptr));
     }
@@ -334,7 +334,7 @@ Statement *Parser::ParseReturn() {
 }
 
 Statement *Parser::ParseDefer() {
-    auto loc = Peek()->span;
+    auto loc = Peek().span;
     Consume(TokenType::DEFER);
     auto val = ParseStatement(false);
     //Don't consume newline, since statement will
@@ -398,7 +398,7 @@ Compound *Parser::ParseBlock() {
 }
 
 Statement *Parser::ParseFunctionDeclaration() {
-    auto loc = Peek()->span;
+    auto loc = Peek().span;
     Consume(TokenType::DEF);
     bool extern_func = false;
 
@@ -419,7 +419,7 @@ Statement *Parser::ParseFunctionDeclaration() {
         if (!Check(TokenType::RIGHT_PAREN))
             Consume(TokenType::COMMA);
 
-        parameters.emplace_back(param_ident->lexeme, type);
+        parameters.emplace_back(param_ident.lexeme, type);
     }
 
     Consume(TokenType::RIGHT_PAREN);
@@ -428,31 +428,31 @@ Statement *Parser::ParseFunctionDeclaration() {
     if (AdvanceIfMatchAny<TokenType::ARROW>())
         return_type = ParseType();
     else
-        return_type = new Type(Previous()->span, "void", TokenType::VOID_TYPE);
+        return_type = new Type(Previous().span, "void", TokenType::VOID_TYPE);
 
     if (extern_func) {
         ConsumeNewline();
-        return new ExternFuncDecl({loc.Start, return_type->getEnd()}, identifier->lexeme, return_type, parameters);
+        return new ExternFuncDecl({loc.Start, return_type->getEnd()}, identifier.lexeme, return_type, parameters);
     }
 
     auto body = ParseBlock();
 
-    return new FuncDecl({loc.Start, body->getEnd()}, identifier->lexeme, return_type, parameters, body);
+    return new FuncDecl({loc.Start, body->getEnd()}, identifier.lexeme, return_type, parameters, body);
 }
 
 Statement *Parser::ParseImport() {
-    auto loc = Peek()->span;
+    auto loc = Peek().span;
     Consume(TokenType::IMPORT);
 
     Token token;
     std::string filepath;
 
-    if (Peek()->type == TokenType::STRING) {
+    if (Peek().type == TokenType::STRING) {
         token = Consume(TokenType::STRING);
-        filepath = token->lexeme;
-    } else if (Peek()->type == TokenType::IDENTIFIER) {
+        filepath = token.lexeme;
+    } else if (Peek().type == TokenType::IDENTIFIER) {
         token = Consume(TokenType::IDENTIFIER);
-        filepath = getStdDir() + token->lexeme + ".les";
+        filepath = getStdDir() + token.lexeme + ".les";
     } else {
         Error(Peek(), "Imports must be either strings for files or identifiers for standard library");
         return nullptr;
@@ -461,15 +461,15 @@ Statement *Parser::ParseImport() {
     if (AdvanceIfMatchAny<TokenType::AS>()) {
         auto alias = Consume(TokenType::IDENTIFIER);
         ConsumeNewline();
-        return new Import({loc.Start, alias.getEnd()}, token->lexeme, alias->lexeme, token->type == TokenType::IDENTIFIER);
+        return new Import({loc.Start, alias.getEnd()}, token.lexeme, alias.lexeme, token.type == TokenType::IDENTIFIER);
     }
 
     ConsumeNewline();
-    return new Import({loc.Start, token.getEnd()}, filepath, getBasename(token->lexeme), token->type == TokenType::IDENTIFIER);
+    return new Import({loc.Start, token.getEnd()}, filepath, getBasename(token.lexeme), token.type == TokenType::IDENTIFIER);
 }
 
 Statement *Parser::ParseEnum() {
-    auto loc = Peek()->span;
+    auto loc = Peek().span;
     Consume(TokenType::ENUM);
 
     auto token = Consume(TokenType::IDENTIFIER);
@@ -479,20 +479,20 @@ Statement *Parser::ParseEnum() {
     Consume(TokenType::INDENT);
 
     while (!CheckAny<TokenType::DEDENT, TokenType::EOF_TOKEN>()) {
-        values.push_back(Consume(TokenType::IDENTIFIER)->lexeme);
+        values.push_back(Consume(TokenType::IDENTIFIER).lexeme);
         Consume(TokenType::NEWLINE);
     }
 
     AdvanceIfMatchAny<TokenType::DEDENT>();
 
-    return new Enum(loc, token->lexeme, values);
+    return new Enum(loc, token.lexeme, values);
 }
 
 Compound *Parser::ParseCompound() {
     std::vector<Statement *> statements;
     while (!IsAtEnd()) {
         // Remove lingering newlines
-        while (Peek()->type == TokenType::NEWLINE)
+        while (Peek().type == TokenType::NEWLINE)
             Consume(TokenType::NEWLINE);
         statements.push_back(ParseStatement(true));
     }

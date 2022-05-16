@@ -74,7 +74,7 @@ int main(int argc, char **argv) {
         if (options->debug) {
             print(DEBUG, "TOKENS: \n");
             for (const auto &tok: lexer->getTokens())
-                print("Token: {}\n", tok->Dump(srcMgr));
+                print("Token: {}\n", tok.Dump(srcMgr));
         }
 
         // Parser
