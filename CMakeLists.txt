@@ -61,6 +61,7 @@ set(COMMON_SOURCES
   src/liblesma/Token/Token.cpp
   src/liblesma/Backend/Codegen.cpp
   src/liblesma/Symbol/SymbolTable.cpp
+  src/liblesma/Symbol/SymbolType.cpp
 )
 set(CLI_SOURCES src/cli/main.cpp)
 set(TEST_SOURCES  tests/test.cpp)

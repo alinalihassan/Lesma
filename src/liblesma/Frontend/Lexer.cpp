@@ -2,15 +2,15 @@
 
 using namespace lesma;
 
-std::vector<Token> Lexer::ScanAll() {
+std::vector<Token*> Lexer::ScanAll() {
     while (tokens.empty() || tokens.back()->type != TokenType::EOF_TOKEN)
         tokens.push_back(ScanOne(false));
     return tokens;
 }
 
-Token Lexer::ScanOne(bool continuation) {
+Token *Lexer::ScanOne(bool continuation) {
     if (IsAtEnd())
-        return Token{TokenType::EOF_TOKEN, "EOF", llvm::SMRange{begin_loc, loc}};
+        return new Token{TokenType::EOF_TOKEN, "EOF", llvm::SMRange{begin_loc, loc}};
     ResetTokenBeg();
     char c = Advance();
 
@@ -135,7 +135,7 @@ Token Lexer::ScanOne(bool continuation) {
             line++;
             col = 1;
             if (!continuation && level_ == 0)
-                tokens.push_back(AddToken({TokenType::NEWLINE, "NEWLINE", llvm::SMRange{begin_loc, loc}}));
+                tokens.push_back(AddToken(new Token{TokenType::NEWLINE, "NEWLINE", llvm::SMRange{begin_loc, loc}}));
             HandleIndentation(continuation);
             return ScanOne(false);
         case '"':
@@ -232,20 +232,20 @@ bool Lexer::HandleIndentation(bool continuation) {
     }
 
     while (changes != 0) {
-        tokens.push_back(AddToken({changes > 0 ? TokenType::INDENT : TokenType::DEDENT, changes > 0 ? "INDENT" : "DEDENT", llvm::SMRange{begin_loc, loc}}));
+        tokens.push_back(AddToken(new Token{changes > 0 ? TokenType::INDENT : TokenType::DEDENT, changes > 0 ? "INDENT" : "DEDENT", llvm::SMRange{begin_loc, loc}}));
         changes += changes > 0 ? -1 : 1;
     }
     return true;
 }
 
 // TODO: Could possibly make it more efficient
-Token Lexer::AddToken(TokenType type) {
-    auto ret = Token(type, std::string(begin_loc.getPointer(), loc.getPointer()), llvm::SMRange{begin_loc, loc});
+Token *Lexer::AddToken(TokenType type) {
+    auto ret = new Token(type, std::string(begin_loc.getPointer(), loc.getPointer()), llvm::SMRange{begin_loc, loc});
     ResetTokenBeg();
     return ret;
 }
 
-Token Lexer::AddToken(Token tok) {
+Token *Lexer::AddToken(Token *tok) {
     ResetTokenBeg();
     return tok;
 }
@@ -280,7 +280,7 @@ char Lexer::Peek(int offset) {
     return *(loc.getPointer() + offset);
 }
 
-Token Lexer::AddStringToken() {
+Token *Lexer::AddStringToken() {
     std::string string;
 
     while (Peek() != '"' && !IsAtEnd()) {
@@ -338,11 +338,11 @@ Token Lexer::AddStringToken() {
     // Skip the closing ".
     Advance();
 
-    auto ret = Token(TokenType::STRING, string, llvm::SMRange{begin_loc, loc});
+    auto ret = new Token(TokenType::STRING, string, llvm::SMRange{begin_loc, loc});
     ResetTokenBeg();
     return ret;
 }
-Token Lexer::AddNumToken() {
+Token *Lexer::AddNumToken() {
     while (IsDigit(Peek())) Advance();
 
     // Look for a fractional part.
@@ -358,14 +358,14 @@ Token Lexer::AddNumToken() {
     }
 }
 
-Token Lexer::GetLastToken() {
+Token *Lexer::GetLastToken() {
     if (!tokens.empty())
         return tokens.end()[-1];
     else
-        return Token{TokenType::EOF_TOKEN, "EOF", llvm::SMRange{begin_loc, loc}};
+        return new Token{TokenType::EOF_TOKEN, "EOF", llvm::SMRange{begin_loc, loc}};
 }
 
-Token Lexer::AddIdentifierToken() {
+Token *Lexer::AddIdentifierToken() {
     while (IsAlphaNumeric(Peek())) Advance();
 
     auto tok = AddToken(Token::GetIdentifierType(std::string(begin_loc.getPointer(), loc.getPointer()), GetLastToken()));

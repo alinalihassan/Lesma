@@ -13,6 +13,7 @@ namespace lesma {
         virtual T2 visit(Type *node) = 0;
         virtual T1 visit(FuncCall *node) = 0;
         virtual T1 visit(BinaryOp *node) = 0;
+        virtual T1 visit(DotOp *node) = 0;
         virtual T1 visit(CastOp *node) = 0;
         virtual T1 visit(UnaryOp *node) = 0;
         virtual T1 visit(Else *node) = 0;

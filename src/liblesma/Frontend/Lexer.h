@@ -20,9 +20,9 @@ namespace lesma {
               curPtr(curBuffer->getBufferStart()), begin_loc(llvm::SMLoc::getFromPointer(curPtr)), loc(llvm::SMLoc::getFromPointer(curPtr)), srcMgr(srcMgr) {
         }
 
-        std::vector<Token> ScanAll();
-        Token ScanOne(bool continuation = false);
-        std::vector<Token> getTokens() { return tokens; };
+        std::vector<Token*> ScanAll();
+        Token *ScanOne(bool continuation = false);
+        std::vector<Token*> getTokens() { return tokens; };
 
         void Reset() {
             Lexer tmp(srcMgr);
@@ -34,7 +34,7 @@ namespace lesma {
 
         char Peek(int offset = 0);
 
-        Token AddStringToken();
+        Token *AddStringToken();
 
         static bool IsDigit(char c) { return c >= '0' && c <= '9'; }
 
@@ -42,10 +42,10 @@ namespace lesma {
 
         static bool IsAlphaNumeric(char c) { return IsAlpha(c) || IsDigit(c); }
 
-        Token AddNumToken();
+        Token *AddNumToken();
 
-        Token AddToken(TokenType type);
-        Token AddToken(Token tok);
+        Token *AddToken(TokenType type);
+        Token *AddToken(Token *tok);
 
         void Error(const std::string &msg) const;
 
@@ -55,8 +55,8 @@ namespace lesma {
 
         char Advance();
 
-        Token GetLastToken();
-        Token AddIdentifierToken();
+        Token *GetLastToken();
+        Token *AddIdentifierToken();
 
         void HandleWhitespace(char c);
         bool HandleIndentation(bool continuation);
@@ -68,7 +68,7 @@ namespace lesma {
         unsigned int col = 1;
         llvm::SMLoc begin_loc;
         llvm::SMLoc loc;
-        std::vector<Token> tokens;
+        std::vector<Token*> tokens;
         std::shared_ptr<llvm::SourceMgr> srcMgr;
 
         std::optional<char> first_indent_char;

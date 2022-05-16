@@ -439,6 +439,26 @@ namespace lesma {
         }
     };
 
+    class DotOp : public Expression {
+        Expression *left;
+        TokenType op;
+        Expression *right;
+
+    public:
+        DotOp(llvm::SMRange Loc, Expression *left, TokenType op, Expression *right) : Expression(Loc), left(left),
+                                                                                         op(op), right(right) {}
+
+        ~DotOp() override = default;
+
+        [[nodiscard]] [[maybe_unused]] Expression *getLeft() const { return left; }
+        [[nodiscard]] [[maybe_unused]] TokenType getOperator() const { return op; }
+        [[nodiscard]] [[maybe_unused]] Expression *getRight() const { return right; }
+
+        std::string toString(llvm::SourceMgr *srcMgr, int ind) override {
+            return left->toString(srcMgr, ind) + "." + right->toString(srcMgr, ind);
+        }
+    };
+
     class Else : public Expression {
     public:
         explicit Else(llvm::SMRange Loc) : Expression(Loc) {}

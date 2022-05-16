@@ -5,20 +5,19 @@ using namespace lesma;
 /**
  * Insert a new symbol into the current symbol table. If it is a parameter, append its name to the paramNames vector
  *
- * @param name Name of the symbol
- * @param type Type of the symbol
- * @param state State of the symbol (declared or initialized)
- * @param isConstant Enabled if the symbol is a constant
- * @param isParameter Enabled if the symbol is a function/procedure parameter
+ * @param entry Symbol Table Entry
  */
-void SymbolTable::insertSymbol(const std::string &name, llvm::Value *value, llvm::Type *type) {
-    return insertSymbol(name, value, type, false);
+void SymbolTable::insertSymbol(SymbolTableEntry* entry) {
+    symbols.insert_or_assign(entry->getName(), entry);
 }
-void SymbolTable::insertSymbol(const std::string &name, llvm::Value *value, llvm::Type *type, bool mutable_) {
-    //    bool isGlobal = getParent() == nullptr;
-    symbols.insert_or_assign(name, new SymbolTableEntry(name, value, type, mutable_));
-    // If the symbol is a parameter, add it to the parameters list
-    //    if (isParameter) paramNames.push_back(name);
+
+/**
+ * Insert a new symbol into the current symbol table. If it is a parameter, append its name to the paramNames vector
+ *
+ * @param entry Symbol Table Entry
+ */
+void SymbolTable::insertType(const std::string& name, SymbolType *type) {
+    types.insert_or_assign(name, type);
 }
 
 /**
@@ -28,13 +27,27 @@ void SymbolTable::insertSymbol(const std::string &name, llvm::Value *value, llvm
  * @return Desired symbol / nullptr if the symbol was not found
  */
 SymbolTableEntry *SymbolTable::lookup(const std::string &name) {
-    // If not available in the current scope, search in the parent scope
     if (symbols.find(name) == symbols.end()) {
         if (parent == nullptr) return nullptr;
         return parent->lookup(name);
     }
-    // Otherwise, return the entry
+
     return symbols.at(name);
+}
+
+/**
+ * Check if a symbol exists in the current or any parent scope and return it if possible
+ *
+ * @param name Name of the desired symbol
+ * @return Desired symbol / nullptr if the symbol was not found
+ */
+SymbolType *SymbolTable::lookupType(const std::string &name) {
+    if (types.find(name) == types.end()) {
+        if (parent == nullptr) return nullptr;
+        return parent->lookupType(name);
+    }
+
+    return types.at(name);
 }
 
 /**

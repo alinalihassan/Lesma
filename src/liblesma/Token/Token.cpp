@@ -2,42 +2,7 @@
 
 using namespace lesma;
 
-static std::map<std::string, TokenType> g_reserved_map{
-        {"and", TokenType::AND},
-        {"class", TokenType::CLASS},
-        {"enum", TokenType::ENUM},
-        {"else", TokenType::ELSE},
-        {"else if", TokenType::ELSE_IF},
-        {"false", TokenType::FALSE_},
-        {"for", TokenType::FOR},
-        {"def", TokenType::DEF},
-        {"if", TokenType::IF},
-        {"not", TokenType::NOT},
-        {"null", TokenType::NIL},
-        {"or", TokenType::OR},
-        {"return", TokenType::RETURN},
-        {"this", TokenType::THIS},
-        {"true", TokenType::TRUE_},
-        {"var", TokenType::VAR},
-        {"let", TokenType::LET},
-        {"while", TokenType::WHILE},
-        {"break", TokenType::BREAK},
-        {"continue", TokenType::CONTINUE},
-        {"super", TokenType::SUPER},
-        {"extern", TokenType::EXTERN_FUNC},
-        {"as", TokenType::AS},
-        {"is", TokenType::IS},
-        {"in", TokenType::IN},
-        {"int", TokenType::INT_TYPE},
-        {"float", TokenType::FLOAT_TYPE},
-        {"str", TokenType::STRING_TYPE},
-        {"bool", TokenType::BOOL_TYPE},
-        {"void", TokenType::VOID_TYPE},
-        {"import", TokenType::IMPORT},
-        {"defer", TokenType::DEFER},
-};
-
-std::string TokenState::Dump(std::shared_ptr<llvm::SourceMgr> srcMgr) const {
+std::string Token::Dump(const std::shared_ptr<llvm::SourceMgr>& srcMgr) const {
     return std::string(
                    "[Type: ") +
            std::string{NAMEOF_ENUM(type)} +
@@ -46,11 +11,71 @@ std::string TokenState::Dump(std::shared_ptr<llvm::SourceMgr> srcMgr) const {
            ", Col: " + std::to_string(srcMgr->getLineAndColumn(span.Start, srcMgr->getNumBuffers() - 1).second) + " - " + std::to_string(srcMgr->getLineAndColumn(span.End, srcMgr->getNumBuffers() - 1).second) + "]";
 }
 
-TokenType Token::GetIdentifierType(const std::string &identifier, Token lastTok) {
-    if (g_reserved_map.count(identifier) == 0)
-        return TokenType::IDENTIFIER;
-    else if (lastTok->type == TokenType::ELSE && identifier == "if")
-        return g_reserved_map["else if"];
+TokenType Token::GetIdentifierType(const std::string &identifier, Token *lastTok) {
+    if (identifier == "and")
+        return TokenType::AND;
+    else if (identifier == "class")
+        return TokenType::CLASS;
+    else if (identifier == "enum")
+        return TokenType::ENUM;
+    else if (identifier == "else")
+        return TokenType::ELSE;
+    else if (identifier == "if" and lastTok->type == TokenType::ELSE)
+        return TokenType::ELSE_IF;
+    else if (identifier == "false")
+        return TokenType::FALSE_;
+    else if (identifier == "for")
+        return TokenType::FOR;
+    else if (identifier == "def")
+        return TokenType::DEF;
+    else if (identifier == "defer")
+        return TokenType::DEFER;
+    else if (identifier == "if")
+        return TokenType::IF;
+    else if (identifier == "not")
+        return TokenType::NOT;
+    else if (identifier == "null")
+        return TokenType::NIL;
+    else if (identifier == "or")
+        return TokenType::OR;
+    else if (identifier == "return")
+        return TokenType::RETURN;
+    else if (identifier == "this")
+        return TokenType::THIS;
+    else if (identifier == "true")
+        return TokenType::TRUE_;
+    else if (identifier == "var")
+        return TokenType::VAR;
+    else if (identifier == "let")
+        return TokenType::LET;
+    else if (identifier == "while")
+        return TokenType::WHILE;
+    else if (identifier == "break")
+        return TokenType::BREAK;
+    else if (identifier == "continue")
+        return TokenType::CONTINUE;
+    else if (identifier == "super")
+        return TokenType::SUPER;
+    else if (identifier == "extern")
+        return TokenType::EXTERN_FUNC;
+    else if (identifier == "as")
+        return TokenType::AS;
+    else if (identifier == "is")
+        return TokenType::IS;
+    else if (identifier == "in")
+        return TokenType::IN;
+    else if (identifier == "int")
+        return TokenType::INT_TYPE;
+    else if (identifier == "float")
+        return TokenType::FLOAT_TYPE;
+    else if (identifier == "str")
+        return TokenType::STRING_TYPE;
+    else if (identifier == "bool")
+        return TokenType::BOOL_TYPE;
+    else if (identifier == "void")
+        return TokenType::VOID_TYPE;
+    else if (identifier == "import")
+        return TokenType::IMPORT;
     else
-        return g_reserved_map[identifier];
+        return TokenType::IDENTIFIER;
 }
