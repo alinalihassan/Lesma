@@ -287,6 +287,14 @@ llvm::Type *Codegen::visit(lesma::Type *node) {
         return Builder->getInt8PtrTy();
     else if (node->getType() == TokenType::VOID_TYPE)
         return Builder->getVoidTy();
+    else if (node->getType() == TokenType::CUSTOM_TYPE) {
+        auto typ = Scope->lookupType(node->getName());
+        auto sym = Scope->lookup(node->getName());
+        if (typ == nullptr || sym->getLLVMType() == nullptr)
+            throw CodegenError(node->getSpan(), "Type not found: {}", node->getName());
+
+        return sym->getLLVMType();
+    }
 
     throw CodegenError(node->getSpan(), "Unimplemented type {}", NAMEOF_ENUM(node->getType()));
 }
