@@ -14,7 +14,7 @@ namespace lesma {
 
     class Parser {
     public:
-        explicit Parser(std::vector<Token*> tokens) : tokens(std::move(tokens)), index(0), tree(nullptr) {}
+        explicit Parser(std::vector<Token *> tokens) : tokens(std::move(tokens)), index(0), tree(nullptr) {}
 
         void Parse();
 
@@ -56,7 +56,7 @@ namespace lesma {
         template<TokenType type, TokenType... remained_types>
         bool CheckAny(unsigned long pos);
 
-        const std::vector<Token*> tokens;
+        const std::vector<Token *> tokens;
         unsigned long index;
         Compound *tree;
 

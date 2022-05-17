@@ -446,7 +446,7 @@ namespace lesma {
 
     public:
         DotOp(llvm::SMRange Loc, Expression *left, TokenType op, Expression *right) : Expression(Loc), left(left),
-                                                                                         op(op), right(right) {}
+                                                                                      op(op), right(right) {}
 
         ~DotOp() override = default;
 

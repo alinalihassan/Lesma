@@ -7,7 +7,7 @@ using namespace lesma;
  *
  * @param entry Symbol Table Entry
  */
-void SymbolTable::insertSymbol(SymbolTableEntry* entry) {
+void SymbolTable::insertSymbol(SymbolTableEntry *entry) {
     symbols.insert_or_assign(entry->getName(), entry);
 }
 
@@ -16,7 +16,7 @@ void SymbolTable::insertSymbol(SymbolTableEntry* entry) {
  *
  * @param entry Symbol Table Entry
  */
-void SymbolTable::insertType(const std::string& name, SymbolType *type) {
+void SymbolTable::insertType(const std::string &name, SymbolType *type) {
     types.insert_or_assign(name, type);
 }
 

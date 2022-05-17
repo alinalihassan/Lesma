@@ -20,9 +20,9 @@ namespace lesma {
               curPtr(curBuffer->getBufferStart()), begin_loc(llvm::SMLoc::getFromPointer(curPtr)), loc(llvm::SMLoc::getFromPointer(curPtr)), srcMgr(srcMgr) {
         }
 
-        std::vector<Token*> ScanAll();
+        std::vector<Token *> ScanAll();
         Token *ScanOne(bool continuation = false);
-        std::vector<Token*> getTokens() { return tokens; };
+        std::vector<Token *> getTokens() { return tokens; };
 
         void Reset() {
             Lexer tmp(srcMgr);
@@ -68,7 +68,7 @@ namespace lesma {
         unsigned int col = 1;
         llvm::SMLoc begin_loc;
         llvm::SMLoc loc;
-        std::vector<Token*> tokens;
+        std::vector<Token *> tokens;
         std::shared_ptr<llvm::SourceMgr> srcMgr;
 
         std::optional<char> first_indent_char;

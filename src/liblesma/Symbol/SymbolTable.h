@@ -16,7 +16,7 @@ namespace lesma {
         SymbolTableEntry *lookup(const std::string &symbolName);
         SymbolType *lookupType(const std::string &symbolName);
         void insertSymbol(SymbolTableEntry *symbol);
-        void insertType(const std::string& name, SymbolType *type);
+        void insertType(const std::string &name, SymbolType *type);
         SymbolTable *createChildBlock(const std::string &blockName);
         SymbolTable *getParent();
         SymbolTable *getChild(const std::string &tableName);
