@@ -28,11 +28,6 @@ jobs:
     steps:
       - uses: actions/checkout@v2
 
-      # Enable tmate debugging of manually-triggered workflows if the input option was provided
-      - name: Setup tmate session
-        uses: mxschmitt/action-tmate@v3
-        timeout-minutes: 5
-
       - name : Clang Format
         if:  ${{ matrix.os == 'ubuntu-latest' }}
         uses: DoozyX/clang-format-lint-action@v0.13
@@ -73,6 +68,11 @@ jobs:
         run: |
           cmake -B ${{github.workspace}}/build -G Ninja -DCMAKE_BUILD_TYPE=${{env.BUILD_TYPE}}
           cmake --build ${{github.workspace}}/build --config ${{env.BUILD_TYPE}}
+
+      # Enable tmate debugging of manually-triggered workflows if the input option was provided
+      - name: Setup tmate session
+        uses: mxschmitt/action-tmate@v3
+        timeout-minutes: 5
 
       - name: Test
         working-directory: ${{github.workspace}}/build
