@@ -1,3 +1,11 @@
+## [0.6.1](https://github.com/alinalihassan/Lesma/compare/v0.6.0...v0.6.1) (2022-05-17)
+
+
+### Bug Fixes
+
+* Fixed linker for compilation not working in macOS ([87a2751](https://github.com/alinalihassan/Lesma/commit/87a2751fd9c7706c0689a4413e072c5ec9ec667c))
+* Fixed MacOS linking object files for AOT compilation ([bb20177](https://github.com/alinalihassan/Lesma/commit/bb201779c55d1388d6ede44a3b4f9e5a0877ced3))
+
 # [0.6.0](https://github.com/alinalihassan/Lesma/compare/v0.5.0...v0.6.0) (2022-05-17)
 
 
