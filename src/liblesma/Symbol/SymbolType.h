@@ -2,6 +2,7 @@
 
 #include <string>
 #include <vector>
+#include <algorithm>
 
 enum SymbolSuperType {
     TY_INVALID,
