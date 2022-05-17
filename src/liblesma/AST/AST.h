@@ -99,20 +99,20 @@ namespace lesma {
     class Type : public Expression {
         std::string name;
         TokenType type;
-        std::vector<Type*> params;
-        Type* ret;
+        std::vector<Type *> params;
+        Type *ret;
 
     public:
         Type(llvm::SMRange Loc, std::string name, TokenType type) : Expression(Loc), name(std::move(name)), type(type) {}
-        Type(llvm::SMRange Loc, std::string name, TokenType type, std::vector<Type*> params, Type *ret) : Expression(Loc), name(std::move(name)), type(type), params(std::move(params)), ret(ret) {}
+        Type(llvm::SMRange Loc, std::string name, TokenType type, std::vector<Type *> params, Type *ret) : Expression(Loc), name(std::move(name)), type(type), params(std::move(params)), ret(ret) {}
         ~Type() override = default;
 
         [[nodiscard]] [[maybe_unused]] std::string getName() const { return name; }
         [[nodiscard]] [[maybe_unused]] TokenType getType() const { return type; }
-        [[nodiscard]] [[maybe_unused]] std::vector<Type*> getParams() const { return params; }
+        [[nodiscard]] [[maybe_unused]] std::vector<Type *> getParams() const { return params; }
         [[nodiscard]] [[maybe_unused]] Type *getReturnType() const { return ret; }
 
-        std::string toString(llvm::SourceMgr */*srcMgr*/, int /*ind*/) override {
+        std::string toString(llvm::SourceMgr * /*srcMgr*/, int /*ind*/) override {
             return name;
         }
     };

@@ -58,8 +58,8 @@ Type *Parser::ParseType() {
         Advance();
         return new Type(type->span, type->lexeme, type->type);
     } else if (Check(TokenType::FUNC)) {
-        std::vector<Type*> params;
-        Type* ret;
+        std::vector<Type *> params;
+        Type *ret;
         std::string lexeme = type->lexeme + " (";
 
         Advance();
@@ -82,9 +82,8 @@ Type *Parser::ParseType() {
         }
 
         // TODO: This should really be a pointer to a function type
-        return new Type({type->getStart(), ret->getEnd()}, lexeme,TokenType::FUNC_TYPE, params, ret);
-    }
-    else if (Check(TokenType::IDENTIFIER)) {
+        return new Type({type->getStart(), ret->getEnd()}, lexeme, TokenType::FUNC_TYPE, params, ret);
+    } else if (Check(TokenType::IDENTIFIER)) {
         Advance();
         return new Type(type->span, type->lexeme, TokenType::CUSTOM_TYPE);
     }

@@ -294,13 +294,12 @@ llvm::Type *Codegen::visit(lesma::Type *node) {
         return Builder->getVoidTy();
     else if (node->getType() == TokenType::FUNC_TYPE) {
         auto ret_type = visit(node->getReturnType());
-        std::vector<llvm::Type*> paramsTypes;
+        std::vector<llvm::Type *> paramsTypes;
         for (auto param_type: node->getParams())
             paramsTypes.push_back(visit(param_type));
 
         return FunctionType::get(ret_type, paramsTypes, false)->getPointerTo();
-    }
-    else if (node->getType() == TokenType::CUSTOM_TYPE) {
+    } else if (node->getType() == TokenType::CUSTOM_TYPE) {
         auto typ = Scope->lookupType(node->getName());
         auto sym = Scope->lookup(node->getName());
         if (typ == nullptr || sym->getLLVMType() == nullptr)
