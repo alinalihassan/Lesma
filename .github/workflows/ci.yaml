@@ -24,7 +24,7 @@ jobs:
       - uses: actions/checkout@v2
 
       - name : Clang Format
-        if:  ${{ matrix.os == ubuntu-latest }}
+        if:  ${{ matrix.os == 'ubuntu-latest' }}
         uses: DoozyX/clang-format-lint-action@v0.13
         with:
           source: './src/'
