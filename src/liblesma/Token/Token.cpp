@@ -30,6 +30,8 @@ TokenType Token::GetIdentifierType(const std::string &identifier, Token *lastTok
         return TokenType::DEF;
     else if (identifier == "defer")
         return TokenType::DEFER;
+    else if (identifier == "func")
+        return TokenType::FUNC;
     else if (identifier == "if")
         return TokenType::IF;
     else if (identifier == "not")
