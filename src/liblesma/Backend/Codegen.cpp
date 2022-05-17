@@ -179,7 +179,9 @@ void Codegen::LinkObjectFile(const std::string &obj_filename) {
         args.push_back(obj.c_str());
     args.push_back("-o");
     args.push_back(output.c_str());
-    args.push_back("-L/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/lib -lSystem");
+    args.push_back("-L");
+    args.push_back("/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/lib");
+    args.push_back("-lSystem");
 
     auto DiagOpts = new clang::DiagnosticOptions();
     auto DiagID = new clang::DiagnosticIDs();
