@@ -32,12 +32,6 @@ jobs:
           clangFormatVersion: 13
           inplace: True
 
-      - name: Install XCode tools
-        if:  ${{ matrix.os == 'macos-latest' }}
-        uses: maxim-lobanov/setup-xcode@v1
-        with:
-          xcode-version: latest-stable
-
       - name: Commit formatting diff
         uses: EndBug/add-and-commit@v4
         with:
