@@ -1,6 +1,17 @@
 cmake_minimum_required(VERSION 3.16)
 project(Lesma)
 
+# C++ Flags and settings
+if (CMAKE_BUILD_TYPE MATCHES Debug)
+  message(STATUS "Debug mode")
+elseif (CMAKE_BUILD_TYPE MATCHES Release)
+  message(STATUS "Release mode")
+endif ()
+
+set(CMAKE_CXX_STANDARD 17)
+add_definitions(${CMAKE_CXX_FLAGS} -Wall -Wextra -Wpedantic -frtti)
+set(CMAKE_CXX_FLAGS_RELEASE "-O3")
+
 # External dependencies
 include(cmake/CPM.cmake)
 
@@ -12,18 +23,6 @@ CPMAddPackage(
   GIT_TAG 8.1.1
   GITHUB_REPOSITORY fmtlib/fmt
 )
-
-# C++ Flags and settings
-if (CMAKE_BUILD_TYPE MATCHES Debug)
-  message(STATUS "Debug mode")
-elseif (CMAKE_BUILD_TYPE MATCHES Release)
-  message(STATUS "Release mode")
-endif ()
-
-set(CMAKE_CXX_STANDARD 17)
-set(CMAKE_CXX_COMPILER "clang++")
-add_definitions(${CMAKE_CXX_FLAGS} -Wall -Wextra -Wpedantic -frtti)
-set(CMAKE_CXX_FLAGS_RELEASE "-O3")
 
 # Directories
 get_filename_component(ROOT_DIR ${CMAKE_SOURCE_DIR} ABSOLUTE)
