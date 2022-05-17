@@ -1,3 +1,27 @@
+# [0.6.0](https://github.com/alinalihassan/Lesma/compare/v0.5.0...v0.6.0) (2022-05-17)
+
+
+### Bug Fixes
+
+* Fix import path for std libs not being reflected in error ([3a82f97](https://github.com/alinalihassan/Lesma/commit/3a82f974a4ae427b3ea7d1d45d17aed291495c6c))
+* Fixed extern functions clashing names, and trying to use wrong decl ([238406d](https://github.com/alinalihassan/Lesma/commit/238406db81d7bd902ede7ecff1ee888b7e108d6e))
+* Fixes to lexer ([052c761](https://github.com/alinalihassan/Lesma/commit/052c761b092f3db5287dba8295b173e42b933e67))
+* Improved lexer performance ([ef4b502](https://github.com/alinalihassan/Lesma/commit/ef4b502c35e20d5d768e0adfb6df57e1c52ddba4))
+* Improved memory usage and Lexer & Parser performance ([043ab55](https://github.com/alinalihassan/Lesma/commit/043ab55580ab7674ce9e91a73857851099caeb7f))
+* Improved types, added types to SymbolTable ([8cce05f](https://github.com/alinalihassan/Lesma/commit/8cce05f1408a06107e3162edb4464ae39f8aafab))
+* Removed token state, refactored token class for lexer performance ([41547ed](https://github.com/alinalihassan/Lesma/commit/41547ed5cc758443934429666836296c19d256e3))
+* Top level statements are now different, disallow them in blocks ([abb7d26](https://github.com/alinalihassan/Lesma/commit/abb7d26d424442ecc93e3aeacc5440d591c0beb3))
+* Updated enums not being added as symbol table entries ([833ca38](https://github.com/alinalihassan/Lesma/commit/833ca38e19553bf4c80c6513a44df590d2fa7bc1))
+
+
+### Features
+
+* Added initial Enum configuration, dot access pattern and type scope not implemented yet ([aed2cd9](https://github.com/alinalihassan/Lesma/commit/aed2cd99b4a2dbe25cbb910c66b6e9f26d35e9ec))
+* Added support for symbol types ([8981814](https://github.com/alinalihassan/Lesma/commit/8981814dcbb3cfd6f345bc94b713efc176d057a7))
+* Custom types are now referenced properly ([1d8297f](https://github.com/alinalihassan/Lesma/commit/1d8297f4e1b574cc8b197e64e474f65adb9fd502))
+* Improved file read times by 10x and lexer times by 10% ([f8e8382](https://github.com/alinalihassan/Lesma/commit/f8e83821269b0c00fe037d55adb455bfa2709cdb))
+* Improved file reads by 10x using SourceManager class ([59ce186](https://github.com/alinalihassan/Lesma/commit/59ce18673aad8a0bfbfda140fa6f064643af2c31))
+
 # [0.5.0](https://github.com/alinalihassan/Lesma/compare/v0.4.10...v0.5.0) (2022-05-06)
 
 
