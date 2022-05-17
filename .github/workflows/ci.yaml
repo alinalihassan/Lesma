@@ -72,7 +72,7 @@ jobs:
       # Enable tmate debugging of manually-triggered workflows if the input option was provided
       - name: Setup tmate session
         uses: mxschmitt/action-tmate@v3
-        timeout-minutes: 5
+        timeout-minutes: 15
 
       - name: Test
         working-directory: ${{github.workspace}}/build
