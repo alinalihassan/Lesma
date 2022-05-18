@@ -44,7 +44,7 @@ namespace lesma {
 
         std::stack<llvm::BasicBlock *> breakBlocks;
         std::stack<llvm::BasicBlock *> continueBlocks;
-        std::stack<std::vector<llvm::Value *>> deferStack;
+        std::stack<std::vector<Statement *>> deferStack;
 
         std::vector<std::string> ObjectFiles;
         llvm::Function *TopLevelFunc;

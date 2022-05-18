@@ -441,7 +441,7 @@ void Codegen::visit(FuncDecl *node) {
     FunctionType *FT = FunctionType::get(visit(node->getReturnType()), paramTypes, false);
     Function *F = Function::Create(FT, linkage, name, *TheModule);
 
-    //    deferStack.push({});
+    deferStack.push({});
 
     BasicBlock *BB = BasicBlock::Create(*TheContext, "entry", F);
     Builder->SetInsertPoint(BB);
@@ -459,8 +459,12 @@ void Codegen::visit(FuncDecl *node) {
     }
     visit(node->getBody());
 
-    //    auto instrs = deferStack.top();
-    //    deferStack.pop();
+    auto instrs = deferStack.top();
+    deferStack.pop();
+
+    if (!isReturn)
+        for (auto inst: instrs)
+            visit(inst);
 
     if (visit(node->getReturnType()) == Builder->getVoidTy() && !isReturn)
         Builder->CreateRetVoid();
@@ -606,6 +610,10 @@ void Codegen::visit(Return *node) {
     if (Builder->GetInsertBlock()->getParent() == TopLevelFunc)
         throw CodegenError(node->getSpan(), "Return statements are not allowed at top-level");
 
+    // Execute all defered statements
+    for (auto inst: deferStack.top())
+        visit(inst);
+
     isReturn = true;
     if (node->getValue() == nullptr)
         Builder->CreateRetVoid();
@@ -614,7 +622,7 @@ void Codegen::visit(Return *node) {
 }
 
 void Codegen::visit(Defer *node) {
-    throw CodegenError(node->getSpan(), "Defer functionality unimplemented!");
+    deferStack.top().push_back(node->getStatement());
 }
 
 void Codegen::visit(ExpressionStatement *node) {

@@ -370,7 +370,7 @@ Token *Lexer::AddIdentifierToken() {
 
     auto tok = AddToken(Token::GetIdentifierType(std::string(begin_loc.getPointer(), loc.getPointer()), GetLastToken()));
 
-    // If it's an 'else if' multiword keyword, remove the last token (which is an 'else' in this case)
+    // If it's a multi-word keyword, remove the last token
     if (tok->type == TokenType::ELSE_IF || tok->type == TokenType::IS_NOT)
         tokens.pop_back();
 
