@@ -1,3 +1,17 @@
+# [0.7.0](https://github.com/alinalihassan/Lesma/compare/v0.6.1...v0.7.0) (2022-05-18)
+
+
+### Bug Fixes
+
+* returns in if branches should no longer result in errors ([b80c074](https://github.com/alinalihassan/Lesma/commit/b80c07479fd4086efd4d2ea26be254922131d8bc))
+
+
+### Features
+
+* Added `is` and `is not` operators ([6841c0e](https://github.com/alinalihassan/Lesma/commit/6841c0ef8cb8c560ace0709509fcfbb8fc51cd42))
+* Added defer keyword ([c1e8e92](https://github.com/alinalihassan/Lesma/commit/c1e8e926c8c345eb56d0769e671fe7cd8875e65d))
+* Added function type parsing ([ed7f8c8](https://github.com/alinalihassan/Lesma/commit/ed7f8c8e76177e5be47ee989be2aafdf9bde26a9))
+
 ## [0.6.1](https://github.com/alinalihassan/Lesma/compare/v0.6.0...v0.6.1) (2022-05-17)
 
 
