@@ -365,7 +365,13 @@ void Codegen::visit(If *node) {
         Scope = Scope->createChildBlock("if");
         visit(node->getBlocks().at(i));
 
-        if (!isBreak)
+        // TODO: Really slow and hacky way to check if there was a return in block
+        bool returned = false;
+        for (auto stat: node->getBlocks().at(i)->getChildren())
+            if (dynamic_cast<Return *>(stat))
+                returned = true;
+
+        if (!isBreak && !returned)
             Builder->CreateBr(bEnd);
 
         Scope = Scope->getParent();
