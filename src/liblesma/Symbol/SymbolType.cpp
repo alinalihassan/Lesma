@@ -40,7 +40,7 @@ SymbolSuperType SymbolType::getSuperType() const { return baseSuperType; }
  *
  * @return Vector with tuples of name and SymbolType
  */
-std::vector<std::tuple<std::string, SymbolType*>> SymbolType::getFields() const { return fields; }
+std::vector<std::tuple<std::string, SymbolType *>> SymbolType::getFields() const { return fields; }
 
 bool operator==(const SymbolType &lhs, const SymbolType &rhs) { return lhs.baseSuperType == rhs.baseSuperType; }
 

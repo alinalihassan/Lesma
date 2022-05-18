@@ -636,9 +636,9 @@ void Codegen::visit(Import *node) {
 void Codegen::visit(Enum *node) {
     std::vector<llvm::Type *> elementTypes = {Builder->getInt8Ty()};
     llvm::StructType *structType = llvm::StructType::create(*TheContext, elementTypes, node->getIdentifier());
-    std::vector<std::tuple<std::string, SymbolType*>> fields;
+    std::vector<std::tuple<std::string, SymbolType *>> fields;
 
-    for (const auto& field: node->getValues())
+    for (const auto &field: node->getValues())
         fields.push_back({field, new SymbolType(TY_VOID)});
 
     auto *type = new SymbolType(TY_ENUM, fields);
@@ -804,7 +804,7 @@ llvm::Value *Codegen::visit(BinaryOp *node) {
                        node->getRight()->toString(SourceManager.get(), 0));
 }
 
-llvm::Value *Codegen::visit(DotOp * node) {
+llvm::Value *Codegen::visit(DotOp *node) {
     // Check if right-hand expression is an identifier expression
     if (!dynamic_cast<Literal *>(node->getRight()))
         throw CodegenError(node->getRight()->getSpan(), "Expected identifier right-hand of dot operator, found {}", node->getRight()->toString(SourceManager.get(), 0));
