@@ -238,6 +238,8 @@ llvm::Value *Codegen::visit(Expression *node) {
         return visit(dynamic_cast<DotOp *>(node));
     else if (dynamic_cast<CastOp *>(node))
         return visit(dynamic_cast<CastOp *>(node));
+    else if (dynamic_cast<IsOp *>(node))
+        return visit(dynamic_cast<IsOp *>(node));
     else if (dynamic_cast<UnaryOp *>(node))
         return visit(dynamic_cast<UnaryOp *>(node));
     else if (dynamic_cast<Literal *>(node))
@@ -790,6 +792,13 @@ llvm::Value *Codegen::visit(DotOp * /*node*/) {
 
 llvm::Value *Codegen::visit(CastOp *node) {
     return Cast(node->getSpan(), visit(node->getExpression()), visit(node->getType()));
+}
+
+llvm::Value *Codegen::visit(IsOp *node) {
+    if (node->getOperator() == TokenType::IS)
+        return visit(node->getLeft())->getType() == visit(node->getRight()) ? Builder->getTrue() : Builder->getFalse();
+    else
+        return visit(node->getLeft())->getType() == visit(node->getRight()) ? Builder->getFalse() : Builder->getTrue();
 }
 
 llvm::Value *Codegen::visit(UnaryOp *node) {

@@ -206,10 +206,16 @@ Expression *Parser::ParseAdd() {
 Expression *Parser::ParseCompare() {
     auto left = ParseAdd();
     while (AdvanceIfMatchAny<TokenType::EQUAL_EQUAL, TokenType::BANG_EQUAL, TokenType::LESS, TokenType::LESS_EQUAL,
-                             TokenType::GREATER, TokenType::GREATER_EQUAL>()) {
+                             TokenType::GREATER, TokenType::GREATER_EQUAL, TokenType::IS, TokenType::IS_NOT>()) {
         auto op = Previous()->type;
-        auto right = ParseAdd();
-        left = new BinaryOp({left->getStart(), right->getEnd()}, left, op, right);
+        if (op == TokenType::IS || op == TokenType::IS_NOT) {
+            auto right = ParseType();
+            left = new IsOp({left->getStart(), right->getEnd()}, left, op, right);
+        }
+        else {
+            auto right = ParseAdd();
+            left = new BinaryOp({left->getStart(), right->getEnd()}, left, op, right);
+        }
     }
     return left;
 }

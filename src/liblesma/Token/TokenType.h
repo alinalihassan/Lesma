@@ -90,6 +90,7 @@ namespace lesma {
         DEFER,
         AS,
         IS,
+        IS_NOT,
         IN,
         IMPORT,
 
