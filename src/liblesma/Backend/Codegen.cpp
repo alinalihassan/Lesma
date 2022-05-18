@@ -238,6 +238,8 @@ llvm::Value *Codegen::visit(Expression *node) {
         return visit(dynamic_cast<DotOp *>(node));
     else if (dynamic_cast<CastOp *>(node))
         return visit(dynamic_cast<CastOp *>(node));
+    else if (dynamic_cast<IsOp *>(node))
+        return visit(dynamic_cast<IsOp *>(node));
     else if (dynamic_cast<UnaryOp *>(node))
         return visit(dynamic_cast<UnaryOp *>(node));
     else if (dynamic_cast<Literal *>(node))
@@ -292,7 +294,14 @@ llvm::Type *Codegen::visit(lesma::Type *node) {
         return Builder->getInt8PtrTy();
     else if (node->getType() == TokenType::VOID_TYPE)
         return Builder->getVoidTy();
-    else if (node->getType() == TokenType::CUSTOM_TYPE) {
+    else if (node->getType() == TokenType::FUNC_TYPE) {
+        auto ret_type = visit(node->getReturnType());
+        std::vector<llvm::Type *> paramsTypes;
+        for (auto param_type: node->getParams())
+            paramsTypes.push_back(visit(param_type));
+
+        return FunctionType::get(ret_type, paramsTypes, false)->getPointerTo();
+    } else if (node->getType() == TokenType::CUSTOM_TYPE) {
         auto typ = Scope->lookupType(node->getName());
         auto sym = Scope->lookup(node->getName());
         if (typ == nullptr || sym->getLLVMType() == nullptr)
@@ -356,7 +365,13 @@ void Codegen::visit(If *node) {
         Scope = Scope->createChildBlock("if");
         visit(node->getBlocks().at(i));
 
-        if (!isBreak)
+        // TODO: Really slow and hacky way to check if there was a return in block
+        bool returned = false;
+        for (auto stat: node->getBlocks().at(i)->getChildren())
+            if (dynamic_cast<Return *>(stat))
+                returned = true;
+
+        if (!isBreak && !returned)
             Builder->CreateBr(bEnd);
 
         Scope = Scope->getParent();
@@ -426,7 +441,7 @@ void Codegen::visit(FuncDecl *node) {
     FunctionType *FT = FunctionType::get(visit(node->getReturnType()), paramTypes, false);
     Function *F = Function::Create(FT, linkage, name, *TheModule);
 
-    //    deferStack.push({});
+    deferStack.push({});
 
     BasicBlock *BB = BasicBlock::Create(*TheContext, "entry", F);
     Builder->SetInsertPoint(BB);
@@ -444,8 +459,12 @@ void Codegen::visit(FuncDecl *node) {
     }
     visit(node->getBody());
 
-    //    auto instrs = deferStack.top();
-    //    deferStack.pop();
+    auto instrs = deferStack.top();
+    deferStack.pop();
+
+    if (!isReturn)
+        for (auto inst: instrs)
+            visit(inst);
 
     if (visit(node->getReturnType()) == Builder->getVoidTy() && !isReturn)
         Builder->CreateRetVoid();
@@ -591,6 +610,10 @@ void Codegen::visit(Return *node) {
     if (Builder->GetInsertBlock()->getParent() == TopLevelFunc)
         throw CodegenError(node->getSpan(), "Return statements are not allowed at top-level");
 
+    // Execute all defered statements
+    for (auto inst: deferStack.top())
+        visit(inst);
+
     isReturn = true;
     if (node->getValue() == nullptr)
         Builder->CreateRetVoid();
@@ -599,7 +622,7 @@ void Codegen::visit(Return *node) {
 }
 
 void Codegen::visit(Defer *node) {
-    throw CodegenError(node->getSpan(), "Defer functionality unimplemented!");
+    deferStack.top().push_back(node->getStatement());
 }
 
 void Codegen::visit(ExpressionStatement *node) {
@@ -783,6 +806,13 @@ llvm::Value *Codegen::visit(DotOp * /*node*/) {
 
 llvm::Value *Codegen::visit(CastOp *node) {
     return Cast(node->getSpan(), visit(node->getExpression()), visit(node->getType()));
+}
+
+llvm::Value *Codegen::visit(IsOp *node) {
+    if (node->getOperator() == TokenType::IS)
+        return visit(node->getLeft())->getType() == visit(node->getRight()) ? Builder->getTrue() : Builder->getFalse();
+    else
+        return visit(node->getLeft())->getType() == visit(node->getRight()) ? Builder->getFalse() : Builder->getTrue();
 }
 
 llvm::Value *Codegen::visit(UnaryOp *node) {

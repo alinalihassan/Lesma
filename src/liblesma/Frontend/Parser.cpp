@@ -51,13 +51,38 @@ void Parser::Error(Token *token, const std::string &error_message) {
     throw ParserError(token->span, "{}", error_message);
 }
 
-// TODO: Parse Type
 Type *Parser::ParseType() {
     auto type = Peek();
     if (CheckAny<TokenType::INT_TYPE, TokenType::FLOAT_TYPE, TokenType::STRING_TYPE, TokenType::BOOL_TYPE,
                  TokenType::VOID_TYPE>()) {
         Advance();
         return new Type(type->span, type->lexeme, type->type);
+    } else if (Check(TokenType::FUNC)) {
+        std::vector<Type *> params;
+        Type *ret;
+        std::string lexeme = type->lexeme + " (";
+
+        Advance();
+        Consume(TokenType::LEFT_PAREN);
+        do {
+            if (!params.empty())
+                lexeme += ", ";
+            params.push_back(ParseType());
+            lexeme += params.back()->getName();
+        } while (AdvanceIfMatchAny<TokenType::COMMA>());
+
+        Consume(TokenType::RIGHT_PAREN);
+        lexeme += ")";
+
+        if (AdvanceIfMatchAny<TokenType::ARROW>()) {
+            ret = ParseType();
+            lexeme += " -> " + ret->getName();
+        } else {
+            ret = new Type({params.back()->getEnd(), params.back()->getEnd()}, type->lexeme, type->type);
+        }
+
+        // TODO: This should really be a pointer to a function type
+        return new Type({type->getStart(), ret->getEnd()}, lexeme, TokenType::FUNC_TYPE, params, ret);
     } else if (Check(TokenType::IDENTIFIER)) {
         Advance();
         return new Type(type->span, type->lexeme, TokenType::CUSTOM_TYPE);
@@ -181,10 +206,15 @@ Expression *Parser::ParseAdd() {
 Expression *Parser::ParseCompare() {
     auto left = ParseAdd();
     while (AdvanceIfMatchAny<TokenType::EQUAL_EQUAL, TokenType::BANG_EQUAL, TokenType::LESS, TokenType::LESS_EQUAL,
-                             TokenType::GREATER, TokenType::GREATER_EQUAL>()) {
+                             TokenType::GREATER, TokenType::GREATER_EQUAL, TokenType::IS, TokenType::IS_NOT>()) {
         auto op = Previous()->type;
-        auto right = ParseAdd();
-        left = new BinaryOp({left->getStart(), right->getEnd()}, left, op, right);
+        if (op == TokenType::IS || op == TokenType::IS_NOT) {
+            auto right = ParseType();
+            left = new IsOp({left->getStart(), right->getEnd()}, left, op, right);
+        } else {
+            auto right = ParseAdd();
+            left = new BinaryOp({left->getStart(), right->getEnd()}, left, op, right);
+        }
     }
     return left;
 }

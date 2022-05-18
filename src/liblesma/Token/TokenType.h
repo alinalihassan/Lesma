@@ -60,6 +60,7 @@ namespace lesma {
         STRING_TYPE,
         BOOL_TYPE,
         VOID_TYPE,
+        FUNC_TYPE,
         CUSTOM_TYPE,
 
         // Keywords.
@@ -71,6 +72,7 @@ namespace lesma {
         FALSE_,
         DEF,
         FOR,
+        FUNC,
         IF,
         NIL,
         OR,
@@ -88,6 +90,7 @@ namespace lesma {
         DEFER,
         AS,
         IS,
+        IS_NOT,
         IN,
         IMPORT,
 

@@ -99,13 +99,18 @@ namespace lesma {
     class Type : public Expression {
         std::string name;
         TokenType type;
+        std::vector<Type *> params;
+        Type *ret;
 
     public:
         Type(llvm::SMRange Loc, std::string name, TokenType type) : Expression(Loc), name(std::move(name)), type(type) {}
+        Type(llvm::SMRange Loc, std::string name, TokenType type, std::vector<Type *> params, Type *ret) : Expression(Loc), name(std::move(name)), type(type), params(std::move(params)), ret(ret) {}
         ~Type() override = default;
 
         [[nodiscard]] [[maybe_unused]] std::string getName() const { return name; }
         [[nodiscard]] [[maybe_unused]] TokenType getType() const { return type; }
+        [[nodiscard]] [[maybe_unused]] std::vector<Type *> getParams() const { return params; }
+        [[nodiscard]] [[maybe_unused]] Type *getReturnType() const { return ret; }
 
         std::string toString(llvm::SourceMgr * /*srcMgr*/, int /*ind*/) override {
             return name;
@@ -400,6 +405,26 @@ namespace lesma {
         [[nodiscard]] [[maybe_unused]] Expression *getLeft() const { return left; }
         [[nodiscard]] [[maybe_unused]] TokenType getOperator() const { return op; }
         [[nodiscard]] [[maybe_unused]] Expression *getRight() const { return right; }
+
+        std::string toString(llvm::SourceMgr *srcMgr, int ind) override {
+            return left->toString(srcMgr, ind) + " " + std::string{NAMEOF_ENUM(op)} + " " + right->toString(srcMgr, ind);
+        }
+    };
+
+    class IsOp : public Expression {
+        Expression *left;
+        TokenType op;
+        Type *right;
+
+    public:
+        IsOp(llvm::SMRange Loc, Expression *left, TokenType op, Type *right) : Expression(Loc), left(left),
+                                                                               op(op), right(right) {}
+
+        ~IsOp() override = default;
+
+        [[nodiscard]] [[maybe_unused]] Expression *getLeft() const { return left; }
+        [[nodiscard]] [[maybe_unused]] TokenType getOperator() const { return op; }
+        [[nodiscard]] [[maybe_unused]] Type *getRight() const { return right; }
 
         std::string toString(llvm::SourceMgr *srcMgr, int ind) override {
             return left->toString(srcMgr, ind) + " " + std::string{NAMEOF_ENUM(op)} + " " + right->toString(srcMgr, ind);

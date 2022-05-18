@@ -44,7 +44,7 @@ namespace lesma {
 
         std::stack<llvm::BasicBlock *> breakBlocks;
         std::stack<llvm::BasicBlock *> continueBlocks;
-        std::stack<std::vector<llvm::Value *>> deferStack;
+        std::stack<std::vector<Statement *>> deferStack;
 
         std::vector<std::string> ObjectFiles;
         llvm::Function *TopLevelFunc;
@@ -89,6 +89,7 @@ namespace lesma {
         llvm::Value *visit(BinaryOp *node) override;
         llvm::Value *visit(DotOp *node) override;
         llvm::Value *visit(CastOp *node) override;
+        llvm::Value *visit(IsOp *node) override;
         llvm::Value *visit(UnaryOp *node) override;
         llvm::Value *visit(Literal *node) override;
         llvm::Value *visit(Else *node) override;
