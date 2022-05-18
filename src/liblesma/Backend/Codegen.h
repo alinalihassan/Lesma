@@ -97,6 +97,7 @@ namespace lesma {
         // TODO: Helper functions, move them out somewhere
         SymbolType getType(llvm::Type *type);
         llvm::Value *Cast(llvm::SMRange span, llvm::Value *val, llvm::Type *type);
+        llvm::Value *Cast(llvm::SMRange span, llvm::Value *val, llvm::Type *type, bool isStore);
         llvm::Type *GetExtendedType(llvm::Type *left, llvm::Type *right);
         std::string getMangledName(llvm::SMRange span, std::string func_name, const std::vector<llvm::Type *> &paramTypes);
         std::string getTypeMangledName(llvm::SMRange span, llvm::Type *type);

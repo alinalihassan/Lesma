@@ -337,7 +337,7 @@ void Codegen::visit(VarDecl *node) {
     Scope->insertSymbol(symbol);
 
     if (node->getValue().has_value())
-        Builder->CreateStore(Cast(node->getSpan(), visit(node->getValue().value()), ptr->getAllocatedType()), ptr);
+        Builder->CreateStore(Cast(node->getSpan(), visit(node->getValue().value()), ptr->getAllocatedType(), true), ptr);
 }
 
 void Codegen::visit(If *node) {
@@ -514,7 +514,7 @@ void Codegen::visit(Assignment *node) {
         throw CodegenError(node->getSpan(), "Assigning immutable variable a new value");
 
     auto value = visit(node->getExpression());
-    value = Cast(node->getSpan(), value, symbol->getLLVMType());
+    value = Cast(node->getSpan(), value, symbol->getLLVMType(), true);
     llvm::Value *var_val;
 
     switch (node->getOperator()) {
@@ -636,8 +636,12 @@ void Codegen::visit(Import *node) {
 void Codegen::visit(Enum *node) {
     std::vector<llvm::Type *> elementTypes = {Builder->getInt8Ty()};
     llvm::StructType *structType = llvm::StructType::create(*TheContext, elementTypes, node->getIdentifier());
+    std::vector<std::tuple<std::string, SymbolType*>> fields;
 
-    auto *type = new SymbolType(TY_STRUCT);
+    for (const auto& field: node->getValues())
+        fields.push_back({field, new SymbolType(TY_VOID)});
+
+    auto *type = new SymbolType(TY_ENUM, fields);
     auto *structSymbol = new SymbolTableEntry(node->getIdentifier(), *type);
     structSymbol->setLLVMType(structType);
     Scope->insertType(node->getIdentifier(), type);
@@ -800,8 +804,40 @@ llvm::Value *Codegen::visit(BinaryOp *node) {
                        node->getRight()->toString(SourceManager.get(), 0));
 }
 
-llvm::Value *Codegen::visit(DotOp * /*node*/) {
-    return nullptr;
+llvm::Value *Codegen::visit(DotOp * node) {
+    // Check if right-hand expression is an identifier expression
+    if (!dynamic_cast<Literal *>(node->getRight()))
+        throw CodegenError(node->getRight()->getSpan(), "Expected identifier right-hand of dot operator, found {}", node->getRight()->toString(SourceManager.get(), 0));
+
+    auto lit = dynamic_cast<Literal *>(node->getRight());
+    if (lit->getType() != TokenType::IDENTIFIER)
+        throw CodegenError(node->getRight()->getSpan(), "Expected identifier right-hand of dot operator, found {}", node->getRight()->toString(SourceManager.get(), 0));
+
+    auto left_ident = node->getLeft()->toString(SourceManager.get(), 0);
+    auto cls = Scope->lookupType(left_ident);
+
+    if (!cls->isOneOf({TY_ENUM}))
+        throw CodegenError(node->getLeft()->getSpan(), "Cannot apply dot accessor on {}", left_ident);
+
+    if (cls->is(TY_ENUM)) {
+        unsigned int val = 0;
+        for (unsigned int i = 0; i < cls->getFields().size(); i++) {
+            if (std::get<0>(cls->getFields()[i]) == lit->getValue()) {
+                val = i + 1;
+                break;
+            }
+        }
+        if (val == 0)
+            throw CodegenError(node->getLeft()->getSpan(), "Identifier {} not in {}", lit->getValue(), left_ident);
+
+        auto struct_ty = Scope->lookup(left_ident);
+        auto enum_ptr = Builder->CreateAlloca(struct_ty->getLLVMType(), nullptr, ".tmp");
+        auto field = Builder->CreateInBoundsGEP(struct_ty->getLLVMType(), enum_ptr, {Builder->getInt32(0), Builder->getInt32(0)});
+        Builder->CreateStore(Builder->getInt8(val), field);
+
+        return enum_ptr;
+    }
+    throw CodegenError(node->getSpan(), "Unimplemented dot accessor: {}", node->toString(SourceManager.get(), 0));
 }
 
 llvm::Value *Codegen::visit(CastOp *node) {
@@ -939,7 +975,11 @@ SymbolType Codegen::getType(llvm::Type *type) {
 }
 
 llvm::Value *Codegen::Cast(llvm::SMRange span, llvm::Value *val, llvm::Type *type) {
-    if (val->getType() == type)
+    return Cast(span, val, type, false);
+}
+
+llvm::Value *Codegen::Cast(llvm::SMRange span, llvm::Value *val, llvm::Type *type, bool isStore) {
+    if (val->getType() == type || (isStore && val->getType() == type->getPointerTo()))
         return val;
 
     if (type->isIntegerTy()) {
