@@ -211,8 +211,7 @@ Expression *Parser::ParseCompare() {
         if (op == TokenType::IS || op == TokenType::IS_NOT) {
             auto right = ParseType();
             left = new IsOp({left->getStart(), right->getEnd()}, left, op, right);
-        }
-        else {
+        } else {
             auto right = ParseAdd();
             left = new BinaryOp({left->getStart(), right->getEnd()}, left, op, right);
         }

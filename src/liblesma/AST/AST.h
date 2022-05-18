@@ -418,7 +418,7 @@ namespace lesma {
 
     public:
         IsOp(llvm::SMRange Loc, Expression *left, TokenType op, Type *right) : Expression(Loc), left(left),
-                                                                                         op(op), right(right) {}
+                                                                               op(op), right(right) {}
 
         ~IsOp() override = default;
 
