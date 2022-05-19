@@ -544,16 +544,16 @@ namespace lesma {
 
     class Class : public Statement {
         std::string identifier;
-        std::vector<VarDecl*> fields;
-        std::vector<FuncDecl*> methods;
+        std::vector<VarDecl *> fields;
+        std::vector<FuncDecl *> methods;
 
     public:
-        Class(llvm::SMRange Loc, std::string identifier, std::vector<VarDecl*> fields) : Statement(Loc), identifier(std::move(identifier)), fields(std::move(fields)){};
+        Class(llvm::SMRange Loc, std::string identifier, std::vector<VarDecl *> fields) : Statement(Loc), identifier(std::move(identifier)), fields(std::move(fields)){};
         ~Class() override = default;
 
         [[nodiscard]] [[maybe_unused]] std::string getIdentifier() const { return identifier; }
-        [[nodiscard]] [[maybe_unused]] std::vector<VarDecl*> getFields() const { return fields; }
-        [[nodiscard]] [[maybe_unused]] std::vector<FuncDecl*> getMethods() const { return methods; }
+        [[nodiscard]] [[maybe_unused]] std::vector<VarDecl *> getFields() const { return fields; }
+        [[nodiscard]] [[maybe_unused]] std::vector<FuncDecl *> getMethods() const { return methods; }
 
         std::string toString(llvm::SourceMgr *srcMgr, int ind) override {
             std::string fields_str;

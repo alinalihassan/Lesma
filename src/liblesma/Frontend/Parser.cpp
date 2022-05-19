@@ -507,16 +507,16 @@ Statement *Parser::ParseClass() {
     auto token = Consume(TokenType::IDENTIFIER);
     Consume(TokenType::NEWLINE);
 
-    std::vector<VarDecl*> fields;
-    std::vector<FuncDecl*> methods;
+    std::vector<VarDecl *> fields;
+    std::vector<FuncDecl *> methods;
     Consume(TokenType::INDENT);
 
     while (!CheckAny<TokenType::DEDENT, TokenType::EOF_TOKEN>()) {
         if (CheckAny<TokenType::LET, TokenType::VAR>())
-            fields.push_back(dynamic_cast<VarDecl*>(ParseVarDecl()));
+            fields.push_back(dynamic_cast<VarDecl *>(ParseVarDecl()));
         if (CheckAny<TokenType::DEF>())
-            methods.push_back(dynamic_cast<FuncDecl*>(ParseFunctionDeclaration()));
-        
+            methods.push_back(dynamic_cast<FuncDecl *>(ParseFunctionDeclaration()));
+
         Consume(TokenType::NEWLINE);
     }
 
