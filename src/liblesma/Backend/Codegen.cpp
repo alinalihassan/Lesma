@@ -633,6 +633,10 @@ void Codegen::visit(Import *node) {
     CompileModule(node->getSpan(), node->getFilePath(), node->isStd());
 }
 
+void Codegen::visit(Class *node) {
+    throw CodegenError(node->getSpan(), "Classes not implemented.");
+}
+
 void Codegen::visit(Enum *node) {
     std::vector<llvm::Type *> elementTypes = {Builder->getInt8Ty()};
     llvm::StructType *structType = llvm::StructType::create(*TheContext, elementTypes, node->getIdentifier());
