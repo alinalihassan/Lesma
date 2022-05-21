@@ -759,6 +759,16 @@ llvm::Value *Codegen::visit(BinaryOp *node) {
                 return Builder->CreateFCmpOEQ(left, right, ".tmp");
             else if (finalType->isIntegerTy())
                 return Builder->CreateICmpEQ(left, right, ".tmp");
+            else if (finalType->isPointerTy() && finalType->getPointerElementType()->isStructTy()) {
+                auto struct_ty = Scope->lookupType(finalType->getPointerElementType()->getStructName().str());
+                if (struct_ty->is(TY_ENUM)) {
+                    auto left_ptr = Builder->CreateLoad( left->getType()->getPointerElementType(), left);
+                    auto right_ptr = Builder->CreateLoad( left->getType()->getPointerElementType(), right);
+                    auto left_val = Builder->CreateExtractValue(left_ptr, {0});
+                    auto right_val = Builder->CreateExtractValue(right_ptr, {0});
+                    return Builder->CreateICmpEQ(left_val, right_val, ".tmp");
+                }
+            }
             break;
         case TokenType::BANG_EQUAL:
             left = Cast(node->getSpan(), left, finalType);
@@ -768,6 +778,16 @@ llvm::Value *Codegen::visit(BinaryOp *node) {
                 return Builder->CreateFCmpONE(left, right, ".tmp");
             else if (finalType->isIntegerTy())
                 return Builder->CreateICmpNE(left, right, ".tmp");
+            else if (finalType->isPointerTy() && finalType->getPointerElementType()->isStructTy()) {
+                auto struct_ty = Scope->lookupType(finalType->getPointerElementType()->getStructName().str());
+                if (struct_ty->is(TY_ENUM)) {
+                    auto left_ptr = Builder->CreateLoad( left->getType()->getPointerElementType(), left);
+                    auto right_ptr = Builder->CreateLoad( left->getType()->getPointerElementType(), right);
+                    auto left_val = Builder->CreateExtractValue(left_ptr, {0});
+                    auto right_val = Builder->CreateExtractValue(right_ptr, {0});
+                    return Builder->CreateICmpEQ(left_val, right_val, ".tmp");
+                }
+            }
             break;
         case TokenType::GREATER:
             left = Cast(node->getSpan(), left, finalType);
@@ -835,6 +855,7 @@ llvm::Value *Codegen::visit(DotOp *node) {
 
         auto _enum = Scope->lookupType(left->getValue());
         if (_enum != nullptr) {
+            // Assuming it's an enum or statically accessed class
             if (!_enum->isOneOf({TY_ENUM, TY_CLASS}))
                 throw CodegenError(node->getLeft()->getSpan(), "Cannot apply dot accessor on {}", left->getValue());
 

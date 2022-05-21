@@ -1,7 +1,10 @@
-#ret=0
+#ret=101
 enum Color
     RED
     BLUE
     GREEN
 
 var x: Color = Color.RED
+
+if Color.RED == Color.RED
+    exit(101)
