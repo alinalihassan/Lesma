@@ -548,7 +548,7 @@ namespace lesma {
         std::vector<FuncDecl *> methods;
 
     public:
-        Class(llvm::SMRange Loc, std::string identifier, std::vector<VarDecl *> fields) : Statement(Loc), identifier(std::move(identifier)), fields(std::move(fields)){};
+        Class(llvm::SMRange Loc, std::string identifier, std::vector<VarDecl *> fields, std::vector<FuncDecl *> methods) : Statement(Loc), identifier(std::move(identifier)), fields(std::move(fields)), methods(std::move(methods)){};
         ~Class() override = default;
 
         [[nodiscard]] [[maybe_unused]] std::string getIdentifier() const { return identifier; }
@@ -563,7 +563,7 @@ namespace lesma {
             std::string methods_str;
             for (auto method: methods)
                 methods_str += method->toString(srcMgr, 0);
-            return fmt::format("{}Class[Line({}-{}):Col({}-{})]: {} with: {}\n{}\n",
+            return fmt::format("{}Class[Line({}-{}):Col({}-{})]: {} with: \n{}\n{}\n",
                                std::string(ind, ' '),
                                srcMgr->getLineAndColumn(getStart()).first,
                                srcMgr->getLineAndColumn(getEnd()).first,

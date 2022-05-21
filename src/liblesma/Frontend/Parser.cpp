@@ -274,9 +274,9 @@ Statement *Parser::ParseVarDecl() {
         expr = ParseExpression();
 
     if (type == std::nullopt && expr == std::nullopt)
-        throw LexerError(llvm::SMRange{startTok->getStart(), var->getEnd()}, "Expected either a type or a value");
+        throw ParserError(llvm::SMRange{startTok->getStart(), var->getEnd()}, "Expected either a type or a value");
     else if (expr == std::nullopt && !mutable_)
-        throw LexerError(llvm::SMRange{startTok->getStart(), type.value()->getEnd()}, "Cannot declare an immutable variable without an initial expression");
+        throw ParserError(llvm::SMRange{startTok->getStart(), type.value()->getEnd()}, "Cannot declare an immutable variable without an initial expression");
 
     ConsumeNewline();
     return new VarDecl({startTok->getStart(), expr != std::nullopt ? expr.value()->getEnd() : type.value()->getEnd()}, var, type, expr, mutable_);
@@ -437,6 +437,11 @@ Statement *Parser::ParseFunctionDeclaration() {
     if (AdvanceIfMatchAny<TokenType::EXTERN_FUNC>())
         extern_func = true;
 
+    if (extern_func && inClass) {
+        Error(Previous(), "Extern functions are not allowed in class definition.");
+        return nullptr;
+    }
+
     auto identifier = Consume(TokenType::IDENTIFIER);
 
     // Parse parameters
@@ -511,18 +516,20 @@ Statement *Parser::ParseClass() {
     std::vector<FuncDecl *> methods;
     Consume(TokenType::INDENT);
 
+    inClass = true;
     while (!CheckAny<TokenType::DEDENT, TokenType::EOF_TOKEN>()) {
         if (CheckAny<TokenType::LET, TokenType::VAR>())
             fields.push_back(dynamic_cast<VarDecl *>(ParseVarDecl()));
-        if (CheckAny<TokenType::DEF>())
+        else if (CheckAny<TokenType::DEF>())
             methods.push_back(dynamic_cast<FuncDecl *>(ParseFunctionDeclaration()));
-
-        Consume(TokenType::NEWLINE);
+        else
+            Consume(TokenType::NEWLINE);
     }
+    inClass = false;
 
     AdvanceIfMatchAny<TokenType::DEDENT>();
 
-    return new Class(loc, token->lexeme, fields);
+    return new Class(loc, token->lexeme, fields, methods);
 }
 
 Statement *Parser::ParseEnum() {
