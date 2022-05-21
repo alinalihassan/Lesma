@@ -1094,7 +1094,7 @@ llvm::Value *Codegen::genFuncCall(FuncCall *node, std::vector<llvm::Value *> ext
     return Builder->CreateCall(func, params, func->getReturnType()->isVoidTy() ? "" : "tmp");
 }
 
-int Codegen::FindIndexInFields(SymbolType *_struct, const std::string& field) {
+int Codegen::FindIndexInFields(SymbolType *_struct, const std::string &field) {
     int val = -1;
     for (unsigned int i = 0; i < _struct->getFields().size(); i++) {
         if (std::get<0>(_struct->getFields()[i]) == field) {

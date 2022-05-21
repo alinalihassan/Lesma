@@ -104,6 +104,6 @@ namespace lesma {
         std::string getMangledName(llvm::SMRange span, std::string func_name, const std::vector<llvm::Type *> &paramTypes);
         std::string getTypeMangledName(llvm::SMRange span, llvm::Type *type);
         llvm::Value *genFuncCall(FuncCall *node, std::vector<llvm::Value *> extra_params);
-        int FindIndexInFields(SymbolType *_struct, const std::string& field);
+        int FindIndexInFields(SymbolType *_struct, const std::string &field);
     };
 }// namespace lesma
