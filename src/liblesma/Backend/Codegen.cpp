@@ -705,7 +705,9 @@ llvm::Value *Codegen::visit(BinaryOp *node) {
             left = Cast(node->getSpan(), left, finalType);
             right = Cast(node->getSpan(), right, finalType);
 
-            if (finalType->isFloatingPointTy())
+            if (finalType == nullptr)
+                break;
+            else if (finalType->isFloatingPointTy())
                 return Builder->CreateFSub(left, right, ".tmp");
             else if (finalType->isIntegerTy())
                 return Builder->CreateSub(left, right, ".tmp");
@@ -714,7 +716,9 @@ llvm::Value *Codegen::visit(BinaryOp *node) {
             left = Cast(node->getSpan(), left, finalType);
             right = Cast(node->getSpan(), right, finalType);
 
-            if (finalType->isFloatingPointTy())
+            if (finalType == nullptr)
+                break;
+            else if (finalType->isFloatingPointTy())
                 return Builder->CreateFAdd(left, right, ".tmp");
             else if (finalType->isIntegerTy())
                 return Builder->CreateAdd(left, right, ".tmp");
@@ -723,7 +727,9 @@ llvm::Value *Codegen::visit(BinaryOp *node) {
             left = Cast(node->getSpan(), left, finalType);
             right = Cast(node->getSpan(), right, finalType);
 
-            if (finalType->isFloatingPointTy())
+            if (finalType == nullptr)
+                break;
+            else if (finalType->isFloatingPointTy())
                 return Builder->CreateFMul(left, right, ".tmp");
             else if (finalType->isIntegerTy())
                 return Builder->CreateMul(left, right, ".tmp");
@@ -732,7 +738,9 @@ llvm::Value *Codegen::visit(BinaryOp *node) {
             left = Cast(node->getSpan(), left, finalType);
             right = Cast(node->getSpan(), right, finalType);
 
-            if (finalType->isFloatingPointTy())
+            if (finalType == nullptr)
+                break;
+            else if (finalType->isFloatingPointTy())
                 return Builder->CreateFDiv(left, right, ".tmp");
             else if (finalType->isIntegerTy())
                 return Builder->CreateSDiv(left, right, ".tmp");
@@ -741,13 +749,17 @@ llvm::Value *Codegen::visit(BinaryOp *node) {
             left = Cast(node->getSpan(), left, finalType);
             right = Cast(node->getSpan(), right, finalType);
 
-            if (finalType->isFloatingPointTy())
+            if (finalType == nullptr)
+                break;
+            else if (finalType->isFloatingPointTy())
                 return Builder->CreateFRem(left, right, ".tmp");
             else if (finalType->isIntegerTy())
                 return Builder->CreateSRem(left, right, ".tmp");
             break;
         case TokenType::POWER:
-            if (!right->getType()->isIntegerTy())
+            if (finalType == nullptr)
+                break;
+            else if (!right->getType()->isIntegerTy())
                 throw CodegenError(node->getSpan(), "Cannot use non-integers for power coefficient: {}",
                                    node->getRight()->toString(SourceManager.get(), 0));
             throw CodegenError(node->getSpan(), "Power operator not implemented yet.");
@@ -755,8 +767,10 @@ llvm::Value *Codegen::visit(BinaryOp *node) {
             left = Cast(node->getSpan(), left, finalType);
             right = Cast(node->getSpan(), right, finalType);
 
-            if (finalType == nullptr && left->getType()->getPointerElementType()->isStructTy() && right->getType()->getPointerElementType()->isStructTy())
+            if (finalType == nullptr && (left->getType()->isPointerTy() && left->getType()->getPointerElementType()->isStructTy()) && (right->getType()->isPointerTy() && right->getType()->getPointerElementType()->isStructTy()))
                 return ConstantInt::getBool(*TheContext, false);
+            else if (finalType == nullptr)
+                break;
             else if (finalType->isFloatingPointTy())
                 return Builder->CreateFCmpOEQ(left, right, ".tmp");
             else if (finalType->isIntegerTy())
@@ -776,8 +790,10 @@ llvm::Value *Codegen::visit(BinaryOp *node) {
             left = Cast(node->getSpan(), left, finalType);
             right = Cast(node->getSpan(), right, finalType);
 
-            if (finalType == nullptr && left->getType()->getPointerElementType()->isStructTy() && right->getType()->getPointerElementType()->isStructTy())
+            if (finalType == nullptr && (left->getType()->isPointerTy() && left->getType()->getPointerElementType()->isStructTy()) && (right->getType()->isPointerTy() && right->getType()->getPointerElementType()->isStructTy()))
                 return ConstantInt::getBool(*TheContext, true);
+            else if (finalType == nullptr)
+                break;
             else if (finalType->isFloatingPointTy())
                 return Builder->CreateFCmpONE(left, right, ".tmp");
             else if (finalType->isIntegerTy())
@@ -797,7 +813,9 @@ llvm::Value *Codegen::visit(BinaryOp *node) {
             left = Cast(node->getSpan(), left, finalType);
             right = Cast(node->getSpan(), right, finalType);
 
-            if (finalType->isFloatingPointTy())
+            if (finalType == nullptr)
+                break;
+            else if (finalType->isFloatingPointTy())
                 return Builder->CreateFCmpOGT(left, right, ".tmp");
             else if (finalType->isIntegerTy())
                 return Builder->CreateICmpSGT(left, right, ".tmp");
@@ -806,7 +824,9 @@ llvm::Value *Codegen::visit(BinaryOp *node) {
             left = Cast(node->getSpan(), left, finalType);
             right = Cast(node->getSpan(), right, finalType);
 
-            if (finalType->isFloatingPointTy())
+            if (finalType == nullptr)
+                break;
+            else if (finalType->isFloatingPointTy())
                 return Builder->CreateFCmpOGE(left, right, ".tmp");
             else if (finalType->isIntegerTy())
                 return Builder->CreateICmpSGE(left, right, ".tmp");
@@ -815,7 +835,9 @@ llvm::Value *Codegen::visit(BinaryOp *node) {
             left = Cast(node->getSpan(), left, finalType);
             right = Cast(node->getSpan(), right, finalType);
 
-            if (finalType->isFloatingPointTy())
+            if (finalType == nullptr)
+                break;
+            else if (finalType->isFloatingPointTy())
                 return Builder->CreateFCmpOLT(left, right, ".tmp");
             else if (finalType->isIntegerTy())
                 return Builder->CreateICmpSLT(left, right, ".tmp");
@@ -824,7 +846,9 @@ llvm::Value *Codegen::visit(BinaryOp *node) {
             left = Cast(node->getSpan(), left, finalType);
             right = Cast(node->getSpan(), right, finalType);
 
-            if (finalType->isFloatingPointTy())
+            if (finalType == nullptr)
+                break;
+            else if (finalType->isFloatingPointTy())
                 return Builder->CreateFCmpOLE(left, right, ".tmp");
             else if (finalType->isIntegerTy())
                 return Builder->CreateICmpSLE(left, right, ".tmp");
@@ -1072,7 +1096,7 @@ llvm::Value *Codegen::Cast(llvm::SMRange span, llvm::Value *val, llvm::Type *typ
 }
 
 llvm::Value *Codegen::Cast(llvm::SMRange span, llvm::Value *val, llvm::Type *type, bool isStore) {
-    if (val->getType() == type || (isStore && val->getType() == type->getPointerTo()) || (val->getType()->isPointerTy() && val->getType()->getPointerElementType()->isStructTy()))
+    if (type == nullptr || val->getType() == type || (isStore && val->getType() == type->getPointerTo()) || (val->getType()->isPointerTy() && val->getType()->getPointerElementType()->isStructTy()))
         return val;
 
     if (type->isIntegerTy()) {
