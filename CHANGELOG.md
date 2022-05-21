@@ -1,3 +1,10 @@
+## [0.8.1](https://github.com/alinalihassan/Lesma/compare/v0.8.0...v0.8.1) (2022-05-21)
+
+
+### Bug Fixes
+
+* Fixed comparisons between enums and other values not raising proper error ([c5fe7b6](https://github.com/alinalihassan/Lesma/commit/c5fe7b6a110883c35cae9d5fc5578018c75a8041))
+
 # [0.8.0](https://github.com/alinalihassan/Lesma/compare/v0.7.0...v0.8.0) (2022-05-21)
 
 
