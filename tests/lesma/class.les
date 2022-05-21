@@ -1,0 +1,13 @@
+#ret=101
+def extern exit(x: int)
+
+class Animal
+    var x: int
+    let y: float = 5.5
+
+    def hello() -> int
+       return 101
+
+var z: Animal
+z.x
+z.hello()

@@ -1,0 +1,7 @@
+#ret=0
+enum Color
+    RED
+    BLUE
+    GREEN
+
+var x: Color = Color.RED
