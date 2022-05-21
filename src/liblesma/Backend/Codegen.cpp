@@ -1072,7 +1072,7 @@ llvm::Value *Codegen::Cast(llvm::SMRange span, llvm::Value *val, llvm::Type *typ
 }
 
 llvm::Value *Codegen::Cast(llvm::SMRange span, llvm::Value *val, llvm::Type *type, bool isStore) {
-    if (val->getType() == type || (isStore && val->getType() == type->getPointerTo()) || val->getType()->getPointerElementType()->isStructTy())
+    if (val->getType() == type || (isStore && val->getType() == type->getPointerTo()) || (val->getType()->isPointerTy() && val->getType()->getPointerElementType()->isStructTy()))
         return val;
 
     if (type->isIntegerTy()) {
