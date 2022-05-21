@@ -19,11 +19,11 @@ namespace lesma {
     class SymbolTableEntry {
     public:
         SymbolTableEntry(std::string name, SymbolType *type) : name(std::move(name)), state(INITIALIZED),
-                                                                     type(type), mutable_(false),
-                                                                     signed_(true) {}
+                                                               type(type), mutable_(false),
+                                                               signed_(true) {}
         SymbolTableEntry(std::string name, SymbolType *type, SymbolState state) : name(std::move(name)), state(state),
-                                                                                        type(type), mutable_(false),
-                                                                                        signed_(true) {}
+                                                                                  type(type), mutable_(false),
+                                                                                  signed_(true) {}
         SymbolTableEntry(std::string name, SymbolType *type,
                          SymbolState state, bool mutable_, bool signed_) : name(std::move(name)), state(state),
                                                                            type(type), mutable_(mutable_),
