@@ -1,3 +1,18 @@
+# [0.8.0](https://github.com/alinalihassan/Lesma/compare/v0.7.0...v0.8.0) (2022-05-21)
+
+
+### Bug Fixes
+
+* Fixed different enums operators ([3e9dea7](https://github.com/alinalihassan/Lesma/commit/3e9dea749ed2e7baaf183476ef41ed258e9df7e3))
+
+
+### Features
+
+* Added class parsing for fields and methods ([cef3cad](https://github.com/alinalihassan/Lesma/commit/cef3cad94a4789b6cec81748c722d60fcdaad86e))
+* Added dot access for enums, added fields to SymbolType for classes and enums ([9976dcf](https://github.com/alinalihassan/Lesma/commit/9976dcfd55c92ecac41e0436ed901a3a0172a123))
+* Added enum equality comparation ([212fbcb](https://github.com/alinalihassan/Lesma/commit/212fbcbe8e519383ce9f0bd39f89bcab94137af5))
+* Added initial classes with fields and methods. Added dot operator for fields and methods too ([57f0dff](https://github.com/alinalihassan/Lesma/commit/57f0dffe920be849e9aa370a2e6233509fdf42a9))
+
 # [0.7.0](https://github.com/alinalihassan/Lesma/compare/v0.6.1...v0.7.0) (2022-05-18)
 
 
