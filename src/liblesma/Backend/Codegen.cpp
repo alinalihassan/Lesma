@@ -755,7 +755,9 @@ llvm::Value *Codegen::visit(BinaryOp *node) {
             left = Cast(node->getSpan(), left, finalType);
             right = Cast(node->getSpan(), right, finalType);
 
-            if (finalType->isFloatingPointTy())
+            if (finalType == nullptr && left->getType()->getPointerElementType()->isStructTy() && right->getType()->getPointerElementType()->isStructTy())
+                return ConstantInt::getBool(*TheContext, false);
+            else if (finalType->isFloatingPointTy())
                 return Builder->CreateFCmpOEQ(left, right, ".tmp");
             else if (finalType->isIntegerTy())
                 return Builder->CreateICmpEQ(left, right, ".tmp");
@@ -774,7 +776,9 @@ llvm::Value *Codegen::visit(BinaryOp *node) {
             left = Cast(node->getSpan(), left, finalType);
             right = Cast(node->getSpan(), right, finalType);
 
-            if (finalType->isFloatingPointTy())
+            if (finalType == nullptr && left->getType()->getPointerElementType()->isStructTy() && right->getType()->getPointerElementType()->isStructTy())
+                return ConstantInt::getBool(*TheContext, true);
+            else if (finalType->isFloatingPointTy())
                 return Builder->CreateFCmpONE(left, right, ".tmp");
             else if (finalType->isIntegerTy())
                 return Builder->CreateICmpNE(left, right, ".tmp");
@@ -1068,7 +1072,7 @@ llvm::Value *Codegen::Cast(llvm::SMRange span, llvm::Value *val, llvm::Type *typ
 }
 
 llvm::Value *Codegen::Cast(llvm::SMRange span, llvm::Value *val, llvm::Type *type, bool isStore) {
-    if (val->getType() == type || (isStore && val->getType() == type->getPointerTo()))
+    if (val->getType() == type || (isStore && val->getType() == type->getPointerTo()) || val->getType()->getPointerElementType()->isStructTy())
         return val;
 
     if (type->isIntegerTy()) {
