@@ -10,4 +10,4 @@ class Animal
 
 var z: Animal
 z.x
-z.hello()
+exit(z.hello())
