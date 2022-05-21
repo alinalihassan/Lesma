@@ -764,8 +764,8 @@ llvm::Value *Codegen::visit(BinaryOp *node) {
             else if (finalType->isPointerTy() && finalType->getPointerElementType()->isStructTy()) {
                 auto struct_ty = Scope->lookupType(finalType->getPointerElementType()->getStructName().str());
                 if (struct_ty->is(TY_ENUM)) {
-                    auto left_ptr = Builder->CreateLoad( left->getType()->getPointerElementType(), left);
-                    auto right_ptr = Builder->CreateLoad( left->getType()->getPointerElementType(), right);
+                    auto left_ptr = Builder->CreateLoad(left->getType()->getPointerElementType(), left);
+                    auto right_ptr = Builder->CreateLoad(left->getType()->getPointerElementType(), right);
                     auto left_val = Builder->CreateExtractValue(left_ptr, {0});
                     auto right_val = Builder->CreateExtractValue(right_ptr, {0});
                     return Builder->CreateICmpEQ(left_val, right_val, ".tmp");
@@ -785,8 +785,8 @@ llvm::Value *Codegen::visit(BinaryOp *node) {
             else if (finalType->isPointerTy() && finalType->getPointerElementType()->isStructTy()) {
                 auto struct_ty = Scope->lookupType(finalType->getPointerElementType()->getStructName().str());
                 if (struct_ty->is(TY_ENUM)) {
-                    auto left_ptr = Builder->CreateLoad( left->getType()->getPointerElementType(), left);
-                    auto right_ptr = Builder->CreateLoad( left->getType()->getPointerElementType(), right);
+                    auto left_ptr = Builder->CreateLoad(left->getType()->getPointerElementType(), left);
+                    auto right_ptr = Builder->CreateLoad(left->getType()->getPointerElementType(), right);
                     auto left_val = Builder->CreateExtractValue(left_ptr, {0});
                     auto right_val = Builder->CreateExtractValue(right_ptr, {0});
                     return Builder->CreateICmpEQ(left_val, right_val, ".tmp");
