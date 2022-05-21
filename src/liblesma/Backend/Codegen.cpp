@@ -789,7 +789,7 @@ llvm::Value *Codegen::visit(BinaryOp *node) {
                     auto right_ptr = Builder->CreateLoad(left->getType()->getPointerElementType(), right);
                     auto left_val = Builder->CreateExtractValue(left_ptr, {0});
                     auto right_val = Builder->CreateExtractValue(right_ptr, {0});
-                    return Builder->CreateICmpEQ(left_val, right_val, ".tmp");
+                    return Builder->CreateICmpNE(left_val, right_val, ".tmp");
                 }
             }
             break;
