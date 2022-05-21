@@ -35,6 +35,13 @@ bool SymbolType::isOneOf(const std::vector<SymbolSuperType> &superTypes) const {
  */
 SymbolSuperType SymbolType::getSuperType() const { return baseSuperType; }
 
+/**
+ * Retrieve the fields of the current type
+ *
+ * @return Vector with tuples of name and SymbolType
+ */
+std::vector<std::tuple<std::string, SymbolType *>> SymbolType::getFields() const { return fields; }
+
 bool operator==(const SymbolType &lhs, const SymbolType &rhs) { return lhs.baseSuperType == rhs.baseSuperType; }
 
 bool operator!=(const SymbolType &lhs, const SymbolType &rhs) { return lhs.baseSuperType != rhs.baseSuperType; }

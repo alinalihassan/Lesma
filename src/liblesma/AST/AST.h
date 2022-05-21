@@ -541,4 +541,37 @@ namespace lesma {
             return std::string(ind, ' ') + "Defer " + stmt->toString(srcMgr, 0);
         }
     };
+
+    class Class : public Statement {
+        std::string identifier;
+        std::vector<VarDecl *> fields;
+        std::vector<FuncDecl *> methods;
+
+    public:
+        Class(llvm::SMRange Loc, std::string identifier, std::vector<VarDecl *> fields, std::vector<FuncDecl *> methods) : Statement(Loc), identifier(std::move(identifier)), fields(std::move(fields)), methods(std::move(methods)){};
+        ~Class() override = default;
+
+        [[nodiscard]] [[maybe_unused]] std::string getIdentifier() const { return identifier; }
+        [[nodiscard]] [[maybe_unused]] std::vector<VarDecl *> getFields() const { return fields; }
+        [[nodiscard]] [[maybe_unused]] std::vector<FuncDecl *> getMethods() const { return methods; }
+
+        std::string toString(llvm::SourceMgr *srcMgr, int ind) override {
+            std::string fields_str;
+            for (auto field: fields)
+                fields_str += field->toString(srcMgr, 0);
+
+            std::string methods_str;
+            for (auto method: methods)
+                methods_str += method->toString(srcMgr, 0);
+            return fmt::format("{}Class[Line({}-{}):Col({}-{})]: {} with: \n{}\n{}\n",
+                               std::string(ind, ' '),
+                               srcMgr->getLineAndColumn(getStart()).first,
+                               srcMgr->getLineAndColumn(getEnd()).first,
+                               srcMgr->getLineAndColumn(getStart()).second,
+                               srcMgr->getLineAndColumn(getEnd()).second,
+                               identifier,
+                               fields_str,
+                               methods_str);
+        }
+    };
 }// namespace lesma

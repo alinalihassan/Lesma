@@ -1,0 +1,12 @@
+#ret=101
+def extern exit(x: int)
+
+enum Color
+    RED
+    BLUE
+    GREEN
+
+var x: Color = Color.RED
+
+if Color.RED == Color.RED
+    exit(101)

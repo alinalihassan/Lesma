@@ -18,13 +18,13 @@ namespace lesma {
      */
     class SymbolTableEntry {
     public:
-        SymbolTableEntry(std::string name, const SymbolType &type) : name(std::move(name)), state(INITIALIZED),
-                                                                     type(type), mutable_(false),
-                                                                     signed_(true) {}
-        SymbolTableEntry(std::string name, const SymbolType &type, SymbolState state) : name(std::move(name)), state(state),
-                                                                                        type(type), mutable_(false),
-                                                                                        signed_(true) {}
-        SymbolTableEntry(std::string name, const SymbolType &type,
+        SymbolTableEntry(std::string name, SymbolType *type) : name(std::move(name)), state(INITIALIZED),
+                                                               type(type), mutable_(false),
+                                                               signed_(true) {}
+        SymbolTableEntry(std::string name, SymbolType *type, SymbolState state) : name(std::move(name)), state(state),
+                                                                                  type(type), mutable_(false),
+                                                                                  signed_(true) {}
+        SymbolTableEntry(std::string name, SymbolType *type,
                          SymbolState state, bool mutable_, bool signed_) : name(std::move(name)), state(state),
                                                                            type(type), mutable_(mutable_),
                                                                            signed_(signed_) {}
@@ -35,7 +35,7 @@ namespace lesma {
         [[nodiscard]] bool getMutability() const { return mutable_; }
         [[nodiscard]] bool getSigned() const { return signed_; }
         [[nodiscard]] SymbolState getState() { return state; }
-        [[nodiscard]] SymbolType getType() { return type; }
+        [[nodiscard]] SymbolType *getType() { return type; }
         [[nodiscard]] bool isUsed() { return used; }
 
         void setLLVMValue(llvm::Value *value) { llvmValue = value; }
@@ -55,7 +55,7 @@ namespace lesma {
     private:
         std::string name;
         SymbolState state;
-        SymbolType type;
+        SymbolType *type;
         llvm::Value *llvmValue = nullptr;
         llvm::Type *llvmType = nullptr;
         bool mutable_;

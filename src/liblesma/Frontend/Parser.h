@@ -58,6 +58,7 @@ namespace lesma {
 
         const std::vector<Token *> tokens;
         unsigned long index;
+        bool inClass = false;
         Compound *tree;
 
         static void Error(Token *token, const std::string &basicString);
@@ -66,6 +67,7 @@ namespace lesma {
         Compound *ParseBlock();
         Statement *ParseFunctionDeclaration();
         Statement *ParseImport();
+        Statement *ParseClass();
         Statement *ParseEnum();
         Statement *ParseStatement(bool isTopLevel);
         Statement *ParseIf();

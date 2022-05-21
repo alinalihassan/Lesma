@@ -12,6 +12,7 @@ namespace lesma {
         virtual T visit(Compound *node) = 0;
         virtual T visit(Import *node) = 0;
         virtual T visit(Enum *node) = 0;
+        virtual T visit(Class *node) = 0;
         virtual T visit(VarDecl *node) = 0;
         virtual T visit(If *node) = 0;
         virtual T visit(While *node) = 0;

@@ -99,7 +99,7 @@ void Codegen::CompileModule(llvm::SMRange span, const std::string &filepath, boo
             Module::iterator end = TheModule->end();
             for (it = TheModule->begin(); it != end; ++it) {
                 auto name = std::string{(*it).getName()};
-                auto symbol = new SymbolTableEntry(name, SymbolType(SymbolSuperType::TY_FUNCTION));
+                auto symbol = new SymbolTableEntry(name, new SymbolType(SymbolSuperType::TY_FUNCTION));
                 symbol->setLLVMType((*it).getFunctionType());
                 symbol->setLLVMValue((Value *) &(*it).getFunction());
                 Scope->insertSymbol(symbol);
@@ -119,7 +119,7 @@ void Codegen::CompileModule(llvm::SMRange span, const std::string &filepath, boo
                                                  name,
                                                  *TheModule);
 
-                auto symbol = new SymbolTableEntry(name, SymbolType(SymbolSuperType::TY_FUNCTION));
+                auto symbol = new SymbolTableEntry(name, new SymbolType(SymbolSuperType::TY_FUNCTION));
                 symbol->setLLVMType(new_func->getFunctionType());
                 symbol->setLLVMValue(new_func);
                 Scope->insertSymbol(symbol);
@@ -261,6 +261,8 @@ void Codegen::visit(Statement *node) {
         return visit(dynamic_cast<FuncDecl *>(node));
     else if (dynamic_cast<Import *>(node))
         return visit(dynamic_cast<Import *>(node));
+    else if (dynamic_cast<Class *>(node))
+        return visit(dynamic_cast<Class *>(node));
     else if (dynamic_cast<Enum *>(node))
         return visit(dynamic_cast<Enum *>(node));
     else if (dynamic_cast<ExternFuncDecl *>(node))
@@ -337,7 +339,7 @@ void Codegen::visit(VarDecl *node) {
     Scope->insertSymbol(symbol);
 
     if (node->getValue().has_value())
-        Builder->CreateStore(Cast(node->getSpan(), visit(node->getValue().value()), ptr->getAllocatedType()), ptr);
+        Builder->CreateStore(Cast(node->getSpan(), visit(node->getValue().value()), ptr->getAllocatedType(), true), ptr);
 }
 
 void Codegen::visit(If *node) {
@@ -432,6 +434,10 @@ void Codegen::visit(FuncDecl *node) {
 
     std::vector<llvm::Type *> paramTypes;
 
+    if (classSymbol != nullptr) {
+        paramTypes.push_back(classSymbol->getLLVMType()->getPointerTo());
+    }
+
     for (const auto &param: node->getParameters())
         paramTypes.push_back(visit(param.second));
 
@@ -447,16 +453,25 @@ void Codegen::visit(FuncDecl *node) {
     Builder->SetInsertPoint(BB);
 
     for (auto &param: F->args()) {
-        param.setName(node->getParameters()[param.getArgNo()].first);
+        if (classSymbol != nullptr && param.getArgNo() == 0)
+            param.setName("self");
+        else
+            param.setName(node->getParameters()[param.getArgNo()].first);
 
-        auto ptr = Builder->CreateAlloca(param.getType(), nullptr, param.getName() + "_ptr");
-        Builder->CreateStore(&param, ptr);
+        llvm::Value *ptr;
+        if (param.getType()->isPointerTy()) {
+            ptr = &param;
+        } else {
+            ptr = Builder->CreateAlloca(param.getType(), nullptr, param.getName() + "_ptr");
+            Builder->CreateStore(&param, ptr);
+        }
 
         auto symbol = new SymbolTableEntry(param.getName().str(), getType(param.getType()));
         symbol->setLLVMType(param.getType());
         symbol->setLLVMValue(ptr);
         Scope->insertSymbol(symbol);
     }
+
     visit(node->getBody());
 
     auto instrs = deferStack.top();
@@ -482,7 +497,7 @@ void Codegen::visit(FuncDecl *node) {
     // Insert Function to Symbol Table
     Scope = Scope->getParent();
 
-    auto symbol = new SymbolTableEntry(name, SymbolType(SymbolSuperType::TY_FUNCTION));
+    auto symbol = new SymbolTableEntry(name, new SymbolType(SymbolSuperType::TY_FUNCTION));
     symbol->setLLVMType(F->getFunctionType());
     symbol->setLLVMValue(F);
     Scope->insertSymbol(symbol);
@@ -500,7 +515,7 @@ void Codegen::visit(ExternFuncDecl *node) {
     FunctionType *FT = FunctionType::get(visit(node->getReturnType()), paramTypes, false);
     auto F = TheModule->getOrInsertFunction(node->getName(), FT);
 
-    auto symbol = new SymbolTableEntry(node->getName(), SymbolType(SymbolSuperType::TY_FUNCTION));
+    auto symbol = new SymbolTableEntry(node->getName(), new SymbolType(SymbolSuperType::TY_FUNCTION));
     symbol->setLLVMType(F.getFunctionType());
     symbol->setLLVMValue(F.getCallee());
     Scope->insertSymbol(symbol);
@@ -514,7 +529,7 @@ void Codegen::visit(Assignment *node) {
         throw CodegenError(node->getSpan(), "Assigning immutable variable a new value");
 
     auto value = visit(node->getExpression());
-    value = Cast(node->getSpan(), value, symbol->getLLVMType());
+    value = Cast(node->getSpan(), value, symbol->getLLVMType(), true);
     llvm::Value *var_val;
 
     switch (node->getOperator()) {
@@ -633,38 +648,51 @@ void Codegen::visit(Import *node) {
     CompileModule(node->getSpan(), node->getFilePath(), node->isStd());
 }
 
+void Codegen::visit(Class *node) {
+    std::vector<llvm::Type *> elementTypes = {};
+    for (auto field: node->getFields()) {
+        auto typ = field->getType().has_value() ? visit(field->getType().value()) : visit(field->getValue().value())->getType();
+        elementTypes.push_back(typ);
+    }
+
+    llvm::StructType *structType = llvm::StructType::create(*TheContext, elementTypes, node->getIdentifier());
+
+    std::vector<std::tuple<std::string, SymbolType *>> fields;
+
+    for (auto &&[field, elem_type]: zip(node->getFields(), elementTypes))
+        fields.emplace_back(field->getIdentifier()->getValue(), getType(elem_type));
+
+    auto *type = new SymbolType(TY_CLASS, fields);
+    auto *structSymbol = new SymbolTableEntry(node->getIdentifier(), type);
+    structSymbol->setLLVMType(structType);
+    Scope->insertType(node->getIdentifier(), type);
+    Scope->insertSymbol(structSymbol);
+
+    classSymbol = structSymbol;
+
+    for (auto funcs: node->getMethods())
+        visit(funcs);
+
+    classSymbol = nullptr;
+}
+
 void Codegen::visit(Enum *node) {
     std::vector<llvm::Type *> elementTypes = {Builder->getInt8Ty()};
     llvm::StructType *structType = llvm::StructType::create(*TheContext, elementTypes, node->getIdentifier());
+    std::vector<std::tuple<std::string, SymbolType *>> fields;
 
-    auto *type = new SymbolType(TY_STRUCT);
-    auto *structSymbol = new SymbolTableEntry(node->getIdentifier(), *type);
+    for (const auto &field: node->getValues())
+        fields.push_back({field, new SymbolType(TY_VOID)});
+
+    auto *type = new SymbolType(TY_ENUM, fields);
+    auto *structSymbol = new SymbolTableEntry(node->getIdentifier(), type);
     structSymbol->setLLVMType(structType);
     Scope->insertType(node->getIdentifier(), type);
     Scope->insertSymbol(structSymbol);
 }
 
 llvm::Value *Codegen::visit(FuncCall *node) {
-    std::vector<llvm::Value *> params;
-    std::vector<llvm::Type *> paramTypes;
-    for (auto arg: node->getArguments()) {
-        params.push_back(visit(arg));
-        paramTypes.push_back(params.back()->getType());
-    }
-
-    auto name = getMangledName(node->getSpan(), node->getName(), paramTypes);
-    auto symbol = Scope->lookup(name);
-    // Get function without name mangling in case of extern C functions
-    symbol = symbol == nullptr ? Scope->lookup(node->getName()) : symbol;
-
-    if (symbol == nullptr)
-        throw CodegenError(node->getSpan(), "Function {} not in current scope.", node->getName());
-
-    if (!static_cast<llvm::FunctionType *>(symbol->getLLVMType()))
-        throw CodegenError(node->getSpan(), "Symbol {} is not a function.", node->getName());
-
-    auto *func = static_cast<Function *>(symbol->getLLVMValue());
-    return Builder->CreateCall(func, params, func->getReturnType()->isVoidTy() ? "" : "tmp");
+    return genFuncCall(node, {});
 }
 
 llvm::Value *Codegen::visit(BinaryOp *node) {
@@ -727,19 +755,43 @@ llvm::Value *Codegen::visit(BinaryOp *node) {
             left = Cast(node->getSpan(), left, finalType);
             right = Cast(node->getSpan(), right, finalType);
 
-            if (finalType->isFloatingPointTy())
+            if (finalType == nullptr && left->getType()->getPointerElementType()->isStructTy() && right->getType()->getPointerElementType()->isStructTy())
+                return ConstantInt::getBool(*TheContext, false);
+            else if (finalType->isFloatingPointTy())
                 return Builder->CreateFCmpOEQ(left, right, ".tmp");
             else if (finalType->isIntegerTy())
                 return Builder->CreateICmpEQ(left, right, ".tmp");
+            else if (finalType->isPointerTy() && finalType->getPointerElementType()->isStructTy()) {
+                auto struct_ty = Scope->lookupType(finalType->getPointerElementType()->getStructName().str());
+                if (struct_ty->is(TY_ENUM)) {
+                    auto left_ptr = Builder->CreateLoad(left->getType()->getPointerElementType(), left);
+                    auto right_ptr = Builder->CreateLoad(left->getType()->getPointerElementType(), right);
+                    auto left_val = Builder->CreateExtractValue(left_ptr, {0});
+                    auto right_val = Builder->CreateExtractValue(right_ptr, {0});
+                    return Builder->CreateICmpEQ(left_val, right_val, ".tmp");
+                }
+            }
             break;
         case TokenType::BANG_EQUAL:
             left = Cast(node->getSpan(), left, finalType);
             right = Cast(node->getSpan(), right, finalType);
 
-            if (finalType->isFloatingPointTy())
+            if (finalType == nullptr && left->getType()->getPointerElementType()->isStructTy() && right->getType()->getPointerElementType()->isStructTy())
+                return ConstantInt::getBool(*TheContext, true);
+            else if (finalType->isFloatingPointTy())
                 return Builder->CreateFCmpONE(left, right, ".tmp");
             else if (finalType->isIntegerTy())
                 return Builder->CreateICmpNE(left, right, ".tmp");
+            else if (finalType->isPointerTy() && finalType->getPointerElementType()->isStructTy()) {
+                auto struct_ty = Scope->lookupType(finalType->getPointerElementType()->getStructName().str());
+                if (struct_ty->is(TY_ENUM)) {
+                    auto left_ptr = Builder->CreateLoad(left->getType()->getPointerElementType(), left);
+                    auto right_ptr = Builder->CreateLoad(left->getType()->getPointerElementType(), right);
+                    auto left_val = Builder->CreateExtractValue(left_ptr, {0});
+                    auto right_val = Builder->CreateExtractValue(right_ptr, {0});
+                    return Builder->CreateICmpNE(left_val, right_val, ".tmp");
+                }
+            }
             break;
         case TokenType::GREATER:
             left = Cast(node->getSpan(), left, finalType);
@@ -800,8 +852,74 @@ llvm::Value *Codegen::visit(BinaryOp *node) {
                        node->getRight()->toString(SourceManager.get(), 0));
 }
 
-llvm::Value *Codegen::visit(DotOp * /*node*/) {
-    return nullptr;
+llvm::Value *Codegen::visit(DotOp *node) {
+    if (auto left = dynamic_cast<Literal *>(node->getLeft())) {
+        if (left->getType() != TokenType::IDENTIFIER)
+            throw CodegenError(node->getLeft()->getSpan(), "Expected identifier left-hand of dot operator, found {}", node->getRight()->toString(SourceManager.get(), 0));
+
+        auto _enum = Scope->lookupType(left->getValue());
+        if (_enum != nullptr) {
+            // Assuming it's an enum or statically accessed class
+            if (!_enum->isOneOf({TY_ENUM, TY_CLASS}))
+                throw CodegenError(node->getLeft()->getSpan(), "Cannot apply dot accessor on {}", left->getValue());
+
+            // Check if right-hand expression is an identifier expression
+            if (!dynamic_cast<Literal *>(node->getRight()))
+                throw CodegenError(node->getRight()->getSpan(), "Expected identifier right-hand of dot operator, found {}", node->getRight()->toString(SourceManager.get(), 0));
+
+            auto right = dynamic_cast<Literal *>(node->getRight());
+            if (right->getType() != TokenType::IDENTIFIER)
+                throw CodegenError(node->getRight()->getSpan(), "Expected identifier right-hand of dot operator, found {}", node->getRight()->toString(SourceManager.get(), 0));
+
+            if (_enum->is(TY_ENUM)) {
+                // Setting value to the enum
+                auto val = FindIndexInFields(_enum, right->getValue());
+                // Field not found in enum
+                if (val == -1)
+                    throw CodegenError(node->getLeft()->getSpan(), "Identifier {} not in {}", right->getValue(), left->getValue());
+
+                auto struct_ty = Scope->lookup(left->getValue());
+                auto enum_ptr = Builder->CreateAlloca(struct_ty->getLLVMType(), nullptr, ".tmp");
+                auto field = Builder->CreateInBoundsGEP(struct_ty->getLLVMType(), enum_ptr, {Builder->getInt32(0), Builder->getInt32(0)});
+                Builder->CreateStore(Builder->getInt8(val), field);
+
+                return enum_ptr;
+            }
+        } else {
+            // Assuming it's a class
+            auto val = visit(left);
+            if (!(val->getType()->isPointerTy() && val->getType()->getPointerElementType()->isStructTy()))
+                throw CodegenError(node->getLeft()->getSpan(), "Cannot apply dot accessor on {}", left->getValue());
+
+            std::string field;
+            FuncCall *method;
+
+            if (!dynamic_cast<Literal *>(node->getRight()) && !dynamic_cast<FuncCall *>(node->getRight()))
+                throw CodegenError(node->getRight()->getSpan(), "Expected identifier or method call right-hand of dot operator, found {}", node->getRight()->toString(SourceManager.get(), 0));
+
+            if (dynamic_cast<Literal *>(node->getRight()) && dynamic_cast<Literal *>(node->getRight())->getType() == TokenType::IDENTIFIER)
+                field = dynamic_cast<Literal *>(node->getRight())->getValue();
+            else
+                method = dynamic_cast<FuncCall *>(node->getRight());
+
+            auto cls = Scope->lookup(val->getType()->getPointerElementType()->getStructName().str());
+            if (cls->getType()->is(TY_CLASS)) {
+                if (!field.empty()) {
+                    auto index = FindIndexInFields(cls->getType(), field);
+                    if (index == -1)
+                        throw CodegenError(node->getRight()->getSpan(), "Could not find field {} in {}", field, val->getType()->getStructName().str());
+
+                    return Builder->CreateInBoundsGEP(cls->getLLVMType(), val, {Builder->getInt32(0), Builder->getInt32(index)});
+                } else if (method != nullptr) {
+                    classSymbol = cls;
+                    auto ret_val = genFuncCall(method, {val});
+                    classSymbol = nullptr;
+                    return ret_val;
+                }
+            }
+        }
+    }
+    throw CodegenError(node->getSpan(), "Unimplemented dot accessor: {}", node->toString(SourceManager.get(), 0));
 }
 
 llvm::Value *Codegen::visit(CastOp *node) {
@@ -849,6 +967,10 @@ llvm::Value *Codegen::visit(Literal *node) {
         if (val == nullptr)
             throw CodegenError(node->getSpan(), "Unknown variable name {}", node->getValue());
 
+        // If it's a struct, don't load the value
+        if (val->getLLVMType()->isStructTy())
+            return val->getLLVMValue();
+
         // Load the value.
         return Builder->CreateLoad(val->getLLVMType(), val->getLLVMValue(), ".tmp");
     } else
@@ -881,7 +1003,7 @@ std::string Codegen::getTypeMangledName(llvm::SMRange span, llvm::Type *type) {
         std::string param_str;
         for (unsigned int i = 0; i < type->getStructNumElements(); i++)
             param_str += getTypeMangledName(span, type->getStructElementType(i)) + "_";
-        return "(struct_" + param_str + ")";
+        return "(struct_" + type->getStructName().str() + ")";
     }
 
     throw CodegenError(span, "Unknown type found during mangling");
@@ -889,10 +1011,17 @@ std::string Codegen::getTypeMangledName(llvm::SMRange span, llvm::Type *type) {
 
 // TODO: Change to support private/public and module system
 std::string Codegen::getMangledName(llvm::SMRange span, std::string func_name, const std::vector<llvm::Type *> &paramTypes) {
-    std::string name = "_" + std::move(func_name);
+    std::string name = classSymbol != nullptr ? classSymbol->getName() + "::" + std::move(func_name) + ":" : "_" + std::move(func_name) + ":";
+    bool first = true;
 
-    for (auto param_type: paramTypes)
-        name += ":" + getTypeMangledName(span, param_type);
+    for (auto param_type: paramTypes) {
+        if (!first)
+            name += ",";
+        else
+            first = false;
+
+        name += getTypeMangledName(span, param_type);
+    }
 
     return name;
 }
@@ -923,23 +1052,27 @@ llvm::Type *Codegen::GetExtendedType(llvm::Type *left, llvm::Type *right) {
     return nullptr;
 }
 
-SymbolType Codegen::getType(llvm::Type *type) {
+SymbolType *Codegen::getType(llvm::Type *type) {
     if (type->isIntegerTy(1))
-        return SymbolType(SymbolSuperType::TY_BOOL);
+        return new SymbolType(SymbolSuperType::TY_BOOL);
     else if (type->isIntegerTy(8))
-        return SymbolType(SymbolSuperType::TY_STRING);
+        return new SymbolType(SymbolSuperType::TY_STRING);
     else if (type->isFloatingPointTy())
-        return SymbolType(SymbolSuperType::TY_FLOAT);
+        return new SymbolType(SymbolSuperType::TY_FLOAT);
     else if (type->isIntegerTy())
-        return SymbolType(SymbolSuperType::TY_INT);
+        return new SymbolType(SymbolSuperType::TY_INT);
     else if (type->isFunctionTy())
-        return SymbolType(SymbolSuperType::TY_FUNCTION);
+        return new SymbolType(SymbolSuperType::TY_FUNCTION);
 
-    return SymbolType(SymbolSuperType::TY_INVALID);
+    return new SymbolType(SymbolSuperType::TY_INVALID);
 }
 
 llvm::Value *Codegen::Cast(llvm::SMRange span, llvm::Value *val, llvm::Type *type) {
-    if (val->getType() == type)
+    return Cast(span, val, type, false);
+}
+
+llvm::Value *Codegen::Cast(llvm::SMRange span, llvm::Value *val, llvm::Type *type, bool isStore) {
+    if (val->getType() == type || (isStore && val->getType() == type->getPointerTo()) || (val->getType()->isPointerTy() && val->getType()->getPointerElementType()->isStructTy()))
         return val;
 
     if (type->isIntegerTy()) {
@@ -955,4 +1088,45 @@ llvm::Value *Codegen::Cast(llvm::SMRange span, llvm::Value *val, llvm::Type *typ
     }
 
     throw CodegenError(span, "Unsupported Cast");
+}
+
+llvm::Value *Codegen::genFuncCall(FuncCall *node, std::vector<llvm::Value *> extra_params = {}) {
+    std::vector<llvm::Value *> params;
+    std::vector<llvm::Type *> paramTypes;
+
+    for (auto arg: extra_params) {
+        params.push_back(arg);
+        paramTypes.push_back(params.back()->getType());
+    }
+
+    for (auto arg: node->getArguments()) {
+        params.push_back(visit(arg));
+        paramTypes.push_back(params.back()->getType());
+    }
+
+    auto name = getMangledName(node->getSpan(), node->getName(), paramTypes);
+    auto symbol = Scope->lookup(name);
+    // Get function without name mangling in case of extern C functions
+    symbol = symbol == nullptr ? Scope->lookup(node->getName()) : symbol;
+
+    if (symbol == nullptr)
+        throw CodegenError(node->getSpan(), "Function {} not in current scope.", node->getName());
+
+    if (!static_cast<llvm::FunctionType *>(symbol->getLLVMType()))
+        throw CodegenError(node->getSpan(), "Symbol {} is not a function.", node->getName());
+
+    auto *func = static_cast<Function *>(symbol->getLLVMValue());
+    return Builder->CreateCall(func, params, func->getReturnType()->isVoidTy() ? "" : "tmp");
+}
+
+int Codegen::FindIndexInFields(SymbolType *_struct, const std::string &field) {
+    int val = -1;
+    for (unsigned int i = 0; i < _struct->getFields().size(); i++) {
+        if (std::get<0>(_struct->getFields()[i]) == field) {
+            val = static_cast<int>(i);
+            break;
+        }
+    }
+
+    return val;
 }
