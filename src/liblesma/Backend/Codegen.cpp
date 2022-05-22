@@ -219,7 +219,14 @@ int Codegen::JIT() {
 }
 
 void Codegen::Run() {
+    deferStack.push({});
     visit(Parser_->getAST());
+
+    auto instrs = deferStack.top();
+    deferStack.pop();
+
+    for (auto inst: instrs)
+        visit(inst);
 
     // Return 0 for top-level function
     Builder->CreateRet(ConstantInt::getSigned(Builder->getInt64Ty(), 0));
