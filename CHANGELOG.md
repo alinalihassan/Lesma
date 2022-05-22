@@ -1,3 +1,11 @@
+## [0.8.2](https://github.com/alinalihassan/Lesma/compare/v0.8.1...v0.8.2) (2022-05-22)
+
+
+### Bug Fixes
+
+* Fixed defer not working at top level ([a5da7b2](https://github.com/alinalihassan/Lesma/commit/a5da7b2983501f5ea718038e397227e44363e73f))
+* Fixed strings and other pointers not working properly ([06e975b](https://github.com/alinalihassan/Lesma/commit/06e975b729d301a787d2715eb837d58c0d2d8fe2))
+
 ## [0.8.1](https://github.com/alinalihassan/Lesma/compare/v0.8.0...v0.8.1) (2022-05-21)
 
 
