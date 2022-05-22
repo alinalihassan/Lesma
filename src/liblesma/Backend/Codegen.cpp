@@ -466,7 +466,7 @@ void Codegen::visit(FuncDecl *node) {
             param.setName(node->getParameters()[param.getArgNo()].first);
 
         llvm::Value *ptr;
-        if (param.getType()->isPointerTy()) {
+        if (param.getType()->isPointerTy() && param.getType()->getPointerElementType()->isStructTy()) {
             ptr = &param;
         } else {
             ptr = Builder->CreateAlloca(param.getType(), nullptr, param.getName() + "_ptr");
