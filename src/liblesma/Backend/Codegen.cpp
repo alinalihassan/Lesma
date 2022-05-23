@@ -439,6 +439,9 @@ void Codegen::visit(While *node) {
 void Codegen::visit(FuncDecl *node) {
     Scope = Scope->createChildBlock(node->getName());
 
+    if (classSymbol != nullptr && node->getName() == "new" && node->getReturnType()->getType() != TokenType::VOID_TYPE)
+        throw CodegenError(node->getSpan(), "Cannot create class method new with return type {}", node->getReturnType()->getName());
+
     std::vector<llvm::Type *> paramTypes;
 
     if (classSymbol != nullptr) {
