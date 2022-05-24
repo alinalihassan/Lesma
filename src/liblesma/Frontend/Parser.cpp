@@ -18,6 +18,18 @@ bool Parser::CheckAny() {
 }
 
 template<TokenType type, TokenType... remained_types>
+bool Parser::CheckAnyInLine() {
+    int i = 0;
+    while (!CheckAny<TokenType::NEWLINE, TokenType::EOF_TOKEN>(i)) {
+        if (CheckAny<type, remained_types...>(i))
+            return true;
+        i++;
+    }
+
+    return false;
+}
+
+template<TokenType type, TokenType... remained_types>
 bool Parser::CheckAny(unsigned long pos) {
     if (!Check(type, pos)) {
         if constexpr (sizeof...(remained_types) > 0) {
@@ -322,8 +334,11 @@ Statement *Parser::ParseFor() {
 }
 
 Statement *Parser::ParseAssignment() {
-    auto identifier = Consume(TokenType::IDENTIFIER);
-    auto var = new Literal(identifier->span, identifier->lexeme, identifier->type);
+
+    auto identifier = ParseDot();
+
+    if (!(dynamic_cast<Literal *>(identifier) && dynamic_cast<Literal *>(identifier)->getType() == TokenType::IDENTIFIER) && !dynamic_cast<DotOp *>(identifier))
+        throw ParserError(identifier->getSpan(), "Expected either identifier or class field for assignment");
 
     if (AdvanceIfMatchAny<TokenType::EQUAL, TokenType::PLUS_EQUAL, TokenType::MINUS_EQUAL, TokenType::STAR_EQUAL,
                           TokenType::SLASH_EQUAL, TokenType::MOD_EQUAL, TokenType::POWER_EQUAL>()) {
@@ -331,7 +346,7 @@ Statement *Parser::ParseAssignment() {
         auto expr = ParseExpression();
 
         ConsumeNewline();
-        return new Assignment({identifier->getStart(), expr->getEnd()}, var, op, expr);
+        return new Assignment({identifier->getStart(), expr->getEnd()}, identifier, op, expr);
     }
 
     Error(Peek(), fmt::format("Unsupported assignment operator: {}", Peek()->lexeme));
@@ -399,9 +414,8 @@ Statement *Parser::ParseStatement(bool isTopLevel) {
         return ParseReturn();
     else if (Check(TokenType::DEFER))
         return ParseDefer();
-    else if (Check(TokenType::IDENTIFIER) &&
-             CheckAny<TokenType::EQUAL, TokenType::PLUS_EQUAL, TokenType::MINUS_EQUAL, TokenType::STAR_EQUAL,
-                      TokenType::SLASH_EQUAL, TokenType::MOD_EQUAL, TokenType::POWER_EQUAL>(1))
+    else if (CheckAnyInLine<TokenType::EQUAL, TokenType::PLUS_EQUAL, TokenType::MINUS_EQUAL, TokenType::STAR_EQUAL,
+                            TokenType::SLASH_EQUAL, TokenType::MOD_EQUAL, TokenType::POWER_EQUAL>())
         return ParseAssignment();
 
     // Check if it's just an expression statement
@@ -474,7 +488,7 @@ Statement *Parser::ParseFunctionDeclaration() {
 
     auto body = ParseBlock();
 
-    return new FuncDecl({loc.Start, body->getEnd()}, identifier->lexeme, return_type, parameters, body);
+    return new FuncDecl({loc.Start, return_type->getEnd()}, identifier->lexeme, return_type, parameters, body);
 }
 
 Statement *Parser::ParseImport() {

@@ -345,18 +345,18 @@ namespace lesma {
     };
 
     class Assignment : public Statement {
-        Literal *var;
+        Expression *lhs;
         TokenType op;
-        Expression *expr;
+        Expression *rhs;
 
     public:
-        Assignment(llvm::SMRange Loc, Literal *var, TokenType op, Expression *expr) : Statement(Loc), var(var), op(op), expr(expr) {}
+        Assignment(llvm::SMRange Loc, Expression *lhs, TokenType op, Expression *rhs) : Statement(Loc), lhs(lhs), op(op), rhs(rhs) {}
 
         ~Assignment() override = default;
 
-        [[nodiscard]] [[maybe_unused]] Literal *getIdentifier() const { return var; }
+        [[nodiscard]] [[maybe_unused]] Expression *getLeftHandSide() const { return lhs; }
         [[nodiscard]] [[maybe_unused]] TokenType getOperator() const { return op; }
-        [[nodiscard]] [[maybe_unused]] Expression *getExpression() const { return expr; }
+        [[nodiscard]] [[maybe_unused]] Expression *getRightHandSide() const { return rhs; }
 
         std::string toString(llvm::SourceMgr *srcMgr, int ind) override {
             return fmt::format("{}Assignment[Line({}-{}):Col({}-{})]: {} {} {}\n",
@@ -365,9 +365,9 @@ namespace lesma {
                                srcMgr->getLineAndColumn(getEnd()).first,
                                srcMgr->getLineAndColumn(getStart()).second,
                                srcMgr->getLineAndColumn(getEnd()).second,
-                               var->toString(srcMgr, ind),
+                               lhs->toString(srcMgr, ind),
                                std::string{NAMEOF_ENUM(op)},
-                               expr->toString(srcMgr, ind));
+                               rhs->toString(srcMgr, ind));
         }
     };
 
