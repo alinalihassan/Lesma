@@ -1,3 +1,12 @@
+## [0.9.2](https://github.com/alinalihassan/Lesma/compare/v0.9.1...v0.9.2) (2022-05-24)
+
+
+### Bug Fixes
+
+* Fixed method parameters not being in right order ([8674488](https://github.com/alinalihassan/Lesma/commit/8674488f463dafa8cff18afa6a92cb2e7b8ad2ca))
+* Fixed not finding functions when called inside methods ([43386b6](https://github.com/alinalihassan/Lesma/commit/43386b61b6b21aa189403efe890755ed229f3d79))
+* Temporary fix for checks failing when functions in other modules not being imported properly ([972fd15](https://github.com/alinalihassan/Lesma/commit/972fd15d624cec1283bb365c521f10a56bfc8ed6))
+
 ## [0.9.1](https://github.com/alinalihassan/Lesma/compare/v0.9.0...v0.9.1) (2022-05-24)
 
 
