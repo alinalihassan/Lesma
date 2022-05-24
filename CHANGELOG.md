@@ -1,3 +1,17 @@
+# [0.9.0](https://github.com/alinalihassan/Lesma/compare/v0.8.2...v0.9.0) (2022-05-24)
+
+
+### Bug Fixes
+
+* Fixed allowing constructors to return a value ([f6dfbba](https://github.com/alinalihassan/Lesma/commit/f6dfbba46d6215213c5c291981a6c2368313f1d0))
+* Fixed parameter pointers not being handled properly ([55e86bc](https://github.com/alinalihassan/Lesma/commit/55e86bcefaff4610150f4453f6430fb80ac05e2c))
+* Temporarily disallow classes with no constructors until we implement built-in ones ([5096314](https://github.com/alinalihassan/Lesma/commit/50963146e0cb7482f3d29da75c399063f61db100))
+
+
+### Features
+
+* Added storing values into class fields, added class constructor ([3675e51](https://github.com/alinalihassan/Lesma/commit/3675e51ba51a89f892f042012df401ec9765d7ca))
+
 ## [0.8.2](https://github.com/alinalihassan/Lesma/compare/v0.8.1...v0.8.2) (2022-05-22)
 
 
