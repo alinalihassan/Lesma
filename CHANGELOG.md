@@ -1,3 +1,63 @@
+## [0.9.2](https://github.com/alinalihassan/Lesma/compare/v0.9.1...v0.9.2) (2022-05-24)
+
+
+### Bug Fixes
+
+* Fixed method parameters not being in right order ([8674488](https://github.com/alinalihassan/Lesma/commit/8674488f463dafa8cff18afa6a92cb2e7b8ad2ca))
+* Fixed not finding functions when called inside methods ([43386b6](https://github.com/alinalihassan/Lesma/commit/43386b61b6b21aa189403efe890755ed229f3d79))
+* Temporary fix for checks failing when functions in other modules not being imported properly ([972fd15](https://github.com/alinalihassan/Lesma/commit/972fd15d624cec1283bb365c521f10a56bfc8ed6))
+
+## [0.9.1](https://github.com/alinalihassan/Lesma/compare/v0.9.0...v0.9.1) (2022-05-24)
+
+
+### Bug Fixes
+
+* Fixed not being able to use enums and classes as parameters ([9c1f6a7](https://github.com/alinalihassan/Lesma/commit/9c1f6a7a660ec072c0952c08336e0d8a245497d5))
+
+# [0.9.0](https://github.com/alinalihassan/Lesma/compare/v0.8.2...v0.9.0) (2022-05-24)
+
+
+### Bug Fixes
+
+* Fixed allowing constructors to return a value ([f6dfbba](https://github.com/alinalihassan/Lesma/commit/f6dfbba46d6215213c5c291981a6c2368313f1d0))
+* Fixed parameter pointers not being handled properly ([55e86bc](https://github.com/alinalihassan/Lesma/commit/55e86bcefaff4610150f4453f6430fb80ac05e2c))
+* Temporarily disallow classes with no constructors until we implement built-in ones ([5096314](https://github.com/alinalihassan/Lesma/commit/50963146e0cb7482f3d29da75c399063f61db100))
+
+
+### Features
+
+* Added storing values into class fields, added class constructor ([3675e51](https://github.com/alinalihassan/Lesma/commit/3675e51ba51a89f892f042012df401ec9765d7ca))
+
+## [0.8.2](https://github.com/alinalihassan/Lesma/compare/v0.8.1...v0.8.2) (2022-05-22)
+
+
+### Bug Fixes
+
+* Fixed defer not working at top level ([a5da7b2](https://github.com/alinalihassan/Lesma/commit/a5da7b2983501f5ea718038e397227e44363e73f))
+* Fixed strings and other pointers not working properly ([06e975b](https://github.com/alinalihassan/Lesma/commit/06e975b729d301a787d2715eb837d58c0d2d8fe2))
+
+## [0.8.1](https://github.com/alinalihassan/Lesma/compare/v0.8.0...v0.8.1) (2022-05-21)
+
+
+### Bug Fixes
+
+* Fixed comparisons between enums and other values not raising proper error ([c5fe7b6](https://github.com/alinalihassan/Lesma/commit/c5fe7b6a110883c35cae9d5fc5578018c75a8041))
+
+# [0.8.0](https://github.com/alinalihassan/Lesma/compare/v0.7.0...v0.8.0) (2022-05-21)
+
+
+### Bug Fixes
+
+* Fixed different enums operators ([3e9dea7](https://github.com/alinalihassan/Lesma/commit/3e9dea749ed2e7baaf183476ef41ed258e9df7e3))
+
+
+### Features
+
+* Added class parsing for fields and methods ([cef3cad](https://github.com/alinalihassan/Lesma/commit/cef3cad94a4789b6cec81748c722d60fcdaad86e))
+* Added dot access for enums, added fields to SymbolType for classes and enums ([9976dcf](https://github.com/alinalihassan/Lesma/commit/9976dcfd55c92ecac41e0436ed901a3a0172a123))
+* Added enum equality comparation ([212fbcb](https://github.com/alinalihassan/Lesma/commit/212fbcbe8e519383ce9f0bd39f89bcab94137af5))
+* Added initial classes with fields and methods. Added dot operator for fields and methods too ([57f0dff](https://github.com/alinalihassan/Lesma/commit/57f0dffe920be849e9aa370a2e6233509fdf42a9))
+
 # [0.7.0](https://github.com/alinalihassan/Lesma/compare/v0.6.1...v0.7.0) (2022-05-18)
 
 
