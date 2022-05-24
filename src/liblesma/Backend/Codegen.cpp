@@ -466,7 +466,7 @@ void Codegen::visit(FuncDecl *node) {
         if (classSymbol != nullptr && param.getArgNo() == 0)
             param.setName("self");
         else
-            param.setName(node->getParameters()[param.getArgNo()].first);
+            param.setName(node->getParameters()[param.getArgNo() - (classSymbol != nullptr ? 1 : 0)].first);
 
         llvm::Value *ptr;
         ptr = Builder->CreateAlloca(param.getType(), nullptr, param.getName() + "_ptr");
