@@ -8,5 +8,10 @@ enum Color
 
 var x: Color = Color.RED
 
-if Color.RED == Color.RED
-    exit(101)
+def checkEnum(x: Color) -> int
+    if (Color.BLUE == Color.BLUE and Color.GREEN != Color.RED and x == Color.RED)
+        return 101
+
+    return 50
+
+exit(checkEnum(Color.RED))
