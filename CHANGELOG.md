@@ -1,3 +1,10 @@
+## [0.9.1](https://github.com/alinalihassan/Lesma/compare/v0.9.0...v0.9.1) (2022-05-24)
+
+
+### Bug Fixes
+
+* Fixed not being able to use enums and classes as parameters ([9c1f6a7](https://github.com/alinalihassan/Lesma/commit/9c1f6a7a660ec072c0952c08336e0d8a245497d5))
+
 # [0.9.0](https://github.com/alinalihassan/Lesma/compare/v0.8.2...v0.9.0) (2022-05-24)
 
 
