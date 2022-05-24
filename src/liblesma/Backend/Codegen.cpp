@@ -1146,10 +1146,10 @@ llvm::Value *Codegen::genFuncCall(FuncCall *node, std::vector<llvm::Value *> ext
     if (symbol == nullptr)
         throw CodegenError(node->getSpan(), "Function {} not in current scope.", node->getName());
 
-    if (!static_cast<llvm::FunctionType *>(symbol->getLLVMType()))
+    if (!symbol->getLLVMType()->isFunctionTy())
         throw CodegenError(node->getSpan(), "Symbol {} is not a function.", node->getName());
 
-    auto *func = static_cast<Function *>(symbol->getLLVMValue());
+    auto *func = dyn_cast<Function>(symbol->getLLVMValue());
     return Builder->CreateCall(func, params, func->getReturnType()->isVoidTy() ? "" : "tmp");
 }
 
