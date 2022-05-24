@@ -519,6 +519,9 @@ void Codegen::visit(ExternFuncDecl *node) {
     for (const auto &param: node->getParameters())
         paramTypes.push_back(visit(param.second));
 
+    if (TheModule->getFunction(node->getName()) != nullptr && Scope->lookup(node->getName()) != nullptr)
+        return;
+
     FunctionType *FT = FunctionType::get(visit(node->getReturnType()), paramTypes, false);
     auto F = TheModule->getOrInsertFunction(node->getName(), FT);
 
