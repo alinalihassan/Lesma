@@ -3,11 +3,12 @@ def extern exit(x: int)
 
 class Animal
     var x: int
-    let y: float = 5.5
 
-    def hello() -> int
-       return 101
+    def new()
+        self.x = 101
 
-var z: Animal
-z.x
-exit(z.hello())
+    def getX() -> int
+        return self.x
+
+var z = Animal()
+exit(z.getX())

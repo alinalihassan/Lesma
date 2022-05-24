@@ -54,6 +54,9 @@ namespace lesma {
         bool CheckAny();
 
         template<TokenType type, TokenType... remained_types>
+        bool CheckAnyInLine();
+
+        template<TokenType type, TokenType... remained_types>
         bool CheckAny(unsigned long pos);
 
         const std::vector<Token *> tokens;
