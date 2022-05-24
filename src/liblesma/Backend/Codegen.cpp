@@ -469,12 +469,8 @@ void Codegen::visit(FuncDecl *node) {
             param.setName(node->getParameters()[param.getArgNo()].first);
 
         llvm::Value *ptr;
-        if (param.getType()->isPointerTy() && param.getType()->getPointerElementType()->isStructTy()) {
-            ptr = &param;
-        } else {
-            ptr = Builder->CreateAlloca(param.getType(), nullptr, param.getName() + "_ptr");
-            Builder->CreateStore(&param, ptr);
-        }
+        ptr = Builder->CreateAlloca(param.getType(), nullptr, param.getName() + "_ptr");
+        Builder->CreateStore(&param, ptr);
 
         auto symbol = new SymbolTableEntry(param.getName().str(), getType(param.getType()));
         symbol->setLLVMType(param.getType());
