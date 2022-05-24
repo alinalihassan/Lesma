@@ -690,9 +690,15 @@ void Codegen::visit(Class *node) {
     Scope->insertSymbol(structSymbol);
 
     classSymbol = structSymbol;
+    auto has_constructor = false;
+    for (auto func: node->getMethods()) {
+        if (func->getName() == "new")
+            has_constructor = true;
+        visit(func);
+    }
 
-    for (auto funcs: node->getMethods())
-        visit(funcs);
+    if (!has_constructor)
+        throw CodegenError(node->getSpan(), "Class {} has no constructors", node->getIdentifier());
 
     classSymbol = nullptr;
 }
