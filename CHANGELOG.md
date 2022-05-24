@@ -1,3 +1,10 @@
+## [0.9.3](https://github.com/alinalihassan/Lesma/compare/v0.9.2...v0.9.3) (2022-05-24)
+
+
+### Bug Fixes
+
+* Don't create new extern functions if they are in the module and table ([751ff79](https://github.com/alinalihassan/Lesma/commit/751ff79cfb74b67cf7c03bf9ca31e66946ba2364))
+
 ## [0.9.2](https://github.com/alinalihassan/Lesma/compare/v0.9.1...v0.9.2) (2022-05-24)
 
 
