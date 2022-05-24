@@ -11,4 +11,8 @@ class Animal
         return self.x
 
 var z = Animal()
-exit(z.getX())
+
+def testClass(x: Animal)
+    exit(x.getX())
+
+testClass(z)

@@ -316,7 +316,7 @@ llvm::Type *Codegen::visit(lesma::Type *node) {
         if (typ == nullptr || sym->getLLVMType() == nullptr)
             throw CodegenError(node->getSpan(), "Type not found: {}", node->getName());
 
-        return sym->getLLVMType();
+        return sym->getLLVMType()->getPointerTo();
     }
 
     throw CodegenError(node->getSpan(), "Unimplemented type {}", NAMEOF_ENUM(node->getType()));
