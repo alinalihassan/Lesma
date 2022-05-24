@@ -451,7 +451,7 @@ void Codegen::visit(FuncDecl *node) {
     for (const auto &param: node->getParameters())
         paramTypes.push_back(visit(param.second));
 
-    auto name = getMangledName(node->getSpan(), node->getName(), paramTypes);
+    auto name = getMangledName(node->getSpan(), node->getName(), paramTypes, classSymbol != nullptr);
     auto linkage = Function::ExternalLinkage;
 
     FunctionType *FT = FunctionType::get(visit(node->getReturnType()), paramTypes, false);
@@ -1065,8 +1065,8 @@ std::string Codegen::getTypeMangledName(llvm::SMRange span, llvm::Type *type) {
 }
 
 // TODO: Change to support private/public and module system
-std::string Codegen::getMangledName(llvm::SMRange span, std::string func_name, const std::vector<llvm::Type *> &paramTypes) {
-    std::string name = classSymbol != nullptr ? classSymbol->getName() + "::" + std::move(func_name) + ":" : "_" + std::move(func_name) + ":";
+std::string Codegen::getMangledName(llvm::SMRange span, std::string func_name, const std::vector<llvm::Type *> &paramTypes, bool isMethod) {
+    std::string name = classSymbol != nullptr && isMethod ? classSymbol->getName() + "::" + std::move(func_name) + ":" : "_" + std::move(func_name) + ":";
     bool first = true;
 
     for (auto param_type: paramTypes) {
@@ -1171,10 +1171,11 @@ llvm::Value *Codegen::genFuncCall(FuncCall *node, const std::vector<llvm::Value 
         paramTypes.insert(paramTypes.begin(), class_ptr->getType());
 
         classSymbol = class_sym;
-        name = getMangledName(node->getSpan(), "new", paramTypes);
+        name = getMangledName(node->getSpan(), "new", paramTypes, true);
     } else {
-        name = getMangledName(node->getSpan(), node->getName(), paramTypes);
+        name = getMangledName(node->getSpan(), node->getName(), paramTypes, !extra_params.empty());
     }
+
     auto symbol = Scope->lookup(name);
     // Get function without name mangling in case of extern C functions
     symbol = symbol == nullptr ? Scope->lookup(node->getName()) : symbol;
