@@ -345,12 +345,12 @@ namespace lesma {
     };
 
     class Assignment : public Statement {
-        Expression* lhs;
+        Expression *lhs;
         TokenType op;
         Expression *rhs;
 
     public:
-        Assignment(llvm::SMRange Loc, Expression* lhs, TokenType op, Expression *rhs) : Statement(Loc), lhs(lhs), op(op), rhs(rhs) {}
+        Assignment(llvm::SMRange Loc, Expression *lhs, TokenType op, Expression *rhs) : Statement(Loc), lhs(lhs), op(op), rhs(rhs) {}
 
         ~Assignment() override = default;
 
