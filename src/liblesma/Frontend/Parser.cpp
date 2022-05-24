@@ -415,7 +415,7 @@ Statement *Parser::ParseStatement(bool isTopLevel) {
     else if (Check(TokenType::DEFER))
         return ParseDefer();
     else if (CheckAnyInLine<TokenType::EQUAL, TokenType::PLUS_EQUAL, TokenType::MINUS_EQUAL, TokenType::STAR_EQUAL,
-                      TokenType::SLASH_EQUAL, TokenType::MOD_EQUAL, TokenType::POWER_EQUAL>())
+                            TokenType::SLASH_EQUAL, TokenType::MOD_EQUAL, TokenType::POWER_EQUAL>())
         return ParseAssignment();
 
     // Check if it's just an expression statement

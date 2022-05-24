@@ -1140,7 +1140,7 @@ llvm::Value *Codegen::Cast(llvm::SMRange span, llvm::Value *val, llvm::Type *typ
     throw CodegenError(span, "Unsupported Cast");
 }
 
-llvm::Value *Codegen::genFuncCall(FuncCall *node, const std::vector<llvm::Value *>& extra_params = {}) {
+llvm::Value *Codegen::genFuncCall(FuncCall *node, const std::vector<llvm::Value *> &extra_params = {}) {
     std::vector<llvm::Value *> params;
     std::vector<llvm::Type *> paramTypes;
 
@@ -1157,7 +1157,7 @@ llvm::Value *Codegen::genFuncCall(FuncCall *node, const std::vector<llvm::Value 
     std::string name;
     auto classSymbolTmp = classSymbol;
     auto class_sym = Scope->lookup(node->getName());
-    Value* class_ptr = nullptr;
+    Value *class_ptr = nullptr;
     if (class_sym != nullptr && class_sym->getType()->is(TY_CLASS)) {
         // It's a class constructor, allocate and add self param
         class_ptr = Builder->CreateAlloca(class_sym->getLLVMType(), nullptr, ".tmp");
