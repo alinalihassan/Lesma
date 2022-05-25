@@ -7,7 +7,6 @@
 #include "liblesma/Symbol/SymbolTable.h"
 #include <clang/Driver/Driver.h>
 #include <filesystem>
-#include <utility>
 #include <llvm/Analysis/CGSCCPassManager.h>
 #include <llvm/Analysis/LoopAnalysisManager.h>
 #include <llvm/IR/IRBuilder.h>
@@ -23,6 +22,7 @@
 #include <llvm/Support/TargetSelect.h>
 #include <llvm/Support/VirtualFileSystem.h>
 #include <llvm/Transforms/IPO/PassManagerBuilder.h>
+#include <utility>
 
 namespace lesma {
     class CodegenError : public LesmaErrorWithExitCode<EX_DATAERR> {
