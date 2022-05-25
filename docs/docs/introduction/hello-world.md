@@ -10,14 +10,10 @@ Now that you’ve installed Lesma, we can start writing our first Lesma program!
 
 ## Writing a Lesma Program
 
-Make a new source file called `main.les`. All Lesma files will have the extension `.les`. If you're using a multi-word filename, you can split it with an _underscore_, like `hello_world.les` instead of `helloworld.les`.
-
-:::danger
-String and built-in functions (like print) are not currently implemented!
-:::
+Make a new source file called `main.les`. All Lesma files will have the extension `.les`.
 
 ```py
-print("Hello World!")
+print("Hello World!👋")
 ```
 
 ## Running The Program
