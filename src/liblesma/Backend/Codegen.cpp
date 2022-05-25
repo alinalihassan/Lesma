@@ -346,7 +346,7 @@ void Codegen::visit(VarDecl *node) {
     Scope->insertSymbol(symbol);
 
     if (node->getValue().has_value())
-        Builder->CreateStore(Cast(node->getSpan(), visit(node->getValue().value()), ptr->getAllocatedType(), true), ptr);
+        Builder->CreateStore(Cast(node->getSpan(), value, ptr->getAllocatedType(), true), ptr);
 }
 
 void Codegen::visit(If *node) {
