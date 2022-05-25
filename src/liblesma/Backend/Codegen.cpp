@@ -358,7 +358,7 @@ void Codegen::visit(VarDecl *node) {
         value = visit(node->getValue().value());
         type = value->getType();
     }
-    
+
     if (node->getType().has_value())
         type = visit(node->getType().value());
 
