@@ -453,8 +453,10 @@ void Codegen::visit(FuncDecl *node) {
 
     auto name = getMangledName(node->getSpan(), node->getName(), paramTypes, classSymbol != nullptr);
     auto linkage = Function::ExternalLinkage;
+    auto ret_type = visit(node->getReturnType());
 
-    FunctionType *FT = FunctionType::get(visit(node->getReturnType()), paramTypes, false);
+
+    FunctionType *FT = FunctionType::get(ret_type, paramTypes, false);
     Function *F = Function::Create(FT, linkage, name, *TheModule);
 
     deferStack.push({});
@@ -487,7 +489,7 @@ void Codegen::visit(FuncDecl *node) {
         for (auto inst: instrs)
             visit(inst);
 
-    if (visit(node->getReturnType()) == Builder->getVoidTy() && !isReturn)
+    if (ret_type == Builder->getVoidTy() && !isReturn)
         Builder->CreateRetVoid();
 
     isReturn = false;
