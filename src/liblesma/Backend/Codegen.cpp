@@ -90,6 +90,20 @@ void Codegen::CompileModule(llvm::SMRange span, const std::string &filepath, boo
         codegen->TheModule->setModuleIdentifier(filepath);
 
         if (isJIT) {
+            // Add classes and enums
+            for (auto sym: codegen->Scope->getSymbols()) {
+                if (sym.second->getType()->isOneOf({TY_ENUM, TY_CLASS})) {
+                    // TODO: We have to reconstruct classes and enums, fix me
+                    auto struct_ty = dyn_cast<llvm::StructType>(sym.second->getLLVMType());
+                    llvm::StructType *structType = llvm::StructType::create(*TheContext, struct_ty->elements(), sym.first);
+
+                    auto *structSymbol = new SymbolTableEntry(sym.first, sym.second->getType());
+                    structSymbol->setLLVMType(structType);
+                    Scope->insertType(sym.first, sym.second->getType());
+                    Scope->insertSymbol(structSymbol);
+                }
+            }
+
             // Link modules together
             if (Linker::linkModules(*TheModule, std::move(codegen->TheModule), (1 << 0)))
                 throw CodegenError({}, "Error linking modules together");
