@@ -467,7 +467,7 @@ Statement *Parser::ParseFunctionDeclaration() {
         if (varargs)
             Error(Peek(), "Varargs should be the last parameter");
 
-        if (Check(TokenType::ELLIPSIS)) {
+        if (Check(TokenType::ELLIPSIS) && extern_func) {
             Consume(TokenType::ELLIPSIS);
             varargs = true;
         } else {
@@ -496,7 +496,7 @@ Statement *Parser::ParseFunctionDeclaration() {
 
     auto body = ParseBlock();
 
-    return new FuncDecl({loc.Start, return_type->getEnd()}, identifier->lexeme, return_type, parameters, body, varargs);
+    return new FuncDecl({loc.Start, return_type->getEnd()}, identifier->lexeme, return_type, parameters, body, false);
 }
 
 Statement *Parser::ParseImport() {
