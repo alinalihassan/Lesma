@@ -455,8 +455,7 @@ void Codegen::visit(FuncDecl *node) {
     auto linkage = Function::ExternalLinkage;
     auto ret_type = visit(node->getReturnType());
 
-
-    FunctionType *FT = FunctionType::get(ret_type, paramTypes, false);
+    FunctionType *FT = FunctionType::get(ret_type, paramTypes, node->getVarArgs());
     Function *F = Function::Create(FT, linkage, name, *TheModule);
 
     deferStack.push({});
@@ -524,7 +523,7 @@ void Codegen::visit(ExternFuncDecl *node) {
     if (TheModule->getFunction(node->getName()) != nullptr && Scope->lookup(node->getName()) != nullptr)
         return;
 
-    FunctionType *FT = FunctionType::get(visit(node->getReturnType()), paramTypes, false);
+    FunctionType *FT = FunctionType::get(visit(node->getReturnType()), paramTypes, node->getVarArgs());
     auto F = TheModule->getOrInsertFunction(node->getName(), FT);
 
     auto symbol = new SymbolTableEntry(node->getName(), new SymbolType(SymbolSuperType::TY_FUNCTION));

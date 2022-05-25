@@ -1,5 +1,16 @@
-def extern printf(x: str)
+def extern printf(fmt: str, ...)
 
 def print(x: str)
-    printf(x)
-    printf("\n")
+    printf("%s\n", x)
+
+def print(x: int)
+    printf("%d\n", x)
+
+def print(x: float)
+    printf("%g\n", x)
+
+def print(x: bool)
+    if x
+        print("true")
+    else
+        print("false")
