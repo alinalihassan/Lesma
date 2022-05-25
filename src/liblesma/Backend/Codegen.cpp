@@ -652,7 +652,7 @@ void Codegen::visit(Return *node) {
     if (Builder->GetInsertBlock()->getParent() == TopLevelFunc)
         throw CodegenError(node->getSpan(), "Return statements are not allowed at top-level");
 
-    // Execute all defered statements
+    // Execute all deferred statements
     for (auto inst: deferStack.top())
         visit(inst);
 
