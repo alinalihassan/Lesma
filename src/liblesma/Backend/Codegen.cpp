@@ -344,12 +344,14 @@ void Codegen::visit(Compound *node) {
 void Codegen::visit(VarDecl *node) {
     llvm::Type *type;
     llvm::Value *value;
-    if (node->getType().has_value())
-        type = visit(node->getType().value());
-    else {
+
+    if (node->getValue().has_value()) {
         value = visit(node->getValue().value());
         type = value->getType();
     }
+    
+    if (node->getType().has_value())
+        type = visit(node->getType().value());
 
     auto ptr = Builder->CreateAlloca(type, nullptr, node->getIdentifier()->getValue());
 
