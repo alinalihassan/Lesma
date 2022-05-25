@@ -37,7 +37,7 @@ Parser *initializeParser(Lexer *lexer) {
 Codegen *initializeCodegen(Parser *parser, std::shared_ptr<SourceMgr> srcMgr) {
     std::unique_ptr<Parser> parser_pointer;
     parser_pointer.reset(parser);
-    auto codegen = new Codegen(std::move(parser_pointer), std::move(srcMgr), __FILE__, true, true);
+    auto codegen = new Codegen(std::move(parser_pointer), std::move(srcMgr), __FILE__, {}, true, true);
     codegen->Run();
 
     return codegen;
