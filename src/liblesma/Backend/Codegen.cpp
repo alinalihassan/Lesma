@@ -2,11 +2,12 @@
 
 using namespace lesma;
 
-Codegen::Codegen(std::unique_ptr<Parser> parser, std::shared_ptr<SourceMgr> srcMgr, const std::string &filename, bool jit, bool main) {
+Codegen::Codegen(std::unique_ptr<Parser> parser, std::shared_ptr<SourceMgr> srcMgr, const std::string &filename, std::vector<std::string> imports, bool jit, bool main) {
     InitializeNativeTarget();
     InitializeNativeTargetAsmPrinter();
     InitializeNativeTargetAsmParser();
 
+    ImportedModules = std::move(imports);
     TheJIT = ExitOnErr(LesmaJIT::Create());
     TheContext = std::make_unique<LLVMContext>();
     TheModule = std::make_unique<Module>("Lesma JIT", *TheContext);
@@ -64,12 +65,18 @@ void Codegen::CompileModule(llvm::SMRange span, const std::string &filepath, boo
     std::filesystem::path mainPath = filename;
     // Read source
     auto absolute_path = isStd ? filepath : fmt::format("{}/{}", std::filesystem::absolute(mainPath).parent_path().c_str(), filepath);
+
+    // If module is already imported, don't compile again
+    if (std::find(ImportedModules.begin(), ImportedModules.end(), absolute_path) != ImportedModules.end())
+        return;
+
     auto buffer = MemoryBuffer::getFile(absolute_path);
     if (buffer.getError() != std::error_code())
         throw LesmaError(llvm::SMRange(), "Could not read file: {}", absolute_path);
 
     auto file_id = SourceManager->AddNewSourceBuffer(std::move(*buffer), llvm::SMLoc());
     auto source_str = SourceManager->getMemoryBuffer(file_id)->getBuffer().str();
+    ImportedModules.push_back(absolute_path);
 
     try {
         // Lexer
@@ -82,14 +89,30 @@ void Codegen::CompileModule(llvm::SMRange span, const std::string &filepath, boo
 
         // TODO: Delete it, memory leak, smart pointer made us lose the references to other modules
         // Codegen
-        auto codegen = new Codegen(std::move(parser), SourceManager, filepath, isJIT, false);
+        auto codegen = new Codegen(std::move(parser), SourceManager, absolute_path, ImportedModules, isJIT, false);
         codegen->Run();
 
         // Optimize
         codegen->Optimize(llvm::PassBuilder::OptimizationLevel::O3);
         codegen->TheModule->setModuleIdentifier(filepath);
 
+        ImportedModules = std::move(codegen->ImportedModules);
+
         if (isJIT) {
+            // Add classes and enums
+            for (auto sym: codegen->Scope->getSymbols()) {
+                if (sym.second->getType()->isOneOf({TY_ENUM, TY_CLASS})) {
+                    // TODO: We have to reconstruct classes and enums, fix me
+                    auto struct_ty = dyn_cast<llvm::StructType>(sym.second->getLLVMType());
+                    llvm::StructType *structType = llvm::StructType::create(*TheContext, struct_ty->elements(), sym.first);
+
+                    auto *structSymbol = new SymbolTableEntry(sym.first, sym.second->getType());
+                    structSymbol->setLLVMType(structType);
+                    Scope->insertType(sym.first, sym.second->getType());
+                    Scope->insertSymbol(structSymbol);
+                }
+            }
+
             // Link modules together
             if (Linker::linkModules(*TheModule, std::move(codegen->TheModule), (1 << 0)))
                 throw CodegenError({}, "Error linking modules together");
@@ -330,12 +353,14 @@ void Codegen::visit(Compound *node) {
 void Codegen::visit(VarDecl *node) {
     llvm::Type *type;
     llvm::Value *value;
-    if (node->getType().has_value())
-        type = visit(node->getType().value());
-    else {
+
+    if (node->getValue().has_value()) {
         value = visit(node->getValue().value());
         type = value->getType();
     }
+
+    if (node->getType().has_value())
+        type = visit(node->getType().value());
 
     auto ptr = Builder->CreateAlloca(type, nullptr, node->getIdentifier()->getValue());
 
@@ -346,7 +371,7 @@ void Codegen::visit(VarDecl *node) {
     Scope->insertSymbol(symbol);
 
     if (node->getValue().has_value())
-        Builder->CreateStore(Cast(node->getSpan(), visit(node->getValue().value()), ptr->getAllocatedType(), true), ptr);
+        Builder->CreateStore(Cast(node->getSpan(), value, ptr->getAllocatedType(), true), ptr);
 }
 
 void Codegen::visit(If *node) {
@@ -453,8 +478,9 @@ void Codegen::visit(FuncDecl *node) {
 
     auto name = getMangledName(node->getSpan(), node->getName(), paramTypes, classSymbol != nullptr);
     auto linkage = Function::ExternalLinkage;
+    auto ret_type = visit(node->getReturnType());
 
-    FunctionType *FT = FunctionType::get(visit(node->getReturnType()), paramTypes, false);
+    FunctionType *FT = FunctionType::get(ret_type, paramTypes, node->getVarArgs());
     Function *F = Function::Create(FT, linkage, name, *TheModule);
 
     deferStack.push({});
@@ -487,7 +513,7 @@ void Codegen::visit(FuncDecl *node) {
         for (auto inst: instrs)
             visit(inst);
 
-    if (visit(node->getReturnType()) == Builder->getVoidTy() && !isReturn)
+    if (ret_type == Builder->getVoidTy() && !isReturn)
         Builder->CreateRetVoid();
 
     isReturn = false;
@@ -522,7 +548,7 @@ void Codegen::visit(ExternFuncDecl *node) {
     if (TheModule->getFunction(node->getName()) != nullptr && Scope->lookup(node->getName()) != nullptr)
         return;
 
-    FunctionType *FT = FunctionType::get(visit(node->getReturnType()), paramTypes, false);
+    FunctionType *FT = FunctionType::get(visit(node->getReturnType()), paramTypes, node->getVarArgs());
     auto F = TheModule->getOrInsertFunction(node->getName(), FT);
 
     auto symbol = new SymbolTableEntry(node->getName(), new SymbolType(SymbolSuperType::TY_FUNCTION));
@@ -650,7 +676,7 @@ void Codegen::visit(Return *node) {
     if (Builder->GetInsertBlock()->getParent() == TopLevelFunc)
         throw CodegenError(node->getSpan(), "Return statements are not allowed at top-level");
 
-    // Execute all defered statements
+    // Execute all deferred statements
     for (auto inst: deferStack.top())
         visit(inst);
 

@@ -462,15 +462,23 @@ Statement *Parser::ParseFunctionDeclaration() {
     Consume(TokenType::LEFT_PAREN);
     std::vector<std::pair<std::string, Type *>> parameters;
 
+    bool varargs = false;
     while (!Check(TokenType::RIGHT_PAREN)) {
-        auto param_ident = Consume(TokenType::IDENTIFIER);
-        Consume(TokenType::COLON);
-        auto type = ParseType();
+        if (varargs)
+            Error(Peek(), "Varargs should be the last parameter");
 
-        if (!Check(TokenType::RIGHT_PAREN))
+        if (Check(TokenType::ELLIPSIS) && extern_func) {
+            Consume(TokenType::ELLIPSIS);
+            varargs = true;
+        } else {
+            auto param_ident = Consume(TokenType::IDENTIFIER);
+            Consume(TokenType::COLON);
+            auto type = ParseType();
+            parameters.emplace_back(param_ident->lexeme, type);
+        }
+
+        if (!Check(TokenType::RIGHT_PAREN) && !Check(TokenType::RIGHT_PAREN, 1))
             Consume(TokenType::COMMA);
-
-        parameters.emplace_back(param_ident->lexeme, type);
     }
 
     Consume(TokenType::RIGHT_PAREN);
@@ -483,12 +491,12 @@ Statement *Parser::ParseFunctionDeclaration() {
 
     if (extern_func) {
         ConsumeNewline();
-        return new ExternFuncDecl({loc.Start, return_type->getEnd()}, identifier->lexeme, return_type, parameters);
+        return new ExternFuncDecl({loc.Start, return_type->getEnd()}, identifier->lexeme, return_type, parameters, varargs);
     }
 
     auto body = ParseBlock();
 
-    return new FuncDecl({loc.Start, return_type->getEnd()}, identifier->lexeme, return_type, parameters, body);
+    return new FuncDecl({loc.Start, return_type->getEnd()}, identifier->lexeme, return_type, parameters, body, false);
 }
 
 Statement *Parser::ParseImport() {

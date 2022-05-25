@@ -22,6 +22,7 @@
 #include <llvm/Support/TargetSelect.h>
 #include <llvm/Support/VirtualFileSystem.h>
 #include <llvm/Transforms/IPO/PassManagerBuilder.h>
+#include <utility>
 
 namespace lesma {
     class CodegenError : public LesmaErrorWithExitCode<EX_DATAERR> {
@@ -47,6 +48,7 @@ namespace lesma {
         std::stack<std::vector<Statement *>> deferStack;
 
         std::vector<std::string> ObjectFiles;
+        std::vector<std::string> ImportedModules;
         llvm::Function *TopLevelFunc;
         SymbolTableEntry *classSymbol = nullptr;
         bool isBreak = false;
@@ -56,7 +58,7 @@ namespace lesma {
         bool isMain = true;
 
     public:
-        Codegen(std::unique_ptr<Parser> parser, std::shared_ptr<SourceMgr> srcMgr, const std::string &filename, bool jit, bool main);
+        Codegen(std::unique_ptr<Parser> parser, std::shared_ptr<SourceMgr> srcMgr, const std::string &filename, std::vector<std::string> imports, bool jit, bool main);
 
         void Dump();
         void Run();

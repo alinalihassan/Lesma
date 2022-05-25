@@ -259,11 +259,12 @@ namespace lesma {
         Type *return_type;
         std::vector<std::pair<std::string, Type *>> parameters;
         Compound *body;
+        bool varargs;
 
     public:
         FuncDecl(llvm::SMRange Loc, std::string name, Type *return_type,
-                 std::vector<std::pair<std::string, Type *>> parameters, Compound *body) : Statement(Loc), name(std::move(name)), return_type(return_type), parameters(std::move(parameters)),
-                                                                                           body(body) {}
+                 std::vector<std::pair<std::string, Type *>> parameters, Compound *body, bool varargs) : Statement(Loc), name(std::move(name)), return_type(return_type), parameters(std::move(parameters)),
+                                                                                                         body(body), varargs(varargs) {}
 
         ~FuncDecl() override = default;
 
@@ -271,6 +272,7 @@ namespace lesma {
         [[nodiscard]] [[maybe_unused]] Type *getReturnType() const { return return_type; }
         [[nodiscard]] [[maybe_unused]] std::vector<std::pair<std::string, Type *>> getParameters() const { return parameters; }
         [[nodiscard]] [[maybe_unused]] Compound *getBody() const { return body; }
+        [[nodiscard]] [[maybe_unused]] bool getVarArgs() const { return varargs; }
 
         std::string toString(llvm::SourceMgr *srcMgr, int ind) override {
             auto ret = fmt::format("{}FuncDecl[Line({}-{}):Col({}-{})]: {}(",
@@ -284,6 +286,8 @@ namespace lesma {
                 ret += param.first + ": " + param.second->toString(srcMgr, ind);
                 if (parameters.back() != param) ret += ", ";
             }
+            if (varargs)
+                ret += ", ...";
             ret += fmt::format(") -> {}\n{}", return_type->toString(srcMgr, ind), body->toString(srcMgr, ind + 2));
             return ret;
         }
@@ -293,16 +297,18 @@ namespace lesma {
         std::string name;
         Type *return_type;
         std::vector<std::pair<std::string, Type *>> parameters;
+        bool varargs;
 
     public:
         ExternFuncDecl(llvm::SMRange Loc, std::string name, Type *return_type,
-                       std::vector<std::pair<std::string, Type *>> parameters) : Statement(Loc), name(std::move(name)), return_type(return_type), parameters(std::move(parameters)) {}
+                       std::vector<std::pair<std::string, Type *>> parameters, bool varargs) : Statement(Loc), name(std::move(name)), return_type(return_type), parameters(std::move(parameters)), varargs(varargs) {}
 
         ~ExternFuncDecl() override = default;
 
         [[nodiscard]] [[maybe_unused]] std::string getName() const { return name; }
         [[nodiscard]] [[maybe_unused]] Type *getReturnType() const { return return_type; }
         [[nodiscard]] [[maybe_unused]] std::vector<std::pair<std::string, Type *>> getParameters() const { return parameters; }
+        [[nodiscard]] [[maybe_unused]] bool getVarArgs() const { return varargs; }
 
         std::string toString(llvm::SourceMgr *srcMgr, int ind) override {
             auto ret = fmt::format("{}FuncDecl[Line({}-{}):Col({}-{})]: {}(",
@@ -316,6 +322,8 @@ namespace lesma {
                 ret += param.first + ": " + param.second->toString(srcMgr, ind);
                 if (parameters.back() != param) ret += ", ";
             }
+            if (varargs)
+                ret += ", ...";
             ret += fmt::format(") -> {}\n", return_type->toString(srcMgr, ind));
             return ret;
         }

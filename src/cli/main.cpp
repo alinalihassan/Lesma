@@ -43,7 +43,7 @@ std::unique_ptr<CLIOptions> parseCLI(int argc, char **argv) {
         exit(app.exit(e));
     }
 
-    return std::make_unique<CLIOptions>(CLIOptions{file, output, debug, timer, run->parsed()});
+    return std::make_unique<CLIOptions>(CLIOptions{std::filesystem::absolute(file), output, debug, timer, run->parsed()});
 }
 
 int main(int argc, char **argv) {
@@ -87,7 +87,8 @@ int main(int argc, char **argv) {
 
         // Codegen
         TIMEIT("Compiling",
-               auto codegen = std::make_unique<Codegen>(std::move(parser), srcMgr, options->file, options->jit, true);
+               std::vector<std::string> modules;
+               auto codegen = std::make_unique<Codegen>(std::move(parser), srcMgr, options->file, modules, options->jit, true);
                codegen->Run();)
 
         if (options->debug) {
