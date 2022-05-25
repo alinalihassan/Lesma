@@ -467,7 +467,7 @@ Statement *Parser::ParseFunctionDeclaration() {
         Consume(TokenType::COLON);
         auto type = ParseType();
 
-        if (!Check(TokenType::RIGHT_PAREN))
+        if (!Check(TokenType::RIGHT_PAREN) && !Check(TokenType::RIGHT_PAREN, 1))
             Consume(TokenType::COMMA);
 
         parameters.emplace_back(param_ident->lexeme, type);
