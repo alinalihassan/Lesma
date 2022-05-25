@@ -2,11 +2,12 @@
 
 using namespace lesma;
 
-Codegen::Codegen(std::unique_ptr<Parser> parser, std::shared_ptr<SourceMgr> srcMgr, const std::string &filename, bool jit, bool main) {
+Codegen::Codegen(std::unique_ptr<Parser> parser, std::shared_ptr<SourceMgr> srcMgr, const std::string &filename, std::vector<std::string> imports, bool jit, bool main) {
     InitializeNativeTarget();
     InitializeNativeTargetAsmPrinter();
     InitializeNativeTargetAsmParser();
 
+    ImportedModules = std::move(imports);
     TheJIT = ExitOnErr(LesmaJIT::Create());
     TheContext = std::make_unique<LLVMContext>();
     TheModule = std::make_unique<Module>("Lesma JIT", *TheContext);
@@ -64,12 +65,18 @@ void Codegen::CompileModule(llvm::SMRange span, const std::string &filepath, boo
     std::filesystem::path mainPath = filename;
     // Read source
     auto absolute_path = isStd ? filepath : fmt::format("{}/{}", std::filesystem::absolute(mainPath).parent_path().c_str(), filepath);
+
+    // If module is already imported, don't compile again
+    if (std::find(ImportedModules.begin(), ImportedModules.end(), absolute_path) != ImportedModules.end())
+        return;
+
     auto buffer = MemoryBuffer::getFile(absolute_path);
     if (buffer.getError() != std::error_code())
         throw LesmaError(llvm::SMRange(), "Could not read file: {}", absolute_path);
 
     auto file_id = SourceManager->AddNewSourceBuffer(std::move(*buffer), llvm::SMLoc());
     auto source_str = SourceManager->getMemoryBuffer(file_id)->getBuffer().str();
+    ImportedModules.push_back(absolute_path);
 
     try {
         // Lexer
@@ -82,12 +89,14 @@ void Codegen::CompileModule(llvm::SMRange span, const std::string &filepath, boo
 
         // TODO: Delete it, memory leak, smart pointer made us lose the references to other modules
         // Codegen
-        auto codegen = new Codegen(std::move(parser), SourceManager, filepath, isJIT, false);
+        auto codegen = new Codegen(std::move(parser), SourceManager, absolute_path, ImportedModules, isJIT, false);
         codegen->Run();
 
         // Optimize
         codegen->Optimize(llvm::PassBuilder::OptimizationLevel::O3);
         codegen->TheModule->setModuleIdentifier(filepath);
+
+        ImportedModules = std::move(codegen->ImportedModules);
 
         if (isJIT) {
             // Add classes and enums
