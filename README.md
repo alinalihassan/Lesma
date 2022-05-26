@@ -22,12 +22,12 @@
 ## ✍️ Example
 
 ```python
-def fibonacci(x: int)
+def fibonacci(x: int) -> int
     if x <= 1
         return x
     return fibonacci(x - 1) + fibonacci(x - 2)
 
-fibonacci(20)
+print(fibonacci(20))
 ```
 
 ## 📖 Documentation

@@ -1,7 +1,7 @@
 ---
 id: literals
 title: Literals
-sidebar_position: 2
+sidebar_position: 1
 ---
 
 # Literals
@@ -10,10 +10,10 @@ Literals are primitive values like booleans, numbers, etc.
 
 ## Booleans
 
-There are only two values, `true` or `false`.
+Booleans, using the `bool` type, can only two values, `true` or `false`.
 
 ```js
-let x = true
+let x: bool = true
 ```
 
 ## Numeric
@@ -27,12 +27,8 @@ let pi: float = 3.14
 
 ## String Literals
 
-Strings, using the `string` type, are enclosed in double-quotes `"`. They can contain both ASCII and UTF-8 characters.
-
-:::danger
-String are not currently implemented!
-:::
+Strings, using the `str` type, are enclosed in double-quotes `"`. They can contain both ASCII and UTF-8 characters.
 
 ```js
-let hello: string = "Hello World!"
+let hello: str = "Hello World!"
 ```
