@@ -301,9 +301,11 @@ void Codegen::Run() {
     auto instrs = deferStack.top();
     deferStack.pop();
 
+    // Visit all statements
     for (auto inst: instrs)
         visit(inst);
 
+    // Define the function bodies
     for (auto prot: Prototypes)
         defineFunction(std::get<0>(prot), std::get<1>(prot), std::get<2>(prot));
 
@@ -518,19 +520,19 @@ void Codegen::visit(While *node) {
 }
 
 void Codegen::visit(FuncDecl *node) {
-    if (classSymbol != nullptr && node->getName() == "new" && node->getReturnType()->getType() != TokenType::VOID_TYPE)
+    if (selfSymbol != nullptr && node->getName() == "new" && node->getReturnType()->getType() != TokenType::VOID_TYPE)
         throw CodegenError(node->getSpan(), "Cannot create class method new with return type {}", node->getReturnType()->getName());
 
     std::vector<llvm::Type *> paramTypes;
 
-    if (classSymbol != nullptr) {
-        paramTypes.push_back(classSymbol->getLLVMType()->getPointerTo());
+    if (selfSymbol != nullptr) {
+        paramTypes.push_back(selfSymbol->getLLVMType()->getPointerTo());
     }
 
     for (const auto &param: node->getParameters())
         paramTypes.push_back(visit(param.second));
 
-    auto name = getMangledName(node->getSpan(), node->getName(), paramTypes, classSymbol != nullptr);
+    auto name = getMangledName(node->getSpan(), node->getName(), paramTypes, selfSymbol != nullptr);
     auto linkage = Function::ExternalLinkage;
 
     FunctionType *FT = FunctionType::get(visit(node->getReturnType()), paramTypes, node->getVarArgs());
@@ -541,7 +543,7 @@ void Codegen::visit(FuncDecl *node) {
     func_symbol->setLLVMValue(F);
     Scope->insertSymbol(func_symbol);
 
-    Prototypes.emplace_back(F, node, classSymbol);
+    Prototypes.emplace_back(F, node, selfSymbol);
 }
 
 void Codegen::visit(ExternFuncDecl *node) {
@@ -724,7 +726,7 @@ void Codegen::visit(Class *node) {
     Scope->insertType(node->getIdentifier(), type);
     Scope->insertSymbol(structSymbol);
 
-    classSymbol = structSymbol;
+    selfSymbol = structSymbol;
     auto has_constructor = false;
     for (auto func: node->getMethods()) {
         if (func->getName() == "new")
@@ -735,7 +737,7 @@ void Codegen::visit(Class *node) {
     if (!has_constructor)
         throw CodegenError(node->getSpan(), "Class {} has no constructors", node->getIdentifier());
 
-    classSymbol = nullptr;
+    selfSymbol = nullptr;
 }
 
 void Codegen::visit(Enum *node) {
@@ -1001,9 +1003,9 @@ llvm::Value *Codegen::visit(DotOp *node) {
                     auto x = cls->getType()->getFields()[index];
                     return Builder->CreateLoad(ptr->getType()->getPointerElementType(), ptr);
                 } else if (method != nullptr) {
-                    classSymbol = cls;
+                    selfSymbol = cls;
                     auto ret_val = genFuncCall(method, {val});
-                    classSymbol = nullptr;
+                    selfSymbol = nullptr;
                     return ret_val;
                 }
             }
@@ -1101,7 +1103,7 @@ std::string Codegen::getTypeMangledName(llvm::SMRange span, llvm::Type *type) {
 
 // TODO: Change to support private/public and module system
 std::string Codegen::getMangledName(llvm::SMRange span, std::string func_name, const std::vector<llvm::Type *> &paramTypes, bool isMethod) {
-    std::string name = classSymbol != nullptr && isMethod ? classSymbol->getName() + "::" + std::move(func_name) + ":" : "_" + std::move(func_name) + ":";
+    std::string name = selfSymbol != nullptr && isMethod ? selfSymbol->getName() + "::" + std::move(func_name) + ":" : "_" + std::move(func_name) + ":";
     bool first = true;
 
     for (auto param_type: paramTypes) {
@@ -1196,7 +1198,7 @@ llvm::Value *Codegen::genFuncCall(FuncCall *node, const std::vector<llvm::Value 
     }
 
     std::string name;
-    auto classSymbolTmp = classSymbol;
+    auto selfSymbolTmp = selfSymbol;
     auto class_sym = Scope->lookup(node->getName());
     Value *class_ptr = nullptr;
     if (class_sym != nullptr && class_sym->getType()->is(TY_CLASS)) {
@@ -1205,7 +1207,7 @@ llvm::Value *Codegen::genFuncCall(FuncCall *node, const std::vector<llvm::Value 
         params.insert(params.begin(), class_ptr);
         paramTypes.insert(paramTypes.begin(), class_ptr->getType());
 
-        classSymbol = class_sym;
+        selfSymbol = class_sym;
         name = getMangledName(node->getSpan(), "new", paramTypes, true);
     } else {
         name = getMangledName(node->getSpan(), node->getName(), paramTypes, !extra_params.empty());
@@ -1225,7 +1227,7 @@ llvm::Value *Codegen::genFuncCall(FuncCall *node, const std::vector<llvm::Value 
     if (class_sym != nullptr && class_sym->getType()->is(TY_CLASS)) {
         Builder->CreateCall(func, params, func->getReturnType()->isVoidTy() ? "" : ".tmp");
         auto val = Builder->CreateLoad(class_sym->getLLVMType(), class_ptr);
-        classSymbol = classSymbolTmp;
+        selfSymbol = selfSymbolTmp;
 
         return val;
     }
