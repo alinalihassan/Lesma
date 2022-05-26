@@ -1,3 +1,11 @@
+## [0.10.1](https://github.com/alinalihassan/Lesma/compare/v0.10.0...v0.10.1) (2022-05-26)
+
+
+### Bug Fixes
+
+* Fixed recursive functions not being able to call themselves in their body ([51541f4](https://github.com/alinalihassan/Lesma/commit/51541f403b3ddddd22c81c6a2690c422e06576f7))
+* Fixed unary operator parsing ignoring left side ([81702f1](https://github.com/alinalihassan/Lesma/commit/81702f13cd5d0d25508e00656dd0d455097feeff))
+
 # [0.10.0](https://github.com/alinalihassan/Lesma/compare/v0.9.3...v0.10.0) (2022-05-25)
 
 
