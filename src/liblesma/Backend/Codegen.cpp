@@ -483,6 +483,11 @@ void Codegen::visit(FuncDecl *node) {
     FunctionType *FT = FunctionType::get(ret_type, paramTypes, node->getVarArgs());
     Function *F = Function::Create(FT, linkage, name, *TheModule);
 
+    auto symbol = new SymbolTableEntry(name, new SymbolType(SymbolSuperType::TY_FUNCTION));
+    symbol->setLLVMType(F->getFunctionType());
+    symbol->setLLVMValue(F);
+    Scope->getParent()->insertSymbol(symbol);
+
     deferStack.push({});
 
     BasicBlock *BB = BasicBlock::Create(*TheContext, "entry", F);
@@ -529,11 +534,6 @@ void Codegen::visit(FuncDecl *node) {
 
     // Insert Function to Symbol Table
     Scope = Scope->getParent();
-
-    auto symbol = new SymbolTableEntry(name, new SymbolType(SymbolSuperType::TY_FUNCTION));
-    symbol->setLLVMType(F->getFunctionType());
-    symbol->setLLVMValue(F);
-    Scope->insertSymbol(symbol);
 
     // Reset Insert Point to Top Level
     Builder->SetInsertPoint(&TopLevelFunc->back());
