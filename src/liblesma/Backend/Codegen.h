@@ -49,7 +49,7 @@ namespace lesma {
 
         std::vector<std::string> ObjectFiles;
         std::vector<std::string> ImportedModules;
-        std::vector<std::tuple<Function*, FuncDecl *, SymbolTableEntry *>> Prototypes;
+        std::vector<std::tuple<Function *, FuncDecl *, SymbolTableEntry *>> Prototypes;
         llvm::Function *TopLevelFunc;
         SymbolTableEntry *classSymbol = nullptr;
         bool isBreak = false;
