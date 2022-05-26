@@ -43,6 +43,59 @@ llvm::Function *Codegen::InitializeTopLevel() {
     return F;
 }
 
+void Codegen::defineFunction(Function *F, FuncDecl *node, SymbolTableEntry *clsSymbol) {
+    Scope = Scope->createChildBlock(node->getName());
+    deferStack.push({});
+
+    BasicBlock *BB = BasicBlock::Create(*TheContext, "entry", F);
+    Builder->SetInsertPoint(BB);
+
+    for (auto &param: F->args()) {
+        if (clsSymbol != nullptr && param.getArgNo() == 0)
+            param.setName("self");
+        else
+            param.setName(node->getParameters()[param.getArgNo() - (clsSymbol != nullptr ? 1 : 0)].first);
+
+        llvm::Value *ptr;
+        ptr = Builder->CreateAlloca(param.getType(), nullptr, param.getName() + "_ptr");
+        Builder->CreateStore(&param, ptr);
+
+        auto symbol = new SymbolTableEntry(param.getName().str(), getType(param.getType()));
+        symbol->setLLVMType(param.getType());
+        symbol->setLLVMValue(ptr);
+        Scope->insertSymbol(symbol);
+    }
+
+    visit(node->getBody());
+
+    auto instrs = deferStack.top();
+    deferStack.pop();
+
+    if (!isReturn)
+        for (auto inst: instrs)
+            visit(inst);
+
+    if (F->getReturnType() == Builder->getVoidTy() && !isReturn)
+        Builder->CreateRetVoid();
+
+    isReturn = false;
+
+    // Verify function
+    // TODO: Verify function again, unfortunately functions from other modules have attributes attached without context of usage, and verify gives error
+    // std::string output;
+    // llvm::raw_string_ostream oss(output);
+    // if (llvm::verifyFunction(*F, &oss)) {
+    //     F->print(outs());
+    //     throw CodegenError(node->getSpan(), "Invalid Function {}\n{}", node->getName(), output);
+    // }
+
+    // Insert Function to Symbol Table
+    Scope = Scope->getParent();
+
+    // Reset Insert Point to Top Level
+    Builder->SetInsertPoint(&TopLevelFunc->back());
+}
+
 std::unique_ptr<llvm::TargetMachine> Codegen::InitializeTargetMachine() {
     // Configure output target
     auto targetTriple = llvm::Triple(llvm::sys::getDefaultTargetTriple());
@@ -250,6 +303,9 @@ void Codegen::Run() {
 
     for (auto inst: instrs)
         visit(inst);
+
+    for (auto prot: Prototypes)
+        defineFunction(std::get<0>(prot), std::get<1>(prot), std::get<2>(prot));
 
     // Return 0 for top-level function
     Builder->CreateRet(ConstantInt::getSigned(Builder->getInt64Ty(), 0));
@@ -462,8 +518,6 @@ void Codegen::visit(While *node) {
 }
 
 void Codegen::visit(FuncDecl *node) {
-    Scope = Scope->createChildBlock(node->getName());
-
     if (classSymbol != nullptr && node->getName() == "new" && node->getReturnType()->getType() != TokenType::VOID_TYPE)
         throw CodegenError(node->getSpan(), "Cannot create class method new with return type {}", node->getReturnType()->getName());
 
@@ -478,65 +532,16 @@ void Codegen::visit(FuncDecl *node) {
 
     auto name = getMangledName(node->getSpan(), node->getName(), paramTypes, classSymbol != nullptr);
     auto linkage = Function::ExternalLinkage;
-    auto ret_type = visit(node->getReturnType());
 
-    FunctionType *FT = FunctionType::get(ret_type, paramTypes, node->getVarArgs());
+    FunctionType *FT = FunctionType::get(visit(node->getReturnType()), paramTypes, node->getVarArgs());
     Function *F = Function::Create(FT, linkage, name, *TheModule);
 
-    auto symbol = new SymbolTableEntry(name, new SymbolType(SymbolSuperType::TY_FUNCTION));
-    symbol->setLLVMType(F->getFunctionType());
-    symbol->setLLVMValue(F);
-    Scope->getParent()->insertSymbol(symbol);
+    auto func_symbol = new SymbolTableEntry(name, new SymbolType(SymbolSuperType::TY_FUNCTION));
+    func_symbol->setLLVMType(F->getFunctionType());
+    func_symbol->setLLVMValue(F);
+    Scope->insertSymbol(func_symbol);
 
-    deferStack.push({});
-
-    BasicBlock *BB = BasicBlock::Create(*TheContext, "entry", F);
-    Builder->SetInsertPoint(BB);
-
-    for (auto &param: F->args()) {
-        if (classSymbol != nullptr && param.getArgNo() == 0)
-            param.setName("self");
-        else
-            param.setName(node->getParameters()[param.getArgNo() - (classSymbol != nullptr ? 1 : 0)].first);
-
-        llvm::Value *ptr;
-        ptr = Builder->CreateAlloca(param.getType(), nullptr, param.getName() + "_ptr");
-        Builder->CreateStore(&param, ptr);
-
-        auto symbol = new SymbolTableEntry(param.getName().str(), getType(param.getType()));
-        symbol->setLLVMType(param.getType());
-        symbol->setLLVMValue(ptr);
-        Scope->insertSymbol(symbol);
-    }
-
-    visit(node->getBody());
-
-    auto instrs = deferStack.top();
-    deferStack.pop();
-
-    if (!isReturn)
-        for (auto inst: instrs)
-            visit(inst);
-
-    if (ret_type == Builder->getVoidTy() && !isReturn)
-        Builder->CreateRetVoid();
-
-    isReturn = false;
-
-    // Verify function
-    // TODO: Verify function again, unfortunately functions from other modules have attributes attached without context of usage, and verify gives error
-    // std::string output;
-    // llvm::raw_string_ostream oss(output);
-    // if (llvm::verifyFunction(*F, &oss)) {
-    //     F->print(outs());
-    //     throw CodegenError(node->getSpan(), "Invalid Function {}\n{}", node->getName(), output);
-    // }
-
-    // Insert Function to Symbol Table
-    Scope = Scope->getParent();
-
-    // Reset Insert Point to Top Level
-    Builder->SetInsertPoint(&TopLevelFunc->back());
+    Prototypes.emplace_back(F, node, classSymbol);
 }
 
 void Codegen::visit(ExternFuncDecl *node) {
