@@ -1,3 +1,34 @@
+## [0.10.1](https://github.com/alinalihassan/Lesma/compare/v0.10.0...v0.10.1) (2022-05-26)
+
+
+### Bug Fixes
+
+* Fixed recursive functions not being able to call themselves in their body ([51541f4](https://github.com/alinalihassan/Lesma/commit/51541f403b3ddddd22c81c6a2690c422e06576f7))
+* Fixed unary operator parsing ignoring left side ([81702f1](https://github.com/alinalihassan/Lesma/commit/81702f13cd5d0d25508e00656dd0d455097feeff))
+
+# [0.10.0](https://github.com/alinalihassan/Lesma/compare/v0.9.3...v0.10.0) (2022-05-25)
+
+
+### Bug Fixes
+
+* Fixed being able to have a dangling comma in parameter list ([2ee6700](https://github.com/alinalihassan/Lesma/commit/2ee670078c09fc1aa53567393e1c8a3930fa723a))
+* Fixed vardecl bug ([d65b145](https://github.com/alinalihassan/Lesma/commit/d65b145daa986de0156d9a522b0192d4f3f269be))
+* Fixed variable declaration was creating the values twice ([a0df418](https://github.com/alinalihassan/Lesma/commit/a0df418ab875a4db7348517a78301907d4326ed3))
+
+
+### Features
+
+* Added varargs, currently only for extern functions, added print for all types ([510f78a](https://github.com/alinalihassan/Lesma/commit/510f78a4f9ecd5c5dad615c424a9a02665a665ca))
+* Classes and Enums can now be imported properly from other modules ([dd78333](https://github.com/alinalihassan/Lesma/commit/dd783333074d489172315e38d56ac2ed240da673))
+* Nested imports working properly, already read modules are skipped. ([c862e9a](https://github.com/alinalihassan/Lesma/commit/c862e9ac6a3d35436f65da70e949bdd0ca2370f5))
+
+## [0.9.3](https://github.com/alinalihassan/Lesma/compare/v0.9.2...v0.9.3) (2022-05-24)
+
+
+### Bug Fixes
+
+* Don't create new extern functions if they are in the module and table ([751ff79](https://github.com/alinalihassan/Lesma/commit/751ff79cfb74b67cf7c03bf9ca31e66946ba2364))
+
 ## [0.9.2](https://github.com/alinalihassan/Lesma/compare/v0.9.1...v0.9.2) (2022-05-24)
 
 
