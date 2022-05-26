@@ -177,13 +177,13 @@ Expression *Parser::ParseDot() {
 }
 
 Expression *Parser::ParseUnary() {
-    Expression *left = ParseDot();
+    Expression *left = nullptr;
     while (AdvanceIfMatchAny<TokenType::MINUS>()) {
         auto op = Previous();
-        auto expr = ParseTerm();
+        auto expr = ParseDot();
         left = new UnaryOp({op->getStart(), expr->getEnd()}, op->type, expr);
     }
-    return left;
+    return left == nullptr ? ParseDot() : left;
 }
 
 Expression *Parser::ParseCast() {

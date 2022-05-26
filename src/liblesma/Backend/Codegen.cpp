@@ -1218,13 +1218,13 @@ llvm::Value *Codegen::genFuncCall(FuncCall *node, const std::vector<llvm::Value 
 
     auto *func = dyn_cast<Function>(symbol->getLLVMValue());
     if (class_sym != nullptr && class_sym->getType()->is(TY_CLASS)) {
-        Builder->CreateCall(func, params, func->getReturnType()->isVoidTy() ? "" : "tmp");
+        Builder->CreateCall(func, params, func->getReturnType()->isVoidTy() ? "" : ".tmp");
         auto val = Builder->CreateLoad(class_sym->getLLVMType(), class_ptr);
         classSymbol = classSymbolTmp;
 
         return val;
     }
-    return Builder->CreateCall(func, params, func->getReturnType()->isVoidTy() ? "" : "tmp");
+    return Builder->CreateCall(func, params, func->getReturnType()->isVoidTy() ? "" : ".tmp");
 }
 
 int Codegen::FindIndexInFields(SymbolType *_struct, const std::string &field) {
