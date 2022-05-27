@@ -1051,7 +1051,10 @@ llvm::Value *Codegen::visit(UnaryOp *node) {
         else
             throw CodegenError(node->getSpan(), "Cannot apply {} to {}", NAMEOF_ENUM(node->getOperator()), node->getExpression()->toString(SourceManager.get(), 0));
     } else if (node->getOperator() == TokenType::STAR) {
-        return Builder->CreateLoad(operand->getType()->getPointerElementType(), operand);
+        if (operand->getType()->isPointerTy())
+            return Builder->CreateLoad(operand->getType()->getPointerElementType(), operand);
+        else
+            throw CodegenError(node->getSpan(), "Cannot apply {} to {}", NAMEOF_ENUM(node->getOperator()), node->getExpression()->toString(SourceManager.get(), 0));
     } else if (node->getOperator() == TokenType::AMPERSAND) {
         auto ptr = Builder->CreateAlloca(operand->getType(), nullptr, ".tmp");
         Builder->CreateStore(operand, ptr);
