@@ -177,7 +177,7 @@ void Codegen::CompileModule(llvm::SMRange span, const std::string &filepath, boo
                 // If it's external function (only functions without body) don't import
                 if ((*it).getBasicBlockList().empty())
                     continue;
-                
+
                 auto name = std::string{(*it).getName()};
                 auto symbol = new SymbolTableEntry(name, new SymbolType(SymbolSuperType::TY_FUNCTION));
                 symbol->setLLVMType((*it).getFunctionType());
