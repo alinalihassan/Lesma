@@ -9,7 +9,7 @@ cmake-build-debug-coverage/
 build/
 
 # Testing file
-test.les
+test*.les
 
 # File system specific
 **/.DS_Store

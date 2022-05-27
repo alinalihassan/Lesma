@@ -1070,7 +1070,7 @@ llvm::Value *Codegen::visit(Literal *node) {
     else if (node->getType() == TokenType::STRING)
         return Builder->CreateGlobalStringPtr(node->getValue());
     else if (node->getType() == TokenType::NIL)
-        return ConstantPointerNull::get(PointerType::get(*TheContext, 0));
+        return ConstantPointerNull::getNullValue(Builder->getInt8PtrTy(0));
     else if (node->getType() == TokenType::IDENTIFIER) {
         // Look this variable up in the function.
         auto val = Scope->lookup(node->getValue());
