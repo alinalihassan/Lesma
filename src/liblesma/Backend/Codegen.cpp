@@ -1188,6 +1188,9 @@ llvm::Value *Codegen::Cast(llvm::SMRange span, llvm::Value *val, llvm::Type *typ
             return Builder->CreateSIToFP(val, type, ".tmp");
         else if (val->getType()->isFloatingPointTy())
             return Builder->CreateFPCast(val, type, ".tmp");
+    } else if (type->isPointerTy() && type->getPointerElementType()->isIntegerTy()) {
+        if (val->getType()->isPointerTy() && (val->getType()->getPointerElementType()->isIntegerTy() || val->getType()->getPointerElementType()->isVoidTy()))
+            return Builder->CreateBitCast(val, type, ".tmp");
     }
 
     throw CodegenError(span, "Unsupported Cast");
