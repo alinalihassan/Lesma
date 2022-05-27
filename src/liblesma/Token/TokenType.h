@@ -27,6 +27,7 @@ namespace lesma {
         STAR,
         MOD,
         POWER,
+        AMPERSAND,
         RANGE,
         ELLIPSIS,
 

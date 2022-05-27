@@ -178,7 +178,7 @@ Expression *Parser::ParseDot() {
 
 Expression *Parser::ParseUnary() {
     Expression *left = nullptr;
-    while (AdvanceIfMatchAny<TokenType::MINUS>()) {
+    while (AdvanceIfMatchAny<TokenType::MINUS, TokenType::STAR, TokenType::AMPERSAND>()) {
         auto op = Previous();
         auto expr = ParseDot();
         left = new UnaryOp({op->getStart(), expr->getEnd()}, op->type, expr);

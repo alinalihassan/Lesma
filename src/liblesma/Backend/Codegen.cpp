@@ -1040,7 +1040,14 @@ llvm::Value *Codegen::visit(UnaryOp *node) {
             return Builder->CreateNot(operand, ".tmp");
         else
             throw CodegenError(node->getSpan(), "Cannot apply {} to {}", NAMEOF_ENUM(node->getOperator()), node->getExpression()->toString(SourceManager.get(), 0));
-    } else
+    } else if (node->getOperator() == TokenType::STAR) {
+        return Builder->CreateLoad(operand->getType()->getPointerElementType(), operand);
+    } else if (node->getOperator() == TokenType::AMPERSAND) {
+        auto ptr = Builder->CreateAlloca(operand->getType(), nullptr, ".tmp");
+        Builder->CreateStore(operand, ptr);
+        return ptr;
+    }
+    else
         throw CodegenError(node->getSpan(), "Unknown unary operator, cannot apply {} to {}", NAMEOF_ENUM(node->getOperator()), node->getExpression()->toString(SourceManager.get(), 0));
 }
 
