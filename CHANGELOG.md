@@ -1,3 +1,10 @@
+# [0.11.0](https://github.com/alinalihassan/Lesma/compare/v0.10.1...v0.11.0) (2022-05-26)
+
+
+### Features
+
+* Functions can now refer to each other without having to be declared in a certain order ([7230883](https://github.com/alinalihassan/Lesma/commit/7230883d94f37b8bff490131dc6e6c3645aced46))
+
 ## [0.10.1](https://github.com/alinalihassan/Lesma/compare/v0.10.0...v0.10.1) (2022-05-26)
 
 
