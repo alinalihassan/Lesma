@@ -62,6 +62,7 @@ namespace lesma {
         BOOL_TYPE,
         VOID_TYPE,
         FUNC_TYPE,
+        PTR_TYPE,
         CUSTOM_TYPE,
 
         // Keywords.

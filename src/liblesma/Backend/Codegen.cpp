@@ -384,6 +384,8 @@ llvm::Type *Codegen::visit(lesma::Type *node) {
         return Builder->getInt8PtrTy();
     else if (node->getType() == TokenType::VOID_TYPE)
         return Builder->getVoidTy();
+    else if (node->getType() == TokenType::PTR_TYPE)
+        return PointerType::get(visit(node->getElementType()), 0);
     else if (node->getType() == TokenType::FUNC_TYPE) {
         auto ret_type = visit(node->getReturnType());
         std::vector<llvm::Type *> paramsTypes;
@@ -720,7 +722,7 @@ void Codegen::visit(Class *node) {
     for (auto &&[field, elem_type]: zip(node->getFields(), elementTypes))
         fields.emplace_back(field->getIdentifier()->getValue(), getType(elem_type));
 
-    auto *type = new SymbolType(TY_CLASS, fields);
+    auto *type = new SymbolType(TY_CLASS, fields, nullptr);
     auto *structSymbol = new SymbolTableEntry(node->getIdentifier(), type);
     structSymbol->setLLVMType(structType);
     Scope->insertType(node->getIdentifier(), type);
@@ -748,7 +750,7 @@ void Codegen::visit(Enum *node) {
     for (const auto &field: node->getValues())
         fields.push_back({field, new SymbolType(TY_VOID)});
 
-    auto *type = new SymbolType(TY_ENUM, fields);
+    auto *type = new SymbolType(TY_ENUM, fields, nullptr);
     auto *structSymbol = new SymbolTableEntry(node->getIdentifier(), type);
     structSymbol->setLLVMType(structType);
     Scope->insertType(node->getIdentifier(), type);
@@ -1056,7 +1058,7 @@ llvm::Value *Codegen::visit(Literal *node) {
     else if (node->getType() == TokenType::INTEGER)
         return ConstantInt::getSigned(Builder->getInt64Ty(), std::stoi(node->getValue()));
     else if (node->getType() == TokenType::BOOL)
-        return ConstantInt::getBool(*TheContext, node->getValue() == "true");
+        return node->getValue() == "true" ? Builder->getTrue() : Builder->getFalse();
     else if (node->getType() == TokenType::STRING)
         return Builder->CreateGlobalStringPtr(node->getValue());
     else if (node->getType() == TokenType::NIL)

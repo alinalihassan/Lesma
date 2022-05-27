@@ -65,7 +65,11 @@ void Parser::Error(Token *token, const std::string &error_message) {
 
 Type *Parser::ParseType() {
     auto type = Peek();
-    if (CheckAny<TokenType::INT_TYPE, TokenType::FLOAT_TYPE, TokenType::STRING_TYPE, TokenType::BOOL_TYPE,
+    if (Check(TokenType::STAR)) {
+        Advance();
+        auto element_type = ParseType();
+        return new Type({type->getStart(), element_type->getEnd()}, "*" + element_type->getName(), TokenType::PTR_TYPE, element_type);
+    } else if (CheckAny<TokenType::INT_TYPE, TokenType::FLOAT_TYPE, TokenType::STRING_TYPE, TokenType::BOOL_TYPE,
                  TokenType::VOID_TYPE>()) {
         Advance();
         return new Type(type->span, type->lexeme, type->type);
