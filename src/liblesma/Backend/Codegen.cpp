@@ -174,6 +174,10 @@ void Codegen::CompileModule(llvm::SMRange span, const std::string &filepath, boo
             Module::iterator it;
             Module::iterator end = TheModule->end();
             for (it = TheModule->begin(); it != end; ++it) {
+                // If it's external function (only functions without body) don't import
+                if ((*it).getBasicBlockList().empty())
+                    continue;
+                
                 auto name = std::string{(*it).getName()};
                 auto symbol = new SymbolTableEntry(name, new SymbolType(SymbolSuperType::TY_FUNCTION));
                 symbol->setLLVMType((*it).getFunctionType());
@@ -562,11 +566,15 @@ void Codegen::visit(ExternFuncDecl *node) {
     for (const auto &param: node->getParameters())
         paramTypes.push_back(visit(param.second));
 
+    FunctionCallee F;
     if (TheModule->getFunction(node->getName()) != nullptr && Scope->lookup(node->getName()) != nullptr)
         return;
-
-    FunctionType *FT = FunctionType::get(visit(node->getReturnType()), paramTypes, node->getVarArgs());
-    auto F = TheModule->getOrInsertFunction(node->getName(), FT);
+    else if (TheModule->getFunction(node->getName()) != nullptr) {
+        F = TheModule->getFunction(node->getName());
+    } else {
+        FunctionType *FT = FunctionType::get(visit(node->getReturnType()), paramTypes, node->getVarArgs());
+        F = TheModule->getOrInsertFunction(node->getName(), FT);
+    }
 
     auto symbol = new SymbolTableEntry(node->getName(), new SymbolType(SymbolSuperType::TY_FUNCTION));
     symbol->setLLVMType(F.getFunctionType());
