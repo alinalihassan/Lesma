@@ -376,8 +376,16 @@ void Codegen::visit(Statement *node) {
 llvm::Type *Codegen::visit(lesma::Type *node) {
     if (node->getType() == TokenType::INT_TYPE)
         return Builder->getInt64Ty();
+    if (node->getType() == TokenType::INT8_TYPE)
+        return Builder->getInt8Ty();
+    if (node->getType() == TokenType::INT16_TYPE)
+        return Builder->getInt16Ty();
+    if (node->getType() == TokenType::INT32_TYPE)
+        return Builder->getInt32Ty();
     if (node->getType() == TokenType::FLOAT_TYPE)
         return Builder->getDoubleTy();
+    if (node->getType() == TokenType::FLOAT32_TYPE)
+        return Builder->getFloatTy();
     else if (node->getType() == TokenType::BOOL_TYPE)
         return Builder->getInt1Ty();
     else if (node->getType() == TokenType::STRING_TYPE)
@@ -1086,8 +1094,16 @@ llvm::Value *Codegen::visit(Else * /*node*/) {
 std::string Codegen::getTypeMangledName(llvm::SMRange span, llvm::Type *type) {
     if (type->isIntegerTy(1))
         return "b";
+    else if (type->isIntegerTy(8))
+        return "c";
+    else if (type->isIntegerTy(16))
+        return "i16";
+    else if (type->isIntegerTy(32))
+        return "i32";
     else if (type->isIntegerTy())
         return "i";
+    else if (type->isFloatTy())
+        return "f32";
     else if (type->isFloatingPointTy())
         return "f";
     else if (type->isVoidTy())

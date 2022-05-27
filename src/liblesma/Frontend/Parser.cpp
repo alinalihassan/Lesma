@@ -70,7 +70,7 @@ Type *Parser::ParseType() {
         auto element_type = ParseType();
         return new Type({type->getStart(), element_type->getEnd()}, "*" + element_type->getName(), TokenType::PTR_TYPE, element_type);
     } else if (CheckAny<TokenType::INT_TYPE, TokenType::FLOAT_TYPE, TokenType::STRING_TYPE, TokenType::BOOL_TYPE,
-                 TokenType::VOID_TYPE>()) {
+                        TokenType::INT8_TYPE, TokenType::INT16_TYPE, TokenType::INT32_TYPE, TokenType::FLOAT32_TYPE, TokenType::VOID_TYPE>()) {
         Advance();
         return new Type(type->span, type->lexeme, type->type);
     } else if (Check(TokenType::FUNC)) {
