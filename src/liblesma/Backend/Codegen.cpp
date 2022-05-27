@@ -1046,8 +1046,7 @@ llvm::Value *Codegen::visit(UnaryOp *node) {
         auto ptr = Builder->CreateAlloca(operand->getType(), nullptr, ".tmp");
         Builder->CreateStore(operand, ptr);
         return ptr;
-    }
-    else
+    } else
         throw CodegenError(node->getSpan(), "Unknown unary operator, cannot apply {} to {}", NAMEOF_ENUM(node->getOperator()), node->getExpression()->toString(SourceManager.get(), 0));
 }
 
