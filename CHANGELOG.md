@@ -1,3 +1,22 @@
+# [0.12.0](https://github.com/alinalihassan/Lesma/compare/v0.11.0...v0.12.0) (2022-05-28)
+
+
+### Bug Fixes
+
+* Fixed de-referencing primitive values ([5ebb733](https://github.com/alinalihassan/Lesma/commit/5ebb733c750d17c520a18f566c1cdc6c6de1e920))
+* Temporary fix for code branches not having any more instructions ([1a83cf7](https://github.com/alinalihassan/Lesma/commit/1a83cf7ae1b8e340ec8b523b213ee4296d246266))
+
+
+### Features
+
+* Added bitcast for pointers of integer or void types ([95a45c4](https://github.com/alinalihassan/Lesma/commit/95a45c48f7bea1326a00edb369ee92b3544ce205))
+* Added low level types for better FFI interop ([19ee297](https://github.com/alinalihassan/Lesma/commit/19ee2978946795d3568b3a0ab363176efa7cda2f))
+* Added null pointer representation ([5a8fb9c](https://github.com/alinalihassan/Lesma/commit/5a8fb9cef909aa80a299f06a9148b19f9f32e455))
+* Added pointer and reference unary operators ([ce4ea17](https://github.com/alinalihassan/Lesma/commit/ce4ea174e3987717804b32c717c184640ec65f22))
+* added pointers and references for low level implementations ([dc0569f](https://github.com/alinalihassan/Lesma/commit/dc0569fb0ba41250d34ffd38008b8c392dc82e47))
+* Extended stdlib with string conversions, cmd input, and random ([8e03a0d](https://github.com/alinalihassan/Lesma/commit/8e03a0d4198074d316d4b970a5afae0a7f8690a6))
+* External FFI functions are no longer imported ([47d2b8c](https://github.com/alinalihassan/Lesma/commit/47d2b8ca05cfa21838f50377f5280c98d86c8981))
+
 # [0.11.0](https://github.com/alinalihassan/Lesma/compare/v0.10.1...v0.11.0) (2022-05-26)
 
 
