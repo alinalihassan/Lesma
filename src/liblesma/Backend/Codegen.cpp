@@ -14,6 +14,7 @@ Codegen::Codegen(std::unique_ptr<Parser> parser, std::shared_ptr<SourceMgr> srcM
     TheModule->setDataLayout(TheJIT->getDataLayout());
     TheModule->setSourceFileName(filename);
     Builder = std::make_unique<IRBuilder<>>(*TheContext);
+    DebugInfo = std::make_unique<lesma::DebugInfo>(*TheModule, filename);
     Parser_ = std::move(parser);
     SourceManager = std::move(srcMgr);
     Scope = new SymbolTable(nullptr);
@@ -60,6 +61,12 @@ void Codegen::defineFunction(Function *F, FuncDecl *node, SymbolTableEntry *clsS
         ptr = Builder->CreateAlloca(param.getType(), nullptr, param.getName() + "_ptr");
         Builder->CreateStore(&param, ptr);
 
+        // Add debug information
+        auto argNo = clsSymbol != nullptr ? param.getArgNo() + 1 : param.getArgNo();
+        auto loc = SourceManager->getLineAndColumn(node->getParameters()[argNo].second->getStart());
+        DebugCreateParam(ptr, param.getType(), loc, param.getName().str(), param.getArgNo());
+
+        // Add to scope table
         auto symbol = new SymbolTableEntry(param.getName().str(), getType(param.getType()));
         symbol->setLLVMType(param.getType());
         symbol->setLLVMValue(ptr);
@@ -315,6 +322,8 @@ void Codegen::Run() {
 
     // Return 0 for top-level function
     Builder->CreateRet(ConstantInt::getSigned(Builder->getInt64Ty(), 0));
+
+    DebugInfo->Builder->finalize();
 }
 
 void Codegen::Dump() {
@@ -436,6 +445,10 @@ void Codegen::visit(VarDecl *node) {
 
     auto ptr = Builder->CreateAlloca(type, nullptr, node->getIdentifier()->getValue());
 
+    // Add debug information
+    DebugCreateVariable(ptr, type, SourceManager->getLineAndColumn(node->getStart()), node->getIdentifier()->getValue());
+
+    // Add symbol to table
     auto symbol = new SymbolTableEntry(node->getIdentifier()->getValue(), getType(type), node->getType().has_value() ? INITIALIZED : DECLARED);
     symbol->setLLVMType(type);
     symbol->setLLVMValue(ptr);
@@ -552,11 +565,17 @@ void Codegen::visit(FuncDecl *node) {
     FunctionType *FT = FunctionType::get(visit(node->getReturnType()), paramTypes, node->getVarArgs());
     Function *F = Function::Create(FT, linkage, name, *TheModule);
 
+    // Debug information
+    auto debug_subprogram = DebugCreateSubprogram(FT, SourceManager->getLineAndColumn(node->getStart()), node->getName());
+    F->setSubprogram(debug_subprogram);
+
+    // Add to Scope Table
     auto func_symbol = new SymbolTableEntry(name, new SymbolType(SymbolSuperType::TY_FUNCTION));
     func_symbol->setLLVMType(F->getFunctionType());
     func_symbol->setLLVMValue(F);
     Scope->insertSymbol(func_symbol);
 
+    // Add to list of functions to be defined
     Prototypes.emplace_back(F, node, selfSymbol);
 }
 
@@ -575,6 +594,10 @@ void Codegen::visit(ExternFuncDecl *node) {
         FunctionType *FT = FunctionType::get(visit(node->getReturnType()), paramTypes, node->getVarArgs());
         F = TheModule->getOrInsertFunction(node->getName(), FT);
     }
+
+    // Add debug info
+    auto debug_subprogram = DebugCreateSubprogram(F.getFunctionType(), SourceManager->getLineAndColumn(node->getStart()), node->getName());
+    dyn_cast<Function>(F.getCallee())->setSubprogram(debug_subprogram);
 
     auto symbol = new SymbolTableEntry(node->getName(), new SymbolType(SymbolSuperType::TY_FUNCTION));
     symbol->setLLVMType(F.getFunctionType());
@@ -1284,4 +1307,34 @@ int Codegen::FindIndexInFields(SymbolType *_struct, const std::string &field) {
     }
 
     return val;
+}
+
+DISubprogram *Codegen::DebugCreateSubprogram(FunctionType* FT, std::pair<unsigned int, unsigned int> loc, const std::string& name) {
+    DIFile *Unit = DebugInfo->Builder->createFile(DebugInfo->CU->getFilename(),
+                                                  DebugInfo->CU->getDirectory());
+    DIScope *FContext = Unit;
+    DISubprogram *SP = DebugInfo->Builder->createFunction(FContext, name, StringRef(), Unit, loc.first,
+                                                          DebugInfo->getType(FT), loc.first);
+
+    return SP;
+}
+
+DILocalVariable *Codegen::DebugCreateVariable(Value* ptr, llvm::Type* type, std::pair<unsigned int, unsigned int> loc, const std::string& name) {
+    DIFile *Unit = DebugInfo->Builder->createFile(DebugInfo->CU->getFilename(),
+                                                  DebugInfo->CU->getDirectory());
+    DIScope *SP = Unit;
+    DILocalVariable *Var = DebugInfo->Builder->createAutoVariable(SP, name, Unit, loc.first, DebugInfo->getType(type));
+    DebugInfo->Builder->insertDeclare(ptr, Var, DebugInfo->Builder->createExpression(), DILocation::get(SP->getContext(), loc.first, loc.second, SP), Builder->GetInsertBlock());
+
+    return Var;
+}
+
+DILocalVariable *Codegen::DebugCreateParam(Value* ptr, llvm::Type* type, std::pair<unsigned int, unsigned int> loc, const std::string& name, unsigned int argNo) {
+    DIFile *Unit = DebugInfo->Builder->createFile(DebugInfo->CU->getFilename(),
+                                                  DebugInfo->CU->getDirectory());
+    DIScope *SP = Unit;
+    DILocalVariable *Param = DebugInfo->Builder->createParameterVariable(SP, name, argNo, Unit, loc.first, DebugInfo->getType(type));
+    DebugInfo->Builder->insertDeclare(ptr, Param, DebugInfo->Builder->createExpression(), DILocation::get(SP->getContext(), loc.first, loc.second, SP), Builder->GetInsertBlock());
+
+    return Param;
 }

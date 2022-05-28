@@ -1,5 +1,6 @@
 #pragma once
 
+#include "DebugInfo.h"
 #include "liblesma/AST/ExprVisitor.h"
 #include "liblesma/AST/StmtVisitor.h"
 #include "liblesma/Frontend/Parser.h"
@@ -34,6 +35,7 @@ namespace lesma {
         std::unique_ptr<LLVMContext> TheContext;
         std::unique_ptr<Module> TheModule;
         std::unique_ptr<IRBuilder<>> Builder;
+        std::unique_ptr<lesma::DebugInfo> DebugInfo;
         ExitOnError ExitOnErr;
 
         std::unique_ptr<LesmaJIT> TheJIT;
@@ -110,5 +112,8 @@ namespace lesma {
         llvm::Value *genFuncCall(FuncCall *node, const std::vector<llvm::Value *> &extra_params);
         static int FindIndexInFields(SymbolType *_struct, const std::string &field);
         void defineFunction(Function *F, FuncDecl *node, SymbolTableEntry *clsSymbol);
+        DISubprogram *DebugCreateSubprogram(FunctionType *FT, std::pair<unsigned int, unsigned int> line, const std::string &name);
+        DILocalVariable *DebugCreateVariable(Value *ptr, llvm::Type *type, std::pair<unsigned int, unsigned int> loc, const std::string &name);
+        DILocalVariable *DebugCreateParam(Value *ptr, llvm::Type *type, std::pair<unsigned int, unsigned int> loc, const std::string &name, unsigned int argNo);
     };
 }// namespace lesma
