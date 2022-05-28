@@ -77,9 +77,9 @@ void Codegen::defineFunction(Function *F, FuncDecl *node, SymbolTableEntry *clsS
 
     // Check for well-formness of all BBs. In particular, look for
     // any unterminated BB and try to add a Return to it.
-    for (BasicBlock &BB : *F) {
+    for (BasicBlock &BB: *F) {
         Instruction *Terminator = BB.getTerminator();
-        if (Terminator != nullptr) continue; // Well-formed
+        if (Terminator != nullptr) continue;// Well-formed
         if (F->getReturnType()->isVoidTy()) {
             // Make implicit return of void Function explicit.
             Builder->SetInsertPoint(&BB);
@@ -722,8 +722,7 @@ void Codegen::visit(Return *node) {
             Builder->CreateRetVoid();
         else
             throw CodegenError(node->getSpan(), "Return type does not match the function return type");
-    }
-    else {
+    } else {
         auto val = visit(node->getValue());
         if (Builder->getCurrentFunctionReturnType() == val->getType())
             Builder->CreateRet(val);
