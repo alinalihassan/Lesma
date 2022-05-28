@@ -716,10 +716,20 @@ void Codegen::visit(Return *node) {
         visit(inst);
 
     isReturn = true;
-    if (node->getValue() == nullptr)
-        Builder->CreateRetVoid();
-    else
-        Builder->CreateRet(visit(node->getValue()));
+
+    if (node->getValue() == nullptr) {
+        if (Builder->getCurrentFunctionReturnType() == Builder->getVoidTy())
+            Builder->CreateRetVoid();
+        else
+            throw CodegenError(node->getSpan(), "Return type does not match the function return type");
+    }
+    else {
+        auto val = visit(node->getValue());
+        if (Builder->getCurrentFunctionReturnType() == val->getType())
+            Builder->CreateRet(val);
+        else
+            throw CodegenError(node->getSpan(), "Return type does not match the function return type");
+    }
 }
 
 void Codegen::visit(Defer *node) {
