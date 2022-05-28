@@ -71,10 +71,18 @@ TokenType Token::GetIdentifierType(const std::string &identifier, Token *lastTok
         return TokenType::IS;
     else if (identifier == "in")
         return TokenType::IN;
-    else if (identifier == "int")
+    else if (identifier == "int" || identifier == "int64")
         return TokenType::INT_TYPE;
+    else if (identifier == "int8")
+        return TokenType::INT8_TYPE;
+    else if (identifier == "int16")
+        return TokenType::INT16_TYPE;
+    else if (identifier == "int32")
+        return TokenType::INT32_TYPE;
     else if (identifier == "float")
         return TokenType::FLOAT_TYPE;
+    else if (identifier == "float32")
+        return TokenType::FLOAT32_TYPE;
     else if (identifier == "str")
         return TokenType::STRING_TYPE;
     else if (identifier == "bool")

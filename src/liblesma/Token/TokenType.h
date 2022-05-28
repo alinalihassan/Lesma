@@ -27,6 +27,7 @@ namespace lesma {
         STAR,
         MOD,
         POWER,
+        AMPERSAND,
         RANGE,
         ELLIPSIS,
 
@@ -61,7 +62,12 @@ namespace lesma {
         BOOL_TYPE,
         VOID_TYPE,
         FUNC_TYPE,
+        PTR_TYPE,
         CUSTOM_TYPE,
+        INT8_TYPE,
+        INT16_TYPE,
+        INT32_TYPE,
+        FLOAT32_TYPE,
 
         // Keywords.
         AND,

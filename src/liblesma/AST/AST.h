@@ -99,16 +99,23 @@ namespace lesma {
     class Type : public Expression {
         std::string name;
         TokenType type;
+
+        // Pointer fields
+        Type *elementType;
+
+        // Function fields
         std::vector<Type *> params;
         Type *ret;
 
     public:
         Type(llvm::SMRange Loc, std::string name, TokenType type) : Expression(Loc), name(std::move(name)), type(type) {}
+        Type(llvm::SMRange Loc, std::string name, TokenType type, Type *elementType) : Expression(Loc), name(std::move(name)), type(type), elementType(elementType) {}
         Type(llvm::SMRange Loc, std::string name, TokenType type, std::vector<Type *> params, Type *ret) : Expression(Loc), name(std::move(name)), type(type), params(std::move(params)), ret(ret) {}
         ~Type() override = default;
 
         [[nodiscard]] [[maybe_unused]] std::string getName() const { return name; }
         [[nodiscard]] [[maybe_unused]] TokenType getType() const { return type; }
+        [[nodiscard]] [[maybe_unused]] Type *getElementType() const { return elementType; }
         [[nodiscard]] [[maybe_unused]] std::vector<Type *> getParams() const { return params; }
         [[nodiscard]] [[maybe_unused]] Type *getReturnType() const { return ret; }
 

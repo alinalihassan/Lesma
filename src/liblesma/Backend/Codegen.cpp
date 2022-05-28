@@ -75,6 +75,11 @@ void Codegen::defineFunction(Function *F, FuncDecl *node, SymbolTableEntry *clsS
         for (auto inst: instrs)
             visit(inst);
 
+    if (Builder->GetInsertBlock()->empty()) {
+        // TODO: Check all branches and raise an error if not all paths return
+        Builder->CreateUnreachable();
+    }
+
     if (F->getReturnType() == Builder->getVoidTy() && !isReturn)
         Builder->CreateRetVoid();
 
@@ -156,7 +161,7 @@ void Codegen::CompileModule(llvm::SMRange span, const std::string &filepath, boo
             for (auto sym: codegen->Scope->getSymbols()) {
                 if (sym.second->getType()->isOneOf({TY_ENUM, TY_CLASS})) {
                     // TODO: We have to reconstruct classes and enums, fix me
-                    auto struct_ty = dyn_cast<llvm::StructType>(sym.second->getLLVMType());
+                    auto struct_ty = cast<llvm::StructType>(sym.second->getLLVMType());
                     llvm::StructType *structType = llvm::StructType::create(*TheContext, struct_ty->elements(), sym.first);
 
                     auto *structSymbol = new SymbolTableEntry(sym.first, sym.second->getType());
@@ -174,6 +179,10 @@ void Codegen::CompileModule(llvm::SMRange span, const std::string &filepath, boo
             Module::iterator it;
             Module::iterator end = TheModule->end();
             for (it = TheModule->begin(); it != end; ++it) {
+                // If it's external function (only functions without body) don't import
+                if ((*it).getBasicBlockList().empty())
+                    continue;
+
                 auto name = std::string{(*it).getName()};
                 auto symbol = new SymbolTableEntry(name, new SymbolType(SymbolSuperType::TY_FUNCTION));
                 symbol->setLLVMType((*it).getFunctionType());
@@ -376,14 +385,24 @@ void Codegen::visit(Statement *node) {
 llvm::Type *Codegen::visit(lesma::Type *node) {
     if (node->getType() == TokenType::INT_TYPE)
         return Builder->getInt64Ty();
+    if (node->getType() == TokenType::INT8_TYPE)
+        return Builder->getInt8Ty();
+    if (node->getType() == TokenType::INT16_TYPE)
+        return Builder->getInt16Ty();
+    if (node->getType() == TokenType::INT32_TYPE)
+        return Builder->getInt32Ty();
     if (node->getType() == TokenType::FLOAT_TYPE)
         return Builder->getDoubleTy();
+    if (node->getType() == TokenType::FLOAT32_TYPE)
+        return Builder->getFloatTy();
     else if (node->getType() == TokenType::BOOL_TYPE)
         return Builder->getInt1Ty();
     else if (node->getType() == TokenType::STRING_TYPE)
         return Builder->getInt8PtrTy();
     else if (node->getType() == TokenType::VOID_TYPE)
         return Builder->getVoidTy();
+    else if (node->getType() == TokenType::PTR_TYPE)
+        return PointerType::get(visit(node->getElementType()), 0);
     else if (node->getType() == TokenType::FUNC_TYPE) {
         auto ret_type = visit(node->getReturnType());
         std::vector<llvm::Type *> paramsTypes;
@@ -552,11 +571,15 @@ void Codegen::visit(ExternFuncDecl *node) {
     for (const auto &param: node->getParameters())
         paramTypes.push_back(visit(param.second));
 
+    FunctionCallee F;
     if (TheModule->getFunction(node->getName()) != nullptr && Scope->lookup(node->getName()) != nullptr)
         return;
-
-    FunctionType *FT = FunctionType::get(visit(node->getReturnType()), paramTypes, node->getVarArgs());
-    auto F = TheModule->getOrInsertFunction(node->getName(), FT);
+    else if (TheModule->getFunction(node->getName()) != nullptr) {
+        F = TheModule->getFunction(node->getName());
+    } else {
+        FunctionType *FT = FunctionType::get(visit(node->getReturnType()), paramTypes, node->getVarArgs());
+        F = TheModule->getOrInsertFunction(node->getName(), FT);
+    }
 
     auto symbol = new SymbolTableEntry(node->getName(), new SymbolType(SymbolSuperType::TY_FUNCTION));
     symbol->setLLVMType(F.getFunctionType());
@@ -720,7 +743,7 @@ void Codegen::visit(Class *node) {
     for (auto &&[field, elem_type]: zip(node->getFields(), elementTypes))
         fields.emplace_back(field->getIdentifier()->getValue(), getType(elem_type));
 
-    auto *type = new SymbolType(TY_CLASS, fields);
+    auto *type = new SymbolType(TY_CLASS, fields, nullptr);
     auto *structSymbol = new SymbolTableEntry(node->getIdentifier(), type);
     structSymbol->setLLVMType(structType);
     Scope->insertType(node->getIdentifier(), type);
@@ -748,7 +771,7 @@ void Codegen::visit(Enum *node) {
     for (const auto &field: node->getValues())
         fields.push_back({field, new SymbolType(TY_VOID)});
 
-    auto *type = new SymbolType(TY_ENUM, fields);
+    auto *type = new SymbolType(TY_ENUM, fields, nullptr);
     auto *structSymbol = new SymbolTableEntry(node->getIdentifier(), type);
     structSymbol->setLLVMType(structType);
     Scope->insertType(node->getIdentifier(), type);
@@ -1040,6 +1063,15 @@ llvm::Value *Codegen::visit(UnaryOp *node) {
             return Builder->CreateNot(operand, ".tmp");
         else
             throw CodegenError(node->getSpan(), "Cannot apply {} to {}", NAMEOF_ENUM(node->getOperator()), node->getExpression()->toString(SourceManager.get(), 0));
+    } else if (node->getOperator() == TokenType::STAR) {
+        if (operand->getType()->isPointerTy())
+            return Builder->CreateLoad(operand->getType()->getPointerElementType(), operand);
+        else
+            throw CodegenError(node->getSpan(), "Cannot apply {} to {}", NAMEOF_ENUM(node->getOperator()), node->getExpression()->toString(SourceManager.get(), 0));
+    } else if (node->getOperator() == TokenType::AMPERSAND) {
+        auto ptr = Builder->CreateAlloca(operand->getType(), nullptr, ".tmp");
+        Builder->CreateStore(operand, ptr);
+        return ptr;
     } else
         throw CodegenError(node->getSpan(), "Unknown unary operator, cannot apply {} to {}", NAMEOF_ENUM(node->getOperator()), node->getExpression()->toString(SourceManager.get(), 0));
 }
@@ -1050,9 +1082,11 @@ llvm::Value *Codegen::visit(Literal *node) {
     else if (node->getType() == TokenType::INTEGER)
         return ConstantInt::getSigned(Builder->getInt64Ty(), std::stoi(node->getValue()));
     else if (node->getType() == TokenType::BOOL)
-        return ConstantInt::getBool(*TheContext, node->getValue() == "true");
+        return node->getValue() == "true" ? Builder->getTrue() : Builder->getFalse();
     else if (node->getType() == TokenType::STRING)
         return Builder->CreateGlobalStringPtr(node->getValue());
+    else if (node->getType() == TokenType::NIL)
+        return ConstantPointerNull::getNullValue(Builder->getInt8PtrTy(0));
     else if (node->getType() == TokenType::IDENTIFIER) {
         // Look this variable up in the function.
         auto val = Scope->lookup(node->getValue());
@@ -1076,8 +1110,16 @@ llvm::Value *Codegen::visit(Else * /*node*/) {
 std::string Codegen::getTypeMangledName(llvm::SMRange span, llvm::Type *type) {
     if (type->isIntegerTy(1))
         return "b";
+    else if (type->isIntegerTy(8))
+        return "c";
+    else if (type->isIntegerTy(16))
+        return "i16";
+    else if (type->isIntegerTy(32))
+        return "i32";
     else if (type->isIntegerTy())
         return "i";
+    else if (type->isFloatTy())
+        return "f32";
     else if (type->isFloatingPointTy())
         return "f";
     else if (type->isVoidTy())
@@ -1178,6 +1220,9 @@ llvm::Value *Codegen::Cast(llvm::SMRange span, llvm::Value *val, llvm::Type *typ
             return Builder->CreateSIToFP(val, type, ".tmp");
         else if (val->getType()->isFloatingPointTy())
             return Builder->CreateFPCast(val, type, ".tmp");
+    } else if (type->isPointerTy() && type->getPointerElementType()->isIntegerTy()) {
+        if (val->getType()->isPointerTy() && (val->getType()->getPointerElementType()->isIntegerTy() || val->getType()->getPointerElementType()->isVoidTy()))
+            return Builder->CreateBitCast(val, type, ".tmp");
     }
 
     throw CodegenError(span, "Unsupported Cast");
@@ -1223,7 +1268,7 @@ llvm::Value *Codegen::genFuncCall(FuncCall *node, const std::vector<llvm::Value 
     if (!symbol->getLLVMType()->isFunctionTy())
         throw CodegenError(node->getSpan(), "Symbol {} is not a function.", node->getName());
 
-    auto *func = dyn_cast<Function>(symbol->getLLVMValue());
+    auto *func = cast<Function>(symbol->getLLVMValue());
     if (class_sym != nullptr && class_sym->getType()->is(TY_CLASS)) {
         Builder->CreateCall(func, params, func->getReturnType()->isVoidTy() ? "" : ".tmp");
         auto val = Builder->CreateLoad(class_sym->getLLVMType(), class_ptr);

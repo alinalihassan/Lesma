@@ -36,6 +36,13 @@ bool SymbolType::isOneOf(const std::vector<SymbolSuperType> &superTypes) const {
 SymbolSuperType SymbolType::getSuperType() const { return baseSuperType; }
 
 /**
+ * Retrieve the super type of the current type
+ *
+ * @return Super type
+ */
+SymbolType *SymbolType::getElementType() const { return elementType; }
+
+/**
  * Retrieve the fields of the current type
  *
  * @return Vector with tuples of name and SymbolType

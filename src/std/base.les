@@ -1,7 +1,45 @@
 def extern printf(fmt: str, ...)
+def extern scanf(fmt: str, ...)
+def extern malloc(size: int) -> *void
+def extern strlen(x: str) -> int
+def extern atoll(x: str) -> int
+def extern strtod(x: str) -> float
+def extern rand() -> int
+def extern srand(x: int)
+def extern time(x: *int) -> int
+
+def input() -> str
+    return input("")
+
+def input(prompt: str) -> str
+    if strlen(prompt) > 0
+        printf("%s", prompt)
+
+    var line: str = malloc(256) as str
+
+    # TODO: Currently only reading 255 characters, could be longer
+    scanf("%255[^\n]%*c",line)
+
+    return line
+
+def strToInt(x: str) -> int
+    return atoll(x)
+
+def strToFloat(x: str) -> float
+    return strtod(x)
+
+def random(x: int, y: int) -> int
+    srand(time(null as *int))
+    if x < y
+        return x + rand() % (y - x)
+
+    return y + rand() % (x - y)
 
 def print(x: str)
     printf("%s\n", x)
+
+def print(x: int8)
+    printf("%c\n", x)
 
 def print(x: int)
     printf("%d\n", x)

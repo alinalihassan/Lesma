@@ -67,6 +67,8 @@ Token *Lexer::ScanOne(bool continuation) {
                 return AddToken(TokenType::STAR_EQUAL);
             return AddToken(TokenType::STAR);
         }
+        case '&':
+            return AddToken(TokenType::AMPERSAND);
         case '!':
             return AddToken(MatchAndAdvance('=') ? TokenType::BANG_EQUAL : TokenType::BANG);
         case '=': {
