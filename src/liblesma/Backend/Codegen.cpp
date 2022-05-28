@@ -47,8 +47,8 @@ void Codegen::defineFunction(Function *F, FuncDecl *node, SymbolTableEntry *clsS
     Scope = Scope->createChildBlock(node->getName());
     deferStack.push({});
 
-    BasicBlock *BB = BasicBlock::Create(*TheContext, "entry", F);
-    Builder->SetInsertPoint(BB);
+    BasicBlock *entry = BasicBlock::Create(*TheContext, "entry", F);
+    Builder->SetInsertPoint(entry);
 
     for (auto &param: F->args()) {
         if (clsSymbol != nullptr && param.getArgNo() == 0)
@@ -75,13 +75,18 @@ void Codegen::defineFunction(Function *F, FuncDecl *node, SymbolTableEntry *clsS
         for (auto inst: instrs)
             visit(inst);
 
-    if (Builder->GetInsertBlock()->empty()) {
-        // TODO: Check all branches and raise an error if not all paths return
-        Builder->CreateUnreachable();
+    // Check for well-formness of all BBs. In particular, look for
+    // any unterminated BB and try to add a Return to it.
+    for (BasicBlock &BB : *F) {
+        Instruction *Terminator = BB.getTerminator();
+        if (Terminator != nullptr) continue; // Well-formed
+        if (F->getReturnType()->isVoidTy()) {
+            // Make implicit return of void Function explicit.
+            Builder->SetInsertPoint(&BB);
+            Builder->CreateRetVoid();
+        } else
+            throw CodegenError(node->getSpan(), "Function {} does not always return a result", node->getName());
     }
-
-    if (F->getReturnType() == Builder->getVoidTy() && !isReturn)
-        Builder->CreateRetVoid();
 
     isReturn = false;
 
