@@ -75,6 +75,11 @@ void Codegen::defineFunction(Function *F, FuncDecl *node, SymbolTableEntry *clsS
         for (auto inst: instrs)
             visit(inst);
 
+    if (Builder->GetInsertBlock()->empty()) {
+        // TODO: Check all branches and raise an error if not all paths return
+        Builder->CreateUnreachable();
+    }
+
     if (F->getReturnType() == Builder->getVoidTy() && !isReturn)
         Builder->CreateRetVoid();
 
@@ -156,7 +161,7 @@ void Codegen::CompileModule(llvm::SMRange span, const std::string &filepath, boo
             for (auto sym: codegen->Scope->getSymbols()) {
                 if (sym.second->getType()->isOneOf({TY_ENUM, TY_CLASS})) {
                     // TODO: We have to reconstruct classes and enums, fix me
-                    auto struct_ty = dyn_cast<llvm::StructType>(sym.second->getLLVMType());
+                    auto struct_ty = cast<llvm::StructType>(sym.second->getLLVMType());
                     llvm::StructType *structType = llvm::StructType::create(*TheContext, struct_ty->elements(), sym.first);
 
                     auto *structSymbol = new SymbolTableEntry(sym.first, sym.second->getType());
@@ -1263,7 +1268,7 @@ llvm::Value *Codegen::genFuncCall(FuncCall *node, const std::vector<llvm::Value 
     if (!symbol->getLLVMType()->isFunctionTy())
         throw CodegenError(node->getSpan(), "Symbol {} is not a function.", node->getName());
 
-    auto *func = dyn_cast<Function>(symbol->getLLVMValue());
+    auto *func = cast<Function>(symbol->getLLVMValue());
     if (class_sym != nullptr && class_sym->getType()->is(TY_CLASS)) {
         Builder->CreateCall(func, params, func->getReturnType()->isVoidTy() ? "" : ".tmp");
         auto val = Builder->CreateLoad(class_sym->getLLVMType(), class_ptr);
