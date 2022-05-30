@@ -1032,7 +1032,7 @@ llvm::Value *Codegen::visit(DotOp *node) {
                 if (!field.empty()) {
                     auto index = FindIndexInFields(cls->getType(), field);
                     if (index == -1)
-                        throw CodegenError(node->getRight()->getSpan(), "Could not find field {} in {}", field, val->getType()->getStructName().str());
+                        throw CodegenError(node->getRight()->getSpan(), "Could not find field {} in {}", field, val->getType()->getPointerElementType()->getStructName().str());
 
                     auto ptr = Builder->CreateStructGEP(cls->getLLVMType(), val, index);
                     if (isAssignment)
