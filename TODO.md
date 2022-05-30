@@ -10,7 +10,7 @@
 - [ ] Fix import error while reading file being caught by Utils function instead of module, which could show where import was stated
 - [ ] Fix error reporting not handling multiline errors well
 - [ ] Fix indentation on the second line after line continuation not working
-- [ ] Fix strings escaping all forward slashes, cannot use any escape sequences
+- [x] Fix strings escaping all forward slashes, cannot use any escape sequences
 
 ## Refactoring
 - [x] Replace SourceLocation by Span
@@ -22,23 +22,31 @@
 - [ ] Add analyzer phase (add tree walker interface?)
 - [x] Add type inference
 - [ ] Add operator overloading
-- [ ] Add varargs
-- [ ] Add pointers/references?
-- [ ] Add strings
+- [x] Add varargs
+- [x] Add pointers/references?
+- [x] Add strings
 - [ ] Add lists
 - [ ] Add tuples
 - [ ] Add ranges (1..4 style)
 - [ ] Add dictionaries
 - [ ] Add foreach loops
 - [ ] Add lambda functions
-- [ ] Add classes
-- [ ] Add enums
+- [x] Add classes
+- [x] Add enums
 - [x] Add unit tests
 - [x] Add module system
 - [x] Add python-style syntax
 - [ ] Add generics
 - [ ] Add inheritance (or traits)
 - [ ] Add string interpolation
-- [ ] Add standard library (things like print, input, etc)
+- [x] Add standard library (things like print, input, etc)
 - [ ] Add multithreading using pthread for now (async/await? ala Spice)
 - [ ] Add multiple return without having to make structs
+- [ ] Fix this not working. If else doesn't return 
+```python
+def test(x: int) -> int
+    if x > 5
+        return 5
+    else
+        return 7
+```

@@ -47,8 +47,8 @@ void Codegen::defineFunction(Function *F, FuncDecl *node, SymbolTableEntry *clsS
     Scope = Scope->createChildBlock(node->getName());
     deferStack.push({});
 
-    BasicBlock *BB = BasicBlock::Create(*TheContext, "entry", F);
-    Builder->SetInsertPoint(BB);
+    BasicBlock *entry = BasicBlock::Create(*TheContext, "entry", F);
+    Builder->SetInsertPoint(entry);
 
     for (auto &param: F->args()) {
         if (clsSymbol != nullptr && param.getArgNo() == 0)
@@ -75,24 +75,29 @@ void Codegen::defineFunction(Function *F, FuncDecl *node, SymbolTableEntry *clsS
         for (auto inst: instrs)
             visit(inst);
 
-    if (Builder->GetInsertBlock()->empty()) {
-        // TODO: Check all branches and raise an error if not all paths return
-        Builder->CreateUnreachable();
+    // Check for well-formness of all BBs. In particular, look for
+    // any unterminated BB and try to add a Return to it.
+    for (BasicBlock &BB: *F) {
+        Instruction *Terminator = BB.getTerminator();
+        if (Terminator != nullptr) continue;// Well-formed
+        if (F->getReturnType()->isVoidTy()) {
+            // Make implicit return of void Function explicit.
+            Builder->SetInsertPoint(&BB);
+            Builder->CreateRetVoid();
+        } else
+            throw CodegenError(node->getSpan(), "Function {} does not always return a result", node->getName());
     }
-
-    if (F->getReturnType() == Builder->getVoidTy() && !isReturn)
-        Builder->CreateRetVoid();
 
     isReturn = false;
 
     // Verify function
     // TODO: Verify function again, unfortunately functions from other modules have attributes attached without context of usage, and verify gives error
-    // std::string output;
-    // llvm::raw_string_ostream oss(output);
-    // if (llvm::verifyFunction(*F, &oss)) {
-    //     F->print(outs());
-    //     throw CodegenError(node->getSpan(), "Invalid Function {}\n{}", node->getName(), output);
-    // }
+     std::string output;
+     llvm::raw_string_ostream oss(output);
+     if (llvm::verifyFunction(*F, &oss)) {
+         F->print(outs());
+         throw CodegenError(node->getSpan(), "Invalid Function {}\n{}", node->getName(), output);
+     }
 
     // Insert Function to Symbol Table
     Scope = Scope->getParent();
@@ -711,10 +716,19 @@ void Codegen::visit(Return *node) {
         visit(inst);
 
     isReturn = true;
-    if (node->getValue() == nullptr)
-        Builder->CreateRetVoid();
-    else
-        Builder->CreateRet(visit(node->getValue()));
+
+    if (node->getValue() == nullptr) {
+        if (Builder->getCurrentFunctionReturnType() == Builder->getVoidTy())
+            Builder->CreateRetVoid();
+        else
+            throw CodegenError(node->getSpan(), "Return type does not match the function return type");
+    } else {
+        auto val = visit(node->getValue());
+        if (Builder->getCurrentFunctionReturnType() == val->getType())
+            Builder->CreateRet(val);
+        else
+            throw CodegenError(node->getSpan(), "Return type does not match the function return type");
+    }
 }
 
 void Codegen::visit(Defer *node) {
