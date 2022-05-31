@@ -92,12 +92,12 @@ void Codegen::defineFunction(Function *F, FuncDecl *node, SymbolTableEntry *clsS
 
     // Verify function
     // TODO: Verify function again, unfortunately functions from other modules have attributes attached without context of usage, and verify gives error
-    std::string output;
-    llvm::raw_string_ostream oss(output);
-    if (llvm::verifyFunction(*F, &oss)) {
-        F->print(outs());
-        throw CodegenError(node->getSpan(), "Invalid Function {}\n{}", node->getName(), output);
-    }
+//    std::string output;
+//    llvm::raw_string_ostream oss(output);
+//    if (llvm::verifyFunction(*F, &oss)) {
+//        F->print(outs());
+//        throw CodegenError(node->getSpan(), "Invalid Function {}\n{}", node->getName(), output);
+//    }
 
     // Insert Function to Symbol Table
     Scope = Scope->getParent();
