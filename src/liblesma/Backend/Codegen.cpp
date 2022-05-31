@@ -623,56 +623,56 @@ void Codegen::visit(Assignment *node) {
             Builder->CreateStore(value, lhs_val);
             break;
         case TokenType::PLUS_EQUAL:
-            var_val = Builder->CreateLoad(lhs_type, lhs_val, ".tmp");
+            var_val = Builder->CreateLoad(lhs_type, lhs_val);
             if (lhs_type->isFloatingPointTy()) {
-                auto new_val = Builder->CreateFAdd(value, var_val, ".tmp");
+                auto new_val = Builder->CreateFAdd(value, var_val);
                 Builder->CreateStore(new_val, lhs_val);
             } else if (lhs_type->isIntegerTy()) {
-                auto new_val = Builder->CreateAdd(value, var_val, ".tmp");
+                auto new_val = Builder->CreateAdd(value, var_val);
                 Builder->CreateStore(new_val, lhs_val);
             } else
                 throw CodegenError(node->getSpan(), "Invalid operator: {}", NAMEOF_ENUM(node->getOperator()));
             break;
         case TokenType::MINUS_EQUAL:
-            var_val = Builder->CreateLoad(lhs_type, lhs_val, ".tmp");
+            var_val = Builder->CreateLoad(lhs_type, lhs_val);
             if (lhs_type->isFloatingPointTy()) {
-                auto new_val = Builder->CreateFSub(value, var_val, ".tmp");
+                auto new_val = Builder->CreateFSub(value, var_val);
                 Builder->CreateStore(new_val, lhs_val);
             } else if (lhs_type->isIntegerTy()) {
-                auto new_val = Builder->CreateSub(value, var_val, ".tmp");
+                auto new_val = Builder->CreateSub(value, var_val);
                 Builder->CreateStore(new_val, lhs_val);
             } else
                 throw CodegenError(node->getSpan(), "Invalid operator: {}", NAMEOF_ENUM(node->getOperator()));
             break;
         case TokenType::SLASH_EQUAL:
-            var_val = Builder->CreateLoad(lhs_type, lhs_val, ".tmp");
+            var_val = Builder->CreateLoad(lhs_type, lhs_val);
             if (lhs_type->isFloatingPointTy()) {
-                auto new_val = Builder->CreateFDiv(value, var_val, ".tmp");
+                auto new_val = Builder->CreateFDiv(value, var_val);
                 Builder->CreateStore(new_val, lhs_val);
             } else if (lhs_type->isIntegerTy()) {
-                auto new_val = Builder->CreateSDiv(value, var_val, ".tmp");
+                auto new_val = Builder->CreateSDiv(value, var_val);
                 Builder->CreateStore(new_val, lhs_val);
             } else
                 throw CodegenError(node->getSpan(), "Invalid operator: {}", NAMEOF_ENUM(node->getOperator()));
             break;
         case TokenType::STAR_EQUAL:
-            var_val = Builder->CreateLoad(lhs_type, lhs_val, ".tmp");
+            var_val = Builder->CreateLoad(lhs_type, lhs_val);
             if (lhs_type->isFloatingPointTy()) {
-                auto new_val = Builder->CreateFMul(value, var_val, ".tmp");
+                auto new_val = Builder->CreateFMul(value, var_val);
                 Builder->CreateStore(new_val, lhs_val);
             } else if (lhs_type->isIntegerTy()) {
-                auto new_val = Builder->CreateMul(value, var_val, ".tmp");
+                auto new_val = Builder->CreateMul(value, var_val);
                 Builder->CreateStore(new_val, lhs_val);
             } else
                 throw CodegenError(node->getSpan(), "Invalid operator: {}", NAMEOF_ENUM(node->getOperator()));
             break;
         case TokenType::MOD_EQUAL:
-            var_val = Builder->CreateLoad(lhs_type, lhs_val, ".tmp");
+            var_val = Builder->CreateLoad(lhs_type, lhs_val);
             if (lhs_type->isFloatingPointTy()) {
-                auto new_val = Builder->CreateFRem(value, var_val, ".tmp");
+                auto new_val = Builder->CreateFRem(value, var_val);
                 Builder->CreateStore(new_val, lhs_val);
             } else if (lhs_type->isIntegerTy()) {
-                auto new_val = Builder->CreateSRem(value, var_val, ".tmp");
+                auto new_val = Builder->CreateSRem(value, var_val);
                 Builder->CreateStore(new_val, lhs_val);
             } else
                 throw CodegenError(node->getSpan(), "Invalid operator: {}", NAMEOF_ENUM(node->getOperator()));
@@ -809,9 +809,9 @@ llvm::Value *Codegen::visit(BinaryOp *node) {
             if (finalType == nullptr)
                 break;
             else if (finalType->isFloatingPointTy())
-                return Builder->CreateFSub(left, right, ".tmp");
+                return Builder->CreateFSub(left, right);
             else if (finalType->isIntegerTy())
-                return Builder->CreateSub(left, right, ".tmp");
+                return Builder->CreateSub(left, right);
             break;
         case TokenType::PLUS:
             left = Cast(node->getSpan(), left, finalType);
@@ -820,9 +820,9 @@ llvm::Value *Codegen::visit(BinaryOp *node) {
             if (finalType == nullptr)
                 break;
             else if (finalType->isFloatingPointTy())
-                return Builder->CreateFAdd(left, right, ".tmp");
+                return Builder->CreateFAdd(left, right);
             else if (finalType->isIntegerTy())
-                return Builder->CreateAdd(left, right, ".tmp");
+                return Builder->CreateAdd(left, right);
             break;
         case TokenType::STAR:
             left = Cast(node->getSpan(), left, finalType);
@@ -831,9 +831,9 @@ llvm::Value *Codegen::visit(BinaryOp *node) {
             if (finalType == nullptr)
                 break;
             else if (finalType->isFloatingPointTy())
-                return Builder->CreateFMul(left, right, ".tmp");
+                return Builder->CreateFMul(left, right);
             else if (finalType->isIntegerTy())
-                return Builder->CreateMul(left, right, ".tmp");
+                return Builder->CreateMul(left, right);
             break;
         case TokenType::SLASH:
             left = Cast(node->getSpan(), left, finalType);
@@ -842,9 +842,9 @@ llvm::Value *Codegen::visit(BinaryOp *node) {
             if (finalType == nullptr)
                 break;
             else if (finalType->isFloatingPointTy())
-                return Builder->CreateFDiv(left, right, ".tmp");
+                return Builder->CreateFDiv(left, right);
             else if (finalType->isIntegerTy())
-                return Builder->CreateSDiv(left, right, ".tmp");
+                return Builder->CreateSDiv(left, right);
             break;
         case TokenType::MOD:
             left = Cast(node->getSpan(), left, finalType);
@@ -853,9 +853,9 @@ llvm::Value *Codegen::visit(BinaryOp *node) {
             if (finalType == nullptr)
                 break;
             else if (finalType->isFloatingPointTy())
-                return Builder->CreateFRem(left, right, ".tmp");
+                return Builder->CreateFRem(left, right);
             else if (finalType->isIntegerTy())
-                return Builder->CreateSRem(left, right, ".tmp");
+                return Builder->CreateSRem(left, right);
             break;
         case TokenType::POWER:
             if (finalType == nullptr)
@@ -875,9 +875,9 @@ llvm::Value *Codegen::visit(BinaryOp *node) {
             else if (finalType == nullptr)
                 break;
             else if (finalType->isFloatingPointTy())
-                return Builder->CreateFCmpOEQ(left, right, ".tmp");
+                return Builder->CreateFCmpOEQ(left, right);
             else if (finalType->isIntegerTy())
-                return Builder->CreateICmpEQ(left, right, ".tmp");
+                return Builder->CreateICmpEQ(left, right);
             else if (finalType->isPointerTy() && finalType->getPointerElementType()->isStructTy()) {
                 auto struct_ty = Scope->lookupType(finalType->getPointerElementType()->getStructName().str());
                 if (struct_ty->is(TY_ENUM)) {
@@ -885,7 +885,7 @@ llvm::Value *Codegen::visit(BinaryOp *node) {
                     auto right_ptr = Builder->CreateLoad(left->getType()->getPointerElementType(), right);
                     auto left_val = Builder->CreateExtractValue(left_ptr, {0});
                     auto right_val = Builder->CreateExtractValue(right_ptr, {0});
-                    return Builder->CreateICmpEQ(left_val, right_val, ".tmp");
+                    return Builder->CreateICmpEQ(left_val, right_val);
                 }
             }
             break;
@@ -900,9 +900,9 @@ llvm::Value *Codegen::visit(BinaryOp *node) {
             else if (finalType == nullptr)
                 break;
             else if (finalType->isFloatingPointTy())
-                return Builder->CreateFCmpONE(left, right, ".tmp");
+                return Builder->CreateFCmpONE(left, right);
             else if (finalType->isIntegerTy())
-                return Builder->CreateICmpNE(left, right, ".tmp");
+                return Builder->CreateICmpNE(left, right);
             else if (finalType->isPointerTy() && finalType->getPointerElementType()->isStructTy()) {
                 auto struct_ty = Scope->lookupType(finalType->getPointerElementType()->getStructName().str());
                 if (struct_ty->is(TY_ENUM)) {
@@ -910,7 +910,7 @@ llvm::Value *Codegen::visit(BinaryOp *node) {
                     auto right_ptr = Builder->CreateLoad(left->getType()->getPointerElementType(), right);
                     auto left_val = Builder->CreateExtractValue(left_ptr, {0});
                     auto right_val = Builder->CreateExtractValue(right_ptr, {0});
-                    return Builder->CreateICmpNE(left_val, right_val, ".tmp");
+                    return Builder->CreateICmpNE(left_val, right_val);
                 }
             }
             break;
@@ -921,9 +921,9 @@ llvm::Value *Codegen::visit(BinaryOp *node) {
             if (finalType == nullptr)
                 break;
             else if (finalType->isFloatingPointTy())
-                return Builder->CreateFCmpOGT(left, right, ".tmp");
+                return Builder->CreateFCmpOGT(left, right);
             else if (finalType->isIntegerTy())
-                return Builder->CreateICmpSGT(left, right, ".tmp");
+                return Builder->CreateICmpSGT(left, right);
             break;
         case TokenType::GREATER_EQUAL:
             left = Cast(node->getSpan(), left, finalType);
@@ -932,9 +932,9 @@ llvm::Value *Codegen::visit(BinaryOp *node) {
             if (finalType == nullptr)
                 break;
             else if (finalType->isFloatingPointTy())
-                return Builder->CreateFCmpOGE(left, right, ".tmp");
+                return Builder->CreateFCmpOGE(left, right);
             else if (finalType->isIntegerTy())
-                return Builder->CreateICmpSGE(left, right, ".tmp");
+                return Builder->CreateICmpSGE(left, right);
             break;
         case TokenType::LESS:
             left = Cast(node->getSpan(), left, finalType);
@@ -943,9 +943,9 @@ llvm::Value *Codegen::visit(BinaryOp *node) {
             if (finalType == nullptr)
                 break;
             else if (finalType->isFloatingPointTy())
-                return Builder->CreateFCmpOLT(left, right, ".tmp");
+                return Builder->CreateFCmpOLT(left, right);
             else if (finalType->isIntegerTy())
-                return Builder->CreateICmpSLT(left, right, ".tmp");
+                return Builder->CreateICmpSLT(left, right);
             break;
         case TokenType::LESS_EQUAL:
             left = Cast(node->getSpan(), left, finalType);
@@ -954,22 +954,22 @@ llvm::Value *Codegen::visit(BinaryOp *node) {
             if (finalType == nullptr)
                 break;
             else if (finalType->isFloatingPointTy())
-                return Builder->CreateFCmpOLE(left, right, ".tmp");
+                return Builder->CreateFCmpOLE(left, right);
             else if (finalType->isIntegerTy())
-                return Builder->CreateICmpSLE(left, right, ".tmp");
+                return Builder->CreateICmpSLE(left, right);
             break;
         case TokenType::AND:
             if (!left->getType()->isIntegerTy(1) && !right->getType()->isIntegerTy(1))
                 throw CodegenError(node->getSpan(), "Cannot use non-booleans for and: {} - {}",
                                    node->getLeft()->toString(SourceManager.get(), 0), node->getRight()->toString(SourceManager.get(), 0));
 
-            return Builder->CreateLogicalAnd(left, right, ".tmp");
+            return Builder->CreateLogicalAnd(left, right);
         case TokenType::OR:
             if (!left->getType()->isIntegerTy(1) && !right->getType()->isIntegerTy(1))
                 throw CodegenError(node->getSpan(), "Cannot use non-booleans for or: {} - {}",
                                    node->getLeft()->toString(SourceManager.get(), 0), node->getRight()->toString(SourceManager.get(), 0));
 
-            return Builder->CreateLogicalOr(left, right, ".tmp");
+            return Builder->CreateLogicalOr(left, right);
         default:
             throw CodegenError(node->getSpan(), "Unimplemented binary operator: {}", NAMEOF_ENUM(node->getOperator()));
     }
@@ -1008,7 +1008,7 @@ llvm::Value *Codegen::visit(DotOp *node) {
                     throw CodegenError(node->getLeft()->getSpan(), "Identifier {} not in {}", right->getValue(), left->getValue());
 
                 auto struct_ty = Scope->lookup(left->getValue());
-                auto enum_ptr = Builder->CreateAlloca(struct_ty->getLLVMType(), nullptr, ".tmp");
+                auto enum_ptr = Builder->CreateAlloca(struct_ty->getLLVMType(), nullptr);
                 auto field = Builder->CreateStructGEP(struct_ty->getLLVMType(), enum_ptr, 0);
                 Builder->CreateStore(Builder->getInt8(val), field);
 
@@ -1071,14 +1071,14 @@ llvm::Value *Codegen::visit(UnaryOp *node) {
 
     if (node->getOperator() == TokenType::MINUS) {
         if (operand->getType()->isIntegerTy())
-            return Builder->CreateNeg(operand, ".tmp");
+            return Builder->CreateNeg(operand);
         else if (operand->getType()->isFloatingPointTy())
-            return Builder->CreateFNeg(operand, ".tmp");
+            return Builder->CreateFNeg(operand);
         else
             throw CodegenError(node->getSpan(), "Cannot apply {} to {}", NAMEOF_ENUM(node->getOperator()), node->getExpression()->toString(SourceManager.get(), 0));
     } else if (node->getOperator() == TokenType::NOT) {
         if (operand->getType()->isIntegerTy(1))
-            return Builder->CreateNot(operand, ".tmp");
+            return Builder->CreateNot(operand);
         else
             throw CodegenError(node->getSpan(), "Cannot apply {} to {}", NAMEOF_ENUM(node->getOperator()), node->getExpression()->toString(SourceManager.get(), 0));
     } else if (node->getOperator() == TokenType::STAR) {
@@ -1087,7 +1087,7 @@ llvm::Value *Codegen::visit(UnaryOp *node) {
         else
             throw CodegenError(node->getSpan(), "Cannot apply {} to {}", NAMEOF_ENUM(node->getOperator()), node->getExpression()->toString(SourceManager.get(), 0));
     } else if (node->getOperator() == TokenType::AMPERSAND) {
-        auto ptr = Builder->CreateAlloca(operand->getType(), nullptr, ".tmp");
+        auto ptr = Builder->CreateAlloca(operand->getType(), nullptr);
         Builder->CreateStore(operand, ptr);
         return ptr;
     } else
@@ -1116,7 +1116,7 @@ llvm::Value *Codegen::visit(Literal *node) {
             return val->getLLVMValue();
 
         // Load the value.
-        return Builder->CreateLoad(val->getLLVMType(), val->getLLVMValue(), ".tmp");
+        return Builder->CreateLoad(val->getLLVMType(), val->getLLVMValue());
     } else
         throw CodegenError(node->getSpan(), "Unknown literal {}", node->getValue());
 }
@@ -1230,17 +1230,17 @@ llvm::Value *Codegen::Cast(llvm::SMRange span, llvm::Value *val, llvm::Type *typ
 
     if (type->isIntegerTy()) {
         if (val->getType()->isFloatingPointTy())
-            return Builder->CreateFPToSI(val, type, ".tmp");
+            return Builder->CreateFPToSI(val, type);
         else if (val->getType()->isIntegerTy())
-            return Builder->CreateIntCast(val, type, true, ".tmp");
+            return Builder->CreateIntCast(val, type, true);
     } else if (type->isFloatingPointTy()) {
         if (val->getType()->isIntegerTy())
-            return Builder->CreateSIToFP(val, type, ".tmp");
+            return Builder->CreateSIToFP(val, type);
         else if (val->getType()->isFloatingPointTy())
-            return Builder->CreateFPCast(val, type, ".tmp");
+            return Builder->CreateFPCast(val, type);
     } else if (type->isPointerTy() && type->getPointerElementType()->isIntegerTy()) {
         if (val->getType()->isPointerTy() && (val->getType()->getPointerElementType()->isIntegerTy() || val->getType()->getPointerElementType()->isVoidTy()))
-            return Builder->CreateBitCast(val, type, ".tmp");
+            return Builder->CreateBitCast(val, type);
     }
 
     throw CodegenError(span, "Unsupported Cast");
@@ -1266,7 +1266,7 @@ llvm::Value *Codegen::genFuncCall(FuncCall *node, const std::vector<llvm::Value 
     Value *class_ptr = nullptr;
     if (class_sym != nullptr && class_sym->getType()->is(TY_CLASS)) {
         // It's a class constructor, allocate and add self param
-        class_ptr = Builder->CreateAlloca(class_sym->getLLVMType(), nullptr, ".tmp");
+        class_ptr = Builder->CreateAlloca(class_sym->getLLVMType(), nullptr);
         params.insert(params.begin(), class_ptr);
         paramTypes.insert(paramTypes.begin(), class_ptr->getType());
 
@@ -1288,13 +1288,13 @@ llvm::Value *Codegen::genFuncCall(FuncCall *node, const std::vector<llvm::Value 
 
     auto *func = cast<Function>(symbol->getLLVMValue());
     if (class_sym != nullptr && class_sym->getType()->is(TY_CLASS)) {
-        Builder->CreateCall(func, params, func->getReturnType()->isVoidTy() ? "" : ".tmp");
+        Builder->CreateCall(func, params);
         auto val = Builder->CreateLoad(class_sym->getLLVMType(), class_ptr);
         selfSymbol = selfSymbolTmp;
 
         return val;
     }
-    return Builder->CreateCall(func, params, func->getReturnType()->isVoidTy() ? "" : ".tmp");
+    return Builder->CreateCall(func, params);
 }
 
 int Codegen::FindIndexInFields(SymbolType *_struct, const std::string &field) {
