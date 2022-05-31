@@ -870,6 +870,8 @@ llvm::Value *Codegen::visit(BinaryOp *node) {
 
             if (finalType == nullptr && (left->getType()->isPointerTy() && left->getType()->getPointerElementType()->isStructTy()) && (right->getType()->isPointerTy() && right->getType()->getPointerElementType()->isStructTy()))
                 return ConstantInt::getBool(*TheContext, false);
+            else if (left->getType()->isPointerTy() && right->getType()->isPointerTy())
+                return Builder->CreateICmpEQ(left, right);
             else if (finalType == nullptr)
                 break;
             else if (finalType->isFloatingPointTy())
@@ -893,6 +895,8 @@ llvm::Value *Codegen::visit(BinaryOp *node) {
 
             if (finalType == nullptr && (left->getType()->isPointerTy() && left->getType()->getPointerElementType()->isStructTy()) && (right->getType()->isPointerTy() && right->getType()->getPointerElementType()->isStructTy()))
                 return ConstantInt::getBool(*TheContext, true);
+            else if (left->getType()->isPointerTy() && right->getType()->isPointerTy())
+                return Builder->CreateICmpNE(left, right);
             else if (finalType == nullptr)
                 break;
             else if (finalType->isFloatingPointTy())
@@ -1221,7 +1225,7 @@ llvm::Value *Codegen::Cast(llvm::SMRange span, llvm::Value *val, llvm::Type *typ
 
 llvm::Value *Codegen::Cast(llvm::SMRange span, llvm::Value *val, llvm::Type *type, bool isStore) {
     // TODO: Fix me pls
-    if (type == nullptr || val->getType() == type || (isStore && val->getType()->getPointerTo(0) == type) || (isStore && val->getType() == type->getPointerTo()) || (val->getType()->isPointerTy() && val->getType()->getPointerElementType()->isStructTy()))
+    if (type == nullptr || val->getType() == type || (isStore && val->getType()->getPointerTo() == type) || (isStore && val->getType() == type->getPointerTo()) || (val->getType()->isPointerTy() && val->getType()->getPointerElementType()->isStructTy()))
         return val;
 
     if (type->isIntegerTy()) {
