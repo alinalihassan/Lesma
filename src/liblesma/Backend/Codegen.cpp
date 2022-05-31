@@ -349,7 +349,7 @@ llvm::Value *Codegen::visit(Expression *node) {
     else if (dynamic_cast<Else *>(node))
         return visit(dynamic_cast<Else *>(node));
 
-    throw CodegenError(node->getSpan(), "Unknown Expression: {}", node->toString(SourceManager.get(), 0));
+    throw CodegenError(node->getSpan(), "Unknown Expression: {}", node->toString(SourceManager.get(), "", true));
 }
 
 void Codegen::visit(Statement *node) {
@@ -384,7 +384,7 @@ void Codegen::visit(Statement *node) {
     else if (dynamic_cast<Compound *>(node))
         return visit(dynamic_cast<Compound *>(node));
 
-    throw CodegenError(node->getSpan(), "Unknown Statement:\n{}", node->toString(SourceManager.get(), 0));
+    throw CodegenError(node->getSpan(), "Unknown Statement:\n{}", node->toString(SourceManager.get(), "", true));
 }
 
 llvm::Type *Codegen::visit(lesma::Type *node) {
@@ -610,7 +610,7 @@ void Codegen::visit(Assignment *node) {
         lhs_val = visit(node->getLeftHandSide());
         lhs_type = lhs_val->getType();
     } else {
-        throw CodegenError(node->getSpan(), "Unable to assign {} to {}", node->getRightHandSide()->toString(SourceManager.get(), 0), node->getLeftHandSide()->toString(SourceManager.get(), 0));
+        throw CodegenError(node->getSpan(), "Unable to assign {} to {}", node->getRightHandSide()->toString(SourceManager.get(), "", true), node->getLeftHandSide()->toString(SourceManager.get(), "", true));
     }
     isAssignment = false;
 
@@ -862,7 +862,7 @@ llvm::Value *Codegen::visit(BinaryOp *node) {
                 break;
             else if (!right->getType()->isIntegerTy())
                 throw CodegenError(node->getSpan(), "Cannot use non-integers for power coefficient: {}",
-                                   node->getRight()->toString(SourceManager.get(), 0));
+                                   node->getRight()->toString(SourceManager.get(), "", true));
             throw CodegenError(node->getSpan(), "Power operator not implemented yet.");
         case TokenType::EQUAL_EQUAL:
             left = Cast(node->getSpan(), left, finalType);
@@ -961,13 +961,13 @@ llvm::Value *Codegen::visit(BinaryOp *node) {
         case TokenType::AND:
             if (!left->getType()->isIntegerTy(1) && !right->getType()->isIntegerTy(1))
                 throw CodegenError(node->getSpan(), "Cannot use non-booleans for and: {} - {}",
-                                   node->getLeft()->toString(SourceManager.get(), 0), node->getRight()->toString(SourceManager.get(), 0));
+                                   node->getLeft()->toString(SourceManager.get(), "", true), node->getRight()->toString(SourceManager.get(), "", true));
 
             return Builder->CreateLogicalAnd(left, right);
         case TokenType::OR:
             if (!left->getType()->isIntegerTy(1) && !right->getType()->isIntegerTy(1))
                 throw CodegenError(node->getSpan(), "Cannot use non-booleans for or: {} - {}",
-                                   node->getLeft()->toString(SourceManager.get(), 0), node->getRight()->toString(SourceManager.get(), 0));
+                                   node->getLeft()->toString(SourceManager.get(), "", true), node->getRight()->toString(SourceManager.get(), "", true));
 
             return Builder->CreateLogicalOr(left, right);
         default:
@@ -977,14 +977,14 @@ llvm::Value *Codegen::visit(BinaryOp *node) {
     throw CodegenError(node->getSpan(),
                        "Unimplemented binary operator {} for {} and {}",
                        NAMEOF_ENUM(node->getOperator()),
-                       node->getLeft()->toString(SourceManager.get(), 0),
-                       node->getRight()->toString(SourceManager.get(), 0));
+                       node->getLeft()->toString(SourceManager.get(), "", true),
+                       node->getRight()->toString(SourceManager.get(), "", true));
 }
 
 llvm::Value *Codegen::visit(DotOp *node) {
     if (auto left = dynamic_cast<Literal *>(node->getLeft())) {
         if (left->getType() != TokenType::IDENTIFIER)
-            throw CodegenError(node->getLeft()->getSpan(), "Expected identifier left-hand of dot operator, found {}", node->getRight()->toString(SourceManager.get(), 0));
+            throw CodegenError(node->getLeft()->getSpan(), "Expected identifier left-hand of dot operator, found {}", node->getRight()->toString(SourceManager.get(), "", true));
 
         auto _enum = Scope->lookupType(left->getValue());
         if (_enum != nullptr) {
@@ -994,11 +994,11 @@ llvm::Value *Codegen::visit(DotOp *node) {
 
             // Check if right-hand expression is an identifier expression
             if (!dynamic_cast<Literal *>(node->getRight()))
-                throw CodegenError(node->getRight()->getSpan(), "Expected identifier right-hand of dot operator, found {}", node->getRight()->toString(SourceManager.get(), 0));
+                throw CodegenError(node->getRight()->getSpan(), "Expected identifier right-hand of dot operator, found {}", node->getRight()->toString(SourceManager.get(), "", true));
 
             auto right = dynamic_cast<Literal *>(node->getRight());
             if (right->getType() != TokenType::IDENTIFIER)
-                throw CodegenError(node->getRight()->getSpan(), "Expected identifier right-hand of dot operator, found {}", node->getRight()->toString(SourceManager.get(), 0));
+                throw CodegenError(node->getRight()->getSpan(), "Expected identifier right-hand of dot operator, found {}", node->getRight()->toString(SourceManager.get(), "", true));
 
             if (_enum->is(TY_ENUM)) {
                 // Setting value to the enum
@@ -1024,7 +1024,7 @@ llvm::Value *Codegen::visit(DotOp *node) {
             FuncCall *method;
 
             if (!dynamic_cast<Literal *>(node->getRight()) && !dynamic_cast<FuncCall *>(node->getRight()))
-                throw CodegenError(node->getRight()->getSpan(), "Expected identifier or method call right-hand of dot operator, found {}", node->getRight()->toString(SourceManager.get(), 0));
+                throw CodegenError(node->getRight()->getSpan(), "Expected identifier or method call right-hand of dot operator, found {}", node->getRight()->toString(SourceManager.get(), "", true));
 
             if (dynamic_cast<Literal *>(node->getRight()) && dynamic_cast<Literal *>(node->getRight())->getType() == TokenType::IDENTIFIER)
                 field = dynamic_cast<Literal *>(node->getRight())->getValue();
@@ -1052,7 +1052,7 @@ llvm::Value *Codegen::visit(DotOp *node) {
             }
         }
     }
-    throw CodegenError(node->getSpan(), "Unimplemented dot accessor: {}", node->toString(SourceManager.get(), 0));
+    throw CodegenError(node->getSpan(), "Unimplemented dot accessor: {}", node->toString(SourceManager.get(), "", true));
 }
 
 llvm::Value *Codegen::visit(CastOp *node) {
@@ -1075,23 +1075,23 @@ llvm::Value *Codegen::visit(UnaryOp *node) {
         else if (operand->getType()->isFloatingPointTy())
             return Builder->CreateFNeg(operand);
         else
-            throw CodegenError(node->getSpan(), "Cannot apply {} to {}", NAMEOF_ENUM(node->getOperator()), node->getExpression()->toString(SourceManager.get(), 0));
+            throw CodegenError(node->getSpan(), "Cannot apply {} to {}", NAMEOF_ENUM(node->getOperator()), node->getExpression()->toString(SourceManager.get(), "", true));
     } else if (node->getOperator() == TokenType::NOT) {
         if (operand->getType()->isIntegerTy(1))
             return Builder->CreateNot(operand);
         else
-            throw CodegenError(node->getSpan(), "Cannot apply {} to {}", NAMEOF_ENUM(node->getOperator()), node->getExpression()->toString(SourceManager.get(), 0));
+            throw CodegenError(node->getSpan(), "Cannot apply {} to {}", NAMEOF_ENUM(node->getOperator()), node->getExpression()->toString(SourceManager.get(), "", true));
     } else if (node->getOperator() == TokenType::STAR) {
         if (operand->getType()->isPointerTy())
             return Builder->CreateLoad(operand->getType()->getPointerElementType(), operand);
         else
-            throw CodegenError(node->getSpan(), "Cannot apply {} to {}", NAMEOF_ENUM(node->getOperator()), node->getExpression()->toString(SourceManager.get(), 0));
+            throw CodegenError(node->getSpan(), "Cannot apply {} to {}", NAMEOF_ENUM(node->getOperator()), node->getExpression()->toString(SourceManager.get(), "", true));
     } else if (node->getOperator() == TokenType::AMPERSAND) {
         auto ptr = Builder->CreateAlloca(operand->getType(), nullptr);
         Builder->CreateStore(operand, ptr);
         return ptr;
     } else
-        throw CodegenError(node->getSpan(), "Unknown unary operator, cannot apply {} to {}", NAMEOF_ENUM(node->getOperator()), node->getExpression()->toString(SourceManager.get(), 0));
+        throw CodegenError(node->getSpan(), "Unknown unary operator, cannot apply {} to {}", NAMEOF_ENUM(node->getOperator()), node->getExpression()->toString(SourceManager.get(), "", true));
 }
 
 llvm::Value *Codegen::visit(Literal *node) {
