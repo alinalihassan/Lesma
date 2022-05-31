@@ -318,7 +318,7 @@ namespace lesma {
         [[nodiscard]] [[maybe_unused]] bool getVarArgs() const { return varargs; }
 
         std::string toString(llvm::SourceMgr *srcMgr, int ind) override {
-            auto ret = fmt::format("{}FuncDecl[Line({}-{}):Col({}-{})]: {}(",
+            auto ret = fmt::format("{}ExternFuncDecl[Line({}-{}):Col({}-{})]: {}(",
                                    std::string(ind, ' '),
                                    srcMgr->getLineAndColumn(getStart()).first,
                                    srcMgr->getLineAndColumn(getEnd()).first,
@@ -573,11 +573,11 @@ namespace lesma {
         std::string toString(llvm::SourceMgr *srcMgr, int ind) override {
             std::string fields_str;
             for (auto field: fields)
-                fields_str += field->toString(srcMgr, 0);
+                fields_str += field->toString(srcMgr, ind + 2);
 
             std::string methods_str;
             for (auto method: methods)
-                methods_str += method->toString(srcMgr, 0);
+                methods_str += method->toString(srcMgr, ind + 2);
             return fmt::format("{}Class[Line({}-{}):Col({}-{})]: {} with: \n{}\n{}\n",
                                std::string(ind, ' '),
                                srcMgr->getLineAndColumn(getStart()).first,
