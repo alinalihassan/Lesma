@@ -868,8 +868,23 @@ llvm::Value *Codegen::visit(BinaryOp *node) {
             left = Cast(node->getSpan(), left, finalType);
             right = Cast(node->getSpan(), right, finalType);
 
-            if (finalType == nullptr && (left->getType()->isPointerTy() && left->getType()->getPointerElementType()->isStructTy()) && (right->getType()->isPointerTy() && right->getType()->getPointerElementType()->isStructTy()))
-                return ConstantInt::getBool(*TheContext, false);
+            if ((left->getType()->isPointerTy() && left->getType()->getPointerElementType()->isStructTy()) && (right->getType()->isPointerTy() && right->getType()->getPointerElementType()->isStructTy())) {
+                // Both are pointers to structs
+                auto sym = Scope->lookup(left->getType()->getPointerElementType()->getStructName().str());
+                if (sym != nullptr && sym->getType()->is(TY_ENUM)) {
+                    if (left->getType()->getPointerElementType() != right->getType()->getPointerElementType())
+                        return ConstantInt::getBool(*TheContext, false);
+                    else {
+                        auto left_gep = Builder->CreateStructGEP(sym->getLLVMType(), left, 0);
+                        auto left_load = Builder->CreateLoad(Builder->getInt8Ty(), left_gep);
+                        auto right_gep = Builder->CreateStructGEP(sym->getLLVMType(), right, 0);
+                        auto right_load = Builder->CreateLoad(Builder->getInt8Ty(), right_gep);
+                        return Builder->CreateICmpEQ(left_load, right_load);
+                    }
+                }
+
+                // It's not an enum, it's a class
+            }
             else if (left->getType()->isPointerTy() && right->getType()->isPointerTy())
                 return Builder->CreateICmpEQ(left, right);
             else if (finalType == nullptr)
@@ -1008,7 +1023,7 @@ llvm::Value *Codegen::visit(DotOp *node) {
                     throw CodegenError(node->getLeft()->getSpan(), "Identifier {} not in {}", right->getValue(), left->getValue());
 
                 auto struct_ty = Scope->lookup(left->getValue());
-                auto enum_ptr = Builder->CreateAlloca(struct_ty->getLLVMType(), nullptr);
+                auto enum_ptr = Builder->CreateAlloca(struct_ty->getLLVMType());
                 auto field = Builder->CreateStructGEP(struct_ty->getLLVMType(), enum_ptr, 0);
                 Builder->CreateStore(Builder->getInt8(val), field);
 
