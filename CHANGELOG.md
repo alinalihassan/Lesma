@@ -1,3 +1,63 @@
+## [0.13.3](https://github.com/alinalihassan/Lesma/compare/v0.13.2...v0.13.3) (2022-06-01)
+
+
+### Bug Fixes
+
+* Removed release binaries ([be95705](https://github.com/alinalihassan/Lesma/commit/be95705b00f725b6653defac79e5c4be9838029b))
+
+## [0.13.2](https://github.com/alinalihassan/Lesma/compare/v0.13.1...v0.13.2) (2022-06-01)
+
+
+### Bug Fixes
+
+* Release ([816cece](https://github.com/alinalihassan/Lesma/commit/816cece50c0f83184211d25f675673543016f007))
+
+## [0.13.1](https://github.com/alinalihassan/Lesma/compare/v0.13.0...v0.13.1) (2022-06-01)
+
+
+### Bug Fixes
+
+* Fixed assets not being added to release ([c68fead](https://github.com/alinalihassan/Lesma/commit/c68fead25b883a67935a8625796774826a2150e6))
+
+# [0.13.0](https://github.com/alinalihassan/Lesma/compare/v0.12.0...v0.13.0) (2022-06-01)
+
+
+### Bug Fixes
+
+* Added function verification back ([f4ed1a8](https://github.com/alinalihassan/Lesma/commit/f4ed1a81698c1cd66749ccb33f13181147a37a04))
+* Disable function verification again ([8242b47](https://github.com/alinalihassan/Lesma/commit/8242b4769585ee9cb32a2a1e43fe62411239ae2e))
+* Fixed enum comparison not working as expected ([43d3ec8](https://github.com/alinalihassan/Lesma/commit/43d3ec898ab825133d11b03d38950296804895c3))
+* Fixed not being able to compare pointer addresses ([60a6566](https://github.com/alinalihassan/Lesma/commit/60a65661622ffd7602e45f90ca6dbaa49520ffe8))
+* Fixed not finding field in class having undefined behaviour ([f1b575f](https://github.com/alinalihassan/Lesma/commit/f1b575fb32cddc3f229a495b5bf431c1a73a6262))
+* Fixed tests ([1d1d0e3](https://github.com/alinalihassan/Lesma/commit/1d1d0e36ab0bdd0d9abb2bbcbaefcd6bee195e71))
+* Removed .tmp variable names in LLVM IR ([5af603a](https://github.com/alinalihassan/Lesma/commit/5af603a64b470b682c9f3ad2c50b697534c7ea80))
+
+
+### Features
+
+* Added check for functions that don't always return ([9510dbd](https://github.com/alinalihassan/Lesma/commit/9510dbd8c1639258d5efb6f0a724b02d1feffd44))
+* Added check for return type to match function type ([7c284ff](https://github.com/alinalihassan/Lesma/commit/7c284ff53a15910801b4dc64d3154b5bfc6c2814))
+* Added pretty print for AST ([e9d60c8](https://github.com/alinalihassan/Lesma/commit/e9d60c816682300816fa9c0e059291b678bfd070))
+
+# [0.12.0](https://github.com/alinalihassan/Lesma/compare/v0.11.0...v0.12.0) (2022-05-28)
+
+
+### Bug Fixes
+
+* Fixed de-referencing primitive values ([5ebb733](https://github.com/alinalihassan/Lesma/commit/5ebb733c750d17c520a18f566c1cdc6c6de1e920))
+* Temporary fix for code branches not having any more instructions ([1a83cf7](https://github.com/alinalihassan/Lesma/commit/1a83cf7ae1b8e340ec8b523b213ee4296d246266))
+
+
+### Features
+
+* Added bitcast for pointers of integer or void types ([95a45c4](https://github.com/alinalihassan/Lesma/commit/95a45c48f7bea1326a00edb369ee92b3544ce205))
+* Added low level types for better FFI interop ([19ee297](https://github.com/alinalihassan/Lesma/commit/19ee2978946795d3568b3a0ab363176efa7cda2f))
+* Added null pointer representation ([5a8fb9c](https://github.com/alinalihassan/Lesma/commit/5a8fb9cef909aa80a299f06a9148b19f9f32e455))
+* Added pointer and reference unary operators ([ce4ea17](https://github.com/alinalihassan/Lesma/commit/ce4ea174e3987717804b32c717c184640ec65f22))
+* added pointers and references for low level implementations ([dc0569f](https://github.com/alinalihassan/Lesma/commit/dc0569fb0ba41250d34ffd38008b8c392dc82e47))
+* Extended stdlib with string conversions, cmd input, and random ([8e03a0d](https://github.com/alinalihassan/Lesma/commit/8e03a0d4198074d316d4b970a5afae0a7f8690a6))
+* External FFI functions are no longer imported ([47d2b8c](https://github.com/alinalihassan/Lesma/commit/47d2b8ca05cfa21838f50377f5280c98d86c8981))
+
 # [0.11.0](https://github.com/alinalihassan/Lesma/compare/v0.10.1...v0.11.0) (2022-05-26)
 
 
