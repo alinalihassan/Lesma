@@ -1,3 +1,10 @@
+## [0.13.1](https://github.com/alinalihassan/Lesma/compare/v0.13.0...v0.13.1) (2022-06-01)
+
+
+### Bug Fixes
+
+* Fixed assets not being added to release ([c68fead](https://github.com/alinalihassan/Lesma/commit/c68fead25b883a67935a8625796774826a2150e6))
+
 # [0.13.0](https://github.com/alinalihassan/Lesma/compare/v0.12.0...v0.13.0) (2022-06-01)
 
 
