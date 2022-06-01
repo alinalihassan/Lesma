@@ -1,3 +1,10 @@
+## [0.13.3](https://github.com/alinalihassan/Lesma/compare/v0.13.2...v0.13.3) (2022-06-01)
+
+
+### Bug Fixes
+
+* Removed release binaries ([be95705](https://github.com/alinalihassan/Lesma/commit/be95705b00f725b6653defac79e5c4be9838029b))
+
 ## [0.13.2](https://github.com/alinalihassan/Lesma/compare/v0.13.1...v0.13.2) (2022-06-01)
 
 
