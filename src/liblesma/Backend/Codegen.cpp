@@ -884,8 +884,7 @@ llvm::Value *Codegen::visit(BinaryOp *node) {
                 }
 
                 // It's not an enum, it's a class
-            }
-            else if (left->getType()->isPointerTy() && right->getType()->isPointerTy())
+            } else if (left->getType()->isPointerTy() && right->getType()->isPointerTy())
                 return Builder->CreateICmpEQ(left, right);
             else if (finalType == nullptr)
                 break;
