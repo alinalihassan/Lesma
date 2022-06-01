@@ -118,9 +118,9 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Upload release binaries
-        run: alexellis/upload-assets@0.2.2
         if: steps.semantic.outputs.new_release_published == 'true'
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        uses: alexellis/upload-assets@0.2.2
         with:
           asset_paths: '["./build/Lesma*.tar.gz"]'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
