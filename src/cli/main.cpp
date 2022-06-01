@@ -83,7 +83,7 @@ int main(int argc, char **argv) {
                parser->Parse();)
 
         if (options->debug)
-            print(DEBUG, "AST:\n{}", parser->getAST()->toString(srcMgr.get(), 0));
+            print(DEBUG, "AST:\n{}", parser->getAST()->toString(srcMgr.get(), "", true));
 
         // Codegen
         TIMEIT("Compiling",

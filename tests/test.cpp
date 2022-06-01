@@ -99,9 +99,9 @@ TEST_CASE("Parser", "AST") {
     auto parser = initializeParser(lexer);
 
     REQUIRE(parser->getAST()->getChildren().size() == 3);
-    REQUIRE(parser->getAST()->getChildren().at(0)->toString(srcMgr.get(), 0) == "VarDecl[Line(1-1):Col(1-17)]: y: int = 100\n");
-    REQUIRE(parser->getAST()->getChildren().at(1)->toString(srcMgr.get(), 0) == "Assignment[Line(2-2):Col(1-8)]: y EQUAL 101\n");
-    REQUIRE(parser->getAST()->getChildren().at(2)->toString(srcMgr.get(), 0) == "Expression[Line(3-3):Col(1-8)]: exit(y)\n");
+    REQUIRE(parser->getAST()->getChildren().at(0)->toString(srcMgr.get(), "", true) == "└──VarDecl[Line(1-1):Col(1-17)]: y: int = 100\n");
+    REQUIRE(parser->getAST()->getChildren().at(1)->toString(srcMgr.get(), "", true) == "└──Assignment[Line(2-2):Col(1-8)]: y EQUAL 101\n");
+    REQUIRE(parser->getAST()->getChildren().at(2)->toString(srcMgr.get(), "", true) == "└──Expression[Line(3-3):Col(1-8)]: exit(y)\n");
 
     BENCHMARK("Parser") {
         initializeParser(lexer);
