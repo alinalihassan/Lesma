@@ -1,3 +1,23 @@
+# [0.13.0](https://github.com/alinalihassan/Lesma/compare/v0.12.0...v0.13.0) (2022-06-01)
+
+
+### Bug Fixes
+
+* Added function verification back ([f4ed1a8](https://github.com/alinalihassan/Lesma/commit/f4ed1a81698c1cd66749ccb33f13181147a37a04))
+* Disable function verification again ([8242b47](https://github.com/alinalihassan/Lesma/commit/8242b4769585ee9cb32a2a1e43fe62411239ae2e))
+* Fixed enum comparison not working as expected ([43d3ec8](https://github.com/alinalihassan/Lesma/commit/43d3ec898ab825133d11b03d38950296804895c3))
+* Fixed not being able to compare pointer addresses ([60a6566](https://github.com/alinalihassan/Lesma/commit/60a65661622ffd7602e45f90ca6dbaa49520ffe8))
+* Fixed not finding field in class having undefined behaviour ([f1b575f](https://github.com/alinalihassan/Lesma/commit/f1b575fb32cddc3f229a495b5bf431c1a73a6262))
+* Fixed tests ([1d1d0e3](https://github.com/alinalihassan/Lesma/commit/1d1d0e36ab0bdd0d9abb2bbcbaefcd6bee195e71))
+* Removed .tmp variable names in LLVM IR ([5af603a](https://github.com/alinalihassan/Lesma/commit/5af603a64b470b682c9f3ad2c50b697534c7ea80))
+
+
+### Features
+
+* Added check for functions that don't always return ([9510dbd](https://github.com/alinalihassan/Lesma/commit/9510dbd8c1639258d5efb6f0a724b02d1feffd44))
+* Added check for return type to match function type ([7c284ff](https://github.com/alinalihassan/Lesma/commit/7c284ff53a15910801b4dc64d3154b5bfc6c2814))
+* Added pretty print for AST ([e9d60c8](https://github.com/alinalihassan/Lesma/commit/e9d60c816682300816fa9c0e059291b678bfd070))
+
 # [0.12.0](https://github.com/alinalihassan/Lesma/compare/v0.11.0...v0.12.0) (2022-05-28)
 
 
