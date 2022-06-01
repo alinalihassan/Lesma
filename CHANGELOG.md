@@ -1,3 +1,10 @@
+## [0.13.2](https://github.com/alinalihassan/Lesma/compare/v0.13.1...v0.13.2) (2022-06-01)
+
+
+### Bug Fixes
+
+* Release ([816cece](https://github.com/alinalihassan/Lesma/commit/816cece50c0f83184211d25f675673543016f007))
+
 ## [0.13.1](https://github.com/alinalihassan/Lesma/compare/v0.13.0...v0.13.1) (2022-06-01)
 
 
