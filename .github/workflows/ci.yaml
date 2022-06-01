@@ -117,11 +117,3 @@ jobs:
             @semantic-release/git
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Upload release binaries
-        if: steps.semantic.outputs.new_release_published == 'true'
-        uses: alexellis/upload-assets@0.2.2
-        with:
-          asset_paths: '["./build/Lesma*.tar.gz"]'
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
