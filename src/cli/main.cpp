@@ -39,6 +39,6 @@ int main(int argc, char **argv) {
     // CLI Parsing
     auto options = parseCLI(argc, argv);
     auto *driver_options = new Options{SourceType::FILE, options->file,
-            static_cast<Debug>(options->debug ? (LEXER | AST | IR) : NONE), options->output, options->timer};
+                                       static_cast<Debug>(options->debug ? (LEXER | AST | IR) : NONE), options->output, options->timer};
     return options->jit ? Driver::Run(driver_options) : Driver::Compile(driver_options);
 }
