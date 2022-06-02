@@ -58,7 +58,7 @@ int Driver::BaseCompile(Options *options, bool jit) {
         TIMEIT("Compiling",
                std::vector<std::string> modules;
                auto codegen = std::make_unique<Codegen>(std::move(parser), srcMgr,
-                                                        options->sourceType == FILE ? options->source : ".",
+                                                        options->sourceType == FILE ? options->source : "",
                                                         modules, jit, true);
                codegen->Run();)
 
@@ -90,7 +90,7 @@ int Driver::BaseCompile(Options *options, bool jit) {
         if (!err.getSpan().isValid())
             print(ERROR, err.what());
         else
-            showInline(srcMgr.get(), err.getSpan(), err.what(), options->source, true);
+            showInline(srcMgr.get(), err.getSpan(), err.what(), options->sourceType == FILE ? options->source : "", true);
         return err.exit_code;
     }
 }

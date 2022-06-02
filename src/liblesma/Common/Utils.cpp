@@ -9,8 +9,7 @@ namespace lesma {
     }
 
     void showInline(llvm::SourceMgr *srcMgr, llvm::SMRange span, const std::string &reason, const std::string &file, bool is_error) {
-        std::ifstream ifs(file);
-        std::string line;
+        std::istringstream ifs(srcMgr->getMemoryBuffer(srcMgr->getNumBuffers())->getBuffer().str());
         unsigned int lineNum = 1;
         auto color = is_error ? fg(fmt::color::red) : fg(fmt::color::yellow);
         auto accent = fg(static_cast<fmt::color>(0x008EEA));// 008EEA
@@ -22,7 +21,8 @@ namespace lesma {
         auto end_loc = srcMgr->getLineAndColumn(span.End, srcMgr->getNumBuffers() - 1);
         fmt::print(accent, "{}--> ", std::string(int(log10(start_loc.first) + 1), ' '));
         fmt::print("{}:{}:{}\n", file, start_loc.first, start_loc.second);
-        while (std::getline(ifs, line)) {
+
+        for(std::string line; std::getline(ifs, line);) {
             if (lineNum == start_loc.first) {
                 // First line
                 fmt::print(accent, "{} |\n", std::string(int(log10(start_loc.first) + 1), ' '));
