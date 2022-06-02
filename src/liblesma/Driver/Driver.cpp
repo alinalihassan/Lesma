@@ -23,14 +23,14 @@ int Driver::BaseCompile(Options *options, bool jit) {
 
     try {
         // Read Source
-        TIMEIT("File read",
-               if (options->sourceType == SourceType::FILE) {
+        TIMEIT(
+                "File read",
+                if (options->sourceType == SourceType::FILE) {
                     auto buffer = llvm::MemoryBuffer::getFile(options->source);
                     if (buffer.getError() != std::error_code()) throw LesmaError(llvm::SMRange(), "Could not read file: {}", options->source);
 
                     srcMgr->AddNewSourceBuffer(std::move(*buffer), llvm::SMLoc());
-                }
-                else {
+                } else {
                     auto buffer = llvm::MemoryBuffer::getMemBuffer(options->source);
                     srcMgr->AddNewSourceBuffer(std::move(buffer), llvm::SMLoc());
                 })
