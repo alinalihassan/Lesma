@@ -52,6 +52,7 @@ set(CLANG_LIBS clangTooling)
 
 # Executable configuration
 set(CLI_NAME lesma)
+set(TESTS_NAME tests)
 
 set(COMMON_SOURCES
   src/liblesma/Common/Utils.cpp
@@ -61,6 +62,7 @@ set(COMMON_SOURCES
   src/liblesma/Backend/Codegen.cpp
   src/liblesma/Symbol/SymbolTable.cpp
   src/liblesma/Symbol/SymbolType.cpp
+  src/liblesma/Driver/Driver.cpp
 )
 set(CLI_SOURCES src/cli/main.cpp)
 set(TEST_SOURCES  tests/test.cpp)
@@ -71,8 +73,8 @@ set(COMMON_LIBS ${LLVM_LIBS} ${CLANG_LIBS} fmt nameof)
 add_executable(${CLI_NAME} ${COMMON_SOURCES} ${CLI_SOURCES})
 add_executable(tests ${COMMON_SOURCES} ${TEST_SOURCES})
 
-target_link_libraries(${CLI_NAME} PRIVATE ${COMMON_LIBS} CLI11)
-target_link_libraries(tests       PRIVATE ${COMMON_LIBS} Catch2::Catch2)
+target_link_libraries(${CLI_NAME}   PRIVATE ${COMMON_LIBS} CLI11)
+target_link_libraries(${TESTS_NAME} PRIVATE ${COMMON_LIBS} Catch2::Catch2)
 
 
 # Tests

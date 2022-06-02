@@ -18,7 +18,7 @@ namespace lesma {
         WARNING,
         DEBUG,
         SUCCESS,
-        NONE
+        CLEAR
     };
 
     struct CLIOptions {
@@ -45,7 +45,7 @@ namespace lesma {
 
     template<typename S, typename... Args>
     void print(const S &format_str, const Args &...args) {
-        print(NONE, format_str, args...);
+        print(CLEAR, format_str, args...);
     }
 
     void showInline(llvm::SourceMgr *srcMgr, llvm::SMRange span, const std::string &reason, const std::string &file, bool is_error);
