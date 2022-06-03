@@ -22,7 +22,7 @@ namespace lesma {
         fmt::print(accent, "{}--> ", std::string(int(log10(start_loc.first) + 1), ' '));
         fmt::print("{}:{}:{}\n", file, start_loc.first, start_loc.second);
 
-        for(std::string line; std::getline(ifs, line);) {
+        for (std::string line; std::getline(ifs, line);) {
             if (lineNum == start_loc.first) {
                 // First line
                 fmt::print(accent, "{} |\n", std::string(int(log10(start_loc.first) + 1), ' '));
