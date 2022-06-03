@@ -181,7 +181,7 @@ void Codegen::CompileModule(llvm::SMRange span, const std::string &filepath, boo
                 throw CodegenError({}, "Error linking modules together");
 
             //  Add function to main module
-            for (auto &it : *TheModule) {
+            for (auto &it: *TheModule) {
                 auto name = std::string{it.getName()};
                 std::vector<llvm::Type *> paramTypes;
                 for (unsigned param_i = 0; param_i < it.getFunctionType()->getNumParams(); param_i++)
@@ -207,7 +207,7 @@ void Codegen::CompileModule(llvm::SMRange span, const std::string &filepath, boo
             ObjectFiles.push_back(fmt::format("{}.o", obj_file));
 
             // Add function definitions
-            for (auto &it : *codegen->TheModule) {
+            for (auto &it: *codegen->TheModule) {
                 auto name = std::string{it.getName()};
                 std::vector<llvm::Type *> paramTypes;
                 for (unsigned param_i = 0; param_i < it.getFunctionType()->getNumParams(); param_i++)
