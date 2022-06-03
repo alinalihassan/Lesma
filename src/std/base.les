@@ -8,10 +8,12 @@ def extern rand() -> int
 def extern srand(x: int)
 def extern time(x: *int) -> int
 
-def input() -> str
+export def extern exit(x: int)
+
+export def input() -> str
     return input("")
 
-def input(prompt: str) -> str
+export def input(prompt: str) -> str
     if strlen(prompt) > 0
         printf("%s", prompt)
 
@@ -22,32 +24,32 @@ def input(prompt: str) -> str
 
     return line
 
-def strToInt(x: str) -> int
+export def strToInt(x: str) -> int
     return atoll(x)
 
-def strToFloat(x: str) -> float
+export def strToFloat(x: str) -> float
     return strtod(x)
 
-def random(x: int, y: int) -> int
+export def random(x: int, y: int) -> int
     srand(time(null as *int))
     if x < y
         return x + rand() % (y - x)
 
     return y + rand() % (x - y)
 
-def print(x: str)
+export def print(x: str)
     printf("%s\n", x)
 
-def print(x: int8)
+export def print(x: int8)
     printf("%c\n", x)
 
-def print(x: int)
+export def print(x: int)
     printf("%d\n", x)
 
-def print(x: float)
+export def print(x: float)
     printf("%g\n", x)
 
-def print(x: bool)
+export def print(x: bool)
     if x
         print("true")
     else

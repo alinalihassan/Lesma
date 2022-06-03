@@ -391,7 +391,7 @@ Statement *Parser::ParseDefer() {
 }
 
 Statement *Parser::ParseStatement(bool isTopLevel) {
-    if (CheckAny<TokenType::DEF, TokenType::IMPORT>() && !isTopLevel)
+    if (CheckAny<TokenType::DEF, TokenType::IMPORT, TokenType::CLASS, TokenType::ENUM, TokenType::EXPORT>() && !isTopLevel)
         Error(Peek(), "Statement not allowed inside a block");
 
     if (Check(TokenType::DEF))
@@ -402,6 +402,8 @@ Statement *Parser::ParseStatement(bool isTopLevel) {
         return ParseClass();
     else if (Check(TokenType::ENUM))
         return ParseEnum();
+    else if (Check(TokenType::EXPORT))
+        return ParseExport();
     else if (Check(TokenType::LET) || Check(TokenType::VAR))
         return ParseVarDecl();
     else if (Check(TokenType::IF))
@@ -448,11 +450,11 @@ Compound *Parser::ParseBlock() {
 }
 
 Statement *Parser::ParseFunctionDeclaration() {
-    auto loc = Peek()->span;
+    auto loc = isExported ? Previous()->span : Peek()->span;
     Consume(TokenType::DEF);
     bool extern_func = false;
 
-    if (AdvanceIfMatchAny<TokenType::EXTERN_FUNC>())
+    if (AdvanceIfMatchAny<TokenType::EXTERN>())
         extern_func = true;
 
     if (extern_func && inClass) {
@@ -495,12 +497,38 @@ Statement *Parser::ParseFunctionDeclaration() {
 
     if (extern_func) {
         ConsumeNewline();
-        return new ExternFuncDecl({loc.Start, return_type->getEnd()}, identifier->lexeme, return_type, parameters, varargs);
+        return new ExternFuncDecl({loc.Start, return_type->getEnd()}, identifier->lexeme, return_type, parameters, varargs, isExported);
     }
 
     auto body = ParseBlock();
 
-    return new FuncDecl({loc.Start, return_type->getEnd()}, identifier->lexeme, return_type, parameters, body, false);
+    return new FuncDecl({loc.Start, return_type->getEnd()}, identifier->lexeme, return_type, parameters, body, false, isExported);
+}
+
+Statement *Parser::ParseExport() {
+    Consume(TokenType::EXPORT);
+
+    if (inClass)
+        Error(Peek(), "Cannot export class members");
+
+    if (!CheckAny<TokenType::DEF, TokenType::CLASS, TokenType::ENUM>())
+        Error(Peek(), "Can only export functions, classes and enums");
+
+    isExported = true;
+    Statement *statement = nullptr;
+    if (Check(TokenType::DEF))
+        statement = ParseFunctionDeclaration();
+    else if (Check(TokenType::IMPORT))
+        statement = ParseImport();
+    else if (Check(TokenType::CLASS))
+        statement = ParseClass();
+    else if (Check(TokenType::ENUM))
+        statement = ParseEnum();
+    else
+        Error(Peek(), "Unexpected statement after export");
+
+    isExported = false;
+    return statement;
 }
 
 Statement *Parser::ParseImport() {
@@ -555,7 +583,7 @@ Statement *Parser::ParseClass() {
 
     AdvanceIfMatchAny<TokenType::DEDENT>();
 
-    return new Class(loc, token->lexeme, fields, methods);
+    return new Class(loc, token->lexeme, fields, methods, isExported);
 }
 
 Statement *Parser::ParseEnum() {
@@ -575,7 +603,7 @@ Statement *Parser::ParseEnum() {
 
     AdvanceIfMatchAny<TokenType::DEDENT>();
 
-    return new Enum(loc, token->lexeme, values);
+    return new Enum(loc, token->lexeme, values, isExported);
 }
 
 Compound *Parser::ParseCompound() {

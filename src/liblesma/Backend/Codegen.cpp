@@ -161,58 +161,74 @@ void Codegen::CompileModule(llvm::SMRange span, const std::string &filepath, boo
 
         ImportedModules = std::move(codegen->ImportedModules);
 
-        if (isJIT) {
-            // Add classes and enums
-            for (auto sym: codegen->Scope->getSymbols()) {
-                if (sym.second->getType()->isOneOf({TY_ENUM, TY_CLASS})) {
-                    // TODO: We have to reconstruct classes and enums, fix me
-                    auto struct_ty = cast<llvm::StructType>(sym.second->getLLVMType());
-                    llvm::StructType *structType = llvm::StructType::create(*TheContext, struct_ty->elements(), sym.first);
+        // Add classes and enums
+        for (auto sym: codegen->Scope->getSymbols()) {
+            if (sym.second->getType()->isOneOf({TY_ENUM, TY_CLASS})) {
+                // TODO: We have to reconstruct classes and enums, fix me
+                auto struct_ty = cast<llvm::StructType>(sym.second->getLLVMType());
+                llvm::StructType *structType = llvm::StructType::create(*TheContext, struct_ty->elements(), sym.first);
 
-                    auto *structSymbol = new SymbolTableEntry(sym.first, sym.second->getType());
-                    structSymbol->setLLVMType(structType);
-                    Scope->insertType(sym.first, sym.second->getType());
-                    Scope->insertSymbol(structSymbol);
-                }
+                auto *structSymbol = new SymbolTableEntry(sym.first, sym.second->getType());
+                structSymbol->setLLVMType(structType);
+                Scope->insertType(sym.first, sym.second->getType());
+                Scope->insertSymbol(structSymbol);
             }
+        }
 
+        if (isJIT) {
             // Link modules together
             if (Linker::linkModules(*TheModule, std::move(codegen->TheModule), (1 << 0)))
                 throw CodegenError({}, "Error linking modules together");
 
             //  Add function to main module
-            Module::iterator it;
-            Module::iterator end = TheModule->end();
-            for (it = TheModule->begin(); it != end; ++it) {
-                // If it's external function (only functions without body) don't import
-                if ((*it).getBasicBlockList().empty())
-                    continue;
-
+            for (Module::iterator it = TheModule->begin(); it != TheModule->end(); ++it) {
                 auto name = std::string{(*it).getName()};
-                auto symbol = new SymbolTableEntry(name, new SymbolType(SymbolSuperType::TY_FUNCTION));
-                symbol->setLLVMType((*it).getFunctionType());
-                symbol->setLLVMValue((Value *) &(*it).getFunction());
-                Scope->insertSymbol(symbol);
+                std::vector<llvm::Type *> paramTypes;
+                for (unsigned param_i = 0; param_i < (*it).getFunctionType()->getNumParams(); param_i++)
+                    paramTypes.push_back((*it).getFunctionType()->getParamType(param_i));
+
+                auto mangled_name = getMangledName(span, name, paramTypes, (*it).isVarArg());
+                auto func_symbol = codegen->Scope->lookup(mangled_name);
+                // Get function without name mangling in case of extern C functions
+                func_symbol = func_symbol == nullptr ? codegen->Scope->lookup(name) : func_symbol;
+
+                // If it's external function (only functions without body) don't import
+                if (func_symbol != nullptr && func_symbol->isExported()) {
+                    auto symbol = new SymbolTableEntry(name, new SymbolType(SymbolSuperType::TY_FUNCTION));
+                    symbol->setLLVMType((*it).getFunctionType());
+                    symbol->setLLVMValue((Value *) &(*it).getFunction());
+                    Scope->insertSymbol(symbol);
+                }
             }
         } else {
+            // Create object file to be linked
             std::string obj_file = fmt::format("tmp{}", ObjectFiles.size());
             codegen->WriteToObjectFile(obj_file);
             ObjectFiles.push_back(fmt::format("{}.o", obj_file));
 
             // Add function definitions
-            Module::iterator it;
-            Module::iterator end = codegen->TheModule->end();
-            for (it = codegen->TheModule->begin(); it != end; ++it) {
+            for (Module::iterator it = codegen->TheModule->begin(); it != codegen->TheModule->end(); ++it) {
                 auto name = std::string{(*it).getName()};
-                auto new_func = Function::Create((*it).getFunctionType(),
-                                                 Function::ExternalLinkage,
-                                                 name,
-                                                 *TheModule);
+                std::vector<llvm::Type *> paramTypes;
+                for (unsigned param_i = 0; param_i < (*it).getFunctionType()->getNumParams(); param_i++)
+                    paramTypes.push_back((*it).getFunctionType()->getParamType(param_i));
 
-                auto symbol = new SymbolTableEntry(name, new SymbolType(SymbolSuperType::TY_FUNCTION));
-                symbol->setLLVMType(new_func->getFunctionType());
-                symbol->setLLVMValue(new_func);
-                Scope->insertSymbol(symbol);
+                auto mangled_name = getMangledName(span, name, paramTypes, (*it).isVarArg());
+                auto func_symbol = codegen->Scope->lookup(mangled_name);
+                // Get function without name mangling in case of extern C functions
+                func_symbol = func_symbol == nullptr ? codegen->Scope->lookup(name) : func_symbol;
+
+                if (func_symbol != nullptr && func_symbol->isExported()) {
+                    auto new_func = Function::Create((*it).getFunctionType(),
+                                                     Function::ExternalLinkage,
+                                                     name,
+                                                     *TheModule);
+
+                    auto symbol = new SymbolTableEntry(name, new SymbolType(SymbolSuperType::TY_FUNCTION));
+                    symbol->setLLVMType(new_func->getFunctionType());
+                    symbol->setLLVMValue(new_func);
+                    Scope->insertSymbol(symbol);
+                }
             }
         }
     } catch (const LesmaError &err) {
@@ -565,6 +581,7 @@ void Codegen::visit(FuncDecl *node) {
     auto func_symbol = new SymbolTableEntry(name, new SymbolType(SymbolSuperType::TY_FUNCTION));
     func_symbol->setLLVMType(F->getFunctionType());
     func_symbol->setLLVMValue(F);
+    func_symbol->setExported(node->isExported());
     Scope->insertSymbol(func_symbol);
 
     Prototypes.emplace_back(F, node, selfSymbol);
@@ -589,6 +606,7 @@ void Codegen::visit(ExternFuncDecl *node) {
     auto symbol = new SymbolTableEntry(node->getName(), new SymbolType(SymbolSuperType::TY_FUNCTION));
     symbol->setLLVMType(F.getFunctionType());
     symbol->setLLVMValue(F.getCallee());
+    symbol->setExported(node->isExported());
     Scope->insertSymbol(symbol);
 }
 
@@ -760,6 +778,7 @@ void Codegen::visit(Class *node) {
     auto *type = new SymbolType(TY_CLASS, fields, nullptr);
     auto *structSymbol = new SymbolTableEntry(node->getIdentifier(), type);
     structSymbol->setLLVMType(structType);
+    structSymbol->setExported(node->isExported());
     Scope->insertType(node->getIdentifier(), type);
     Scope->insertSymbol(structSymbol);
 
@@ -788,6 +807,7 @@ void Codegen::visit(Enum *node) {
     auto *type = new SymbolType(TY_ENUM, fields, nullptr);
     auto *structSymbol = new SymbolTableEntry(node->getIdentifier(), type);
     structSymbol->setLLVMType(structType);
+    structSymbol->setExported(node->isExported());
     Scope->insertType(node->getIdentifier(), type);
     Scope->insertSymbol(structSymbol);
 }
