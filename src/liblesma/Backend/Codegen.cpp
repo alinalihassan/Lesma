@@ -181,13 +181,13 @@ void Codegen::CompileModule(llvm::SMRange span, const std::string &filepath, boo
                 throw CodegenError({}, "Error linking modules together");
 
             //  Add function to main module
-            for (Module::iterator it = TheModule->begin(); it != TheModule->end(); ++it) {
-                auto name = std::string{(*it).getName()};
+            for (auto &it : *TheModule) {
+                auto name = std::string{it.getName()};
                 std::vector<llvm::Type *> paramTypes;
-                for (unsigned param_i = 0; param_i < (*it).getFunctionType()->getNumParams(); param_i++)
-                    paramTypes.push_back((*it).getFunctionType()->getParamType(param_i));
+                for (unsigned param_i = 0; param_i < it.getFunctionType()->getNumParams(); param_i++)
+                    paramTypes.push_back(it.getFunctionType()->getParamType(param_i));
 
-                auto mangled_name = getMangledName(span, name, paramTypes, (*it).isVarArg());
+                auto mangled_name = getMangledName(span, name, paramTypes, it.isVarArg());
                 auto func_symbol = codegen->Scope->lookup(mangled_name);
                 // Get function without name mangling in case of extern C functions
                 func_symbol = func_symbol == nullptr ? codegen->Scope->lookup(name) : func_symbol;
@@ -195,8 +195,8 @@ void Codegen::CompileModule(llvm::SMRange span, const std::string &filepath, boo
                 // If it's external function (only functions without body) don't import
                 if (func_symbol != nullptr && func_symbol->isExported()) {
                     auto symbol = new SymbolTableEntry(name, new SymbolType(SymbolSuperType::TY_FUNCTION));
-                    symbol->setLLVMType((*it).getFunctionType());
-                    symbol->setLLVMValue((Value *) &(*it).getFunction());
+                    symbol->setLLVMType(it.getFunctionType());
+                    symbol->setLLVMValue((Value *) &it.getFunction());
                     Scope->insertSymbol(symbol);
                 }
             }
@@ -207,19 +207,19 @@ void Codegen::CompileModule(llvm::SMRange span, const std::string &filepath, boo
             ObjectFiles.push_back(fmt::format("{}.o", obj_file));
 
             // Add function definitions
-            for (Module::iterator it = codegen->TheModule->begin(); it != codegen->TheModule->end(); ++it) {
-                auto name = std::string{(*it).getName()};
+            for (auto &it : *codegen->TheModule) {
+                auto name = std::string{it.getName()};
                 std::vector<llvm::Type *> paramTypes;
-                for (unsigned param_i = 0; param_i < (*it).getFunctionType()->getNumParams(); param_i++)
-                    paramTypes.push_back((*it).getFunctionType()->getParamType(param_i));
+                for (unsigned param_i = 0; param_i < it.getFunctionType()->getNumParams(); param_i++)
+                    paramTypes.push_back(it.getFunctionType()->getParamType(param_i));
 
-                auto mangled_name = getMangledName(span, name, paramTypes, (*it).isVarArg());
+                auto mangled_name = getMangledName(span, name, paramTypes, it.isVarArg());
                 auto func_symbol = codegen->Scope->lookup(mangled_name);
                 // Get function without name mangling in case of extern C functions
                 func_symbol = func_symbol == nullptr ? codegen->Scope->lookup(name) : func_symbol;
 
                 if (func_symbol != nullptr && func_symbol->isExported()) {
-                    auto new_func = Function::Create((*it).getFunctionType(),
+                    auto new_func = Function::Create(it.getFunctionType(),
                                                      Function::ExternalLinkage,
                                                      name,
                                                      *TheModule);
