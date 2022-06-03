@@ -275,7 +275,7 @@ namespace lesma {
     public:
         FuncDecl(llvm::SMRange Loc, std::string name, Type *return_type,
                  std::vector<std::pair<std::string, Type *>> parameters, Compound *body, bool varargs, bool exported) : Statement(Loc), name(std::move(name)), return_type(return_type), parameters(std::move(parameters)),
-                                                                                                         body(body), varargs(varargs), exported(exported) {}
+                                                                                                                        body(body), varargs(varargs), exported(exported) {}
 
         ~FuncDecl() override = default;
 
