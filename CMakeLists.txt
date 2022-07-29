@@ -17,10 +17,10 @@ include(cmake/CPM.cmake)
 
 CPMAddPackage("gh:Neargye/nameof@0.10.1")
 CPMAddPackage("gh:catchorg/Catch2@2.13.8")
-CPMAddPackage("gh:CLIUtils/CLI11@2.1.2")
+CPMAddPackage("gh:CLIUtils/CLI11@2.2.0")
 CPMAddPackage(
   NAME fmt
-  GIT_TAG 8.1.1
+  GIT_TAG 9.0.0
   GITHUB_REPOSITORY fmtlib/fmt
 )
 
