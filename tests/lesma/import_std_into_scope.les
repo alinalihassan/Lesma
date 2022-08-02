@@ -1,7 +1,8 @@
 #ret=101
 from time import sleep as sleep_test
 from "class.les" import Animal
+def extern exit(x: int)
 
 let y = Animal()
 sleep_test(0.1)
-return y.getX()
+exit(y.getX())
