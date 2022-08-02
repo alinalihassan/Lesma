@@ -37,12 +37,12 @@ jobs:
         path: |
           C:/Program Files/LLVM
           ./llvm
-        key: llvm-13.0
+        key: llvm-14.0
 
     - name: Install LLVM and Clang
       uses: KyleMayes/install-llvm-action@v1
       with:
-        version: "13.0"
+        version: "14.0"
         cached: ${{ steps.cache-llvm.outputs.cache-hit }}
 
     - name: Install Ninja
