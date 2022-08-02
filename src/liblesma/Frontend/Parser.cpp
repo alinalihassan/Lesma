@@ -396,7 +396,7 @@ Statement *Parser::ParseStatement(bool isTopLevel) {
 
     if (Check(TokenType::DEF))
         return ParseFunctionDeclaration();
-    else if (Check(TokenType::IMPORT))
+    else if (CheckAny<TokenType::IMPORT, TokenType::FROM>())
         return ParseImport();
     else if (Check(TokenType::CLASS))
         return ParseClass();
@@ -533,7 +533,11 @@ Statement *Parser::ParseExport() {
 
 Statement *Parser::ParseImport() {
     auto loc = Peek()->span;
-    Consume(TokenType::IMPORT);
+    bool selectiveImport = false;
+    if (AdvanceIfMatchAny<TokenType::FROM>())
+        selectiveImport = true;
+    else
+        Consume(TokenType::IMPORT);
 
     Token *token;
     std::string filepath;
@@ -549,14 +553,35 @@ Statement *Parser::ParseImport() {
         return nullptr;
     }
 
-    if (AdvanceIfMatchAny<TokenType::AS>()) {
-        auto alias = Consume(TokenType::IDENTIFIER);
-        ConsumeNewline();
-        return new Import({loc.Start, alias->getEnd()}, token->lexeme, alias->lexeme, token->type == TokenType::IDENTIFIER);
-    }
+    if (!selectiveImport) {
+        std::string alias = getBasename(token->lexeme);
+        if (AdvanceIfMatchAny<TokenType::AS>())
+            alias = Consume(TokenType::IDENTIFIER)->lexeme;
 
-    ConsumeNewline();
-    return new Import({loc.Start, token->getEnd()}, filepath, getBasename(token->lexeme), token->type == TokenType::IDENTIFIER);
+        ConsumeNewline();
+        return new Import({loc.Start, token->getEnd()}, filepath, alias, token->type == TokenType::IDENTIFIER, true, false, {});
+    } else {
+        Consume(TokenType::IMPORT);
+
+        if (AdvanceIfMatchAny<TokenType::STAR>()) {
+            ConsumeNewline();
+            return new Import({loc.Start, token->getEnd()}, filepath, getBasename(token->lexeme), token->type == TokenType::IDENTIFIER, true, true, {});
+        } else {
+            std::vector<std::pair<std::string, std::string>> imported_names;
+
+            do {
+                auto ident = Consume(TokenType::IDENTIFIER)->lexeme;
+                auto alias = ident;
+                if (AdvanceIfMatchAny<TokenType::AS>())
+                    alias = Consume(TokenType::IDENTIFIER)->lexeme;
+
+                imported_names.emplace_back(ident, alias);
+            } while (AdvanceIfMatchAny<TokenType::COMMA>());
+
+            ConsumeNewline();
+            return new Import({loc.Start, token->getEnd()}, filepath, getBasename(token->lexeme), token->type == TokenType::IDENTIFIER, false, true, imported_names);
+        }
+    }
 }
 
 Statement *Parser::ParseClass() {

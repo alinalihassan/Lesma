@@ -93,6 +93,8 @@ TokenType Token::GetIdentifierType(const std::string &identifier, Token *lastTok
         return TokenType::VOID_TYPE;
     else if (identifier == "import")
         return TokenType::IMPORT;
+    else if (identifier == "from")
+        return TokenType::FROM;
     else
         return TokenType::IDENTIFIER;
 }

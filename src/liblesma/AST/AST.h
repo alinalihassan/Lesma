@@ -155,14 +155,20 @@ namespace lesma {
     class Import : public Statement {
         std::string file_path;
         std::string alias;
+        std::vector<std::pair<std::string, std::string>> imported_names;
         bool std;
+        bool import_all;
+        bool import_to_scope;
 
     public:
-        Import(llvm::SMRange Loc, std::string file_path, std::string alias, bool std) : Statement(Loc), file_path(std::move(file_path)), alias(std::move(alias)), std(std){};
+        Import(llvm::SMRange Loc, std::string file_path, std::string alias, bool std, bool import_all, bool import_to_scope, std::vector<std::pair<std::string, std::string>> imported_names) : Statement(Loc), file_path(std::move(file_path)), alias(std::move(alias)), imported_names(imported_names), std(std), import_all(import_all), import_to_scope(import_to_scope){};
         ~Import() override = default;
 
         [[nodiscard]] [[maybe_unused]] std::string getFilePath() const { return file_path; }
         [[nodiscard]] [[maybe_unused]] std::string getAlias() const { return alias; }
+        [[nodiscard]] [[maybe_unused]] bool getImportAll() const { return import_all; }
+        [[nodiscard]] [[maybe_unused]] bool getImportScope() const { return import_to_scope; }
+        [[nodiscard]] [[maybe_unused]] std::vector<std::pair<std::string, std::string>> getImportedNames() const { return imported_names; }
         [[nodiscard]] [[maybe_unused]] bool isStd() const { return std; }
 
         std::string toString(llvm::SourceMgr *srcMgr, const std::string &prefix, bool isTail) override {

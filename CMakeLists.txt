@@ -34,7 +34,7 @@ include_directories(${SRC_DIR})
 include_directories(${LIB_DIR})
 
 # LLVM configuration
-find_package(LLVM 13 CONFIG REQUIRED)
+find_package(LLVM 14 CONFIG REQUIRED)
 message(STATUS "Found LLVM ${LLVM_PACKAGE_VERSION}")
 
 include_directories(SYSTEM ${LLVM_INCLUDE_DIRS})

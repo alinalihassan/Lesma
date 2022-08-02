@@ -68,7 +68,7 @@ int Driver::BaseCompile(Options *options, bool jit) {
         }
 
         // Optimization
-        TIMEIT("Optimizing", codegen->Optimize(llvm::PassBuilder::OptimizationLevel::O3);)
+        TIMEIT("Optimizing", codegen->Optimize(OptimizationLevel::O3);)
 
         int exit_code = 0;
         if (!jit) {

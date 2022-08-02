@@ -6,3 +6,12 @@ export def sleep(x: float)
 
 export def sleep(x: int)
     usleep(x * 1000000)
+
+export class Animal
+    var x: int
+
+    def new()
+        self.x = 101
+
+    def getX() -> int
+        return self.x

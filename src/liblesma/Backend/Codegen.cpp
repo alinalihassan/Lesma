@@ -1,8 +1,11 @@
 #include "Codegen.h"
 
+#include <utility>
+#include <regex>
+
 using namespace lesma;
 
-Codegen::Codegen(std::unique_ptr<Parser> parser, std::shared_ptr<SourceMgr> srcMgr, const std::string &filename, std::vector<std::string> imports, bool jit, bool main) {
+Codegen::Codegen(std::unique_ptr<Parser> parser, std::shared_ptr<SourceMgr> srcMgr, const std::string &filename, std::vector<std::string> imports, bool jit, bool main, std::string alias) {
     InitializeNativeTarget();
     InitializeNativeTargetAsmPrinter();
     InitializeNativeTargetAsmParser();
@@ -19,6 +22,7 @@ Codegen::Codegen(std::unique_ptr<Parser> parser, std::shared_ptr<SourceMgr> srcM
     Scope = new SymbolTable(nullptr);
     TargetMachine = InitializeTargetMachine();
 
+    this->alias = std::move(alias);
     this->filename = filename;
     isJIT = jit;
     isMain = main;
@@ -27,7 +31,7 @@ Codegen::Codegen(std::unique_ptr<Parser> parser, std::shared_ptr<SourceMgr> srcM
 
     // If it's not base.les stdlib, then import it
     if (std::filesystem::absolute(filename) != getStdDir() + "base.les") {
-        CompileModule(llvm::SMRange(), getStdDir() + "base.les", true);
+        CompileModule(llvm::SMRange(), getStdDir() + "base.les", true, "base", true, true, {});
     }
 }
 
@@ -124,7 +128,7 @@ std::unique_ptr<llvm::TargetMachine> Codegen::InitializeTargetMachine() {
     return target_machine;
 }
 
-void Codegen::CompileModule(llvm::SMRange span, const std::string &filepath, bool isStd) {
+void Codegen::CompileModule(llvm::SMRange span, const std::string &filepath, bool isStd, std::string alias, bool importAll, bool importToScope, std::vector<std::pair<std::string, std::string>> imported_names) {
     std::filesystem::path mainPath = filename;
     // Read source
     auto absolute_path = isStd ? filepath : fmt::format("{}/{}", std::filesystem::absolute(mainPath).parent_path().c_str(), filepath);
@@ -152,23 +156,40 @@ void Codegen::CompileModule(llvm::SMRange span, const std::string &filepath, boo
 
         // TODO: Delete it, memory leak, smart pointer made us lose the references to other modules
         // Codegen
-        auto codegen = new Codegen(std::move(parser), SourceManager, absolute_path, ImportedModules, isJIT, false);
+        auto codegen = new Codegen(std::move(parser), SourceManager, absolute_path, ImportedModules, isJIT, false, !importToScope ? alias : "");
         codegen->Run();
 
         // Optimize
-        codegen->Optimize(llvm::PassBuilder::OptimizationLevel::O3);
+        codegen->Optimize(OptimizationLevel::O3);
         codegen->TheModule->setModuleIdentifier(filepath);
 
         ImportedModules = std::move(codegen->ImportedModules);
 
+        if (!alias.empty()) {
+            auto import_typ = new SymbolType(TY_IMPORT);
+            auto import_sym = new SymbolTableEntry(alias, import_typ);
+            Scope->insertSymbol(import_sym);
+            Scope->insertType(alias, import_typ);
+        }
+
+        auto findInImports = [imported_names](const std::string& import) -> std::string {
+            for (const auto& imp_pair: imported_names) {
+                if (imp_pair.first == import)
+                    return imp_pair.second;
+            }
+
+            return "";
+        };
+
         // Add classes and enums
         for (auto sym: codegen->Scope->getSymbols()) {
-            if (sym.second->getType()->isOneOf({TY_ENUM, TY_CLASS})) {
+            auto imp_alias = findInImports(sym.first);
+            if (sym.second->getType()->isOneOf({TY_ENUM, TY_CLASS}) && sym.second->isExported() && (importAll || !imp_alias.empty())) {
                 // TODO: We have to reconstruct classes and enums, fix me
                 auto struct_ty = cast<llvm::StructType>(sym.second->getLLVMType());
                 llvm::StructType *structType = llvm::StructType::create(*TheContext, struct_ty->elements(), sym.first);
 
-                auto *structSymbol = new SymbolTableEntry(sym.first, sym.second->getType());
+                auto *structSymbol = new SymbolTableEntry(imp_alias.empty() ? sym.first : imp_alias, sym.second->getType());
                 structSymbol->setLLVMType(structType);
                 Scope->insertType(sym.first, sym.second->getType());
                 Scope->insertSymbol(structSymbol);
@@ -180,21 +201,25 @@ void Codegen::CompileModule(llvm::SMRange span, const std::string &filepath, boo
             if (Linker::linkModules(*TheModule, std::move(codegen->TheModule), (1 << 0)))
                 throw CodegenError({}, "Error linking modules together");
 
-            //  Add function to main module
-            for (auto &it: *TheModule) {
+            // Add function to main module
+            for (auto &it : *TheModule) {
                 auto name = std::string{it.getName()};
                 std::vector<llvm::Type *> paramTypes;
                 for (unsigned param_i = 0; param_i < it.getFunctionType()->getNumParams(); param_i++)
                     paramTypes.push_back(it.getFunctionType()->getParamType(param_i));
 
-                auto mangled_name = getMangledName(span, name, paramTypes, it.isVarArg());
-                auto func_symbol = codegen->Scope->lookup(mangled_name);
+                SymbolTableEntry* func_symbol;
                 // Get function without name mangling in case of extern C functions
-                func_symbol = func_symbol == nullptr ? codegen->Scope->lookup(name) : func_symbol;
+                if (!isMangled(name) && name != "main")
+                    func_symbol = codegen->Scope->lookup(name);
+                else
+                    func_symbol = codegen->Scope->lookup(name);
 
-                // If it's external function (only functions without body) don't import
-                if (func_symbol != nullptr && func_symbol->isExported()) {
-                    auto symbol = new SymbolTableEntry(name, new SymbolType(SymbolSuperType::TY_FUNCTION));
+                // Only import if it's exported
+                auto demangled_name = getDemangledName(name);
+                auto imp_alias = findInImports(demangled_name);
+                if (func_symbol != nullptr && func_symbol->isExported() && (importAll || !imp_alias.empty() || isMethod(name))) {
+                    auto symbol = new SymbolTableEntry(imp_alias.empty() ? name : std::regex_replace(name, std::regex(demangled_name), imp_alias), new SymbolType(SymbolSuperType::TY_FUNCTION));
                     symbol->setLLVMType(it.getFunctionType());
                     symbol->setLLVMValue((Value *) &it.getFunction());
                     Scope->insertSymbol(symbol);
@@ -213,18 +238,21 @@ void Codegen::CompileModule(llvm::SMRange span, const std::string &filepath, boo
                 for (unsigned param_i = 0; param_i < it.getFunctionType()->getNumParams(); param_i++)
                     paramTypes.push_back(it.getFunctionType()->getParamType(param_i));
 
-                auto mangled_name = getMangledName(span, name, paramTypes, it.isVarArg());
-                auto func_symbol = codegen->Scope->lookup(mangled_name);
+                SymbolTableEntry* func_symbol;
                 // Get function without name mangling in case of extern C functions
-                func_symbol = func_symbol == nullptr ? codegen->Scope->lookup(name) : func_symbol;
+                if (!isMangled(name) && name != "main")
+                    func_symbol = codegen->Scope->lookup(name);
+                else
+                    func_symbol = codegen->Scope->lookup(name);
 
-                if (func_symbol != nullptr && func_symbol->isExported()) {
+                auto demangled_name = getDemangledName(name);
+                auto imp_alias = findInImports(demangled_name);
+                if (func_symbol != nullptr && func_symbol->isExported() && (importAll || !imp_alias.empty() || isMethod(name))) {
                     auto new_func = Function::Create(it.getFunctionType(),
                                                      Function::ExternalLinkage,
                                                      name,
                                                      *TheModule);
-
-                    auto symbol = new SymbolTableEntry(name, new SymbolType(SymbolSuperType::TY_FUNCTION));
+                    auto symbol = new SymbolTableEntry(imp_alias.empty() ? name : std::regex_replace(name, std::regex(demangled_name), imp_alias), new SymbolType(SymbolSuperType::TY_FUNCTION));
                     symbol->setLLVMType(new_func->getFunctionType());
                     symbol->setLLVMValue(new_func);
                     Scope->insertSymbol(symbol);
@@ -241,7 +269,7 @@ void Codegen::CompileModule(llvm::SMRange span, const std::string &filepath, boo
     }
 }
 
-void Codegen::Optimize(llvm::PassBuilder::OptimizationLevel opt) {
+void Codegen::Optimize(OptimizationLevel opt) {
     llvm::LoopAnalysisManager LAM;
     llvm::FunctionAnalysisManager FAM;
     llvm::CGSCCAnalysisManager CGAM;
@@ -758,7 +786,7 @@ void Codegen::visit(ExpressionStatement *node) {
 }
 
 void Codegen::visit(Import *node) {
-    CompileModule(node->getSpan(), node->getFilePath(), node->isStd());
+    CompileModule(node->getSpan(), node->getFilePath(), node->isStd(), node->getAlias(), node->getImportAll(), node->getImportScope(), node->getImportedNames());
 }
 
 void Codegen::visit(Class *node) {
@@ -1020,23 +1048,23 @@ llvm::Value *Codegen::visit(DotOp *node) {
         if (left->getType() != TokenType::IDENTIFIER)
             throw CodegenError(node->getLeft()->getSpan(), "Expected identifier left-hand of dot operator, found {}", node->getRight()->toString(SourceManager.get(), "", true));
 
-        auto _enum = Scope->lookupType(left->getValue());
-        if (_enum != nullptr) {
+        auto type_sym = Scope->lookupType(left->getValue());
+        if (type_sym != nullptr) {
             // Assuming it's an enum or statically accessed class
-            if (!_enum->isOneOf({TY_ENUM, TY_CLASS}))
+            if (!type_sym->isOneOf({TY_ENUM, TY_CLASS, TY_IMPORT}))
                 throw CodegenError(node->getLeft()->getSpan(), "Cannot apply dot accessor on {}", left->getValue());
 
-            // Check if right-hand expression is an identifier expression
-            if (!dynamic_cast<Literal *>(node->getRight()))
-                throw CodegenError(node->getRight()->getSpan(), "Expected identifier right-hand of dot operator, found {}", node->getRight()->toString(SourceManager.get(), "", true));
-
             auto right = dynamic_cast<Literal *>(node->getRight());
-            if (right->getType() != TokenType::IDENTIFIER)
-                throw CodegenError(node->getRight()->getSpan(), "Expected identifier right-hand of dot operator, found {}", node->getRight()->toString(SourceManager.get(), "", true));
+            if (type_sym->is(TY_ENUM)) {
+                // Check if right-hand expression is an identifier expression
+                if (!dynamic_cast<Literal *>(node->getRight()))
+                    throw CodegenError(node->getRight()->getSpan(), "Expected identifier right-hand of dot operator, found {}", node->getRight()->toString(SourceManager.get(), "", true));
 
-            if (_enum->is(TY_ENUM)) {
+                if (right->getType() != TokenType::IDENTIFIER)
+                    throw CodegenError(node->getRight()->getSpan(), "Expected identifier right-hand of dot operator, found {}", node->getRight()->toString(SourceManager.get(), "", true));
+
                 // Setting value to the enum
-                auto val = FindIndexInFields(_enum, right->getValue());
+                auto val = FindIndexInFields(type_sym, right->getValue());
                 // Field not found in enum
                 if (val == -1)
                     throw CodegenError(node->getLeft()->getSpan(), "Identifier {} not in {}", right->getValue(), left->getValue());
@@ -1047,9 +1075,28 @@ llvm::Value *Codegen::visit(DotOp *node) {
                 Builder->CreateStore(Builder->getInt8(val), field);
 
                 return enum_ptr;
+            } else if (type_sym->is(TY_IMPORT)) {
+                std::string field;
+                FuncCall *method = nullptr;
+
+                if (!dynamic_cast<Literal *>(node->getRight()) && !dynamic_cast<FuncCall *>(node->getRight()))
+                    throw CodegenError(node->getRight()->getSpan(), "Expected identifier or method call right-hand of dot operator, found {}", node->getRight()->toString(SourceManager.get(), "", true));
+
+                if (dynamic_cast<Literal *>(node->getRight()) && dynamic_cast<Literal *>(node->getRight())->getType() == TokenType::IDENTIFIER)
+                    field = dynamic_cast<Literal *>(node->getRight())->getValue();
+                else
+                    method = dynamic_cast<FuncCall *>(node->getRight());
+
+                if (method != nullptr) {
+                    auto tmp_alias = alias;
+                    alias = left->getValue();
+                    auto ret_val = genFuncCall(method, {});
+                    alias = tmp_alias;
+                    return ret_val;
+                }
             }
         } else {
-            // Assuming it's a class
+            // Assuming it's a class instance
             auto val = visit(left);
             if (!(val->getType()->isPointerTy() && val->getType()->getPointerElementType()->isStructTy()))
                 throw CodegenError(node->getLeft()->getSpan(), "Cannot apply dot accessor on {}", left->getValue());
@@ -1065,7 +1112,7 @@ llvm::Value *Codegen::visit(DotOp *node) {
             else
                 method = dynamic_cast<FuncCall *>(node->getRight());
 
-            auto cls = Scope->lookup(val->getType()->getPointerElementType()->getStructName().str());
+            auto cls = Scope->lookupStructByName(val->getType()->getPointerElementType()->getStructName().str());
             if (cls->getType()->is(TY_CLASS)) {
                 if (!field.empty()) {
                     auto index = FindIndexInFields(cls->getType(), field);
@@ -1195,9 +1242,15 @@ std::string Codegen::getTypeMangledName(llvm::SMRange span, llvm::Type *type) {
     throw CodegenError(span, "Unknown type found during mangling");
 }
 
-// TODO: Change to support private/public and module system
-std::string Codegen::getMangledName(llvm::SMRange span, std::string func_name, const std::vector<llvm::Type *> &paramTypes, bool isMethod) {
-    std::string name = selfSymbol != nullptr && isMethod ? selfSymbol->getName() + "::" + std::move(func_name) + ":" : "_" + std::move(func_name) + ":";
+
+bool Codegen::isMethod(const std::string& mangled_name) {
+    return mangled_name.find("::") != std::string::npos;
+}
+
+std::string Codegen::getMangledName(llvm::SMRange span, std::string func_name, const std::vector<llvm::Type *> &paramTypes, bool isMethod, std::string alias) {
+    alias = alias.empty() ? this->alias : alias;
+    std::string name = (alias.empty() ? "" : "&" + alias + "=>") +
+                       (selfSymbol != nullptr && isMethod ? selfSymbol->getName() + "::" + std::move(func_name) + ":" : "." + std::move(func_name) + ":");
     bool first = true;
 
     for (auto param_type: paramTypes) {
@@ -1210,6 +1263,30 @@ std::string Codegen::getMangledName(llvm::SMRange span, std::string func_name, c
     }
 
     return name;
+}
+
+bool Codegen::isMangled(std::string name) {
+    return name.find(":") != std::string::npos || name.at(0) == '.';
+}
+
+std::string Codegen::getDemangledName(const std::string& name) {
+    auto demangled_name = name;
+
+    // Remove class mangling
+    auto class_mangling = demangled_name.find("::");
+    if (class_mangling != std::string::npos)
+        demangled_name = demangled_name.substr(class_mangling + 2);
+
+    // Remove standard '.' mangling to differentiate from native functions
+    if (demangled_name.at(0) == '.')
+        demangled_name.erase(0, 1);
+
+    // Remove parameters mangling
+    auto parameter_mangling = demangled_name.find(':');
+    if (parameter_mangling != std::string::npos)
+        demangled_name = demangled_name.substr(0, parameter_mangling);
+
+    return demangled_name;
 }
 
 llvm::Type *Codegen::GetExtendedType(llvm::Type *left, llvm::Type *right) {

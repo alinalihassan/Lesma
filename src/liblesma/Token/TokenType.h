@@ -100,6 +100,7 @@ namespace lesma {
         IS_NOT,
         IN,
         IMPORT,
+        FROM,
 
         // Special tokens
         EOF_TOKEN,
