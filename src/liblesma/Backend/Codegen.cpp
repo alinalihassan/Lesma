@@ -1,7 +1,7 @@
 #include "Codegen.h"
 
-#include <utility>
 #include <regex>
+#include <utility>
 
 using namespace lesma;
 
@@ -172,8 +172,8 @@ void Codegen::CompileModule(llvm::SMRange span, const std::string &filepath, boo
             Scope->insertType(alias, import_typ);
         }
 
-        auto findInImports = [imported_names](const std::string& import) -> std::string {
-            for (const auto& imp_pair: imported_names) {
+        auto findInImports = [imported_names](const std::string &import) -> std::string {
+            for (const auto &imp_pair: imported_names) {
                 if (imp_pair.first == import)
                     return imp_pair.second;
             }
@@ -202,13 +202,13 @@ void Codegen::CompileModule(llvm::SMRange span, const std::string &filepath, boo
                 throw CodegenError({}, "Error linking modules together");
 
             // Add function to main module
-            for (auto &it : *TheModule) {
+            for (auto &it: *TheModule) {
                 auto name = std::string{it.getName()};
                 std::vector<llvm::Type *> paramTypes;
                 for (unsigned param_i = 0; param_i < it.getFunctionType()->getNumParams(); param_i++)
                     paramTypes.push_back(it.getFunctionType()->getParamType(param_i));
 
-                SymbolTableEntry* func_symbol;
+                SymbolTableEntry *func_symbol;
                 // Get function without name mangling in case of extern C functions
                 if (!isMangled(name) && name != "main")
                     func_symbol = codegen->Scope->lookup(name);
@@ -238,7 +238,7 @@ void Codegen::CompileModule(llvm::SMRange span, const std::string &filepath, boo
                 for (unsigned param_i = 0; param_i < it.getFunctionType()->getNumParams(); param_i++)
                     paramTypes.push_back(it.getFunctionType()->getParamType(param_i));
 
-                SymbolTableEntry* func_symbol;
+                SymbolTableEntry *func_symbol;
                 // Get function without name mangling in case of extern C functions
                 if (!isMangled(name) && name != "main")
                     func_symbol = codegen->Scope->lookup(name);
@@ -1243,7 +1243,7 @@ std::string Codegen::getTypeMangledName(llvm::SMRange span, llvm::Type *type) {
 }
 
 
-bool Codegen::isMethod(const std::string& mangled_name) {
+bool Codegen::isMethod(const std::string &mangled_name) {
     return mangled_name.find("::") != std::string::npos;
 }
 
@@ -1269,7 +1269,7 @@ bool Codegen::isMangled(std::string name) {
     return name.find(":") != std::string::npos || name.at(0) == '.';
 }
 
-std::string Codegen::getDemangledName(const std::string& name) {
+std::string Codegen::getDemangledName(const std::string &name) {
     auto demangled_name = name;
 
     // Remove class mangling

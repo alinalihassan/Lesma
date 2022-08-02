@@ -15,10 +15,10 @@
 #include <llvm/IR/PassManager.h>
 #include <llvm/IR/Verifier.h>
 #include <llvm/Linker/Linker.h>
+#include <llvm/MC/TargetRegistry.h>
 #include <llvm/Passes/PassBuilder.h>
 #include <llvm/Support/Host.h>
 #include <llvm/Support/Program.h>
-#include <llvm/MC/TargetRegistry.h>
 #include <llvm/Support/TargetSelect.h>
 #include <llvm/Support/VirtualFileSystem.h>
 #include <llvm/Transforms/IPO/PassManagerBuilder.h>
@@ -106,10 +106,10 @@ namespace lesma {
         llvm::Value *Cast(llvm::SMRange span, llvm::Value *val, llvm::Type *type);
         llvm::Value *Cast(llvm::SMRange span, llvm::Value *val, llvm::Type *type, bool isStore);
         static llvm::Type *GetExtendedType(llvm::Type *left, llvm::Type *right);
-        bool isMethod(const std::string& mangled_name);
+        bool isMethod(const std::string &mangled_name);
         std::string getMangledName(llvm::SMRange span, std::string func_name, const std::vector<llvm::Type *> &paramTypes, bool isMethod = false, std::string alias = "");
         bool isMangled(std::string name);
-        std::string getDemangledName(const std::string& mangled_name);
+        std::string getDemangledName(const std::string &mangled_name);
         std::string getTypeMangledName(llvm::SMRange span, llvm::Type *type);
         llvm::Value *genFuncCall(FuncCall *node, const std::vector<llvm::Value *> &extra_params);
         static int FindIndexInFields(SymbolType *_struct, const std::string &field);
