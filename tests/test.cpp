@@ -118,7 +118,7 @@ TEST_CASE("Codegen", "Run & Optimize") {
     auto lexer = initializeLexer(srcMgr);
     auto parser = initializeParser(lexer);
     auto codegen = initializeCodegen(parser, srcMgr);
-    codegen->Optimize(llvm::PassBuilder::OptimizationLevel::O3);
+    codegen->Optimize(OptimizationLevel::O3);
     int exit_code = codegen->JIT();
 
     REQUIRE(exit_code == 0);
@@ -129,7 +129,7 @@ TEST_CASE("Codegen", "Run & Optimize") {
 
     BENCHMARK("Codegen & Optimize") {
         auto cg = initializeCodegen(parser, srcMgr);
-        cg->Optimize(llvm::PassBuilder::OptimizationLevel::O3);
+        cg->Optimize(OptimizationLevel::O3);
     };
 
     BENCHMARK("Codegen & JIT") {
@@ -139,7 +139,7 @@ TEST_CASE("Codegen", "Run & Optimize") {
 
     BENCHMARK("Codegen, Optimize & JIT") {
         auto cg = initializeCodegen(parser, srcMgr);
-        cg->Optimize(llvm::PassBuilder::OptimizationLevel::O3);
+        cg->Optimize(OptimizationLevel::O3);
         cg->JIT();
     };
 }
