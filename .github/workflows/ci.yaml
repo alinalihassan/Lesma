@@ -30,11 +30,11 @@ jobs:
 
       - name : Clang Format
         if:  ${{ matrix.os == 'ubuntu-latest' }}
-        uses: DoozyX/clang-format-lint-action@v0.13
+        uses: DoozyX/clang-format-lint-action@v0.14
         with:
           source: './src/'
           extensions: 'h,cpp'
-          clangFormatVersion: 13
+          clangFormatVersion: 14
           inplace: True
 
       - name: Commit formatting diff
@@ -53,12 +53,12 @@ jobs:
           path: |
             C:/Program Files/LLVM
             ./llvm
-          key: llvm-13.0-${{ matrix.os }}
+          key: llvm-14.0-${{ matrix.os }}
 
       - name: Install LLVM and Clang
         uses: KyleMayes/install-llvm-action@v1
         with:
-          version: "13.0"
+          version: "14.0"
           cached: ${{ steps.cache-llvm.outputs.cache-hit }}
 
       - name: Install Ninja

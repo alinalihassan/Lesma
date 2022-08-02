@@ -16,6 +16,7 @@ enum SymbolSuperType {
     TY_FUNCTION,
     TY_CLASS,
     TY_ENUM,
+    TY_IMPORT,
 };
 
 class SymbolType {

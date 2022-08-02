@@ -62,6 +62,7 @@ namespace lesma {
         const std::vector<Token *> tokens;
         unsigned long index;
         bool inClass = false;
+        bool isExported = false;
         Compound *tree;
 
         static void Error(Token *token, const std::string &basicString);
@@ -69,6 +70,7 @@ namespace lesma {
         Compound *ParseCompound();
         Compound *ParseBlock();
         Statement *ParseFunctionDeclaration();
+        Statement *ParseExport();
         Statement *ParseImport();
         Statement *ParseClass();
         Statement *ParseEnum();

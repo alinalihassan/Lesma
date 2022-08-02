@@ -3,4 +3,4 @@ import "function_call.les"
 
 def extern exit(x: int)
 
-exit(fib())
+exit(function_call.fib())

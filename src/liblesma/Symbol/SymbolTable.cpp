@@ -41,6 +41,23 @@ SymbolTableEntry *SymbolTable::lookup(const std::string &name) {
  * @param name Name of the desired symbol
  * @return Desired symbol / nullptr if the symbol was not found
  */
+SymbolTableEntry *SymbolTable::lookupStructByName(const std::string &name) {
+    for (auto sym: symbols) {
+        if (sym.second->getLLVMType() != nullptr && sym.second->getLLVMType()->isStructTy() &&
+            sym.second->getLLVMType()->getStructName() == name)
+            return sym.second;
+    }
+
+    if (parent == nullptr) return nullptr;
+    return parent->lookupStructByName(name);
+}
+
+/**
+ * Check if a symbol exists in the current or any parent scope and return it if possible
+ *
+ * @param name Name of the desired symbol
+ * @return Desired symbol / nullptr if the symbol was not found
+ */
 SymbolType *SymbolTable::lookupType(const std::string &name) {
     if (types.find(name) == types.end()) {
         if (parent == nullptr) return nullptr;

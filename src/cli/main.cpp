@@ -1,22 +1,11 @@
 #include <vector>
 
 #include "CLI/CLI.hpp"
-#include "plf_nanotimer.h"
 
-#include "liblesma/Backend/Codegen.h"
-#include "liblesma/Frontend/Lexer.h"
-#include "liblesma/Frontend/Parser.h"
+#include "liblesma/Common/Utils.h"
+#include "liblesma/Driver/Driver.h"
 
-#include "llvm/Support/SourceMgr.h"
 using namespace lesma;
-
-#define TIMEIT(debug_operation, statements)   \
-    timer.start();                            \
-    statements                                \
-            results = timer.get_elapsed_ms(); \
-    total += results;                         \
-    if (options->timer)                       \
-        print(DEBUG, "{} -> {:.2f} ms\n", debug_operation, results);
 
 std::unique_ptr<CLIOptions> parseCLI(int argc, char **argv) {
     bool debug = false;
@@ -47,79 +36,9 @@ std::unique_ptr<CLIOptions> parseCLI(int argc, char **argv) {
 }
 
 int main(int argc, char **argv) {
-    // Configure Timer
-    plf::nanotimer timer;
-    double results, total = 0;
-
-    // Configure Source Manager
-    std::shared_ptr<SourceMgr> srcMgr = std::make_shared<SourceMgr>(SourceMgr());
-
     // CLI Parsing
-    TIMEIT("CLI", auto options = parseCLI(argc, argv);)
-
-    try {
-        // Read Source
-        TIMEIT("File read",
-               auto buffer = MemoryBuffer::getFile(options->file);
-               if (buffer.getError() != std::error_code()) throw LesmaError(llvm::SMRange(), "Could not read file: {}", options->file);
-
-               srcMgr->AddNewSourceBuffer(std::move(*buffer), llvm::SMLoc());
-               auto source_str = srcMgr->getMemoryBuffer(1)->getBuffer().str();)
-
-        // Lexer
-        TIMEIT("Lexer scan",
-               auto lexer = std::make_unique<Lexer>(srcMgr);
-               lexer->ScanAll();)
-
-        if (options->debug) {
-            print(DEBUG, "TOKENS: \n");
-            for (const auto &tok: lexer->getTokens())
-                print("Token: {}\n", tok->Dump(srcMgr));
-        }
-
-        // Parser
-        TIMEIT("Parsing",
-               auto parser = std::make_unique<Parser>(lexer->getTokens());
-               parser->Parse();)
-
-        if (options->debug)
-            print(DEBUG, "AST:\n{}", parser->getAST()->toString(srcMgr.get(), "", true));
-
-        // Codegen
-        TIMEIT("Compiling",
-               std::vector<std::string> modules;
-               auto codegen = std::make_unique<Codegen>(std::move(parser), srcMgr, options->file, modules, options->jit, true);
-               codegen->Run();)
-
-        if (options->debug) {
-            print(DEBUG, "LLVM IR: \n");
-            codegen->Dump();
-        }
-
-        // Optimization
-        TIMEIT("Optimizing", codegen->Optimize(llvm::PassBuilder::OptimizationLevel::O3);)
-
-        int exit_code = 0;
-        if (!options->jit) {
-            // Compile to Object File
-            TIMEIT("Writing Object File", codegen->WriteToObjectFile(options->output);)
-
-            // Link Object File
-            TIMEIT("Linking Object File", codegen->LinkObjectFile(fmt::format("{}.o", options->output));)
-        } else {
-            // Executing
-            TIMEIT("Execution", exit_code = codegen->JIT();)
-        }
-
-        if (options->timer)
-            print(DEBUG, "Total -> {:.2f} ms\n", total);
-
-        return exit_code;
-    } catch (const LesmaError &err) {
-        if (!err.getSpan().isValid())
-            print(ERROR, err.what());
-        else
-            showInline(srcMgr.get(), err.getSpan(), err.what(), options->file, true);
-        return err.exit_code;
-    }
+    auto options = parseCLI(argc, argv);
+    auto *driver_options = new Options{SourceType::FILE, options->file,
+                                       static_cast<Debug>(options->debug ? (LEXER | AST | IR) : NONE), options->output, options->timer};
+    return options->jit ? Driver::Run(driver_options) : Driver::Compile(driver_options);
 }

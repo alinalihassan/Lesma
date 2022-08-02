@@ -64,7 +64,9 @@ TokenType Token::GetIdentifierType(const std::string &identifier, Token *lastTok
     else if (identifier == "super")
         return TokenType::SUPER;
     else if (identifier == "extern")
-        return TokenType::EXTERN_FUNC;
+        return TokenType::EXTERN;
+    else if (identifier == "export")
+        return TokenType::EXPORT;
     else if (identifier == "as")
         return TokenType::AS;
     else if (identifier == "is")
@@ -91,6 +93,8 @@ TokenType Token::GetIdentifierType(const std::string &identifier, Token *lastTok
         return TokenType::VOID_TYPE;
     else if (identifier == "import")
         return TokenType::IMPORT;
+    else if (identifier == "from")
+        return TokenType::FROM;
     else
         return TokenType::IDENTIFIER;
 }

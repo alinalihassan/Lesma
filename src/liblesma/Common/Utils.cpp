@@ -8,9 +8,8 @@ namespace lesma {
         return filename_wo_ext;
     }
 
-    void showInline(llvm::SourceMgr *srcMgr, llvm::SMRange span, const std::string &reason, const std::string &file, bool is_error) {
-        std::ifstream ifs(file);
-        std::string line;
+    void showInline(llvm::SourceMgr *srcMgr, unsigned int bufferId, llvm::SMRange span, const std::string &reason, const std::string &file, bool is_error) {
+        std::istringstream ifs(srcMgr->getMemoryBuffer(bufferId)->getBuffer().str());
         unsigned int lineNum = 1;
         auto color = is_error ? fg(fmt::color::red) : fg(fmt::color::yellow);
         auto accent = fg(static_cast<fmt::color>(0x008EEA));// 008EEA
@@ -18,11 +17,12 @@ namespace lesma {
         print(is_error ? ERROR : WARNING, "");
         fmt::print(fmt::emphasis::bold, "{}\n", reason);
 
-        auto start_loc = srcMgr->getLineAndColumn(span.Start, srcMgr->getNumBuffers() - 1);
-        auto end_loc = srcMgr->getLineAndColumn(span.End, srcMgr->getNumBuffers() - 1);
+        auto start_loc = srcMgr->getLineAndColumn(span.Start, bufferId);
+        auto end_loc = srcMgr->getLineAndColumn(span.End, bufferId);
         fmt::print(accent, "{}--> ", std::string(int(log10(start_loc.first) + 1), ' '));
         fmt::print("{}:{}:{}\n", file, start_loc.first, start_loc.second);
-        while (std::getline(ifs, line)) {
+
+        for (std::string line; std::getline(ifs, line);) {
             if (lineNum == start_loc.first) {
                 // First line
                 fmt::print(accent, "{} |\n", std::string(int(log10(start_loc.first) + 1), ' '));

@@ -1,7 +1,7 @@
 #ret=101
 def extern exit(x: int)
 
-class Animal
+export class Animal
     var x: int
 
     def new()

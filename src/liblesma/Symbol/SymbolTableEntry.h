@@ -36,6 +36,7 @@ namespace lesma {
         [[nodiscard]] bool getSigned() const { return signed_; }
         [[nodiscard]] SymbolState getState() { return state; }
         [[nodiscard]] SymbolType *getType() { return type; }
+        [[nodiscard]] bool isExported() { return exported; }
         [[nodiscard]] bool isUsed() { return used; }
 
         void setLLVMValue(llvm::Value *value) { llvmValue = value; }
@@ -43,6 +44,7 @@ namespace lesma {
         void setUsed(bool used_) { used = used_; }
         void setSigned(bool signed__) { signed_ = signed__; }
         void setMutable(bool mutable__) { mutable_ = mutable__; }
+        void setExported(bool exported_) { exported = exported_; }
 
         std::string toString() {
             std::string type_str, value_str;
@@ -61,5 +63,6 @@ namespace lesma {
         bool mutable_;
         bool signed_;
         bool used = false;
+        bool exported = false;
     };
 }//namespace lesma

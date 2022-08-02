@@ -83,7 +83,8 @@ namespace lesma {
         NIL,
         OR,
         NOT,
-        EXTERN_FUNC,
+        EXTERN,
+        EXPORT,
         RETURN,
         SUPER,
         THIS,
@@ -99,6 +100,7 @@ namespace lesma {
         IS_NOT,
         IN,
         IMPORT,
+        FROM,
 
         // Special tokens
         EOF_TOKEN,

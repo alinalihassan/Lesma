@@ -15,10 +15,10 @@
 #include <llvm/IR/PassManager.h>
 #include <llvm/IR/Verifier.h>
 #include <llvm/Linker/Linker.h>
+#include <llvm/MC/TargetRegistry.h>
 #include <llvm/Passes/PassBuilder.h>
 #include <llvm/Support/Host.h>
 #include <llvm/Support/Program.h>
-#include <llvm/Support/TargetRegistry.h>
 #include <llvm/Support/TargetSelect.h>
 #include <llvm/Support/VirtualFileSystem.h>
 #include <llvm/Transforms/IPO/PassManagerBuilder.h>
@@ -42,6 +42,7 @@ namespace lesma {
         std::shared_ptr<SourceMgr> SourceManager;
         SymbolTable *Scope;
         std::string filename;
+        std::string alias;
 
         std::stack<llvm::BasicBlock *> breakBlocks;
         std::stack<llvm::BasicBlock *> continueBlocks;
@@ -52,6 +53,7 @@ namespace lesma {
         std::vector<std::tuple<Function *, FuncDecl *, SymbolTableEntry *>> Prototypes;
         llvm::Function *TopLevelFunc;
         SymbolTableEntry *selfSymbol = nullptr;
+        unsigned int bufferId;
         bool isBreak = false;
         bool isReturn = false;
         bool isAssignment = false;
@@ -59,19 +61,19 @@ namespace lesma {
         bool isMain = true;
 
     public:
-        Codegen(std::unique_ptr<Parser> parser, std::shared_ptr<SourceMgr> srcMgr, const std::string &filename, std::vector<std::string> imports, bool jit, bool main);
+        Codegen(std::unique_ptr<Parser> parser, std::shared_ptr<SourceMgr> srcMgr, const std::string &filename, std::vector<std::string> imports, bool jit, bool main, std::string alias = "");
 
         void Dump();
         void Run();
         int JIT();
         void WriteToObjectFile(const std::string &output);
         void LinkObjectFile(const std::string &obj_filename);
-        void Optimize(llvm::PassBuilder::OptimizationLevel opt);
+        void Optimize(OptimizationLevel opt);
 
     protected:
         std::unique_ptr<llvm::TargetMachine> InitializeTargetMachine();
         llvm::Function *InitializeTopLevel();
-        void CompileModule(llvm::SMRange span, const std::string &filepath, bool isStd);
+        void CompileModule(llvm::SMRange span, const std::string &filepath, bool isStd, std::string alias, bool importAll, bool importToScope, std::vector<std::pair<std::string, std::string>> imported_names);
 
         void visit(Statement *node) override;
         void visit(Compound *node) override;
@@ -105,7 +107,10 @@ namespace lesma {
         llvm::Value *Cast(llvm::SMRange span, llvm::Value *val, llvm::Type *type);
         llvm::Value *Cast(llvm::SMRange span, llvm::Value *val, llvm::Type *type, bool isStore);
         static llvm::Type *GetExtendedType(llvm::Type *left, llvm::Type *right);
-        std::string getMangledName(llvm::SMRange span, std::string func_name, const std::vector<llvm::Type *> &paramTypes, bool isMethod = false);
+        bool isMethod(const std::string &mangled_name);
+        std::string getMangledName(llvm::SMRange span, std::string func_name, const std::vector<llvm::Type *> &paramTypes, bool isMethod = false, std::string alias = "");
+        bool isMangled(std::string name);
+        std::string getDemangledName(const std::string &mangled_name);
         std::string getTypeMangledName(llvm::SMRange span, llvm::Type *type);
         llvm::Value *genFuncCall(FuncCall *node, const std::vector<llvm::Value *> &extra_params);
         static int FindIndexInFields(SymbolType *_struct, const std::string &field);

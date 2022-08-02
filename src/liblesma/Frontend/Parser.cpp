@@ -391,17 +391,19 @@ Statement *Parser::ParseDefer() {
 }
 
 Statement *Parser::ParseStatement(bool isTopLevel) {
-    if (CheckAny<TokenType::DEF, TokenType::IMPORT>() && !isTopLevel)
+    if (CheckAny<TokenType::DEF, TokenType::IMPORT, TokenType::CLASS, TokenType::ENUM, TokenType::EXPORT>() && !isTopLevel)
         Error(Peek(), "Statement not allowed inside a block");
 
     if (Check(TokenType::DEF))
         return ParseFunctionDeclaration();
-    else if (Check(TokenType::IMPORT))
+    else if (CheckAny<TokenType::IMPORT, TokenType::FROM>())
         return ParseImport();
     else if (Check(TokenType::CLASS))
         return ParseClass();
     else if (Check(TokenType::ENUM))
         return ParseEnum();
+    else if (Check(TokenType::EXPORT))
+        return ParseExport();
     else if (Check(TokenType::LET) || Check(TokenType::VAR))
         return ParseVarDecl();
     else if (Check(TokenType::IF))
@@ -448,11 +450,11 @@ Compound *Parser::ParseBlock() {
 }
 
 Statement *Parser::ParseFunctionDeclaration() {
-    auto loc = Peek()->span;
+    auto loc = isExported ? Previous()->span : Peek()->span;
     Consume(TokenType::DEF);
     bool extern_func = false;
 
-    if (AdvanceIfMatchAny<TokenType::EXTERN_FUNC>())
+    if (AdvanceIfMatchAny<TokenType::EXTERN>())
         extern_func = true;
 
     if (extern_func && inClass) {
@@ -495,17 +497,47 @@ Statement *Parser::ParseFunctionDeclaration() {
 
     if (extern_func) {
         ConsumeNewline();
-        return new ExternFuncDecl({loc.Start, return_type->getEnd()}, identifier->lexeme, return_type, parameters, varargs);
+        return new ExternFuncDecl({loc.Start, return_type->getEnd()}, identifier->lexeme, return_type, parameters, varargs, isExported);
     }
 
     auto body = ParseBlock();
 
-    return new FuncDecl({loc.Start, return_type->getEnd()}, identifier->lexeme, return_type, parameters, body, false);
+    return new FuncDecl({loc.Start, return_type->getEnd()}, identifier->lexeme, return_type, parameters, body, false, isExported);
+}
+
+Statement *Parser::ParseExport() {
+    Consume(TokenType::EXPORT);
+
+    if (inClass)
+        Error(Peek(), "Cannot export class members");
+
+    if (!CheckAny<TokenType::DEF, TokenType::CLASS, TokenType::ENUM>())
+        Error(Peek(), "Can only export functions, classes and enums");
+
+    isExported = true;
+    Statement *statement = nullptr;
+    if (Check(TokenType::DEF))
+        statement = ParseFunctionDeclaration();
+    else if (Check(TokenType::IMPORT))
+        statement = ParseImport();
+    else if (Check(TokenType::CLASS))
+        statement = ParseClass();
+    else if (Check(TokenType::ENUM))
+        statement = ParseEnum();
+    else
+        Error(Peek(), "Unexpected statement after export");
+
+    isExported = false;
+    return statement;
 }
 
 Statement *Parser::ParseImport() {
     auto loc = Peek()->span;
-    Consume(TokenType::IMPORT);
+    bool selectiveImport = false;
+    if (AdvanceIfMatchAny<TokenType::FROM>())
+        selectiveImport = true;
+    else
+        Consume(TokenType::IMPORT);
 
     Token *token;
     std::string filepath;
@@ -521,14 +553,35 @@ Statement *Parser::ParseImport() {
         return nullptr;
     }
 
-    if (AdvanceIfMatchAny<TokenType::AS>()) {
-        auto alias = Consume(TokenType::IDENTIFIER);
-        ConsumeNewline();
-        return new Import({loc.Start, alias->getEnd()}, token->lexeme, alias->lexeme, token->type == TokenType::IDENTIFIER);
-    }
+    if (!selectiveImport) {
+        std::string alias = getBasename(token->lexeme);
+        if (AdvanceIfMatchAny<TokenType::AS>())
+            alias = Consume(TokenType::IDENTIFIER)->lexeme;
 
-    ConsumeNewline();
-    return new Import({loc.Start, token->getEnd()}, filepath, getBasename(token->lexeme), token->type == TokenType::IDENTIFIER);
+        ConsumeNewline();
+        return new Import({loc.Start, token->getEnd()}, filepath, alias, token->type == TokenType::IDENTIFIER, true, false, {});
+    } else {
+        Consume(TokenType::IMPORT);
+
+        if (AdvanceIfMatchAny<TokenType::STAR>()) {
+            ConsumeNewline();
+            return new Import({loc.Start, token->getEnd()}, filepath, getBasename(token->lexeme), token->type == TokenType::IDENTIFIER, true, true, {});
+        } else {
+            std::vector<std::pair<std::string, std::string>> imported_names;
+
+            do {
+                auto ident = Consume(TokenType::IDENTIFIER)->lexeme;
+                auto alias = ident;
+                if (AdvanceIfMatchAny<TokenType::AS>())
+                    alias = Consume(TokenType::IDENTIFIER)->lexeme;
+
+                imported_names.emplace_back(ident, alias);
+            } while (AdvanceIfMatchAny<TokenType::COMMA>());
+
+            ConsumeNewline();
+            return new Import({loc.Start, token->getEnd()}, filepath, getBasename(token->lexeme), token->type == TokenType::IDENTIFIER, false, true, imported_names);
+        }
+    }
 }
 
 Statement *Parser::ParseClass() {
@@ -555,7 +608,7 @@ Statement *Parser::ParseClass() {
 
     AdvanceIfMatchAny<TokenType::DEDENT>();
 
-    return new Class(loc, token->lexeme, fields, methods);
+    return new Class(loc, token->lexeme, fields, methods, isExported);
 }
 
 Statement *Parser::ParseEnum() {
@@ -575,7 +628,7 @@ Statement *Parser::ParseEnum() {
 
     AdvanceIfMatchAny<TokenType::DEDENT>();
 
-    return new Enum(loc, token->lexeme, values);
+    return new Enum(loc, token->lexeme, values, isExported);
 }
 
 Compound *Parser::ParseCompound() {
