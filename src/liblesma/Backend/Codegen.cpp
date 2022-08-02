@@ -19,6 +19,7 @@ Codegen::Codegen(std::unique_ptr<Parser> parser, std::shared_ptr<SourceMgr> srcM
     Builder = std::make_unique<IRBuilder<>>(*TheContext);
     Parser_ = std::move(parser);
     SourceManager = std::move(srcMgr);
+    bufferId = SourceManager->getNumBuffers();
     Scope = new SymbolTable(nullptr);
     TargetMachine = InitializeTargetMachine();
 
@@ -263,7 +264,7 @@ void Codegen::CompileModule(llvm::SMRange span, const std::string &filepath, boo
         if (!err.getSpan().isValid())
             print(ERROR, err.what());
         else
-            showInline(SourceManager.get(), err.getSpan(), err.what(), absolute_path, true);
+            showInline(SourceManager.get(), file_id, err.getSpan(), err.what(), absolute_path, true);
 
         throw CodegenError(span, "Unable to import {} due to errors", filepath);
     }

@@ -90,7 +90,7 @@ int Driver::BaseCompile(Options *options, bool jit) {
         if (!err.getSpan().isValid())
             print(ERROR, err.what());
         else
-            showInline(srcMgr.get(), err.getSpan(), err.what(), options->sourceType == FILE ? options->source : "", true);
+            showInline(srcMgr.get(), 1, err.getSpan(), err.what(), options->sourceType == FILE ? options->source : "", true);
         return err.exit_code;
     }
 }

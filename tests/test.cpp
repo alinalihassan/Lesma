@@ -20,7 +20,7 @@ std::shared_ptr<SourceMgr> initializeSrcMgr(const std::string& source) {
     return srcMgr;
 }
 
-Lexer *initializeLexer(std::shared_ptr<SourceMgr> srcMgr) {
+Lexer *initializeLexer(const std::shared_ptr<SourceMgr>& srcMgr) {
     auto lexer = new Lexer(srcMgr);
     lexer->ScanAll();
 

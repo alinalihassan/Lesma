@@ -53,6 +53,7 @@ namespace lesma {
         std::vector<std::tuple<Function *, FuncDecl *, SymbolTableEntry *>> Prototypes;
         llvm::Function *TopLevelFunc;
         SymbolTableEntry *selfSymbol = nullptr;
+        unsigned int bufferId;
         bool isBreak = false;
         bool isReturn = false;
         bool isAssignment = false;
