@@ -37,43 +37,28 @@ print(fibonacci(20))
 
 ## 🔧 Build
 
-In order to build Lesma, you need Clang and LLVM 13 installed. It's currently only supported on Linux and macOS.
+In order to build Lesma, you need Clang and LLVM 14 installed. It's currently only supported on Linux and macOS.
 For a more comprehensive guide, and more information on how to install the prerequisites,
-read the documentation on [Getting Started](http://localhost:3000/docs/introduction/getting-started)
+read the documentation on [Getting Started](https://lesma-lang.com/docs/introduction/getting-started)
 
-Clone the repo:
 ```shell
+# Clone the repo
 git clone https://github.com/alinalihassan/Lesma
-```
 
-Build source
-```shell
-mkdir build
-cd build
+# Build source
+mkdir build && cd build
 cmake ..
 make
-```
 
-Run tests
-```shell
-ctest
-```
-
-Run Lesma source files
-```bash
-./lesma -h
-
-# Run a file directly (JIT)
-./lesma run test.les
-
-# Compile a file to binary (AOT)
-./lesma compile test.les
+# Run Lesma files
+./lesma run ../tests/lesma/print.les
 ```
 
 ## 💬 Contributing
-Pull requests are welcome. For major changes, please open an issue first to discuss what you would like to change.
 
-Please make sure to add and/or update tests as appropriate.
+Pull requests are welcome. For major changes, please open an issue to discuss your proposal and what you'd like to change.
+- To keep updated with releases, consider starring the project.
+- Check the [code of conduct](CODE_OF_CONDUCT.md) and [contributing guidelines](CONTRIBUTING.md)
 
 ## 📎 License
 This software is licensed under the [MIT](https://github.com/alinalihassan/Lesma/blob/main/LICENSE) © [Alin Ali Hassan](https://github.com/alinalihassan).
