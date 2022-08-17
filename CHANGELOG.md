@@ -1,3 +1,19 @@
+# [0.14.0](https://github.com/alinalihassan/Lesma/compare/v0.13.3...v0.14.0) (2022-08-02)
+
+
+### Bug Fixes
+
+* Fixed error messages when compiling multiple files not showing proper file ([a639e7c](https://github.com/alinalihassan/Lesma/commit/a639e7ca2d792ea4b83dcf2a743e1445744947d1))
+* Fixed running strings would not report errors properly ([f237c28](https://github.com/alinalihassan/Lesma/commit/f237c2807ef3e009d91a21691f02e8b91a194f12))
+* Fixed tests and stdlib debug code ([4daefe0](https://github.com/alinalihassan/Lesma/commit/4daefe0d18b68732634eccf2b9fbb7982f8091e7))
+
+
+### Features
+
+* Added driver class to be used by other projects (server wink wink) ([6d1be42](https://github.com/alinalihassan/Lesma/commit/6d1be426e1ece3c0fd87d32f4161e1e402978fbc))
+* Added export keyword, fixed classes and enums not being imported in compilation ([e83055b](https://github.com/alinalihassan/Lesma/commit/e83055b460b6f0e7f0d51ebf08fad0ae405e566e))
+* Added python-like import syntax, LLVM 14 ([c9012ea](https://github.com/alinalihassan/Lesma/commit/c9012eae3d6adc8fcb61ed1e09bfc8b5e7f5d6e3))
+
 ## [0.13.3](https://github.com/alinalihassan/Lesma/compare/v0.13.2...v0.13.3) (2022-06-01)
 
 

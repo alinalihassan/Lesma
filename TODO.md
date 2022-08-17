@@ -11,7 +11,7 @@
 - [ ] Fix error reporting not handling multiline errors well
 - [ ] Fix indentation on the second line after line continuation not working
 - [x] Fix strings escaping all forward slashes, cannot use any escape sequences
-- [ ] Fix showInline errors showing the wrong file
+- [x] Fix showInline errors showing the wrong file
 - [ ] Fix class import behavior not working properly
 - [ ] Fix imports optimizing unused function declarations (like exit from base.les).
 
