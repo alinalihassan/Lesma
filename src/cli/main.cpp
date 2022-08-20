@@ -34,8 +34,7 @@ std::unique_ptr<CLIOptions> parseCLI(int argc, char **argv) {
         if ((app.get_subcommands().empty() && argc == 1) || (!app.get_subcommands().empty() && argc == 2)) {
             print(app.help());
             exit(0);
-        }
-        else {
+        } else {
             exit(app.exit(e));
         }
     }
