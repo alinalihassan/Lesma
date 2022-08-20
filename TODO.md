@@ -7,11 +7,11 @@
 - [x] Fix symbols with same name but different function signatures (mangled and non-manged) overlapping, it should issue a warning and the newest one replace the old one
 - [x] Fix being able to call function without respective arguments, but throw error
 - [x] Fix arguments not being usable (not stored in LLVM IR)
-- [ ] Fix import error while reading file being caught by Utils function instead of module, which could show where import was stated
-- [ ] Fix error reporting not handling multiline errors well
-- [ ] Fix indentation on the second line after line continuation not working
+- [x] Fix import error while reading file being caught by Utils function instead of module, which could show where import was stated.
 - [x] Fix strings escaping all forward slashes, cannot use any escape sequences
 - [x] Fix showInline errors showing the wrong file
+- [ ] Fix error reporting not handling multiline errors well
+- [ ] Fix indentation on the second line after line continuation not working
 - [ ] Fix class import behavior not working properly
 - [ ] Fix imports optimizing unused function declarations (like exit from base.les).
 

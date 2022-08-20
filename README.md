@@ -21,14 +21,7 @@
 
 ## ✍️ Example
 
-```python
-def fibonacci(x: int) -> int
-    if x <= 1
-        return x
-    return fibonacci(x - 1) + fibonacci(x - 2)
-
-print(fibonacci(20))
-```
+![Sample Program](imgs/sample.png)
 
 ## 📖 Documentation
 
@@ -41,18 +34,7 @@ In order to build Lesma, you need Clang and LLVM 14 installed. It's currently on
 For a more comprehensive guide, and more information on how to install the prerequisites,
 read the documentation on [Getting Started](https://lesma-lang.com/docs/introduction/getting-started)
 
-```shell
-# Clone the repo
-git clone https://github.com/alinalihassan/Lesma
-
-# Build source
-mkdir build && cd build
-cmake ..
-make
-
-# Run Lesma files
-./lesma run ../tests/lesma/print.les
-```
+![CLI Commands](imgs/cli_commands.png)
 
 ## 💬 Contributing
 
