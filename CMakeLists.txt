@@ -1,5 +1,16 @@
 cmake_minimum_required(VERSION 3.16)
-project(Lesma)
+
+# Get version
+find_package(Git)
+execute_process(
+        COMMAND           ${GIT_EXECUTABLE} describe --tag --abbrev=0
+        WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+        OUTPUT_VARIABLE   LESMA_TAG
+        ERROR_QUIET OUTPUT_STRIP_TRAILING_WHITESPACE)
+string(REPLACE v "" LESMA_VERSION ${LESMA_TAG})
+
+# Project
+project(Lesma VERSION ${LESMA_VERSION})
 
 # C++ Flags and settings
 if (CMAKE_BUILD_TYPE MATCHES Debug)
@@ -30,6 +41,13 @@ get_filename_component(SRC_DIR ${ROOT_DIR}/src ABSOLUTE)
 get_filename_component(LIB_DIR ${ROOT_DIR}/lib ABSOLUTE)
 get_filename_component(BUILD_DIR ${CMAKE_BINARY_DIR} ABSOLUTE)
 
+# Version configuration
+configure_file(
+        "${SRC_DIR}/liblesma/Common/LesmaVersion.h.in"
+        "${SRC_DIR}/liblesma/Common/LesmaVersion.h"
+        @ONLY)
+
+# Include directories
 include_directories(${SRC_DIR})
 include_directories(${LIB_DIR})
 
