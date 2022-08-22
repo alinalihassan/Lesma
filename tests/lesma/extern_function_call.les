@@ -1,4 +1,2 @@
 #ret=101
-def extern exit(code: int)
-
 exit(101)

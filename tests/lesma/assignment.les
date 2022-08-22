@@ -1,6 +1,4 @@
 #ret=101
-def extern exit(x: int)
-
 var y: int = 100
 y = 101
 

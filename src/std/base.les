@@ -54,3 +54,8 @@ export def print(x: bool)
         print("true")
     else
         print("false")
+
+# Hack to keep exit function alive, needs to be used to survive import
+def testExit()
+    exit(1)
+###

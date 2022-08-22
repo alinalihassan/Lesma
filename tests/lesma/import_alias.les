@@ -1,6 +1,4 @@
 #ret=101
 import time as timetest
-def extern exit(x: int)
-
 timetest.sleep(0.1)
 exit(101)
