@@ -129,7 +129,7 @@ std::unique_ptr<llvm::TargetMachine> Codegen::InitializeTargetMachine() {
     return target_machine;
 }
 
-void Codegen::CompileModule(llvm::SMRange span, const std::string &filepath, bool isStd, std::string alias, bool importAll, bool importToScope, std::vector<std::pair<std::string, std::string>> imported_names) {
+void Codegen::CompileModule(llvm::SMRange span, const std::string &filepath, bool isStd, const std::string& module_alias, bool importAll, bool importToScope, std::vector<std::pair<std::string, std::string>> imported_names) {
     std::filesystem::path mainPath = filename;
     // Read source
     auto absolute_path = isStd ? filepath : fmt::format("{}/{}", std::filesystem::absolute(mainPath).parent_path().c_str(), filepath);
@@ -157,7 +157,7 @@ void Codegen::CompileModule(llvm::SMRange span, const std::string &filepath, boo
 
         // TODO: Delete it, memory leak, smart pointer made us lose the references to other modules
         // Codegen
-        auto codegen = new Codegen(std::move(parser), SourceManager, absolute_path, ImportedModules, isJIT, false, !importToScope ? alias : "");
+        auto codegen = new Codegen(std::move(parser), SourceManager, absolute_path, ImportedModules, isJIT, false, !importToScope ? module_alias : "");
         codegen->Run();
 
         // Optimize
@@ -166,11 +166,11 @@ void Codegen::CompileModule(llvm::SMRange span, const std::string &filepath, boo
 
         ImportedModules = std::move(codegen->ImportedModules);
 
-        if (!alias.empty()) {
+        if (!module_alias.empty()) {
             auto import_typ = new SymbolType(TY_IMPORT);
-            auto import_sym = new SymbolTableEntry(alias, import_typ);
+            auto import_sym = new SymbolTableEntry(module_alias, import_typ);
             Scope->insertSymbol(import_sym);
-            Scope->insertType(alias, import_typ);
+            Scope->insertType(module_alias, import_typ);
         }
 
         auto findInImports = [imported_names](const std::string &import) -> std::string {

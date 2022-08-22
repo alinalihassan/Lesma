@@ -73,7 +73,7 @@ namespace lesma {
     protected:
         std::unique_ptr<llvm::TargetMachine> InitializeTargetMachine();
         llvm::Function *InitializeTopLevel();
-        void CompileModule(llvm::SMRange span, const std::string &filepath, bool isStd, std::string alias, bool importAll, bool importToScope, std::vector<std::pair<std::string, std::string>> imported_names);
+        void CompileModule(llvm::SMRange span, const std::string &filepath, bool isStd, const std::string& alias, bool importAll, bool importToScope, std::vector<std::pair<std::string, std::string>> imported_names);
 
         void visit(Statement *node) override;
         void visit(Compound *node) override;
