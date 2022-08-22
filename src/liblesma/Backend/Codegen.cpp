@@ -129,7 +129,7 @@ std::unique_ptr<llvm::TargetMachine> Codegen::InitializeTargetMachine() {
     return target_machine;
 }
 
-void Codegen::CompileModule(llvm::SMRange span, const std::string &filepath, bool isStd, const std::string& module_alias, bool importAll, bool importToScope, std::vector<std::pair<std::string, std::string>> imported_names) {
+void Codegen::CompileModule(llvm::SMRange span, const std::string &filepath, bool isStd, const std::string &module_alias, bool importAll, bool importToScope, std::vector<std::pair<std::string, std::string>> imported_names) {
     std::filesystem::path mainPath = filename;
     // Read source
     auto absolute_path = isStd ? filepath : fmt::format("{}/{}", std::filesystem::absolute(mainPath).parent_path().c_str(), filepath);
