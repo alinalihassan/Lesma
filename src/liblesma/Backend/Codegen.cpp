@@ -271,6 +271,9 @@ void Codegen::CompileModule(llvm::SMRange span, const std::string &filepath, boo
 }
 
 void Codegen::Optimize(OptimizationLevel opt) {
+    if (opt == OptimizationLevel::O0)
+        return;
+
     llvm::LoopAnalysisManager LAM;
     llvm::FunctionAnalysisManager FAM;
     llvm::CGSCCAnalysisManager CGAM;
@@ -602,7 +605,7 @@ void Codegen::visit(FuncDecl *node) {
         paramTypes.push_back(visit(param.second));
 
     auto name = getMangledName(node->getSpan(), node->getName(), paramTypes, selfSymbol != nullptr);
-    auto linkage = Function::ExternalLinkage;
+    auto linkage = node->isExported() ? Function::ExternalLinkage : Function::PrivateLinkage;
 
     FunctionType *FT = FunctionType::get(visit(node->getReturnType()), paramTypes, node->getVarArgs());
     Function *F = Function::Create(FT, linkage, name, *TheModule);

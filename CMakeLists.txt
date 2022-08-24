@@ -94,7 +94,6 @@ add_executable(tests ${COMMON_SOURCES} ${TEST_SOURCES})
 target_link_libraries(${CLI_NAME}   PRIVATE ${COMMON_LIBS} CLI11)
 target_link_libraries(${TESTS_NAME} PRIVATE ${COMMON_LIBS} Catch2::Catch2)
 
-
 # Tests
 enable_testing()
 
