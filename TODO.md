@@ -13,8 +13,7 @@
 - [ ] Fix error reporting not handling multiline errors well
 - [ ] Fix indentation on the second line after line continuation not working
 - [ ] Fix class import behavior not working properly
-- [ ] Fix imports optimizing unused function declarations (like exit from base.les).
-- [ ] Fix imported modules/files don't seem to get base.les
+- [ ] Fix imported modules/files skip already imported modules (such as base.les)
 - [ ] Fix unused extern functions get optimized (even without optimized) and we have to make dummy functions
 
 ## Refactoring
