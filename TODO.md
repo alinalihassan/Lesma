@@ -15,6 +15,8 @@
 - [ ] Fix class import behavior not working properly
 - [ ] Fix imported modules/files skip already imported modules (such as base.les)
 - [ ] Fix unused extern functions get optimized (even without optimized) and we have to make dummy functions
+- [ ] Fix type comparison across modules (string class test doesn't work because strlen is defined in base.les 
+and class is defined in its own file, thus cast doesn't see that i64's pointer is i64 from another module)
 
 ## Refactoring
 - [x] Replace SourceLocation by Span
