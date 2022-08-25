@@ -1,4 +1,5 @@
 #ret=101
+def extern exit(x: int)
 let y: float = 101.5
 let z: int = y as int
 

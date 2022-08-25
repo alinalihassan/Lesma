@@ -28,9 +28,8 @@ sudo apt install cmake
 
 Install LLVM & Clang
 ```bash
-wget https://apt.llvm.org/llvm.sh
-chmod +x llvm.sh
-sudo ./llvm.sh 13 all
+# Run the script in the repository
+./setup-llvm.sh
 ```
 
 Set Clang symlink to Clang 13

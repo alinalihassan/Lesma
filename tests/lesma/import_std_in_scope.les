@@ -1,4 +1,5 @@
 #ret=101
+def extern exit(x: int)
 from time import sleep as sleep_test
 from "class.les" import Animal
 let y = Animal()

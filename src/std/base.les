@@ -1,6 +1,6 @@
 def extern printf(fmt: str, ...)
 def extern scanf(fmt: str, ...)
-def extern malloc(size: int) -> *void
+def extern malloc(size: int) -> *int8
 def extern strlen(x: str) -> int
 def extern atoll(x: str) -> int
 def extern strtod(x: str) -> float

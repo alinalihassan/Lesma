@@ -1,4 +1,5 @@
 #ret=101
+def extern exit(x: int)
 var x: int = 0
 while x < 101
     x = x + 1

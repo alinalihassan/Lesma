@@ -1,4 +1,5 @@
 #ret=101
+def extern exit(x: int)
 var x: int = 100
 let y: int = 101
 exit(y)

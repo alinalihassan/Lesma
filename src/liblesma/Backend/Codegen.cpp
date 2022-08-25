@@ -1,22 +1,19 @@
 #include "Codegen.h"
 
-#include <regex>
-#include <utility>
-
 using namespace lesma;
 
-Codegen::Codegen(std::unique_ptr<Parser> parser, std::shared_ptr<SourceMgr> srcMgr, const std::string &filename, std::vector<std::string> imports, bool jit, bool main, std::string alias) {
+Codegen::Codegen(std::unique_ptr<Parser> parser, std::shared_ptr<SourceMgr> srcMgr, const std::string &filename, std::vector<std::string> imports, bool jit, bool main, std::string alias, ThreadSafeContext *context) {
     InitializeNativeTarget();
     InitializeNativeTargetAsmPrinter();
     InitializeNativeTargetAsmParser();
 
     ImportedModules = std::move(imports);
     TheJIT = ExitOnErr(LesmaJIT::Create());
-    TheContext = std::make_unique<LLVMContext>();
-    TheModule = std::make_unique<Module>("Lesma JIT", *TheContext);
+    TheContext = context == nullptr ? new ThreadSafeContext(std::make_unique<LLVMContext>()) : context;
+    TheModule = std::make_unique<Module>("Lesma JIT", *TheContext->getContext());
     TheModule->setDataLayout(TheJIT->getDataLayout());
     TheModule->setSourceFileName(filename);
-    Builder = std::make_unique<IRBuilder<>>(*TheContext);
+    Builder = std::make_unique<IRBuilder<>>(*TheContext->getContext());
     Parser_ = std::move(parser);
     SourceManager = std::move(srcMgr);
     bufferId = SourceManager->getNumBuffers();
@@ -42,7 +39,7 @@ llvm::Function *Codegen::InitializeTopLevel() {
     FunctionType *FT = FunctionType::get(Builder->getInt64Ty(), paramTypes, false);
     Function *F = Function::Create(FT, isMain ? Function::ExternalLinkage : Function::InternalLinkage, "main", *TheModule);
 
-    auto entry = BasicBlock::Create(*TheContext, "entry", F);
+    auto entry = BasicBlock::Create(*TheContext->getContext(), "entry", F);
     Builder->SetInsertPoint(entry);
 
     return F;
@@ -52,7 +49,7 @@ void Codegen::defineFunction(Function *F, FuncDecl *node, SymbolTableEntry *clsS
     Scope = Scope->createChildBlock(node->getName());
     deferStack.push({});
 
-    BasicBlock *entry = BasicBlock::Create(*TheContext, "entry", F);
+    BasicBlock *entry = BasicBlock::Create(*TheContext->getContext(), "entry", F);
     Builder->SetInsertPoint(entry);
 
     for (auto &param: F->args()) {
@@ -157,7 +154,7 @@ void Codegen::CompileModule(llvm::SMRange span, const std::string &filepath, boo
 
         // TODO: Delete it, memory leak, smart pointer made us lose the references to other modules
         // Codegen
-        auto codegen = new Codegen(std::move(parser), SourceManager, absolute_path, ImportedModules, isJIT, false, !importToScope ? module_alias : "");
+        auto codegen = std::make_unique<Codegen>(std::move(parser), SourceManager, absolute_path, ImportedModules, isJIT, false, !importToScope ? module_alias : "", TheContext);
         codegen->Run();
 
         // Optimize
@@ -166,7 +163,7 @@ void Codegen::CompileModule(llvm::SMRange span, const std::string &filepath, boo
 
         ImportedModules = std::move(codegen->ImportedModules);
 
-        if (!module_alias.empty()) {
+        if (!importToScope) {
             auto import_typ = new SymbolType(TY_IMPORT);
             auto import_sym = new SymbolTableEntry(module_alias, import_typ);
             Scope->insertSymbol(import_sym);
@@ -182,82 +179,60 @@ void Codegen::CompileModule(llvm::SMRange span, const std::string &filepath, boo
             return "";
         };
 
-        // Add classes and enums
-        for (auto sym: codegen->Scope->getSymbols()) {
-            auto imp_alias = findInImports(sym.first);
-            if (sym.second->getType()->isOneOf({TY_ENUM, TY_CLASS}) && sym.second->isExported() && (importAll || !imp_alias.empty())) {
-                // TODO: We have to reconstruct classes and enums, fix me
-                auto struct_ty = cast<llvm::StructType>(sym.second->getLLVMType());
-                llvm::StructType *structType = llvm::StructType::create(*TheContext, struct_ty->elements(), sym.first);
-
-                auto *structSymbol = new SymbolTableEntry(imp_alias.empty() ? sym.first : imp_alias, sym.second->getType());
-                structSymbol->setLLVMType(structType);
-                Scope->insertType(sym.first, sym.second->getType());
-                Scope->insertSymbol(structSymbol);
-            }
-        }
-
+        // Linking the two modules together
         if (isJIT) {
             // Link modules together
             if (Linker::linkModules(*TheModule, std::move(codegen->TheModule), (1 << 0)))
                 throw CodegenError({}, "Error linking modules together");
 
-            // Add function to main module
-            for (auto &it: *TheModule) {
-                auto name = std::string{it.getName()};
-                std::vector<llvm::Type *> paramTypes;
-                for (unsigned param_i = 0; param_i < it.getFunctionType()->getNumParams(); param_i++)
-                    paramTypes.push_back(it.getFunctionType()->getParamType(param_i));
-
-                SymbolTableEntry *func_symbol;
-                // Get function without name mangling in case of extern C functions
-                if (!isMangled(name) && name != "main")
-                    func_symbol = codegen->Scope->lookup(name);
-                else
-                    func_symbol = codegen->Scope->lookup(name);
-
-                // Only import if it's exported
-                auto demangled_name = getDemangledName(name);
-                auto imp_alias = findInImports(demangled_name);
-                if (func_symbol != nullptr && func_symbol->isExported() && (importAll || !imp_alias.empty() || isMethod(name))) {
-                    auto symbol = new SymbolTableEntry(imp_alias.empty() ? name : std::regex_replace(name, std::regex(demangled_name), imp_alias), new SymbolType(SymbolSuperType::TY_FUNCTION));
-                    symbol->setLLVMType(it.getFunctionType());
-                    symbol->setLLVMValue((Value *) &it.getFunction());
-                    Scope->insertSymbol(symbol);
-                }
-            }
+            // TODO: Currently unused since we link everything to main module, we need to develop the JIT more in the future
+            // ExitOnErr(TheJIT->addModule(ThreadSafeModule(std::move(codegen->TheModule), *TheContext)));
         } else {
             // Create object file to be linked
             std::string obj_file = fmt::format("tmp{}", ObjectFiles.size());
             codegen->WriteToObjectFile(obj_file);
             ObjectFiles.push_back(fmt::format("{}.o", obj_file));
+        }
 
-            // Add function definitions
-            for (auto &it: *codegen->TheModule) {
-                auto name = std::string{it.getName()};
-                std::vector<llvm::Type *> paramTypes;
-                for (unsigned param_i = 0; param_i < it.getFunctionType()->getNumParams(); param_i++)
-                    paramTypes.push_back(it.getFunctionType()->getParamType(param_i));
+        // Import Functions
+        // Loop over the main module if it's JIT, since we link them in one, otherwise check the imported module for symbols
+        for (auto &it: isJIT ? *TheModule : *codegen->TheModule) {
+            auto name = std::string{it.getName()};
+            std::vector<llvm::Type *> paramTypes;
+            for (unsigned param_i = 0; param_i < it.getFunctionType()->getNumParams(); param_i++)
+                paramTypes.push_back(it.getFunctionType()->getParamType(param_i));
 
-                SymbolTableEntry *func_symbol;
-                // Get function without name mangling in case of extern C functions
-                if (!isMangled(name) && name != "main")
-                    func_symbol = codegen->Scope->lookup(name);
-                else
-                    func_symbol = codegen->Scope->lookup(name);
+            // TODO: Get function without name mangling in case of extern C functions?
+            SymbolTableEntry *func_symbol = codegen->Scope->lookup(name);
 
-                auto demangled_name = getDemangledName(name);
-                auto imp_alias = findInImports(demangled_name);
-                if (func_symbol != nullptr && func_symbol->isExported() && (importAll || !imp_alias.empty() || isMethod(name))) {
-                    auto new_func = Function::Create(it.getFunctionType(),
-                                                     Function::ExternalLinkage,
-                                                     name,
-                                                     *TheModule);
-                    auto symbol = new SymbolTableEntry(imp_alias.empty() ? name : std::regex_replace(name, std::regex(demangled_name), imp_alias), new SymbolType(SymbolSuperType::TY_FUNCTION));
+            // Only import if it's exported
+            auto demangled_name = getDemangledName(name);
+            auto imp_alias = findInImports(demangled_name);
+            if (func_symbol != nullptr && func_symbol->isExported() && (importAll || !imp_alias.empty() || isMethod(name))) {
+                auto symbol = new SymbolTableEntry(imp_alias.empty() ? name : std::regex_replace(name, std::regex(demangled_name), imp_alias), new SymbolType(SymbolSuperType::TY_FUNCTION));
+
+                if (isJIT) {
+                    symbol->setLLVMType(it.getFunctionType());
+                    symbol->setLLVMValue((Value *) &it.getFunction());
+                } else {
+                    auto new_func = Function::Create(it.getFunctionType(), Function::ExternalLinkage, name, *TheModule);
                     symbol->setLLVMType(new_func->getFunctionType());
                     symbol->setLLVMValue(new_func);
-                    Scope->insertSymbol(symbol);
                 }
+                Scope->insertSymbol(symbol);
+            }
+        }
+
+        // Import Classes and Enums
+        for (auto sym: codegen->Scope->getSymbols()) {
+            auto imp_alias = findInImports(sym.first);
+            if (sym.second->getType()->isOneOf({TY_ENUM, TY_CLASS}) && sym.second->isExported() && (importAll || !imp_alias.empty())) {
+                llvm::StructType *structType = StructType::getTypeByName(*TheContext->getContext(), sym.first);
+
+                auto *structSymbol = new SymbolTableEntry(imp_alias.empty() ? sym.first : imp_alias, sym.second->getType());
+                structSymbol->setLLVMType(structType);
+                Scope->insertType(sym.first, sym.second->getType());
+                Scope->insertSymbol(structSymbol);
             }
         }
     } catch (const LesmaError &err) {
@@ -347,13 +322,14 @@ void Codegen::LinkObjectFile(const std::string &obj_filename) {
 }
 
 int Codegen::JIT() {
-    auto jit_error = TheJIT->addModule(ThreadSafeModule(std::move(TheModule), std::move(TheContext)));
+    auto jit_error = TheJIT->addModule(ThreadSafeModule(std::move(TheModule), *TheContext));
     if (jit_error)
         throw CodegenError({}, "JIT Error:\n{}");
-
     using MainFnTy = int();
     auto jit_main = jitTargetAddressToFunction<MainFnTy *>(TheJIT->lookup(TopLevelFunc->getName())->getAddress());
-    return jit_main();
+    auto ret = jit_main();
+
+    return ret;
 }
 
 void Codegen::Run() {
@@ -506,19 +482,19 @@ void Codegen::visit(VarDecl *node) {
 
 void Codegen::visit(If *node) {
     auto parentFct = Builder->GetInsertBlock()->getParent();
-    auto bStart = llvm::BasicBlock::Create(*TheContext, "if.start");
-    auto bEnd = llvm::BasicBlock::Create(*TheContext, "if.end");
+    auto bStart = llvm::BasicBlock::Create(*TheContext->getContext(), "if.start");
+    auto bEnd = llvm::BasicBlock::Create(*TheContext->getContext(), "if.end");
 
     Builder->CreateBr(bStart);
     parentFct->getBasicBlockList().push_back(bStart);
     Builder->SetInsertPoint(bStart);
 
     for (unsigned long i = 0; i < node->getConds().size(); i++) {
-        auto bIfTrue = llvm::BasicBlock::Create(*TheContext, "if.true");
+        auto bIfTrue = llvm::BasicBlock::Create(*TheContext->getContext(), "if.true");
         parentFct->getBasicBlockList().push_back(bIfTrue);
         auto bIfFalse = bEnd;
         if (i + 1 < node->getConds().size()) {
-            bIfFalse = llvm::BasicBlock::Create(*TheContext, "if.false");
+            bIfFalse = llvm::BasicBlock::Create(*TheContext->getContext(), "if.false");
             parentFct->getBasicBlockList().push_back(bIfFalse);
         }
 
@@ -556,9 +532,9 @@ void Codegen::visit(While *node) {
     llvm::Function *parentFct = Builder->GetInsertBlock()->getParent();
 
     // Create blocks
-    llvm::BasicBlock *bCond = llvm::BasicBlock::Create(*TheContext, "while.cond");
-    llvm::BasicBlock *bLoop = llvm::BasicBlock::Create(*TheContext, "while");
-    llvm::BasicBlock *bEnd = llvm::BasicBlock::Create(*TheContext, "while.end");
+    llvm::BasicBlock *bCond = llvm::BasicBlock::Create(*TheContext->getContext(), "while.cond");
+    llvm::BasicBlock *bLoop = llvm::BasicBlock::Create(*TheContext->getContext(), "while");
+    llvm::BasicBlock *bEnd = llvm::BasicBlock::Create(*TheContext->getContext(), "while.end");
 
     breakBlocks.push(bEnd);
     continueBlocks.push(bCond);
@@ -800,7 +776,7 @@ void Codegen::visit(Class *node) {
         elementTypes.push_back(typ);
     }
 
-    llvm::StructType *structType = llvm::StructType::create(*TheContext, elementTypes, node->getIdentifier());
+    llvm::StructType *structType = llvm::StructType::create(*TheContext->getContext(), elementTypes, node->getIdentifier());
 
     std::vector<std::tuple<std::string, SymbolType *>> fields;
 
@@ -830,7 +806,7 @@ void Codegen::visit(Class *node) {
 
 void Codegen::visit(Enum *node) {
     std::vector<llvm::Type *> elementTypes = {Builder->getInt8Ty()};
-    llvm::StructType *structType = llvm::StructType::create(*TheContext, elementTypes, node->getIdentifier());
+    llvm::StructType *structType = llvm::StructType::create(*TheContext->getContext(), elementTypes, node->getIdentifier());
     std::vector<std::tuple<std::string, SymbolType *>> fields;
 
     for (const auto &field: node->getValues())
@@ -925,7 +901,7 @@ llvm::Value *Codegen::visit(BinaryOp *node) {
                 auto sym = Scope->lookup(left->getType()->getPointerElementType()->getStructName().str());
                 if (sym != nullptr && sym->getType()->is(TY_ENUM)) {
                     if (left->getType()->getPointerElementType() != right->getType()->getPointerElementType())
-                        return ConstantInt::getBool(*TheContext, false);
+                        return ConstantInt::getBool(*TheContext->getContext(), false);
                     else {
                         auto left_gep = Builder->CreateStructGEP(sym->getLLVMType(), left, 0);
                         auto left_load = Builder->CreateLoad(Builder->getInt8Ty(), left_gep);
@@ -960,7 +936,7 @@ llvm::Value *Codegen::visit(BinaryOp *node) {
             right = Cast(node->getSpan(), right, finalType);
 
             if (finalType == nullptr && (left->getType()->isPointerTy() && left->getType()->getPointerElementType()->isStructTy()) && (right->getType()->isPointerTy() && right->getType()->getPointerElementType()->isStructTy()))
-                return ConstantInt::getBool(*TheContext, true);
+                return ConstantInt::getBool(*TheContext->getContext(), true);
             else if (left->getType()->isPointerTy() && right->getType()->isPointerTy())
                 return Builder->CreateICmpNE(left, right);
             else if (finalType == nullptr)
@@ -1181,7 +1157,7 @@ llvm::Value *Codegen::visit(UnaryOp *node) {
 
 llvm::Value *Codegen::visit(Literal *node) {
     if (node->getType() == TokenType::DOUBLE)
-        return ConstantFP::get(*TheContext, APFloat(std::stod(node->getValue())));
+        return ConstantFP::get(*TheContext->getContext(), APFloat(std::stod(node->getValue())));
     else if (node->getType() == TokenType::INTEGER)
         return ConstantInt::getSigned(Builder->getInt64Ty(), std::stoi(node->getValue()));
     else if (node->getType() == TokenType::BOOL)
@@ -1207,7 +1183,7 @@ llvm::Value *Codegen::visit(Literal *node) {
 }
 
 llvm::Value *Codegen::visit(Else * /*node*/) {
-    return llvm::ConstantInt::getTrue(*TheContext);
+    return llvm::ConstantInt::getTrue(*TheContext->getContext());
 }
 
 std::string Codegen::getTypeMangledName(llvm::SMRange span, llvm::Type *type) {

@@ -1,4 +1,5 @@
 #ret=101
+def extern exit(x: int)
 export def fib() -> int
     return 101
 

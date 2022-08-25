@@ -52,8 +52,10 @@ include_directories(${SRC_DIR})
 include_directories(${LIB_DIR})
 
 # LLVM configuration
+set(LLVM_DIR ./llvm/build-release/lib/cmake/llvm)
 find_package(LLVM 14 CONFIG REQUIRED)
 message(STATUS "Found LLVM ${LLVM_PACKAGE_VERSION}")
+message(STATUS "Using LLVMConfig.cmake from ${LLVM_DIR}")
 
 include_directories(SYSTEM ${LLVM_INCLUDE_DIRS})
 add_definitions(${LLVM_DEFINITIONS})
@@ -61,9 +63,10 @@ add_definitions(${LLVM_DEFINITIONS})
 llvm_map_components_to_libnames(LLVM_LIBS core support demangle mcjit native orcjit)
 
 # Clang configuration
+set(Clang_DIR ./llvm/build-release/lib/cmake/clang)
 find_package(Clang REQUIRED)
 
-include_directories(${CLANG_INCLUDE_DIRS})
+include_directories(SYSTEM ${CLANG_INCLUDE_DIRS})
 add_definitions(${CLANG_DEFINITIONS})
 
 set(CLANG_LIBS clangTooling)
