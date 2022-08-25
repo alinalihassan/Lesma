@@ -215,7 +215,7 @@ void Codegen::CompileModule(llvm::SMRange span, const std::string &filepath, boo
                     symbol->setLLVMType(it.getFunctionType());
                     symbol->setLLVMValue((Value *) &it.getFunction());
                 } else {
-                    auto new_func = Function::Create(it.getFunctionType(),Function::ExternalLinkage,name,*TheModule);
+                    auto new_func = Function::Create(it.getFunctionType(), Function::ExternalLinkage, name, *TheModule);
                     symbol->setLLVMType(new_func->getFunctionType());
                     symbol->setLLVMValue(new_func);
                 }
