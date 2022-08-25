@@ -1,4 +1,5 @@
 #ret=101
+def extern exit(x: int)
 import "function_call.les"
 
 exit(function_call.fib())
