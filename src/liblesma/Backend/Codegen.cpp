@@ -1,18 +1,15 @@
 #include "Codegen.h"
 
-#include <regex>
-#include <utility>
-
 using namespace lesma;
 
-Codegen::Codegen(std::unique_ptr<Parser> parser, std::shared_ptr<SourceMgr> srcMgr, const std::string &filename, std::vector<std::string> imports, bool jit, bool main, std::string alias) {
+Codegen::Codegen(std::unique_ptr<Parser> parser, std::shared_ptr<SourceMgr> srcMgr, const std::string &filename, std::vector<std::string> imports, bool jit, bool main, std::string alias, const std::shared_ptr<LLVMContext>& context) {
     InitializeNativeTarget();
     InitializeNativeTargetAsmPrinter();
     InitializeNativeTargetAsmParser();
 
     ImportedModules = std::move(imports);
     TheJIT = ExitOnErr(LesmaJIT::Create());
-    TheContext = std::make_unique<LLVMContext>();
+    TheContext = context == nullptr ? std::make_shared<LLVMContext>() : context;
     TheModule = std::make_unique<Module>("Lesma JIT", *TheContext);
     TheModule->setDataLayout(TheJIT->getDataLayout());
     TheModule->setSourceFileName(filename);
@@ -157,7 +154,7 @@ void Codegen::CompileModule(llvm::SMRange span, const std::string &filepath, boo
 
         // TODO: Delete it, memory leak, smart pointer made us lose the references to other modules
         // Codegen
-        auto codegen = new Codegen(std::move(parser), SourceManager, absolute_path, ImportedModules, isJIT, false, !importToScope ? module_alias : "");
+        auto codegen = std::make_unique<Codegen>(std::move(parser), SourceManager, absolute_path, ImportedModules, isJIT, false, !importToScope ? module_alias : "", TheContext);
         codegen->Run();
 
         // Optimize
@@ -226,6 +223,7 @@ void Codegen::CompileModule(llvm::SMRange span, const std::string &filepath, boo
                     Scope->insertSymbol(symbol);
                 }
             }
+//            ExitOnErr(TheJIT->addModule(ThreadSafeModule(std::move(codegen->TheModule), std::move(codegen->TheContext))));
         } else {
             // Create object file to be linked
             std::string obj_file = fmt::format("tmp{}", ObjectFiles.size());
@@ -347,13 +345,20 @@ void Codegen::LinkObjectFile(const std::string &obj_filename) {
 }
 
 int Codegen::JIT() {
-    auto jit_error = TheJIT->addModule(ThreadSafeModule(std::move(TheModule), std::move(TheContext)));
-    if (jit_error)
-        throw CodegenError({}, "JIT Error:\n{}");
+    return 0;
+//    auto J = ExitOnErr(llvm::orc::LLJITBuilder().create());
+//    ExitOnErr(J->addIRModule(ThreadSafeModule(std::move(TheModule), std::move(context)));
 
-    using MainFnTy = int();
-    auto jit_main = jitTargetAddressToFunction<MainFnTy *>(TheJIT->lookup(TopLevelFunc->getName())->getAddress());
-    return jit_main();
+    // Look up the JIT'd function, cast it to a function pointer, then call it.
+//    auto Add1Addr = ExitOnErr(J->lookup("main"));
+//    int (*Add1)(int) = Add1Addr.toPtr<int(int)>();
+
+//    auto jit_error = TheJIT->addModule(ThreadSafeModule(std::move(TheModule), std::move(context)));
+//    if (jit_error)
+//        throw CodegenError({}, "JIT Error:\n{}");
+//    using MainFnTy = int();
+//    auto jit_main = jitTargetAddressToFunction<MainFnTy *>(TheJIT->lookup(TopLevelFunc->getName())->getAddress());
+//    return jit_main();
 }
 
 void Codegen::Run() {
