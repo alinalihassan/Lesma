@@ -34,7 +34,7 @@ namespace lesma {
     };
 
     class Codegen final : public ExprVisitor<llvm::Value *, llvm::Type *>, public StmtVisitor<void> {
-        std::shared_ptr<LLVMContext> TheContext;
+        ThreadSafeContext *TheContext;
         std::unique_ptr<Module> TheModule;
         std::unique_ptr<IRBuilder<>> Builder;
         ExitOnError ExitOnErr;
@@ -64,7 +64,7 @@ namespace lesma {
         bool isMain = true;
 
     public:
-        Codegen(std::unique_ptr<Parser> parser, std::shared_ptr<SourceMgr> srcMgr, const std::string &filename, std::vector<std::string> imports, bool jit, bool main, std::string alias = "", const std::shared_ptr<LLVMContext>& context = nullptr);
+        Codegen(std::unique_ptr<Parser> parser, std::shared_ptr<SourceMgr> srcMgr, const std::string &filename, std::vector<std::string> imports, bool jit, bool main, std::string alias = "", ThreadSafeContext* context = nullptr);
 
         void Dump();
         void Run();

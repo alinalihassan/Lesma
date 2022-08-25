@@ -2,18 +2,18 @@
 
 using namespace lesma;
 
-Codegen::Codegen(std::unique_ptr<Parser> parser, std::shared_ptr<SourceMgr> srcMgr, const std::string &filename, std::vector<std::string> imports, bool jit, bool main, std::string alias, const std::shared_ptr<LLVMContext>& context) {
+Codegen::Codegen(std::unique_ptr<Parser> parser, std::shared_ptr<SourceMgr> srcMgr, const std::string &filename, std::vector<std::string> imports, bool jit, bool main, std::string alias, ThreadSafeContext* context) {
     InitializeNativeTarget();
     InitializeNativeTargetAsmPrinter();
     InitializeNativeTargetAsmParser();
 
     ImportedModules = std::move(imports);
     TheJIT = ExitOnErr(LesmaJIT::Create());
-    TheContext = context == nullptr ? std::make_shared<LLVMContext>() : context;
-    TheModule = std::make_unique<Module>("Lesma JIT", *TheContext);
+    TheContext = context == nullptr ? new ThreadSafeContext(std::make_unique<LLVMContext>()) : context;
+    TheModule = std::make_unique<Module>("Lesma JIT", *TheContext->getContext());
     TheModule->setDataLayout(TheJIT->getDataLayout());
     TheModule->setSourceFileName(filename);
-    Builder = std::make_unique<IRBuilder<>>(*TheContext);
+    Builder = std::make_unique<IRBuilder<>>(*TheContext->getContext());
     Parser_ = std::move(parser);
     SourceManager = std::move(srcMgr);
     bufferId = SourceManager->getNumBuffers();
@@ -39,7 +39,7 @@ llvm::Function *Codegen::InitializeTopLevel() {
     FunctionType *FT = FunctionType::get(Builder->getInt64Ty(), paramTypes, false);
     Function *F = Function::Create(FT, isMain ? Function::ExternalLinkage : Function::InternalLinkage, "main", *TheModule);
 
-    auto entry = BasicBlock::Create(*TheContext, "entry", F);
+    auto entry = BasicBlock::Create(*TheContext->getContext(), "entry", F);
     Builder->SetInsertPoint(entry);
 
     return F;
@@ -49,7 +49,7 @@ void Codegen::defineFunction(Function *F, FuncDecl *node, SymbolTableEntry *clsS
     Scope = Scope->createChildBlock(node->getName());
     deferStack.push({});
 
-    BasicBlock *entry = BasicBlock::Create(*TheContext, "entry", F);
+    BasicBlock *entry = BasicBlock::Create(*TheContext->getContext(), "entry", F);
     Builder->SetInsertPoint(entry);
 
     for (auto &param: F->args()) {
@@ -185,7 +185,7 @@ void Codegen::CompileModule(llvm::SMRange span, const std::string &filepath, boo
             if (sym.second->getType()->isOneOf({TY_ENUM, TY_CLASS}) && sym.second->isExported() && (importAll || !imp_alias.empty())) {
                 // TODO: We have to reconstruct classes and enums, fix me
                 auto struct_ty = cast<llvm::StructType>(sym.second->getLLVMType());
-                llvm::StructType *structType = llvm::StructType::create(*TheContext, struct_ty->elements(), sym.first);
+                llvm::StructType *structType = llvm::StructType::create(*TheContext->getContext(), struct_ty->elements(), sym.first);
 
                 auto *structSymbol = new SymbolTableEntry(imp_alias.empty() ? sym.first : imp_alias, sym.second->getType());
                 structSymbol->setLLVMType(structType);
@@ -345,20 +345,14 @@ void Codegen::LinkObjectFile(const std::string &obj_filename) {
 }
 
 int Codegen::JIT() {
-    return 0;
-//    auto J = ExitOnErr(llvm::orc::LLJITBuilder().create());
-//    ExitOnErr(J->addIRModule(ThreadSafeModule(std::move(TheModule), std::move(context)));
+    auto jit_error = TheJIT->addModule(ThreadSafeModule(std::move(TheModule), *TheContext));
+    if (jit_error)
+        throw CodegenError({}, "JIT Error:\n{}");
+    using MainFnTy = int();
+    auto jit_main = jitTargetAddressToFunction<MainFnTy *>(TheJIT->lookup(TopLevelFunc->getName())->getAddress());
+    auto ret = jit_main();
 
-    // Look up the JIT'd function, cast it to a function pointer, then call it.
-//    auto Add1Addr = ExitOnErr(J->lookup("main"));
-//    int (*Add1)(int) = Add1Addr.toPtr<int(int)>();
-
-//    auto jit_error = TheJIT->addModule(ThreadSafeModule(std::move(TheModule), std::move(context)));
-//    if (jit_error)
-//        throw CodegenError({}, "JIT Error:\n{}");
-//    using MainFnTy = int();
-//    auto jit_main = jitTargetAddressToFunction<MainFnTy *>(TheJIT->lookup(TopLevelFunc->getName())->getAddress());
-//    return jit_main();
+    return ret;
 }
 
 void Codegen::Run() {
@@ -511,19 +505,19 @@ void Codegen::visit(VarDecl *node) {
 
 void Codegen::visit(If *node) {
     auto parentFct = Builder->GetInsertBlock()->getParent();
-    auto bStart = llvm::BasicBlock::Create(*TheContext, "if.start");
-    auto bEnd = llvm::BasicBlock::Create(*TheContext, "if.end");
+    auto bStart = llvm::BasicBlock::Create(*TheContext->getContext(), "if.start");
+    auto bEnd = llvm::BasicBlock::Create(*TheContext->getContext(), "if.end");
 
     Builder->CreateBr(bStart);
     parentFct->getBasicBlockList().push_back(bStart);
     Builder->SetInsertPoint(bStart);
 
     for (unsigned long i = 0; i < node->getConds().size(); i++) {
-        auto bIfTrue = llvm::BasicBlock::Create(*TheContext, "if.true");
+        auto bIfTrue = llvm::BasicBlock::Create(*TheContext->getContext(), "if.true");
         parentFct->getBasicBlockList().push_back(bIfTrue);
         auto bIfFalse = bEnd;
         if (i + 1 < node->getConds().size()) {
-            bIfFalse = llvm::BasicBlock::Create(*TheContext, "if.false");
+            bIfFalse = llvm::BasicBlock::Create(*TheContext->getContext(), "if.false");
             parentFct->getBasicBlockList().push_back(bIfFalse);
         }
 
@@ -561,9 +555,9 @@ void Codegen::visit(While *node) {
     llvm::Function *parentFct = Builder->GetInsertBlock()->getParent();
 
     // Create blocks
-    llvm::BasicBlock *bCond = llvm::BasicBlock::Create(*TheContext, "while.cond");
-    llvm::BasicBlock *bLoop = llvm::BasicBlock::Create(*TheContext, "while");
-    llvm::BasicBlock *bEnd = llvm::BasicBlock::Create(*TheContext, "while.end");
+    llvm::BasicBlock *bCond = llvm::BasicBlock::Create(*TheContext->getContext(), "while.cond");
+    llvm::BasicBlock *bLoop = llvm::BasicBlock::Create(*TheContext->getContext(), "while");
+    llvm::BasicBlock *bEnd = llvm::BasicBlock::Create(*TheContext->getContext(), "while.end");
 
     breakBlocks.push(bEnd);
     continueBlocks.push(bCond);
@@ -805,7 +799,7 @@ void Codegen::visit(Class *node) {
         elementTypes.push_back(typ);
     }
 
-    llvm::StructType *structType = llvm::StructType::create(*TheContext, elementTypes, node->getIdentifier());
+    llvm::StructType *structType = llvm::StructType::create(*TheContext->getContext(), elementTypes, node->getIdentifier());
 
     std::vector<std::tuple<std::string, SymbolType *>> fields;
 
@@ -835,7 +829,7 @@ void Codegen::visit(Class *node) {
 
 void Codegen::visit(Enum *node) {
     std::vector<llvm::Type *> elementTypes = {Builder->getInt8Ty()};
-    llvm::StructType *structType = llvm::StructType::create(*TheContext, elementTypes, node->getIdentifier());
+    llvm::StructType *structType = llvm::StructType::create(*TheContext->getContext(), elementTypes, node->getIdentifier());
     std::vector<std::tuple<std::string, SymbolType *>> fields;
 
     for (const auto &field: node->getValues())
@@ -930,7 +924,7 @@ llvm::Value *Codegen::visit(BinaryOp *node) {
                 auto sym = Scope->lookup(left->getType()->getPointerElementType()->getStructName().str());
                 if (sym != nullptr && sym->getType()->is(TY_ENUM)) {
                     if (left->getType()->getPointerElementType() != right->getType()->getPointerElementType())
-                        return ConstantInt::getBool(*TheContext, false);
+                        return ConstantInt::getBool(*TheContext->getContext(), false);
                     else {
                         auto left_gep = Builder->CreateStructGEP(sym->getLLVMType(), left, 0);
                         auto left_load = Builder->CreateLoad(Builder->getInt8Ty(), left_gep);
@@ -965,7 +959,7 @@ llvm::Value *Codegen::visit(BinaryOp *node) {
             right = Cast(node->getSpan(), right, finalType);
 
             if (finalType == nullptr && (left->getType()->isPointerTy() && left->getType()->getPointerElementType()->isStructTy()) && (right->getType()->isPointerTy() && right->getType()->getPointerElementType()->isStructTy()))
-                return ConstantInt::getBool(*TheContext, true);
+                return ConstantInt::getBool(*TheContext->getContext(), true);
             else if (left->getType()->isPointerTy() && right->getType()->isPointerTy())
                 return Builder->CreateICmpNE(left, right);
             else if (finalType == nullptr)
@@ -1186,7 +1180,7 @@ llvm::Value *Codegen::visit(UnaryOp *node) {
 
 llvm::Value *Codegen::visit(Literal *node) {
     if (node->getType() == TokenType::DOUBLE)
-        return ConstantFP::get(*TheContext, APFloat(std::stod(node->getValue())));
+        return ConstantFP::get(*TheContext->getContext(), APFloat(std::stod(node->getValue())));
     else if (node->getType() == TokenType::INTEGER)
         return ConstantInt::getSigned(Builder->getInt64Ty(), std::stoi(node->getValue()));
     else if (node->getType() == TokenType::BOOL)
@@ -1212,7 +1206,7 @@ llvm::Value *Codegen::visit(Literal *node) {
 }
 
 llvm::Value *Codegen::visit(Else * /*node*/) {
-    return llvm::ConstantInt::getTrue(*TheContext);
+    return llvm::ConstantInt::getTrue(*TheContext->getContext());
 }
 
 std::string Codegen::getTypeMangledName(llvm::SMRange span, llvm::Type *type) {
