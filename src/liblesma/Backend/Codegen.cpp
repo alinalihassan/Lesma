@@ -223,7 +223,8 @@ void Codegen::CompileModule(llvm::SMRange span, const std::string &filepath, boo
                     Scope->insertSymbol(symbol);
                 }
             }
-//            ExitOnErr(TheJIT->addModule(ThreadSafeModule(std::move(codegen->TheModule), std::move(codegen->TheContext))));
+            // TODO: Currently unused since we link everything to main module, we need to develop the JIT more in the future
+            // ExitOnErr(TheJIT->addModule(ThreadSafeModule(std::move(codegen->TheModule), *TheContext)));
         } else {
             // Create object file to be linked
             std::string obj_file = fmt::format("tmp{}", ObjectFiles.size());
