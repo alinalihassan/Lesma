@@ -66,7 +66,7 @@ llvm_map_components_to_libnames(LLVM_LIBS core support demangle mcjit native orc
 set(Clang_DIR ./llvm/build-release/lib/cmake/clang)
 find_package(Clang REQUIRED)
 
-include_directories(${CLANG_INCLUDE_DIRS})
+include_directories(SYSTEM ${CLANG_INCLUDE_DIRS})
 add_definitions(${CLANG_DEFINITIONS})
 
 set(CLANG_LIBS clangTooling)
