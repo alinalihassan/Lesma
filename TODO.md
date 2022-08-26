@@ -18,11 +18,14 @@
 - [ ] Fix indentation on the second line after line continuation not working
 - [ ] Fix imported modules/files skip already imported modules (such as base.les)
 - [ ] Fix unused extern functions get optimized (even without optimized) and we have to make dummy functions
+- [ ] Fix CI assets versioning having the old version in the name
+- [ ] Fix CI assets not showing cpu architecture (arm vs x86)
 
 ## Refactoring
 - [x] Replace SourceLocation by Span
 - [x] Highlight errors line
 - [x] Add name mangling
+- [ ] Improve standard library search, it doesn't work when using installers
 
 ## Features
 - [x] Add parenthesis support
