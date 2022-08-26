@@ -1,3 +1,10 @@
+## [0.15.1](https://github.com/alinalihassan/Lesma/compare/v0.15.0...v0.15.1) (2022-08-26)
+
+
+### Bug Fixes
+
+* testing fixed CI ([4df0269](https://github.com/alinalihassan/Lesma/commit/4df0269e99a9c459556112083cdb3b4ff4aeedd5))
+
 # [0.15.0](https://github.com/alinalihassan/Lesma/compare/v0.14.0...v0.15.0) (2022-08-26)
 
 
