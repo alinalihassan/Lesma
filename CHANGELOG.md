@@ -1,3 +1,21 @@
+# [0.15.0](https://github.com/alinalihassan/Lesma/compare/v0.14.0...v0.15.0) (2022-08-26)
+
+
+### Bug Fixes
+
+* Fixed class import not working properly, optimized and simplified imports ([0491912](https://github.com/alinalihassan/Lesma/commit/04919124706721e54d6f5c068b09587149b29caf))
+* Fixed exit not being imported (hacky for now) ([36eb565](https://github.com/alinalihassan/Lesma/commit/36eb565b7deef8fea7b7f174ab6b2880b3ef9dff))
+* Fixed optimization being done with O0 ([5c73bf1](https://github.com/alinalihassan/Lesma/commit/5c73bf1236b9b7b3ef736474dcf0fa85a986bbd0))
+* Fixed type comparisons across modules, fixed other asserts, contexts reused across modules ([953f6bc](https://github.com/alinalihassan/Lesma/commit/953f6bc44beb5b852c52989e74ccff20b4c6cbc6))
+* Improved CLI help experience, added version ([c03f426](https://github.com/alinalihassan/Lesma/commit/c03f4263ab571aff5e8df821b5d0f1a371741107))
+* Reverted test files back to explicitly defining exit extern ([93f5f33](https://github.com/alinalihassan/Lesma/commit/93f5f33964adf7386bf8902fb253dd5d4c0d1e14))
+
+
+### Features
+
+* Added local LLVM & Clang installation with bash script ([e6e45fe](https://github.com/alinalihassan/Lesma/commit/e6e45fe526c2013a91725cb3535f46cf3a640515))
+* Fixed assertions because of different contexts, now we share the same ([1ff4f36](https://github.com/alinalihassan/Lesma/commit/1ff4f36ec2fc4f42218356c826b4373c2eec0262))
+
 # [0.14.0](https://github.com/alinalihassan/Lesma/compare/v0.13.3...v0.14.0) (2022-08-02)
 
 
