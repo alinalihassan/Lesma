@@ -45,6 +45,6 @@ namespace lesma {
 
     std::string getStdDir() {
         std::string file_path = __FILE__;
-        return file_path.substr(0, file_path.rfind("src") + 3) + "/std/";
+        return file_path.substr(0, file_path.rfind("src") + 3) + "/stdlib/";
     }
 }// namespace lesma
