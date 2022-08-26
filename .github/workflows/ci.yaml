@@ -78,7 +78,6 @@ jobs:
         working-directory: ${{github.workspace}}/build
         run: ctest -C ${{env.BUILD_TYPE}} --rerun-failed --output-on-failure
 
-
       # Artifact binaries still not working properly
       - name: Package Artifact
         working-directory: ${{github.workspace}}/build
@@ -121,11 +120,20 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Download Artifact
+        if: steps.semantic.outputs.new_release_published == 'true'
         uses: actions/download-artifact@v3
         with:
           name: lesma
 
-      - uses: AButler/upload-release-assets@v2.0
+      - name: Create Release
+        if: steps.semantic.outputs.new_release_published == 'true'
+        uses: softprops/action-gh-release@v1
         with:
-          files: '*.tar.gz;*.sh'
-          repo-token: ${{ secrets.GITHUB_TOKEN }}
+          files: |
+            "*.tar.gz"
+            "*.sh"
+#      - name: Upload Release Assets
+#        uses: AButler/upload-release-assets@v2.0
+#        with:
+#          files: '*.tar.gz;*.sh'
+#          repo-token: ${{ secrets.GITHUB_TOKEN }}
