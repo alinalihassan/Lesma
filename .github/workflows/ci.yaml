@@ -109,6 +109,11 @@ jobs:
         run: |
           npm install -g @semantic-release/changelog @semantic-release/git
 
+      - name: Download Artifact
+        uses: actions/download-artifact@v3
+        with:
+          name: lesma
+
       - name: Semantic Release
         id: semantic
         uses: cycjimmy/semantic-release-action@v2
@@ -118,22 +123,3 @@ jobs:
             @semantic-release/git
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Download Artifact
-        if: steps.semantic.outputs.new_release_published == 'true'
-        uses: actions/download-artifact@v3
-        with:
-          name: lesma
-
-      - name: Create Release
-        if: steps.semantic.outputs.new_release_published == 'true'
-        uses: softprops/action-gh-release@v1
-        with:
-          files: |
-            "*.tar.gz"
-            "*.sh"
-#      - name: Upload Release Assets
-#        uses: AButler/upload-release-assets@v2.0
-#        with:
-#          files: '*.tar.gz;*.sh'
-#          repo-token: ${{ secrets.GITHUB_TOKEN }}
