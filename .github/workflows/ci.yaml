@@ -26,7 +26,10 @@ jobs:
         os: [ ubuntu-latest, macos-latest ]
 
     steps:
-      - uses: actions/checkout@v3
+      - name: Checkout
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
 
       - name : Clang Format
         if:  ${{ matrix.os == 'ubuntu-latest' }}
@@ -78,7 +81,6 @@ jobs:
         working-directory: ${{github.workspace}}/build
         run: ctest -C ${{env.BUILD_TYPE}} --rerun-failed --output-on-failure
 
-
       # Artifact binaries still not working properly
       - name: Package Artifact
         working-directory: ${{github.workspace}}/build
@@ -99,7 +101,9 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v2
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
 
       - name: Setup Node.JS
         uses: actions/setup-node@v2
@@ -110,6 +114,11 @@ jobs:
         run: |
           npm install -g @semantic-release/changelog @semantic-release/git
 
+      - name: Download Artifact
+        uses: actions/download-artifact@v3
+        with:
+          name: lesma
+
       - name: Semantic Release
         id: semantic
         uses: cycjimmy/semantic-release-action@v2
@@ -119,13 +128,3 @@ jobs:
             @semantic-release/git
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Download Artifacts
-        uses: actions/download-artifact@v3
-        with:
-          name: lesma
-
-      - uses: AButler/upload-release-assets@v2.0
-        with:
-          files: '*.tar.gz;*.sh'
-          repo-token: ${{ secrets.GITHUB_TOKEN }}
