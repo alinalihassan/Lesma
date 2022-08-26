@@ -1,27 +1,16 @@
 cmake_minimum_required(VERSION 3.16)
 
+# Include other Cmake files
+include(cmake/CPM.cmake)
+include(cmake/VersionFromGit.cmake)
+
 # Get version
-find_package(Git)
-execute_process(
-        COMMAND           ${GIT_EXECUTABLE} describe --tag --abbrev=0
-        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
-        OUTPUT_VARIABLE   LESMA_TAG
-        OUTPUT_STRIP_TRAILING_WHITESPACE)
-
-message(STATUS "Git: ${GIT_EXECUTABLE}")
-message(STATUS "VERSION TAG: ${LESMA_TAG}")
-
-string(REPLACE v "" LESMA_VERSION "${LESMA_TAG}")
-string(REPLACE "." ";" VERSION_LIST "${LESMA_VERSION}")
-list(GET "${VERSION_LIST}" 0 LESMA_VERSION_MAJOR)
-list(GET "${VERSION_LIST}" 1 LESMA_VERSION_MINOR)
-list(GET "${VERSION_LIST}" 2 LESMA_VERSION_PATCH)
-
-# Other variables
-set(LESMA_URL "https://lesma-lang.com/")
+version_from_git(
+  INCLUDE_HASH OFF
+)
 
 # Project
-project(Lesma VERSION ${LESMA_VERSION})
+project(Lesma VERSION ${VERSION})
 
 # C++ Flags and settings
 if (CMAKE_BUILD_TYPE MATCHES Debug)
@@ -35,8 +24,6 @@ add_definitions(${CMAKE_CXX_FLAGS} -Wall -Wextra -Wpedantic -frtti)
 set(CMAKE_CXX_FLAGS_RELEASE "-O3")
 
 # External dependencies
-include(cmake/CPM.cmake)
-
 CPMAddPackage("gh:Neargye/nameof@0.10.1")
 CPMAddPackage("gh:catchorg/Catch2@2.13.8")
 CPMAddPackage("gh:CLIUtils/CLI11@2.2.0")
@@ -119,13 +106,15 @@ endif (BASH_PROGRAM)
 add_test(test_unit_tests tests)
 
 # CPack
+set(LESMA_URL "https://lesma-lang.com/")
+
 include(InstallRequiredSystemLibraries)
 install(TARGETS ${CLI_NAME} RUNTIME DESTINATION bin)
 set(CPACK_GENERATOR "STGZ;TGZ")
 set(CPACK_PACKAGE_VENDOR Lesma)
-set(CPACK_PACKAGE_VERSION_MAJOR ${LESMA_VERSION_MAJOR})
-set(CPACK_PACKAGE_VERSION_MINOR ${LESMA_VERSION_MINOR})
-set(CPACK_PACKAGE_VERSION_PATCH ${LESMA_VERSION_PATCH})
+set(CPACK_PACKAGE_VERSION_MAJOR ${VERSION_MAJOR})
+set(CPACK_PACKAGE_VERSION_MINOR ${VERSION_MINOR})
+set(CPACK_PACKAGE_VERSION_PATCH ${VERSION_PATCH})
 set(CPACK_PACKAGE_HOMEPAGE_URL ${LESMA_URL})
 set(CPACK_PACKAGE_ICON "${CMAKE_SOURCE_DIR}/docs/static/img/logo.svg")
 set(CPACK_RESOURCE_FILE_LICENSE "${CMAKE_SOURCE_DIR}/LICENSE.txt")
