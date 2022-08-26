@@ -109,7 +109,10 @@ add_test(test_unit_tests tests)
 set(LESMA_URL "https://lesma-lang.com/")
 
 include(InstallRequiredSystemLibraries)
+
 install(TARGETS ${CLI_NAME} RUNTIME DESTINATION bin)
+install(DIRECTORY ${SRC_DIR}/stdlib DESTINATION .)
+
 set(CPACK_GENERATOR "STGZ;TGZ")
 set(CPACK_PACKAGE_VENDOR Lesma)
 set(CPACK_PACKAGE_VERSION_MAJOR ${VERSION_MAJOR})
