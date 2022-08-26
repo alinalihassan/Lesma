@@ -120,10 +120,16 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Download Artifacts
+      - name: Download Artifact
         uses: actions/download-artifact@v3
         with:
           name: lesma
+
+      - name: Unzip Artifact
+        run: unzip lesma.zip
+
+      - name: Test artifact
+        run: ls
 
       - uses: AButler/upload-release-assets@v2.0
         with:
