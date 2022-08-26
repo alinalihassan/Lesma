@@ -1,3 +1,10 @@
+## [0.15.2](https://github.com/alinalihassan/Lesma/compare/v0.15.1...v0.15.2) (2022-08-26)
+
+
+### Bug Fixes
+
+* Artifacts not being uploaded as assets properly ([d64ca01](https://github.com/alinalihassan/Lesma/commit/d64ca016f9917e72966f6a0ff33f695301485f00))
+
 ## [0.15.1](https://github.com/alinalihassan/Lesma/compare/v0.15.0...v0.15.1) (2022-08-26)
 
 
