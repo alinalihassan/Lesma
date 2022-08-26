@@ -25,7 +25,7 @@ set(CMAKE_CXX_FLAGS_RELEASE "-O3")
 
 # External dependencies
 CPMAddPackage("gh:Neargye/nameof@0.10.1")
-CPMAddPackage("gh:catchorg/Catch2@2.13.8")
+CPMAddPackage("gh:catchorg/Catch2@3.1.0")
 CPMAddPackage("gh:CLIUtils/CLI11@2.2.0")
 CPMAddPackage(
   NAME fmt
@@ -93,7 +93,7 @@ add_executable(${CLI_NAME} ${COMMON_SOURCES} ${CLI_SOURCES})
 add_executable(tests ${COMMON_SOURCES} ${TEST_SOURCES})
 
 target_link_libraries(${CLI_NAME}   PRIVATE ${COMMON_LIBS} CLI11)
-target_link_libraries(${TESTS_NAME} PRIVATE ${COMMON_LIBS} Catch2::Catch2)
+target_link_libraries(${TESTS_NAME} PRIVATE ${COMMON_LIBS} Catch2::Catch2WithMain)
 
 # Tests
 enable_testing()
