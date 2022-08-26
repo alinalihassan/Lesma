@@ -1,3 +1,13 @@
+## [0.15.4](https://github.com/alinalihassan/Lesma/compare/v0.15.3...v0.15.4) (2022-08-26)
+
+
+### Bug Fixes
+
+* Attempt to fix Git version on GitHub ([eb3d547](https://github.com/alinalihassan/Lesma/commit/eb3d54704de2e92e026e32a2e807dc754e604c0c))
+* Fixed checkout ([493d8e3](https://github.com/alinalihassan/Lesma/commit/493d8e3a3a13b01bb8a2ceca2ca8e30fea3d3c72))
+* Fixed CI ([251fb4a](https://github.com/alinalihassan/Lesma/commit/251fb4aefe3cb1bfadc0752600f223c9145ceb8c))
+* Updated CMake to properly get version from git ([5069520](https://github.com/alinalihassan/Lesma/commit/506952014894d7c2f3190b83abca4e1747b55bca))
+
 ## [0.15.3](https://github.com/alinalihassan/Lesma/compare/v0.15.2...v0.15.3) (2022-08-26)
 
 
