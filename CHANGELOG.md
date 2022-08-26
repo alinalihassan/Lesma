@@ -1,3 +1,10 @@
+## [0.15.3](https://github.com/alinalihassan/Lesma/compare/v0.15.2...v0.15.3) (2022-08-26)
+
+
+### Bug Fixes
+
+* Attempt to fix release assets and debug cmake issue ([52fb330](https://github.com/alinalihassan/Lesma/commit/52fb330998e836f4612abdd8ac1d2d6cb4685e9a))
+
 ## [0.15.2](https://github.com/alinalihassan/Lesma/compare/v0.15.1...v0.15.2) (2022-08-26)
 
 
