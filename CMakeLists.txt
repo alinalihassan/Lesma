@@ -4,7 +4,7 @@ cmake_minimum_required(VERSION 3.16)
 find_package(Git)
 execute_process(
         COMMAND           ${GIT_EXECUTABLE} describe --tag --abbrev=0
-        WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
         OUTPUT_VARIABLE   LESMA_TAG
         OUTPUT_STRIP_TRAILING_WHITESPACE)
 
