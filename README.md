@@ -5,7 +5,7 @@
 
 <div align="center">
 
-[![License: MIT](https://img.shields.io/github/license/alinalihassan/Lesma?color=brightgreen)](https://github.com/alinalihassan/Lesma/blob/main/LICENSE)
+[![License: MIT](https://img.shields.io/github/license/alinalihassan/Lesma?color=brightgreen)](https://github.com/alinalihassan/Lesma/blob/main/LICENSE.txt)
 [![Version](https://img.shields.io/github/v/release/alinalihassan/Lesma?color=brightgreen)](https://github.com/alinalihassan/Lesma/releases)
 [![Build](https://img.shields.io/github/workflow/status/alinalihassan/Lesma/Build)](https://github.com/alinalihassan/Lesma/actions/workflows/ci.yaml)
 
@@ -43,4 +43,4 @@ Pull requests are welcome. For major changes, please open an issue to discuss yo
 - Check the [code of conduct](CODE_OF_CONDUCT.md) and [contributing guidelines](CONTRIBUTING.md)
 
 ## 📎 License
-This software is licensed under the [MIT](https://github.com/alinalihassan/Lesma/blob/main/LICENSE) © [Alin Ali Hassan](https://github.com/alinalihassan).
+This software is licensed under the [MIT](https://github.com/alinalihassan/Lesma/blob/main/LICENSE.txt) © [Alin Ali Hassan](https://github.com/alinalihassan).
