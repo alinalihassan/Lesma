@@ -125,15 +125,6 @@ jobs:
         with:
           name: lesma
 
-      - name: Test artifact
-        run: ls
-
-      - name: Unzip Artifact
-        run: unzip lesma.zip
-
-      - name: Test artifact 2
-        run: ls
-
       - uses: AButler/upload-release-assets@v2.0
         with:
           files: '*.tar.gz;*.sh'
