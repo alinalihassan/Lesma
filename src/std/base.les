@@ -1,6 +1,6 @@
 def extern printf(fmt: str, ...)
 def extern scanf(fmt: str, ...)
-def extern malloc(size: int) -> *void
+def extern malloc(size: int) -> *int8
 def extern strlen(x: str) -> int
 def extern atoll(x: str) -> int
 def extern strtod(x: str) -> float
@@ -54,3 +54,8 @@ export def print(x: bool)
         print("true")
     else
         print("false")
+
+# Hack to keep exit function alive, needs to be used to survive import
+def testExit()
+    exit(1)
+###

@@ -1,6 +1,5 @@
 #ret=101
 def extern exit(x: int)
-
 var x: int = 5
 
 while true

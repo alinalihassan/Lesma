@@ -1,6 +1,5 @@
 #ret=101
 def extern exit(x: int)
-
 def sleep(x: float) -> int
     return 50
 

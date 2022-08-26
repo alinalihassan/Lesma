@@ -1,0 +1,5 @@
+#pragma once
+
+namespace lesma {
+#define LESMA_VERSION "@PROJECT_VERSION@"
+}

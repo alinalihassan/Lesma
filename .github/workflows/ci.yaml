@@ -87,7 +87,9 @@ jobs:
       - uses: actions/upload-artifact@v2
         with:
           name: lesma
-          path: ${{github.workspace}}/build/Lesma*.tar.gz
+          path: |
+            ${{github.workspace}}/build/Lesma*.sh
+            ${{github.workspace}}/build/Lesma*.tar.gz
 
   release:
     name: Release
@@ -117,3 +119,13 @@ jobs:
             @semantic-release/git
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Download Artifacts
+        uses: actions/download-artifact@v3
+        with:
+          name: lesma
+
+      - uses: AButler/upload-release-assets@v2.0
+        with:
+          files: '*.tar.gz;*.sh'
+          repo-token: ${{ secrets.GITHUB_TOKEN }}

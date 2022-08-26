@@ -7,6 +7,10 @@ cmake-build-debug/
 cmake-build-release/
 cmake-build-debug-coverage/
 build/
+llvm/
+
+# Version file
+src/liblesma/Common/LesmaVersion.h
 
 # Testing file
 test*.les
