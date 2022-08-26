@@ -26,7 +26,10 @@ jobs:
         os: [ ubuntu-latest, macos-latest ]
 
     steps:
-      - uses: actions/checkout@v3
+      - name: Checkout
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
 
       - name : Clang Format
         if:  ${{ matrix.os == 'ubuntu-latest' }}
@@ -98,7 +101,9 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v2
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
 
       - name: Setup Node.JS
         uses: actions/setup-node@v2
