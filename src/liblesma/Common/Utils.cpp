@@ -46,7 +46,7 @@ namespace lesma {
     std::string getStdDir() {
         std::string homedir;
 
-        if(getenv("HOME"))
+        if (getenv("HOME"))
             homedir = getenv("HOME");
         else
             homedir = getpwuid(getuid())->pw_dir;
