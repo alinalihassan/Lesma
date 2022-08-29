@@ -5,9 +5,7 @@ include(cmake/CPM.cmake)
 include(cmake/VersionFromGit.cmake)
 
 # Get version
-version_from_git(
-  INCLUDE_HASH OFF
-)
+version_from_git(INCLUDE_HASH OFF)
 
 # Project
 project(Lesma VERSION ${VERSION})
@@ -37,21 +35,21 @@ CPMAddPackage(
 get_filename_component(ROOT_DIR ${CMAKE_SOURCE_DIR} ABSOLUTE)
 get_filename_component(SRC_DIR ${ROOT_DIR}/src ABSOLUTE)
 get_filename_component(LIB_DIR ${ROOT_DIR}/lib ABSOLUTE)
+get_filename_component(LLVM_DIR ${ROOT_DIR}/llvm ABSOLUTE)
 get_filename_component(STDLIB_DIR ${SRC_DIR}/stdlib ABSOLUTE)
 get_filename_component(BUILD_DIR ${CMAKE_BINARY_DIR} ABSOLUTE)
 
 # Version configuration
-configure_file(
-        "${SRC_DIR}/liblesma/Common/LesmaVersion.h.in"
-        "${SRC_DIR}/liblesma/Common/LesmaVersion.h"
-        @ONLY)
+configure_file("${SRC_DIR}/liblesma/Common/LesmaVersion.h.in" "${SRC_DIR}/liblesma/Common/LesmaVersion.h" @ONLY)
 
 # Include directories
 include_directories(${SRC_DIR})
 include_directories(${LIB_DIR})
 
 # LLVM configuration
-set(LLVM_DIR ./llvm/build-release/lib/cmake/llvm)
+if (EXISTS "${LLVM_DIR}" AND IS_DIRECTORY "${LLVM_DIR}") # Prefer local LLVM installation
+  set(LLVM_DIR ./llvm/build-release/lib/cmake/llvm)
+endif()
 find_package(LLVM 14 CONFIG REQUIRED)
 message(STATUS "Found LLVM ${LLVM_PACKAGE_VERSION}")
 message(STATUS "Using LLVMConfig.cmake from ${LLVM_DIR}")
@@ -62,7 +60,9 @@ add_definitions(${LLVM_DEFINITIONS})
 llvm_map_components_to_libnames(LLVM_LIBS core support demangle mcjit native orcjit)
 
 # Clang configuration
-set(Clang_DIR ./llvm/build-release/lib/cmake/clang)
+if (EXISTS "${LLVM_DIR}" AND IS_DIRECTORY "${LLVM_DIR}")
+  set(Clang_DIR ./llvm/build-release/lib/cmake/clang)
+endif()
 find_package(Clang REQUIRED)
 
 include_directories(SYSTEM ${CLANG_INCLUDE_DIRS})
