@@ -44,7 +44,13 @@ namespace lesma {
     }
 
     std::string getStdDir() {
-        std::string file_path = __FILE__;
-        return file_path.substr(0, file_path.rfind("src") + 3) + "/stdlib/";
+        std::string homedir;
+
+        if(getenv("HOME"))
+            homedir = getenv("HOME");
+        else
+            homedir = getpwuid(getuid())->pw_dir;
+
+        return homedir + "/.lesma/stdlib/";
     }
 }// namespace lesma

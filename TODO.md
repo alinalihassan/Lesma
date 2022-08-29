@@ -30,11 +30,13 @@
 ## Features
 - [x] Add parenthesis support
 - [ ] Add analyzer phase (add tree walker interface?)
+- [ ] Add optional parameters in function declarations
 - [x] Add type inference
 - [ ] Add operator overloading
 - [x] Add varargs
 - [x] Add pointers/references?
 - [x] Add strings
+- [ ] Add generics
 - [ ] Add lists
 - [ ] Add tuples
 - [ ] Add ranges (1..4 style)
@@ -46,7 +48,6 @@
 - [x] Add unit tests
 - [x] Add module system
 - [x] Add python-style syntax
-- [ ] Add generics
 - [ ] Add inheritance (or traits)
 - [ ] Add string interpolation
 - [x] Add standard library (things like print, input, etc)

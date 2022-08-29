@@ -37,6 +37,7 @@ CPMAddPackage(
 get_filename_component(ROOT_DIR ${CMAKE_SOURCE_DIR} ABSOLUTE)
 get_filename_component(SRC_DIR ${ROOT_DIR}/src ABSOLUTE)
 get_filename_component(LIB_DIR ${ROOT_DIR}/lib ABSOLUTE)
+get_filename_component(STDLIB_DIR ${SRC_DIR}/stdlib ABSOLUTE)
 get_filename_component(BUILD_DIR ${CMAKE_BINARY_DIR} ABSOLUTE)
 
 # Version configuration
@@ -86,6 +87,9 @@ set(COMMON_SOURCES
 set(CLI_SOURCES src/cli/main.cpp)
 set(TEST_SOURCES  tests/test.cpp)
 
+# Move Standard Library
+file(COPY ${STDLIB_DIR} DESTINATION $ENV{HOME}/.lesma/)
+
 # Libraries required for the compiler itself
 set(COMMON_LIBS ${LLVM_LIBS} ${CLANG_LIBS} fmt nameof)
 
@@ -113,7 +117,9 @@ include(InstallRequiredSystemLibraries)
 install(TARGETS ${CLI_NAME} RUNTIME DESTINATION bin)
 install(DIRECTORY ${SRC_DIR}/stdlib DESTINATION .)
 
-set(CPACK_GENERATOR "STGZ;TGZ")
+# TODO: Should move stdlib when a user installs
+
+set(CPACK_GENERATOR "STGZ")
 set(CPACK_PACKAGE_VENDOR Lesma)
 set(CPACK_PACKAGE_VERSION_MAJOR ${VERSION_MAJOR})
 set(CPACK_PACKAGE_VERSION_MINOR ${VERSION_MINOR})

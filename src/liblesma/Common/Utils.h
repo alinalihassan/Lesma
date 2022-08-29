@@ -3,6 +3,8 @@
 #include <cmath>
 #include <fstream>
 #include <sstream>
+#include <pwd.h>
+#include <unistd.h>
 
 #include "llvm/Support/SMLoc.h"
 #include "llvm/Support/SourceMgr.h"
