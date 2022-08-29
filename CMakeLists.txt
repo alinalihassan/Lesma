@@ -46,10 +46,14 @@ configure_file("${SRC_DIR}/liblesma/Common/LesmaVersion.h.in" "${SRC_DIR}/libles
 include_directories(${SRC_DIR})
 include_directories(${LIB_DIR})
 
-# LLVM configuration
+# Look for local dependencies
 if (EXISTS "${LLVM_DIR}" AND IS_DIRECTORY "${LLVM_DIR}") # Prefer local LLVM installation
+  message(STATUS "Found local installation of LLVM and Clang")
   set(LLVM_DIR ./llvm/build-release/lib/cmake/llvm)
+  set(Clang_DIR ./llvm/build-release/lib/cmake/clang)
 endif()
+
+# LLVM configuration
 find_package(LLVM 14 CONFIG REQUIRED)
 message(STATUS "Found LLVM ${LLVM_PACKAGE_VERSION}")
 message(STATUS "Using LLVMConfig.cmake from ${LLVM_DIR}")
@@ -60,9 +64,6 @@ add_definitions(${LLVM_DEFINITIONS})
 llvm_map_components_to_libnames(LLVM_LIBS core support demangle mcjit native orcjit)
 
 # Clang configuration
-if (EXISTS "${LLVM_DIR}" AND IS_DIRECTORY "${LLVM_DIR}")
-  set(Clang_DIR ./llvm/build-release/lib/cmake/clang)
-endif()
 find_package(Clang REQUIRED)
 
 include_directories(SYSTEM ${CLANG_INCLUDE_DIRS})
