@@ -1,12 +1,11 @@
-#define CATCH_CONFIG_MAIN
-#define CATCH_CONFIG_ENABLE_BENCHMARKING
-#include <catch2/catch.hpp>
-
+#include <catch2/catch_test_macros.hpp>
+#include <catch2/benchmark/catch_benchmark.hpp>
 #include <fmt/printf.h>
-#include "liblesma/Frontend/Lexer.h"
-#include "liblesma/Common/Utils.h"
-#include "liblesma/Frontend/Parser.h"
+
 #include "liblesma/Backend/Codegen.h"
+#include "liblesma/Common/Utils.h"
+#include "liblesma/Frontend/Lexer.h"
+#include "liblesma/Frontend/Parser.h"
 
 using namespace lesma;
 

@@ -2,7 +2,9 @@
 
 #include <cmath>
 #include <fstream>
+#include <pwd.h>
 #include <sstream>
+#include <unistd.h>
 
 #include "llvm/Support/SMLoc.h"
 #include "llvm/Support/SourceMgr.h"
