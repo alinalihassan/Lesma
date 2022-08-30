@@ -99,10 +99,16 @@ set(COMMON_LIBS ${LLVM_LIBS} ${CLANG_LIBS} fmt nameof)
 
 ## Options
 ### Shared/Dynamic or Static library?
-option(BUILD_SHARED_LIBS "Build libraries as shared as opposed to static" ON)
+option(LESMA_BUILD_SHARED_LIBS "Build libraries as shared as opposed to static" ${BUILD_SHARED_LIB})
+
+if (LESMA_BUILD_SHARED_LIBS)
+  set(LESMA_LIB_TYPE SHARED)
+else()
+  set(LESMA_LIB_TYPE STATIC)
+endif()
 
 ## Create Library
-add_library(${LIB_NAME} ${COMMON_SOURCES})
+add_library(${LIB_NAME} ${LESMA_LIB_TYPE} ${COMMON_SOURCES})
 target_link_libraries(${LIB_NAME} ${COMMON_LIBS})
 
 target_include_directories(${LIB_NAME} PUBLIC
