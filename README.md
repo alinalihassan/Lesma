@@ -34,7 +34,7 @@ Every lesma release contains archives with the binary and standard library which
 but you could also use the installer script to do all the work for you. Paste the following in your terminal:
 
 ```bash
-sh -c "$(curl -fsSL https://raw.githubusercontent.com/alinalihassan/Lesma/main/scripts/get-lesma.sh)"
+bash -c "$(curl -fsSL https://raw.githubusercontent.com/alinalihassan/Lesma/main/scripts/get-lesma.sh)"
 ```
 
 ## 🔧 Build

@@ -8,9 +8,22 @@ sidebar_position: 2
 
 There's currently no sharable binaries of the compiler, and you'll have to build it yourself.
 
-## Prerequisites
+## Using the installer
 
-You'll need certain tools installed on your machine before attempting to build the project. Mainly, you'll need a C++ compiler, CMake and LLVM 13 installed. Since the project is being developed and tested with Clang, I would suggest you use the same.
+You can just run the installer, and it will get the binary with all the dependencies 
+and standard library installed for you. Paste the following in your Terminal:
+
+```shell
+bash -c "$(curl -fsSL https://raw.githubusercontent.com/alinalihassan/Lesma/main/scripts/get-lesma.sh)"
+```
+
+## Building from source
+
+You can also choose to build from source, if you'd rather not, just skip this part.
+
+To do that, uou'll need certain tools installed on your machine before attempting to build the project. 
+Mainly, you'll need a C++ compiler, CMake and LLVM 14 installed. 
+Since the project is being developed and tested with Clang, I would suggest you use the same.
 
 ### Installing Prerequisites
 
@@ -32,14 +45,14 @@ Install LLVM & Clang
 ./setup-llvm.sh
 ```
 
-Set Clang symlink to Clang 13
+Set Clang symlink to Clang 14
 
 ```bash
-sudo ln -s /usr/bin/clang-13 /usr/bin/clang
-sudo ln -s /usr/bin/clang++-13 /usr/bin/clang++
+sudo ln -s /usr/bin/clang-14 /usr/bin/clang
+sudo ln -s /usr/bin/clang++-14 /usr/bin/clang++
 ```
 
-#### On MacOS
+#### On macOS
 
 MacOS already has Apple Clang installed which should be good enough as a C++ compiler.
 
@@ -55,7 +68,7 @@ brew install cmake
 
 Install LLVM
 ```bash
-brew install llvm@13
+brew install llvm@14
 
 echo 'export PATH="/opt/homebrew/opt/llvm/bin:$PATH"' >> ~/.zshrc
 echo 'export LDFLAGS="-L/opt/homebrew/opt/llvm/lib -Wl,-rpath,/opt/homebrew/opt/llvm/lib"' >> ~/.zshrc
