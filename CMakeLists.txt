@@ -105,6 +105,10 @@ option(BUILD_SHARED_LIBS "Build libraries as shared as opposed to static" ON)
 add_library(${LIB_NAME} ${COMMON_SOURCES})
 target_link_libraries(${LIB_NAME} ${COMMON_LIBS})
 
+target_include_directories(${LIB_NAME} PUBLIC
+        "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/src>"
+        "$<INSTALL_INTERFACE:$<INSTALL_PREFIX>/${CMAKE_INSTALL_INCLUDEDIR}>")
+
 # Lesma executables
 add_executable(${CLI_NAME} ${CLI_SOURCES})
 add_executable(tests ${TEST_SOURCES})
