@@ -1,3 +1,10 @@
+## [0.16.1](https://github.com/alinalihassan/Lesma/compare/v0.16.0...v0.16.1) (2022-08-30)
+
+
+### Bug Fixes
+
+* changed release format ([f7e0645](https://github.com/alinalihassan/Lesma/commit/f7e064536cee76b17a27bf613bed703bfc05ceaf))
+
 # [0.16.0](https://github.com/alinalihassan/Lesma/compare/v0.15.4...v0.16.0) (2022-08-30)
 
 
