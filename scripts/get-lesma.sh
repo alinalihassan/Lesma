@@ -12,7 +12,6 @@ ask() {
 
 # Exit if any command fails
 set -e
-set -o pipefail
 
 # Check which OS the user has
 case $(uname | tr '[:upper:]' '[:lower:]') in
