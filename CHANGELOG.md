@@ -1,3 +1,11 @@
+## [0.16.2](https://github.com/alinalihassan/Lesma/compare/v0.16.1...v0.16.2) (2022-08-30)
+
+
+### Bug Fixes
+
+* Fixed tests error ([9dda15e](https://github.com/alinalihassan/Lesma/commit/9dda15ea5b51400c5244a4b47d320c55abcddabb))
+* Updated installer to add to path and provide feedback ([2be4440](https://github.com/alinalihassan/Lesma/commit/2be44400dc7403709a72754a7db9528744264fa4))
+
 ## [0.16.1](https://github.com/alinalihassan/Lesma/compare/v0.16.0...v0.16.1) (2022-08-30)
 
 
