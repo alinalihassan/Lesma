@@ -72,6 +72,7 @@ add_definitions(${CLANG_DEFINITIONS})
 set(CLANG_LIBS clangTooling)
 
 # Executable configuration
+set(LIB_NAME lesma_lib)
 set(CLI_NAME lesma)
 set(TESTS_NAME tests)
 
@@ -94,11 +95,22 @@ file(COPY ${STDLIB_DIR} DESTINATION $ENV{HOME}/.lesma/)
 # Libraries required for the compiler itself
 set(COMMON_LIBS ${LLVM_LIBS} ${CLANG_LIBS} fmt nameof)
 
-add_executable(${CLI_NAME} ${COMMON_SOURCES} ${CLI_SOURCES})
-add_executable(tests ${COMMON_SOURCES} ${TEST_SOURCES})
+# Lesma Library
 
-target_link_libraries(${CLI_NAME}   PRIVATE ${COMMON_LIBS} CLI11)
-target_link_libraries(${TESTS_NAME} PRIVATE ${COMMON_LIBS} Catch2::Catch2WithMain)
+## Options
+### Shared/Dynamic or Static library?
+option(BUILD_SHARED_LIBS "Build libraries as shared as opposed to static" ON)
+
+## Create Library
+add_library(${LIB_NAME} ${COMMON_SOURCES})
+target_link_libraries(${LIB_NAME} ${COMMON_LIBS})
+
+# Lesma executables
+add_executable(${CLI_NAME} ${CLI_SOURCES})
+add_executable(tests ${TEST_SOURCES})
+
+target_link_libraries(${CLI_NAME}   PRIVATE ${LIB_NAME} CLI11)
+target_link_libraries(${TESTS_NAME} PRIVATE ${LIB_NAME} Catch2::Catch2WithMain)
 
 # Tests
 enable_testing()
