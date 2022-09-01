@@ -6,11 +6,17 @@ sidebar_position: 2
 
 # Getting Started
 
-There's currently no sharable binaries of the compiler, and you'll have to build it yourself.
+There are multiple ways in which you can get started. You can play with the language online in the playground,
+get the installer and play on your machine, or build the whole project yourself.
+
+## Playground
+
+You can now try the [Playground](http://playground.lesma-lang.com/) and browse through the many examples provided.
+It's using the same editor engine as Visual Studio Code, and has the best support for Lesma.
 
 ## Using the installer
 
-You can just run the installer, and it will get the binary with all the dependencies 
+You can also just run the installer, and it will get the binary with all the dependencies 
 and standard library installed for you. Paste the following in your Terminal:
 
 ```shell
@@ -75,7 +81,7 @@ echo 'export LDFLAGS="-L/opt/homebrew/opt/llvm/lib -Wl,-rpath,/opt/homebrew/opt/
 echo 'export CPPFLAGS="-I/opt/homebrew/opt/llvm/include"' >> ~/.zshrc
 ```
 
-## Build
+### Build
 
 You can now build the compiler yourself! Let's try it out.
 
@@ -99,17 +105,23 @@ cmake --build build
 
 You should now see a few more files in the build directory, **lesma** among them. We can use it to run our Lesma sources.
 
-Check how to use the CLI and available options
+Let's make a lesma input file that contains the Hello World example.
 ```bash
-./build/lesma --help
+echo "print(\"Hello World\")" >> hello.les
+```
+
+Check how to use the CLI and available options
+
+```bash
+lesma --help
 ```
 
 Run one of the Lesma test files
 ```bash
-./build/lesma run tests/lesma/inference.les
+lesma run hello.les
 ```
 
 Compile a Lesma file to binary/executable
 ```bash
-./build/lesma compile tests/lesma/inference.les
+lesma compile hello.les
 ```
