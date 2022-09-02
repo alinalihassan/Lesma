@@ -6,7 +6,6 @@ import ThemeableComponent from '@site/src/components/utils/ThemeableComponent';
 import AboutModal from '@site/src/components/modals/AboutModal';
 import config from '@site/src/services/config';
 import { getSnippetsMenuItems, SnippetMenuItem } from '@site/src/utils/headerutils';
-// import SharePopup from 'components/utils/SharePopup';
 import {
   Dispatcher,
   dispatchToggleTheme,
@@ -19,21 +18,14 @@ import {
   newSettingsChangeDispatcher,
   runFileDispatcher,
   saveFileDispatcher,
-  Connect,
-  // shareSnippetDispatcher
+  Connect
 } from '@site/src/store';
 import './Header.css';
-
-/**
- * Uniquie class name for share button to use as popover target.
- */
-// const BTN_SHARE_CLASSNAME = 'Header__btn--share';
 
 interface HeaderState {
   showSettings?: boolean
   showAbout?: boolean
   loading?: boolean
-  // showShareMessage?: boolean
 }
 
 interface Props {
@@ -60,7 +52,6 @@ export default class Header extends ThemeableComponent<any, HeaderState> {
       showSettings: false,
       showAbout: false,
       loading: false,
-      // showShareMessage: false
     };
   }
 
@@ -112,17 +103,6 @@ export default class Header extends ThemeableComponent<any, HeaderState> {
           this.props.dispatch(runFileDispatcher);
         }
       },
-      // {
-      //   key: 'share',
-      //   text: 'Share',
-      //   className: BTN_SHARE_CLASSNAME,
-      //   iconProps: { iconName: 'Share' },
-      //   disabled: this.props.loading,
-      //   onClick: () => {
-      //     this.setState({ showShareMessage: true });
-      //     this.props.dispatch(shareSnippetDispatcher);
-      //   }
-      // },
       {
         key: 'download',
         text: 'Download',
@@ -220,18 +200,11 @@ export default class Header extends ThemeableComponent<any, HeaderState> {
   }
 
   render() {
-    // const { showShareMessage } = this.state;
-    // const { snippetName } = this.props;
     return (
       <header
         className='header'
         style={{backgroundColor: this.theme.palette.white}}
       >
-        {/* <img
-          src='/logo.svg'
-          className='header__logo'
-          alt='Lesma Logo'
-        /> */}
         <CommandBar
           className='header__commandBar'
           items={this.menuItems}
@@ -239,12 +212,6 @@ export default class Header extends ThemeableComponent<any, HeaderState> {
           overflowItems={this.overflowItems}
           ariaLabel='CodeEditor menu'
         />
-        {/* <SharePopup
-          visible={!!(showShareMessage && snippetName)}
-          target={`.${BTN_SHARE_CLASSNAME}`}
-          snippetId={snippetName}
-          onDismiss={() => this.setState({ showShareMessage: false })}
-        /> */}
         <SettingsModal
           onClose={(args) => this.onSettingsClose(args)}
           isOpen={this.state.showSettings}

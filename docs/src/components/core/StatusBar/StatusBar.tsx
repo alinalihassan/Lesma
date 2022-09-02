@@ -1,7 +1,6 @@
 import React from 'react';
 import { connect } from 'react-redux';
 import {editor} from 'monaco-editor';
-// import {newEnvironmentChangeAction} from 'store';
 import config, {RuntimeType} from '@site/src/services/config';
 import EllipsisText from '@site/src/components/utils/EllipsisText';
 import StatusBarItem from '@site/src/components/core/StatusBar/StatusBarItem';

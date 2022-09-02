@@ -6,8 +6,6 @@
   100% { content: ''; }
 }
 
-.EllipsisText {}
-
 .EllipsisText::after {
   display: inline-block;
   animation: ellipsis-text steps(1, end) 2s infinite;
