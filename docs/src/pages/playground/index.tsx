@@ -1,5 +1,4 @@
 import React from 'react';
-import { useParams } from 'react-router-dom';
 import { connect } from 'react-redux';
 
 import { dispatchPanelLayoutChange, newSnippetLoadDispatcher} from '@site/src/store';
@@ -20,7 +19,6 @@ const CodeContainer = connect()(({dispatch}: any) => {
     <CodeEditor />
   );
 })
-
 
 const IDE = connect(({panel}: any) => ({panelProps: panel}))(({panelProps, dispatch}: any) => {
   return (

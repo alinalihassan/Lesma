@@ -79,9 +79,6 @@ const reducers = {
     [ActionType.BUILD_PARAMS_CHANGE]: (s: SettingsState, a: Action<BuildParamsArgs>) => {
       return Object.assign({}, s, a.payload);
     },
-    [ActionType.ENVIRONMENT_CHANGE]: (s: SettingsState, { payload }: Action<RuntimeType>) => ({
-      ...s, runtime: payload,
-    }),
     [ActionType.SETTINGS_CHANGE]: (s: SettingsState, {payload}: Action<Partial<SettingsState>>) => ({
       ...s, ...payload
     })
