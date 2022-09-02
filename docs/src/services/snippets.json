@@ -1,0 +1,48 @@
+{
+  "Templates": [
+    {
+      "label": "Hello World",
+      "text": "print(\"Hello World\")"
+    }
+  ],
+  "Basic Examples": [
+    {
+      "label": "Hello World",
+      "text": "print(\"Hello World\")"
+    },
+    {
+      "label": "Recursion",
+      "text": "def fibonacci(n: int) -> int\n\tif n < 2\n\t\treturn n\n\n\treturn fibonacci(n - 1) + fibonacci(n - 2)\n\nprint(\"Calculating the 40th fibonacci number:\")\n# Should be 102334155\nprint(fibonacci(40))"
+    },
+    {
+      "label": "C Functions (FFI)",
+      "text": "def extern strlen(x: str) -> int\n\nprint(strlen(\"Hello World\"))"
+    },
+    {
+      "label": "Imports",
+      "text": "from time import sleep\n\nsleep(0.5)\nprint(\"Phew! That took a while!\")"
+    },
+    {
+      "label": "Enums",
+      "text": "enum Color\n\tRED\n\tBLUE\n\tGREEN\n\nvar favorite_color: Color = Color.RED\n\ndef isRed(color: Color) -> bool\n\treturn color == Color.RED\n\nprint(isRed(favorite_color))"
+    },
+    {
+      "label": "Classes",
+      "text": "class Animal\n\tvar animal_type: str\n\n\tdef new(animal_type: str)\n\t\tself.animal_type = animal_type\n\nlet cat = Animal(\"cat\")\nprint(cat.animal_type)"
+    },
+    {
+      "label": "Defer",
+      "text": "defer print(\"I'm last\")\nprint(\"I'm first\")"
+    }
+  ],
+  "Complete Examples": [
+    {
+      "label": "String Class",
+      "text": "# Let's make our own String class!\n\ndef extern malloc(size: int) -> *int8\ndef extern strcpy(dest: str, src: str) -> str\ndef extern strlen(src: str) -> int\n\nclass String\n\tvar x: str\n\tvar length: int\n\tvar capacity: int\n\n\tdef new(x: str)\n\t\tself.length = strlen(x)\n\t\tself.capacity = self.length\n\t\tself.x = malloc(self.capacity) as str\n\t\tstrcpy(self.x, x)\n\nlet my_class = String(\"Hello World!\")\nprint(my_class.x)"
+    },
+    {
+      "label": "Guessing Game",
+      "text": "print(\"Guess the number! 🎰\")\n\nlet secret_number = random(1, 101)\n\nwhile true\n\tlet guess = input(\"Please input your guess: \")\n\tlet guessed_number = strToInt(guess)\n\n\tif guessed_number > secret_number\n\t\tprint(\"Too big!\")\n\telse if guessed_number < secret_number\n\t\tprint(\"Too small\")\n\telse\n\t\tprint(\"You win!\")\n\t\tbreak"
+    }
+  ]
+}
