@@ -81,6 +81,13 @@ export function newBuildParamsChangeDispatcher(runtime: RuntimeType, autoFormat:
   };
 }
 
+export function newLoadDispacher(): Dispatcher {
+  return async (dispatch: DispatchFn, _: StateProvider) => {
+    dispatch(newImportFileAction('prog.les', DEMO_CODE));
+      return;
+  }
+}
+
 export function newSnippetLoadDispatcher(snippetID?: string): Dispatcher {
   return async (dispatch: DispatchFn, _: StateProvider) => {
     if (!snippetID) {

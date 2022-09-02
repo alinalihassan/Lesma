@@ -1,5 +1,7 @@
 import { createBrowserHistory } from 'history'
-import { compose, createStore, Store } from 'redux'
+import { applyMiddleware, compose, createStore, Store } from 'redux'
+import thunk from 'redux-thunk'
+import { routerMiddleware } from 'connected-react-router'
 
 import { createRootReducer, getInitialState } from './reducers'
 import { Action } from "./actions";
@@ -14,6 +16,10 @@ export function configureStore(): Store<State, Action> {
   return createStore(
     createRootReducer(history),
     preloadedState as any,
-    composeEnhancers(),
+    composeEnhancers(
+      applyMiddleware(
+        routerMiddleware(history),
+        thunk,
+      )),
   );
 }

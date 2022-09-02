@@ -7,7 +7,6 @@ import apiClient from '@site/src/services/api';
 import { configureStore } from '@site/src/store'
 import config from '@site/src/services/config';
 
-
 initializeIcons();
 registerLesmaLanguageProvider(apiClient);
 

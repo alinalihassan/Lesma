@@ -1,5 +1,5 @@
 import React from 'react';
-import clsx from 'clsx';
+import { useParams } from 'react-router-dom';
 import { connect } from 'react-redux';
 
 import { dispatchPanelLayoutChange, newSnippetLoadDispatcher} from '@site/src/store';
@@ -15,7 +15,7 @@ import styles from './styles.module.css';
 
 const CodeContainer = connect()(({dispatch}: any) => {
   // const { snippetID } = useParams();
-  // dispatch(newSnippetLoadDispatcher(snippetID));
+  dispatch(newSnippetLoadDispatcher());
   return (
     <CodeEditor />
   );
@@ -23,7 +23,6 @@ const CodeContainer = connect()(({dispatch}: any) => {
 
 
 const IDE = connect(({panel}: any) => ({panelProps: panel}))(({panelProps, dispatch}: any) => {
-  const {siteConfig} = useDocusaurusContext();
   return (
     <div className='container'>
     <div className={styles.Playground}>
