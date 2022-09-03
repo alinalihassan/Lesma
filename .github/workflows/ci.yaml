@@ -26,6 +26,27 @@ jobs:
         with:
           fetch-depth: 0
 
+      # Prepare Semantic Release version in case we release
+      - name: Setup Node.JS
+        uses: actions/setup-node@v2
+        with:
+          node-version: '16'
+
+      - name: Install Semantic Release Dependencies
+        run: |
+          npm install -g @semantic-release/changelog @semantic-release/git
+
+      - name: Semantic Release
+        id: semantic-check
+        uses: cycjimmy/semantic-release-action@v2
+        with:
+          dry_run: true
+          extra_plugins: |
+            @semantic-release/changelog
+            @semantic-release/git
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
       - name : Clang Format
         if:  ${{ matrix.os == 'ubuntu-latest' }}
         uses: DoozyX/clang-format-lint-action@v0.14
@@ -63,8 +84,10 @@ jobs:
         uses: seanmiddleditch/gha-setup-ninja@master
 
       - name: Build
+        env:
+          CUR_VERSION: ${{ steps.semantic-check.outputs.new_release_published && steps.semantic-check.outputs.new_release_version || '' }}
         run: |
-          cmake -B ${{github.workspace}}/build -G Ninja -DCMAKE_BUILD_TYPE=${{env.BUILD_TYPE}}
+          cmake -B ${{github.workspace}}/build -G Ninja -DCMAKE_BUILD_TYPE=${{env.BUILD_TYPE}} -DLESMA_VERSION=$CUR_VERSION
           cmake --build ${{github.workspace}}/build --config ${{env.BUILD_TYPE}}
 
       - name: Test
@@ -83,7 +106,7 @@ jobs:
   release:
     name: Release
     needs: build
-#    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
     runs-on: ubuntu-latest
 
     steps:
@@ -110,17 +133,8 @@ jobs:
         id: semantic
         uses: cycjimmy/semantic-release-action@v2
         with:
-          dry_run: true
           extra_plugins: |
             @semantic-release/changelog
             @semantic-release/git
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Do something when a new release published
-        run: |
-          echo ${{ steps.semantic.outputs.new_release_published }}
-          echo ${{ steps.semantic.outputs.new_release_version }}
-          echo ${{ steps.semantic.outputs.new_release_major_version }}
-          echo ${{ steps.semantic.outputs.new_release_minor_version }}
-          echo ${{ steps.semantic.outputs.new_release_patch_version }}

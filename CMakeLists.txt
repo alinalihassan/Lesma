@@ -5,7 +5,11 @@ include(cmake/CPM.cmake)
 include(cmake/VersionFromGit.cmake)
 
 # Get version
-version_from_git(INCLUDE_HASH OFF)
+if (NOT DEFINED LESMA_VERSION OR "${LESMA_VERSION}" STREQUAL "")
+  version_from_git(INCLUDE_HASH OFF)
+else()
+  set(VERSION ${LESMA_VERSION})
+endif()
 
 # Project
 project(Lesma VERSION ${VERSION})
