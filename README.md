@@ -28,6 +28,15 @@
 - [Official Documentation](https://lesma-lang.com/)
 - [Examples](https://github.com/alinalihassan/Lesma/blob/main/tests/lesma)
 
+## Installation
+
+Every lesma release contains archives with the binary and standard library which you can grab,
+but you could also use the installer script to do all the work for you. Paste the following in your terminal:
+
+```bash
+bash -c "$(curl -fsSL https://raw.githubusercontent.com/alinalihassan/Lesma/main/scripts/get-lesma.sh)"
+```
+
 ## 🔧 Build
 
 In order to build Lesma, you need Clang and LLVM 14 installed. It's currently only supported on Linux and macOS.

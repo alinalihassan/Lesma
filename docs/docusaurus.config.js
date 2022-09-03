@@ -54,6 +54,11 @@ const config = {
             position: 'left',
             label: 'Documentation',
           },
+          {
+            to: '/playground',
+            label: 'Playground',
+            position: 'left',
+          },
           // {to: '/blog', label: 'Blog', position: 'left'},
           // Right side
           {

@@ -127,7 +127,7 @@ enable_testing()
 
 find_program(BASH_PROGRAM bash)
 if (BASH_PROGRAM)
-  add_test(test_lesma_sources ${BASH_PROGRAM} ${CMAKE_CURRENT_SOURCE_DIR}/run_compiler_tests.sh)
+  add_test(test_lesma_sources ${BASH_PROGRAM} ${CMAKE_CURRENT_SOURCE_DIR}/scripts/run_compiler_tests.sh)
 endif (BASH_PROGRAM)
 
 add_test(test_unit_tests tests)
@@ -142,7 +142,7 @@ install(DIRECTORY ${SRC_DIR}/stdlib DESTINATION .)
 
 # TODO: Should move stdlib when a user installs
 
-set(CPACK_GENERATOR "STGZ")
+set(CPACK_GENERATOR "TGZ")
 set(CPACK_PACKAGE_VENDOR Lesma)
 set(CPACK_PACKAGE_VERSION_MAJOR ${VERSION_MAJOR})
 set(CPACK_PACKAGE_VERSION_MINOR ${VERSION_MINOR})

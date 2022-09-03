@@ -1,3 +1,35 @@
+## [0.16.2](https://github.com/alinalihassan/Lesma/compare/v0.16.1...v0.16.2) (2022-08-30)
+
+
+### Bug Fixes
+
+* Fixed tests error ([9dda15e](https://github.com/alinalihassan/Lesma/commit/9dda15ea5b51400c5244a4b47d320c55abcddabb))
+* Updated installer to add to path and provide feedback ([2be4440](https://github.com/alinalihassan/Lesma/commit/2be44400dc7403709a72754a7db9528744264fa4))
+
+## [0.16.1](https://github.com/alinalihassan/Lesma/compare/v0.16.0...v0.16.1) (2022-08-30)
+
+
+### Bug Fixes
+
+* changed release format ([f7e0645](https://github.com/alinalihassan/Lesma/commit/f7e064536cee76b17a27bf613bed703bfc05ceaf))
+
+# [0.16.0](https://github.com/alinalihassan/Lesma/compare/v0.15.4...v0.16.0) (2022-08-30)
+
+
+### Bug Fixes
+
+* Can now use either local llvm or system-wide llvm ([45b6b83](https://github.com/alinalihassan/Lesma/commit/45b6b839329b16bf17f4350984389d47e57b16e3))
+* fixed cmake path for dependency ([0b9b0bd](https://github.com/alinalihassan/Lesma/commit/0b9b0bd9564687fc90066c9e8545e50f7974fd70))
+* Fixed library not able to make static lib ([a13bf75](https://github.com/alinalihassan/Lesma/commit/a13bf75edd2d6bc452b4a5f7ad7a3808bf84ef23))
+* Fixed local llvm and clang ([81ce3a9](https://github.com/alinalihassan/Lesma/commit/81ce3a95f41e06b19a6c9593cfce9f3d5e6224cc))
+* Fixed not adding include directories ([94071d8](https://github.com/alinalihassan/Lesma/commit/94071d874993b0c1d49716b3a346b2b0a9aca59b))
+* We now move stdlib to .lesma directory in $HOME ([ff20761](https://github.com/alinalihassan/Lesma/commit/ff20761e5f36ef680296ee17c271e2de43868995))
+
+
+### Features
+
+* Added lesma as a library, ([cb5522e](https://github.com/alinalihassan/Lesma/commit/cb5522e4d7a7402c602f9ace503da15c41db86cc))
+
 ## [0.15.4](https://github.com/alinalihassan/Lesma/compare/v0.15.3...v0.15.4) (2022-08-26)
 
 
