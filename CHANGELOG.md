@@ -1,3 +1,10 @@
+## [0.16.3](https://github.com/alinalihassan/Lesma/compare/v0.16.2...v0.16.3) (2022-09-03)
+
+
+### Bug Fixes
+
+* Test fix for semantic release ([12a77a4](https://github.com/alinalihassan/Lesma/commit/12a77a48d52c387b294433767cea74e1138415f2))
+
 ## [0.16.2](https://github.com/alinalihassan/Lesma/compare/v0.16.1...v0.16.2) (2022-08-30)
 
 
