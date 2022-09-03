@@ -1,0 +1,16 @@
+# Roadmap
+- [ ] Add analyzer phase (improve visitor pattern? kinda hacky)
+- [ ] Add optional parameters in function declarations
+- [ ] Add default values in function declarations
+- [ ] Add operator overloading
+- [ ] Add generics
+- [ ] Add lists
+- [ ] Add tuples
+- [ ] Add ranges (1..4 style)
+- [ ] Add dictionaries
+- [ ] Add foreach loops
+- [ ] Add lambda functions
+- [ ] Add inheritance (or traits)
+- [ ] Add string interpolation
+- [ ] Add multithreading using pthread for now (async/await? ala Spice)
+- [ ] Add multiple value return without having to make structs

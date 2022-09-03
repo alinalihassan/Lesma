@@ -5,7 +5,11 @@ include(cmake/CPM.cmake)
 include(cmake/VersionFromGit.cmake)
 
 # Get version
-version_from_git(INCLUDE_HASH OFF)
+if (NOT DEFINED LESMA_VERSION OR "${LESMA_VERSION}" STREQUAL "")
+  version_from_git(INCLUDE_HASH OFF)
+else()
+  set(VERSION ${LESMA_VERSION})
+endif()
 
 # Project
 project(Lesma VERSION ${VERSION})
@@ -140,13 +144,12 @@ include(InstallRequiredSystemLibraries)
 install(TARGETS ${CLI_NAME} RUNTIME DESTINATION bin)
 install(DIRECTORY ${SRC_DIR}/stdlib DESTINATION .)
 
-# TODO: Should move stdlib when a user installs
-
 set(CPACK_GENERATOR "TGZ")
 set(CPACK_PACKAGE_VENDOR Lesma)
 set(CPACK_PACKAGE_VERSION_MAJOR ${VERSION_MAJOR})
 set(CPACK_PACKAGE_VERSION_MINOR ${VERSION_MINOR})
 set(CPACK_PACKAGE_VERSION_PATCH ${VERSION_PATCH})
+set(CPACK_PACKAGE_FILE_NAME "${PROJECT_NAME}-${CMAKE_SYSTEM_NAME}-${CMAKE_SYSTEM_PROCESSOR}")
 set(CPACK_PACKAGE_HOMEPAGE_URL ${LESMA_URL})
 set(CPACK_PACKAGE_ICON "${CMAKE_CURRENT_SOURCE_DIR}/docs/static/img/logo.svg")
 set(CPACK_RESOURCE_FILE_LICENSE "${CMAKE_CURRENT_SOURCE_DIR}/LICENSE.txt")

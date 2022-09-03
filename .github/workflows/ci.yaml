@@ -5,12 +5,7 @@ on:
     branches: [ main, dev ]
   pull_request:
     branches: [ main, dev ]
-  workflow_dispatch:
-    inputs:
-      debug_enabled:
-        description: 'Run the build with tmate debugging enabled (https://github.com/marketplace/actions/debugging-with-tmate)'
-        required: false
-        default: false
+
 env:
   BUILD_TYPE: Release
   CC: clang
@@ -30,6 +25,27 @@ jobs:
         uses: actions/checkout@v3
         with:
           fetch-depth: 0
+
+      # Prepare Semantic Release version in case we release
+      - name: Setup Node.JS
+        uses: actions/setup-node@v2
+        with:
+          node-version: '16'
+
+      - name: Install Semantic Release Dependencies
+        run: |
+          npm install -g @semantic-release/changelog @semantic-release/git
+
+      - name: Semantic Release
+        id: semantic-check
+        uses: cycjimmy/semantic-release-action@v2
+        with:
+          dry_run: true
+          extra_plugins: |
+            @semantic-release/changelog
+            @semantic-release/git
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name : Clang Format
         if:  ${{ matrix.os == 'ubuntu-latest' }}
@@ -68,20 +84,16 @@ jobs:
         uses: seanmiddleditch/gha-setup-ninja@master
 
       - name: Build
+        env:
+          CUR_VERSION: ${{ steps.semantic-check.outputs.new_release_published && steps.semantic-check.outputs.new_release_version || '' }}
         run: |
-          cmake -B ${{github.workspace}}/build -G Ninja -DCMAKE_BUILD_TYPE=${{env.BUILD_TYPE}}
+          cmake -B ${{github.workspace}}/build -G Ninja -DCMAKE_BUILD_TYPE=${{env.BUILD_TYPE}} -DLESMA_VERSION=$CUR_VERSION
           cmake --build ${{github.workspace}}/build --config ${{env.BUILD_TYPE}}
-
-      # Enable tmate debugging of manually-triggered workflows if the input option was provided
-      - name: Setup tmate session
-        uses: mxschmitt/action-tmate@v3
-        if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.debug_enabled }}
 
       - name: Test
         working-directory: ${{github.workspace}}/build
         run: ctest -C ${{env.BUILD_TYPE}} --rerun-failed --output-on-failure
 
-      # Artifact binaries still not working properly
       - name: Package Artifact
         working-directory: ${{github.workspace}}/build
         run: ninja package
@@ -89,9 +101,7 @@ jobs:
       - uses: actions/upload-artifact@v2
         with:
           name: lesma
-          path: |
-            ${{github.workspace}}/build/Lesma*.sh
-            ${{github.workspace}}/build/Lesma*.tar.gz
+          path: ${{github.workspace}}/build/Lesma*.tar.gz
 
   release:
     name: Release
