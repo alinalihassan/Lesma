@@ -89,9 +89,7 @@ jobs:
       - uses: actions/upload-artifact@v2
         with:
           name: lesma
-          path: |
-            ${{github.workspace}}/build/Lesma*.sh
-            ${{github.workspace}}/build/Lesma*.tar.gz
+          path: ${{github.workspace}}/build/Lesma*.tar.gz
 
   release:
     name: Release
