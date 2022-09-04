@@ -17,11 +17,11 @@ set -e
 case $(uname | tr '[:upper:]' '[:lower:]') in
   linux*)
     export OS_NAME=linux
-    export FILE_NAME="browser_download_url.*Linux.tar.gz"
+    export FILE_NAME="browser_download_url.*Linux-x86_64.tar.gz"
     ;;
   darwin*)
     export OS_NAME=osx
-    export FILE_NAME="browser_download_url.*Darwin.tar.gz"
+    export FILE_NAME="browser_download_url.*Darwin-x86_64.tar.gz"
     ;;
   msys*)
     export OS_NAME=windows
