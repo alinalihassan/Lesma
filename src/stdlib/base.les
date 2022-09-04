@@ -7,8 +7,7 @@ def extern strtod(x: str) -> float
 def extern rand() -> int
 def extern srand(x: int)
 def extern time(x: *int) -> int
-
-export def extern exit(x: int)
+def extern _exit(x: int)
 
 export def input() -> str
     return input("")
@@ -55,7 +54,6 @@ export def print(x: bool)
     else
         print("false")
 
-# Hack to keep exit function alive, needs to be used to survive import
-def testExit()
-    exit(1)
-###
+export def exit(status_code: int)
+	# TODO: Should check if this is enough, instead of the classic 'exit' function, since we can't have 2 exit names in scope yet
+    _exit(status_code)

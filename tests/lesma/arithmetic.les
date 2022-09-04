@@ -1,4 +1,2 @@
 #ret=101
-def extern exit(x: int)
-
 exit(2 * (10 + 5) + 2 * 10 + 5 + 46)
