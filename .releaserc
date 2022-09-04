@@ -5,8 +5,7 @@
     "@semantic-release/release-notes-generator",
     ["@semantic-release/github", {
       "assets": [
-        {"path": "Lesma-*.tar.gz"},
-        {"path": "Lesma-*.sh"}
+        {"path": "Lesma-*.tar.gz"}
       ]
     }],
     "@semantic-release/changelog",
