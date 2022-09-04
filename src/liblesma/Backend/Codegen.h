@@ -111,7 +111,7 @@ namespace lesma {
         llvm::Value *Cast(llvm::SMRange span, llvm::Value *val, llvm::Type *type, bool isStore);
         static llvm::Type *GetExtendedType(llvm::Type *left, llvm::Type *right);
         bool isMethod(const std::string &mangled_name);
-        std::string getMangledName(llvm::SMRange span, std::string func_name, const std::vector<llvm::Type *> &paramTypes, bool isMethod = false, std::string alias = "");
+        std::string getMangledName(llvm::SMRange span, std::string func_name, const std::vector<llvm::Type *> &paramTypes, bool isMethod = false, std::string module_alias = "", bool noAlias = false);
         bool isMangled(std::string name);
         std::string getDemangledName(const std::string &mangled_name);
         std::string getTypeMangledName(llvm::SMRange span, llvm::Type *type);

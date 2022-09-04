@@ -131,9 +131,10 @@ void Codegen::CompileModule(llvm::SMRange span, const std::string &filepath, boo
     // Read source
     auto absolute_path = isStd ? filepath : fmt::format("{}/{}", std::filesystem::absolute(mainPath).parent_path().c_str(), filepath);
 
-    // If module is already imported, don't compile again
-    if (std::find(ImportedModules.begin(), ImportedModules.end(), absolute_path) != ImportedModules.end())
-        return;
+    // If module is already imported, don't compile again (commented out since we need it for now)
+    // TODO: Should keep a map of codegen objects, and reuse the Scope from there
+    // if (std::find(ImportedModules.begin(), ImportedModules.end(), absolute_path) != ImportedModules.end())
+    //     return;
 
     auto buffer = MemoryBuffer::getFile(absolute_path);
     if (buffer.getError() != std::error_code())
@@ -1227,9 +1228,11 @@ bool Codegen::isMethod(const std::string &mangled_name) {
     return mangled_name.find("::") != std::string::npos;
 }
 
-std::string Codegen::getMangledName(llvm::SMRange span, std::string func_name, const std::vector<llvm::Type *> &paramTypes, bool isMethod, std::string alias) {
-    alias = alias.empty() ? this->alias : alias;
-    std::string name = (alias.empty() ? "" : "&" + alias + "=>") +
+std::string Codegen::getMangledName(llvm::SMRange span, std::string func_name, const std::vector<llvm::Type *> &paramTypes, bool isMethod, std::string module_alias, bool noAlias) {
+    module_alias = module_alias.empty() ? this->alias : module_alias;
+    if (noAlias)
+        module_alias = "";
+    std::string name = (module_alias.empty() ? "" : "&" + module_alias + "=>") +
                        (selfSymbol != nullptr && isMethod ? selfSymbol->getName() + "::" + std::move(func_name) + ":" : "." + std::move(func_name) + ":");
     bool first = true;
 
@@ -1368,6 +1371,8 @@ llvm::Value *Codegen::genFuncCall(FuncCall *node, const std::vector<llvm::Value 
     }
 
     auto symbol = Scope->lookup(name);
+    // Get function name from outside the module
+    symbol = symbol == nullptr ? Scope->lookup(getMangledName(node->getSpan(), node->getName(), paramTypes, !extra_params.empty(), "", true)) : symbol;
     // Get function without name mangling in case of extern C functions
     symbol = symbol == nullptr ? Scope->lookup(node->getName()) : symbol;
 
