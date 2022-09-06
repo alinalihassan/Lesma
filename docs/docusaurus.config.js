@@ -55,7 +55,7 @@ const config = {
             label: 'Documentation',
           },
           {
-            to: '/playground',
+            href: 'http://playground.lesma-lang.com/',
             label: 'Playground',
             position: 'left',
           },
