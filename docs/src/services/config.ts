@@ -65,7 +65,7 @@ export const getVariableValue = (key: string, defaultValue: string) =>
 const Config = {
   _cache: {},
   appVersion: '1.0.0',
-  serverUrl: 'http://34.140.31.253:18080',
+  serverUrl: 'https://api.lesma-lang.com',
   githubUrl: 'https://github.com/alinalihassan/lesma-playground',
   issueUrl: 'https://github.com/alinalihassan/lesma-playground/issues/new',
   donateUrl: 'https://github.com/alinalihassan/Lesma',
