@@ -1,33 +1,33 @@
-/**
- * Copyright (c) Meta Platforms, Inc. and affiliates.
- *
- * This source code is licensed under the MIT license found in the
- * LICENSE file in the root directory of this source tree.
- *
- * @format
- */
-
 import React, {useEffect, useState, useReducer, useCallback} from 'react';
-import LesmaWorker from 'worker-loader!@site/src/workers/lesmaWorker.js';
+// @ts-ignore
+import LesmaWorker from 'worker-loader!@site/src/workers/lesmaWorker';
 import Code from '@site/src/components/Code';
 import Spinner from '@site/src/components/Spinner';
 import styles from './styles.module.css';
 import Head from "@docusaurus/Head";
 import Layout from "@theme/Layout";
+import ExecutionEnvironment from "@docusaurus/ExecutionEnvironment";
 
 let lesmaWorker;
-if (typeof window !== 'undefined') {
+if (ExecutionEnvironment.canUseDOM) {
   lesmaWorker = new LesmaWorker();
 }
 
-const initialState = {
+interface PlaygroundState {
+  runRequested: boolean,
+  output: string,
+  lastTime: Date,
+  elapsed: number,
+}
+
+const initialState: PlaygroundState = {
   runRequested: false,
   output: '',
   lastTime: undefined,
   elapsed: 0,
 };
 
-function reducer(state, action) {
+function reducer(state: PlaygroundState, action): PlaygroundState {
   switch (action.tag) {
     case 'RUN':
       if (state.runRequested) return state;
@@ -38,13 +38,13 @@ function reducer(state, action) {
         ...state,
         runRequested: false,
         output: action.result,
-        elapsed: new Date() - state.lastTime,
+        elapsed: new Date().getTime() - state.lastTime.getTime(),
       };
   }
 }
 
-function Playground() {
-  if (typeof window === 'undefined') return null;
+const Playground = () => {
+  if (!ExecutionEnvironment.canUseDOM) return null;
 
   const [source, setSource] = useState('print(\"Hello from Lesma!\")\n');
   const [args, setArgs] = useState('');
@@ -66,7 +66,7 @@ function Playground() {
     };
   }, []);
 
-  // A hack to completely disasble scrolling behaviors on mobile
+  // A hack to completely disable scrolling behaviors on mobile
   // e.g. bounce effect on iOS, pull-to-refresh on Android.
   //
   // The reason to do it via effects on `html` is that docusaurus drawer
@@ -104,7 +104,7 @@ function Playground() {
         <button className={styles.runBtn}>
           <RunIcon isLoading={runRequested} />
         </button>
-        <div className={styles.helpBtn} onClick={_ => run('-help')}>
+        <div className={styles.helpBtn} onClick={_ => run()}>
           ?
         </div>
         <span className={styles.elapsed}>{elapsed} ms</span>
@@ -118,7 +118,7 @@ function Playground() {
           <Code
             language="json"
             value={output}
-            editorDidMount={useCallback(_ => run())}
+            editorDidMount={useCallback(_ => run(), [])}
             options={{readOnly: true}}
           />
         </div>

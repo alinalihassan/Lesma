@@ -1,3 +1,19 @@
+enum EvalEventKind {
+  Stdout = 'stdout',
+  Stderr = 'stderr'
+}
+
+interface EvalEvent {
+  Message: string
+  Kind: EvalEventKind
+  Delay: number
+}
+
+interface RunResponse {
+  formatted?: string | null
+  events: EvalEvent[]
+}
+
 let lastTime;
 
 function elapsed() {
@@ -6,30 +22,22 @@ function elapsed() {
     return 0 + ' ms';
   }
   const newTime = new Date();
-  const res = newTime - lastTime;
+  const res = newTime.getTime() - lastTime.getTime();
   lastTime = newTime;
   return res + ' ms';
 }
 
 // Example POST method implementation:
-async function runRequest(query = "print(\"Hello from Lesma!\")\n") {
+async function runRequest(query: string) {
   // Default options are marked with *
   const response = await fetch("http://34.140.31.253:18080/api/run", {
     method: 'POST',
-    mode: 'cors',
-    cache: 'no-cache',
-    credentials: 'same-origin', // include, *same-origin, omit
     headers: {
       'Content-Type': 'application/json'
-      // 'Content-Type': 'application/x-www-form-urlencoded',
     },
-    redirect: 'follow', // manual, *follow, error
-    referrerPolicy: 'no-referrer', // no-referrer, *no-referrer-when-downgrade, origin, origin-when-cross-origin, same-origin, strict-origin, strict-origin-when-cross-origin, unsafe-url
-    body: JSON.stringify({"body": query}) // body data type must match "Content-Type" header
+    body: JSON.stringify({"body": query})
   });
-  let json = await response.json();
-  console.log(json);
-  console.log(json.events[0].Message);
+  let json: RunResponse = await response.json();
   return json.events[0].Message; // parses JSON response into native JavaScript objects
 }
 

@@ -1,14 +1,4 @@
-/**
- * Copyright (c) Meta Platforms, Inc. and affiliates.
- *
- * This source code is licensed under the MIT license found in the
- * LICENSE file in the root directory of this source tree.
- *
- * @format
- */
-
 import React, {Suspense, lazy, useRef, useEffect, useCallback} from 'react';
-// import { useThemeConfig } from '@docusaurus/theme-common';
 import Spinner from '../Spinner';
 import styles from './styles.module.css';
 
@@ -40,7 +30,6 @@ const Placeholder = () => (
 );
 
 function Code(props) {
-  // const {isDarkTheme} = useThemeConfig();
   const editorRef = useRef(null);
 
   useEffect(() => {
@@ -54,7 +43,7 @@ function Code(props) {
   const onEditorDidMount = useCallback(e => {
     editorRef.current = e;
     if (props.editorDidMount) props.editorDidMount();
-  });
+  }, []);
 
   return (
     <Suspense fallback={<Placeholder />}>
