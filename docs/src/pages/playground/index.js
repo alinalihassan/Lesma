@@ -8,7 +8,7 @@
  */
 
 import React, {useEffect, useState, useReducer, useCallback} from 'react';
-import LesmaWorker from 'worker-loader!@site/src/workers/hermesWorker.js';
+import LesmaWorker from 'worker-loader!@site/src/workers/lesmaWorker.js';
 import Code from '@site/src/components/Code';
 import Spinner from '@site/src/components/Spinner';
 import styles from './styles.module.css';
@@ -31,8 +31,7 @@ function reducer(state, action) {
   switch (action.tag) {
     case 'RUN':
       if (state.runRequested) return state;
-      const args = action.args.split(/\s+/).filter(x => x);
-      // hermesWorker.postMessage(['run', args, action.source]);
+      lesmaWorker.postMessage(['run', action.source]);
       return {...state, runRequested: true, lastTime: new Date()};
     case 'RUN_COMPLETE':
       return {
@@ -47,12 +46,12 @@ function reducer(state, action) {
 function Playground() {
   if (typeof window === 'undefined') return null;
 
-  const [source, setSource] = useState('const a = 1; \nprint(a);');
-  const [args, setArgs] = useState('-O -dump-bytecode');
+  const [source, setSource] = useState('print(\"Hello from Lesma!\")\n');
+  const [args, setArgs] = useState('');
   const [state, dispatch] = useReducer(reducer, initialState);
 
   const {runRequested, elapsed, output} = state;
-  const run = args => dispatch({tag: 'RUN', args, source});
+  const run = () => dispatch({tag: 'RUN', source});
 
   useEffect(() => {
     lesmaWorker.onmessage = e => {
@@ -81,7 +80,7 @@ function Playground() {
 
   const handleSubmit = e => {
     e.preventDefault();
-    run(args);
+    run();
   };
 
   return (
@@ -119,7 +118,7 @@ function Playground() {
           <Code
             language="json"
             value={output}
-            editorDidMount={useCallback(_ => run(args))}
+            editorDidMount={useCallback(_ => run())}
             options={{readOnly: true}}
           />
         </div>
