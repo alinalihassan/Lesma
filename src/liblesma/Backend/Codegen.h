@@ -1,7 +1,6 @@
 #pragma once
 
-#include "liblesma/AST/ExprVisitor.h"
-#include "liblesma/AST/StmtVisitor.h"
+#include "liblesma/AST/ASTVisitor.h"
 #include "liblesma/Frontend/Parser.h"
 #include "liblesma/JIT/LesmaJIT.h"
 #include "liblesma/Symbol/SymbolTable.h"
@@ -33,7 +32,7 @@ namespace lesma {
         using LesmaErrorWithExitCode<EX_DATAERR>::LesmaErrorWithExitCode;
     };
 
-    class Codegen final : public ExprVisitor<llvm::Value *, llvm::Type *>, public StmtVisitor<void> {
+    class Codegen final : public ASTVisitor<void, llvm::Value *, llvm::Type *> {
         ThreadSafeContext *TheContext;
         std::unique_ptr<Module> TheModule;
         std::unique_ptr<IRBuilder<>> Builder;
@@ -56,7 +55,6 @@ namespace lesma {
         std::vector<std::tuple<Function *, FuncDecl *, SymbolTableEntry *>> Prototypes;
         llvm::Function *TopLevelFunc;
         SymbolTableEntry *selfSymbol = nullptr;
-        unsigned int bufferId;
         bool isBreak = false;
         bool isReturn = false;
         bool isAssignment = false;
@@ -94,7 +92,7 @@ namespace lesma {
         void visit(Return *node) override;
         void visit(Defer *node) override;
         void visit(ExpressionStatement *node) override;
-        llvm::Type *visit(lesma::Type *node) override;
+
         llvm::Value *visit(Expression *node) override;
         llvm::Value *visit(FuncCall *node) override;
         llvm::Value *visit(BinaryOp *node) override;
@@ -104,6 +102,8 @@ namespace lesma {
         llvm::Value *visit(UnaryOp *node) override;
         llvm::Value *visit(Literal *node) override;
         llvm::Value *visit(Else *node) override;
+
+        llvm::Type *visit(lesma::Type *node) override;
 
         // TODO: Helper functions, move them out somewhere
         static SymbolType *getType(llvm::Type *type);

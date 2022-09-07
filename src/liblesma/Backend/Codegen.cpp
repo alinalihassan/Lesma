@@ -16,7 +16,6 @@ Codegen::Codegen(std::unique_ptr<Parser> parser, std::shared_ptr<SourceMgr> srcM
     Builder = std::make_unique<IRBuilder<>>(*TheContext->getContext());
     Parser_ = std::move(parser);
     SourceManager = std::move(srcMgr);
-    bufferId = SourceManager->getNumBuffers();
     Scope = new SymbolTable(nullptr);
     TargetMachine = InitializeTargetMachine();
 
