@@ -2,6 +2,8 @@
 const lightCodeTheme = require('prism-react-renderer/themes/github');
 const darkCodeTheme = require('prism-react-renderer/themes/dracula');
 
+const path = require('path');
+
 /** @type {import('@docusaurus/types').Config} */
 const config = {
   title: 'Lesma',
@@ -57,6 +59,11 @@ const config = {
           {
             href: 'http://playground.lesma-lang.com/',
             label: 'Playground',
+            position: 'left',
+          },
+          {
+            to: '/playground',
+            label: 'Playground Beta',
             position: 'left',
           },
           // {to: '/blog', label: 'Blog', position: 'left'},
@@ -124,6 +131,9 @@ const config = {
         darkTheme: darkCodeTheme,
       },
     }),
+  plugins: [
+    path.join(__dirname, '/plugins/monaco-editor'),
+  ],
 };
 
 module.exports = config;
