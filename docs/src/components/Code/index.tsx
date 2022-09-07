@@ -1,6 +1,7 @@
 import React, {Suspense, lazy, useRef, useEffect, useCallback} from 'react';
 import Spinner from '../Spinner';
 import styles from './styles.module.css';
+import {registerLesmaLanguageProvider} from "@site/src/config/provider";
 
 const MonacoEditor = lazy(() => import('react-monaco-editor'));
 
@@ -11,16 +12,6 @@ const defaultOptions = {
   scrollBeyondLastLine: false,
   smoothScrolling: true,
   fontFamily: "Menlo, Monaco, Consolas, 'Courier New', monospace",
-};
-
-const registerTheme = monaco => {
-  const theme = {
-    base: 'vs-dark',
-    inherit: true,
-    rules: [{background: '18191a'}],
-    colors: {'editor.background': '#18191a'},
-  };
-  monaco.editor.defineTheme('hermes-vs-dark', theme);
 };
 
 const Placeholder = () => (
@@ -49,8 +40,9 @@ function Code(props) {
     <Suspense fallback={<Placeholder />}>
       <MonacoEditor
         {...props}
+        language={"lesma"}
         options={Object.assign({}, defaultOptions, props.options)}
-        editorWillMount={registerTheme}
+        editorWillMount={registerLesmaLanguageProvider}
         editorDidMount={onEditorDidMount}
         theme={'vs-light'}
       />
