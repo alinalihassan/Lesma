@@ -107,7 +107,6 @@ Token *Lexer::ScanOne(bool continuation) {
             c = Advance();
             continuation = true;
 
-            // TODO: Keep it DRY
             while (true) {
                 if (c == ' ' || c == '\r' || c == '\t')
                     c = Advance();
@@ -240,7 +239,6 @@ bool Lexer::HandleIndentation(bool continuation) {
     return true;
 }
 
-// TODO: Could possibly make it more efficient
 Token *Lexer::AddToken(TokenType type) {
     auto ret = new Token(type, std::string(begin_loc.getPointer(), loc.getPointer()), llvm::SMRange{begin_loc, loc});
     ResetTokenBeg();

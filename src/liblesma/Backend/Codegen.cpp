@@ -56,7 +56,7 @@ void Codegen::defineFunction(Function *F, FuncDecl *node, SymbolTableEntry *clsS
         if (clsSymbol != nullptr && param.getArgNo() == 0)
             param.setName("self");
         else
-            param.setName(node->getParameters()[param.getArgNo() - (clsSymbol != nullptr ? 1 : 0)].first);
+            param.setName(node->getParameters()[param.getArgNo() - (clsSymbol != nullptr ? 1 : 0)]->name);
 
         llvm::Value *ptr;
         ptr = Builder->CreateAlloca(param.getType(), nullptr, param.getName() + "_ptr");
@@ -578,7 +578,7 @@ void Codegen::visit(FuncDecl *node) {
     }
 
     for (const auto &param: node->getParameters())
-        paramTypes.push_back(visit(param.second));
+        paramTypes.push_back(visit(param->type));
 
     auto name = getMangledName(node->getSpan(), node->getName(), paramTypes, selfSymbol != nullptr);
     auto linkage = node->isExported() ? Function::ExternalLinkage : Function::PrivateLinkage;
@@ -599,7 +599,7 @@ void Codegen::visit(ExternFuncDecl *node) {
     std::vector<llvm::Type *> paramTypes;
 
     for (const auto &param: node->getParameters())
-        paramTypes.push_back(visit(param.second));
+        paramTypes.push_back(visit(param->type));
 
     FunctionCallee F;
     if (TheModule->getFunction(node->getName()) != nullptr && Scope->lookup(node->getName()) != nullptr)
@@ -1227,9 +1227,9 @@ bool Codegen::isMethod(const std::string &mangled_name) {
     return mangled_name.find("::") != std::string::npos;
 }
 
-std::string Codegen::getMangledName(llvm::SMRange span, std::string func_name, const std::vector<llvm::Type *> &paramTypes, bool isMethod, std::string alias) {
-    alias = alias.empty() ? this->alias : alias;
-    std::string name = (alias.empty() ? "" : "&" + alias + "=>") +
+std::string Codegen::getMangledName(llvm::SMRange span, std::string func_name, const std::vector<llvm::Type *> &paramTypes, bool isMethod, std::string module_alias) {
+    module_alias = module_alias.empty() ? this->alias : module_alias;
+    std::string name = (module_alias.empty() ? "" : "&" + module_alias + "=>") +
                        (selfSymbol != nullptr && isMethod ? selfSymbol->getName() + "::" + std::move(func_name) + ":" : "." + std::move(func_name) + ":");
     bool first = true;
 

@@ -110,10 +110,10 @@ namespace lesma {
         llvm::Value *Cast(llvm::SMRange span, llvm::Value *val, llvm::Type *type);
         llvm::Value *Cast(llvm::SMRange span, llvm::Value *val, llvm::Type *type, bool isStore);
         static llvm::Type *GetExtendedType(llvm::Type *left, llvm::Type *right);
-        bool isMethod(const std::string &mangled_name);
+        static bool isMethod(const std::string &mangled_name);
         std::string getMangledName(llvm::SMRange span, std::string func_name, const std::vector<llvm::Type *> &paramTypes, bool isMethod = false, std::string alias = "");
-        bool isMangled(std::string name);
-        std::string getDemangledName(const std::string &mangled_name);
+        [[maybe_unused]] static bool isMangled(std::string name);
+        static std::string getDemangledName(const std::string &mangled_name);
         std::string getTypeMangledName(llvm::SMRange span, llvm::Type *type);
         llvm::Value *genFuncCall(FuncCall *node, const std::vector<llvm::Value *> &extra_params);
         static int FindIndexInFields(SymbolType *_struct, const std::string &field);

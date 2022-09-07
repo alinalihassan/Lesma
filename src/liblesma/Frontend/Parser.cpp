@@ -466,7 +466,7 @@ Statement *Parser::ParseFunctionDeclaration() {
 
     // Parse parameters
     Consume(TokenType::LEFT_PAREN);
-    std::vector<std::pair<std::string, Type *>> parameters;
+    std::vector<Parameter*> parameters;
 
     bool varargs = false;
     while (!Check(TokenType::RIGHT_PAREN)) {
@@ -480,7 +480,7 @@ Statement *Parser::ParseFunctionDeclaration() {
             auto param_ident = Consume(TokenType::IDENTIFIER);
             Consume(TokenType::COLON);
             auto type = ParseType();
-            parameters.emplace_back(param_ident->lexeme, type);
+            parameters.emplace_back(new Parameter{param_ident->lexeme, type});
         }
 
         if (!Check(TokenType::RIGHT_PAREN) && !Check(TokenType::RIGHT_PAREN, 1))

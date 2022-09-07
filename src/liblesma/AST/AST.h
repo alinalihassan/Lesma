@@ -110,7 +110,7 @@ namespace lesma {
     public:
         Type(llvm::SMRange Loc, std::string name, TokenType type) : Expression(Loc), name(std::move(name)), type(type), elementType(nullptr), ret(nullptr) {}
         Type(llvm::SMRange Loc, std::string name, TokenType type, Type *elementType) : Expression(Loc), name(std::move(name)), type(type), elementType(elementType), ret(nullptr) {}
-        Type(llvm::SMRange Loc, std::string name, TokenType type, std::vector<Type *> params, Type *ret) : Expression(Loc), name(std::move(name)), type(type), params(std::move(params)), ret(ret) {}
+        Type(llvm::SMRange Loc, std::string name, TokenType type, std::vector<Type *> params, Type *ret) : Expression(Loc), name(std::move(name)), type(type), elementType(nullptr), params(std::move(params)), ret(ret) {}
         ~Type() override = default;
 
         [[nodiscard]] [[maybe_unused]] std::string getName() const { return name; }
@@ -161,7 +161,7 @@ namespace lesma {
         bool import_to_scope;
 
     public:
-        Import(llvm::SMRange Loc, std::string file_path, std::string alias, bool std, bool import_all, bool import_to_scope, std::vector<std::pair<std::string, std::string>> imported_names) : Statement(Loc), file_path(std::move(file_path)), alias(std::move(alias)), imported_names(imported_names), std(std), import_all(import_all), import_to_scope(import_to_scope){};
+        Import(llvm::SMRange Loc, std::string file_path, std::string alias, bool std, bool import_all, bool import_to_scope, std::vector<std::pair<std::string, std::string>> imported_names) : Statement(Loc), file_path(std::move(file_path)), alias(std::move(alias)), imported_names(std::move(imported_names)), std(std), import_all(import_all), import_to_scope(import_to_scope){};
         ~Import() override = default;
 
         [[nodiscard]] [[maybe_unused]] std::string getFilePath() const { return file_path; }
@@ -270,27 +270,34 @@ namespace lesma {
         }
     };
 
+    struct Parameter {
+        std::string name;
+        Type *type;
+        bool optional = false;
+        Expression *default_val = nullptr;
+    };
+
     class FuncDecl : public Statement {
         std::string name;
         Type *return_type;
-        std::vector<std::pair<std::string, Type *>> parameters;
+        std::vector<Parameter*> parameters;
         Compound *body;
         bool varargs;
         bool exported;
 
     public:
         FuncDecl(llvm::SMRange Loc, std::string name, Type *return_type,
-                 std::vector<std::pair<std::string, Type *>> parameters, Compound *body, bool varargs, bool exported) : Statement(Loc), name(std::move(name)), return_type(return_type), parameters(std::move(parameters)),
+                 std::vector<Parameter*> parameters, Compound *body, bool varargs, bool exported) : Statement(Loc), name(std::move(name)), return_type(return_type), parameters(std::move(parameters)),
                                                                                                                         body(body), varargs(varargs), exported(exported) {}
 
         ~FuncDecl() override = default;
 
         [[nodiscard]] [[maybe_unused]] std::string getName() const { return name; }
         [[nodiscard]] [[maybe_unused]] Type *getReturnType() const { return return_type; }
-        [[nodiscard]] [[maybe_unused]] std::vector<std::pair<std::string, Type *>> getParameters() const { return parameters; }
+        [[nodiscard]] [[maybe_unused]] std::vector<Parameter*> getParameters() const { return parameters; }
         [[nodiscard]] [[maybe_unused]] Compound *getBody() const { return body; }
         [[nodiscard]] [[maybe_unused]] bool getVarArgs() const { return varargs; }
-        [[nodiscard]] [[maybe_unused]] bool isExported() { return exported; }
+        [[nodiscard]] [[maybe_unused]] bool isExported() const { return exported; }
 
         std::string toString(llvm::SourceMgr *srcMgr, const std::string &prefix, bool isTail) override {
             auto ret = fmt::format("{}{}FuncDecl[Line({}-{}):Col({}-{})]: {}(",
@@ -301,7 +308,8 @@ namespace lesma {
                                    srcMgr->getLineAndColumn(getEnd()).second,
                                    name);
             for (auto &param: parameters) {
-                ret += param.first + ": " + param.second->toString(srcMgr, prefix, isTail);
+                ret += param->name + ": " + param->type->toString(srcMgr, prefix, isTail) +
+                        (param->default_val == nullptr ? "" : fmt::format("= {}", param->default_val->toString(srcMgr, prefix, isTail)));
                 if (parameters.back() != param) ret += ", ";
             }
             if (varargs)
@@ -315,21 +323,21 @@ namespace lesma {
     class ExternFuncDecl : public Statement {
         std::string name;
         Type *return_type;
-        std::vector<std::pair<std::string, Type *>> parameters;
+        std::vector<Parameter*> parameters;
         bool varargs;
         bool exported;
 
     public:
         ExternFuncDecl(llvm::SMRange Loc, std::string name, Type *return_type,
-                       std::vector<std::pair<std::string, Type *>> parameters, bool varargs, bool exported) : Statement(Loc), name(std::move(name)), return_type(return_type), parameters(std::move(parameters)), varargs(varargs), exported(exported) {}
+                       std::vector<Parameter*> parameters, bool varargs, bool exported) : Statement(Loc), name(std::move(name)), return_type(return_type), parameters(std::move(parameters)), varargs(varargs), exported(exported) {}
 
         ~ExternFuncDecl() override = default;
 
         [[nodiscard]] [[maybe_unused]] std::string getName() const { return name; }
         [[nodiscard]] [[maybe_unused]] Type *getReturnType() const { return return_type; }
-        [[nodiscard]] [[maybe_unused]] std::vector<std::pair<std::string, Type *>> getParameters() const { return parameters; }
+        [[nodiscard]] [[maybe_unused]] std::vector<Parameter*> getParameters() const { return parameters; }
         [[nodiscard]] [[maybe_unused]] bool getVarArgs() const { return varargs; }
-        [[nodiscard]] [[maybe_unused]] bool isExported() { return exported; }
+        [[nodiscard]] [[maybe_unused]] bool isExported() const { return exported; }
 
         std::string toString(llvm::SourceMgr *srcMgr, const std::string &prefix, bool isTail) override {
             auto ret = fmt::format("{}{}ExternFuncDecl[Line({}-{}):Col({}-{})]: {}(",
@@ -340,7 +348,8 @@ namespace lesma {
                                    srcMgr->getLineAndColumn(getEnd()).second,
                                    name);
             for (auto &param: parameters) {
-                ret += param.first + ": " + param.second->toString(srcMgr, prefix, isTail);
+                ret += param->name + ": " + param->type->toString(srcMgr, prefix, isTail) +
+                       (param->default_val == nullptr ? "" : fmt::format("= {}", param->default_val->toString(srcMgr, prefix, isTail)));
                 if (parameters.back() != param) ret += ", ";
             }
             if (varargs)
