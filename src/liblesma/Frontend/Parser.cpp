@@ -466,7 +466,7 @@ Statement *Parser::ParseFunctionDeclaration() {
 
     // Parse parameters
     Consume(TokenType::LEFT_PAREN);
-    std::vector<Parameter*> parameters;
+    std::vector<Parameter *> parameters;
 
     bool varargs = false;
     while (!Check(TokenType::RIGHT_PAREN)) {

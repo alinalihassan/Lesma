@@ -280,21 +280,21 @@ namespace lesma {
     class FuncDecl : public Statement {
         std::string name;
         Type *return_type;
-        std::vector<Parameter*> parameters;
+        std::vector<Parameter *> parameters;
         Compound *body;
         bool varargs;
         bool exported;
 
     public:
         FuncDecl(llvm::SMRange Loc, std::string name, Type *return_type,
-                 std::vector<Parameter*> parameters, Compound *body, bool varargs, bool exported) : Statement(Loc), name(std::move(name)), return_type(return_type), parameters(std::move(parameters)),
-                                                                                                                        body(body), varargs(varargs), exported(exported) {}
+                 std::vector<Parameter *> parameters, Compound *body, bool varargs, bool exported) : Statement(Loc), name(std::move(name)), return_type(return_type), parameters(std::move(parameters)),
+                                                                                                     body(body), varargs(varargs), exported(exported) {}
 
         ~FuncDecl() override = default;
 
         [[nodiscard]] [[maybe_unused]] std::string getName() const { return name; }
         [[nodiscard]] [[maybe_unused]] Type *getReturnType() const { return return_type; }
-        [[nodiscard]] [[maybe_unused]] std::vector<Parameter*> getParameters() const { return parameters; }
+        [[nodiscard]] [[maybe_unused]] std::vector<Parameter *> getParameters() const { return parameters; }
         [[nodiscard]] [[maybe_unused]] Compound *getBody() const { return body; }
         [[nodiscard]] [[maybe_unused]] bool getVarArgs() const { return varargs; }
         [[nodiscard]] [[maybe_unused]] bool isExported() const { return exported; }
@@ -309,7 +309,7 @@ namespace lesma {
                                    name);
             for (auto &param: parameters) {
                 ret += param->name + ": " + param->type->toString(srcMgr, prefix, isTail) +
-                        (param->default_val == nullptr ? "" : fmt::format("= {}", param->default_val->toString(srcMgr, prefix, isTail)));
+                       (param->default_val == nullptr ? "" : fmt::format("= {}", param->default_val->toString(srcMgr, prefix, isTail)));
                 if (parameters.back() != param) ret += ", ";
             }
             if (varargs)
@@ -323,19 +323,19 @@ namespace lesma {
     class ExternFuncDecl : public Statement {
         std::string name;
         Type *return_type;
-        std::vector<Parameter*> parameters;
+        std::vector<Parameter *> parameters;
         bool varargs;
         bool exported;
 
     public:
         ExternFuncDecl(llvm::SMRange Loc, std::string name, Type *return_type,
-                       std::vector<Parameter*> parameters, bool varargs, bool exported) : Statement(Loc), name(std::move(name)), return_type(return_type), parameters(std::move(parameters)), varargs(varargs), exported(exported) {}
+                       std::vector<Parameter *> parameters, bool varargs, bool exported) : Statement(Loc), name(std::move(name)), return_type(return_type), parameters(std::move(parameters)), varargs(varargs), exported(exported) {}
 
         ~ExternFuncDecl() override = default;
 
         [[nodiscard]] [[maybe_unused]] std::string getName() const { return name; }
         [[nodiscard]] [[maybe_unused]] Type *getReturnType() const { return return_type; }
-        [[nodiscard]] [[maybe_unused]] std::vector<Parameter*> getParameters() const { return parameters; }
+        [[nodiscard]] [[maybe_unused]] std::vector<Parameter *> getParameters() const { return parameters; }
         [[nodiscard]] [[maybe_unused]] bool getVarArgs() const { return varargs; }
         [[nodiscard]] [[maybe_unused]] bool isExported() const { return exported; }
 
