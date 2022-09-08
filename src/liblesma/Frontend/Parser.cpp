@@ -480,7 +480,7 @@ Statement *Parser::ParseFunctionDeclaration() {
             auto param_ident = Consume(TokenType::IDENTIFIER);
             Consume(TokenType::COLON);
             auto type = ParseType();
-            parameters.emplace_back(new Parameter{param_ident->lexeme, type});
+            parameters.emplace_back(new Parameter(param_ident->lexeme, type));
         }
 
         if (!Check(TokenType::RIGHT_PAREN) && !Check(TokenType::RIGHT_PAREN, 1))

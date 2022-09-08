@@ -15,6 +15,9 @@ namespace lesma {
     class Parser {
     public:
         explicit Parser(std::vector<Token *> tokens) : tokens(std::move(tokens)), index(0), tree(nullptr) {}
+        ~Parser() {
+            delete tree;
+        }
 
         void Parse();
 
