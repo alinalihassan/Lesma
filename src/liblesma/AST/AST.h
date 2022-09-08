@@ -2,9 +2,9 @@
 
 #include <iostream>
 #include <map>
+#include <optional>
 #include <utility>
 #include <vector>
-#include <optional>
 
 #include "liblesma/Common/Utils.h"
 #include "liblesma/Token/Token.h"

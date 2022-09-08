@@ -1,9 +1,9 @@
 #pragma once
 
+#include <optional>
 #include <string>
 #include <sysexits.h>
 #include <vector>
-#include <optional>
 
 #include "liblesma/Common/LesmaError.h"
 #include "liblesma/Common/Utils.h"
