@@ -371,8 +371,11 @@ Token *Lexer::AddIdentifierToken() {
     auto tok = AddToken(Token::GetIdentifierType(std::string(begin_loc.getPointer(), loc.getPointer()), GetLastToken()));
 
     // If it's a multi-word keyword, remove the last token
-    if (tok->type == TokenType::ELSE_IF || tok->type == TokenType::IS_NOT)
+    if (tok->type == TokenType::ELSE_IF || tok->type == TokenType::IS_NOT) {
+        auto t = tokens.back();
         tokens.pop_back();
+        delete t;
+    }
 
     return tok;
 }

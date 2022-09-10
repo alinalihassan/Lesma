@@ -12,6 +12,14 @@ namespace lesma {
     class SymbolTable {
     public:
         explicit SymbolTable(SymbolTable *parent) : parent(parent){};
+        ~SymbolTable() {
+            for (auto const& [key,val]: children)
+                delete val;
+            for (auto const& [key,val]: types)
+                delete val;
+            for (auto const& [key,val]: symbols)
+                delete val;
+        }
 
         SymbolTableEntry *lookup(const std::string &symbolName);
         SymbolTableEntry *lookupStructByName(const std::string &name);

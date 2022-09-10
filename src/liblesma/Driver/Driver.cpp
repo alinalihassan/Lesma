@@ -13,7 +13,7 @@ using namespace lesma;
         print(DEBUG, "{} -> {:.2f} ms\n", debug_operation, results);
 
 
-int Driver::BaseCompile(Options *options, bool jit) {
+int Driver::BaseCompile(std::unique_ptr<lesma::Options> options, bool jit) {
     // Configure Timer
     plf::nanotimer timer;
     double results, total = 0;
@@ -95,10 +95,10 @@ int Driver::BaseCompile(Options *options, bool jit) {
     }
 }
 
-int Driver::Run(lesma::Options *options) {
-    return BaseCompile(options, true);
+int Driver::Run(std::unique_ptr<lesma::Options> options) {
+    return BaseCompile(std::move(options), true);
 }
 
-int Driver::Compile(Options *options) {
-    return BaseCompile(options, false);
+int Driver::Compile(std::unique_ptr<lesma::Options> options) {
+    return BaseCompile(std::move(options), false);
 }
