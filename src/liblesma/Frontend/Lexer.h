@@ -21,7 +21,7 @@ namespace lesma {
               curPtr(curBuffer->getBufferStart()), begin_loc(llvm::SMLoc::getFromPointer(curPtr)), loc(llvm::SMLoc::getFromPointer(curPtr)), srcMgr(srcMgr) {
         }
         ~Lexer() {
-            for (auto t : tokens)
+            for (auto t: tokens)
                 delete t;
             tokens.clear();
         }

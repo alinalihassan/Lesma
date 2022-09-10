@@ -13,11 +13,11 @@ namespace lesma {
     public:
         explicit SymbolTable(SymbolTable *parent) : parent(parent){};
         ~SymbolTable() {
-            for (auto const& [key,val]: children)
+            for (auto const &[key, val]: children)
                 delete val;
-            for (auto const& [key,val]: types)
+            for (auto const &[key, val]: types)
                 delete val;
-            for (auto const& [key,val]: symbols)
+            for (auto const &[key, val]: symbols)
                 delete val;
         }
 
