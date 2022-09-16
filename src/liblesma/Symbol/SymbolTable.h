@@ -15,10 +15,11 @@ namespace lesma {
         ~SymbolTable() {
             for (auto const &[key, val]: children)
                 delete val;
-            for (auto const &[key, val]: types)
-                delete val;
             for (auto const &[key, val]: symbols)
                 delete val;
+            // TODO: Check if we have leaks for SymbolTypes, it crashes import_to_std because of class import
+            // for (auto const &[key, val]: types)
+            //     delete val;
         }
 
         SymbolTableEntry *lookup(const std::string &symbolName);

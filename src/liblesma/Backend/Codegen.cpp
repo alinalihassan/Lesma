@@ -776,13 +776,12 @@ void Codegen::visit(Class *node) {
     }
 
     llvm::StructType *structType = llvm::StructType::create(*TheContext->getContext(), elementTypes, node->getIdentifier());
-
-    std::vector<std::tuple<std::string, SymbolType *>> fields;
+    std::vector<std::unique_ptr<Field>> fields;
 
     for (auto &&[field, elem_type]: zip(node->getFields(), elementTypes))
-        fields.emplace_back(field->getIdentifier()->getValue(), getType(elem_type));
+        fields.push_back(std::make_unique<Field>(Field{field->getIdentifier()->getValue(), getType(elem_type)}));
 
-    auto *type = new SymbolType(TY_CLASS, fields, nullptr);
+    auto *type = new SymbolType(TY_CLASS, std::move(fields), nullptr);
     auto *structSymbol = new SymbolTableEntry(node->getIdentifier(), type);
     structSymbol->setLLVMType(structType);
     structSymbol->setExported(node->isExported());
@@ -806,12 +805,12 @@ void Codegen::visit(Class *node) {
 void Codegen::visit(Enum *node) {
     std::vector<llvm::Type *> elementTypes = {Builder->getInt8Ty()};
     llvm::StructType *structType = llvm::StructType::create(*TheContext->getContext(), elementTypes, node->getIdentifier());
-    std::vector<std::tuple<std::string, SymbolType *>> fields;
+    std::vector<std::unique_ptr<Field>> fields;
 
     for (const auto &field: node->getValues())
-        fields.push_back({field, new SymbolType(TY_VOID)});
+        fields.push_back(std::make_unique<Field>(Field{field, new SymbolType(TY_VOID)}));
 
-    auto *type = new SymbolType(TY_ENUM, fields, nullptr);
+    auto *type = new SymbolType(TY_ENUM, std::move(fields), nullptr);
     auto *structSymbol = new SymbolTableEntry(node->getIdentifier(), type);
     structSymbol->setLLVMType(structType);
     structSymbol->setExported(node->isExported());
@@ -1101,7 +1100,7 @@ llvm::Value *Codegen::visit(DotOp *node) {
                     auto ptr = Builder->CreateStructGEP(cls->getLLVMType(), val, index);
                     if (isAssignment)
                         return ptr;
-                    auto x = cls->getType()->getFields()[index];
+//                    auto &x = cls->getType()->getFields()[index];
                     return Builder->CreateLoad(ptr->getType()->getPointerElementType(), ptr);
                 } else if (method != nullptr) {
                     selfSymbol = cls;
@@ -1390,7 +1389,7 @@ llvm::Value *Codegen::genFuncCall(FuncCall *node, const std::vector<llvm::Value 
 int Codegen::FindIndexInFields(SymbolType *_struct, const std::string &field) {
     int val = -1;
     for (unsigned int i = 0; i < _struct->getFields().size(); i++) {
-        if (std::get<0>(_struct->getFields()[i]) == field) {
+        if (_struct->getFields()[i]->name == field) {
             val = static_cast<int>(i);
             break;
         }

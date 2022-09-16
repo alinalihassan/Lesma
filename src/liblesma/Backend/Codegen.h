@@ -6,6 +6,7 @@
 #include "liblesma/Symbol/SymbolTable.h"
 #include <clang/Driver/Driver.h>
 #include <filesystem>
+#include <memory>
 #include <llvm/Analysis/CGSCCPassManager.h>
 #include <llvm/Analysis/LoopAnalysisManager.h>
 #include <llvm/ExecutionEngine/ExecutionEngine.h>
