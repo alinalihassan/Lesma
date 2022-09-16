@@ -23,7 +23,6 @@
 #include <llvm/Support/TargetSelect.h>
 #include <llvm/Support/VirtualFileSystem.h>
 #include <llvm/Transforms/IPO/PassManagerBuilder.h>
-#include <memory>
 #include <regex>
 #include <utility>
 
