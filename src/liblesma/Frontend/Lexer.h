@@ -1,5 +1,6 @@
 #pragma once
 
+#include <optional>
 #include <string>
 #include <sysexits.h>
 #include <vector>
@@ -19,15 +20,15 @@ namespace lesma {
             : curBuffer(srcMgr->getMemoryBuffer(srcMgr->getNumBuffers())),
               curPtr(curBuffer->getBufferStart()), begin_loc(llvm::SMLoc::getFromPointer(curPtr)), loc(llvm::SMLoc::getFromPointer(curPtr)), srcMgr(srcMgr) {
         }
+        ~Lexer() {
+            for (auto t: tokens)
+                delete t;
+            tokens.clear();
+        }
 
         std::vector<Token *> ScanAll();
         Token *ScanOne(bool continuation = false);
         std::vector<Token *> getTokens() { return tokens; };
-
-        void Reset() {
-            Lexer tmp(srcMgr);
-            std::swap(tmp, *this);
-        }
 
     private:
         bool MatchAndAdvance(char expected);

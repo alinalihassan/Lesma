@@ -2,21 +2,20 @@
 
 using namespace lesma;
 
-Codegen::Codegen(std::unique_ptr<Parser> parser, std::shared_ptr<SourceMgr> srcMgr, const std::string &filename, std::vector<std::string> imports, bool jit, bool main, std::string alias, ThreadSafeContext *context) {
+Codegen::Codegen(std::unique_ptr<Parser> parser, std::shared_ptr<SourceMgr> srcMgr, const std::string &filename, std::vector<std::string> imports, bool jit, bool main, std::string alias, std::shared_ptr<ThreadSafeContext> context) {
     InitializeNativeTarget();
     InitializeNativeTargetAsmPrinter();
     InitializeNativeTargetAsmParser();
 
     ImportedModules = std::move(imports);
     TheJIT = ExitOnErr(LesmaJIT::Create());
-    TheContext = context == nullptr ? new ThreadSafeContext(std::make_unique<LLVMContext>()) : context;
+    TheContext = context == nullptr ? std::make_shared<ThreadSafeContext>(std::make_unique<LLVMContext>()) : context;
     TheModule = std::make_unique<Module>("Lesma JIT", *TheContext->getContext());
     TheModule->setDataLayout(TheJIT->getDataLayout());
     TheModule->setSourceFileName(filename);
     Builder = std::make_unique<IRBuilder<>>(*TheContext->getContext());
     Parser_ = std::move(parser);
     SourceManager = std::move(srcMgr);
-    bufferId = SourceManager->getNumBuffers();
     Scope = new SymbolTable(nullptr);
     TargetMachine = InitializeTargetMachine();
 
@@ -56,7 +55,7 @@ void Codegen::defineFunction(Function *F, FuncDecl *node, SymbolTableEntry *clsS
         if (clsSymbol != nullptr && param.getArgNo() == 0)
             param.setName("self");
         else
-            param.setName(node->getParameters()[param.getArgNo() - (clsSymbol != nullptr ? 1 : 0)].first);
+            param.setName(node->getParameters()[param.getArgNo() - (clsSymbol != nullptr ? 1 : 0)]->name);
 
         llvm::Value *ptr;
         ptr = Builder->CreateAlloca(param.getType(), nullptr, param.getName() + "_ptr");
@@ -578,7 +577,7 @@ void Codegen::visit(FuncDecl *node) {
     }
 
     for (const auto &param: node->getParameters())
-        paramTypes.push_back(visit(param.second));
+        paramTypes.push_back(visit(param->type));
 
     auto name = getMangledName(node->getSpan(), node->getName(), paramTypes, selfSymbol != nullptr);
     auto linkage = node->isExported() ? Function::ExternalLinkage : Function::PrivateLinkage;
@@ -599,7 +598,7 @@ void Codegen::visit(ExternFuncDecl *node) {
     std::vector<llvm::Type *> paramTypes;
 
     for (const auto &param: node->getParameters())
-        paramTypes.push_back(visit(param.second));
+        paramTypes.push_back(visit(param->type));
 
     FunctionCallee F;
     if (TheModule->getFunction(node->getName()) != nullptr && Scope->lookup(node->getName()) != nullptr)
@@ -777,13 +776,12 @@ void Codegen::visit(Class *node) {
     }
 
     llvm::StructType *structType = llvm::StructType::create(*TheContext->getContext(), elementTypes, node->getIdentifier());
-
-    std::vector<std::tuple<std::string, SymbolType *>> fields;
+    std::vector<std::unique_ptr<Field>> fields;
 
     for (auto &&[field, elem_type]: zip(node->getFields(), elementTypes))
-        fields.emplace_back(field->getIdentifier()->getValue(), getType(elem_type));
+        fields.push_back(std::make_unique<Field>(Field{field->getIdentifier()->getValue(), getType(elem_type)}));
 
-    auto *type = new SymbolType(TY_CLASS, fields, nullptr);
+    auto *type = new SymbolType(TY_CLASS, std::move(fields), nullptr);
     auto *structSymbol = new SymbolTableEntry(node->getIdentifier(), type);
     structSymbol->setLLVMType(structType);
     structSymbol->setExported(node->isExported());
@@ -807,12 +805,12 @@ void Codegen::visit(Class *node) {
 void Codegen::visit(Enum *node) {
     std::vector<llvm::Type *> elementTypes = {Builder->getInt8Ty()};
     llvm::StructType *structType = llvm::StructType::create(*TheContext->getContext(), elementTypes, node->getIdentifier());
-    std::vector<std::tuple<std::string, SymbolType *>> fields;
+    std::vector<std::unique_ptr<Field>> fields;
 
     for (const auto &field: node->getValues())
-        fields.push_back({field, new SymbolType(TY_VOID)});
+        fields.push_back(std::make_unique<Field>(Field{field, new SymbolType(TY_VOID)}));
 
-    auto *type = new SymbolType(TY_ENUM, fields, nullptr);
+    auto *type = new SymbolType(TY_ENUM, std::move(fields), nullptr);
     auto *structSymbol = new SymbolTableEntry(node->getIdentifier(), type);
     structSymbol->setLLVMType(structType);
     structSymbol->setExported(node->isExported());
@@ -1102,7 +1100,7 @@ llvm::Value *Codegen::visit(DotOp *node) {
                     auto ptr = Builder->CreateStructGEP(cls->getLLVMType(), val, index);
                     if (isAssignment)
                         return ptr;
-                    auto x = cls->getType()->getFields()[index];
+                    //                    auto &x = cls->getType()->getFields()[index];
                     return Builder->CreateLoad(ptr->getType()->getPointerElementType(), ptr);
                 } else if (method != nullptr) {
                     selfSymbol = cls;
@@ -1227,9 +1225,9 @@ bool Codegen::isMethod(const std::string &mangled_name) {
     return mangled_name.find("::") != std::string::npos;
 }
 
-std::string Codegen::getMangledName(llvm::SMRange span, std::string func_name, const std::vector<llvm::Type *> &paramTypes, bool isMethod, std::string alias) {
-    alias = alias.empty() ? this->alias : alias;
-    std::string name = (alias.empty() ? "" : "&" + alias + "=>") +
+std::string Codegen::getMangledName(llvm::SMRange span, std::string func_name, const std::vector<llvm::Type *> &paramTypes, bool isMethod, std::string module_alias) {
+    module_alias = module_alias.empty() ? this->alias : module_alias;
+    std::string name = (module_alias.empty() ? "" : "&" + module_alias + "=>") +
                        (selfSymbol != nullptr && isMethod ? selfSymbol->getName() + "::" + std::move(func_name) + ":" : "." + std::move(func_name) + ":");
     bool first = true;
 
@@ -1391,7 +1389,7 @@ llvm::Value *Codegen::genFuncCall(FuncCall *node, const std::vector<llvm::Value 
 int Codegen::FindIndexInFields(SymbolType *_struct, const std::string &field) {
     int val = -1;
     for (unsigned int i = 0; i < _struct->getFields().size(); i++) {
-        if (std::get<0>(_struct->getFields()[i]) == field) {
+        if (_struct->getFields()[i]->name == field) {
             val = static_cast<int>(i);
             break;
         }

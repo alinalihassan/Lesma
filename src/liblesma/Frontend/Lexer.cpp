@@ -107,7 +107,6 @@ Token *Lexer::ScanOne(bool continuation) {
             c = Advance();
             continuation = true;
 
-            // TODO: Keep it DRY
             while (true) {
                 if (c == ' ' || c == '\r' || c == '\t')
                     c = Advance();
@@ -240,7 +239,6 @@ bool Lexer::HandleIndentation(bool continuation) {
     return true;
 }
 
-// TODO: Could possibly make it more efficient
 Token *Lexer::AddToken(TokenType type) {
     auto ret = new Token(type, std::string(begin_loc.getPointer(), loc.getPointer()), llvm::SMRange{begin_loc, loc});
     ResetTokenBeg();
@@ -373,8 +371,11 @@ Token *Lexer::AddIdentifierToken() {
     auto tok = AddToken(Token::GetIdentifierType(std::string(begin_loc.getPointer(), loc.getPointer()), GetLastToken()));
 
     // If it's a multi-word keyword, remove the last token
-    if (tok->type == TokenType::ELSE_IF || tok->type == TokenType::IS_NOT)
+    if (tok->type == TokenType::ELSE_IF || tok->type == TokenType::IS_NOT) {
+        auto t = tokens.back();
         tokens.pop_back();
+        delete t;
+    }
 
     return tok;
 }

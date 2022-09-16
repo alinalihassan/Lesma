@@ -47,7 +47,7 @@ SymbolType *SymbolType::getElementType() const { return elementType; }
  *
  * @return Vector with tuples of name and SymbolType
  */
-std::vector<std::tuple<std::string, SymbolType *>> SymbolType::getFields() const { return fields; }
+std::vector<std::unique_ptr<Field>> const &SymbolType::getFields() const { return fields; }
 
 bool operator==(const SymbolType &lhs, const SymbolType &rhs) { return lhs.baseSuperType == rhs.baseSuperType; }
 

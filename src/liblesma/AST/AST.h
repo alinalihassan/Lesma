@@ -2,6 +2,7 @@
 
 #include <iostream>
 #include <map>
+#include <optional>
 #include <utility>
 #include <vector>
 
@@ -52,7 +53,6 @@ namespace lesma {
     public:
         Literal(llvm::SMRange Loc, std::string value, TokenType type) : Expression(Loc), value(std::move(value)),
                                                                         type(type) {}
-
         ~Literal() override = default;
 
         [[nodiscard]] [[maybe_unused]] std::string getValue() const { return value; }
@@ -75,7 +75,10 @@ namespace lesma {
     public:
         explicit Compound(llvm::SMRange Loc) : Statement(Loc) {}
         explicit Compound(llvm::SMRange Loc, std::vector<Statement *> children) : Statement(Loc), children(std::move(children)) {}
-        ~Compound() override = default;
+        ~Compound() override {
+            for (auto stmt: children)
+                delete stmt;
+        }
 
         [[nodiscard]] [[maybe_unused]] std::vector<Statement *> getChildren() const { return children; }
 
@@ -110,8 +113,14 @@ namespace lesma {
     public:
         Type(llvm::SMRange Loc, std::string name, TokenType type) : Expression(Loc), name(std::move(name)), type(type), elementType(nullptr), ret(nullptr) {}
         Type(llvm::SMRange Loc, std::string name, TokenType type, Type *elementType) : Expression(Loc), name(std::move(name)), type(type), elementType(elementType), ret(nullptr) {}
-        Type(llvm::SMRange Loc, std::string name, TokenType type, std::vector<Type *> params, Type *ret) : Expression(Loc), name(std::move(name)), type(type), params(std::move(params)), ret(ret) {}
-        ~Type() override = default;
+        Type(llvm::SMRange Loc, std::string name, TokenType type, std::vector<Type *> params, Type *ret) : Expression(Loc), name(std::move(name)), type(type), elementType(nullptr), params(std::move(params)), ret(ret) {}
+        ~Type() override {
+            for (auto param: params)
+                delete param;
+
+            delete ret;
+            delete elementType;
+        }
 
         [[nodiscard]] [[maybe_unused]] std::string getName() const { return name; }
         [[nodiscard]] [[maybe_unused]] TokenType getType() const { return type; }
@@ -161,7 +170,7 @@ namespace lesma {
         bool import_to_scope;
 
     public:
-        Import(llvm::SMRange Loc, std::string file_path, std::string alias, bool std, bool import_all, bool import_to_scope, std::vector<std::pair<std::string, std::string>> imported_names) : Statement(Loc), file_path(std::move(file_path)), alias(std::move(alias)), imported_names(imported_names), std(std), import_all(import_all), import_to_scope(import_to_scope){};
+        Import(llvm::SMRange Loc, std::string file_path, std::string alias, bool std, bool import_all, bool import_to_scope, std::vector<std::pair<std::string, std::string>> imported_names) : Statement(Loc), file_path(std::move(file_path)), alias(std::move(alias)), imported_names(std::move(imported_names)), std(std), import_all(import_all), import_to_scope(import_to_scope){};
         ~Import() override = default;
 
         [[nodiscard]] [[maybe_unused]] std::string getFilePath() const { return file_path; }
@@ -192,7 +201,13 @@ namespace lesma {
 
     public:
         VarDecl(llvm::SMRange Loc, Literal *var, std::optional<Type *> type, std::optional<Expression *> expr, bool readonly) : Statement(Loc), var(var), type(type), expr(expr), mutable_(readonly) {}
-        ~VarDecl() override = default;
+        ~VarDecl() override {
+            delete var;
+            if (type.has_value())
+                delete type.value();
+            if (expr.has_value())
+                delete expr.value();
+        }
 
         [[nodiscard]] [[maybe_unused]] Literal *getIdentifier() const { return var; }
         [[nodiscard]] [[maybe_unused]] std::optional<Type *> getType() const { return type; }
@@ -218,12 +233,14 @@ namespace lesma {
 
     public:
         If(llvm::SMRange Loc, std::vector<Expression *> conds, std::vector<Compound *> blocks) : Statement(Loc),
-                                                                                                 conds(std::move(
-                                                                                                         conds)),
-                                                                                                 blocks(std::move(
-                                                                                                         blocks)) {}
-
-        ~If() override = default;
+                                                                                                 conds(std::move(conds)),
+                                                                                                 blocks(std::move(blocks)) {}
+        ~If() override {
+            for (auto cond: conds)
+                delete cond;
+            for (auto block: blocks)
+                delete block;
+        }
 
         [[nodiscard]] [[maybe_unused]] std::vector<Expression *> getConds() const { return conds; }
         [[nodiscard]] [[maybe_unused]] std::vector<Compound *> getBlocks() const { return blocks; }
@@ -251,7 +268,10 @@ namespace lesma {
 
     public:
         While(llvm::SMRange Loc, Expression *cond, Compound *block) : Statement(Loc), cond(cond), block(block) {}
-        ~While() override = default;
+        ~While() override {
+            delete cond;
+            delete block;
+        }
 
         [[nodiscard]] [[maybe_unused]] Expression *getCond() const { return cond; }
         [[nodiscard]] [[maybe_unused]] Compound *getBlock() const { return block; }
@@ -270,27 +290,47 @@ namespace lesma {
         }
     };
 
+    class Parameter {
+    public:
+        std::string name;
+        Type *type;
+        bool optional;
+        Expression *default_val;
+
+        Parameter(std::string name, Type *type, bool optional = false, Expression *default_val = nullptr) : name(name), type(type), optional(optional), default_val(default_val) {}
+
+        ~Parameter() {
+            delete type;
+            delete default_val;
+        }
+    };
+
     class FuncDecl : public Statement {
         std::string name;
         Type *return_type;
-        std::vector<std::pair<std::string, Type *>> parameters;
+        std::vector<Parameter *> parameters;
         Compound *body;
         bool varargs;
         bool exported;
 
     public:
         FuncDecl(llvm::SMRange Loc, std::string name, Type *return_type,
-                 std::vector<std::pair<std::string, Type *>> parameters, Compound *body, bool varargs, bool exported) : Statement(Loc), name(std::move(name)), return_type(return_type), parameters(std::move(parameters)),
-                                                                                                                        body(body), varargs(varargs), exported(exported) {}
+                 std::vector<Parameter *> parameters, Compound *body, bool varargs, bool exported) : Statement(Loc), name(std::move(name)), return_type(return_type), parameters(std::move(parameters)),
+                                                                                                     body(body), varargs(varargs), exported(exported) {}
+        ~FuncDecl() override {
+            for (auto param: parameters)
+                delete param;
 
-        ~FuncDecl() override = default;
+            delete return_type;
+            delete body;
+        }
 
         [[nodiscard]] [[maybe_unused]] std::string getName() const { return name; }
         [[nodiscard]] [[maybe_unused]] Type *getReturnType() const { return return_type; }
-        [[nodiscard]] [[maybe_unused]] std::vector<std::pair<std::string, Type *>> getParameters() const { return parameters; }
+        [[nodiscard]] [[maybe_unused]] std::vector<Parameter *> getParameters() const { return parameters; }
         [[nodiscard]] [[maybe_unused]] Compound *getBody() const { return body; }
         [[nodiscard]] [[maybe_unused]] bool getVarArgs() const { return varargs; }
-        [[nodiscard]] [[maybe_unused]] bool isExported() { return exported; }
+        [[nodiscard]] [[maybe_unused]] bool isExported() const { return exported; }
 
         std::string toString(llvm::SourceMgr *srcMgr, const std::string &prefix, bool isTail) override {
             auto ret = fmt::format("{}{}FuncDecl[Line({}-{}):Col({}-{})]: {}(",
@@ -301,7 +341,8 @@ namespace lesma {
                                    srcMgr->getLineAndColumn(getEnd()).second,
                                    name);
             for (auto &param: parameters) {
-                ret += param.first + ": " + param.second->toString(srcMgr, prefix, isTail);
+                ret += param->name + ": " + param->type->toString(srcMgr, prefix, isTail) +
+                       (param->default_val == nullptr ? "" : fmt::format("= {}", param->default_val->toString(srcMgr, prefix, isTail)));
                 if (parameters.back() != param) ret += ", ";
             }
             if (varargs)
@@ -315,21 +356,26 @@ namespace lesma {
     class ExternFuncDecl : public Statement {
         std::string name;
         Type *return_type;
-        std::vector<std::pair<std::string, Type *>> parameters;
+        std::vector<Parameter *> parameters;
         bool varargs;
         bool exported;
 
     public:
         ExternFuncDecl(llvm::SMRange Loc, std::string name, Type *return_type,
-                       std::vector<std::pair<std::string, Type *>> parameters, bool varargs, bool exported) : Statement(Loc), name(std::move(name)), return_type(return_type), parameters(std::move(parameters)), varargs(varargs), exported(exported) {}
+                       std::vector<Parameter *> parameters, bool varargs, bool exported) : Statement(Loc), name(std::move(name)), return_type(return_type), parameters(std::move(parameters)), varargs(varargs), exported(exported) {}
 
-        ~ExternFuncDecl() override = default;
+        ~ExternFuncDecl() override {
+            for (auto param: parameters)
+                delete param;
+
+            delete return_type;
+        }
 
         [[nodiscard]] [[maybe_unused]] std::string getName() const { return name; }
         [[nodiscard]] [[maybe_unused]] Type *getReturnType() const { return return_type; }
-        [[nodiscard]] [[maybe_unused]] std::vector<std::pair<std::string, Type *>> getParameters() const { return parameters; }
+        [[nodiscard]] [[maybe_unused]] std::vector<Parameter *> getParameters() const { return parameters; }
         [[nodiscard]] [[maybe_unused]] bool getVarArgs() const { return varargs; }
-        [[nodiscard]] [[maybe_unused]] bool isExported() { return exported; }
+        [[nodiscard]] [[maybe_unused]] bool isExported() const { return exported; }
 
         std::string toString(llvm::SourceMgr *srcMgr, const std::string &prefix, bool isTail) override {
             auto ret = fmt::format("{}{}ExternFuncDecl[Line({}-{}):Col({}-{})]: {}(",
@@ -340,7 +386,8 @@ namespace lesma {
                                    srcMgr->getLineAndColumn(getEnd()).second,
                                    name);
             for (auto &param: parameters) {
-                ret += param.first + ": " + param.second->toString(srcMgr, prefix, isTail);
+                ret += param->name + ": " + param->type->toString(srcMgr, prefix, isTail) +
+                       (param->default_val == nullptr ? "" : fmt::format("= {}", param->default_val->toString(srcMgr, prefix, isTail)));
                 if (parameters.back() != param) ret += ", ";
             }
             if (varargs)
@@ -356,8 +403,10 @@ namespace lesma {
 
     public:
         FuncCall(llvm::SMRange Loc, std::string name, std::vector<Expression *> arguments) : Expression(Loc), name(std::move(name)), arguments(std::move(arguments)) {}
-
-        ~FuncCall() override = default;
+        ~FuncCall() override {
+            for (auto arg: arguments)
+                delete arg;
+        }
 
         [[nodiscard]] [[maybe_unused]] std::string getName() const { return name; }
         [[nodiscard]] [[maybe_unused]] std::vector<Expression *> getArguments() const { return arguments; }
@@ -380,8 +429,10 @@ namespace lesma {
 
     public:
         Assignment(llvm::SMRange Loc, Expression *lhs, TokenType op, Expression *rhs) : Statement(Loc), lhs(lhs), op(op), rhs(rhs) {}
-
-        ~Assignment() override = default;
+        ~Assignment() override {
+            delete lhs;
+            delete rhs;
+        }
 
         [[nodiscard]] [[maybe_unused]] Expression *getLeftHandSide() const { return lhs; }
         [[nodiscard]] [[maybe_unused]] TokenType getOperator() const { return op; }
@@ -405,7 +456,9 @@ namespace lesma {
 
     public:
         ExpressionStatement(llvm::SMRange Loc, Expression *expr) : Statement(Loc), expr(expr) {}
-        ~ExpressionStatement() override = default;
+        ~ExpressionStatement() override {
+            delete expr;
+        }
 
         [[nodiscard]] [[maybe_unused]] Expression *getExpression() const { return expr; }
 
@@ -426,10 +479,11 @@ namespace lesma {
         Expression *right;
 
     public:
-        BinaryOp(llvm::SMRange Loc, Expression *left, TokenType op, Expression *right) : Expression(Loc), left(left),
-                                                                                         op(op), right(right) {}
-
-        ~BinaryOp() override = default;
+        BinaryOp(llvm::SMRange Loc, Expression *left, TokenType op, Expression *right) : Expression(Loc), left(left), op(op), right(right) {}
+        ~BinaryOp() override {
+            delete left;
+            delete right;
+        }
 
         [[nodiscard]] [[maybe_unused]] Expression *getLeft() const { return left; }
         [[nodiscard]] [[maybe_unused]] TokenType getOperator() const { return op; }
@@ -446,10 +500,11 @@ namespace lesma {
         Type *right;
 
     public:
-        IsOp(llvm::SMRange Loc, Expression *left, TokenType op, Type *right) : Expression(Loc), left(left),
-                                                                               op(op), right(right) {}
-
-        ~IsOp() override = default;
+        IsOp(llvm::SMRange Loc, Expression *left, TokenType op, Type *right) : Expression(Loc), left(left), op(op), right(right) {}
+        ~IsOp() override {
+            delete left;
+            delete right;
+        }
 
         [[nodiscard]] [[maybe_unused]] Expression *getLeft() const { return left; }
         [[nodiscard]] [[maybe_unused]] TokenType getOperator() const { return op; }
@@ -466,8 +521,10 @@ namespace lesma {
 
     public:
         CastOp(llvm::SMRange Loc, Expression *expr, Type *type) : Expression(Loc), expr(expr), type(type) {}
-
-        ~CastOp() override = default;
+        ~CastOp() override {
+            delete expr;
+            delete type;
+        }
 
         [[nodiscard]] [[maybe_unused]] Expression *getExpression() const { return expr; }
         [[nodiscard]] [[maybe_unused]] Type *getType() const { return type; }
@@ -483,7 +540,9 @@ namespace lesma {
 
     public:
         UnaryOp(llvm::SMRange Loc, TokenType op, Expression *expr) : Expression(Loc), op(op), expr(expr) {}
-        ~UnaryOp() override = default;
+        ~UnaryOp() override {
+            delete expr;
+        }
 
         [[nodiscard]] [[maybe_unused]] TokenType getOperator() const { return op; }
         [[nodiscard]] [[maybe_unused]] Expression *getExpression() const { return expr; }
@@ -499,10 +558,11 @@ namespace lesma {
         Expression *right;
 
     public:
-        DotOp(llvm::SMRange Loc, Expression *left, TokenType op, Expression *right) : Expression(Loc), left(left),
-                                                                                      op(op), right(right) {}
-
-        ~DotOp() override = default;
+        DotOp(llvm::SMRange Loc, Expression *left, TokenType op, Expression *right) : Expression(Loc), left(left), op(op), right(right) {}
+        ~DotOp() override {
+            delete left;
+            delete right;
+        }
 
         [[nodiscard]] [[maybe_unused]] Expression *getLeft() const { return left; }
         [[nodiscard]] [[maybe_unused]] TokenType getOperator() const { return op; }
@@ -558,7 +618,9 @@ namespace lesma {
 
     public:
         Return(llvm::SMRange Loc, Expression *value) : Statement(Loc), value(value) {}
-        ~Return() override = default;
+        ~Return() override {
+            delete value;
+        }
 
         [[nodiscard]] [[maybe_unused]] Expression *getValue() const { return value; }
 
@@ -578,7 +640,9 @@ namespace lesma {
 
     public:
         Defer(llvm::SMRange Loc, Statement *stmt) : Statement(Loc), stmt(stmt) {}
-        ~Defer() override = default;
+        ~Defer() override {
+            delete stmt;
+        }
 
         [[nodiscard]] [[maybe_unused]] Statement *getStatement() const { return stmt; }
 
@@ -601,7 +665,12 @@ namespace lesma {
 
     public:
         Class(llvm::SMRange Loc, std::string identifier, std::vector<VarDecl *> fields, std::vector<FuncDecl *> methods, bool exported) : Statement(Loc), identifier(std::move(identifier)), fields(std::move(fields)), methods(std::move(methods)), exported(exported){};
-        ~Class() override = default;
+        ~Class() override {
+            for (auto field: fields)
+                delete field;
+            for (auto method: methods)
+                delete method;
+        }
 
         [[nodiscard]] [[maybe_unused]] std::string getIdentifier() const { return identifier; }
         [[nodiscard]] [[maybe_unused]] std::vector<VarDecl *> getFields() const { return fields; }
