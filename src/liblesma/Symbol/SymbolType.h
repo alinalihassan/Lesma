@@ -42,7 +42,7 @@ public:
     [[nodiscard]] bool isOneOf(const std::vector<SymbolSuperType> &superTypes) const;
     [[nodiscard]] SymbolSuperType getSuperType() const;
     [[nodiscard]] SymbolType *getElementType() const;
-    [[nodiscard]] std::vector<std::unique_ptr<Field>> const& getFields() const;
+    [[nodiscard]] std::vector<std::unique_ptr<Field>> const &getFields() const;
     friend bool operator==(const SymbolType &lhs, const SymbolType &rhs);
     friend bool operator!=(const SymbolType &lhs, const SymbolType &rhs);
 };

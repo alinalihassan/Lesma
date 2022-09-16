@@ -1100,7 +1100,7 @@ llvm::Value *Codegen::visit(DotOp *node) {
                     auto ptr = Builder->CreateStructGEP(cls->getLLVMType(), val, index);
                     if (isAssignment)
                         return ptr;
-//                    auto &x = cls->getType()->getFields()[index];
+                    //                    auto &x = cls->getType()->getFields()[index];
                     return Builder->CreateLoad(ptr->getType()->getPointerElementType(), ptr);
                 } else if (method != nullptr) {
                     selfSymbol = cls;
