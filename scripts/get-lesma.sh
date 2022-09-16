@@ -40,7 +40,7 @@ fi
 # Download latest asset for the platform
 echo "Downloading the latest Lesma release"
 curl -s https://api.github.com/repos/alinalihassan/Lesma/releases/latest \
-| grep $FILE_NAME \
+| grep "$FILE_NAME" \
 | cut -d : -f 2,3 \
 | tr -d \" \
 | wget -qi -
@@ -51,10 +51,10 @@ mkdir -p "$HOME/.lesma"
 
 # Untar in .lesma folder
 echo "Unzipped binary and standard library files"
-for z in Lesma-*.tar.gz; do tar -xf $z --strip-components=1 -C "$HOME/.lesma"; done
+for z in Lesma-*.tar.gz; do tar -xf "$z" --strip-components=1 -C "$HOME/.lesma"; done
 
 # Remove tmp files
-for z in Lesma-*.tar.gz; do rm $z; done
+for z in Lesma-*.tar.gz; do rm "$z"; done
 
 # Add directory to PATH
 if [[ ":$PATH:" == *":$HOME/.lesma/bin:"* ]]; then
