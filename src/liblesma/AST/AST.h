@@ -269,9 +269,6 @@ namespace lesma {
     public:
         While(llvm::SMRange Loc, Expression *cond, Compound *block) : Statement(Loc), cond(cond), block(block) {}
         ~While() override {
-            for (auto stmt: block->getChildren())
-                delete stmt;
-
             delete cond;
             delete block;
         }
