@@ -4,12 +4,17 @@ cmake_minimum_required(VERSION 3.16)
 include(cmake/CPM.cmake)
 include(cmake/VersionFromGit.cmake)
 
+# Lesma build options
+option(LESMA_BUILD_CLI "Build Lesma Compiler CLI" ON)
+option(LESMA_BUILD_TESTS "Build Lesma Tests" OFF)
+option(LESMA_BUILD_DIST "Build Lesma Distributable" OFF)
+
 # Get version
 if (NOT DEFINED LESMA_VERSION OR "${LESMA_VERSION}" STREQUAL "")
   version_from_git(INCLUDE_HASH OFF)
-else()
+else ()
   set(VERSION ${LESMA_VERSION})
-endif()
+endif ()
 
 # Project
 project(Lesma VERSION ${VERSION})
@@ -27,8 +32,6 @@ set(CMAKE_CXX_FLAGS_RELEASE "-O3")
 
 # External dependencies
 CPMAddPackage("gh:Neargye/nameof@0.10.2")
-CPMAddPackage("gh:catchorg/Catch2@3.2.1")
-CPMAddPackage("gh:CLIUtils/CLI11@2.3.2")
 CPMAddPackage(
   NAME fmt
   GIT_TAG 9.1.0
@@ -44,7 +47,11 @@ get_filename_component(STDLIB_DIR ${SRC_DIR}/stdlib ABSOLUTE)
 get_filename_component(BUILD_DIR ${CMAKE_BINARY_DIR} ABSOLUTE)
 
 # Version configuration
-configure_file("${SRC_DIR}/liblesma/Common/LesmaVersion.h.in" "${SRC_DIR}/liblesma/Common/LesmaVersion.h" @ONLY)
+configure_file(
+  "${SRC_DIR}/liblesma/Common/LesmaVersion.h.in"
+  "${SRC_DIR}/liblesma/Common/LesmaVersion.h"
+  @ONLY
+)
 
 # Include directories
 include_directories(${SRC_DIR})
@@ -55,7 +62,7 @@ if (EXISTS "${LLVM_DIR}" AND IS_DIRECTORY "${LLVM_DIR}") # Prefer local LLVM ins
   message(STATUS "Found local installation of LLVM and Clang")
   set(LLVM_DIR ./llvm/build-release/lib/cmake/llvm)
   set(Clang_DIR ./llvm/build-release/lib/cmake/clang)
-endif()
+endif ()
 
 # LLVM configuration
 find_package(LLVM 14 CONFIG REQUIRED)
@@ -77,8 +84,6 @@ set(CLANG_LIBS clangTooling)
 
 # Executable configuration
 set(LIB_NAME lesma_lib)
-set(CLI_NAME lesma)
-set(TESTS_NAME tests)
 
 set(COMMON_SOURCES
   src/liblesma/Common/Utils.cpp
@@ -89,11 +94,9 @@ set(COMMON_SOURCES
   src/liblesma/Symbol/SymbolTable.cpp
   src/liblesma/Symbol/SymbolType.cpp
   src/liblesma/Driver/Driver.cpp
-)
-set(CLI_SOURCES src/cli/main.cpp)
-set(TEST_SOURCES  tests/test.cpp)
+  )
 
-# Move Standard Library
+# Move Lesma Standard Library
 file(COPY ${STDLIB_DIR} DESTINATION $ENV{HOME}/.lesma/)
 
 # Libraries required for the compiler itself
@@ -101,56 +104,62 @@ set(COMMON_LIBS ${LLVM_LIBS} ${CLANG_LIBS} fmt nameof)
 
 # Lesma Library
 
-## Options
-### Shared/Dynamic or Static library?
-option(LESMA_BUILD_SHARED_LIBS "Build libraries as shared as opposed to static" ${BUILD_SHARED_LIB})
-
-if (LESMA_BUILD_SHARED_LIBS)
-  set(LESMA_LIB_TYPE SHARED)
-else()
-  set(LESMA_LIB_TYPE STATIC)
-endif()
-
 ## Create Library
-add_library(${LIB_NAME} ${LESMA_LIB_TYPE} ${COMMON_SOURCES})
+add_library(${LIB_NAME} ${COMMON_SOURCES})
 target_link_libraries(${LIB_NAME} ${COMMON_LIBS})
 
 target_include_directories(${LIB_NAME} PUBLIC
-        "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/src>"
-        "$<INSTALL_INTERFACE:$<INSTALL_PREFIX>/${CMAKE_INSTALL_INCLUDEDIR}>")
+  "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/src>"
+  "$<INSTALL_INTERFACE:$<INSTALL_PREFIX>/${CMAKE_INSTALL_INCLUDEDIR}>")
 
-# Lesma executables
-add_executable(${CLI_NAME} ${CLI_SOURCES})
-add_executable(tests ${TEST_SOURCES})
+# CLI
+if (LESMA_BUILD_CLI)
+  message(STATUS "Building Lesma CLI")
+  CPMAddPackage("gh:CLIUtils/CLI11@2.3.2")
 
-target_link_libraries(${CLI_NAME}   PRIVATE ${LIB_NAME} CLI11)
-target_link_libraries(${TESTS_NAME} PRIVATE ${LIB_NAME} Catch2::Catch2WithMain)
+  set(CLI_NAME lesma)
+  set(CLI_SOURCES src/cli/main.cpp)
+
+  add_executable(${CLI_NAME} ${CLI_SOURCES})
+  target_link_libraries(${CLI_NAME} PRIVATE ${LIB_NAME} CLI11)
+endif ()
 
 # Tests
-enable_testing()
+if (LESMA_BUILD_TESTS)
+  message(STATUS "Building Lesma Tests")
+  CPMAddPackage("gh:catchorg/Catch2@3.2.1")
 
-find_program(BASH_PROGRAM bash)
-if (BASH_PROGRAM)
-  add_test(test_lesma_sources ${BASH_PROGRAM} ${CMAKE_CURRENT_SOURCE_DIR}/scripts/run_compiler_tests.sh)
-endif (BASH_PROGRAM)
+  set(TESTS_NAME tests)
+  set(TEST_SOURCES tests/test.cpp)
 
-add_test(test_unit_tests tests)
+  add_executable(tests ${TEST_SOURCES})
+  target_link_libraries(${TESTS_NAME} PRIVATE ${LIB_NAME} Catch2::Catch2WithMain)
+
+  enable_testing()
+
+  find_program(BASH_PROGRAM bash)
+  if (BASH_PROGRAM)
+    add_test(test_lesma_sources ${BASH_PROGRAM} ${CMAKE_CURRENT_SOURCE_DIR}/scripts/run_compiler_tests.sh)
+  endif (BASH_PROGRAM)
+
+  add_test(test_unit_tests tests)
+endif ()
 
 # CPack
-set(LESMA_URL "https://lesma-lang.com/")
+if (LESMA_BUILD_DIST)
+  include(InstallRequiredSystemLibraries)
 
-include(InstallRequiredSystemLibraries)
+  install(TARGETS ${CLI_NAME} RUNTIME DESTINATION bin)
+  install(DIRECTORY ${SRC_DIR}/stdlib DESTINATION .)
 
-install(TARGETS ${CLI_NAME} RUNTIME DESTINATION bin)
-install(DIRECTORY ${SRC_DIR}/stdlib DESTINATION .)
-
-set(CPACK_GENERATOR "TGZ")
-set(CPACK_PACKAGE_VENDOR Lesma)
-set(CPACK_PACKAGE_VERSION_MAJOR ${VERSION_MAJOR})
-set(CPACK_PACKAGE_VERSION_MINOR ${VERSION_MINOR})
-set(CPACK_PACKAGE_VERSION_PATCH ${VERSION_PATCH})
-set(CPACK_PACKAGE_FILE_NAME "${PROJECT_NAME}-${CMAKE_SYSTEM_NAME}-${CMAKE_SYSTEM_PROCESSOR}")
-set(CPACK_PACKAGE_HOMEPAGE_URL ${LESMA_URL})
-set(CPACK_PACKAGE_ICON "${CMAKE_CURRENT_SOURCE_DIR}/docs/static/img/logo.svg")
-set(CPACK_RESOURCE_FILE_LICENSE "${CMAKE_CURRENT_SOURCE_DIR}/LICENSE.txt")
-include(CPack)
+  set(CPACK_GENERATOR "TGZ")
+  set(CPACK_PACKAGE_VENDOR Lesma)
+  set(CPACK_PACKAGE_VERSION_MAJOR ${VERSION_MAJOR})
+  set(CPACK_PACKAGE_VERSION_MINOR ${VERSION_MINOR})
+  set(CPACK_PACKAGE_VERSION_PATCH ${VERSION_PATCH})
+  set(CPACK_PACKAGE_FILE_NAME "${PROJECT_NAME}-${CMAKE_SYSTEM_NAME}-${CMAKE_SYSTEM_PROCESSOR}")
+  set(CPACK_PACKAGE_HOMEPAGE_URL "https://lesma-lang.com/")
+  set(CPACK_PACKAGE_ICON "${CMAKE_CURRENT_SOURCE_DIR}/docs/static/img/logo.svg")
+  set(CPACK_RESOURCE_FILE_LICENSE "${CMAKE_CURRENT_SOURCE_DIR}/LICENSE.txt")
+  include(CPack)
+endif ()
