@@ -26,30 +26,9 @@ jobs:
         with:
           fetch-depth: 0
 
-      # Prepare Semantic Release version in case we release
-      - name: Setup Node.JS
-        uses: actions/setup-node@v2
-        with:
-          node-version: '16'
-
-      - name: Install Semantic Release Dependencies
-        run: |
-          npm install -g @semantic-release/changelog @semantic-release/git
-
-      - name: Semantic Release
-        id: semantic-check
-        uses: cycjimmy/semantic-release-action@v2
-        with:
-          dry_run: true
-          extra_plugins: |
-            @semantic-release/changelog
-            @semantic-release/git
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
       - name : Clang Format
         if:  ${{ matrix.os == 'ubuntu-latest' }}
-        uses: DoozyX/clang-format-lint-action@v0.14
+        uses: DoozyX/clang-format-lint-action@v0.15
         with:
           source: './src/'
           extensions: 'h,cpp'
@@ -57,13 +36,11 @@ jobs:
           inplace: True
 
       - name: Commit formatting diff
-        uses: EndBug/add-and-commit@v4
+        uses: EndBug/add-and-commit@v9
         with:
           author_name: Clang Robot
           author_email: clang-robot@lesma.com
           message: 'Committing clang-format changes'
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Cache LLVM and Clang
         id: cache-llvm
@@ -87,7 +64,7 @@ jobs:
         env:
           CUR_VERSION: ${{ steps.semantic-check.outputs.new_release_published && steps.semantic-check.outputs.new_release_version || '' }}
         run: |
-          cmake -B ${{github.workspace}}/build -G Ninja -DCMAKE_BUILD_TYPE=${{env.BUILD_TYPE}} -DLESMA_VERSION=$CUR_VERSION
+          cmake -B ${{github.workspace}}/build -G Ninja -DCMAKE_BUILD_TYPE=${{env.BUILD_TYPE}} -DLESMA_VERSION=$CUR_VERSION -DLESMA_BUILD_TESTS=ON -DLESMA_BUILD_DIST=ON
           cmake --build ${{github.workspace}}/build --config ${{env.BUILD_TYPE}}
 
       - name: Test
@@ -98,7 +75,7 @@ jobs:
         working-directory: ${{github.workspace}}/build
         run: ninja package
 
-      - uses: actions/upload-artifact@v2
+      - uses: actions/upload-artifact@v3
         with:
           name: lesma
           path: ${{github.workspace}}/build/Lesma*.tar.gz
@@ -118,7 +95,7 @@ jobs:
       - name: Setup Node.JS
         uses: actions/setup-node@v2
         with:
-          node-version: '16'
+          node-version: '18'
 
       - name: Install Semantic Release Dependencies
         run: |
@@ -131,7 +108,7 @@ jobs:
 
       - name: Semantic Release
         id: semantic
-        uses: cycjimmy/semantic-release-action@v2
+        uses: cycjimmy/semantic-release-action@v3
         with:
           extra_plugins: |
             @semantic-release/changelog
