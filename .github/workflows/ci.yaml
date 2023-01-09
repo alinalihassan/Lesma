@@ -58,7 +58,7 @@ jobs:
           cached: ${{ steps.cache-llvm.outputs.cache-hit }}
 
       - name: Install Ninja
-        uses: seanmiddleditch/gha-setup-ninja@3
+        uses: seanmiddleditch/gha-setup-ninja@master
 
       - name: Build
         env:
