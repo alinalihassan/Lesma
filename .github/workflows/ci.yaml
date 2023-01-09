@@ -28,7 +28,7 @@ jobs:
 
       - name : Clang Format
         if:  ${{ matrix.os == 'ubuntu-latest' }}
-        uses: DoozyX/clang-format-lint-action@v0.14
+        uses: DoozyX/clang-format-lint-action@v0.15
         with:
           source: './src/'
           extensions: 'h,cpp'
@@ -36,13 +36,11 @@ jobs:
           inplace: True
 
       - name: Commit formatting diff
-        uses: EndBug/add-and-commit@v4
+        uses: EndBug/add-and-commit@v9
         with:
           author_name: Clang Robot
           author_email: clang-robot@lesma.com
           message: 'Committing clang-format changes'
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Cache LLVM and Clang
         id: cache-llvm
@@ -60,7 +58,7 @@ jobs:
           cached: ${{ steps.cache-llvm.outputs.cache-hit }}
 
       - name: Install Ninja
-        uses: seanmiddleditch/gha-setup-ninja@master
+        uses: seanmiddleditch/gha-setup-ninja@3
 
       - name: Build
         env:
@@ -77,7 +75,7 @@ jobs:
         working-directory: ${{github.workspace}}/build
         run: ninja package
 
-      - uses: actions/upload-artifact@v2
+      - uses: actions/upload-artifact@v3
         with:
           name: lesma
           path: ${{github.workspace}}/build/Lesma*.tar.gz
