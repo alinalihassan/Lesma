@@ -1,3 +1,10 @@
+## [0.16.5](https://github.com/alinalihassan/Lesma/compare/v0.16.4...v0.16.5) (2023-01-09)
+
+
+### Bug Fixes
+
+* adjusted build options to build only cli by default ([8015ffc](https://github.com/alinalihassan/Lesma/commit/8015ffc3ab34fabf3e48174ede2c40ea40c79836))
+
 ## [0.16.4](https://github.com/alinalihassan/Lesma/compare/v0.16.3...v0.16.4) (2022-09-16)
 
 
