@@ -1,3 +1,15 @@
+## [0.16.4](https://github.com/alinalihassan/Lesma/compare/v0.16.3...v0.16.4) (2022-09-16)
+
+
+### Bug Fixes
+
+* Fixed deallocation errors temp ([5bfb467](https://github.com/alinalihassan/Lesma/commit/5bfb467539c933c9fb15fbf8ab8f7dce048d2e1b))
+* Fixed Driver memory leaks ([092b96b](https://github.com/alinalihassan/Lesma/commit/092b96b8e7ff7860721b6bf2a14b807a95540635))
+* Fixed memory leaks from AST and Parser ([a029292](https://github.com/alinalihassan/Lesma/commit/a02929242f595a3683b5d2d4f11ea036dbd8adb0))
+* Fixed most Lexer memory leaks ([62c7dfd](https://github.com/alinalihassan/Lesma/commit/62c7dfde1b572a31ff0efc65b81ff8bd16a1a0de))
+* Fixed symbol table memory leaks ([d66017e](https://github.com/alinalihassan/Lesma/commit/d66017ecf800eb5168221a2a9b0ec93dd6c65cbc))
+* Fixed while loop deleting body memory twice ([cd031fb](https://github.com/alinalihassan/Lesma/commit/cd031fbfb5f271c20802991c30ad4df655f444b3))
+
 ## [0.16.3](https://github.com/alinalihassan/Lesma/compare/v0.16.2...v0.16.3) (2022-09-03)
 
 

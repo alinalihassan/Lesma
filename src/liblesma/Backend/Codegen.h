@@ -1,7 +1,6 @@
 #pragma once
 
-#include "liblesma/AST/ExprVisitor.h"
-#include "liblesma/AST/StmtVisitor.h"
+#include "liblesma/AST/ASTVisitor.h"
 #include "liblesma/Frontend/Parser.h"
 #include "liblesma/JIT/LesmaJIT.h"
 #include "liblesma/Symbol/SymbolTable.h"
@@ -33,8 +32,8 @@ namespace lesma {
         using LesmaErrorWithExitCode<EX_DATAERR>::LesmaErrorWithExitCode;
     };
 
-    class Codegen final : public ExprVisitor<llvm::Value *, llvm::Type *>, public StmtVisitor<void> {
-        ThreadSafeContext *TheContext;
+    class Codegen final : public ASTVisitor<void, llvm::Value *, llvm::Type *> {
+        std::shared_ptr<ThreadSafeContext> TheContext;
         std::unique_ptr<Module> TheModule;
         std::unique_ptr<IRBuilder<>> Builder;
         ExitOnError ExitOnErr;
@@ -56,7 +55,6 @@ namespace lesma {
         std::vector<std::tuple<Function *, FuncDecl *, SymbolTableEntry *>> Prototypes;
         llvm::Function *TopLevelFunc;
         SymbolTableEntry *selfSymbol = nullptr;
-        unsigned int bufferId;
         bool isBreak = false;
         bool isReturn = false;
         bool isAssignment = false;
@@ -64,7 +62,11 @@ namespace lesma {
         bool isMain = true;
 
     public:
-        Codegen(std::unique_ptr<Parser> parser, std::shared_ptr<SourceMgr> srcMgr, const std::string &filename, std::vector<std::string> imports, bool jit, bool main, std::string alias = "", ThreadSafeContext *context = nullptr);
+        Codegen(std::unique_ptr<Parser> parser, std::shared_ptr<SourceMgr> srcMgr, const std::string &filename, std::vector<std::string> imports, bool jit, bool main, std::string alias = "", const std::shared_ptr<ThreadSafeContext> & = nullptr);
+        ~Codegen() {
+            delete selfSymbol;
+            delete Scope;
+        }
 
         void Dump();
         void Run();
@@ -94,7 +96,7 @@ namespace lesma {
         void visit(Return *node) override;
         void visit(Defer *node) override;
         void visit(ExpressionStatement *node) override;
-        llvm::Type *visit(lesma::Type *node) override;
+
         llvm::Value *visit(Expression *node) override;
         llvm::Value *visit(FuncCall *node) override;
         llvm::Value *visit(BinaryOp *node) override;
@@ -105,15 +107,17 @@ namespace lesma {
         llvm::Value *visit(Literal *node) override;
         llvm::Value *visit(Else *node) override;
 
+        llvm::Type *visit(lesma::Type *node) override;
+
         // TODO: Helper functions, move them out somewhere
         static SymbolType *getType(llvm::Type *type);
         llvm::Value *Cast(llvm::SMRange span, llvm::Value *val, llvm::Type *type);
         llvm::Value *Cast(llvm::SMRange span, llvm::Value *val, llvm::Type *type, bool isStore);
         static llvm::Type *GetExtendedType(llvm::Type *left, llvm::Type *right);
-        bool isMethod(const std::string &mangled_name);
+        static bool isMethod(const std::string &mangled_name);
         std::string getMangledName(llvm::SMRange span, std::string func_name, const std::vector<llvm::Type *> &paramTypes, bool isMethod = false, std::string alias = "");
-        bool isMangled(std::string name);
-        std::string getDemangledName(const std::string &mangled_name);
+        [[maybe_unused]] static bool isMangled(std::string name);
+        static std::string getDemangledName(const std::string &mangled_name);
         std::string getTypeMangledName(llvm::SMRange span, llvm::Type *type);
         llvm::Value *genFuncCall(FuncCall *node, const std::vector<llvm::Value *> &extra_params);
         static int FindIndexInFields(SymbolType *_struct, const std::string &field);

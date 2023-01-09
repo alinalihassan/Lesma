@@ -26,12 +26,12 @@ add_definitions(${CMAKE_CXX_FLAGS} -Wall -Wextra -Wpedantic -frtti)
 set(CMAKE_CXX_FLAGS_RELEASE "-O3")
 
 # External dependencies
-CPMAddPackage("gh:Neargye/nameof@0.10.1")
-CPMAddPackage("gh:catchorg/Catch2@3.1.0")
-CPMAddPackage("gh:CLIUtils/CLI11@2.2.0")
+CPMAddPackage("gh:Neargye/nameof@0.10.2")
+CPMAddPackage("gh:catchorg/Catch2@3.2.1")
+CPMAddPackage("gh:CLIUtils/CLI11@2.3.2")
 CPMAddPackage(
   NAME fmt
-  GIT_TAG 9.0.0
+  GIT_TAG 9.1.0
   GITHUB_REPOSITORY fmtlib/fmt
 )
 
