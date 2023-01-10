@@ -17,7 +17,7 @@ else ()
 endif ()
 
 # Project
-project(Lesma VERSION ${VERSION})
+project(Lesma VERSION ${VERSION} DESCRIPTION "Lesma Compiler")
 
 # C++ Flags and settings
 if (CMAKE_BUILD_TYPE MATCHES Debug)
@@ -83,7 +83,7 @@ add_definitions(${CLANG_DEFINITIONS})
 set(CLANG_LIBS clangTooling)
 
 # Executable configuration
-set(LIB_NAME lesma_lib)
+set(LIB_NAME lesma)
 
 set(COMMON_SOURCES
   src/liblesma/Common/Utils.cpp
@@ -117,11 +117,12 @@ if (LESMA_BUILD_CLI)
   message(STATUS "Building Lesma CLI")
   CPMAddPackage("gh:CLIUtils/CLI11@2.3.2")
 
-  set(CLI_NAME lesma)
+  set(CLI_NAME lesmac)
   set(CLI_SOURCES src/cli/main.cpp)
 
   add_executable(${CLI_NAME} ${CLI_SOURCES})
   target_link_libraries(${CLI_NAME} PRIVATE ${LIB_NAME} CLI11)
+  set_target_properties(${CLI_NAME} PROPERTIES OUTPUT_NAME ${LIB_NAME})
 endif ()
 
 # Tests
