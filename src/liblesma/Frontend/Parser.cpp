@@ -187,7 +187,13 @@ Expression *Parser::ParseUnary() {
         auto expr = ParseDot();
         left = new UnaryOp({op->getStart(), expr->getEnd()}, op->type, expr);
     }
-    return left == nullptr ? ParseDot() : left;
+
+    if (left == nullptr) {
+        delete left;
+        return ParseDot();
+    }
+
+    return left;
 }
 
 Expression *Parser::ParseCast() {
@@ -242,7 +248,13 @@ Expression *Parser::ParseNot() {
         auto expr = ParseCompare();
         left = new UnaryOp({expr->getStart(), op->getEnd()}, TokenType::NOT, expr);
     }
-    return left == nullptr ? ParseCompare() : left;
+
+    if (left == nullptr) {
+        delete left;
+        return ParseCompare();
+    }
+
+    return left;
 }
 
 Expression *Parser::ParseAnd() {
