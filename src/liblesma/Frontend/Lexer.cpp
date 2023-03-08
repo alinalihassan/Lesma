@@ -111,7 +111,7 @@ Token *Lexer::ScanOne(bool continuation) {
                 if (c == ' ' || c == '\r' || c == '\t')
                     c = Advance();
                 else if (c == '#') {
-                    while (Peek() != '\n' && !IsAtEnd()) c = Advance();
+                    while (Peek() != '\n' && !IsAtEnd()) Advance();
                     c = Advance();
                     break;
                 } else
