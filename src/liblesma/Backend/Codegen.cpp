@@ -46,7 +46,7 @@ llvm::Function *Codegen::InitializeTopLevel() {
 
 void Codegen::defineFunction(Function *F, FuncDecl *node, SymbolTableEntry *clsSymbol) {
     Scope = Scope->createChildBlock(node->getName());
-    deferStack.push({});
+    deferStack.emplace();
 
     BasicBlock *entry = BasicBlock::Create(*TheContext->getContext(), "entry", F);
     Builder->SetInsertPoint(entry);
@@ -135,7 +135,7 @@ void Codegen::CompileModule(llvm::SMRange span, const std::string &filepath, boo
         return;
 
     auto buffer = MemoryBuffer::getFile(absolute_path);
-    if (buffer.getError() != std::error_code())
+    if (std::error_code ec = buffer.getError())
         throw LesmaError(llvm::SMRange(), "Could not read file: {}", absolute_path);
 
     auto file_id = SourceManager->AddNewSourceBuffer(std::move(*buffer), llvm::SMLoc());
@@ -325,14 +325,17 @@ int Codegen::JIT() {
     if (jit_error)
         throw CodegenError({}, "JIT Error:\n{}");
     using MainFnTy = int();
-    auto jit_main = jitTargetAddressToFunction<MainFnTy *>(TheJIT->lookup(TopLevelFunc->getName())->getAddress());
+    auto main_func = TheJIT->lookup(TopLevelFunc->getName());
+    if (!main_func)
+        throw CodegenError({}, "Couldn't find top level function\n");
+    auto jit_main = jitTargetAddressToFunction<MainFnTy *>(main_func->getAddress());
     auto ret = jit_main();
 
     return ret;
 }
 
 void Codegen::Run() {
-    deferStack.push({});
+    deferStack.emplace();
     visit(Parser_->getAST());
 
     auto instrs = deferStack.top();
