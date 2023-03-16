@@ -32,33 +32,33 @@ namespace lesma {
     public:
         ~ASTVisitor() = default;
 
-        virtual void visit(Statement *node) = 0;
-        virtual void visit(Compound *node) = 0;
-        virtual void visit(Import *node) = 0;
-        virtual void visit(Enum *node) = 0;
-        virtual void visit(Class *node) = 0;
-        virtual void visit(VarDecl *node) = 0;
-        virtual void visit(If *node) = 0;
-        virtual void visit(While *node) = 0;
-        virtual void visit(FuncDecl *node) = 0;
-        virtual void visit(ExternFuncDecl *node) = 0;
-        virtual void visit(Assignment *node) = 0;
-        virtual void visit(ExpressionStatement *node) = 0;
-        virtual void visit(Break *node) = 0;
-        virtual void visit(Continue *node) = 0;
-        virtual void visit(Return *node) = 0;
-        virtual void visit(Defer *node) = 0;
+        virtual void visit(const Statement *node) = 0;
+        virtual void visit(const Compound *node) = 0;
+        virtual void visit(const Import *node) = 0;
+        virtual void visit(const Enum *node) = 0;
+        virtual void visit(const Class *node) = 0;
+        virtual void visit(const VarDecl *node) = 0;
+        virtual void visit(const If *node) = 0;
+        virtual void visit(const While *node) = 0;
+        virtual void visit(const FuncDecl *node) = 0;
+        virtual void visit(const ExternFuncDecl *node) = 0;
+        virtual void visit(const Assignment *node) = 0;
+        virtual void visit(const ExpressionStatement *node) = 0;
+        virtual void visit(const Break *node) = 0;
+        virtual void visit(const Continue *node) = 0;
+        virtual void visit(const Return *node) = 0;
+        virtual void visit(const Defer *node) = 0;
 
-        virtual void visit(Expression *node) = 0;
-        virtual void visit(Literal *node) = 0;
-        virtual void visit(FuncCall *node) = 0;
-        virtual void visit(BinaryOp *node) = 0;
-        virtual void visit(DotOp *node) = 0;
-        virtual void visit(CastOp *node) = 0;
-        virtual void visit(IsOp *node) = 0;
-        virtual void visit(UnaryOp *node) = 0;
-        virtual void visit(Else *node) = 0;
+        virtual void visit(const Expression *node) = 0;
+        virtual void visit(const Literal *node) = 0;
+        virtual void visit(const FuncCall *node) = 0;
+        virtual void visit(const BinaryOp *node) = 0;
+        virtual void visit(const DotOp *node) = 0;
+        virtual void visit(const CastOp *node) = 0;
+        virtual void visit(const IsOp *node) = 0;
+        virtual void visit(const UnaryOp *node) = 0;
+        virtual void visit(const Else *node) = 0;
 
-        virtual void visit(Type *node) = 0;
+        virtual void visit(const Type *node) = 0;
     };
 }// namespace lesma

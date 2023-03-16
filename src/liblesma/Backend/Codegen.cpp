@@ -357,7 +357,15 @@ void Codegen::Dump() {
     TheModule->print(outs(), nullptr);
 }
 
-void Codegen::visit(lesma::Type *node) {
+void Codegen::visit(const Statement *node) {
+    print("Visited a blank statement\n{}", node->toString(SourceManager.get(), "", true));
+}
+
+void Codegen::visit(const Expression *node) {
+    print("Visited a blank expression\n{}", node->toString(SourceManager.get(), "", true));
+}
+
+void Codegen::visit(const lesma::Type *node) {
     if (node->getType() == TokenType::INT_TYPE)
         result_type = Builder->getInt64Ty();
     if (node->getType() == TokenType::INT8_TYPE)
@@ -378,7 +386,7 @@ void Codegen::visit(lesma::Type *node) {
         result_type = Builder->getVoidTy();
     else if (node->getType() == TokenType::PTR_TYPE) {
         node->getElementType()->accept(*this);
-        result_type = PointerType::get(result, 0);
+        result_type = PointerType::get(result_type, 0);
     } else if (node->getType() == TokenType::FUNC_TYPE) {
         node->getReturnType()->accept(*this);
         auto ret_type = result_type;
@@ -401,14 +409,13 @@ void Codegen::visit(lesma::Type *node) {
     throw CodegenError(node->getSpan(), "Unimplemented type {}", NAMEOF_ENUM(node->getType()));
 }
 
-void Codegen::visit(Compound *node) {
+void Codegen::visit(const Compound *node) {
     for (auto elem: node->getChildren())
         elem->accept(*this);
 }
 
-void Codegen::visit(VarDecl *node) {
+void Codegen::visit(const VarDecl *node) {
     llvm::Type *type;
-    llvm::Value *value;
 
     if (node->getValue().has_value()) {
         node->getValue().value()->accept(*this);
@@ -432,7 +439,7 @@ void Codegen::visit(VarDecl *node) {
         Builder->CreateStore(Cast(node->getSpan(), result, ptr->getAllocatedType(), true), ptr);
 }
 
-void Codegen::visit(If *node) {
+void Codegen::visit(const If *node) {
     auto parentFct = Builder->GetInsertBlock()->getParent();
     auto bStart = llvm::BasicBlock::Create(*TheContext->getContext(), "if.start");
     auto bEnd = llvm::BasicBlock::Create(*TheContext->getContext(), "if.end");
@@ -478,7 +485,7 @@ void Codegen::visit(If *node) {
         isBreak = false;
 }
 
-void Codegen::visit(While *node) {
+void Codegen::visit(const While *node) {
     Scope = Scope->createChildBlock("while");
 
     llvm::Function *parentFct = Builder->GetInsertBlock()->getParent();
@@ -519,7 +526,7 @@ void Codegen::visit(While *node) {
     continueBlocks.pop();
 }
 
-void Codegen::visit(FuncDecl *node) {
+void Codegen::visit(const FuncDecl *node) {
     if (selfSymbol != nullptr && node->getName() == "new" && node->getReturnType()->getType() != TokenType::VOID_TYPE)
         throw CodegenError(node->getSpan(), "Cannot create class method new with return type {}", node->getReturnType()->getName());
 
@@ -529,13 +536,16 @@ void Codegen::visit(FuncDecl *node) {
         paramTypes.push_back(selfSymbol->getLLVMType()->getPointerTo());
     }
 
-    for (const auto &param: node->getParameters())
-        paramTypes.push_back(visit(param->type));
+    for (const auto &param: node->getParameters()) {
+        param->type->accept(*this);
+        paramTypes.push_back(result_type);
+    }
 
     auto name = getMangledName(node->getSpan(), node->getName(), paramTypes, selfSymbol != nullptr);
     auto linkage = node->isExported() ? Function::ExternalLinkage : Function::PrivateLinkage;
 
-    FunctionType *FT = FunctionType::get(visit(node->getReturnType()), paramTypes, node->getVarArgs());
+    node->getReturnType()->accept(*this);
+    FunctionType *FT = FunctionType::get(result_type, paramTypes, node->getVarArgs());
     Function *F = Function::Create(FT, linkage, name, *TheModule);
 
     auto func_symbol = new SymbolTableEntry(name, new SymbolType(SymbolSuperType::TY_FUNCTION));
@@ -547,11 +557,13 @@ void Codegen::visit(FuncDecl *node) {
     Prototypes.emplace_back(F, node, selfSymbol);
 }
 
-void Codegen::visit(ExternFuncDecl *node) {
+void Codegen::visit(const ExternFuncDecl *node) {
     std::vector<llvm::Type *> paramTypes;
 
-    for (const auto &param: node->getParameters())
-        paramTypes.push_back(visit(param->type));
+    for (const auto &param: node->getParameters()) {
+        param->type->accept(*this);
+        paramTypes.push_back(result_type);
+    }
 
     FunctionCallee F;
     if (TheModule->getFunction(node->getName()) != nullptr && Scope->lookup(node->getName()) != nullptr)
@@ -559,7 +571,8 @@ void Codegen::visit(ExternFuncDecl *node) {
     else if (TheModule->getFunction(node->getName()) != nullptr) {
         F = TheModule->getFunction(node->getName());
     } else {
-        FunctionType *FT = FunctionType::get(visit(node->getReturnType()), paramTypes, node->getVarArgs());
+        node->getReturnType()->accept(*this);
+        FunctionType *FT = FunctionType::get(result_type, paramTypes, node->getVarArgs());
         F = TheModule->getOrInsertFunction(node->getName(), FT);
     }
 
@@ -570,7 +583,7 @@ void Codegen::visit(ExternFuncDecl *node) {
     Scope->insertSymbol(symbol);
 }
 
-void Codegen::visit(Assignment *node) {
+void Codegen::visit(const Assignment *node) {
     llvm::Type *lhs_type;
     llvm::Value *lhs_val;
     isAssignment = true;
@@ -662,7 +675,7 @@ void Codegen::visit(Assignment *node) {
     }
 }
 
-void Codegen::visit(Break *node) {
+void Codegen::visit(const Break *node) {
     if (breakBlocks.empty())
         throw CodegenError(node->getSpan(), "Cannot break without being in a loop");
 
@@ -673,7 +686,7 @@ void Codegen::visit(Break *node) {
     Builder->CreateBr(block);
 }
 
-void Codegen::visit(Continue *node) {
+void Codegen::visit(const Continue *node) {
     if (continueBlocks.empty())
         throw CodegenError(node->getSpan(), "Cannot continue without being in a loop");
 
@@ -684,7 +697,7 @@ void Codegen::visit(Continue *node) {
     Builder->CreateBr(block);
 }
 
-void Codegen::visit(Return *node) {
+void Codegen::visit(const Return *node) {
     // Check if it's top-level
     if (Builder->GetInsertBlock()->getParent() == TopLevelFunc)
         throw CodegenError(node->getSpan(), "Return statements are not allowed at top-level");
@@ -709,19 +722,19 @@ void Codegen::visit(Return *node) {
     }
 }
 
-void Codegen::visit(Defer *node) {
+void Codegen::visit(const Defer *node) {
     deferStack.top().push_back(node->getStatement());
 }
 
-void Codegen::visit(ExpressionStatement *node) {
+void Codegen::visit(const ExpressionStatement *node) {
     node->getExpression()->accept(*this);
 }
 
-void Codegen::visit(Import *node) {
+void Codegen::visit(const Import *node) {
     CompileModule(node->getSpan(), node->getFilePath(), node->isStd(), node->getAlias(), node->getImportAll(), node->getImportScope(), node->getImportedNames());
 }
 
-void Codegen::visit(Class *node) {
+void Codegen::visit(const Class *node) {
     std::vector<llvm::Type *> elementTypes = {};
     for (auto field: node->getFields()) {
         if (field->getType().has_value()) {
@@ -761,7 +774,7 @@ void Codegen::visit(Class *node) {
     selfSymbol = nullptr;
 }
 
-void Codegen::visit(Enum *node) {
+void Codegen::visit(const Enum *node) {
     std::vector<llvm::Type *> elementTypes = {Builder->getInt8Ty()};
     llvm::StructType *structType = llvm::StructType::create(*TheContext->getContext(), elementTypes, node->getIdentifier());
     std::vector<std::unique_ptr<Field>> fields;
@@ -777,11 +790,11 @@ void Codegen::visit(Enum *node) {
     Scope->insertSymbol(structSymbol);
 }
 
-void Codegen::visit(FuncCall *node) {
+void Codegen::visit(const FuncCall *node) {
     result = genFuncCall(node, {});
 }
 
-void Codegen::visit(BinaryOp *node) {
+void Codegen::visit(const BinaryOp *node) {
     node->getLeft()->accept(*this);
     llvm::Value *left = result;
     node->getRight()->accept(*this);
@@ -1022,7 +1035,7 @@ void Codegen::visit(BinaryOp *node) {
                        node->getRight()->toString(SourceManager.get(), "", true));
 }
 
-void Codegen::visit(DotOp *node) {
+void Codegen::visit(const DotOp *node) {
     if (auto left = dynamic_cast<Literal *>(node->getLeft())) {
         if (left->getType() != TokenType::IDENTIFIER)
             throw CodegenError(node->getLeft()->getSpan(), "Expected identifier left-hand of dot operator, found {}", node->getRight()->toString(SourceManager.get(), "", true));
@@ -1121,13 +1134,13 @@ void Codegen::visit(DotOp *node) {
     throw CodegenError(node->getSpan(), "Unimplemented dot accessor: {}", node->toString(SourceManager.get(), "", true));
 }
 
-void Codegen::visit(CastOp *node) {
+void Codegen::visit(const CastOp *node) {
     node->getExpression()->accept(*this);
     node->getType()->accept(*this);
     result = Cast(node->getSpan(), result, result_type);
 }
 
-void Codegen::visit(IsOp *node) {
+void Codegen::visit(const IsOp *node) {
     node->getLeft()->accept(*this);
     node->getRight()->accept(*this);
     auto left_type = result->getType();
@@ -1137,7 +1150,7 @@ void Codegen::visit(IsOp *node) {
         result = left_type == result_type ? Builder->getFalse() : Builder->getTrue();
 }
 
-void Codegen::visit(UnaryOp *node) {
+void Codegen::visit(const UnaryOp *node) {
     node->getExpression()->accept(*this);
 
     if (node->getOperator() == TokenType::MINUS) {
@@ -1165,7 +1178,7 @@ void Codegen::visit(UnaryOp *node) {
         throw CodegenError(node->getSpan(), "Unknown unary operator, cannot apply {} to {}", NAMEOF_ENUM(node->getOperator()), node->getExpression()->toString(SourceManager.get(), "", true));
 }
 
-void Codegen::visit(Literal *node) {
+void Codegen::visit(const Literal *node) {
     if (node->getType() == TokenType::DOUBLE)
         result = ConstantFP::get(*TheContext->getContext(), APFloat(std::stod(node->getValue())));
     else if (node->getType() == TokenType::INTEGER)
@@ -1194,7 +1207,7 @@ void Codegen::visit(Literal *node) {
         throw CodegenError(node->getSpan(), "Unknown literal {}", node->getValue());
 }
 
-void Codegen::visit(Else * /*node*/) {
+void Codegen::visit(const Else * /*node*/) {
     result = llvm::ConstantInt::getTrue(*TheContext->getContext());
 }
 
@@ -1349,7 +1362,7 @@ llvm::Value *Codegen::Cast(llvm::SMRange span, llvm::Value *val, llvm::Type *typ
     throw CodegenError(span, "Unsupported Cast");
 }
 
-llvm::Value *Codegen::genFuncCall(FuncCall *node, const std::vector<llvm::Value *> &extra_params = {}) {
+llvm::Value *Codegen::genFuncCall(const FuncCall *node, const std::vector<llvm::Value *> &extra_params = {}) {
     std::vector<llvm::Value *> params;
     std::vector<llvm::Type *> paramTypes;
 
@@ -1359,7 +1372,8 @@ llvm::Value *Codegen::genFuncCall(FuncCall *node, const std::vector<llvm::Value 
     }
 
     for (auto arg: node->getArguments()) {
-        params.push_back(visit(arg));
+        arg->accept(*this);
+        params.push_back(result);
         paramTypes.push_back(params.back()->getType());
     }
 
