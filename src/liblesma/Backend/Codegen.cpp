@@ -44,7 +44,7 @@ llvm::Function *Codegen::InitializeTopLevel() {
     return F;
 }
 
-void Codegen::defineFunction(Function *F, FuncDecl *node, SymbolTableEntry *clsSymbol) {
+void Codegen::defineFunction(Function *F, const FuncDecl *node, SymbolTableEntry *clsSymbol) {
     Scope = Scope->createChildBlock(node->getName());
     deferStack.emplace();
 
@@ -368,15 +368,15 @@ void Codegen::visit(const Expression *node) {
 void Codegen::visit(const lesma::Type *node) {
     if (node->getType() == TokenType::INT_TYPE)
         result_type = Builder->getInt64Ty();
-    if (node->getType() == TokenType::INT8_TYPE)
+    else if (node->getType() == TokenType::INT8_TYPE)
         result_type = Builder->getInt8Ty();
-    if (node->getType() == TokenType::INT16_TYPE)
+    else if (node->getType() == TokenType::INT16_TYPE)
         result_type = Builder->getInt16Ty();
-    if (node->getType() == TokenType::INT32_TYPE)
+    else if (node->getType() == TokenType::INT32_TYPE)
         result_type = Builder->getInt32Ty();
-    if (node->getType() == TokenType::FLOAT_TYPE)
+    else if (node->getType() == TokenType::FLOAT_TYPE)
         result_type = Builder->getDoubleTy();
-    if (node->getType() == TokenType::FLOAT32_TYPE)
+    else if (node->getType() == TokenType::FLOAT32_TYPE)
         result_type = Builder->getFloatTy();
     else if (node->getType() == TokenType::BOOL_TYPE)
         result_type = Builder->getInt1Ty();
@@ -404,9 +404,9 @@ void Codegen::visit(const lesma::Type *node) {
             throw CodegenError(node->getSpan(), "Type not found: {}", node->getName());
 
         result_type = sym->getLLVMType()->getPointerTo();
+    } else {
+        throw CodegenError(node->getSpan(), "Unimplemented type {}", NAMEOF_ENUM(node->getType()));
     }
-
-    throw CodegenError(node->getSpan(), "Unimplemented type {}", NAMEOF_ENUM(node->getType()));
 }
 
 void Codegen::visit(const Compound *node) {

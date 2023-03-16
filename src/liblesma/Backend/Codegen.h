@@ -54,7 +54,7 @@ namespace lesma {
 
         std::vector<std::string> ObjectFiles;
         std::vector<std::string> ImportedModules;
-        std::vector<std::tuple<Function *, FuncDecl *, SymbolTableEntry *>> Prototypes;
+        std::vector<std::tuple<Function *, const FuncDecl *, SymbolTableEntry *>> Prototypes;
         llvm::Function *TopLevelFunc;
         SymbolTableEntry *selfSymbol = nullptr;
         bool isBreak = false;
@@ -123,6 +123,6 @@ namespace lesma {
         std::string getTypeMangledName(llvm::SMRange span, llvm::Type *type);
         llvm::Value *genFuncCall(const FuncCall *node, const std::vector<llvm::Value *> &extra_params);
         static int FindIndexInFields(SymbolType *_struct, const std::string &field);
-        void defineFunction(Function *F, FuncDecl *node, SymbolTableEntry *clsSymbol);
+        void defineFunction(Function *F, const FuncDecl *node, SymbolTableEntry *clsSymbol);
     };
 }// namespace lesma
