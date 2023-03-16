@@ -6,6 +6,7 @@
 #include <utility>
 #include <vector>
 
+#include "liblesma/AST/ASTVisitor.h"
 #include "liblesma/Common/Utils.h"
 #include "liblesma/Token/Token.h"
 #include "liblesma/Token/TokenType.h"
@@ -18,6 +19,7 @@ namespace lesma {
     public:
         explicit AST(llvm::SMRange Loc) : Loc(Loc) {}
         virtual ~AST() = default;
+        virtual void accept(ASTVisitor &visitor) const = 0;
 
         [[nodiscard]] [[maybe_unused]] llvm::SMRange getSpan() const { return Loc; }
         [[nodiscard]] [[maybe_unused]] llvm::SMLoc getStart() const { return Loc.Start; }
@@ -54,6 +56,9 @@ namespace lesma {
         Literal(llvm::SMRange Loc, std::string value, TokenType type) : Expression(Loc), value(std::move(value)),
                                                                         type(type) {}
         ~Literal() override = default;
+        void accept(ASTVisitor &visitor) const override {
+            visitor.visit(*this);
+        }
 
         [[nodiscard]] [[maybe_unused]] std::string getValue() const { return value; }
         [[nodiscard]] [[maybe_unused]] TokenType getType() const { return type; }
@@ -78,6 +83,9 @@ namespace lesma {
         ~Compound() override {
             for (auto stmt: children)
                 delete stmt;
+        }
+        void accept(ASTVisitor &visitor) const override {
+            visitor.visit(*this);
         }
 
         [[nodiscard]] [[maybe_unused]] std::vector<Statement *> getChildren() const { return children; }
@@ -121,6 +129,9 @@ namespace lesma {
             delete ret;
             delete elementType;
         }
+        void accept(ASTVisitor &visitor) const override {
+            visitor.visit(*this);
+        }
 
         [[nodiscard]] [[maybe_unused]] std::string getName() const { return name; }
         [[nodiscard]] [[maybe_unused]] TokenType getType() const { return type; }
@@ -141,6 +152,9 @@ namespace lesma {
     public:
         Enum(llvm::SMRange Loc, std::string identifier, std::vector<std::string> values, bool exported) : Statement(Loc), identifier(std::move(identifier)), values(std::move(values)), exported(exported){};
         ~Enum() override = default;
+        void accept(ASTVisitor &visitor) const override {
+            visitor.visit(*this);
+        }
 
         [[nodiscard]] [[maybe_unused]] std::string getIdentifier() const { return identifier; }
         [[nodiscard]] [[maybe_unused]] std::vector<std::string> getValues() const { return values; }
@@ -172,6 +186,9 @@ namespace lesma {
     public:
         Import(llvm::SMRange Loc, std::string file_path, std::string alias, bool std, bool import_all, bool import_to_scope, std::vector<std::pair<std::string, std::string>> imported_names) : Statement(Loc), file_path(std::move(file_path)), alias(std::move(alias)), imported_names(std::move(imported_names)), std(std), import_all(import_all), import_to_scope(import_to_scope){};
         ~Import() override = default;
+        void accept(ASTVisitor &visitor) const override {
+            visitor.visit(*this);
+        }
 
         [[nodiscard]] [[maybe_unused]] std::string getFilePath() const { return file_path; }
         [[nodiscard]] [[maybe_unused]] std::string getAlias() const { return alias; }
@@ -208,6 +225,9 @@ namespace lesma {
             if (expr.has_value())
                 delete expr.value();
         }
+        void accept(ASTVisitor &visitor) const override {
+            visitor.visit(*this);
+        }
 
         [[nodiscard]] [[maybe_unused]] Literal *getIdentifier() const { return var; }
         [[nodiscard]] [[maybe_unused]] std::optional<Type *> getType() const { return type; }
@@ -241,6 +261,9 @@ namespace lesma {
             for (auto block: blocks)
                 delete block;
         }
+        void accept(ASTVisitor &visitor) const override {
+            visitor.visit(*this);
+        }
 
         [[nodiscard]] [[maybe_unused]] std::vector<Expression *> getConds() const { return conds; }
         [[nodiscard]] [[maybe_unused]] std::vector<Compound *> getBlocks() const { return blocks; }
@@ -271,6 +294,9 @@ namespace lesma {
         ~While() override {
             delete cond;
             delete block;
+        }
+        void accept(ASTVisitor &visitor) const override {
+            visitor.visit(*this);
         }
 
         [[nodiscard]] [[maybe_unused]] Expression *getCond() const { return cond; }
@@ -303,6 +329,9 @@ namespace lesma {
             delete type;
             delete default_val;
         }
+        void accept(ASTVisitor &visitor) const override {
+            visitor.visit(*this);
+        }
     };
 
     class FuncDecl : public Statement {
@@ -323,6 +352,9 @@ namespace lesma {
 
             delete return_type;
             delete body;
+        }
+        void accept(ASTVisitor &visitor) const override {
+            visitor.visit(*this);
         }
 
         [[nodiscard]] [[maybe_unused]] std::string getName() const { return name; }
@@ -370,6 +402,9 @@ namespace lesma {
 
             delete return_type;
         }
+        void accept(ASTVisitor &visitor) const override {
+            visitor.visit(*this);
+        }
 
         [[nodiscard]] [[maybe_unused]] std::string getName() const { return name; }
         [[nodiscard]] [[maybe_unused]] Type *getReturnType() const { return return_type; }
@@ -407,6 +442,9 @@ namespace lesma {
             for (auto arg: arguments)
                 delete arg;
         }
+        void accept(ASTVisitor &visitor) const override {
+            visitor.visit(*this);
+        }
 
         [[nodiscard]] [[maybe_unused]] std::string getName() const { return name; }
         [[nodiscard]] [[maybe_unused]] std::vector<Expression *> getArguments() const { return arguments; }
@@ -432,6 +470,9 @@ namespace lesma {
         ~Assignment() override {
             delete lhs;
             delete rhs;
+        }
+        void accept(ASTVisitor &visitor) const override {
+            visitor.visit(*this);
         }
 
         [[nodiscard]] [[maybe_unused]] Expression *getLeftHandSide() const { return lhs; }
@@ -459,6 +500,9 @@ namespace lesma {
         ~ExpressionStatement() override {
             delete expr;
         }
+        void accept(ASTVisitor &visitor) const override {
+            visitor.visit(*this);
+        }
 
         [[nodiscard]] [[maybe_unused]] Expression *getExpression() const { return expr; }
 
@@ -484,6 +528,9 @@ namespace lesma {
             delete left;
             delete right;
         }
+        void accept(ASTVisitor &visitor) const override {
+            visitor.visit(*this);
+        }
 
         [[nodiscard]] [[maybe_unused]] Expression *getLeft() const { return left; }
         [[nodiscard]] [[maybe_unused]] TokenType getOperator() const { return op; }
@@ -505,6 +552,9 @@ namespace lesma {
             delete left;
             delete right;
         }
+        void accept(ASTVisitor &visitor) const override {
+            visitor.visit(*this);
+        }
 
         [[nodiscard]] [[maybe_unused]] Expression *getLeft() const { return left; }
         [[nodiscard]] [[maybe_unused]] TokenType getOperator() const { return op; }
@@ -525,6 +575,9 @@ namespace lesma {
             delete expr;
             delete type;
         }
+        void accept(ASTVisitor &visitor) const override {
+            visitor.visit(*this);
+        }
 
         [[nodiscard]] [[maybe_unused]] Expression *getExpression() const { return expr; }
         [[nodiscard]] [[maybe_unused]] Type *getType() const { return type; }
@@ -542,6 +595,9 @@ namespace lesma {
         UnaryOp(llvm::SMRange Loc, TokenType op, Expression *expr) : Expression(Loc), op(op), expr(expr) {}
         ~UnaryOp() override {
             delete expr;
+        }
+        void accept(ASTVisitor &visitor) const override {
+            visitor.visit(*this);
         }
 
         [[nodiscard]] [[maybe_unused]] TokenType getOperator() const { return op; }
@@ -563,6 +619,9 @@ namespace lesma {
             delete left;
             delete right;
         }
+        void accept(ASTVisitor &visitor) const override {
+            visitor.visit(*this);
+        }
 
         [[nodiscard]] [[maybe_unused]] Expression *getLeft() const { return left; }
         [[nodiscard]] [[maybe_unused]] TokenType getOperator() const { return op; }
@@ -577,6 +636,9 @@ namespace lesma {
     public:
         explicit Else(llvm::SMRange Loc) : Expression(Loc) {}
         ~Else() override = default;
+        void accept(ASTVisitor &visitor) const override {
+            visitor.visit(*this);
+        }
 
         std::string toString(llvm::SourceMgr * /*srcMgr*/, const std::string & /*prefix*/, bool /*isTail*/) override {
             return "Else";
@@ -587,6 +649,9 @@ namespace lesma {
     public:
         explicit Break(llvm::SMRange Loc) : Statement(Loc) {}
         ~Break() override = default;
+        void accept(ASTVisitor &visitor) const override {
+            visitor.visit(*this);
+        }
 
         std::string toString(llvm::SourceMgr *srcMgr, const std::string &prefix, bool isTail) override {
             return fmt::format("{}{}Break[Line({}-{}):Col({}-{})]:\n",
@@ -602,6 +667,9 @@ namespace lesma {
     public:
         explicit Continue(llvm::SMRange Loc) : Statement(Loc) {}
         ~Continue() override = default;
+        void accept(ASTVisitor &visitor) const override {
+            visitor.visit(*this);
+        }
 
         std::string toString(llvm::SourceMgr *srcMgr, const std::string &prefix, bool isTail) override {
             return fmt::format("{}{}Continue[Line({}-{}):Col({}-{})]:\n",
@@ -620,6 +688,9 @@ namespace lesma {
         Return(llvm::SMRange Loc, Expression *value) : Statement(Loc), value(value) {}
         ~Return() override {
             delete value;
+        }
+        void accept(ASTVisitor &visitor) const override {
+            visitor.visit(*this);
         }
 
         [[nodiscard]] [[maybe_unused]] Expression *getValue() const { return value; }
@@ -642,6 +713,9 @@ namespace lesma {
         Defer(llvm::SMRange Loc, Statement *stmt) : Statement(Loc), stmt(stmt) {}
         ~Defer() override {
             delete stmt;
+        }
+        void accept(ASTVisitor &visitor) const override {
+            visitor.visit(*this);
         }
 
         [[nodiscard]] [[maybe_unused]] Statement *getStatement() const { return stmt; }
@@ -670,6 +744,9 @@ namespace lesma {
                 delete field;
             for (auto method: methods)
                 delete method;
+        }
+        void accept(ASTVisitor &visitor) const override {
+            visitor.visit(*this);
         }
 
         [[nodiscard]] [[maybe_unused]] std::string getIdentifier() const { return identifier; }

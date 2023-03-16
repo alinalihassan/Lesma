@@ -45,6 +45,8 @@ namespace lesma {
         SymbolTable *Scope;
         std::string filename;
         std::string alias;
+        llvm::Value *result;
+        llvm::Type *result_type;
 
         std::stack<llvm::BasicBlock *> breakBlocks;
         std::stack<llvm::BasicBlock *> continueBlocks;
@@ -97,17 +99,17 @@ namespace lesma {
         void visit(Defer *node) override;
         void visit(ExpressionStatement *node) override;
 
-        llvm::Value *visit(Expression *node) override;
-        llvm::Value *visit(FuncCall *node) override;
-        llvm::Value *visit(BinaryOp *node) override;
-        llvm::Value *visit(DotOp *node) override;
-        llvm::Value *visit(CastOp *node) override;
-        llvm::Value *visit(IsOp *node) override;
-        llvm::Value *visit(UnaryOp *node) override;
-        llvm::Value *visit(Literal *node) override;
-        llvm::Value *visit(Else *node) override;
+        void visit(Expression *node) override;
+        void visit(FuncCall *node) override;
+        void visit(BinaryOp *node) override;
+        void visit(DotOp *node) override;
+        void visit(CastOp *node) override;
+        void visit(IsOp *node) override;
+        void visit(UnaryOp *node) override;
+        void visit(Literal *node) override;
+        void visit(Else *node) override;
 
-        llvm::Type *visit(lesma::Type *node) override;
+        void visit(lesma::Type *node) override;
 
         // TODO: Helper functions, move them out somewhere
         static SymbolType *getType(llvm::Type *type);
