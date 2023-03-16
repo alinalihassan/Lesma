@@ -1,4 +1,5 @@
 #include "SymbolTable.h"
+#include <llvm/IR/DerivedTypes.h>
 
 using namespace lesma;
 
@@ -44,7 +45,7 @@ SymbolTableEntry *SymbolTable::lookup(const std::string &name) {
 SymbolTableEntry *SymbolTable::lookupStructByName(const std::string &name) {
     for (auto sym: symbols) {
         if (sym.second->getLLVMType() != nullptr && sym.second->getLLVMType()->isStructTy() &&
-            sym.second->getLLVMType()->getStructName() == name)
+            llvm::cast<llvm::StructType>(sym.second->getLLVMType())->getName() == name)
             return sym.second;
     }
 

@@ -59,8 +59,7 @@ namespace lesma {
 
             auto ES = std::make_unique<ExecutionSession>(std::move(*EPC));
 
-            JITTargetMachineBuilder JTMB(
-                    ES->getExecutorProcessControl().getTargetTriple());
+            JITTargetMachineBuilder JTMB(ES->getExecutorProcessControl().getTargetTriple());
 
             auto DL = JTMB.getDefaultDataLayoutForTarget();
             if (!DL)
@@ -81,7 +80,10 @@ namespace lesma {
         }
 
         Expected<JITEvaluatedSymbol> lookup(StringRef Name) {
-            return ES->lookup({&MainJD}, Mangle(Name.str()));
+            auto res = ES->lookup({&MainJD}, Mangle(Name.str()));
+            if (!res)
+                return res.takeError();
+            return res;
         }
     };
 

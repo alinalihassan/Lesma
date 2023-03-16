@@ -19,31 +19,31 @@ namespace lesma {
     class SymbolTableEntry {
     public:
         SymbolTableEntry(std::string name, SymbolType *type) : name(std::move(name)), state(INITIALIZED),
-                                                               type(type), mutable_(false),
-                                                               signed_(true) {}
+                                                               type(type), mutableVar(false),
+                                                               signedVar(true) {}
         SymbolTableEntry(std::string name, SymbolType *type, SymbolState state) : name(std::move(name)), state(state),
-                                                                                  type(type), mutable_(false),
-                                                                                  signed_(true) {}
+                                                                                  type(type), mutableVar(false),
+                                                                                  signedVar(true) {}
         SymbolTableEntry(std::string name, SymbolType *type,
                          SymbolState state, bool mutable_, bool signed_) : name(std::move(name)), state(state),
-                                                                           type(type), mutable_(mutable_),
-                                                                           signed_(signed_) {}
+                                                                           type(type), mutableVar(mutable_),
+                                                                           signedVar(signed_) {}
 
         [[nodiscard]] std::string getName() { return name; }
         [[nodiscard]] llvm::Value *getLLVMValue() { return llvmValue; }
         [[nodiscard]] llvm::Type *getLLVMType() { return llvmType; }
-        [[nodiscard]] bool getMutability() const { return mutable_; }
-        [[nodiscard]] bool getSigned() const { return signed_; }
+        [[nodiscard]] bool getMutability() const { return mutableVar; }
+        [[nodiscard]] bool getSigned() const { return signedVar; }
         [[nodiscard]] SymbolState getState() { return state; }
         [[nodiscard]] SymbolType *getType() { return type; }
-        [[nodiscard]] bool isExported() { return exported; }
-        [[nodiscard]] bool isUsed() { return used; }
+        [[nodiscard]] bool isExported() const { return exported; }
+        [[nodiscard]] bool isUsed() const { return used; }
 
         void setLLVMValue(llvm::Value *value) { llvmValue = value; }
         void setLLVMType(llvm::Type *type_) { llvmType = type_; }
         void setUsed(bool used_) { used = used_; }
-        void setSigned(bool signed__) { signed_ = signed__; }
-        void setMutable(bool mutable__) { mutable_ = mutable__; }
+        void setSigned(bool signed_) { mutableVar = signed_; }
+        void setMutable(bool mutable_) { mutableVar = mutable_; }
         void setExported(bool exported_) { exported = exported_; }
 
         std::string toString() {
@@ -60,8 +60,8 @@ namespace lesma {
         SymbolType *type;
         llvm::Value *llvmValue = nullptr;
         llvm::Type *llvmType = nullptr;
-        bool mutable_;
-        bool signed_;
+        bool mutableVar;
+        bool signedVar;
         bool used = false;
         bool exported = false;
     };

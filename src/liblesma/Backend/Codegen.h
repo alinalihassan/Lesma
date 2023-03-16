@@ -32,7 +32,7 @@ namespace lesma {
         using LesmaErrorWithExitCode<EX_DATAERR>::LesmaErrorWithExitCode;
     };
 
-    class Codegen final : public ASTVisitor<void, llvm::Value *, llvm::Type *> {
+    class Codegen final : public ASTVisitor {
         std::shared_ptr<ThreadSafeContext> TheContext;
         std::unique_ptr<Module> TheModule;
         std::unique_ptr<IRBuilder<>> Builder;
@@ -45,6 +45,8 @@ namespace lesma {
         SymbolTable *Scope;
         std::string filename;
         std::string alias;
+        llvm::Value *result;
+        llvm::Type *result_type;
 
         std::stack<llvm::BasicBlock *> breakBlocks;
         std::stack<llvm::BasicBlock *> continueBlocks;
@@ -52,7 +54,7 @@ namespace lesma {
 
         std::vector<std::string> ObjectFiles;
         std::vector<std::string> ImportedModules;
-        std::vector<std::tuple<Function *, FuncDecl *, SymbolTableEntry *>> Prototypes;
+        std::vector<std::tuple<Function *, const FuncDecl *, SymbolTableEntry *>> Prototypes;
         llvm::Function *TopLevelFunc;
         SymbolTableEntry *selfSymbol = nullptr;
         bool isBreak = false;
@@ -80,34 +82,34 @@ namespace lesma {
         llvm::Function *InitializeTopLevel();
         void CompileModule(llvm::SMRange span, const std::string &filepath, bool isStd, const std::string &alias, bool importAll, bool importToScope, const std::vector<std::pair<std::string, std::string>> &imported_names);
 
-        void visit(Statement *node) override;
-        void visit(Compound *node) override;
-        void visit(VarDecl *node) override;
-        void visit(If *node) override;
-        void visit(While *node) override;
-        void visit(Import *node) override;
-        void visit(Enum *node) override;
-        void visit(Class *node) override;
-        void visit(FuncDecl *node) override;
-        void visit(ExternFuncDecl *node) override;
-        void visit(Assignment *node) override;
-        void visit(Break *node) override;
-        void visit(Continue *node) override;
-        void visit(Return *node) override;
-        void visit(Defer *node) override;
-        void visit(ExpressionStatement *node) override;
+        void visit(const Statement *node) override;
+        void visit(const Compound *node) override;
+        void visit(const VarDecl *node) override;
+        void visit(const If *node) override;
+        void visit(const While *node) override;
+        void visit(const Import *node) override;
+        void visit(const Enum *node) override;
+        void visit(const Class *node) override;
+        void visit(const FuncDecl *node) override;
+        void visit(const ExternFuncDecl *node) override;
+        void visit(const Assignment *node) override;
+        void visit(const Break *node) override;
+        void visit(const Continue *node) override;
+        void visit(const Return *node) override;
+        void visit(const Defer *node) override;
+        void visit(const ExpressionStatement *node) override;
 
-        llvm::Value *visit(Expression *node) override;
-        llvm::Value *visit(FuncCall *node) override;
-        llvm::Value *visit(BinaryOp *node) override;
-        llvm::Value *visit(DotOp *node) override;
-        llvm::Value *visit(CastOp *node) override;
-        llvm::Value *visit(IsOp *node) override;
-        llvm::Value *visit(UnaryOp *node) override;
-        llvm::Value *visit(Literal *node) override;
-        llvm::Value *visit(Else *node) override;
+        void visit(const Expression *node) override;
+        void visit(const FuncCall *node) override;
+        void visit(const BinaryOp *node) override;
+        void visit(const DotOp *node) override;
+        void visit(const CastOp *node) override;
+        void visit(const IsOp *node) override;
+        void visit(const UnaryOp *node) override;
+        void visit(const Literal *node) override;
+        void visit(const Else *node) override;
 
-        llvm::Type *visit(lesma::Type *node) override;
+        void visit(const lesma::Type *node) override;
 
         // TODO: Helper functions, move them out somewhere
         static SymbolType *getType(llvm::Type *type);
@@ -119,8 +121,8 @@ namespace lesma {
         [[maybe_unused]] static bool isMangled(std::string name);
         static std::string getDemangledName(const std::string &mangled_name);
         std::string getTypeMangledName(llvm::SMRange span, llvm::Type *type);
-        llvm::Value *genFuncCall(FuncCall *node, const std::vector<llvm::Value *> &extra_params);
+        llvm::Value *genFuncCall(const FuncCall *node, const std::vector<llvm::Value *> &extra_params);
         static int FindIndexInFields(SymbolType *_struct, const std::string &field);
-        void defineFunction(Function *F, FuncDecl *node, SymbolTableEntry *clsSymbol);
+        void defineFunction(Function *F, const FuncDecl *node, SymbolTableEntry *clsSymbol);
     };
 }// namespace lesma
