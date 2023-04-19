@@ -120,7 +120,7 @@ std::unique_ptr<llvm::TargetMachine> Codegen::InitializeTargetMachine() {
         throw CodegenError({}, "Target not available:\n{}", error);
 
     llvm::TargetOptions opt;
-    llvm::Optional rm = llvm::Optional<llvm::Reloc::Model>();
+    llvm::Optional<llvm::Reloc::Model> rm = llvm::Optional<llvm::Reloc::Model>();
     std::unique_ptr<llvm::TargetMachine> target_machine(target->createTargetMachine(tripletString, "generic", "", opt, rm));
     return target_machine;
 }
@@ -365,7 +365,7 @@ void Codegen::visit(const Expression *node) {
     print("Visited a blank expression\n{}", node->toString(SourceManager.get(), "", true));
 }
 
-void Codegen::visit(const lesma::Type *node) {
+void Codegen::visit(const TypeExpr *node) {
     if (node->getType() == TokenType::INT_TYPE)
         result_type = Builder->getInt64Ty();
     else if (node->getType() == TokenType::INT8_TYPE)
@@ -445,16 +445,16 @@ void Codegen::visit(const If *node) {
     auto bEnd = llvm::BasicBlock::Create(*TheContext->getContext(), "if.end");
 
     Builder->CreateBr(bStart);
-    parentFct->getBasicBlockList().push_back(bStart);
+    bStart->insertInto(parentFct);
     Builder->SetInsertPoint(bStart);
 
     for (unsigned long i = 0; i < node->getConds().size(); i++) {
         auto bIfTrue = llvm::BasicBlock::Create(*TheContext->getContext(), "if.true");
-        parentFct->getBasicBlockList().push_back(bIfTrue);
+        bIfTrue->insertInto(parentFct);
         auto bIfFalse = bEnd;
         if (i + 1 < node->getConds().size()) {
             bIfFalse = llvm::BasicBlock::Create(*TheContext->getContext(), "if.false");
-            parentFct->getBasicBlockList().push_back(bIfFalse);
+            bIfFalse->insertInto(parentFct);
         }
 
         node->getConds().at(i)->accept(*this);
@@ -477,7 +477,7 @@ void Codegen::visit(const If *node) {
         Builder->SetInsertPoint(bIfFalse);
     }
 
-    parentFct->getBasicBlockList().push_back(bEnd);
+    bEnd->insertInto(parentFct);
 
     if (!isBreak)
         Builder->SetInsertPoint(bEnd);
@@ -502,13 +502,13 @@ void Codegen::visit(const While *node) {
     Builder->CreateBr(bCond);
 
     // Fill condition block
-    parentFct->getBasicBlockList().push_back(bCond);
+    bCond->insertInto(parentFct);
     Builder->SetInsertPoint(bCond);
     node->getCond()->accept(*this);
     Builder->CreateCondBr(result, bLoop, bEnd);
 
     // Fill while body block
-    parentFct->getBasicBlockList().push_back(bLoop);
+    bLoop->insertInto(parentFct);
     Builder->SetInsertPoint(bLoop);
     node->getBlock()->accept(*this);
 
@@ -518,7 +518,7 @@ void Codegen::visit(const While *node) {
         isBreak = false;
 
     // Fill loop end block
-    parentFct->getBasicBlockList().push_back(bEnd);
+    bEnd->insertInto(parentFct);
     Builder->SetInsertPoint(bEnd);
 
     Scope = Scope->getParent();

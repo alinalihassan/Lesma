@@ -1,5 +1,6 @@
 # Roadmap
-- [ ] Add analyzer phase (improve visitor pattern? kinda hacky)
+- [x] Improve Visitor Pattern
+- [ ] Add analyzer phase
 - [ ] Add optional parameters in function declarations
 - [ ] Add default values in function declarations
 - [ ] Add operator overloading

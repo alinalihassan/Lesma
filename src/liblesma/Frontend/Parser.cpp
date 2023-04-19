@@ -63,19 +63,19 @@ void Parser::Error(Token *token, const std::string &error_message) {
     throw ParserError(token->span, "{}", error_message);
 }
 
-Type *Parser::ParseType() {
+TypeExpr *Parser::ParseType() {
     auto type = Peek();
     if (Check(TokenType::STAR)) {
         Advance();
         auto element_type = ParseType();
-        return new Type({type->getStart(), element_type->getEnd()}, "*" + element_type->getName(), TokenType::PTR_TYPE, element_type);
+        return new TypeExpr({type->getStart(), element_type->getEnd()}, "*" + element_type->getName(), TokenType::PTR_TYPE, element_type);
     } else if (CheckAny<TokenType::INT_TYPE, TokenType::FLOAT_TYPE, TokenType::STRING_TYPE, TokenType::BOOL_TYPE,
                         TokenType::INT8_TYPE, TokenType::INT16_TYPE, TokenType::INT32_TYPE, TokenType::FLOAT32_TYPE, TokenType::VOID_TYPE>()) {
         Advance();
-        return new Type(type->span, type->lexeme, type->type);
+        return new TypeExpr(type->span, type->lexeme, type->type);
     } else if (Check(TokenType::FUNC)) {
-        std::vector<Type *> params;
-        Type *ret;
+        std::vector<TypeExpr *> params;
+        TypeExpr *ret;
         std::string lexeme = type->lexeme + " (";
 
         Advance();
@@ -94,14 +94,14 @@ Type *Parser::ParseType() {
             ret = ParseType();
             lexeme += " -> " + ret->getName();
         } else {
-            ret = new Type({params.back()->getEnd(), params.back()->getEnd()}, type->lexeme, type->type);
+            ret = new TypeExpr({params.back()->getEnd(), params.back()->getEnd()}, type->lexeme, type->type);
         }
 
         // TODO: This should really be a pointer to a function type
-        return new Type({type->getStart(), ret->getEnd()}, lexeme, TokenType::FUNC_TYPE, params, ret);
+        return new TypeExpr({type->getStart(), ret->getEnd()}, lexeme, TokenType::FUNC_TYPE, params, ret);
     } else if (Check(TokenType::IDENTIFIER)) {
         Advance();
-        return new Type(type->span, type->lexeme, TokenType::CUSTOM_TYPE);
+        return new TypeExpr(type->span, type->lexeme, TokenType::CUSTOM_TYPE);
     }
 
     Error(type, fmt::format("Unknown type: {}", type->lexeme));
@@ -293,7 +293,7 @@ Statement *Parser::ParseVarDecl() {
     auto identifier = Consume(TokenType::IDENTIFIER);
     auto var = new Literal(identifier->span, identifier->lexeme, identifier->type);
 
-    std::optional<Type *> type = std::nullopt;
+    std::optional<TypeExpr *> type = std::nullopt;
     if (AdvanceIfMatchAny<TokenType::COLON>())
         type = ParseType();
 
@@ -501,11 +501,11 @@ Statement *Parser::ParseFunctionDeclaration() {
 
     Consume(TokenType::RIGHT_PAREN);
 
-    Type *return_type;
+    TypeExpr *return_type;
     if (AdvanceIfMatchAny<TokenType::ARROW>())
         return_type = ParseType();
     else
-        return_type = new Type(Previous()->span, "void", TokenType::VOID_TYPE);
+        return_type = new TypeExpr(Previous()->span, "void", TokenType::VOID_TYPE);
 
     if (extern_func) {
         ConsumeNewline();

@@ -2,7 +2,7 @@
 
 # Clone LLVM
 echo "[Step 1] Cloning LLVM (Could take a while) ... "
-git clone --depth 1 --branch llvmorg-14.0.6 https://github.com/llvm/llvm-project llvm
+git clone --depth 1 --branch llvmorg-16.0.1 https://github.com/llvm/llvm-project llvm
 echo "done."
 
 # Build LLVM

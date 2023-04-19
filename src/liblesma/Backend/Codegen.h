@@ -45,8 +45,8 @@ namespace lesma {
         SymbolTable *Scope;
         std::string filename;
         std::string alias;
-        llvm::Value *result;
-        llvm::Type *result_type;
+        llvm::Value *result = nullptr;
+        llvm::Type *result_type = nullptr;
 
         std::stack<llvm::BasicBlock *> breakBlocks;
         std::stack<llvm::BasicBlock *> continueBlocks;
@@ -109,7 +109,7 @@ namespace lesma {
         void visit(const Literal *node) override;
         void visit(const Else *node) override;
 
-        void visit(const lesma::Type *node) override;
+        void visit(const TypeExpr *node) override;
 
         // TODO: Helper functions, move them out somewhere
         static SymbolType *getType(llvm::Type *type);

@@ -27,7 +27,7 @@ namespace lesma {
     class IsOp;
     class UnaryOp;
     class Else;
-    class Type;
+    class TypeExpr;
     class ASTVisitor {
     public:
         ~ASTVisitor() = default;
@@ -59,6 +59,6 @@ namespace lesma {
         virtual void visit(const UnaryOp *node) = 0;
         virtual void visit(const Else *node) = 0;
 
-        virtual void visit(const Type *node) = 0;
+        virtual void visit(const TypeExpr *node) = 0;
     };
 }// namespace lesma
