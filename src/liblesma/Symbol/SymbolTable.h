@@ -5,7 +5,7 @@
 #include <map>
 #include <utility>
 
-#include "SymbolTableEntry.h"
+#include "Value.h"
 #include "liblesma/Common/Utils.h"
 
 namespace lesma {
@@ -22,15 +22,15 @@ namespace lesma {
             //     delete val;
         }
 
-        SymbolTableEntry *lookup(const std::string &symbolName);
-        SymbolTableEntry *lookupStructByName(const std::string &name);
-        SymbolType *lookupType(const std::string &symbolName);
-        void insertSymbol(SymbolTableEntry *symbol);
-        void insertType(const std::string &name, SymbolType *type);
+        Value *lookup(const std::string &symbolName);
+        Value *lookupStructByName(const std::string &name);
+        Type *lookupType(const std::string &symbolName);
+        void insertSymbol(Value *symbol);
+        void insertType(const std::string &name, Type *type);
         SymbolTable *createChildBlock(const std::string &blockName);
         SymbolTable *getParent();
-        std::map<std::string, SymbolTableEntry *> getSymbols() { return symbols; }
-        std::map<std::string, SymbolType *> getTypes() { return types; }
+        std::map<std::string, Value *> getSymbols() { return symbols; }
+        std::map<std::string, Type *> getTypes() { return types; }
 
         SymbolTable *getChild(const std::string &tableName);
 
@@ -52,7 +52,7 @@ namespace lesma {
     private:
         SymbolTable *parent;
         std::map<std::string, SymbolTable *> children;
-        std::map<std::string, SymbolTableEntry *> symbols;
-        std::map<std::string, SymbolType *> types;
+        std::map<std::string, Value *> symbols;
+        std::map<std::string, Type *> types;
     };
 }// namespace lesma

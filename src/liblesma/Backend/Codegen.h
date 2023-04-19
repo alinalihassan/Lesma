@@ -54,9 +54,9 @@ namespace lesma {
 
         std::vector<std::string> ObjectFiles;
         std::vector<std::string> ImportedModules;
-        std::vector<std::tuple<Function *, const FuncDecl *, SymbolTableEntry *>> Prototypes;
+        std::vector<std::tuple<Function *, const FuncDecl *, Value *>> Prototypes;
         llvm::Function *TopLevelFunc;
-        SymbolTableEntry *selfSymbol = nullptr;
+        Value *selfSymbol = nullptr;
         bool isBreak = false;
         bool isReturn = false;
         bool isAssignment = false;
@@ -112,7 +112,7 @@ namespace lesma {
         void visit(const TypeExpr *node) override;
 
         // TODO: Helper functions, move them out somewhere
-        static SymbolType *getType(llvm::Type *type);
+        static Type *getType(llvm::Type *type);
         llvm::Value *Cast(llvm::SMRange span, llvm::Value *val, llvm::Type *type);
         llvm::Value *Cast(llvm::SMRange span, llvm::Value *val, llvm::Type *type, bool isStore);
         static llvm::Type *GetExtendedType(llvm::Type *left, llvm::Type *right);
@@ -122,7 +122,7 @@ namespace lesma {
         static std::string getDemangledName(const std::string &mangled_name);
         std::string getTypeMangledName(llvm::SMRange span, llvm::Type *type);
         llvm::Value *genFuncCall(const FuncCall *node, const std::vector<llvm::Value *> &extra_params);
-        static int FindIndexInFields(SymbolType *_struct, const std::string &field);
-        void defineFunction(Function *F, const FuncDecl *node, SymbolTableEntry *clsSymbol);
+        static int FindIndexInFields(Type *_struct, const std::string &field);
+        void defineFunction(Function *F, const FuncDecl *node, Value *clsSymbol);
     };
 }// namespace lesma

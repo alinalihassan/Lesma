@@ -5,7 +5,7 @@
 #include <string>
 #include <utility>
 
-#include "SymbolType.h"
+#include "Type.h"
 #include <llvm/IR/Type.h>
 #include <llvm/IR/Value.h>
 
@@ -16,18 +16,18 @@ namespace lesma {
     /**
      * Entry of a symbol table, representing an individual symbol with all its properties
      */
-    class SymbolTableEntry {
+    class Value {
     public:
-        SymbolTableEntry(std::string name, SymbolType *type) : name(std::move(name)), state(INITIALIZED),
-                                                               type(type), mutableVar(false),
-                                                               signedVar(true) {}
-        SymbolTableEntry(std::string name, SymbolType *type, SymbolState state) : name(std::move(name)), state(state),
-                                                                                  type(type), mutableVar(false),
-                                                                                  signedVar(true) {}
-        SymbolTableEntry(std::string name, SymbolType *type,
-                         SymbolState state, bool mutable_, bool signed_) : name(std::move(name)), state(state),
-                                                                           type(type), mutableVar(mutable_),
-                                                                           signedVar(signed_) {}
+        Value(std::string name, Type *type) : name(std::move(name)), state(INITIALIZED),
+                                              type(type), mutableVar(false),
+                                              signedVar(true) {}
+        Value(std::string name, Type *type, SymbolState state) : name(std::move(name)), state(state),
+                                                                 type(type), mutableVar(false),
+                                                                 signedVar(true) {}
+        Value(std::string name, Type *type,
+              SymbolState state, bool mutable_, bool signed_) : name(std::move(name)), state(state),
+                                                                type(type), mutableVar(mutable_),
+                                                                signedVar(signed_) {}
 
         [[nodiscard]] std::string getName() { return name; }
         [[nodiscard]] llvm::Value *getLLVMValue() { return llvmValue; }
@@ -35,7 +35,7 @@ namespace lesma {
         [[nodiscard]] bool getMutability() const { return mutableVar; }
         [[nodiscard]] bool getSigned() const { return signedVar; }
         [[nodiscard]] SymbolState getState() { return state; }
-        [[nodiscard]] SymbolType *getType() { return type; }
+        [[nodiscard]] Type *getType() { return type; }
         [[nodiscard]] bool isExported() const { return exported; }
         [[nodiscard]] bool isUsed() const { return used; }
 
@@ -57,7 +57,7 @@ namespace lesma {
     private:
         std::string name;
         SymbolState state;
-        SymbolType *type;
+        Type *type;
         llvm::Value *llvmValue = nullptr;
         llvm::Type *llvmType = nullptr;
         bool mutableVar;

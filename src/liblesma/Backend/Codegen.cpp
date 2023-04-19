@@ -44,7 +44,7 @@ llvm::Function *Codegen::InitializeTopLevel() {
     return F;
 }
 
-void Codegen::defineFunction(Function *F, const FuncDecl *node, SymbolTableEntry *clsSymbol) {
+void Codegen::defineFunction(Function *F, const FuncDecl *node, Value *clsSymbol) {
     Scope = Scope->createChildBlock(node->getName());
     deferStack.emplace();
 
@@ -61,7 +61,7 @@ void Codegen::defineFunction(Function *F, const FuncDecl *node, SymbolTableEntry
         ptr = Builder->CreateAlloca(param.getType(), nullptr, param.getName() + "_ptr");
         Builder->CreateStore(&param, ptr);
 
-        auto symbol = new SymbolTableEntry(param.getName().str(), getType(param.getType()));
+        auto symbol = new Value(param.getName().str(), getType(param.getType()));
         symbol->setLLVMType(param.getType());
         symbol->setLLVMValue(ptr);
         Scope->insertSymbol(symbol);
@@ -163,8 +163,8 @@ void Codegen::CompileModule(llvm::SMRange span, const std::string &filepath, boo
         ImportedModules = std::move(codegen->ImportedModules);
 
         if (!importToScope) {
-            auto import_typ = new SymbolType(TY_IMPORT);
-            auto import_sym = new SymbolTableEntry(module_alias, import_typ);
+            auto import_typ = new Type(TY_IMPORT);
+            auto import_sym = new Value(module_alias, import_typ);
             Scope->insertSymbol(import_sym);
             Scope->insertType(module_alias, import_typ);
         }
@@ -202,17 +202,17 @@ void Codegen::CompileModule(llvm::SMRange span, const std::string &filepath, boo
                 paramTypes.push_back(it.getFunctionType()->getParamType(param_i));
 
             // TODO: Get function without name mangling in case of extern C functions?
-            SymbolTableEntry *func_symbol = codegen->Scope->lookup(name);
+            Value *func_symbol = codegen->Scope->lookup(name);
 
             // Only import if it's exported
             auto demangled_name = getDemangledName(name);
             auto imp_alias = findInImports(demangled_name);
             if (func_symbol != nullptr && func_symbol->isExported() && (importAll || !imp_alias.empty() || isMethod(name))) {
-                auto symbol = new SymbolTableEntry(imp_alias.empty() ? name : std::regex_replace(name, std::regex(demangled_name), imp_alias), new SymbolType(SymbolSuperType::TY_FUNCTION));
+                auto symbol = new Value(imp_alias.empty() ? name : std::regex_replace(name, std::regex(demangled_name), imp_alias), new Type(BaseType::TY_FUNCTION));
 
                 if (isJIT) {
                     symbol->setLLVMType(it.getFunctionType());
-                    symbol->setLLVMValue((Value *) &it.getFunction());
+                    symbol->setLLVMValue((llvm::Value *) &it.getFunction());
                 } else {
                     auto new_func = Function::Create(it.getFunctionType(), Function::ExternalLinkage, name, *TheModule);
                     symbol->setLLVMType(new_func->getFunctionType());
@@ -228,7 +228,7 @@ void Codegen::CompileModule(llvm::SMRange span, const std::string &filepath, boo
             if (sym.second->getType()->isOneOf({TY_ENUM, TY_CLASS}) && sym.second->isExported() && (importAll || !imp_alias.empty())) {
                 llvm::StructType *structType = StructType::getTypeByName(*TheContext->getContext(), sym.first);
 
-                auto *structSymbol = new SymbolTableEntry(imp_alias.empty() ? sym.first : imp_alias, sym.second->getType());
+                auto *structSymbol = new Value(imp_alias.empty() ? sym.first : imp_alias, sym.second->getType());
                 structSymbol->setLLVMType(structType);
                 Scope->insertType(sym.first, sym.second->getType());
                 Scope->insertSymbol(structSymbol);
@@ -429,7 +429,7 @@ void Codegen::visit(const VarDecl *node) {
 
     auto ptr = Builder->CreateAlloca(type, nullptr, node->getIdentifier()->getValue());
 
-    auto symbol = new SymbolTableEntry(node->getIdentifier()->getValue(), getType(type), node->getType().has_value() ? INITIALIZED : DECLARED);
+    auto symbol = new Value(node->getIdentifier()->getValue(), getType(type), node->getType().has_value() ? INITIALIZED : DECLARED);
     symbol->setLLVMType(type);
     symbol->setLLVMValue(ptr);
     symbol->setMutable(node->getMutability());
@@ -548,7 +548,7 @@ void Codegen::visit(const FuncDecl *node) {
     FunctionType *FT = FunctionType::get(result_type, paramTypes, node->getVarArgs());
     Function *F = Function::Create(FT, linkage, name, *TheModule);
 
-    auto func_symbol = new SymbolTableEntry(name, new SymbolType(SymbolSuperType::TY_FUNCTION));
+    auto func_symbol = new Value(name, new Type(BaseType::TY_FUNCTION));
     func_symbol->setLLVMType(F->getFunctionType());
     func_symbol->setLLVMValue(F);
     func_symbol->setExported(node->isExported());
@@ -576,7 +576,7 @@ void Codegen::visit(const ExternFuncDecl *node) {
         F = TheModule->getOrInsertFunction(node->getName(), FT);
     }
 
-    auto symbol = new SymbolTableEntry(node->getName(), new SymbolType(SymbolSuperType::TY_FUNCTION));
+    auto symbol = new Value(node->getName(), new Type(BaseType::TY_FUNCTION));
     symbol->setLLVMType(F.getFunctionType());
     symbol->setLLVMValue(F.getCallee());
     symbol->setExported(node->isExported());
@@ -753,8 +753,8 @@ void Codegen::visit(const Class *node) {
     for (auto &&[field, elem_type]: zip(node->getFields(), elementTypes))
         fields.push_back(std::make_unique<Field>(Field{field->getIdentifier()->getValue(), getType(elem_type)}));
 
-    auto *type = new SymbolType(TY_CLASS, std::move(fields), nullptr);
-    auto *structSymbol = new SymbolTableEntry(node->getIdentifier(), type);
+    auto *type = new Type(TY_CLASS, std::move(fields), nullptr);
+    auto *structSymbol = new Value(node->getIdentifier(), type);
     structSymbol->setLLVMType(structType);
     structSymbol->setExported(node->isExported());
     Scope->insertType(node->getIdentifier(), type);
@@ -780,10 +780,10 @@ void Codegen::visit(const Enum *node) {
     std::vector<std::unique_ptr<Field>> fields;
 
     for (const auto &field: node->getValues())
-        fields.push_back(std::make_unique<Field>(Field{field, new SymbolType(TY_VOID)}));
+        fields.push_back(std::make_unique<Field>(Field{field, new Type(TY_VOID)}));
 
-    auto *type = new SymbolType(TY_ENUM, std::move(fields), nullptr);
-    auto *structSymbol = new SymbolTableEntry(node->getIdentifier(), type);
+    auto *type = new Type(TY_ENUM, std::move(fields), nullptr);
+    auto *structSymbol = new Value(node->getIdentifier(), type);
     structSymbol->setLLVMType(structType);
     structSymbol->setExported(node->isExported());
     Scope->insertType(node->getIdentifier(), type);
@@ -1320,19 +1320,19 @@ llvm::Type *Codegen::GetExtendedType(llvm::Type *left, llvm::Type *right) {
     return nullptr;
 }
 
-SymbolType *Codegen::getType(llvm::Type *type) {
+lesma::Type *Codegen::getType(llvm::Type *type) {
     if (type->isIntegerTy(1))
-        return new SymbolType(SymbolSuperType::TY_BOOL);
+        return new Type(BaseType::TY_BOOL);
     else if (type->isIntegerTy(8))
-        return new SymbolType(SymbolSuperType::TY_STRING);
+        return new Type(BaseType::TY_STRING);
     else if (type->isFloatingPointTy())
-        return new SymbolType(SymbolSuperType::TY_FLOAT);
+        return new Type(BaseType::TY_FLOAT);
     else if (type->isIntegerTy())
-        return new SymbolType(SymbolSuperType::TY_INT);
+        return new Type(BaseType::TY_INT);
     else if (type->isFunctionTy())
-        return new SymbolType(SymbolSuperType::TY_FUNCTION);
+        return new Type(BaseType::TY_FUNCTION);
 
-    return new SymbolType(SymbolSuperType::TY_INVALID);
+    return new Type(BaseType::TY_INVALID);
 }
 
 llvm::Value *Codegen::Cast(llvm::SMRange span, llvm::Value *val, llvm::Type *type) {
@@ -1380,7 +1380,7 @@ llvm::Value *Codegen::genFuncCall(const FuncCall *node, const std::vector<llvm::
     std::string name;
     auto selfSymbolTmp = selfSymbol;
     auto class_sym = Scope->lookup(node->getName());
-    Value *class_ptr = nullptr;
+    llvm::Value *class_ptr = nullptr;
     if (class_sym != nullptr && class_sym->getType()->is(TY_CLASS)) {
         // It's a class constructor, allocate and add self param
         class_ptr = Builder->CreateAlloca(class_sym->getLLVMType(), nullptr);
@@ -1414,7 +1414,7 @@ llvm::Value *Codegen::genFuncCall(const FuncCall *node, const std::vector<llvm::
     return Builder->CreateCall(func, params);
 }
 
-int Codegen::FindIndexInFields(SymbolType *_struct, const std::string &field) {
+int Codegen::FindIndexInFields(Type *_struct, const std::string &field) {
     int val = -1;
     for (unsigned int i = 0; i < _struct->getFields().size(); i++) {
         if (_struct->getFields()[i]->name == field) {
