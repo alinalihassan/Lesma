@@ -44,27 +44,32 @@ llvm::Function *Codegen::InitializeTopLevel() {
     return F;
 }
 
-void Codegen::defineFunction(Function *F, const FuncDecl *node, Value *clsSymbol) {
+void Codegen::defineFunction(lesma::Value *value, const FuncDecl *node, Value *clsSymbol) {
     Scope = Scope->createChildBlock(node->getName());
     deferStack.emplace();
+
+    auto *F = cast<Function>(value->getLLVMValue());
 
     BasicBlock *entry = BasicBlock::Create(*TheContext->getContext(), "entry", F);
     Builder->SetInsertPoint(entry);
 
-    for (auto &param: F->args()) {
-        if (clsSymbol != nullptr && param.getArgNo() == 0)
-            param.setName("self");
+
+    int fieldIndex = 0;
+    for (auto &field: value->getType()->getFields()) {
+        auto param = F->getArg(fieldIndex);
+
+        if (clsSymbol != nullptr && param->getArgNo() == 0)
+            param->setName("self");
         else
-            param.setName(node->getParameters()[param.getArgNo() - (clsSymbol != nullptr ? 1 : 0)]->name);
+            param->setName(node->getParameters()[param->getArgNo() - (clsSymbol != nullptr ? 1 : 0)]->name);
 
-        llvm::Value *ptr;
-        ptr = Builder->CreateAlloca(param.getType(), nullptr, param.getName() + "_ptr");
-        Builder->CreateStore(&param, ptr);
+        llvm::Value *ptr = Builder->CreateAlloca(param->getType(), nullptr, param->getName() + "_ptr");
+        Builder->CreateStore(param, ptr);
 
-        auto symbol = new Value(param.getName().str(), getType(param.getType()));
-        symbol->setLLVMType(param.getType());
-        symbol->setLLVMValue(ptr);
+        auto symbol = new Value(field->name, field->type, ptr);
         Scope->insertSymbol(symbol);
+
+        fieldIndex++;
     }
 
     node->getBody()->accept(*this);
@@ -211,11 +216,11 @@ void Codegen::CompileModule(llvm::SMRange span, const std::string &filepath, boo
                 auto symbol = new Value(imp_alias.empty() ? name : std::regex_replace(name, std::regex(demangled_name), imp_alias), new Type(BaseType::TY_FUNCTION));
 
                 if (isJIT) {
-                    symbol->setLLVMType(it.getFunctionType());
+                    symbol->getType()->setLLVMType(it.getFunctionType());
                     symbol->setLLVMValue((llvm::Value *) &it.getFunction());
                 } else {
                     auto new_func = Function::Create(it.getFunctionType(), Function::ExternalLinkage, name, *TheModule);
-                    symbol->setLLVMType(new_func->getFunctionType());
+                    symbol->getType()->setLLVMType(new_func->getFunctionType());
                     symbol->setLLVMValue(new_func);
                 }
                 Scope->insertSymbol(symbol);
@@ -229,7 +234,7 @@ void Codegen::CompileModule(llvm::SMRange span, const std::string &filepath, boo
                 llvm::StructType *structType = StructType::getTypeByName(*TheContext->getContext(), sym.first);
 
                 auto *structSymbol = new Value(imp_alias.empty() ? sym.first : imp_alias, sym.second->getType());
-                structSymbol->setLLVMType(structType);
+                structSymbol->getType()->setLLVMType(structType);
                 Scope->insertType(sym.first, sym.second->getType());
                 Scope->insertSymbol(structSymbol);
             }
@@ -367,43 +372,46 @@ void Codegen::visit(const Expression *node) {
 
 void Codegen::visit(const TypeExpr *node) {
     if (node->getType() == TokenType::INT_TYPE)
-        result_type = Builder->getInt64Ty();
+        result = new lesma::Value(new lesma::Type(TY_INT, Builder->getInt64Ty()));
     else if (node->getType() == TokenType::INT8_TYPE)
-        result_type = Builder->getInt8Ty();
+        result = new lesma::Value(new lesma::Type(TY_INT, Builder->getInt8Ty()));
     else if (node->getType() == TokenType::INT16_TYPE)
-        result_type = Builder->getInt16Ty();
+        result = new lesma::Value(new lesma::Type(TY_INT, Builder->getInt16Ty()));
     else if (node->getType() == TokenType::INT32_TYPE)
-        result_type = Builder->getInt32Ty();
+        result = new lesma::Value(new lesma::Type(TY_INT, Builder->getInt32Ty()));
     else if (node->getType() == TokenType::FLOAT_TYPE)
-        result_type = Builder->getDoubleTy();
+        result = new lesma::Value(new lesma::Type(TY_FLOAT, Builder->getDoubleTy()));
     else if (node->getType() == TokenType::FLOAT32_TYPE)
-        result_type = Builder->getFloatTy();
+        result = new lesma::Value(new lesma::Type(TY_FLOAT, Builder->getFloatTy()));
     else if (node->getType() == TokenType::BOOL_TYPE)
-        result_type = Builder->getInt1Ty();
+        result = new lesma::Value(new lesma::Type(TY_BOOL, Builder->getInt1Ty()));
     else if (node->getType() == TokenType::STRING_TYPE)
-        result_type = Builder->getInt8PtrTy();
+        result = new lesma::Value(new lesma::Type(TY_STRING, Builder->getInt8PtrTy()));
     else if (node->getType() == TokenType::VOID_TYPE)
-        result_type = Builder->getVoidTy();
+        result = new lesma::Value(new lesma::Type(TY_VOID, Builder->getVoidTy()));
     else if (node->getType() == TokenType::PTR_TYPE) {
         node->getElementType()->accept(*this);
-        result_type = PointerType::get(result_type, 0);
+        result = new lesma::Value(new lesma::Type(TY_PTR, Builder->getPtrTy(), result->getType()));
     } else if (node->getType() == TokenType::FUNC_TYPE) {
         node->getReturnType()->accept(*this);
-        auto ret_type = result_type;
-        std::vector<llvm::Type *> paramsTypes;
+        auto ret_type = result;
+        std::vector<std::unique_ptr<Field>> paramTypes;
+        std::vector<llvm::Type *> paramLLVMTypes;
         for (auto param_type: node->getParams()) {
             param_type->accept(*this);
-            paramsTypes.push_back(result_type);
+            paramLLVMTypes.push_back(result->getType()->getLLVMType());
+            paramTypes.push_back(std::make_unique<Field>(Field{result->getName(), result->getType()}));
         }
 
-        result_type = FunctionType::get(ret_type, paramsTypes, false)->getPointerTo();
+        llvm::Type *funcType = FunctionType::get(ret_type->getType()->getLLVMType(), paramLLVMTypes, false)->getPointerTo();
+        result = new lesma::Value(new lesma::Type(TY_FUNCTION, funcType, std::move(paramTypes)));
     } else if (node->getType() == TokenType::CUSTOM_TYPE) {
         auto typ = Scope->lookupType(node->getName());
         auto sym = Scope->lookup(node->getName());
-        if (typ == nullptr || sym->getLLVMType() == nullptr)
+        if (typ == nullptr || sym->getType()->getLLVMType() == nullptr)
             throw CodegenError(node->getSpan(), "Type not found: {}", node->getName());
 
-        result_type = sym->getLLVMType()->getPointerTo();
+        result = sym == nullptr ? new lesma::Value(typ) : sym;
     } else {
         throw CodegenError(node->getSpan(), "Unimplemented type {}", NAMEOF_ENUM(node->getType()));
     }
@@ -415,28 +423,30 @@ void Codegen::visit(const Compound *node) {
 }
 
 void Codegen::visit(const VarDecl *node) {
-    llvm::Type *type;
+    lesma::Type *type;
+    lesma::Value *val;
 
     if (node->getValue().has_value()) {
         node->getValue().value()->accept(*this);
+        val = result;
         type = result->getType();
     }
 
     if (node->getType().has_value()) {
         node->getType().value()->accept(*this);
-        type = result_type;
+        type = result->getType();
     }
 
-    auto ptr = Builder->CreateAlloca(type, nullptr, node->getIdentifier()->getValue());
+    auto ptr = Builder->CreateAlloca(type->getLLVMType(), nullptr, node->getIdentifier()->getValue());
 
-    auto symbol = new Value(node->getIdentifier()->getValue(), getType(type), node->getType().has_value() ? INITIALIZED : DECLARED);
-    symbol->setLLVMType(type);
+    auto symbol = new Value(node->getIdentifier()->getValue(), type, node->getType().has_value() ? INITIALIZED : DECLARED);
     symbol->setLLVMValue(ptr);
     symbol->setMutable(node->getMutability());
     Scope->insertSymbol(symbol);
 
+    // Convert declared value to declared type implicitly
     if (node->getValue().has_value())
-        Builder->CreateStore(Cast(node->getSpan(), result, ptr->getAllocatedType(), true), ptr);
+        Builder->CreateStore(Cast(node->getSpan(), val, type, true)->getLLVMValue(), ptr);
 }
 
 void Codegen::visit(const If *node) {
@@ -458,7 +468,7 @@ void Codegen::visit(const If *node) {
         }
 
         node->getConds().at(i)->accept(*this);
-        Builder->CreateCondBr(result, bIfTrue, bIfFalse);
+        Builder->CreateCondBr(result->getLLVMValue(), bIfTrue, bIfFalse);
         Builder->SetInsertPoint(bIfTrue);
 
         Scope = Scope->createChildBlock("if");
@@ -505,7 +515,7 @@ void Codegen::visit(const While *node) {
     bCond->insertInto(parentFct);
     Builder->SetInsertPoint(bCond);
     node->getCond()->accept(*this);
-    Builder->CreateCondBr(result, bLoop, bEnd);
+    Builder->CreateCondBr(result->getLLVMValue(), bLoop, bEnd);
 
     // Fill while body block
     bLoop->insertInto(parentFct);
@@ -530,39 +540,52 @@ void Codegen::visit(const FuncDecl *node) {
     if (selfSymbol != nullptr && node->getName() == "new" && node->getReturnType()->getType() != TokenType::VOID_TYPE)
         throw CodegenError(node->getSpan(), "Cannot create class method new with return type {}", node->getReturnType()->getName());
 
-    std::vector<llvm::Type *> paramTypes;
+    std::vector<std::unique_ptr<Field>> fields;
+    std::vector<lesma::Type *> paramTypes;
+    std::vector<llvm::Type *> paramLLVMTypes;
 
     if (selfSymbol != nullptr) {
-        paramTypes.push_back(selfSymbol->getLLVMType()->getPointerTo());
+        // TODO: Should we add self to the lesma::Type/Field list?
+        paramTypes.push_back(selfSymbol->getType()->getElementType());
+        paramLLVMTypes.push_back(selfSymbol->getType()->getLLVMType()->getPointerTo());
     }
 
-    for (const auto &param: node->getParameters()) {
+    for (auto param: node->getParameters()) {
         param->type->accept(*this);
-        paramTypes.push_back(result_type);
+        paramTypes.push_back(result->getType());
+        paramLLVMTypes.push_back(result->getType()->getLLVMType());
+        fields.push_back(std::make_unique<Field>(Field{param->name, result->getType()}));
     }
 
     auto name = getMangledName(node->getSpan(), node->getName(), paramTypes, selfSymbol != nullptr);
     auto linkage = node->isExported() ? Function::ExternalLinkage : Function::PrivateLinkage;
 
     node->getReturnType()->accept(*this);
-    FunctionType *FT = FunctionType::get(result_type, paramTypes, node->getVarArgs());
-    Function *F = Function::Create(FT, linkage, name, *TheModule);
 
-    auto func_symbol = new Value(name, new Type(BaseType::TY_FUNCTION));
-    func_symbol->setLLVMType(F->getFunctionType());
-    func_symbol->setLLVMValue(F);
+    llvm::FunctionType *funcType = FunctionType::get(result->getType()->getLLVMType(), paramLLVMTypes, node->getVarArgs());
+    Function *F = Function::Create(funcType, linkage, name, *TheModule);
+
+    auto func_symbol = new Value(name, new Type(BaseType::TY_FUNCTION, funcType, std::move(fields)), F);
+    func_symbol->getType()->setReturnType(result->getType());
     func_symbol->setExported(node->isExported());
     Scope->insertSymbol(func_symbol);
 
-    Prototypes.emplace_back(F, node, selfSymbol);
+    Prototypes.emplace_back(func_symbol, node, selfSymbol);
 }
 
 void Codegen::visit(const ExternFuncDecl *node) {
-    std::vector<llvm::Type *> paramTypes;
+    std::vector<std::unique_ptr<Field>> paramTypes;
+    std::vector<llvm::Type *> paramLLVMTypes;
 
-    for (const auto &param: node->getParameters()) {
+    if (selfSymbol != nullptr) {
+        // TODO: Should we add self to the lesma::Type/Field list?
+        paramLLVMTypes.push_back(selfSymbol->getType()->getLLVMType()->getPointerTo());
+    }
+
+    for (auto param: node->getParameters()) {
         param->type->accept(*this);
-        paramTypes.push_back(result_type);
+        paramLLVMTypes.push_back(result->getType()->getLLVMType());
+        paramTypes.push_back(std::make_unique<Field>(Field{result->getName(), result->getType()}));
     }
 
     FunctionCallee F;
@@ -572,20 +595,20 @@ void Codegen::visit(const ExternFuncDecl *node) {
         F = TheModule->getFunction(node->getName());
     } else {
         node->getReturnType()->accept(*this);
-        FunctionType *FT = FunctionType::get(result_type, paramTypes, node->getVarArgs());
+        FunctionType *FT = FunctionType::get(result->getType()->getLLVMType(), paramLLVMTypes, node->getVarArgs());
         F = TheModule->getOrInsertFunction(node->getName(), FT);
     }
 
-    auto symbol = new Value(node->getName(), new Type(BaseType::TY_FUNCTION));
-    symbol->setLLVMType(F.getFunctionType());
-    symbol->setLLVMValue(F.getCallee());
-    symbol->setExported(node->isExported());
-    Scope->insertSymbol(symbol);
+    auto func_symbol = new Value(node->getName(), new Type(BaseType::TY_FUNCTION, F.getFunctionType(), std::move(paramTypes)), F.getCallee());
+    // TODO: Might not have a proper return type if the function already existed in the if statement.
+    func_symbol->getType()->setReturnType(result->getType());
+    func_symbol->setExported(node->isExported());
+    Scope->insertSymbol(func_symbol);
 }
 
+// TODO: Remake using lesma::Type instead of LLVM Type
 void Codegen::visit(const Assignment *node) {
-    llvm::Type *lhs_type;
-    llvm::Value *lhs_val;
+    lesma::Value *lhs;
     isAssignment = true;
     if (dynamic_cast<Literal *>(node->getLeftHandSide())) {
         auto lit = dynamic_cast<Literal *>(node->getLeftHandSide());
@@ -595,76 +618,75 @@ void Codegen::visit(const Assignment *node) {
         if (!symbol->getMutability())
             throw CodegenError(node->getSpan(), "Assigning immutable variable a new value");
 
-        lhs_type = symbol->getLLVMType();
-        lhs_val = symbol->getLLVMValue();
+        lhs = symbol;
     } else if (dynamic_cast<DotOp *>(node->getLeftHandSide())) {
         node->getLeftHandSide()->accept(*this);
-        lhs_type = result->getType();
+        lhs = new Value(result->getType());
     } else {
         throw CodegenError(node->getSpan(), "Unable to assign {} to {}", node->getRightHandSide()->toString(SourceManager.get(), "", true), node->getLeftHandSide()->toString(SourceManager.get(), "", true));
     }
     isAssignment = false;
 
     node->getRightHandSide()->accept(*this);
-    auto value = Cast(node->getSpan(), result, lhs_type, true);
+    auto value = Cast(node->getSpan(), result, lhs->getType(), true);
     llvm::Value *var_val;
 
     switch (node->getOperator()) {
         case TokenType::EQUAL:
-            Builder->CreateStore(value, lhs_val);
+            Builder->CreateStore(value->getLLVMValue(), lhs->getLLVMValue());
             break;
         case TokenType::PLUS_EQUAL:
-            var_val = Builder->CreateLoad(lhs_type, lhs_val);
-            if (lhs_type->isFloatingPointTy()) {
-                auto new_val = Builder->CreateFAdd(value, var_val);
-                Builder->CreateStore(new_val, lhs_val);
-            } else if (lhs_type->isIntegerTy()) {
-                auto new_val = Builder->CreateAdd(value, var_val);
-                Builder->CreateStore(new_val, lhs_val);
+            var_val = Builder->CreateLoad(lhs->getType()->getLLVMType(), lhs->getLLVMValue());
+            if (lhs->getType()->is(TY_FLOAT)) {
+                auto new_val = Builder->CreateFAdd(value->getLLVMValue(), var_val);
+                Builder->CreateStore(new_val, lhs->getLLVMValue());
+            } else if (lhs->getType()->is(TY_INT)) {
+                auto new_val = Builder->CreateAdd(value->getLLVMValue(), var_val);
+                Builder->CreateStore(new_val, lhs->getLLVMValue());
             } else
                 throw CodegenError(node->getSpan(), "Invalid operator: {}", NAMEOF_ENUM(node->getOperator()));
             break;
         case TokenType::MINUS_EQUAL:
-            var_val = Builder->CreateLoad(lhs_type, lhs_val);
-            if (lhs_type->isFloatingPointTy()) {
-                auto new_val = Builder->CreateFSub(value, var_val);
-                Builder->CreateStore(new_val, lhs_val);
-            } else if (lhs_type->isIntegerTy()) {
-                auto new_val = Builder->CreateSub(value, var_val);
-                Builder->CreateStore(new_val, lhs_val);
+            var_val = Builder->CreateLoad(lhs->getType()->getLLVMType(), lhs->getLLVMValue());
+            if (lhs->getType()->is(TY_FLOAT)) {
+                auto new_val = Builder->CreateFSub(value->getLLVMValue(), var_val);
+                Builder->CreateStore(new_val, lhs->getLLVMValue());
+            } else if (lhs->getType()->is(TY_INT)) {
+                auto new_val = Builder->CreateSub(value->getLLVMValue(), var_val);
+                Builder->CreateStore(new_val, lhs->getLLVMValue());
             } else
                 throw CodegenError(node->getSpan(), "Invalid operator: {}", NAMEOF_ENUM(node->getOperator()));
             break;
         case TokenType::SLASH_EQUAL:
-            var_val = Builder->CreateLoad(lhs_type, lhs_val);
-            if (lhs_type->isFloatingPointTy()) {
-                auto new_val = Builder->CreateFDiv(value, var_val);
-                Builder->CreateStore(new_val, lhs_val);
-            } else if (lhs_type->isIntegerTy()) {
-                auto new_val = Builder->CreateSDiv(value, var_val);
-                Builder->CreateStore(new_val, lhs_val);
+            var_val = Builder->CreateLoad(lhs->getType()->getLLVMType(), lhs->getLLVMValue());
+            if (lhs->getType()->is(TY_FLOAT)) {
+                auto new_val = Builder->CreateFDiv(value->getLLVMValue(), var_val);
+                Builder->CreateStore(new_val, lhs->getLLVMValue());
+            } else if (lhs->getType()->is(TY_INT)) {
+                auto new_val = Builder->CreateSDiv(value->getLLVMValue(), var_val);
+                Builder->CreateStore(new_val, lhs->getLLVMValue());
             } else
                 throw CodegenError(node->getSpan(), "Invalid operator: {}", NAMEOF_ENUM(node->getOperator()));
             break;
         case TokenType::STAR_EQUAL:
-            var_val = Builder->CreateLoad(lhs_type, lhs_val);
-            if (lhs_type->isFloatingPointTy()) {
-                auto new_val = Builder->CreateFMul(value, var_val);
-                Builder->CreateStore(new_val, lhs_val);
-            } else if (lhs_type->isIntegerTy()) {
-                auto new_val = Builder->CreateMul(value, var_val);
-                Builder->CreateStore(new_val, lhs_val);
+            var_val = Builder->CreateLoad(lhs->getType()->getLLVMType(), lhs->getLLVMValue());
+            if (lhs->getType()->is(TY_FLOAT)) {
+                auto new_val = Builder->CreateFMul(value->getLLVMValue(), var_val);
+                Builder->CreateStore(new_val, lhs->getLLVMValue());
+            } else if (lhs->getType()->is(TY_INT)) {
+                auto new_val = Builder->CreateMul(value->getLLVMValue(), var_val);
+                Builder->CreateStore(new_val, lhs->getLLVMValue());
             } else
                 throw CodegenError(node->getSpan(), "Invalid operator: {}", NAMEOF_ENUM(node->getOperator()));
             break;
         case TokenType::MOD_EQUAL:
-            var_val = Builder->CreateLoad(lhs_type, lhs_val);
-            if (lhs_type->isFloatingPointTy()) {
-                auto new_val = Builder->CreateFRem(value, var_val);
-                Builder->CreateStore(new_val, lhs_val);
-            } else if (lhs_type->isIntegerTy()) {
-                auto new_val = Builder->CreateSRem(value, var_val);
-                Builder->CreateStore(new_val, lhs_val);
+            var_val = Builder->CreateLoad(lhs->getType()->getLLVMType(), lhs->getLLVMValue());
+            if (lhs->getType()->is(TY_FLOAT)) {
+                auto new_val = Builder->CreateFRem(value->getLLVMValue(), var_val);
+                Builder->CreateStore(new_val, lhs->getLLVMValue());
+            } else if (lhs->getType()->is(TY_INT)) {
+                auto new_val = Builder->CreateSRem(value->getLLVMValue(), var_val);
+                Builder->CreateStore(new_val, lhs->getLLVMValue());
             } else
                 throw CodegenError(node->getSpan(), "Invalid operator: {}", NAMEOF_ENUM(node->getOperator()));
             break;
@@ -715,8 +737,8 @@ void Codegen::visit(const Return *node) {
             throw CodegenError(node->getSpan(), "Return type does not match the function return type");
     } else {
         node->getValue()->accept(*this);
-        if (Builder->getCurrentFunctionReturnType() == result->getType())
-            Builder->CreateRet(result);
+        if (Builder->getCurrentFunctionReturnType() == result->getType()->getLLVMType())
+            Builder->CreateRet(result->getLLVMValue());
         else
             throw CodegenError(node->getSpan(), "Return type does not match the function return type");
     }
@@ -735,28 +757,27 @@ void Codegen::visit(const Import *node) {
 }
 
 void Codegen::visit(const Class *node) {
-    std::vector<llvm::Type *> elementTypes = {};
+
+    std::vector<std::unique_ptr<Field>> fields;
+    std::vector<llvm::Type *> elementLLVMTypes;
+
     for (auto field: node->getFields()) {
         if (field->getType().has_value()) {
             field->getType().value()->accept(*this);
         } else {
             field->getValue().value()->accept(*this);
-            result_type = result->getType();
         }
 
-        elementTypes.push_back(result_type);
+        elementLLVMTypes.push_back(result->getType()->getLLVMType());
+        fields.push_back(std::make_unique<Field>(Field{field->getIdentifier()->getValue(), result->getType()}));
     }
 
-    llvm::StructType *structType = llvm::StructType::create(*TheContext->getContext(), elementTypes, node->getIdentifier());
-    std::vector<std::unique_ptr<Field>> fields;
+    llvm::StructType *structType = llvm::StructType::create(*TheContext->getContext(), elementLLVMTypes, node->getIdentifier());
 
-    for (auto &&[field, elem_type]: zip(node->getFields(), elementTypes))
-        fields.push_back(std::make_unique<Field>(Field{field->getIdentifier()->getValue(), getType(elem_type)}));
-
-    auto *type = new Type(TY_CLASS, std::move(fields), nullptr);
+    auto *type = new Type(TY_CLASS, structType, std::move(fields));
     auto *structSymbol = new Value(node->getIdentifier(), type);
-    structSymbol->setLLVMType(structType);
     structSymbol->setExported(node->isExported());
+
     Scope->insertType(node->getIdentifier(), type);
     Scope->insertSymbol(structSymbol);
 
@@ -782,10 +803,10 @@ void Codegen::visit(const Enum *node) {
     for (const auto &field: node->getValues())
         fields.push_back(std::make_unique<Field>(Field{field, new Type(TY_VOID)}));
 
-    auto *type = new Type(TY_ENUM, std::move(fields), nullptr);
+    auto *type = new Type(TY_ENUM, structType, std::move(fields));
     auto *structSymbol = new Value(node->getIdentifier(), type);
-    structSymbol->setLLVMType(structType);
     structSymbol->setExported(node->isExported());
+
     Scope->insertType(node->getIdentifier(), type);
     Scope->insertSymbol(structSymbol);
 }
@@ -794,12 +815,13 @@ void Codegen::visit(const FuncCall *node) {
     result = genFuncCall(node, {});
 }
 
+// TODO: Migrate from LLVM Type to Lesma Type
 void Codegen::visit(const BinaryOp *node) {
     node->getLeft()->accept(*this);
-    llvm::Value *left = result;
+    lesma::Value *left = result;
     node->getRight()->accept(*this);
-    llvm::Value *right = result;
-    llvm::Type *finalType = GetExtendedType(left->getType(), right->getType());
+    lesma::Value *right = result;
+    lesma::Type *finalType = GetExtendedType(left->getType(), right->getType());
 
     switch (node->getOperator()) {
         case TokenType::MINUS:
@@ -808,11 +830,11 @@ void Codegen::visit(const BinaryOp *node) {
 
             if (finalType == nullptr)
                 break;
-            else if (finalType->isFloatingPointTy()) {
-                result = Builder->CreateFSub(left, right);
+            else if (finalType->is(TY_FLOAT)) {
+                result = new Value("", finalType, Builder->CreateFSub(left->getLLVMValue(), right->getLLVMValue()));
                 return;
-            } else if (finalType->isIntegerTy()) {
-                result = Builder->CreateSub(left, right);
+            } else if (finalType->is(TY_INT)) {
+                result = new Value("", finalType, Builder->CreateSub(left->getLLVMValue(), right->getLLVMValue()));
                 return;
             }
             break;
@@ -822,11 +844,11 @@ void Codegen::visit(const BinaryOp *node) {
 
             if (finalType == nullptr)
                 break;
-            else if (finalType->isFloatingPointTy()) {
-                result = Builder->CreateFAdd(left, right);
+            else if (finalType->is(TY_FLOAT)) {
+                result = new Value("", finalType, Builder->CreateFAdd(left->getLLVMValue(), right->getLLVMValue()));
                 return;
-            } else if (finalType->isIntegerTy()) {
-                result = Builder->CreateAdd(left, right);
+            } else if (finalType->is(TY_INT)) {
+                result = new Value("", finalType, Builder->CreateAdd(left->getLLVMValue(), right->getLLVMValue()));
                 return;
             }
             break;
@@ -836,11 +858,11 @@ void Codegen::visit(const BinaryOp *node) {
 
             if (finalType == nullptr)
                 break;
-            else if (finalType->isFloatingPointTy()) {
-                result = Builder->CreateFMul(left, right);
+            else if (finalType->is(TY_FLOAT)) {
+                result = new Value("", finalType, Builder->CreateFMul(left->getLLVMValue(), right->getLLVMValue()));
                 return;
-            } else if (finalType->isIntegerTy()) {
-                result = Builder->CreateMul(left, right);
+            } else if (finalType->is(TY_INT)) {
+                result = new Value("", finalType, Builder->CreateMul(left->getLLVMValue(), right->getLLVMValue()));
                 return;
             }
             break;
@@ -850,11 +872,11 @@ void Codegen::visit(const BinaryOp *node) {
 
             if (finalType == nullptr)
                 break;
-            else if (finalType->isFloatingPointTy()) {
-                result = Builder->CreateFDiv(left, right);
+            else if (finalType->is(TY_FLOAT)) {
+                result = new Value("", finalType, Builder->CreateFDiv(left->getLLVMValue(), right->getLLVMValue()));
                 return;
-            } else if (finalType->isIntegerTy()) {
-                result = Builder->CreateSDiv(left, right);
+            } else if (finalType->is(TY_INT)) {
+                result = new Value("", finalType, Builder->CreateSDiv(left->getLLVMValue(), right->getLLVMValue()));
                 return;
             }
             break;
@@ -864,94 +886,89 @@ void Codegen::visit(const BinaryOp *node) {
 
             if (finalType == nullptr)
                 break;
-            else if (finalType->isFloatingPointTy()) {
-                result = Builder->CreateFRem(left, right);
+            else if (finalType->is(TY_FLOAT)) {
+                result = new Value("", finalType, Builder->CreateFRem(left->getLLVMValue(), right->getLLVMValue()));
                 return;
-            } else if (finalType->isIntegerTy()) {
-                result = Builder->CreateSRem(left, right);
+            } else if (finalType->is(TY_INT)) {
+                result = new Value("", finalType, Builder->CreateSRem(left->getLLVMValue(), right->getLLVMValue()));
                 return;
             }
             break;
         case TokenType::POWER:
             if (finalType == nullptr)
                 break;
-            else if (!right->getType()->isIntegerTy())
-                throw CodegenError(node->getSpan(), "Cannot use non-integers for power coefficient: {}",
+            else if (!right->getType()->isOneOf({TY_INT, TY_FLOAT}))
+                throw CodegenError(node->getSpan(), "Cannot use non-numbers for power coefficient: {}",
                                    node->getRight()->toString(SourceManager.get(), "", true));
             throw CodegenError(node->getSpan(), "Power operator not implemented yet.");
         case TokenType::EQUAL_EQUAL:
             left = Cast(node->getSpan(), left, finalType);
             right = Cast(node->getSpan(), right, finalType);
 
-            if ((left->getType()->isPointerTy() && left->getType()->getPointerElementType()->isStructTy()) && (right->getType()->isPointerTy() && right->getType()->getPointerElementType()->isStructTy())) {
+            if ((left->getType()->is(TY_PTR) && left->getType()->getElementType()->isOneOf({TY_CLASS, TY_ENUM})) &&
+                (right->getType()->is(TY_PTR) && right->getType()->getElementType()->isOneOf({TY_CLASS, TY_ENUM}))) {
                 // Both are pointers to structs
-                auto sym = Scope->lookup(left->getType()->getPointerElementType()->getStructName().str());
+                auto sym = Scope->lookup(left->getType()->getElementType()->getLLVMType()->getStructName().str());
                 if (sym != nullptr && sym->getType()->is(TY_ENUM)) {
-                    if (left->getType()->getPointerElementType() != right->getType()->getPointerElementType()) {
-                        result = ConstantInt::getBool(*TheContext->getContext(), false);
+                    if (left->getType()->getElementType() != right->getType()->getElementType()) {
+                        result = new Value("", new Type(TY_BOOL), ConstantInt::getBool(*TheContext->getContext(), false));
                         return;
                     } else {
-                        auto left_gep = Builder->CreateStructGEP(sym->getLLVMType(), left, 0);
+                        auto left_gep = Builder->CreateStructGEP(sym->getType()->getLLVMType(), left->getLLVMValue(), 0);
                         auto left_load = Builder->CreateLoad(Builder->getInt8Ty(), left_gep);
-                        auto right_gep = Builder->CreateStructGEP(sym->getLLVMType(), right, 0);
+                        auto right_gep = Builder->CreateStructGEP(sym->getType()->getLLVMType(), right->getLLVMValue(), 0);
                         auto right_load = Builder->CreateLoad(Builder->getInt8Ty(), right_gep);
-                        result = Builder->CreateICmpEQ(left_load, right_load);
+                        result = new Value("", new Type(TY_BOOL), Builder->CreateICmpEQ(left_load, right_load));
                         return;
                     }
                 }
 
                 // It's not an enum, it's a class
-            } else if (left->getType()->isPointerTy() && right->getType()->isPointerTy()) {
-                result = Builder->CreateICmpEQ(left, right);
+            } else if (left->getType()->is(TY_PTR) && right->getType()->is(TY_PTR)) {
+                result = new Value("", new Type(TY_BOOL), Builder->CreateICmpEQ(left->getLLVMValue(), right->getLLVMValue()));
                 return;
             } else if (finalType == nullptr)
                 break;
-            else if (finalType->isFloatingPointTy()) {
-                result = Builder->CreateFCmpOEQ(left, right);
+            else if (finalType->is(TY_FLOAT)) {
+                result = new Value("", new Type(TY_BOOL), Builder->CreateFCmpOEQ(left->getLLVMValue(), right->getLLVMValue()));
                 return;
-            } else if (finalType->isIntegerTy()) {
-                result = Builder->CreateICmpEQ(left, right);
+            } else if (finalType->is(TY_INT)) {
+                result = new Value("", new Type(TY_BOOL), Builder->CreateICmpEQ(left->getLLVMValue(), right->getLLVMValue()));
                 return;
-            } else if (finalType->isPointerTy() && finalType->getPointerElementType()->isStructTy()) {
-                auto struct_ty = Scope->lookupType(finalType->getPointerElementType()->getStructName().str());
-                if (struct_ty->is(TY_ENUM)) {
-                    auto left_ptr = Builder->CreateLoad(left->getType()->getPointerElementType(), left);
-                    auto right_ptr = Builder->CreateLoad(left->getType()->getPointerElementType(), right);
-                    auto left_val = Builder->CreateExtractValue(left_ptr, {0});
-                    auto right_val = Builder->CreateExtractValue(right_ptr, {0});
-                    result = Builder->CreateICmpEQ(left_val, right_val);
-                    return;
-                }
+            } else if (finalType->is(TY_PTR) && finalType->getElementType()->is(TY_ENUM)) {
+                auto left_ptr = Builder->CreateLoad(left->getType()->getElementType()->getLLVMType(), left->getLLVMValue());
+                auto right_ptr = Builder->CreateLoad(right->getType()->getElementType()->getLLVMType(), right->getLLVMValue());
+                auto left_val = Builder->CreateExtractValue(left_ptr, {0});
+                auto right_val = Builder->CreateExtractValue(right_ptr, {0});
+                result = new Value("", new Type(TY_BOOL), Builder->CreateICmpEQ(left_val, right_val));
+                return;
             }
             break;
         case TokenType::BANG_EQUAL:
             left = Cast(node->getSpan(), left, finalType);
             right = Cast(node->getSpan(), right, finalType);
 
-            if (finalType == nullptr && (left->getType()->isPointerTy() && left->getType()->getPointerElementType()->isStructTy()) && (right->getType()->isPointerTy() && right->getType()->getPointerElementType()->isStructTy())) {
-                result = ConstantInt::getBool(*TheContext->getContext(), true);
+            if (finalType == nullptr && (left->getType()->is(TY_PTR) && left->getType()->getElementType()->isOneOf({TY_CLASS, TY_ENUM})) && (right->getType()->is(TY_PTR) && right->getType()->getElementType()->isOneOf({TY_CLASS, TY_ENUM}))) {
+                result = new Value("", new Type(TY_BOOL), ConstantInt::getBool(*TheContext->getContext(), true));
                 return;
-            } else if (left->getType()->isPointerTy() && right->getType()->isPointerTy()) {
-                result = Builder->CreateICmpNE(left, right);
+            } else if (left->getType()->is(TY_PTR) && right->getType()->is(TY_PTR)) {
+                result = new Value("", new Type(TY_BOOL), Builder->CreateICmpNE(left->getLLVMValue(), right->getLLVMValue()));
                 return;
             } else if (finalType == nullptr)
                 break;
-            else if (finalType->isFloatingPointTy()) {
-                result = Builder->CreateFCmpONE(left, right);
+            else if (finalType->is(TY_FLOAT)) {
+                result = new Value("", new Type(TY_BOOL), Builder->CreateFCmpONE(left->getLLVMValue(), right->getLLVMValue()));
                 return;
-            } else if (finalType->isIntegerTy()) {
-                result = Builder->CreateICmpNE(left, right);
+            } else if (finalType->is(TY_INT)) {
+                result = new Value("", new Type(TY_BOOL), Builder->CreateICmpNE(left->getLLVMValue(), right->getLLVMValue()));
                 return;
-            } else if (finalType->isPointerTy() && finalType->getPointerElementType()->isStructTy()) {
-                auto struct_ty = Scope->lookupType(finalType->getPointerElementType()->getStructName().str());
-                if (struct_ty->is(TY_ENUM)) {
-                    auto left_ptr = Builder->CreateLoad(left->getType()->getPointerElementType(), left);
-                    auto right_ptr = Builder->CreateLoad(left->getType()->getPointerElementType(), right);
-                    auto left_val = Builder->CreateExtractValue(left_ptr, {0});
-                    auto right_val = Builder->CreateExtractValue(right_ptr, {0});
-                    result = Builder->CreateICmpNE(left_val, right_val);
-                    return;
-                }
+            } else if (finalType->is(TY_PTR) && finalType->getElementType()->is(TY_ENUM)) {
+                auto left_ptr = Builder->CreateLoad(left->getType()->getElementType()->getLLVMType(), left->getLLVMValue());
+                auto right_ptr = Builder->CreateLoad(right->getType()->getElementType()->getLLVMType(), right->getLLVMValue());
+                auto left_val = Builder->CreateExtractValue(left_ptr, {0});
+                auto right_val = Builder->CreateExtractValue(right_ptr, {0});
+                result = new Value("", new Type(TY_BOOL), Builder->CreateICmpNE(left_val, right_val));
+                return;
             }
             break;
         case TokenType::GREATER:
@@ -960,11 +977,11 @@ void Codegen::visit(const BinaryOp *node) {
 
             if (finalType == nullptr)
                 break;
-            else if (finalType->isFloatingPointTy()) {
-                result = Builder->CreateFCmpOGT(left, right);
+            else if (finalType->is(TY_FLOAT)) {
+                result = new Value("", new Type(TY_BOOL), Builder->CreateFCmpOGT(left->getLLVMValue(), right->getLLVMValue()));
                 return;
-            } else if (finalType->isIntegerTy()) {
-                result = Builder->CreateICmpSGT(left, right);
+            } else if (finalType->is(TY_INT)) {
+                result = new Value("", new Type(TY_BOOL), Builder->CreateICmpSGT(left->getLLVMValue(), right->getLLVMValue()));
                 return;
             }
             break;
@@ -974,11 +991,11 @@ void Codegen::visit(const BinaryOp *node) {
 
             if (finalType == nullptr)
                 break;
-            else if (finalType->isFloatingPointTy()) {
-                result = Builder->CreateFCmpOGE(left, right);
+            else if (finalType->is(TY_FLOAT)) {
+                result = new Value("", new Type(TY_BOOL), Builder->CreateFCmpOGE(left->getLLVMValue(), right->getLLVMValue()));
                 return;
-            } else if (finalType->isIntegerTy()) {
-                result = Builder->CreateICmpSGE(left, right);
+            } else if (finalType->is(TY_INT)) {
+                result = new Value("", new Type(TY_BOOL), Builder->CreateICmpSGE(left->getLLVMValue(), right->getLLVMValue()));
                 return;
             }
             break;
@@ -988,11 +1005,11 @@ void Codegen::visit(const BinaryOp *node) {
 
             if (finalType == nullptr)
                 break;
-            else if (finalType->isFloatingPointTy()) {
-                result = Builder->CreateFCmpOLT(left, right);
+            else if (finalType->is(TY_FLOAT)) {
+                result = new Value("", new Type(TY_BOOL), Builder->CreateFCmpOLT(left->getLLVMValue(), right->getLLVMValue()));
                 return;
-            } else if (finalType->isIntegerTy()) {
-                result = Builder->CreateICmpSLT(left, right);
+            } else if (finalType->is(TY_INT)) {
+                result = new Value("", new Type(TY_BOOL), Builder->CreateICmpSLT(left->getLLVMValue(), right->getLLVMValue()));
                 return;
             }
             break;
@@ -1002,27 +1019,27 @@ void Codegen::visit(const BinaryOp *node) {
 
             if (finalType == nullptr)
                 break;
-            else if (finalType->isFloatingPointTy()) {
-                result = Builder->CreateFCmpOLE(left, right);
+            else if (finalType->is(TY_FLOAT)) {
+                result = new Value("", new Type(TY_BOOL), Builder->CreateFCmpOLE(left->getLLVMValue(), right->getLLVMValue()));
                 return;
-            } else if (finalType->isIntegerTy()) {
-                result = Builder->CreateICmpSLE(left, right);
+            } else if (finalType->is(TY_INT)) {
+                result = new Value("", new Type(TY_BOOL), Builder->CreateICmpSLE(left->getLLVMValue(), right->getLLVMValue()));
                 return;
             }
             break;
         case TokenType::AND:
-            if (!left->getType()->isIntegerTy(1) && !right->getType()->isIntegerTy(1))
+            if (!left->getType()->is(TY_BOOL) && !right->getType()->is(TY_BOOL))
                 throw CodegenError(node->getSpan(), "Cannot use non-booleans for and: {} - {}",
                                    node->getLeft()->toString(SourceManager.get(), "", true), node->getRight()->toString(SourceManager.get(), "", true));
 
-            result = Builder->CreateLogicalAnd(left, right);
+            result = new Value("", new Type(TY_BOOL), Builder->CreateLogicalAnd(left->getLLVMValue(), right->getLLVMValue()));
             return;
         case TokenType::OR:
-            if (!left->getType()->isIntegerTy(1) && !right->getType()->isIntegerTy(1))
+            if (!left->getType()->is(TY_BOOL) && !right->getType()->is(TY_BOOL))
                 throw CodegenError(node->getSpan(), "Cannot use non-booleans for or: {} - {}",
                                    node->getLeft()->toString(SourceManager.get(), "", true), node->getRight()->toString(SourceManager.get(), "", true));
 
-            result = Builder->CreateLogicalOr(left, right);
+            result = new Value("", new Type(TY_BOOL), Builder->CreateLogicalOr(left->getLLVMValue(), right->getLLVMValue()));
             return;
         default:
             throw CodegenError(node->getSpan(), "Unimplemented binary operator: {}", NAMEOF_ENUM(node->getOperator()));
@@ -1061,12 +1078,12 @@ void Codegen::visit(const DotOp *node) {
                 if (val == -1)
                     throw CodegenError(node->getLeft()->getSpan(), "Identifier {} not in {}", right->getValue(), left->getValue());
 
-                auto struct_ty = Scope->lookup(left->getValue());
-                auto enum_ptr = Builder->CreateAlloca(struct_ty->getLLVMType());
-                auto field = Builder->CreateStructGEP(struct_ty->getLLVMType(), enum_ptr, 0);
+                auto struct_val = Scope->lookup(left->getValue());
+                auto enum_ptr = Builder->CreateAlloca(struct_val->getType()->getLLVMType());
+                auto field = Builder->CreateStructGEP(struct_val->getType()->getLLVMType(), enum_ptr, 0);
                 Builder->CreateStore(Builder->getInt8(val), field);
 
-                result = enum_ptr;
+                result = new Value("", struct_val->getType(), enum_ptr);
                 return;
             } else if (type_sym->is(TY_IMPORT)) {
                 std::string field;
@@ -1092,7 +1109,7 @@ void Codegen::visit(const DotOp *node) {
         } else {
             // Assuming it's a class instance
             left->accept(*this);
-            if (!(result->getType()->isPointerTy() && result->getType()->getPointerElementType()->isStructTy()))
+            if (!(result->getType()->is(TY_PTR) && result->getType()->getElementType()->is(TY_ENUM)))
                 throw CodegenError(node->getLeft()->getSpan(), "Cannot apply dot accessor on {}", left->getValue());
 
             std::string field;
@@ -1106,20 +1123,21 @@ void Codegen::visit(const DotOp *node) {
             else
                 method = dynamic_cast<FuncCall *>(node->getRight());
 
-            auto cls = Scope->lookupStructByName(result->getType()->getPointerElementType()->getStructName().str());
+            auto cls = Scope->lookupStructByName(result->getType()->getLLVMType()->getStructName().str());
             if (cls->getType()->is(TY_CLASS)) {
                 if (!field.empty()) {
                     auto index = FindIndexInFields(cls->getType(), field);
+                    auto type = FindTypeInFields(cls->getType(), field);
                     if (index == -1)
-                        throw CodegenError(node->getRight()->getSpan(), "Could not find field {} in {}", field, result->getType()->getPointerElementType()->getStructName().str());
+                        throw CodegenError(node->getRight()->getSpan(), "Could not find field {} in {}", field, result->getType()->getElementType()->getLLVMType()->getStructName().str());
 
-                    auto ptr = Builder->CreateStructGEP(cls->getLLVMType(), result, index);
+                    auto ptr = Builder->CreateStructGEP(cls->getType()->getLLVMType(), result->getLLVMValue(), index);
                     if (isAssignment) {
-                        result = ptr;
+                        result = new Value("", new Type(TY_PTR, Builder->getPtrTy(), type), ptr);
                         return;
                     }
                     //                    auto &x = cls->getType()->getFields()[index];
-                    result = Builder->CreateLoad(ptr->getType()->getPointerElementType(), ptr);
+                    result = new Value("", type, Builder->CreateLoad(type->getLLVMType(), ptr));
                     return;
                 } else if (method != nullptr) {
                     selfSymbol = cls;
@@ -1136,112 +1154,136 @@ void Codegen::visit(const DotOp *node) {
 
 void Codegen::visit(const CastOp *node) {
     node->getExpression()->accept(*this);
+    auto expr = result;
     node->getType()->accept(*this);
-    result = Cast(node->getSpan(), result, result_type);
+    auto castType = result->getType();
+    result = Cast(node->getSpan(), expr, castType);
 }
 
 void Codegen::visit(const IsOp *node) {
     node->getLeft()->accept(*this);
-    node->getRight()->accept(*this);
     auto left_type = result->getType();
-    if (node->getOperator() == TokenType::IS)
-        result = left_type == result_type ? Builder->getTrue() : Builder->getFalse();
-    else
-        result = left_type == result_type ? Builder->getFalse() : Builder->getTrue();
+    node->getRight()->accept(*this);
+    auto right_type = result->getType();
+
+    llvm::Value *val;
+
+    if (node->getOperator() == TokenType::IS) {
+        val = left_type == right_type ? Builder->getTrue() : Builder->getFalse();
+    } else {
+        val = left_type == right_type ? Builder->getFalse() : Builder->getTrue();
+    }
+
+    result = new Value("", new Type(TY_BOOL, Builder->getInt1Ty()), val);
 }
 
 void Codegen::visit(const UnaryOp *node) {
     node->getExpression()->accept(*this);
 
+    llvm::Value *val;
+    lesma::Type *type = result->getType();
+
     if (node->getOperator() == TokenType::MINUS) {
-        if (result->getType()->isIntegerTy())
-            result = Builder->CreateNeg(result);
-        else if (result->getType()->isFloatingPointTy())
-            result = Builder->CreateFNeg(result);
-        else
+        if (result->getType()->is(TY_INT)) {
+            val = Builder->CreateNeg(result->getLLVMValue());
+        } else if (result->getType()->is(TY_FLOAT)) {
+            val = Builder->CreateFNeg(result->getLLVMValue());
+        } else {
             throw CodegenError(node->getSpan(), "Cannot apply {} to {}", NAMEOF_ENUM(node->getOperator()), node->getExpression()->toString(SourceManager.get(), "", true));
+        }
     } else if (node->getOperator() == TokenType::NOT) {
-        if (result->getType()->isIntegerTy(1))
-            result = Builder->CreateNot(result);
-        else
+        if (result->getType()->is(TY_BOOL)) {
+            val = Builder->CreateNot(result->getLLVMValue());
+        } else {
             throw CodegenError(node->getSpan(), "Cannot apply {} to {}", NAMEOF_ENUM(node->getOperator()), node->getExpression()->toString(SourceManager.get(), "", true));
+        }
     } else if (node->getOperator() == TokenType::STAR) {
-        if (result->getType()->isPointerTy())
-            result = Builder->CreateLoad(result->getType()->getPointerElementType(), result);
-        else
+        if (result->getType()->is(TY_PTR)) {
+            val = Builder->CreateLoad(result->getType()->getElementType()->getLLVMType(), result->getLLVMValue());
+            type = result->getType()->getElementType();
+        } else {
             throw CodegenError(node->getSpan(), "Cannot apply {} to {}", NAMEOF_ENUM(node->getOperator()), node->getExpression()->toString(SourceManager.get(), "", true));
+        }
     } else if (node->getOperator() == TokenType::AMPERSAND) {
-        auto ptr = Builder->CreateAlloca(result->getType(), nullptr);
-        Builder->CreateStore(result, ptr);
-        result = ptr;
-    } else
+        val = Builder->CreateAlloca(result->getType()->getLLVMType());
+        Builder->CreateStore(result->getLLVMValue(), val);
+    } else {
         throw CodegenError(node->getSpan(), "Unknown unary operator, cannot apply {} to {}", NAMEOF_ENUM(node->getOperator()), node->getExpression()->toString(SourceManager.get(), "", true));
+    }
+
+    result = new Value("", type, val);
 }
 
 void Codegen::visit(const Literal *node) {
     if (node->getType() == TokenType::DOUBLE)
-        result = ConstantFP::get(*TheContext->getContext(), APFloat(std::stod(node->getValue())));
+        result = new Value("", new Type(TY_FLOAT, Builder->getDoubleTy()), ConstantFP::get(*TheContext->getContext(), APFloat(std::stod(node->getValue()))));
     else if (node->getType() == TokenType::INTEGER)
-        result = ConstantInt::getSigned(Builder->getInt64Ty(), std::stoi(node->getValue()));
+        result = new Value("", new Type(TY_INT, Builder->getInt64Ty()), ConstantInt::getSigned(Builder->getInt64Ty(), std::stoi(node->getValue())));
     else if (node->getType() == TokenType::BOOL)
-        result = node->getValue() == "true" ? Builder->getTrue() : Builder->getFalse();
+        result = new Value("", new Type(TY_BOOL, Builder->getInt1Ty()), node->getValue() == "true" ? Builder->getTrue() : Builder->getFalse());
     else if (node->getType() == TokenType::STRING)
-        result = Builder->CreateGlobalStringPtr(node->getValue());
+        result = new Value("", new Type(TY_STRING, Builder->getInt8PtrTy()), Builder->CreateGlobalStringPtr(node->getValue()));
     else if (node->getType() == TokenType::NIL)
-        result = ConstantPointerNull::getNullValue(Builder->getInt8PtrTy(0));
+        result = new Value("", new Type(TY_VOID, Builder->getInt8PtrTy()), ConstantPointerNull::getNullValue(Builder->getInt8PtrTy(0)));
     else if (node->getType() == TokenType::IDENTIFIER) {
         // Look this variable up in the function.
         auto val = Scope->lookup(node->getValue());
         if (val == nullptr)
             throw CodegenError(node->getSpan(), "Unknown variable name {}", node->getValue());
 
-        // If it's a struct, don't load the value
-        if (val->getLLVMType()->isStructTy()) {
-            result = val->getLLVMValue();
-            return;
+        if (val->getType()->isOneOf({TY_CLASS, TY_ENUM})) {
+            // If it's a struct, don't load the value
+            result = val;
+        } else {
+            // Load the value.
+            llvm::Value *llvmVal = Builder->CreateLoad(val->getType()->getLLVMType(), val->getLLVMValue());
+            result = new Value("", val->getType(), llvmVal);
         }
-
-        // Load the value.
-        result = Builder->CreateLoad(val->getLLVMType(), val->getLLVMValue());
-    } else
+    } else {
         throw CodegenError(node->getSpan(), "Unknown literal {}", node->getValue());
+    }
 }
 
 void Codegen::visit(const Else * /*node*/) {
-    result = llvm::ConstantInt::getTrue(*TheContext->getContext());
+    result = new Value("", new Type(TY_BOOL, Builder->getInt1Ty()), llvm::ConstantInt::getTrue(*TheContext->getContext()));
 }
 
-std::string Codegen::getTypeMangledName(llvm::SMRange span, llvm::Type *type) {
-    if (type->isIntegerTy(1))
+std::string Codegen::getTypeMangledName(llvm::SMRange span, lesma::Type *type) {
+    auto *llvm_ty = type->getLLVMType();
+    if (type->is(TY_BOOL))
         return "b";
-    else if (type->isIntegerTy(8))
+    else if (type->is(TY_INT) && llvm_ty->isIntegerTy(8))
         return "c";
-    else if (type->isIntegerTy(16))
+    else if (type->is(TY_INT) && llvm_ty->isIntegerTy(16))
         return "i16";
-    else if (type->isIntegerTy(32))
+    else if (type->is(TY_INT) && llvm_ty->isIntegerTy(32))
         return "i32";
-    else if (type->isIntegerTy())
+    else if (type->is(TY_INT))
         return "i";
-    else if (type->isFloatTy())
+    else if (type->is(TY_FLOAT) && llvm_ty->isFloatTy())
         return "f32";
-    else if (type->isFloatingPointTy())
+    else if (type->is(TY_FLOAT) && llvm_ty->isFloatingPointTy())
         return "f";
-    else if (type->isVoidTy())
-        return "v";
-    else if (type->isArrayTy())
-        return "(arr_" + getTypeMangledName(span, type->getArrayElementType()) + ")";
-    else if (type->isPointerTy())
-        return "(ptr_" + getTypeMangledName(span, type->getPointerElementType()) + ")";
-    else if (type->isFunctionTy()) {
+    else if (type->is(TY_STRING))
+        return "str";
+    else if (type->is(TY_VOID))
+        return "void";
+    else if (type->is(TY_ARRAY) && llvm_ty->isArrayTy())
+        return "(arr_" + getTypeMangledName(span, type->getElementType()) + ")";
+    else if (type->is(TY_PTR))
+        return "(ptr_" + getTypeMangledName(span, type->getElementType()) + ")";
+    else if (type->is(TY_FUNCTION)) {
         std::string param_str;
-        for (unsigned int i = 0; i < type->getFunctionNumParams(); i++)
-            param_str += getTypeMangledName(span, type->getFunctionParamType(i)) + "_";
+        for (auto &field: type->getFields()) {
+            param_str += getTypeMangledName(span, field->type) + "_";
+        }
         return "(func_" + param_str + ")";
-    } else if (type->isStructTy()) {
+    } else if (type->isOneOf({TY_CLASS, TY_ENUM})) {
         std::string param_str;
-        for (unsigned int i = 0; i < type->getStructNumElements(); i++)
-            param_str += getTypeMangledName(span, type->getStructElementType(i)) + "_";
-        return "(struct_" + type->getStructName().str() + ")";
+        for (auto &field: type->getFields()) {
+            param_str += getTypeMangledName(span, field->type) + "_";
+        }
+        return "(struct_" + type->getLLVMType()->getStructName().str() + ")";
     }
 
     throw CodegenError(span, "Unknown type found during mangling");
@@ -1252,7 +1294,8 @@ bool Codegen::isMethod(const std::string &mangled_name) {
     return mangled_name.find("::") != std::string::npos;
 }
 
-std::string Codegen::getMangledName(llvm::SMRange span, std::string func_name, const std::vector<llvm::Type *> &paramTypes, bool isMethod, std::string module_alias) {
+// TODO: Base it on Lesma Types not LLVM Types
+std::string Codegen::getMangledName(llvm::SMRange span, std::string func_name, const std::vector<lesma::Type *> &paramTypes, bool isMethod, std::string module_alias) {
     module_alias = module_alias.empty() ? this->alias : module_alias;
     std::string name = (module_alias.empty() ? "" : "&" + module_alias + "=>") +
                        (selfSymbol != nullptr && isMethod ? selfSymbol->getName() + "::" + std::move(func_name) + ":" : "." + std::move(func_name) + ":");
@@ -1294,87 +1337,85 @@ std::string Codegen::getDemangledName(const std::string &name) {
     return demangled_name;
 }
 
-llvm::Type *Codegen::GetExtendedType(llvm::Type *left, llvm::Type *right) {
-    if (left == right)
+lesma::Type *Codegen::GetExtendedType(lesma::Type *left, lesma::Type *right) {
+    if (left->getBaseType() == right->getBaseType())
         return left;
 
-    if (left->isIntegerTy() && right->isIntegerTy()) {
-        if (left->getIntegerBitWidth() > right->getIntegerBitWidth())
+    if (left->is(TY_INT) && right->is(TY_INT)) {
+        // TODO: We should ideally only have one int type, but our FFI implementation needs access to all types
+        if (left->getLLVMType()->getIntegerBitWidth() > right->getLLVMType()->getIntegerBitWidth())
             return left;
         else
             return right;
-    } else if (left->isIntegerTy() && right->isFloatingPointTy())
+    } else if (left->is(TY_INT) && right->is(TY_FLOAT))
         return right;
-    else if (left->isFloatingPointTy() && right->isIntegerTy())
+    else if (left->is(TY_FLOAT) && right->is(TY_INT))
         return left;
-    else if (left->isFloatingPointTy() && right->isFloatingPointTy()) {
-        if (left->isFP128Ty() || right->isFP128Ty())
-            return left->isFP128Ty() ? left : right;
-        else if (left->isDoubleTy() || right->isDoubleTy())
-            return left->isDoubleTy() ? left : right;
-        else if (left->isFloatTy() || right->isFloatTy())
-            return left->isFloatTy() ? left : right;
-        else if (left->isHalfTy() || right->isHalfTy())
-            return left->isHalfTy() ? left : right;
+    else if (left->is(TY_FLOAT) && right->is(TY_FLOAT)) {
+        if (left->getLLVMType()->isFP128Ty() || right->getLLVMType()->isFP128Ty())
+            return left->getLLVMType()->isFP128Ty() ? left : right;
+        else if (left->getLLVMType()->isDoubleTy() || right->getLLVMType()->isDoubleTy())
+            return left->getLLVMType()->isDoubleTy() ? left : right;
+        else if (left->getLLVMType()->isFloatTy() || right->getLLVMType()->isFloatTy())
+            return left->getLLVMType()->isFloatTy() ? left : right;
+        else if (left->getLLVMType()->isHalfTy() || right->getLLVMType()->isHalfTy())
+            return left->getLLVMType()->isHalfTy() ? left : right;
     }
     return nullptr;
 }
 
-lesma::Type *Codegen::getType(llvm::Type *type) {
-    if (type->isIntegerTy(1))
-        return new Type(BaseType::TY_BOOL);
-    else if (type->isIntegerTy(8))
-        return new Type(BaseType::TY_STRING);
-    else if (type->isFloatingPointTy())
-        return new Type(BaseType::TY_FLOAT);
-    else if (type->isIntegerTy())
-        return new Type(BaseType::TY_INT);
-    else if (type->isFunctionTy())
-        return new Type(BaseType::TY_FUNCTION);
-
-    return new Type(BaseType::TY_INVALID);
-}
-
-llvm::Value *Codegen::Cast(llvm::SMRange span, llvm::Value *val, llvm::Type *type) {
+lesma::Value *Codegen::Cast(llvm::SMRange span, lesma::Value *val, lesma::Type *type) {
     return Cast(span, val, type, false);
 }
 
-llvm::Value *Codegen::Cast(llvm::SMRange span, llvm::Value *val, llvm::Type *type, bool isStore) {
+lesma::Value *Codegen::Cast(llvm::SMRange span, lesma::Value *val, lesma::Type *type, bool isStore) {
     // TODO: Fix me pls
-    if (type == nullptr || val->getType() == type || (isStore && val->getType()->getPointerTo() == type) || (isStore && val->getType() == type->getPointerTo()) || (val->getType()->isPointerTy() && val->getType()->getPointerElementType()->isStructTy()))
+    // If the target cast type is null
+    if (type == nullptr)
+        return val;
+    // If they're the same type
+    if (*val->getType() == *type)
         return val;
 
-    if (type->isIntegerTy()) {
-        if (val->getType()->isFloatingPointTy())
-            return Builder->CreateFPToSI(val, type);
-        else if (val->getType()->isIntegerTy())
-            return Builder->CreateIntCast(val, type, true);
-    } else if (type->isFloatingPointTy()) {
-        if (val->getType()->isIntegerTy())
-            return Builder->CreateSIToFP(val, type);
-        else if (val->getType()->isFloatingPointTy())
-            return Builder->CreateFPCast(val, type);
-    } else if (type->isPointerTy() && type->getPointerElementType()->isIntegerTy()) {
-        if (val->getType()->isPointerTy() && (val->getType()->getPointerElementType()->isIntegerTy() || val->getType()->getPointerElementType()->isVoidTy()))
-            return Builder->CreateBitCast(val, type);
+    if ((isStore && *val->getType()->getElementType() == *type) || (isStore && *val->getType() == *type->getElementType()) || (val->getType()->is(TY_PTR) && val->getType()->getElementType()->isOneOf({TY_CLASS, TY_ENUM})))
+        return val;
+
+    if (type->is(TY_INT)) {
+        if (val->getType()->is(TY_FLOAT)) {
+            return new Value("", type, Builder->CreateFPToSI(val->getLLVMValue(), type->getLLVMType()));
+        } else if (val->getType()->is(TY_INT)) {
+            return new Value("", type, Builder->CreateIntCast(val->getLLVMValue(), type->getLLVMType(), type->isSigned()));
+        }
+    } else if (type->is(TY_FLOAT)) {
+        if (val->getType()->is(TY_INT)) {
+            return new Value("", type, Builder->CreateSIToFP(val->getLLVMValue(), type->getLLVMType()));
+        } else if (val->getType()->is(TY_FLOAT)) {
+            return new Value("", type, Builder->CreateFPCast(val->getLLVMValue(), type->getLLVMType()));
+        }
+    } else if (type->is(TY_STRING)) {
+        if (val->getType()->is(TY_PTR) && (val->getType()->getElementType()->is(TY_INT) || val->getType()->getElementType()->is(TY_VOID)))
+            return new Value("", type, Builder->CreateBitCast(val->getLLVMValue(), type->getLLVMType()));
     }
 
-    throw CodegenError(span, "Unsupported Cast");
+    throw CodegenError(span, "Unsupported Cast between {} and {}", getTypeMangledName(span, val->getType()), getTypeMangledName(span, type));
 }
 
-llvm::Value *Codegen::genFuncCall(const FuncCall *node, const std::vector<llvm::Value *> &extra_params = {}) {
-    std::vector<llvm::Value *> params;
-    std::vector<llvm::Type *> paramTypes;
+lesma::Value *Codegen::genFuncCall(const FuncCall *node, const std::vector<lesma::Value *> &extra_params = {}) {
+    std::vector<lesma::Value *> params;
+    std::vector<lesma::Type *> paramTypes;
+    std::vector<llvm::Value *> paramsLLVM;
 
     for (auto arg: extra_params) {
         params.push_back(arg);
-        paramTypes.push_back(params.back()->getType());
+        paramTypes.push_back(arg->getType());
+        paramsLLVM.push_back(arg->getLLVMValue());
     }
 
     for (auto arg: node->getArguments()) {
         arg->accept(*this);
         params.push_back(result);
-        paramTypes.push_back(params.back()->getType());
+        paramsLLVM.push_back(result->getLLVMValue());
+        paramTypes.push_back(result->getType());
     }
 
     std::string name;
@@ -1383,9 +1424,9 @@ llvm::Value *Codegen::genFuncCall(const FuncCall *node, const std::vector<llvm::
     llvm::Value *class_ptr = nullptr;
     if (class_sym != nullptr && class_sym->getType()->is(TY_CLASS)) {
         // It's a class constructor, allocate and add self param
-        class_ptr = Builder->CreateAlloca(class_sym->getLLVMType(), nullptr);
-        params.insert(params.begin(), class_ptr);
-        paramTypes.insert(paramTypes.begin(), class_ptr->getType());
+        class_ptr = Builder->CreateAlloca(class_sym->getType()->getLLVMType(), nullptr);
+        paramsLLVM.insert(paramsLLVM.begin(), class_ptr);
+        paramTypes.insert(paramTypes.begin(), new Type(TY_PTR, Builder->getPtrTy(), class_sym->getType()));
 
         selfSymbol = class_sym;
         name = getMangledName(node->getSpan(), "new", paramTypes, true);
@@ -1400,28 +1441,36 @@ llvm::Value *Codegen::genFuncCall(const FuncCall *node, const std::vector<llvm::
     if (symbol == nullptr)
         throw CodegenError(node->getSpan(), "Function {} not in current scope.", node->getName());
 
-    if (!symbol->getLLVMType()->isFunctionTy())
+    if (!symbol->getType()->getLLVMType()->isFunctionTy())
         throw CodegenError(node->getSpan(), "Symbol {} is not a function.", node->getName());
 
     auto *func = cast<Function>(symbol->getLLVMValue());
     if (class_sym != nullptr && class_sym->getType()->is(TY_CLASS)) {
-        Builder->CreateCall(func, params);
-        auto val = Builder->CreateLoad(class_sym->getLLVMType(), class_ptr);
+        Builder->CreateCall(func, paramsLLVM);
+        auto val = Builder->CreateLoad(class_sym->getType()->getLLVMType(), class_ptr);
         selfSymbol = selfSymbolTmp;
 
-        return val;
+        return new Value("", class_sym->getType(), val);
     }
-    return Builder->CreateCall(func, params);
+    return new Value("", symbol->getType()->getReturnType(), Builder->CreateCall(func, paramsLLVM));
 }
 
 int Codegen::FindIndexInFields(Type *_struct, const std::string &field) {
-    int val = -1;
     for (unsigned int i = 0; i < _struct->getFields().size(); i++) {
         if (_struct->getFields()[i]->name == field) {
-            val = static_cast<int>(i);
-            break;
+            return static_cast<int>(i);
         }
     }
 
-    return val;
+    return -1;
+}
+
+lesma::Type *Codegen::FindTypeInFields(Type *_struct, const std::string &field) {
+    for (const auto &i: _struct->getFields()) {
+        if (i->name == field) {
+            return i->type;
+        }
+    }
+
+    return nullptr;
 }

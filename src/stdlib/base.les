@@ -31,7 +31,7 @@ export def strToFloat(x: str) -> float
     return strtod(x)
 
 export def random(x: int, y: int) -> int
-    srand(time(null as *int))
+    srand(time(0))
     if x < y
         return x + rand() % (y - x)
 

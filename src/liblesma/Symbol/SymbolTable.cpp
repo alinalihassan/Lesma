@@ -44,8 +44,8 @@ Value *SymbolTable::lookup(const std::string &name) {
  */
 Value *SymbolTable::lookupStructByName(const std::string &name) {
     for (auto sym: symbols) {
-        if (sym.second->getLLVMType() != nullptr && sym.second->getLLVMType()->isStructTy() &&
-            llvm::cast<llvm::StructType>(sym.second->getLLVMType())->getName() == name)
+        if (sym.second->getType()->getLLVMType() != nullptr && sym.second->getType()->isOneOf({TY_CLASS, TY_ENUM}) &&
+            llvm::cast<llvm::StructType>(sym.second->getType()->getLLVMType())->getName() == name)
             return sym.second;
     }
 

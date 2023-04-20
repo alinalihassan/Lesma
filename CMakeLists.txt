@@ -92,7 +92,6 @@ set(COMMON_SOURCES
   src/liblesma/Token/Token.cpp
   src/liblesma/Backend/Codegen.cpp
   src/liblesma/Symbol/SymbolTable.cpp
-  src/liblesma/Symbol/Type.cpp
   src/liblesma/Driver/Driver.cpp
   )
 

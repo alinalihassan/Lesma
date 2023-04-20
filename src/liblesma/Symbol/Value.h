@@ -18,9 +18,15 @@ namespace lesma {
      */
     class Value {
     public:
+        explicit Value(Type *type) : state(INITIALIZED),
+                                     type(type), mutableVar(false),
+                                     signedVar(true) {}
         Value(std::string name, Type *type) : name(std::move(name)), state(INITIALIZED),
                                               type(type), mutableVar(false),
                                               signedVar(true) {}
+        Value(std::string name, Type *type, llvm::Value *value) : name(std::move(name)), state(INITIALIZED),
+                                                                  type(type), llvmValue(value), mutableVar(false),
+                                                                  signedVar(true) {}
         Value(std::string name, Type *type, SymbolState state) : name(std::move(name)), state(state),
                                                                  type(type), mutableVar(false),
                                                                  signedVar(true) {}
@@ -31,7 +37,6 @@ namespace lesma {
 
         [[nodiscard]] std::string getName() { return name; }
         [[nodiscard]] llvm::Value *getLLVMValue() { return llvmValue; }
-        [[nodiscard]] llvm::Type *getLLVMType() { return llvmType; }
         [[nodiscard]] bool getMutability() const { return mutableVar; }
         [[nodiscard]] bool getSigned() const { return signedVar; }
         [[nodiscard]] SymbolState getState() { return state; }
@@ -40,7 +45,6 @@ namespace lesma {
         [[nodiscard]] bool isUsed() const { return used; }
 
         void setLLVMValue(llvm::Value *value) { llvmValue = value; }
-        void setLLVMType(llvm::Type *type_) { llvmType = type_; }
         void setUsed(bool used_) { used = used_; }
         void setSigned(bool signed_) { mutableVar = signed_; }
         void setMutable(bool mutable_) { mutableVar = mutable_; }
@@ -49,7 +53,7 @@ namespace lesma {
         std::string toString() {
             std::string type_str, value_str;
             llvm::raw_string_ostream rso(type_str), rso2(value_str);
-            llvmType->print(rso);
+            type->getLLVMType()->print(rso);
             llvmValue->print(rso2);
             return name + ": " + type_str + " = " + value_str;
         }
@@ -59,7 +63,6 @@ namespace lesma {
         SymbolState state;
         Type *type;
         llvm::Value *llvmValue = nullptr;
-        llvm::Type *llvmType = nullptr;
         bool mutableVar;
         bool signedVar;
         bool used = false;

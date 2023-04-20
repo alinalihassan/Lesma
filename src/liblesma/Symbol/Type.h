@@ -1,6 +1,7 @@
 #pragma once
 
 #include <algorithm>
+#include <llvm/IR/Type.h>
 #include <map>
 #include <memory>
 #include <string>
@@ -15,6 +16,8 @@ namespace lesma {
         TY_FLOAT,
         TY_STRING,
         TY_BOOL,
+        TY_PTR,
+        TY_ARRAY,
         TY_VOID,
         TY_FUNCTION,
         TY_CLASS,
@@ -31,22 +34,41 @@ namespace lesma {
 
     class Type {
         BaseType baseType;
+        llvm::Type *llvmType;
+
         Type *elementType;
+        Type *returnType;
         std::vector<std::unique_ptr<Field>> fields;
+        bool signedInt = true;
 
     public:
-        // Constructors
-        explicit Type(BaseType superType) : baseType(superType), elementType(nullptr), fields() {}
-        explicit Type(BaseType superType, std::vector<std::unique_ptr<Field>> fields, Type *elementType) : baseType(superType), elementType(elementType), fields(std::move(fields)) {}
+        explicit Type(BaseType baseType) : baseType(baseType), llvmType(nullptr), elementType(nullptr), fields() {}
+        explicit Type(BaseType baseType, llvm::Type *llvmType) : baseType(baseType), llvmType(llvmType), elementType(nullptr), fields() {}
+        explicit Type(BaseType baseType, llvm::Type *llvmType, Type *elementType) : baseType(baseType), llvmType(llvmType), elementType(elementType), fields() {}
+        explicit Type(BaseType baseType, llvm::Type *llvmType, std::vector<std::unique_ptr<Field>> fields) : baseType(baseType), llvmType(llvmType), elementType(nullptr), fields(std::move(fields)) {}
 
-        // Public methods
-        [[nodiscard]] bool is(BaseType superType) const;
-        [[nodiscard]] bool isPrimitive() const;
-        [[nodiscard]] bool isOneOf(const std::vector<BaseType> &superTypes) const;
-        [[nodiscard]] BaseType getBaseType() const;
-        [[nodiscard]] Type *getElementType() const;
-        [[nodiscard]] std::vector<std::unique_ptr<Field>> const &getFields() const;
-        friend bool operator==(const Type &lhs, const Type &rhs);
-        friend bool operator!=(const Type &lhs, const Type &rhs);
+        [[nodiscard]] bool is(BaseType type) const { return baseType == type; }
+        [[nodiscard]] bool isPrimitive() const { return isOneOf({TY_INT, TY_FLOAT, TY_STRING, TY_BOOL}); }
+        [[nodiscard]] bool isOneOf(const std::vector<BaseType> &baseTypes) const {
+            return std::any_of(baseTypes.begin(), baseTypes.end(), [this](int type) { return type == this->baseType; });
+        }
+        [[nodiscard]] BaseType getBaseType() const { return baseType; }
+        [[nodiscard]] Type *getElementType() const { return elementType; }
+        [[nodiscard]] Type *getReturnType() const { return returnType; }
+        [[nodiscard]] llvm::Type *getLLVMType() const { return llvmType; }
+        [[nodiscard]] std::vector<std::unique_ptr<Field>> const &getFields() const { return fields; }
+        [[nodiscard]] bool isSigned() const { return signedInt; }
+
+        void setLLVMType(llvm::Type *type) { llvmType = type; }
+        void setBaseType(BaseType type) { baseType = type; }
+        void setElementType(lesma::Type *type) { elementType = type; }
+        void setReturnType(lesma::Type *type) { returnType = type; }
+
+        friend bool operator==(const Type &lhs, const Type &rhs) {
+            return lhs.getBaseType() == rhs.getBaseType();
+        }
+        friend bool operator!=(const Type &lhs, const Type &rhs) {
+            return !(lhs == rhs);
+        }
     };
 }// namespace lesma

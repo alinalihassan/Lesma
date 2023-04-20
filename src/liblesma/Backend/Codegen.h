@@ -45,8 +45,7 @@ namespace lesma {
         SymbolTable *Scope;
         std::string filename;
         std::string alias;
-        llvm::Value *result = nullptr;
-        llvm::Type *result_type = nullptr;
+        lesma::Value *result = nullptr;
 
         std::stack<llvm::BasicBlock *> breakBlocks;
         std::stack<llvm::BasicBlock *> continueBlocks;
@@ -54,7 +53,7 @@ namespace lesma {
 
         std::vector<std::string> ObjectFiles;
         std::vector<std::string> ImportedModules;
-        std::vector<std::tuple<Function *, const FuncDecl *, Value *>> Prototypes;
+        std::vector<std::tuple<lesma::Value *, const FuncDecl *, Value *>> Prototypes;
         llvm::Function *TopLevelFunc;
         Value *selfSymbol = nullptr;
         bool isBreak = false;
@@ -112,17 +111,22 @@ namespace lesma {
         void visit(const TypeExpr *node) override;
 
         // TODO: Helper functions, move them out somewhere
-        static Type *getType(llvm::Type *type);
-        llvm::Value *Cast(llvm::SMRange span, llvm::Value *val, llvm::Type *type);
-        llvm::Value *Cast(llvm::SMRange span, llvm::Value *val, llvm::Type *type, bool isStore);
-        static llvm::Type *GetExtendedType(llvm::Type *left, llvm::Type *right);
+        // Type related helper functions
+        lesma::Value *Cast(llvm::SMRange span, lesma::Value *val, lesma::Type *type);
+        lesma::Value *Cast(llvm::SMRange span, lesma::Value *val, lesma::Type *type, bool isStore);
+        static lesma::Type *GetExtendedType(lesma::Type *left, lesma::Type *right);
+
+        // Name mangling functions and such
         static bool isMethod(const std::string &mangled_name);
-        std::string getMangledName(llvm::SMRange span, std::string func_name, const std::vector<llvm::Type *> &paramTypes, bool isMethod = false, std::string alias = "");
+        std::string getMangledName(llvm::SMRange span, std::string func_name, const std::vector<lesma::Type *> &paramTypes, bool isMethod = false, std::string alias = "");
         [[maybe_unused]] static bool isMangled(std::string name);
         static std::string getDemangledName(const std::string &mangled_name);
-        std::string getTypeMangledName(llvm::SMRange span, llvm::Type *type);
-        llvm::Value *genFuncCall(const FuncCall *node, const std::vector<llvm::Value *> &extra_params);
+        std::string getTypeMangledName(llvm::SMRange span, lesma::Type *type);
+
+        // Other
+        lesma::Value *genFuncCall(const FuncCall *node, const std::vector<lesma::Value *> &extra_params);
         static int FindIndexInFields(Type *_struct, const std::string &field);
-        void defineFunction(Function *F, const FuncDecl *node, Value *clsSymbol);
+        static lesma::Type *FindTypeInFields(Type *_struct, const std::string &field);
+        void defineFunction(lesma::Value *value, const FuncDecl *node, Value *clsSymbol);
     };
 }// namespace lesma
