@@ -53,7 +53,6 @@ void Codegen::defineFunction(lesma::Value *value, const FuncDecl *node, Value *c
     BasicBlock *entry = BasicBlock::Create(*TheContext->getContext(), "entry", F);
     Builder->SetInsertPoint(entry);
 
-
     int fieldIndex = 0;
     for (auto &field: value->getType()->getFields()) {
         auto param = F->getArg(fieldIndex);
@@ -86,7 +85,7 @@ void Codegen::defineFunction(lesma::Value *value, const FuncDecl *node, Value *c
     for (BasicBlock &BB: *F) {
         Instruction *Terminator = BB.getTerminator();
         if (Terminator != nullptr) continue;// Well-formed
-        if (F->getReturnType()->isVoidTy()) {
+        if (value->getType()->getReturnType()->is(TY_VOID)) {
             // Make implicit return of void Function explicit.
             Builder->SetInsertPoint(&BB);
             Builder->CreateRetVoid();
@@ -213,7 +212,7 @@ void Codegen::CompileModule(llvm::SMRange span, const std::string &filepath, boo
             auto demangled_name = getDemangledName(name);
             auto imp_alias = findInImports(demangled_name);
             if (func_symbol != nullptr && func_symbol->isExported() && (importAll || !imp_alias.empty() || isMethod(name))) {
-                auto symbol = new Value(imp_alias.empty() ? name : std::regex_replace(name, std::regex(demangled_name), imp_alias), new Type(BaseType::TY_FUNCTION));
+                auto symbol = new Value(imp_alias.empty() ? name : std::regex_replace(name, std::regex(demangled_name), imp_alias), func_symbol->getType());
 
                 if (isJIT) {
                     symbol->getType()->setLLVMType(it.getFunctionType());
@@ -589,20 +588,22 @@ void Codegen::visit(const ExternFuncDecl *node) {
         paramTypes.push_back(std::make_unique<Field>(Field{result->getName(), result->getType()}));
     }
 
+    node->getReturnType()->accept(*this);
+    auto ret_type = result->getType();
+
     FunctionCallee F;
     if (TheModule->getFunction(node->getName()) != nullptr && Scope->lookup(node->getName()) != nullptr)
         return;
     else if (TheModule->getFunction(node->getName()) != nullptr) {
         F = TheModule->getFunction(node->getName());
     } else {
-        node->getReturnType()->accept(*this);
-        FunctionType *FT = FunctionType::get(result->getType()->getLLVMType(), paramLLVMTypes, node->getVarArgs());
+        FunctionType *FT = FunctionType::get(ret_type->getLLVMType(), paramLLVMTypes, node->getVarArgs());
         F = TheModule->getOrInsertFunction(node->getName(), FT);
     }
 
     auto func_symbol = new Value(node->getName(), new Type(BaseType::TY_FUNCTION, F.getFunctionType(), std::move(paramTypes)), F.getCallee());
     // TODO: Might not have a proper return type if the function already existed in the if statement.
-    func_symbol->getType()->setReturnType(result->getType());
+    func_symbol->getType()->setReturnType(ret_type);
     func_symbol->setExported(node->isExported());
     Scope->insertSymbol(func_symbol);
 }
@@ -732,16 +733,18 @@ void Codegen::visit(const Return *node) {
     isReturn = true;
 
     if (node->getValue() == nullptr) {
-        if (Builder->getCurrentFunctionReturnType() == Builder->getVoidTy())
+        if (Builder->getCurrentFunctionReturnType() == Builder->getVoidTy()) {
             Builder->CreateRetVoid();
-        else
+        } else {
             throw CodegenError(node->getSpan(), "Return type does not match the function return type");
+        }
     } else {
         node->getValue()->accept(*this);
-        if (Builder->getCurrentFunctionReturnType() == result->getType()->getLLVMType())
+        if (Builder->getCurrentFunctionReturnType() == result->getType()->getLLVMType()) {
             Builder->CreateRet(result->getLLVMValue());
-        else
+        } else {
             throw CodegenError(node->getSpan(), "Return type does not match the function return type");
+        }
     }
 }
 
@@ -1395,8 +1398,8 @@ lesma::Value *Codegen::genFuncCall(const FuncCall *node, const std::vector<lesma
     for (auto arg: node->getArguments()) {
         arg->accept(*this);
         params.push_back(result);
-        paramsLLVM.push_back(result->getLLVMValue());
         paramTypes.push_back(result->getType());
+        paramsLLVM.push_back(result->getLLVMValue());
     }
 
     std::string name;

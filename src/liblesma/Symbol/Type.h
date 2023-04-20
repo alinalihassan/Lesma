@@ -72,7 +72,7 @@ namespace lesma {
         }
 
 
-        std::string toString() const {
+        [[nodiscard]] std::string toString() const {
             std::string result;
 
             switch (baseType) {
