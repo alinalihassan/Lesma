@@ -41,6 +41,7 @@ namespace lesma {
         [[nodiscard]] bool getSigned() const { return signedVar; }
         [[nodiscard]] SymbolState getState() { return state; }
         [[nodiscard]] Type *getType() { return type; }
+        [[nodiscard]] lesma::Value *getConstructor() { return constructor; }
         [[nodiscard]] bool isExported() const { return exported; }
         [[nodiscard]] bool isUsed() const { return used; }
 
@@ -49,12 +50,15 @@ namespace lesma {
         void setSigned(bool signed_) { mutableVar = signed_; }
         void setMutable(bool mutable_) { mutableVar = mutable_; }
         void setExported(bool exported_) { exported = exported_; }
+        void setConstructor(lesma::Value *constructor_) { constructor = constructor_; }
 
         std::string toString() {
             std::string type_str, value_str;
             llvm::raw_string_ostream rso(type_str), rso2(value_str);
-            type->getLLVMType()->print(rso);
-            llvmValue->print(rso2);
+            if (type->getLLVMType() != nullptr)
+                type->getLLVMType()->print(rso);
+            if (llvmValue != nullptr)
+                llvmValue->print(rso2);
             return name + ": " + type_str + " = " + value_str;
         }
 
@@ -63,9 +67,15 @@ namespace lesma {
         SymbolState state;
         Type *type;
         llvm::Value *llvmValue = nullptr;
-        bool mutableVar;
-        bool signedVar;
+        // For analysis
         bool used = false;
+        // For variables
+        bool mutableVar;
+        // For integers
+        bool signedVar;
+        // For functions
         bool exported = false;
+        // For classes
+        lesma::Value *constructor;
     };
 }//namespace lesma

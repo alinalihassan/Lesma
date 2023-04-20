@@ -6,7 +6,7 @@ def extern atoll(x: str) -> int
 def extern strtod(x: str) -> float
 def extern rand() -> int
 def extern srand(x: int)
-def extern time(x: *int) -> int
+def extern time(x: int) -> int
 
 export def extern exit(x: int)
 

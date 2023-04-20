@@ -113,7 +113,6 @@ namespace lesma {
         // TODO: Helper functions, move them out somewhere
         // Type related helper functions
         lesma::Value *Cast(llvm::SMRange span, lesma::Value *val, lesma::Type *type);
-        lesma::Value *Cast(llvm::SMRange span, lesma::Value *val, lesma::Type *type, bool isStore);
         static lesma::Type *GetExtendedType(lesma::Type *left, lesma::Type *right);
 
         // Name mangling functions and such

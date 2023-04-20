@@ -445,8 +445,9 @@ void Codegen::visit(const VarDecl *node) {
     Scope->insertSymbol(symbol);
 
     // Convert declared value to declared type implicitly
-    if (node->getValue().has_value())
-        Builder->CreateStore(Cast(node->getSpan(), val, type, true)->getLLVMValue(), ptr);
+    if (node->getValue().has_value()) {
+        Builder->CreateStore(Cast(node->getSpan(), val, type)->getLLVMValue(), ptr);
+    }
 }
 
 void Codegen::visit(const If *node) {
@@ -628,7 +629,7 @@ void Codegen::visit(const Assignment *node) {
     isAssignment = false;
 
     node->getRightHandSide()->accept(*this);
-    auto value = Cast(node->getSpan(), result, lhs->getType(), true);
+    auto value = Cast(node->getSpan(), result, lhs->getType());
     llvm::Value *var_val;
 
     switch (node->getOperator()) {
@@ -757,7 +758,6 @@ void Codegen::visit(const Import *node) {
 }
 
 void Codegen::visit(const Class *node) {
-
     std::vector<std::unique_ptr<Field>> fields;
     std::vector<llvm::Type *> elementLLVMTypes;
 
@@ -801,7 +801,7 @@ void Codegen::visit(const Enum *node) {
     std::vector<std::unique_ptr<Field>> fields;
 
     for (const auto &field: node->getValues())
-        fields.push_back(std::make_unique<Field>(Field{field, new Type(TY_VOID)}));
+        fields.push_back(std::make_unique<Field>(Field{field, new Type(TY_VOID, Builder->getVoidTy())}));
 
     auto *type = new Type(TY_ENUM, structType, std::move(fields));
     auto *structSymbol = new Value(node->getIdentifier(), type);
@@ -905,42 +905,30 @@ void Codegen::visit(const BinaryOp *node) {
             left = Cast(node->getSpan(), left, finalType);
             right = Cast(node->getSpan(), right, finalType);
 
-            if ((left->getType()->is(TY_PTR) && left->getType()->getElementType()->isOneOf({TY_CLASS, TY_ENUM})) &&
-                (right->getType()->is(TY_PTR) && right->getType()->getElementType()->isOneOf({TY_CLASS, TY_ENUM}))) {
+            // Enum comparison
+            if (finalType->is(TY_ENUM)) {
                 // Both are pointers to structs
-                auto sym = Scope->lookup(left->getType()->getElementType()->getLLVMType()->getStructName().str());
-                if (sym != nullptr && sym->getType()->is(TY_ENUM)) {
-                    if (left->getType()->getElementType() != right->getType()->getElementType()) {
-                        result = new Value("", new Type(TY_BOOL), ConstantInt::getBool(*TheContext->getContext(), false));
-                        return;
-                    } else {
-                        auto left_gep = Builder->CreateStructGEP(sym->getType()->getLLVMType(), left->getLLVMValue(), 0);
-                        auto left_load = Builder->CreateLoad(Builder->getInt8Ty(), left_gep);
-                        auto right_gep = Builder->CreateStructGEP(sym->getType()->getLLVMType(), right->getLLVMValue(), 0);
-                        auto right_load = Builder->CreateLoad(Builder->getInt8Ty(), right_gep);
-                        result = new Value("", new Type(TY_BOOL), Builder->CreateICmpEQ(left_load, right_load));
-                        return;
-                    }
+                auto left_name = left->getType()->getLLVMType()->getStructName().str();
+                auto right_name = right->getType()->getLLVMType()->getStructName().str();
+
+                if (left_name != right_name) {
+                    throw CodegenError(node->getSpan(), "Illegal comparison of two different enums: {} and {}", left_name, right_name);
                 }
 
-                // It's not an enum, it's a class
-            } else if (left->getType()->is(TY_PTR) && right->getType()->is(TY_PTR)) {
-                result = new Value("", new Type(TY_BOOL), Builder->CreateICmpEQ(left->getLLVMValue(), right->getLLVMValue()));
+                llvm::Value *left_val = Builder->CreateExtractValue(left->getLLVMValue(), {0});
+                llvm::Value *right_val = Builder->CreateExtractValue(right->getLLVMValue(), {0});
+                result = new Value("", new Type(TY_BOOL, Builder->getInt1Ty()), Builder->CreateICmpEQ(left_val, right_val));
+                return;
+            } else if (finalType->is(TY_PTR)) {
+                result = new Value("", new Type(TY_BOOL, Builder->getInt1Ty()), Builder->CreateICmpEQ(left->getLLVMValue(), right->getLLVMValue()));
                 return;
             } else if (finalType == nullptr)
                 break;
             else if (finalType->is(TY_FLOAT)) {
-                result = new Value("", new Type(TY_BOOL), Builder->CreateFCmpOEQ(left->getLLVMValue(), right->getLLVMValue()));
+                result = new Value("", new Type(TY_BOOL, Builder->getInt1Ty()), Builder->CreateFCmpOEQ(left->getLLVMValue(), right->getLLVMValue()));
                 return;
             } else if (finalType->is(TY_INT)) {
-                result = new Value("", new Type(TY_BOOL), Builder->CreateICmpEQ(left->getLLVMValue(), right->getLLVMValue()));
-                return;
-            } else if (finalType->is(TY_PTR) && finalType->getElementType()->is(TY_ENUM)) {
-                auto left_ptr = Builder->CreateLoad(left->getType()->getElementType()->getLLVMType(), left->getLLVMValue());
-                auto right_ptr = Builder->CreateLoad(right->getType()->getElementType()->getLLVMType(), right->getLLVMValue());
-                auto left_val = Builder->CreateExtractValue(left_ptr, {0});
-                auto right_val = Builder->CreateExtractValue(right_ptr, {0});
-                result = new Value("", new Type(TY_BOOL), Builder->CreateICmpEQ(left_val, right_val));
+                result = new Value("", new Type(TY_BOOL, Builder->getInt1Ty()), Builder->CreateICmpEQ(left->getLLVMValue(), right->getLLVMValue()));
                 return;
             }
             break;
@@ -948,26 +936,28 @@ void Codegen::visit(const BinaryOp *node) {
             left = Cast(node->getSpan(), left, finalType);
             right = Cast(node->getSpan(), right, finalType);
 
-            if (finalType == nullptr && (left->getType()->is(TY_PTR) && left->getType()->getElementType()->isOneOf({TY_CLASS, TY_ENUM})) && (right->getType()->is(TY_PTR) && right->getType()->getElementType()->isOneOf({TY_CLASS, TY_ENUM}))) {
-                result = new Value("", new Type(TY_BOOL), ConstantInt::getBool(*TheContext->getContext(), true));
+            // Enum comparison
+            if (finalType->is(TY_ENUM)) {
+                // Both are pointers to structs
+                auto left_name = left->getType()->getLLVMType()->getStructName().str();
+                auto right_name = right->getType()->getLLVMType()->getStructName().str();
+
+                if (left_name != right_name) {
+                    throw CodegenError(node->getSpan(), "Illegal comparison of two different enums: {} and {}", left_name, right_name);
+                }
+
+                llvm::Value *left_val = Builder->CreateExtractValue(left->getLLVMValue(), {0});
+                llvm::Value *right_val = Builder->CreateExtractValue(right->getLLVMValue(), {0});
+                result = new Value("", new Type(TY_BOOL, Builder->getInt1Ty()), Builder->CreateICmpNE(left_val, right_val));
                 return;
-            } else if (left->getType()->is(TY_PTR) && right->getType()->is(TY_PTR)) {
-                result = new Value("", new Type(TY_BOOL), Builder->CreateICmpNE(left->getLLVMValue(), right->getLLVMValue()));
+            } else if (finalType->is(TY_PTR)) {
+                result = new Value("", new Type(TY_BOOL, Builder->getInt1Ty()), Builder->CreateICmpNE(left->getLLVMValue(), right->getLLVMValue()));
                 return;
-            } else if (finalType == nullptr)
-                break;
-            else if (finalType->is(TY_FLOAT)) {
-                result = new Value("", new Type(TY_BOOL), Builder->CreateFCmpONE(left->getLLVMValue(), right->getLLVMValue()));
+            } else if (finalType->is(TY_FLOAT)) {
+                result = new Value("", new Type(TY_BOOL, Builder->getInt1Ty()), Builder->CreateFCmpONE(left->getLLVMValue(), right->getLLVMValue()));
                 return;
             } else if (finalType->is(TY_INT)) {
-                result = new Value("", new Type(TY_BOOL), Builder->CreateICmpNE(left->getLLVMValue(), right->getLLVMValue()));
-                return;
-            } else if (finalType->is(TY_PTR) && finalType->getElementType()->is(TY_ENUM)) {
-                auto left_ptr = Builder->CreateLoad(left->getType()->getElementType()->getLLVMType(), left->getLLVMValue());
-                auto right_ptr = Builder->CreateLoad(right->getType()->getElementType()->getLLVMType(), right->getLLVMValue());
-                auto left_val = Builder->CreateExtractValue(left_ptr, {0});
-                auto right_val = Builder->CreateExtractValue(right_ptr, {0});
-                result = new Value("", new Type(TY_BOOL), Builder->CreateICmpNE(left_val, right_val));
+                result = new Value("", new Type(TY_BOOL, Builder->getInt1Ty()), Builder->CreateICmpNE(left->getLLVMValue(), right->getLLVMValue()));
                 return;
             }
             break;
@@ -978,10 +968,10 @@ void Codegen::visit(const BinaryOp *node) {
             if (finalType == nullptr)
                 break;
             else if (finalType->is(TY_FLOAT)) {
-                result = new Value("", new Type(TY_BOOL), Builder->CreateFCmpOGT(left->getLLVMValue(), right->getLLVMValue()));
+                result = new Value("", new Type(TY_BOOL, Builder->getInt1Ty()), Builder->CreateFCmpOGT(left->getLLVMValue(), right->getLLVMValue()));
                 return;
             } else if (finalType->is(TY_INT)) {
-                result = new Value("", new Type(TY_BOOL), Builder->CreateICmpSGT(left->getLLVMValue(), right->getLLVMValue()));
+                result = new Value("", new Type(TY_BOOL, Builder->getInt1Ty()), Builder->CreateICmpSGT(left->getLLVMValue(), right->getLLVMValue()));
                 return;
             }
             break;
@@ -992,10 +982,10 @@ void Codegen::visit(const BinaryOp *node) {
             if (finalType == nullptr)
                 break;
             else if (finalType->is(TY_FLOAT)) {
-                result = new Value("", new Type(TY_BOOL), Builder->CreateFCmpOGE(left->getLLVMValue(), right->getLLVMValue()));
+                result = new Value("", new Type(TY_BOOL, Builder->getInt1Ty()), Builder->CreateFCmpOGE(left->getLLVMValue(), right->getLLVMValue()));
                 return;
             } else if (finalType->is(TY_INT)) {
-                result = new Value("", new Type(TY_BOOL), Builder->CreateICmpSGE(left->getLLVMValue(), right->getLLVMValue()));
+                result = new Value("", new Type(TY_BOOL, Builder->getInt1Ty()), Builder->CreateICmpSGE(left->getLLVMValue(), right->getLLVMValue()));
                 return;
             }
             break;
@@ -1006,10 +996,10 @@ void Codegen::visit(const BinaryOp *node) {
             if (finalType == nullptr)
                 break;
             else if (finalType->is(TY_FLOAT)) {
-                result = new Value("", new Type(TY_BOOL), Builder->CreateFCmpOLT(left->getLLVMValue(), right->getLLVMValue()));
+                result = new Value("", new Type(TY_BOOL, Builder->getInt1Ty()), Builder->CreateFCmpOLT(left->getLLVMValue(), right->getLLVMValue()));
                 return;
             } else if (finalType->is(TY_INT)) {
-                result = new Value("", new Type(TY_BOOL), Builder->CreateICmpSLT(left->getLLVMValue(), right->getLLVMValue()));
+                result = new Value("", new Type(TY_BOOL, Builder->getInt1Ty()), Builder->CreateICmpSLT(left->getLLVMValue(), right->getLLVMValue()));
                 return;
             }
             break;
@@ -1020,10 +1010,10 @@ void Codegen::visit(const BinaryOp *node) {
             if (finalType == nullptr)
                 break;
             else if (finalType->is(TY_FLOAT)) {
-                result = new Value("", new Type(TY_BOOL), Builder->CreateFCmpOLE(left->getLLVMValue(), right->getLLVMValue()));
+                result = new Value("", new Type(TY_BOOL, Builder->getInt1Ty()), Builder->CreateFCmpOLE(left->getLLVMValue(), right->getLLVMValue()));
                 return;
             } else if (finalType->is(TY_INT)) {
-                result = new Value("", new Type(TY_BOOL), Builder->CreateICmpSLE(left->getLLVMValue(), right->getLLVMValue()));
+                result = new Value("", new Type(TY_BOOL, Builder->getInt1Ty()), Builder->CreateICmpSLE(left->getLLVMValue(), right->getLLVMValue()));
                 return;
             }
             break;
@@ -1032,14 +1022,14 @@ void Codegen::visit(const BinaryOp *node) {
                 throw CodegenError(node->getSpan(), "Cannot use non-booleans for and: {} - {}",
                                    node->getLeft()->toString(SourceManager.get(), "", true), node->getRight()->toString(SourceManager.get(), "", true));
 
-            result = new Value("", new Type(TY_BOOL), Builder->CreateLogicalAnd(left->getLLVMValue(), right->getLLVMValue()));
+            result = new Value("", new Type(TY_BOOL, Builder->getInt1Ty()), Builder->CreateLogicalAnd(left->getLLVMValue(), right->getLLVMValue()));
             return;
         case TokenType::OR:
             if (!left->getType()->is(TY_BOOL) && !right->getType()->is(TY_BOOL))
                 throw CodegenError(node->getSpan(), "Cannot use non-booleans for or: {} - {}",
                                    node->getLeft()->toString(SourceManager.get(), "", true), node->getRight()->toString(SourceManager.get(), "", true));
 
-            result = new Value("", new Type(TY_BOOL), Builder->CreateLogicalOr(left->getLLVMValue(), right->getLLVMValue()));
+            result = new Value("", new Type(TY_BOOL, Builder->getInt1Ty()), Builder->CreateLogicalOr(left->getLLVMValue(), right->getLLVMValue()));
             return;
         default:
             throw CodegenError(node->getSpan(), "Unimplemented binary operator: {}", NAMEOF_ENUM(node->getOperator()));
@@ -1082,8 +1072,10 @@ void Codegen::visit(const DotOp *node) {
                 auto enum_ptr = Builder->CreateAlloca(struct_val->getType()->getLLVMType());
                 auto field = Builder->CreateStructGEP(struct_val->getType()->getLLVMType(), enum_ptr, 0);
                 Builder->CreateStore(Builder->getInt8(val), field);
+                // TODO: Returning the enum directly or a ptr to it? We used to return a pointer
+                auto enum_val = Builder->CreateLoad(struct_val->getType()->getLLVMType(), enum_ptr);
 
-                result = new Value("", struct_val->getType(), enum_ptr);
+                result = new Value("", struct_val->getType(), enum_val);
                 return;
             } else if (type_sym->is(TY_IMPORT)) {
                 std::string field;
@@ -1224,15 +1216,15 @@ void Codegen::visit(const Literal *node) {
     else if (node->getType() == TokenType::STRING)
         result = new Value("", new Type(TY_STRING, Builder->getInt8PtrTy()), Builder->CreateGlobalStringPtr(node->getValue()));
     else if (node->getType() == TokenType::NIL)
-        result = new Value("", new Type(TY_VOID, Builder->getInt8PtrTy()), ConstantPointerNull::getNullValue(Builder->getInt8PtrTy(0)));
+        result = new Value("", new Type(TY_VOID, Builder->getVoidTy()), ConstantPointerNull::getNullValue(Builder->getInt8PtrTy(0)));
     else if (node->getType() == TokenType::IDENTIFIER) {
         // Look this variable up in the function.
         auto val = Scope->lookup(node->getValue());
         if (val == nullptr)
             throw CodegenError(node->getSpan(), "Unknown variable name {}", node->getValue());
 
-        if (val->getType()->isOneOf({TY_CLASS, TY_ENUM})) {
-            // If it's a struct, don't load the value
+        if (val->getType()->isOneOf({TY_CLASS})) {
+            // If it's a class, don't load the value
             result = val;
         } else {
             // Load the value.
@@ -1365,19 +1357,8 @@ lesma::Type *Codegen::GetExtendedType(lesma::Type *left, lesma::Type *right) {
 }
 
 lesma::Value *Codegen::Cast(llvm::SMRange span, lesma::Value *val, lesma::Type *type) {
-    return Cast(span, val, type, false);
-}
-
-lesma::Value *Codegen::Cast(llvm::SMRange span, lesma::Value *val, lesma::Type *type, bool isStore) {
-    // TODO: Fix me pls
-    // If the target cast type is null
-    if (type == nullptr)
-        return val;
     // If they're the same type
     if (*val->getType() == *type)
-        return val;
-
-    if ((isStore && *val->getType()->getElementType() == *type) || (isStore && *val->getType() == *type->getElementType()) || (val->getType()->is(TY_PTR) && val->getType()->getElementType()->isOneOf({TY_CLASS, TY_ENUM})))
         return val;
 
     if (type->is(TY_INT)) {
