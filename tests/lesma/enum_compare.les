@@ -1,4 +1,4 @@
-#ret=101
+#ret=65
 def extern exit(x: int)
 enum Color
     RED
