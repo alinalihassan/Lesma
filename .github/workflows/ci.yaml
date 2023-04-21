@@ -51,6 +51,8 @@ jobs:
           path: 'vcpkg.json'
           prop_path: 'builtin-baseline'
 
+      - run: echo "${{ steps.vcpkg_hash.outputs.propStr }}"
+
       - name: Install CMake & Ninja
         uses: lukka/get-cmake@v3.26.0
 
