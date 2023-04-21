@@ -4,8 +4,8 @@
 #include "liblesma/Frontend/Parser.h"
 #include "liblesma/JIT/LesmaJIT.h"
 #include "liblesma/Symbol/SymbolTable.h"
-#include <clang/Driver/Driver.h>
 #include <filesystem>
+#include <lld/Common/Driver.h>
 #include <llvm/Analysis/CGSCCPassManager.h>
 #include <llvm/Analysis/LoopAnalysisManager.h>
 #include <llvm/ExecutionEngine/ExecutionEngine.h>
@@ -18,6 +18,7 @@
 #include <llvm/Linker/Linker.h>
 #include <llvm/MC/TargetRegistry.h>
 #include <llvm/Passes/PassBuilder.h>
+#include <llvm/Support/FileSystem.h>
 #include <llvm/Support/Host.h>
 #include <llvm/Support/Program.h>
 #include <llvm/Support/TargetSelect.h>

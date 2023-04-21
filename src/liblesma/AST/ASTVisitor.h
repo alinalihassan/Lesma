@@ -30,7 +30,7 @@ namespace lesma {
     class TypeExpr;
     class ASTVisitor {
     public:
-        ~ASTVisitor() = default;
+        virtual ~ASTVisitor() = default;
 
         virtual void visit(const Statement *node) = 0;
         virtual void visit(const Compound *node) = 0;

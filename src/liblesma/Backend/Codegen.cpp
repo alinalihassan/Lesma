@@ -282,46 +282,43 @@ void Codegen::WriteToObjectFile(const std::string &output) {
 }
 
 void Codegen::LinkObjectFile(const std::string &obj_filename) {
-    auto clangPath = llvm::sys::findProgramByName("clang");
-    if (clangPath.getError())
-        throw CodegenError({}, "Unable to find clang path");
-
     std::string output = getBasename(obj_filename);
 
-    std::vector<const char *> args;
-    args.push_back(clangPath.get().c_str());
+    llvm::SmallVector<const char *, 16> args;
+    args.push_back("lld");
+    args.push_back("-o");
+    args.push_back(output.c_str());
     args.push_back(obj_filename.c_str());
     for (const auto &obj: ObjectFiles)
         args.push_back(obj.c_str());
-    args.push_back("-o");
-    args.push_back(output.c_str());
 #ifdef __APPLE__
+    args.push_back("-arch");
+    args.push_back("arm64");
+    args.push_back("-platform_version");
+    args.push_back("macos");// platform
+    args.push_back("11.0"); // min version
+    args.push_back("11.0"); // sdk version
     args.push_back("-L");
     args.push_back("/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/lib");
     args.push_back("-lSystem");
 #endif
 
-    auto DiagOpts = new clang::DiagnosticOptions();
-    auto DiagID = new clang::DiagnosticIDs();
-    clang::DiagnosticsEngine Diags(DiagID, &*DiagOpts);
-    clang::driver::Driver TheDriver(args[0], llvm::sys::getDefaultTargetTriple(), Diags);
-
-    // Create the set of actions to perform
-    auto compilation = TheDriver.BuildCompilation(args);
-
-    // Carry out the actions
-    int Res = 0;
-    SmallVector<std::pair<int, const clang::driver::Command *>, 4> FailingCommands;
-    if (compilation)
-        Res = TheDriver.ExecuteCompilation(*compilation, FailingCommands);
-
-    if (Res)
+    // Run the LLD linker
+    bool success = false;
+#ifdef __APPLE__
+    success = lld::macho::link(args, llvm::outs(), llvm::errs(), false, true);
+#elif defined(_WIN32)
+    success = lld::coff::link(args, llvm::outs(), llvm::errs(), false, true);
+#else
+    success = lld::elf::link(args, llvm::outs(), llvm::errs(), false, true);
+#endif
+    if (!success)
         throw CodegenError({}, "Linking Failed");
 
     // Remove object files
-    remove(obj_filename.c_str());
+    llvm::sys::fs::remove(obj_filename);
     for (const auto &obj: ObjectFiles)
-        remove(obj.c_str());
+        llvm::sys::fs::remove(obj);
 }
 
 int Codegen::JIT() {

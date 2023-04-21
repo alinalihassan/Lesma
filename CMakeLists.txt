@@ -1,20 +1,25 @@
 cmake_minimum_required(VERSION 3.24)
 
-# Include other Cmake files
-include(cmake/CPM.cmake)
-include(cmake/VersionFromGit.cmake)
-
 # Lesma build options
-option(LESMA_BUILD_CLI "Build Lesma Compiler CLI" ON)
-option(LESMA_BUILD_TESTS "Build Lesma Tests" OFF)
-option(LESMA_BUILD_DIST "Build Lesma Distributable" OFF)
-
-# Get version
-if (NOT DEFINED LESMA_VERSION OR "${LESMA_VERSION}" STREQUAL "")
-  version_from_git(INCLUDE_HASH OFF)
-else ()
-  set(VERSION ${LESMA_VERSION})
+option(LESMA_BUILD_CLI "Build CLI" OFF)
+if (LESMA_BUILD_CLI)
+  list(APPEND VCPKG_MANIFEST_FEATURES "cli")
 endif ()
+
+option(LESMA_BUILD_TESTS "Build Tests" OFF)
+if (LESMA_BUILD_TESTS)
+  list(APPEND VCPKG_MANIFEST_FEATURES "tests")
+endif ()
+
+option(LESMA_BUILD_TESTS "Build Tests" OFF)
+if (LESMA_BUILD_DIST)
+  list(APPEND VCPKG_MANIFEST_FEATURES "dist")
+endif ()
+
+# Get version from vcpkg
+file(READ ${CMAKE_CURRENT_SOURCE_DIR}/vcpkg.json VCPKG_MANIFEST)
+string(JSON LESMA_VERSION GET ${VCPKG_MANIFEST} version)
+set(VERSION ${LESMA_VERSION})
 
 # Project
 project(Lesma VERSION ${VERSION} DESCRIPTION "Lesma Compiler")
@@ -31,12 +36,8 @@ add_definitions(${CMAKE_CXX_FLAGS} -Wall -Wextra -Wpedantic -frtti)
 set(CMAKE_CXX_FLAGS_RELEASE "-O3")
 
 # External dependencies
-CPMAddPackage("gh:Neargye/nameof@0.10.3")
-CPMAddPackage(
-  NAME fmt
-  GIT_TAG 9.1.0
-  GITHUB_REPOSITORY fmtlib/fmt
-)
+find_package(fmt CONFIG REQUIRED)
+find_package(nameof CONFIG REQUIRED)
 
 # Directories
 get_filename_component(ROOT_DIR ${CMAKE_CURRENT_SOURCE_DIR} ABSOLUTE)
@@ -65,22 +66,28 @@ if (EXISTS "${LLVM_DIR}" AND IS_DIRECTORY "${LLVM_DIR}") # Prefer local LLVM ins
 endif ()
 
 # LLVM configuration
-find_package(LLVM 16 CONFIG REQUIRED)
+find_package(LLVM 15 CONFIG REQUIRED)
+
 message(STATUS "Found LLVM ${LLVM_PACKAGE_VERSION}")
 message(STATUS "Using LLVMConfig.cmake from ${LLVM_DIR}")
 
-include_directories(SYSTEM ${LLVM_INCLUDE_DIRS})
+list(APPEND CMAKE_MODULE_PATH "${LLVM_CMAKE_DIR}")
+include(HandleLLVMOptions)
 add_definitions(${LLVM_DEFINITIONS})
+
+#include_directories(SYSTEM ${LLVM_INCLUDE_DIRS})
+#add_definitions(${LLVM_DEFINITIONS})
 
 llvm_map_components_to_libnames(LLVM_LIBS core support demangle mcjit native orcjit)
 
-# Clang configuration
-find_package(Clang REQUIRED)
+# LLD configuration
+find_package(LLD CONFIG REQUIRED)
 
-include_directories(SYSTEM ${CLANG_INCLUDE_DIRS})
-add_definitions(${CLANG_DEFINITIONS})
+message(STATUS "Found LLDConfig.cmake in ${LLD_CMAKE_DIR}")
 
-set(CLANG_LIBS clangTooling)
+include_directories(SYSTEM ${LLD_INCLUDE_DIRS})
+
+set(LLD_LIBS lldCommon lldELF lldCOFF lldMachO)
 
 # Executable configuration
 set(LIB_NAME lesma)
@@ -99,7 +106,7 @@ set(COMMON_SOURCES
 file(COPY ${STDLIB_DIR} DESTINATION $ENV{HOME}/.lesma/)
 
 # Libraries required for the compiler itself
-set(COMMON_LIBS ${LLVM_LIBS} ${CLANG_LIBS} fmt nameof)
+set(COMMON_LIBS ${LLVM_LIBS} ${LLD_LIBS} fmt::fmt nameof::nameof)
 
 # Lesma Library
 
@@ -114,20 +121,20 @@ target_include_directories(${LIB_NAME} PUBLIC
 # CLI
 if (LESMA_BUILD_CLI)
   message(STATUS "Building Lesma CLI")
-  CPMAddPackage("gh:CLIUtils/CLI11@2.3.2")
+  find_package(CLI11 CONFIG REQUIRED)
 
   set(CLI_NAME lesmac)
   set(CLI_SOURCES src/cli/main.cpp)
 
   add_executable(${CLI_NAME} ${CLI_SOURCES})
-  target_link_libraries(${CLI_NAME} PRIVATE ${LIB_NAME} CLI11)
+  target_link_libraries(${CLI_NAME} PRIVATE ${LIB_NAME} CLI11::CLI11)
   set_target_properties(${CLI_NAME} PROPERTIES OUTPUT_NAME ${LIB_NAME})
 endif ()
 
 # Tests
 if (LESMA_BUILD_TESTS)
   message(STATUS "Building Lesma Tests")
-  CPMAddPackage("gh:catchorg/Catch2@3.3.2")
+  find_package(Catch2 CONFIG REQUIRED)
 
   set(TESTS_NAME tests)
   set(TEST_SOURCES tests/test.cpp)

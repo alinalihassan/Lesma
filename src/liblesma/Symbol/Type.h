@@ -42,10 +42,10 @@ namespace lesma {
         bool signedInt = true;
 
     public:
-        explicit Type(BaseType baseType) : baseType(baseType), llvmType(nullptr), elementType(nullptr), fields() {}
-        explicit Type(BaseType baseType, llvm::Type *llvmType) : baseType(baseType), llvmType(llvmType), elementType(nullptr), fields() {}
-        explicit Type(BaseType baseType, llvm::Type *llvmType, Type *elementType) : baseType(baseType), llvmType(llvmType), elementType(elementType), fields() {}
-        explicit Type(BaseType baseType, llvm::Type *llvmType, std::vector<std::unique_ptr<Field>> fields) : baseType(baseType), llvmType(llvmType), elementType(nullptr), fields(std::move(fields)) {}
+        explicit Type(BaseType baseType) : baseType(baseType), llvmType(nullptr), elementType(nullptr), returnType(nullptr), fields() {}
+        explicit Type(BaseType baseType, llvm::Type *llvmType) : baseType(baseType), llvmType(llvmType), elementType(nullptr), returnType(nullptr), fields() {}
+        explicit Type(BaseType baseType, llvm::Type *llvmType, Type *elementType) : baseType(baseType), llvmType(llvmType), elementType(elementType), returnType(nullptr), fields() {}
+        explicit Type(BaseType baseType, llvm::Type *llvmType, std::vector<std::unique_ptr<Field>> fields) : baseType(baseType), llvmType(llvmType), elementType(nullptr), returnType(nullptr), fields(std::move(fields)) {}
 
         [[nodiscard]] bool is(BaseType type) const { return baseType == type; }
         [[nodiscard]] bool isPrimitive() const { return isOneOf({TY_INT, TY_FLOAT, TY_STRING, TY_BOOL}); }
@@ -70,8 +70,7 @@ namespace lesma {
         friend bool operator!=(const Type &lhs, const Type &rhs) {
             return !(lhs == rhs);
         }
-
-
+        
         [[nodiscard]] std::string toString() const {
             std::string result;
 
@@ -111,9 +110,6 @@ namespace lesma {
                     break;
                 case TY_IMPORT:
                     result = "Import";
-                    break;
-                default:
-                    result = "Unknown";
                     break;
             }
 
