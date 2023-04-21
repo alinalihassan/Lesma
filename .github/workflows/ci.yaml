@@ -44,30 +44,28 @@ jobs:
           author_email: clang-robot@lesma.com
           message: 'Committing clang-format changes'
 
-      - name: Cache LLVM and Clang
-        id: cache-llvm
-        uses: actions/cache@v2
+      - name: Get vcpkg commit hash
+        id: vcpkg_hash
+        uses: notiz-dev/github-action-json-property@release
         with:
-          path: |
-            C:/Program Files/LLVM
-            ./llvm
-          key: llvm-14.0-${{ matrix.os }}
+          path: 'vcpkg.json'
+          prop_path: 'builtin-baseline'
 
-      - name: Install LLVM and Clang
-        uses: KyleMayes/install-llvm-action@v1
+      - name: Install CMake & Ninja
+        uses: lukka/get-cmake@v3.26.0
+
+      - name: Setup vcpkg
+        uses: lukka/run-vcpkg@11
+        id: runvcpkg
         with:
-          version: "14.0"
-          cached: ${{ steps.cache-llvm.outputs.cache-hit }}
+          vcpkgGitCommitId: '${{ steps.vcpkg_hash.outputs.propStr }}'
 
-      - name: Install Ninja
-        uses: seanmiddleditch/gha-setup-ninja@master
-
-      - name: Build
-        env:
-          CUR_VERSION: ${{ steps.semantic-check.outputs.new_release_published && steps.semantic-check.outputs.new_release_version || '' }}
-        run: |
-          cmake -B ${{github.workspace}}/build -G Ninja -DCMAKE_BUILD_TYPE=${{env.BUILD_TYPE}} -DLESMA_VERSION=$CUR_VERSION -DLESMA_BUILD_TESTS=ON -DLESMA_BUILD_DIST=ON
-          cmake --build ${{github.workspace}}/build --config ${{env.BUILD_TYPE}}
+      - name: Run CMake with Ninja
+        uses: lukka/run-cmake@v10
+        with:
+          cmakeListsTxtPath: '${{ github.workspace }}/cmakepresets/CMakeLists.txt'
+          configurePreset: 'ninja-multi-vcpkg'
+          buildPreset: 'ninja-multi-vcpkg'
 
       - name: Test
         working-directory: ${{github.workspace}}/build

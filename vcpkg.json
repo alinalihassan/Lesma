@@ -6,6 +6,9 @@
   "documentation": "https://lesma-lang.com/docs/introduction/what-is-lesma",
   "license": "MIT",
   "supports": "osx and linux",
+  "maintainers": [
+    "Alin Ali Hassan <hassanalinali@gmail.com>"
+  ],
   "builtin-baseline": "501db0f17ef6df184fcdbfbe0f87cde2313b6ab1",
   "dependencies": [
     {
