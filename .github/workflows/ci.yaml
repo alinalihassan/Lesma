@@ -82,11 +82,11 @@ jobs:
           buildPreset: 'Release_Dist'
 
       - name: Test
-        working-directory: ${{github.workspace}}/build
+        working-directory: ${{github.workspace}}/build/Release
         run: ctest -C ${{env.BUILD_TYPE}} --rerun-failed --output-on-failure
 
       - name: Package Artifact
-        working-directory: ${{github.workspace}}/build
+        working-directory: ${{github.workspace}}/build/Release
         run: ninja package
 
       - uses: actions/upload-artifact@v3
