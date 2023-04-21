@@ -72,7 +72,6 @@ jobs:
       - name: Setup vcpkg
         uses: lukka/run-vcpkg@v11.1
         with:
-          runVcpkgInstall: true
           vcpkgGitCommitId: '${{ steps.vcpkg_hash.outputs.prop }}'
 
       - name: Run CMake with Ninja
