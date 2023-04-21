@@ -11,9 +11,14 @@ if (LESMA_BUILD_TESTS)
   list(APPEND VCPKG_MANIFEST_FEATURES "tests")
 endif ()
 
-option(LESMA_BUILD_TESTS "Build Tests" OFF)
+option(LESMA_BUILD_DIST "Build Dist" OFF)
 if (LESMA_BUILD_DIST)
   list(APPEND VCPKG_MANIFEST_FEATURES "dist")
+endif ()
+
+option(LESMA_BUILD_LLVM "Build LLVM" OFF)
+if (LESMA_BUILD_LLVM)
+  list(APPEND VCPKG_MANIFEST_FEATURES "build-llvm")
 endif ()
 
 # Get version from vcpkg
