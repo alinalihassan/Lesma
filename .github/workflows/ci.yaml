@@ -55,17 +55,15 @@ jobs:
         uses: lukka/get-cmake@v3.26.0
 
       - name: Setup vcpkg
-        uses: lukka/run-vcpkg@latest
-        id: runvcpkg
+        uses: lukka/run-vcpkg@v11.1
         with:
           vcpkgGitCommitId: '${{ steps.vcpkg_hash.outputs.propStr }}'
 
       - name: Run CMake with Ninja
         uses: lukka/run-cmake@v10
         with:
-          cmakeListsTxtPath: '${{ github.workspace }}/cmakepresets/CMakeLists.txt'
-          configurePreset: 'ninja-multi-vcpkg'
-          buildPreset: 'ninja-multi-vcpkg'
+          configurePreset: 'Release'
+          buildPreset: 'Release'
 
       - name: Test
         working-directory: ${{github.workspace}}/build
