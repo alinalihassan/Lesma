@@ -46,6 +46,7 @@ namespace lesma {
         [[nodiscard]] bool isUsed() const { return used; }
 
         void setLLVMValue(llvm::Value *value) { llvmValue = value; }
+        void setName(std::string name_) { name = std::move(name_); }
         void setUsed(bool used_) { used = used_; }
         void setSigned(bool signed_) { mutableVar = signed_; }
         void setMutable(bool mutable_) { mutableVar = mutable_; }

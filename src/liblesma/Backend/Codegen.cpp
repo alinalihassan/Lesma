@@ -425,6 +425,9 @@ void Codegen::visit(const VarDecl *node) {
     lesma::Type *type;
     lesma::Value *val;
 
+    // TODO: We shouldn't need to use this
+    bool isClass = false;
+
     if (node->getValue().has_value()) {
         node->getValue().value()->accept(*this);
         val = result;
@@ -438,6 +441,10 @@ void Codegen::visit(const VarDecl *node) {
 
     auto ptr = Builder->CreateAlloca(type->getLLVMType(), nullptr, node->getIdentifier()->getValue());
 
+    if (type->is(TY_CLASS)) {
+        type = new Type(TY_PTR, Builder->getPtrTy(), type);
+        isClass = true;
+    }
     auto symbol = new Value(node->getIdentifier()->getValue(), type, node->getType().has_value() ? INITIALIZED : DECLARED);
     symbol->setLLVMValue(ptr);
     symbol->setMutable(node->getMutability());
@@ -445,7 +452,7 @@ void Codegen::visit(const VarDecl *node) {
 
     // Convert declared value to declared type implicitly
     if (node->getValue().has_value()) {
-        Builder->CreateStore(Cast(node->getSpan(), val, type)->getLLVMValue(), ptr);
+        Builder->CreateStore(Cast(node->getSpan(), val, isClass ? type->getElementType() : type)->getLLVMValue(), ptr);
     }
 }
 
@@ -545,13 +552,17 @@ void Codegen::visit(const FuncDecl *node) {
     std::vector<llvm::Type *> paramLLVMTypes;
 
     if (selfSymbol != nullptr) {
-        // TODO: Should we add self to the lesma::Type/Field list?
-        paramTypes.push_back(selfSymbol->getType()->getElementType());
+        paramTypes.push_back(selfSymbol->getType());
         paramLLVMTypes.push_back(selfSymbol->getType()->getLLVMType()->getPointerTo());
+        fields.push_back(std::make_unique<Field>(Field{"self", selfSymbol->getType()}));
     }
 
     for (auto param: node->getParameters()) {
         param->type->accept(*this);
+        // If it's a class type, we mean to pass a pointer to a class
+        if (result->getType()->is(TY_CLASS)) {
+            result = new Value("", new Type(TY_PTR, Builder->getPtrTy(), result->getType()));
+        }
         paramTypes.push_back(result->getType());
         paramLLVMTypes.push_back(result->getType()->getLLVMType());
         fields.push_back(std::make_unique<Field>(Field{param->name, result->getType()}));
@@ -571,6 +582,8 @@ void Codegen::visit(const FuncDecl *node) {
     Scope->insertSymbol(func_symbol);
 
     Prototypes.emplace_back(func_symbol, node, selfSymbol);
+    // Even though it's a statement, we pass the func symbol to result so parent classes can modify them
+    result = func_symbol;
 }
 
 void Codegen::visit(const ExternFuncDecl *node) {
@@ -578,7 +591,7 @@ void Codegen::visit(const ExternFuncDecl *node) {
     std::vector<llvm::Type *> paramLLVMTypes;
 
     if (selfSymbol != nullptr) {
-        // TODO: Should we add self to the lesma::Type/Field list?
+        paramTypes.push_back(std::make_unique<Field>(Field{"self", selfSymbol->getType()}));
         paramLLVMTypes.push_back(selfSymbol->getType()->getLLVMType()->getPointerTo());
     }
 
@@ -602,16 +615,15 @@ void Codegen::visit(const ExternFuncDecl *node) {
     }
 
     auto func_symbol = new Value(node->getName(), new Type(BaseType::TY_FUNCTION, F.getFunctionType(), std::move(paramTypes)), F.getCallee());
-    // TODO: Might not have a proper return type if the function already existed in the if statement.
     func_symbol->getType()->setReturnType(ret_type);
     func_symbol->setExported(node->isExported());
     Scope->insertSymbol(func_symbol);
 }
 
-// TODO: Remake using lesma::Type instead of LLVM Type
 void Codegen::visit(const Assignment *node) {
     lesma::Value *lhs;
     isAssignment = true;
+    bool isPtr = false;
     if (dynamic_cast<Literal *>(node->getLeftHandSide())) {
         auto lit = dynamic_cast<Literal *>(node->getLeftHandSide());
         auto symbol = Scope->lookup(lit->getValue());
@@ -623,14 +635,16 @@ void Codegen::visit(const Assignment *node) {
         lhs = symbol;
     } else if (dynamic_cast<DotOp *>(node->getLeftHandSide())) {
         node->getLeftHandSide()->accept(*this);
-        lhs = new Value(result->getType());
+        lhs = result;
+        //TODO: Fix me, for some reason self.x is a ptr but x is not
+        isPtr = true;
     } else {
         throw CodegenError(node->getSpan(), "Unable to assign {} to {}", node->getRightHandSide()->toString(SourceManager.get(), "", true), node->getLeftHandSide()->toString(SourceManager.get(), "", true));
     }
     isAssignment = false;
 
     node->getRightHandSide()->accept(*this);
-    auto value = Cast(node->getSpan(), result, lhs->getType());
+    auto value = Cast(node->getSpan(), result, isPtr ? lhs->getType()->getElementType() : lhs->getType());
     llvm::Value *var_val;
 
     switch (node->getOperator()) {
@@ -784,12 +798,14 @@ void Codegen::visit(const Class *node) {
     Scope->insertType(node->getIdentifier(), type);
     Scope->insertSymbol(structSymbol);
 
-    selfSymbol = structSymbol;
+    selfSymbol = new Value(node->getIdentifier(), new Type(TY_PTR, structType->getPointerTo(), type));
     auto has_constructor = false;
     for (auto func: node->getMethods()) {
-        if (func->getName() == "new")
-            has_constructor = true;
         func->accept(*this);
+        if (func->getName() == "new") {
+            has_constructor = true;
+            structSymbol->setConstructor(result);
+        }
     }
 
     if (!has_constructor)
@@ -818,7 +834,6 @@ void Codegen::visit(const FuncCall *node) {
     result = genFuncCall(node, {});
 }
 
-// TODO: Migrate from LLVM Type to Lesma Type
 void Codegen::visit(const BinaryOp *node) {
     node->getLeft()->accept(*this);
     lesma::Value *left = result;
@@ -1104,7 +1119,13 @@ void Codegen::visit(const DotOp *node) {
         } else {
             // Assuming it's a class instance
             left->accept(*this);
-            if (!(result->getType()->is(TY_PTR) && result->getType()->getElementType()->is(TY_ENUM)))
+            // We refer to the class type, if it's a pointer, we get the result
+            lesma::Type *lesma_type = result->getType();
+            if (result->getType()->is(TY_PTR) && result->getType()->getElementType()->is(TY_CLASS)) {
+                lesma_type = result->getType()->getElementType();
+            }
+
+            if (!lesma_type->is(TY_CLASS))
                 throw CodegenError(node->getLeft()->getSpan(), "Cannot apply dot accessor on {}", left->getValue());
 
             std::string field;
@@ -1113,12 +1134,17 @@ void Codegen::visit(const DotOp *node) {
             if (!dynamic_cast<Literal *>(node->getRight()) && !dynamic_cast<FuncCall *>(node->getRight()))
                 throw CodegenError(node->getRight()->getSpan(), "Expected identifier or method call right-hand of dot operator, found {}", node->getRight()->toString(SourceManager.get(), "", true));
 
-            if (dynamic_cast<Literal *>(node->getRight()) && dynamic_cast<Literal *>(node->getRight())->getType() == TokenType::IDENTIFIER)
+            if (dynamic_cast<Literal *>(node->getRight()) && dynamic_cast<Literal *>(node->getRight())->getType() == TokenType::IDENTIFIER) {
                 field = dynamic_cast<Literal *>(node->getRight())->getValue();
-            else
+            } else {
                 method = dynamic_cast<FuncCall *>(node->getRight());
+            }
 
-            auto cls = Scope->lookupStructByName(result->getType()->getLLVMType()->getStructName().str());
+            // TODO: Somehow, when we call a class method with a variable x,
+            //  we lose the class name from cls, so we set it again
+            auto cls = Scope->lookupStructByName(lesma_type->getLLVMType()->getStructName().str());
+            cls->setName(lesma_type->getLLVMType()->getStructName().str());
+
             if (cls->getType()->is(TY_CLASS)) {
                 if (!field.empty()) {
                     auto index = FindIndexInFields(cls->getType(), field);
@@ -1141,6 +1167,8 @@ void Codegen::visit(const DotOp *node) {
                     result = ret_val;
                     return;
                 }
+            } else {
+                throw CodegenError(node->getLeft()->getSpan(), "Cannot find related class {}", lesma_type->getLLVMType()->getStructName().str());
             }
         }
     }
@@ -1408,7 +1436,7 @@ lesma::Value *Codegen::genFuncCall(const FuncCall *node, const std::vector<lesma
     llvm::Value *class_ptr = nullptr;
     if (class_sym != nullptr && class_sym->getType()->is(TY_CLASS)) {
         // It's a class constructor, allocate and add self param
-        class_ptr = Builder->CreateAlloca(class_sym->getType()->getLLVMType(), nullptr);
+        class_ptr = Builder->CreateAlloca(class_sym->getType()->getLLVMType());
         paramsLLVM.insert(paramsLLVM.begin(), class_ptr);
         paramTypes.insert(paramTypes.begin(), new Type(TY_PTR, Builder->getPtrTy(), class_sym->getType()));
 
@@ -1422,20 +1450,21 @@ lesma::Value *Codegen::genFuncCall(const FuncCall *node, const std::vector<lesma
     // Get function without name mangling in case of extern C functions
     symbol = symbol == nullptr ? Scope->lookup(node->getName()) : symbol;
 
-    if (symbol == nullptr)
+    if (symbol == nullptr) {
         throw CodegenError(node->getSpan(), "Function {} not in current scope.", node->getName());
+    }
 
-    if (!symbol->getType()->getLLVMType()->isFunctionTy())
-        throw CodegenError(node->getSpan(), "Symbol {} is not a function.", node->getName());
+    if (!symbol->getType()->isOneOf({TY_CLASS, TY_FUNCTION}))
+        throw CodegenError(node->getSpan(), "Symbol {} is not a function or constructor.", node->getName());
 
-    auto *func = cast<Function>(symbol->getLLVMValue());
+    auto *func = cast<Function>(symbol->getType()->is(TY_CLASS) ? symbol->getConstructor()->getLLVMValue() : symbol->getLLVMValue());
     if (class_sym != nullptr && class_sym->getType()->is(TY_CLASS)) {
         Builder->CreateCall(func, paramsLLVM);
-        auto val = Builder->CreateLoad(class_sym->getType()->getLLVMType(), class_ptr);
         selfSymbol = selfSymbolTmp;
 
-        return new Value("", class_sym->getType(), val);
+        return new Value("", class_sym->getType(), class_ptr);
     }
+
     return new Value("", symbol->getType()->getReturnType(), Builder->CreateCall(func, paramsLLVM));
 }
 
