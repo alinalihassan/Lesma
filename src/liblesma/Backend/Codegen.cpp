@@ -274,11 +274,19 @@ void Codegen::WriteToObjectFile(const std::string &output) {
     std::error_code err;
     auto out = llvm::raw_fd_ostream(output + ".o", err);
 
+    if (err) {
+        throw CodegenError({}, "Error opening file {} for writing: {}", output, err.message());
+    }
+    
     llvm::legacy::PassManager passManager;
     if (TargetMachine->addPassesToEmitFile(passManager, out, nullptr, llvm::CGFT_ObjectFile))
         throw CodegenError({}, "Target Machine can't emit an object file");
     // Emit object file
     passManager.run(*TheModule);
+
+    // Flush and close the file
+    out.flush();
+    out.close();
 }
 
 void Codegen::LinkObjectFile(const std::string &obj_filename) {

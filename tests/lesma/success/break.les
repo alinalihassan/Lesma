@@ -1,4 +1,3 @@
-#ret=101
 def extern exit(x: int)
 var x: int = 5
 
@@ -7,4 +6,5 @@ while true
         break
     x = x + 1
 
-exit(x)
+if x != 101
+	exit(1)

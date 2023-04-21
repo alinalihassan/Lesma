@@ -1,15 +1,21 @@
-#include <catch2/catch_test_macros.hpp>
 #include <catch2/benchmark/catch_benchmark.hpp>
+#include <catch2/catch_test_macros.hpp>
 #include <fmt/printf.h>
 
 #include "liblesma/Backend/Codegen.h"
 #include "liblesma/Common/Utils.h"
+#include "liblesma/Driver/Driver.h"
 #include "liblesma/Frontend/Lexer.h"
 #include "liblesma/Frontend/Parser.h"
 
+#include <filesystem>
+#include <fstream>
+#include <sstream>
+#include <vector>
+
 using namespace lesma;
 
-std::shared_ptr<SourceMgr> initializeSrcMgr(const std::string& source) {
+std::shared_ptr<SourceMgr> initializeSrcMgr(const std::string &source) {
     // Configure Source Manager
     std::shared_ptr<SourceMgr> srcMgr = std::make_shared<SourceMgr>(SourceMgr());
 
@@ -19,7 +25,7 @@ std::shared_ptr<SourceMgr> initializeSrcMgr(const std::string& source) {
     return srcMgr;
 }
 
-Lexer *initializeLexer(const std::shared_ptr<SourceMgr>& srcMgr) {
+Lexer *initializeLexer(const std::shared_ptr<SourceMgr> &srcMgr) {
     auto lexer = new Lexer(srcMgr);
     lexer->ScanAll();
 
@@ -42,7 +48,7 @@ Codegen *initializeCodegen(Parser *parser, std::shared_ptr<SourceMgr> srcMgr) {
     return codegen;
 }
 
-llvm::SMRange getRange(const std::string& source, int x, int y) {
+llvm::SMRange getRange(const std::string &source, int x, int y) {
     return {llvm::SMLoc::getFromPointer(source.c_str() + x), llvm::SMLoc::getFromPointer(source.c_str() + y)};
 }
 
@@ -57,7 +63,7 @@ TEST_CASE("Lexer", "Tokens") {
 
     REQUIRE(lexer->getTokens().size() > 1);
 
-    std::vector<Token*> tokens = {
+    std::vector<Token *> tokens = {
             new Token{TokenType::VAR, "var", getRange(source, 0, 3)},
             new Token{TokenType::IDENTIFIER, "y", getRange(source, 4, 5)},
             new Token{TokenType::COLON, ":", getRange(source, 5, 6)},
@@ -81,7 +87,7 @@ TEST_CASE("Lexer", "Tokens") {
         initializeLexer(srcMgr);
     };
 
-    for (auto [a, b] : zip(tokens, lexer->getTokens()))
+    for (auto [a, b]: zip(tokens, lexer->getTokens()))
         REQUIRE(*a == *b);
 }
 
@@ -141,4 +147,60 @@ TEST_CASE("Codegen", "Run & Optimize") {
         cg->Optimize(OptimizationLevel::O3);
         cg->JIT();
     };
+}
+
+std::string get_directory() {
+    namespace fs = std::filesystem;
+    fs::path current_file_path(__FILE__);
+    fs::path repository_directory = current_file_path.parent_path();
+    return repository_directory.string();
+}
+
+std::vector<std::string> collect_test_files(const std::string &test_folder) {
+    std::vector<std::string> test_files;
+    for (const auto &entry: std::filesystem::directory_iterator(test_folder)) {
+        if (entry.is_regular_file()) {
+            test_files.push_back(entry.path().string());
+        }
+    }
+    return test_files;
+}
+
+TEST_CASE("Lesma Run and Compile", "[lesma]") {
+    std::string directory = get_directory();
+    auto success_test_files = collect_test_files(directory + "/lesma/success");
+    auto failure_test_files = collect_test_files(directory + "/lesma/failure");
+
+    for (const auto &test_file: success_test_files) {
+        SECTION("Testing file: " + test_file) {
+            auto options = std::make_unique<lesma::Options>(Options{lesma::FILE, test_file});
+            fmt::print("Test file: {}\n", test_file);
+
+            int run_ret_value = lesma::Driver::Run(std::move(options));
+            print("{}\n", run_ret_value);
+            REQUIRE(run_ret_value == 0);
+            fmt::print("File ran\n");
+
+            options = std::make_unique<lesma::Options>(Options{lesma::FILE, test_file, NONE, fmt::format("{}/output_{}", directory, test_file)});
+            int compile_ret_value = lesma::Driver::Compile(std::move(options));
+            REQUIRE(compile_ret_value == 0);
+            fmt::print("File compiled\n");
+        }
+    }
+
+    for (const auto &test_file: failure_test_files) {
+        SECTION("Testing file: " + test_file) {
+            auto options = std::make_unique<lesma::Options>(Options{lesma::FILE, test_file});
+            fmt::print("Test file: {}\n", test_file);
+
+            int run_ret_value = lesma::Driver::Run(std::move(options));
+            REQUIRE(run_ret_value != 0);
+            fmt::print("File ran\n");
+
+            options = std::make_unique<lesma::Options>(Options{lesma::FILE, test_file, NONE, fmt::format("{}/output_{}", directory, test_file)});
+            int compile_ret_value = lesma::Driver::Compile(std::move(options));
+            REQUIRE(compile_ret_value != 0);
+            fmt::print("File compiled\n");
+        }
+    }
 }

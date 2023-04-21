@@ -16,4 +16,5 @@ test*.les
 
 # File system specific
 **/.DS_Store
+**/*.o
 .cache/

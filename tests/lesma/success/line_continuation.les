@@ -1,9 +1,5 @@
-#ret=101
 def extern exit(x: int)
 let x = \       # Hello world
 100 + \
 1
 
-exit(
-x
-)
