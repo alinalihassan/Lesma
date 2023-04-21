@@ -70,7 +70,7 @@ namespace lesma {
         friend bool operator!=(const Type &lhs, const Type &rhs) {
             return !(lhs == rhs);
         }
-        
+
         [[nodiscard]] std::string toString() const {
             std::string result;
 
