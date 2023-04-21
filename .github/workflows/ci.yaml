@@ -55,7 +55,7 @@ jobs:
         uses: lukka/get-cmake@v3.26.0
 
       - name: Setup vcpkg
-        uses: lukka/run-vcpkg@11
+        uses: lukka/run-vcpkg@latest
         id: runvcpkg
         with:
           vcpkgGitCommitId: '${{ steps.vcpkg_hash.outputs.propStr }}'
