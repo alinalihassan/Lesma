@@ -1189,9 +1189,9 @@ void Codegen::visit(const IsOp *node) {
     llvm::Value *val;
 
     if (node->getOperator() == TokenType::IS) {
-        val = left_type == right_type ? Builder->getTrue() : Builder->getFalse();
+        val = *left_type == *right_type ? Builder->getTrue() : Builder->getFalse();
     } else {
-        val = left_type == right_type ? Builder->getFalse() : Builder->getTrue();
+        val = *left_type == *right_type ? Builder->getFalse() : Builder->getTrue();
     }
 
     result = new Value("", new Type(TY_BOOL, Builder->getInt1Ty()), val);
