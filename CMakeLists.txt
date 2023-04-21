@@ -31,7 +31,7 @@ add_definitions(${CMAKE_CXX_FLAGS} -Wall -Wextra -Wpedantic -frtti)
 set(CMAKE_CXX_FLAGS_RELEASE "-O3")
 
 # External dependencies
-CPMAddPackage("gh:Neargye/nameof@0.10.2")
+CPMAddPackage("gh:Neargye/nameof@0.10.3")
 CPMAddPackage(
   NAME fmt
   GIT_TAG 9.1.0
@@ -127,7 +127,7 @@ endif ()
 # Tests
 if (LESMA_BUILD_TESTS)
   message(STATUS "Building Lesma Tests")
-  CPMAddPackage("gh:catchorg/Catch2@3.2.1")
+  CPMAddPackage("gh:catchorg/Catch2@3.3.2")
 
   set(TESTS_NAME tests)
   set(TEST_SOURCES tests/test.cpp)
