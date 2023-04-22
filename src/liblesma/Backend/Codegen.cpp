@@ -563,14 +563,34 @@ void Codegen::visit(const FuncDecl *node) {
     }
 
     for (auto param: node->getParameters()) {
-        param->type->accept(*this);
-        // If it's a class type, we mean to pass a pointer to a class
-        if (result->getType()->is(TY_CLASS)) {
-            result = new Value("", new Type(TY_PTR, Builder->getPtrTy(), result->getType()));
+        lesma::Value *typeResult = nullptr;
+        lesma::Value *defaultValResult = nullptr;
+
+        // Check if it has either a type or a value or both
+        if (param->type) {
+            param->type->accept(*this);
+            typeResult = result;
         }
-        paramTypes.push_back(result->getType());
-        paramLLVMTypes.push_back(result->getType()->getLLVMType());
-        fields.push_back(std::make_unique<Field>(Field{param->name, result->getType()}));
+        if (param->default_val) {
+            param->default_val->accept(*this);
+            defaultValResult = result;
+            if (!typeResult) {
+                typeResult = defaultValResult;
+            }
+        }
+
+        // If it's a class type, we mean to pass a pointer to a class
+        if (typeResult->getType()->is(TY_CLASS)) {
+            typeResult = new Value("", new Type(TY_PTR, Builder->getPtrTy(), result->getType()));
+        }
+
+        if (defaultValResult != nullptr && *typeResult->getType() != *defaultValResult->getType()) {
+            throw CodegenError(node->getSpan(), "Declared parameter type and default value do not match for {}", param->name);
+        }
+
+        paramTypes.push_back(typeResult->getType());
+        paramLLVMTypes.push_back(typeResult->getType()->getLLVMType());
+        fields.push_back(std::make_unique<Field>(Field{param->name, typeResult->getType(), defaultValResult}));
     }
 
     auto name = getMangledName(node->getSpan(), node->getName(), paramTypes, selfSymbol != nullptr);

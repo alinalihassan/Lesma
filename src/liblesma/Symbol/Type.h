@@ -1,5 +1,6 @@
 #pragma once
 
+#include "liblesma/Symbol/Value.h"
 #include <algorithm>
 #include <llvm/IR/Type.h>
 #include <map>
@@ -26,10 +27,12 @@ namespace lesma {
     };
 
     class Type;
+    class Value;
 
     struct Field {
         std::string name;
         Type *type;
+        Value *defaultValue = nullptr;
     };
 
     class Type {
@@ -65,7 +68,7 @@ namespace lesma {
         void setReturnType(lesma::Type *type) { returnType = type; }
 
         friend bool operator==(const Type &lhs, const Type &rhs) {
-            return lhs.getBaseType() == rhs.getBaseType();
+            return lhs.getBaseType() == rhs.getBaseType() && lhs.getElementType() == rhs.getElementType();
         }
         friend bool operator!=(const Type &lhs, const Type &rhs) {
             return !(lhs == rhs);
