@@ -113,22 +113,22 @@ namespace lesma {
         }
     };
 
-    class Type : public Expression {
+    class TypeExpr : public Expression {
         std::string name;
         TokenType type;
 
         // Pointer fields
-        Type *elementType;
+        TypeExpr *elementType;
 
         // Function fields
-        std::vector<Type *> params;
-        Type *ret;
+        std::vector<TypeExpr *> params;
+        TypeExpr *ret;
 
     public:
-        Type(llvm::SMRange Loc, std::string name, TokenType type) : Expression(Loc), name(std::move(name)), type(type), elementType(nullptr), ret(nullptr) {}
-        Type(llvm::SMRange Loc, std::string name, TokenType type, Type *elementType) : Expression(Loc), name(std::move(name)), type(type), elementType(elementType), ret(nullptr) {}
-        Type(llvm::SMRange Loc, std::string name, TokenType type, std::vector<Type *> params, Type *ret) : Expression(Loc), name(std::move(name)), type(type), elementType(nullptr), params(std::move(params)), ret(ret) {}
-        ~Type() override {
+        TypeExpr(llvm::SMRange Loc, std::string name, TokenType type) : Expression(Loc), name(std::move(name)), type(type), elementType(nullptr), ret(nullptr) {}
+        TypeExpr(llvm::SMRange Loc, std::string name, TokenType type, TypeExpr *elementType) : Expression(Loc), name(std::move(name)), type(type), elementType(elementType), ret(nullptr) {}
+        TypeExpr(llvm::SMRange Loc, std::string name, TokenType type, std::vector<TypeExpr *> params, TypeExpr *ret) : Expression(Loc), name(std::move(name)), type(type), elementType(nullptr), params(std::move(params)), ret(ret) {}
+        ~TypeExpr() override {
             for (auto param: params)
                 delete param;
 
@@ -141,9 +141,9 @@ namespace lesma {
 
         [[nodiscard]] [[maybe_unused]] std::string getName() const { return name; }
         [[nodiscard]] [[maybe_unused]] TokenType getType() const { return type; }
-        [[nodiscard]] [[maybe_unused]] Type *getElementType() const { return elementType; }
-        [[nodiscard]] [[maybe_unused]] std::vector<Type *> getParams() const { return params; }
-        [[nodiscard]] [[maybe_unused]] Type *getReturnType() const { return ret; }
+        [[nodiscard]] [[maybe_unused]] TypeExpr *getElementType() const { return elementType; }
+        [[nodiscard]] [[maybe_unused]] std::vector<TypeExpr *> getParams() const { return params; }
+        [[nodiscard]] [[maybe_unused]] TypeExpr *getReturnType() const { return ret; }
 
         std::string toString(llvm::SourceMgr * /*srcMgr*/, const std::string & /*prefix*/, bool /*isTail*/) const override {
             return name;
@@ -218,12 +218,12 @@ namespace lesma {
 
     class VarDecl : public Statement {
         Literal *var;
-        std::optional<Type *> type;
+        std::optional<TypeExpr *> type;
         std::optional<Expression *> expr;
         bool mutable_;
 
     public:
-        VarDecl(llvm::SMRange Loc, Literal *var, std::optional<Type *> type, std::optional<Expression *> expr, bool readonly) : Statement(Loc), var(var), type(type), expr(expr), mutable_(readonly) {}
+        VarDecl(llvm::SMRange Loc, Literal *var, std::optional<TypeExpr *> type, std::optional<Expression *> expr, bool readonly) : Statement(Loc), var(var), type(type), expr(expr), mutable_(readonly) {}
         ~VarDecl() override {
             delete var;
             if (type.has_value())
@@ -236,7 +236,7 @@ namespace lesma {
         }
 
         [[nodiscard]] [[maybe_unused]] Literal *getIdentifier() const { return var; }
-        [[nodiscard]] [[maybe_unused]] std::optional<Type *> getType() const { return type; }
+        [[nodiscard]] [[maybe_unused]] std::optional<TypeExpr *> getType() const { return type; }
         [[nodiscard]] [[maybe_unused]] std::optional<Expression *> getValue() const { return expr; }
         [[nodiscard]] [[maybe_unused]] bool getMutability() const { return mutable_; }
 
@@ -325,11 +325,11 @@ namespace lesma {
     class Parameter {
     public:
         std::string name;
-        Type *type;
+        TypeExpr *type;
         bool optional;
         Expression *default_val;
 
-        Parameter(std::string name, Type *type, bool optional = false, Expression *default_val = nullptr) : name(std::move(name)), type(type), optional(optional), default_val(default_val) {}
+        Parameter(std::string name, TypeExpr *type, bool optional = false, Expression *default_val = nullptr) : name(std::move(name)), type(type), optional(optional), default_val(default_val) {}
 
         ~Parameter() {
             delete type;
@@ -339,14 +339,14 @@ namespace lesma {
 
     class FuncDecl : public Statement {
         std::string name;
-        Type *return_type;
+        TypeExpr *return_type;
         std::vector<Parameter *> parameters;
         Compound *body;
         bool varargs;
         bool exported;
 
     public:
-        FuncDecl(llvm::SMRange Loc, std::string name, Type *return_type,
+        FuncDecl(llvm::SMRange Loc, std::string name, TypeExpr *return_type,
                  std::vector<Parameter *> parameters, Compound *body, bool varargs, bool exported) : Statement(Loc), name(std::move(name)), return_type(return_type), parameters(std::move(parameters)),
                                                                                                      body(body), varargs(varargs), exported(exported) {}
         ~FuncDecl() override {
@@ -361,7 +361,7 @@ namespace lesma {
         }
 
         [[nodiscard]] [[maybe_unused]] std::string getName() const { return name; }
-        [[nodiscard]] [[maybe_unused]] Type *getReturnType() const { return return_type; }
+        [[nodiscard]] [[maybe_unused]] TypeExpr *getReturnType() const { return return_type; }
         [[nodiscard]] [[maybe_unused]] std::vector<Parameter *> getParameters() const { return parameters; }
         [[nodiscard]] [[maybe_unused]] Compound *getBody() const { return body; }
         [[nodiscard]] [[maybe_unused]] bool getVarArgs() const { return varargs; }
@@ -390,13 +390,13 @@ namespace lesma {
 
     class ExternFuncDecl : public Statement {
         std::string name;
-        Type *return_type;
+        TypeExpr *return_type;
         std::vector<Parameter *> parameters;
         bool varargs;
         bool exported;
 
     public:
-        ExternFuncDecl(llvm::SMRange Loc, std::string name, Type *return_type,
+        ExternFuncDecl(llvm::SMRange Loc, std::string name, TypeExpr *return_type,
                        std::vector<Parameter *> parameters, bool varargs, bool exported) : Statement(Loc), name(std::move(name)), return_type(return_type), parameters(std::move(parameters)), varargs(varargs), exported(exported) {}
 
         ~ExternFuncDecl() override {
@@ -410,7 +410,7 @@ namespace lesma {
         }
 
         [[nodiscard]] [[maybe_unused]] std::string getName() const { return name; }
-        [[nodiscard]] [[maybe_unused]] Type *getReturnType() const { return return_type; }
+        [[nodiscard]] [[maybe_unused]] TypeExpr *getReturnType() const { return return_type; }
         [[nodiscard]] [[maybe_unused]] std::vector<Parameter *> getParameters() const { return parameters; }
         [[nodiscard]] [[maybe_unused]] bool getVarArgs() const { return varargs; }
         [[nodiscard]] [[maybe_unused]] bool isExported() const { return exported; }
@@ -547,10 +547,10 @@ namespace lesma {
     class IsOp : public Expression {
         Expression *left;
         TokenType op;
-        Type *right;
+        TypeExpr *right;
 
     public:
-        IsOp(llvm::SMRange Loc, Expression *left, TokenType op, Type *right) : Expression(Loc), left(left), op(op), right(right) {}
+        IsOp(llvm::SMRange Loc, Expression *left, TokenType op, TypeExpr *right) : Expression(Loc), left(left), op(op), right(right) {}
         ~IsOp() override {
             delete left;
             delete right;
@@ -561,7 +561,7 @@ namespace lesma {
 
         [[nodiscard]] [[maybe_unused]] Expression *getLeft() const { return left; }
         [[nodiscard]] [[maybe_unused]] TokenType getOperator() const { return op; }
-        [[nodiscard]] [[maybe_unused]] Type *getRight() const { return right; }
+        [[nodiscard]] [[maybe_unused]] TypeExpr *getRight() const { return right; }
 
         std::string toString(llvm::SourceMgr *srcMgr, const std::string &prefix, bool isTail) const override {
             return left->toString(srcMgr, prefix, isTail) + " " + std::string{NAMEOF_ENUM(op)} + " " + right->toString(srcMgr, prefix, isTail);
@@ -570,10 +570,10 @@ namespace lesma {
 
     class CastOp : public Expression {
         Expression *expr;
-        Type *type;
+        TypeExpr *type;
 
     public:
-        CastOp(llvm::SMRange Loc, Expression *expr, Type *type) : Expression(Loc), expr(expr), type(type) {}
+        CastOp(llvm::SMRange Loc, Expression *expr, TypeExpr *type) : Expression(Loc), expr(expr), type(type) {}
         ~CastOp() override {
             delete expr;
             delete type;
@@ -583,7 +583,7 @@ namespace lesma {
         }
 
         [[nodiscard]] [[maybe_unused]] Expression *getExpression() const { return expr; }
-        [[nodiscard]] [[maybe_unused]] Type *getType() const { return type; }
+        [[nodiscard]] [[maybe_unused]] TypeExpr *getType() const { return type; }
 
         std::string toString(llvm::SourceMgr *srcMgr, const std::string &prefix, bool isTail) const override {
             return expr->toString(srcMgr, prefix, isTail) + " as " + type->toString(srcMgr, prefix, isTail);

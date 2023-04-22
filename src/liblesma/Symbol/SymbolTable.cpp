@@ -8,7 +8,7 @@ using namespace lesma;
  *
  * @param entry Symbol Table Entry
  */
-void SymbolTable::insertSymbol(SymbolTableEntry *entry) {
+void SymbolTable::insertSymbol(Value *entry) {
     symbols.insert_or_assign(entry->getName(), entry);
 }
 
@@ -17,7 +17,7 @@ void SymbolTable::insertSymbol(SymbolTableEntry *entry) {
  *
  * @param entry Symbol Table Entry
  */
-void SymbolTable::insertType(const std::string &name, SymbolType *type) {
+void SymbolTable::insertType(const std::string &name, Type *type) {
     types.insert_or_assign(name, type);
 }
 
@@ -27,7 +27,7 @@ void SymbolTable::insertType(const std::string &name, SymbolType *type) {
  * @param name Name of the desired symbol
  * @return Desired symbol / nullptr if the symbol was not found
  */
-SymbolTableEntry *SymbolTable::lookup(const std::string &name) {
+Value *SymbolTable::lookup(const std::string &name) {
     if (symbols.find(name) == symbols.end()) {
         if (parent == nullptr) return nullptr;
         return parent->lookup(name);
@@ -42,10 +42,10 @@ SymbolTableEntry *SymbolTable::lookup(const std::string &name) {
  * @param name Name of the desired symbol
  * @return Desired symbol / nullptr if the symbol was not found
  */
-SymbolTableEntry *SymbolTable::lookupStructByName(const std::string &name) {
+Value *SymbolTable::lookupStructByName(const std::string &name) {
     for (auto sym: symbols) {
-        if (sym.second->getLLVMType() != nullptr && sym.second->getLLVMType()->isStructTy() &&
-            llvm::cast<llvm::StructType>(sym.second->getLLVMType())->getName() == name)
+        if (sym.second->getType()->getLLVMType() != nullptr && sym.second->getType()->isOneOf({TY_CLASS, TY_ENUM}) &&
+            llvm::cast<llvm::StructType>(sym.second->getType()->getLLVMType())->getName() == name)
             return sym.second;
     }
 
@@ -59,7 +59,7 @@ SymbolTableEntry *SymbolTable::lookupStructByName(const std::string &name) {
  * @param name Name of the desired symbol
  * @return Desired symbol / nullptr if the symbol was not found
  */
-SymbolType *SymbolTable::lookupType(const std::string &name) {
+Type *SymbolTable::lookupType(const std::string &name) {
     if (types.find(name) == types.end()) {
         if (parent == nullptr) return nullptr;
         return parent->lookupType(name);

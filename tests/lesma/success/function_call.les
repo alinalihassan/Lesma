@@ -1,6 +1,6 @@
-#ret=101
 def extern exit(x: int)
 export def fib() -> int
     return 101
 
-exit(fib())
+if fib() != 101
+	exit(1)

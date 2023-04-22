@@ -7,7 +7,6 @@ cmake-build-debug/
 cmake-build-release/
 cmake-build-debug-coverage/
 build/
-llvm/
 
 # Version file
 src/liblesma/Common/LesmaVersion.h
@@ -17,3 +16,5 @@ test*.les
 
 # File system specific
 **/.DS_Store
+**/*.o
+.cache/

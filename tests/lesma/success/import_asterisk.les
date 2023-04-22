@@ -1,5 +1,5 @@
-#ret=101
 def extern exit(x: int)
 from "function_call.les" import *
 
-exit(fib())
+if fib() != 101
+	exit(1)

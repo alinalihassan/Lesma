@@ -4,8 +4,8 @@
 #include "liblesma/Frontend/Parser.h"
 #include "liblesma/JIT/LesmaJIT.h"
 #include "liblesma/Symbol/SymbolTable.h"
-#include <clang/Driver/Driver.h>
 #include <filesystem>
+#include <lld/Common/Driver.h>
 #include <llvm/Analysis/CGSCCPassManager.h>
 #include <llvm/Analysis/LoopAnalysisManager.h>
 #include <llvm/ExecutionEngine/ExecutionEngine.h>
@@ -18,6 +18,7 @@
 #include <llvm/Linker/Linker.h>
 #include <llvm/MC/TargetRegistry.h>
 #include <llvm/Passes/PassBuilder.h>
+#include <llvm/Support/FileSystem.h>
 #include <llvm/Support/Host.h>
 #include <llvm/Support/Program.h>
 #include <llvm/Support/TargetSelect.h>
@@ -45,8 +46,7 @@ namespace lesma {
         SymbolTable *Scope;
         std::string filename;
         std::string alias;
-        llvm::Value *result;
-        llvm::Type *result_type;
+        lesma::Value *result = nullptr;
 
         std::stack<llvm::BasicBlock *> breakBlocks;
         std::stack<llvm::BasicBlock *> continueBlocks;
@@ -54,9 +54,9 @@ namespace lesma {
 
         std::vector<std::string> ObjectFiles;
         std::vector<std::string> ImportedModules;
-        std::vector<std::tuple<Function *, const FuncDecl *, SymbolTableEntry *>> Prototypes;
+        std::vector<std::tuple<lesma::Value *, const FuncDecl *, Value *>> Prototypes;
         llvm::Function *TopLevelFunc;
-        SymbolTableEntry *selfSymbol = nullptr;
+        Value *selfSymbol = nullptr;
         bool isBreak = false;
         bool isReturn = false;
         bool isAssignment = false;
@@ -109,20 +109,24 @@ namespace lesma {
         void visit(const Literal *node) override;
         void visit(const Else *node) override;
 
-        void visit(const lesma::Type *node) override;
+        void visit(const TypeExpr *node) override;
 
         // TODO: Helper functions, move them out somewhere
-        static SymbolType *getType(llvm::Type *type);
-        llvm::Value *Cast(llvm::SMRange span, llvm::Value *val, llvm::Type *type);
-        llvm::Value *Cast(llvm::SMRange span, llvm::Value *val, llvm::Type *type, bool isStore);
-        static llvm::Type *GetExtendedType(llvm::Type *left, llvm::Type *right);
+        // Type related helper functions
+        lesma::Value *Cast(llvm::SMRange span, lesma::Value *val, lesma::Type *type);
+        static lesma::Type *GetExtendedType(lesma::Type *left, lesma::Type *right);
+
+        // Name mangling functions and such
         static bool isMethod(const std::string &mangled_name);
-        std::string getMangledName(llvm::SMRange span, std::string func_name, const std::vector<llvm::Type *> &paramTypes, bool isMethod = false, std::string alias = "");
+        std::string getMangledName(llvm::SMRange span, std::string func_name, const std::vector<lesma::Type *> &paramTypes, bool isMethod = false, std::string alias = "");
         [[maybe_unused]] static bool isMangled(std::string name);
         static std::string getDemangledName(const std::string &mangled_name);
-        std::string getTypeMangledName(llvm::SMRange span, llvm::Type *type);
-        llvm::Value *genFuncCall(const FuncCall *node, const std::vector<llvm::Value *> &extra_params);
-        static int FindIndexInFields(SymbolType *_struct, const std::string &field);
-        void defineFunction(Function *F, const FuncDecl *node, SymbolTableEntry *clsSymbol);
+        std::string getTypeMangledName(llvm::SMRange span, lesma::Type *type);
+
+        // Other
+        lesma::Value *genFuncCall(const FuncCall *node, const std::vector<lesma::Value *> &extra_params);
+        static int FindIndexInFields(Type *_struct, const std::string &field);
+        static lesma::Type *FindTypeInFields(Type *_struct, const std::string &field);
+        void defineFunction(lesma::Value *value, const FuncDecl *node, Value *clsSymbol);
     };
 }// namespace lesma
