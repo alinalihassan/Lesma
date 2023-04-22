@@ -134,7 +134,7 @@ jobs:
         uses: sergeysova/jq-action@v2
         id: version
         with:
-          cmd: 'jq .version=${{ steps.semantic.outputs.new_release_version }} vspkg.json > vspkg.json'
+          cmd: 'jq .version="${{ steps.semantic.outputs.new_release_version }}" vspkg.json > vspkg.json'
 
       - name: Commit and push changes
         run: |
