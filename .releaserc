@@ -39,6 +39,13 @@
         ]
       }
     ],
-    "@semantic-release/git"
+    [
+      "@semantic-release/git",
+      {
+        "assets": [
+          "vcpkg.json"
+        ]
+      }
+    ]
   ]
 }
