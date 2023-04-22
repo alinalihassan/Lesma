@@ -1,4 +1,3 @@
-#ret=101
 def extern exit(x: int)
 export class Animal
     var x: int
@@ -11,7 +10,8 @@ export class Animal
 
 var z = Animal()
 
-def testClass(x: Animal)
-    exit(x.getX())
+def testClass(x: Animal) -> int
+    return x.getX()
 
-testClass(z)
+if testClass(z) != 101
+	exit(1)

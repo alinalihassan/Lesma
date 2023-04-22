@@ -1,6 +1,6 @@
-#ret=101
 def extern exit(x: int)
 let y: float = 101.5
 let z: int = y as int
 
-exit(z)
+if z != 101
+	exit(1)

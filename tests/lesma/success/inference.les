@@ -1,4 +1,4 @@
-#ret=101
 def extern exit(x: int)
 let x = 101
-exit(x)
+if x is not int
+	exit(1)

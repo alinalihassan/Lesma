@@ -1,0 +1,119 @@
+{
+  "version": 6,
+  "cmakeMinimumRequired": {
+    "major": 3,
+    "minor": 20,
+    "patch": 0
+  },
+  "configurePresets": [
+    {
+      "name": "Debug",
+      "displayName": "Debug",
+      "description": "Configures the project for debugging",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/Debug",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "LESMA_BUILD_CLI": "ON",
+        "LESMA_BUILD_TESTS": "ON",
+        "CMAKE_TOOLCHAIN_FILE": {
+          "type": "FILEPATH",
+          "value": "$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake"
+        }
+      }
+    },
+    {
+      "name": "Release",
+      "displayName": "Release",
+      "description": "Configures the project for release",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/Release",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "LESMA_BUILD_CLI": "ON",
+        "LESMA_BUILD_TESTS": "ON",
+        "CMAKE_TOOLCHAIN_FILE": {
+          "type": "FILEPATH",
+          "value": "$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake"
+        }
+      }
+    },
+    {
+      "name": "Release_Dist",
+      "displayName": "Release and Distribute",
+      "description": "Configures the project for release and create distributable",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/Release",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "LESMA_BUILD_CLI": "ON",
+        "LESMA_BUILD_TESTS": "ON",
+        "LESMA_BUILD_DIST": "ON",
+        "CMAKE_TOOLCHAIN_FILE": {
+          "type": "FILEPATH",
+          "value": "$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake"
+        }
+      }
+    }
+  ],
+  "buildPresets": [
+    {
+      "name": "Debug",
+      "configurePreset": "Debug"
+    },
+    {
+      "name": "Release",
+      "configurePreset": "Release"
+    },
+    {
+      "name": "Release_Dist",
+      "configurePreset": "Release_Dist"
+    }
+  ],
+  "testPresets": [
+    {
+      "name": "Debug",
+      "configurePreset": "Debug"
+    },
+    {
+      "name": "Release",
+      "configurePreset": "Release"
+    }
+  ],
+  "workflowPresets": [
+    {
+      "name": "Debug Workflow",
+      "steps": [
+        {
+          "type": "configure",
+          "name": "Debug"
+        },
+        {
+          "type": "build",
+          "name": "Debug"
+        },
+        {
+          "type": "test",
+          "name": "Debug"
+        }
+      ]
+    },
+    {
+      "name": "Release Workflow",
+      "steps": [
+        {
+          "type": "configure",
+          "name": "Release"
+        },
+        {
+          "type": "build",
+          "name": "Release"
+        },
+        {
+          "type": "test",
+          "name": "Release"
+        }
+      ]
+    }
+  ]
+}

@@ -24,10 +24,12 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v3
         with:
+          repository: ${{ github.event.pull_request.head.repo.full_name }}
+          ref: ${{ github.event.pull_request.head.ref }}
           fetch-depth: 0
 
-      - name : Clang Format
-        if:  ${{ matrix.os == 'ubuntu-latest' }}
+      - name: Clang Format
+        if: ${{ matrix.os == 'ubuntu-latest' }}
         uses: DoozyX/clang-format-lint-action@v0.15
         with:
           source: './src/'
@@ -38,8 +40,8 @@ jobs:
       - name: Commit formatting diff
         uses: EndBug/add-and-commit@v9
         with:
-          author_name: Clang Robot
-          author_email: clang-robot@lesma.com
+          author_name: GitHub
+          author_email: github_action@lesma.com
           message: 'Committing clang-format changes'
 
       - name: Cache LLVM and Clang
@@ -49,30 +51,41 @@ jobs:
           path: |
             C:/Program Files/LLVM
             ./llvm
-          key: llvm-14.0-${{ matrix.os }}
+          key: llvm-15.0-${{ matrix.os }}
 
       - name: Install LLVM and Clang
         uses: KyleMayes/install-llvm-action@v1
         with:
-          version: "14.0"
+          version: "15.0"
           cached: ${{ steps.cache-llvm.outputs.cache-hit }}
 
-      - name: Install Ninja
-        uses: seanmiddleditch/gha-setup-ninja@master
+      - name: Get vcpkg commit hash
+        id: vcpkg_hash
+        uses: notiz-dev/github-action-json-property@release
+        with:
+          path: 'vcpkg.json'
+          prop_path: 'builtin-baseline'
 
-      - name: Build
-        env:
-          CUR_VERSION: ${{ steps.semantic-check.outputs.new_release_published && steps.semantic-check.outputs.new_release_version || '' }}
-        run: |
-          cmake -B ${{github.workspace}}/build -G Ninja -DCMAKE_BUILD_TYPE=${{env.BUILD_TYPE}} -DLESMA_VERSION=$CUR_VERSION -DLESMA_BUILD_TESTS=ON -DLESMA_BUILD_DIST=ON
-          cmake --build ${{github.workspace}}/build --config ${{env.BUILD_TYPE}}
+      - name: Install CMake & Ninja
+        uses: lukka/get-cmake@v3.26.0
+
+      - name: Setup vcpkg
+        uses: lukka/run-vcpkg@v11.1
+        with:
+          vcpkgGitCommitId: '${{ steps.vcpkg_hash.outputs.prop }}'
+
+      - name: Run CMake with Ninja
+        uses: lukka/run-cmake@v10
+        with:
+          configurePreset: 'Release_Dist'
+          buildPreset: 'Release_Dist'
 
       - name: Test
-        working-directory: ${{github.workspace}}/build
+        working-directory: ${{github.workspace}}/build/Release
         run: ctest -C ${{env.BUILD_TYPE}} --rerun-failed --output-on-failure
 
       - name: Package Artifact
-        working-directory: ${{github.workspace}}/build
+        working-directory: ${{github.workspace}}/build/Release
         run: ninja package
 
       - uses: actions/upload-artifact@v3
@@ -115,3 +128,18 @@ jobs:
             @semantic-release/git
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Update vcpkg.json version
+        if: steps.semantic.outputs.new_release_published == 'true'
+        uses: sergeysova/jq-action@v2
+        id: version
+        with:
+          cmd: 'jq .version=${{ steps.semantic.outputs.new_release_version }} vspkg.json > vspkg.json'
+
+      - name: Commit and push changes
+        run: |
+          git config user.name "GitHub"
+          git config user.email "github_action@lesma.com"
+          git add vcpkg.json
+          git commit -m "Update version in vcpkg.json to ${{ steps.semantic.outputs.new_release_version }}"
+          git push

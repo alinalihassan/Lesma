@@ -1,0 +1,4 @@
+def extern exit(x: int)
+
+if 2 * (10 + 5) + 2 * 10 + 5 + 46 != 101
+	exit(1)

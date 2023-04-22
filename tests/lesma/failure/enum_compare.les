@@ -1,5 +1,3 @@
-#ret=101
-def extern exit(x: int)
 enum Color
     RED
     BLUE
@@ -10,6 +8,5 @@ enum Color2
     BLUE
     GREEN
 
-#var x: Color = Color.RED
 if Color.RED != Color2.RED
-    exit(101)
+    let error = true
