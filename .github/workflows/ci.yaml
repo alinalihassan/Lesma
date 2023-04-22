@@ -40,8 +40,8 @@ jobs:
       - name: Commit formatting diff
         uses: EndBug/add-and-commit@v9
         with:
-          author_name: Clang Robot
-          author_email: clang-robot@lesma.com
+          author_name: GitHub
+          author_email: github_action@lesma.com
           message: 'Committing clang-format changes'
 
       - name: Cache LLVM and Clang
@@ -128,3 +128,18 @@ jobs:
             @semantic-release/git
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Update vcpkg.json version
+        if: steps.semantic.outputs.new_release_published == 'true'
+        uses: sergeysova/jq-action@v2
+        id: version
+        with:
+          cmd: 'jq .version=${{ steps.semantic.outputs.new_release_version }} vspkg.json > vspkg.json'
+
+      - name: Commit and push changes
+        run: |
+          git config user.name "GitHub"
+          git config user.email "github_action@lesma.com"
+          git add vcpkg.json
+          git commit -m "Update version in vcpkg.json to ${{ steps.semantic.outputs.new_release_version }}"
+          git push
