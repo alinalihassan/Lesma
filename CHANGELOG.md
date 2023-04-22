@@ -1,3 +1,10 @@
+## [0.17.7](https://github.com/alinalihassan/Lesma/compare/v0.17.6...v0.17.7) (2023-04-22)
+
+
+### Bug Fixes
+
+* fixed CHANGELOG no longer being updated ([ee4d9b5](https://github.com/alinalihassan/Lesma/commit/ee4d9b58392b3bb5446c91b2b1b3e525abd14095))
+
 ## [0.17.5](https://github.com/alinalihassan/Lesma/compare/v0.17.4...v0.17.5) (2023-04-22)
 
 
