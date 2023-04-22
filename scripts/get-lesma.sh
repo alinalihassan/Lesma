@@ -46,20 +46,19 @@ curl -s https://api.github.com/repos/alinalihassan/Lesma/releases/latest \
 | wget -qi -
 
 # Create Directory
-echo "Creating directory at ~/.lesma"
+echo "Creating directory at $HOME/.lesma"
 mkdir -p "$HOME/.lesma"
 
-# Untar in .lesma folder
+# Untar in .lesma folder and remove tmp files
 echo "Unzipped binary and standard library files"
-for z in Lesma-*.tar.gz; do tar -xf "$z" --strip-components=1 -C "$HOME/.lesma"; done
-
-# Remove tmp files
-for z in Lesma-*.tar.gz; do rm "$z"; done
+for z in Lesma-*.tar.gz; do
+  tar -xf "$z" --strip-components=1 -C "$HOME/.lesma"
+  rm "$z"
+done
 
 # Add directory to PATH
 if [[ ":$PATH:" == *":$HOME/.lesma/bin:"* ]]; then
-  # Directory already in PATH
-  true
+  echo "Lesma already in PATH"
 else
   if ask "Would you like to add Lesma to PATH?" >/dev/null; then
     if [ -f "$HOME/.bashrc" ]; then
