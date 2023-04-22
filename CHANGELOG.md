@@ -1,3 +1,10 @@
+## [0.17.1](https://github.com/alinalihassan/Lesma/compare/v0.17.0...v0.17.1) (2023-04-22)
+
+
+### Bug Fixes
+
+* fix vcpkg version bump ([926dc2c](https://github.com/alinalihassan/Lesma/commit/926dc2c2117c36ed55c6fce24f468faf4691c170))
+
 # [0.17.0](https://github.com/alinalihassan/Lesma/compare/v0.16.5...v0.17.0) (2023-04-22)
 
 
