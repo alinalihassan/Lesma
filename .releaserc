@@ -43,7 +43,8 @@
       "@semantic-release/git",
       {
         "assets": [
-          "vcpkg.json"
+          "vcpkg.json",
+          "CHANGELOG.md"
         ]
       }
     ]
