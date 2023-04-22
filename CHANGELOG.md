@@ -1,3 +1,11 @@
+## [0.17.3](https://github.com/alinalihassan/Lesma/compare/v0.17.2...v0.17.3) (2023-04-22)
+
+
+### Bug Fixes
+
+* fix ci trying to make new release when it shouldn't ([30c0ddc](https://github.com/alinalihassan/Lesma/commit/30c0ddc74f52be781975d0a1eda07033740d39bc))
+* trigger ci, updated docs ([2a3abf6](https://github.com/alinalihassan/Lesma/commit/2a3abf6c2185b44a54a27d2b9f19a9395976e594))
+
 ## [0.17.2](https://github.com/alinalihassan/Lesma/compare/v0.17.1...v0.17.2) (2023-04-22)
 
 
