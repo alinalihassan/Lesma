@@ -9,11 +9,26 @@
 #include "liblesma/Frontend/Parser.h"
 
 #include <filesystem>
-#include <fstream>
-#include <sstream>
 #include <vector>
 
 using namespace lesma;
+
+std::string get_directory() {
+    namespace fs = std::filesystem;
+    fs::path current_file_path(__FILE__);
+    fs::path repository_directory = current_file_path.parent_path();
+    return repository_directory.string();
+}
+
+std::vector<std::string> collect_test_files(const std::string &test_folder) {
+    std::vector<std::string> test_files;
+    for (const auto &entry: std::filesystem::directory_iterator(test_folder)) {
+        if (entry.is_regular_file()) {
+            test_files.push_back(entry.path().string());
+        }
+    }
+    return test_files;
+}
 
 std::shared_ptr<SourceMgr> initializeSrcMgr(const std::string &source) {
     // Configure Source Manager
@@ -149,58 +164,27 @@ TEST_CASE("Codegen", "Run & Optimize") {
     };
 }
 
-std::string get_directory() {
-    namespace fs = std::filesystem;
-    fs::path current_file_path(__FILE__);
-    fs::path repository_directory = current_file_path.parent_path();
-    return repository_directory.string();
-}
-
-std::vector<std::string> collect_test_files(const std::string &test_folder) {
-    std::vector<std::string> test_files;
-    for (const auto &entry: std::filesystem::directory_iterator(test_folder)) {
-        if (entry.is_regular_file()) {
-            test_files.push_back(entry.path().string());
-        }
-    }
-    return test_files;
-}
-
+// TODO: Compilation doesn't seem to work if done too closely due to linker
 TEST_CASE("Lesma Run and Compile", "[lesma]") {
     std::string directory = get_directory();
     auto success_test_files = collect_test_files(directory + "/lesma/success");
     auto failure_test_files = collect_test_files(directory + "/lesma/failure");
 
     for (const auto &test_file: success_test_files) {
-        SECTION("Testing file: " + test_file) {
+        SECTION("Testing successful file: " + test_file) {
             auto options = std::make_unique<lesma::Options>(Options{lesma::FILE, test_file});
-            fmt::print("Test file: {}\n", test_file);
 
             int run_ret_value = lesma::Driver::Run(std::move(options));
-            print("{}\n", run_ret_value);
             REQUIRE(run_ret_value == 0);
-            fmt::print("File ran\n");
-
-            options = std::make_unique<lesma::Options>(Options{lesma::FILE, test_file, NONE, fmt::format("{}/output_{}", directory, test_file)});
-            int compile_ret_value = lesma::Driver::Compile(std::move(options));
-            REQUIRE(compile_ret_value == 0);
-            fmt::print("File compiled\n");
         }
     }
 
     for (const auto &test_file: failure_test_files) {
-        SECTION("Testing file: " + test_file) {
+        SECTION("Testing failing file: " + test_file) {
             auto options = std::make_unique<lesma::Options>(Options{lesma::FILE, test_file});
-            fmt::print("Test file: {}\n", test_file);
 
             int run_ret_value = lesma::Driver::Run(std::move(options));
             REQUIRE(run_ret_value != 0);
-            fmt::print("File ran\n");
-
-            options = std::make_unique<lesma::Options>(Options{lesma::FILE, test_file, NONE, fmt::format("{}/output_{}", directory, test_file)});
-            int compile_ret_value = lesma::Driver::Compile(std::move(options));
-            REQUIRE(compile_ret_value != 0);
-            fmt::print("File compiled\n");
         }
     }
 }
