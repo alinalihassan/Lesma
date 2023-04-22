@@ -112,7 +112,7 @@ jobs:
 
       - name: Install Semantic Release Dependencies
         run: |
-          npm install -g @semantic-release/changelog @semantic-release/git
+          npm install -g @semantic-release/changelog @semantic-release/git @google/semantic-release-replace-plugin
 
       - name: Download Artifact
         uses: actions/download-artifact@v3
@@ -126,24 +126,6 @@ jobs:
           extra_plugins: |
             @semantic-release/changelog
             @semantic-release/git
+            @google/semantic-release-replace-plugin
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Update vcpkg.json version
-        if: steps.semantic.outputs.new_release_published == 'true'
-        uses: sergeysova/jq-action@v2
-        with:
-          cmd: 'jq ".version=\"${{ steps.semantic.outputs.new_release_version }}\"" vcpkg.json > vcpkg-updated.json'
-
-      - name: Move updated vcpkg.json
-        if: steps.semantic.outputs.new_release_published == 'true'
-        run: mv vcpkg-updated.json vcpkg.json
-
-      - name: Commit and push changes
-        if: steps.semantic.outputs.new_release_published == 'true'
-        run: |
-          git config user.name "GitHub"
-          git config user.email "github_action@lesma.com"
-          git add vcpkg.json
-          git commit -m "Update version in vcpkg.json to ${{ steps.semantic.outputs.new_release_version }}"
-          git push
