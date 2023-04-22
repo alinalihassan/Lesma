@@ -1,3 +1,26 @@
+# [0.17.0](https://github.com/alinalihassan/Lesma/compare/v0.16.5...v0.17.0) (2023-04-22)
+
+
+### Bug Fixes
+
+* added optional build-llvm feature ([8229bf6](https://github.com/alinalihassan/Lesma/commit/8229bf623e36eef9fce3905ddbe5f0e731cfd0be))
+* fixed dot operator not having proper error highlight ([322847f](https://github.com/alinalihassan/Lesma/commit/322847f4e9d0dfb1cd2f2a53c00946e31a7a9962))
+* Fixed enums ([f6a454f](https://github.com/alinalihassan/Lesma/commit/f6a454fad55754e28a8a43994c649f2f4ca5491e))
+* fixed imports for new lesma Values and Types refactor ([556bbcf](https://github.com/alinalihassan/Lesma/commit/556bbcfaae9fd99ba522b11b05bdba4a65f47140))
+* fixed is operator not comparing properly ([c0c78d6](https://github.com/alinalihassan/Lesma/commit/c0c78d6ddf8704057c68250ac777390aadbd843f))
+* fixing clang format on PRs ([9fbbf08](https://github.com/alinalihassan/Lesma/commit/9fbbf086839fdf25c265561fb505c49525299fae))
+* testing vcpkg ci/cd pipeline and CMakePresets ([82f633f](https://github.com/alinalihassan/Lesma/commit/82f633f717af64f63a1d25116694bfea6e9fbc10))
+* updated CMake version above LLVM one ([d519959](https://github.com/alinalihassan/Lesma/commit/d519959430d5b3243b03dc0165087d200c841120))
+
+
+### Features
+
+* Added support for failing cases ([40f88f9](https://github.com/alinalihassan/Lesma/commit/40f88f9f828695e7c2d5d9d2da17d2aae4847969))
+* fixed classes implementation ([87d3699](https://github.com/alinalihassan/Lesma/commit/87d3699052e04f88e68e1fded584d366dd04be2b))
+* massive refactoring, using our Value and Type classes instead of llvm's ([9fecfa6](https://github.com/alinalihassan/Lesma/commit/9fecfa65b010f22c67c9d982c3f8ea54778dfaf6))
+* migrated to vcpkg, migrated from clang to lld for compilation ([18e2081](https://github.com/alinalihassan/Lesma/commit/18e2081d6e0dbeceddcd6ac7bc3981a6a8d2296c))
+* remaking tests ([9a66738](https://github.com/alinalihassan/Lesma/commit/9a66738266fb3f8c9fe41dd38eae2c4ae7bc2a44))
+
 ## [0.16.5](https://github.com/alinalihassan/Lesma/compare/v0.16.4...v0.16.5) (2023-01-09)
 
 
