@@ -1,3 +1,69 @@
+## [0.17.7](https://github.com/alinalihassan/Lesma/compare/v0.17.6...v0.17.7) (2023-04-22)
+
+
+### Bug Fixes
+
+* fixed CHANGELOG no longer being updated ([ee4d9b5](https://github.com/alinalihassan/Lesma/commit/ee4d9b58392b3bb5446c91b2b1b3e525abd14095))
+
+## [0.17.5](https://github.com/alinalihassan/Lesma/compare/v0.17.4...v0.17.5) (2023-04-22)
+
+
+### Bug Fixes
+
+* trigger ci with improved workflow ([0edea4b](https://github.com/alinalihassan/Lesma/commit/0edea4b6923c90c234aea53a7ba45012883e6da7))
+
+## [0.17.4](https://github.com/alinalihassan/Lesma/compare/v0.17.3...v0.17.4) (2023-04-22)
+
+
+### Bug Fixes
+
+* last ci fix ([fae4461](https://github.com/alinalihassan/Lesma/commit/fae44617d6f0b4e35f9f84b2c125111de1f8844c))
+
+## [0.17.3](https://github.com/alinalihassan/Lesma/compare/v0.17.2...v0.17.3) (2023-04-22)
+
+
+### Bug Fixes
+
+* fix ci trying to make new release when it shouldn't ([30c0ddc](https://github.com/alinalihassan/Lesma/commit/30c0ddc74f52be781975d0a1eda07033740d39bc))
+* trigger ci, updated docs ([2a3abf6](https://github.com/alinalihassan/Lesma/commit/2a3abf6c2185b44a54a27d2b9f19a9395976e594))
+
+## [0.17.2](https://github.com/alinalihassan/Lesma/compare/v0.17.1...v0.17.2) (2023-04-22)
+
+
+### Bug Fixes
+
+* fixed ci vcpkg ([fbd1686](https://github.com/alinalihassan/Lesma/commit/fbd168687345ae1292753bf6e094e237e48903f3))
+
+## [0.17.1](https://github.com/alinalihassan/Lesma/compare/v0.17.0...v0.17.1) (2023-04-22)
+
+
+### Bug Fixes
+
+* fix vcpkg version bump ([926dc2c](https://github.com/alinalihassan/Lesma/commit/926dc2c2117c36ed55c6fce24f468faf4691c170))
+
+# [0.17.0](https://github.com/alinalihassan/Lesma/compare/v0.16.5...v0.17.0) (2023-04-22)
+
+
+### Bug Fixes
+
+* added optional build-llvm feature ([8229bf6](https://github.com/alinalihassan/Lesma/commit/8229bf623e36eef9fce3905ddbe5f0e731cfd0be))
+* fixed dot operator not having proper error highlight ([322847f](https://github.com/alinalihassan/Lesma/commit/322847f4e9d0dfb1cd2f2a53c00946e31a7a9962))
+* Fixed enums ([f6a454f](https://github.com/alinalihassan/Lesma/commit/f6a454fad55754e28a8a43994c649f2f4ca5491e))
+* fixed imports for new lesma Values and Types refactor ([556bbcf](https://github.com/alinalihassan/Lesma/commit/556bbcfaae9fd99ba522b11b05bdba4a65f47140))
+* fixed is operator not comparing properly ([c0c78d6](https://github.com/alinalihassan/Lesma/commit/c0c78d6ddf8704057c68250ac777390aadbd843f))
+* fixing clang format on PRs ([9fbbf08](https://github.com/alinalihassan/Lesma/commit/9fbbf086839fdf25c265561fb505c49525299fae))
+* testing vcpkg ci/cd pipeline and CMakePresets ([82f633f](https://github.com/alinalihassan/Lesma/commit/82f633f717af64f63a1d25116694bfea6e9fbc10))
+* updated CMake version above LLVM one ([d519959](https://github.com/alinalihassan/Lesma/commit/d519959430d5b3243b03dc0165087d200c841120))
+
+
+### Features
+
+* Added support for failing cases ([40f88f9](https://github.com/alinalihassan/Lesma/commit/40f88f9f828695e7c2d5d9d2da17d2aae4847969))
+* fixed classes implementation ([87d3699](https://github.com/alinalihassan/Lesma/commit/87d3699052e04f88e68e1fded584d366dd04be2b))
+* massive refactoring, using our Value and Type classes instead of llvm's ([9fecfa6](https://github.com/alinalihassan/Lesma/commit/9fecfa65b010f22c67c9d982c3f8ea54778dfaf6))
+* migrated to vcpkg, migrated from clang to lld for compilation ([18e2081](https://github.com/alinalihassan/Lesma/commit/18e2081d6e0dbeceddcd6ac7bc3981a6a8d2296c))
+* remaking tests ([9a66738](https://github.com/alinalihassan/Lesma/commit/9a66738266fb3f8c9fe41dd38eae2c4ae7bc2a44))
+
 ## [0.16.5](https://github.com/alinalihassan/Lesma/compare/v0.16.4...v0.16.5) (2023-01-09)
 
 

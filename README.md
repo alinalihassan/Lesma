@@ -11,13 +11,19 @@
 
 </div>
 
-**Lesma** is a compiled, statically typed, imperative and object-oriented programming language with a focus on expressiveness, elegance, and simplicity, while not sacrificing on performance.
+**Lesma** is a compiled, statically typed, imperative and object-oriented programming language with a focus on
+expressiveness, elegance, and simplicity, while not sacrificing on performance.
 
 ## 📝 Features
-- 🚀 Fast Compilation: compiling at a rate of ≈230k loc/s, [because waiting for code to compile is a thing of the past](https://xkcd.com/303/)
-- ⚡ Blazing Fast Execution: because it should be, it's as fast as C, using LLVM's state-of-the-art optimizations, but it won't ever oblige you to make an extra effort just for the sake of performance
-- 🔬 Statically Typed: because IDE completion is like heaven, while unknown behaviour and runtime exceptions are like hell
-- 🧑‍🎨 Simple: because the code should be easily readable, and it shouldn't make you guess what it does or take long to learn
+
+- 🚀 Fast Compilation: compiling at a rate of ≈230k
+  loc/s, [because waiting for code to compile is a thing of the past](https://xkcd.com/303/)
+- ⚡ Blazing Fast Execution: because it should be, it's as fast as C, using LLVM's state-of-the-art optimizations, but it
+  won't ever oblige you to make an extra effort just for the sake of performance
+- 🔬 Statically Typed: because IDE completion is like heaven, while unknown behaviour and runtime exceptions are like
+  hell
+- 🧑‍🎨 Simple: because the code should be easily readable, and it shouldn't make you guess what it does or take long to
+  learn
 
 ## ✍️ Example
 
@@ -39,7 +45,7 @@ bash -c "$(curl -fsSL https://raw.githubusercontent.com/alinalihassan/Lesma/main
 
 ## 🔧 Build
 
-In order to build Lesma, you need Clang and LLVM 14 installed. It's currently only supported on Linux and macOS.
+In order to build Lesma, you need Clang and LLVM 15 installed. It's currently only supported on Linux and macOS.
 For a more comprehensive guide, and more information on how to install the prerequisites,
 read the documentation on [Getting Started](https://lesma-lang.com/docs/introduction/getting-started)
 
@@ -47,9 +53,13 @@ read the documentation on [Getting Started](https://lesma-lang.com/docs/introduc
 
 ## 💬 Contributing
 
-Pull requests are welcome. For major changes, please open an issue to discuss your proposal and what you'd like to change.
+Pull requests are welcome. For major changes, please open an issue to discuss your proposal and what you'd like to
+change.
+
 - To keep updated with releases, consider starring the project.
 - Check the [code of conduct](CODE_OF_CONDUCT.md) and [contributing guidelines](CONTRIBUTING.md)
 
 ## 📎 License
-This software is licensed under the [MIT](https://github.com/alinalihassan/Lesma/blob/main/LICENSE.txt) © [Alin Ali Hassan](https://github.com/alinalihassan).
+
+This software is licensed under the [MIT](https://github.com/alinalihassan/Lesma/blob/main/LICENSE.txt)
+© [Alin Ali Hassan](https://github.com/alinalihassan).
