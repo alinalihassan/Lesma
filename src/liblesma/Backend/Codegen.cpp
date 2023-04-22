@@ -277,7 +277,7 @@ void Codegen::WriteToObjectFile(const std::string &output) {
     if (err) {
         throw CodegenError({}, "Error opening file {} for writing: {}", output, err.message());
     }
-    
+
     llvm::legacy::PassManager passManager;
     if (TargetMachine->addPassesToEmitFile(passManager, out, nullptr, llvm::CGFT_ObjectFile))
         throw CodegenError({}, "Target Machine can't emit an object file");

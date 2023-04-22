@@ -174,7 +174,7 @@ Expression *Parser::ParseDot() {
     while (AdvanceIfMatchAny<TokenType::DOT>()) {
         auto op = Previous();
         auto expr = ParseTerm();
-        left = new DotOp({op->getStart(), expr->getEnd()}, left, op->type, expr);
+        left = new DotOp({left->getStart(), expr->getEnd()}, left, op->type, expr);
     }
 
     return left;
