@@ -1,3 +1,10 @@
+## [0.17.4](https://github.com/alinalihassan/Lesma/compare/v0.17.3...v0.17.4) (2023-04-22)
+
+
+### Bug Fixes
+
+* last ci fix ([fae4461](https://github.com/alinalihassan/Lesma/commit/fae44617d6f0b4e35f9f84b2c125111de1f8844c))
+
 ## [0.17.3](https://github.com/alinalihassan/Lesma/compare/v0.17.2...v0.17.3) (2023-04-22)
 
 
