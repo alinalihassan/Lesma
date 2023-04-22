@@ -5,8 +5,9 @@
 
 <div align="center">
 
-[![License: MIT](https://img.shields.io/github/license/alinalihassan/Lesma?color=brightgreen)](https://github.com/alinalihassan/Lesma/blob/main/LICENSE.txt)
-[![Version](https://img.shields.io/github/v/release/alinalihassan/Lesma?color=brightgreen)](https://github.com/alinalihassan/Lesma/releases)
+[![License: MIT](https://img.shields.io/github/license/alinalihassan/Lesma?color=yellow)](https://github.com/alinalihassan/Lesma/blob/main/LICENSE.txt)
+[![Version](https://img.shields.io/github/v/release/alinalihassan/Lesma?color=blue)](https://github.com/alinalihassan/Lesma/releases)
+[![Platform](https://img.shields.io/badge/platforms-%20Linux%20|%20macOS-green.svg?color=lightgrey)](https://github.com/alinalihassan/Lesma/releases)
 [![Build](https://img.shields.io/github/actions/workflow/status/alinalihassan/Lesma/ci.yaml?branch=main)](https://github.com/alinalihassan/Lesma/actions/workflows/ci.yaml)
 
 </div>
