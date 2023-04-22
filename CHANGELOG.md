@@ -1,3 +1,10 @@
+## [0.17.5](https://github.com/alinalihassan/Lesma/compare/v0.17.4...v0.17.5) (2023-04-22)
+
+
+### Bug Fixes
+
+* trigger ci with improved workflow ([0edea4b](https://github.com/alinalihassan/Lesma/commit/0edea4b6923c90c234aea53a7ba45012883e6da7))
+
 ## [0.17.4](https://github.com/alinalihassan/Lesma/compare/v0.17.3...v0.17.4) (2023-04-22)
 
 
