@@ -26,6 +26,10 @@ file(READ ${CMAKE_CURRENT_SOURCE_DIR}/vcpkg.json VCPKG_MANIFEST)
 string(JSON LESMA_VERSION GET ${VCPKG_MANIFEST} version)
 set(VERSION ${LESMA_VERSION})
 
+# Set the vcpkg toolchain file
+set(VCPKG_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/vcpkg")
+set(CMAKE_TOOLCHAIN_FILE "${VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake")
+
 # Project
 project(Lesma VERSION ${VERSION} DESCRIPTION "Lesma Compiler")
 
@@ -79,10 +83,6 @@ message(STATUS "Using LLVMConfig.cmake from ${LLVM_DIR}")
 list(APPEND CMAKE_MODULE_PATH "${LLVM_CMAKE_DIR}")
 include(HandleLLVMOptions)
 add_definitions(${LLVM_DEFINITIONS})
-
-#include_directories(SYSTEM ${LLVM_INCLUDE_DIRS})
-#add_definitions(${LLVM_DEFINITIONS})
-
 llvm_map_components_to_libnames(LLVM_LIBS core support demangle mcjit native orcjit)
 
 # LLD configuration

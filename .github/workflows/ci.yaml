@@ -72,7 +72,7 @@ jobs:
       - name: Setup vcpkg
         uses: lukka/run-vcpkg@v11.1
         with:
-          vcpkgGitCommitId: '${{ steps.vcpkg_hash.outputs.prop }}'
+          vcpkgDirectory: '${{ github.workspace }}/thirdparty/vcpkg'
 
       - name: Run CMake with Ninja
         uses: lukka/run-cmake@v10
