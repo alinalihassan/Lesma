@@ -1,5 +1,3 @@
-def extern exit(x: int)
-
 def fibonacci(x: int) -> int
 	if x <= 1
 		return x

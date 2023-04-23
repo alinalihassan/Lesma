@@ -135,8 +135,9 @@ void Codegen::CompileModule(llvm::SMRange span, const std::string &filepath, boo
     auto absolute_path = isStd ? filepath : fmt::format("{}/{}", std::filesystem::absolute(mainPath).parent_path().c_str(), filepath);
 
     // If module is already imported, don't compile again
-    if (std::find(ImportedModules.begin(), ImportedModules.end(), absolute_path) != ImportedModules.end())
-        return;
+    // TODO: Re-enable this again, currently it destroys nested imports
+    //    if (std::find(ImportedModules.begin(), ImportedModules.end(), absolute_path) != ImportedModules.end())
+    //        return;
 
     auto buffer = MemoryBuffer::getFile(absolute_path);
     if (std::error_code ec = buffer.getError())
@@ -185,7 +186,7 @@ void Codegen::CompileModule(llvm::SMRange span, const std::string &filepath, boo
         // Linking the two modules together
         if (isJIT) {
             // Link modules together
-            if (Linker::linkModules(*TheModule, std::move(codegen->TheModule), (1 << 0)))
+            if (Linker::linkModules(*TheModule, std::move(codegen->TheModule), Linker::Flags::OverrideFromSrc))
                 throw CodegenError({}, "Error linking modules together");
 
             // TODO: Currently unused since we link everything to main module, we need to develop the JIT more in the future
@@ -197,36 +198,7 @@ void Codegen::CompileModule(llvm::SMRange span, const std::string &filepath, boo
             ObjectFiles.push_back(fmt::format("{}.o", obj_file));
         }
 
-        // Import Functions
-        // Loop over the main module if it's JIT, since we link them in one, otherwise check the imported module for symbols
-        for (auto &it: isJIT ? *TheModule : *codegen->TheModule) {
-            auto name = std::string{it.getName()};
-            std::vector<llvm::Type *> paramTypes;
-            for (unsigned param_i = 0; param_i < it.getFunctionType()->getNumParams(); param_i++)
-                paramTypes.push_back(it.getFunctionType()->getParamType(param_i));
-
-            // TODO: Get function without name mangling in case of extern C functions?
-            Value *func_symbol = codegen->Scope->lookup(name);
-
-            // Only import if it's exported
-            auto demangled_name = getDemangledName(name);
-            auto imp_alias = findInImports(demangled_name);
-            if (func_symbol != nullptr && func_symbol->isExported() && (importAll || !imp_alias.empty() || isMethod(name))) {
-                auto symbol = new Value(imp_alias.empty() ? name : std::regex_replace(name, std::regex(demangled_name), imp_alias), func_symbol->getType());
-
-                if (isJIT) {
-                    symbol->getType()->setLLVMType(it.getFunctionType());
-                    symbol->setLLVMValue((llvm::Value *) &it.getFunction());
-                } else {
-                    auto new_func = Function::Create(it.getFunctionType(), Function::ExternalLinkage, name, *TheModule);
-                    symbol->getType()->setLLVMType(new_func->getFunctionType());
-                    symbol->setLLVMValue(new_func);
-                }
-                Scope->insertSymbol(symbol);
-            }
-        }
-
-        // Import Classes and Enums
+        // Import Symbols
         for (auto sym: codegen->Scope->getSymbols()) {
             auto imp_alias = findInImports(sym.first);
             if (sym.second->getType()->isOneOf({TY_ENUM, TY_CLASS}) && sym.second->isExported() && (importAll || !imp_alias.empty())) {
@@ -236,6 +208,41 @@ void Codegen::CompileModule(llvm::SMRange span, const std::string &filepath, boo
                 structSymbol->getType()->setLLVMType(structType);
                 Scope->insertType(sym.first, sym.second->getType());
                 Scope->insertSymbol(structSymbol);
+            } else if (sym.second->getType()->is(TY_FUNCTION) && sym.second->isExported()) {
+                auto *F = llvm::cast<Function>(sym.second->getLLVMValue());
+                auto *FTy = llvm::cast<FunctionType>(sym.second->getType()->getLLVMType());
+
+                if (isJIT) {
+                    // Insert the function declaration, since we linked the modules earlier
+                    F = llvm::cast<Function>(TheModule->getOrInsertFunction(sym.first, FTy).getCallee());
+                }
+
+                auto name = std::string{sym.first};
+                std::vector<llvm::Type *> paramTypes;
+                for (unsigned param_i = 0; param_i < FTy->getNumParams(); param_i++)
+                    paramTypes.push_back(FTy->getParamType(param_i));
+
+                Value *func_symbol = codegen->Scope->lookup(name);
+
+                // Only import if it's exported
+                auto demangled_name = getDemangledName(name);
+                imp_alias = findInImports(demangled_name);
+                if (func_symbol != nullptr && func_symbol->isExported() && (importAll || !imp_alias.empty() || isMethod(name))) {
+                    auto symbol = new Value(imp_alias.empty() ? name : std::regex_replace(name, std::regex(demangled_name), imp_alias), func_symbol->getType());
+
+                    if (isJIT) {
+                        symbol->getType()->setLLVMType(FTy);
+                        symbol->setLLVMValue(F);
+                        symbol->setExported(false);
+                    } else {
+                        // If it's compiled, we need to make a new Function declaration in the importing file
+                        auto new_func = Function::Create(FTy, Function::ExternalLinkage, name, *TheModule);
+                        symbol->getType()->setLLVMType(new_func->getFunctionType());
+                        symbol->setLLVMValue(new_func);
+                        symbol->setExported(false);
+                    }
+                    Scope->insertSymbol(symbol);
+                }
             }
         }
     } catch (const LesmaError &err) {
@@ -609,17 +616,20 @@ void Codegen::visit(const ExternFuncDecl *node) {
     node->getReturnType()->accept(*this);
     auto ret_type = result->getType();
 
-    FunctionCallee F;
+    Function *F;
     if (TheModule->getFunction(node->getName()) != nullptr && Scope->lookup(node->getName()) != nullptr)
         return;
     else if (TheModule->getFunction(node->getName()) != nullptr) {
         F = TheModule->getFunction(node->getName());
     } else {
         FunctionType *FT = FunctionType::get(ret_type->getLLVMType(), paramLLVMTypes, node->getVarArgs());
-        F = TheModule->getOrInsertFunction(node->getName(), FT);
+        F = llvm::cast<Function>(TheModule->getOrInsertFunction(node->getName(), FT).getCallee());
+        if (node->isExported()) {
+            F->setLinkage(llvm::GlobalValue::ExternalLinkage);
+        }
     }
 
-    auto func_symbol = new Value(node->getName(), new Type(BaseType::TY_FUNCTION, F.getFunctionType(), std::move(paramTypes)), F.getCallee());
+    auto func_symbol = new Value(node->getName(), new Type(BaseType::TY_FUNCTION, F->getFunctionType(), std::move(paramTypes)), F);
     func_symbol->getType()->setReturnType(ret_type);
     func_symbol->setExported(node->isExported());
     Scope->insertSymbol(func_symbol);
@@ -1347,6 +1357,10 @@ bool Codegen::isMangled(std::string name) {
 }
 
 std::string Codegen::getDemangledName(const std::string &name) {
+    if (!isMangled(name)) {
+        return name;
+    }
+
     auto demangled_name = name;
 
     // Remove class mangling
