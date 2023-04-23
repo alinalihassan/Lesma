@@ -1,4 +1,3 @@
-def extern exit(x: int)
 def extern abs(x: int) -> int
 
 if abs(-1) != 1

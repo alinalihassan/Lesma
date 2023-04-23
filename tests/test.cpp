@@ -165,7 +165,7 @@ TEST_CASE("Codegen", "Run & Optimize") {
 }
 
 // TODO: Compilation doesn't seem to work if done too closely due to linker
-TEST_CASE("Lesma Run and Compile", "[lesma]") {
+TEST_CASE("Lesma Run test files", "[lesma]") {
     std::string directory = get_directory();
     auto success_test_files = collect_test_files(directory + "/lesma/success");
     auto failure_test_files = collect_test_files(directory + "/lesma/failure");
