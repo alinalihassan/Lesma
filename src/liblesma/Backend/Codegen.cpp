@@ -1234,6 +1234,7 @@ void Codegen::visit(const UnaryOp *node) {
         }
     } else if (node->getOperator() == TokenType::AMPERSAND) {
         val = Builder->CreateAlloca(result->getType()->getLLVMType());
+        type = new Type(TY_PTR, Builder->getPtrTy(), result->getType());
         Builder->CreateStore(result->getLLVMValue(), val);
     } else {
         throw CodegenError(node->getSpan(), "Unknown unary operator, cannot apply {} to {}", NAMEOF_ENUM(node->getOperator()), node->getExpression()->toString(SourceManager.get(), "", true));
