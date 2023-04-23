@@ -22,14 +22,15 @@ namespace lesma {
             //      delete val;
         }
 
-        Value *lookup(const std::string &symbolName);
-        Value *lookupStructByName(const std::string &name);
+        Value *lookupFunction(const std::string &symbolName, std::vector<lesma::Type *> paramTypes);
+        Value *lookup(const std::string &name);
+        Value *lookupStruct(const std::string &name);
         Type *lookupType(const std::string &symbolName);
         void insertSymbol(Value *symbol);
         void insertType(const std::string &name, Type *type);
         SymbolTable *createChildBlock(const std::string &blockName);
         SymbolTable *getParent();
-        std::map<std::string, Value *> getSymbols() { return symbols; }
+        std::multimap<std::string, Value *> getSymbols() { return symbols; }
         std::map<std::string, Type *> getTypes() { return types; }
 
         SymbolTable *getChild(const std::string &tableName);
@@ -52,7 +53,7 @@ namespace lesma {
     private:
         SymbolTable *parent;
         std::map<std::string, SymbolTable *> children;
-        std::map<std::string, Value *> symbols;
+        std::multimap<std::string, Value *> symbols;
         std::map<std::string, Type *> types;
     };
 }// namespace lesma

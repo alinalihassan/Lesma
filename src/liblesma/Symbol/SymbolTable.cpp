@@ -9,7 +9,7 @@ using namespace lesma;
  * @param entry Symbol Table Entry
  */
 void SymbolTable::insertSymbol(Value *entry) {
-    symbols.insert_or_assign(entry->getName(), entry);
+    symbols.emplace(entry->getName(), entry);
 }
 
 /**
@@ -27,13 +27,47 @@ void SymbolTable::insertType(const std::string &name, Type *type) {
  * @param name Name of the desired symbol
  * @return Desired symbol / nullptr if the symbol was not found
  */
-Value *SymbolTable::lookup(const std::string &name) {
-    if (symbols.find(name) == symbols.end()) {
-        if (parent == nullptr) return nullptr;
-        return parent->lookup(name);
+Value *SymbolTable::lookupFunction(const std::string &name, std::vector<lesma::Type *> paramTypes) {
+    auto range = symbols.equal_range(name);
+    for (auto it = range.first; it != range.second; ++it) {
+        if (!it->second->getType()->is(TY_FUNCTION))
+            continue;
+        // Check if the parameter types match
+        std::vector<Field *> funcParamTypes = it->second->getType()->getFields();
+        std::vector<llvm::Value *> tmpValues;
+
+        bool paramsMatch = true;
+        size_t numParams = std::max(funcParamTypes.size(), paramTypes.size());
+        for (size_t i = 0; i < numParams; ++i) {
+            if (i < funcParamTypes.size() && i < paramTypes.size()) {
+                if (*funcParamTypes[i]->type != *paramTypes[i]) {
+                    paramsMatch = false;
+                    break;
+                }
+            } else if (i < funcParamTypes.size() && funcParamTypes[i]->defaultValue != nullptr) {
+                // Use default value for missing parameter
+                paramTypes.push_back(funcParamTypes[i]->type);
+            } else if (i >= funcParamTypes.size() && it->second->getType()->getLLVMType()->isFunctionVarArg()) {
+                // Varargs
+                break;
+            } else {
+                paramsMatch = false;
+                break;
+            }
+        }
+
+        if (!paramsMatch) {
+            continue;// Parameter types don't match
+        }
+
+        return it->second;
     }
 
-    return symbols.at(name);
+    if (parent == nullptr) {
+        return nullptr;
+    }
+
+    return parent->lookupFunction(name, paramTypes);
 }
 
 /**
@@ -42,15 +76,38 @@ Value *SymbolTable::lookup(const std::string &name) {
  * @param name Name of the desired symbol
  * @return Desired symbol / nullptr if the symbol was not found
  */
-Value *SymbolTable::lookupStructByName(const std::string &name) {
+Value *SymbolTable::lookup(const std::string &name) {
+    for (const auto &sym: symbols) {
+        if (sym.first == name) {
+            return sym.second;
+        }
+    }
+
+    if (parent == nullptr) {
+        return nullptr;
+    }
+
+    return parent->lookup(name);
+}
+
+/**
+ * Check if a symbol exists in the current or any parent scope and return it if possible
+ *
+ * @param name Name of the desired symbol
+ * @return Desired symbol / nullptr if the symbol was not found
+ */
+Value *SymbolTable::lookupStruct(const std::string &name) {
     for (auto sym: symbols) {
         if (sym.second->getType()->getLLVMType() != nullptr && sym.second->getType()->isOneOf({TY_CLASS, TY_ENUM}) &&
             llvm::cast<llvm::StructType>(sym.second->getType()->getLLVMType())->getName() == name)
             return sym.second;
     }
 
-    if (parent == nullptr) return nullptr;
-    return parent->lookupStructByName(name);
+    if (parent == nullptr) {
+        return nullptr;
+    }
+
+    return parent->lookupStruct(name);
 }
 
 /**

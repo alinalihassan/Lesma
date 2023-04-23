@@ -1,0 +1,5 @@
+def fib(x: int = 10, y: int = 20) -> int
+	return x + y
+
+if fib() != 30
+	exit(1)

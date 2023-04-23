@@ -10,8 +10,10 @@
 #include <llvm/IR/Value.h>
 
 namespace lesma {
-    enum SymbolState { DECLARED,
-                       INITIALIZED };
+    enum SymbolState {
+        DECLARED,
+        INITIALIZED
+    };
 
     /**
      * Entry of a symbol table, representing an individual symbol with all its properties
@@ -19,23 +21,20 @@ namespace lesma {
     class Value {
     public:
         explicit Value(Type *type) : state(INITIALIZED),
-                                     type(type), mutableVar(false),
-                                     signedVar(true) {}
-        Value(std::string name, Type *type) : name(std::move(name)), state(INITIALIZED),
-                                              type(type), mutableVar(false),
-                                              signedVar(true) {}
-        Value(std::string name, Type *type, llvm::Value *value) : name(std::move(name)), state(INITIALIZED),
-                                                                  type(type), llvmValue(value), mutableVar(false),
-                                                                  signedVar(true) {}
-        Value(std::string name, Type *type, SymbolState state) : name(std::move(name)), state(state),
-                                                                 type(type), mutableVar(false),
-                                                                 signedVar(true) {}
+                                     type(type) {}
+        Value(std::string name, Type *type) : name(std::move(name)), mangledName(name),
+                                              state(INITIALIZED), type(type) {}
+        Value(std::string name, Type *type, llvm::Value *value) : name(std::move(name)), mangledName(name),
+                                                                  state(INITIALIZED), type(type), llvmValue(value) {}
+        Value(std::string name, Type *type, SymbolState state) : name(std::move(name)), mangledName(name),
+                                                                 state(state), type(type) {}
         Value(std::string name, Type *type,
               SymbolState state, bool mutable_, bool signed_) : name(std::move(name)), state(state),
                                                                 type(type), mutableVar(mutable_),
                                                                 signedVar(signed_) {}
 
         [[nodiscard]] std::string getName() { return name; }
+        [[nodiscard]] std::string getMangledName() { return mangledName; }
         [[nodiscard]] llvm::Value *getLLVMValue() { return llvmValue; }
         [[nodiscard]] bool getMutability() const { return mutableVar; }
         [[nodiscard]] bool getSigned() const { return signedVar; }
@@ -47,6 +46,7 @@ namespace lesma {
 
         void setLLVMValue(llvm::Value *value) { llvmValue = value; }
         void setName(std::string name_) { name = std::move(name_); }
+        void setMangledName(std::string name_) { mangledName = std::move(name_); }
         void setUsed(bool used_) { used = used_; }
         void setSigned(bool signed_) { mutableVar = signed_; }
         void setMutable(bool mutable_) { mutableVar = mutable_; }
@@ -65,18 +65,19 @@ namespace lesma {
 
     private:
         std::string name;
+        std::string mangledName;
         SymbolState state;
         Type *type;
         llvm::Value *llvmValue = nullptr;
         // For analysis
         bool used = false;
         // For variables
-        bool mutableVar;
+        bool mutableVar = false;
         // For integers
-        bool signedVar;
+        bool signedVar = true;
         // For functions
         bool exported = false;
         // For classes
-        lesma::Value *constructor;
+        lesma::Value *constructor = nullptr;
     };
 }//namespace lesma

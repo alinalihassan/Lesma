@@ -2,6 +2,7 @@
 
 - [x] Improve Visitor Pattern
 - [x] Migrate to LLVM 16 with custom Value and Type classes
+- [ ] Fix multiple imports not working
 - [ ] Add default values in function declarations
 - [ ] Add operator overloading
 - [ ] Add generics
