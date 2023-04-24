@@ -1527,7 +1527,7 @@ lesma::Value *Codegen::genFuncCall(const FuncCall *node, const std::vector<lesma
     }
 
     if (symbol == nullptr) {
-        throw CodegenError(node->getSpan(), "Function {} not in current scope.", node->getName());
+        throw CodegenError(node->getSpan(), "{} {} not in current scope.", class_sym != nullptr ? "Constructor for" : "Function", node->getName());
     }
 
     if (!symbol->getType()->isOneOf({TY_CLASS, TY_FUNCTION}))
