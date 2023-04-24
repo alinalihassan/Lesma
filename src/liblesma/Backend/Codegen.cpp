@@ -198,13 +198,8 @@ void Codegen::CompileModule(llvm::SMRange span, const std::string &filepath, boo
             return "";
         };
 
-        // Linking the two modules together
         if (isJIT) {
-            // Link modules together
-            //            if (Linker::linkModules(*TheModule, std::move(codegen->TheModule), Linker::Flags::OverrideFromSrc))
-            //                throw CodegenError({}, "Error linking modules together");
-
-            // TODO: Currently unused since we link everything to main module, we need to develop the JIT more in the future
+            // Add the module to JIT
             cantFail(TheJIT->addIRModule(ThreadSafeModule(std::move(codegen->TheModule), *TheContext)), fmt::format("Failed adding import {} to JIT", filename).c_str());
         } else {
             // Create object file to be linked
@@ -241,10 +236,9 @@ void Codegen::CompileModule(llvm::SMRange span, const std::string &filepath, boo
                 Value *func_symbol = codegen->Scope->lookupFunction(name, paramTypes);
 
                 // Only import if it's exported
-                auto demangled_name = getDemangledName(name);
-                imp_alias = findInImports(demangled_name);
+                imp_alias = findInImports(name);
                 if (func_symbol != nullptr && func_symbol->isExported() && (importAll || !imp_alias.empty() || isMethod(name))) {
-                    auto symbol = new Value(imp_alias.empty() ? name : std::regex_replace(name, std::regex(demangled_name), imp_alias), func_symbol->getType());
+                    auto symbol = new Value(imp_alias.empty() ? name : std::regex_replace(name, std::regex(name), imp_alias), func_symbol->getType());
 
                     if (isJIT) {
                         symbol->getType()->setLLVMType(FTy);
@@ -253,7 +247,7 @@ void Codegen::CompileModule(llvm::SMRange span, const std::string &filepath, boo
                         symbol->setMangledName(sym.second->getMangledName());
                     } else {
                         // If it's compiled, we need to make a new Function declaration in the importing file
-                        auto new_func = Function::Create(FTy, Function::ExternalLinkage, name, *TheModule);
+                        auto new_func = Function::Create(FTy, Function::ExternalLinkage, sym.second->getMangledName(), *TheModule);
                         symbol->getType()->setLLVMType(new_func->getFunctionType());
                         symbol->setLLVMValue(new_func);
                         symbol->setExported(false);
