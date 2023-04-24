@@ -9,7 +9,7 @@ test_compiler() {
   local file="$1"
   local mode="$2"
   local compiler_path="$3"
-  "${compiler_path}" "${mode}" "${file}" &> /dev/null
+  "${compiler_path}" "${mode}" "${file}"
   return $?
 }
 
