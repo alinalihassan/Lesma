@@ -237,7 +237,8 @@ void Codegen::CompileModule(llvm::SMRange span, const std::string &filepath, boo
 
                 // Only import if it's exported
                 imp_alias = findInImports(name);
-                if (func_symbol != nullptr && func_symbol->isExported() && (importAll || !imp_alias.empty() || isMethod(name))) {
+                // TODO: methods should only be imported if they class is in the imports specified
+                if (func_symbol != nullptr && func_symbol->isExported() && (importAll || !imp_alias.empty() || isMethod(sym.second->getMangledName()))) {
                     auto symbol = new Value(imp_alias.empty() ? name : std::regex_replace(name, std::regex(name), imp_alias), func_symbol->getType());
 
                     if (isJIT) {
@@ -253,6 +254,7 @@ void Codegen::CompileModule(llvm::SMRange span, const std::string &filepath, boo
                         symbol->setExported(false);
                         symbol->setMangledName(sym.second->getMangledName());
                     }
+
                     Scope->insertSymbol(symbol);
                 }
             }
@@ -576,11 +578,13 @@ void Codegen::visit(const FuncDecl *node) {
     std::vector<Field *> fields;
     std::vector<lesma::Type *> paramTypes;
     std::vector<llvm::Type *> paramLLVMTypes;
+    bool shouldExport = node->isExported();
 
     if (selfSymbol != nullptr) {
         paramTypes.push_back(selfSymbol->getType());
         paramLLVMTypes.push_back(selfSymbol->getType()->getLLVMType()->getPointerTo());
         fields.push_back(new Field{"self", selfSymbol->getType()});
+        shouldExport = selfSymbol->isExported();
     }
 
     for (auto param: node->getParameters()) {
@@ -615,7 +619,7 @@ void Codegen::visit(const FuncDecl *node) {
     }
 
     auto mangledName = getMangledName(node->getSpan(), node->getName(), paramTypes, selfSymbol != nullptr);
-    auto linkage = node->isExported() ? Function::ExternalLinkage : Function::PrivateLinkage;
+    auto linkage = shouldExport ? Function::ExternalLinkage : Function::PrivateLinkage;
 
     node->getReturnType()->accept(*this);
 
@@ -871,6 +875,7 @@ void Codegen::visit(const Class *node) {
     Scope->insertSymbol(structSymbol);
 
     selfSymbol = new Value(node->getIdentifier(), new Type(TY_PTR, structType->getPointerTo(), type));
+    selfSymbol->setExported(node->isExported());
     auto has_constructor = false;
     for (auto func: node->getMethods()) {
         func->accept(*this);
@@ -1492,19 +1497,16 @@ lesma::Value *Codegen::Cast(llvm::SMRange span, lesma::Value *val, lesma::Type *
 }
 
 lesma::Value *Codegen::genFuncCall(const FuncCall *node, const std::vector<lesma::Value *> &extra_params = {}) {
-    std::vector<lesma::Value *> params;
     std::vector<lesma::Type *> paramTypes;
     std::vector<llvm::Value *> paramsLLVM;
 
     for (auto arg: extra_params) {
-        params.push_back(arg);
         paramTypes.push_back(arg->getType());
         paramsLLVM.push_back(arg->getLLVMValue());
     }
 
     for (auto arg: node->getArguments()) {
         arg->accept(*this);
-        params.push_back(result);
         paramTypes.push_back(result->getType());
         paramsLLVM.push_back(result->getLLVMValue());
     }

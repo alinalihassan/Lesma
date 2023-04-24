@@ -33,11 +33,10 @@ Value *SymbolTable::lookupFunction(const std::string &name, std::vector<lesma::T
         if (!it->second->getType()->is(TY_FUNCTION))
             continue;
         // Check if the parameter types match
-        std::vector<Field *> funcParamTypes = it->second->getType()->getFields();
-        std::vector<llvm::Value *> tmpValues;
-
         bool paramsMatch = true;
+        std::vector<Field *> funcParamTypes = it->second->getType()->getFields();
         size_t numParams = std::max(funcParamTypes.size(), paramTypes.size());
+
         for (size_t i = 0; i < numParams; ++i) {
             if (i < funcParamTypes.size() && i < paramTypes.size()) {
                 if (!funcParamTypes[i]->type->isEqual(paramTypes[i])) {
