@@ -52,12 +52,12 @@ jobs:
           path: |
             C:/Program Files/LLVM
             ./llvm
-          key: llvm-15.0-${{ matrix.os }}
+          key: llvm-15.0.7-${{ matrix.os }}
 
       - name: Install LLVM and Clang
         uses: KyleMayes/install-llvm-action@v1
         with:
-          version: "15.0"
+          version: "15.0.7"
           cached: ${{ steps.cache-llvm.outputs.cache-hit }}
 
       - name: Get vcpkg commit hash
