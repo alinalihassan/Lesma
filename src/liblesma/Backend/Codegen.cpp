@@ -205,7 +205,7 @@ void Codegen::CompileModule(llvm::SMRange span, const std::string &filepath, boo
             //                throw CodegenError({}, "Error linking modules together");
 
             // TODO: Currently unused since we link everything to main module, we need to develop the JIT more in the future
-            ExitOnErr(TheJIT->addIRModule(ThreadSafeModule(std::move(codegen->TheModule), *TheContext)));
+            cantFail(TheJIT->addIRModule(ThreadSafeModule(std::move(codegen->TheModule), *TheContext)), fmt::format("Failed adding import {} to JIT", filename).c_str());
         } else {
             // Create object file to be linked
             std::string obj_file = fmt::format("tmp{}", ObjectFiles.size());
