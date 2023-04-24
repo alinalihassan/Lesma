@@ -149,6 +149,11 @@ if (LESMA_BUILD_TESTS)
 
   enable_testing()
 
+  find_program(BASH_PROGRAM bash)
+  if (BASH_PROGRAM)
+    add_test(test_lesma_sources ${BASH_PROGRAM} ${CMAKE_CURRENT_SOURCE_DIR}/scripts/run_tests.sh)
+  endif (BASH_PROGRAM)
+
   add_test(test_unit_tests tests)
 endif ()
 
