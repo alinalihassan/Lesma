@@ -329,7 +329,7 @@ namespace lesma {
         bool optional;
         Expression *default_val;
 
-        Parameter(std::string name, TypeExpr *type, bool optional = false, Expression *default_val = nullptr) : name(std::move(name)), type(type), optional(optional), default_val(default_val) {}
+        Parameter(std::string name, TypeExpr *type = nullptr, bool optional = false, Expression *default_val = nullptr) : name(std::move(name)), type(type), optional(optional), default_val(default_val) {}
 
         ~Parameter() {
             delete type;

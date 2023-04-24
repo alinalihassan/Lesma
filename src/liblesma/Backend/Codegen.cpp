@@ -8,7 +8,7 @@ Codegen::Codegen(std::unique_ptr<Parser> parser, std::shared_ptr<SourceMgr> srcM
     InitializeNativeTargetAsmParser();
 
     ImportedModules = std::move(imports);
-    TheJIT = ExitOnErr(LesmaJIT::Create());
+    TheJIT = InitializeJIT();
     TheContext = context == nullptr ? std::make_shared<ThreadSafeContext>(std::make_unique<LLVMContext>()) : context;
     TheModule = std::make_unique<Module>("Lesma JIT", *TheContext->getContext());
     TheModule->setDataLayout(TheJIT->getDataLayout());
@@ -30,6 +30,21 @@ Codegen::Codegen(std::unique_ptr<Parser> parser, std::shared_ptr<SourceMgr> srcM
     if (std::filesystem::absolute(filename) != getStdDir() + "base.les") {
         CompileModule(llvm::SMRange(), getStdDir() + "base.les", true, "base", true, true, {});
     }
+}
+
+std::unique_ptr<LLJIT> Codegen::InitializeJIT() {
+    auto jit = LLJITBuilder().create();
+    if (!jit) {
+        throw CodegenError({}, "Couldn't initialize JIT\n");
+    }
+
+    // Add support for C native functions
+    auto &MainJD = jit.get()->getMainJITDylib();
+    auto Err = MainJD.addGenerator(
+            cantFail(DynamicLibrarySearchGenerator::GetForCurrentProcess(
+                    jit.get()->getDataLayout().getGlobalPrefix())));
+
+    return std::move(jit.get());
 }
 
 llvm::Function *Codegen::InitializeTopLevel() {
@@ -183,14 +198,9 @@ void Codegen::CompileModule(llvm::SMRange span, const std::string &filepath, boo
             return "";
         };
 
-        // Linking the two modules together
         if (isJIT) {
-            // Link modules together
-            if (Linker::linkModules(*TheModule, std::move(codegen->TheModule), Linker::Flags::OverrideFromSrc))
-                throw CodegenError({}, "Error linking modules together");
-
-            // TODO: Currently unused since we link everything to main module, we need to develop the JIT more in the future
-            // ExitOnErr(TheJIT->addModule(ThreadSafeModule(std::move(codegen->TheModule), *TheContext)));
+            // Add the module to JIT
+            cantFail(TheJIT->addIRModule(ThreadSafeModule(std::move(codegen->TheModule), *TheContext)), fmt::format("Failed adding import {} to JIT", filename).c_str());
         } else {
             // Create object file to be linked
             std::string obj_file = fmt::format("tmp{}", ObjectFiles.size());
@@ -214,33 +224,37 @@ void Codegen::CompileModule(llvm::SMRange span, const std::string &filepath, boo
 
                 if (isJIT) {
                     // Insert the function declaration, since we linked the modules earlier
-                    F = llvm::cast<Function>(TheModule->getOrInsertFunction(sym.first, FTy).getCallee());
+                    F = llvm::cast<Function>(TheModule->getOrInsertFunction(sym.second->getMangledName(), FTy).getCallee());
                 }
 
                 auto name = std::string{sym.first};
-                std::vector<llvm::Type *> paramTypes;
-                for (unsigned param_i = 0; param_i < FTy->getNumParams(); param_i++)
-                    paramTypes.push_back(FTy->getParamType(param_i));
+                std::vector<lesma::Type *> paramTypes;
+                for (auto field: sym.second->getType()->getFields()) {
+                    paramTypes.push_back(field->type);
+                }
 
-                Value *func_symbol = codegen->Scope->lookup(name);
+                Value *func_symbol = codegen->Scope->lookupFunction(name, paramTypes);
 
                 // Only import if it's exported
-                auto demangled_name = getDemangledName(name);
-                imp_alias = findInImports(demangled_name);
-                if (func_symbol != nullptr && func_symbol->isExported() && (importAll || !imp_alias.empty() || isMethod(name))) {
-                    auto symbol = new Value(imp_alias.empty() ? name : std::regex_replace(name, std::regex(demangled_name), imp_alias), func_symbol->getType());
+                imp_alias = findInImports(name);
+                // TODO: methods should only be imported if they class is in the imports specified
+                if (func_symbol != nullptr && func_symbol->isExported() && (importAll || !imp_alias.empty() || isMethod(sym.second->getMangledName()))) {
+                    auto symbol = new Value(imp_alias.empty() ? name : std::regex_replace(name, std::regex(name), imp_alias), func_symbol->getType());
 
                     if (isJIT) {
                         symbol->getType()->setLLVMType(FTy);
                         symbol->setLLVMValue(F);
                         symbol->setExported(false);
+                        symbol->setMangledName(sym.second->getMangledName());
                     } else {
                         // If it's compiled, we need to make a new Function declaration in the importing file
-                        auto new_func = Function::Create(FTy, Function::ExternalLinkage, name, *TheModule);
+                        auto new_func = Function::Create(FTy, Function::ExternalLinkage, sym.second->getMangledName(), *TheModule);
                         symbol->getType()->setLLVMType(new_func->getFunctionType());
                         symbol->setLLVMValue(new_func);
                         symbol->setExported(false);
+                        symbol->setMangledName(sym.second->getMangledName());
                     }
+
                     Scope->insertSymbol(symbol);
                 }
             }
@@ -337,14 +351,14 @@ void Codegen::LinkObjectFile(const std::string &obj_filename) {
 }
 
 int Codegen::JIT() {
-    auto jit_error = TheJIT->addModule(ThreadSafeModule(std::move(TheModule), *TheContext));
+    auto jit_error = TheJIT->addIRModule(ThreadSafeModule(std::move(TheModule), *TheContext));
     if (jit_error)
         throw CodegenError({}, "JIT Error:\n{}");
     using MainFnTy = int();
     auto main_func = TheJIT->lookup(TopLevelFunc->getName());
     if (!main_func)
         throw CodegenError({}, "Couldn't find top level function\n");
-    auto jit_main = jitTargetAddressToFunction<MainFnTy *>(main_func->getAddress());
+    auto jit_main = jitTargetAddressToFunction<MainFnTy *>(main_func->getValue());
     auto ret = jit_main();
 
     return ret;
@@ -406,19 +420,21 @@ void Codegen::visit(const TypeExpr *node) {
     } else if (node->getType() == TokenType::FUNC_TYPE) {
         node->getReturnType()->accept(*this);
         auto ret_type = result;
-        std::vector<std::unique_ptr<Field>> paramTypes;
+        std::vector<Field *> fields;
+        std::vector<lesma::Type *> paramTypes;
         std::vector<llvm::Type *> paramLLVMTypes;
         for (auto param_type: node->getParams()) {
             param_type->accept(*this);
             paramLLVMTypes.push_back(result->getType()->getLLVMType());
-            paramTypes.push_back(std::make_unique<Field>(Field{result->getName(), result->getType()}));
+            paramTypes.push_back(result->getType());
+            fields.push_back(new Field{result->getName(), result->getType()});
         }
 
         llvm::Type *funcType = FunctionType::get(ret_type->getType()->getLLVMType(), paramLLVMTypes, false)->getPointerTo();
-        result = new lesma::Value(new lesma::Type(TY_FUNCTION, funcType, std::move(paramTypes)));
+        result = new lesma::Value(new lesma::Type(TY_FUNCTION, funcType, std::move(fields)));
     } else if (node->getType() == TokenType::CUSTOM_TYPE) {
         auto typ = Scope->lookupType(node->getName());
-        auto sym = Scope->lookup(node->getName());
+        auto sym = Scope->lookupStruct(node->getName());
         if (typ == nullptr || sym->getType()->getLLVMType() == nullptr)
             throw CodegenError(node->getSpan(), "Type not found: {}", node->getName());
 
@@ -559,38 +575,61 @@ void Codegen::visit(const FuncDecl *node) {
     if (selfSymbol != nullptr && node->getName() == "new" && node->getReturnType()->getType() != TokenType::VOID_TYPE)
         throw CodegenError(node->getSpan(), "Cannot create class method new with return type {}", node->getReturnType()->getName());
 
-    std::vector<std::unique_ptr<Field>> fields;
+    std::vector<Field *> fields;
     std::vector<lesma::Type *> paramTypes;
     std::vector<llvm::Type *> paramLLVMTypes;
+    bool shouldExport = node->isExported();
 
     if (selfSymbol != nullptr) {
         paramTypes.push_back(selfSymbol->getType());
         paramLLVMTypes.push_back(selfSymbol->getType()->getLLVMType()->getPointerTo());
-        fields.push_back(std::make_unique<Field>(Field{"self", selfSymbol->getType()}));
+        fields.push_back(new Field{"self", selfSymbol->getType()});
+        shouldExport = selfSymbol->isExported();
     }
 
     for (auto param: node->getParameters()) {
-        param->type->accept(*this);
-        // If it's a class type, we mean to pass a pointer to a class
-        if (result->getType()->is(TY_CLASS)) {
-            result = new Value("", new Type(TY_PTR, Builder->getPtrTy(), result->getType()));
+        lesma::Value *typeResult = nullptr;
+        lesma::Value *defaultValResult = nullptr;
+
+        // Check if it has either a type or a value or both
+        if (param->type) {
+            param->type->accept(*this);
+            typeResult = result;
         }
-        paramTypes.push_back(result->getType());
-        paramLLVMTypes.push_back(result->getType()->getLLVMType());
-        fields.push_back(std::make_unique<Field>(Field{param->name, result->getType()}));
+        if (param->default_val) {
+            param->default_val->accept(*this);
+            defaultValResult = result;
+            if (!typeResult) {
+                typeResult = defaultValResult;
+            }
+        }
+
+        // If it's a class type, we mean to pass a pointer to a class
+        if (typeResult->getType()->is(TY_CLASS)) {
+            typeResult = new Value("", new Type(TY_PTR, Builder->getPtrTy(), result->getType()));
+        }
+
+        if (defaultValResult != nullptr && !typeResult->getType()->isEqual(defaultValResult->getType())) {
+            throw CodegenError(node->getSpan(), "Declared parameter type and default value do not match for {}", param->name);
+        }
+
+        paramTypes.push_back(typeResult->getType());
+        paramLLVMTypes.push_back(typeResult->getType()->getLLVMType());
+        fields.push_back(new Field{param->name, typeResult->getType(), defaultValResult});
     }
 
-    auto name = getMangledName(node->getSpan(), node->getName(), paramTypes, selfSymbol != nullptr);
-    auto linkage = node->isExported() ? Function::ExternalLinkage : Function::PrivateLinkage;
+    auto mangledName = getMangledName(node->getSpan(), node->getName(), paramTypes, selfSymbol != nullptr);
+    auto linkage = shouldExport ? Function::ExternalLinkage : Function::PrivateLinkage;
 
     node->getReturnType()->accept(*this);
 
     llvm::FunctionType *funcType = FunctionType::get(result->getType()->getLLVMType(), paramLLVMTypes, node->getVarArgs());
-    Function *F = Function::Create(funcType, linkage, name, *TheModule);
+    Function *F = Function::Create(funcType, linkage, mangledName, *TheModule);
 
-    auto func_symbol = new Value(name, new Type(BaseType::TY_FUNCTION, funcType, std::move(fields)), F);
+    auto func_symbol = new Value(node->getName(), new Type(BaseType::TY_FUNCTION, funcType, std::move(fields)), F);
     func_symbol->getType()->setReturnType(result->getType());
     func_symbol->setExported(node->isExported());
+    func_symbol->setMangledName(mangledName);
     Scope->insertSymbol(func_symbol);
 
     Prototypes.emplace_back(func_symbol, node, selfSymbol);
@@ -599,25 +638,46 @@ void Codegen::visit(const FuncDecl *node) {
 }
 
 void Codegen::visit(const ExternFuncDecl *node) {
-    std::vector<std::unique_ptr<Field>> paramTypes;
+    std::vector<Field *> fields;
+    std::vector<lesma::Type *> paramTypes;
     std::vector<llvm::Type *> paramLLVMTypes;
 
-    if (selfSymbol != nullptr) {
-        paramTypes.push_back(std::make_unique<Field>(Field{"self", selfSymbol->getType()}));
-        paramLLVMTypes.push_back(selfSymbol->getType()->getLLVMType()->getPointerTo());
-    }
-
     for (auto param: node->getParameters()) {
-        param->type->accept(*this);
-        paramLLVMTypes.push_back(result->getType()->getLLVMType());
-        paramTypes.push_back(std::make_unique<Field>(Field{result->getName(), result->getType()}));
+        lesma::Value *typeResult = nullptr;
+        lesma::Value *defaultValResult = nullptr;
+
+        // Check if it has either a type or a value or both
+        if (param->type) {
+            param->type->accept(*this);
+            typeResult = result;
+        }
+        if (param->default_val) {
+            param->default_val->accept(*this);
+            defaultValResult = result;
+            if (!typeResult) {
+                typeResult = defaultValResult;
+            }
+        }
+
+        // If it's a class type, we mean to pass a pointer to a class
+        if (typeResult->getType()->is(TY_CLASS)) {
+            typeResult = new Value("", new Type(TY_PTR, Builder->getPtrTy(), result->getType()));
+        }
+
+        if (defaultValResult != nullptr && !typeResult->getType()->isEqual(defaultValResult->getType())) {
+            throw CodegenError(node->getSpan(), "Declared parameter type and default value do not match for {}", param->name);
+        }
+
+        paramTypes.push_back(typeResult->getType());
+        paramLLVMTypes.push_back(typeResult->getType()->getLLVMType());
+        fields.push_back(new Field{param->name, typeResult->getType(), defaultValResult});
     }
 
     node->getReturnType()->accept(*this);
     auto ret_type = result->getType();
 
     Function *F;
-    if (TheModule->getFunction(node->getName()) != nullptr && Scope->lookup(node->getName()) != nullptr)
+    if (TheModule->getFunction(node->getName()) != nullptr && Scope->lookupFunction(node->getName(), paramTypes) != nullptr)
         return;
     else if (TheModule->getFunction(node->getName()) != nullptr) {
         F = TheModule->getFunction(node->getName());
@@ -629,9 +689,10 @@ void Codegen::visit(const ExternFuncDecl *node) {
         }
     }
 
-    auto func_symbol = new Value(node->getName(), new Type(BaseType::TY_FUNCTION, F->getFunctionType(), std::move(paramTypes)), F);
+    auto func_symbol = new Value(node->getName(), new Type(BaseType::TY_FUNCTION, F->getFunctionType(), fields), F);
     func_symbol->getType()->setReturnType(ret_type);
     func_symbol->setExported(node->isExported());
+    func_symbol->setMangledName(node->getName());
     Scope->insertSymbol(func_symbol);
 }
 
@@ -790,7 +851,7 @@ void Codegen::visit(const Import *node) {
 }
 
 void Codegen::visit(const Class *node) {
-    std::vector<std::unique_ptr<Field>> fields;
+    std::vector<Field *> fields;
     std::vector<llvm::Type *> elementLLVMTypes;
 
     for (auto field: node->getFields()) {
@@ -801,7 +862,7 @@ void Codegen::visit(const Class *node) {
         }
 
         elementLLVMTypes.push_back(result->getType()->getLLVMType());
-        fields.push_back(std::make_unique<Field>(Field{field->getIdentifier()->getValue(), result->getType()}));
+        fields.push_back(new Field{field->getIdentifier()->getValue(), result->getType(), field->getValue().has_value() ? result : nullptr});
     }
 
     llvm::StructType *structType = llvm::StructType::create(*TheContext->getContext(), elementLLVMTypes, node->getIdentifier());
@@ -814,6 +875,7 @@ void Codegen::visit(const Class *node) {
     Scope->insertSymbol(structSymbol);
 
     selfSymbol = new Value(node->getIdentifier(), new Type(TY_PTR, structType->getPointerTo(), type));
+    selfSymbol->setExported(node->isExported());
     auto has_constructor = false;
     for (auto func: node->getMethods()) {
         func->accept(*this);
@@ -832,10 +894,10 @@ void Codegen::visit(const Class *node) {
 void Codegen::visit(const Enum *node) {
     std::vector<llvm::Type *> elementTypes = {Builder->getInt8Ty()};
     llvm::StructType *structType = llvm::StructType::create(*TheContext->getContext(), elementTypes, node->getIdentifier());
-    std::vector<std::unique_ptr<Field>> fields;
+    std::vector<Field *> fields;
 
     for (const auto &field: node->getValues())
-        fields.push_back(std::make_unique<Field>(Field{field, new Type(TY_VOID, Builder->getVoidTy())}));
+        fields.push_back(new Field{field, new Type(TY_VOID, Builder->getVoidTy())});
 
     auto *type = new Type(TY_ENUM, structType, std::move(fields));
     auto *structSymbol = new Value(node->getIdentifier(), type);
@@ -1101,7 +1163,7 @@ void Codegen::visit(const DotOp *node) {
                 if (val == -1)
                     throw CodegenError(node->getLeft()->getSpan(), "Identifier {} not in {}", right->getValue(), left->getValue());
 
-                auto struct_val = Scope->lookup(left->getValue());
+                auto struct_val = Scope->lookupStruct(left->getValue());
                 auto enum_ptr = Builder->CreateAlloca(struct_val->getType()->getLLVMType());
                 auto field = Builder->CreateStructGEP(struct_val->getType()->getLLVMType(), enum_ptr, 0);
                 Builder->CreateStore(Builder->getInt8(val), field);
@@ -1157,7 +1219,7 @@ void Codegen::visit(const DotOp *node) {
 
             // TODO: Somehow, when we call a class method with a variable x,
             //  we lose the class name from cls, so we set it again
-            auto cls = Scope->lookupStructByName(lesma_type->getLLVMType()->getStructName().str());
+            auto cls = Scope->lookupStruct(lesma_type->getLLVMType()->getStructName().str());
             cls->setName(lesma_type->getLLVMType()->getStructName().str());
 
             if (cls->getType()->is(TY_CLASS)) {
@@ -1207,9 +1269,9 @@ void Codegen::visit(const IsOp *node) {
     llvm::Value *val;
 
     if (node->getOperator() == TokenType::IS) {
-        val = *left_type == *right_type ? Builder->getTrue() : Builder->getFalse();
+        val = left_type->isEqual(right_type) ? Builder->getTrue() : Builder->getFalse();
     } else {
-        val = *left_type == *right_type ? Builder->getFalse() : Builder->getTrue();
+        val = left_type->isEqual(right_type) ? Builder->getFalse() : Builder->getTrue();
     }
 
     result = new Value("", new Type(TY_BOOL, Builder->getInt1Ty()), val);
@@ -1333,7 +1395,6 @@ bool Codegen::isMethod(const std::string &mangled_name) {
     return mangled_name.find("::") != std::string::npos;
 }
 
-// TODO: Base it on Lesma Types not LLVM Types
 std::string Codegen::getMangledName(llvm::SMRange span, std::string func_name, const std::vector<lesma::Type *> &paramTypes, bool isMethod, std::string module_alias) {
     module_alias = module_alias.empty() ? this->alias : module_alias;
     std::string name = (module_alias.empty() ? "" : "&" + module_alias + "=>") +
@@ -1408,8 +1469,11 @@ lesma::Type *Codegen::GetExtendedType(lesma::Type *left, lesma::Type *right) {
 }
 
 lesma::Value *Codegen::Cast(llvm::SMRange span, lesma::Value *val, lesma::Type *type) {
+    if (type == nullptr)
+        return val;
+
     // If they're the same type
-    if (*val->getType() == *type)
+    if (val->getType()->isEqual(type))
         return val;
 
     if (type->is(TY_INT)) {
@@ -1433,26 +1497,24 @@ lesma::Value *Codegen::Cast(llvm::SMRange span, lesma::Value *val, lesma::Type *
 }
 
 lesma::Value *Codegen::genFuncCall(const FuncCall *node, const std::vector<lesma::Value *> &extra_params = {}) {
-    std::vector<lesma::Value *> params;
     std::vector<lesma::Type *> paramTypes;
     std::vector<llvm::Value *> paramsLLVM;
 
     for (auto arg: extra_params) {
-        params.push_back(arg);
         paramTypes.push_back(arg->getType());
         paramsLLVM.push_back(arg->getLLVMValue());
     }
 
     for (auto arg: node->getArguments()) {
         arg->accept(*this);
-        params.push_back(result);
         paramTypes.push_back(result->getType());
         paramsLLVM.push_back(result->getLLVMValue());
     }
 
-    std::string name;
+    Value *symbol;
+    // Check if it's a constructor like `Classname()`
     auto selfSymbolTmp = selfSymbol;
-    auto class_sym = Scope->lookup(node->getName());
+    auto class_sym = Scope->lookupStruct(node->getName());
     llvm::Value *class_ptr = nullptr;
     if (class_sym != nullptr && class_sym->getType()->is(TY_CLASS)) {
         // It's a class constructor, allocate and add self param
@@ -1461,22 +1523,29 @@ lesma::Value *Codegen::genFuncCall(const FuncCall *node, const std::vector<lesma
         paramTypes.insert(paramTypes.begin(), new Type(TY_PTR, Builder->getPtrTy(), class_sym->getType()));
 
         selfSymbol = class_sym;
-        name = getMangledName(node->getSpan(), "new", paramTypes, true);
+        symbol = Scope->lookupFunction("new", paramTypes);
     } else {
-        name = getMangledName(node->getSpan(), node->getName(), paramTypes, !extra_params.empty());
+        symbol = Scope->lookupFunction(node->getName(), paramTypes);
     }
 
-    auto symbol = Scope->lookup(name);
-    // Get function without name mangling in case of extern C functions
-    symbol = symbol == nullptr ? Scope->lookup(node->getName()) : symbol;
-
     if (symbol == nullptr) {
-        throw CodegenError(node->getSpan(), "Function {} not in current scope.", node->getName());
+        throw CodegenError(node->getSpan(), "{} {} not in current scope.", class_sym != nullptr ? "Constructor for" : "Function", node->getName());
     }
 
     if (!symbol->getType()->isOneOf({TY_CLASS, TY_FUNCTION}))
         throw CodegenError(node->getSpan(), "Symbol {} is not a function or constructor.", node->getName());
 
+    if (symbol->getType()->getFields().size() > paramsLLVM.size()) {
+        auto fields = symbol->getType()->getFields();
+        size_t start = paramsLLVM.size();
+
+        for (auto it = fields.begin() + start; it != fields.end(); ++it) {
+            if (!(*it)->defaultValue) {
+                throw CodegenError(node->getSpan(), "Something bad happened, lookup found a function with incorrect defaults", node->getName());
+            }
+            paramsLLVM.push_back((*it)->defaultValue->getLLVMValue());
+        }
+    }
     auto *func = cast<Function>(symbol->getType()->is(TY_CLASS) ? symbol->getConstructor()->getLLVMValue() : symbol->getLLVMValue());
     if (class_sym != nullptr && class_sym->getType()->is(TY_CLASS)) {
         Builder->CreateCall(func, paramsLLVM);

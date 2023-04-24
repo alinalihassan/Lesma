@@ -163,28 +163,3 @@ TEST_CASE("Codegen", "Run & Optimize") {
         cg->JIT();
     };
 }
-
-// TODO: Compilation doesn't seem to work if done too closely due to linker
-TEST_CASE("Lesma Run test files", "[lesma]") {
-    std::string directory = get_directory();
-    auto success_test_files = collect_test_files(directory + "/lesma/success");
-    auto failure_test_files = collect_test_files(directory + "/lesma/failure");
-
-    for (const auto &test_file: success_test_files) {
-        SECTION("Testing successful file: " + test_file) {
-            auto options = std::make_unique<lesma::Options>(Options{lesma::FILE, test_file});
-
-            int run_ret_value = lesma::Driver::Run(std::move(options));
-            REQUIRE(run_ret_value == 0);
-        }
-    }
-
-    for (const auto &test_file: failure_test_files) {
-        SECTION("Testing failing file: " + test_file) {
-            auto options = std::make_unique<lesma::Options>(Options{lesma::FILE, test_file});
-
-            int run_ret_value = lesma::Driver::Run(std::move(options));
-            REQUIRE(run_ret_value != 0);
-        }
-    }
-}

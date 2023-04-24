@@ -489,10 +489,23 @@ Statement *Parser::ParseFunctionDeclaration() {
             Consume(TokenType::ELLIPSIS);
             varargs = true;
         } else {
+            Expression *default_val = nullptr;
+            TypeExpr *type = nullptr;
             auto param_ident = Consume(TokenType::IDENTIFIER);
-            Consume(TokenType::COLON);
-            auto type = ParseType();
-            parameters.emplace_back(new Parameter(param_ident->lexeme, type));
+
+            if (AdvanceIfMatchAny<TokenType::COLON>()) {
+                type = ParseType();
+            }
+
+            if (AdvanceIfMatchAny<TokenType::EQUAL>()) {
+                default_val = ParseExpression();
+            }
+
+            if (default_val == nullptr && type == nullptr) {
+                throw ParserError(param_ident->span, "{} should have either a type, a value or both specified", param_ident->lexeme);
+            }
+
+            parameters.emplace_back(new Parameter(param_ident->lexeme, type, false, default_val));
         }
 
         if (!Check(TokenType::RIGHT_PAREN) && !Check(TokenType::RIGHT_PAREN, 1))
