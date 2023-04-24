@@ -67,11 +67,12 @@ namespace lesma {
         void setElementType(lesma::Type *type) { elementType = type; }
         void setReturnType(lesma::Type *type) { returnType = type; }
 
-        friend bool operator==(const Type &lhs, const Type &rhs) {
-            return lhs.getBaseType() == rhs.getBaseType() && lhs.getElementType() == rhs.getElementType();
-        }
-        friend bool operator!=(const Type &lhs, const Type &rhs) {
-            return !(lhs == rhs);
+        bool isEqual(Type *rhs) {
+            if (this == nullptr && rhs == nullptr)
+                return true;
+            if (this == nullptr || rhs == nullptr)
+                return false;
+            return this->getBaseType() == rhs->getBaseType() && this->getElementType()->isEqual(rhs->getElementType());
         }
 
         [[nodiscard]] std::string toString() const {

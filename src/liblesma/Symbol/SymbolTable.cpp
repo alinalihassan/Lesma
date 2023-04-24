@@ -40,7 +40,7 @@ Value *SymbolTable::lookupFunction(const std::string &name, std::vector<lesma::T
         size_t numParams = std::max(funcParamTypes.size(), paramTypes.size());
         for (size_t i = 0; i < numParams; ++i) {
             if (i < funcParamTypes.size() && i < paramTypes.size()) {
-                if (*funcParamTypes[i]->type != *paramTypes[i]) {
+                if (!funcParamTypes[i]->type->isEqual(paramTypes[i])) {
                     paramsMatch = false;
                     break;
                 }

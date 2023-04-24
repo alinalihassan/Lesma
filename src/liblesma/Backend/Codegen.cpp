@@ -605,7 +605,7 @@ void Codegen::visit(const FuncDecl *node) {
             typeResult = new Value("", new Type(TY_PTR, Builder->getPtrTy(), result->getType()));
         }
 
-        if (defaultValResult != nullptr && *typeResult->getType() != *defaultValResult->getType()) {
+        if (defaultValResult != nullptr && !typeResult->getType()->isEqual(defaultValResult->getType())) {
             throw CodegenError(node->getSpan(), "Declared parameter type and default value do not match for {}", param->name);
         }
 
@@ -660,7 +660,7 @@ void Codegen::visit(const ExternFuncDecl *node) {
             typeResult = new Value("", new Type(TY_PTR, Builder->getPtrTy(), result->getType()));
         }
 
-        if (defaultValResult != nullptr && *typeResult->getType() != *defaultValResult->getType()) {
+        if (defaultValResult != nullptr && !typeResult->getType()->isEqual(defaultValResult->getType())) {
             throw CodegenError(node->getSpan(), "Declared parameter type and default value do not match for {}", param->name);
         }
 
@@ -1264,9 +1264,9 @@ void Codegen::visit(const IsOp *node) {
     llvm::Value *val;
 
     if (node->getOperator() == TokenType::IS) {
-        val = *left_type == *right_type ? Builder->getTrue() : Builder->getFalse();
+        val = left_type->isEqual(right_type) ? Builder->getTrue() : Builder->getFalse();
     } else {
-        val = *left_type == *right_type ? Builder->getFalse() : Builder->getTrue();
+        val = left_type->isEqual(right_type) ? Builder->getFalse() : Builder->getTrue();
     }
 
     result = new Value("", new Type(TY_BOOL, Builder->getInt1Ty()), val);
@@ -1464,8 +1464,11 @@ lesma::Type *Codegen::GetExtendedType(lesma::Type *left, lesma::Type *right) {
 }
 
 lesma::Value *Codegen::Cast(llvm::SMRange span, lesma::Value *val, lesma::Type *type) {
+    if (type == nullptr)
+        return val;
+
     // If they're the same type
-    if (*val->getType() == *type)
+    if (val->getType()->isEqual(type))
         return val;
 
     if (type->is(TY_INT)) {
