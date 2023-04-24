@@ -8,7 +8,7 @@ Codegen::Codegen(std::unique_ptr<Parser> parser, std::shared_ptr<SourceMgr> srcM
     InitializeNativeTargetAsmParser();
 
     ImportedModules = std::move(imports);
-    TheJIT = ExitOnErr(LesmaJIT::Create());
+    TheJIT = InitializeJIT();
     TheContext = context == nullptr ? std::make_shared<ThreadSafeContext>(std::make_unique<LLVMContext>()) : context;
     TheModule = std::make_unique<Module>("Lesma JIT", *TheContext->getContext());
     TheModule->setDataLayout(TheJIT->getDataLayout());
@@ -30,6 +30,21 @@ Codegen::Codegen(std::unique_ptr<Parser> parser, std::shared_ptr<SourceMgr> srcM
     if (std::filesystem::absolute(filename) != getStdDir() + "base.les") {
         CompileModule(llvm::SMRange(), getStdDir() + "base.les", true, "base", true, true, {});
     }
+}
+
+std::unique_ptr<LLJIT> Codegen::InitializeJIT() {
+    auto jit = LLJITBuilder().create();
+    if (!jit) {
+        throw CodegenError({}, "Couldn't initialize JIT\n");
+    }
+
+    // Add support for C native functions
+    auto &MainJD = jit.get()->getMainJITDylib();
+    auto Err = MainJD.addGenerator(
+            cantFail(DynamicLibrarySearchGenerator::GetForCurrentProcess(
+                    jit.get()->getDataLayout().getGlobalPrefix())));
+
+    return std::move(jit.get());
 }
 
 llvm::Function *Codegen::InitializeTopLevel() {
@@ -186,11 +201,11 @@ void Codegen::CompileModule(llvm::SMRange span, const std::string &filepath, boo
         // Linking the two modules together
         if (isJIT) {
             // Link modules together
-            if (Linker::linkModules(*TheModule, std::move(codegen->TheModule), Linker::Flags::OverrideFromSrc))
-                throw CodegenError({}, "Error linking modules together");
+            //            if (Linker::linkModules(*TheModule, std::move(codegen->TheModule), Linker::Flags::OverrideFromSrc))
+            //                throw CodegenError({}, "Error linking modules together");
 
             // TODO: Currently unused since we link everything to main module, we need to develop the JIT more in the future
-            // ExitOnErr(TheJIT->addModule(ThreadSafeModule(std::move(codegen->TheModule), *TheContext)));
+            ExitOnErr(TheJIT->addIRModule(ThreadSafeModule(std::move(codegen->TheModule), *TheContext)));
         } else {
             // Create object file to be linked
             std::string obj_file = fmt::format("tmp{}", ObjectFiles.size());
@@ -340,14 +355,14 @@ void Codegen::LinkObjectFile(const std::string &obj_filename) {
 }
 
 int Codegen::JIT() {
-    auto jit_error = TheJIT->addModule(ThreadSafeModule(std::move(TheModule), *TheContext));
+    auto jit_error = TheJIT->addIRModule(ThreadSafeModule(std::move(TheModule), *TheContext));
     if (jit_error)
         throw CodegenError({}, "JIT Error:\n{}");
     using MainFnTy = int();
     auto main_func = TheJIT->lookup(TopLevelFunc->getName());
     if (!main_func)
         throw CodegenError({}, "Couldn't find top level function\n");
-    auto jit_main = jitTargetAddressToFunction<MainFnTy *>(main_func->getAddress());
+    auto jit_main = jitTargetAddressToFunction<MainFnTy *>(main_func->getValue());
     auto ret = jit_main();
 
     return ret;
@@ -679,6 +694,7 @@ void Codegen::visit(const ExternFuncDecl *node) {
     auto func_symbol = new Value(node->getName(), new Type(BaseType::TY_FUNCTION, F->getFunctionType(), fields), F);
     func_symbol->getType()->setReturnType(ret_type);
     func_symbol->setExported(node->isExported());
+    func_symbol->setMangledName(node->getName());
     Scope->insertSymbol(func_symbol);
 }
 
@@ -1380,7 +1396,6 @@ bool Codegen::isMethod(const std::string &mangled_name) {
     return mangled_name.find("::") != std::string::npos;
 }
 
-// TODO: Base it on Lesma Types not LLVM Types
 std::string Codegen::getMangledName(llvm::SMRange span, std::string func_name, const std::vector<lesma::Type *> &paramTypes, bool isMethod, std::string module_alias) {
     module_alias = module_alias.empty() ? this->alias : module_alias;
     std::string name = (module_alias.empty() ? "" : "&" + module_alias + "=>") +
