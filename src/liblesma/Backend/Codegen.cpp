@@ -139,7 +139,7 @@ std::unique_ptr<llvm::TargetMachine> Codegen::InitializeTargetMachine() {
         throw CodegenError({}, "Target not available:\n{}", error);
 
     llvm::TargetOptions opt;
-    llvm::Optional<llvm::Reloc::Model> rm = llvm::Optional<llvm::Reloc::Model>();
+    llvm::Reloc::Model rm = llvm::Reloc::Model();
     std::unique_ptr<llvm::TargetMachine> target_machine(target->createTargetMachine(tripletString, "generic", "", opt, rm));
     return target_machine;
 }
@@ -286,7 +286,7 @@ void Codegen::Optimize(OptimizationLevel opt) {
     PB.registerLoopAnalyses(LAM);
     PB.crossRegisterProxies(LAM, FAM, CGAM, MAM);
 
-    ModulePassManager MPM = PB.buildPerModuleDefaultPipeline(opt);
+    ModulePassManager MPM = PB.buildModuleOptimizationPipeline(opt, ThinOrFullLTOPhase::FullLTOPreLink);
 
     MPM.run(*TheModule, MAM);
 }
@@ -350,18 +350,22 @@ void Codegen::LinkObjectFile(const std::string &obj_filename) {
         llvm::sys::fs::remove(obj);
 }
 
-int Codegen::JIT() {
+void Codegen::PrepareJIT() {
     auto jit_error = TheJIT->addIRModule(ThreadSafeModule(std::move(TheModule), *TheContext));
     if (jit_error)
         throw CodegenError({}, "JIT Error:\n{}");
-    using MainFnTy = int();
     auto main_func = TheJIT->lookup(TopLevelFunc->getName());
     if (!main_func)
         throw CodegenError({}, "Couldn't find top level function\n");
-    auto jit_main = jitTargetAddressToFunction<MainFnTy *>(main_func->getValue());
-    auto ret = jit_main();
+    mainFuncAddress = jitTargetAddressToFunction<MainFnTy *>(main_func->getValue());
+}
 
-    return ret;
+int Codegen::ExecuteJIT() {
+    if (mainFuncAddress == nullptr) {
+        throw CodegenError({}, "Main function address not found, did you prepare JIT?\n");
+    }
+
+    return mainFuncAddress();
 }
 
 void Codegen::Run() {

@@ -35,6 +35,8 @@ namespace lesma {
         using LesmaErrorWithExitCode<EX_DATAERR>::LesmaErrorWithExitCode;
     };
 
+    using MainFnTy = int();
+
     class Codegen final : public ASTVisitor {
         std::shared_ptr<ThreadSafeContext> TheContext;
         std::unique_ptr<Module> TheModule;
@@ -57,6 +59,7 @@ namespace lesma {
         std::vector<std::string> ImportedModules;
         std::vector<std::tuple<lesma::Value *, const FuncDecl *, Value *>> Prototypes;
         llvm::Function *TopLevelFunc;
+        MainFnTy *mainFuncAddress = nullptr;
         Value *selfSymbol = nullptr;
         bool isBreak = false;
         bool isReturn = false;
@@ -73,7 +76,8 @@ namespace lesma {
 
         void Dump();
         void Run();
-        int JIT();
+        void PrepareJIT();
+        int ExecuteJIT();
         void WriteToObjectFile(const std::string &output);
         void LinkObjectFile(const std::string &obj_filename);
         void Optimize(OptimizationLevel opt);

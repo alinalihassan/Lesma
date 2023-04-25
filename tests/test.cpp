@@ -4,31 +4,12 @@
 
 #include "liblesma/Backend/Codegen.h"
 #include "liblesma/Common/Utils.h"
-#include "liblesma/Driver/Driver.h"
 #include "liblesma/Frontend/Lexer.h"
 #include "liblesma/Frontend/Parser.h"
 
-#include <filesystem>
 #include <vector>
 
 using namespace lesma;
-
-std::string get_directory() {
-    namespace fs = std::filesystem;
-    fs::path current_file_path(__FILE__);
-    fs::path repository_directory = current_file_path.parent_path();
-    return repository_directory.string();
-}
-
-std::vector<std::string> collect_test_files(const std::string &test_folder) {
-    std::vector<std::string> test_files;
-    for (const auto &entry: std::filesystem::directory_iterator(test_folder)) {
-        if (entry.is_regular_file()) {
-            test_files.push_back(entry.path().string());
-        }
-    }
-    return test_files;
-}
 
 std::shared_ptr<SourceMgr> initializeSrcMgr(const std::string &source) {
     // Configure Source Manager
@@ -139,27 +120,30 @@ TEST_CASE("Codegen", "Run & Optimize") {
     auto parser = initializeParser(lexer);
     auto codegen = initializeCodegen(parser, srcMgr);
     codegen->Optimize(OptimizationLevel::O3);
-    int exit_code = codegen->JIT();
+    codegen->PrepareJIT();
+    int exit_code = codegen->ExecuteJIT();
 
     REQUIRE(exit_code == 0);
 
-    BENCHMARK("Codegen") {
-        initializeCodegen(parser, srcMgr);
-    };
-
-    BENCHMARK("Codegen & Optimize") {
-        auto cg = initializeCodegen(parser, srcMgr);
-        cg->Optimize(OptimizationLevel::O3);
-    };
-
-    BENCHMARK("Codegen & JIT") {
-        auto cg = initializeCodegen(parser, srcMgr);
-        cg->JIT();
-    };
-
-    BENCHMARK("Codegen, Optimize & JIT") {
-        auto cg = initializeCodegen(parser, srcMgr);
-        cg->Optimize(OptimizationLevel::O3);
-        cg->JIT();
-    };
+    //    BENCHMARK("Codegen") {
+    //        initializeCodegen(parser, srcMgr);
+    //    };
+    //
+    //    BENCHMARK("Codegen & Optimize") {
+    //        auto cg = initializeCodegen(parser, srcMgr);
+    //        cg->Optimize(OptimizationLevel::O3);
+    //    };
+    //
+    //    BENCHMARK("Codegen & JIT") {
+    //        auto cg = initializeCodegen(parser, srcMgr);
+    //        cg->PrepareJIT();
+    //        cg->ExecuteJIT();
+    //    };
+    //
+    //    BENCHMARK("Codegen, Optimize & JIT") {
+    //        auto cg = initializeCodegen(parser, srcMgr);
+    //        cg->Optimize(OptimizationLevel::O3);
+    //        cg->PrepareJIT();
+    //        cg->ExecuteJIT();
+    //    };
 }

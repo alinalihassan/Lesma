@@ -79,7 +79,8 @@ int Driver::BaseCompile(std::unique_ptr<lesma::Options> options, bool jit) {
             TIMEIT("Linking Object File", codegen->LinkObjectFile(fmt::format("{}.o", options->output_filename));)
         } else {
             // Executing
-            TIMEIT("Execution", exit_code = codegen->JIT();)
+            TIMEIT("JIT", codegen->PrepareJIT();)
+            TIMEIT("Execution", exit_code = codegen->ExecuteJIT();)
         }
 
         if (options->timer)
