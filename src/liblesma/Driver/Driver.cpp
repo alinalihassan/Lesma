@@ -10,7 +10,7 @@ using namespace lesma;
             results = timer.get_elapsed_ms(); \
     total += results;                         \
     if (options->timer)                       \
-        print(DEBUG, "{} -> {:.2f} ms\n", debug_operation, results);
+        print(DEBUG, "{} -> {1:.2f} ms\n", debug_operation, results);
 
 
 int Driver::BaseCompile(std::unique_ptr<lesma::Options> options, bool jit) {

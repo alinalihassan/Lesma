@@ -30,9 +30,9 @@ using namespace llvm;
 using namespace llvm::orc;
 
 namespace lesma {
-    class CodegenError : public LesmaErrorWithExitCode<EX_DATAERR> {
+    class CodegenError : public LesmaErrorWithExitCode<65> {
     public:
-        using LesmaErrorWithExitCode<EX_DATAERR>::LesmaErrorWithExitCode;
+        using LesmaErrorWithExitCode<65>::LesmaErrorWithExitCode;
     };
 
     class Codegen final : public ASTVisitor {

@@ -46,7 +46,7 @@ namespace lesma {
     std::string getStdDir() {
         std::string homedir;
 
-#ifdef __APPLE__ || __unix__ || __linux__
+#if defined(__APPLE__) || defined(__unix__) || defined(__linux__)
         if (getenv("HOME"))
             homedir = getenv("HOME");
         else

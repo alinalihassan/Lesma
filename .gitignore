@@ -18,3 +18,5 @@ test*.les
 **/.DS_Store
 **/*.o
 .cache/
+
+.vs/

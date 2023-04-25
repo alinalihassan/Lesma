@@ -7,9 +7,9 @@
 #include <utility>
 
 namespace lesma {
-    class ParserError : public LesmaErrorWithExitCode<EX_DATAERR> {
+    class ParserError : public LesmaErrorWithExitCode<65> {
     public:
-        using LesmaErrorWithExitCode<EX_DATAERR>::LesmaErrorWithExitCode;
+        using LesmaErrorWithExitCode<65>::LesmaErrorWithExitCode;
     };
 
     class Parser {

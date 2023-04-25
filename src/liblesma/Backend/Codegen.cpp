@@ -147,7 +147,7 @@ std::unique_ptr<llvm::TargetMachine> Codegen::InitializeTargetMachine() {
 void Codegen::CompileModule(llvm::SMRange span, const std::string &filepath, bool isStd, const std::string &module_alias, bool importAll, bool importToScope, const std::vector<std::pair<std::string, std::string>> &imported_names) {
     std::filesystem::path mainPath = filename;
     // Read source
-    auto absolute_path = isStd ? filepath : fmt::format("{}/{}", std::filesystem::absolute(mainPath).parent_path().c_str(), filepath);
+    auto absolute_path = isStd ? filepath : fmt::format("{}/{}", std::filesystem::absolute(mainPath).parent_path().c_str(), filepath.c_str());
 
     // If module is already imported, don't compile again
     // TODO: Re-enable this again, currently it destroys nested imports
@@ -200,7 +200,7 @@ void Codegen::CompileModule(llvm::SMRange span, const std::string &filepath, boo
 
         if (isJIT) {
             // Add the module to JIT
-            cantFail(TheJIT->addIRModule(ThreadSafeModule(std::move(codegen->TheModule), *TheContext)), fmt::format("Failed adding import {} to JIT", filename).c_str());
+            cantFail(TheJIT->addIRModule(ThreadSafeModule(std::move(codegen->TheModule), *TheContext)), fmt::format("Failed adding import {} to JIT", filename.c_str()).c_str());
         } else {
             // Create object file to be linked
             std::string obj_file = fmt::format("tmp{}", ObjectFiles.size());

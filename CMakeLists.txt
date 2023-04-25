@@ -41,8 +41,17 @@ elseif (CMAKE_BUILD_TYPE MATCHES Release)
 endif ()
 
 set(CMAKE_CXX_STANDARD 17)
-add_definitions(${CMAKE_CXX_FLAGS} -Wall -Wextra -Wpedantic -frtti)
-set(CMAKE_CXX_FLAGS_RELEASE "-O3")
+if(MSVC)
+  add_definitions(/W4 /permissive- /GR /EHsc)
+else()
+  add_definitions(${CMAKE_CXX_FLAGS} -Wall -Wextra -Wpedantic -frtti)
+endif()
+
+if(MSVC)
+  set(CMAKE_CXX_FLAGS_RELEASE "/O2")
+else()
+  set(CMAKE_CXX_FLAGS_RELEASE "-O3")
+endif()
 
 # External dependencies
 find_package(fmt CONFIG REQUIRED)

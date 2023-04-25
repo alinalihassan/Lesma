@@ -1,5 +1,5 @@
 {
-  "version": 6,
+  "version": 5,
   "cmakeMinimumRequired": {
     "major": 3,
     "minor": 20,
@@ -16,6 +16,7 @@
         "CMAKE_BUILD_TYPE": "Debug",
         "LESMA_BUILD_CLI": "ON",
         "LESMA_BUILD_TESTS": "ON",
+        "LESMA_BUILD_LLVM": "ON",
         "CMAKE_TOOLCHAIN_FILE": {
           "type": "FILEPATH",
           "value": "$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake"
@@ -32,6 +33,7 @@
         "CMAKE_BUILD_TYPE": "Release",
         "LESMA_BUILD_CLI": "ON",
         "LESMA_BUILD_TESTS": "ON",
+        "LESMA_BUILD_LLVM": "ON",
         "CMAKE_TOOLCHAIN_FILE": {
           "type": "FILEPATH",
           "value": "$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake"
@@ -78,42 +80,6 @@
     {
       "name": "Release",
       "configurePreset": "Release"
-    }
-  ],
-  "workflowPresets": [
-    {
-      "name": "Debug Workflow",
-      "steps": [
-        {
-          "type": "configure",
-          "name": "Debug"
-        },
-        {
-          "type": "build",
-          "name": "Debug"
-        },
-        {
-          "type": "test",
-          "name": "Debug"
-        }
-      ]
-    },
-    {
-      "name": "Release Workflow",
-      "steps": [
-        {
-          "type": "configure",
-          "name": "Release"
-        },
-        {
-          "type": "build",
-          "name": "Release"
-        },
-        {
-          "type": "test",
-          "name": "Release"
-        }
-      ]
     }
   ]
 }
