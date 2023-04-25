@@ -75,7 +75,7 @@ if (EXISTS "${LLVM_DIR}" AND IS_DIRECTORY "${LLVM_DIR}") # Prefer local LLVM ins
 endif ()
 
 # LLVM configuration
-find_package(LLVM 16 CONFIG REQUIRED)
+find_package(LLVM 15 CONFIG REQUIRED)
 
 message(STATUS "Found LLVM ${LLVM_PACKAGE_VERSION}")
 message(STATUS "Using LLVMConfig.cmake from ${LLVM_DIR}")
