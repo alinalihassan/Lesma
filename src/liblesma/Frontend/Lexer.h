@@ -2,7 +2,6 @@
 
 #include <optional>
 #include <string>
-#include <sysexits.h>
 #include <vector>
 
 #include "liblesma/Common/LesmaError.h"
@@ -10,8 +9,8 @@
 #include "liblesma/Token/Token.h"
 
 namespace lesma {
-    class LexerError : public LesmaErrorWithExitCode<EX_DATAERR> {
-        using LesmaErrorWithExitCode<EX_DATAERR>::LesmaErrorWithExitCode;
+    class LexerError : public LesmaErrorWithExitCode<65> {
+        using LesmaErrorWithExitCode<65>::LesmaErrorWithExitCode;
     };
 
     class Lexer {

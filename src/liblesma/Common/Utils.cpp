@@ -24,7 +24,7 @@ namespace lesma {
 
         for (std::string line; std::getline(ifs, line);) {
             if (lineNum == start_loc.first) {
-                // First line
+                // First line 
                 fmt::print(accent, "{} |\n", std::string(int(log10(start_loc.first) + 1), ' '));
 
                 // Second line
@@ -46,10 +46,15 @@ namespace lesma {
     std::string getStdDir() {
         std::string homedir;
 
+#ifdef __APPLE__ || __unix__ || __linux__
         if (getenv("HOME"))
             homedir = getenv("HOME");
         else
             homedir = getpwuid(getuid())->pw_dir;
+#elif defined(WIN32) || defined(_WIN32) || defined(__WIN32__) || defined(__NT__)
+        homedir = getenv("HOMEPATH");
+#endif// DEBUG
+        
 
         return homedir + "/.lesma/stdlib/";
     }
