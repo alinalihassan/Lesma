@@ -1,25 +1,18 @@
 cmake_minimum_required(VERSION 3.24)
 
-# Lesma build options
-option(LESMA_BUILD_CLI "Build CLI" OFF)
-if (LESMA_BUILD_CLI)
-  list(APPEND VCPKG_MANIFEST_FEATURES "cli")
-endif ()
+# Macro
+macro(add_feature_option OPTION_NAME FEATURE_NAME DESCRIPTION DEFAULT_VALUE)
+  option(${OPTION_NAME} ${DESCRIPTION} ${DEFAULT_VALUE})
+  if (${OPTION_NAME})
+    list(APPEND VCPKG_MANIFEST_FEATURES "${FEATURE_NAME}")
+  endif ()
+endmacro()
 
-option(LESMA_BUILD_TESTS "Build Tests" OFF)
-if (LESMA_BUILD_TESTS)
-  list(APPEND VCPKG_MANIFEST_FEATURES "tests")
-endif ()
-
-option(LESMA_BUILD_DIST "Build Dist" OFF)
-if (LESMA_BUILD_DIST)
-  list(APPEND VCPKG_MANIFEST_FEATURES "dist")
-endif ()
-
-option(LESMA_BUILD_LLVM "Build LLVM" OFF)
-if (LESMA_BUILD_LLVM)
-  list(APPEND VCPKG_MANIFEST_FEATURES "build-llvm")
-endif ()
+# Lesma features
+add_feature_option(LESMA_BUILD_CLI "cli" "Build CLI" ON)
+add_feature_option(LESMA_BUILD_TESTS "tests" "Build Tests" OFF)
+add_feature_option(LESMA_BUILD_DIST "dist" "Build Dist" OFF)
+add_feature_option(LESMA_BUILD_LLVM "build-llvm" "Build LLVM" OFF)
 
 # Get version from vcpkg
 file(READ ${CMAKE_CURRENT_SOURCE_DIR}/vcpkg.json VCPKG_MANIFEST)

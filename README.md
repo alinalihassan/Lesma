@@ -13,8 +13,8 @@
 
 </div>
 
-**Lesma** is a compiled, statically typed, imperative and object-oriented programming language with a focus on
-expressiveness, elegance, and simplicity, while not sacrificing on performance.
+**Lesma** is a compiled, statically typed, imperative, and object-oriented programming language with a focus on
+expressiveness, elegance, and simplicity without sacrificing performance.
 
 ## 📝 Features
 
@@ -29,7 +29,7 @@ expressiveness, elegance, and simplicity, while not sacrificing on performance.
 
 ## ✍️ Example
 
-![Sample Program](imgs/sample.png)
+![Lesma Fibonacci](imgs/lesma_fib.svg)
 
 ## 📖 Documentation
 
@@ -38,8 +38,11 @@ expressiveness, elegance, and simplicity, while not sacrificing on performance.
 
 ## Installation
 
-Every lesma release contains archives with the binary and standard library which you can grab,
-but you could also use the installer script to do all the work for you. Paste the following in your terminal:
+Every Lesma release contains archives with the binary and standard library which you can grab. Alternatively, you can
+use the installer script to do all the work for you. The [get-lesma.sh](scripts/get-lesma.sh) script downloads and
+installs the latest release.
+
+Run the following in your terminal:
 
 ```bash
 bash -c "$(curl -fsSL https://raw.githubusercontent.com/alinalihassan/Lesma/main/scripts/get-lesma.sh)"
@@ -51,7 +54,15 @@ In order to build Lesma, you need Clang and LLVM 15 installed. It's currently on
 For a more comprehensive guide, and more information on how to install the prerequisites,
 read the documentation on [Getting Started](https://lesma-lang.com/docs/introduction/getting-started)
 
-![CLI Commands](imgs/cli_commands.png)
+1. Clone the repository
+    ```bash
+    git clone https://github.com/alinalihassan/Lesma
+    ```
+2. Run CMake to configure the build
+    ```bash
+    cmake . -Bbuild
+    cmake --build build
+    ```
 
 ## 💬 Contributing
 
