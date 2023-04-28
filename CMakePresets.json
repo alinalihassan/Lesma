@@ -2,7 +2,7 @@
   "version": 6,
   "cmakeMinimumRequired": {
     "major": 3,
-    "minor": 20,
+    "minor": 25,
     "patch": 0
   },
   "configurePresets": [
@@ -16,11 +16,7 @@
         "CMAKE_BUILD_TYPE": "Debug",
         "LESMA_BUILD_CLI": "ON",
         "LESMA_BUILD_TESTS": "ON",
-        "LESMA_BUILD_BENCHMARKS": "ON",
-        "CMAKE_TOOLCHAIN_FILE": {
-          "type": "FILEPATH",
-          "value": "$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake"
-        }
+        "LESMA_BUILD_BENCHMARKS": "ON"
       }
     },
     {
@@ -33,29 +29,24 @@
         "CMAKE_BUILD_TYPE": "Release",
         "LESMA_BUILD_CLI": "ON",
         "LESMA_BUILD_TESTS": "ON",
-        "LESMA_BUILD_BENCHMARKS": "ON",
-        "CMAKE_TOOLCHAIN_FILE": {
-          "type": "FILEPATH",
-          "value": "$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake"
-        }
+        "LESMA_BUILD_BENCHMARKS": "ON"
       }
     },
     {
       "name": "Release_Dist",
       "displayName": "Release and Distribute",
-      "description": "Configures the project for release and create distributable",
+      "description": "Configures the project for release and create distributable. This is meant for CI/CD",
       "generator": "Ninja",
       "binaryDir": "${sourceDir}/build/Release",
+      "debug": {
+        "output": true
+      },
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Release",
         "LESMA_BUILD_CLI": "ON",
         "LESMA_BUILD_TESTS": "ON",
         "LESMA_BUILD_BENCHMARKS": "ON",
-        "LESMA_BUILD_DIST": "ON",
-        "CMAKE_TOOLCHAIN_FILE": {
-          "type": "FILEPATH",
-          "value": "$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake"
-        }
+        "LESMA_BUILD_DIST": "ON"
       }
     }
   ],
