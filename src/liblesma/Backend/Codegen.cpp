@@ -2,27 +2,28 @@
 
 using namespace lesma;
 
-Codegen::Codegen(std::shared_ptr<Parser> parser, std::shared_ptr<SourceMgr> srcMgr, const std::string &filename, std::vector<std::string> imports, bool jit, bool main, std::string alias, const std::shared_ptr<ThreadSafeContext> &context) {
+Codegen::Codegen(std::shared_ptr<Parser> parser, std::shared_ptr<SourceMgr> srcMgr, const std::string &_filename, std::vector<std::string> imports, bool jit, bool main, std::string _alias, const std::shared_ptr<ThreadSafeContext> &context) {
     InitializeNativeTarget();
     InitializeNativeTargetAsmPrinter();
     InitializeNativeTargetAsmParser();
 
+    alias = std::move(_alias);
+    filename = _filename;
+    isMain = main;
+    isJIT = jit;
+
     TheContext = context == nullptr ? std::make_shared<ThreadSafeContext>(std::make_unique<LLVMContext>()) : context;
     TargetMachine = InitializeTargetMachine();
     TheModule = InitializeModule();
-    if (jit) {
+    if (isJIT) {
         TheJIT = InitializeJIT();
     }
-    
+
+    Debug = InitializeDebugInfo();
     Builder = std::make_unique<IRBuilder<>>(*TheContext->getContext());
     Parser_ = std::move(parser);
     SourceManager = std::move(srcMgr);
     Scope = new SymbolTable(nullptr);
-
-    this->alias = std::move(alias);
-    this->filename = filename;
-    isMain = main;
-    isJIT = jit;
 
     ImportedModules = std::move(imports);
     TopLevelFunc = InitializeTopLevel();
@@ -38,6 +39,12 @@ std::unique_ptr<Module> Codegen::InitializeModule() {
     mod->setTargetTriple(TargetMachine->getTargetTriple().str());
     mod->setDataLayout(TargetMachine->createDataLayout());
     mod->setSourceFileName(filename);
+    mod->addModuleFlag(llvm::Module::Warning, "Debug Info Version",
+                       llvm::DEBUG_METADATA_VERSION);
+    // darwin only supports dwarf2
+    if (llvm::Triple(mod->getTargetTriple()).isOSDarwin()) {
+        mod->addModuleFlag(llvm::Module::Warning, "Dwarf Version", 2);
+    }
 
     return mod;
 }
@@ -75,6 +82,18 @@ std::unique_ptr<LLJIT> Codegen::InitializeJIT() {
                     jit->getDataLayout().getGlobalPrefix())));
 
     return jit;
+}
+
+DebugInfo Codegen::InitializeDebugInfo() {
+    DebugInfo debugInfo;
+    debugInfo.Builder = std::make_unique<llvm::DIBuilder>(*TheModule);
+    llvm::DIFile *file = debugInfo.getFile(filename);
+    debugInfo.Unit = debugInfo.Builder->createCompileUnit(llvm::dwarf::DW_LANG_C, file,
+                                                          ("lesma version " LESMA_VERSION), true,
+                                                          "",
+                                                          /*RV=*/0);
+
+    return debugInfo;
 }
 
 llvm::Function *Codegen::InitializeTopLevel() {
@@ -397,6 +416,8 @@ void Codegen::Run() {
 
     // Return 0 for top-level function
     Builder->CreateRet(ConstantInt::getSigned(Builder->getInt64Ty(), 0));
+
+    Debug.Builder->finalize();
 }
 
 void Codegen::Dump() {
@@ -1589,6 +1610,60 @@ lesma::Type *Codegen::FindTypeInFields(Type *_struct, const std::string &field) 
             return i->type;
         }
     }
+
+    return nullptr;
+}
+
+llvm::DIType *Codegen::getDIType(Type *t) {
+    std::unordered_map<std::string, llvm::DICompositeType *> cache;
+    return getDITypeHelper(t, cache);
+}
+
+llvm::DIType *Codegen::getDITypeHelper(Type *t, std::unordered_map<std::string, llvm::DICompositeType *> &cache) {
+    llvm::Type *type = t->getLLVMType();
+    auto &layout = TheModule->getDataLayout();
+
+    if (t->is(TY_INT)) {
+        return Debug.Builder->createBasicType(
+                "int", layout.getTypeAllocSizeInBits(type), llvm::dwarf::DW_ATE_signed);
+    }
+
+    if (t->is(TY_FLOAT)) {
+        return Debug.Builder->createBasicType(
+                "float", layout.getTypeAllocSizeInBits(type), llvm::dwarf::DW_ATE_float);
+    }
+
+    if (t->is(TY_BOOL)) {
+        return Debug.Builder->createBasicType(
+                "bool", layout.getTypeAllocSizeInBits(type), llvm::dwarf::DW_ATE_boolean);
+    }
+
+    if (t->is(TY_VOID)) {
+        return nullptr;
+    }
+
+    if (t->is(TY_FUNCTION)) {
+        std::vector<llvm::Metadata *> argTypes = {
+                getDITypeHelper(t->getReturnType(), cache)};
+        for (auto *field: t->getFields()) {
+            argTypes.push_back(getDITypeHelper(field->type, cache));
+        }
+        return Debug.Builder->createPointerType(
+                Debug.Builder->createSubroutineType(llvm::MDTuple::get(*TheContext->getContext(), argTypes)),
+                layout.getTypeAllocSizeInBits(type));
+    }
+
+    if (t->is(TY_PTR)) {
+        return Debug.Builder->createPointerType(getDITypeHelper(t->getElementType(), cache),
+                                                layout.getTypeAllocSizeInBits(type));
+    }
+
+    if (t->is(TY_CLASS)) {
+        return Debug.Builder->createObjectPointerType(
+                Debug.Builder->createClassType())
+    }
+
+    throw CodegenError({}, "Debug Type missing:\n{}", t->toString());
 
     return nullptr;
 }
