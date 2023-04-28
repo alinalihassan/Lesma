@@ -84,6 +84,7 @@ namespace lesma {
 
     protected:
         std::unique_ptr<llvm::TargetMachine> InitializeTargetMachine();
+        std::unique_ptr<Module> InitializeModule();
         std::unique_ptr<LLJIT> InitializeJIT();
         llvm::Function *InitializeTopLevel();
 

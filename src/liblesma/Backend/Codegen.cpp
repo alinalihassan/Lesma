@@ -7,23 +7,24 @@ Codegen::Codegen(std::shared_ptr<Parser> parser, std::shared_ptr<SourceMgr> srcM
     InitializeNativeTargetAsmPrinter();
     InitializeNativeTargetAsmParser();
 
-    ImportedModules = std::move(imports);
-    TheJIT = InitializeJIT();
     TheContext = context == nullptr ? std::make_shared<ThreadSafeContext>(std::make_unique<LLVMContext>()) : context;
-    TheModule = std::make_unique<Module>("Lesma JIT", *TheContext->getContext());
-    TheModule->setDataLayout(TheJIT->getDataLayout());
-    TheModule->setSourceFileName(filename);
+    TargetMachine = InitializeTargetMachine();
+    TheModule = InitializeModule();
+    if (jit) {
+        TheJIT = InitializeJIT();
+    }
+    
     Builder = std::make_unique<IRBuilder<>>(*TheContext->getContext());
     Parser_ = std::move(parser);
     SourceManager = std::move(srcMgr);
     Scope = new SymbolTable(nullptr);
-    TargetMachine = InitializeTargetMachine();
 
     this->alias = std::move(alias);
     this->filename = filename;
-    isJIT = jit;
     isMain = main;
+    isJIT = jit;
 
+    ImportedModules = std::move(imports);
     TopLevelFunc = InitializeTopLevel();
 
     // If it's not base.les stdlib, then import it
@@ -32,19 +33,48 @@ Codegen::Codegen(std::shared_ptr<Parser> parser, std::shared_ptr<SourceMgr> srcM
     }
 }
 
+std::unique_ptr<Module> Codegen::InitializeModule() {
+    auto mod = std::make_unique<Module>("Lesma", *TheContext->getContext());
+    mod->setTargetTriple(TargetMachine->getTargetTriple().str());
+    mod->setDataLayout(TargetMachine->createDataLayout());
+    mod->setSourceFileName(filename);
+
+    return mod;
+}
+
+std::unique_ptr<llvm::TargetMachine> Codegen::InitializeTargetMachine() {
+    // Configure output target
+    auto targetTriple = llvm::Triple(llvm::sys::getDefaultTargetTriple());
+    const std::string &tripletString = targetTriple.getTriple();
+
+    // Search after selected target
+    std::string error;
+    const llvm::Target *target = llvm::TargetRegistry::lookupTarget(tripletString, error);
+    if (!target)
+        throw CodegenError({}, "Target not available:\n{}", error);
+
+    llvm::TargetOptions opt;
+    llvm::Reloc::Model rm = llvm::Reloc::Model();
+    std::unique_ptr<llvm::TargetMachine> target_machine(target->createTargetMachine(tripletString, "generic", "", opt, rm));
+    return target_machine;
+}
+
 std::unique_ptr<LLJIT> Codegen::InitializeJIT() {
-    auto jit = LLJITBuilder().create();
+    llvm::orc::LLJITBuilder builder;
+    builder.setDataLayout(TheModule->getDataLayout());
+    builder.setJITTargetMachineBuilder(llvm::orc::JITTargetMachineBuilder(TargetMachine->getTargetTriple()));
+    auto jit = llvm::cantFail(builder.create());
     if (!jit) {
         throw CodegenError({}, "Couldn't initialize JIT\n");
     }
 
     // Add support for C native functions
-    auto &MainJD = jit.get()->getMainJITDylib();
+    auto &MainJD = jit->getMainJITDylib();
     auto Err = MainJD.addGenerator(
             cantFail(DynamicLibrarySearchGenerator::GetForCurrentProcess(
-                    jit.get()->getDataLayout().getGlobalPrefix())));
+                    jit->getDataLayout().getGlobalPrefix())));
 
-    return std::move(jit.get());
+    return jit;
 }
 
 llvm::Function *Codegen::InitializeTopLevel() {
@@ -124,24 +154,6 @@ void Codegen::defineFunction(lesma::Value *value, const FuncDecl *node, Value *c
 
     // Reset Insert Point to Top Level
     Builder->SetInsertPoint(&TopLevelFunc->back());
-}
-
-std::unique_ptr<llvm::TargetMachine> Codegen::InitializeTargetMachine() {
-    // Configure output target
-    auto targetTriple = llvm::Triple(llvm::sys::getDefaultTargetTriple());
-    const std::string &tripletString = targetTriple.getTriple();
-    TheModule->setTargetTriple(tripletString);
-
-    // Search after selected target
-    std::string error;
-    const llvm::Target *target = llvm::TargetRegistry::lookupTarget(tripletString, error);
-    if (!target)
-        throw CodegenError({}, "Target not available:\n{}", error);
-
-    llvm::TargetOptions opt;
-    llvm::Reloc::Model rm = llvm::Reloc::Model();
-    std::unique_ptr<llvm::TargetMachine> target_machine(target->createTargetMachine(tripletString, "generic", "", opt, rm));
-    return target_machine;
 }
 
 void Codegen::CompileModule(llvm::SMRange span, const std::string &filepath, bool isStd, const std::string &module_alias, bool importAll, bool importToScope, const std::vector<std::pair<std::string, std::string>> &imported_names) {
