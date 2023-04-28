@@ -34,8 +34,6 @@ elseif (CMAKE_BUILD_TYPE MATCHES Release)
   message(STATUS "Release mode")
 endif ()
 
-message(STATUS "C++ compiler: ${CMAKE_CXX_COMPILER_ID}")
-
 set(CMAKE_CXX_STANDARD 17)
 add_definitions(${CMAKE_CXX_FLAGS} -Wall -Wextra -Wpedantic -frtti)
 set(CMAKE_CXX_FLAGS_RELEASE "-O3")
