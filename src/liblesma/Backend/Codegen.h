@@ -44,7 +44,7 @@ namespace lesma {
 
         std::unique_ptr<LLJIT> TheJIT;
         std::unique_ptr<llvm::TargetMachine> TargetMachine;
-        std::unique_ptr<Parser> Parser_;
+        std::shared_ptr<Parser> Parser_;
         std::shared_ptr<SourceMgr> SourceManager;
         SymbolTable *Scope;
         std::string filename;
@@ -68,7 +68,7 @@ namespace lesma {
         bool isMain = true;
 
     public:
-        Codegen(std::unique_ptr<Parser> parser, std::shared_ptr<SourceMgr> srcMgr, const std::string &filename, std::vector<std::string> imports, bool jit, bool main, std::string alias = "", const std::shared_ptr<ThreadSafeContext> & = nullptr);
+        Codegen(std::shared_ptr<Parser> parser, std::shared_ptr<SourceMgr> srcMgr, const std::string &filename, std::vector<std::string> imports, bool jit, bool main, std::string alias = "", const std::shared_ptr<ThreadSafeContext> & = nullptr);
         ~Codegen() override {
             delete selfSymbol;
             delete Scope;

@@ -34,8 +34,17 @@
       "description": "Build Tests",
       "dependencies": [
         {
-          "name": "catch2",
-          "version>=": "3.3.2"
+          "name": "gtest",
+          "version>=": "1.13.0"
+        }
+      ]
+    },
+    "benchmarks": {
+      "description": "Build Benchmarks",
+      "dependencies": [
+        {
+          "name": "benchmark",
+          "version>=": "1.7.1"
         }
       ]
     },

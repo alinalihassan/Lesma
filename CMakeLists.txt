@@ -11,6 +11,7 @@ endmacro()
 # Lesma features
 add_feature_option(LESMA_BUILD_CLI "cli" "Build CLI" ON)
 add_feature_option(LESMA_BUILD_TESTS "tests" "Build Tests" OFF)
+add_feature_option(LESMA_BUILD_BENCHMARKS "benchmarks" "Build Benchmarks" OFF)
 add_feature_option(LESMA_BUILD_DIST "dist" "Build Dist" OFF)
 add_feature_option(LESMA_BUILD_LLVM "build-llvm" "Build LLVM" OFF)
 
@@ -132,22 +133,36 @@ endif ()
 # Tests
 if (LESMA_BUILD_TESTS)
   message(STATUS "Building Lesma Tests")
-  find_package(Catch2 CONFIG REQUIRED)
+
+  enable_testing()
+
+  find_package(GTest CONFIG REQUIRED)
 
   set(TESTS_NAME tests)
   set(TEST_SOURCES tests/test.cpp)
 
-  add_executable(tests ${TEST_SOURCES})
-  target_link_libraries(${TESTS_NAME} PRIVATE ${LIB_NAME} Catch2::Catch2WithMain)
-
-  enable_testing()
+  add_executable(${TESTS_NAME} ${TEST_SOURCES})
+  target_link_libraries(${TESTS_NAME} PRIVATE ${LIB_NAME} GTest::gtest GTest::gtest_main GTest::gmock GTest::gmock_main)
 
   find_program(BASH_PROGRAM bash)
   if (BASH_PROGRAM)
     add_test(test_lesma_sources ${BASH_PROGRAM} ${CMAKE_CURRENT_SOURCE_DIR}/scripts/run_tests.sh ${CMAKE_CURRENT_BINARY_DIR}/lesma)
   endif (BASH_PROGRAM)
 
-  add_test(test_unit_tests tests)
+  add_test(AllTestsInMain ${TESTS_NAME})
+endif ()
+
+# Benchmarks
+if (LESMA_BUILD_BENCHMARKS)
+  message(STATUS "Building Lesma Benchmarks")
+
+  find_package(benchmark CONFIG REQUIRED)
+
+  set(BENCHMARKS_NAME benchmark)
+  set(BENCHMARK_SOURCES benchmark/benchmark.cpp)
+
+  add_executable(${BENCHMARKS_NAME} ${BENCHMARK_SOURCES})
+  target_link_libraries(${BENCHMARKS_NAME} PRIVATE ${LIB_NAME} benchmark::benchmark benchmark::benchmark_main)
 endif ()
 
 # CPack
