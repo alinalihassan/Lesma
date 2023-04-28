@@ -16,6 +16,7 @@
         "CMAKE_BUILD_TYPE": "Debug",
         "LESMA_BUILD_CLI": "ON",
         "LESMA_BUILD_TESTS": "ON",
+        "LESMA_BUILD_BENCHMARKS": "ON",
         "CMAKE_TOOLCHAIN_FILE": {
           "type": "FILEPATH",
           "value": "$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake"
@@ -32,6 +33,7 @@
         "CMAKE_BUILD_TYPE": "Release",
         "LESMA_BUILD_CLI": "ON",
         "LESMA_BUILD_TESTS": "ON",
+        "LESMA_BUILD_BENCHMARKS": "ON",
         "CMAKE_TOOLCHAIN_FILE": {
           "type": "FILEPATH",
           "value": "$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake"
@@ -48,6 +50,7 @@
         "CMAKE_BUILD_TYPE": "Release",
         "LESMA_BUILD_CLI": "ON",
         "LESMA_BUILD_TESTS": "ON",
+        "LESMA_BUILD_BENCHMARKS": "ON",
         "LESMA_BUILD_DIST": "ON",
         "CMAKE_TOOLCHAIN_FILE": {
           "type": "FILEPATH",

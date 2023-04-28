@@ -13,7 +13,7 @@ Codegen::Codegen(std::shared_ptr<Parser> parser, std::shared_ptr<SourceMgr> srcM
     if (jit) {
         TheJIT = InitializeJIT();
     }
-    
+
     Builder = std::make_unique<IRBuilder<>>(*TheContext->getContext());
     Parser_ = std::move(parser);
     SourceManager = std::move(srcMgr);
@@ -231,7 +231,7 @@ void Codegen::CompileModule(llvm::SMRange span, const std::string &filepath, boo
                 Scope->insertType(sym.first, sym.second->getType());
                 Scope->insertSymbol(structSymbol);
             } else if (sym.second->getType()->is(TY_FUNCTION) && sym.second->isExported()) {
-                auto *F = llvm::cast<Function>(sym.second->getLLVMValue());
+                auto *F = llvm::dyn_cast<Function>(sym.second->getLLVMValue());
                 auto *FTy = llvm::cast<FunctionType>(sym.second->getType()->getLLVMType());
 
                 if (isJIT) {

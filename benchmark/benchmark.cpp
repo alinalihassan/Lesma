@@ -62,8 +62,7 @@ protected:
     std::shared_ptr<SourceMgr> srcMgr;
     std::string source =
             "var y: int = 100\n"
-            "y = 101\n"
-            "exit(y)\n";
+            "y = 101\n";
 
     void SetUp(const ::benchmark::State &state) override {
         srcMgr = initializeSrcMgr(source);
@@ -145,6 +144,7 @@ BENCHMARK_F(CodegenBenchmark, All)
 (benchmark::State &state) {
     for (auto _: state) {
         auto cg = initializeCodegen(parser, srcMgr);
+        cg->Optimize(OptimizationLevel::O3);
         cg->PrepareJIT();
         cg->ExecuteJIT();
     }
