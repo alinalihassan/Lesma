@@ -64,11 +64,11 @@ protected:
             "var y: int = 100\n"
             "y = 101\n";
 
-    void SetUp(const ::benchmark::State &state) override {
+    void SetUp(const ::benchmark::State &_) override {
         srcMgr = initializeSrcMgr(source);
     }
 
-    void TearDown(const ::benchmark::State &state) override {
+    void TearDown(const ::benchmark::State &_) override {
         // Place any cleanup code here, if needed
     }
 };

@@ -1,5 +1,4 @@
 #include <benchmark/benchmark.h>
-#include <fmt/printf.h>
 #include <gtest/gtest.h>
 
 #include "liblesma/Backend/Codegen.h"
@@ -151,21 +150,8 @@ TEST_F(CodegenTest, Run) {
     EXPECT_TRUE(exit_code == 0);
 }
 
-static void BM_Lexer(benchmark::State &state) {
-    for (auto _: state) {
-        // Benchmark code
-    }
-}
-
-
 // Google Test main function
 int main(int argc, char **argv) {
     ::testing::InitGoogleTest(&argc, argv);
-    int test_result = RUN_ALL_TESTS();
-
-    // Google Benchmark main function
-    ::benchmark::Initialize(&argc, argv);
-    ::benchmark::RunSpecifiedBenchmarks();
-
-    return test_result;
+    return RUN_ALL_TESTS();
 }
