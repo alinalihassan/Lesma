@@ -26,8 +26,10 @@ int Driver::BaseCompile(std::unique_ptr<lesma::Options> options, bool jit) {
         TIMEIT(
                 "File read",
                 if (options->sourceType == SourceType::FILE) {
-                    auto buffer = llvm::MemoryBuffer::getFile(options->source);
-                    if (buffer.getError() != std::error_code()) throw LesmaError(llvm::SMRange(), "Could not read file: {}", options->source);
+                    auto buffer = llvm::MemoryBuffer::getFileAsStream(options->source);
+                    if (!buffer) {
+                        throw LesmaError(llvm::SMRange(), "Could not read file: {}", options->source);
+                    }
 
                     srcMgr->AddNewSourceBuffer(std::move(*buffer), llvm::SMLoc());
                 } else {

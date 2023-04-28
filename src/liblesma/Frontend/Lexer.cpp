@@ -342,6 +342,7 @@ Token *Lexer::AddStringToken() {
     ResetTokenBeg();
     return ret;
 }
+
 Token *Lexer::AddNumToken() {
     while (IsDigit(Peek())) Advance();
 
