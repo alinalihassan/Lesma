@@ -1,4 +1,3 @@
-#include <benchmark/benchmark.h>
 #include <gtest/gtest.h>
 
 #include "liblesma/Backend/Codegen.h"
