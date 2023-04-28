@@ -2,10 +2,9 @@
 
 using namespace lesma;
 
-std::vector<Token *> Lexer::ScanAll() {
+void Lexer::ScanAll() {
     while (tokens.empty() || tokens.back()->type != TokenType::EOF_TOKEN)
         tokens.push_back(ScanOne(false));
-    return tokens;
 }
 
 Token *Lexer::ScanOne(bool continuation) {

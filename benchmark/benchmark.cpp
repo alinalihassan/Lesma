@@ -19,6 +19,18 @@ static std::shared_ptr<SourceMgr> initializeSrcMgr(const std::string &src) {
     return sourceMgr;
 }
 
+[[maybe_unused]] static std::shared_ptr<SourceMgr> initializeSrcMgrFromFile(const std::string &file) {
+    // Configure Source Manager
+    auto sourceMgr = std::make_shared<SourceMgr>(SourceMgr());
+
+    auto buffer = llvm::MemoryBuffer::getFile(file);
+    if (buffer.getError() != std::error_code()) throw LesmaError(llvm::SMRange(), "Could not read file: {}", file);
+
+    sourceMgr->AddNewSourceBuffer(std::move(*buffer), llvm::SMLoc());
+
+    return sourceMgr;
+}
+
 static std::shared_ptr<Lexer> initializeLexer(const std::shared_ptr<SourceMgr> &sourceMgr) {
     auto curLexer = std::make_shared<Lexer>(sourceMgr);
     curLexer->ScanAll();

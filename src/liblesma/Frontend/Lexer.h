@@ -26,7 +26,7 @@ namespace lesma {
             tokens.clear();
         }
 
-        std::vector<Token *> ScanAll();
+        void ScanAll();
         Token *ScanOne(bool continuation = false);
         std::vector<Token *> getTokens() { return tokens; };
 

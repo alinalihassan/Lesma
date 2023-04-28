@@ -158,37 +158,6 @@ static void BM_Lexer(benchmark::State &state) {
 }
 
 
-BENCHMARK("Lexer") {
-    initializeLexer(srcMgr);
-};
-
-BENCHMARK("Parser") {
-    initializeParser(lexer);
-};
-
-BENCHMARK("Codegen") {
-    initializeCodegen(parser, srcMgr);
-};
-
-BENCHMARK("Codegen & Optimize") {
-    auto cg = initializeCodegen(parser, srcMgr);
-    cg->Optimize(OptimizationLevel::O3);
-};
-
-BENCHMARK("Codegen & JIT") {
-    auto cg = initializeCodegen(parser, srcMgr);
-    cg->PrepareJIT();
-    cg->ExecuteJIT();
-};
-
-BENCHMARK("Codegen, Optimize & JIT") {
-    auto cg = initializeCodegen(parser, srcMgr);
-    cg->Optimize(OptimizationLevel::O3);
-    cg->PrepareJIT();
-    cg->ExecuteJIT();
-};
-
-
 // Google Test main function
 int main(int argc, char **argv) {
     ::testing::InitGoogleTest(&argc, argv);
