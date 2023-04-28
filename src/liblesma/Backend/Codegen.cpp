@@ -325,14 +325,18 @@ void Codegen::WriteToObjectFile(const std::string &output) {
 void Codegen::LinkObjectFile(const std::string &obj_filename) {
     std::string output = getBasename(obj_filename);
 
-    llvm::SmallVector<const char *, 16> args;
+    llvm::SmallVector<const char *, 32> args;
     args.push_back("lld");
-    args.push_back("-lc");
     args.push_back("-o");
     args.push_back(output.c_str());
     args.push_back(obj_filename.c_str());
     for (const auto &obj: ObjectFiles)
         args.push_back(obj.c_str());
+
+    // Add the standard library
+    args.push_back("-lc");
+
+    // Add the standard library path for Apple
 #ifdef __APPLE__
     args.push_back("-arch");
     args.push_back("arm64");
