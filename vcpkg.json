@@ -18,6 +18,10 @@
     {
       "name": "nameof",
       "version>=": "0.10.2"
+    },
+    {
+      "name": "plf-nanotimer",
+      "version>=": "2019-08-10#2"
     }
   ],
   "features": {

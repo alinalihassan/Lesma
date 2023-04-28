@@ -41,6 +41,7 @@ set(CMAKE_CXX_FLAGS_RELEASE "-O3")
 # External dependencies
 find_package(fmt CONFIG REQUIRED)
 find_package(nameof CONFIG REQUIRED)
+find_path(PLF_NANOTIMER_INCLUDE_DIRS "plf_nanotimer.h")
 
 # Directories
 get_filename_component(ROOT_DIR ${CMAKE_CURRENT_SOURCE_DIR} ABSOLUTE)
@@ -106,6 +107,7 @@ file(COPY ${STDLIB_DIR} DESTINATION $ENV{HOME}/.lesma/)
 
 # Libraries required for the compiler itself
 set(COMMON_LIBS ${LLVM_LIBS} ${LLD_LIBS} fmt::fmt nameof::nameof)
+set(COMMON_INCLUDE ${PLF_NANOTIMER_INCLUDE_DIRS})
 
 # Lesma Library
 
@@ -115,6 +117,7 @@ target_link_libraries(${LIB_NAME} ${COMMON_LIBS})
 
 target_include_directories(${LIB_NAME} PUBLIC
   "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/src>"
+  ${COMMON_INCLUDE}
   "$<INSTALL_INTERFACE:$<INSTALL_PREFIX>/${CMAKE_INSTALL_INCLUDEDIR}>")
 
 # CLI
