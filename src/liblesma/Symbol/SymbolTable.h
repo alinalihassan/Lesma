@@ -30,8 +30,8 @@ namespace lesma {
         void insertType(const std::string &name, Type *type);
         SymbolTable *createChildBlock(const std::string &blockName);
         SymbolTable *getParent();
-        std::multimap<std::string, Value *> getSymbols() { return symbols; }
-        std::map<std::string, Type *> getTypes() { return types; }
+        std::unordered_multimap<std::string, Value *> getSymbols() { return symbols; }
+        std::unordered_map<std::string, Type *> getTypes() { return types; }
 
         SymbolTable *getChild(const std::string &tableName);
 
@@ -52,8 +52,8 @@ namespace lesma {
 
     private:
         SymbolTable *parent;
-        std::map<std::string, SymbolTable *> children;
-        std::multimap<std::string, Value *> symbols;
-        std::map<std::string, Type *> types;
+        std::unordered_map<std::string, SymbolTable *> children;
+        std::unordered_multimap<std::string, Value *> symbols;
+        std::unordered_map<std::string, Type *> types;
     };
 }// namespace lesma
