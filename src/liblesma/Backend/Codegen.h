@@ -3,6 +3,18 @@
 #include "liblesma/AST/ASTVisitor.h"
 #include "liblesma/Frontend/Parser.h"
 #include "liblesma/Symbol/SymbolTable.h"
+#include <clang/Basic/Diagnostic.h>
+#include <clang/Basic/DiagnosticIDs.h>
+#include <clang/Basic/DiagnosticOptions.h>
+#include <clang/Basic/FileManager.h>
+#include <clang/Basic/FileSystemOptions.h>
+#include <clang/Basic/LangOptions.h>
+#include <clang/Basic/SourceManager.h>
+#include <clang/Basic/TargetInfo.h>
+#include <clang/Driver/Compilation.h>
+#include <clang/Driver/Driver.h>
+#include <clang/Driver/Job.h>
+#include <clang/Frontend/TextDiagnosticPrinter.h>
 #include <filesystem>
 #include <lld/Common/Driver.h>
 #include <llvm/Analysis/CGSCCPassManager.h>
@@ -44,7 +56,7 @@ namespace lesma {
 
         std::unique_ptr<LLJIT> TheJIT;
         std::unique_ptr<llvm::TargetMachine> TargetMachine;
-        std::unique_ptr<Parser> Parser_;
+        std::shared_ptr<Parser> Parser_;
         std::shared_ptr<SourceMgr> SourceManager;
         SymbolTable *Scope;
         std::string filename;
@@ -68,7 +80,7 @@ namespace lesma {
         bool isMain = true;
 
     public:
-        Codegen(std::unique_ptr<Parser> parser, std::shared_ptr<SourceMgr> srcMgr, const std::string &filename, std::vector<std::string> imports, bool jit, bool main, std::string alias = "", const std::shared_ptr<ThreadSafeContext> & = nullptr);
+        Codegen(std::shared_ptr<Parser> parser, std::shared_ptr<SourceMgr> srcMgr, const std::string &filename, std::vector<std::string> imports, bool jit, bool main, std::string alias = "", const std::shared_ptr<ThreadSafeContext> & = nullptr);
         ~Codegen() override {
             delete selfSymbol;
             delete Scope;
@@ -84,8 +96,12 @@ namespace lesma {
 
     protected:
         std::unique_ptr<llvm::TargetMachine> InitializeTargetMachine();
+        std::unique_ptr<Module> InitializeModule();
         std::unique_ptr<LLJIT> InitializeJIT();
         llvm::Function *InitializeTopLevel();
+
+        [[maybe_unused]] void LinkObjectFileWithClang(const std::string &obj_filename);
+        [[maybe_unused]] void LinkObjectFileWithLLD(const std::string &obj_filename);
 
         void CompileModule(llvm::SMRange span, const std::string &filepath, bool isStd, const std::string &alias, bool importAll, bool importToScope, const std::vector<std::pair<std::string, std::string>> &imported_names);
 

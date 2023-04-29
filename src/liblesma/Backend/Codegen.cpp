@@ -2,28 +2,29 @@
 
 using namespace lesma;
 
-Codegen::Codegen(std::unique_ptr<Parser> parser, std::shared_ptr<SourceMgr> srcMgr, const std::string &filename, std::vector<std::string> imports, bool jit, bool main, std::string alias, const std::shared_ptr<ThreadSafeContext> &context) {
+Codegen::Codegen(std::shared_ptr<Parser> parser, std::shared_ptr<SourceMgr> srcMgr, const std::string &filename, std::vector<std::string> imports, bool jit, bool main, std::string alias, const std::shared_ptr<ThreadSafeContext> &context) {
     InitializeNativeTarget();
     InitializeNativeTargetAsmPrinter();
     InitializeNativeTargetAsmParser();
 
-    ImportedModules = std::move(imports);
-    TheJIT = InitializeJIT();
     TheContext = context == nullptr ? std::make_shared<ThreadSafeContext>(std::make_unique<LLVMContext>()) : context;
-    TheModule = std::make_unique<Module>("Lesma JIT", *TheContext->getContext());
-    TheModule->setDataLayout(TheJIT->getDataLayout());
-    TheModule->setSourceFileName(filename);
+    TargetMachine = InitializeTargetMachine();
+    TheModule = InitializeModule();
+    if (jit) {
+        TheJIT = InitializeJIT();
+    }
+
     Builder = std::make_unique<IRBuilder<>>(*TheContext->getContext());
     Parser_ = std::move(parser);
     SourceManager = std::move(srcMgr);
     Scope = new SymbolTable(nullptr);
-    TargetMachine = InitializeTargetMachine();
 
     this->alias = std::move(alias);
     this->filename = filename;
-    isJIT = jit;
     isMain = main;
+    isJIT = jit;
 
+    ImportedModules = std::move(imports);
     TopLevelFunc = InitializeTopLevel();
 
     // If it's not base.les stdlib, then import it
@@ -32,19 +33,48 @@ Codegen::Codegen(std::unique_ptr<Parser> parser, std::shared_ptr<SourceMgr> srcM
     }
 }
 
+std::unique_ptr<Module> Codegen::InitializeModule() {
+    auto mod = std::make_unique<Module>("Lesma", *TheContext->getContext());
+    mod->setTargetTriple(TargetMachine->getTargetTriple().str());
+    mod->setDataLayout(TargetMachine->createDataLayout());
+    mod->setSourceFileName(filename);
+
+    return mod;
+}
+
+std::unique_ptr<llvm::TargetMachine> Codegen::InitializeTargetMachine() {
+    // Configure output target
+    auto targetTriple = llvm::Triple(llvm::sys::getDefaultTargetTriple());
+    const std::string &tripletString = targetTriple.getTriple();
+
+    // Search after selected target
+    std::string error;
+    const llvm::Target *target = llvm::TargetRegistry::lookupTarget(tripletString, error);
+    if (!target)
+        throw CodegenError({}, "Target not available:\n{}", error);
+
+    llvm::TargetOptions opt;
+    llvm::Reloc::Model rm = llvm::Reloc::Model();
+    std::unique_ptr<llvm::TargetMachine> target_machine(target->createTargetMachine(tripletString, "generic", "", opt, rm));
+    return target_machine;
+}
+
 std::unique_ptr<LLJIT> Codegen::InitializeJIT() {
-    auto jit = LLJITBuilder().create();
+    llvm::orc::LLJITBuilder builder;
+    builder.setDataLayout(TheModule->getDataLayout());
+    builder.setJITTargetMachineBuilder(llvm::orc::JITTargetMachineBuilder(TargetMachine->getTargetTriple()));
+    auto jit = llvm::cantFail(builder.create());
     if (!jit) {
         throw CodegenError({}, "Couldn't initialize JIT\n");
     }
 
     // Add support for C native functions
-    auto &MainJD = jit.get()->getMainJITDylib();
+    auto &MainJD = jit->getMainJITDylib();
     auto Err = MainJD.addGenerator(
             cantFail(DynamicLibrarySearchGenerator::GetForCurrentProcess(
-                    jit.get()->getDataLayout().getGlobalPrefix())));
+                    jit->getDataLayout().getGlobalPrefix())));
 
-    return std::move(jit.get());
+    return jit;
 }
 
 llvm::Function *Codegen::InitializeTopLevel() {
@@ -126,24 +156,6 @@ void Codegen::defineFunction(lesma::Value *value, const FuncDecl *node, Value *c
     Builder->SetInsertPoint(&TopLevelFunc->back());
 }
 
-std::unique_ptr<llvm::TargetMachine> Codegen::InitializeTargetMachine() {
-    // Configure output target
-    auto targetTriple = llvm::Triple(llvm::sys::getDefaultTargetTriple());
-    const std::string &tripletString = targetTriple.getTriple();
-    TheModule->setTargetTriple(tripletString);
-
-    // Search after selected target
-    std::string error;
-    const llvm::Target *target = llvm::TargetRegistry::lookupTarget(tripletString, error);
-    if (!target)
-        throw CodegenError({}, "Target not available:\n{}", error);
-
-    llvm::TargetOptions opt;
-    llvm::Reloc::Model rm = llvm::Reloc::Model();
-    std::unique_ptr<llvm::TargetMachine> target_machine(target->createTargetMachine(tripletString, "generic", "", opt, rm));
-    return target_machine;
-}
-
 void Codegen::CompileModule(llvm::SMRange span, const std::string &filepath, bool isStd, const std::string &module_alias, bool importAll, bool importToScope, const std::vector<std::pair<std::string, std::string>> &imported_names) {
     std::filesystem::path mainPath = filename;
     // Read source
@@ -219,7 +231,7 @@ void Codegen::CompileModule(llvm::SMRange span, const std::string &filepath, boo
                 Scope->insertType(sym.first, sym.second->getType());
                 Scope->insertSymbol(structSymbol);
             } else if (sym.second->getType()->is(TY_FUNCTION) && sym.second->isExported()) {
-                auto *F = llvm::cast<Function>(sym.second->getLLVMValue());
+                auto *F = llvm::dyn_cast<Function>(sym.second->getLLVMValue());
                 auto *FTy = llvm::cast<FunctionType>(sym.second->getType()->getLLVMType());
 
                 if (isJIT) {
@@ -310,16 +322,18 @@ void Codegen::WriteToObjectFile(const std::string &output) {
     out.close();
 }
 
-void Codegen::LinkObjectFile(const std::string &obj_filename) {
+[[maybe_unused]] void Codegen::LinkObjectFileWithLLD(const std::string &obj_filename) {
     std::string output = getBasename(obj_filename);
 
-    llvm::SmallVector<const char *, 16> args;
+    llvm::SmallVector<const char *, 32> args;
     args.push_back("lld");
     args.push_back("-o");
     args.push_back(output.c_str());
     args.push_back(obj_filename.c_str());
-    for (const auto &obj: ObjectFiles)
+    for (const auto &obj: ObjectFiles) {
         args.push_back(obj.c_str());
+    }
+    // Add the standard library path for Apple
 #ifdef __APPLE__
     args.push_back("-arch");
     args.push_back("arm64");
@@ -348,6 +362,61 @@ void Codegen::LinkObjectFile(const std::string &obj_filename) {
     llvm::sys::fs::remove(obj_filename);
     for (const auto &obj: ObjectFiles)
         llvm::sys::fs::remove(obj);
+}
+
+[[maybe_unused]] void Codegen::LinkObjectFileWithClang(const std::string &obj_filename) {
+    auto clangPath = llvm::sys::findProgramByName("clang");
+    if (clangPath.getError())
+        throw CodegenError({}, "Unable to find clang path");
+
+    std::string output = getBasename(obj_filename);
+
+    llvm::SmallVector<const char *, 32> args;
+    args.push_back(clangPath.get().c_str());
+    args.push_back("-o");
+    args.push_back(output.c_str());
+    args.push_back(obj_filename.c_str());
+    for (const auto &obj: ObjectFiles) {
+        args.push_back(obj.c_str());
+    }
+
+    // Add the standard library path for Apple
+#ifdef __APPLE__
+    args.push_back("-L");
+    args.push_back("/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/lib");
+    args.push_back("-lSystem");
+#endif
+
+    // Set up the diagnostic engine
+    llvm::IntrusiveRefCntPtr<clang::DiagnosticIDs> diagIDs(new clang::DiagnosticIDs());
+    llvm::IntrusiveRefCntPtr<clang::DiagnosticOptions> diagOpts(new clang::DiagnosticOptions());
+    auto *diagClient = new clang::TextDiagnosticPrinter(llvm::errs(), &*diagOpts);
+    clang::DiagnosticsEngine Diags(diagIDs, &*diagOpts, diagClient);
+
+    // Create a compilation using Clang's driver
+    clang::driver::Driver TheDriver(args[0], TheModule->getTargetTriple(), Diags, "Lesma Compiler", llvm::vfs::getRealFileSystem());
+    std::unique_ptr<clang::driver::Compilation> C(TheDriver.BuildCompilation(args));
+
+    if (!C) {
+        throw CodegenError({}, "Failed to create clang driver compilation");
+    }
+
+    // Run the driver
+    llvm::SmallVector<std::pair<int, const clang::driver::Command *>, 8> FailingCommands;
+    int Res = TheDriver.ExecuteCompilation(*C, FailingCommands);
+
+    if (Res != 0) {
+        throw CodegenError({}, "Linking failed");
+    }
+
+    // Remove object files
+    llvm::sys::fs::remove(obj_filename);
+    for (const auto &obj: ObjectFiles)
+        llvm::sys::fs::remove(obj);
+}
+
+void Codegen::LinkObjectFile(const std::string &obj_filename) {
+    LinkObjectFileWithClang(obj_filename);
 }
 
 void Codegen::PrepareJIT() {

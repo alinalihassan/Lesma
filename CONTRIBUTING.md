@@ -8,7 +8,7 @@ you contribute effectively.
 ## Getting Started
 
 Before making any code changes, we strongly recommend visiting
-the [Getting Started](https://lesma-lang.com/docs/introduction/getting-started) section of the documentation to install
+the [Getting Started](https://lesma.org/docs/introduction/getting-started) section of the documentation to install
 the necessary prerequisites.
 
 ## Feature Requests
