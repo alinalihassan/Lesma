@@ -100,8 +100,8 @@ namespace lesma {
         std::unique_ptr<LLJIT> InitializeJIT();
         llvm::Function *InitializeTopLevel();
 
-        void LinkObjectFileWithClang(const std::string &obj_filename);
-        void LinkObjectFileWithLLD(const std::string &obj_filename);
+        [[maybe_unused]] void LinkObjectFileWithClang(const std::string &obj_filename);
+        [[maybe_unused]] void LinkObjectFileWithLLD(const std::string &obj_filename);
 
         void CompileModule(llvm::SMRange span, const std::string &filepath, bool isStd, const std::string &alias, bool importAll, bool importToScope, const std::vector<std::pair<std::string, std::string>> &imported_names);
 

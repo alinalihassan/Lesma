@@ -322,7 +322,7 @@ void Codegen::WriteToObjectFile(const std::string &output) {
     out.close();
 }
 
-void Codegen::LinkObjectFileWithLLD(const std::string &obj_filename) {
+[[maybe_unused]] void Codegen::LinkObjectFileWithLLD(const std::string &obj_filename) {
     std::string output = getBasename(obj_filename);
 
     llvm::SmallVector<const char *, 32> args;
@@ -364,7 +364,7 @@ void Codegen::LinkObjectFileWithLLD(const std::string &obj_filename) {
         llvm::sys::fs::remove(obj);
 }
 
-void Codegen::LinkObjectFileWithClang(const std::string &obj_filename) {
+[[maybe_unused]] void Codegen::LinkObjectFileWithClang(const std::string &obj_filename) {
     auto clangPath = llvm::sys::findProgramByName("clang");
     if (clangPath.getError())
         throw CodegenError({}, "Unable to find clang path");
@@ -376,10 +376,11 @@ void Codegen::LinkObjectFileWithClang(const std::string &obj_filename) {
     args.push_back("-o");
     args.push_back(output.c_str());
     args.push_back(obj_filename.c_str());
-    for (const auto &obj: ObjectFiles)
+    for (const auto &obj: ObjectFiles) {
         args.push_back(obj.c_str());
+    }
 
-        // Add the standard library path for Apple
+    // Add the standard library path for Apple
 #ifdef __APPLE__
     args.push_back("-L");
     args.push_back("/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/lib");
