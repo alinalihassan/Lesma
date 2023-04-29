@@ -62,14 +62,13 @@ protected:
     std::shared_ptr<SourceMgr> srcMgr;
     std::string source =
             "var y: int = 100\n"
-            "y = 101\n"
-            "exit(y)\n";
+            "y = 101\n";
 
-    void SetUp(const ::benchmark::State &state) override {
+    void SetUp(__attribute__((unused)) const ::benchmark::State &_) override {
         srcMgr = initializeSrcMgr(source);
     }
 
-    void TearDown(const ::benchmark::State &state) override {
+    void TearDown(__attribute__((unused)) const ::benchmark::State &_) override {
         // Place any cleanup code here, if needed
     }
 };
@@ -105,28 +104,28 @@ protected:
 
 BENCHMARK_F(LexerBenchmark, Lexer)
 (benchmark::State &state) {
-    for (auto _: state) {
+    for ([[maybe_unused]] auto _: state) {
         initializeLexer(srcMgr);
     }
 }
 
 BENCHMARK_F(ParserBenchmark, Parser)
 (benchmark::State &state) {
-    for (auto _: state) {
+    for ([[maybe_unused]] auto _: state) {
         initializeParser(lexer);
     }
 }
 
 BENCHMARK_F(CodegenBenchmark, Initialize)
 (benchmark::State &state) {
-    for (auto _: state) {
+    for ([[maybe_unused]] auto _: state) {
         initializeCodegen(parser, srcMgr);
     }
 }
 
 BENCHMARK_F(CodegenBenchmark, Optimize)
 (benchmark::State &state) {
-    for (auto _: state) {
+    for ([[maybe_unused]] auto _: state) {
         auto cg = initializeCodegen(parser, srcMgr);
         cg->Optimize(OptimizationLevel::O3);
     }
@@ -134,7 +133,7 @@ BENCHMARK_F(CodegenBenchmark, Optimize)
 
 BENCHMARK_F(CodegenBenchmark, JIT)
 (benchmark::State &state) {
-    for (auto _: state) {
+    for ([[maybe_unused]] auto _: state) {
         auto cg = initializeCodegen(parser, srcMgr);
         cg->PrepareJIT();
         cg->ExecuteJIT();
@@ -143,8 +142,9 @@ BENCHMARK_F(CodegenBenchmark, JIT)
 
 BENCHMARK_F(CodegenBenchmark, All)
 (benchmark::State &state) {
-    for (auto _: state) {
+    for ([[maybe_unused]] auto _: state) {
         auto cg = initializeCodegen(parser, srcMgr);
+        cg->Optimize(OptimizationLevel::O3);
         cg->PrepareJIT();
         cg->ExecuteJIT();
     }

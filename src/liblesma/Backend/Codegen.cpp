@@ -250,7 +250,7 @@ void Codegen::CompileModule(llvm::SMRange span, const std::string &filepath, boo
                 Scope->insertType(sym.first, sym.second->getType());
                 Scope->insertSymbol(structSymbol);
             } else if (sym.second->getType()->is(TY_FUNCTION) && sym.second->isExported()) {
-                auto *F = llvm::cast<Function>(sym.second->getLLVMValue());
+                auto *F = llvm::dyn_cast<Function>(sym.second->getLLVMValue());
                 auto *FTy = llvm::cast<FunctionType>(sym.second->getType()->getLLVMType());
 
                 if (isJIT) {
@@ -341,16 +341,18 @@ void Codegen::WriteToObjectFile(const std::string &output) {
     out.close();
 }
 
-void Codegen::LinkObjectFile(const std::string &obj_filename) {
+[[maybe_unused]] void Codegen::LinkObjectFileWithLLD(const std::string &obj_filename) {
     std::string output = getBasename(obj_filename);
 
-    llvm::SmallVector<const char *, 16> args;
+    llvm::SmallVector<const char *, 32> args;
     args.push_back("lld");
     args.push_back("-o");
     args.push_back(output.c_str());
     args.push_back(obj_filename.c_str());
-    for (const auto &obj: ObjectFiles)
+    for (const auto &obj: ObjectFiles) {
         args.push_back(obj.c_str());
+    }
+    // Add the standard library path for Apple
 #ifdef __APPLE__
     args.push_back("-arch");
     args.push_back("arm64");
@@ -379,6 +381,61 @@ void Codegen::LinkObjectFile(const std::string &obj_filename) {
     llvm::sys::fs::remove(obj_filename);
     for (const auto &obj: ObjectFiles)
         llvm::sys::fs::remove(obj);
+}
+
+[[maybe_unused]] void Codegen::LinkObjectFileWithClang(const std::string &obj_filename) {
+    auto clangPath = llvm::sys::findProgramByName("clang");
+    if (clangPath.getError())
+        throw CodegenError({}, "Unable to find clang path");
+
+    std::string output = getBasename(obj_filename);
+
+    llvm::SmallVector<const char *, 32> args;
+    args.push_back(clangPath.get().c_str());
+    args.push_back("-o");
+    args.push_back(output.c_str());
+    args.push_back(obj_filename.c_str());
+    for (const auto &obj: ObjectFiles) {
+        args.push_back(obj.c_str());
+    }
+
+    // Add the standard library path for Apple
+#ifdef __APPLE__
+    args.push_back("-L");
+    args.push_back("/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/lib");
+    args.push_back("-lSystem");
+#endif
+
+    // Set up the diagnostic engine
+    llvm::IntrusiveRefCntPtr<clang::DiagnosticIDs> diagIDs(new clang::DiagnosticIDs());
+    llvm::IntrusiveRefCntPtr<clang::DiagnosticOptions> diagOpts(new clang::DiagnosticOptions());
+    auto *diagClient = new clang::TextDiagnosticPrinter(llvm::errs(), &*diagOpts);
+    clang::DiagnosticsEngine Diags(diagIDs, &*diagOpts, diagClient);
+
+    // Create a compilation using Clang's driver
+    clang::driver::Driver TheDriver(args[0], TheModule->getTargetTriple(), Diags, "Lesma Compiler", llvm::vfs::getRealFileSystem());
+    std::unique_ptr<clang::driver::Compilation> C(TheDriver.BuildCompilation(args));
+
+    if (!C) {
+        throw CodegenError({}, "Failed to create clang driver compilation");
+    }
+
+    // Run the driver
+    llvm::SmallVector<std::pair<int, const clang::driver::Command *>, 8> FailingCommands;
+    int Res = TheDriver.ExecuteCompilation(*C, FailingCommands);
+
+    if (Res != 0) {
+        throw CodegenError({}, "Linking failed");
+    }
+
+    // Remove object files
+    llvm::sys::fs::remove(obj_filename);
+    for (const auto &obj: ObjectFiles)
+        llvm::sys::fs::remove(obj);
+}
+
+void Codegen::LinkObjectFile(const std::string &obj_filename) {
+    LinkObjectFileWithClang(obj_filename);
 }
 
 void Codegen::PrepareJIT() {

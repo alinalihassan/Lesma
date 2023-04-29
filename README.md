@@ -33,7 +33,7 @@ expressiveness, elegance, and simplicity without sacrificing performance.
 
 ## 📖 Documentation
 
-- [Official Documentation](https://lesma-lang.com/)
+- [Official Documentation](https://lesma.org/)
 - [Examples](https://github.com/alinalihassan/Lesma/blob/main/tests/lesma)
 
 ## Installation
@@ -52,7 +52,7 @@ bash -c "$(curl -fsSL https://raw.githubusercontent.com/alinalihassan/Lesma/main
 
 In order to build Lesma, you need Clang and LLVM 15 installed. It's currently only supported on Linux and macOS.
 For a more comprehensive guide, and more information on how to install the prerequisites,
-read the documentation on [Getting Started](https://lesma-lang.com/docs/introduction/getting-started)
+read the documentation on [Getting Started](https://lesma.org/docs/introduction/getting-started)
 
 1. Clone the repository
     ```bash

@@ -47,7 +47,6 @@ find_path(PLF_NANOTIMER_INCLUDE_DIRS "plf_nanotimer.h")
 get_filename_component(ROOT_DIR ${CMAKE_CURRENT_SOURCE_DIR} ABSOLUTE)
 get_filename_component(SRC_DIR ${ROOT_DIR}/src ABSOLUTE)
 get_filename_component(LIB_DIR ${ROOT_DIR}/lib ABSOLUTE)
-get_filename_component(LLVM_DIR ${ROOT_DIR}/llvm ABSOLUTE)
 get_filename_component(STDLIB_DIR ${SRC_DIR}/stdlib ABSOLUTE)
 get_filename_component(BUILD_DIR ${CMAKE_BINARY_DIR} ABSOLUTE)
 
@@ -78,7 +77,7 @@ message(STATUS "Using LLVMConfig.cmake from ${LLVM_DIR}")
 list(APPEND CMAKE_MODULE_PATH "${LLVM_CMAKE_DIR}")
 include(HandleLLVMOptions)
 add_definitions(${LLVM_DEFINITIONS})
-llvm_map_components_to_libnames(LLVM_LIBS core support demangle mcjit native orcjit)
+llvm_map_components_to_libnames(LLVM_LIBS core support demangle native orcjit)
 
 # LLD configuration
 find_package(LLD CONFIG REQUIRED)
@@ -89,6 +88,12 @@ include_directories(SYSTEM ${LLD_INCLUDE_DIRS})
 
 set(LLD_LIBS lldCommon lldELF lldCOFF lldMachO)
 
+# Clang
+find_package(Clang CONFIG REQUIRED)
+
+include_directories(SYSTEM ${CLANG_INCLUDE_DIRS})
+add_definitions(${CLANG_DEFINITIONS})
+set(CLANG_LIBS clangTooling)
 # Executable configuration
 set(LIB_NAME lesma)
 
@@ -107,7 +112,7 @@ set(COMMON_SOURCES
 file(COPY ${STDLIB_DIR} DESTINATION $ENV{HOME}/.lesma/)
 
 # Libraries required for the compiler itself
-set(COMMON_LIBS ${LLVM_LIBS} ${LLD_LIBS} fmt::fmt nameof::nameof)
+set(COMMON_LIBS ${LLVM_LIBS} ${LLD_LIBS} ${CLANG_LIBS} fmt::fmt nameof::nameof)
 set(COMMON_INCLUDE ${PLF_NANOTIMER_INCLUDE_DIRS})
 
 # Lesma Library
@@ -119,6 +124,8 @@ target_link_libraries(${LIB_NAME} ${COMMON_LIBS})
 target_include_directories(${LIB_NAME} PUBLIC
   "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/src>"
   ${COMMON_INCLUDE}
+  ${LLD_INCLUDE_DIRS}
+  ${CLANG_INCLUDE_DIRS}
   "$<INSTALL_INTERFACE:$<INSTALL_PREFIX>/${CMAKE_INSTALL_INCLUDEDIR}>")
 
 # CLI
@@ -182,7 +189,7 @@ if (LESMA_BUILD_DIST)
   set(CPACK_PACKAGE_VERSION_MINOR ${VERSION_MINOR})
   set(CPACK_PACKAGE_VERSION_PATCH ${VERSION_PATCH})
   set(CPACK_PACKAGE_FILE_NAME "${PROJECT_NAME}-${CMAKE_SYSTEM_NAME}-${CMAKE_SYSTEM_PROCESSOR}")
-  set(CPACK_PACKAGE_HOMEPAGE_URL "https://lesma-lang.com/")
+  set(CPACK_PACKAGE_HOMEPAGE_URL "https://lesma.org/")
   set(CPACK_PACKAGE_ICON "${CMAKE_CURRENT_SOURCE_DIR}/docs/static/img/logo.svg")
   set(CPACK_RESOURCE_FILE_LICENSE "${CMAKE_CURRENT_SOURCE_DIR}/LICENSE.txt")
   include(CPack)

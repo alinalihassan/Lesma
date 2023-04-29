@@ -1,5 +1,3 @@
-#include <benchmark/benchmark.h>
-#include <fmt/printf.h>
 #include <gtest/gtest.h>
 
 #include "liblesma/Backend/Codegen.h"
@@ -48,12 +46,11 @@ llvm::SMRange getRange(const std::string &source, int x, int y) {
 }
 
 class BaseTest : public ::testing::Test {
-protected:
+public:
     std::shared_ptr<SourceMgr> srcMgr;
     std::string source =
             "var y: int = 100\n"
-            "y = 101\n"
-            "exit(y)\n";
+            "y = 101\n";
 
     void SetUp() override {
         srcMgr = initializeSrcMgr(source);
@@ -64,19 +61,21 @@ protected:
 };
 
 class LexerTest : public BaseTest {
-protected:
+public:
     std::unique_ptr<Lexer> lexer;
 
     void SetUp() override {
-        lexer = initializeLexer(srcMgr);
+        BaseTest::SetUp();
+
+        lexer = initializeLexer(BaseTest::srcMgr);
     }
     void TearDown() override {
-        // Place any cleanup code here, if needed
+        BaseTest::TearDown();
     }
 };
 
 class ParserTest : public LexerTest {
-protected:
+public:
     std::unique_ptr<Parser> parser;
 
     void SetUp() override {
@@ -91,7 +90,7 @@ protected:
 };
 
 class CodegenTest : public ParserTest {
-protected:
+public:
     Codegen *codegen = nullptr;
 
     void SetUp() override {
@@ -121,25 +120,18 @@ TEST_F(LexerTest, Tokens) {
             new Token{TokenType::EQUAL, "=", getRange(source, 19, 20)},
             new Token{TokenType::INTEGER, "101", getRange(source, 21, 24)},
             new Token{TokenType::NEWLINE, "NEWLINE", getRange(source, 24, 25)},
-            new Token{TokenType::IDENTIFIER, "exit", getRange(source, 25, 29)},
-            new Token{TokenType::LEFT_PAREN, "(", getRange(source, 29, 30)},
-            new Token{TokenType::IDENTIFIER, "y", getRange(source, 30, 31)},
-            new Token{TokenType::RIGHT_PAREN, ")", getRange(source, 31, 32)},
-            new Token{TokenType::NEWLINE, "NEWLINE", getRange(source, 32, 33)},
-            new Token{TokenType::EOF_TOKEN, "EOF", getRange(source, 33, 33)},
+            new Token{TokenType::EOF_TOKEN, "EOF", getRange(source, 25, 25)},
     };
 
-    for (auto [a, b]: zip(tokens, lexer->getTokens()))
-        EXPECT_TRUE(*a == *b);
+    for (auto [a, b]: zip(tokens, lexer->getTokens())) {
+        EXPECT_EQ(*a, *b);
+    }
 }
 
-// Currently, all statement and expressions use the abstract base class Statement or Expression,
-// which makes it difficult to test
 TEST_F(ParserTest, AST) {
-    EXPECT_TRUE(parser->getAST()->getChildren().size() == 3);
-    EXPECT_TRUE(parser->getAST()->getChildren().at(0)->toString(srcMgr.get(), "", true) == "└──VarDecl[Line(1-1):Col(1-17)]: y: int = 100\n");
-    EXPECT_TRUE(parser->getAST()->getChildren().at(1)->toString(srcMgr.get(), "", true) == "└──Assignment[Line(2-2):Col(1-8)]: y EQUAL 101\n");
-    EXPECT_TRUE(parser->getAST()->getChildren().at(2)->toString(srcMgr.get(), "", true) == "└──Expression[Line(3-3):Col(1-8)]: exit(y)\n");
+    EXPECT_EQ(parser->getAST()->getChildren().size(), 2);
+    EXPECT_EQ(parser->getAST()->getChildren().at(0)->toString(srcMgr.get(), "", true), "└──VarDecl[Line(1-1):Col(1-17)]: y: int = 100\n");
+    EXPECT_EQ(parser->getAST()->getChildren().at(1)->toString(srcMgr.get(), "", true), "└──Assignment[Line(2-2):Col(1-8)]: y EQUAL 101\n");
 }
 
 // We cannot return from top-level, and the exit function just exits the whole process including the test
@@ -151,21 +143,8 @@ TEST_F(CodegenTest, Run) {
     EXPECT_TRUE(exit_code == 0);
 }
 
-static void BM_Lexer(benchmark::State &state) {
-    for (auto _: state) {
-        // Benchmark code
-    }
-}
-
-
 // Google Test main function
 int main(int argc, char **argv) {
     ::testing::InitGoogleTest(&argc, argv);
-    int test_result = RUN_ALL_TESTS();
-
-    // Google Benchmark main function
-    ::benchmark::Initialize(&argc, argv);
-    ::benchmark::RunSpecifiedBenchmarks();
-
-    return test_result;
+    return RUN_ALL_TESTS();
 }
