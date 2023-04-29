@@ -349,11 +349,11 @@ void Codegen::LinkObjectFileWithLLD(const std::string &obj_filename) {
     // Run the LLD linker
     bool success = false;
 #ifdef __APPLE__
-    success = lld::macho::link(args, llvm::outs(), llvm::errs(), false, false);
+    success = lld::macho::link(args, llvm::outs(), llvm::errs(), false, true);
 #elif defined(_WIN32)
-    success = lld::coff::link(args, llvm::outs(), llvm::errs(), false, false);
+    success = lld::coff::link(args, llvm::outs(), llvm::errs(), false, true);
 #else
-    success = lld::elf::link(args, llvm::outs(), llvm::errs(), false, false);
+    success = lld::elf::link(args, llvm::outs(), llvm::errs(), false, true);
 #endif
     if (!success)
         throw CodegenError({}, "Linking Failed");
