@@ -99,7 +99,7 @@ namespace lesma {
         std::unique_ptr<Module> InitializeModule();
         std::unique_ptr<LLJIT> InitializeJIT();
         llvm::Function *InitializeTopLevel();
-        
+
         void LinkObjectFileWithClang(const std::string &obj_filename);
         void LinkObjectFileWithLLD(const std::string &obj_filename);
 
