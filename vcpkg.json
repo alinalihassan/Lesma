@@ -62,9 +62,11 @@
           "features": [
             "default-targets",
             "disable-clang-static-analyzer",
+            "clang",
             "enable-zlib",
             "enable-zstd",
             "lld",
+            "compiler-rt",
             "tools"
           ]
         }

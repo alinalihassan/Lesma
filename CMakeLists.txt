@@ -88,6 +88,12 @@ include_directories(SYSTEM ${LLD_INCLUDE_DIRS})
 
 set(LLD_LIBS lldCommon lldELF lldCOFF lldMachO)
 
+# Clang
+find_package(Clang CONFIG REQUIRED)
+
+include_directories(SYSTEM ${CLANG_INCLUDE_DIRS})
+add_definitions(${CLANG_DEFINITIONS})
+set(CLANG_LIBS clangTooling)
 # Executable configuration
 set(LIB_NAME lesma)
 
@@ -105,7 +111,7 @@ set(COMMON_SOURCES
 file(COPY ${STDLIB_DIR} DESTINATION $ENV{HOME}/.lesma/)
 
 # Libraries required for the compiler itself
-set(COMMON_LIBS ${LLVM_LIBS} ${LLD_LIBS} fmt::fmt nameof::nameof)
+set(COMMON_LIBS ${LLVM_LIBS} ${LLD_LIBS} ${CLANG_LIBS} fmt::fmt nameof::nameof)
 set(COMMON_INCLUDE ${PLF_NANOTIMER_INCLUDE_DIRS})
 
 # Lesma Library
@@ -118,6 +124,7 @@ target_include_directories(${LIB_NAME} PUBLIC
   "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/src>"
   ${COMMON_INCLUDE}
   ${LLD_INCLUDE_DIRS}
+  ${CLANG_INCLUDE_DIRS}
   "$<INSTALL_INTERFACE:$<INSTALL_PREFIX>/${CMAKE_INSTALL_INCLUDEDIR}>")
 
 # CLI

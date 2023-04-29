@@ -3,6 +3,18 @@
 #include "liblesma/AST/ASTVisitor.h"
 #include "liblesma/Frontend/Parser.h"
 #include "liblesma/Symbol/SymbolTable.h"
+#include <clang/Basic/Diagnostic.h>
+#include <clang/Basic/DiagnosticIDs.h>
+#include <clang/Basic/DiagnosticOptions.h>
+#include <clang/Basic/FileManager.h>
+#include <clang/Basic/FileSystemOptions.h>
+#include <clang/Basic/LangOptions.h>
+#include <clang/Basic/SourceManager.h>
+#include <clang/Basic/TargetInfo.h>
+#include <clang/Driver/Compilation.h>
+#include <clang/Driver/Driver.h>
+#include <clang/Driver/Job.h>
+#include <clang/Frontend/TextDiagnosticPrinter.h>
 #include <filesystem>
 #include <lld/Common/Driver.h>
 #include <llvm/Analysis/CGSCCPassManager.h>
@@ -87,6 +99,9 @@ namespace lesma {
         std::unique_ptr<Module> InitializeModule();
         std::unique_ptr<LLJIT> InitializeJIT();
         llvm::Function *InitializeTopLevel();
+        
+        void LinkObjectFileWithClang(const std::string &obj_filename);
+        void LinkObjectFileWithLLD(const std::string &obj_filename);
 
         void CompileModule(llvm::SMRange span, const std::string &filepath, bool isStd, const std::string &alias, bool importAll, bool importToScope, const std::vector<std::pair<std::string, std::string>> &imported_names);
 
