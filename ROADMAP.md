@@ -2,12 +2,13 @@
 
 - [x] Improve Visitor Pattern
 - [x] Migrate to LLVM 16 with custom Value and Type classes
-- [ ] Add analyzer phase
-- [ ] Add optional parameters in function declarations
-- [ ] Add default values in function declarations
+- [ ] Fix multiple imports not working (TODO: We should only import each file once)
+- [x] Add default values in function declarations
 - [ ] Add operator overloading
 - [ ] Add generics
 - [ ] Add lists
+- [ ] Add optional types
+- [ ] Add optional parameters in function declarations
 - [ ] Add tuples
 - [ ] Add ranges (1..4 style)
 - [ ] Add dictionaries

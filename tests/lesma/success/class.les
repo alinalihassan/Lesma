@@ -1,4 +1,3 @@
-def extern exit(x: int)
 export class Animal
     var x: int
 

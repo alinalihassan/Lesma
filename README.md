@@ -1,18 +1,20 @@
-<p align="center">
-<img src="docs/static/img/logo.svg" height="180px" style="height: 180px" alt="Lesma Programming Language" title="Lesma Programming Language">
-<br><b style="font-size: 32px;">Lesma</b>
-</p>
+<h1 align="center">
+  <img src="docs/static/img/logo.svg" height="180px" style="height: 180px" alt="Lesma Programming Language" title="Lesma Programming Language">
+  <br>
+  Lesma
+</h1>
 
 <div align="center">
 
-[![License: MIT](https://img.shields.io/github/license/alinalihassan/Lesma?color=brightgreen)](https://github.com/alinalihassan/Lesma/blob/main/LICENSE.txt)
-[![Version](https://img.shields.io/github/v/release/alinalihassan/Lesma?color=brightgreen)](https://github.com/alinalihassan/Lesma/releases)
+[![License: MIT](https://img.shields.io/github/license/alinalihassan/Lesma?color=yellow)](https://github.com/alinalihassan/Lesma/blob/main/LICENSE.txt)
+[![Version](https://img.shields.io/github/v/release/alinalihassan/Lesma?color=blue)](https://github.com/alinalihassan/Lesma/releases)
+[![Platform](https://img.shields.io/badge/platforms-%20Linux%20|%20macOS-green.svg?color=lightgrey)](https://github.com/alinalihassan/Lesma/releases)
 [![Build](https://img.shields.io/github/actions/workflow/status/alinalihassan/Lesma/ci.yaml?branch=main)](https://github.com/alinalihassan/Lesma/actions/workflows/ci.yaml)
 
 </div>
 
-**Lesma** is a compiled, statically typed, imperative and object-oriented programming language with a focus on
-expressiveness, elegance, and simplicity, while not sacrificing on performance.
+**Lesma** is a compiled, statically typed, imperative, and object-oriented programming language with a focus on
+expressiveness, elegance, and simplicity without sacrificing performance.
 
 ## 📝 Features
 
@@ -27,17 +29,20 @@ expressiveness, elegance, and simplicity, while not sacrificing on performance.
 
 ## ✍️ Example
 
-![Sample Program](imgs/sample.png)
+![Lesma Fibonacci](imgs/lesma_fib.svg)
 
 ## 📖 Documentation
 
-- [Official Documentation](https://lesma-lang.com/)
+- [Official Documentation](https://lesma.org/)
 - [Examples](https://github.com/alinalihassan/Lesma/blob/main/tests/lesma)
 
 ## Installation
 
-Every lesma release contains archives with the binary and standard library which you can grab,
-but you could also use the installer script to do all the work for you. Paste the following in your terminal:
+Every Lesma release contains archives with the binary and standard library which you can grab. Alternatively, you can
+use the installer script to do all the work for you. The [get-lesma.sh](scripts/get-lesma.sh) script downloads and
+installs the latest release.
+
+Run the following in your terminal:
 
 ```bash
 bash -c "$(curl -fsSL https://raw.githubusercontent.com/alinalihassan/Lesma/main/scripts/get-lesma.sh)"
@@ -47,9 +52,17 @@ bash -c "$(curl -fsSL https://raw.githubusercontent.com/alinalihassan/Lesma/main
 
 In order to build Lesma, you need Clang and LLVM 15 installed. It's currently only supported on Linux and macOS.
 For a more comprehensive guide, and more information on how to install the prerequisites,
-read the documentation on [Getting Started](https://lesma-lang.com/docs/introduction/getting-started)
+read the documentation on [Getting Started](https://lesma.org/docs/introduction/getting-started)
 
-![CLI Commands](imgs/cli_commands.png)
+1. Clone the repository
+    ```bash
+    git clone https://github.com/alinalihassan/Lesma
+    ```
+2. Run CMake to configure the build
+    ```bash
+    cmake . -Bbuild
+    cmake --build build
+    ```
 
 ## 💬 Contributing
 

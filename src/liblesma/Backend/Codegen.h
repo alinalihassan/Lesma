@@ -2,8 +2,19 @@
 
 #include "liblesma/AST/ASTVisitor.h"
 #include "liblesma/Frontend/Parser.h"
-#include "liblesma/JIT/LesmaJIT.h"
 #include "liblesma/Symbol/SymbolTable.h"
+#include <clang/Basic/Diagnostic.h>
+#include <clang/Basic/DiagnosticIDs.h>
+#include <clang/Basic/DiagnosticOptions.h>
+#include <clang/Basic/FileManager.h>
+#include <clang/Basic/FileSystemOptions.h>
+#include <clang/Basic/LangOptions.h>
+#include <clang/Basic/SourceManager.h>
+#include <clang/Basic/TargetInfo.h>
+#include <clang/Driver/Compilation.h>
+#include <clang/Driver/Driver.h>
+#include <clang/Driver/Job.h>
+#include <clang/Frontend/TextDiagnosticPrinter.h>
 #include <filesystem>
 #include <lld/Common/Driver.h>
 #include <llvm/Analysis/CGSCCPassManager.h>
@@ -27,21 +38,25 @@
 #include <regex>
 #include <utility>
 
+using namespace llvm;
+using namespace llvm::orc;
+
 namespace lesma {
     class CodegenError : public LesmaErrorWithExitCode<EX_DATAERR> {
     public:
         using LesmaErrorWithExitCode<EX_DATAERR>::LesmaErrorWithExitCode;
     };
 
+    using MainFnTy = int();
+
     class Codegen final : public ASTVisitor {
         std::shared_ptr<ThreadSafeContext> TheContext;
         std::unique_ptr<Module> TheModule;
         std::unique_ptr<IRBuilder<>> Builder;
-        ExitOnError ExitOnErr;
 
-        std::unique_ptr<LesmaJIT> TheJIT;
+        std::unique_ptr<LLJIT> TheJIT;
         std::unique_ptr<llvm::TargetMachine> TargetMachine;
-        std::unique_ptr<Parser> Parser_;
+        std::shared_ptr<Parser> Parser_;
         std::shared_ptr<SourceMgr> SourceManager;
         SymbolTable *Scope;
         std::string filename;
@@ -56,6 +71,7 @@ namespace lesma {
         std::vector<std::string> ImportedModules;
         std::vector<std::tuple<lesma::Value *, const FuncDecl *, Value *>> Prototypes;
         llvm::Function *TopLevelFunc;
+        MainFnTy *mainFuncAddress = nullptr;
         Value *selfSymbol = nullptr;
         bool isBreak = false;
         bool isReturn = false;
@@ -64,22 +80,29 @@ namespace lesma {
         bool isMain = true;
 
     public:
-        Codegen(std::unique_ptr<Parser> parser, std::shared_ptr<SourceMgr> srcMgr, const std::string &filename, std::vector<std::string> imports, bool jit, bool main, std::string alias = "", const std::shared_ptr<ThreadSafeContext> & = nullptr);
-        ~Codegen() {
+        Codegen(std::shared_ptr<Parser> parser, std::shared_ptr<SourceMgr> srcMgr, const std::string &filename, std::vector<std::string> imports, bool jit, bool main, std::string alias = "", const std::shared_ptr<ThreadSafeContext> & = nullptr);
+        ~Codegen() override {
             delete selfSymbol;
             delete Scope;
         }
 
         void Dump();
         void Run();
-        int JIT();
+        void PrepareJIT();
+        int ExecuteJIT();
         void WriteToObjectFile(const std::string &output);
         void LinkObjectFile(const std::string &obj_filename);
         void Optimize(OptimizationLevel opt);
 
     protected:
         std::unique_ptr<llvm::TargetMachine> InitializeTargetMachine();
+        std::unique_ptr<Module> InitializeModule();
+        std::unique_ptr<LLJIT> InitializeJIT();
         llvm::Function *InitializeTopLevel();
+
+        [[maybe_unused]] void LinkObjectFileWithClang(const std::string &obj_filename);
+        [[maybe_unused]] void LinkObjectFileWithLLD(const std::string &obj_filename);
+
         void CompileModule(llvm::SMRange span, const std::string &filepath, bool isStd, const std::string &alias, bool importAll, bool importToScope, const std::vector<std::pair<std::string, std::string>> &imported_names);
 
         void visit(const Statement *node) override;

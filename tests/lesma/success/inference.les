@@ -1,4 +1,3 @@
-def extern exit(x: int)
 let x = 101
 if x is not int
 	exit(1)

@@ -1,3 +1,2 @@
-def extern exit(x: int)
 var x: int = 100
 let y: int = 101

@@ -1,5 +1,6 @@
 #pragma once
 
+#include "liblesma/Symbol/Value.h"
 #include <algorithm>
 #include <llvm/IR/Type.h>
 #include <map>
@@ -26,10 +27,12 @@ namespace lesma {
     };
 
     class Type;
+    class Value;
 
     struct Field {
         std::string name;
         Type *type;
+        Value *defaultValue = nullptr;
     };
 
     class Type {
@@ -38,14 +41,14 @@ namespace lesma {
 
         Type *elementType;
         Type *returnType;
-        std::vector<std::unique_ptr<Field>> fields;
+        std::vector<Field *> fields;
         bool signedInt = true;
 
     public:
         explicit Type(BaseType baseType) : baseType(baseType), llvmType(nullptr), elementType(nullptr), returnType(nullptr), fields() {}
         explicit Type(BaseType baseType, llvm::Type *llvmType) : baseType(baseType), llvmType(llvmType), elementType(nullptr), returnType(nullptr), fields() {}
         explicit Type(BaseType baseType, llvm::Type *llvmType, Type *elementType) : baseType(baseType), llvmType(llvmType), elementType(elementType), returnType(nullptr), fields() {}
-        explicit Type(BaseType baseType, llvm::Type *llvmType, std::vector<std::unique_ptr<Field>> fields) : baseType(baseType), llvmType(llvmType), elementType(nullptr), returnType(nullptr), fields(std::move(fields)) {}
+        explicit Type(BaseType baseType, llvm::Type *llvmType, std::vector<Field *> fields) : baseType(baseType), llvmType(llvmType), elementType(nullptr), returnType(nullptr), fields(std::move(fields)) {}
 
         [[nodiscard]] bool is(BaseType type) const { return baseType == type; }
         [[nodiscard]] bool isPrimitive() const { return isOneOf({TY_INT, TY_FLOAT, TY_STRING, TY_BOOL}); }
@@ -56,7 +59,7 @@ namespace lesma {
         [[nodiscard]] Type *getElementType() const { return elementType; }
         [[nodiscard]] Type *getReturnType() const { return returnType; }
         [[nodiscard]] llvm::Type *getLLVMType() const { return llvmType; }
-        [[nodiscard]] std::vector<std::unique_ptr<Field>> const &getFields() const { return fields; }
+        [[nodiscard]] std::vector<Field *> const &getFields() const { return fields; }
         [[nodiscard]] bool isSigned() const { return signedInt; }
 
         void setLLVMType(llvm::Type *type) { llvmType = type; }
@@ -64,11 +67,22 @@ namespace lesma {
         void setElementType(lesma::Type *type) { elementType = type; }
         void setReturnType(lesma::Type *type) { returnType = type; }
 
-        friend bool operator==(const Type &lhs, const Type &rhs) {
-            return lhs.getBaseType() == rhs.getBaseType();
-        }
-        friend bool operator!=(const Type &lhs, const Type &rhs) {
-            return !(lhs == rhs);
+        bool isEqual(Type *rhs) {
+            if (rhs == nullptr)
+                return false;
+
+            if (this->getBaseType() != rhs->getBaseType())
+                return false;
+
+            Type *thisElementType = this->getElementType();
+            Type *rhsElementType = rhs->getElementType();
+
+            if (thisElementType == nullptr && rhsElementType == nullptr)
+                return true;
+            if (thisElementType == nullptr || rhsElementType == nullptr)
+                return false;
+
+            return thisElementType->isEqual(rhsElementType);
         }
 
         [[nodiscard]] std::string toString() const {
