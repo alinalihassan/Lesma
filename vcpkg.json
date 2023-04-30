@@ -1,6 +1,6 @@
 {
   "name": "lesma",
-  "version": "0.17.7",
+  "version": "0.18.0",
   "description": "Lesma language compiler and toolchain",
   "homepage": "https://lesma.org/",
   "documentation": "https://lesma.org/docs/introduction/what-is-lesma",
