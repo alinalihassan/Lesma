@@ -40,11 +40,8 @@ export def random(x: int, y: int) -> int
 export def print(x: str)
     printf("%s\n", x)
 
-export def print(x: int8)
-    printf("%c\n", x)
-
 export def print(x: int)
-    printf("%d\n", x)
+    printf("%lld\n", x)
 
 export def print(x: float)
     printf("%g\n", x)
