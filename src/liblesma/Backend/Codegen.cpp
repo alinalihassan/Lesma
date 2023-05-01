@@ -298,7 +298,27 @@ void Codegen::Optimize(OptimizationLevel opt) {
     PB.registerLoopAnalyses(LAM);
     PB.crossRegisterProxies(LAM, FAM, CGAM, MAM);
 
-    ModulePassManager MPM = PB.buildModuleOptimizationPipeline(opt, ThinOrFullLTOPhase::FullLTOPreLink);
+    // Add custom passes to LoopPassManager
+    llvm::LoopPassManager LPM;
+    LPM.addPass(llvm::LoopFullUnrollPass());
+
+    // Add custom passes to FunctionPassManager
+    llvm::FunctionPassManager FPM;
+    FPM.addPass(llvm::ADCEPass());
+    FPM.addPass(llvm::GVNPass());
+    FPM.addPass(llvm::DSEPass());
+    FPM.addPass(llvm::LoopVectorizePass());
+    FPM.addPass(llvm::createFunctionToLoopPassAdaptor(std::move(LPM)));
+
+    // Add custom passes to CGSCCPassManager
+    llvm::CGSCCPassManager CGPM;
+    CGPM.addPass(llvm::InlinerPass());
+
+    // Add custom pass managers to ModulePassManager
+    llvm::ModulePassManager MPM = PB.buildModuleOptimizationPipeline(opt, ThinOrFullLTOPhase::FullLTOPreLink);
+    MPM.addPass(llvm::createModuleToPostOrderCGSCCPassAdaptor(std::move(CGPM)));
+    MPM.addPass(llvm::createModuleToFunctionPassAdaptor(std::move(FPM)));
+    MPM.addPass(llvm::GlobalDCEPass());
 
     MPM.run(*TheModule, MAM);
 }
@@ -852,8 +872,9 @@ void Codegen::visit(const Assignment *node) {
             } else if (lhs->getType()->is(TY_INT)) {
                 auto new_val = Builder->CreateSRem(value->getLLVMValue(), var_val);
                 Builder->CreateStore(new_val, lhs->getLLVMValue());
-            } else
+            } else {
                 throw CodegenError(node->getSpan(), "Invalid operator: {}", NAMEOF_ENUM(node->getOperator()));
+            }
             break;
         case TokenType::POWER_EQUAL:
             throw CodegenError(node->getSpan(), "Power operator not implemented yet.");
