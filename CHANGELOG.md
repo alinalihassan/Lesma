@@ -1,3 +1,11 @@
+## [0.18.1](https://github.com/alinalihassan/Lesma/compare/v0.18.0...v0.18.1) (2023-05-01)
+
+
+### Bug Fixes
+
+* Fixed parser not parsing power expression (x^y) ([ea0bc42](https://github.com/alinalihassan/Lesma/commit/ea0bc42e163ccd4b52c6c6840b5392ff7d85f879))
+* fixed standard library integer print. Function lookup doesn't take type width into account yet ([2652777](https://github.com/alinalihassan/Lesma/commit/2652777825e0630ff27ce4a25f37f0c75f0b2ac4))
+
 # [0.18.0](https://github.com/alinalihassan/Lesma/compare/v0.17.7...v0.18.0) (2023-04-30)
 
 
