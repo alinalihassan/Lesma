@@ -5,6 +5,7 @@
 - [ ] Fix multiple imports not working (TODO: We should only import each file once)
 - [x] Add default values in function declarations
 - [ ] Add operator overloading
+- [ ] Add global variables (like 'export let pi = 3.14')
 - [ ] Add generics
 - [ ] Add lists
 - [ ] Add optional types

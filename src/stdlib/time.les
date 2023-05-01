@@ -1,8 +1,7 @@
 def extern usleep(x: int)
 
 export def sleep(x: float)
-    let y: float = x * 1000000
-    usleep(y as int)
+    usleep((x * 1000000) as int)
 
 export def sleep(x: int)
     usleep(x * 1000000)

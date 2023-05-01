@@ -1,0 +1,33 @@
+# Base functions
+def extern llabs(x: int) -> int
+def extern fabs(x: float) -> float
+
+export def abs(x: int) -> int
+	return llabs(x)
+
+export def abs(x: float) -> float
+	return fabs(x)
+
+# Nearest integer floating-point operations
+def extern ceil(x: float) -> float
+def extern llround(x: float) -> int
+
+export def extern floor(x: float) -> float
+export def extern trunc(x: float) -> float
+
+export def ceil(x: float) -> float
+	return ceil(x)
+
+export def floor(x: float) -> float
+	return floor(x)
+
+export def round(x: float) -> int
+	return llround(x)
+
+# Trigonometric functions
+export def extern sin(x: float) -> float
+export def extern cos(x: float) -> float
+export def extern tan(x: float) -> float
+export def extern asin(x: float) -> float
+export def extern acos(x: float) -> float
+export def extern atan(x: float) -> float
