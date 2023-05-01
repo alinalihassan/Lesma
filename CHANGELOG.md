@@ -1,3 +1,39 @@
+## [0.18.1](https://github.com/alinalihassan/Lesma/compare/v0.18.0...v0.18.1) (2023-05-01)
+
+
+### Bug Fixes
+
+* Fixed parser not parsing power expression (x^y) ([ea0bc42](https://github.com/alinalihassan/Lesma/commit/ea0bc42e163ccd4b52c6c6840b5392ff7d85f879))
+* fixed standard library integer print. Function lookup doesn't take type width into account yet ([2652777](https://github.com/alinalihassan/Lesma/commit/2652777825e0630ff27ce4a25f37f0c75f0b2ac4))
+
+# [0.18.0](https://github.com/alinalihassan/Lesma/compare/v0.17.7...v0.18.0) (2023-04-30)
+
+
+### Bug Fixes
+
+* added custom operator for type equality. Fixed recursive type comp ([1bcccf7](https://github.com/alinalihassan/Lesma/commit/1bcccf7f7eec70eaf9cce6919d39bdaecea0618e))
+* back to shell script for tests. Compilation unstable w/ Catch2 ([33ade8c](https://github.com/alinalihassan/Lesma/commit/33ade8ceca09183d77a5cf085aa60afc075f718d))
+* fixed compiled object files declaring unmangled names ([14b819c](https://github.com/alinalihassan/Lesma/commit/14b819c62ef0a51e1077b2ac43b8dc15c1dd29da))
+* fixed crash, benchmarks now run properly ([ddc0bdf](https://github.com/alinalihassan/Lesma/commit/ddc0bdf801faa3df7e5abddd91595c1b64e6974d))
+* fixed external functions not importing properly ([e12658a](https://github.com/alinalihassan/Lesma/commit/e12658a84a3968ab8bd248ba8007dc73c41b3e47))
+* fixed importing methods ([6cf7681](https://github.com/alinalihassan/Lesma/commit/6cf768115d04929e36003b78f9141c607eafae7e))
+* fixed type comparison having errors ([8d85145](https://github.com/alinalihassan/Lesma/commit/8d85145c71bffc554cdf1bb9ad6a16796acbfd57))
+* linking against c standard library when compiling now ([5de762a](https://github.com/alinalihassan/Lesma/commit/5de762a14daa38f6aa14e85a366d09afe715c3dc))
+* moved from ordered maps to unordered maps and multimaps ([41d1d76](https://github.com/alinalihassan/Lesma/commit/41d1d76a9e7c046b7fef80da60e80a0cb529f927))
+* separated JIT preparation and the actual execution of main, LLVM 16 ([e9adcd5](https://github.com/alinalihassan/Lesma/commit/e9adcd5f0d044b46981135aaa4545936b2d9bfe8))
+
+
+### Features
+
+* default values for functions now fully working! ([118f179](https://github.com/alinalihassan/Lesma/commit/118f179dda812a447cb8dc406768f28a1f08f92d))
+* initial migration to google test ([fde19d3](https://github.com/alinalihassan/Lesma/commit/fde19d30d06b9116968497db719d1fd09d2f7e00))
+* migrated sample JIT to LLJIT. ([e60f5ed](https://github.com/alinalihassan/Lesma/commit/e60f5eda2496f3940d5575a62b11b57723f519a1))
+
+
+### Performance Improvements
+
+* improved Lexer performance in Driver, we're now streaming file ([8db6dac](https://github.com/alinalihassan/Lesma/commit/8db6dac18dec07db8078ba77eb488b8e79dcec93))
+
 ## [0.17.7](https://github.com/alinalihassan/Lesma/compare/v0.17.6...v0.17.7) (2023-04-22)
 
 
