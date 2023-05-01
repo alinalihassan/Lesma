@@ -206,8 +206,18 @@ Expression *Parser::ParseCast() {
 }
 
 Expression *Parser::ParseMult() {
-    auto left = ParseCast();
+    auto left = ParsePower();
     while (AdvanceIfMatchAny<TokenType::STAR, TokenType::SLASH, TokenType::MOD>()) {
+        auto op = Previous()->type;
+        auto right = ParsePower();
+        left = new BinaryOp({left->getStart(), right->getEnd()}, left, op, right);
+    }
+    return left;
+}
+
+Expression *Parser::ParsePower() {
+    auto left = ParseCast();
+    while (AdvanceIfMatchAny<TokenType::POWER>()) {
         auto op = Previous()->type;
         auto right = ParseCast();
         left = new BinaryOp({left->getStart(), right->getEnd()}, left, op, right);
