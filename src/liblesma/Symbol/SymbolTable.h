@@ -23,6 +23,7 @@ namespace lesma {
         }
 
         Value *lookupFunction(const std::string &symbolName, std::vector<lesma::Type *> paramTypes);
+        Value *lookupClassConstructor(const std::string &className, std::vector<lesma::Type *> paramTypes);
         Value *lookup(const std::string &name);
         Value *lookupStruct(const std::string &name);
         Type *lookupType(const std::string &symbolName);

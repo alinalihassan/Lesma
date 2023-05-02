@@ -1,34 +1,56 @@
-def extern printf(fmt: str, ...)
-def extern scanf(fmt: str, ...)
+def extern printf(fmt: *int8, ...)
+def extern scanf(fmt: *int8, ...)
 def extern malloc(size: int) -> *int8
-def extern strlen(x: str) -> int
-def extern atoll(x: str) -> int
-def extern strtod(x: str) -> float
+def extern strlen(x: *int8) -> int
+def extern atoll(x: *int8) -> int
+def extern strtod(x: *int8) -> float
 def extern rand() -> int
 def extern srand(x: int)
 def extern time(x: int) -> int
 
 export def extern exit(x: int)
 
+# Let's make our own String class!
+def extern strcpy(dest: *int8, src: *int8) -> *int8
+def extern strlen(src: *int8) -> int
+
+export class String
+    # Null terminated string of characters for C interop
+	var src: *int8
+	var length: int
+	var capacity: int
+
+	def new(src: *int8)
+		self.length = strlen(src)
+		self.capacity = self.length
+		self.src = malloc(self.capacity)
+		strcpy(self.src, src)
+
+export def input(prompt: str) -> str
+    # TODO: We have to define variables for format strings, because they're *int8, not our class
+    let format = "%s"
+    let scanFormat = "%255[^\n]%*c"
+    if strlen(prompt.src) > 0
+        printf(format.src, prompt.src)
+
+    var line = malloc(256)
+
+    # TODO: Currently only reading 255 characters, could be longer
+    scanf(scanFormat.src,line)
+
+    # TODO: Why do we have to do this?
+    let res: str = &String(line)
+
+    return res
+
 export def input() -> str
     return input("")
 
-export def input(prompt: str) -> str
-    if strlen(prompt) > 0
-        printf("%s", prompt)
-
-    var line: str = malloc(256) as str
-
-    # TODO: Currently only reading 255 characters, could be longer
-    scanf("%255[^\n]%*c",line)
-
-    return line
-
 export def strToInt(x: str) -> int
-    return atoll(x)
+    return atoll(x.src)
 
 export def strToFloat(x: str) -> float
-    return strtod(x)
+    return strtod(x.src)
 
 export def random(x: int, y: int) -> int
     srand(time(0))
@@ -38,16 +60,24 @@ export def random(x: int, y: int) -> int
     return y + rand() % (x - y)
 
 export def print(x: str)
-    printf("%s\n", x)
+    let format = "%s\n"
+    printf(format.src, x.src)
 
 export def print(x: int)
-    printf("%lld\n", x)
+    let format = "%lld\n"
+    printf(format.src, x)
 
 export def print(x: float)
-    printf("%g\n", x)
+    let format = "%g\n"
+    printf(format.src, x)
 
 export def print(x: bool)
     if x
         print("true")
     else
         print("false")
+
+export def assert(x: bool, message: str = "Assertion failed")
+    if not x
+        print(message)
+        exit(1)

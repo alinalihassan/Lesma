@@ -674,6 +674,10 @@ Compound *Parser::ParseCompound() {
             Consume(TokenType::NEWLINE);
         statements.push_back(ParseStatement(true));
     }
+    if (statements.empty()) {
+        auto eof = Peek();
+        return new Compound(eof->span, statements);
+    }
     return new Compound({statements.front()->getStart(), statements.back()->getEnd()}, statements);
 }
 
