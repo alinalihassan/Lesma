@@ -512,7 +512,7 @@ void Codegen::visit(const TypeExpr *node) {
         if (selfSymbol == nullptr || !selfSymbol->getType()->is(TY_CLASS)) {
             throw CodegenError(node->getSpan(), "Cannot find String class");
         }
-        
+
         result = new lesma::Value(new Type(TY_PTR, Builder->getPtrTy(), class_sym->getType()));
     } else if (node->getType() == TokenType::VOID_TYPE)
         result = new lesma::Value(new lesma::Type(TY_VOID, Builder->getVoidTy()));
