@@ -27,6 +27,62 @@ void SymbolTable::insertType(const std::string &name, Type *type) {
  * @param name Name of the desired symbol
  * @return Desired symbol / nullptr if the symbol was not found
  */
+Value *SymbolTable::lookupClassConstructor(const std::string &className, std::vector<lesma::Type *> paramTypes) {
+    const std::string name = "new";
+    auto range = symbols.equal_range(name);
+    for (auto it = range.first; it != range.second; ++it) {
+        if (!it->second->getType()->is(TY_FUNCTION))
+            continue;
+        // TODO: Currently checking by LLVM's Struct name, we shouldn't rely on that
+        if (!(it->second->getType()->getFields()[0]->type->is(TY_PTR) &&
+              it->second->getType()->getFields()[0]->type->getElementType()->is(TY_CLASS) &&
+              it->second->getType()->getFields()[0]->type->getElementType()->getLLVMType()->isStructTy() &&
+              llvm::cast<llvm::StructType>(it->second->getType()->getFields()[0]->type->getElementType()->getLLVMType())->getName().str() == className))
+            continue;
+
+        // Check if the parameter types match
+        bool paramsMatch = true;
+        std::vector<Field *> funcParamTypes = it->second->getType()->getFields();
+        size_t numParams = std::max(funcParamTypes.size(), paramTypes.size());
+
+        for (size_t i = 0; i < numParams; ++i) {
+            if (i < funcParamTypes.size() && i < paramTypes.size()) {
+                if (!funcParamTypes[i]->type->isEqual(paramTypes[i])) {
+                    paramsMatch = false;
+                    break;
+                }
+            } else if (i < funcParamTypes.size() && funcParamTypes[i]->defaultValue != nullptr) {
+                // Use default value for missing parameter
+                paramTypes.push_back(funcParamTypes[i]->type);
+            } else if (i >= funcParamTypes.size() && it->second->getType()->getLLVMType()->isFunctionVarArg()) {
+                // Varargs
+                break;
+            } else {
+                paramsMatch = false;
+                break;
+            }
+        }
+
+        if (!paramsMatch) {
+            continue;// Parameter types don't match
+        }
+
+        return it->second;
+    }
+
+    if (parent == nullptr) {
+        return nullptr;
+    }
+
+    return parent->lookupFunction(name, paramTypes);
+}
+
+/**
+ * Check if a symbol exists in the current or any parent scope and return it if possible
+ *
+ * @param name Name of the desired symbol
+ * @return Desired symbol / nullptr if the symbol was not found
+ */
 Value *SymbolTable::lookupFunction(const std::string &name, std::vector<lesma::Type *> paramTypes) {
     auto range = symbols.equal_range(name);
     for (auto it = range.first; it != range.second; ++it) {

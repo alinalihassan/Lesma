@@ -506,9 +506,11 @@ void Codegen::visit(const TypeExpr *node) {
         result = new lesma::Value(new lesma::Type(TY_FLOAT, Builder->getFloatTy()));
     else if (node->getType() == TokenType::BOOL_TYPE)
         result = new lesma::Value(new lesma::Type(TY_BOOL, Builder->getInt1Ty()));
-    else if (node->getType() == TokenType::STRING_TYPE)
-        result = new lesma::Value(new lesma::Type(TY_STRING, Builder->getInt8PtrTy()));
-    else if (node->getType() == TokenType::VOID_TYPE)
+    else if (node->getType() == TokenType::STRING_TYPE) {
+        auto class_sym = Scope->lookupStruct("String");
+        //        result = new lesma::Value(new Type(TY_PTR, Builder->getPtrTy(), class_sym->getType()));
+        result = new lesma::Value(class_sym->getType());
+    } else if (node->getType() == TokenType::VOID_TYPE)
         result = new lesma::Value(new lesma::Type(TY_VOID, Builder->getVoidTy()));
     else if (node->getType() == TokenType::PTR_TYPE) {
         node->getElementType()->accept(*this);
@@ -1415,17 +1417,47 @@ void Codegen::visit(const UnaryOp *node) {
 }
 
 void Codegen::visit(const Literal *node) {
-    if (node->getType() == TokenType::DOUBLE)
+    if (node->getType() == TokenType::DOUBLE) {
         result = new Value("", new Type(TY_FLOAT, Builder->getDoubleTy()), ConstantFP::get(*TheContext->getContext(), APFloat(std::stod(node->getValue()))));
-    else if (node->getType() == TokenType::INTEGER)
+    } else if (node->getType() == TokenType::INTEGER) {
         result = new Value("", new Type(TY_INT, Builder->getInt64Ty()), ConstantInt::getSigned(Builder->getInt64Ty(), std::stoi(node->getValue())));
-    else if (node->getType() == TokenType::BOOL)
+    } else if (node->getType() == TokenType::BOOL) {
         result = new Value("", new Type(TY_BOOL, Builder->getInt1Ty()), node->getValue() == "true" ? Builder->getTrue() : Builder->getFalse());
-    else if (node->getType() == TokenType::STRING)
-        result = new Value("", new Type(TY_STRING, Builder->getInt8PtrTy()), Builder->CreateGlobalStringPtr(node->getValue()));
-    else if (node->getType() == TokenType::NIL)
+    } else if (node->getType() == TokenType::NIL) {
         result = new Value("", new Type(TY_VOID, Builder->getVoidTy()), ConstantPointerNull::getNullValue(Builder->getInt8PtrTy(0)));
-    else if (node->getType() == TokenType::IDENTIFIER) {
+    } else if (node->getType() == TokenType::STRING) {
+        // Try to instantiate a String class and call the constructor
+        auto tmp_selfSymbol = selfSymbol;
+        selfSymbol = Scope->lookupStruct("String");
+
+        if (selfSymbol == nullptr || !selfSymbol->getType()->is(TY_CLASS)) {
+            throw CodegenError(node->getSpan(), "Cannot find String class");
+        }
+
+        // It's a class constructor, allocate and add self param
+        auto class_ptr = Builder->CreateAlloca(selfSymbol->getType()->getLLVMType());
+        auto tmp_str = Builder->CreateGlobalStringPtr(node->getValue());
+
+        std::vector<llvm::Value *> paramsLLVM;
+        std::vector<lesma::Type *> paramTypes;
+
+        paramsLLVM.push_back(class_ptr);
+        paramTypes.push_back(new Type(TY_PTR, Builder->getPtrTy(), selfSymbol->getType()));
+
+        paramsLLVM.push_back(tmp_str);
+        paramTypes.push_back(new Type(TY_PTR, Builder->getInt8PtrTy(), new Type(TY_INT, Builder->getInt8PtrTy())));
+
+        auto str_constructor = Scope->lookupClassConstructor("String", paramTypes);
+        if (str_constructor == nullptr) {
+            throw CodegenError(node->getSpan(), "Cannot find constructor for String");
+        }
+
+        Builder->CreateCall(llvm::cast<Function>(str_constructor->getLLVMValue()), paramsLLVM);
+
+        result = new Value("", selfSymbol->getType(), class_ptr);
+        //        result = new Value("", new Type(TY_PTR, Builder->getPtrTy(), selfSymbol->getType()), class_ptr);
+        selfSymbol = tmp_selfSymbol;
+    } else if (node->getType() == TokenType::IDENTIFIER) {
         // Look this variable up in the function.
         auto val = Scope->lookup(node->getValue());
         if (val == nullptr)
@@ -1587,9 +1619,6 @@ lesma::Value *Codegen::Cast(llvm::SMRange span, lesma::Value *val, lesma::Type *
         } else if (val->getType()->is(TY_FLOAT)) {
             return new Value("", type, Builder->CreateFPCast(val->getLLVMValue(), type->getLLVMType()));
         }
-    } else if (type->is(TY_STRING)) {
-        if (val->getType()->is(TY_PTR) && (val->getType()->getElementType()->is(TY_INT) || val->getType()->getElementType()->is(TY_VOID)))
-            return new Value("", type, Builder->CreateBitCast(val->getLLVMValue(), type->getLLVMType()));
     }
 
     throw CodegenError(span, "Unsupported Cast between {} and {}", getTypeMangledName(span, val->getType()), getTypeMangledName(span, type));
