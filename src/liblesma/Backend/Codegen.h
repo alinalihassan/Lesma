@@ -74,6 +74,7 @@ namespace lesma {
         std::stack<llvm::BasicBlock *> breakBlocks;
         std::stack<llvm::BasicBlock *> continueBlocks;
         std::stack<std::vector<Statement *>> deferStack;
+        lesma::Value *currentFunction = nullptr;
 
         std::vector<std::string> ObjectFiles;
         std::vector<std::string> ImportedModules;

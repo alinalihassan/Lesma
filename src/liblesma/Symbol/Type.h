@@ -67,7 +67,7 @@ namespace lesma {
         void setElementType(lesma::Type *type) { elementType = type; }
         void setReturnType(lesma::Type *type) { returnType = type; }
 
-        bool isEqual(Type *rhs) {
+        bool isEqual(Type *rhs) const {
             if (rhs == nullptr)
                 return false;
 

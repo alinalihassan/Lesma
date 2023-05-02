@@ -91,6 +91,7 @@ llvm::Function *Codegen::InitializeTopLevel() {
 
 void Codegen::defineFunction(lesma::Value *value, const FuncDecl *node, Value *clsSymbol) {
     Scope = Scope->createChildBlock(node->getName());
+    currentFunction = value;
     deferStack.emplace();
 
     auto *F = cast<Function>(value->getLLVMValue());
@@ -151,6 +152,8 @@ void Codegen::defineFunction(lesma::Value *value, const FuncDecl *node, Value *c
 
     // Insert Function to Symbol Table
     Scope = Scope->getParent();
+
+    currentFunction = nullptr;
 
     // Reset Insert Point to Top Level
     Builder->SetInsertPoint(&TopLevelFunc->back());
@@ -917,17 +920,19 @@ void Codegen::visit(const Return *node) {
     isReturn = true;
 
     if (node->getValue() == nullptr) {
-        if (Builder->getCurrentFunctionReturnType() == Builder->getVoidTy()) {
+        if (currentFunction->getType()->getReturnType()->is(TY_VOID)) {
             Builder->CreateRetVoid();
         } else {
-            throw CodegenError(node->getSpan(), "Return type does not match the function return type");
+            throw CodegenError(node->getSpan(), "Return type does not match the function return type, expected {}, actual void",
+                               currentFunction->getType()->getReturnType()->toString());
         }
     } else {
         node->getValue()->accept(*this);
         if (Builder->getCurrentFunctionReturnType() == result->getType()->getLLVMType()) {
             Builder->CreateRet(result->getLLVMValue());
         } else {
-            throw CodegenError(node->getSpan(), "Return type does not match the function return type");
+            throw CodegenError(node->getSpan(), "Return type does not match the function return type, expected {}, actual {}",
+                               currentFunction->getType()->getReturnType()->toString(), result->getType()->toString());
         }
     }
 }
