@@ -508,8 +508,7 @@ void Codegen::visit(const TypeExpr *node) {
         result = new lesma::Value(new lesma::Type(TY_BOOL, Builder->getInt1Ty()));
     else if (node->getType() == TokenType::STRING_TYPE) {
         auto class_sym = Scope->lookupStruct("String");
-        //        result = new lesma::Value(new Type(TY_PTR, Builder->getPtrTy(), class_sym->getType()));
-        result = new lesma::Value(class_sym->getType());
+        result = new lesma::Value(new Type(TY_PTR, Builder->getPtrTy(), class_sym->getType()));
     } else if (node->getType() == TokenType::VOID_TYPE)
         result = new lesma::Value(new lesma::Type(TY_VOID, Builder->getVoidTy()));
     else if (node->getType() == TokenType::PTR_TYPE) {
@@ -1454,8 +1453,7 @@ void Codegen::visit(const Literal *node) {
 
         Builder->CreateCall(llvm::cast<Function>(str_constructor->getLLVMValue()), paramsLLVM);
 
-        result = new Value("", selfSymbol->getType(), class_ptr);
-        //        result = new Value("", new Type(TY_PTR, Builder->getPtrTy(), selfSymbol->getType()), class_ptr);
+        result = new Value("", new Type(TY_PTR, Builder->getPtrTy(), selfSymbol->getType()), class_ptr);
         selfSymbol = tmp_selfSymbol;
     } else if (node->getType() == TokenType::IDENTIFIER) {
         // Look this variable up in the function.
