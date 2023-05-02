@@ -54,7 +54,7 @@ std::unique_ptr<llvm::TargetMachine> Codegen::InitializeTargetMachine() {
         throw CodegenError({}, "Target not available:\n{}", error);
 
     llvm::TargetOptions opt;
-    llvm::Reloc::Model rm = llvm::Reloc::Model();
+    llvm::Optional<llvm::Reloc::Model> rm(llvm::Reloc::PIC_);
     std::unique_ptr<llvm::TargetMachine> target_machine(target->createTargetMachine(tripletString, "generic", "", opt, rm));
     return target_machine;
 }
