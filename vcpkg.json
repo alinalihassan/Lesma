@@ -22,6 +22,10 @@
     {
       "name": "plf-nanotimer",
       "version>=": "2019-08-10#2"
+    },
+    {
+      "name": "rapidfuzz",
+      "version>=": "1.8.0"
     }
   ],
   "features": {

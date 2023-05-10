@@ -35,11 +35,23 @@ namespace lesma {
                 fmt::print(accent, "{} |", std::string(int(log10(start_loc.first) + 1), ' '));
                 fmt::print(color | fmt::emphasis::bold, "{}{}\n",
                            std::string(start_loc.second, ' '), std::string(end_loc.second - start_loc.second, '^'));
-
                 // TODO: Support multiline
                 break;
             }
             lineNum++;
+        }
+    }
+
+    void showInline(llvm::SourceMgr *srcMgr, unsigned int bufferId, llvm::SMRange span, const std::string &reason, const std::string &file, bool is_error, const std::string &note) {
+        showInline(srcMgr, bufferId, span, reason, file, is_error);
+        
+        if (!note.empty()) {
+            auto color = is_error ? fg(fmt::color::red) : fg(fmt::color::yellow);
+            auto accent = fg(static_cast<fmt::color>(0x008EEA));// 008EEA
+            auto start_loc = srcMgr->getLineAndColumn(span.Start, bufferId);
+
+            fmt::print(color | accent, "{} = ", std::string(int(log10(start_loc.first) + 2), ' '));
+            fmt::print("note: {}\n", note);
         }
     }
 

@@ -60,7 +60,7 @@ Token *Parser::ConsumeNewline() {
 }
 
 void Parser::Error(Token *token, const std::string &error_message) {
-    throw ParserError(token->span, "{}", error_message);
+    throw ParserError(token->span, error_message);
 }
 
 TypeExpr *Parser::ParseType() {

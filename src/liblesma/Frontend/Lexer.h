@@ -10,8 +10,8 @@
 #include "liblesma/Token/Token.h"
 
 namespace lesma {
-    class LexerError : public LesmaErrorWithExitCode<EX_DATAERR> {
-        using LesmaErrorWithExitCode<EX_DATAERR>::LesmaErrorWithExitCode;
+    class LexerError : public LesmaError {
+        using LesmaError::LesmaError;
     };
 
     class Lexer {

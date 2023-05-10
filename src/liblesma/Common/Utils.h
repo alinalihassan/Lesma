@@ -51,6 +51,7 @@ namespace lesma {
     }
 
     void showInline(llvm::SourceMgr *srcMgr, unsigned int bufferId, llvm::SMRange span, const std::string &reason, const std::string &file, bool is_error);
+    void showInline(llvm::SourceMgr *srcMgr, unsigned int bufferId, llvm::SMRange span, const std::string &reason, const std::string &file, bool is_error, const std::string &note);
     std::string getBasename(const std::string &file_path);
     std::string getStdDir();
 }// namespace lesma

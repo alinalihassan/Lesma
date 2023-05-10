@@ -50,9 +50,9 @@ using namespace llvm;
 using namespace llvm::orc;
 
 namespace lesma {
-    class CodegenError : public LesmaErrorWithExitCode<EX_DATAERR> {
+    class CodegenError : public LesmaError {
     public:
-        using LesmaErrorWithExitCode<EX_DATAERR>::LesmaErrorWithExitCode;
+        using LesmaError::LesmaError;
     };
 
     using MainFnTy = int();

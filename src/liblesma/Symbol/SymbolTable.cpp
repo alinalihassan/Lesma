@@ -1,6 +1,8 @@
 #include "SymbolTable.h"
 #include <llvm/IR/DerivedTypes.h>
 
+#include <utility>
+
 using namespace lesma;
 
 /**
@@ -19,6 +21,29 @@ void SymbolTable::insertSymbol(Value *entry) {
  */
 void SymbolTable::insertType(const std::string &name, Type *type) {
     types.insert_or_assign(name, type);
+}
+
+std::tuple<bool, std::string> SymbolTable::lookupFunctionErrorInfo(const std::string &name, std::vector<lesma::Type *> paramTypes) {
+    auto range = symbols.equal_range(name);
+    bool foundOne = false;
+    std::string note;
+
+    for (auto it = range.first; it != range.second; ++it) {
+        if (!it->second->getType()->is(TY_FUNCTION))
+            continue;
+
+        foundOne = true;
+    }
+
+    if (foundOne) {
+        return std::make_tuple(true, note);
+    }
+
+    if (parent == nullptr) {
+        return std::make_tuple(false, note);
+    }
+
+    return parent->lookupFunctionErrorInfo(name, std::move(paramTypes));
 }
 
 /**

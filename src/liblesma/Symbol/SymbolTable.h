@@ -33,6 +33,8 @@ namespace lesma {
         std::unordered_multimap<std::string, Value *> getSymbols() { return symbols; }
         std::unordered_map<std::string, Type *> getTypes() { return types; }
 
+        std::tuple<bool, std::string> lookupFunctionErrorInfo(const std::string &symbolName, std::vector<lesma::Type *> paramTypes);
+
         SymbolTable *getChild(const std::string &tableName);
 
         std::string toString(int ind) {

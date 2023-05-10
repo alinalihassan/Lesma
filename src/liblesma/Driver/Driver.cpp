@@ -93,7 +93,7 @@ int Driver::BaseCompile(std::unique_ptr<lesma::Options> options, bool jit) {
         if (!err.getSpan().isValid())
             print(ERROR, err.what());
         else
-            showInline(srcMgr.get(), 1, err.getSpan(), err.what(), options->sourceType == FILE ? options->source : "", true);
+            showInline(srcMgr.get(), 1, err.getSpan(), err.what(), options->sourceType == FILE ? options->source : "", true, err.getNote());
         return err.exit_code;
     }
 }
