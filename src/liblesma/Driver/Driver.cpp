@@ -10,8 +10,7 @@ using namespace lesma;
     if (options->timer)                       \
         print(DEBUG, "{} -> {:.2f} ms\n", debug_operation, results);
 
-
-int Driver::BaseCompile(std::unique_ptr<lesma::Options> options, bool jit) {
+int Driver::BaseCompile(std::unique_ptr<lesma::Driver::Options> options, bool jit) {
     // Configure Timer
     plf::nanotimer timer;
     double results, total = 0;
@@ -96,10 +95,10 @@ int Driver::BaseCompile(std::unique_ptr<lesma::Options> options, bool jit) {
     }
 }
 
-int Driver::Run(std::unique_ptr<lesma::Options> options) {
+int Driver::Run(std::unique_ptr<lesma::Driver::Options> options) {
     return BaseCompile(std::move(options), true);
 }
 
-int Driver::Compile(std::unique_ptr<lesma::Options> options) {
+int Driver::Compile(std::unique_ptr<lesma::Driver::Options> options) {
     return BaseCompile(std::move(options), false);
 }

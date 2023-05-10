@@ -42,10 +42,20 @@ std::unique_ptr<CLIOptions> parseCLI(int argc, char **argv) {
     return std::make_unique<CLIOptions>(CLIOptions{std::filesystem::absolute(file), output, debug, timer, run->parsed()});
 }
 
+auto mapCLIOptionsToDriverOptions(std::unique_ptr<CLIOptions> cliOptions) -> std::unique_ptr<Driver::Options> {
+    return std::make_unique<Driver::Options>(
+            Driver::Options{Driver::SourceType::FILE,
+                            cliOptions->file,
+                            static_cast<Driver::Debug>(cliOptions->debug ? (Driver::Debug::LEXER | Driver::Debug::AST | Driver::Debug::IR) : Driver::Debug::NONE),
+                            cliOptions->output,
+                            cliOptions->timer});
+}
+
 int main(int argc, char **argv) {
     // CLI Parsing
-    auto options = parseCLI(argc, argv);
-    auto driver_options = std::make_unique<Options>(Options{SourceType::FILE, options->file,
-                                                            static_cast<Debug>(options->debug ? (LEXER | AST | IR) : NONE), options->output, options->timer});
-    return options->jit ? Driver::Run(std::move(driver_options)) : Driver::Compile(std::move(driver_options));
+    auto cliOptions = parseCLI(argc, argv);
+    auto jit = cliOptions->jit;
+    auto driverOptions = mapCLIOptionsToDriverOptions(std::move(cliOptions));
+    
+    return jit ? Driver::Run(std::move(driverOptions)) : Driver::Compile(std::move(driverOptions));
 }
