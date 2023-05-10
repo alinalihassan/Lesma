@@ -8,6 +8,8 @@
 #include "liblesma/Frontend/Lexer.h"
 #include "liblesma/Frontend/Parser.h"
 
+#include "plf_nanotimer.h"
+
 #include "llvm/Support/SourceMgr.h"
 
 namespace lesma {

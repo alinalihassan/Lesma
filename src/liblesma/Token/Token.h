@@ -13,16 +13,16 @@ namespace lesma {
     struct Token {
         std::string lexeme;
         TokenType type = TokenType::NULL_TOKEN;
-        llvm::SMRange span;
+        SMRange span;
 
         Token() = default;
-        Token(const TokenType &type, std::string lexeme, llvm::SMRange span) : lexeme(std::move(lexeme)), type(type), span(span) {}
+        Token(const TokenType &type, std::string lexeme, SMRange span) : lexeme(std::move(lexeme)), type(type), span(span) {}
 
-        [[nodiscard]] llvm::SMLoc getStart() const { return span.Start; }
-        [[nodiscard]] llvm::SMLoc getEnd() const { return span.End; };
+        [[nodiscard]] SMLoc getStart() const { return span.Start; }
+        [[nodiscard]] SMLoc getEnd() const { return span.End; };
 
         static TokenType GetIdentifierType(const std::string &identifier, Token *lastTok);
-        [[nodiscard]] std::string Dump(const std::shared_ptr<llvm::SourceMgr> &srcMgr) const;
+        [[nodiscard]] std::string Dump(const std::shared_ptr<SourceManager> &srcMgr) const;
 
         bool operator==(const Token &rhs) const {
             return (lexeme == rhs.lexeme) && (type == rhs.type) && (span.Start.getPointer() == rhs.span.Start.getPointer()) && (span.End.getPointer() == rhs.span.End.getPointer());

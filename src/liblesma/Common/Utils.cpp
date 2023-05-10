@@ -8,7 +8,7 @@ namespace lesma {
         return filename_wo_ext;
     }
 
-    void showInline(llvm::SourceMgr *srcMgr, unsigned int bufferId, llvm::SMRange span, const std::string &reason, const std::string &file, bool is_error) {
+    void showInline(SourceManager *srcMgr, unsigned int bufferId, SMRange span, const std::string &reason, const std::string &file, bool is_error) {
         std::istringstream ifs(srcMgr->getMemoryBuffer(bufferId)->getBuffer().str());
         unsigned int lineNum = 1;
         auto color = is_error ? fg(fmt::color::red) : fg(fmt::color::yellow);

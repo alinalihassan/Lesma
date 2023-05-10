@@ -2,7 +2,7 @@
 
 using namespace lesma;
 
-std::string Token::Dump(const std::shared_ptr<llvm::SourceMgr> &srcMgr) const {
+std::string Token::Dump(const std::shared_ptr<SourceManager> &srcMgr) const {
     return std::string(
                    "[Type: ") +
            std::string{NAMEOF_ENUM(type)} +

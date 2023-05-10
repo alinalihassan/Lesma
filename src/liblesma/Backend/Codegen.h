@@ -9,7 +9,6 @@
 #include <clang/Basic/FileManager.h>
 #include <clang/Basic/FileSystemOptions.h>
 #include <clang/Basic/LangOptions.h>
-#include <clang/Basic/SourceManager.h>
 #include <clang/Basic/TargetInfo.h>
 #include <clang/Driver/Compilation.h>
 #include <clang/Driver/Driver.h>
@@ -65,7 +64,7 @@ namespace lesma {
         std::unique_ptr<LLJIT> TheJIT;
         std::unique_ptr<llvm::TargetMachine> TargetMachine;
         std::shared_ptr<Parser> Parser_;
-        std::shared_ptr<SourceMgr> SourceManager;
+        std::shared_ptr<SourceManager> SrcMgr;
         SymbolTable *Scope;
         std::string filename;
         std::string alias;
@@ -89,7 +88,7 @@ namespace lesma {
         bool isMain = true;
 
     public:
-        Codegen(std::shared_ptr<Parser> parser, std::shared_ptr<SourceMgr> srcMgr, const std::string &filename, std::vector<std::string> imports, bool jit, bool main, std::string alias = "", const std::shared_ptr<ThreadSafeContext> & = nullptr);
+        Codegen(std::shared_ptr<Parser> parser, std::shared_ptr<SourceManager> srcMgr, const std::string &filename, std::vector<std::string> imports, bool jit, bool main, std::string alias = "", const std::shared_ptr<ThreadSafeContext> & = nullptr);
         ~Codegen() override {
             delete selfSymbol;
             delete Scope;
@@ -112,7 +111,7 @@ namespace lesma {
         [[maybe_unused]] void LinkObjectFileWithClang(const std::string &obj_filename);
         [[maybe_unused]] void LinkObjectFileWithLLD(const std::string &obj_filename);
 
-        void CompileModule(llvm::SMRange span, const std::string &filepath, bool isStd, const std::string &alias, bool importAll, bool importToScope, const std::vector<std::pair<std::string, std::string>> &imported_names);
+        void CompileModule(SMRange span, const std::string &filepath, bool isStd, const std::string &alias, bool importAll, bool importToScope, const std::vector<std::pair<std::string, std::string>> &imported_names);
 
         void visit(const Statement *node) override;
         void visit(const Compound *node) override;
@@ -145,15 +144,15 @@ namespace lesma {
 
         // TODO: Helper functions, move them out somewhere
         // Type related helper functions
-        lesma::Value *Cast(llvm::SMRange span, lesma::Value *val, lesma::Type *type);
+        lesma::Value *Cast(SMRange span, lesma::Value *val, lesma::Type *type);
         static lesma::Type *GetExtendedType(lesma::Type *left, lesma::Type *right);
 
         // Name mangling functions and such
         static bool isMethod(const std::string &mangled_name);
-        std::string getMangledName(llvm::SMRange span, std::string func_name, const std::vector<lesma::Type *> &paramTypes, bool isMethod = false, std::string alias = "");
+        std::string getMangledName(SMRange span, std::string func_name, const std::vector<lesma::Type *> &paramTypes, bool isMethod = false, std::string alias = "");
         [[maybe_unused]] static bool isMangled(std::string name);
         static std::string getDemangledName(const std::string &mangled_name);
-        std::string getTypeMangledName(llvm::SMRange span, lesma::Type *type);
+        std::string getTypeMangledName(SMRange span, lesma::Type *type);
 
         // Other
         lesma::Value *genFuncCall(const FuncCall *node, const std::vector<lesma::Value *> &extra_params);

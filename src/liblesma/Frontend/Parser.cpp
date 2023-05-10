@@ -312,9 +312,9 @@ Statement *Parser::ParseVarDecl() {
         expr = ParseExpression();
 
     if (type == std::nullopt && expr == std::nullopt)
-        throw ParserError(llvm::SMRange{startTok->getStart(), var->getEnd()}, "Expected either a type or a value");
+        throw ParserError(SMRange{startTok->getStart(), var->getEnd()}, "Expected either a type or a value");
     else if (expr == std::nullopt && !mutable_)
-        throw ParserError(llvm::SMRange{startTok->getStart(), type.value()->getEnd()}, "Cannot declare an immutable variable without an initial expression");
+        throw ParserError(SMRange{startTok->getStart(), type.value()->getEnd()}, "Cannot declare an immutable variable without an initial expression");
 
     ConsumeNewline();
     return new VarDecl({startTok->getStart(), expr != std::nullopt ? expr.value()->getEnd() : type.value()->getEnd()}, var, type, expr, mutable_);

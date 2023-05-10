@@ -16,9 +16,9 @@ namespace lesma {
 
     class Lexer {
     public:
-        explicit Lexer(const std::shared_ptr<llvm::SourceMgr> &srcMgr)
+        explicit Lexer(const std::shared_ptr<SourceManager> &srcMgr)
             : curBuffer(srcMgr->getMemoryBuffer(srcMgr->getNumBuffers())),
-              curPtr(curBuffer->getBufferStart()), begin_loc(llvm::SMLoc::getFromPointer(curPtr)), loc(llvm::SMLoc::getFromPointer(curPtr)), srcMgr(srcMgr) {
+              curPtr(curBuffer->getBufferStart()), begin_loc(SMLoc::getFromPointer(curPtr)), loc(SMLoc::getFromPointer(curPtr)), srcMgr(srcMgr) {
         }
         ~Lexer() {
             for (auto t: tokens)
@@ -63,14 +63,14 @@ namespace lesma {
         bool HandleIndentation(bool continuation);
         void Fallback();
 
-        const llvm::MemoryBuffer *curBuffer;
+        const MemoryBuffer *curBuffer;
         const char *curPtr;
         unsigned int line = 1;
         unsigned int col = 1;
-        llvm::SMLoc begin_loc;
-        llvm::SMLoc loc;
+        SMLoc begin_loc;
+        SMLoc loc;
         std::vector<Token *> tokens;
-        std::shared_ptr<llvm::SourceMgr> srcMgr;
+        std::shared_ptr<SourceManager> srcMgr;
 
         std::optional<char> first_indent_char;
         int level_ = 0;

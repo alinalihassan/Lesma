@@ -9,7 +9,7 @@ void Lexer::ScanAll() {
 
 Token *Lexer::ScanOne(bool continuation) {
     if (IsAtEnd())
-        return new Token{TokenType::EOF_TOKEN, "EOF", llvm::SMRange{begin_loc, loc}};
+        return new Token{TokenType::EOF_TOKEN, "EOF", SMRange{begin_loc, loc}};
     ResetTokenBeg();
     char c = Advance();
 
@@ -135,7 +135,7 @@ Token *Lexer::ScanOne(bool continuation) {
             line++;
             col = 1;
             if (!continuation && level_ == 0)
-                tokens.push_back(AddToken(new Token{TokenType::NEWLINE, "NEWLINE", llvm::SMRange{begin_loc, loc}}));
+                tokens.push_back(AddToken(new Token{TokenType::NEWLINE, "NEWLINE", SMRange{begin_loc, loc}}));
             HandleIndentation(continuation);
             return ScanOne(false);
         case '"':
@@ -232,14 +232,14 @@ bool Lexer::HandleIndentation(bool continuation) {
     }
 
     while (changes != 0) {
-        tokens.push_back(AddToken(new Token{changes > 0 ? TokenType::INDENT : TokenType::DEDENT, changes > 0 ? "INDENT" : "DEDENT", llvm::SMRange{begin_loc, loc}}));
+        tokens.push_back(AddToken(new Token{changes > 0 ? TokenType::INDENT : TokenType::DEDENT, changes > 0 ? "INDENT" : "DEDENT", SMRange{begin_loc, loc}}));
         changes += changes > 0 ? -1 : 1;
     }
     return true;
 }
 
 Token *Lexer::AddToken(TokenType type) {
-    auto ret = new Token(type, std::string(begin_loc.getPointer(), loc.getPointer()), llvm::SMRange{begin_loc, loc});
+    auto ret = new Token(type, std::string(begin_loc.getPointer(), loc.getPointer()), SMRange{begin_loc, loc});
     ResetTokenBeg();
     return ret;
 }
@@ -254,7 +254,7 @@ void Lexer::ResetTokenBeg() {
 }
 
 void Lexer::Fallback() {
-    loc = llvm::SMLoc::getFromPointer(loc.getPointer() - 1);
+    loc = SMLoc::getFromPointer(loc.getPointer() - 1);
     --curPtr;
     --col;
 }
@@ -262,7 +262,7 @@ void Lexer::Fallback() {
 char Lexer::Advance() {
     auto ret = LastChar();
     curPtr++;
-    loc = llvm::SMLoc::getFromPointer(loc.getPointer() + 1);
+    loc = SMLoc::getFromPointer(loc.getPointer() + 1);
     ++col;
     return ret;
 }
@@ -337,7 +337,7 @@ Token *Lexer::AddStringToken() {
     // Skip the closing ".
     Advance();
 
-    auto ret = new Token(TokenType::STRING, string, llvm::SMRange{begin_loc, loc});
+    auto ret = new Token(TokenType::STRING, string, SMRange{begin_loc, loc});
     ResetTokenBeg();
     return ret;
 }
@@ -362,7 +362,7 @@ Token *Lexer::GetLastToken() {
     if (!tokens.empty())
         return tokens.end()[-1];
     else
-        return new Token{TokenType::EOF_TOKEN, "EOF", llvm::SMRange{begin_loc, loc}};
+        return new Token{TokenType::EOF_TOKEN, "EOF", SMRange{begin_loc, loc}};
 }
 
 Token *Lexer::AddIdentifierToken() {
@@ -383,5 +383,5 @@ Token *Lexer::AddIdentifierToken() {
 char Lexer::LastChar() { return *curPtr; }
 
 void Lexer::Error(const std::string &msg) const {
-    throw LexerError(llvm::SMRange{begin_loc, loc}, msg);
+    throw LexerError(SMRange{begin_loc, loc}, msg);
 }

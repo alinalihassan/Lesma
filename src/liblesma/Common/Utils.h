@@ -6,12 +6,11 @@
 #include <sstream>
 #include <unistd.h>
 
-#include "llvm/Support/SMLoc.h"
-#include "llvm/Support/SourceMgr.h"
-
 #include "fmt/color.h"
 #include "fmt/core.h"
 
+#include "liblesma/SourceManager/SMLoc.h"
+#include "liblesma/SourceManager/SourceManager.h"
 #include "liblesma/Token/TokenType.h"
 
 namespace lesma {
@@ -50,7 +49,7 @@ namespace lesma {
         print(CLEAR, format_str, args...);
     }
 
-    void showInline(llvm::SourceMgr *srcMgr, unsigned int bufferId, llvm::SMRange span, const std::string &reason, const std::string &file, bool is_error);
+    void showInline(SourceManager *srcMgr, unsigned int bufferId, SMRange span, const std::string &reason, const std::string &file, bool is_error);
     std::string getBasename(const std::string &file_path);
     std::string getStdDir();
 }// namespace lesma

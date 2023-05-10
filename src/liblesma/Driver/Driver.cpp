@@ -1,7 +1,5 @@
 #include "Driver.h"
 
-#include "plf_nanotimer.h"
-
 using namespace lesma;
 
 #define TIMEIT(debug_operation, statements)   \
@@ -19,22 +17,22 @@ int Driver::BaseCompile(std::unique_ptr<lesma::Options> options, bool jit) {
     double results, total = 0;
 
     // Configure Source Manager
-    std::shared_ptr<llvm::SourceMgr> srcMgr = std::make_shared<llvm::SourceMgr>(llvm::SourceMgr());
+    std::shared_ptr<SourceManager> srcMgr = std::make_shared<SourceManager>(SourceManager());
 
     try {
         // Read Source
         TIMEIT(
                 "File read",
                 if (options->sourceType == SourceType::FILE) {
-                    auto buffer = llvm::MemoryBuffer::getFileAsStream(options->source);
+                    auto buffer = MemoryBuffer::getFileAsStream(options->source);
                     if (!buffer) {
-                        throw LesmaError(llvm::SMRange(), "Could not read file: {}", options->source);
+                        throw LesmaError(SMRange(), "Could not read file: {}", options->source);
                     }
 
-                    srcMgr->AddNewSourceBuffer(std::move(*buffer), llvm::SMLoc());
+                    srcMgr->AddNewSourceBuffer(std::move(*buffer));
                 } else {
-                    auto buffer = llvm::MemoryBuffer::getMemBuffer(options->source);
-                    srcMgr->AddNewSourceBuffer(std::move(buffer), llvm::SMLoc());
+                    auto buffer = MemoryBuffer::getMemBuffer(options->source);
+                    srcMgr->AddNewSourceBuffer(std::move(buffer));
                 })
 
         // Lexer

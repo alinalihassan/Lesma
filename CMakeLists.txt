@@ -105,6 +105,7 @@ set(COMMON_SOURCES
   src/liblesma/Backend/Codegen.cpp
   src/liblesma/Symbol/SymbolTable.cpp
   src/liblesma/Driver/Driver.cpp
+  src/liblesma/SourceManager/SourceManager.cpp
   )
 
 # Move Lesma Standard Library
