@@ -2,7 +2,7 @@
 
 using namespace lesma;
 
-Codegen::Codegen(std::shared_ptr<Parser> parser, std::shared_ptr<SourceManager> srcMgr, const std::string &filename, std::vector<std::string> imports, bool jit, bool main, std::string alias, const std::shared_ptr<ThreadSafeContext> &context) {
+Codegen::Codegen(Compound *tree, std::vector<std::string> imports, bool jit, bool main, std::string alias, const std::shared_ptr<ThreadSafeContext> &context) : SrcMgr(ServiceLocator::getSourceManager()), DiagMgr(ServiceLocator::getDiagnosticManager()) {
     InitializeNativeTarget();
     InitializeNativeTargetAsmPrinter();
     InitializeNativeTargetAsmParser();
@@ -15,12 +15,10 @@ Codegen::Codegen(std::shared_ptr<Parser> parser, std::shared_ptr<SourceManager> 
     }
 
     Builder = std::make_unique<IRBuilder<>>(*TheContext->getContext());
-    Parser_ = std::move(parser);
-    SrcMgr = std::move(srcMgr);
     Scope = new SymbolTable(nullptr);
 
+    this->tree = tree;
     this->alias = std::move(alias);
-    this->filename = filename;
     isMain = main;
     isJIT = jit;
 
@@ -28,7 +26,7 @@ Codegen::Codegen(std::shared_ptr<Parser> parser, std::shared_ptr<SourceManager> 
     TopLevelFunc = InitializeTopLevel();
 
     // If it's not base.les stdlib, then import it
-    if (std::filesystem::absolute(filename) != getStdDir() + "base.les") {
+    if (SrcMgr.getBufferInfo(SrcMgr.getNumBuffers()).Filepath != getStdDir() + "base.les") {
         CompileModule(SMRange(), getStdDir() + "base.les", true, "base", true, true, {});
     }
 }
@@ -37,7 +35,7 @@ std::unique_ptr<Module> Codegen::InitializeModule() {
     auto mod = std::make_unique<Module>("Lesma", *TheContext->getContext());
     mod->setTargetTriple(TargetMachine->getTargetTriple().str());
     mod->setDataLayout(TargetMachine->createDataLayout());
-    mod->setSourceFileName(filename);
+    mod->setSourceFileName(SrcMgr.getBufferInfo(SrcMgr.getNumBuffers()).getFilename());
 
     return mod;
 }
@@ -50,8 +48,9 @@ std::unique_ptr<llvm::TargetMachine> Codegen::InitializeTargetMachine() {
     // Search after selected target
     std::string error;
     const llvm::Target *target = llvm::TargetRegistry::lookupTarget(tripletString, error);
-    if (!target)
-        throw CodegenError({}, "Target not available:\n{}", error);
+    if (!target) {
+        Error({}, fmt::format("Target not available: {}", error));
+    }
 
     llvm::TargetOptions opt;
     llvm::Reloc::Model rm = llvm::Reloc::Model();
@@ -65,7 +64,7 @@ std::unique_ptr<LLJIT> Codegen::InitializeJIT() {
     builder.setJITTargetMachineBuilder(llvm::orc::JITTargetMachineBuilder(TargetMachine->getTargetTriple()));
     auto jit = llvm::cantFail(builder.create());
     if (!jit) {
-        throw CodegenError({}, "Couldn't initialize JIT\n");
+        Error({}, "Couldn't initialize JIT");
     }
 
     // Add support for C native functions
@@ -135,8 +134,9 @@ void Codegen::defineFunction(lesma::Value *value, const FuncDecl *node, Value *c
             // Make implicit return of void Function explicit.
             Builder->SetInsertPoint(&BB);
             Builder->CreateRetVoid();
-        } else
-            throw CodegenError(node->getSpan(), "Function {} does not always return a result", node->getName());
+        } else {
+            DiagMgr.emitError(node->getSpan(), "Function {} does not always return a result", node->getName());
+        }
     }
 
     isReturn = false;
@@ -160,7 +160,7 @@ void Codegen::defineFunction(lesma::Value *value, const FuncDecl *node, Value *c
 }
 
 void Codegen::CompileModule(SMRange span, const std::string &filepath, bool isStd, const std::string &module_alias, bool importAll, bool importToScope, const std::vector<std::pair<std::string, std::string>> &imported_names) {
-    std::filesystem::path mainPath = filename;
+    std::filesystem::path mainPath = SrcMgr.getBufferInfo(SrcMgr.getNumBuffers()).Filepath;
     // Read source
     auto absolute_path = isStd ? filepath : fmt::format("{}/{}", std::filesystem::absolute(mainPath).parent_path().c_str(), filepath);
 
@@ -171,15 +171,15 @@ void Codegen::CompileModule(SMRange span, const std::string &filepath, bool isSt
 
     auto buffer = MemoryBuffer::getFile(absolute_path);
     if (std::error_code ec = buffer.getError())
-        throw LesmaError(SMRange(), "Could not read file: {}", absolute_path);
+        Error({}, "Could not read file: {}", absolute_path);
 
-    auto file_id = SrcMgr->AddNewSourceBuffer(std::move(*buffer));
-    auto source_str = SrcMgr->getMemoryBuffer(file_id)->getBuffer().str();
+    auto file_id = SrcMgr.AddNewSourceBuffer(std::move(*buffer), absolute_path);
+    auto source_str = SrcMgr.getMemoryBuffer(file_id)->getBuffer().str();
     ImportedModules.push_back(absolute_path);
 
     try {
         // Lexer
-        auto lexer = std::make_unique<Lexer>(SrcMgr);
+        auto lexer = std::make_unique<Lexer>();
         lexer->ScanAll();
 
         // Parser
@@ -188,7 +188,7 @@ void Codegen::CompileModule(SMRange span, const std::string &filepath, bool isSt
 
         // TODO: Delete it, memory leak, smart pointer made us lose the references to other modules
         // Codegen
-        auto codegen = std::make_unique<Codegen>(std::move(parser), SrcMgr, absolute_path, ImportedModules, isJIT, false, !importToScope ? module_alias : "", TheContext);
+        auto codegen = std::make_unique<Codegen>(parser->getAST(), ImportedModules, isJIT, false, !importToScope ? module_alias : "", TheContext);
         codegen->Run();
 
         // Optimize
@@ -215,7 +215,10 @@ void Codegen::CompileModule(SMRange span, const std::string &filepath, bool isSt
 
         if (isJIT) {
             // Add the module to JIT
-            cantFail(TheJIT->addIRModule(ThreadSafeModule(std::move(codegen->TheModule), *TheContext)), fmt::format("Failed adding import {} to JIT", filename).c_str());
+            auto res = TheJIT->addIRModule(ThreadSafeModule(std::move(codegen->TheModule), *TheContext));
+            if (res) {
+                Error({}, "Failed adding import {} to JIT", SrcMgr.getBufferInfo(SrcMgr.getNumBuffers()).getFilename());
+            }
         } else {
             // Create object file to be linked
             std::string obj_file = fmt::format("tmp{}", ObjectFiles.size());
@@ -275,12 +278,7 @@ void Codegen::CompileModule(SMRange span, const std::string &filepath, bool isSt
             }
         }
     } catch (const LesmaError &err) {
-        if (!err.getSpan().isValid())
-            print(ERROR, err.what());
-        else
-            showInline(SrcMgr.get(), file_id, err.getSpan(), err.what(), absolute_path, true);
-
-        throw CodegenError(span, "Unable to import {} due to errors", filepath);
+        DiagMgr.emitError(span, "Unable to import {} due to errors", filepath);
     }
 }
 
@@ -331,12 +329,13 @@ void Codegen::WriteToObjectFile(const std::string &output) {
     auto out = llvm::raw_fd_ostream(output + ".o", err);
 
     if (err) {
-        throw CodegenError({}, "Error opening file {} for writing: {}", output, err.message());
+        Error({}, fmt::format("Error opening file {} for writing: {}", output, err.message()));
     }
 
     llvm::legacy::PassManager passManager;
-    if (TargetMachine->addPassesToEmitFile(passManager, out, nullptr, llvm::CGFT_ObjectFile))
-        throw CodegenError({}, "Target Machine can't emit an object file");
+    if (TargetMachine->addPassesToEmitFile(passManager, out, nullptr, llvm::CGFT_ObjectFile)) {
+        Error({}, "Target Machine can't emit an object file");
+    }
     // Emit object file
     passManager.run(*TheModule);
 
@@ -378,8 +377,9 @@ void Codegen::WriteToObjectFile(const std::string &output) {
 #else
     success = lld::elf::link(args, llvm::outs(), llvm::errs(), false, true);
 #endif
-    if (!success)
-        throw CodegenError({}, "Linking Failed");
+    if (!success) {
+        Error({}, "Linking Failed");
+    }
 
     // Remove object files
     llvm::sys::fs::remove(obj_filename);
@@ -389,8 +389,9 @@ void Codegen::WriteToObjectFile(const std::string &output) {
 
 [[maybe_unused]] void Codegen::LinkObjectFileWithClang(const std::string &obj_filename) {
     auto clangPath = llvm::sys::findProgramByName("clang");
-    if (clangPath.getError())
-        throw CodegenError({}, "Unable to find clang path");
+    if (clangPath.getError()) {
+        Error({}, "Unable to find clang");
+    }
 
     std::string output = getBasename(obj_filename);
 
@@ -421,7 +422,7 @@ void Codegen::WriteToObjectFile(const std::string &output) {
     std::unique_ptr<clang::driver::Compilation> C(TheDriver.BuildCompilation(args));
 
     if (!C) {
-        throw CodegenError({}, "Failed to create clang driver compilation");
+        Error({}, "Failed to create clang driver compilation");
     }
 
     // Run the driver
@@ -429,7 +430,7 @@ void Codegen::WriteToObjectFile(const std::string &output) {
     int Res = TheDriver.ExecuteCompilation(*C, FailingCommands);
 
     if (Res != 0) {
-        throw CodegenError({}, "Linking failed");
+        Error({}, "Linking failed");
     }
 
     // Remove object files
@@ -444,17 +445,20 @@ void Codegen::LinkObjectFile(const std::string &obj_filename) {
 
 void Codegen::PrepareJIT() {
     auto jit_error = TheJIT->addIRModule(ThreadSafeModule(std::move(TheModule), *TheContext));
-    if (jit_error)
-        throw CodegenError({}, "JIT Error:\n{}");
+    if (jit_error) {
+        Error({}, "JIT Error");
+    }
+
     auto main_func = TheJIT->lookup(TopLevelFunc->getName());
-    if (!main_func)
-        throw CodegenError({}, "Couldn't find top level function\n");
+    if (!main_func) {
+        Error({}, "Couldn't find top level function");
+    }
     mainFuncAddress = jitTargetAddressToFunction<MainFnTy *>(main_func->getValue());
 }
 
 int Codegen::ExecuteJIT() {
     if (mainFuncAddress == nullptr) {
-        throw CodegenError({}, "Main function address not found, did you prepare JIT?\n");
+        Error({}, "Main function address not found, did you prepare JIT?");
     }
 
     return mainFuncAddress();
@@ -462,7 +466,7 @@ int Codegen::ExecuteJIT() {
 
 void Codegen::Run() {
     deferStack.emplace();
-    Parser_->getAST()->accept(*this);
+    tree->accept(*this);
 
     auto instrs = deferStack.top();
     deferStack.pop();
@@ -484,11 +488,11 @@ void Codegen::Dump() {
 }
 
 void Codegen::visit(const Statement *node) {
-    print("Visited a blank statement\n{}", node->toString(SrcMgr.get(), "", true));
+    print("Visited a blank statement\n{}", node->toString("", true));
 }
 
 void Codegen::visit(const Expression *node) {
-    print("Visited a blank expression\n{}", node->toString(SrcMgr.get(), "", true));
+    print("Visited a blank expression\n{}", node->toString("", true));
 }
 
 void Codegen::visit(const TypeExpr *node) {
@@ -531,12 +535,16 @@ void Codegen::visit(const TypeExpr *node) {
     } else if (node->getType() == TokenType::CUSTOM_TYPE) {
         auto typ = Scope->lookupType(node->getName());
         auto sym = Scope->lookupStruct(node->getName());
-        if (typ == nullptr || sym->getType()->getLLVMType() == nullptr)
-            throw CodegenError(node->getSpan(), "Type not found: {}", node->getName());
+        if (typ == nullptr || sym->getType()->getLLVMType() == nullptr) {
+            DiagMgr.emitError(node->getSpan(), "Type not found: {}", node->getName());
+            result = nullptr;
+            return;
+        }
 
         result = sym == nullptr ? new lesma::Value(typ) : sym;
     } else {
-        throw CodegenError(node->getSpan(), "Unimplemented type {}", NAMEOF_ENUM(node->getType()));
+        DiagMgr.emitError(node->getSpan(), "Unimplemented type {}", NAMEOF_ENUM(node->getType()));
+        result = nullptr;
     }
 }
 
@@ -668,8 +676,11 @@ void Codegen::visit(const While *node) {
 }
 
 void Codegen::visit(const FuncDecl *node) {
-    if (selfSymbol != nullptr && node->getName() == "new" && node->getReturnType()->getType() != TokenType::VOID_TYPE)
-        throw CodegenError(node->getSpan(), "Cannot create class method new with return type {}", node->getReturnType()->getName());
+    if (selfSymbol != nullptr && node->getName() == "new" && node->getReturnType()->getType() != TokenType::VOID_TYPE) {
+        DiagMgr.emitError(node->getSpan(), "Cannot create class method new with return type {}", node->getReturnType()->getName());
+        result = nullptr;
+        return;
+    }
 
     std::vector<Field *> fields;
     std::vector<lesma::Type *> paramTypes;
@@ -706,7 +717,9 @@ void Codegen::visit(const FuncDecl *node) {
         }
 
         if (defaultValResult != nullptr && !typeResult->getType()->isEqual(defaultValResult->getType())) {
-            throw CodegenError(node->getSpan(), "Declared parameter type and default value do not match for {}", param->name);
+            DiagMgr.emitError(node->getSpan(), "Declared parameter type and default value do not match for {}", param->name);
+            result = nullptr;
+            return;
         }
 
         paramTypes.push_back(typeResult->getType());
@@ -761,7 +774,9 @@ void Codegen::visit(const ExternFuncDecl *node) {
         }
 
         if (defaultValResult != nullptr && !typeResult->getType()->isEqual(defaultValResult->getType())) {
-            throw CodegenError(node->getSpan(), "Declared parameter type and default value do not match for {}", param->name);
+            DiagMgr.emitError(node->getSpan(), "Declared parameter type and default value do not match for {}", param->name);
+            result = nullptr;
+            return;
         }
 
         paramTypes.push_back(typeResult->getType());
@@ -799,10 +814,15 @@ void Codegen::visit(const Assignment *node) {
     if (dynamic_cast<Literal *>(node->getLeftHandSide())) {
         auto lit = dynamic_cast<Literal *>(node->getLeftHandSide());
         auto symbol = Scope->lookup(lit->getValue());
-        if (symbol == nullptr)
-            throw CodegenError(node->getSpan(), "Variable not found: {}", lit->getValue());
-        if (!symbol->getMutability())
-            throw CodegenError(node->getSpan(), "Assigning immutable variable a new value");
+        if (symbol == nullptr) {
+            DiagMgr.emitError(node->getSpan(), "Variable not found: {}", lit->getValue());
+            result = nullptr;
+            return;
+        } else if (!symbol->getMutability()) {
+            DiagMgr.emitError(node->getSpan(), "Assigning immutable variable a new value");
+            result = nullptr;
+            return;
+        }
 
         lhs = symbol;
     } else if (dynamic_cast<DotOp *>(node->getLeftHandSide())) {
@@ -811,7 +831,9 @@ void Codegen::visit(const Assignment *node) {
         //TODO: Fix me, for some reason self.x is a ptr but x is not
         isPtr = true;
     } else {
-        throw CodegenError(node->getSpan(), "Unable to assign {} to {}", node->getRightHandSide()->toString(SrcMgr.get(), "", true), node->getLeftHandSide()->toString(SrcMgr.get(), "", true));
+        DiagMgr.emitError(node->getSpan(), "Unable to assign {} to {}", node->getRightHandSide()->toString("", true), node->getLeftHandSide()->toString("", true));
+        result = nullptr;
+        return;
     }
     isAssignment = false;
 
@@ -831,8 +853,11 @@ void Codegen::visit(const Assignment *node) {
             } else if (lhs->getType()->is(TY_INT)) {
                 auto new_val = Builder->CreateAdd(value->getLLVMValue(), var_val);
                 Builder->CreateStore(new_val, lhs->getLLVMValue());
-            } else
-                throw CodegenError(node->getSpan(), "Invalid operator: {}", NAMEOF_ENUM(node->getOperator()));
+            } else {
+                DiagMgr.emitError(node->getSpan(), "Invalid operator: {}", NAMEOF_ENUM(node->getOperator()));
+                result = nullptr;
+                return;
+            }
             break;
         case TokenType::MINUS_EQUAL:
             var_val = Builder->CreateLoad(lhs->getType()->getLLVMType(), lhs->getLLVMValue());
@@ -842,8 +867,11 @@ void Codegen::visit(const Assignment *node) {
             } else if (lhs->getType()->is(TY_INT)) {
                 auto new_val = Builder->CreateSub(value->getLLVMValue(), var_val);
                 Builder->CreateStore(new_val, lhs->getLLVMValue());
-            } else
-                throw CodegenError(node->getSpan(), "Invalid operator: {}", NAMEOF_ENUM(node->getOperator()));
+            } else {
+                DiagMgr.emitError(node->getSpan(), "Invalid operator: {}", NAMEOF_ENUM(node->getOperator()));
+                result = nullptr;
+                return;
+            }
             break;
         case TokenType::SLASH_EQUAL:
             var_val = Builder->CreateLoad(lhs->getType()->getLLVMType(), lhs->getLLVMValue());
@@ -853,8 +881,11 @@ void Codegen::visit(const Assignment *node) {
             } else if (lhs->getType()->is(TY_INT)) {
                 auto new_val = Builder->CreateSDiv(value->getLLVMValue(), var_val);
                 Builder->CreateStore(new_val, lhs->getLLVMValue());
-            } else
-                throw CodegenError(node->getSpan(), "Invalid operator: {}", NAMEOF_ENUM(node->getOperator()));
+            } else {
+                DiagMgr.emitError(node->getSpan(), "Invalid operator: {}", NAMEOF_ENUM(node->getOperator()));
+                result = nullptr;
+                return;
+            }
             break;
         case TokenType::STAR_EQUAL:
             var_val = Builder->CreateLoad(lhs->getType()->getLLVMType(), lhs->getLLVMValue());
@@ -864,8 +895,11 @@ void Codegen::visit(const Assignment *node) {
             } else if (lhs->getType()->is(TY_INT)) {
                 auto new_val = Builder->CreateMul(value->getLLVMValue(), var_val);
                 Builder->CreateStore(new_val, lhs->getLLVMValue());
-            } else
-                throw CodegenError(node->getSpan(), "Invalid operator: {}", NAMEOF_ENUM(node->getOperator()));
+            } else {
+                DiagMgr.emitError(node->getSpan(), "Invalid operator: {}", NAMEOF_ENUM(node->getOperator()));
+                result = nullptr;
+                return;
+            }
             break;
         case TokenType::MOD_EQUAL:
             var_val = Builder->CreateLoad(lhs->getType()->getLLVMType(), lhs->getLLVMValue());
@@ -876,19 +910,28 @@ void Codegen::visit(const Assignment *node) {
                 auto new_val = Builder->CreateSRem(value->getLLVMValue(), var_val);
                 Builder->CreateStore(new_val, lhs->getLLVMValue());
             } else {
-                throw CodegenError(node->getSpan(), "Invalid operator: {}", NAMEOF_ENUM(node->getOperator()));
+                DiagMgr.emitError(node->getSpan(), "Invalid operator: {}", NAMEOF_ENUM(node->getOperator()));
+                result = nullptr;
+                return;
             }
             break;
         case TokenType::POWER_EQUAL:
-            throw CodegenError(node->getSpan(), "Power operator not implemented yet.");
+            DiagMgr.emitError(node->getSpan(), "Power operator not implemented yet");
+            result = nullptr;
+            return;
         default:
-            throw CodegenError(node->getSpan(), "Invalid operator: {}", NAMEOF_ENUM(node->getOperator()));
+            DiagMgr.emitError(node->getSpan(), "Invalid operator: {}", NAMEOF_ENUM(node->getOperator()));
+            result = nullptr;
+            return;
     }
 }
 
 void Codegen::visit(const Break *node) {
-    if (breakBlocks.empty())
-        throw CodegenError(node->getSpan(), "Cannot break without being in a loop");
+    if (breakBlocks.empty()) {
+        DiagMgr.emitError(node->getSpan(), "Cannot break outside of a loop");
+        result = nullptr;
+        return;
+    }
 
     auto block = breakBlocks.top();
     breakBlocks.pop();
@@ -898,8 +941,11 @@ void Codegen::visit(const Break *node) {
 }
 
 void Codegen::visit(const Continue *node) {
-    if (continueBlocks.empty())
-        throw CodegenError(node->getSpan(), "Cannot continue without being in a loop");
+    if (continueBlocks.empty()) {
+        DiagMgr.emitError(node->getSpan(), "Cannot continue outside of a loop");
+        result = nullptr;
+        return;
+    }
 
     auto block = continueBlocks.top();
     continueBlocks.pop();
@@ -910,8 +956,11 @@ void Codegen::visit(const Continue *node) {
 
 void Codegen::visit(const Return *node) {
     // Check if it's top-level
-    if (Builder->GetInsertBlock()->getParent() == TopLevelFunc)
-        throw CodegenError(node->getSpan(), "Return statements are not allowed at top-level");
+    if (Builder->GetInsertBlock()->getParent() == TopLevelFunc) {
+        DiagMgr.emitError(node->getSpan(), "Return statements are not allowed at top-level");
+        result = nullptr;
+        return;
+    }
 
     // Execute all deferred statements
     for (auto inst: deferStack.top())
@@ -923,16 +972,20 @@ void Codegen::visit(const Return *node) {
         if (currentFunction->getType()->getReturnType()->is(TY_VOID)) {
             Builder->CreateRetVoid();
         } else {
-            throw CodegenError(node->getSpan(), "Return type does not match the function return type, expected {}, actual void",
-                               currentFunction->getType()->getReturnType()->toString());
+            DiagMgr.emitError(node->getSpan(), "Return type does not match the function return type, expected {}, actual void",
+                              currentFunction->getType()->getReturnType()->toString());
+            result = nullptr;
+            return;
         }
     } else {
         node->getValue()->accept(*this);
         if (Builder->getCurrentFunctionReturnType() == result->getType()->getLLVMType()) {
             Builder->CreateRet(result->getLLVMValue());
         } else {
-            throw CodegenError(node->getSpan(), "Return type does not match the function return type, expected {}, actual {}",
-                               currentFunction->getType()->getReturnType()->toString(), result->getType()->toString());
+            DiagMgr.emitError(node->getSpan(), "Return type does not match the function return type, expected {}, actual {}",
+                              currentFunction->getType()->getReturnType()->toString(), result->getType()->toString());
+            result = nullptr;
+            return;
         }
     }
 }
@@ -984,8 +1037,9 @@ void Codegen::visit(const Class *node) {
         }
     }
 
-    if (!has_constructor)
-        throw CodegenError(node->getSpan(), "Class {} has no constructors", node->getIdentifier());
+    if (!has_constructor) {
+        DiagMgr.emitError(node->getSpan(), "Class {} has no constructors", node->getIdentifier());
+    }
 
     selfSymbol = nullptr;
 }
@@ -1091,10 +1145,16 @@ void Codegen::visit(const BinaryOp *node) {
         case TokenType::POWER:
             if (finalType == nullptr)
                 break;
-            else if (!right->getType()->isOneOf({TY_INT, TY_FLOAT}))
-                throw CodegenError(node->getSpan(), "Cannot use non-numbers for power coefficient: {}",
-                                   node->getRight()->toString(SrcMgr.get(), "", true));
-            throw CodegenError(node->getSpan(), "Power operator not implemented yet.");
+            else if (!right->getType()->isOneOf({TY_INT, TY_FLOAT})) {
+                DiagMgr.emitError(node->getSpan(), "Cannot use non-numbers for power coefficient: {}",
+                                  node->getRight()->toString("", true));
+                result = nullptr;
+                return;
+            }
+
+            DiagMgr.emitError(node->getSpan(), "Power operator not implemented yet.");
+            result = nullptr;
+            return;
         case TokenType::EQUAL_EQUAL:
             left = Cast(node->getSpan(), left, finalType);
             right = Cast(node->getSpan(), right, finalType);
@@ -1106,7 +1166,9 @@ void Codegen::visit(const BinaryOp *node) {
                 auto right_name = right->getType()->getLLVMType()->getStructName().str();
 
                 if (left_name != right_name) {
-                    throw CodegenError(node->getSpan(), "Illegal comparison of two different enums: {} and {}", left_name, right_name);
+                    DiagMgr.emitError(node->getSpan(), "Illegal comparison of two different enums: {} and {}", left_name, right_name);
+                    result = nullptr;
+                    return;
                 }
 
                 llvm::Value *left_val = Builder->CreateExtractValue(left->getLLVMValue(), {0});
@@ -1137,7 +1199,9 @@ void Codegen::visit(const BinaryOp *node) {
                 auto right_name = right->getType()->getLLVMType()->getStructName().str();
 
                 if (left_name != right_name) {
-                    throw CodegenError(node->getSpan(), "Illegal comparison of two different enums: {} and {}", left_name, right_name);
+                    DiagMgr.emitError(node->getSpan(), "Illegal comparison of two different enums: {} and {}", left_name, right_name);
+                    result = nullptr;
+                    return;
                 }
 
                 llvm::Value *left_val = Builder->CreateExtractValue(left->getLLVMValue(), {0});
@@ -1212,56 +1276,77 @@ void Codegen::visit(const BinaryOp *node) {
             }
             break;
         case TokenType::AND:
-            if (!left->getType()->is(TY_BOOL) && !right->getType()->is(TY_BOOL))
-                throw CodegenError(node->getSpan(), "Cannot use non-booleans for and: {} - {}",
-                                   node->getLeft()->toString(SrcMgr.get(), "", true), node->getRight()->toString(SrcMgr.get(), "", true));
+            if (!left->getType()->is(TY_BOOL) && !right->getType()->is(TY_BOOL)) {
+                DiagMgr.emitError(node->getSpan(), "Cannot use non-booleans for and: {} - {}",
+                                  node->getLeft()->toString("", true), node->getRight()->toString("", true));
+                result = nullptr;
+                return;
+            }
 
             result = new Value("", new Type(TY_BOOL, Builder->getInt1Ty()), Builder->CreateLogicalAnd(left->getLLVMValue(), right->getLLVMValue()));
             return;
         case TokenType::OR:
-            if (!left->getType()->is(TY_BOOL) && !right->getType()->is(TY_BOOL))
-                throw CodegenError(node->getSpan(), "Cannot use non-booleans for or: {} - {}",
-                                   node->getLeft()->toString(SrcMgr.get(), "", true), node->getRight()->toString(SrcMgr.get(), "", true));
+            if (!left->getType()->is(TY_BOOL) && !right->getType()->is(TY_BOOL)) {
+                DiagMgr.emitError(node->getSpan(), "Cannot use non-booleans for or: {} - {}",
+                                  node->getLeft()->toString("", true), node->getRight()->toString("", true));
+                result = nullptr;
+                return;
+            }
 
             result = new Value("", new Type(TY_BOOL, Builder->getInt1Ty()), Builder->CreateLogicalOr(left->getLLVMValue(), right->getLLVMValue()));
             return;
         default:
-            throw CodegenError(node->getSpan(), "Unimplemented binary operator: {}", NAMEOF_ENUM(node->getOperator()));
+            DiagMgr.emitError(node->getSpan(), "Unimplemented binary operator: {}", NAMEOF_ENUM(node->getOperator()));
+            result = nullptr;
+            return;
     }
 
-    throw CodegenError(node->getSpan(),
-                       "Unimplemented binary operator {} for {} and {}",
-                       NAMEOF_ENUM(node->getOperator()),
-                       node->getLeft()->toString(SrcMgr.get(), "", true),
-                       node->getRight()->toString(SrcMgr.get(), "", true));
+    DiagMgr.emitError(node->getSpan(),
+                      "Unimplemented binary operator {} for {} and {}",
+                      NAMEOF_ENUM(node->getOperator()),
+                      node->getLeft()->toString("", true),
+                      node->getRight()->toString("", true));
+    result = nullptr;
 }
 
 void Codegen::visit(const DotOp *node) {
     if (auto left = dynamic_cast<Literal *>(node->getLeft())) {
-        if (left->getType() != TokenType::IDENTIFIER)
-            throw CodegenError(node->getLeft()->getSpan(), "Expected identifier left-hand of dot operator, found {}", node->getRight()->toString(SrcMgr.get(), "", true));
-
+        if (left->getType() != TokenType::IDENTIFIER) {
+            DiagMgr.emitError(node->getLeft()->getSpan(), "Expected identifier left-hand of dot operator, found {}", node->getRight()->toString("", true));
+            result = nullptr;
+            return;
+        }
         auto type_sym = Scope->lookupType(left->getValue());
         if (type_sym != nullptr) {
             // Assuming it's an enum or statically accessed class
-            if (!type_sym->isOneOf({TY_ENUM, TY_CLASS, TY_IMPORT}))
-                throw CodegenError(node->getLeft()->getSpan(), "Cannot apply dot accessor on {}", left->getValue());
+            if (!type_sym->isOneOf({TY_ENUM, TY_CLASS, TY_IMPORT})) {
+                DiagMgr.emitError(node->getLeft()->getSpan(), "Cannot apply dot accessor on {}", left->getValue());
+                result = nullptr;
+                return;
+            }
 
             auto right = dynamic_cast<Literal *>(node->getRight());
             if (type_sym->is(TY_ENUM)) {
                 // Check if right-hand expression is an identifier expression
-                if (!dynamic_cast<Literal *>(node->getRight()))
-                    throw CodegenError(node->getRight()->getSpan(), "Expected identifier right-hand of dot operator, found {}", node->getRight()->toString(SrcMgr.get(), "", true));
+                if (!dynamic_cast<Literal *>(node->getRight())) {
+                    DiagMgr.emitError(node->getRight()->getSpan(), "Expected identifier right-hand of dot operator, found {}", node->getRight()->toString("", true));
+                    result = nullptr;
+                    return;
+                }
 
-                if (right->getType() != TokenType::IDENTIFIER)
-                    throw CodegenError(node->getRight()->getSpan(), "Expected identifier right-hand of dot operator, found {}", node->getRight()->toString(SrcMgr.get(), "", true));
-
+                if (right->getType() != TokenType::IDENTIFIER) {
+                    DiagMgr.emitError(node->getRight()->getSpan(), "Expected identifier right-hand of dot operator, found {}", node->getRight()->toString("", true));
+                    result = nullptr;
+                    return;
+                }
                 // Setting value to the enum
                 auto val = FindIndexInFields(type_sym, right->getValue());
                 // Field not found in enum
-                if (val == -1)
-                    throw CodegenError(node->getLeft()->getSpan(), "Identifier {} not in {}", right->getValue(), left->getValue());
-
+                if (val == -1) {
+                    DiagMgr.emitError(node->getLeft()->getSpan(), "Identifier {} not in {}", right->getValue(), left->getValue());
+                    result = nullptr;
+                    return;
+                }
                 auto struct_val = Scope->lookupStruct(left->getValue());
                 auto enum_ptr = Builder->CreateAlloca(struct_val->getType()->getLLVMType());
                 auto field = Builder->CreateStructGEP(struct_val->getType()->getLLVMType(), enum_ptr, 0);
@@ -1275,9 +1360,11 @@ void Codegen::visit(const DotOp *node) {
                 std::string field;
                 FuncCall *method = nullptr;
 
-                if (!dynamic_cast<Literal *>(node->getRight()) && !dynamic_cast<FuncCall *>(node->getRight()))
-                    throw CodegenError(node->getRight()->getSpan(), "Expected identifier or method call right-hand of dot operator, found {}", node->getRight()->toString(SrcMgr.get(), "", true));
-
+                if (!dynamic_cast<Literal *>(node->getRight()) && !dynamic_cast<FuncCall *>(node->getRight())) {
+                    DiagMgr.emitError(node->getRight()->getSpan(), "Expected identifier or method call right-hand of dot operator, found {}", node->getRight()->toString("", true));
+                    result = nullptr;
+                    return;
+                }
                 if (dynamic_cast<Literal *>(node->getRight()) && dynamic_cast<Literal *>(node->getRight())->getType() == TokenType::IDENTIFIER)
                     field = dynamic_cast<Literal *>(node->getRight())->getValue();
                 else
@@ -1301,15 +1388,20 @@ void Codegen::visit(const DotOp *node) {
                 lesma_type = result->getType()->getElementType();
             }
 
-            if (!lesma_type->is(TY_CLASS))
-                throw CodegenError(node->getLeft()->getSpan(), "Cannot apply dot accessor on {}", left->getValue());
+            if (!lesma_type->is(TY_CLASS)) {
+                DiagMgr.emitError(node->getLeft()->getSpan(), "Cannot apply dot accessor on {}", left->getValue());
+                result = nullptr;
+                return;
+            }
 
             std::string field;
             FuncCall *method;
 
-            if (!dynamic_cast<Literal *>(node->getRight()) && !dynamic_cast<FuncCall *>(node->getRight()))
-                throw CodegenError(node->getRight()->getSpan(), "Expected identifier or method call right-hand of dot operator, found {}", node->getRight()->toString(SrcMgr.get(), "", true));
-
+            if (!dynamic_cast<Literal *>(node->getRight()) && !dynamic_cast<FuncCall *>(node->getRight())) {
+                DiagMgr.emitError(node->getRight()->getSpan(), "Expected identifier or method call right-hand of dot operator, found {}", node->getRight()->toString("", true));
+                result = nullptr;
+                return;
+            }
             if (dynamic_cast<Literal *>(node->getRight()) && dynamic_cast<Literal *>(node->getRight())->getType() == TokenType::IDENTIFIER) {
                 field = dynamic_cast<Literal *>(node->getRight())->getValue();
             } else {
@@ -1325,8 +1417,11 @@ void Codegen::visit(const DotOp *node) {
                 if (!field.empty()) {
                     auto index = FindIndexInFields(cls->getType(), field);
                     auto type = FindTypeInFields(cls->getType(), field);
-                    if (index == -1)
-                        throw CodegenError(node->getRight()->getSpan(), "Could not find field {} in {}", field, result->getType()->getElementType()->getLLVMType()->getStructName().str());
+                    if (index == -1) {
+                        DiagMgr.emitError(node->getRight()->getSpan(), "Could not find field {} in {}", field, result->getType()->getElementType()->getLLVMType()->getStructName().str());
+                        result = nullptr;
+                        return;
+                    }
 
                     auto ptr = Builder->CreateStructGEP(cls->getType()->getLLVMType(), result->getLLVMValue(), index);
                     if (isAssignment) {
@@ -1344,11 +1439,14 @@ void Codegen::visit(const DotOp *node) {
                     return;
                 }
             } else {
-                throw CodegenError(node->getLeft()->getSpan(), "Cannot find related class {}", lesma_type->getLLVMType()->getStructName().str());
+                DiagMgr.emitError(node->getLeft()->getSpan(), "Cannot find related class {}", lesma_type->getLLVMType()->getStructName().str());
+                result = nullptr;
+                return;
             }
         }
     }
-    throw CodegenError(node->getSpan(), "Unimplemented dot accessor: {}", node->toString(SrcMgr.get(), "", true));
+    DiagMgr.emitError(node->getSpan(), "Unimplemented dot accessor: {}", node->toString("", true));
+    result = nullptr;
 }
 
 void Codegen::visit(const CastOp *node) {
@@ -1388,27 +1486,35 @@ void Codegen::visit(const UnaryOp *node) {
         } else if (result->getType()->is(TY_FLOAT)) {
             val = Builder->CreateFNeg(result->getLLVMValue());
         } else {
-            throw CodegenError(node->getSpan(), "Cannot apply {} to {}", NAMEOF_ENUM(node->getOperator()), node->getExpression()->toString(SrcMgr.get(), "", true));
+            DiagMgr.emitError(node->getSpan(), "Cannot apply {} to {}", NAMEOF_ENUM(node->getOperator()), node->getExpression()->toString("", true));
+            result = nullptr;
+            return;
         }
     } else if (node->getOperator() == TokenType::NOT) {
         if (result->getType()->is(TY_BOOL)) {
             val = Builder->CreateNot(result->getLLVMValue());
         } else {
-            throw CodegenError(node->getSpan(), "Cannot apply {} to {}", NAMEOF_ENUM(node->getOperator()), node->getExpression()->toString(SrcMgr.get(), "", true));
+            DiagMgr.emitError(node->getSpan(), "Cannot apply {} to {}", NAMEOF_ENUM(node->getOperator()), node->getExpression()->toString("", true));
+            result = nullptr;
+            return;
         }
     } else if (node->getOperator() == TokenType::STAR) {
         if (result->getType()->is(TY_PTR)) {
             val = Builder->CreateLoad(result->getType()->getElementType()->getLLVMType(), result->getLLVMValue());
             type = result->getType()->getElementType();
         } else {
-            throw CodegenError(node->getSpan(), "Cannot apply {} to {}", NAMEOF_ENUM(node->getOperator()), node->getExpression()->toString(SrcMgr.get(), "", true));
+            DiagMgr.emitError(node->getSpan(), "Cannot apply {} to {}", NAMEOF_ENUM(node->getOperator()), node->getExpression()->toString("", true));
+            result = nullptr;
+            return;
         }
     } else if (node->getOperator() == TokenType::AMPERSAND) {
         val = Builder->CreateAlloca(result->getType()->getLLVMType());
         type = new Type(TY_PTR, Builder->getPtrTy(), result->getType());
         Builder->CreateStore(result->getLLVMValue(), val);
     } else {
-        throw CodegenError(node->getSpan(), "Unknown unary operator, cannot apply {} to {}", NAMEOF_ENUM(node->getOperator()), node->getExpression()->toString(SrcMgr.get(), "", true));
+        DiagMgr.emitError(node->getSpan(), "Unknown unary operator, cannot apply {} to {}", NAMEOF_ENUM(node->getOperator()), node->getExpression()->toString("", true));
+        result = nullptr;
+        return;
     }
 
     result = new Value("", type, val);
@@ -1428,8 +1534,11 @@ void Codegen::visit(const Literal *node) {
     else if (node->getType() == TokenType::IDENTIFIER) {
         // Look this variable up in the function.
         auto val = Scope->lookup(node->getValue());
-        if (val == nullptr)
-            throw CodegenError(node->getSpan(), "Unknown variable name {}", node->getValue());
+        if (val == nullptr) {
+            DiagMgr.emitError(node->getSpan(), "Unknown variable name {}", node->getValue());
+            result = nullptr;
+            return;
+        }
 
         if (val->getType()->isOneOf({TY_CLASS})) {
             // If it's a class, don't load the value
@@ -1440,7 +1549,9 @@ void Codegen::visit(const Literal *node) {
             result = new Value("", val->getType(), llvmVal);
         }
     } else {
-        throw CodegenError(node->getSpan(), "Unknown literal {}", node->getValue());
+        DiagMgr.emitError(node->getSpan(), "Unknown literal {}", node->getValue());
+        result = nullptr;
+        return;
     }
 }
 
@@ -1486,7 +1597,7 @@ std::string Codegen::getTypeMangledName(SMRange span, lesma::Type *type) {
         return "(struct_" + type->getLLVMType()->getStructName().str() + ")";
     }
 
-    throw CodegenError(span, "Unknown type found during mangling");
+    return "unknown";
 }
 
 
@@ -1592,7 +1703,8 @@ lesma::Value *Codegen::Cast(SMRange span, lesma::Value *val, lesma::Type *type) 
             return new Value("", type, Builder->CreateBitCast(val->getLLVMValue(), type->getLLVMType()));
     }
 
-    throw CodegenError(span, "Unsupported Cast between {} and {}", getTypeMangledName(span, val->getType()), getTypeMangledName(span, type));
+    DiagMgr.emitError(span, "Unsupported Cast between {} and {}", getTypeMangledName(span, val->getType()), getTypeMangledName(span, type));
+    return nullptr;
 }
 
 lesma::Value *Codegen::genFuncCall(const FuncCall *node, const std::vector<lesma::Value *> &extra_params = {}) {
@@ -1628,11 +1740,14 @@ lesma::Value *Codegen::genFuncCall(const FuncCall *node, const std::vector<lesma
     }
 
     if (symbol == nullptr) {
-        throw CodegenError(node->getSpan(), "{} {} not in current scope.", class_sym != nullptr ? "Constructor for" : "Function", node->getName());
+        DiagMgr.emitError(node->getSpan(), "{} {} not in current scope.", class_sym != nullptr ? "Constructor for" : "Function", node->getName());
+        return nullptr;
     }
 
-    if (!symbol->getType()->isOneOf({TY_CLASS, TY_FUNCTION}))
-        throw CodegenError(node->getSpan(), "Symbol {} is not a function or constructor.", node->getName());
+    if (!symbol->getType()->isOneOf({TY_CLASS, TY_FUNCTION})) {
+        DiagMgr.emitError(node->getSpan(), "Symbol {} is not a function or constructor.", node->getName());
+        return nullptr;
+    }
 
     if (symbol->getType()->getFields().size() > paramsLLVM.size()) {
         auto fields = symbol->getType()->getFields();
@@ -1640,8 +1755,10 @@ lesma::Value *Codegen::genFuncCall(const FuncCall *node, const std::vector<lesma
 
         for (auto it = fields.begin() + start; it != fields.end(); ++it) {
             if (!(*it)->defaultValue) {
-                throw CodegenError(node->getSpan(), "Something bad happened, lookup found a function with incorrect defaults", node->getName());
+                DiagMgr.emitError(node->getSpan(), "Something bad happened, lookup found a function with incorrect defaults", node->getName());
+                return nullptr;
             }
+
             paramsLLVM.push_back((*it)->defaultValue->getLLVMValue());
         }
     }
@@ -1674,4 +1791,14 @@ lesma::Type *Codegen::FindTypeInFields(Type *_struct, const std::string &field) 
     }
 
     return nullptr;
+}
+
+void Codegen::Error(SMRange span, const std::string &message) {
+    DiagMgr.emitError(span, message);
+    throw LesmaError();
+}
+
+template<typename... Args>
+void Codegen::Error(SMRange span, const std::string &format, Args &&...args) {
+    return Error(span, fmt::format(format, std::forward<Args>(args)...));
 }

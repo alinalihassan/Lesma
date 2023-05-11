@@ -25,13 +25,14 @@ namespace lesma {
         [[nodiscard]] [[maybe_unused]] SMLoc getStart() const { return Loc.Start; }
         [[nodiscard]] [[maybe_unused]] SMLoc getEnd() const { return Loc.End; }
 
-        virtual std::string toString(SourceManager *srcMgr, const std::string &prefix, bool isTail) const {
+        [[nodiscard]] virtual std::string toString(const std::string &prefix, bool isTail) const {
+            auto &srcMgr = ServiceLocator::getSourceManager();
             return fmt::format("{}{}AST[Line({}-{}):Col({}-{})]:\n",
                                prefix, (isTail ? "└──" : "├──"),
-                               srcMgr->getLineAndColumn(Loc.Start).first,
-                               srcMgr->getLineAndColumn(Loc.End).first,
-                               srcMgr->getLineAndColumn(Loc.Start).second,
-                               srcMgr->getLineAndColumn(Loc.End).second);
+                               srcMgr.getLineAndColumn(Loc.Start).first,
+                               srcMgr.getLineAndColumn(Loc.End).first,
+                               srcMgr.getLineAndColumn(Loc.Start).second,
+                               srcMgr.getLineAndColumn(Loc.End).second);
         }
     };
 
@@ -69,7 +70,7 @@ namespace lesma {
         [[nodiscard]] [[maybe_unused]] std::string getValue() const { return value; }
         [[nodiscard]] [[maybe_unused]] TokenType getType() const { return type; }
 
-        std::string toString(SourceManager * /*srcMgr*/, const std::string & /*prefix*/, bool /*isTail*/) const override {
+        [[nodiscard]] std::string toString(const std::string & /*prefix*/, bool /*isTail*/) const override {
             if (type == TokenType::STRING)
                 return '"' + value + '"';
             else if (type == TokenType::NIL || type == TokenType::INTEGER || type == TokenType::DOUBLE ||
@@ -100,15 +101,16 @@ namespace lesma {
             this->children.push_back(ast);
         }
 
-        std::string toString(SourceManager *srcMgr, const std::string &prefix, bool isTail) const override {
+        [[nodiscard]] std::string toString(const std::string &prefix, bool isTail) const override {
+            auto &srcMgr = ServiceLocator::getSourceManager();
             auto ret = fmt::format("{}{}Compound[Line({}-{}):Col({}-{})]:\n",
                                    prefix, isTail ? "└──" : "├──",
-                                   srcMgr->getLineAndColumn(getStart()).first,
-                                   srcMgr->getLineAndColumn(getEnd()).first,
-                                   srcMgr->getLineAndColumn(getStart()).second,
-                                   srcMgr->getLineAndColumn(getEnd()).second);
+                                   srcMgr.getLineAndColumn(getStart()).first,
+                                   srcMgr.getLineAndColumn(getEnd()).first,
+                                   srcMgr.getLineAndColumn(getStart()).second,
+                                   srcMgr.getLineAndColumn(getEnd()).second);
             for (auto child: children)
-                ret += child->toString(srcMgr, prefix + (isTail ? "    " : "│   "), children.back() == child);
+                ret += child->toString(prefix + (isTail ? "    " : "│   "), children.back() == child);
             return ret;
         }
     };
@@ -145,7 +147,7 @@ namespace lesma {
         [[nodiscard]] [[maybe_unused]] std::vector<TypeExpr *> getParams() const { return params; }
         [[nodiscard]] [[maybe_unused]] TypeExpr *getReturnType() const { return ret; }
 
-        std::string toString(SourceManager * /*srcMgr*/, const std::string & /*prefix*/, bool /*isTail*/) const override {
+        [[nodiscard]] std::string toString(const std::string & /*prefix*/, bool /*isTail*/) const override {
             return name;
         }
     };
@@ -166,16 +168,18 @@ namespace lesma {
         [[nodiscard]] [[maybe_unused]] std::vector<std::string> getValues() const { return values; }
         [[nodiscard]] [[maybe_unused]] bool isExported() const { return exported; }
 
-        std::string toString(SourceManager *srcMgr, const std::string &prefix, bool isTail) const override {
+        [[nodiscard]] std::string toString(const std::string &prefix, bool isTail) const override {
+            auto &srcMgr = ServiceLocator::getSourceManager();
             std::ostringstream imploded;
             std::copy(values.begin(), values.end(),
                       std::ostream_iterator<std::string>(imploded, ", "));
+
             return fmt::format("{}{}Enum[Line({}-{}):Col({}-{})]: {} with: {}\n",
                                prefix, isTail ? "└──" : "├──",
-                               srcMgr->getLineAndColumn(getStart()).first,
-                               srcMgr->getLineAndColumn(getEnd()).first,
-                               srcMgr->getLineAndColumn(getStart()).second,
-                               srcMgr->getLineAndColumn(getEnd()).second,
+                               srcMgr.getLineAndColumn(getStart()).first,
+                               srcMgr.getLineAndColumn(getEnd()).first,
+                               srcMgr.getLineAndColumn(getStart()).second,
+                               srcMgr.getLineAndColumn(getEnd()).second,
                                identifier,
                                imploded.str());
         }
@@ -203,13 +207,14 @@ namespace lesma {
         [[nodiscard]] [[maybe_unused]] std::vector<std::pair<std::string, std::string>> getImportedNames() const { return imported_names; }
         [[nodiscard]] [[maybe_unused]] bool isStd() const { return std; }
 
-        std::string toString(SourceManager *srcMgr, const std::string &prefix, bool isTail) const override {
+        [[nodiscard]] std::string toString(const std::string &prefix, bool isTail) const override {
+            auto &srcMgr = ServiceLocator::getSourceManager();
             return fmt::format("{}{}Import[Line({}-{}):Col({}-{})]: {} as {} from {}\n",
                                prefix, isTail ? "└──" : "├──",
-                               srcMgr->getLineAndColumn(getStart()).first,
-                               srcMgr->getLineAndColumn(getEnd()).first,
-                               srcMgr->getLineAndColumn(getStart()).second,
-                               srcMgr->getLineAndColumn(getEnd()).second,
+                               srcMgr.getLineAndColumn(getStart()).first,
+                               srcMgr.getLineAndColumn(getEnd()).first,
+                               srcMgr.getLineAndColumn(getStart()).second,
+                               srcMgr.getLineAndColumn(getEnd()).second,
                                file_path,
                                alias,
                                std ? "std" : "file");
@@ -240,16 +245,17 @@ namespace lesma {
         [[nodiscard]] [[maybe_unused]] std::optional<Expression *> getValue() const { return expr; }
         [[nodiscard]] [[maybe_unused]] bool getMutability() const { return mutable_; }
 
-        std::string toString(SourceManager *srcMgr, const std::string &prefix, bool isTail) const override {
+        [[nodiscard]] std::string toString(const std::string &prefix, bool isTail) const override {
+            auto &srcMgr = ServiceLocator::getSourceManager();
             return fmt::format("{}{}VarDecl[Line({}-{}):Col({}-{})]: {}{}{}\n",
                                prefix, isTail ? "└──" : "├──",
-                               srcMgr->getLineAndColumn(getStart()).first,
-                               srcMgr->getLineAndColumn(getEnd()).first,
-                               srcMgr->getLineAndColumn(getStart()).second,
-                               srcMgr->getLineAndColumn(getEnd()).second,
-                               var->toString(srcMgr, prefix, isTail),
-                               (type.has_value() ? ": " + type.value()->toString(srcMgr, prefix, isTail) : ""),
-                               (expr.has_value() ? " = " + expr.value()->toString(srcMgr, prefix, isTail) : ""));
+                               srcMgr.getLineAndColumn(getStart()).first,
+                               srcMgr.getLineAndColumn(getEnd()).first,
+                               srcMgr.getLineAndColumn(getStart()).second,
+                               srcMgr.getLineAndColumn(getEnd()).second,
+                               var->toString(prefix, isTail),
+                               (type.has_value() ? ": " + type.value()->toString(prefix, isTail) : ""),
+                               (expr.has_value() ? " = " + expr.value()->toString(prefix, isTail) : ""));
         }
     };
 
@@ -274,18 +280,19 @@ namespace lesma {
         [[nodiscard]] [[maybe_unused]] std::vector<Expression *> getConds() const { return conds; }
         [[nodiscard]] [[maybe_unused]] std::vector<Compound *> getBlocks() const { return blocks; }
 
-        std::string toString(SourceManager *srcMgr, const std::string &prefix, bool isTail) const override {
+        [[nodiscard]] std::string toString(const std::string &prefix, bool isTail) const override {
+            auto &srcMgr = ServiceLocator::getSourceManager();
             auto ret = fmt::format("{}{}If[Line({}-{}):Col({}-{})]:\n",
                                    prefix, isTail ? "└──" : "├──",
-                                   srcMgr->getLineAndColumn(getStart()).first,
-                                   srcMgr->getLineAndColumn(getEnd()).first,
-                                   srcMgr->getLineAndColumn(getStart()).second,
-                                   srcMgr->getLineAndColumn(getEnd()).second);
+                                   srcMgr.getLineAndColumn(getStart()).first,
+                                   srcMgr.getLineAndColumn(getEnd()).first,
+                                   srcMgr.getLineAndColumn(getStart()).second,
+                                   srcMgr.getLineAndColumn(getEnd()).second);
             for (unsigned long i = 0; i < conds.size(); i++)
                 ret += fmt::format("{}{}Cond: {}\n{}",
                                    prefix + (isTail ? "    " : "│   "), i == conds.size() - 1 ? "└──" : "├──",
-                                   conds[i]->toString(srcMgr, prefix + (isTail ? "    " : "│   "), i == conds.size() - 1),
-                                   blocks[i]->toString(srcMgr, prefix + (isTail ? "    " : "│   ") + (i == conds.size() - 1 ? "    " : "│   "), true));
+                                   conds[i]->toString(prefix + (isTail ? "    " : "│   "), i == conds.size() - 1),
+                                   blocks[i]->toString(prefix + (isTail ? "    " : "│   ") + (i == conds.size() - 1 ? "    " : "│   "), true));
 
             return ret;
         }
@@ -308,17 +315,18 @@ namespace lesma {
         [[nodiscard]] [[maybe_unused]] Expression *getCond() const { return cond; }
         [[nodiscard]] [[maybe_unused]] Compound *getBlock() const { return block; }
 
-        std::string toString(SourceManager *srcMgr, const std::string &prefix, bool isTail) const override {
+        [[nodiscard]] std::string toString(const std::string &prefix, bool isTail) const override {
+            auto &srcMgr = ServiceLocator::getSourceManager();
             return fmt::format("{}{}While[Line({}-{}):Col({}-{})]:\n{}{}Cond: {}\n{}",
                                prefix, isTail ? "└──" : "├──",
-                               srcMgr->getLineAndColumn(getStart()).first,
-                               srcMgr->getLineAndColumn(getEnd()).first,
-                               srcMgr->getLineAndColumn(getStart()).second,
-                               srcMgr->getLineAndColumn(getEnd()).second,
+                               srcMgr.getLineAndColumn(getStart()).first,
+                               srcMgr.getLineAndColumn(getEnd()).first,
+                               srcMgr.getLineAndColumn(getStart()).second,
+                               srcMgr.getLineAndColumn(getEnd()).second,
                                prefix + (isTail ? "    " : "│   "),
                                "└──",
-                               cond->toString(srcMgr, prefix, true),
-                               block->toString(srcMgr, prefix + (isTail ? "        " : "│       "), true));
+                               cond->toString(prefix, true),
+                               block->toString(prefix + (isTail ? "        " : "│       "), true));
         }
     };
 
@@ -329,7 +337,7 @@ namespace lesma {
         bool optional;
         Expression *default_val;
 
-        Parameter(std::string name, TypeExpr *type = nullptr, bool optional = false, Expression *default_val = nullptr) : name(std::move(name)), type(type), optional(optional), default_val(default_val) {}
+        explicit Parameter(std::string name, TypeExpr *type = nullptr, bool optional = false, Expression *default_val = nullptr) : name(std::move(name)), type(type), optional(optional), default_val(default_val) {}
 
         ~Parameter() {
             delete type;
@@ -367,23 +375,24 @@ namespace lesma {
         [[nodiscard]] [[maybe_unused]] bool getVarArgs() const { return varargs; }
         [[nodiscard]] [[maybe_unused]] bool isExported() const { return exported; }
 
-        std::string toString(SourceManager *srcMgr, const std::string &prefix, bool isTail) const override {
+        [[nodiscard]] std::string toString(const std::string &prefix, bool isTail) const override {
+            auto &srcMgr = ServiceLocator::getSourceManager();
             auto ret = fmt::format("{}{}FuncDecl[Line({}-{}):Col({}-{})]: {}(",
                                    prefix, isTail ? "└──" : "├──",
-                                   srcMgr->getLineAndColumn(getStart()).first,
-                                   srcMgr->getLineAndColumn(getEnd()).first,
-                                   srcMgr->getLineAndColumn(getStart()).second,
-                                   srcMgr->getLineAndColumn(getEnd()).second,
+                                   srcMgr.getLineAndColumn(getStart()).first,
+                                   srcMgr.getLineAndColumn(getEnd()).first,
+                                   srcMgr.getLineAndColumn(getStart()).second,
+                                   srcMgr.getLineAndColumn(getEnd()).second,
                                    name);
             for (auto &param: parameters) {
-                ret += param->name + ": " + param->type->toString(srcMgr, prefix, isTail) +
-                       (param->default_val == nullptr ? "" : fmt::format("= {}", param->default_val->toString(srcMgr, prefix, isTail)));
+                ret += param->name + ": " + param->type->toString(prefix, isTail) +
+                       (param->default_val == nullptr ? "" : fmt::format("= {}", param->default_val->toString(prefix, isTail)));
                 if (parameters.back() != param) ret += ", ";
             }
             if (varargs)
                 ret += ", ...";
-            ret += fmt::format(") -> {}\n{}", return_type->toString(srcMgr, prefix, isTail),
-                               body->toString(srcMgr, prefix + (isTail ? "    " : "│   "), true));
+            ret += fmt::format(") -> {}\n{}", return_type->toString(prefix, isTail),
+                               body->toString(prefix + (isTail ? "    " : "│   "), true));
             return ret;
         }
     };
@@ -415,22 +424,23 @@ namespace lesma {
         [[nodiscard]] [[maybe_unused]] bool getVarArgs() const { return varargs; }
         [[nodiscard]] [[maybe_unused]] bool isExported() const { return exported; }
 
-        std::string toString(SourceManager *srcMgr, const std::string &prefix, bool isTail) const override {
+        [[nodiscard]] std::string toString(const std::string &prefix, bool isTail) const override {
+            auto &srcMgr = ServiceLocator::getSourceManager();
             auto ret = fmt::format("{}{}ExternFuncDecl[Line({}-{}):Col({}-{})]: {}(",
                                    prefix, isTail ? "└──" : "├──",
-                                   srcMgr->getLineAndColumn(getStart()).first,
-                                   srcMgr->getLineAndColumn(getEnd()).first,
-                                   srcMgr->getLineAndColumn(getStart()).second,
-                                   srcMgr->getLineAndColumn(getEnd()).second,
+                                   srcMgr.getLineAndColumn(getStart()).first,
+                                   srcMgr.getLineAndColumn(getEnd()).first,
+                                   srcMgr.getLineAndColumn(getStart()).second,
+                                   srcMgr.getLineAndColumn(getEnd()).second,
                                    name);
             for (auto &param: parameters) {
-                ret += param->name + ": " + param->type->toString(srcMgr, prefix, isTail) +
-                       (param->default_val == nullptr ? "" : fmt::format("= {}", param->default_val->toString(srcMgr, prefix, isTail)));
+                ret += param->name + ": " + param->type->toString(prefix, isTail) +
+                       (param->default_val == nullptr ? "" : fmt::format("= {}", param->default_val->toString(prefix, isTail)));
                 if (parameters.back() != param) ret += ", ";
             }
             if (varargs)
                 ret += ", ...";
-            ret += fmt::format(") -> {}\n", return_type->toString(srcMgr, prefix, isTail));
+            ret += fmt::format(") -> {}\n", return_type->toString(prefix, isTail));
             return ret;
         }
     };
@@ -452,10 +462,10 @@ namespace lesma {
         [[nodiscard]] [[maybe_unused]] std::string getName() const { return name; }
         [[nodiscard]] [[maybe_unused]] std::vector<Expression *> getArguments() const { return arguments; }
 
-        std::string toString(SourceManager *srcMgr, const std::string &prefix, bool isTail) const override {
+        [[nodiscard]] std::string toString(const std::string &prefix, bool isTail) const override {
             auto ret = name + "(";
             for (auto param: arguments) {
-                ret += param->toString(srcMgr, prefix, isTail);
+                ret += param->toString(prefix, isTail);
                 if (arguments.back() != param) ret += ", ";
             }
             ret += ")";
@@ -482,16 +492,17 @@ namespace lesma {
         [[nodiscard]] [[maybe_unused]] TokenType getOperator() const { return op; }
         [[nodiscard]] [[maybe_unused]] Expression *getRightHandSide() const { return rhs; }
 
-        std::string toString(SourceManager *srcMgr, const std::string &prefix, bool isTail) const override {
+        [[nodiscard]] std::string toString(const std::string &prefix, bool isTail) const override {
+            auto &srcMgr = ServiceLocator::getSourceManager();
             return fmt::format("{}{}Assignment[Line({}-{}):Col({}-{})]: {} {} {}\n",
                                prefix, isTail ? "└──" : "├──",
-                               srcMgr->getLineAndColumn(getStart()).first,
-                               srcMgr->getLineAndColumn(getEnd()).first,
-                               srcMgr->getLineAndColumn(getStart()).second,
-                               srcMgr->getLineAndColumn(getEnd()).second,
-                               lhs->toString(srcMgr, prefix, isTail),
+                               srcMgr.getLineAndColumn(getStart()).first,
+                               srcMgr.getLineAndColumn(getEnd()).first,
+                               srcMgr.getLineAndColumn(getStart()).second,
+                               srcMgr.getLineAndColumn(getEnd()).second,
+                               lhs->toString(prefix, isTail),
                                std::string{NAMEOF_ENUM(op)},
-                               rhs->toString(srcMgr, prefix, isTail));
+                               rhs->toString(prefix, isTail));
         }
     };
 
@@ -509,14 +520,15 @@ namespace lesma {
 
         [[nodiscard]] [[maybe_unused]] Expression *getExpression() const { return expr; }
 
-        std::string toString(SourceManager *srcMgr, const std::string &prefix, bool isTail) const override {
+        [[nodiscard]] std::string toString(const std::string &prefix, bool isTail) const override {
+            auto &srcMgr = ServiceLocator::getSourceManager();
             return fmt::format("{}{}Expression[Line({}-{}):Col({}-{})]: {}\n",
                                prefix, isTail ? "└──" : "├──",
-                               srcMgr->getLineAndColumn(getStart()).first,
-                               srcMgr->getLineAndColumn(getEnd()).first,
-                               srcMgr->getLineAndColumn(getStart()).second,
-                               srcMgr->getLineAndColumn(getEnd()).second,
-                               expr->toString(srcMgr, prefix, isTail));
+                               srcMgr.getLineAndColumn(getStart()).first,
+                               srcMgr.getLineAndColumn(getEnd()).first,
+                               srcMgr.getLineAndColumn(getStart()).second,
+                               srcMgr.getLineAndColumn(getEnd()).second,
+                               expr->toString(prefix, isTail));
         }
     };
 
@@ -539,8 +551,8 @@ namespace lesma {
         [[nodiscard]] [[maybe_unused]] TokenType getOperator() const { return op; }
         [[nodiscard]] [[maybe_unused]] Expression *getRight() const { return right; }
 
-        std::string toString(SourceManager *srcMgr, const std::string &prefix, bool isTail) const override {
-            return left->toString(srcMgr, prefix, isTail) + " " + std::string{NAMEOF_ENUM(op)} + " " + right->toString(srcMgr, prefix, isTail);
+        [[nodiscard]] std::string toString(const std::string &prefix, bool isTail) const override {
+            return left->toString(prefix, isTail) + " " + std::string{NAMEOF_ENUM(op)} + " " + right->toString(prefix, isTail);
         }
     };
 
@@ -563,8 +575,8 @@ namespace lesma {
         [[nodiscard]] [[maybe_unused]] TokenType getOperator() const { return op; }
         [[nodiscard]] [[maybe_unused]] TypeExpr *getRight() const { return right; }
 
-        std::string toString(SourceManager *srcMgr, const std::string &prefix, bool isTail) const override {
-            return left->toString(srcMgr, prefix, isTail) + " " + std::string{NAMEOF_ENUM(op)} + " " + right->toString(srcMgr, prefix, isTail);
+        [[nodiscard]] std::string toString(const std::string &prefix, bool isTail) const override {
+            return left->toString(prefix, isTail) + " " + std::string{NAMEOF_ENUM(op)} + " " + right->toString(prefix, isTail);
         }
     };
 
@@ -585,8 +597,8 @@ namespace lesma {
         [[nodiscard]] [[maybe_unused]] Expression *getExpression() const { return expr; }
         [[nodiscard]] [[maybe_unused]] TypeExpr *getType() const { return type; }
 
-        std::string toString(SourceManager *srcMgr, const std::string &prefix, bool isTail) const override {
-            return expr->toString(srcMgr, prefix, isTail) + " as " + type->toString(srcMgr, prefix, isTail);
+        [[nodiscard]] std::string toString(const std::string &prefix, bool isTail) const override {
+            return expr->toString(prefix, isTail) + " as " + type->toString(prefix, isTail);
         }
     };
 
@@ -606,8 +618,8 @@ namespace lesma {
         [[nodiscard]] [[maybe_unused]] TokenType getOperator() const { return op; }
         [[nodiscard]] [[maybe_unused]] Expression *getExpression() const { return expr; }
 
-        std::string toString(SourceManager *srcMgr, const std::string &prefix, bool isTail) const override {
-            return std::string{NAMEOF_ENUM(op)} + expr->toString(srcMgr, prefix, isTail);
+        [[nodiscard]] std::string toString(const std::string &prefix, bool isTail) const override {
+            return std::string{NAMEOF_ENUM(op)} + expr->toString(prefix, isTail);
         }
     };
 
@@ -630,8 +642,8 @@ namespace lesma {
         [[nodiscard]] [[maybe_unused]] TokenType getOperator() const { return op; }
         [[nodiscard]] [[maybe_unused]] Expression *getRight() const { return right; }
 
-        std::string toString(SourceManager *srcMgr, const std::string &prefix, bool isTail) const override {
-            return left->toString(srcMgr, prefix, isTail) + "." + right->toString(srcMgr, prefix, isTail);
+        [[nodiscard]] std::string toString(const std::string &prefix, bool isTail) const override {
+            return left->toString(prefix, isTail) + "." + right->toString(prefix, isTail);
         }
     };
 
@@ -643,7 +655,7 @@ namespace lesma {
             visitor.visit(this);
         }
 
-        std::string toString(SourceManager * /*srcMgr*/, const std::string & /*prefix*/, bool /*isTail*/) const override {
+        [[nodiscard]] std::string toString(const std::string & /*prefix*/, bool /*isTail*/) const override {
             return "Else";
         }
     };
@@ -656,13 +668,14 @@ namespace lesma {
             visitor.visit(this);
         }
 
-        std::string toString(SourceManager *srcMgr, const std::string &prefix, bool isTail) const override {
+        [[nodiscard]] std::string toString(const std::string &prefix, bool isTail) const override {
+            auto &srcMgr = ServiceLocator::getSourceManager();
             return fmt::format("{}{}Break[Line({}-{}):Col({}-{})]:\n",
                                prefix, isTail ? "└──" : "├──",
-                               srcMgr->getLineAndColumn(getStart()).first,
-                               srcMgr->getLineAndColumn(getEnd()).first,
-                               srcMgr->getLineAndColumn(getStart()).second,
-                               srcMgr->getLineAndColumn(getEnd()).second);
+                               srcMgr.getLineAndColumn(getStart()).first,
+                               srcMgr.getLineAndColumn(getEnd()).first,
+                               srcMgr.getLineAndColumn(getStart()).second,
+                               srcMgr.getLineAndColumn(getEnd()).second);
         }
     };
 
@@ -674,13 +687,14 @@ namespace lesma {
             visitor.visit(this);
         }
 
-        std::string toString(SourceManager *srcMgr, const std::string &prefix, bool isTail) const override {
+        [[nodiscard]] std::string toString(const std::string &prefix, bool isTail) const override {
+            auto &srcMgr = ServiceLocator::getSourceManager();
             return fmt::format("{}{}Continue[Line({}-{}):Col({}-{})]:\n",
                                prefix, isTail ? "└──" : "├──",
-                               srcMgr->getLineAndColumn(getStart()).first,
-                               srcMgr->getLineAndColumn(getEnd()).first,
-                               srcMgr->getLineAndColumn(getStart()).second,
-                               srcMgr->getLineAndColumn(getEnd()).second);
+                               srcMgr.getLineAndColumn(getStart()).first,
+                               srcMgr.getLineAndColumn(getEnd()).first,
+                               srcMgr.getLineAndColumn(getStart()).second,
+                               srcMgr.getLineAndColumn(getEnd()).second);
         }
     };
 
@@ -698,14 +712,15 @@ namespace lesma {
 
         [[nodiscard]] [[maybe_unused]] Expression *getValue() const { return value; }
 
-        std::string toString(SourceManager *srcMgr, const std::string &prefix, bool isTail) const override {
+        [[nodiscard]] std::string toString(const std::string &prefix, bool isTail) const override {
+            auto &srcMgr = ServiceLocator::getSourceManager();
             return fmt::format("{}{}Return[Line({}-{}):Col({}-{})]: {}\n",
                                prefix, isTail ? "└──" : "├──",
-                               srcMgr->getLineAndColumn(getStart()).first,
-                               srcMgr->getLineAndColumn(getEnd()).first,
-                               srcMgr->getLineAndColumn(getStart()).second,
-                               srcMgr->getLineAndColumn(getEnd()).second,
-                               value->toString(srcMgr, prefix, true));
+                               srcMgr.getLineAndColumn(getStart()).first,
+                               srcMgr.getLineAndColumn(getEnd()).first,
+                               srcMgr.getLineAndColumn(getStart()).second,
+                               srcMgr.getLineAndColumn(getEnd()).second,
+                               value->toString(prefix, true));
         }
     };
 
@@ -723,14 +738,15 @@ namespace lesma {
 
         [[nodiscard]] [[maybe_unused]] Statement *getStatement() const { return stmt; }
 
-        std::string toString(SourceManager *srcMgr, const std::string &prefix, bool isTail) const override {
+        [[nodiscard]] std::string toString(const std::string &prefix, bool isTail) const override {
+            auto &srcMgr = ServiceLocator::getSourceManager();
             return fmt::format("{}{}Defer[Line({}-{}):Col({}-{})]:\n{}",
                                prefix, isTail ? "└──" : "├──",
-                               srcMgr->getLineAndColumn(getStart()).first,
-                               srcMgr->getLineAndColumn(getEnd()).first,
-                               srcMgr->getLineAndColumn(getStart()).second,
-                               srcMgr->getLineAndColumn(getEnd()).second,
-                               stmt->toString(srcMgr, prefix + (isTail ? "    " : "│   "), true));
+                               srcMgr.getLineAndColumn(getStart()).first,
+                               srcMgr.getLineAndColumn(getEnd()).first,
+                               srcMgr.getLineAndColumn(getStart()).second,
+                               srcMgr.getLineAndColumn(getEnd()).second,
+                               stmt->toString(prefix + (isTail ? "    " : "│   "), true));
         }
     };
 
@@ -757,20 +773,21 @@ namespace lesma {
         [[nodiscard]] [[maybe_unused]] std::vector<FuncDecl *> getMethods() const { return methods; }
         [[nodiscard]] [[maybe_unused]] bool isExported() const { return exported; }
 
-        std::string toString(SourceManager *srcMgr, const std::string &prefix, bool isTail) const override {
+        [[nodiscard]] std::string toString(const std::string &prefix, bool isTail) const override {
+            auto &srcMgr = ServiceLocator::getSourceManager();
             std::string fields_str;
             for (auto field: fields)
-                fields_str += field->toString(srcMgr, prefix + (isTail ? "    " : "│   "), false);
+                fields_str += field->toString(prefix + (isTail ? "    " : "│   "), false);
 
             std::string methods_str;
             for (auto method: methods)
-                methods_str += method->toString(srcMgr, prefix + (isTail ? "    " : "│   "), method == methods.back());
+                methods_str += method->toString(prefix + (isTail ? "    " : "│   "), method == methods.back());
             return fmt::format("{}{}Class[Line({}-{}):Col({}-{})]: {}: \n{}{}",
                                prefix, isTail ? "└──" : "├──",
-                               srcMgr->getLineAndColumn(getStart()).first,
-                               srcMgr->getLineAndColumn(getEnd()).first,
-                               srcMgr->getLineAndColumn(getStart()).second,
-                               srcMgr->getLineAndColumn(getEnd()).second,
+                               srcMgr.getLineAndColumn(getStart()).first,
+                               srcMgr.getLineAndColumn(getEnd()).first,
+                               srcMgr.getLineAndColumn(getStart()).second,
+                               srcMgr.getLineAndColumn(getEnd()).second,
                                identifier,
                                fields_str,
                                methods_str);

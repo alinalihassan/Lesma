@@ -9,8 +9,8 @@
 #include "fmt/color.h"
 #include "fmt/core.h"
 
-#include "liblesma/SourceManager/SMLoc.h"
-#include "liblesma/SourceManager/SourceManager.h"
+#include "liblesma/Support/SMLoc.h"
+#include "liblesma/Support/SourceManager.h"
 #include "liblesma/Token/TokenType.h"
 
 namespace lesma {

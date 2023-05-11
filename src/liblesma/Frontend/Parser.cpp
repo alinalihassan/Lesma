@@ -59,8 +59,13 @@ Token *Parser::ConsumeNewline() {
     return new Token{};
 }
 
-void Parser::Error(Token *token, const std::string &error_message) {
-    throw ParserError(token->span, "{}", error_message);
+void Parser::Error(Token *tok, const std::string &error_message) {
+    Error(tok->span, error_message);
+}
+
+void Parser::Error(SMRange span, const std::string &error_message) {
+    ServiceLocator::getDiagnosticManager().emitError(span, fmt::format("{}", error_message));
+    throw LesmaError();
 }
 
 TypeExpr *Parser::ParseType() {
@@ -312,9 +317,9 @@ Statement *Parser::ParseVarDecl() {
         expr = ParseExpression();
 
     if (type == std::nullopt && expr == std::nullopt)
-        throw ParserError(SMRange{startTok->getStart(), var->getEnd()}, "Expected either a type or a value");
+        Error(SMRange{startTok->getStart(), var->getEnd()}, "Expected either a type or a value");
     else if (expr == std::nullopt && !mutable_)
-        throw ParserError(SMRange{startTok->getStart(), type.value()->getEnd()}, "Cannot declare an immutable variable without an initial expression");
+        Error(SMRange{startTok->getStart(), type.value()->getEnd()}, "Cannot declare an immutable variable without an initial expression");
 
     ConsumeNewline();
     return new VarDecl({startTok->getStart(), expr != std::nullopt ? expr.value()->getEnd() : type.value()->getEnd()}, var, type, expr, mutable_);
@@ -360,11 +365,10 @@ Statement *Parser::ParseFor() {
 }
 
 Statement *Parser::ParseAssignment() {
-
     auto identifier = ParseDot();
 
     if (!(dynamic_cast<Literal *>(identifier) && dynamic_cast<Literal *>(identifier)->getType() == TokenType::IDENTIFIER) && !dynamic_cast<DotOp *>(identifier))
-        throw ParserError(identifier->getSpan(), "Expected either identifier or class field for assignment");
+        Error(identifier->getSpan(), "Expected either identifier or class field for assignment");
 
     if (AdvanceIfMatchAny<TokenType::EQUAL, TokenType::PLUS_EQUAL, TokenType::MINUS_EQUAL, TokenType::STAR_EQUAL,
                           TokenType::SLASH_EQUAL, TokenType::MOD_EQUAL, TokenType::POWER_EQUAL>()) {
@@ -512,7 +516,7 @@ Statement *Parser::ParseFunctionDeclaration() {
             }
 
             if (default_val == nullptr && type == nullptr) {
-                throw ParserError(param_ident->span, "{} should have either a type, a value or both specified", param_ident->lexeme);
+                Error(param_ident, fmt::format("{} should have either a type, a value or both specified", param_ident->lexeme));
             }
 
             parameters.emplace_back(new Parameter(param_ident->lexeme, type, false, default_val));

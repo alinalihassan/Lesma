@@ -1,23 +1,36 @@
 #pragma once
 
+#include "fmt/core.h"
+
+#include <algorithm>
 #include <utility>
 
-#include "liblesma/Diagnotic/Diagnostic.h"
+#include "liblesma/Support/Diagnostic.h"
 
 namespace lesma {
     /// This class manages the construction and emission of diagnostics.
-    class DiagnosticEngine {
+    class DiagnosticManager {
     public:
         /// A function used to handle diagnostics emitted by the engine.
         using HandlerFn = std::function<void(Diagnostic &)>;
 
         /// Emit an error to the diagnostic engine.
-        Diagnostic emitError(SMRange loc, const std::string &msg) {
-            return {Diagnostic::Severity::Error, loc, msg};
+        void emitError(SMRange loc, const std::string &msg) {
+            report({Diagnostic::Severity::Error, loc, msg});
         }
 
-        Diagnostic emitWarning(SMRange loc, const std::string &msg) {
-            return {Diagnostic::Severity::Warning, loc, msg};
+        template<typename... Args>
+        void emitError(SMRange loc, const std::string &format, Args &&...args) {
+            emitError(loc, fmt::format(format, std::forward<Args>(args)...));
+        }
+
+        void emitWarning(SMRange loc, const std::string &msg) {
+            report({Diagnostic::Severity::Warning, loc, msg});
+        }
+
+        template<typename... Args>
+        void emitWarning(SMRange loc, const std::string &format, Args &&...args) {
+            emitWarning(loc, fmt::format(format, std::forward<Args>(args)...));
         }
 
         /// Report the given diagnostic.
@@ -26,6 +39,14 @@ namespace lesma {
             if (handler) {
                 handler(diagnostics.back());
             }
+        }
+
+        [[nodiscard]] std::vector<Diagnostic> getDiagnostics() { return std::move(diagnostics); }
+
+        [[nodiscard]] bool hasErrors() {
+            return std::any_of(diagnostics.begin(), diagnostics.end(), [](const auto &diag) {
+                return diag.getSeverity() == Diagnostic::Error;
+            });
         }
 
         /// Get the current handler function of this diagnostic engine.

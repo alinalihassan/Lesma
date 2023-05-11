@@ -17,8 +17,8 @@ namespace lesma {
         print(is_error ? ERROR : WARNING, "");
         fmt::print(fmt::emphasis::bold, "{}\n", reason);
 
-        auto start_loc = srcMgr->getLineAndColumn(span.Start, bufferId);
-        auto end_loc = srcMgr->getLineAndColumn(span.End, bufferId);
+        auto start_loc = srcMgr->getLineAndColumn(span.Start);
+        auto end_loc = srcMgr->getLineAndColumn(span.End);
         fmt::print(accent, "{}--> ", std::string(int(log10(start_loc.first) + 1), ' '));
         fmt::print("{}:{}:{}\n", file, start_loc.first, start_loc.second);
 

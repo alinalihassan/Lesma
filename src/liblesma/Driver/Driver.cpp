@@ -15,9 +15,6 @@ int Driver::BaseCompile(std::unique_ptr<lesma::Driver::Options> options, bool ji
     plf::nanotimer timer;
     double results, total = 0;
 
-    // Configure Source Manager
-    std::shared_ptr<SourceManager> srcMgr = std::make_shared<SourceManager>(SourceManager());
-
     try {
         // Read Source
         TIMEIT(
@@ -25,24 +22,25 @@ int Driver::BaseCompile(std::unique_ptr<lesma::Driver::Options> options, bool ji
                 if (options->sourceType == SourceType::FILE) {
                     auto buffer = MemoryBuffer::getFileAsStream(options->source);
                     if (!buffer) {
-                        throw LesmaError(SMRange(), "Could not read file: {}", options->source);
+                        ServiceLocator::getDiagnosticManager().emitError({}, fmt::format("Could not read file: {}", options->source));
+                        throw LesmaError();
                     }
 
-                    srcMgr->AddNewSourceBuffer(std::move(*buffer));
+                    ServiceLocator::getSourceManager().AddNewSourceBuffer(std::move(*buffer), options->source);
                 } else {
                     auto buffer = MemoryBuffer::getMemBuffer(options->source);
-                    srcMgr->AddNewSourceBuffer(std::move(buffer));
+                    ServiceLocator::getSourceManager().AddNewSourceBuffer(std::move(buffer), "");
                 })
 
         // Lexer
         TIMEIT("Lexer scan",
-               auto lexer = std::make_unique<Lexer>(srcMgr);
+               auto lexer = std::make_unique<Lexer>();
                lexer->ScanAll();)
 
         if (options->debug & LEXER) {
             print(DEBUG, "TOKENS: \n");
             for (const auto &tok: lexer->getTokens())
-                print("Token: {}\n", tok->Dump(srcMgr));
+                print("Token: {}\n", tok->Dump());
         }
 
         // Parser
@@ -51,19 +49,22 @@ int Driver::BaseCompile(std::unique_ptr<lesma::Driver::Options> options, bool ji
                parser->Parse();)
 
         if (options->debug & AST)
-            print(DEBUG, "AST:\n{}", parser->getAST()->toString(srcMgr.get(), "", true));
+            print(DEBUG, "AST:\n{}", parser->getAST()->toString("", true));
 
         // Codegen
         TIMEIT("Compiling",
                std::vector<std::string> modules;
-               auto codegen = std::make_unique<Codegen>(std::move(parser), srcMgr,
-                                                        options->sourceType == FILE ? options->source : "",
-                                                        modules, jit, true);
+               auto codegen = std::make_unique<Codegen>(parser->getAST(), modules, jit, true);
                codegen->Run();)
 
         if (options->debug & IR) {
             print(DEBUG, "LLVM IR: \n");
             codegen->Dump();
+        }
+
+        // If we have errors, stop the execution. We don't want to go further
+        if (ServiceLocator::getDiagnosticManager().hasErrors()) {
+            throw LesmaError();
         }
 
         // Optimization
@@ -87,11 +88,15 @@ int Driver::BaseCompile(std::unique_ptr<lesma::Driver::Options> options, bool ji
 
         return exit_code;
     } catch (const LesmaError &err) {
-        if (!err.getSpan().isValid())
-            print(ERROR, err.what());
-        else
-            showInline(srcMgr.get(), 1, err.getSpan(), err.what(), options->sourceType == FILE ? options->source : "", true);
-        return err.exit_code;
+        for (const auto &diag: ServiceLocator::getDiagnosticManager().getDiagnostics()) {
+            if (!diag.getLocation().isValid()) {
+                print(ERROR, diag.getMessage());
+            } else {
+                lesma::DiagnosticPrinter::handleDiagnostic(ServiceLocator::getSourceManager(), diag);
+            }
+        }
+
+        return 1;
     }
 }
 

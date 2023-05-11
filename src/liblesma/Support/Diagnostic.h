@@ -1,6 +1,6 @@
 #pragma once
 
-#include "liblesma/SourceManager/SMLoc.h"
+#include "liblesma/Support/SMLoc.h"
 #include <string>
 
 namespace lesma {

@@ -49,11 +49,6 @@ using namespace llvm;
 using namespace llvm::orc;
 
 namespace lesma {
-    class CodegenError : public LesmaErrorWithExitCode<EX_DATAERR> {
-    public:
-        using LesmaErrorWithExitCode<EX_DATAERR>::LesmaErrorWithExitCode;
-    };
-
     using MainFnTy = int();
 
     class Codegen final : public ASTVisitor {
@@ -63,10 +58,10 @@ namespace lesma {
 
         std::unique_ptr<LLJIT> TheJIT;
         std::unique_ptr<llvm::TargetMachine> TargetMachine;
-        std::shared_ptr<Parser> Parser_;
-        std::shared_ptr<SourceManager> SrcMgr;
+        SourceManager &SrcMgr;
+        DiagnosticManager &DiagMgr;
         SymbolTable *Scope;
-        std::string filename;
+        Compound *tree;
         std::string alias;
         lesma::Value *result = nullptr;
 
@@ -88,7 +83,7 @@ namespace lesma {
         bool isMain = true;
 
     public:
-        Codegen(std::shared_ptr<Parser> parser, std::shared_ptr<SourceManager> srcMgr, const std::string &filename, std::vector<std::string> imports, bool jit, bool main, std::string alias = "", const std::shared_ptr<ThreadSafeContext> & = nullptr);
+        Codegen(Compound *tree, std::vector<std::string> imports, bool jit, bool main, std::string alias = "", const std::shared_ptr<ThreadSafeContext> & = nullptr);
         ~Codegen() override {
             delete selfSymbol;
             delete Scope;
@@ -159,5 +154,11 @@ namespace lesma {
         static int FindIndexInFields(Type *_struct, const std::string &field);
         static lesma::Type *FindTypeInFields(Type *_struct, const std::string &field);
         void defineFunction(lesma::Value *value, const FuncDecl *node, Value *clsSymbol);
+
+        // Error handling
+        void Error(SMRange span, const std::string &message);
+
+        template<typename... Args>
+        void Error(SMRange span, const std::string &format, Args &&...args);
     };
 }// namespace lesma

@@ -1,13 +1,13 @@
 #pragma once
 
-#include <map>
+#include <sstream>
 #include <string>
 #include <utility>
 
 #include "nameof.hpp"
 
 #include "TokenType.h"
-#include "liblesma/Common/Utils.h"
+#include "liblesma/Support/ServiceLocator.h"
 
 namespace lesma {
     struct Token {
@@ -22,7 +22,7 @@ namespace lesma {
         [[nodiscard]] SMLoc getEnd() const { return span.End; };
 
         static TokenType GetIdentifierType(const std::string &identifier, Token *lastTok);
-        [[nodiscard]] std::string Dump(const std::shared_ptr<SourceManager> &srcMgr) const;
+        [[nodiscard]] std::string Dump() const;
 
         bool operator==(const Token &rhs) const {
             return (lexeme == rhs.lexeme) && (type == rhs.type) && (span.Start.getPointer() == rhs.span.Start.getPointer()) && (span.End.getPointer() == rhs.span.End.getPointer());

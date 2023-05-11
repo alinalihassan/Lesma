@@ -3,6 +3,53 @@
 
 using namespace lesma;
 
+unsigned SourceManager::FindBufferContainingLoc(SMLoc Loc) const {
+    for (unsigned i = 0, e = Buffers.size(); i != e; ++i)
+        if (Loc.getPointer() >= Buffers[i].Buffer->getBufferStart() &&
+            // Use <= here so that a pointer to the null at the end of the buffer
+            // is included as part of the buffer.
+            Loc.getPointer() <= Buffers[i].Buffer->getBufferEnd())
+            return i + 1;
+    return 0;
+}
+
+template<typename T>
+static std::vector<T> &GetOrCreateOffsetCache(void *&OffsetCache,
+                                              MemoryBuffer *Buffer) {
+    if (OffsetCache)
+        return *static_cast<std::vector<T> *>(OffsetCache);
+
+    // Lazily fill in the offset cache.
+    auto *Offsets = new std::vector<T>();
+    size_t Sz = Buffer->getBufferSize();
+    assert(Sz <= std::numeric_limits<T>::max());
+    llvm::StringRef S = Buffer->getBuffer();
+    for (size_t N = 0; N < Sz; ++N) {
+        if (S[N] == '\n')
+            Offsets->push_back(static_cast<T>(N));
+    }
+
+    OffsetCache = Offsets;
+    return *Offsets;
+}
+
+template<typename T>
+unsigned SourceManager::SrcBuffer::getLineNumberSpecialized(const char *Ptr) const {
+    std::vector<T> &Offsets =
+            GetOrCreateOffsetCache<T>(OffsetCache, Buffer.get());
+
+    const char *BufStart = Buffer->getBufferStart();
+    assert(Ptr >= BufStart && Ptr <= Buffer->getBufferEnd());
+    ptrdiff_t PtrDiff = Ptr - BufStart;
+    assert(PtrDiff >= 0 &&
+           static_cast<size_t>(PtrDiff) <= std::numeric_limits<T>::max());
+    T PtrOffset = static_cast<T>(PtrDiff);
+
+    // llvm::lower_bound gives the number of EOL before PtrOffset. Add 1 to get
+    // the line number.
+    return llvm::lower_bound(Offsets, PtrOffset) - Offsets.begin() + 1;
+}
+
 /// Look up a given \p Ptr in in the buffer, determining which line it came
 /// from.
 unsigned SourceManager::SrcBuffer::getLineNumber(const char *Ptr) const {
@@ -18,22 +65,11 @@ unsigned SourceManager::SrcBuffer::getLineNumber(const char *Ptr) const {
 }
 
 template<typename T>
-unsigned SourceManager::SrcBuffer::getLineNumberSpecialized(const char *Ptr) const {
-    const char *BufStart = Buffer->getBufferStart();
-    assert(Ptr >= BufStart && Ptr <= Buffer->getBufferEnd());
-    ptrdiff_t PtrDiff = Ptr - BufStart;
-    assert(PtrDiff >= 0 &&
-           static_cast<size_t>(PtrDiff) <= std::numeric_limits<T>::max());
-    T PtrOffset = static_cast<T>(PtrDiff);
-
-    // llvm::lower_bound gives the number of EOL before PtrOffset. Add 1 to get
-    // the line number.
-    return PtrOffset + 1;
-}
-
-template<typename T>
 const char *SourceManager::SrcBuffer::getPointerForLineNumberSpecialized(
         unsigned LineNo) const {
+    std::vector<T> &Offsets =
+            GetOrCreateOffsetCache<T>(OffsetCache, Buffer.get());
+
     // We start counting line and column numbers from 1.
     if (LineNo != 0)
         --LineNo;
@@ -44,7 +80,9 @@ const char *SourceManager::SrcBuffer::getPointerForLineNumberSpecialized(
     // we want the start of the line.  As such, we look for the previous entry.
     if (LineNo == 0)
         return BufStart;
-    return BufStart + 1;
+    if (LineNo > Offsets.size())
+        return nullptr;
+    return BufStart + Offsets[LineNo - 1] + 1;
 }
 
 /// Return a pointer to the first character of the specified line number or
@@ -62,10 +100,29 @@ SourceManager::SrcBuffer::getPointerForLineNumber(unsigned LineNo) const {
         return getPointerForLineNumberSpecialized<uint64_t>(LineNo);
 }
 
+SourceManager::SrcBuffer::SrcBuffer(SourceManager::SrcBuffer &&Other) noexcept
+    : Buffer(std::move(Other.Buffer)), OffsetCache(Other.OffsetCache) {
+    Other.OffsetCache = nullptr;
+}
+
+SourceManager::SrcBuffer::~SrcBuffer() {
+    if (OffsetCache) {
+        size_t Sz = Buffer->getBufferSize();
+        if (Sz <= std::numeric_limits<uint8_t>::max())
+            delete static_cast<std::vector<uint8_t> *>(OffsetCache);
+        else if (Sz <= std::numeric_limits<uint16_t>::max())
+            delete static_cast<std::vector<uint16_t> *>(OffsetCache);
+        else if (Sz <= std::numeric_limits<uint32_t>::max())
+            delete static_cast<std::vector<uint32_t> *>(OffsetCache);
+        else
+            delete static_cast<std::vector<uint64_t> *>(OffsetCache);
+        OffsetCache = nullptr;
+    }
+}
+
 std::pair<unsigned, unsigned>
-SourceManager::getLineAndColumn(SMLoc Loc, unsigned BufferID) const {
-    if (!BufferID)
-        BufferID = FindBufferContainingLoc(Loc);
+SourceManager::getLineAndColumn(SMLoc Loc) const {
+    unsigned BufferID = FindBufferContainingLoc(Loc);
     assert(BufferID && "Invalid location!");
 
     auto &SB = getBufferInfo(BufferID);
@@ -79,19 +136,10 @@ SourceManager::getLineAndColumn(SMLoc Loc, unsigned BufferID) const {
     return std::make_pair(LineNo, Ptr - BufStart - NewlineOffs);
 }
 
-unsigned SourceManager::FindBufferContainingLoc(SMLoc Loc) const {
-    for (unsigned i = 0, e = Buffers.size(); i != e; ++i)
-        if (Loc.getPointer() >= Buffers[i].Buffer->getBufferStart() &&
-            // Use <= here so that a pointer to the null at the end of the buffer
-            // is included as part of the buffer.
-            Loc.getPointer() <= Buffers[i].Buffer->getBufferEnd())
-            return i + 1;
-    return 0;
-}
-
 /// Given a line and column number in a mapped buffer, turn it into an SMLoc.
 /// This will return a null SMLoc if the line/column location is invalid.
-SMLoc SourceManager::FindLocForLineAndColumn(unsigned BufferID, unsigned LineNo, unsigned ColNo) {
+SMLoc SourceManager::FindLocForLineAndColumn(unsigned BufferID, unsigned LineNo,
+                                             unsigned ColNo) const {
     auto &SB = getBufferInfo(BufferID);
     const char *Ptr = SB.getPointerForLineNumber(LineNo);
     if (!Ptr)

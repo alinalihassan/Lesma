@@ -2,13 +2,16 @@
 
 using namespace lesma;
 
-std::string Token::Dump(const std::shared_ptr<SourceManager> &srcMgr) const {
+std::string Token::Dump() const {
+    auto &srcMgr = ServiceLocator::getSourceManager();
+    auto [startLine, startCol] = srcMgr.getLineAndColumn(span.Start);
+    auto [endLine, endCol] = srcMgr.getLineAndColumn(span.End);
     return std::string(
                    "[Type: ") +
            std::string{NAMEOF_ENUM(type)} +
            ", Lexeme: " + lexeme +
-           ", Line: " + std::to_string(srcMgr->getLineAndColumn(span.Start, srcMgr->getNumBuffers() - 1).first) + " - " + std::to_string(srcMgr->getLineAndColumn(span.End, srcMgr->getNumBuffers() - 1).first) +
-           ", Col: " + std::to_string(srcMgr->getLineAndColumn(span.Start, srcMgr->getNumBuffers() - 1).second) + " - " + std::to_string(srcMgr->getLineAndColumn(span.End, srcMgr->getNumBuffers() - 1).second) + "]";
+           ", Line: " + std::to_string(startLine) + " - " + std::to_string(endLine) +
+           ", Col: " + std::to_string(startCol) + " - " + std::to_string(endCol) + "]";
 }
 
 TokenType Token::GetIdentifierType(const std::string &identifier, Token *lastTok) {

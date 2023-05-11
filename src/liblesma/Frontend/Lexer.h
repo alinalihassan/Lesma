@@ -2,24 +2,23 @@
 
 #include <optional>
 #include <string>
-#include <sysexits.h>
 #include <vector>
 
 #include "liblesma/Common/LesmaError.h"
 #include "liblesma/Common/Utils.h"
+#include "liblesma/Support/ServiceLocator.h"
 #include "liblesma/Token/Token.h"
 
 namespace lesma {
-    class LexerError : public LesmaErrorWithExitCode<EX_DATAERR> {
-        using LesmaErrorWithExitCode<EX_DATAERR>::LesmaErrorWithExitCode;
-    };
-
     class Lexer {
     public:
-        explicit Lexer(const std::shared_ptr<SourceManager> &srcMgr)
-            : curBuffer(srcMgr->getMemoryBuffer(srcMgr->getNumBuffers())),
-              curPtr(curBuffer->getBufferStart()), begin_loc(SMLoc::getFromPointer(curPtr)), loc(SMLoc::getFromPointer(curPtr)), srcMgr(srcMgr) {
+        explicit Lexer() {
+            curBuffer = ServiceLocator::getSourceManager().getMemoryBuffer(ServiceLocator::getSourceManager().getNumBuffers());
+            curPtr = curBuffer->getBufferStart();
+            begin_loc = SMLoc::getFromPointer(curPtr);
+            loc = SMLoc::getFromPointer(curPtr);
         }
+
         ~Lexer() {
             for (auto t: tokens)
                 delete t;

@@ -383,5 +383,6 @@ Token *Lexer::AddIdentifierToken() {
 char Lexer::LastChar() { return *curPtr; }
 
 void Lexer::Error(const std::string &msg) const {
-    throw LexerError(SMRange{begin_loc, loc}, msg);
+    ServiceLocator::getDiagnosticManager().emitError(SMRange{begin_loc, loc}, msg);
+    throw LesmaError();
 }

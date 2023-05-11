@@ -7,11 +7,6 @@
 #include <utility>
 
 namespace lesma {
-    class ParserError : public LesmaErrorWithExitCode<EX_DATAERR> {
-    public:
-        using LesmaErrorWithExitCode<EX_DATAERR>::LesmaErrorWithExitCode;
-    };
-
     class Parser {
     public:
         explicit Parser(std::vector<Token *> tokens) : tokens(std::move(tokens)), index(0), tree(nullptr) {}
@@ -69,6 +64,7 @@ namespace lesma {
         Compound *tree;
 
         static void Error(Token *token, const std::string &basicString);
+        static void Error(SMRange span, const std::string &basicString);
 
         Compound *ParseCompound();
         Compound *ParseBlock();

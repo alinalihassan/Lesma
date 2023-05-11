@@ -1,6 +1,7 @@
 #pragma once
 
 #include <memory>
+#include <utility>
 
 #include "SMLoc.h"
 #include <llvm/Support/MemoryBuffer.h>
@@ -10,10 +11,8 @@ namespace lesma {
     using MemoryBuffer = llvm::MemoryBuffer;
     class SourceManager {
     private:
-        struct SrcBuffer {
-            /// The memory buffer for the file.
-            std::unique_ptr<MemoryBuffer> Buffer;
-
+        class SrcBuffer {
+        public:
             /// Look up a given \p Ptr in in the buffer, determining which line it came
             /// from.
             [[nodiscard]] unsigned getLineNumber(const char *Ptr) const;
@@ -26,10 +25,39 @@ namespace lesma {
             template<typename T>
             [[nodiscard]] const char *getPointerForLineNumberSpecialized(unsigned LineNo) const;
 
+            [[nodiscard]] std::string getFilename() const { return getBasename(Filepath); };
+
             SrcBuffer() = default;
-            SrcBuffer(SrcBuffer &&Other) : Buffer(std::move(Other.Buffer)) {}
+            SrcBuffer(SrcBuffer &&Other) noexcept;
             SrcBuffer(const SrcBuffer &) = delete;
             SrcBuffer &operator=(const SrcBuffer &) = delete;
+            ~SrcBuffer();
+
+            /// The memory buffer for the file.
+            std::unique_ptr<MemoryBuffer> Buffer;
+
+            /// Vector of offsets into Buffer at which there are line-endings
+            /// (lazily populated). Once populated, the '\n' that marks the end of
+            /// line number N from [1..] is at Buffer[OffsetCache[N-1]]. Since
+            /// these offsets are in sorted (ascending) order, they can be
+            /// binary-searched for the first one after any given offset (eg. an
+            /// offset corresponding to a particular SMLoc).
+            ///
+            /// Since we're storing offsets into relatively small files (often smaller
+            /// than 2^8 or 2^16 bytes), we select the offset vector element type
+            /// dynamically based on the size of Buffer.
+            mutable void *OffsetCache = nullptr;
+
+            /// The filepath of the memory buffer (for diagnostic purposes)
+            std::string Filepath;
+
+        private:
+            static std::string getBasename(const std::string &file_path) {
+                auto filename = file_path.substr(file_path.find_last_of("/\\") + 1);
+                auto filename_wo_ext = filename.substr(0, filename.find_last_of('.'));
+
+                return filename_wo_ext;
+            }
         };
 
         /// This is all of the buffers that we are reading from.
@@ -65,9 +93,10 @@ namespace lesma {
 
         /// Add a new source buffer to this source manager. This takes ownership of
         /// the memory buffer.
-        unsigned AddNewSourceBuffer(std::unique_ptr<MemoryBuffer> F) {
+        unsigned AddNewSourceBuffer(std::unique_ptr<MemoryBuffer> F, std::string filepath) {
             SrcBuffer NB;
             NB.Buffer = std::move(F);
+            NB.Filepath = std::move(filepath);
             Buffers.push_back(std::move(NB));
             return Buffers.size();
         }
@@ -92,17 +121,17 @@ namespace lesma {
 
         /// Find the line number for the specified location in the specified file.
         /// This is not a fast method.
-        [[nodiscard]] unsigned FindLineNumber(SMLoc Loc, unsigned BufferID = 0) const {
-            return getLineAndColumn(Loc, BufferID).first;
+        [[nodiscard]] unsigned FindLineNumber(SMLoc Loc) const {
+            return getLineAndColumn(Loc).first;
         }
 
         /// Find the line and column number for the specified location in the
         /// specified file. This is not a fast method.
-        [[nodiscard]] std::pair<unsigned, unsigned> getLineAndColumn(SMLoc Loc, unsigned BufferID = 0) const;
+        [[nodiscard]] std::pair<unsigned, unsigned> getLineAndColumn(SMLoc Loc) const;
 
         /// Given a line and column number in a mapped buffer, turn it into an SMLoc.
         /// This will return a null SMLoc if the line/column location is invalid.
         [[nodiscard]] SMLoc FindLocForLineAndColumn(unsigned BufferID, unsigned LineNo,
-                                                    unsigned ColNo);
+                                                    unsigned ColNo) const;
     };
 }// namespace lesma

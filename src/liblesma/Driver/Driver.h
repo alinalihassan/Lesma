@@ -7,6 +7,8 @@
 #include "liblesma/Common/Utils.h"
 #include "liblesma/Frontend/Lexer.h"
 #include "liblesma/Frontend/Parser.h"
+#include "liblesma/Support/DiagnosticPrinter.h"
+#include "liblesma/Support/ServiceLocator.h"
 
 #include "plf_nanotimer.h"
 
