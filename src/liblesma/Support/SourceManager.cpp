@@ -101,7 +101,7 @@ SourceManager::SrcBuffer::getPointerForLineNumber(unsigned LineNo) const {
 }
 
 SourceManager::SrcBuffer::SrcBuffer(SourceManager::SrcBuffer &&Other) noexcept
-    : Buffer(std::move(Other.Buffer)), OffsetCache(Other.OffsetCache) {
+    : Buffer(std::move(Other.Buffer)), Filepath(Other.Filepath), OffsetCache(Other.OffsetCache) {
     Other.OffsetCache = nullptr;
 }
 

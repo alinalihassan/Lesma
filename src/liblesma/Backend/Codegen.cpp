@@ -26,7 +26,7 @@ Codegen::Codegen(Compound *tree, std::vector<std::string> imports, bool jit, boo
     TopLevelFunc = InitializeTopLevel();
 
     // If it's not base.les stdlib, then import it
-    if (SrcMgr.getBufferInfo(SrcMgr.getNumBuffers()).Filepath != getStdDir() + "base.les") {
+    if (SrcMgr.getLastBufferInfo().Filepath != getStdDir() + "base.les") {
         CompileModule(SMRange(), getStdDir() + "base.les", true, "base", true, true, {});
     }
 }
@@ -35,7 +35,7 @@ std::unique_ptr<Module> Codegen::InitializeModule() {
     auto mod = std::make_unique<Module>("Lesma", *TheContext->getContext());
     mod->setTargetTriple(TargetMachine->getTargetTriple().str());
     mod->setDataLayout(TargetMachine->createDataLayout());
-    mod->setSourceFileName(SrcMgr.getBufferInfo(SrcMgr.getNumBuffers()).getFilename());
+    mod->setSourceFileName(SrcMgr.getLastBufferInfo().getFilename());
 
     return mod;
 }
@@ -160,7 +160,7 @@ void Codegen::defineFunction(lesma::Value *value, const FuncDecl *node, Value *c
 }
 
 void Codegen::CompileModule(SMRange span, const std::string &filepath, bool isStd, const std::string &module_alias, bool importAll, bool importToScope, const std::vector<std::pair<std::string, std::string>> &imported_names) {
-    std::filesystem::path mainPath = SrcMgr.getBufferInfo(SrcMgr.getNumBuffers()).Filepath;
+    std::filesystem::path mainPath = SrcMgr.getLastBufferInfo().Filepath;
     // Read source
     auto absolute_path = isStd ? filepath : fmt::format("{}/{}", std::filesystem::absolute(mainPath).parent_path().c_str(), filepath);
 
@@ -217,7 +217,7 @@ void Codegen::CompileModule(SMRange span, const std::string &filepath, bool isSt
             // Add the module to JIT
             auto res = TheJIT->addIRModule(ThreadSafeModule(std::move(codegen->TheModule), *TheContext));
             if (res) {
-                Error({}, "Failed adding import {} to JIT", SrcMgr.getBufferInfo(SrcMgr.getNumBuffers()).getFilename());
+                Error({}, "Failed adding import {} to JIT", SrcMgr.getLastBufferInfo().getFilename());
             }
         } else {
             // Create object file to be linked

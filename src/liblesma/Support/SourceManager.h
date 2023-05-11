@@ -6,13 +6,17 @@
 #include "SMLoc.h"
 #include <llvm/Support/MemoryBuffer.h>
 
-
 namespace lesma {
     using MemoryBuffer = llvm::MemoryBuffer;
     class SourceManager {
     private:
-        class SrcBuffer {
-        public:
+        struct SrcBuffer {
+            /// The memory buffer for the file.
+            std::unique_ptr<MemoryBuffer> Buffer;
+
+            /// The filepath of the memory buffer (for diagnostic purposes)
+            const std::string Filepath;
+
             /// Look up a given \p Ptr in in the buffer, determining which line it came
             /// from.
             [[nodiscard]] unsigned getLineNumber(const char *Ptr) const;
@@ -25,16 +29,19 @@ namespace lesma {
             template<typename T>
             [[nodiscard]] const char *getPointerForLineNumberSpecialized(unsigned LineNo) const;
 
-            [[nodiscard]] std::string getFilename() const { return getBasename(Filepath); };
+            [[nodiscard]] std::string getFilename() const {
+                auto filename = Filepath.substr(Filepath.find_last_of("/\\") + 1);
+                auto filename_wo_ext = filename.substr(0, filename.find_last_of('.'));
+
+                return filename_wo_ext;
+            };
 
             SrcBuffer() = default;
+            SrcBuffer(std::unique_ptr<MemoryBuffer> buffer, std::string filepath) : Buffer(std::move(buffer)), Filepath(std::move(filepath)) {}
             SrcBuffer(SrcBuffer &&Other) noexcept;
             SrcBuffer(const SrcBuffer &) = delete;
             SrcBuffer &operator=(const SrcBuffer &) = delete;
             ~SrcBuffer();
-
-            /// The memory buffer for the file.
-            std::unique_ptr<MemoryBuffer> Buffer;
 
             /// Vector of offsets into Buffer at which there are line-endings
             /// (lazily populated). Once populated, the '\n' that marks the end of
@@ -47,17 +54,6 @@ namespace lesma {
             /// than 2^8 or 2^16 bytes), we select the offset vector element type
             /// dynamically based on the size of Buffer.
             mutable void *OffsetCache = nullptr;
-
-            /// The filepath of the memory buffer (for diagnostic purposes)
-            std::string Filepath;
-
-        private:
-            static std::string getBasename(const std::string &file_path) {
-                auto filename = file_path.substr(file_path.find_last_of("/\\") + 1);
-                auto filename_wo_ext = filename.substr(0, filename.find_last_of('.'));
-
-                return filename_wo_ext;
-            }
         };
 
         /// This is all of the buffers that we are reading from.
@@ -79,6 +75,11 @@ namespace lesma {
             return Buffers[i - 1];
         }
 
+        [[nodiscard]] const SrcBuffer &getLastBufferInfo() const {
+            assert(isValidBufferID(getNumBuffers()));
+            return Buffers[getNumBuffers() - 1];
+        }
+
         [[nodiscard]] const MemoryBuffer *getMemoryBuffer(unsigned i) const {
             assert(isValidBufferID(i));
             return Buffers[i - 1].Buffer.get();
@@ -93,11 +94,8 @@ namespace lesma {
 
         /// Add a new source buffer to this source manager. This takes ownership of
         /// the memory buffer.
-        unsigned AddNewSourceBuffer(std::unique_ptr<MemoryBuffer> F, std::string filepath) {
-            SrcBuffer NB;
-            NB.Buffer = std::move(F);
-            NB.Filepath = std::move(filepath);
-            Buffers.push_back(std::move(NB));
+        unsigned AddNewSourceBuffer(std::unique_ptr<MemoryBuffer> F, const std::string &filepath) {
+            Buffers.emplace_back(std::move(F), filepath);
             return Buffers.size();
         }
 

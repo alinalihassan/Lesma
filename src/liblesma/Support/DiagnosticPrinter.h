@@ -22,7 +22,7 @@ namespace lesma {
             } else if (diagnostic.getSeverity() == Diagnostic::Warning) {
                 fmt::print(fg(fmt::color::yellow) | fmt::emphasis::bold, "[!] Warning: ");
             }
-            
+
             fmt::print(fmt::emphasis::bold, "{}\n", diagnostic.getMessage());
 
             auto start_loc = srcMgr.getLineAndColumn(diagnostic.getLocation().Start);
@@ -59,8 +59,6 @@ namespace lesma {
                 lineStart = lineEnd + 1;// Move to the start of the next line
                 lineNum++;
             }
-
-            fmt::print("Buffer: {}\n", buffer->getBufferStart());
         }
     };
 }// namespace lesma

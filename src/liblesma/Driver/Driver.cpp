@@ -29,7 +29,7 @@ int Driver::BaseCompile(std::unique_ptr<lesma::Driver::Options> options, bool ji
                     ServiceLocator::getSourceManager().AddNewSourceBuffer(std::move(*buffer), options->source);
                 } else {
                     auto buffer = MemoryBuffer::getMemBuffer(options->source);
-                    ServiceLocator::getSourceManager().AddNewSourceBuffer(std::move(buffer), "");
+                    ServiceLocator::getSourceManager().AddNewSourceBuffer(std::move(buffer), "stdin");
                 })
 
         // Lexer
