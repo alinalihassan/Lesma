@@ -1,11 +1,10 @@
+#include <vector>
+
 #include <gtest/gtest.h>
 
 #include "liblesma/Backend/Codegen.h"
-#include "liblesma/Common/Utils.h"
 #include "liblesma/Frontend/Lexer.h"
 #include "liblesma/Frontend/Parser.h"
-
-#include <vector>
 
 using namespace lesma;
 
@@ -21,7 +20,7 @@ static std::shared_ptr<SourceMgr> initializeSrcMgr(const std::string &src) {
 
 static std::unique_ptr<Lexer> initializeLexer(const std::shared_ptr<SourceMgr> &sourceMgr) {
     auto curLexer = std::make_unique<Lexer>(sourceMgr);
-    curLexer->ScanAll();
+    curLexer->scanAll();
 
     return curLexer;
 }

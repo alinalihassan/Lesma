@@ -44,7 +44,7 @@ int Driver::baseCompile(std::unique_ptr<lesma::Options> options, bool jit) {
         // Lexer
         auto lexer = timer.measure("Lexer scan", [&] {
             auto lex = std::make_unique<Lexer>(srcMgr);
-            lex->ScanAll();
+            lex->scanAll();
             return lex;
         });
 

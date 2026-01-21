@@ -257,7 +257,7 @@ void Codegen::CompileModule(llvm::SMRange span, const std::string &filepath, boo
     try {
         // Lexer
         auto lexer = std::make_unique<Lexer>(SourceManager);
-        lexer->ScanAll();
+        lexer->scanAll();
 
         // Parser
         auto parser = std::make_unique<Parser>(lexer->getTokens());
@@ -353,7 +353,7 @@ void Codegen::CompileModule(llvm::SMRange span, const std::string &filepath, boo
         }
     } catch (const LesmaError &err) {
         if (!err.getSpan().isValid())
-            print(ERROR, err.what());
+            print(LogType::ERROR, err.what());
         else
             showInline(SourceManager.get(), file_id, err.getSpan(), err.what(), absolute_path, true);
 
