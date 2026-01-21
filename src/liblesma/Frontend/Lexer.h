@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstddef>
 #include <memory>
 #include <optional>
 #include <string>
@@ -24,14 +25,11 @@ namespace lesma {
     public:
         explicit Lexer(const std::shared_ptr<llvm::SourceMgr> &srcMgr)
             : curBuffer_(srcMgr->getMemoryBuffer(srcMgr->getNumBuffers())),
-              curPtr_(curBuffer_->getBufferStart()), begin_loc_(llvm::SMLoc::getFromPointer(curPtr_)), loc_(llvm::SMLoc::getFromPointer(curPtr_)), srcMgr_(srcMgr) {
+              begin_loc_(llvm::SMLoc::getFromPointer(curBuffer_->getBufferStart())),
+              loc_(llvm::SMLoc::getFromPointer(curBuffer_->getBufferStart())),
+              srcMgr_(srcMgr) {
         }
-        ~Lexer() {
-            for (auto *t: tokens_) {
-                delete t;
-            }
-            tokens_.clear();
-        }
+        ~Lexer() = default;
 
         Lexer(const Lexer &) = delete;
         Lexer &operator=(const Lexer &) = delete;
@@ -39,15 +37,17 @@ namespace lesma {
         Lexer &operator=(Lexer &&) = default;
 
         void scanAll();
-        Token *scanOne(bool continuation = false);
-        std::vector<Token *> getTokens() { return tokens_; };
+        std::vector<Token *> getTokens();
+        std::vector<std::unique_ptr<Token>> &getOwnedTokens() { return tokens_; };
 
     private:
+        std::unique_ptr<Token> scanOne(bool continuation = false);
+
         bool matchAndAdvance(char expected);
 
         char peek(int offset = 0);
 
-        Token *addStringToken();
+        std::unique_ptr<Token> addStringToken();
 
         static bool isDigit(char c) { return c >= '0' && c <= '9'; }
 
@@ -55,33 +55,51 @@ namespace lesma {
 
         static bool isAlphaNumeric(char c) { return isAlpha(c) || isDigit(c); }
 
-        Token *addNumToken();
+        std::unique_ptr<Token> addNumToken();
 
-        Token *addToken(TokenType type);
-        Token *addToken(Token *tok);
+        std::unique_ptr<Token> makeToken(TokenType type);
+        std::unique_ptr<Token> makeToken(TokenType type, const std::string &value);
 
         void error(const std::string &msg) const;
 
-        bool isAtEnd() { return curPtr_ == curBuffer_->getBufferEnd(); }
+        bool isAtEnd() { return curPos_ >= curBuffer_->getBufferSize(); }
+
+        // Helper to get pointer at current position for SMLoc (isolates pointer arithmetic)
+        const char *getLocPointer() const {
+            // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
+            return curBuffer_->getBufferStart() + curPos_;
+        }
+
+        // Helper to get pointer at specific offset for SMLoc
+        const char *getLocPointer(size_t offset) const {
+            // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
+            return curBuffer_->getBufferStart() + offset;
+        }
+
+        // Helper to get character at specific position (isolates array subscript)
+        char getCharAt(size_t pos) const {
+            // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
+            return curBuffer_->getBufferStart()[pos];
+        }
 
         char lastChar();
 
         char advance();
 
         Token *getLastToken();
-        Token *addIdentifierToken();
+        std::unique_ptr<Token> addIdentifierToken();
 
         void handleWhitespace(char c);
         bool handleIndentation(bool continuation);
         void fallback();
 
         const llvm::MemoryBuffer *curBuffer_;
-        const char *curPtr_;
+        size_t curPos_ = 0;
         unsigned int line_ = 1;
         unsigned int col_ = 1;
         llvm::SMLoc begin_loc_;
         llvm::SMLoc loc_;
-        std::vector<Token *> tokens_;
+        std::vector<std::unique_ptr<Token>> tokens_;
         std::shared_ptr<llvm::SourceMgr> srcMgr_;
 
         std::optional<char> first_indent_char_;

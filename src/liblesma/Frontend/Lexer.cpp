@@ -2,7 +2,9 @@
 
 #include <cassert>
 #include <cstddef>
+#include <memory>
 #include <string>
+#include <vector>
 
 #include <llvm/Support/SMLoc.h>
 
@@ -20,9 +22,19 @@ void Lexer::scanAll() {
     }
 }
 
-Token *Lexer::scanOne(bool continuation) {
+std::vector<Token *> Lexer::getTokens() {
+    std::vector<Token *> result;
+    result.reserve(tokens_.size());
+    for (const auto &tok: tokens_) {
+        result.push_back(tok.get());
+    }
+    return result;
+}
+
+// NOLINTNEXTLINE(readability-function-cognitive-complexity)
+std::unique_ptr<Token> Lexer::scanOne(bool continuation) {
     if (isAtEnd()) {
-        return new Token{TokenType::EOF_TOKEN, "EOF", llvm::SMRange{begin_loc_, loc_}};
+        return std::make_unique<Token>(TokenType::EOF_TOKEN, "EOF", llvm::SMRange{begin_loc_, loc_});
     }
     resetTokenBeg();
     char c = advance();
@@ -30,97 +42,97 @@ Token *Lexer::scanOne(bool continuation) {
     switch (c) {
         case '(':
             level_++;
-            return addToken(TokenType::LEFT_PAREN);
+            return makeToken(TokenType::LEFT_PAREN);
         case ')':
             level_--;
-            return addToken(TokenType::RIGHT_PAREN);
+            return makeToken(TokenType::RIGHT_PAREN);
         case '[':
             level_++;
-            return addToken(TokenType::LEFT_SQUARE);
+            return makeToken(TokenType::LEFT_SQUARE);
         case ']':
             level_--;
-            return addToken(TokenType::RIGHT_SQUARE);
+            return makeToken(TokenType::RIGHT_SQUARE);
         case '{':
             level_++;
-            return addToken(TokenType::LEFT_BRACE);
+            return makeToken(TokenType::LEFT_BRACE);
         case '}':
             level_--;
-            return addToken(TokenType::RIGHT_BRACE);
+            return makeToken(TokenType::RIGHT_BRACE);
         case ':':
-            return addToken(TokenType::COLON);
+            return makeToken(TokenType::COLON);
         case ',':
-            return addToken(TokenType::COMMA);
+            return makeToken(TokenType::COMMA);
         case '.': {
             if (matchAndAdvance(('.'))) {
                 if (matchAndAdvance('.')) {
-                    return addToken(TokenType::ELLIPSIS);
+                    return makeToken(TokenType::ELLIPSIS);
                 }
 
-                return addToken(TokenType::RANGE);
+                return makeToken(TokenType::RANGE);
             }
 
-            return addToken(TokenType::DOT);
+            return makeToken(TokenType::DOT);
         }
         case '-': {
             if (matchAndAdvance('>')) {
-                return addToken(TokenType::ARROW);
+                return makeToken(TokenType::ARROW);
             }
             if (matchAndAdvance('=')) {
-                return addToken(TokenType::MINUS_EQUAL);
+                return makeToken(TokenType::MINUS_EQUAL);
             }
 
-            return addToken(TokenType::MINUS);
+            return makeToken(TokenType::MINUS);
         }
         case '+': {
             if (matchAndAdvance('=')) {
-                return addToken(TokenType::PLUS_EQUAL);
+                return makeToken(TokenType::PLUS_EQUAL);
             }
 
-            return addToken(TokenType::PLUS);
+            return makeToken(TokenType::PLUS);
         }
         case ';':
-            return addToken(TokenType::SEMICOLON);
+            return makeToken(TokenType::SEMICOLON);
         case '*': {
             if (matchAndAdvance('=')) {
-                return addToken(TokenType::STAR_EQUAL);
+                return makeToken(TokenType::STAR_EQUAL);
             }
-            return addToken(TokenType::STAR);
+            return makeToken(TokenType::STAR);
         }
         case '&':
-            return addToken(TokenType::AMPERSAND);
+            return makeToken(TokenType::AMPERSAND);
         case '!':
-            return addToken(matchAndAdvance('=') ? TokenType::BANG_EQUAL : TokenType::BANG);
+            return makeToken(matchAndAdvance('=') ? TokenType::BANG_EQUAL : TokenType::BANG);
         case '=': {
             if (matchAndAdvance('=')) {
-                return addToken(TokenType::EQUAL_EQUAL);
+                return makeToken(TokenType::EQUAL_EQUAL);
             }
             if (matchAndAdvance('>')) {
-                return addToken(TokenType::FAT_ARROW);
+                return makeToken(TokenType::FAT_ARROW);
             }
 
-            return addToken(TokenType::EQUAL);
+            return makeToken(TokenType::EQUAL);
         }
         case '<':
-            return addToken(matchAndAdvance('=') ? TokenType::LESS_EQUAL : TokenType::LESS);
+            return makeToken(matchAndAdvance('=') ? TokenType::LESS_EQUAL : TokenType::LESS);
         case '>':
-            return addToken(matchAndAdvance('=') ? TokenType::GREATER_EQUAL : TokenType::GREATER);
+            return makeToken(matchAndAdvance('=') ? TokenType::GREATER_EQUAL : TokenType::GREATER);
         case '/': {
             if (matchAndAdvance('=')) {
-                return addToken(TokenType::SLASH_EQUAL);
+                return makeToken(TokenType::SLASH_EQUAL);
             }
-            return addToken(TokenType::SLASH);
+            return makeToken(TokenType::SLASH);
         }
         case '%': {
             if (matchAndAdvance('=')) {
-                return addToken(TokenType::MOD_EQUAL);
+                return makeToken(TokenType::MOD_EQUAL);
             }
-            return addToken(TokenType::MOD);
+            return makeToken(TokenType::MOD);
         }
         case '^': {
             if (matchAndAdvance('=')) {
-                return addToken(TokenType::POWER_EQUAL);
+                return makeToken(TokenType::POWER_EQUAL);
             }
-            return addToken(TokenType::POWER);
+            return makeToken(TokenType::POWER);
         }
         case '#': {
             // A comment goes until the end of the line.
@@ -167,7 +179,7 @@ Token *Lexer::scanOne(bool continuation) {
             line_++;
             col_ = 1;
             if (!continuation && level_ == 0) {
-                tokens_.push_back(addToken(new Token{TokenType::NEWLINE, "NEWLINE", llvm::SMRange{begin_loc_, loc_}}));
+                tokens_.push_back(std::make_unique<Token>(TokenType::NEWLINE, "NEWLINE", llvm::SMRange{begin_loc_, loc_}));
             }
             handleIndentation(continuation);
             return scanOne(false);
@@ -183,7 +195,7 @@ Token *Lexer::scanOne(bool continuation) {
             }
     }
     error("Unknown error");
-    return {};
+    return nullptr;
 }
 
 void Lexer::handleWhitespace(char c) {
@@ -198,6 +210,7 @@ void Lexer::handleWhitespace(char c) {
     }
 }
 
+// NOLINTNEXTLINE(readability-function-cognitive-complexity)
 bool Lexer::handleIndentation(bool continuation) {
     const int tabSize = 8;
     int col = 0;
@@ -272,21 +285,25 @@ bool Lexer::handleIndentation(bool continuation) {
     }
 
     while (changes != 0) {
-        tokens_.push_back(addToken(new Token{changes > 0 ? TokenType::INDENT : TokenType::DEDENT, changes > 0 ? "INDENT" : "DEDENT", llvm::SMRange{begin_loc_, loc_}}));
+        tokens_.push_back(std::make_unique<Token>(
+                changes > 0 ? TokenType::INDENT : TokenType::DEDENT,
+                changes > 0 ? "INDENT" : "DEDENT",
+                llvm::SMRange{begin_loc_, loc_}));
         changes += changes > 0 ? -1 : 1;
     }
     return true;
 }
 
-Token *Lexer::addToken(TokenType type) {
-    auto *ret = new Token(type, std::string(begin_loc_.getPointer(), loc_.getPointer()), llvm::SMRange{begin_loc_, loc_});
+std::unique_ptr<Token> Lexer::makeToken(TokenType type) {
+    auto token = std::make_unique<Token>(type, std::string(begin_loc_.getPointer(), loc_.getPointer()), llvm::SMRange{begin_loc_, loc_});
     resetTokenBeg();
-    return ret;
+    return token;
 }
 
-Token *Lexer::addToken(Token *tok) {
+std::unique_ptr<Token> Lexer::makeToken(TokenType type, const std::string &value) {
+    auto token = std::make_unique<Token>(type, value, llvm::SMRange{begin_loc_, loc_});
     resetTokenBeg();
-    return tok;
+    return token;
 }
 
 void Lexer::resetTokenBeg() {
@@ -294,15 +311,15 @@ void Lexer::resetTokenBeg() {
 }
 
 void Lexer::fallback() {
-    loc_ = llvm::SMLoc::getFromPointer(loc_.getPointer() - 1);
-    --curPtr_;
+    --curPos_;
+    loc_ = llvm::SMLoc::getFromPointer(getLocPointer());
     --col_;
 }
 
 char Lexer::advance() {
     auto ret = lastChar();
-    curPtr_++;
-    loc_ = llvm::SMLoc::getFromPointer(loc_.getPointer() + 1);
+    ++curPos_;
+    loc_ = llvm::SMLoc::getFromPointer(getLocPointer());
     ++col_;
     return ret;
 }
@@ -320,13 +337,14 @@ bool Lexer::matchAndAdvance(char expected) {
 }
 
 char Lexer::peek(int offset) {
-    if ((loc_.getPointer() + offset) >= curBuffer_->getBufferEnd()) {
+    size_t targetPos = curPos_ + static_cast<size_t>(offset);
+    if (targetPos >= curBuffer_->getBufferSize()) {
         return '\0';
     }
-    return *(loc_.getPointer() + offset);
+    return getCharAt(targetPos);
 }
 
-Token *Lexer::addStringToken() {
+std::unique_ptr<Token> Lexer::addStringToken() {
     std::string string;
 
     while (peek() != '"' && !isAtEnd()) {
@@ -385,12 +403,10 @@ Token *Lexer::addStringToken() {
     // Skip the closing ".
     advance();
 
-    auto *ret = new Token(TokenType::STRING, string, llvm::SMRange{begin_loc_, loc_});
-    resetTokenBeg();
-    return ret;
+    return makeToken(TokenType::STRING, string);
 }
 
-Token *Lexer::addNumToken() {
+std::unique_ptr<Token> Lexer::addNumToken() {
     while (isDigit(peek())) {
         advance();
     }
@@ -404,38 +420,36 @@ Token *Lexer::addNumToken() {
             advance();
         }
 
-        return addToken(TokenType::DOUBLE);
+        return makeToken(TokenType::DOUBLE);
     }
 
-    return addToken(TokenType::INTEGER);
+    return makeToken(TokenType::INTEGER);
 }
 
 Token *Lexer::getLastToken() {
     if (!tokens_.empty()) {
-        return tokens_.end()[-1];
+        return tokens_.back().get();
     }
-
-    return new Token{TokenType::EOF_TOKEN, "EOF", llvm::SMRange{begin_loc_, loc_}};
+    return nullptr;
 }
 
-Token *Lexer::addIdentifierToken() {
+std::unique_ptr<Token> Lexer::addIdentifierToken() {
     while (isAlphaNumeric(peek())) {
         advance();
     }
 
-    auto *tok = addToken(Token::GetIdentifierType(std::string(begin_loc_.getPointer(), loc_.getPointer()), getLastToken()));
+    TokenType type = Token::GetIdentifierType(std::string(begin_loc_.getPointer(), loc_.getPointer()), getLastToken());
+    auto tok = makeToken(type);
 
     // If it's a multi-word keyword, remove the last token
     if (tok->type == TokenType::ELSE_IF || tok->type == TokenType::IS_NOT) {
-        auto *t = tokens_.back();
-        tokens_.pop_back();
-        delete t;
+        tokens_.pop_back();// unique_ptr automatically deletes
     }
 
     return tok;
 }
 
-char Lexer::lastChar() { return *curPtr_; }
+char Lexer::lastChar() { return getCharAt(curPos_); }
 
 void Lexer::error(const std::string &msg) const {
     throw LexerError(llvm::SMRange{begin_loc_, loc_}, msg);
