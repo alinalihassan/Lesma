@@ -69,7 +69,7 @@ if (EXISTS "${LLVM_DIR}" AND IS_DIRECTORY "${LLVM_DIR}") # Prefer local LLVM ins
 endif ()
 
 # LLVM configuration
-find_package(LLVM 15 CONFIG REQUIRED)
+find_package(LLVM CONFIG REQUIRED)
 
 message(STATUS "Found LLVM ${LLVM_PACKAGE_VERSION}")
 message(STATUS "Using LLVMConfig.cmake from ${LLVM_DIR}")
@@ -79,14 +79,18 @@ include(HandleLLVMOptions)
 add_definitions(${LLVM_DEFINITIONS})
 llvm_map_components_to_libnames(LLVM_LIBS core support demangle native orcjit)
 
-# LLD configuration
-find_package(LLD CONFIG REQUIRED)
+# LLD configuration (optional - falls back to clang for linking)
+find_package(LLD CONFIG)
 
-message(STATUS "Found LLDConfig.cmake in ${LLD_CMAKE_DIR}")
-
-include_directories(SYSTEM ${LLD_INCLUDE_DIRS})
-
-set(LLD_LIBS lldCommon lldELF lldCOFF lldMachO)
+if (LLD_FOUND)
+  message(STATUS "Found LLDConfig.cmake in ${LLD_CMAKE_DIR}")
+  include_directories(SYSTEM ${LLD_INCLUDE_DIRS})
+  set(LLD_LIBS lldCommon lldELF lldCOFF lldMachO)
+  add_definitions(-DLESMA_HAS_LLD)
+else()
+  message(STATUS "LLD not found, will use clang for linking")
+  set(LLD_LIBS "")
+endif()
 
 # Clang
 find_package(Clang CONFIG REQUIRED)

@@ -14,7 +14,7 @@ Codegen::Codegen(std::shared_ptr<Parser> parser, std::shared_ptr<SourceMgr> srcM
         TheJIT = InitializeJIT();
     }
 
-    Builder = std::make_unique<IRBuilder<>>(*TheContext->getContext());
+    Builder = std::make_unique<IRBuilder<>>(TheModule->getContext());
     Parser_ = std::move(parser);
     SourceManager = std::move(srcMgr);
     Scope = new SymbolTable(nullptr);
@@ -34,8 +34,11 @@ Codegen::Codegen(std::shared_ptr<Parser> parser, std::shared_ptr<SourceMgr> srcM
 }
 
 std::unique_ptr<Module> Codegen::InitializeModule() {
-    auto mod = std::make_unique<Module>("Lesma", *TheContext->getContext());
-    mod->setTargetTriple(TargetMachine->getTargetTriple().str());
+    std::unique_ptr<Module> mod;
+    TheContext->withContextDo([&](LLVMContext *Ctx) {
+        mod = std::make_unique<Module>("Lesma", *Ctx);
+    });
+    mod->setTargetTriple(TargetMachine->getTargetTriple());
     mod->setDataLayout(TargetMachine->createDataLayout());
     mod->setSourceFileName(filename);
 
@@ -45,17 +48,16 @@ std::unique_ptr<Module> Codegen::InitializeModule() {
 std::unique_ptr<llvm::TargetMachine> Codegen::InitializeTargetMachine() {
     // Configure output target
     auto targetTriple = llvm::Triple(llvm::sys::getDefaultTargetTriple());
-    const std::string &tripletString = targetTriple.getTriple();
 
     // Search after selected target
     std::string error;
-    const llvm::Target *target = llvm::TargetRegistry::lookupTarget(tripletString, error);
+    const llvm::Target *target = llvm::TargetRegistry::lookupTarget(targetTriple.getTriple(), error);
     if (!target)
         throw CodegenError({}, "Target not available:\n{}", error);
 
     llvm::TargetOptions opt;
     llvm::Reloc::Model rm = llvm::Reloc::Model();
-    std::unique_ptr<llvm::TargetMachine> target_machine(target->createTargetMachine(tripletString, "generic", "", opt, rm));
+    std::unique_ptr<llvm::TargetMachine> target_machine(target->createTargetMachine(targetTriple, "generic", "", opt, rm));
     return target_machine;
 }
 
@@ -70,9 +72,9 @@ std::unique_ptr<LLJIT> Codegen::InitializeJIT() {
 
     // Add support for C native functions
     auto &MainJD = jit->getMainJITDylib();
-    auto Err = MainJD.addGenerator(
-            cantFail(DynamicLibrarySearchGenerator::GetForCurrentProcess(
-                    jit->getDataLayout().getGlobalPrefix())));
+    auto Generator = cantFail(DynamicLibrarySearchGenerator::GetForCurrentProcess(
+            jit->getDataLayout().getGlobalPrefix()));
+    MainJD.addGenerator(std::move(Generator));
 
     return jit;
 }
@@ -83,7 +85,7 @@ llvm::Function *Codegen::InitializeTopLevel() {
     FunctionType *FT = FunctionType::get(Builder->getInt64Ty(), paramTypes, false);
     Function *F = Function::Create(FT, isMain ? Function::ExternalLinkage : Function::InternalLinkage, "main", *TheModule);
 
-    auto entry = BasicBlock::Create(*TheContext->getContext(), "entry", F);
+    auto entry = BasicBlock::Create(TheModule->getContext(), "entry", F);
     Builder->SetInsertPoint(entry);
 
     return F;
@@ -96,7 +98,7 @@ void Codegen::defineFunction(lesma::Value *value, const FuncDecl *node, Value *c
 
     auto *F = cast<Function>(value->getLLVMValue());
 
-    BasicBlock *entry = BasicBlock::Create(*TheContext->getContext(), "entry", F);
+    BasicBlock *entry = BasicBlock::Create(TheModule->getContext(), "entry", F);
     Builder->SetInsertPoint(entry);
 
     int fieldIndex = 0;
@@ -227,7 +229,7 @@ void Codegen::CompileModule(llvm::SMRange span, const std::string &filepath, boo
         for (auto sym: codegen->Scope->getSymbols()) {
             auto imp_alias = findInImports(sym.first);
             if (sym.second->getType()->isOneOf({TY_ENUM, TY_CLASS}) && sym.second->isExported() && (importAll || !imp_alias.empty())) {
-                llvm::StructType *structType = StructType::getTypeByName(*TheContext->getContext(), sym.first);
+                llvm::StructType *structType = StructType::getTypeByName(TheModule->getContext(), sym.first);
 
                 auto *structSymbol = new Value(imp_alias.empty() ? sym.first : imp_alias, sym.second->getType());
                 structSymbol->getType()->setLLVMType(structType);
@@ -335,7 +337,7 @@ void Codegen::WriteToObjectFile(const std::string &output) {
     }
 
     llvm::legacy::PassManager passManager;
-    if (TargetMachine->addPassesToEmitFile(passManager, out, nullptr, llvm::CGFT_ObjectFile))
+    if (TargetMachine->addPassesToEmitFile(passManager, out, nullptr, llvm::CodeGenFileType::ObjectFile))
         throw CodegenError({}, "Target Machine can't emit an object file");
     // Emit object file
     passManager.run(*TheModule);
@@ -345,6 +347,7 @@ void Codegen::WriteToObjectFile(const std::string &output) {
     out.close();
 }
 
+#ifdef LESMA_HAS_LLD
 [[maybe_unused]] void Codegen::LinkObjectFileWithLLD(const std::string &obj_filename) {
     std::string output = getBasename(obj_filename);
 
@@ -370,14 +373,15 @@ void Codegen::WriteToObjectFile(const std::string &output) {
 #endif
 
     // Run the LLD linker
-    bool success = false;
+    lld::Result result;
 #ifdef __APPLE__
-    success = lld::macho::link(args, llvm::outs(), llvm::errs(), false, true);
+    result = lld::macho::link(args, llvm::outs(), llvm::errs(), false, false);
 #elif defined(_WIN32)
-    success = lld::coff::link(args, llvm::outs(), llvm::errs(), false, true);
+    result = lld::coff::link(args, llvm::outs(), llvm::errs(), false, false);
 #else
-    success = lld::elf::link(args, llvm::outs(), llvm::errs(), false, true);
+    result = lld::elf::link(args, llvm::outs(), llvm::errs(), false, false);
 #endif
+    bool success = result.retCode == 0;
     if (!success)
         throw CodegenError({}, "Linking Failed");
 
@@ -386,6 +390,7 @@ void Codegen::WriteToObjectFile(const std::string &output) {
     for (const auto &obj: ObjectFiles)
         llvm::sys::fs::remove(obj);
 }
+#endif // LESMA_HAS_LLD
 
 [[maybe_unused]] void Codegen::LinkObjectFileWithClang(const std::string &obj_filename) {
     auto clangPath = llvm::sys::findProgramByName("clang");
@@ -412,12 +417,12 @@ void Codegen::WriteToObjectFile(const std::string &output) {
 
     // Set up the diagnostic engine
     llvm::IntrusiveRefCntPtr<clang::DiagnosticIDs> diagIDs(new clang::DiagnosticIDs());
-    llvm::IntrusiveRefCntPtr<clang::DiagnosticOptions> diagOpts(new clang::DiagnosticOptions());
-    auto *diagClient = new clang::TextDiagnosticPrinter(llvm::errs(), &*diagOpts);
-    clang::DiagnosticsEngine Diags(diagIDs, &*diagOpts, diagClient);
+    clang::DiagnosticOptions diagOpts;
+    auto *diagClient = new clang::TextDiagnosticPrinter(llvm::errs(), diagOpts);
+    clang::DiagnosticsEngine Diags(diagIDs, diagOpts, diagClient);
 
     // Create a compilation using Clang's driver
-    clang::driver::Driver TheDriver(args[0], TheModule->getTargetTriple(), Diags, "Lesma Compiler", llvm::vfs::getRealFileSystem());
+    clang::driver::Driver TheDriver(args[0], TheModule->getTargetTriple().str(), Diags, "Lesma Compiler", llvm::vfs::getRealFileSystem());
     std::unique_ptr<clang::driver::Compilation> C(TheDriver.BuildCompilation(args));
 
     if (!C) {
@@ -449,7 +454,7 @@ void Codegen::PrepareJIT() {
     auto main_func = TheJIT->lookup(TopLevelFunc->getName());
     if (!main_func)
         throw CodegenError({}, "Couldn't find top level function\n");
-    mainFuncAddress = jitTargetAddressToFunction<MainFnTy *>(main_func->getValue());
+    mainFuncAddress = main_func->toPtr<MainFnTy>();
 }
 
 int Codegen::ExecuteJIT() {
@@ -507,7 +512,7 @@ void Codegen::visit(const TypeExpr *node) {
     else if (node->getType() == TokenType::BOOL_TYPE)
         result = new lesma::Value(new lesma::Type(TY_BOOL, Builder->getInt1Ty()));
     else if (node->getType() == TokenType::STRING_TYPE)
-        result = new lesma::Value(new lesma::Type(TY_STRING, Builder->getInt8PtrTy()));
+        result = new lesma::Value(new lesma::Type(TY_STRING, Builder->getPtrTy()));
     else if (node->getType() == TokenType::VOID_TYPE)
         result = new lesma::Value(new lesma::Type(TY_VOID, Builder->getVoidTy()));
     else if (node->getType() == TokenType::PTR_TYPE) {
@@ -526,8 +531,11 @@ void Codegen::visit(const TypeExpr *node) {
             fields.push_back(new Field{result->getName(), result->getType()});
         }
 
-        llvm::Type *funcType = FunctionType::get(ret_type->getType()->getLLVMType(), paramLLVMTypes, false)->getPointerTo();
-        result = new lesma::Value(new lesma::Type(TY_FUNCTION, funcType, std::move(fields)));
+        // With opaque pointers, function pointer types are just `ptr`
+        // The actual function signature is tracked in Lesma's Type system via fields
+        auto funcType = new lesma::Type(TY_FUNCTION, Builder->getPtrTy(), std::move(fields));
+        funcType->setReturnType(ret_type->getType());
+        result = new lesma::Value(funcType);
     } else if (node->getType() == TokenType::CUSTOM_TYPE) {
         auto typ = Scope->lookupType(node->getName());
         auto sym = Scope->lookupStruct(node->getName());
@@ -582,19 +590,19 @@ void Codegen::visit(const VarDecl *node) {
 
 void Codegen::visit(const If *node) {
     auto parentFct = Builder->GetInsertBlock()->getParent();
-    auto bStart = llvm::BasicBlock::Create(*TheContext->getContext(), "if.start");
-    auto bEnd = llvm::BasicBlock::Create(*TheContext->getContext(), "if.end");
+    auto bStart = llvm::BasicBlock::Create(TheModule->getContext(), "if.start");
+    auto bEnd = llvm::BasicBlock::Create(TheModule->getContext(), "if.end");
 
     Builder->CreateBr(bStart);
     bStart->insertInto(parentFct);
     Builder->SetInsertPoint(bStart);
 
     for (unsigned long i = 0; i < node->getConds().size(); i++) {
-        auto bIfTrue = llvm::BasicBlock::Create(*TheContext->getContext(), "if.true");
+        auto bIfTrue = llvm::BasicBlock::Create(TheModule->getContext(), "if.true");
         bIfTrue->insertInto(parentFct);
         auto bIfFalse = bEnd;
         if (i + 1 < node->getConds().size()) {
-            bIfFalse = llvm::BasicBlock::Create(*TheContext->getContext(), "if.false");
+            bIfFalse = llvm::BasicBlock::Create(TheModule->getContext(), "if.false");
             bIfFalse->insertInto(parentFct);
         }
 
@@ -632,9 +640,9 @@ void Codegen::visit(const While *node) {
     llvm::Function *parentFct = Builder->GetInsertBlock()->getParent();
 
     // Create blocks
-    llvm::BasicBlock *bCond = llvm::BasicBlock::Create(*TheContext->getContext(), "while.cond");
-    llvm::BasicBlock *bLoop = llvm::BasicBlock::Create(*TheContext->getContext(), "while");
-    llvm::BasicBlock *bEnd = llvm::BasicBlock::Create(*TheContext->getContext(), "while.end");
+    llvm::BasicBlock *bCond = llvm::BasicBlock::Create(TheModule->getContext(), "while.cond");
+    llvm::BasicBlock *bLoop = llvm::BasicBlock::Create(TheModule->getContext(), "while");
+    llvm::BasicBlock *bEnd = llvm::BasicBlock::Create(TheModule->getContext(), "while.end");
 
     breakBlocks.push(bEnd);
     continueBlocks.push(bCond);
@@ -678,7 +686,7 @@ void Codegen::visit(const FuncDecl *node) {
 
     if (selfSymbol != nullptr) {
         paramTypes.push_back(selfSymbol->getType());
-        paramLLVMTypes.push_back(selfSymbol->getType()->getLLVMType()->getPointerTo());
+        paramLLVMTypes.push_back(Builder->getPtrTy());
         fields.push_back(new Field{"self", selfSymbol->getType()});
         shouldExport = selfSymbol->isExported();
     }
@@ -964,7 +972,7 @@ void Codegen::visit(const Class *node) {
         fields.push_back(new Field{field->getIdentifier()->getValue(), result->getType(), field->getValue().has_value() ? result : nullptr});
     }
 
-    llvm::StructType *structType = llvm::StructType::create(*TheContext->getContext(), elementLLVMTypes, node->getIdentifier());
+    llvm::StructType *structType = llvm::StructType::create(TheModule->getContext(), elementLLVMTypes, node->getIdentifier());
 
     auto *type = new Type(TY_CLASS, structType, std::move(fields));
     auto *structSymbol = new Value(node->getIdentifier(), type);
@@ -973,7 +981,7 @@ void Codegen::visit(const Class *node) {
     Scope->insertType(node->getIdentifier(), type);
     Scope->insertSymbol(structSymbol);
 
-    selfSymbol = new Value(node->getIdentifier(), new Type(TY_PTR, structType->getPointerTo(), type));
+    selfSymbol = new Value(node->getIdentifier(), new Type(TY_PTR, Builder->getPtrTy(), type));
     selfSymbol->setExported(node->isExported());
     auto has_constructor = false;
     for (auto func: node->getMethods()) {
@@ -992,7 +1000,7 @@ void Codegen::visit(const Class *node) {
 
 void Codegen::visit(const Enum *node) {
     std::vector<llvm::Type *> elementTypes = {Builder->getInt8Ty()};
-    llvm::StructType *structType = llvm::StructType::create(*TheContext->getContext(), elementTypes, node->getIdentifier());
+    llvm::StructType *structType = llvm::StructType::create(TheModule->getContext(), elementTypes, node->getIdentifier());
     std::vector<Field *> fields;
 
     for (const auto &field: node->getValues())
@@ -1416,15 +1424,15 @@ void Codegen::visit(const UnaryOp *node) {
 
 void Codegen::visit(const Literal *node) {
     if (node->getType() == TokenType::DOUBLE)
-        result = new Value("", new Type(TY_FLOAT, Builder->getDoubleTy()), ConstantFP::get(*TheContext->getContext(), APFloat(std::stod(node->getValue()))));
+        result = new Value("", new Type(TY_FLOAT, Builder->getDoubleTy()), ConstantFP::get(TheModule->getContext(), APFloat(std::stod(node->getValue()))));
     else if (node->getType() == TokenType::INTEGER)
         result = new Value("", new Type(TY_INT, Builder->getInt64Ty()), ConstantInt::getSigned(Builder->getInt64Ty(), std::stoi(node->getValue())));
     else if (node->getType() == TokenType::BOOL)
         result = new Value("", new Type(TY_BOOL, Builder->getInt1Ty()), node->getValue() == "true" ? Builder->getTrue() : Builder->getFalse());
     else if (node->getType() == TokenType::STRING)
-        result = new Value("", new Type(TY_STRING, Builder->getInt8PtrTy()), Builder->CreateGlobalStringPtr(node->getValue()));
+        result = new Value("", new Type(TY_STRING, Builder->getPtrTy()), Builder->CreateGlobalString(node->getValue()));
     else if (node->getType() == TokenType::NIL)
-        result = new Value("", new Type(TY_VOID, Builder->getVoidTy()), ConstantPointerNull::getNullValue(Builder->getInt8PtrTy(0)));
+        result = new Value("", new Type(TY_VOID, Builder->getVoidTy()), ConstantPointerNull::getNullValue(Builder->getPtrTy()));
     else if (node->getType() == TokenType::IDENTIFIER) {
         // Look this variable up in the function.
         auto val = Scope->lookup(node->getValue());
@@ -1445,7 +1453,7 @@ void Codegen::visit(const Literal *node) {
 }
 
 void Codegen::visit(const Else * /*node*/) {
-    result = new Value("", new Type(TY_BOOL, Builder->getInt1Ty()), llvm::ConstantInt::getTrue(*TheContext->getContext()));
+    result = new Value("", new Type(TY_BOOL, Builder->getInt1Ty()), llvm::ConstantInt::getTrue(TheModule->getContext()));
 }
 
 std::string Codegen::getTypeMangledName(llvm::SMRange span, lesma::Type *type) {
