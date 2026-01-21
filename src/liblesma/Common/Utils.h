@@ -2,6 +2,7 @@
 
 #include <cstdint>
 #include <string>
+#include <vector>
 
 #include "llvm/Support/SourceMgr.h"
 #include <llvm/Support/SMLoc.h>
@@ -21,7 +22,7 @@ namespace lesma {
     struct CLIOptions {
         std::string file;
         std::string output;
-        bool debug;
+        std::vector<std::string> debug;
         bool timer;
         bool jit;
     };

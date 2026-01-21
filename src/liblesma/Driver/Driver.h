@@ -10,12 +10,26 @@ namespace lesma {
         STRING,
     };
 
-    enum Debug {
+    enum Debug : std::uint8_t {
         NONE = 0x00, // 00000000
         LEXER = 0x01,// 00000001
         AST = 0x02,  // 00000010
         IR = 0x04,   // 00000100
+        ALL = LEXER | AST | IR,
     };
+
+    // Bitwise operators for Debug flags
+    inline Debug operator|(Debug a, Debug b) {
+        return static_cast<Debug>(static_cast<int>(a) | static_cast<int>(b));
+    }
+
+    inline Debug operator&(Debug a, Debug b) {
+        return static_cast<Debug>(static_cast<int>(a) & static_cast<int>(b));
+    }
+
+    inline Debug &operator|=(Debug &a, Debug b) {
+        return a = a | b;
+    }
 
     struct Options {
         SourceType sourceType;

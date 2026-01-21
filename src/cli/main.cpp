@@ -13,8 +13,24 @@
 
 using namespace lesma;
 
+Debug parseDebugFlags(const std::vector<std::string> &debugOptions) {
+    Debug flags = Debug::NONE;
+    for (const auto &opt: debugOptions) {
+        if (opt == "lexer") {
+            flags |= Debug::LEXER;
+        } else if (opt == "ast") {
+            flags |= Debug::AST;
+        } else if (opt == "ir") {
+            flags |= Debug::IR;
+        } else if (opt == "all") {
+            flags = Debug::ALL;
+        }
+    }
+    return flags;
+}
+
 std::unique_ptr<CLIOptions> parseCLI(int argc, char **argv) {
-    bool debug = false;
+    std::vector<std::string> debug;
     bool timer = false;
     std::string output = "output";
     std::string file;
@@ -22,7 +38,9 @@ std::unique_ptr<CLIOptions> parseCLI(int argc, char **argv) {
     CLI::App app{"Lesma programming language", "lesma"};
     app.set_version_flag("-v,--version", LESMA_VERSION, "Print the Lesma version");
     app.set_help_all_flag("-s,--subcommands", "Expand help to show subcommand flags and options");
-    app.add_flag("-d,--debug", debug, "Enable debug logging");
+    auto *debugOpt = app.add_option("-d,--debug", debug, "Debug options: lexer, ast, ir, all (default: all)")
+                             ->expected(0, -1)
+                             ->check(CLI::IsMember({"lexer", "ast", "ir", "all"}));
     app.add_flag("-t,--timer", timer, "Enable compiler timer");
 
     CLI::App *run = app.add_subcommand("run", "Run source code");
@@ -44,13 +62,18 @@ std::unique_ptr<CLIOptions> parseCLI(int argc, char **argv) {
         }
     }
 
+    // Default to "all" when -d is specified without arguments
+    if (debugOpt->count() > 0 && debug.empty()) {
+        debug.emplace_back("all");
+    }
+
     return std::make_unique<CLIOptions>(CLIOptions{std::filesystem::absolute(file), output, debug, timer, run->parsed()});
 }
 
 int main(int argc, char **argv) {
     // CLI Parsing
     auto options = parseCLI(argc, argv);
-    auto driverOptions = std::make_unique<Options>(Options{SourceType::FILE, options->file,
-                                                           static_cast<Debug>(options->debug ? (Debug::LEXER | Debug::AST | Debug::IR) : Debug::NONE), options->output, options->timer});
+    auto debugFlags = parseDebugFlags(options->debug);
+    auto driverOptions = std::make_unique<Options>(Options{SourceType::FILE, options->file, debugFlags, options->output, options->timer});
     return options->jit ? Driver::run(std::move(driverOptions)) : Driver::compile(std::move(driverOptions));
 }

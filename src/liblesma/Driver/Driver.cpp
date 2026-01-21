@@ -11,6 +11,7 @@
 #include <llvm/Support/SMLoc.h>
 
 #include "plf_nanotimer.h"
+#include <fmt/format.h>
 
 #include "liblesma/Backend/Codegen.h"
 #include "liblesma/Common/LesmaError.h"
@@ -56,8 +57,9 @@ int Driver::baseCompile(std::unique_ptr<lesma::Options> options, bool jit) {
 
         if (options->debug & Debug::LEXER) {
             print(LogType::DEBUG, "TOKENS: \n");
-            for (const auto &tok: lexer->getTokens())
+            for (const auto &tok: lexer->getTokens()) {
                 print("Token: {}\n", tok->Dump(srcMgr));
+            }
         }
 
         // Parser
@@ -65,8 +67,9 @@ int Driver::baseCompile(std::unique_ptr<lesma::Options> options, bool jit) {
                auto parser = std::make_unique<Parser>(lexer->getTokens());
                parser->Parse();)
 
-        if (options->debug & Debug::AST)
+        if (options->debug & Debug::AST) {
             print(LogType::DEBUG, "AST:\n{}", parser->getAST()->toString(srcMgr.get(), "", true));
+        }
 
         // Codegen
         TIMEIT("Compiling",
@@ -97,8 +100,9 @@ int Driver::baseCompile(std::unique_ptr<lesma::Options> options, bool jit) {
             TIMEIT("Execution", exitCode = codegen->ExecuteJIT();)
         }
 
-        if (options->timer)
+        if (options->timer) {
             print(LogType::DEBUG, "Total -> {:.2f} ms\n", total);
+        }
 
         return exitCode;
     } catch (const LesmaError &err) {
