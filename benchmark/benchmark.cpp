@@ -8,53 +8,57 @@
 
 using namespace lesma;
 
-static std::shared_ptr<SourceMgr> initializeSrcMgr(const std::string &src) {
-    // Configure Source Manager
-    auto sourceMgr = std::make_shared<SourceMgr>(SourceMgr());
+namespace {
+    auto initializeSrcMgr(const std::string &src) -> std::shared_ptr<SourceMgr> {
+        // Configure Source Manager
+        auto sourceMgr = std::make_shared<SourceMgr>(SourceMgr());
 
-    auto buffer = MemoryBuffer::getMemBuffer(src);
-    sourceMgr->AddNewSourceBuffer(std::move(buffer), llvm::SMLoc());
+        auto buffer = MemoryBuffer::getMemBuffer(src);
+        sourceMgr->AddNewSourceBuffer(std::move(buffer), llvm::SMLoc());
 
-    return sourceMgr;
-}
+        return sourceMgr;
+    }
 
-[[maybe_unused]] static std::shared_ptr<SourceMgr> initializeSrcMgrFromFile(const std::string &file) {
-    // Configure Source Manager
-    auto sourceMgr = std::make_shared<SourceMgr>(SourceMgr());
+    [[maybe_unused]] auto initializeSrcMgrFromFile(const std::string &file) -> std::shared_ptr<SourceMgr> {
+        // Configure Source Manager
+        auto sourceMgr = std::make_shared<SourceMgr>(SourceMgr());
 
-    auto buffer = llvm::MemoryBuffer::getFile(file);
-    if (buffer.getError() != std::error_code()) throw LesmaError(llvm::SMRange(), "Could not read file: {}", file);
+        auto buffer = llvm::MemoryBuffer::getFile(file);
+        if (buffer.getError() != std::error_code()) {
+            throw LesmaError(llvm::SMRange(), "Could not read file: {}", file);
+        }
 
-    sourceMgr->AddNewSourceBuffer(std::move(*buffer), llvm::SMLoc());
+        sourceMgr->AddNewSourceBuffer(std::move(*buffer), llvm::SMLoc());
 
-    return sourceMgr;
-}
+        return sourceMgr;
+    }
 
-static std::shared_ptr<Lexer> initializeLexer(const std::shared_ptr<SourceMgr> &sourceMgr) {
-    auto curLexer = std::make_shared<Lexer>(sourceMgr);
-    curLexer->scanAll();
+    auto initializeLexer(const std::shared_ptr<SourceMgr> &sourceMgr) -> std::shared_ptr<Lexer> {
+        auto curLexer = std::make_shared<Lexer>(sourceMgr);
+        curLexer->scanAll();
 
-    return curLexer;
-}
+        return curLexer;
+    }
 
-static std::shared_ptr<Parser> initializeParser(const std::shared_ptr<Lexer> &lexer) {
-    auto curParser = std::make_shared<Parser>(lexer->getTokens());
-    curParser->parse();
+    auto initializeParser(const std::shared_ptr<Lexer> &lexer) -> std::shared_ptr<Parser> {
+        auto curParser = std::make_shared<Parser>(lexer->getTokens());
+        curParser->parse();
 
-    return curParser;
-}
+        return curParser;
+    }
 
-static Codegen *initializeCodegen(std::shared_ptr<Parser> parser, const std::shared_ptr<SourceMgr> &srcMgr) {
-    auto _codegen = new Codegen(std::move(parser), srcMgr, __FILE__, {}, true, true);
-    _codegen->run();
+    auto initializeCodegen(std::shared_ptr<Parser> parser, const std::shared_ptr<SourceMgr> &srcMgr) -> Codegen * {
+        auto *codegen = new Codegen(std::move(parser), srcMgr, __FILE__, {}, true, true);
+        codegen->run();
 
-    return _codegen;
-}
+        return codegen;
+    }
 
+    [[maybe_unused]] auto getRange(const std::string &source, int x, int y) -> llvm::SMRange {
+        return {llvm::SMLoc::getFromPointer(source.c_str() + x), llvm::SMLoc::getFromPointer(source.c_str() + y)};
+    }
 
-llvm::SMRange getRange(const std::string &source, int x, int y) {
-    return {llvm::SMLoc::getFromPointer(source.c_str() + x), llvm::SMLoc::getFromPointer(source.c_str() + y)};
-}
+}// namespace
 
 class LexerBenchmark : public benchmark::Fixture {
 protected:
@@ -125,7 +129,7 @@ BENCHMARK_F(CodegenBenchmark, Initialize)
 BENCHMARK_F(CodegenBenchmark, Optimize)
 (benchmark::State &state) {
     for ([[maybe_unused]] auto _: state) {
-        auto cg = initializeCodegen(parser, srcMgr);
+        auto *cg = initializeCodegen(parser, srcMgr);
         cg->optimize(OptimizationLevel::O3);
     }
 }
@@ -133,7 +137,7 @@ BENCHMARK_F(CodegenBenchmark, Optimize)
 BENCHMARK_F(CodegenBenchmark, JIT)
 (benchmark::State &state) {
     for ([[maybe_unused]] auto _: state) {
-        auto cg = initializeCodegen(parser, srcMgr);
+        auto *cg = initializeCodegen(parser, srcMgr);
         cg->prepareJit();
         cg->executeJit();
     }
@@ -142,7 +146,7 @@ BENCHMARK_F(CodegenBenchmark, JIT)
 BENCHMARK_F(CodegenBenchmark, All)
 (benchmark::State &state) {
     for ([[maybe_unused]] auto _: state) {
-        auto cg = initializeCodegen(parser, srcMgr);
+        auto *cg = initializeCodegen(parser, srcMgr);
         cg->optimize(OptimizationLevel::O3);
         cg->prepareJit();
         cg->executeJit();
