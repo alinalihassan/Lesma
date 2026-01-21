@@ -899,7 +899,6 @@ void Codegen::visit(const Break *node) {
         throw CodegenError(node->getSpan(), "Cannot break without being in a loop");
 
     auto block = breakBlocks.top();
-    breakBlocks.pop();
     isBreak = true;
 
     Builder->CreateBr(block);
@@ -910,7 +909,6 @@ void Codegen::visit(const Continue *node) {
         throw CodegenError(node->getSpan(), "Cannot continue without being in a loop");
 
     auto block = continueBlocks.top();
-    continueBlocks.pop();
     isBreak = true;
 
     Builder->CreateBr(block);
