@@ -8,10 +8,8 @@
 
 #include <llvm/IR/Type.h>
 
-#include "liblesma/Symbol/Value.h"
-
-
 namespace lesma {
+    class Value;// Forward declaration instead of include to break circular dependency
     enum class BaseType : std::uint8_t {
         TY_INVALID,
         TY_INT,
@@ -37,36 +35,36 @@ namespace lesma {
     };
 
     class Type {
-        BaseType baseType;
-        llvm::Type *llvmType;
+        BaseType baseType_;
+        llvm::Type *llvmType_;
 
-        Type *elementType;
-        Type *returnType;
-        std::vector<Field *> fields;
-        bool signedInt = true;
+        Type *elementType_;
+        Type *returnType_;
+        std::vector<Field *> fields_;
+        bool signedInt_ = true;
 
     public:
-        explicit Type(BaseType baseType) : baseType(baseType), llvmType(nullptr), elementType(nullptr), returnType(nullptr) {}
-        explicit Type(BaseType baseType, llvm::Type *llvmType) : baseType(baseType), llvmType(llvmType), elementType(nullptr), returnType(nullptr) {}
-        explicit Type(BaseType baseType, llvm::Type *llvmType, Type *elementType) : baseType(baseType), llvmType(llvmType), elementType(elementType), returnType(nullptr) {}
-        explicit Type(BaseType baseType, llvm::Type *llvmType, std::vector<Field *> fields) : baseType(baseType), llvmType(llvmType), elementType(nullptr), returnType(nullptr), fields(std::move(fields)) {}
+        explicit Type(BaseType baseType) : baseType_(baseType), llvmType_(nullptr), elementType_(nullptr), returnType_(nullptr) {}
+        explicit Type(BaseType baseType, llvm::Type *llvmType) : baseType_(baseType), llvmType_(llvmType), elementType_(nullptr), returnType_(nullptr) {}
+        explicit Type(BaseType baseType, llvm::Type *llvmType, Type *elementType) : baseType_(baseType), llvmType_(llvmType), elementType_(elementType), returnType_(nullptr) {}
+        explicit Type(BaseType baseType, llvm::Type *llvmType, std::vector<Field *> fields) : baseType_(baseType), llvmType_(llvmType), elementType_(nullptr), returnType_(nullptr), fields_(std::move(fields)) {}
 
-        [[nodiscard]] bool is(BaseType type) const { return baseType == type; }
+        [[nodiscard]] bool is(BaseType type) const { return baseType_ == type; }
         [[nodiscard]] bool isPrimitive() const { return isOneOf({BaseType::TY_INT, BaseType::TY_FLOAT, BaseType::TY_STRING, BaseType::TY_BOOL}); }
         [[nodiscard]] bool isOneOf(const std::vector<BaseType> &baseTypes) const {
-            return std::any_of(baseTypes.begin(), baseTypes.end(), [this](BaseType type) { return type == this->baseType; });
+            return std::any_of(baseTypes.begin(), baseTypes.end(), [this](BaseType type) { return type == this->baseType_; });
         }
-        [[nodiscard]] BaseType getBaseType() const { return baseType; }
-        [[nodiscard]] Type *getElementType() const { return elementType; }
-        [[nodiscard]] Type *getReturnType() const { return returnType; }
-        [[nodiscard]] llvm::Type *getLLVMType() const { return llvmType; }
-        [[nodiscard]] std::vector<Field *> const &getFields() const { return fields; }
-        [[nodiscard]] bool isSigned() const { return signedInt; }
+        [[nodiscard]] BaseType getBaseType() const { return baseType_; }
+        [[nodiscard]] Type *getElementType() const { return elementType_; }
+        [[nodiscard]] Type *getReturnType() const { return returnType_; }
+        [[nodiscard]] llvm::Type *getLLVMType() const { return llvmType_; }
+        [[nodiscard]] std::vector<Field *> const &getFields() const { return fields_; }
+        [[nodiscard]] bool isSigned() const { return signedInt_; }
 
-        void setLLVMType(llvm::Type *type) { llvmType = type; }
-        void setBaseType(BaseType type) { baseType = type; }
-        void setElementType(lesma::Type *type) { elementType = type; }
-        void setReturnType(lesma::Type *type) { returnType = type; }
+        void setLLVMType(llvm::Type *type) { llvmType_ = type; }
+        void setBaseType(BaseType type) { baseType_ = type; }
+        void setElementType(lesma::Type *type) { elementType_ = type; }
+        void setReturnType(lesma::Type *type) { returnType_ = type; }
 
         bool isEqual(Type *rhs) const {
             if (rhs == nullptr) {
@@ -93,7 +91,7 @@ namespace lesma {
         [[nodiscard]] std::string toString() const {
             std::string result;
 
-            switch (baseType) {
+            switch (baseType_) {
                 case BaseType::TY_INVALID:
                     result = "Invalid";
                     break;
@@ -132,20 +130,20 @@ namespace lesma {
                     break;
             }
 
-            if (elementType != nullptr) {
-                result += "<" + elementType->toString() + ">";
+            if (elementType_ != nullptr) {
+                result += "<" + elementType_->toString() + ">";
             }
 
-            if (!fields.empty()) {
-                result += baseType == BaseType::TY_FUNCTION ? " ( " : " { ";
-                for (const auto &field: fields) {
+            if (!fields_.empty()) {
+                result += baseType_ == BaseType::TY_FUNCTION ? " ( " : " { ";
+                for (const auto &field: fields_) {
                     result += field->name + ": " + field->type->toString() + "; ";
                 }
-                result += baseType == BaseType::TY_FUNCTION ? ")" : "}";
+                result += baseType_ == BaseType::TY_FUNCTION ? ")" : "}";
             }
 
-            if (returnType != nullptr) {
-                result += " -> " + returnType->toString();
+            if (returnType_ != nullptr) {
+                result += " -> " + returnType_->toString();
             }
 
             return result;

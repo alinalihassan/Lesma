@@ -1,12 +1,14 @@
 #pragma once
 
+#include <memory>
 #include <ostream>
 #include <string>
 #include <utility>
 
 #include "llvm/Support/SourceMgr.h"
+#include <llvm/Support/SMLoc.h>
 
-#include "TokenType.h"
+#include "liblesma/Token/TokenType.h"
 
 namespace lesma {
     struct Token {
@@ -20,8 +22,8 @@ namespace lesma {
         [[nodiscard]] llvm::SMLoc getStart() const { return span.Start; }
         [[nodiscard]] llvm::SMLoc getEnd() const { return span.End; };
 
-        static TokenType GetIdentifierType(const std::string &identifier, Token *lastTok);
-        [[nodiscard]] std::string Dump(const std::shared_ptr<llvm::SourceMgr> &srcMgr) const;
+        static TokenType getIdentifierType(const std::string &identifier, Token *lastTok);
+        [[nodiscard]] std::string dump(const std::shared_ptr<llvm::SourceMgr> &srcMgr) const;
 
         bool operator==(const Token &rhs) const {
             return (lexeme == rhs.lexeme) && (type == rhs.type) && (span.Start.getPointer() == rhs.span.Start.getPointer()) && (span.End.getPointer() == rhs.span.End.getPointer());

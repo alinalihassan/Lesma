@@ -23,38 +23,38 @@ namespace lesma {
      */
     class Value {
     public:
-        explicit Value(Type *type) : state(SymbolState::INITIALIZED),
-                                     type(type) {}
-        Value(std::string name, Type *type) : name(std::move(name)), mangledName(name),
-                                              state(SymbolState::INITIALIZED), type(type) {}
-        Value(std::string name, Type *type, llvm::Value *value) : name(std::move(name)), mangledName(name),
-                                                                  state(SymbolState::INITIALIZED), type(type), llvmValue(value) {}
-        Value(std::string name, Type *type, SymbolState state) : name(std::move(name)), mangledName(name),
-                                                                 state(state), type(type) {}
+        explicit Value(Type *type) : state_(SymbolState::INITIALIZED),
+                                     type_(type) {}
+        Value(std::string name, Type *type) : name_(std::move(name)), mangledName_(name),
+                                              state_(SymbolState::INITIALIZED), type_(type) {}
+        Value(std::string name, Type *type, llvm::Value *value) : name_(std::move(name)), mangledName_(name),
+                                                                  state_(SymbolState::INITIALIZED), type_(type), llvmValue_(value) {}
+        Value(std::string name, Type *type, SymbolState state) : name_(std::move(name)), mangledName_(name),
+                                                                 state_(state), type_(type) {}
         Value(std::string name, Type *type,
-              SymbolState state, bool mutable_, bool signed_) : name(std::move(name)), state(state),
-                                                                type(type), mutableVar(mutable_),
-                                                                signedVar(signed_) {}
+              SymbolState state, bool mutable_, bool signed_) : name_(std::move(name)), state_(state),
+                                                                type_(type), mutableVar_(mutable_),
+                                                                signedVar_(signed_) {}
 
-        [[nodiscard]] std::string getName() { return name; }
-        [[nodiscard]] std::string getMangledName() { return mangledName; }
-        [[nodiscard]] llvm::Value *getLLVMValue() { return llvmValue; }
-        [[nodiscard]] bool getMutability() const { return mutableVar; }
-        [[nodiscard]] bool getSigned() const { return signedVar; }
-        [[nodiscard]] SymbolState getState() { return state; }
-        [[nodiscard]] Type *getType() { return type; }
-        [[nodiscard]] lesma::Value *getConstructor() { return constructor; }
-        [[nodiscard]] bool isExported() const { return exported; }
-        [[nodiscard]] bool isUsed() const { return used; }
+        [[nodiscard]] std::string getName() { return name_; }
+        [[nodiscard]] std::string getMangledName() { return mangledName_; }
+        [[nodiscard]] llvm::Value *getLLVMValue() { return llvmValue_; }
+        [[nodiscard]] bool getMutability() const { return mutableVar_; }
+        [[nodiscard]] bool getSigned() const { return signedVar_; }
+        [[nodiscard]] SymbolState getState() { return state_; }
+        [[nodiscard]] Type *getType() { return type_; }
+        [[nodiscard]] lesma::Value *getConstructor() { return constructor_; }
+        [[nodiscard]] bool isExported() const { return exported_; }
+        [[nodiscard]] bool isUsed() const { return used_; }
 
-        void setLLVMValue(llvm::Value *value) { llvmValue = value; }
-        void setName(std::string name_) { name = std::move(name_); }
-        void setMangledName(std::string name_) { mangledName = std::move(name_); }
-        void setUsed(bool used_) { used = used_; }
-        void setSigned(bool signed_) { mutableVar = signed_; }
-        void setMutable(bool mutable_) { mutableVar = mutable_; }
-        void setExported(bool exported_) { exported = exported_; }
-        void setConstructor(lesma::Value *constructor_) { constructor = constructor_; }
+        void setLLVMValue(llvm::Value *value) { llvmValue_ = value; }
+        void setName(std::string value) { name_ = std::move(value); }
+        void setMangledName(std::string value) { mangledName_ = std::move(value); }
+        void setUsed(bool value) { used_ = value; }
+        void setSigned(bool value) { signedVar_ = value; }
+        void setMutable(bool value) { mutableVar_ = value; }
+        void setExported(bool value) { exported_ = value; }
+        void setConstructor(lesma::Value *value) { constructor_ = value; }
 
         std::string toString() {
             std::string typeStr;
@@ -62,30 +62,30 @@ namespace lesma {
             llvm::raw_string_ostream rso(typeStr);
             llvm::raw_string_ostream rso2(valueStr);
 
-            if (type->getLLVMType() != nullptr) {
-                type->getLLVMType()->print(rso);
+            if (type_->getLLVMType() != nullptr) {
+                type_->getLLVMType()->print(rso);
             }
-            if (llvmValue != nullptr) {
-                llvmValue->print(rso2);
+            if (llvmValue_ != nullptr) {
+                llvmValue_->print(rso2);
             }
-            return name + ": " + typeStr + " = " + valueStr;
+            return name_ + ": " + typeStr + " = " + valueStr;
         }
 
     private:
-        std::string name;
-        std::string mangledName;
-        SymbolState state;
-        Type *type;
-        llvm::Value *llvmValue = nullptr;
+        std::string name_;
+        std::string mangledName_;
+        SymbolState state_;
+        Type *type_;
+        llvm::Value *llvmValue_ = nullptr;
         // For analysis
-        bool used = false;
+        bool used_ = false;
         // For variables
-        bool mutableVar = false;
+        bool mutableVar_ = false;
         // For integers
-        bool signedVar = true;
+        bool signedVar_ = true;
         // For functions
-        bool exported = false;
+        bool exported_ = false;
         // For classes
-        lesma::Value *constructor = nullptr;
+        lesma::Value *constructor_ = nullptr;
     };
 }//namespace lesma

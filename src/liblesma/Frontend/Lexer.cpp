@@ -438,7 +438,7 @@ std::unique_ptr<Token> Lexer::addIdentifierToken() {
         advance();
     }
 
-    TokenType type = Token::GetIdentifierType(std::string(begin_loc_.getPointer(), loc_.getPointer()), getLastToken());
+    TokenType type = Token::getIdentifierType(std::string(begin_loc_.getPointer(), loc_.getPointer()), getLastToken());
     auto tok = makeToken(type);
 
     // If it's a multi-word keyword, remove the last token

@@ -1,8 +1,9 @@
 #pragma once
 
+#include <cstdint>
 namespace lesma {
 
-    enum class TokenType {
+    enum class TokenType : std::uint8_t {
         // Whitespace
         NEWLINE,
         INDENT,

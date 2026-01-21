@@ -51,7 +51,7 @@ int Driver::baseCompile(std::unique_ptr<lesma::Options> options, bool jit) {
         if ((options->debug & Debug::LEXER) != Debug::NONE) {
             print(LogType::DEBUG, "TOKENS: \n");
             for (const auto &tok: lexer->getTokens()) {
-                print("Token: {}\n", tok->Dump(srcMgr));
+                print("Token: {}\n", tok->dump(srcMgr));
             }
         }
 
