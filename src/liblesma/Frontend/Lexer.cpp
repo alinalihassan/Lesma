@@ -1,302 +1,347 @@
 #include "Lexer.h"
 
-#include "fmt/core.h"
+#include <cassert>
+#include <cstddef>
+#include <string>
+
+#include <llvm/Support/SMLoc.h>
+
+#include <fmt/core.h>
+#include <fmt/format.h>
+
+#include "liblesma/Token/Token.h"
+#include "liblesma/Token/TokenType.h"
 
 using namespace lesma;
 
-void Lexer::ScanAll() {
-    while (tokens.empty() || tokens.back()->type != TokenType::EOF_TOKEN)
-        tokens.push_back(ScanOne(false));
+void Lexer::scanAll() {
+    while (tokens_.empty() || tokens_.back()->type != TokenType::EOF_TOKEN) {
+        tokens_.push_back(scanOne(false));
+    }
 }
 
-Token *Lexer::ScanOne(bool continuation) {
-    if (IsAtEnd())
-        return new Token{TokenType::EOF_TOKEN, "EOF", llvm::SMRange{begin_loc, loc}};
-    ResetTokenBeg();
-    char c = Advance();
+Token *Lexer::scanOne(bool continuation) {
+    if (isAtEnd()) {
+        return new Token{TokenType::EOF_TOKEN, "EOF", llvm::SMRange{begin_loc_, loc_}};
+    }
+    resetTokenBeg();
+    char c = advance();
 
     switch (c) {
         case '(':
             level_++;
-            return AddToken(TokenType::LEFT_PAREN);
+            return addToken(TokenType::LEFT_PAREN);
         case ')':
             level_--;
-            return AddToken(TokenType::RIGHT_PAREN);
+            return addToken(TokenType::RIGHT_PAREN);
         case '[':
             level_++;
-            return AddToken(TokenType::LEFT_SQUARE);
+            return addToken(TokenType::LEFT_SQUARE);
         case ']':
             level_--;
-            return AddToken(TokenType::RIGHT_SQUARE);
+            return addToken(TokenType::RIGHT_SQUARE);
         case '{':
             level_++;
-            return AddToken(TokenType::LEFT_BRACE);
+            return addToken(TokenType::LEFT_BRACE);
         case '}':
             level_--;
-            return AddToken(TokenType::RIGHT_BRACE);
+            return addToken(TokenType::RIGHT_BRACE);
         case ':':
-            return AddToken(TokenType::COLON);
+            return addToken(TokenType::COLON);
         case ',':
-            return AddToken(TokenType::COMMA);
+            return addToken(TokenType::COMMA);
         case '.': {
-            if (MatchAndAdvance(('.'))) {
-                if (MatchAndAdvance('.'))
-                    return AddToken(TokenType::ELLIPSIS);
-                else
-                    return AddToken(TokenType::RANGE);
-            } else
-                return AddToken(TokenType::DOT);
+            if (matchAndAdvance(('.'))) {
+                if (matchAndAdvance('.')) {
+                    return addToken(TokenType::ELLIPSIS);
+                }
+
+                return addToken(TokenType::RANGE);
+            }
+
+            return addToken(TokenType::DOT);
         }
         case '-': {
-            if (MatchAndAdvance('>'))
-                return AddToken(TokenType::ARROW);
-            else if (MatchAndAdvance('='))
-                return AddToken(TokenType::MINUS_EQUAL);
+            if (matchAndAdvance('>')) {
+                return addToken(TokenType::ARROW);
+            }
+            if (matchAndAdvance('=')) {
+                return addToken(TokenType::MINUS_EQUAL);
+            }
 
-            return AddToken(TokenType::MINUS);
+            return addToken(TokenType::MINUS);
         }
         case '+': {
-            if (MatchAndAdvance('='))
-                return AddToken(TokenType::PLUS_EQUAL);
+            if (matchAndAdvance('=')) {
+                return addToken(TokenType::PLUS_EQUAL);
+            }
 
-            return AddToken(TokenType::PLUS);
+            return addToken(TokenType::PLUS);
         }
         case ';':
-            return AddToken(TokenType::SEMICOLON);
+            return addToken(TokenType::SEMICOLON);
         case '*': {
-            if (MatchAndAdvance('='))
-                return AddToken(TokenType::STAR_EQUAL);
-            return AddToken(TokenType::STAR);
+            if (matchAndAdvance('=')) {
+                return addToken(TokenType::STAR_EQUAL);
+            }
+            return addToken(TokenType::STAR);
         }
         case '&':
-            return AddToken(TokenType::AMPERSAND);
+            return addToken(TokenType::AMPERSAND);
         case '!':
-            return AddToken(MatchAndAdvance('=') ? TokenType::BANG_EQUAL : TokenType::BANG);
+            return addToken(matchAndAdvance('=') ? TokenType::BANG_EQUAL : TokenType::BANG);
         case '=': {
-            if (MatchAndAdvance('='))
-                return AddToken(TokenType::EQUAL_EQUAL);
-            else if (MatchAndAdvance('>'))
-                return AddToken(TokenType::FAT_ARROW);
+            if (matchAndAdvance('=')) {
+                return addToken(TokenType::EQUAL_EQUAL);
+            }
+            if (matchAndAdvance('>')) {
+                return addToken(TokenType::FAT_ARROW);
+            }
 
-            return AddToken(TokenType::EQUAL);
+            return addToken(TokenType::EQUAL);
         }
         case '<':
-            return AddToken(MatchAndAdvance('=') ? TokenType::LESS_EQUAL : TokenType::LESS);
+            return addToken(matchAndAdvance('=') ? TokenType::LESS_EQUAL : TokenType::LESS);
         case '>':
-            return AddToken(MatchAndAdvance('=') ? TokenType::GREATER_EQUAL : TokenType::GREATER);
+            return addToken(matchAndAdvance('=') ? TokenType::GREATER_EQUAL : TokenType::GREATER);
         case '/': {
-            if (MatchAndAdvance('='))
-                return AddToken(TokenType::SLASH_EQUAL);
-            return AddToken(TokenType::SLASH);
+            if (matchAndAdvance('=')) {
+                return addToken(TokenType::SLASH_EQUAL);
+            }
+            return addToken(TokenType::SLASH);
         }
         case '%': {
-            if (MatchAndAdvance('='))
-                return AddToken(TokenType::MOD_EQUAL);
-            return AddToken(TokenType::MOD);
+            if (matchAndAdvance('=')) {
+                return addToken(TokenType::MOD_EQUAL);
+            }
+            return addToken(TokenType::MOD);
         }
         case '^': {
-            if (MatchAndAdvance('='))
-                return AddToken(TokenType::POWER_EQUAL);
-            return AddToken(TokenType::POWER);
+            if (matchAndAdvance('=')) {
+                return addToken(TokenType::POWER_EQUAL);
+            }
+            return addToken(TokenType::POWER);
         }
         case '#': {
             // A comment goes until the end of the line.
-            while (Peek() != '\n' && !IsAtEnd()) Advance();
-            return ScanOne(continuation);
+            while (peek() != '\n' && !isAtEnd()) {
+                advance();
+            }
+            return scanOne(continuation);
         }
         case '\\':
-            c = Advance();
+            c = advance();
             continuation = true;
 
             while (true) {
-                if (c == ' ' || c == '\r' || c == '\t')
-                    c = Advance();
-                else if (c == '#') {
-                    while (Peek() != '\n' && !IsAtEnd()) Advance();
-                    c = Advance();
+                if (c == ' ' || c == '\r' || c == '\t') {
+                    c = advance();
+                } else if (c == '#') {
+                    while (peek() != '\n' && !isAtEnd()) {
+                        advance();
+                    }
+                    c = advance();
                     break;
-                } else
+                } else {
                     break;
+                }
             }
 
-            if (c != '\n')
-                Error(fmt::format("Newline expected after line continuation, found {}", c));
+            if (c != '\n') {
+                error(fmt::format("Newline expected after line continuation, found {}", c));
+            }
 
-            line++;
-            col = 1;
+            line_++;
+            col_ = 1;
 
-            return ScanOne(continuation);
+            return scanOne(continuation);
         case ' ':
         case '\r':
         case '\t':
-            HandleWhitespace(c);
-            if (col == 2)
-                HandleIndentation(false);
-            return ScanOne(continuation);
+            handleWhitespace(c);
+            if (col_ == 2) {
+                handleIndentation(false);
+            }
+            return scanOne(continuation);
         case '\n':
-            line++;
-            col = 1;
-            if (!continuation && level_ == 0)
-                tokens.push_back(AddToken(new Token{TokenType::NEWLINE, "NEWLINE", llvm::SMRange{begin_loc, loc}}));
-            HandleIndentation(continuation);
-            return ScanOne(false);
+            line_++;
+            col_ = 1;
+            if (!continuation && level_ == 0) {
+                tokens_.push_back(addToken(new Token{TokenType::NEWLINE, "NEWLINE", llvm::SMRange{begin_loc_, loc_}}));
+            }
+            handleIndentation(continuation);
+            return scanOne(false);
         case '"':
-            return AddStringToken();
+            return addStringToken();
         default:
-            if (IsDigit(c))
-                return AddNumToken();
-            else if (IsAlpha(c))
-                return AddIdentifierToken();
-            else
-                Error(fmt::format("Unexpected character: {}", c));
+            if (isDigit(c)) {
+                return addNumToken();
+            } else if (isAlpha(c)) {
+                return addIdentifierToken();
+            } else {
+                error(fmt::format("Unexpected character: {}", c));
+            }
     }
-    Error("Unknown error");
+    error("Unknown error");
     return {};
 }
 
-void Lexer::HandleWhitespace(char c) {
-    if (!first_indent_char.has_value()) {
-        first_indent_char = c;
+void Lexer::handleWhitespace(char c) {
+    if (!first_indent_char_.has_value()) {
+        first_indent_char_ = c;
     }
-    if (first_indent_char != c)
-        Error(fmt::format("Mixed indentation, first indentation character is: {}", first_indent_char.value()));
-    if (c == '\t')
-        col += 7;
+    if (first_indent_char_ != c) {
+        error(fmt::format("Mixed indentation, first indentation character is: {}", first_indent_char_.value()));
+    }
+    if (c == '\t') {
+        col_ += 7;
+    }
 }
 
-bool Lexer::HandleIndentation(bool continuation) {
-    const int tab_size = 8;
-    int _col = 0, alt_col = 0;
+bool Lexer::handleIndentation(bool continuation) {
+    const int tabSize = 8;
+    int col = 0;
+    int altCol = 0;
     char c = 0;
     int changes = 0;
     bool advanced = false;
     for (;;) {
-        if (IsAtEnd())
+        if (isAtEnd()) {
             break;
-        c = Advance();
+        }
+        c = advance();
         advanced = true;
         if (c == ' ') {
-            ++_col;
-            ++alt_col;
+            ++col;
+            ++altCol;
         } else if (c == '\t') {
-            _col = (_col / tab_size + 1) * tab_size;
-            alt_col += 1;
+            col = (col / tabSize + 1) * tabSize;
+            altCol += 1;
         } else {
             break;
         }
     }
-    if (!IsAtEnd() || advanced)
-        Fallback();
+
+    if (!isAtEnd() || advanced) {
+        fallback();
+    }
 
     if (continuation || level_ != 0 || c == '#' || c == '\n' || c == '\r') {
         if (c == '#' || c == '\n') {
             // If this line is a commented line or an empty line, don't emit NewLine
-            if (!tokens.empty() && tokens.back()->type == TokenType::NEWLINE) {
-                tokens.pop_back();
+            if (!tokens_.empty() && tokens_.back()->type == TokenType::NEWLINE) {
+                tokens_.pop_back();
             }
         }
         return true;
     }
 
-    if (_col == indent_stack_[indent_]) {
-        if (alt_col != alt_indent_stack_[indent_]) {
-            Error("Indentation error");
+    if (col == indent_stack_[indent_]) {
+        if (altCol != alt_indent_stack_[indent_]) {
+            error("Indentation error");
             return false;
         }
-    } else if (_col > indent_stack_[indent_]) {
-        if (alt_col <= alt_indent_stack_[indent_]) {
-            Error("Indentation error");
+    } else if (col > indent_stack_[indent_]) {
+        if (altCol <= alt_indent_stack_[indent_]) {
+            error("Indentation error");
             return false;
         }
         ++indent_;
         ++changes;
         assert(indent_stack_.size() >= size_t(indent_));
         if (indent_stack_.size() == size_t(indent_)) {
-            alt_indent_stack_.push_back(alt_col);
-            indent_stack_.push_back(_col);
+            alt_indent_stack_.push_back(altCol);
+            indent_stack_.push_back(col);
         } else {
-            alt_indent_stack_[indent_] = alt_col;
-            indent_stack_[indent_] = _col;
+            alt_indent_stack_[indent_] = altCol;
+            indent_stack_[indent_] = col;
         }
     } else {
-        while (indent_ > 0 && _col < indent_stack_[indent_]) {
+        while (indent_ > 0 && col < indent_stack_[indent_]) {
             --changes;
             --indent_;
         }
-        if (_col != indent_stack_[indent_]) {
-            Error("Dedentation error");
+        if (col != indent_stack_[indent_]) {
+            error("Dedentation error");
             return false;
         }
-        if (alt_col != alt_indent_stack_[indent_]) {
-            Error("Indentation error");
+        if (altCol != alt_indent_stack_[indent_]) {
+            error("Indentation error");
             return false;
         }
     }
 
     while (changes != 0) {
-        tokens.push_back(AddToken(new Token{changes > 0 ? TokenType::INDENT : TokenType::DEDENT, changes > 0 ? "INDENT" : "DEDENT", llvm::SMRange{begin_loc, loc}}));
+        tokens_.push_back(addToken(new Token{changes > 0 ? TokenType::INDENT : TokenType::DEDENT, changes > 0 ? "INDENT" : "DEDENT", llvm::SMRange{begin_loc_, loc_}}));
         changes += changes > 0 ? -1 : 1;
     }
     return true;
 }
 
-Token *Lexer::AddToken(TokenType type) {
-    auto ret = new Token(type, std::string(begin_loc.getPointer(), loc.getPointer()), llvm::SMRange{begin_loc, loc});
-    ResetTokenBeg();
+Token *Lexer::addToken(TokenType type) {
+    auto *ret = new Token(type, std::string(begin_loc_.getPointer(), loc_.getPointer()), llvm::SMRange{begin_loc_, loc_});
+    resetTokenBeg();
     return ret;
 }
 
-Token *Lexer::AddToken(Token *tok) {
-    ResetTokenBeg();
+Token *Lexer::addToken(Token *tok) {
+    resetTokenBeg();
     return tok;
 }
 
-void Lexer::ResetTokenBeg() {
-    begin_loc = loc;
+void Lexer::resetTokenBeg() {
+    begin_loc_ = loc_;
 }
 
-void Lexer::Fallback() {
-    loc = llvm::SMLoc::getFromPointer(loc.getPointer() - 1);
-    --curPtr;
-    --col;
+void Lexer::fallback() {
+    loc_ = llvm::SMLoc::getFromPointer(loc_.getPointer() - 1);
+    --curPtr_;
+    --col_;
 }
 
-char Lexer::Advance() {
-    auto ret = LastChar();
-    curPtr++;
-    loc = llvm::SMLoc::getFromPointer(loc.getPointer() + 1);
-    ++col;
+char Lexer::advance() {
+    auto ret = lastChar();
+    curPtr_++;
+    loc_ = llvm::SMLoc::getFromPointer(loc_.getPointer() + 1);
+    ++col_;
     return ret;
 }
 
-bool Lexer::MatchAndAdvance(char expected) {
-    if (IsAtEnd()) return false;
-    if (LastChar() != expected) return false;
-    Advance();
+bool Lexer::matchAndAdvance(char expected) {
+    if (isAtEnd()) {
+        return false;
+    }
+    if (lastChar() != expected) {
+        return false;
+    }
+
+    advance();
     return true;
 }
 
-char Lexer::Peek(int offset) {
-    if ((loc.getPointer() + offset) >= curBuffer->getBufferEnd()) return '\0';
-    return *(loc.getPointer() + offset);
+char Lexer::peek(int offset) {
+    if ((loc_.getPointer() + offset) >= curBuffer_->getBufferEnd()) {
+        return '\0';
+    }
+    return *(loc_.getPointer() + offset);
 }
 
-Token *Lexer::AddStringToken() {
+Token *Lexer::addStringToken() {
     std::string string;
 
-    while (Peek() != '"' && !IsAtEnd()) {
+    while (peek() != '"' && !isAtEnd()) {
         // Should we allow newlines in strings? Probably not
-        if (Peek() == '\n') {
-            line++;
-            col = 1;
+        if (peek() == '\n') {
+            line_++;
+            col_ = 1;
         }
         // If it's not an escape sequence, proceed as usual
-        if (Peek() != '\\') {
-            string.push_back(Advance());
+        if (peek() != '\\') {
+            string.push_back(advance());
             continue;
         }
 
-        switch (Peek(1)) {
+        switch (peek(1)) {
             case 'n':
                 string.push_back('\n');
                 break;
@@ -325,65 +370,73 @@ Token *Lexer::AddStringToken() {
                 string.push_back('\\');
                 break;
             default:
-                Error("Unknown escape sequence.");
+                error("Unknown escape sequence.");
         }
 
         // Skip the backslash and the escape sequence.
-        Advance();
-        Advance();
+        advance();
+        advance();
     }
 
-    if (IsAtEnd())
-        Error("Unterminated string.");
+    if (isAtEnd()) {
+        error("Unterminated string.");
+    }
 
     // Skip the closing ".
-    Advance();
+    advance();
 
-    auto ret = new Token(TokenType::STRING, string, llvm::SMRange{begin_loc, loc});
-    ResetTokenBeg();
+    auto *ret = new Token(TokenType::STRING, string, llvm::SMRange{begin_loc_, loc_});
+    resetTokenBeg();
     return ret;
 }
 
-Token *Lexer::AddNumToken() {
-    while (IsDigit(Peek())) Advance();
+Token *Lexer::addNumToken() {
+    while (isDigit(peek())) {
+        advance();
+    }
 
     // Look for a fractional part.
-    if ((Peek() == '.') && IsDigit(Peek(1))) {
+    if ((peek() == '.') && isDigit(peek(1))) {
         // Consume the "."
-        Advance();
+        advance();
 
-        while (IsDigit(Peek())) Advance();
+        while (isDigit(peek())) {
+            advance();
+        }
 
-        return AddToken(TokenType::DOUBLE);
-    } else {
-        return AddToken(TokenType::INTEGER);
+        return addToken(TokenType::DOUBLE);
     }
+
+    return addToken(TokenType::INTEGER);
 }
 
-Token *Lexer::GetLastToken() {
-    if (!tokens.empty())
-        return tokens.end()[-1];
-    else
-        return new Token{TokenType::EOF_TOKEN, "EOF", llvm::SMRange{begin_loc, loc}};
+Token *Lexer::getLastToken() {
+    if (!tokens_.empty()) {
+        return tokens_.end()[-1];
+    }
+
+    return new Token{TokenType::EOF_TOKEN, "EOF", llvm::SMRange{begin_loc_, loc_}};
 }
 
-Token *Lexer::AddIdentifierToken() {
-    while (IsAlphaNumeric(Peek())) Advance();
+Token *Lexer::addIdentifierToken() {
+    while (isAlphaNumeric(peek())) {
+        advance();
+    }
 
-    auto tok = AddToken(Token::GetIdentifierType(std::string(begin_loc.getPointer(), loc.getPointer()), GetLastToken()));
+    auto *tok = addToken(Token::GetIdentifierType(std::string(begin_loc_.getPointer(), loc_.getPointer()), getLastToken()));
 
     // If it's a multi-word keyword, remove the last token
     if (tok->type == TokenType::ELSE_IF || tok->type == TokenType::IS_NOT) {
-        auto t = tokens.back();
-        tokens.pop_back();
+        auto *t = tokens_.back();
+        tokens_.pop_back();
         delete t;
     }
 
     return tok;
 }
 
-char Lexer::LastChar() { return *curPtr; }
+char Lexer::lastChar() { return *curPtr_; }
 
-void Lexer::Error(const std::string &msg) const {
-    throw LexerError(llvm::SMRange{begin_loc, loc}, msg);
+void Lexer::error(const std::string &msg) const {
+    throw LexerError(llvm::SMRange{begin_loc_, loc_}, msg);
 }

@@ -1,12 +1,19 @@
 #pragma once
 
+#include <memory>
 #include <optional>
+#include <string>
 #include <vector>
+
+#include <llvm/Support/MemoryBuffer.h>
+#include <llvm/Support/SMLoc.h>
+#include <llvm/Support/SourceMgr.h>
 
 #include <sysexits.h>
 
 #include "liblesma/Common/LesmaError.h"
 #include "liblesma/Token/Token.h"
+#include "liblesma/Token/TokenType.h"
 
 namespace lesma {
     class LexerError : public LesmaErrorWithExitCode<EX_DATAERR> {
@@ -16,67 +23,73 @@ namespace lesma {
     class Lexer {
     public:
         explicit Lexer(const std::shared_ptr<llvm::SourceMgr> &srcMgr)
-            : curBuffer(srcMgr->getMemoryBuffer(srcMgr->getNumBuffers())),
-              curPtr(curBuffer->getBufferStart()), begin_loc(llvm::SMLoc::getFromPointer(curPtr)), loc(llvm::SMLoc::getFromPointer(curPtr)), srcMgr(srcMgr) {
+            : curBuffer_(srcMgr->getMemoryBuffer(srcMgr->getNumBuffers())),
+              curPtr_(curBuffer_->getBufferStart()), begin_loc_(llvm::SMLoc::getFromPointer(curPtr_)), loc_(llvm::SMLoc::getFromPointer(curPtr_)), srcMgr_(srcMgr) {
         }
         ~Lexer() {
-            for (auto t: tokens)
+            for (auto *t: tokens_) {
                 delete t;
-            tokens.clear();
+            }
+            tokens_.clear();
         }
 
-        void ScanAll();
-        Token *ScanOne(bool continuation = false);
-        std::vector<Token *> getTokens() { return tokens; };
+        Lexer(const Lexer &) = delete;
+        Lexer &operator=(const Lexer &) = delete;
+        Lexer(Lexer &&) = default;
+        Lexer &operator=(Lexer &&) = default;
+
+        void scanAll();
+        Token *scanOne(bool continuation = false);
+        std::vector<Token *> getTokens() { return tokens_; };
 
     private:
-        bool MatchAndAdvance(char expected);
+        bool matchAndAdvance(char expected);
 
-        char Peek(int offset = 0);
+        char peek(int offset = 0);
 
-        Token *AddStringToken();
+        Token *addStringToken();
 
-        static bool IsDigit(char c) { return c >= '0' && c <= '9'; }
+        static bool isDigit(char c) { return c >= '0' && c <= '9'; }
 
-        static bool IsAlpha(char c) { return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '_'; }
+        static bool isAlpha(char c) { return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '_'; }
 
-        static bool IsAlphaNumeric(char c) { return IsAlpha(c) || IsDigit(c); }
+        static bool isAlphaNumeric(char c) { return isAlpha(c) || isDigit(c); }
 
-        Token *AddNumToken();
+        Token *addNumToken();
 
-        Token *AddToken(TokenType type);
-        Token *AddToken(Token *tok);
+        Token *addToken(TokenType type);
+        Token *addToken(Token *tok);
 
-        void Error(const std::string &msg) const;
+        void error(const std::string &msg) const;
 
-        bool IsAtEnd() { return curPtr == curBuffer->getBufferEnd(); }
+        bool isAtEnd() { return curPtr_ == curBuffer_->getBufferEnd(); }
 
-        char LastChar();
+        char lastChar();
 
-        char Advance();
+        char advance();
 
-        Token *GetLastToken();
-        Token *AddIdentifierToken();
+        Token *getLastToken();
+        Token *addIdentifierToken();
 
-        void HandleWhitespace(char c);
-        bool HandleIndentation(bool continuation);
-        void Fallback();
+        void handleWhitespace(char c);
+        bool handleIndentation(bool continuation);
+        void fallback();
 
-        const llvm::MemoryBuffer *curBuffer;
-        const char *curPtr;
-        unsigned int line = 1;
-        unsigned int col = 1;
-        llvm::SMLoc begin_loc;
-        llvm::SMLoc loc;
-        std::vector<Token *> tokens;
-        std::shared_ptr<llvm::SourceMgr> srcMgr;
+        const llvm::MemoryBuffer *curBuffer_;
+        const char *curPtr_;
+        unsigned int line_ = 1;
+        unsigned int col_ = 1;
+        llvm::SMLoc begin_loc_;
+        llvm::SMLoc loc_;
+        std::vector<Token *> tokens_;
+        std::shared_ptr<llvm::SourceMgr> srcMgr_;
 
-        std::optional<char> first_indent_char;
+        std::optional<char> first_indent_char_;
         int level_ = 0;
         int indent_ = 0;
         std::vector<int> indent_stack_ = {0};
         std::vector<int> alt_indent_stack_ = {0};
 
-        void ResetTokenBeg();
+        void resetTokenBeg();
     };
 }// namespace lesma
