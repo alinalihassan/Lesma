@@ -72,39 +72,39 @@ int Driver::baseCompile(std::unique_ptr<lesma::Options> options, bool jit) {
             auto cg = std::make_unique<Codegen>(std::move(parser), srcMgr,
                                                 options->sourceType == SourceType::FILE ? options->source : "",
                                                 modules, jit, true);
-            cg->Run();
+            cg->run();
             return cg;
         });
 
         if ((options->debug & Debug::IR) != Debug::NONE) {
             print(LogType::DEBUG, "LLVM IR: \n");
-            codegen->Dump();
+            codegen->dump();
         }
 
         // Optimization
         timer.measure("Optimizing", [&] {
-            codegen->Optimize(OptimizationLevel::O3);
+            codegen->optimize(OptimizationLevel::O3);
         });
 
         int exitCode = 0;
         if (!jit) {
             // Compile to Object File
             timer.measure("Writing Object File", [&] {
-                codegen->WriteToObjectFile(options->output_filename);
+                codegen->writeToObjectFile(options->output_filename);
             });
 
             // Link Object File
             timer.measure("Linking Object File", [&] {
-                codegen->LinkObjectFile(fmt::format("{}.o", options->output_filename));
+                codegen->linkObjectFile(fmt::format("{}.o", options->output_filename));
             });
         } else {
             // Executing
             timer.measure("JIT", [&] {
-                codegen->PrepareJIT();
+                codegen->prepareJit();
             });
 
             exitCode = timer.measure("Execution", [&] {
-                return codegen->ExecuteJIT();
+                return codegen->executeJit();
             });
         }
 

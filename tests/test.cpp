@@ -46,7 +46,7 @@ static std::unique_ptr<Parser> initializeParser(std::unique_ptr<Lexer> lexer) {
 
 static Codegen *initializeCodegen(std::unique_ptr<Parser> parser, const std::shared_ptr<SourceMgr> &srcMgr) {
     auto *codegen = new Codegen(std::move(parser), srcMgr, __FILE__, {}, true, true);
-    codegen->Run();
+    codegen->run();
 
     return codegen;
 }
@@ -154,9 +154,9 @@ TEST_F(ParserTest, AST) {
 
 // We cannot return from top-level, and the exit function just exits the whole process including the test
 TEST_F(CodegenTest, Run) {
-    codegen->Optimize(OptimizationLevel::O3);
-    codegen->PrepareJIT();
-    int exitCode = codegen->ExecuteJIT();
+    codegen->optimize(OptimizationLevel::O3);
+    codegen->prepareJit();
+    int exitCode = codegen->executeJit();
 
     EXPECT_TRUE(exitCode == 0);
 }

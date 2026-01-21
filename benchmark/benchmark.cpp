@@ -46,7 +46,7 @@ static std::shared_ptr<Parser> initializeParser(const std::shared_ptr<Lexer> &le
 
 static Codegen *initializeCodegen(std::shared_ptr<Parser> parser, const std::shared_ptr<SourceMgr> &srcMgr) {
     auto _codegen = new Codegen(std::move(parser), srcMgr, __FILE__, {}, true, true);
-    _codegen->Run();
+    _codegen->run();
 
     return _codegen;
 }
@@ -126,7 +126,7 @@ BENCHMARK_F(CodegenBenchmark, Optimize)
 (benchmark::State &state) {
     for ([[maybe_unused]] auto _: state) {
         auto cg = initializeCodegen(parser, srcMgr);
-        cg->Optimize(OptimizationLevel::O3);
+        cg->optimize(OptimizationLevel::O3);
     }
 }
 
@@ -134,8 +134,8 @@ BENCHMARK_F(CodegenBenchmark, JIT)
 (benchmark::State &state) {
     for ([[maybe_unused]] auto _: state) {
         auto cg = initializeCodegen(parser, srcMgr);
-        cg->PrepareJIT();
-        cg->ExecuteJIT();
+        cg->prepareJit();
+        cg->executeJit();
     }
 }
 
@@ -143,9 +143,9 @@ BENCHMARK_F(CodegenBenchmark, All)
 (benchmark::State &state) {
     for ([[maybe_unused]] auto _: state) {
         auto cg = initializeCodegen(parser, srcMgr);
-        cg->Optimize(OptimizationLevel::O3);
-        cg->PrepareJIT();
-        cg->ExecuteJIT();
+        cg->optimize(OptimizationLevel::O3);
+        cg->prepareJit();
+        cg->executeJit();
     }
 }
 
