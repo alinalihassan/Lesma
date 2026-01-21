@@ -1,0 +1,30 @@
+# Test float operations
+var x: float = 3.14
+var y: float = 2.86
+
+# Addition
+var sum = x + y
+if sum < 5.99 or sum > 6.01
+    exit(1)
+
+# Subtraction
+var diff = x - y
+if diff < 0.27 or diff > 0.29
+    exit(1)
+
+# Multiplication
+var prod = 2.5 * 4.0
+if prod < 9.99 or prod > 10.01
+    exit(1)
+
+# Division
+var quot = 10.0 / 4.0
+if quot < 2.49 or quot > 2.51
+    exit(1)
+
+# Comparison
+if 3.14 >= 3.15
+    exit(1)
+
+if 2.5 <= 2.4
+    exit(1)

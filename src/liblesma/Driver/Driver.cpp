@@ -20,7 +20,7 @@
 
 using namespace lesma;
 
-int Driver::baseCompile(std::unique_ptr<lesma::Options> options, bool jit) {
+auto Driver::baseCompile(std::unique_ptr<lesma::Options> options, bool jit) -> int {
     Timer timer(options->timer);
 
     // Configure Source Manager
@@ -122,10 +122,10 @@ int Driver::baseCompile(std::unique_ptr<lesma::Options> options, bool jit) {
     }
 }
 
-int Driver::run(std::unique_ptr<lesma::Options> options) {
+auto Driver::run(std::unique_ptr<lesma::Options> options) -> int {
     return baseCompile(std::move(options), true);
 }
 
-int Driver::compile(std::unique_ptr<lesma::Options> options) {
+auto Driver::compile(std::unique_ptr<lesma::Options> options) -> int {
     return baseCompile(std::move(options), false);
 }

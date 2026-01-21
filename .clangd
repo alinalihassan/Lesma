@@ -2,9 +2,6 @@ CompileFlags:
   CompilationDatabase: build/Debug
 
 Diagnostics:
-  UnusedIncludes: Strict
-  MissingIncludes: Strict
-  # Clang-Tidy integration (powerful static analysis)
   ClangTidy:
     Add:
       - bugprone-*
@@ -12,11 +9,15 @@ Diagnostics:
       - performance-*
       - readability-*
       - cppcoreguidelines-*
+      - misc-*
     Remove:
-      - modernize-use-trailing-return-type  # Personal preference
       - readability-identifier-length       # Too noisy
+      - readability-function-cognitive-complexity
+      - misc-no-recursion
       - cppcoreguidelines-avoid-magic-numbers
       - readability-magic-numbers
+      - cppcoreguidelines-non-private-member-variables-in-classes  # Allow POD-like structs with public members
+      - misc-non-private-member-variables-in-classes               # Alias of above
     CheckOptions:
       readability-identifier-naming.ClassCase: CamelCase
       readability-identifier-naming.FunctionCase: camelBack

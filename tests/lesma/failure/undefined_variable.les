@@ -1,0 +1,2 @@
+# Test that undefined variable access fails
+var x = undefined_var + 1

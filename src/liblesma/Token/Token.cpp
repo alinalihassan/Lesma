@@ -14,7 +14,7 @@
 
 using namespace lesma;
 
-std::string Token::dump(const std::shared_ptr<llvm::SourceMgr> &srcMgr) const {
+auto Token::dump(const std::shared_ptr<llvm::SourceMgr> &srcMgr) const -> std::string {
     unsigned bufId = srcMgr->getNumBuffers() - 1;
     auto [startLine, startCol] = srcMgr->getLineAndColumn(span.Start, bufId);
     auto [endLine, endCol] = srcMgr->getLineAndColumn(span.End, bufId);
@@ -70,7 +70,7 @@ static const std::unordered_map<std::string_view, TokenType> keywords = {
         {"void", TokenType::VOID_TYPE},
 };
 
-TokenType Token::getIdentifierType(const std::string &identifier, Token *lastTok) {
+auto Token::getIdentifierType(const std::string &identifier, Token *lastTok) -> TokenType {
     // Multi-word keywords first (check lastTok is not null)
     if (lastTok != nullptr) {
         if (identifier == "if" && lastTok->type == TokenType::ELSE) {

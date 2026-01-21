@@ -83,9 +83,9 @@ namespace lesma {
             }
         }
 
-        [[nodiscard]] double total() const { return total_; }
+        [[nodiscard]] auto total() const -> double { return total_; }
 
-        void printTotal() const {
+        auto printTotal() const -> void {
             if (enabled_) {
                 print(LogType::DEBUG, "Total -> {:.2f} ms\n", total_);
             }
@@ -93,7 +93,7 @@ namespace lesma {
     };
 
     // NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
-    void showInline(llvm::SourceMgr *srcMgr, unsigned int bufferId, llvm::SMRange span, const std::string &reason, const std::string &file, bool is_error);
-    std::string getBasename(const std::string &file_path);
-    std::string getStdDir();
+    auto showInline(llvm::SourceMgr *srcMgr, unsigned int bufferId, llvm::SMRange span, const std::string &reason, const std::string &file, bool is_error) -> void;
+    auto getBasename(const std::string &file_path) -> std::string;
+    auto getStdDir() -> std::string;
 }// namespace lesma

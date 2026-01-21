@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <memory>
 #include <string>
 #include <utility>
 #include <vector>
@@ -26,47 +27,71 @@ namespace lesma {
     };
 
     class Type;
-    class Value;
 
     struct Field {
         std::string name;
         Type *type;
-        Value *defaultValue = nullptr;
+        std::unique_ptr<Value> defaultValue;
+
+        // Constructor for fields without default value
+        Field(std::string n, Type *t) : name(std::move(n)), type(t) {}
+
+        // Constructor for fields with default value
+        Field(std::string n, Type *t, std::unique_ptr<Value> defVal)
+            : name(std::move(n)), type(t), defaultValue(std::move(defVal)) {}
     };
 
     class Type {
         BaseType baseType_;
         llvm::Type *llvmType_;
 
+        // Non-owning references to other Types (owned elsewhere)
         Type *elementType_;
         Type *returnType_;
-        std::vector<Field *> fields_;
+        // Owned collection of Fields
+        std::vector<std::unique_ptr<Field>> fields_;
         bool signedInt_ = true;
 
     public:
         explicit Type(BaseType baseType) : baseType_(baseType), llvmType_(nullptr), elementType_(nullptr), returnType_(nullptr) {}
         explicit Type(BaseType baseType, llvm::Type *llvmType) : baseType_(baseType), llvmType_(llvmType), elementType_(nullptr), returnType_(nullptr) {}
         explicit Type(BaseType baseType, llvm::Type *llvmType, Type *elementType) : baseType_(baseType), llvmType_(llvmType), elementType_(elementType), returnType_(nullptr) {}
-        explicit Type(BaseType baseType, llvm::Type *llvmType, std::vector<Field *> fields) : baseType_(baseType), llvmType_(llvmType), elementType_(nullptr), returnType_(nullptr), fields_(std::move(fields)) {}
+        explicit Type(BaseType baseType, llvm::Type *llvmType, std::vector<std::unique_ptr<Field>> fields) : baseType_(baseType), llvmType_(llvmType), elementType_(nullptr), returnType_(nullptr), fields_(std::move(fields)) {}
 
-        [[nodiscard]] bool is(BaseType type) const { return baseType_ == type; }
-        [[nodiscard]] bool isPrimitive() const { return isOneOf({BaseType::TY_INT, BaseType::TY_FLOAT, BaseType::TY_STRING, BaseType::TY_BOOL}); }
-        [[nodiscard]] bool isOneOf(const std::vector<BaseType> &baseTypes) const {
+        ~Type() = default;
+        Type(const Type &) = delete;
+        Type &operator=(const Type &) = delete;
+        Type(Type &&) = default;
+        Type &operator=(Type &&) = default;
+
+        [[nodiscard]] auto is(BaseType type) const -> bool { return baseType_ == type; }
+        [[nodiscard]] auto isPrimitive() const -> bool { return isOneOf({BaseType::TY_INT, BaseType::TY_FLOAT, BaseType::TY_STRING, BaseType::TY_BOOL}); }
+        [[nodiscard]] auto isOneOf(const std::vector<BaseType> &baseTypes) const -> bool {
             return std::any_of(baseTypes.begin(), baseTypes.end(), [this](BaseType type) { return type == this->baseType_; });
         }
-        [[nodiscard]] BaseType getBaseType() const { return baseType_; }
-        [[nodiscard]] Type *getElementType() const { return elementType_; }
-        [[nodiscard]] Type *getReturnType() const { return returnType_; }
-        [[nodiscard]] llvm::Type *getLLVMType() const { return llvmType_; }
-        [[nodiscard]] std::vector<Field *> const &getFields() const { return fields_; }
-        [[nodiscard]] bool isSigned() const { return signedInt_; }
+        [[nodiscard]] auto getBaseType() const -> BaseType { return baseType_; }
+        [[nodiscard]] auto getElementType() const -> Type * { return elementType_; }
+        [[nodiscard]] auto getReturnType() const -> Type * { return returnType_; }
+        [[nodiscard]] auto getLLVMType() const -> llvm::Type * { return llvmType_; }
+        [[nodiscard]] auto isSigned() const -> bool { return signedInt_; }
 
-        void setLLVMType(llvm::Type *type) { llvmType_ = type; }
-        void setBaseType(BaseType type) { baseType_ = type; }
-        void setElementType(lesma::Type *type) { elementType_ = type; }
-        void setReturnType(lesma::Type *type) { returnType_ = type; }
+        // Returns raw pointers for non-owning access
+        [[nodiscard]] auto getFields() const -> std::vector<Field *> {
+            std::vector<Field *> result;
+            result.reserve(fields_.size());
+            for (const auto &field: fields_) {
+                result.push_back(field.get());
+            }
+            return result;
+        }
 
-        bool isEqual(Type *rhs) const {
+        auto setLLVMType(llvm::Type *type) -> void { llvmType_ = type; }
+        auto setBaseType(BaseType type) -> void { baseType_ = type; }
+        auto setElementType(Type *type) -> void { elementType_ = type; }
+        auto setReturnType(Type *type) -> void { returnType_ = type; }
+        auto addField(std::unique_ptr<Field> field) -> void { fields_.push_back(std::move(field)); }
+
+        auto isEqual(Type *rhs) const -> bool {
             if (rhs == nullptr) {
                 return false;
             }
@@ -88,7 +113,7 @@ namespace lesma {
             return thisElementType->isEqual(rhsElementType);
         }
 
-        [[nodiscard]] std::string toString() const {
+        [[nodiscard]] auto toString() const -> std::string {
             std::string result;
 
             switch (baseType_) {

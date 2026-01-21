@@ -15,7 +15,7 @@
 #include <unistd.h>
 
 namespace lesma {
-    std::string getBasename(const std::string &file_path) {
+    auto getBasename(const std::string &file_path) -> std::string {
         auto filename = file_path.substr(file_path.find_last_of("/\\") + 1);
         auto filenameWoExt = filename.substr(0, filename.find_last_of('.'));
 
@@ -23,7 +23,7 @@ namespace lesma {
     }
 
     // NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
-    void showInline(llvm::SourceMgr *srcMgr, unsigned int bufferId, llvm::SMRange span, const std::string &reason, const std::string &file, bool is_error) {
+    auto showInline(llvm::SourceMgr *srcMgr, unsigned int bufferId, llvm::SMRange span, const std::string &reason, const std::string &file, bool is_error) -> void {
         std::istringstream ifs(srcMgr->getMemoryBuffer(bufferId)->getBuffer().str());
         unsigned int lineNum = 1;
         auto color = is_error ? fg(fmt::color::red) : fg(fmt::color::yellow);
@@ -58,7 +58,7 @@ namespace lesma {
         }
     }
 
-    std::string getStdDir() {
+    auto getStdDir() -> std::string {
         std::string homedir;
 
         if (getenv("HOME") != nullptr) {

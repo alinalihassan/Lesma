@@ -41,10 +41,10 @@ namespace lesma {
 
     class Driver {
     private:
-        static int baseCompile(std::unique_ptr<lesma::Options> options, bool jit);
+        static auto baseCompile(std::unique_ptr<lesma::Options> options, bool jit) -> int;
 
     public:
-        static int run(std::unique_ptr<lesma::Options> options);
-        static int compile(std::unique_ptr<lesma::Options> options);
+        static auto run(std::unique_ptr<lesma::Options> options) -> int;
+        static auto compile(std::unique_ptr<lesma::Options> options) -> int;
     };
 }// namespace lesma

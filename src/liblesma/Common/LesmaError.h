@@ -18,15 +18,15 @@ namespace lesma {
         explicit LesmaError(llvm::SMRange span, const S &formatStr, const Args &...args) : what_(fmt::format(formatStr, args...)), span_(span){};
         explicit LesmaError(llvm::SMRange span, std::string what) : what_(std::move(what)), span_(span) {};
 
-        [[nodiscard]] const char *what() const noexcept override {
+        [[nodiscard]] auto what() const noexcept -> const char * override {
             return what_.c_str();
         }
 
-        [[nodiscard]] llvm::SMRange getSpan() const {
+        [[nodiscard]] auto getSpan() const -> llvm::SMRange {
             return span_;
         }
 
-        [[nodiscard]] uint8_t getExitCode() const {
+        [[nodiscard]] auto getExitCode() const -> uint8_t {
             return exit_code_;
         }
 

@@ -20,7 +20,7 @@
 
 using namespace lesma;
 
-static std::shared_ptr<SourceMgr> initializeSrcMgr(const std::string &src) {
+static auto initializeSrcMgr(const std::string &src) -> std::shared_ptr<SourceMgr> {
     // Configure Source Manager
     auto sourceMgr = std::make_shared<SourceMgr>(SourceMgr());
 
@@ -30,29 +30,29 @@ static std::shared_ptr<SourceMgr> initializeSrcMgr(const std::string &src) {
     return sourceMgr;
 }
 
-static std::unique_ptr<Lexer> initializeLexer(const std::shared_ptr<SourceMgr> &sourceMgr) {
+static auto initializeLexer(const std::shared_ptr<SourceMgr> &sourceMgr) -> std::unique_ptr<Lexer> {
     auto curLexer = std::make_unique<Lexer>(sourceMgr);
     curLexer->scanAll();
 
     return curLexer;
 }
 
-static std::unique_ptr<Parser> initializeParser(std::unique_ptr<Lexer> lexer) {
+static auto initializeParser(std::unique_ptr<Lexer> lexer) -> std::unique_ptr<Parser> {
     auto curParser = std::make_unique<Parser>(lexer->getTokens());
     curParser->parse();
 
     return curParser;
 }
 
-static Codegen *initializeCodegen(std::unique_ptr<Parser> parser, const std::shared_ptr<SourceMgr> &srcMgr) {
-    auto *codegen = new Codegen(std::move(parser), srcMgr, __FILE__, {}, true, true);
+static auto initializeCodegen(std::unique_ptr<Parser> parser, const std::shared_ptr<SourceMgr> &srcMgr) -> std::unique_ptr<Codegen> {
+    auto codegen = std::make_unique<Codegen>(std::move(parser), srcMgr, __FILE__, std::vector<std::string>{}, true, true);
     codegen->run();
 
     return codegen;
 }
 
 
-llvm::SMRange getRange(const char *bufferStart, int x, int y) {
+auto getRange(const char *bufferStart, int x, int y) -> llvm::SMRange {
     // NOLINTBEGIN(cppcoreguidelines-pro-bounds-pointer-arithmetic)
     return {llvm::SMLoc::getFromPointer(bufferStart + x), llvm::SMLoc::getFromPointer(bufferStart + y)};
     // NOLINTEND(cppcoreguidelines-pro-bounds-pointer-arithmetic)
@@ -65,10 +65,10 @@ public:
             "var y: int = 100\n"
             "y = 101\n";
 
-    void SetUp() override {
+    auto SetUp() -> void override {
         srcMgr = initializeSrcMgr(source);
     }
-    void TearDown() override {
+    auto TearDown() -> void override {
         // Place any cleanup code here, if needed
     }
 };
@@ -77,12 +77,12 @@ class LexerTest : public BaseTest {
 public:
     std::unique_ptr<Lexer> lexer;
 
-    void SetUp() override {
+    auto SetUp() -> void override {
         BaseTest::SetUp();
 
         lexer = initializeLexer(BaseTest::srcMgr);
     }
-    void TearDown() override {
+    auto TearDown() -> void override {
         BaseTest::TearDown();
     }
 };
@@ -91,28 +91,28 @@ class ParserTest : public LexerTest {
 public:
     std::unique_ptr<Parser> parser;
 
-    void SetUp() override {
+    auto SetUp() -> void override {
         LexerTest::SetUp();
 
         parser = initializeParser(std::move(LexerTest::lexer));
     }
 
-    void TearDown() override {
+    auto TearDown() -> void override {
         LexerTest::TearDown();
     }
 };
 
 class CodegenTest : public ParserTest {
 public:
-    Codegen *codegen = nullptr;
+    std::unique_ptr<Codegen> codegen;
 
-    void SetUp() override {
+    auto SetUp() -> void override {
         ParserTest::SetUp();
 
         codegen = initializeCodegen(std::move(ParserTest::parser), LexerTest::srcMgr);
     }
 
-    void TearDown() override {
+    auto TearDown() -> void override {
         ParserTest::TearDown();
     }
 };
@@ -161,8 +161,206 @@ TEST_F(CodegenTest, Run) {
     EXPECT_TRUE(exitCode == 0);
 }
 
+// ============================================================================
+// Additional Lexer Tests
+// ============================================================================
+
+TEST(LexerTests, LexFloat) {
+    auto srcMgr = initializeSrcMgr("var x = 3.14\n");
+    auto lexer = initializeLexer(srcMgr);
+    auto tokens = lexer->getTokens();
+
+    ASSERT_GE(tokens.size(), 5);
+    EXPECT_EQ(tokens[0]->type, TokenType::VAR);
+    EXPECT_EQ(tokens[1]->type, TokenType::IDENTIFIER);
+    EXPECT_EQ(tokens[2]->type, TokenType::EQUAL);
+    EXPECT_EQ(tokens[3]->type, TokenType::DOUBLE);
+    EXPECT_EQ(tokens[3]->lexeme, "3.14");
+}
+
+TEST(LexerTests, LexString) {
+    auto srcMgr = initializeSrcMgr("var s = \"hello\"\n");
+    auto lexer = initializeLexer(srcMgr);
+    auto tokens = lexer->getTokens();
+
+    ASSERT_GE(tokens.size(), 5);
+    EXPECT_EQ(tokens[3]->type, TokenType::STRING);
+    EXPECT_EQ(tokens[3]->lexeme, "hello");
+}
+
+TEST(LexerTests, LexInteger) {
+    auto srcMgr = initializeSrcMgr("var x = 42\n");
+    auto lexer = initializeLexer(srcMgr);
+    auto tokens = lexer->getTokens();
+
+    ASSERT_GE(tokens.size(), 5);
+    EXPECT_EQ(tokens[3]->type, TokenType::INTEGER);
+    EXPECT_EQ(tokens[3]->lexeme, "42");
+}
+
+TEST(LexerTests, LexBoolean) {
+    auto srcMgr = initializeSrcMgr("var x = true\n");
+    auto lexer = initializeLexer(srcMgr);
+    auto tokens = lexer->getTokens();
+
+    ASSERT_GE(tokens.size(), 5);
+    // 'true' is lexed as TRUE_ keyword, not BOOL literal
+    EXPECT_EQ(tokens[3]->type, TokenType::TRUE_);
+    EXPECT_EQ(tokens[3]->lexeme, "true");
+}
+
+TEST(LexerTests, LexArithmeticOperators) {
+    auto srcMgr = initializeSrcMgr("var x = 1 + 2\n");
+    auto lexer = initializeLexer(srcMgr);
+    auto tokens = lexer->getTokens();
+
+    EXPECT_EQ(tokens[4]->type, TokenType::PLUS);
+}
+
+TEST(LexerTests, LexComparisonOperators) {
+    auto srcMgr = initializeSrcMgr("var x = 1 == 2\n");
+    auto lexer = initializeLexer(srcMgr);
+    auto tokens = lexer->getTokens();
+
+    EXPECT_EQ(tokens[4]->type, TokenType::EQUAL_EQUAL);
+}
+
+// ============================================================================
+// Additional Parser Tests
+// ============================================================================
+
+TEST(ParserTests, ParseBinaryOp) {
+    auto srcMgr = initializeSrcMgr("var x = 1 + 2\n");
+    auto lexer = initializeLexer(srcMgr);
+    auto parser = initializeParser(std::move(lexer));
+
+    ASSERT_EQ(parser->getAST()->getChildren().size(), 1);
+    auto astStr = parser->getAST()->getChildren().at(0)->toString(srcMgr.get(), "", true);
+    // BinaryOp toString returns "left OP right", so check for the operator
+    EXPECT_TRUE(astStr.find("PLUS") != std::string::npos);
+}
+
+TEST(ParserTests, ParseUnaryMinus) {
+    auto srcMgr = initializeSrcMgr("var x = -5\n");
+    auto lexer = initializeLexer(srcMgr);
+    auto parser = initializeParser(std::move(lexer));
+
+    ASSERT_EQ(parser->getAST()->getChildren().size(), 1);
+    auto astStr = parser->getAST()->getChildren().at(0)->toString(srcMgr.get(), "", true);
+    // UnaryOp toString returns "OP expr", so check for MINUS
+    EXPECT_TRUE(astStr.find("MINUS") != std::string::npos);
+}
+
+TEST(ParserTests, ParseVarDecl) {
+    auto srcMgr = initializeSrcMgr("var x: int = 10\n");
+    auto lexer = initializeLexer(srcMgr);
+    auto parser = initializeParser(std::move(lexer));
+
+    ASSERT_EQ(parser->getAST()->getChildren().size(), 1);
+    auto astStr = parser->getAST()->getChildren().at(0)->toString(srcMgr.get(), "", true);
+    EXPECT_TRUE(astStr.find("VarDecl") != std::string::npos);
+}
+
+TEST(ParserTests, ParseLetDecl) {
+    auto srcMgr = initializeSrcMgr("let x = 10\n");
+    auto lexer = initializeLexer(srcMgr);
+    auto parser = initializeParser(std::move(lexer));
+
+    ASSERT_EQ(parser->getAST()->getChildren().size(), 1);
+    auto astStr = parser->getAST()->getChildren().at(0)->toString(srcMgr.get(), "", true);
+    EXPECT_TRUE(astStr.find("VarDecl") != std::string::npos);
+}
+
+// ============================================================================
+// Additional Codegen Tests
+// ============================================================================
+
+TEST(CodegenTests, Arithmetic) {
+    auto srcMgr = initializeSrcMgr("var x = 2 + 3 * 4\n");
+    auto lexer = initializeLexer(srcMgr);
+    auto parser = initializeParser(std::move(lexer));
+    auto codegen = initializeCodegen(std::move(parser), srcMgr);
+
+    codegen->optimize(OptimizationLevel::O0);
+    codegen->prepareJit();
+    int exitCode = codegen->executeJit();
+    EXPECT_EQ(exitCode, 0);
+}
+
+TEST(CodegenTests, FloatLiteral) {
+    auto srcMgr = initializeSrcMgr("var x: float = 3.14\n");
+    auto lexer = initializeLexer(srcMgr);
+    auto parser = initializeParser(std::move(lexer));
+    auto codegen = initializeCodegen(std::move(parser), srcMgr);
+
+    codegen->optimize(OptimizationLevel::O0);
+    codegen->prepareJit();
+    int exitCode = codegen->executeJit();
+    EXPECT_EQ(exitCode, 0);
+}
+
+TEST(CodegenTests, StringLiteral) {
+    auto srcMgr = initializeSrcMgr("var s = \"hello\"\n");
+    auto lexer = initializeLexer(srcMgr);
+    auto parser = initializeParser(std::move(lexer));
+    auto codegen = initializeCodegen(std::move(parser), srcMgr);
+
+    codegen->optimize(OptimizationLevel::O0);
+    codegen->prepareJit();
+    int exitCode = codegen->executeJit();
+    EXPECT_EQ(exitCode, 0);
+}
+
+TEST(CodegenTests, BooleanLiteral) {
+    auto srcMgr = initializeSrcMgr("var b = true\n");
+    auto lexer = initializeLexer(srcMgr);
+    auto parser = initializeParser(std::move(lexer));
+    auto codegen = initializeCodegen(std::move(parser), srcMgr);
+
+    codegen->optimize(OptimizationLevel::O0);
+    codegen->prepareJit();
+    int exitCode = codegen->executeJit();
+    EXPECT_EQ(exitCode, 0);
+}
+
+TEST(CodegenTests, UnaryMinus) {
+    auto srcMgr = initializeSrcMgr("var x = -42\n");
+    auto lexer = initializeLexer(srcMgr);
+    auto parser = initializeParser(std::move(lexer));
+    auto codegen = initializeCodegen(std::move(parser), srcMgr);
+
+    codegen->optimize(OptimizationLevel::O0);
+    codegen->prepareJit();
+    int exitCode = codegen->executeJit();
+    EXPECT_EQ(exitCode, 0);
+}
+
+TEST(CodegenTests, UnaryNot) {
+    auto srcMgr = initializeSrcMgr("var x = not true\n");
+    auto lexer = initializeLexer(srcMgr);
+    auto parser = initializeParser(std::move(lexer));
+    auto codegen = initializeCodegen(std::move(parser), srcMgr);
+
+    codegen->optimize(OptimizationLevel::O0);
+    codegen->prepareJit();
+    int exitCode = codegen->executeJit();
+    EXPECT_EQ(exitCode, 0);
+}
+
+TEST(CodegenTests, Comparison) {
+    auto srcMgr = initializeSrcMgr("var x = 5 > 3\n");
+    auto lexer = initializeLexer(srcMgr);
+    auto parser = initializeParser(std::move(lexer));
+    auto codegen = initializeCodegen(std::move(parser), srcMgr);
+
+    codegen->optimize(OptimizationLevel::O0);
+    codegen->prepareJit();
+    int exitCode = codegen->executeJit();
+    EXPECT_EQ(exitCode, 0);
+}
+
 // Google Test main function
-int main(int argc, char **argv) {
+auto main(int argc, char **argv) -> int {
     ::testing::InitGoogleTest(&argc, argv);
     return RUN_ALL_TESTS();
 }

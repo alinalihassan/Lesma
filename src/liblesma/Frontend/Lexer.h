@@ -36,62 +36,62 @@ namespace lesma {
         Lexer(Lexer &&) = default;
         Lexer &operator=(Lexer &&) = default;
 
-        void scanAll();
-        std::vector<Token *> getTokens();
-        std::vector<std::unique_ptr<Token>> &getOwnedTokens() { return tokens_; };
+        auto scanAll() -> void;
+        auto getTokens() -> std::vector<Token *>;
+        auto getOwnedTokens() -> std::vector<std::unique_ptr<Token>> & { return tokens_; };
 
     private:
-        std::unique_ptr<Token> scanOne(bool continuation = false);
+        auto scanOne(bool continuation = false) -> std::unique_ptr<Token>;
 
-        bool matchAndAdvance(char expected);
+        auto matchAndAdvance(char expected) -> bool;
 
-        char peek(int offset = 0);
+        auto peek(int offset = 0) -> char;
 
-        std::unique_ptr<Token> addStringToken();
+        auto addStringToken() -> std::unique_ptr<Token>;
 
-        static bool isDigit(char c) { return c >= '0' && c <= '9'; }
+        static auto isDigit(char c) -> bool { return c >= '0' && c <= '9'; }
 
-        static bool isAlpha(char c) { return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '_'; }
+        static auto isAlpha(char c) -> bool { return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '_'; }
 
-        static bool isAlphaNumeric(char c) { return isAlpha(c) || isDigit(c); }
+        static auto isAlphaNumeric(char c) -> bool { return isAlpha(c) || isDigit(c); }
 
-        std::unique_ptr<Token> addNumToken();
+        auto addNumToken() -> std::unique_ptr<Token>;
 
-        std::unique_ptr<Token> makeToken(TokenType type);
-        std::unique_ptr<Token> makeToken(TokenType type, const std::string &value);
+        auto makeToken(TokenType type) -> std::unique_ptr<Token>;
+        auto makeToken(TokenType type, const std::string &value) -> std::unique_ptr<Token>;
 
-        void error(const std::string &msg) const;
+        auto error(const std::string &msg) const -> void;
 
-        bool isAtEnd() { return curPos_ >= curBuffer_->getBufferSize(); }
+        auto isAtEnd() -> bool { return curPos_ >= curBuffer_->getBufferSize(); }
 
         // Helper to get pointer at current position for SMLoc (isolates pointer arithmetic)
-        const char *getLocPointer() const {
+        auto getLocPointer() const -> const char * {
             // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
             return curBuffer_->getBufferStart() + curPos_;
         }
 
         // Helper to get pointer at specific offset for SMLoc
-        const char *getLocPointer(size_t offset) const {
+        auto getLocPointer(size_t offset) const -> const char * {
             // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
             return curBuffer_->getBufferStart() + offset;
         }
 
         // Helper to get character at specific position (isolates array subscript)
-        char getCharAt(size_t pos) const {
+        auto getCharAt(size_t pos) const -> char {
             // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
             return curBuffer_->getBufferStart()[pos];
         }
 
-        char lastChar();
+        auto lastChar() -> char;
 
-        char advance();
+        auto advance() -> char;
 
-        Token *getLastToken();
-        std::unique_ptr<Token> addIdentifierToken();
+        auto getLastToken() -> Token *;
+        auto addIdentifierToken() -> std::unique_ptr<Token>;
 
-        void handleWhitespace(char c);
-        bool handleIndentation(bool continuation);
-        void fallback();
+        auto handleWhitespace(char c) -> void;
+        auto handleIndentation(bool continuation) -> bool;
+        auto fallback() -> void;
 
         const llvm::MemoryBuffer *curBuffer_;
         size_t curPos_ = 0;
@@ -108,6 +108,6 @@ namespace lesma {
         std::vector<int> indent_stack_ = {0};
         std::vector<int> alt_indent_stack_ = {0};
 
-        void resetTokenBeg();
+        auto resetTokenBeg() -> void;
     };
 }// namespace lesma

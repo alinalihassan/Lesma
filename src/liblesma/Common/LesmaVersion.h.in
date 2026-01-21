@@ -1,5 +1,5 @@
 #pragma once
 
 namespace lesma {
-#define LESMA_VERSION "@PROJECT_VERSION@"
-}
+#define LESMA_VERSION "@PROJECT_VERSION@"// NOLINT
+}// namespace lesma

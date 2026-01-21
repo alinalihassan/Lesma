@@ -19,16 +19,16 @@ namespace lesma {
         Token() = default;
         Token(const TokenType &type, std::string lexeme, llvm::SMRange span) : lexeme(std::move(lexeme)), type(type), span(span) {}
 
-        [[nodiscard]] llvm::SMLoc getStart() const { return span.Start; }
-        [[nodiscard]] llvm::SMLoc getEnd() const { return span.End; };
+        [[nodiscard]] auto getStart() const -> llvm::SMLoc { return span.Start; }
+        [[nodiscard]] auto getEnd() const -> llvm::SMLoc { return span.End; };
 
-        static TokenType getIdentifierType(const std::string &identifier, Token *lastTok);
-        [[nodiscard]] std::string dump(const std::shared_ptr<llvm::SourceMgr> &srcMgr) const;
+        static auto getIdentifierType(const std::string &identifier, Token *lastTok) -> TokenType;
+        [[nodiscard]] auto dump(const std::shared_ptr<llvm::SourceMgr> &srcMgr) const -> std::string;
 
-        bool operator==(const Token &rhs) const {
+        auto operator==(const Token &rhs) const -> bool {
             return (lexeme == rhs.lexeme) && (type == rhs.type) && (span.Start.getPointer() == rhs.span.Start.getPointer()) && (span.End.getPointer() == rhs.span.End.getPointer());
         }
-        bool operator!=(const Token &rhs) const {
+        auto operator!=(const Token &rhs) const -> bool {
             return !operator==(rhs);
         }
 

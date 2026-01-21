@@ -13,7 +13,7 @@
 
 using namespace lesma;
 
-Debug parseDebugFlags(const std::vector<std::string> &debugOptions) {
+auto parseDebugFlags(const std::vector<std::string> &debugOptions) -> Debug {
     Debug flags = Debug::NONE;
     for (const auto &opt: debugOptions) {
         if (opt == "lexer") {
@@ -29,7 +29,7 @@ Debug parseDebugFlags(const std::vector<std::string> &debugOptions) {
     return flags;
 }
 
-std::unique_ptr<CLIOptions> parseCLI(int argc, char **argv) {
+auto parseCLI(int argc, char **argv) -> std::unique_ptr<CLIOptions> {
     std::vector<std::string> debug;
     bool timer = false;
     std::string output = "output";
@@ -70,7 +70,7 @@ std::unique_ptr<CLIOptions> parseCLI(int argc, char **argv) {
     return std::make_unique<CLIOptions>(CLIOptions{std::filesystem::absolute(file), output, debug, timer, run->parsed()});
 }
 
-int main(int argc, char **argv) {
+auto main(int argc, char **argv) -> int {
     // CLI Parsing
     auto options = parseCLI(argc, argv);
     auto debugFlags = parseDebugFlags(options->debug);

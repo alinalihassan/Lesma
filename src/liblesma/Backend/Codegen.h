@@ -46,10 +46,11 @@ namespace lesma {
         std::unique_ptr<llvm::TargetMachine> TargetMachine_;
         std::shared_ptr<Parser> Parser_;
         std::shared_ptr<SourceMgr> SourceManager_;
-        SymbolTable *Scope_;
+        std::unique_ptr<SymbolTable> rootScope_;// Owns the root scope
+        SymbolTable *Scope_;                    // Non-owning navigation pointer
         std::string filename_;
         std::string alias_;
-        lesma::Value *result_ = nullptr;
+        std::unique_ptr<lesma::Value> result_;
 
         std::stack<llvm::BasicBlock *> breakBlocks_;
         std::stack<llvm::BasicBlock *> continueBlocks_;
@@ -58,6 +59,8 @@ namespace lesma {
 
         std::vector<std::string> ObjectFiles_;
         std::vector<std::string> ImportedModules_;
+        std::vector<std::unique_ptr<SymbolTable>> ImportedScopes_;// Keep imported scopes alive
+        std::vector<std::unique_ptr<lesma::Type>> typeCache_;     // Cache for primitive types to prevent dangling pointers
         std::vector<std::tuple<lesma::Value *, const FuncDecl *, Value *>> Prototypes_;
         llvm::Function *TopLevelFunc_;
         MainFnTy *mainFuncAddress_ = nullptr;
@@ -70,80 +73,83 @@ namespace lesma {
 
     public:
         Codegen(std::shared_ptr<Parser> parser, std::shared_ptr<SourceMgr> srcMgr, const std::string &filename, std::vector<std::string> imports, bool jit, bool main, std::string alias = "", const std::shared_ptr<ThreadSafeContext> & = nullptr);
-        ~Codegen() override {
-            delete selfSymbol_;
-            delete Scope_;
-        }
+        ~Codegen() override = default;
 
         Codegen(const Codegen &) = delete;
         Codegen &operator=(const Codegen &) = delete;
         Codegen(Codegen &&) = default;
         Codegen &operator=(Codegen &&) = default;
 
-        void dump();
-        void run();
-        void prepareJit();
-        int executeJit();
-        void writeToObjectFile(const std::string &output);
-        void linkObjectFile(const std::string &obj_filename);
-        void optimize(OptimizationLevel opt);
+        auto dump() -> void;
+        auto run() -> void;
+        auto prepareJit() -> void;
+        auto executeJit() -> int;
+        auto writeToObjectFile(const std::string &output) -> void;
+        auto linkObjectFile(const std::string &obj_filename) -> void;
+        auto optimize(OptimizationLevel opt) -> void;
 
     protected:
-        std::unique_ptr<llvm::TargetMachine> initializeTargetMachine();
-        std::unique_ptr<Module> initializeModule();
-        std::unique_ptr<LLJIT> initializeJit();
-        llvm::Function *initializeTopLevel();
+        auto initializeTargetMachine() -> std::unique_ptr<llvm::TargetMachine>;
+        auto initializeModule() -> std::unique_ptr<Module>;
+        auto initializeJit() -> std::unique_ptr<LLJIT>;
+        auto initializeTopLevel() -> llvm::Function *;
 
-        [[maybe_unused]] void linkObjectFileWithClang(const std::string &obj_filename);
-        [[maybe_unused]] void linkObjectFileWithLld(const std::string &obj_filename);
+        [[maybe_unused]] auto linkObjectFileWithClang(const std::string &objFilename) -> void;
+        [[maybe_unused]] auto linkObjectFileWithLld(const std::string &obj_filename) -> void;
 
-        void compileModule(llvm::SMRange span, const std::string &filepath, bool isStd, const std::string &alias, bool importAll, bool importToScope, const std::vector<std::pair<std::string, std::string>> &imported_names);
+        auto compileModule(llvm::SMRange span, const std::string &filepath, bool isStd, const std::string &alias, bool importAll, bool importToScope, const std::vector<std::pair<std::string, std::string>> &imported_names) -> void;
 
-        void visit(const Statement *node) override;
-        void visit(const Compound *node) override;
-        void visit(const VarDecl *node) override;
-        void visit(const If *node) override;
-        void visit(const While *node) override;
-        void visit(const Import *node) override;
-        void visit(const Enum *node) override;
-        void visit(const Class *node) override;
-        void visit(const FuncDecl *node) override;
-        void visit(const ExternFuncDecl *node) override;
-        void visit(const Assignment *node) override;
-        void visit(const Break *node) override;
-        void visit(const Continue *node) override;
-        void visit(const Return *node) override;
-        void visit(const Defer *node) override;
-        void visit(const ExpressionStatement *node) override;
+        auto visit(const Statement *node) -> void override;
+        auto visit(const Compound *node) -> void override;
+        auto visit(const VarDecl *node) -> void override;
+        auto visit(const If *node) -> void override;
+        auto visit(const While *node) -> void override;
+        auto visit(const Import *node) -> void override;
+        auto visit(const Enum *node) -> void override;
+        auto visit(const Class *node) -> void override;
+        auto visit(const FuncDecl *node) -> void override;
+        auto visit(const ExternFuncDecl *node) -> void override;
+        auto visit(const Assignment *node) -> void override;
+        auto visit(const Break *node) -> void override;
+        auto visit(const Continue *node) -> void override;
+        auto visit(const Return *node) -> void override;
+        auto visit(const Defer *node) -> void override;
+        auto visit(const ExpressionStatement *node) -> void override;
 
-        void visit(const Expression *node) override;
-        void visit(const FuncCall *node) override;
-        void visit(const BinaryOp *node) override;
-        void visit(const DotOp *node) override;
-        void visit(const CastOp *node) override;
-        void visit(const IsOp *node) override;
-        void visit(const UnaryOp *node) override;
-        void visit(const Literal *node) override;
-        void visit(const Else *node) override;
+        auto visit(const Expression *node) -> void override;
+        auto visit(const FuncCall *node) -> void override;
+        auto visit(const BinaryOp *node) -> void override;
+        auto visit(const DotOp *node) -> void override;
+        auto visit(const CastOp *node) -> void override;
+        auto visit(const IsOp *node) -> void override;
+        auto visit(const UnaryOp *node) -> void override;
+        auto visit(const Literal *node) -> void override;
+        auto visit(const Else *node) -> void override;
 
-        void visit(const TypeExpr *node) override;
+        auto visit(const TypeExpr *node) -> void override;
 
         // TODO: Helper functions, move them out somewhere
         // Type related helper functions
-        lesma::Value *cast(llvm::SMRange span, lesma::Value *val, lesma::Type *type);
-        static lesma::Type *getExtendedType(lesma::Type *left, lesma::Type *right);
+        auto cast(llvm::SMRange span, lesma::Value *val, lesma::Type *type) -> std::unique_ptr<lesma::Value>;
+        static auto getExtendedType(lesma::Type *left, lesma::Type *right) -> lesma::Type *;
 
         // Name mangling functions and such
-        static bool isMethod(const std::string &mangled_name);
-        std::string getMangledName(llvm::SMRange span, std::string func_name, const std::vector<lesma::Type *> &paramTypes, bool isMethod = false, std::string alias = "");
-        [[maybe_unused]] static bool isMangled(std::string name);
-        static std::string getDemangledName(const std::string &mangled_name);
-        std::string getTypeMangledName(llvm::SMRange span, lesma::Type *type);
+        static auto isMethod(const std::string &mangled_name) -> bool;
+        auto getMangledName(llvm::SMRange span, std::string func_name, const std::vector<lesma::Type *> &paramTypes, bool isMethod = false, std::string alias = "") -> std::string;
+        [[maybe_unused]] static auto isMangled(std::string name) -> bool;
+        static auto getDemangledName(const std::string &mangled_name) -> std::string;
+        auto getTypeMangledName(llvm::SMRange span, lesma::Type *type) -> std::string;
 
         // Other
-        lesma::Value *genFuncCall(const FuncCall *node, const std::vector<lesma::Value *> &extra_params);
-        static int findIndexInFields(Type *_struct, const std::string &field);
-        static lesma::Type *findTypeInFields(Type *_struct, const std::string &field);
-        void defineFunction(lesma::Value *value, const FuncDecl *node, Value *clsSymbol);
+        auto genFuncCall(const FuncCall *node, const std::vector<lesma::Value *> &extra_params) -> std::unique_ptr<lesma::Value>;
+        static auto findIndexInFields(Type *_struct, const std::string &field) -> int;
+        static auto findTypeInFields(Type *_struct, const std::string &field) -> lesma::Type *;
+        auto defineFunction(lesma::Value *value, const FuncDecl *node, Value *clsSymbol) -> void;
+
+        // Cache a type to keep it alive - returns raw pointer to the cached type
+        auto cacheType(std::unique_ptr<lesma::Type> type) -> lesma::Type * {
+            typeCache_.push_back(std::move(type));
+            return typeCache_.back().get();
+        }
     };
 }// namespace lesma

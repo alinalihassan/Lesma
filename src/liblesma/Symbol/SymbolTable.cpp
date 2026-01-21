@@ -1,7 +1,10 @@
 #include "SymbolTable.h"
 
+#include <algorithm>
 #include <cstddef>
+#include <memory>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include <llvm/IR/DerivedTypes.h>
@@ -14,19 +17,21 @@ using namespace lesma;
 /**
  * Insert a new symbol into the current symbol table. If it is a parameter, append its name to the paramNames vector
  *
- * @param entry Symbol Table Entry
+ * @param symbol Symbol Table Entry (takes ownership)
  */
-void SymbolTable::insertSymbol(Value *symbol) {
-    symbols_.emplace(symbol->getName(), symbol);
+auto SymbolTable::insertSymbol(std::unique_ptr<Value> symbol) -> void {
+    auto name = symbol->getName();
+    symbols_.emplace(std::move(name), std::move(symbol));
 }
 
 /**
- * Insert a new symbol into the current symbol table. If it is a parameter, append its name to the paramNames vector
+ * Insert a new type into the current symbol table.
  *
- * @param entry Symbol Table Entry
+ * @param name Name of the type
+ * @param type Type to insert (takes ownership)
  */
-void SymbolTable::insertType(const std::string &name, Type *type) {
-    types_.insert_or_assign(name, type);
+auto SymbolTable::insertType(const std::string &name, std::unique_ptr<Type> type) -> void {
+    types_.insert_or_assign(name, std::move(type));
 }
 
 /**
@@ -35,7 +40,7 @@ void SymbolTable::insertType(const std::string &name, Type *type) {
  * @param name Name of the desired symbol
  * @return Desired symbol / nullptr if the symbol was not found
  */
-Value *SymbolTable::lookupFunction(const std::string &name, std::vector<lesma::Type *> paramTypes) {
+auto SymbolTable::lookupFunction(const std::string &name, std::vector<lesma::Type *> paramTypes) -> Value * {
     auto range = symbols_.equal_range(name);
     for (auto it = range.first; it != range.second; ++it) {
         if (!it->second->getType()->is(BaseType::TY_FUNCTION)) {
@@ -69,7 +74,7 @@ Value *SymbolTable::lookupFunction(const std::string &name, std::vector<lesma::T
             continue;// Parameter types don't match
         }
 
-        return it->second;
+        return it->second.get();
     }
 
     if (parent_ == nullptr) {
@@ -85,10 +90,10 @@ Value *SymbolTable::lookupFunction(const std::string &name, std::vector<lesma::T
  * @param name Name of the desired symbol
  * @return Desired symbol / nullptr if the symbol was not found
  */
-Value *SymbolTable::lookup(const std::string &name) {
-    for (const auto &sym: symbols_) {
-        if (sym.first == name) {
-            return sym.second;
+auto SymbolTable::lookup(const std::string &name) -> Value * {
+    for (const auto &[key, sym]: symbols_) {
+        if (key == name) {
+            return sym.get();
         }
     }
 
@@ -105,11 +110,11 @@ Value *SymbolTable::lookup(const std::string &name) {
  * @param name Name of the desired symbol
  * @return Desired symbol / nullptr if the symbol was not found
  */
-Value *SymbolTable::lookupStruct(const std::string &name) {
-    for (auto sym: symbols_) {
-        if (sym.second->getType()->getLLVMType() != nullptr && sym.second->getType()->isOneOf({BaseType::TY_CLASS, BaseType::TY_ENUM}) &&
-            llvm::cast<llvm::StructType>(sym.second->getType()->getLLVMType())->getName() == name) {
-            return sym.second;
+auto SymbolTable::lookupStruct(const std::string &name) -> Value * {
+    for (const auto &[key, sym]: symbols_) {
+        if (sym->getType()->getLLVMType() != nullptr && sym->getType()->isOneOf({BaseType::TY_CLASS, BaseType::TY_ENUM}) &&
+            llvm::cast<llvm::StructType>(sym->getType()->getLLVMType())->getName() == name) {
+            return sym.get();
         }
     }
 
@@ -126,15 +131,35 @@ Value *SymbolTable::lookupStruct(const std::string &name) {
  * @param name Name of the desired symbol
  * @return Desired symbol / nullptr if the symbol was not found
  */
-Type *SymbolTable::lookupType(const std::string &name) {
-    if (types_.find(name) == types_.end()) {
-        if (parent_ == nullptr) {
-            return nullptr;
-        }
-        return parent_->lookupType(name);
+auto SymbolTable::lookupType(const std::string &name) -> Type * {
+    // Check owned types first
+    auto it = types_.find(name);
+    if (it != types_.end()) {
+        return it->second.get();
     }
 
-    return types_.at(name);
+    // Check referenced (imported) types
+    auto refIt = typeRefs_.find(name);
+    if (refIt != typeRefs_.end()) {
+        return refIt->second;
+    }
+
+    // Check parent scope
+    if (parent_ == nullptr) {
+        return nullptr;
+    }
+    return parent_->lookupType(name);
+}
+
+/**
+ * Insert a non-owning type reference into the current symbol table.
+ * Used for imported types that are owned by another scope.
+ *
+ * @param name Name of the type
+ * @param type Pointer to type (caller must ensure Type outlives this SymbolTable)
+ */
+auto SymbolTable::insertTypeRef(const std::string &name, Type *type) -> void {
+    typeRefs_.insert_or_assign(name, type);
 }
 
 /**
@@ -143,13 +168,16 @@ Type *SymbolTable::lookupType(const std::string &name) {
  * @param blockName Name of the child scope
  * @return Newly created child table
  */
-SymbolTable *SymbolTable::createChildBlock(const std::string &blockName) {
+auto SymbolTable::createChildBlock(const std::string &blockName) -> SymbolTable * {
     int idx = 1;
     while (children_.find(blockName + std::to_string(idx)) != children_.end()) {
         idx++;
     }
-    children_.insert({blockName + std::to_string(idx), new SymbolTable(this)});
-    return children_.at(blockName + std::to_string(idx));
+    auto key = blockName + std::to_string(idx);
+    auto child = std::make_unique<SymbolTable>(this);
+    auto *childPtr = child.get();
+    children_.emplace(std::move(key), std::move(child));
+    return childPtr;
 }
 
 /**
@@ -157,7 +185,7 @@ SymbolTable *SymbolTable::createChildBlock(const std::string &blockName) {
  *
  * @return Pointer to the parent symbol table
  */
-SymbolTable *SymbolTable::getParent() {
+auto SymbolTable::getParent() -> SymbolTable * {
     return parent_;
 }
 
@@ -167,12 +195,13 @@ SymbolTable *SymbolTable::getParent() {
  * @param scopeId Name of the child scope
  * @return Pointer to the child symbol table
  */
-SymbolTable *SymbolTable::getChild(const std::string &scopeId) {
+auto SymbolTable::getChild(const std::string &scopeId) -> SymbolTable * {
     if (children_.empty()) {
         return nullptr;
     }
-    if (children_.find(scopeId) == children_.end()) {
+    auto it = children_.find(scopeId);
+    if (it == children_.end()) {
         return nullptr;
     }
-    return children_.at(scopeId);
+    return it->second.get();
 }

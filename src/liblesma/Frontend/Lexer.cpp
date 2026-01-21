@@ -16,13 +16,13 @@
 
 using namespace lesma;
 
-void Lexer::scanAll() {
+auto Lexer::scanAll() -> void {
     while (tokens_.empty() || tokens_.back()->type != TokenType::EOF_TOKEN) {
         tokens_.push_back(scanOne(false));
     }
 }
 
-std::vector<Token *> Lexer::getTokens() {
+auto Lexer::getTokens() -> std::vector<Token *> {
     std::vector<Token *> result;
     result.reserve(tokens_.size());
     for (const auto &tok: tokens_) {
@@ -32,7 +32,7 @@ std::vector<Token *> Lexer::getTokens() {
 }
 
 // NOLINTNEXTLINE(readability-function-cognitive-complexity)
-std::unique_ptr<Token> Lexer::scanOne(bool continuation) {
+auto Lexer::scanOne(bool continuation) -> std::unique_ptr<Token> {
     if (isAtEnd()) {
         return std::make_unique<Token>(TokenType::EOF_TOKEN, "EOF", llvm::SMRange{begin_loc_, loc_});
     }
@@ -198,7 +198,7 @@ std::unique_ptr<Token> Lexer::scanOne(bool continuation) {
     return nullptr;
 }
 
-void Lexer::handleWhitespace(char c) {
+auto Lexer::handleWhitespace(char c) -> void {
     if (!first_indent_char_.has_value()) {
         first_indent_char_ = c;
     }
@@ -211,7 +211,7 @@ void Lexer::handleWhitespace(char c) {
 }
 
 // NOLINTNEXTLINE(readability-function-cognitive-complexity)
-bool Lexer::handleIndentation(bool continuation) {
+auto Lexer::handleIndentation(bool continuation) -> bool {
     const int tabSize = 8;
     int col = 0;
     int altCol = 0;
@@ -294,29 +294,29 @@ bool Lexer::handleIndentation(bool continuation) {
     return true;
 }
 
-std::unique_ptr<Token> Lexer::makeToken(TokenType type) {
+auto Lexer::makeToken(TokenType type) -> std::unique_ptr<Token> {
     auto token = std::make_unique<Token>(type, std::string(begin_loc_.getPointer(), loc_.getPointer()), llvm::SMRange{begin_loc_, loc_});
     resetTokenBeg();
     return token;
 }
 
-std::unique_ptr<Token> Lexer::makeToken(TokenType type, const std::string &value) {
+auto Lexer::makeToken(TokenType type, const std::string &value) -> std::unique_ptr<Token> {
     auto token = std::make_unique<Token>(type, value, llvm::SMRange{begin_loc_, loc_});
     resetTokenBeg();
     return token;
 }
 
-void Lexer::resetTokenBeg() {
+auto Lexer::resetTokenBeg() -> void {
     begin_loc_ = loc_;
 }
 
-void Lexer::fallback() {
+auto Lexer::fallback() -> void {
     --curPos_;
     loc_ = llvm::SMLoc::getFromPointer(getLocPointer());
     --col_;
 }
 
-char Lexer::advance() {
+auto Lexer::advance() -> char {
     auto ret = lastChar();
     ++curPos_;
     loc_ = llvm::SMLoc::getFromPointer(getLocPointer());
@@ -324,7 +324,7 @@ char Lexer::advance() {
     return ret;
 }
 
-bool Lexer::matchAndAdvance(char expected) {
+auto Lexer::matchAndAdvance(char expected) -> bool {
     if (isAtEnd()) {
         return false;
     }
@@ -336,7 +336,7 @@ bool Lexer::matchAndAdvance(char expected) {
     return true;
 }
 
-char Lexer::peek(int offset) {
+auto Lexer::peek(int offset) -> char {
     size_t targetPos = curPos_ + static_cast<size_t>(offset);
     if (targetPos >= curBuffer_->getBufferSize()) {
         return '\0';
@@ -344,7 +344,7 @@ char Lexer::peek(int offset) {
     return getCharAt(targetPos);
 }
 
-std::unique_ptr<Token> Lexer::addStringToken() {
+auto Lexer::addStringToken() -> std::unique_ptr<Token> {
     std::string string;
 
     while (peek() != '"' && !isAtEnd()) {
@@ -406,7 +406,7 @@ std::unique_ptr<Token> Lexer::addStringToken() {
     return makeToken(TokenType::STRING, string);
 }
 
-std::unique_ptr<Token> Lexer::addNumToken() {
+auto Lexer::addNumToken() -> std::unique_ptr<Token> {
     while (isDigit(peek())) {
         advance();
     }
@@ -426,14 +426,14 @@ std::unique_ptr<Token> Lexer::addNumToken() {
     return makeToken(TokenType::INTEGER);
 }
 
-Token *Lexer::getLastToken() {
+auto Lexer::getLastToken() -> Token * {
     if (!tokens_.empty()) {
         return tokens_.back().get();
     }
     return nullptr;
 }
 
-std::unique_ptr<Token> Lexer::addIdentifierToken() {
+auto Lexer::addIdentifierToken() -> std::unique_ptr<Token> {
     while (isAlphaNumeric(peek())) {
         advance();
     }
@@ -449,8 +449,8 @@ std::unique_ptr<Token> Lexer::addIdentifierToken() {
     return tok;
 }
 
-char Lexer::lastChar() { return getCharAt(curPos_); }
+auto Lexer::lastChar() -> char { return getCharAt(curPos_); }
 
-void Lexer::error(const std::string &msg) const {
+auto Lexer::error(const std::string &msg) const -> void {
     throw LexerError(llvm::SMRange{begin_loc_, loc_}, msg);
 }
