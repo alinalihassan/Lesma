@@ -1,5 +1,7 @@
 #include "Token.h"
 
+#include "nameof.hpp"
+
 using namespace lesma;
 
 std::string Token::Dump(const std::shared_ptr<llvm::SourceMgr> &srcMgr) const {

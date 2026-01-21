@@ -1,5 +1,10 @@
 #include "Parser.h"
 
+#include "fmt/core.h"
+#include "nameof.hpp"
+
+#include "liblesma/Common/Utils.h"
+
 using namespace lesma;
 
 template<TokenType type, TokenType... remained_types>

@@ -1,14 +1,7 @@
 #pragma once
 
+#include <memory>
 #include <string>
-#include <vector>
-
-#include "liblesma/Backend/Codegen.h"
-#include "liblesma/Common/Utils.h"
-#include "liblesma/Frontend/Lexer.h"
-#include "liblesma/Frontend/Parser.h"
-
-#include "llvm/Support/SourceMgr.h"
 
 namespace lesma {
     enum SourceType {

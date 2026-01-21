@@ -1,51 +1,22 @@
 #pragma once
 
-#include "liblesma/AST/ASTVisitor.h"
-#include "liblesma/Frontend/Parser.h"
-#include "liblesma/Symbol/SymbolTable.h"
-#include <clang/Basic/Diagnostic.h>
-#include <clang/Basic/DiagnosticIDs.h>
-#include <clang/Basic/DiagnosticOptions.h>
-#include <clang/Basic/FileManager.h>
-#include <clang/Basic/FileSystemOptions.h>
-#include <clang/Basic/LangOptions.h>
-#include <clang/Basic/SourceManager.h>
-#include <clang/Basic/TargetInfo.h>
-#include <clang/Driver/Compilation.h>
-#include <clang/Driver/Driver.h>
-#include <clang/Driver/Job.h>
-#include <clang/Frontend/TextDiagnosticPrinter.h>
-#include <filesystem>
-#ifdef LESMA_HAS_LLD
-#include <lld/Common/Driver.h>
-#endif
-#include <llvm/Analysis/CGSCCPassManager.h>
-#include <llvm/Analysis/LoopAnalysisManager.h>
-#include <llvm/ExecutionEngine/ExecutionEngine.h>
+#include <memory>
+#include <stack>
+#include <string>
+#include <tuple>
+#include <vector>
+
 #include <llvm/ExecutionEngine/Orc/LLJIT.h>
 #include <llvm/IR/IRBuilder.h>
-#include <llvm/IR/LegacyPassManager.h>
-#include <llvm/IR/Module.h>
-#include <llvm/IR/PassManager.h>
-#include <llvm/IR/Verifier.h>
-#include <llvm/Linker/Linker.h>
-#include <llvm/MC/TargetRegistry.h>
 #include <llvm/Passes/PassBuilder.h>
-#include <llvm/Support/FileSystem.h>
-#include <llvm/TargetParser/Host.h>
-#include <llvm/Support/Program.h>
-#include <llvm/Support/TargetSelect.h>
-#include <llvm/Support/VirtualFileSystem.h>
-#include <llvm/Transforms/IPO/FunctionAttrs.h>
-#include <llvm/Transforms/IPO/GlobalDCE.h>
-#include <llvm/Transforms/IPO/Inliner.h>
-#include <llvm/Transforms/Scalar/ADCE.h>
-#include <llvm/Transforms/Scalar/DeadStoreElimination.h>
-#include <llvm/Transforms/Scalar/GVN.h>
-#include <llvm/Transforms/Scalar/LoopUnrollPass.h>
-#include <llvm/Transforms/Vectorize/LoopVectorize.h>
-#include <regex>
-#include <utility>
+#include <llvm/Target/TargetMachine.h>
+
+#include <sysexits.h>
+
+#include "liblesma/AST/ASTVisitor.h"
+#include "liblesma/Common/LesmaError.h"
+#include "liblesma/Frontend/Parser.h"
+#include "liblesma/Symbol/SymbolTable.h"
 
 using namespace llvm;
 using namespace llvm::orc;

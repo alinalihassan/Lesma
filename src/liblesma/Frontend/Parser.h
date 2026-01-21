@@ -1,10 +1,13 @@
 #pragma once
 
-#include "Lexer.h"
+#include <utility>
+#include <vector>
+
+#include <sysexits.h>
+
 #include "liblesma/AST/AST.h"
 #include "liblesma/Common/LesmaError.h"
-#include <memory>
-#include <utility>
+#include "liblesma/Token/Token.h"
 
 namespace lesma {
     class ParserError : public LesmaErrorWithExitCode<EX_DATAERR> {

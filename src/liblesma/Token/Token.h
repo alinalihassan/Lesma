@@ -1,13 +1,12 @@
 #pragma once
 
-#include <map>
+#include <ostream>
 #include <string>
 #include <utility>
 
-#include "nameof.hpp"
+#include "llvm/Support/SourceMgr.h"
 
 #include "TokenType.h"
-#include "liblesma/Common/Utils.h"
 
 namespace lesma {
     struct Token {

@@ -1,3 +1,8 @@
+#include <cstdlib>
+#include <filesystem>
+#include <memory>
+#include <string>
+#include <utility>
 #include <vector>
 
 #include "CLI/CLI.hpp"
@@ -33,9 +38,9 @@ std::unique_ptr<CLIOptions> parseCLI(int argc, char **argv) {
     } catch (const CLI::ParseError &e) {
         if ((app.get_subcommands().empty() && argc == 1) || (!app.get_subcommands().empty() && argc == 2)) {
             print(app.help());
-            exit(0);
+            std::exit(0);
         } else {
-            exit(app.exit(e));
+            std::exit(app.exit(e));
         }
     }
 
@@ -45,7 +50,7 @@ std::unique_ptr<CLIOptions> parseCLI(int argc, char **argv) {
 int main(int argc, char **argv) {
     // CLI Parsing
     auto options = parseCLI(argc, argv);
-    auto driver_options = std::make_unique<Options>(Options{SourceType::FILE, options->file,
-                                                            static_cast<Debug>(options->debug ? (LEXER | AST | IR) : NONE), options->output, options->timer});
-    return options->jit ? Driver::Run(std::move(driver_options)) : Driver::Compile(std::move(driver_options));
+    auto driverOptions = std::make_unique<Options>(Options{SourceType::FILE, options->file,
+                                                           static_cast<Debug>(options->debug ? (LEXER | AST | IR) : NONE), options->output, options->timer});
+    return options->jit ? Driver::Run(std::move(driverOptions)) : Driver::Compile(std::move(driverOptions));
 }

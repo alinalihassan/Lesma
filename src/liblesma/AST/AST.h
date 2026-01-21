@@ -1,16 +1,22 @@
 #pragma once
 
-#include <iostream>
-#include <map>
+#include <algorithm>
+#include <iterator>
 #include <optional>
+#include <sstream>
+#include <string>
 #include <utility>
 #include <vector>
 
-#include "liblesma/AST/ASTVisitor.h"
-#include "liblesma/Common/Utils.h"
-#include "liblesma/Token/Token.h"
-#include "liblesma/Token/TokenType.h"
+#include "llvm/Support/SMLoc.h"
+#include "llvm/Support/SourceMgr.h"
+
+#include "fmt/core.h"
+#include "fmt/format.h"
 #include "nameof.hpp"
+
+#include "liblesma/AST/ASTVisitor.h"
+#include "liblesma/Token/TokenType.h"
 
 namespace lesma {
     class AST {
@@ -156,7 +162,7 @@ namespace lesma {
         bool exported;
 
     public:
-        Enum(llvm::SMRange Loc, std::string identifier, std::vector<std::string> values, bool exported) : Statement(Loc), identifier(std::move(identifier)), values(std::move(values)), exported(exported){};
+        Enum(llvm::SMRange Loc, std::string identifier, std::vector<std::string> values, bool exported) : Statement(Loc), identifier(std::move(identifier)), values(std::move(values)), exported(exported) {};
         ~Enum() override = default;
         void accept(ASTVisitor &visitor) const override {
             visitor.visit(this);
@@ -190,7 +196,7 @@ namespace lesma {
         bool import_to_scope;
 
     public:
-        Import(llvm::SMRange Loc, std::string file_path, std::string alias, bool std, bool import_all, bool import_to_scope, std::vector<std::pair<std::string, std::string>> imported_names) : Statement(Loc), file_path(std::move(file_path)), alias(std::move(alias)), imported_names(std::move(imported_names)), std(std), import_all(import_all), import_to_scope(import_to_scope){};
+        Import(llvm::SMRange Loc, std::string file_path, std::string alias, bool std, bool import_all, bool import_to_scope, std::vector<std::pair<std::string, std::string>> imported_names) : Statement(Loc), file_path(std::move(file_path)), alias(std::move(alias)), imported_names(std::move(imported_names)), std(std), import_all(import_all), import_to_scope(import_to_scope) {};
         ~Import() override = default;
         void accept(ASTVisitor &visitor) const override {
             visitor.visit(this);
@@ -741,7 +747,7 @@ namespace lesma {
         bool exported;
 
     public:
-        Class(llvm::SMRange Loc, std::string identifier, std::vector<VarDecl *> fields, std::vector<FuncDecl *> methods, bool exported) : Statement(Loc), identifier(std::move(identifier)), fields(std::move(fields)), methods(std::move(methods)), exported(exported){};
+        Class(llvm::SMRange Loc, std::string identifier, std::vector<VarDecl *> fields, std::vector<FuncDecl *> methods, bool exported) : Statement(Loc), identifier(std::move(identifier)), fields(std::move(fields)), methods(std::move(methods)), exported(exported) {};
         ~Class() override {
             for (auto field: fields)
                 delete field;

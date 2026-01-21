@@ -1,5 +1,7 @@
 #include "Lexer.h"
 
+#include "fmt/core.h"
+
 using namespace lesma;
 
 void Lexer::ScanAll() {

@@ -1,17 +1,15 @@
 #pragma once
 
-#include <llvm/IR/Type.h>
-#include <llvm/IR/Value.h>
-#include <map>
-#include <utility>
+#include <string>
+#include <unordered_map>
+#include <vector>
 
 #include "Value.h"
-#include "liblesma/Common/Utils.h"
 
 namespace lesma {
     class SymbolTable {
     public:
-        explicit SymbolTable(SymbolTable *parent) : parent(parent){};
+        explicit SymbolTable(SymbolTable *parent) : parent(parent) {};
         ~SymbolTable() {
             for (auto const &[key, val]: children)
                 delete val;

@@ -1,12 +1,11 @@
 #pragma once
 
 #include <optional>
-#include <string>
-#include <sysexits.h>
 #include <vector>
 
+#include <sysexits.h>
+
 #include "liblesma/Common/LesmaError.h"
-#include "liblesma/Common/Utils.h"
 #include "liblesma/Token/Token.h"
 
 namespace lesma {

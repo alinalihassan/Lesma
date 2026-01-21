@@ -1,6 +1,15 @@
 #include "Driver.h"
 
+#include <vector>
+
+#include "llvm/Support/SourceMgr.h"
+
 #include "plf_nanotimer.h"
+
+#include "liblesma/Backend/Codegen.h"
+#include "liblesma/Common/Utils.h"
+#include "liblesma/Frontend/Lexer.h"
+#include "liblesma/Frontend/Parser.h"
 
 using namespace lesma;
 
@@ -94,7 +103,7 @@ int Driver::BaseCompile(std::unique_ptr<lesma::Options> options, bool jit) {
             print(ERROR, err.what());
         else
             showInline(srcMgr.get(), 1, err.getSpan(), err.what(), options->sourceType == FILE ? options->source : "", true);
-        return err.exit_code;
+        return err.getExitCode();
     }
 }
 

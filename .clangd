@@ -1,2 +1,24 @@
 CompileFlags:
   CompilationDatabase: build/Debug
+
+Diagnostics:
+  UnusedIncludes: Strict
+  MissingIncludes: Strict
+  # Clang-Tidy integration (powerful static analysis)
+  ClangTidy:
+    Add:
+      - bugprone-*
+      - modernize-*
+      - performance-*
+      - readability-*
+      - cppcoreguidelines-*
+    Remove:
+      - modernize-use-trailing-return-type  # Personal preference
+      - readability-identifier-length       # Too noisy
+      - cppcoreguidelines-avoid-magic-numbers
+      - readability-magic-numbers
+    CheckOptions:
+      readability-identifier-naming.ClassCase: CamelCase
+      readability-identifier-naming.FunctionCase: camelBack
+      readability-identifier-naming.VariableCase: camelBack
+      readability-identifier-naming.PrivateMemberSuffix: _

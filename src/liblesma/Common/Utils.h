@@ -1,18 +1,11 @@
 #pragma once
 
-#include <cmath>
-#include <fstream>
-#include <pwd.h>
-#include <sstream>
-#include <unistd.h>
+#include <string>
 
-#include "llvm/Support/SMLoc.h"
 #include "llvm/Support/SourceMgr.h"
 
 #include "fmt/color.h"
 #include "fmt/core.h"
-
-#include "liblesma/Token/TokenType.h"
 
 namespace lesma {
     enum LogType {

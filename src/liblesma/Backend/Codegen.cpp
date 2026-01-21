@@ -1,5 +1,79 @@
 #include "Codegen.h"
 
+#include <cstddef>
+#include <filesystem>
+#include <memory>
+#include <regex>
+#include <string>
+#include <system_error>
+#include <utility>
+#include <vector>
+
+#include <clang/Basic/Diagnostic.h>
+#include <clang/Basic/DiagnosticIDs.h>
+#include <clang/Basic/DiagnosticOptions.h>
+#include <clang/Driver/Compilation.h>
+#include <clang/Driver/Driver.h>
+#include <clang/Frontend/TextDiagnosticPrinter.h>
+#include <llvm/ADT/APFloat.h>
+#include <llvm/ADT/IntrusiveRefCntPtr.h>
+#include <llvm/ADT/SmallVector.h>
+#include <llvm/ExecutionEngine/Orc/ExecutionUtils.h>
+#include <llvm/ExecutionEngine/Orc/JITTargetMachineBuilder.h>
+#include <llvm/ExecutionEngine/Orc/LLJIT.h>
+#include <llvm/ExecutionEngine/Orc/ThreadSafeModule.h>
+#include <llvm/IR/Constants.h>
+#include <llvm/IR/DerivedTypes.h>
+#include <llvm/IR/GlobalValue.h>
+#include <llvm/IR/IRBuilder.h>
+#include <llvm/IR/LLVMContext.h>
+#include <llvm/IR/PassManager.h>
+#include <llvm/IR/Type.h>
+#include <llvm/Pass.h>
+#include <llvm/Passes/OptimizationLevel.h>
+#include <llvm/Passes/PassBuilder.h>
+#include <llvm/Support/Casting.h>
+#include <llvm/Support/CodeGen.h>
+#include <llvm/Support/Error.h>
+#include <llvm/Support/SMLoc.h>
+#include <llvm/Support/SourceMgr.h>
+#include <llvm/Support/raw_ostream.h>
+#include <llvm/Transforms/Scalar/LoopPassManager.h>
+
+#include <fmt/format.h>
+#include <nameof.hpp>
+
+#include "liblesma/AST/AST.h"
+#include "liblesma/Common/LesmaError.h"
+#include "liblesma/Frontend/Parser.h"
+#include "liblesma/Symbol/SymbolTable.h"
+#include "liblesma/Symbol/Type.h"
+#include "liblesma/Symbol/Value.h"
+#include "liblesma/Token/TokenType.h"
+#ifdef LESMA_HAS_LLD
+#include <lld/Common/Driver.h>
+#endif
+#include <llvm/Analysis/CGSCCPassManager.h>
+#include <llvm/Analysis/LoopAnalysisManager.h>
+#include <llvm/IR/LegacyPassManager.h>
+#include <llvm/IR/Verifier.h>
+#include <llvm/MC/TargetRegistry.h>
+#include <llvm/Support/FileSystem.h>
+#include <llvm/Support/Program.h>
+#include <llvm/Support/TargetSelect.h>
+#include <llvm/Support/VirtualFileSystem.h>
+#include <llvm/TargetParser/Host.h>
+#include <llvm/Transforms/IPO/GlobalDCE.h>
+#include <llvm/Transforms/IPO/Inliner.h>
+#include <llvm/Transforms/Scalar/ADCE.h>
+#include <llvm/Transforms/Scalar/DeadStoreElimination.h>
+#include <llvm/Transforms/Scalar/GVN.h>
+#include <llvm/Transforms/Scalar/LoopUnrollPass.h>
+#include <llvm/Transforms/Vectorize/LoopVectorize.h>
+
+#include "liblesma/Common/Utils.h"
+#include "liblesma/Frontend/Lexer.h"
+
 using namespace lesma;
 
 Codegen::Codegen(std::shared_ptr<Parser> parser, std::shared_ptr<SourceMgr> srcMgr, const std::string &filename, std::vector<std::string> imports, bool jit, bool main, std::string alias, const std::shared_ptr<ThreadSafeContext> &context) {
@@ -52,13 +126,14 @@ std::unique_ptr<llvm::TargetMachine> Codegen::InitializeTargetMachine() {
     // Search after selected target
     std::string error;
     const llvm::Target *target = llvm::TargetRegistry::lookupTarget(targetTriple.getTriple(), error);
-    if (!target)
+    if (target == nullptr) {
         throw CodegenError({}, "Target not available:\n{}", error);
+    }
 
     llvm::TargetOptions opt;
     llvm::Reloc::Model rm = llvm::Reloc::Model();
-    std::unique_ptr<llvm::TargetMachine> target_machine(target->createTargetMachine(targetTriple, "generic", "", opt, rm));
-    return target_machine;
+    std::unique_ptr<llvm::TargetMachine> targetMachine(target->createTargetMachine(targetTriple, "generic", "", opt, rm));
+    return targetMachine;
 }
 
 std::unique_ptr<LLJIT> Codegen::InitializeJIT() {
@@ -71,10 +146,10 @@ std::unique_ptr<LLJIT> Codegen::InitializeJIT() {
     }
 
     // Add support for C native functions
-    auto &MainJD = jit->getMainJITDylib();
-    auto Generator = cantFail(DynamicLibrarySearchGenerator::GetForCurrentProcess(
+    auto &mainJd = jit->getMainJITDylib();
+    auto generator = cantFail(DynamicLibrarySearchGenerator::GetForCurrentProcess(
             jit->getDataLayout().getGlobalPrefix()));
-    MainJD.addGenerator(std::move(Generator));
+    mainJd.addGenerator(std::move(generator));
 
     return jit;
 }
@@ -82,13 +157,13 @@ std::unique_ptr<LLJIT> Codegen::InitializeJIT() {
 llvm::Function *Codegen::InitializeTopLevel() {
     std::vector<llvm::Type *> paramTypes = {};
 
-    FunctionType *FT = FunctionType::get(Builder->getInt64Ty(), paramTypes, false);
-    Function *F = Function::Create(FT, isMain ? Function::ExternalLinkage : Function::InternalLinkage, "main", *TheModule);
+    FunctionType *ft = FunctionType::get(Builder->getInt64Ty(), paramTypes, false);
+    Function *f = Function::Create(ft, isMain ? Function::ExternalLinkage : Function::InternalLinkage, "main", *TheModule);
 
-    auto entry = BasicBlock::Create(TheModule->getContext(), "entry", F);
+    auto *entry = BasicBlock::Create(TheModule->getContext(), "entry", f);
     Builder->SetInsertPoint(entry);
 
-    return F;
+    return f;
 }
 
 void Codegen::defineFunction(lesma::Value *value, const FuncDecl *node, Value *clsSymbol) {
@@ -390,7 +465,7 @@ void Codegen::WriteToObjectFile(const std::string &output) {
     for (const auto &obj: ObjectFiles)
         llvm::sys::fs::remove(obj);
 }
-#endif // LESMA_HAS_LLD
+#endif// LESMA_HAS_LLD
 
 [[maybe_unused]] void Codegen::LinkObjectFileWithClang(const std::string &obj_filename) {
     auto clangPath = llvm::sys::findProgramByName("clang");

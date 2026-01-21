@@ -1,5 +1,11 @@
 #include "Utils.h"
 
+#include <cmath>
+#include <sstream>
+
+#include <pwd.h>
+#include <unistd.h>
+
 namespace lesma {
     std::string getBasename(const std::string &file_path) {
         auto filename = file_path.substr(file_path.find_last_of("/\\") + 1);
