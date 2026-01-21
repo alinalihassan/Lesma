@@ -1,6 +1,22 @@
 # Generated from CLion C/C++ Code Style settings
 BasedOnStyle: LLVM
 AccessModifierOffset: -4
+# Include sorting
+SortIncludes: CaseSensitive
+IncludeBlocks: Regroup
+IncludeCategories:
+  # Standard library headers
+  - Regex: '^<[a-z_]+>$'
+    Priority: 1
+  # LLVM/clang headers
+  - Regex: '^["<](llvm|clang)/'
+    Priority: 2
+  # Project headers
+  - Regex: '^"liblesma/'
+    Priority: 4
+  # Third-party headers (catch-all, must be last)
+  - Regex: '.*'
+    Priority: 3
 AlignAfterOpenBracket: Align
 AlignConsecutiveAssignments: None
 AlignOperands: Align

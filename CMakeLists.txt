@@ -1,5 +1,8 @@
 cmake_minimum_required(VERSION 3.24)
 
+# Export compile commands for LSP support (clangd)
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+
 # Macro
 macro(add_feature_option OPTION_NAME FEATURE_NAME DESCRIPTION DEFAULT_VALUE)
   option(${OPTION_NAME} ${DESCRIPTION} ${DEFAULT_VALUE})
