@@ -50,18 +50,79 @@ bash -c "$(curl -fsSL https://raw.githubusercontent.com/alinalihassan/Lesma/main
 
 ## 🔧 Build
 
-In order to build Lesma, you need Clang and LLVM 15 installed. It's currently only supported on Linux and macOS.
+In order to build Lesma, you need Clang, LLVM 15, and Ninja installed. It's currently only supported on Linux and macOS.
 For a more comprehensive guide, and more information on how to install the prerequisites,
 read the documentation on [Getting Started](https://lesma.org/docs/introduction/getting-started)
+
+### Prerequisites
+
+**Required:**
+- CMake 3.24+
+- Ninja
+- Clang
+- LLVM 15 (with Clang and LLD)
+
+### Installing LLVM 15
+
+#### Option 1: Homebrew (macOS 13 and earlier)
+```bash
+brew install llvm@15
+export LLVM_DIR=$(brew --prefix llvm@15)/lib/cmake/llvm
+export LLD_DIR=$(brew --prefix llvm@15)/lib/cmake/lld
+export Clang_DIR=$(brew --prefix llvm@15)/lib/cmake/clang
+```
+
+#### Option 2: Package Manager (Linux)
+```bash
+# Ubuntu/Debian
+sudo apt-get install llvm-15-dev clang-15 lld-15 libclang-15-dev
+
+# Set environment variables
+export LLVM_DIR=/usr/lib/llvm-15/lib/cmake/llvm
+export LLD_DIR=/usr/lib/llvm-15/lib/cmake/lld
+export Clang_DIR=/usr/lib/llvm-15/lib/cmake/clang
+```
+
+#### Option 3: Build LLVM 15 via vcpkg (Any platform)
+This option builds LLVM 15 from source using vcpkg. It takes significant time (~1-2 hours) but works on any platform.
+
+```bash
+git clone https://github.com/alinalihassan/Lesma
+cd Lesma
+git submodule update --init --recursive
+
+# Configure with LLVM build enabled
+cmake . -Bbuild -DLESMA_BUILD_LLVM=ON -G Ninja
+cmake --build build
+```
+
+#### Option 4: Pre-built LLVM binaries
+Download pre-built LLVM 15 binaries from the [LLVM releases page](https://github.com/llvm/llvm-project/releases/tag/llvmorg-15.0.7).
+
+### Building Lesma
 
 1. Clone the repository
     ```bash
     git clone https://github.com/alinalihassan/Lesma
+    cd Lesma
+    git submodule update --init --recursive
     ```
-2. Run CMake to configure the build
+
+2. Run CMake to configure and build
     ```bash
-    cmake . -Bbuild
+    # Using presets (recommended)
+    cmake --preset Debug
+    cmake --build --preset Debug
+
+    # Or manually
+    cmake . -Bbuild -G Ninja
     cmake --build build
+    ```
+
+3. Run tests (optional)
+    ```bash
+    cd build/Debug  # or build/Release
+    ctest --output-on-failure
     ```
 
 ## 💬 Contributing

@@ -9,7 +9,7 @@
   "maintainers": [
     "Alin Ali Hassan <hassanalinali@gmail.com>"
   ],
-  "builtin-baseline": "501db0f17ef6df184fcdbfbe0f87cde2313b6ab1",
+  "builtin-baseline": "3c4706f7aba0155cb34c366b5ef3397e75e0d14e",
   "dependencies": [
     {
       "name": "fmt",
@@ -21,7 +21,14 @@
     },
     {
       "name": "plf-nanotimer",
-      "version>=": "2019-08-10#2"
+      "version>=": "1.0.8"
+    }
+  ],
+  "overrides": [
+    {
+      "name": "llvm",
+      "version": "15.0.7",
+      "port-version": 6
     }
   ],
   "features": {
@@ -57,16 +64,14 @@
       "dependencies": [
         {
           "name": "llvm",
-          "version>=": "15.0.7",
           "default-features": false,
           "features": [
             "default-targets",
-            "disable-clang-static-analyzer",
             "clang",
+            "enable-rtti",
             "enable-zlib",
             "enable-zstd",
             "lld",
-            "compiler-rt",
             "tools"
           ]
         }

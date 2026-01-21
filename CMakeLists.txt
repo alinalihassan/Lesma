@@ -13,7 +13,7 @@ add_feature_option(LESMA_BUILD_CLI "cli" "Build CLI" ON)
 add_feature_option(LESMA_BUILD_TESTS "tests" "Build Tests" OFF)
 add_feature_option(LESMA_BUILD_BENCHMARKS "benchmarks" "Build Benchmarks" OFF)
 add_feature_option(LESMA_BUILD_DIST "dist" "Build Dist" OFF)
-add_feature_option(LESMA_BUILD_LLVM "build-llvm" "Build LLVM" OFF)
+add_feature_option(LESMA_BUILD_LLVM "build-llvm" "Build LLVM 15 via vcpkg" OFF)
 
 # Get version from vcpkg
 file(READ ${CMAKE_CURRENT_SOURCE_DIR}/vcpkg.json VCPKG_MANIFEST)
@@ -117,7 +117,8 @@ set(COMMON_INCLUDE ${PLF_NANOTIMER_INCLUDE_DIRS})
 # Lesma Library
 
 ## Create Library
-add_library(${LIB_NAME} ${COMMON_SOURCES})
+add_library(${LIB_NAME} ${COMMON_SOURCES}
+        src/liblesma/Backend/Codegen.cpp)
 target_link_libraries(${LIB_NAME} ${COMMON_LIBS})
 
 target_include_directories(${LIB_NAME} PUBLIC
