@@ -1,5 +1,6 @@
 #pragma once
 
+#include <string>
 #include <utility>
 #include <vector>
 
@@ -8,6 +9,7 @@
 #include "liblesma/AST/AST.h"
 #include "liblesma/Common/LesmaError.h"
 #include "liblesma/Token/Token.h"
+#include "liblesma/Token/TokenType.h"
 
 namespace lesma {
     class ParserError : public LesmaErrorWithExitCode<EX_DATAERR> {
@@ -17,92 +19,98 @@ namespace lesma {
 
     class Parser {
     public:
-        explicit Parser(std::vector<Token *> tokens) : tokens(std::move(tokens)), index(0), tree(nullptr) {}
+        explicit Parser(std::vector<Token *> tokens) : tokens_(std::move(tokens)) {}
         ~Parser() {
-            delete tree;
+            delete tree_;
         }
 
-        void Parse();
+        Parser(const Parser &) = delete;
+        Parser &operator=(const Parser &) = delete;
+        Parser(Parser &&) = delete;
+        Parser &operator=(Parser &&) = delete;
 
-        Compound *getAST() { return tree; }
+        void parse();
 
-    protected:
-        Token *Peek() { return Peek(0); }
-        Token *Peek(unsigned long i) { return tokens.at(index + i); }
+        Compound *getAST() { return tree_; }
 
-        Token *Consume(TokenType type);
-        Token *Consume(TokenType type, const std::string &error_message);
-        Token *ConsumeNewline();
+    private:
+        Token *peek() { return peek(0); }
+        Token *peek(unsigned long i) { return tokens_.at(index_ + i); }
 
-        Token *Previous() { return Peek(-1); }
+        Token *consume(TokenType type);
+        Token *consume(TokenType type, const std::string &error_message);
+        Token *consumeNewline();
 
-        bool IsAtEnd() { return Peek()->type == TokenType::EOF_TOKEN; }
+        Token *previous() { return peek(-1); }
 
-        Token *Advance() {
-            if (!IsAtEnd())
-                index++;
+        bool isAtEnd() { return peek()->type == TokenType::EOF_TOKEN; }
 
-            return Peek(-1);
+        Token *advance() {
+            if (!isAtEnd()) {
+                index_++;
+            }
+
+            return peek(-1);
         }
 
-        bool Check(TokenType type) {
-            return Check(type, 0);
+        bool check(TokenType type) {
+            return check(type, 0);
         }
 
-        bool Check(TokenType type, unsigned long pos) {
-            return Peek(pos)->type == type;
+        bool check(TokenType type, unsigned long pos) {
+            return peek(pos)->type == type;
         }
 
         template<TokenType type, TokenType... remained_types>
-        bool AdvanceIfMatchAny();
+        bool advanceIfMatchAny();
 
         template<TokenType type, TokenType... remained_types>
-        bool CheckAny();
+        bool checkAny();
 
         template<TokenType type, TokenType... remained_types>
-        bool CheckAnyInLine();
+        bool checkAnyInLine();
 
         template<TokenType type, TokenType... remained_types>
-        bool CheckAny(unsigned long pos);
+        bool checkAny(unsigned long pos);
 
-        const std::vector<Token *> tokens;
-        unsigned long index;
-        bool inClass = false;
-        bool isExported = false;
-        Compound *tree;
+        std::vector<Token *> tokens_;
+        unsigned long index_ = 0;
+        bool in_class_ = false;
+        bool is_exported_ = false;
+        Compound *tree_ = nullptr;
 
-        static void Error(Token *token, const std::string &basicString);
+        static void error(Token *token, const std::string &basicString);
 
-        Compound *ParseCompound();
-        Compound *ParseBlock();
-        Statement *ParseFunctionDeclaration();
-        Statement *ParseExport();
-        Statement *ParseImport();
-        Statement *ParseClass();
-        Statement *ParseEnum();
-        Statement *ParseStatement(bool isTopLevel);
-        Statement *ParseIf();
-        Statement *ParseWhile();
-        Statement *ParseFor();
-        Statement *ParseVarDecl();
-        Statement *ParseAssignment();
-        Statement *ParseBreak();
-        Statement *ParseContinue();
-        Statement *ParseReturn();
-        Statement *ParseDefer();
-        TypeExpr *ParseType();
-        Expression *ParseExpression();
-        Expression *ParseOr();
-        Expression *ParseAnd();
-        Expression *ParseNot();
-        Expression *ParseDot();
-        Expression *ParseCompare();
-        Expression *ParseAdd();
-        Expression *ParseMult();
-        Expression *ParsePower();
-        Expression *ParseCast();
-        Expression *ParseUnary();
-        Expression *ParseTerm();
-        Expression *ParseFunctionCall();
+        Compound *parseCompound();
+        Compound *parseBlock();
+        Statement *parseFunctionDeclaration();
+        Statement *parseExport();
+        Statement *parseImport();
+        Statement *parseClass();
+        Statement *parseEnum();
+        Statement *parseStatement(bool isTopLevel);
+        Statement *parseIf();
+        Statement *parseWhile();
+        Statement *parseFor();
+        Statement *parseVarDecl();
+        Statement *parseAssignment();
+        Statement *parseBreak();
+        Statement *parseContinue();
+        Statement *parseReturn();
+        Statement *parseDefer();
+        TypeExpr *parseType();
+        Expression *parseExpression();
+        Expression *parseOr();
+        Expression *parseAnd();
+        Expression *parseNot();
+        Expression *parseDot();
+        Expression *parseCompare();
+        Expression *parseAdd();
+        Expression *parseMult();
+        Expression *parsePower();
+        Expression *parseCast();
+        Expression *parseUnary();
+        Expression *parseTerm();
+        Expression *parseFunctionCall();
     };
 }// namespace lesma

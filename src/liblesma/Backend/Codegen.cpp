@@ -261,7 +261,7 @@ void Codegen::CompileModule(llvm::SMRange span, const std::string &filepath, boo
 
         // Parser
         auto parser = std::make_unique<Parser>(lexer->getTokens());
-        parser->Parse();
+        parser->parse();
 
         // TODO: Delete it, memory leak, smart pointer made us lose the references to other modules
         // Codegen

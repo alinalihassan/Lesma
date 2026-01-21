@@ -1,10 +1,21 @@
+#include <memory>
+#include <string>
+#include <utility>
 #include <vector>
+
+#include <llvm/ADT/STLExtras.h>
+#include <llvm/Passes/OptimizationLevel.h>
+#include <llvm/Support/MemoryBuffer.h>
+#include <llvm/Support/SMLoc.h>
+#include <llvm/Support/SourceMgr.h>
 
 #include <gtest/gtest.h>
 
 #include "liblesma/Backend/Codegen.h"
 #include "liblesma/Frontend/Lexer.h"
 #include "liblesma/Frontend/Parser.h"
+#include "liblesma/Token/Token.h"
+#include "liblesma/Token/TokenType.h"
 
 using namespace lesma;
 
@@ -27,16 +38,16 @@ static std::unique_ptr<Lexer> initializeLexer(const std::shared_ptr<SourceMgr> &
 
 static std::unique_ptr<Parser> initializeParser(std::unique_ptr<Lexer> lexer) {
     auto curParser = std::make_unique<Parser>(lexer->getTokens());
-    curParser->Parse();
+    curParser->parse();
 
     return curParser;
 }
 
 static Codegen *initializeCodegen(std::unique_ptr<Parser> parser, const std::shared_ptr<SourceMgr> &srcMgr) {
-    auto _codegen = new Codegen(std::move(parser), srcMgr, __FILE__, {}, true, true);
-    _codegen->Run();
+    auto *codegen = new Codegen(std::move(parser), srcMgr, __FILE__, {}, true, true);
+    codegen->Run();
 
-    return _codegen;
+    return codegen;
 }
 
 
@@ -137,9 +148,9 @@ TEST_F(ParserTest, AST) {
 TEST_F(CodegenTest, Run) {
     codegen->Optimize(OptimizationLevel::O3);
     codegen->PrepareJIT();
-    int exit_code = codegen->ExecuteJIT();
+    int exitCode = codegen->ExecuteJIT();
 
-    EXPECT_TRUE(exit_code == 0);
+    EXPECT_TRUE(exitCode == 0);
 }
 
 // Google Test main function

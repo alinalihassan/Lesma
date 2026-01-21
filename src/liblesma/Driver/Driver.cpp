@@ -58,7 +58,7 @@ int Driver::baseCompile(std::unique_ptr<lesma::Options> options, bool jit) {
         // Parser
         auto parser = timer.measure("Parsing", [&] {
             auto pars = std::make_unique<Parser>(lexer->getTokens());
-            pars->Parse();
+            pars->parse();
             return pars;
         });
 

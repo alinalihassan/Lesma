@@ -39,7 +39,7 @@ static std::shared_ptr<Lexer> initializeLexer(const std::shared_ptr<SourceMgr> &
 
 static std::shared_ptr<Parser> initializeParser(const std::shared_ptr<Lexer> &lexer) {
     auto curParser = std::make_shared<Parser>(lexer->getTokens());
-    curParser->Parse();
+    curParser->parse();
 
     return curParser;
 }
