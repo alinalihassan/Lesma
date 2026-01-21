@@ -1,17 +1,18 @@
 #pragma once
 
-#include "liblesma/Symbol/Value.h"
 #include <algorithm>
-#include <llvm/IR/Type.h>
-#include <map>
-#include <memory>
+#include <cstdint>
 #include <string>
 #include <utility>
 #include <vector>
 
+#include <llvm/IR/Type.h>
+
+#include "liblesma/Symbol/Value.h"
+
 
 namespace lesma {
-    enum BaseType {
+    enum class BaseType : std::uint8_t {
         TY_INVALID,
         TY_INT,
         TY_FLOAT,
@@ -45,15 +46,15 @@ namespace lesma {
         bool signedInt = true;
 
     public:
-        explicit Type(BaseType baseType) : baseType(baseType), llvmType(nullptr), elementType(nullptr), returnType(nullptr), fields() {}
-        explicit Type(BaseType baseType, llvm::Type *llvmType) : baseType(baseType), llvmType(llvmType), elementType(nullptr), returnType(nullptr), fields() {}
-        explicit Type(BaseType baseType, llvm::Type *llvmType, Type *elementType) : baseType(baseType), llvmType(llvmType), elementType(elementType), returnType(nullptr), fields() {}
+        explicit Type(BaseType baseType) : baseType(baseType), llvmType(nullptr), elementType(nullptr), returnType(nullptr) {}
+        explicit Type(BaseType baseType, llvm::Type *llvmType) : baseType(baseType), llvmType(llvmType), elementType(nullptr), returnType(nullptr) {}
+        explicit Type(BaseType baseType, llvm::Type *llvmType, Type *elementType) : baseType(baseType), llvmType(llvmType), elementType(elementType), returnType(nullptr) {}
         explicit Type(BaseType baseType, llvm::Type *llvmType, std::vector<Field *> fields) : baseType(baseType), llvmType(llvmType), elementType(nullptr), returnType(nullptr), fields(std::move(fields)) {}
 
         [[nodiscard]] bool is(BaseType type) const { return baseType == type; }
-        [[nodiscard]] bool isPrimitive() const { return isOneOf({TY_INT, TY_FLOAT, TY_STRING, TY_BOOL}); }
+        [[nodiscard]] bool isPrimitive() const { return isOneOf({BaseType::TY_INT, BaseType::TY_FLOAT, BaseType::TY_STRING, BaseType::TY_BOOL}); }
         [[nodiscard]] bool isOneOf(const std::vector<BaseType> &baseTypes) const {
-            return std::any_of(baseTypes.begin(), baseTypes.end(), [this](int type) { return type == this->baseType; });
+            return std::any_of(baseTypes.begin(), baseTypes.end(), [this](BaseType type) { return type == this->baseType; });
         }
         [[nodiscard]] BaseType getBaseType() const { return baseType; }
         [[nodiscard]] Type *getElementType() const { return elementType; }
@@ -68,19 +69,23 @@ namespace lesma {
         void setReturnType(lesma::Type *type) { returnType = type; }
 
         bool isEqual(Type *rhs) const {
-            if (rhs == nullptr)
+            if (rhs == nullptr) {
                 return false;
+            }
 
-            if (this->getBaseType() != rhs->getBaseType())
+            if (this->getBaseType() != rhs->getBaseType()) {
                 return false;
+            }
 
             Type *thisElementType = this->getElementType();
             Type *rhsElementType = rhs->getElementType();
 
-            if (thisElementType == nullptr && rhsElementType == nullptr)
+            if (thisElementType == nullptr && rhsElementType == nullptr) {
                 return true;
-            if (thisElementType == nullptr || rhsElementType == nullptr)
+            }
+            if (thisElementType == nullptr || rhsElementType == nullptr) {
                 return false;
+            }
 
             return thisElementType->isEqual(rhsElementType);
         }
@@ -89,57 +94,57 @@ namespace lesma {
             std::string result;
 
             switch (baseType) {
-                case TY_INVALID:
+                case BaseType::TY_INVALID:
                     result = "Invalid";
                     break;
-                case TY_INT:
+                case BaseType::TY_INT:
                     result = "Int";
                     break;
-                case TY_FLOAT:
+                case BaseType::TY_FLOAT:
                     result = "Float";
                     break;
-                case TY_STRING:
+                case BaseType::TY_STRING:
                     result = "String";
                     break;
-                case TY_BOOL:
+                case BaseType::TY_BOOL:
                     result = "Bool";
                     break;
-                case TY_PTR:
+                case BaseType::TY_PTR:
                     result = "Pointer";
                     break;
-                case TY_ARRAY:
+                case BaseType::TY_ARRAY:
                     result = "Array";
                     break;
-                case TY_VOID:
+                case BaseType::TY_VOID:
                     result = "Void";
                     break;
-                case TY_FUNCTION:
+                case BaseType::TY_FUNCTION:
                     result = "Function";
                     break;
-                case TY_CLASS:
+                case BaseType::TY_CLASS:
                     result = "Class";
                     break;
-                case TY_ENUM:
+                case BaseType::TY_ENUM:
                     result = "Enum";
                     break;
-                case TY_IMPORT:
+                case BaseType::TY_IMPORT:
                     result = "Import";
                     break;
             }
 
-            if (elementType) {
+            if (elementType != nullptr) {
                 result += "<" + elementType->toString() + ">";
             }
 
             if (!fields.empty()) {
-                result += baseType == TY_FUNCTION ? " ( " : " { ";
+                result += baseType == BaseType::TY_FUNCTION ? " ( " : " { ";
                 for (const auto &field: fields) {
                     result += field->name + ": " + field->type->toString() + "; ";
                 }
-                result += baseType == TY_FUNCTION ? ")" : "}";
+                result += baseType == BaseType::TY_FUNCTION ? ")" : "}";
             }
 
-            if (returnType) {
+            if (returnType != nullptr) {
                 result += " -> " + returnType->toString();
             }
 

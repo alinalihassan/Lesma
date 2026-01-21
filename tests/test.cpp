@@ -1,3 +1,4 @@
+#include <cstddef>
 #include <memory>
 #include <string>
 #include <utility>
@@ -51,8 +52,10 @@ static Codegen *initializeCodegen(std::unique_ptr<Parser> parser, const std::sha
 }
 
 
-llvm::SMRange getRange(const std::string &source, int x, int y) {
-    return {llvm::SMLoc::getFromPointer(source.c_str() + x), llvm::SMLoc::getFromPointer(source.c_str() + y)};
+llvm::SMRange getRange(const char *bufferStart, int x, int y) {
+    // NOLINTBEGIN(cppcoreguidelines-pro-bounds-pointer-arithmetic)
+    return {llvm::SMLoc::getFromPointer(bufferStart + x), llvm::SMLoc::getFromPointer(bufferStart + y)};
+    // NOLINTEND(cppcoreguidelines-pro-bounds-pointer-arithmetic)
 }
 
 class BaseTest : public ::testing::Test {
@@ -118,23 +121,28 @@ public:
 TEST_F(LexerTest, Tokens) {
     EXPECT_TRUE(lexer->getTokens().size() > 1);
 
-    std::vector<Token *> tokens = {
-            new Token{TokenType::VAR, "var", getRange(source, 0, 3)},
-            new Token{TokenType::IDENTIFIER, "y", getRange(source, 4, 5)},
-            new Token{TokenType::COLON, ":", getRange(source, 5, 6)},
-            new Token{TokenType::INT_TYPE, "int", getRange(source, 7, 10)},
-            new Token{TokenType::EQUAL, "=", getRange(source, 11, 12)},
-            new Token{TokenType::INTEGER, "100", getRange(source, 13, 16)},
-            new Token{TokenType::NEWLINE, "NEWLINE", getRange(source, 16, 17)},
-            new Token{TokenType::IDENTIFIER, "y", getRange(source, 17, 18)},
-            new Token{TokenType::EQUAL, "=", getRange(source, 19, 20)},
-            new Token{TokenType::INTEGER, "101", getRange(source, 21, 24)},
-            new Token{TokenType::NEWLINE, "NEWLINE", getRange(source, 24, 25)},
-            new Token{TokenType::EOF_TOKEN, "EOF", getRange(source, 25, 25)},
-    };
+    // Get the buffer start pointer from the SourceMgr (not the local source string)
+    const char *bufStart = srcMgr->getMemoryBuffer(srcMgr->getNumBuffers())->getBufferStart();
 
-    for (auto [a, b]: zip(tokens, lexer->getTokens())) {
-        EXPECT_EQ(*a, *b);
+    std::vector<std::unique_ptr<Token>> expectedTokens;
+    expectedTokens.push_back(std::make_unique<Token>(TokenType::VAR, "var", getRange(bufStart, 0, 3)));
+    expectedTokens.push_back(std::make_unique<Token>(TokenType::IDENTIFIER, "y", getRange(bufStart, 4, 5)));
+    expectedTokens.push_back(std::make_unique<Token>(TokenType::COLON, ":", getRange(bufStart, 5, 6)));
+    expectedTokens.push_back(std::make_unique<Token>(TokenType::INT_TYPE, "int", getRange(bufStart, 7, 10)));
+    expectedTokens.push_back(std::make_unique<Token>(TokenType::EQUAL, "=", getRange(bufStart, 11, 12)));
+    expectedTokens.push_back(std::make_unique<Token>(TokenType::INTEGER, "100", getRange(bufStart, 13, 16)));
+    expectedTokens.push_back(std::make_unique<Token>(TokenType::NEWLINE, "NEWLINE", getRange(bufStart, 16, 17)));
+    expectedTokens.push_back(std::make_unique<Token>(TokenType::IDENTIFIER, "y", getRange(bufStart, 17, 18)));
+    expectedTokens.push_back(std::make_unique<Token>(TokenType::EQUAL, "=", getRange(bufStart, 19, 20)));
+    expectedTokens.push_back(std::make_unique<Token>(TokenType::INTEGER, "101", getRange(bufStart, 21, 24)));
+    expectedTokens.push_back(std::make_unique<Token>(TokenType::NEWLINE, "NEWLINE", getRange(bufStart, 24, 25)));
+    expectedTokens.push_back(std::make_unique<Token>(TokenType::EOF_TOKEN, "EOF", getRange(bufStart, 24, 25)));
+
+    auto actualTokens = lexer->getTokens();
+    ASSERT_EQ(expectedTokens.size(), actualTokens.size());
+
+    for (size_t i = 0; i < expectedTokens.size(); i++) {
+        EXPECT_EQ(*expectedTokens[i], *actualTokens[i]);
     }
 }
 

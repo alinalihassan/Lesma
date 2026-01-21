@@ -1,5 +1,6 @@
 #pragma once
 
+#include <memory>
 #include <string>
 #include <utility>
 #include <vector>
@@ -20,9 +21,7 @@ namespace lesma {
     class Parser {
     public:
         explicit Parser(std::vector<Token *> tokens) : tokens_(std::move(tokens)) {}
-        ~Parser() {
-            delete tree_;
-        }
+        ~Parser() = default;
 
         Parser(const Parser &) = delete;
         Parser &operator=(const Parser &) = delete;
@@ -31,7 +30,7 @@ namespace lesma {
 
         void parse();
 
-        Compound *getAST() { return tree_; }
+        Compound *getAST() { return tree_.get(); }
 
     private:
         Token *peek() { return peek(0); }
@@ -77,40 +76,40 @@ namespace lesma {
         unsigned long index_ = 0;
         bool in_class_ = false;
         bool is_exported_ = false;
-        Compound *tree_ = nullptr;
+        std::unique_ptr<Compound> tree_;
 
         static void error(Token *token, const std::string &basicString);
 
-        Compound *parseCompound();
-        Compound *parseBlock();
-        Statement *parseFunctionDeclaration();
-        Statement *parseExport();
-        Statement *parseImport();
-        Statement *parseClass();
-        Statement *parseEnum();
-        Statement *parseStatement(bool isTopLevel);
-        Statement *parseIf();
-        Statement *parseWhile();
-        Statement *parseFor();
-        Statement *parseVarDecl();
-        Statement *parseAssignment();
-        Statement *parseBreak();
-        Statement *parseContinue();
-        Statement *parseReturn();
-        Statement *parseDefer();
-        TypeExpr *parseType();
-        Expression *parseExpression();
-        Expression *parseOr();
-        Expression *parseAnd();
-        Expression *parseNot();
-        Expression *parseDot();
-        Expression *parseCompare();
-        Expression *parseAdd();
-        Expression *parseMult();
-        Expression *parsePower();
-        Expression *parseCast();
-        Expression *parseUnary();
-        Expression *parseTerm();
-        Expression *parseFunctionCall();
+        std::unique_ptr<Compound> parseCompound();
+        std::unique_ptr<Compound> parseBlock();
+        std::unique_ptr<Statement> parseFunctionDeclaration();
+        std::unique_ptr<Statement> parseExport();
+        std::unique_ptr<Statement> parseImport();
+        std::unique_ptr<Statement> parseClass();
+        std::unique_ptr<Statement> parseEnum();
+        std::unique_ptr<Statement> parseStatement(bool isTopLevel);
+        std::unique_ptr<Statement> parseIf();
+        std::unique_ptr<Statement> parseWhile();
+        std::unique_ptr<Statement> parseFor();
+        std::unique_ptr<Statement> parseVarDecl();
+        std::unique_ptr<Statement> parseAssignment();
+        std::unique_ptr<Statement> parseBreak();
+        std::unique_ptr<Statement> parseContinue();
+        std::unique_ptr<Statement> parseReturn();
+        std::unique_ptr<Statement> parseDefer();
+        std::unique_ptr<TypeExpr> parseType();
+        std::unique_ptr<Expression> parseExpression();
+        std::unique_ptr<Expression> parseOr();
+        std::unique_ptr<Expression> parseAnd();
+        std::unique_ptr<Expression> parseNot();
+        std::unique_ptr<Expression> parseDot();
+        std::unique_ptr<Expression> parseCompare();
+        std::unique_ptr<Expression> parseAdd();
+        std::unique_ptr<Expression> parseMult();
+        std::unique_ptr<Expression> parsePower();
+        std::unique_ptr<Expression> parseCast();
+        std::unique_ptr<Expression> parseUnary();
+        std::unique_ptr<Expression> parseTerm();
+        std::unique_ptr<Expression> parseFunctionCall();
     };
 }// namespace lesma

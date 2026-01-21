@@ -14,14 +14,18 @@ std::string Token::Dump(const std::shared_ptr<llvm::SourceMgr> &srcMgr) const {
 }
 
 TokenType Token::GetIdentifierType(const std::string &identifier, Token *lastTok) {
-    // Multi-word keywords first
-    if (identifier == "if" and lastTok->type == TokenType::ELSE)
-        return TokenType::ELSE_IF;
-    else if (identifier == "not" and lastTok->type == TokenType::IS)
-        return TokenType::IS_NOT;
+    // Multi-word keywords first (check lastTok is not null)
+    if (lastTok != nullptr) {
+        if (identifier == "if" && lastTok->type == TokenType::ELSE) {
+            return TokenType::ELSE_IF;
+        }
+        if (identifier == "not" && lastTok->type == TokenType::IS) {
+            return TokenType::IS_NOT;
+        }
+    }
 
     // Single word keywords
-    else if (identifier == "and")
+    if (identifier == "and")
         return TokenType::AND;
     else if (identifier == "class")
         return TokenType::CLASS;

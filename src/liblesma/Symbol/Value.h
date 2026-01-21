@@ -2,15 +2,18 @@
 
 #pragma once
 
+#include <cstdint>
 #include <string>
 #include <utility>
 
-#include "Type.h"
 #include <llvm/IR/Type.h>
 #include <llvm/IR/Value.h>
+#include <llvm/Support/raw_ostream.h>
+
+#include "Type.h"
 
 namespace lesma {
-    enum SymbolState {
+    enum class SymbolState : std::uint8_t {
         DECLARED,
         INITIALIZED
     };
@@ -20,12 +23,12 @@ namespace lesma {
      */
     class Value {
     public:
-        explicit Value(Type *type) : state(INITIALIZED),
+        explicit Value(Type *type) : state(SymbolState::INITIALIZED),
                                      type(type) {}
         Value(std::string name, Type *type) : name(std::move(name)), mangledName(name),
-                                              state(INITIALIZED), type(type) {}
+                                              state(SymbolState::INITIALIZED), type(type) {}
         Value(std::string name, Type *type, llvm::Value *value) : name(std::move(name)), mangledName(name),
-                                                                  state(INITIALIZED), type(type), llvmValue(value) {}
+                                                                  state(SymbolState::INITIALIZED), type(type), llvmValue(value) {}
         Value(std::string name, Type *type, SymbolState state) : name(std::move(name)), mangledName(name),
                                                                  state(state), type(type) {}
         Value(std::string name, Type *type,
@@ -54,13 +57,18 @@ namespace lesma {
         void setConstructor(lesma::Value *constructor_) { constructor = constructor_; }
 
         std::string toString() {
-            std::string type_str, value_str;
-            llvm::raw_string_ostream rso(type_str), rso2(value_str);
-            if (type->getLLVMType() != nullptr)
+            std::string typeStr;
+            std::string valueStr;
+            llvm::raw_string_ostream rso(typeStr);
+            llvm::raw_string_ostream rso2(valueStr);
+
+            if (type->getLLVMType() != nullptr) {
                 type->getLLVMType()->print(rso);
-            if (llvmValue != nullptr)
+            }
+            if (llvmValue != nullptr) {
                 llvmValue->print(rso2);
-            return name + ": " + type_str + " = " + value_str;
+            }
+            return name + ": " + typeStr + " = " + valueStr;
         }
 
     private:

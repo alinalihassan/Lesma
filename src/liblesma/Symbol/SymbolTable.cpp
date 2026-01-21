@@ -1,5 +1,13 @@
 #include "SymbolTable.h"
+
+#include <cstddef>
+#include <string>
+#include <vector>
+
 #include <llvm/IR/DerivedTypes.h>
+#include <llvm/Support/Casting.h>
+
+#include "liblesma/Symbol/Type.h"
 
 using namespace lesma;
 
@@ -8,8 +16,8 @@ using namespace lesma;
  *
  * @param entry Symbol Table Entry
  */
-void SymbolTable::insertSymbol(Value *entry) {
-    symbols.emplace(entry->getName(), entry);
+void SymbolTable::insertSymbol(Value *symbol) {
+    symbols_.emplace(symbol->getName(), symbol);
 }
 
 /**
@@ -18,7 +26,7 @@ void SymbolTable::insertSymbol(Value *entry) {
  * @param entry Symbol Table Entry
  */
 void SymbolTable::insertType(const std::string &name, Type *type) {
-    types.insert_or_assign(name, type);
+    types_.insert_or_assign(name, type);
 }
 
 /**
@@ -28,10 +36,12 @@ void SymbolTable::insertType(const std::string &name, Type *type) {
  * @return Desired symbol / nullptr if the symbol was not found
  */
 Value *SymbolTable::lookupFunction(const std::string &name, std::vector<lesma::Type *> paramTypes) {
-    auto range = symbols.equal_range(name);
+    auto range = symbols_.equal_range(name);
     for (auto it = range.first; it != range.second; ++it) {
-        if (!it->second->getType()->is(TY_FUNCTION))
+        if (!it->second->getType()->is(BaseType::TY_FUNCTION)) {
             continue;
+        }
+
         // Check if the parameter types match
         bool paramsMatch = true;
         std::vector<Field *> funcParamTypes = it->second->getType()->getFields();
@@ -62,11 +72,11 @@ Value *SymbolTable::lookupFunction(const std::string &name, std::vector<lesma::T
         return it->second;
     }
 
-    if (parent == nullptr) {
+    if (parent_ == nullptr) {
         return nullptr;
     }
 
-    return parent->lookupFunction(name, paramTypes);
+    return parent_->lookupFunction(name, paramTypes);
 }
 
 /**
@@ -76,17 +86,17 @@ Value *SymbolTable::lookupFunction(const std::string &name, std::vector<lesma::T
  * @return Desired symbol / nullptr if the symbol was not found
  */
 Value *SymbolTable::lookup(const std::string &name) {
-    for (const auto &sym: symbols) {
+    for (const auto &sym: symbols_) {
         if (sym.first == name) {
             return sym.second;
         }
     }
 
-    if (parent == nullptr) {
+    if (parent_ == nullptr) {
         return nullptr;
     }
 
-    return parent->lookup(name);
+    return parent_->lookup(name);
 }
 
 /**
@@ -96,17 +106,18 @@ Value *SymbolTable::lookup(const std::string &name) {
  * @return Desired symbol / nullptr if the symbol was not found
  */
 Value *SymbolTable::lookupStruct(const std::string &name) {
-    for (auto sym: symbols) {
-        if (sym.second->getType()->getLLVMType() != nullptr && sym.second->getType()->isOneOf({TY_CLASS, TY_ENUM}) &&
-            llvm::cast<llvm::StructType>(sym.second->getType()->getLLVMType())->getName() == name)
+    for (auto sym: symbols_) {
+        if (sym.second->getType()->getLLVMType() != nullptr && sym.second->getType()->isOneOf({BaseType::TY_CLASS, BaseType::TY_ENUM}) &&
+            llvm::cast<llvm::StructType>(sym.second->getType()->getLLVMType())->getName() == name) {
             return sym.second;
+        }
     }
 
-    if (parent == nullptr) {
+    if (parent_ == nullptr) {
         return nullptr;
     }
 
-    return parent->lookupStruct(name);
+    return parent_->lookupStruct(name);
 }
 
 /**
@@ -116,12 +127,14 @@ Value *SymbolTable::lookupStruct(const std::string &name) {
  * @return Desired symbol / nullptr if the symbol was not found
  */
 Type *SymbolTable::lookupType(const std::string &name) {
-    if (types.find(name) == types.end()) {
-        if (parent == nullptr) return nullptr;
-        return parent->lookupType(name);
+    if (types_.find(name) == types_.end()) {
+        if (parent_ == nullptr) {
+            return nullptr;
+        }
+        return parent_->lookupType(name);
     }
 
-    return types.at(name);
+    return types_.at(name);
 }
 
 /**
@@ -132,10 +145,11 @@ Type *SymbolTable::lookupType(const std::string &name) {
  */
 SymbolTable *SymbolTable::createChildBlock(const std::string &blockName) {
     int idx = 1;
-    while (children.find(blockName + std::to_string(idx)) != children.end())
+    while (children_.find(blockName + std::to_string(idx)) != children_.end()) {
         idx++;
-    children.insert({blockName + std::to_string(idx), new SymbolTable(this)});
-    return children.at(blockName + std::to_string(idx));
+    }
+    children_.insert({blockName + std::to_string(idx), new SymbolTable(this)});
+    return children_.at(blockName + std::to_string(idx));
 }
 
 /**
@@ -144,7 +158,7 @@ SymbolTable *SymbolTable::createChildBlock(const std::string &blockName) {
  * @return Pointer to the parent symbol table
  */
 SymbolTable *SymbolTable::getParent() {
-    return parent;
+    return parent_;
 }
 
 /**
@@ -154,7 +168,11 @@ SymbolTable *SymbolTable::getParent() {
  * @return Pointer to the child symbol table
  */
 SymbolTable *SymbolTable::getChild(const std::string &scopeId) {
-    if (children.empty()) return nullptr;
-    if (children.find(scopeId) == children.end()) return nullptr;
-    return children.at(scopeId);
+    if (children_.empty()) {
+        return nullptr;
+    }
+    if (children_.find(scopeId) == children_.end()) {
+        return nullptr;
+    }
+    return children_.at(scopeId);
 }
