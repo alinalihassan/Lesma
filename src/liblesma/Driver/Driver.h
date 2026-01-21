@@ -1,10 +1,11 @@
 #pragma once
 
+#include <cstdint>
 #include <memory>
 #include <string>
 
 namespace lesma {
-    enum SourceType {
+    enum class SourceType : std::uint8_t {
         FILE,
         STRING,
     };
@@ -19,17 +20,17 @@ namespace lesma {
     struct Options {
         SourceType sourceType;
         std::string source;
-        Debug debug = NONE;
+        Debug debug = Debug::NONE;
         std::string output_filename = "output";
         bool timer = false;
     };
 
     class Driver {
     private:
-        static int BaseCompile(std::unique_ptr<lesma::Options> options, bool jit);
+        static int baseCompile(std::unique_ptr<lesma::Options> options, bool jit);
 
     public:
-        static int Run(std::unique_ptr<lesma::Options> options);
-        static int Compile(std::unique_ptr<lesma::Options> options);
+        static int run(std::unique_ptr<lesma::Options> options);
+        static int compile(std::unique_ptr<lesma::Options> options);
     };
 }// namespace lesma

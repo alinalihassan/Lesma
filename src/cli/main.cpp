@@ -51,6 +51,6 @@ int main(int argc, char **argv) {
     // CLI Parsing
     auto options = parseCLI(argc, argv);
     auto driverOptions = std::make_unique<Options>(Options{SourceType::FILE, options->file,
-                                                           static_cast<Debug>(options->debug ? (LEXER | AST | IR) : NONE), options->output, options->timer});
-    return options->jit ? Driver::Run(std::move(driverOptions)) : Driver::Compile(std::move(driverOptions));
+                                                           static_cast<Debug>(options->debug ? (Debug::LEXER | Debug::AST | Debug::IR) : Debug::NONE), options->output, options->timer});
+    return options->jit ? Driver::run(std::move(driverOptions)) : Driver::compile(std::move(driverOptions));
 }
