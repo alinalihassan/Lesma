@@ -17,7 +17,7 @@ public:
   template <typename S, typename... Args>
   explicit LesmaError(llvm::SMRange span, const S& formatStr,
                       const Args&... args)
-      : reason(fmt::format(formatStr, args...)), span(span){};
+      : reason(fmt::format(fmt::runtime(formatStr), args...)), span(span){};
   explicit LesmaError(llvm::SMRange span, std::string what)
       : reason(std::move(what)), span(span) {};
 
@@ -33,7 +33,7 @@ protected:
   template <typename S, typename... Args>
   explicit LesmaError(llvm::SMRange span, uint8_t exitCode, const S& formatStr,
                       const Args&... args)
-      : reason(fmt::format(formatStr, args...)), span(span),
+      : reason(fmt::format(fmt::runtime(formatStr), args...)), span(span),
         exitCode(exitCode){};
   explicit LesmaError(llvm::SMRange span, uint8_t exitCode, std::string what)
       : reason(std::move(what)), span(span), exitCode(exitCode) {};
@@ -51,7 +51,8 @@ public:
   template <typename S, typename... Args>
   explicit LesmaErrorWithExitCode(llvm::SMRange span, const S& formatStr,
                                   const Args&... args)
-      : LesmaError(span, DEFAULT_EXIT_CODE, fmt::format(formatStr, args...)){};
+      : LesmaError(span, DEFAULT_EXIT_CODE,
+                   fmt::format(fmt::runtime(formatStr), args...)){};
   explicit LesmaErrorWithExitCode(llvm::SMRange span, const std::string& what)
       : LesmaError(span, DEFAULT_EXIT_CODE, what) {};
   explicit LesmaErrorWithExitCode(llvm::SMRange span, std::string&& what)

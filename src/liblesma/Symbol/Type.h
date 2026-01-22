@@ -35,11 +35,16 @@ struct Field {
   std::unique_ptr<Value> defaultValue;
 
   // Constructor for fields without default value
-  Field(std::string n, Type* t) : name(std::move(n)), type(t) {}
+  Field(std::string n, Type* t);
 
   // Constructor for fields with default value
-  Field(std::string n, Type* t, std::unique_ptr<Value> defVal)
-      : name(std::move(n)), type(t), defaultValue(std::move(defVal)) {}
+  Field(std::string n, Type* t, std::unique_ptr<Value> defVal);
+
+  ~Field();
+  Field(Field&&) noexcept;
+  auto operator=(Field&&) noexcept -> Field&;
+  Field(const Field&) = delete;
+  auto operator=(const Field&) -> Field& = delete;
 };
 
 class Type {

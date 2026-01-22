@@ -15,6 +15,16 @@
 
 using namespace lesma;
 
+Field::Field(std::string n, Type* t) : name(std::move(n)), type(t) {}
+
+Field::Field(std::string n, Type* t, std::unique_ptr<Value> defVal)
+    : name(std::move(n)), type(t), defaultValue(std::move(defVal)) {}
+
+Field::~Field() = default;
+
+Field::Field(Field&&) noexcept = default;
+auto Field::operator=(Field&&) noexcept -> Field& = default;
+
 /**
  * Insert a new symbol into the current symbol table. If it is a parameter,
  * append its name to the paramNames vector

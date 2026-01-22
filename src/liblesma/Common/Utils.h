@@ -38,7 +38,7 @@ void Print(LogType typ, const S& formatStr, const Args&... args) {
                "[+] Success: ");
   }
 
-  fmt::print(formatStr, args...);
+  fmt::print(fmt::runtime(formatStr), args...);
 }
 
 template <typename S, typename... Args>
