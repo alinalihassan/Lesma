@@ -64,8 +64,8 @@ auto Parser::consume(TokenType type) -> Token* {
                      ", found: " + std::string{NAMEOF_ENUM(peek()->type)});
 }
 
-auto Parser::consume(TokenType type, const std::string& errorMessage)
-    -> Token* {
+auto Parser::consume(TokenType type,
+                     const std::string& errorMessage) -> Token* {
   if (check(type)) {
     return advance();
   }

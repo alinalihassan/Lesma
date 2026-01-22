@@ -104,8 +104,8 @@ public:
       : Statement(loc), children(std::move(children)) {}
   void accept(ASTVisitor& visitor) const override { visitor.visit(this); }
 
-  [[nodiscard]] [[maybe_unused]] auto getChildren() const
-      -> std::vector<Statement*> {
+  [[nodiscard]] [[maybe_unused]] auto
+  getChildren() const -> std::vector<Statement*> {
     std::vector<Statement*> result;
     result.reserve(children.size());
     for (const auto& child : children) {
@@ -169,8 +169,8 @@ public:
   [[nodiscard]] [[maybe_unused]] auto getElementType() const -> TypeExpr* {
     return elementType.get();
   }
-  [[nodiscard]] [[maybe_unused]] auto getParams() const
-      -> std::vector<TypeExpr*> {
+  [[nodiscard]] [[maybe_unused]] auto
+  getParams() const -> std::vector<TypeExpr*> {
     std::vector<TypeExpr*> result;
     result.reserve(params.size());
     for (const auto& param : params) {
@@ -203,8 +203,8 @@ public:
   [[nodiscard]] [[maybe_unused]] auto getIdentifier() const -> std::string {
     return identifier;
   }
-  [[nodiscard]] [[maybe_unused]] auto getValues() const
-      -> std::vector<std::string> {
+  [[nodiscard]] [[maybe_unused]] auto
+  getValues() const -> std::vector<std::string> {
     return values;
   }
   [[nodiscard]] [[maybe_unused]] auto isExported() const -> bool {
@@ -254,8 +254,8 @@ public:
   [[nodiscard]] [[maybe_unused]] auto getImportScope() const -> bool {
     return importToScope;
   }
-  [[nodiscard]] [[maybe_unused]] auto getImportedNames() const
-      -> std::vector<std::pair<std::string, std::string>> {
+  [[nodiscard]] [[maybe_unused]] auto
+  getImportedNames() const -> std::vector<std::pair<std::string, std::string>> {
     return importedNames;
   }
   [[nodiscard]] [[maybe_unused]] auto isStd() const -> bool { return std; }
@@ -323,8 +323,8 @@ public:
       : Statement(loc), conds(std::move(conds)), blocks(std::move(blocks)) {}
   void accept(ASTVisitor& visitor) const override { visitor.visit(this); }
 
-  [[nodiscard]] [[maybe_unused]] auto getConds() const
-      -> std::vector<Expression*> {
+  [[nodiscard]] [[maybe_unused]] auto
+  getConds() const -> std::vector<Expression*> {
     std::vector<Expression*> result;
     result.reserve(conds.size());
     for (const auto& cond : conds) {
@@ -332,8 +332,8 @@ public:
     }
     return result;
   }
-  [[nodiscard]] [[maybe_unused]] auto getBlocks() const
-      -> std::vector<Compound*> {
+  [[nodiscard]] [[maybe_unused]] auto
+  getBlocks() const -> std::vector<Compound*> {
     std::vector<Compound*> result;
     result.reserve(blocks.size());
     for (const auto& block : blocks) {
@@ -442,8 +442,8 @@ public:
   [[nodiscard]] [[maybe_unused]] auto getReturnType() const -> TypeExpr* {
     return returnType.get();
   }
-  [[nodiscard]] [[maybe_unused]] auto getParameters() const
-      -> std::vector<Parameter*> {
+  [[nodiscard]] [[maybe_unused]] auto
+  getParameters() const -> std::vector<Parameter*> {
     std::vector<Parameter*> result;
     result.reserve(parameters.size());
     for (const auto& param : parameters) {
@@ -514,8 +514,8 @@ public:
   [[nodiscard]] [[maybe_unused]] auto getReturnType() const -> TypeExpr* {
     return returnType.get();
   }
-  [[nodiscard]] [[maybe_unused]] auto getParameters() const
-      -> std::vector<Parameter*> {
+  [[nodiscard]] [[maybe_unused]] auto
+  getParameters() const -> std::vector<Parameter*> {
     std::vector<Parameter*> result;
     result.reserve(parameters.size());
     for (const auto& param : parameters) {
@@ -572,8 +572,8 @@ public:
   [[nodiscard]] [[maybe_unused]] auto getName() const -> std::string {
     return name;
   }
-  [[nodiscard]] [[maybe_unused]] auto getArguments() const
-      -> std::vector<Expression*> {
+  [[nodiscard]] [[maybe_unused]] auto
+  getArguments() const -> std::vector<Expression*> {
     std::vector<Expression*> result;
     result.reserve(arguments.size());
     for (const auto& arg : arguments) {
@@ -899,8 +899,8 @@ public:
   [[nodiscard]] [[maybe_unused]] auto getIdentifier() const -> std::string {
     return identifier;
   }
-  [[nodiscard]] [[maybe_unused]] auto getFields() const
-      -> std::vector<VarDecl*> {
+  [[nodiscard]] [[maybe_unused]] auto
+  getFields() const -> std::vector<VarDecl*> {
     std::vector<VarDecl*> result;
     result.reserve(fields.size());
     for (const auto& field : fields) {
@@ -908,8 +908,8 @@ public:
     }
     return result;
   }
-  [[nodiscard]] [[maybe_unused]] auto getMethods() const
-      -> std::vector<FuncDecl*> {
+  [[nodiscard]] [[maybe_unused]] auto
+  getMethods() const -> std::vector<FuncDecl*> {
     std::vector<FuncDecl*> result;
     result.reserve(methods.size());
     for (const auto& method : methods) {

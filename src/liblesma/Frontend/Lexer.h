@@ -63,8 +63,8 @@ private:
   auto addNumToken() -> std::unique_ptr<Token>;
 
   auto makeToken(TokenType type) -> std::unique_ptr<Token>;
-  auto makeToken(TokenType type, const std::string& value)
-      -> std::unique_ptr<Token>;
+  auto makeToken(TokenType type,
+                 const std::string& value) -> std::unique_ptr<Token>;
 
   auto error(const std::string& msg) const -> void;
 

@@ -86,8 +86,8 @@ public:
     return isOneOf({BaseType::TY_INT, BaseType::TY_FLOAT, BaseType::TY_STRING,
                     BaseType::TY_BOOL});
   }
-  [[nodiscard]] auto isOneOf(const std::vector<BaseType>& baseTypes) const
-      -> bool {
+  [[nodiscard]] auto
+  isOneOf(const std::vector<BaseType>& baseTypes) const -> bool {
     return std::any_of(
         baseTypes.begin(), baseTypes.end(),
         [this](BaseType type) -> bool { return type == this->baseType; });

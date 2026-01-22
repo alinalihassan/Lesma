@@ -54,9 +54,8 @@ auto SymbolTable::insertType(const std::string& name,
  * @param name Name of the desired symbol
  * @return Desired symbol / nullptr if the symbol was not found
  */
-auto SymbolTable::lookupFunction(const std::string& name,
-                                 std::vector<lesma::Type*> paramTypes)
-    -> Value* {
+auto SymbolTable::lookupFunction(
+    const std::string& name, std::vector<lesma::Type*> paramTypes) -> Value* {
   auto range = symbols.equal_range(name);
   for (auto it = range.first; it != range.second; ++it) {
     if (!it->second->getType()->is(BaseType::TY_FUNCTION)) {

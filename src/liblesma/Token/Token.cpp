@@ -4,8 +4,8 @@
 #include <string>
 #include <string_view>
 #include <unordered_map>
-#include <llvm/Support/SourceMgr.h>
 
+#include <llvm/Support/SourceMgr.h>
 
 #include "nameof.hpp"
 #include <fmt/format.h>
@@ -70,8 +70,8 @@ static const std::unordered_map<std::string_view, TokenType> KEYWORDS = {
     {"void", TokenType::VOID_TYPE},
 };
 
-auto Token::getIdentifierType(const std::string& identifier, Token* lastTok)
-    -> TokenType {
+auto Token::getIdentifierType(const std::string& identifier,
+                              Token* lastTok) -> TokenType {
   // Multi-word keywords first (check lastTok is not null)
   if (lastTok != nullptr) {
     if (identifier == "if" && lastTok->type == TokenType::ELSE) {

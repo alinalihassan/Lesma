@@ -669,12 +669,12 @@ auto Codegen::dump() -> void { theModule->print(outs(), nullptr); }
 
 auto Codegen::visit(const Statement* node) -> void {
   lesma::print("Visited a blank statement\n{}",
-        node->toString(sourceManager.get(), "", true));
+               node->toString(sourceManager.get(), "", true));
 }
 
 auto Codegen::visit(const Expression* node) -> void {
   lesma::print("Visited a blank expression\n{}",
-        node->toString(sourceManager.get(), "", true));
+               node->toString(sourceManager.get(), "", true));
 }
 
 auto Codegen::visit(const TypeExpr* node) -> void {
@@ -2101,8 +2101,8 @@ auto Codegen::visit(const Else* /*node*/) -> void {
       "", type, llvm::ConstantInt::getTrue(theModule->getContext()));
 }
 
-auto Codegen::getTypeMangledName(llvm::SMRange span, lesma::Type* type)
-    -> std::string {
+auto Codegen::getTypeMangledName(llvm::SMRange span,
+                                 lesma::Type* type) -> std::string {
   auto* llvmTy = type->getLlvmType();
   if (type->is(BaseType::TY_BOOL)) {
     return "b";
@@ -2214,8 +2214,8 @@ auto Codegen::getDemangledName(const std::string& name) -> std::string {
   return demangledName;
 }
 
-auto Codegen::getExtendedType(lesma::Type* left, lesma::Type* right)
-    -> lesma::Type* {
+auto Codegen::getExtendedType(lesma::Type* left,
+                              lesma::Type* right) -> lesma::Type* {
   if (left->getBaseType() == right->getBaseType()) {
     return left;
   }
@@ -2253,8 +2253,8 @@ auto Codegen::getExtendedType(lesma::Type* left, lesma::Type* right)
   return nullptr;
 }
 
-auto Codegen::cast(llvm::SMRange span, lesma::Value* val, lesma::Type* type)
-    -> std::unique_ptr<lesma::Value> {
+auto Codegen::cast(llvm::SMRange span, lesma::Value* val,
+                   lesma::Type* type) -> std::unique_ptr<lesma::Value> {
   if (type == nullptr) {
     return std::make_unique<Value>(*val); // Copy for borrowed value
   }
@@ -2381,8 +2381,8 @@ auto Codegen::genFuncCall(const FuncCall* node,
                                  builder->CreateCall(func, paramsLLVM));
 }
 
-auto Codegen::findIndexInFields(Type* structType, const std::string& field)
-    -> int {
+auto Codegen::findIndexInFields(Type* structType,
+                                const std::string& field) -> int {
   for (unsigned int i = 0; i < structType->getFields().size(); i++) {
     if (structType->getFields()[i]->name == field) {
       return static_cast<int>(i);
@@ -2392,8 +2392,8 @@ auto Codegen::findIndexInFields(Type* structType, const std::string& field)
   return -1;
 }
 
-auto Codegen::findTypeInFields(Type* structType, const std::string& field)
-    -> lesma::Type* {
+auto Codegen::findTypeInFields(Type* structType,
+                               const std::string& field) -> lesma::Type* {
   for (const auto& i : structType->getFields()) {
     if (i->name == field) {
       return i->type;

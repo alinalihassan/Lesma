@@ -308,8 +308,8 @@ auto Lexer::makeToken(TokenType type) -> std::unique_ptr<Token> {
   return token;
 }
 
-auto Lexer::makeToken(TokenType type, const std::string& value)
-    -> std::unique_ptr<Token> {
+auto Lexer::makeToken(TokenType type,
+                      const std::string& value) -> std::unique_ptr<Token> {
   auto token =
       std::make_unique<Token>(type, value, llvm::SMRange{beginLoc, loc});
   resetTokenBeg();

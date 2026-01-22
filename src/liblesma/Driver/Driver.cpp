@@ -20,8 +20,8 @@
 
 using namespace lesma;
 
-auto Driver::baseCompile(std::unique_ptr<lesma::Options> options, bool jit)
-    -> int {
+auto Driver::baseCompile(std::unique_ptr<lesma::Options> options,
+                         bool jit) -> int {
   Timer timer(options->timer);
 
   // Configure Source Manager
@@ -68,7 +68,7 @@ auto Driver::baseCompile(std::unique_ptr<lesma::Options> options, bool jit)
 
     if ((options->debug & Debug::AST) != Debug::NONE) {
       lesma::print(LogType::DEBUG, "AST:\n{}",
-            parser->getAst()->toString(srcMgr.get(), "", true));
+                   parser->getAst()->toString(srcMgr.get(), "", true));
     }
 
     // Codegen

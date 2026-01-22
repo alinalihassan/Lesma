@@ -99,16 +99,16 @@ protected:
   auto initializeJit() -> std::unique_ptr<LLJIT>;
   auto initializeTopLevel() -> llvm::Function*;
 
-  [[maybe_unused]] auto linkObjectFileWithClang(const std::string& objFilename)
-      -> void;
-  [[maybe_unused]] auto linkObjectFileWithLld(const std::string& objFilename)
-      -> void;
+  [[maybe_unused]] auto
+  linkObjectFileWithClang(const std::string& objFilename) -> void;
+  [[maybe_unused]] auto
+  linkObjectFileWithLld(const std::string& objFilename) -> void;
 
-  auto compileModule(
-      llvm::SMRange span, const std::string& filepath, bool isStd,
-      const std::string& alias, bool importAll, bool importToScope,
-      const std::vector<std::pair<std::string, std::string>>& importedNames)
-      -> void;
+  auto compileModule(llvm::SMRange span, const std::string& filepath,
+                     bool isStd, const std::string& alias, bool importAll,
+                     bool importToScope,
+                     const std::vector<std::pair<std::string, std::string>>&
+                         importedNames) -> void;
 
   auto visit(const Statement* node) -> void override;
   auto visit(const Compound* node) -> void override;
@@ -141,17 +141,17 @@ protected:
 
   // TODO: Helper functions, move them out somewhere
   // Type related helper functions
-  auto cast(llvm::SMRange span, lesma::Value* val, lesma::Type* type)
-      -> std::unique_ptr<lesma::Value>;
-  static auto getExtendedType(lesma::Type* left, lesma::Type* right)
-      -> lesma::Type*;
+  auto cast(llvm::SMRange span, lesma::Value* val,
+            lesma::Type* type) -> std::unique_ptr<lesma::Value>;
+  static auto getExtendedType(lesma::Type* left,
+                              lesma::Type* right) -> lesma::Type*;
 
   // Name mangling functions and such
   static auto isMethod(const std::string& mangledName) -> bool;
   auto getMangledName(llvm::SMRange span, std::string funcName,
                       const std::vector<lesma::Type*>& paramTypes,
-                      bool isMethod = false, std::string alias = "")
-      -> std::string;
+                      bool isMethod = false,
+                      std::string alias = "") -> std::string;
   [[maybe_unused]] static auto isMangled(std::string name) -> bool;
   static auto getDemangledName(const std::string& mangledName) -> std::string;
   auto getTypeMangledName(llvm::SMRange span, lesma::Type* type) -> std::string;
@@ -160,10 +160,10 @@ protected:
   auto genFuncCall(const FuncCall* node,
                    const std::vector<lesma::Value*>& extraParams)
       -> std::unique_ptr<lesma::Value>;
-  static auto findIndexInFields(Type* structType, const std::string& field)
-      -> int;
-  static auto findTypeInFields(Type* structType, const std::string& field)
-      -> lesma::Type*;
+  static auto findIndexInFields(Type* structType,
+                                const std::string& field) -> int;
+  static auto findTypeInFields(Type* structType,
+                               const std::string& field) -> lesma::Type*;
   auto defineFunction(lesma::Value* value, const FuncDecl* node,
                       Value* clsSymbol) -> void;
 
