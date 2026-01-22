@@ -17,17 +17,13 @@
 using namespace lesma;
 
 auto Lexer::scanAll() -> void {
-    while (tokens_.empty() || tokens_.back()->type != TokenType::EOF_TOKEN) {
-        tokens_.push_back(scanOne(false));
-    }
+    while (tokens_.empty() || tokens_.back()->type != TokenType::EOF_TOKEN) { tokens_.push_back(scanOne(false)); }
 }
 
 auto Lexer::getTokens() -> std::vector<Token *> {
     std::vector<Token *> result;
     result.reserve(tokens_.size());
-    for (const auto &tok: tokens_) {
-        result.push_back(tok.get());
-    }
+    for (const auto &tok: tokens_) { result.push_back(tok.get()); }
     return result;
 }
 
@@ -136,9 +132,7 @@ auto Lexer::scanOne(bool continuation) -> std::unique_ptr<Token> {
         }
         case '#': {
             // A comment goes until the end of the line.
-            while (peek() != '\n' && !isAtEnd()) {
-                advance();
-            }
+            while (peek() != '\n' && !isAtEnd()) { advance(); }
             return scanOne(continuation);
         }
         case '\\':
@@ -149,9 +143,7 @@ auto Lexer::scanOne(bool continuation) -> std::unique_ptr<Token> {
                 if (c == ' ' || c == '\r' || c == '\t') {
                     c = advance();
                 } else if (c == '#') {
-                    while (peek() != '\n' && !isAtEnd()) {
-                        advance();
-                    }
+                    while (peek() != '\n' && !isAtEnd()) { advance(); }
                     c = advance();
                     break;
                 } else {
@@ -179,7 +171,8 @@ auto Lexer::scanOne(bool continuation) -> std::unique_ptr<Token> {
             line_++;
             col_ = 1;
             if (!continuation && level_ == 0) {
-                tokens_.push_back(std::make_unique<Token>(TokenType::NEWLINE, "NEWLINE", llvm::SMRange{begin_loc_, loc_}));
+                tokens_.push_back(
+                    std::make_unique<Token>(TokenType::NEWLINE, "NEWLINE", llvm::SMRange{begin_loc_, loc_}));
             }
             handleIndentation(continuation);
             return scanOne(false);
@@ -285,17 +278,16 @@ auto Lexer::handleIndentation(bool continuation) -> bool {
     }
 
     while (changes != 0) {
-        tokens_.push_back(std::make_unique<Token>(
-                changes > 0 ? TokenType::INDENT : TokenType::DEDENT,
-                changes > 0 ? "INDENT" : "DEDENT",
-                llvm::SMRange{begin_loc_, loc_}));
+        tokens_.push_back(std::make_unique<Token>(changes > 0 ? TokenType::INDENT : TokenType::DEDENT,
+                                                  changes > 0 ? "INDENT" : "DEDENT", llvm::SMRange{begin_loc_, loc_}));
         changes += changes > 0 ? -1 : 1;
     }
     return true;
 }
 
 auto Lexer::makeToken(TokenType type) -> std::unique_ptr<Token> {
-    auto token = std::make_unique<Token>(type, std::string(begin_loc_.getPointer(), loc_.getPointer()), llvm::SMRange{begin_loc_, loc_});
+    auto token = std::make_unique<Token>(type, std::string(begin_loc_.getPointer(), loc_.getPointer()),
+                                         llvm::SMRange{begin_loc_, loc_});
     resetTokenBeg();
     return token;
 }
@@ -306,9 +298,7 @@ auto Lexer::makeToken(TokenType type, const std::string &value) -> std::unique_p
     return token;
 }
 
-auto Lexer::resetTokenBeg() -> void {
-    begin_loc_ = loc_;
-}
+auto Lexer::resetTokenBeg() -> void { begin_loc_ = loc_; }
 
 auto Lexer::fallback() -> void {
     --curPos_;
@@ -407,18 +397,14 @@ auto Lexer::addStringToken() -> std::unique_ptr<Token> {
 }
 
 auto Lexer::addNumToken() -> std::unique_ptr<Token> {
-    while (isDigit(peek())) {
-        advance();
-    }
+    while (isDigit(peek())) { advance(); }
 
     // Look for a fractional part.
     if ((peek() == '.') && isDigit(peek(1))) {
         // Consume the "."
         advance();
 
-        while (isDigit(peek())) {
-            advance();
-        }
+        while (isDigit(peek())) { advance(); }
 
         return makeToken(TokenType::DOUBLE);
     }
@@ -434,16 +420,14 @@ auto Lexer::getLastToken() -> Token * {
 }
 
 auto Lexer::addIdentifierToken() -> std::unique_ptr<Token> {
-    while (isAlphaNumeric(peek())) {
-        advance();
-    }
+    while (isAlphaNumeric(peek())) { advance(); }
 
     TokenType type = Token::getIdentifierType(std::string(begin_loc_.getPointer(), loc_.getPointer()), getLastToken());
     auto tok = makeToken(type);
 
     // If it's a multi-word keyword, remove the last token
     if (tok->type == TokenType::ELSE_IF || tok->type == TokenType::IS_NOT) {
-        tokens_.pop_back();// unique_ptr automatically deletes
+        tokens_.pop_back();  // unique_ptr automatically deletes
     }
 
     return tok;
@@ -451,6 +435,4 @@ auto Lexer::addIdentifierToken() -> std::unique_ptr<Token> {
 
 auto Lexer::lastChar() -> char { return getCharAt(curPos_); }
 
-auto Lexer::error(const std::string &msg) const -> void {
-    throw LexerError(llvm::SMRange{begin_loc_, loc_}, msg);
-}
+auto Lexer::error(const std::string &msg) const -> void { throw LexerError(llvm::SMRange{begin_loc_, loc_}, msg); }

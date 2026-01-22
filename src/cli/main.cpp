@@ -13,6 +13,8 @@
 
 using namespace lesma;
 
+namespace {
+
 auto parseDebugFlags(const std::vector<std::string> &debugOptions) -> Debug {
     Debug flags = Debug::NONE;
     for (const auto &opt: debugOptions) {
@@ -39,8 +41,8 @@ auto parseCLI(int argc, char **argv) -> std::unique_ptr<CLIOptions> {
     app.set_version_flag("-v,--version", LESMA_VERSION, "Print the Lesma version");
     app.set_help_all_flag("-s,--subcommands", "Expand help to show subcommand flags and options");
     auto *debugOpt = app.add_option("-d,--debug", debug, "Debug options: lexer, ast, ir, all (default: all)")
-                             ->expected(0, -1)
-                             ->check(CLI::IsMember({"lexer", "ast", "ir", "all"}));
+                         ->expected(0, -1)
+                         ->check(CLI::IsMember({"lexer", "ast", "ir", "all"}));
     app.add_flag("-t,--timer", timer, "Enable compiler timer");
 
     CLI::App *run = app.add_subcommand("run", "Run source code");
@@ -67,13 +69,17 @@ auto parseCLI(int argc, char **argv) -> std::unique_ptr<CLIOptions> {
         debug.emplace_back("all");
     }
 
-    return std::make_unique<CLIOptions>(CLIOptions{std::filesystem::absolute(file), output, debug, timer, run->parsed()});
+    return std::make_unique<CLIOptions>(
+        CLIOptions{std::filesystem::absolute(file), output, debug, timer, run->parsed()});
 }
+
+}  // namespace
 
 auto main(int argc, char **argv) -> int {
     // CLI Parsing
     auto options = parseCLI(argc, argv);
     auto debugFlags = parseDebugFlags(options->debug);
-    auto driverOptions = std::make_unique<Options>(Options{SourceType::FILE, options->file, debugFlags, options->output, options->timer});
+    auto driverOptions = std::make_unique<Options>(
+        Options{SourceType::FILE, options->file, debugFlags, options->output, options->timer});
     return options->jit ? Driver::run(std::move(driverOptions)) : Driver::compile(std::move(driverOptions));
 }

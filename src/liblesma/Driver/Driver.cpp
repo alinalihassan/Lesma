@@ -50,9 +50,7 @@ auto Driver::baseCompile(std::unique_ptr<lesma::Options> options, bool jit) -> i
 
         if ((options->debug & Debug::LEXER) != Debug::NONE) {
             print(LogType::DEBUG, "TOKENS: \n");
-            for (const auto &tok: lexer->getTokens()) {
-                print("Token: {}\n", tok->dump(srcMgr));
-            }
+            for (const auto &tok: lexer->getTokens()) { print("Token: {}\n", tok->dump(srcMgr)); }
         }
 
         // Parser
@@ -70,8 +68,8 @@ auto Driver::baseCompile(std::unique_ptr<lesma::Options> options, bool jit) -> i
         auto codegen = timer.measure("Compiling", [&] {
             std::vector<std::string> modules;
             auto cg = std::make_unique<Codegen>(std::move(parser), srcMgr,
-                                                options->sourceType == SourceType::FILE ? options->source : "",
-                                                modules, jit, true);
+                                                options->sourceType == SourceType::FILE ? options->source : "", modules,
+                                                jit, true);
             cg->run();
             return cg;
         });
@@ -82,30 +80,21 @@ auto Driver::baseCompile(std::unique_ptr<lesma::Options> options, bool jit) -> i
         }
 
         // Optimization
-        timer.measure("Optimizing", [&] {
-            codegen->optimize(OptimizationLevel::O3);
-        });
+        timer.measure("Optimizing", [&] { codegen->optimize(OptimizationLevel::O3); });
 
         int exitCode = 0;
         if (!jit) {
             // Compile to Object File
-            timer.measure("Writing Object File", [&] {
-                codegen->writeToObjectFile(options->output_filename);
-            });
+            timer.measure("Writing Object File", [&] { codegen->writeToObjectFile(options->output_filename); });
 
             // Link Object File
-            timer.measure("Linking Object File", [&] {
-                codegen->linkObjectFile(fmt::format("{}.o", options->output_filename));
-            });
+            timer.measure("Linking Object File",
+                          [&] { codegen->linkObjectFile(fmt::format("{}.o", options->output_filename)); });
         } else {
             // Executing
-            timer.measure("JIT", [&] {
-                codegen->prepareJit();
-            });
+            timer.measure("JIT", [&] { codegen->prepareJit(); });
 
-            exitCode = timer.measure("Execution", [&] {
-                return codegen->executeJit();
-            });
+            exitCode = timer.measure("Execution", [&] { return codegen->executeJit(); });
         }
 
         timer.printTotal();
@@ -115,17 +104,14 @@ auto Driver::baseCompile(std::unique_ptr<lesma::Options> options, bool jit) -> i
         if (!err.getSpan().isValid()) {
             print(LogType::ERROR, err.what());
         } else {
-            showInline(srcMgr.get(), 1, err.getSpan(), err.what(), options->sourceType == SourceType::FILE ? options->source : "", true);
+            showInline(srcMgr.get(), 1, err.getSpan(), err.what(),
+                       options->sourceType == SourceType::FILE ? options->source : "", true);
         }
 
         return err.getExitCode();
     }
 }
 
-auto Driver::run(std::unique_ptr<lesma::Options> options) -> int {
-    return baseCompile(std::move(options), true);
-}
+auto Driver::run(std::unique_ptr<lesma::Options> options) -> int { return baseCompile(std::move(options), true); }
 
-auto Driver::compile(std::unique_ptr<lesma::Options> options) -> int {
-    return baseCompile(std::move(options), false);
-}
+auto Driver::compile(std::unique_ptr<lesma::Options> options) -> int { return baseCompile(std::move(options), false); }

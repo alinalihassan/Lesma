@@ -10,6 +10,8 @@ Diagnostics:
       - readability-*
       - cppcoreguidelines-*
       - misc-*
+      - clang-analyzer-*          # Static analysis (catches real bugs)
+      - concurrency-*             # Thread safety issues
     Remove:
       - readability-identifier-length       # Too noisy
       - readability-function-cognitive-complexity

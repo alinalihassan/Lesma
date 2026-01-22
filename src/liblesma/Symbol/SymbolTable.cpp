@@ -71,7 +71,7 @@ auto SymbolTable::lookupFunction(const std::string &name, std::vector<lesma::Typ
         }
 
         if (!paramsMatch) {
-            continue;// Parameter types don't match
+            continue;  // Parameter types don't match
         }
 
         return it->second.get();
@@ -112,7 +112,8 @@ auto SymbolTable::lookup(const std::string &name) -> Value * {
  */
 auto SymbolTable::lookupStruct(const std::string &name) -> Value * {
     for (const auto &[key, sym]: symbols_) {
-        if (sym->getType()->getLLVMType() != nullptr && sym->getType()->isOneOf({BaseType::TY_CLASS, BaseType::TY_ENUM}) &&
+        if (sym->getType()->getLLVMType() != nullptr &&
+            sym->getType()->isOneOf({BaseType::TY_CLASS, BaseType::TY_ENUM}) &&
             llvm::cast<llvm::StructType>(sym->getType()->getLLVMType())->getName() == name) {
             return sym.get();
         }
@@ -158,9 +159,7 @@ auto SymbolTable::lookupType(const std::string &name) -> Type * {
  * @param name Name of the type
  * @param type Pointer to type (caller must ensure Type outlives this SymbolTable)
  */
-auto SymbolTable::insertTypeRef(const std::string &name, Type *type) -> void {
-    typeRefs_.insert_or_assign(name, type);
-}
+auto SymbolTable::insertTypeRef(const std::string &name, Type *type) -> void { typeRefs_.insert_or_assign(name, type); }
 
 /**
  * Create a child leaf for the tree of symbol tables and return it
@@ -170,9 +169,7 @@ auto SymbolTable::insertTypeRef(const std::string &name, Type *type) -> void {
  */
 auto SymbolTable::createChildBlock(const std::string &blockName) -> SymbolTable * {
     int idx = 1;
-    while (children_.find(blockName + std::to_string(idx)) != children_.end()) {
-        idx++;
-    }
+    while (children_.find(blockName + std::to_string(idx)) != children_.end()) { idx++; }
     auto key = blockName + std::to_string(idx);
     auto child = std::make_unique<SymbolTable>(this);
     auto *childPtr = child.get();
@@ -185,9 +182,7 @@ auto SymbolTable::createChildBlock(const std::string &blockName) -> SymbolTable 
  *
  * @return Pointer to the parent symbol table
  */
-auto SymbolTable::getParent() -> SymbolTable * {
-    return parent_;
-}
+auto SymbolTable::getParent() -> SymbolTable * { return parent_; }
 
 /**
  * Navigate to a child table of the current one in the tree structure
