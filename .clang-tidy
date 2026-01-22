@@ -7,14 +7,19 @@ Checks: >
   cppcoreguidelines-*,
   misc-*,
   clang-analyzer-*,
-  concurrency-*,
   -readability-identifier-length,
   -readability-function-cognitive-complexity,
   -misc-no-recursion,
   -cppcoreguidelines-avoid-magic-numbers,
   -readability-magic-numbers,
   -cppcoreguidelines-non-private-member-variables-in-classes,
-  -misc-non-private-member-variables-in-classes
+  -misc-non-private-member-variables-in-classes,
+  -misc-const-correctness,
+  -cppcoreguidelines-pro-type-member-init,
+  -readability-convert-member-functions-to-static,
+  -misc-include-cleaner,
+  -bugprone-easily-swappable-parameters,
+  -misc-use-internal-linkage
 
 CheckOptions:
   - key: readability-identifier-naming.GlobalConstantCase

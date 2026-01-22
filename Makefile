@@ -69,15 +69,25 @@ else
   TIDY_EXTRA_ARGS :=
 endif
 
+## Source directories to check
+HEADER_FILTER := $(shell pwd)/(src|tests)/.*
+SOURCE_FILTER := (src|tests)/.*\.cpp$$
+
 ## Run clang-tidy checks (no fixes)
 lint:
 	@echo "Running clang-tidy..."
-	@run-clang-tidy -p build/Debug $(TIDY_EXTRA_ARGS) -header-filter='src/.*' 'src/.*\.cpp$$' 2>&1 | tail -100
+	@run-clang-tidy -p build/Debug $(TIDY_EXTRA_ARGS) -header-filter='$(HEADER_FILTER)' '$(SOURCE_FILTER)' 2>&1 \
+		| grep -E "^$(shell pwd)/(src|tests)/.*: (warning|error):" | head -50
+
+## Run clang-tidy checks with full output (includes analysis notes)
+lint-verbose:
+	@echo "Running clang-tidy (verbose)..."
+	@run-clang-tidy -p build/Debug $(TIDY_EXTRA_ARGS) -header-filter='$(HEADER_FILTER)' '$(SOURCE_FILTER)' 2>&1 | tail -100
 
 ## Run clang-tidy and apply fixes
 tidy:
 	@echo "Running clang-tidy with fixes..."
-	@run-clang-tidy -p build/Debug $(TIDY_EXTRA_ARGS) -header-filter='src/.*' -fix 'src/.*\.cpp$$'
+	@run-clang-tidy -p build/Debug $(TIDY_EXTRA_ARGS) -header-filter='$(HEADER_FILTER)' -fix '$(SOURCE_FILTER)'
 	@echo "Done."
 
 ## Full fix: run tidy + format
