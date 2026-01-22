@@ -82,18 +82,11 @@ include(HandleLLVMOptions)
 add_definitions(${LLVM_DEFINITIONS})
 llvm_map_components_to_libnames(LLVM_LIBS core support demangle native orcjit)
 
-# LLD configuration (optional - falls back to clang for linking)
-find_package(LLD CONFIG)
-
-if (LLD_FOUND)
-  message(STATUS "Found LLDConfig.cmake in ${LLD_CMAKE_DIR}")
-  include_directories(SYSTEM ${LLD_INCLUDE_DIRS})
-  set(LLD_LIBS lldCommon lldELF lldCOFF lldMachO)
-  add_definitions(-DLESMA_HAS_LLD)
-else()
-  message(STATUS "LLD not found, will use clang for linking")
-  set(LLD_LIBS "")
-endif()
+# LLD configuration
+find_package(LLD CONFIG REQUIRED)
+message(STATUS "Found LLDConfig.cmake in ${LLD_CMAKE_DIR}")
+include_directories(SYSTEM ${LLD_INCLUDE_DIRS})
+set(LLD_LIBS lldCommon lldELF lldCOFF lldMachO)
 
 # Clang
 find_package(Clang CONFIG REQUIRED)
@@ -160,7 +153,7 @@ if (LESMA_BUILD_TESTS)
   set(TEST_SOURCES tests/test.cpp)
 
   add_executable(${TESTS_NAME} ${TEST_SOURCES})
-  target_link_libraries(${TESTS_NAME} PRIVATE ${LIB_NAME} GTest::gtest GTest::gmock)
+  target_link_libraries(${TESTS_NAME} PRIVATE ${LIB_NAME} GTest::gmock GTest::gtest_main)
 
   find_program(BASH_PROGRAM bash)
   if (BASH_PROGRAM)

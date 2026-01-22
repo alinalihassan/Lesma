@@ -30,8 +30,11 @@
 #include <llvm/IR/GlobalValue.h>
 #include <llvm/IR/IRBuilder.h>
 #include <llvm/IR/LLVMContext.h>
+#include <llvm/IR/LegacyPassManager.h>
 #include <llvm/IR/PassManager.h>
 #include <llvm/IR/Value.h>
+#include <llvm/IR/Verifier.h>
+#include <llvm/MC/TargetRegistry.h>
 #include <llvm/Pass.h>
 #include <llvm/Passes/OptimizationLevel.h>
 #include <llvm/Passes/PassBuilder.h>
@@ -42,37 +45,39 @@
 #include <llvm/Support/Program.h>
 #include <llvm/Support/SourceMgr.h>
 #include <llvm/Support/TargetSelect.h>
+#include <llvm/Support/VirtualFileSystem.h>
 #include <llvm/Target/TargetMachine.h>
 #include <llvm/Target/TargetOptions.h>
 #include <llvm/TargetParser/Host.h>
-#include <llvm/Transforms/Scalar/LoopPassManager.h>
-
-#include <nameof.hpp>
-
-#include "liblesma/AST/AST.h"
-#include "liblesma/Common/LesmaError.h"
-#include "liblesma/Common/Utils.h"
-#include "liblesma/Frontend/Parser.h"
-#include "liblesma/Symbol/Type.h"
-#include "liblesma/Symbol/Value.h"
-#include "liblesma/Token/TokenType.h"
-
-#ifdef LESMA_HAS_LLD
-#include <lld/Common/Driver.h>
-#endif
-#include <llvm/IR/LegacyPassManager.h>
-#include <llvm/IR/Verifier.h>
-#include <llvm/MC/TargetRegistry.h>
-#include <llvm/Support/VirtualFileSystem.h>
 #include <llvm/Transforms/IPO/GlobalDCE.h>
 #include <llvm/Transforms/IPO/Inliner.h>
 #include <llvm/Transforms/Scalar/ADCE.h>
 #include <llvm/Transforms/Scalar/DeadStoreElimination.h>
 #include <llvm/Transforms/Scalar/GVN.h>
+#include <llvm/Transforms/Scalar/LoopPassManager.h>
 #include <llvm/Transforms/Scalar/LoopUnrollPass.h>
 #include <llvm/Transforms/Vectorize/LoopVectorize.h>
 
+#include <lld/Common/Driver.h>
+
+// Declare LLD driver functions using the macro from Driver.h
+#ifdef __APPLE__
+LLD_HAS_DRIVER(macho)
+#elif defined(_WIN32)
+LLD_HAS_DRIVER(coff)
+#else
+LLD_HAS_DRIVER(elf)
+#endif
+#include <nameof.hpp>
+
+#include "liblesma/AST/AST.h"
+#include "liblesma/Common/LesmaError.h"
+#include "liblesma/Common/Utils.h"
 #include "liblesma/Frontend/Lexer.h"
+#include "liblesma/Frontend/Parser.h"
+#include "liblesma/Symbol/Type.h"
+#include "liblesma/Symbol/Value.h"
+#include "liblesma/Token/TokenType.h"
 
 using namespace lesma;
 
@@ -512,21 +517,33 @@ auto Codegen::writeToObjectFile(const std::string& output) -> void {
   out.close();
 }
 
-#ifdef LESMA_HAS_LLD
-[[maybe_unused]] void
-Codegen::linkObjectFileWithLld(const std::string& objFilename) {
-  std::string output = GetBasename(objFilename);
+void Codegen::linkObjectFileWithLld(const std::string& objFilename) {
+  std::string output = getBasename(objFilename);
 
-  llvm::SmallVector<const char*, 32> args;
-  args.push_back("lld");
+  std::vector<const char*> args;
+
+  // First arg determines linker flavor: ld.lld (ELF), ld64.lld (MachO),
+  // lld-link (COFF)
+#ifdef __APPLE__
+  args.push_back("ld64.lld");
+#elif defined(_WIN32)
+  args.push_back("lld-link");
+#else
+  args.push_back("ld.lld");
+#endif
+
+  // Suppress linker warnings
+  args.push_back("-w");
+  // Files
   args.push_back("-o");
   args.push_back(output.c_str());
   args.push_back(objFilename.c_str());
   for (const auto& obj : objectFiles) {
     args.push_back(obj.c_str());
   }
-  // Add the standard library path for Apple
+
 #ifdef __APPLE__
+  // Add macOS-specific linker arguments
   args.push_back("-arch");
   args.push_back("arm64");
   args.push_back("-platform_version");
@@ -538,25 +555,30 @@ Codegen::linkObjectFileWithLld(const std::string& objFilename) {
   args.push_back("-lSystem");
 #endif
 
-  // Run the LLD linker
-  lld::Result result;
+  // Run the LLD linker using lldMain
 #ifdef __APPLE__
-  result = lld::macho::link(args, llvm::outs(), llvm::errs(), false, false);
+  lld::Result result =
+      lld::lldMain(args, llvm::outs(), llvm::errs(),
+                   {{.f = lld::Darwin, .d = &lld::macho::link}});
 #elif defined(_WIN32)
-  result = lld::coff::link(args, llvm::outs(), llvm::errs(), false, false);
+  lld::Result result =
+      lld::lldMain(args, llvm::outs(), llvm::errs(),
+                   {{.f = lld::WinLink, .d = &lld::coff::link}});
 #else
-  result = lld::elf::link(args, llvm::outs(), llvm::errs(), false, false);
+  lld::Result result = lld::lldMain(args, llvm::outs(), llvm::errs(),
+                                    {{.f = lld::Gnu, .d = &lld::elf::link}});
 #endif
-  bool success = result.retCode == 0;
-  if (!success)
-    throw CodegenError({}, "Linking Failed");
 
-  // Remove object files
-  llvm::sys::fs::remove(objFilename);
-  for (const auto& obj : objectFiles)
-    llvm::sys::fs::remove(obj);
+  if (result.retCode != 0) {
+    throw CodegenError({}, "Linking Failed");
+  }
+
+  // Remove object files (ignore errors as they're temporary)
+  std::ignore = llvm::sys::fs::remove(objFilename);
+  for (const auto& obj : objectFiles) {
+    std::ignore = llvm::sys::fs::remove(obj);
+  }
 }
-#endif // LESMA_HAS_LLD
 
 [[maybe_unused]] auto
 Codegen::linkObjectFileWithClang(const std::string& objFilename) -> void {
@@ -576,11 +598,10 @@ Codegen::linkObjectFileWithClang(const std::string& objFilename) -> void {
     args.push_back(obj.c_str());
   }
 
-  // Add the standard library path for Apple
+// Add the standard library path for Apple
 #ifdef __APPLE__
   args.push_back("-L");
   args.push_back("/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/lib");
-  args.push_back("-lSystem");
 #endif
 
   // Set up the diagnostic engine
@@ -619,7 +640,8 @@ Codegen::linkObjectFileWithClang(const std::string& objFilename) -> void {
 }
 
 auto Codegen::linkObjectFile(const std::string& objFilename) -> void {
-  linkObjectFileWithClang(objFilename);
+  linkObjectFileWithLld(objFilename);
+  // linkObjectFileWithClang(objFilename);
 }
 
 auto Codegen::prepareJit() -> void {
