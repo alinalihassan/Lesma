@@ -38,6 +38,7 @@ void print(LogType typ, const S& formatStr, const Args&... args) {
                "[+] Success: ");
   }
 
+  // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-array-to-pointer-decay)
   fmt::print(fmt::runtime(formatStr), args...);
 }
 
