@@ -111,13 +111,17 @@ auto Parser::ParseType() -> std::unique_ptr<TypeExpr> {
 
     Advance();
     Consume(TokenType::LEFT_PAREN);
-    do {
+    while (true) {
       if (!params.empty()) {
         lexeme += ", ";
       }
       params.push_back(ParseType());
       lexeme += params.back()->GetName();
-    } while (AdvanceIfMatchAny<TokenType::COMMA>());
+
+      if (!AdvanceIfMatchAny<TokenType::COMMA>()) {
+        break;
+      }
+    }
 
     Consume(TokenType::RIGHT_PAREN);
     lexeme += ")";
@@ -352,14 +356,14 @@ auto Parser::ParseExpression() -> std::unique_ptr<Expression> {
 
 // Statements
 auto Parser::ParseVarDecl() -> std::unique_ptr<Statement> {
-  bool mutable_ = false;
+  bool isMutable = false;
   Token const* startTok = nullptr;
   if (AdvanceIfMatchAny<TokenType::LET>()) {
     startTok = Previous();
-    mutable_ = false;
+    isMutable = false;
   } else {
     startTok = Consume(TokenType::VAR);
-    mutable_ = true;
+    isMutable = true;
   }
   auto* identifier = Consume(TokenType::IDENTIFIER);
   auto var = std::make_unique<Literal>(identifier->span, identifier->lexeme,
@@ -380,7 +384,7 @@ auto Parser::ParseVarDecl() -> std::unique_ptr<Statement> {
                       "Expected either a type or a value");
   }
 
-  if (!expr && !mutable_) {
+  if (!expr && !isMutable) {
     throw ParserError(
         llvm::SMRange{startTok->GetStart(), type->GetEnd()},
         "Cannot declare an immutable variable without an initial expression");
@@ -390,7 +394,7 @@ auto Parser::ParseVarDecl() -> std::unique_ptr<Statement> {
   llvm::SMLoc endLoc = expr ? expr->GetEnd() : type->GetEnd();
   return std::make_unique<VarDecl>(llvm::SMRange{startTok->GetStart(), endLoc},
                                    std::move(var), std::move(type),
-                                   std::move(expr), mutable_);
+                                   std::move(expr), isMutable);
 }
 
 auto Parser::ParseIf() -> std::unique_ptr<Statement> {
@@ -746,7 +750,7 @@ auto Parser::ParseImport() -> std::unique_ptr<Statement> {
 
   std::vector<std::pair<std::string, std::string>> importedNames;
 
-  do {
+  while (true) {
     auto ident = Consume(TokenType::IDENTIFIER)->lexeme;
     auto alias = ident;
     if (AdvanceIfMatchAny<TokenType::AS>()) {
@@ -754,7 +758,11 @@ auto Parser::ParseImport() -> std::unique_ptr<Statement> {
     }
 
     importedNames.emplace_back(ident, alias);
-  } while (AdvanceIfMatchAny<TokenType::COMMA>());
+
+    if (!AdvanceIfMatchAny<TokenType::COMMA>()) {
+      break;
+    }
+  }
 
   ConsumeNewline();
   return std::make_unique<Import>(llvm::SMRange{loc.Start, token->GetEnd()},
