@@ -391,7 +391,7 @@ auto Parser::ParseVarDecl() -> std::unique_ptr<Statement> {
   }
 
   ConsumeNewline();
-  llvm::SMLoc endLoc = expr ? expr->GetEnd() : type->GetEnd();
+  llvm::SMLoc const endLoc = expr ? expr->GetEnd() : type->GetEnd();
   return std::make_unique<VarDecl>(llvm::SMRange{startTok->GetStart(), endLoc},
                                    std::move(var), std::move(type),
                                    std::move(expr), isMutable);

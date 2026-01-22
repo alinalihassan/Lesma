@@ -34,7 +34,7 @@ public:
   auto GetParent() -> SymbolTable*;
 
   // Returns raw pointers for non-owning access
-  [[nodiscard]] auto GetSymbols() const -> std::vector<Value*> {
+  [[nodiscard]] auto GetSymbols() -> std::vector<Value*> {
     std::vector<Value*> result;
     result.reserve(symbols.size());
     for (const auto& [key, val] : symbols) {
@@ -43,7 +43,7 @@ public:
     return result;
   }
 
-  [[nodiscard]] auto GetTypes() const -> std::vector<Type*> {
+  [[nodiscard]] auto GetTypes() -> std::vector<Type*> {
     std::vector<Type*> result;
     result.reserve(types.size() + typeRefs.size());
     for (const auto& [key, val] : types) {
@@ -57,7 +57,7 @@ public:
 
   auto GetChild(const std::string& scopeId) -> SymbolTable*;
 
-  [[nodiscard]] auto ToString(int ind) const -> std::string {
+  [[nodiscard]] auto ToString(int ind) -> std::string {
     std::string res;
     for (const auto& [key, symbol] : symbols) {
       res += std::string(ind, ' ') + "Symbols: \n";

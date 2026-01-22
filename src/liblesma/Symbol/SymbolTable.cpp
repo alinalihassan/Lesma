@@ -56,7 +56,7 @@ auto SymbolTable::LookupFunction(const std::string& name,
     // Check if the parameter types match
     bool paramsMatch = true;
     std::vector<Field*> funcParamTypes = it->second->GetType()->GetFields();
-    size_t numParams = std::max(funcParamTypes.size(), paramTypes.size());
+    size_t const numParams = std::max(funcParamTypes.size(), paramTypes.size());
 
     for (size_t i = 0; i < numParams; ++i) {
       if (i < funcParamTypes.size() && i < paramTypes.size()) {

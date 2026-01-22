@@ -37,7 +37,7 @@ elseif (CMAKE_BUILD_TYPE MATCHES Release)
   message(STATUS "Release mode")
 endif ()
 
-set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD 23)
 add_definitions(${CMAKE_CXX_FLAGS} -Wall -Wextra -Wpedantic -frtti)
 set(CMAKE_CXX_FLAGS_RELEASE "-O3")
 

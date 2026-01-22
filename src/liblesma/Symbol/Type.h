@@ -94,7 +94,7 @@ public:
   [[nodiscard]] auto IsSigned() const -> bool { return signedInt; }
 
   // Returns raw pointers for non-owning access
-  [[nodiscard]] auto GetFields() const -> std::vector<Field*> {
+  [[nodiscard]] auto GetFields() -> std::vector<Field*> {
     std::vector<Field*> result;
     result.reserve(fields.size());
     for (const auto& field : fields) {
