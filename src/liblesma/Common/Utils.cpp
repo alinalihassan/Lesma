@@ -24,8 +24,8 @@ auto GetBasename(const std::string& filePath) -> std::string {
 
 // NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
 auto ShowInline(llvm::SourceMgr* srcMgr, unsigned int bufferId,
-                llvm::SMRange span, const std::string& reason,
-                const std::string& file, bool isError) -> void {
+                llvm::SMRange span, const std::string& file, bool isError,
+                const std::string& reason) -> void {
   std::istringstream ifs(srcMgr->getMemoryBuffer(bufferId)->getBuffer().str());
   unsigned int lineNum = 1;
   auto color = isError ? fg(fmt::color::red) : fg(fmt::color::yellow);

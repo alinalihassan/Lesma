@@ -89,10 +89,9 @@ public:
   }
 };
 
-// NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
 auto ShowInline(llvm::SourceMgr* srcMgr, unsigned int bufferId,
-                llvm::SMRange span, const std::string& reason,
-                const std::string& file, bool isError) -> void;
+                llvm::SMRange span, const std::string& file, bool isError,
+                const std::string& reason) -> void;
 auto GetBasename(const std::string& filePath) -> std::string;
 auto GetStdDir() -> std::string;
 } // namespace lesma

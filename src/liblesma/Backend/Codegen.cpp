@@ -438,8 +438,8 @@ auto Codegen::CompileModule(
     if (!err.GetSpan().isValid()) {
       Print(LogType::ERROR, err.what());
     } else {
-      ShowInline(sourceManager.get(), fileId, err.GetSpan(), err.what(),
-                 absolutePath, true);
+      ShowInline(sourceManager.get(), fileId, err.GetSpan(), absolutePath, true,
+                 err.what());
     }
 
     throw CodegenError(span, "Unable to import {} due to errors", filepath);
@@ -587,8 +587,7 @@ Codegen::LinkObjectFileWithClang(const std::string& objFilename) -> void {
   llvm::IntrusiveRefCntPtr<clang::DiagnosticIDs> diagIDs(
       new clang::DiagnosticIDs());
   clang::DiagnosticOptions diagOpts;
-  // NOLINTNEXTLINE(cppcoreguidelines-owning-memory) - DiagnosticsEngine takes
-  // ownership
+  // NOLINTNEXTLINE(cppcoreguidelines-owning-memory) - DiagnosticsEngine owns it
   auto* diagClient = new clang::TextDiagnosticPrinter(llvm::errs(), diagOpts);
   clang::DiagnosticsEngine diags(diagIDs, diagOpts, diagClient);
 

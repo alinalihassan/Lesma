@@ -118,9 +118,9 @@ auto Driver::BaseCompile(std::unique_ptr<lesma::Options> options, bool jit)
     if (!err.GetSpan().isValid()) {
       Print(LogType::ERROR, err.what());
     } else {
-      ShowInline(srcMgr.get(), 1, err.GetSpan(), err.what(),
+      ShowInline(srcMgr.get(), 1, err.GetSpan(),
                  options->sourceType == SourceType::FILE ? options->source : "",
-                 true);
+                 true, err.what());
     }
 
     return err.GetExitCode();
