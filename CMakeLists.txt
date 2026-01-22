@@ -160,7 +160,7 @@ if (LESMA_BUILD_TESTS)
   set(TEST_SOURCES tests/test.cpp)
 
   add_executable(${TESTS_NAME} ${TEST_SOURCES})
-  target_link_libraries(${TESTS_NAME} PRIVATE ${LIB_NAME} GTest::gmock)
+  target_link_libraries(${TESTS_NAME} PRIVATE ${LIB_NAME} GTest::gtest GTest::gmock)
 
   find_program(BASH_PROGRAM bash)
   if (BASH_PROGRAM)
