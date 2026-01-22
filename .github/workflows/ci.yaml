@@ -30,6 +30,11 @@ jobs:
           fetch-depth: 0
           submodules: recursive
 
+      # TMPFIX: Use Xcode git (macOS)
+      - name: Use Xcode git (macOS)
+        if: runner.os == 'macOS'
+        run: echo "/usr/bin" >> $GITHUB_PATH
+
       - name: Clang Format
         if: ${{ matrix.os == 'ubuntu-latest' }}
         uses: DoozyX/clang-format-lint-action@v0.18
