@@ -2,82 +2,138 @@
 
 #pragma once
 
+#include <cstdint>
+#include <memory>
 #include <string>
 #include <utility>
 
-#include "Type.h"
 #include <llvm/IR/Type.h>
 #include <llvm/IR/Value.h>
+#include <llvm/Support/raw_ostream.h>
+
+#include "Type.h"
 
 namespace lesma {
-    enum SymbolState {
-        DECLARED,
-        INITIALIZED
-    };
+enum class SymbolState : std::uint8_t { DECLARED, INITIALIZED };
 
-    /**
-     * Entry of a symbol table, representing an individual symbol with all its properties
-     */
-    class Value {
-    public:
-        explicit Value(Type *type) : state(INITIALIZED),
-                                     type(type) {}
-        Value(std::string name, Type *type) : name(std::move(name)), mangledName(name),
-                                              state(INITIALIZED), type(type) {}
-        Value(std::string name, Type *type, llvm::Value *value) : name(std::move(name)), mangledName(name),
-                                                                  state(INITIALIZED), type(type), llvmValue(value) {}
-        Value(std::string name, Type *type, SymbolState state) : name(std::move(name)), mangledName(name),
-                                                                 state(state), type(type) {}
-        Value(std::string name, Type *type,
-              SymbolState state, bool mutable_, bool signed_) : name(std::move(name)), state(state),
-                                                                type(type), mutableVar(mutable_),
-                                                                signedVar(signed_) {}
+/**
+ * Entry of a symbol table, representing an individual symbol with all its
+ * properties
+ */
+class Value {
+public:
+  // Constructors that take ownership of Type
+  explicit Value(std::unique_ptr<Type> type)
+      : ownedType(std::move(type)), state(SymbolState::INITIALIZED) {}
 
-        [[nodiscard]] std::string getName() { return name; }
-        [[nodiscard]] std::string getMangledName() { return mangledName; }
-        [[nodiscard]] llvm::Value *getLLVMValue() { return llvmValue; }
-        [[nodiscard]] bool getMutability() const { return mutableVar; }
-        [[nodiscard]] bool getSigned() const { return signedVar; }
-        [[nodiscard]] SymbolState getState() { return state; }
-        [[nodiscard]] Type *getType() { return type; }
-        [[nodiscard]] lesma::Value *getConstructor() { return constructor; }
-        [[nodiscard]] bool isExported() const { return exported; }
-        [[nodiscard]] bool isUsed() const { return used; }
+  Value(std::string name, std::unique_ptr<Type> type)
+      : name(std::move(name)), mangledName(name), ownedType(std::move(type)),
+        state(SymbolState::INITIALIZED) {}
 
-        void setLLVMValue(llvm::Value *value) { llvmValue = value; }
-        void setName(std::string name_) { name = std::move(name_); }
-        void setMangledName(std::string name_) { mangledName = std::move(name_); }
-        void setUsed(bool used_) { used = used_; }
-        void setSigned(bool signed_) { mutableVar = signed_; }
-        void setMutable(bool mutable_) { mutableVar = mutable_; }
-        void setExported(bool exported_) { exported = exported_; }
-        void setConstructor(lesma::Value *constructor_) { constructor = constructor_; }
+  Value(std::string name, std::unique_ptr<Type> type, llvm::Value* value)
+      : name(std::move(name)), mangledName(name), ownedType(std::move(type)),
+        state(SymbolState::INITIALIZED), llvmValue(value) {}
 
-        std::string toString() {
-            std::string type_str, value_str;
-            llvm::raw_string_ostream rso(type_str), rso2(value_str);
-            if (type->getLLVMType() != nullptr)
-                type->getLLVMType()->print(rso);
-            if (llvmValue != nullptr)
-                llvmValue->print(rso2);
-            return name + ": " + type_str + " = " + value_str;
-        }
+  // Constructors with non-owning Type reference (existing behavior)
+  explicit Value(Type* type) : type(type), state(SymbolState::INITIALIZED) {}
 
-    private:
-        std::string name;
-        std::string mangledName;
-        SymbolState state;
-        Type *type;
-        llvm::Value *llvmValue = nullptr;
-        // For analysis
-        bool used = false;
-        // For variables
-        bool mutableVar = false;
-        // For integers
-        bool signedVar = true;
-        // For functions
-        bool exported = false;
-        // For classes
-        lesma::Value *constructor = nullptr;
-    };
-}//namespace lesma
+  Value(std::string name, Type* type)
+      : name(std::move(name)), mangledName(name), type(type),
+        state(SymbolState::INITIALIZED) {}
+
+  Value(std::string name, Type* type, llvm::Value* value)
+      : name(std::move(name)), mangledName(name), type(type),
+        state(SymbolState::INITIALIZED), llvmValue(value) {}
+
+  Value(std::string name, Type* type, SymbolState state)
+      : name(std::move(name)), mangledName(name), type(type), state(state) {}
+
+  Value(std::string name, Type* type, SymbolState state, bool mutableVar,
+        bool signedVar)
+      : name(std::move(name)), type(type), state(state), mutableVar(mutableVar),
+        signedVar(signedVar) {}
+
+  // Copy constructor - creates a shallow copy with non-owning Type reference
+  Value(const Value& other)
+      : name(other.name), mangledName(other.mangledName), type(other.getType()),
+        state(other.state), llvmValue(other.llvmValue), used(other.used),
+        mutableVar(other.mutableVar), signedVar(other.signedVar),
+        exported(other.exported), constructor(other.constructor) {}
+
+  ~Value() = default;
+  auto operator=(const Value& other) -> Value& {
+    if (this != &other) {
+      name = other.name;
+      mangledName = other.mangledName;
+      ownedType.reset(); // Release any owned type
+      type = other.getType();
+      state = other.state;
+      llvmValue = other.llvmValue;
+      used = other.used;
+      mutableVar = other.mutableVar;
+      signedVar = other.signedVar;
+      exported = other.exported;
+      constructor = other.constructor;
+    }
+    return *this;
+  }
+  Value(Value&&) = default;
+  auto operator=(Value&&) -> Value& = default;
+
+  [[nodiscard]] auto getName() -> std::string { return name; }
+  [[nodiscard]] auto getMangledName() -> std::string { return mangledName; }
+  [[nodiscard]] auto getLlvmValue() -> llvm::Value* { return llvmValue; }
+  [[nodiscard]] auto getMutability() const -> bool { return mutableVar; }
+  [[nodiscard]] auto getSigned() const -> bool { return signedVar; }
+  [[nodiscard]] auto getState() -> SymbolState { return state; }
+  [[nodiscard]] auto getType() const -> Type* {
+    return ownedType ? ownedType.get() : type;
+  }
+  [[nodiscard]] auto getConstructor() -> lesma::Value* { return constructor; }
+  [[nodiscard]] auto isExported() const -> bool { return exported; }
+  [[nodiscard]] auto isUsed() const -> bool { return used; }
+
+  auto setLlvmValue(llvm::Value* value) -> void { llvmValue = value; }
+  auto setName(const std::string& value) -> void { name = value; }
+  auto setMangledName(const std::string& value) -> void { mangledName = value; }
+  auto setUsed(bool value) -> void { used = value; }
+  auto setSigned(bool value) -> void { signedVar = value; }
+  auto setMutable(bool value) -> void { mutableVar = value; }
+  auto setExported(bool value) -> void { exported = value; }
+  auto setConstructor(lesma::Value* value) -> void { constructor = value; }
+
+  auto toString() -> std::string {
+    std::string typeStr;
+    std::string valueStr;
+    llvm::raw_string_ostream rso(typeStr);
+    llvm::raw_string_ostream rso2(valueStr);
+
+    auto* type = getType();
+    if (type != nullptr && type->getLlvmType() != nullptr) {
+      type->getLlvmType()->print(rso);
+    }
+    if (llvmValue != nullptr) {
+      llvmValue->print(rso2);
+    }
+    return name + ": " + typeStr + " = " + valueStr;
+  }
+
+private:
+  std::string name;
+  std::string mangledName;
+  std::unique_ptr<Type> ownedType; // Owned Type (when Value creates its own)
+  Type* type = nullptr; // Non-owning reference (when Type is owned elsewhere)
+  SymbolState state = SymbolState::DECLARED;
+  llvm::Value* llvmValue = nullptr;
+  // For analysis
+  bool used = false;
+  // For variables
+  bool mutableVar = false;
+  // For integers
+  bool signedVar = true;
+  // For functions
+  bool exported = false;
+  // For classes
+  lesma::Value* constructor = nullptr;
+};
+} // namespace lesma

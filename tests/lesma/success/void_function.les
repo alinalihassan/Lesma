@@ -1,0 +1,20 @@
+# Test void functions (no return value)
+var result = 0
+
+def getHundred() -> int
+    return 100
+
+def addOne(x: int) -> int
+    return x + 1
+
+# Void function that doesn't return anything
+def doNothing()
+    var x = 1
+
+doNothing()
+
+# Test that void functions can be called and other functions still work
+result = addOne(getHundred())
+
+if result != 101
+    exit(1)

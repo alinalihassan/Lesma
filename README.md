@@ -50,7 +50,7 @@ bash -c "$(curl -fsSL https://raw.githubusercontent.com/alinalihassan/Lesma/main
 
 ## 🔧 Build
 
-In order to build Lesma, you need Clang, LLVM 15, and Ninja installed. It's currently only supported on Linux and macOS.
+In order to build Lesma, you need Clang, LLVM (17+), and Ninja installed. It's currently only supported on Linux and macOS.
 For a more comprehensive guide, and more information on how to install the prerequisites,
 read the documentation on [Getting Started](https://lesma.org/docs/introduction/getting-started)
 
@@ -60,31 +60,28 @@ read the documentation on [Getting Started](https://lesma.org/docs/introduction/
 - CMake 3.24+
 - Ninja
 - Clang
-- LLVM 15 (with Clang and LLD)
+- LLVM 17+ (with Clang)
 
-### Installing LLVM 15
+### Installing LLVM
 
-#### Option 1: Homebrew (macOS 13 and earlier)
+#### Option 1: Homebrew (macOS)
 ```bash
-brew install llvm@15
-export LLVM_DIR=$(brew --prefix llvm@15)/lib/cmake/llvm
-export LLD_DIR=$(brew --prefix llvm@15)/lib/cmake/lld
-export Clang_DIR=$(brew --prefix llvm@15)/lib/cmake/clang
+brew install llvm
+export LLVM_DIR=$(brew --prefix llvm)/lib/cmake/llvm
+export Clang_DIR=$(brew --prefix llvm)/lib/cmake/clang
 ```
 
 #### Option 2: Package Manager (Linux)
 ```bash
 # Ubuntu/Debian
-sudo apt-get install llvm-15-dev clang-15 lld-15 libclang-15-dev
+sudo apt-get install llvm-dev clang libclang-dev
 
-# Set environment variables
-export LLVM_DIR=/usr/lib/llvm-15/lib/cmake/llvm
-export LLD_DIR=/usr/lib/llvm-15/lib/cmake/lld
-export Clang_DIR=/usr/lib/llvm-15/lib/cmake/clang
+# Or for a specific version (e.g., LLVM 17)
+sudo apt-get install llvm-17-dev clang-17 libclang-17-dev
 ```
 
-#### Option 3: Build LLVM 15 via vcpkg (Any platform)
-This option builds LLVM 15 from source using vcpkg. It takes significant time (~1-2 hours) but works on any platform.
+#### Option 3: Build LLVM via vcpkg (Any platform)
+This option builds LLVM from source using vcpkg. It takes significant time (~1-2 hours) but works on any platform.
 
 ```bash
 git clone https://github.com/alinalihassan/Lesma
@@ -95,9 +92,6 @@ git submodule update --init --recursive
 cmake . -Bbuild -DLESMA_BUILD_LLVM=ON -G Ninja
 cmake --build build
 ```
-
-#### Option 4: Pre-built LLVM binaries
-Download pre-built LLVM 15 binaries from the [LLVM releases page](https://github.com/llvm/llvm-project/releases/tag/llvmorg-15.0.7).
 
 ### Building Lesma
 

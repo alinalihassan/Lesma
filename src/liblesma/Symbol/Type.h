@@ -1,149 +1,202 @@
 #pragma once
 
-#include "liblesma/Symbol/Value.h"
 #include <algorithm>
-#include <llvm/IR/Type.h>
-#include <map>
+#include <cstdint>
 #include <memory>
 #include <string>
 #include <utility>
 #include <vector>
 
+#include <llvm/IR/Type.h>
 
 namespace lesma {
-    enum BaseType {
-        TY_INVALID,
-        TY_INT,
-        TY_FLOAT,
-        TY_STRING,
-        TY_BOOL,
-        TY_PTR,
-        TY_ARRAY,
-        TY_VOID,
-        TY_FUNCTION,
-        TY_CLASS,
-        TY_ENUM,
-        TY_IMPORT,
-    };
+class Value; // Forward declaration instead of include to break circular
+             // dependency
+enum class BaseType : std::uint8_t {
+  TY_INVALID,
+  TY_INT,
+  TY_FLOAT,
+  TY_STRING,
+  TY_BOOL,
+  TY_PTR,
+  TY_ARRAY,
+  TY_VOID,
+  TY_FUNCTION,
+  TY_CLASS,
+  TY_ENUM,
+  TY_IMPORT,
+};
 
-    class Type;
-    class Value;
+class Type;
 
-    struct Field {
-        std::string name;
-        Type *type;
-        Value *defaultValue = nullptr;
-    };
+struct Field {
+  std::string name;
+  Type* type;
+  std::unique_ptr<Value> defaultValue;
 
-    class Type {
-        BaseType baseType;
-        llvm::Type *llvmType;
+  // Constructor for fields without default value
+  Field(std::string n, Type* t);
 
-        Type *elementType;
-        Type *returnType;
-        std::vector<Field *> fields;
-        bool signedInt = true;
+  // Constructor for fields with default value
+  Field(std::string n, Type* t, std::unique_ptr<Value> defVal);
 
-    public:
-        explicit Type(BaseType baseType) : baseType(baseType), llvmType(nullptr), elementType(nullptr), returnType(nullptr), fields() {}
-        explicit Type(BaseType baseType, llvm::Type *llvmType) : baseType(baseType), llvmType(llvmType), elementType(nullptr), returnType(nullptr), fields() {}
-        explicit Type(BaseType baseType, llvm::Type *llvmType, Type *elementType) : baseType(baseType), llvmType(llvmType), elementType(elementType), returnType(nullptr), fields() {}
-        explicit Type(BaseType baseType, llvm::Type *llvmType, std::vector<Field *> fields) : baseType(baseType), llvmType(llvmType), elementType(nullptr), returnType(nullptr), fields(std::move(fields)) {}
+  ~Field();
+  Field(Field&&) noexcept;
+  auto operator=(Field&&) noexcept -> Field&;
+  Field(const Field&) = delete;
+  auto operator=(const Field&) -> Field& = delete;
+};
 
-        [[nodiscard]] bool is(BaseType type) const { return baseType == type; }
-        [[nodiscard]] bool isPrimitive() const { return isOneOf({TY_INT, TY_FLOAT, TY_STRING, TY_BOOL}); }
-        [[nodiscard]] bool isOneOf(const std::vector<BaseType> &baseTypes) const {
-            return std::any_of(baseTypes.begin(), baseTypes.end(), [this](int type) { return type == this->baseType; });
-        }
-        [[nodiscard]] BaseType getBaseType() const { return baseType; }
-        [[nodiscard]] Type *getElementType() const { return elementType; }
-        [[nodiscard]] Type *getReturnType() const { return returnType; }
-        [[nodiscard]] llvm::Type *getLLVMType() const { return llvmType; }
-        [[nodiscard]] std::vector<Field *> const &getFields() const { return fields; }
-        [[nodiscard]] bool isSigned() const { return signedInt; }
+class Type {
+  BaseType baseType;
+  llvm::Type* llvmType;
 
-        void setLLVMType(llvm::Type *type) { llvmType = type; }
-        void setBaseType(BaseType type) { baseType = type; }
-        void setElementType(lesma::Type *type) { elementType = type; }
-        void setReturnType(lesma::Type *type) { returnType = type; }
+  // Non-owning references to other Types (owned elsewhere)
+  Type* elementType;
+  Type* returnType;
+  // Owned collection of Fields
+  std::vector<std::unique_ptr<Field>> fields;
+  bool signedInt = true;
 
-        bool isEqual(Type *rhs) const {
-            if (rhs == nullptr)
-                return false;
+public:
+  explicit Type(BaseType baseType)
+      : baseType(baseType), llvmType(nullptr), elementType(nullptr),
+        returnType(nullptr) {}
+  explicit Type(BaseType baseType, llvm::Type* llvmType)
+      : baseType(baseType), llvmType(llvmType), elementType(nullptr),
+        returnType(nullptr) {}
+  explicit Type(BaseType baseType, llvm::Type* llvmType, Type* elementType)
+      : baseType(baseType), llvmType(llvmType), elementType(elementType),
+        returnType(nullptr) {}
+  explicit Type(BaseType baseType, llvm::Type* llvmType,
+                std::vector<std::unique_ptr<Field>> fields)
+      : baseType(baseType), llvmType(llvmType), elementType(nullptr),
+        returnType(nullptr), fields(std::move(fields)) {}
 
-            if (this->getBaseType() != rhs->getBaseType())
-                return false;
+  ~Type() = default;
+  Type(const Type&) = delete;
+  auto operator=(const Type&) -> Type& = delete;
+  Type(Type&&) = default;
+  auto operator=(Type&&) -> Type& = default;
 
-            Type *thisElementType = this->getElementType();
-            Type *rhsElementType = rhs->getElementType();
+  [[nodiscard]] auto is(BaseType type) const -> bool {
+    return baseType == type;
+  }
+  [[nodiscard]] auto isPrimitive() const -> bool {
+    return isOneOf({BaseType::TY_INT, BaseType::TY_FLOAT, BaseType::TY_STRING,
+                    BaseType::TY_BOOL});
+  }
+  [[nodiscard]] auto
+  isOneOf(const std::vector<BaseType>& baseTypes) const -> bool {
+    return std::any_of(
+        baseTypes.begin(), baseTypes.end(),
+        [this](BaseType type) -> bool { return type == this->baseType; });
+  }
+  [[nodiscard]] auto getBaseType() const -> BaseType { return baseType; }
+  [[nodiscard]] auto getElementType() const -> Type* { return elementType; }
+  [[nodiscard]] auto getReturnType() const -> Type* { return returnType; }
+  [[nodiscard]] auto getLlvmType() const -> llvm::Type* { return llvmType; }
+  [[nodiscard]] auto isSigned() const -> bool { return signedInt; }
 
-            if (thisElementType == nullptr && rhsElementType == nullptr)
-                return true;
-            if (thisElementType == nullptr || rhsElementType == nullptr)
-                return false;
+  // Returns raw pointers for non-owning access
+  [[nodiscard]] auto getFields() -> std::vector<Field*> {
+    std::vector<Field*> result;
+    result.reserve(fields.size());
+    for (const auto& field : fields) {
+      result.push_back(field.get());
+    }
+    return result;
+  }
 
-            return thisElementType->isEqual(rhsElementType);
-        }
+  auto setLlvmType(llvm::Type* type) -> void { llvmType = type; }
+  auto setBaseType(BaseType type) -> void { baseType = type; }
+  auto setElementType(Type* type) -> void { elementType = type; }
+  auto setReturnType(Type* type) -> void { returnType = type; }
+  auto addField(std::unique_ptr<Field> field) -> void {
+    fields.push_back(std::move(field));
+  }
 
-        [[nodiscard]] std::string toString() const {
-            std::string result;
+  auto isEqual(Type* rhs) const -> bool {
+    if (rhs == nullptr) {
+      return false;
+    }
 
-            switch (baseType) {
-                case TY_INVALID:
-                    result = "Invalid";
-                    break;
-                case TY_INT:
-                    result = "Int";
-                    break;
-                case TY_FLOAT:
-                    result = "Float";
-                    break;
-                case TY_STRING:
-                    result = "String";
-                    break;
-                case TY_BOOL:
-                    result = "Bool";
-                    break;
-                case TY_PTR:
-                    result = "Pointer";
-                    break;
-                case TY_ARRAY:
-                    result = "Array";
-                    break;
-                case TY_VOID:
-                    result = "Void";
-                    break;
-                case TY_FUNCTION:
-                    result = "Function";
-                    break;
-                case TY_CLASS:
-                    result = "Class";
-                    break;
-                case TY_ENUM:
-                    result = "Enum";
-                    break;
-                case TY_IMPORT:
-                    result = "Import";
-                    break;
-            }
+    if (this->getBaseType() != rhs->getBaseType()) {
+      return false;
+    }
 
-            if (elementType) {
-                result += "<" + elementType->toString() + ">";
-            }
+    Type const* thisElementType = this->getElementType();
+    Type* rhsElementType = rhs->getElementType();
 
-            if (!fields.empty()) {
-                result += baseType == TY_FUNCTION ? " ( " : " { ";
-                for (const auto &field: fields) {
-                    result += field->name + ": " + field->type->toString() + "; ";
-                }
-                result += baseType == TY_FUNCTION ? ")" : "}";
-            }
+    if (thisElementType == nullptr && rhsElementType == nullptr) {
+      return true;
+    }
+    if (thisElementType == nullptr || rhsElementType == nullptr) {
+      return false;
+    }
 
-            if (returnType) {
-                result += " -> " + returnType->toString();
-            }
+    return thisElementType->isEqual(rhsElementType);
+  }
 
-            return result;
-        }
-    };
-}// namespace lesma
+  [[nodiscard]] auto toString() const -> std::string {
+    std::string result;
+
+    switch (baseType) {
+    case BaseType::TY_INVALID:
+      result = "Invalid";
+      break;
+    case BaseType::TY_INT:
+      result = "Int";
+      break;
+    case BaseType::TY_FLOAT:
+      result = "Float";
+      break;
+    case BaseType::TY_STRING:
+      result = "String";
+      break;
+    case BaseType::TY_BOOL:
+      result = "Bool";
+      break;
+    case BaseType::TY_PTR:
+      result = "Pointer";
+      break;
+    case BaseType::TY_ARRAY:
+      result = "Array";
+      break;
+    case BaseType::TY_VOID:
+      result = "Void";
+      break;
+    case BaseType::TY_FUNCTION:
+      result = "Function";
+      break;
+    case BaseType::TY_CLASS:
+      result = "Class";
+      break;
+    case BaseType::TY_ENUM:
+      result = "Enum";
+      break;
+    case BaseType::TY_IMPORT:
+      result = "Import";
+      break;
+    }
+
+    if (elementType != nullptr) {
+      result += "<" + elementType->toString() + ">";
+    }
+
+    if (!fields.empty()) {
+      result += baseType == BaseType::TY_FUNCTION ? " ( " : " { ";
+      for (const auto& field : fields) {
+        result += field->name + ": " + field->type->toString() + "; ";
+      }
+      result += baseType == BaseType::TY_FUNCTION ? ")" : "}";
+    }
+
+    if (returnType != nullptr) {
+      result += " -> " + returnType->toString();
+    }
+
+    return result;
+  }
+};
+} // namespace lesma

@@ -24,13 +24,6 @@
       "version>=": "1.0.8"
     }
   ],
-  "overrides": [
-    {
-      "name": "llvm",
-      "version": "15.0.7",
-      "port-version": 6
-    }
-  ],
   "features": {
     "cli": {
       "description": "Build CLI",

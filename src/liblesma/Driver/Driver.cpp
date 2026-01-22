@@ -1,107 +1,136 @@
 #include "Driver.h"
 
-#include "plf_nanotimer.h"
+#include <memory>
+#include <string>
+#include <utility>
+#include <vector>
+
+#include "llvm/Support/SourceMgr.h"
+#include <llvm/Passes/OptimizationLevel.h>
+#include <llvm/Support/MemoryBuffer.h>
+#include <llvm/Support/SMLoc.h>
+
+#include <fmt/format.h>
+
+#include "liblesma/Backend/Codegen.h"
+#include "liblesma/Common/LesmaError.h"
+#include "liblesma/Common/Utils.h"
+#include "liblesma/Frontend/Lexer.h"
+#include "liblesma/Frontend/Parser.h"
 
 using namespace lesma;
 
-#define TIMEIT(debug_operation, statements)   \
-    timer.start();                            \
-    statements                                \
-            results = timer.get_elapsed_ms(); \
-    total += results;                         \
-    if (options->timer)                       \
-        print(DEBUG, "{} -> {:.2f} ms\n", debug_operation, results);
+auto Driver::baseCompile(std::unique_ptr<lesma::Options> options,
+                         bool jit) -> int {
+  Timer timer(options->timer);
 
+  // Configure Source Manager
+  auto srcMgr = std::make_shared<llvm::SourceMgr>();
 
-int Driver::BaseCompile(std::unique_ptr<lesma::Options> options, bool jit) {
-    // Configure Timer
-    plf::nanotimer timer;
-    double results, total = 0;
-
-    // Configure Source Manager
-    std::shared_ptr<llvm::SourceMgr> srcMgr = std::make_shared<llvm::SourceMgr>(llvm::SourceMgr());
-
-    try {
-        // Read Source
-        TIMEIT(
-                "File read",
-                if (options->sourceType == SourceType::FILE) {
-                    auto buffer = llvm::MemoryBuffer::getFileAsStream(options->source);
-                    if (!buffer) {
-                        throw LesmaError(llvm::SMRange(), "Could not read file: {}", options->source);
-                    }
-
-                    srcMgr->AddNewSourceBuffer(std::move(*buffer), llvm::SMLoc());
-                } else {
-                    auto buffer = llvm::MemoryBuffer::getMemBuffer(options->source);
-                    srcMgr->AddNewSourceBuffer(std::move(buffer), llvm::SMLoc());
-                })
-
-        // Lexer
-        TIMEIT("Lexer scan",
-               auto lexer = std::make_unique<Lexer>(srcMgr);
-               lexer->ScanAll();)
-
-        if (options->debug & LEXER) {
-            print(DEBUG, "TOKENS: \n");
-            for (const auto &tok: lexer->getTokens())
-                print("Token: {}\n", tok->Dump(srcMgr));
+  try {
+    // Read Source
+    timer.measure("File read", [&]() -> void {
+      if (options->sourceType == SourceType::FILE) {
+        auto buffer = llvm::MemoryBuffer::getFileAsStream(options->source);
+        if (!buffer) {
+          throw LesmaError(llvm::SMRange(), "Could not read file: {}",
+                           options->source);
         }
+        srcMgr->AddNewSourceBuffer(std::move(*buffer), llvm::SMLoc());
+      } else {
+        auto buffer = llvm::MemoryBuffer::getMemBuffer(options->source);
+        srcMgr->AddNewSourceBuffer(std::move(buffer), llvm::SMLoc());
+      }
+    });
 
-        // Parser
-        TIMEIT("Parsing",
-               auto parser = std::make_unique<Parser>(lexer->getTokens());
-               parser->Parse();)
+    // Lexer
+    auto lexer =
+        timer.measure("Lexer scan", [&]() -> std::unique_ptr<lesma::Lexer> {
+          auto lex = std::make_unique<Lexer>(srcMgr);
+          lex->scanAll();
+          return lex;
+        });
 
-        if (options->debug & AST)
-            print(DEBUG, "AST:\n{}", parser->getAST()->toString(srcMgr.get(), "", true));
-
-        // Codegen
-        TIMEIT("Compiling",
-               std::vector<std::string> modules;
-               auto codegen = std::make_unique<Codegen>(std::move(parser), srcMgr,
-                                                        options->sourceType == FILE ? options->source : "",
-                                                        modules, jit, true);
-               codegen->Run();)
-
-        if (options->debug & IR) {
-            print(DEBUG, "LLVM IR: \n");
-            codegen->Dump();
-        }
-
-        // Optimization
-        TIMEIT("Optimizing", codegen->Optimize(OptimizationLevel::O3);)
-
-        int exit_code = 0;
-        if (!jit) {
-            // Compile to Object File
-            TIMEIT("Writing Object File", codegen->WriteToObjectFile(options->output_filename);)
-
-            // Link Object File
-            TIMEIT("Linking Object File", codegen->LinkObjectFile(fmt::format("{}.o", options->output_filename));)
-        } else {
-            // Executing
-            TIMEIT("JIT", codegen->PrepareJIT();)
-            TIMEIT("Execution", exit_code = codegen->ExecuteJIT();)
-        }
-
-        if (options->timer)
-            print(DEBUG, "Total -> {:.2f} ms\n", total);
-
-        return exit_code;
-    } catch (const LesmaError &err) {
-        if (!err.getSpan().isValid())
-            print(ERROR, err.what());
-        else
-            showInline(srcMgr.get(), 1, err.getSpan(), err.what(), options->sourceType == FILE ? options->source : "", true);
-        return err.exit_code;
+    if ((options->debug & Debug::LEXER) != Debug::NONE) {
+      lesma::print(LogType::DEBUG, "TOKENS: \n");
+      for (const auto& tok : lexer->getTokens()) {
+        lesma::print("Token: {}\n", tok->dump(srcMgr));
+      }
     }
+
+    // Parser
+    auto parser =
+        timer.measure("Parsing", [&]() -> std::unique_ptr<lesma::Parser> {
+          auto pars = std::make_unique<Parser>(lexer->getTokens());
+          pars->parse();
+          return pars;
+        });
+
+    if ((options->debug & Debug::AST) != Debug::NONE) {
+      lesma::print(LogType::DEBUG, "AST:\n{}",
+                   parser->getAst()->toString(srcMgr.get(), "", true));
+    }
+
+    // Codegen
+    auto codegen =
+        timer.measure("Compiling", [&]() -> std::unique_ptr<lesma::Codegen> {
+          std::vector<std::string> const modules;
+          auto cg = std::make_unique<Codegen>(
+              std::move(parser), srcMgr,
+              options->sourceType == SourceType::FILE ? options->source : "",
+              modules, jit, true);
+          cg->run();
+          return cg;
+        });
+
+    if ((options->debug & Debug::IR) != Debug::NONE) {
+      lesma::print(LogType::DEBUG, "LLVM IR: \n");
+      codegen->dump();
+    }
+
+    // Optimization
+    timer.measure("Optimizing",
+                  [&]() -> void { codegen->optimize(OptimizationLevel::O3); });
+
+    int exitCode = 0;
+    if (!jit) {
+      // Compile to Object File
+      timer.measure("Writing Object File", [&]() -> void {
+        codegen->writeToObjectFile(options->outputFilename);
+      });
+
+      // Link Object File
+      timer.measure("Linking Object File", [&]() -> void {
+        codegen->linkObjectFile(fmt::format("{}.o", options->outputFilename));
+      });
+    } else {
+      // Executing
+      timer.measure("JIT", [&]() -> void { codegen->prepareJit(); });
+
+      exitCode = timer.measure("Execution",
+                               [&]() -> int { return codegen->executeJit(); });
+    }
+
+    timer.printTotal();
+
+    return exitCode;
+  } catch (const LesmaError& err) {
+    if (!err.getSpan().isValid()) {
+      lesma::print(LogType::ERROR, err.what());
+    } else {
+      showInline(srcMgr.get(), 1, err.getSpan(),
+                 options->sourceType == SourceType::FILE ? options->source : "",
+                 true, err.what());
+    }
+
+    return err.getExitCode();
+  }
 }
 
-int Driver::Run(std::unique_ptr<lesma::Options> options) {
-    return BaseCompile(std::move(options), true);
+auto Driver::run(std::unique_ptr<lesma::Options> options) -> int {
+  return baseCompile(std::move(options), true);
 }
 
-int Driver::Compile(std::unique_ptr<lesma::Options> options) {
-    return BaseCompile(std::move(options), false);
+auto Driver::compile(std::unique_ptr<lesma::Options> options) -> int {
+  return baseCompile(std::move(options), false);
 }

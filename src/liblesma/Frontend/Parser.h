@@ -1,105 +1,113 @@
 #pragma once
 
-#include "Lexer.h"
+#include <memory>
+#include <string>
+#include <utility>
+#include <vector>
+
+#include <sysexits.h>
+
 #include "liblesma/AST/AST.h"
 #include "liblesma/Common/LesmaError.h"
-#include <memory>
-#include <utility>
+#include "liblesma/Token/Token.h"
+#include "liblesma/Token/TokenType.h"
 
 namespace lesma {
-    class ParserError : public LesmaErrorWithExitCode<EX_DATAERR> {
-    public:
-        using LesmaErrorWithExitCode<EX_DATAERR>::LesmaErrorWithExitCode;
-    };
+class ParserError : public LesmaErrorWithExitCode<EX_DATAERR> {
+public:
+  using LesmaErrorWithExitCode<EX_DATAERR>::LesmaErrorWithExitCode;
+};
 
-    class Parser {
-    public:
-        explicit Parser(std::vector<Token *> tokens) : tokens(std::move(tokens)), index(0), tree(nullptr) {}
-        ~Parser() {
-            delete tree;
-        }
+class Parser {
+public:
+  explicit Parser(std::vector<Token*> tokens) : tokens(std::move(tokens)) {}
+  ~Parser() = default;
 
-        void Parse();
+  Parser(const Parser&) = delete;
+  auto operator=(const Parser&) -> Parser& = delete;
+  Parser(Parser&&) = delete;
+  auto operator=(Parser&&) -> Parser& = delete;
 
-        Compound *getAST() { return tree; }
+  auto parse() -> void;
 
-    protected:
-        Token *Peek() { return Peek(0); }
-        Token *Peek(unsigned long i) { return tokens.at(index + i); }
+  auto getAst() -> Compound* { return tree.get(); }
 
-        Token *Consume(TokenType type);
-        Token *Consume(TokenType type, const std::string &error_message);
-        Token *ConsumeNewline();
+private:
+  auto peek() -> Token* { return peek(0); }
+  auto peek(unsigned long i) -> Token* { return tokens.at(index + i); }
 
-        Token *Previous() { return Peek(-1); }
+  auto consume(TokenType type) -> Token*;
+  auto consume(TokenType type, const std::string& errorMessage) -> Token*;
+  auto consumeNewline() -> Token*;
 
-        bool IsAtEnd() { return Peek()->type == TokenType::EOF_TOKEN; }
+  auto previous() -> Token* { return peek(-1); }
 
-        Token *Advance() {
-            if (!IsAtEnd())
-                index++;
+  auto isAtEnd() -> bool { return peek()->type == TokenType::EOF_TOKEN; }
 
-            return Peek(-1);
-        }
+  auto advance() -> Token* {
+    if (!isAtEnd()) {
+      index++;
+    }
 
-        bool Check(TokenType type) {
-            return Check(type, 0);
-        }
+    return peek(-1);
+  }
 
-        bool Check(TokenType type, unsigned long pos) {
-            return Peek(pos)->type == type;
-        }
+  auto check(TokenType type) -> bool { return check(type, 0); }
 
-        template<TokenType type, TokenType... remained_types>
-        bool AdvanceIfMatchAny();
+  auto check(TokenType type, unsigned long pos) -> bool {
+    return peek(pos)->type == type;
+  }
 
-        template<TokenType type, TokenType... remained_types>
-        bool CheckAny();
+  template <TokenType type, TokenType... remained_types>
+  auto advanceIfMatchAny() -> bool;
 
-        template<TokenType type, TokenType... remained_types>
-        bool CheckAnyInLine();
+  template <TokenType type, TokenType... remained_types>
+  auto checkAny() -> bool;
 
-        template<TokenType type, TokenType... remained_types>
-        bool CheckAny(unsigned long pos);
+  template <TokenType type, TokenType... remained_types>
+  auto checkAnyInLine() -> bool;
 
-        const std::vector<Token *> tokens;
-        unsigned long index;
-        bool inClass = false;
-        bool isExported = false;
-        Compound *tree;
+  template <TokenType type, TokenType... remained_types>
+  auto checkAny(unsigned long pos) -> bool;
 
-        static void Error(Token *token, const std::string &basicString);
+  std::vector<Token*> tokens;
+  unsigned long index = 0;
+  bool inClass = false;
+  bool isExported = false;
+  std::unique_ptr<Compound> tree;
 
-        Compound *ParseCompound();
-        Compound *ParseBlock();
-        Statement *ParseFunctionDeclaration();
-        Statement *ParseExport();
-        Statement *ParseImport();
-        Statement *ParseClass();
-        Statement *ParseEnum();
-        Statement *ParseStatement(bool isTopLevel);
-        Statement *ParseIf();
-        Statement *ParseWhile();
-        Statement *ParseFor();
-        Statement *ParseVarDecl();
-        Statement *ParseAssignment();
-        Statement *ParseBreak();
-        Statement *ParseContinue();
-        Statement *ParseReturn();
-        Statement *ParseDefer();
-        TypeExpr *ParseType();
-        Expression *ParseExpression();
-        Expression *ParseOr();
-        Expression *ParseAnd();
-        Expression *ParseNot();
-        Expression *ParseDot();
-        Expression *ParseCompare();
-        Expression *ParseAdd();
-        Expression *ParseMult();
-        Expression *ParsePower();
-        Expression *ParseCast();
-        Expression *ParseUnary();
-        Expression *ParseTerm();
-        Expression *ParseFunctionCall();
-    };
-}// namespace lesma
+  static auto error(Token* token, const std::string& errorMessage) -> void;
+
+  auto parseCompound() -> std::unique_ptr<Compound>;
+  auto parseBlock() -> std::unique_ptr<Compound>;
+  auto parseFunctionDeclaration() -> std::unique_ptr<Statement>;
+  auto parseExport() -> std::unique_ptr<Statement>;
+  auto parseImport() -> std::unique_ptr<Statement>;
+  auto parseClass() -> std::unique_ptr<Statement>;
+  auto parseEnum() -> std::unique_ptr<Statement>;
+  auto parseStatement(bool isTopLevel) -> std::unique_ptr<Statement>;
+  auto parseIf() -> std::unique_ptr<Statement>;
+  auto parseWhile() -> std::unique_ptr<Statement>;
+  auto parseFor() -> std::unique_ptr<Statement>;
+  auto parseVarDecl() -> std::unique_ptr<Statement>;
+  auto parseAssignment() -> std::unique_ptr<Statement>;
+  auto parseBreak() -> std::unique_ptr<Statement>;
+  auto parseContinue() -> std::unique_ptr<Statement>;
+  auto parseReturn() -> std::unique_ptr<Statement>;
+  auto parseDefer() -> std::unique_ptr<Statement>;
+  auto parseType() -> std::unique_ptr<TypeExpr>;
+  auto parseExpression() -> std::unique_ptr<Expression>;
+  auto parseOr() -> std::unique_ptr<Expression>;
+  auto parseAnd() -> std::unique_ptr<Expression>;
+  auto parseNot() -> std::unique_ptr<Expression>;
+  auto parseDot() -> std::unique_ptr<Expression>;
+  auto parseCompare() -> std::unique_ptr<Expression>;
+  auto parseAdd() -> std::unique_ptr<Expression>;
+  auto parseMult() -> std::unique_ptr<Expression>;
+  auto parsePower() -> std::unique_ptr<Expression>;
+  auto parseCast() -> std::unique_ptr<Expression>;
+  auto parseUnary() -> std::unique_ptr<Expression>;
+  auto parseTerm() -> std::unique_ptr<Expression>;
+  auto parseFunctionCall() -> std::unique_ptr<Expression>;
+};
+} // namespace lesma

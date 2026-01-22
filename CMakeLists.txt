@@ -1,5 +1,8 @@
 cmake_minimum_required(VERSION 3.24)
 
+# Export compile commands for LSP support (clangd)
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+
 # Macro
 macro(add_feature_option OPTION_NAME FEATURE_NAME DESCRIPTION DEFAULT_VALUE)
   option(${OPTION_NAME} ${DESCRIPTION} ${DEFAULT_VALUE})
@@ -34,7 +37,7 @@ elseif (CMAKE_BUILD_TYPE MATCHES Release)
   message(STATUS "Release mode")
 endif ()
 
-set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD 23)
 add_definitions(${CMAKE_CXX_FLAGS} -Wall -Wextra -Wpedantic -frtti)
 set(CMAKE_CXX_FLAGS_RELEASE "-O3")
 
@@ -69,7 +72,7 @@ if (EXISTS "${LLVM_DIR}" AND IS_DIRECTORY "${LLVM_DIR}") # Prefer local LLVM ins
 endif ()
 
 # LLVM configuration
-find_package(LLVM 15 CONFIG REQUIRED)
+find_package(LLVM CONFIG REQUIRED)
 
 message(STATUS "Found LLVM ${LLVM_PACKAGE_VERSION}")
 message(STATUS "Using LLVMConfig.cmake from ${LLVM_DIR}")
@@ -79,14 +82,18 @@ include(HandleLLVMOptions)
 add_definitions(${LLVM_DEFINITIONS})
 llvm_map_components_to_libnames(LLVM_LIBS core support demangle native orcjit)
 
-# LLD configuration
-find_package(LLD CONFIG REQUIRED)
+# LLD configuration (optional - falls back to clang for linking)
+find_package(LLD CONFIG)
 
-message(STATUS "Found LLDConfig.cmake in ${LLD_CMAKE_DIR}")
-
-include_directories(SYSTEM ${LLD_INCLUDE_DIRS})
-
-set(LLD_LIBS lldCommon lldELF lldCOFF lldMachO)
+if (LLD_FOUND)
+  message(STATUS "Found LLDConfig.cmake in ${LLD_CMAKE_DIR}")
+  include_directories(SYSTEM ${LLD_INCLUDE_DIRS})
+  set(LLD_LIBS lldCommon lldELF lldCOFF lldMachO)
+  add_definitions(-DLESMA_HAS_LLD)
+else()
+  message(STATUS "LLD not found, will use clang for linking")
+  set(LLD_LIBS "")
+endif()
 
 # Clang
 find_package(Clang CONFIG REQUIRED)
@@ -153,7 +160,7 @@ if (LESMA_BUILD_TESTS)
   set(TEST_SOURCES tests/test.cpp)
 
   add_executable(${TESTS_NAME} ${TEST_SOURCES})
-  target_link_libraries(${TESTS_NAME} PRIVATE ${LIB_NAME} GTest::gtest GTest::gtest_main GTest::gmock GTest::gmock_main)
+  target_link_libraries(${TESTS_NAME} PRIVATE ${LIB_NAME} GTest::gtest GTest::gmock)
 
   find_program(BASH_PROGRAM bash)
   if (BASH_PROGRAM)
@@ -173,7 +180,7 @@ if (LESMA_BUILD_BENCHMARKS)
   set(BENCHMARK_SOURCES benchmark/benchmark.cpp)
 
   add_executable(${BENCHMARKS_NAME} ${BENCHMARK_SOURCES})
-  target_link_libraries(${BENCHMARKS_NAME} PRIVATE ${LIB_NAME} benchmark::benchmark benchmark::benchmark_main)
+  target_link_libraries(${BENCHMARKS_NAME} PRIVATE ${LIB_NAME} benchmark::benchmark_main)
 endif ()
 
 # CPack

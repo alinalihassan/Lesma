@@ -1,83 +1,120 @@
 #pragma once
 
+#include <cstddef>
+#include <memory>
 #include <optional>
 #include <string>
-#include <sysexits.h>
 #include <vector>
 
+#include <llvm/Support/MemoryBuffer.h>
+#include <llvm/Support/SMLoc.h>
+#include <llvm/Support/SourceMgr.h>
+
+#include <sysexits.h>
+
 #include "liblesma/Common/LesmaError.h"
-#include "liblesma/Common/Utils.h"
 #include "liblesma/Token/Token.h"
+#include "liblesma/Token/TokenType.h"
 
 namespace lesma {
-    class LexerError : public LesmaErrorWithExitCode<EX_DATAERR> {
-        using LesmaErrorWithExitCode<EX_DATAERR>::LesmaErrorWithExitCode;
-    };
+class LexerError : public LesmaErrorWithExitCode<EX_DATAERR> {
+  using LesmaErrorWithExitCode<EX_DATAERR>::LesmaErrorWithExitCode;
+};
 
-    class Lexer {
-    public:
-        explicit Lexer(const std::shared_ptr<llvm::SourceMgr> &srcMgr)
-            : curBuffer(srcMgr->getMemoryBuffer(srcMgr->getNumBuffers())),
-              curPtr(curBuffer->getBufferStart()), begin_loc(llvm::SMLoc::getFromPointer(curPtr)), loc(llvm::SMLoc::getFromPointer(curPtr)), srcMgr(srcMgr) {
-        }
-        ~Lexer() {
-            for (auto t: tokens)
-                delete t;
-            tokens.clear();
-        }
+class Lexer {
+public:
+  explicit Lexer(const std::shared_ptr<llvm::SourceMgr>& srcMgr)
+      : curBuffer(srcMgr->getMemoryBuffer(srcMgr->getNumBuffers())),
+        beginLoc(llvm::SMLoc::getFromPointer(curBuffer->getBufferStart())),
+        loc(llvm::SMLoc::getFromPointer(curBuffer->getBufferStart())),
+        srcMgr(srcMgr) {}
+  ~Lexer() = default;
 
-        void ScanAll();
-        Token *ScanOne(bool continuation = false);
-        std::vector<Token *> getTokens() { return tokens; };
+  Lexer(const Lexer&) = delete;
+  auto operator=(const Lexer&) -> Lexer& = delete;
+  Lexer(Lexer&&) = default;
+  auto operator=(Lexer&&) -> Lexer& = default;
 
-    private:
-        bool MatchAndAdvance(char expected);
+  auto scanAll() -> void;
+  auto getTokens() -> std::vector<Token*>;
+  auto getOwnedTokens() -> std::vector<std::unique_ptr<Token>>& {
+    return tokens;
+  };
 
-        char Peek(int offset = 0);
+private:
+  auto scanOne(bool continuation = false) -> std::unique_ptr<Token>;
 
-        Token *AddStringToken();
+  auto matchAndAdvance(char expected) -> bool;
 
-        static bool IsDigit(char c) { return c >= '0' && c <= '9'; }
+  auto peek(int offset = 0) -> char;
 
-        static bool IsAlpha(char c) { return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '_'; }
+  auto addStringToken() -> std::unique_ptr<Token>;
 
-        static bool IsAlphaNumeric(char c) { return IsAlpha(c) || IsDigit(c); }
+  static auto isDigit(char c) -> bool { return c >= '0' && c <= '9'; }
 
-        Token *AddNumToken();
+  static auto isAlpha(char c) -> bool {
+    return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '_';
+  }
 
-        Token *AddToken(TokenType type);
-        Token *AddToken(Token *tok);
+  static auto isAlphaNumeric(char c) -> bool {
+    return isAlpha(c) || isDigit(c);
+  }
 
-        void Error(const std::string &msg) const;
+  auto addNumToken() -> std::unique_ptr<Token>;
 
-        bool IsAtEnd() { return curPtr == curBuffer->getBufferEnd(); }
+  auto makeToken(TokenType type) -> std::unique_ptr<Token>;
+  auto makeToken(TokenType type,
+                 const std::string& value) -> std::unique_ptr<Token>;
 
-        char LastChar();
+  auto error(const std::string& msg) const -> void;
 
-        char Advance();
+  auto isAtEnd() -> bool { return curPos >= curBuffer->getBufferSize(); }
 
-        Token *GetLastToken();
-        Token *AddIdentifierToken();
+  // Helper to get pointer at current position for SMLoc (isolates pointer
+  // arithmetic)
+  [[nodiscard]] auto getLocPointer() const -> const char* {
+    // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
+    return curBuffer->getBufferStart() + curPos;
+  }
 
-        void HandleWhitespace(char c);
-        bool HandleIndentation(bool continuation);
-        void Fallback();
+  // Helper to get pointer at specific offset for SMLoc
+  [[nodiscard]] auto getLocPointer(size_t offset) const -> const char* {
+    // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
+    return curBuffer->getBufferStart() + offset;
+  }
 
-        const llvm::MemoryBuffer *curBuffer;
-        const char *curPtr;
-        unsigned int line = 1;
-        unsigned int col = 1;
-        llvm::SMLoc begin_loc;
-        llvm::SMLoc loc;
-        std::vector<Token *> tokens;
-        std::shared_ptr<llvm::SourceMgr> srcMgr;
+  // Helper to get character at specific position (isolates array subscript)
+  [[nodiscard]] auto getCharAt(size_t pos) const -> char {
+    // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
+    return curBuffer->getBufferStart()[pos];
+  }
 
-        std::optional<char> first_indent_char;
-        int level_ = 0;
-        int indent_ = 0;
-        std::vector<int> indent_stack_ = {0};
-        std::vector<int> alt_indent_stack_ = {0};
+  auto lastChar() -> char;
 
-        void ResetTokenBeg();
-    };
-}// namespace lesma
+  auto advance() -> char;
+
+  auto getLastToken() -> Token*;
+  auto addIdentifierToken() -> std::unique_ptr<Token>;
+
+  auto handleWhitespace(char c) -> void;
+  auto handleIndentation(bool continuation) -> bool;
+  auto fallback() -> void;
+
+  const llvm::MemoryBuffer* curBuffer;
+  size_t curPos = 0;
+  unsigned int line = 1;
+  unsigned int col = 1;
+  llvm::SMLoc beginLoc;
+  llvm::SMLoc loc;
+  std::vector<std::unique_ptr<Token>> tokens;
+  std::shared_ptr<llvm::SourceMgr> srcMgr;
+
+  std::optional<char> firstIndentChar;
+  int level = 0;
+  int indent = 0;
+  std::vector<int> indentStack = {0};
+  std::vector<int> altIndentStack = {0};
+
+  auto resetTokenBeg() -> void;
+};
+} // namespace lesma

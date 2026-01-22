@@ -22,7 +22,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
         with:
           repository: ${{ github.event.pull_request.head.repo.full_name }}
           ref: ${{ github.event.pull_request.head.ref }}
@@ -31,11 +31,11 @@ jobs:
 
       - name: Clang Format
         if: ${{ matrix.os == 'ubuntu-latest' }}
-        uses: DoozyX/clang-format-lint-action@v0.15
+        uses: DoozyX/clang-format-lint-action@v0.18
         with:
           source: './src/'
           extensions: 'h,cpp'
-          clangFormatVersion: 14
+          clangFormatVersion: 18
           inplace: True
 
       - name: Commit formatting diff
@@ -47,17 +47,17 @@ jobs:
 
       - name: Cache LLVM and Clang
         id: cache-llvm
-        uses: actions/cache@v2
+        uses: actions/cache@v4
         with:
           path: |
             C:/Program Files/LLVM
             ./llvm
-          key: llvm-15.0-${{ matrix.os }}
+          key: llvm-21-${{ matrix.os }}
 
       - name: Install LLVM and Clang
-        uses: KyleMayes/install-llvm-action@v1
+        uses: KyleMayes/install-llvm-action@v2
         with:
-          version: "15.0"
+          version: "21"
           cached: ${{ steps.cache-llvm.outputs.cache-hit }}
 
       - name: Get vcpkg commit hash
@@ -68,10 +68,10 @@ jobs:
           prop_path: 'builtin-baseline'
 
       - name: Install CMake & Ninja
-        uses: lukka/get-cmake@v3.26.0
+        uses: lukka/get-cmake@latest
 
       - name: Setup vcpkg
-        uses: lukka/run-vcpkg@v11.1
+        uses: lukka/run-vcpkg@v11
         with:
           vcpkgDirectory: '${{ github.workspace }}/thirdparty/vcpkg'
 
@@ -89,9 +89,9 @@ jobs:
         working-directory: ${{github.workspace}}/build/Release
         run: ninja package
 
-      - uses: actions/upload-artifact@v3
+      - uses: actions/upload-artifact@v4
         with:
-          name: lesma
+          name: lesma-${{ matrix.os }}
           path: ${{github.workspace}}/build/Release/Lesma*.tar.gz
 
   release:
@@ -102,27 +102,28 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
       - name: Setup Node.JS
-        uses: actions/setup-node@v2
+        uses: actions/setup-node@v4
         with:
-          node-version: '18'
+          node-version: '22'
 
       - name: Install Semantic Release Dependencies
         run: |
           npm install -g @semantic-release/changelog @semantic-release/git @google/semantic-release-replace-plugin
 
       - name: Download Artifact
-        uses: actions/download-artifact@v3
+        uses: actions/download-artifact@v4
         with:
-          name: lesma
+          pattern: lesma-*
+          merge-multiple: true
 
       - name: Semantic Release
         id: semantic
-        uses: cycjimmy/semantic-release-action@v3
+        uses: cycjimmy/semantic-release-action@v4
         with:
           extra_plugins: |
             @semantic-release/changelog
