@@ -514,14 +514,14 @@ auto Codegen::writeToObjectFile(const std::string& output) -> void {
 
 #ifdef LESMA_HAS_LLD
 [[maybe_unused]] void
-Codegen::LinkObjectFileWithLLD(const std::string& obj_filename) {
-  std::string output = GetBasename(obj_filename);
+Codegen::linkObjectFileWithLld(const std::string& objFilename) {
+  std::string output = GetBasename(objFilename);
 
   llvm::SmallVector<const char*, 32> args;
   args.push_back("lld");
   args.push_back("-o");
   args.push_back(output.c_str());
-  args.push_back(obj_filename.c_str());
+  args.push_back(objFilename.c_str());
   for (const auto& obj : objectFiles) {
     args.push_back(obj.c_str());
   }
@@ -552,7 +552,7 @@ Codegen::LinkObjectFileWithLLD(const std::string& obj_filename) {
     throw CodegenError({}, "Linking Failed");
 
   // Remove object files
-  llvm::sys::fs::remove(obj_filename);
+  llvm::sys::fs::remove(objFilename);
   for (const auto& obj : objectFiles)
     llvm::sys::fs::remove(obj);
 }
@@ -2101,8 +2101,8 @@ auto Codegen::visit(const Else* /*node*/) -> void {
       "", type, llvm::ConstantInt::getTrue(theModule->getContext()));
 }
 
-auto Codegen::getTypeMangledName(llvm::SMRange span,
-                                 lesma::Type* type) -> std::string {
+auto Codegen::getTypeMangledName(llvm::SMRange span, lesma::Type* type)
+    -> std::string {
   auto* llvmTy = type->getLlvmType();
   if (type->is(BaseType::TY_BOOL)) {
     return "b";
@@ -2214,8 +2214,8 @@ auto Codegen::getDemangledName(const std::string& name) -> std::string {
   return demangledName;
 }
 
-auto Codegen::getExtendedType(lesma::Type* left,
-                              lesma::Type* right) -> lesma::Type* {
+auto Codegen::getExtendedType(lesma::Type* left, lesma::Type* right)
+    -> lesma::Type* {
   if (left->getBaseType() == right->getBaseType()) {
     return left;
   }
@@ -2253,8 +2253,8 @@ auto Codegen::getExtendedType(lesma::Type* left,
   return nullptr;
 }
 
-auto Codegen::cast(llvm::SMRange span, lesma::Value* val,
-                   lesma::Type* type) -> std::unique_ptr<lesma::Value> {
+auto Codegen::cast(llvm::SMRange span, lesma::Value* val, lesma::Type* type)
+    -> std::unique_ptr<lesma::Value> {
   if (type == nullptr) {
     return std::make_unique<Value>(*val); // Copy for borrowed value
   }
@@ -2381,8 +2381,8 @@ auto Codegen::genFuncCall(const FuncCall* node,
                                  builder->CreateCall(func, paramsLLVM));
 }
 
-auto Codegen::findIndexInFields(Type* structType,
-                                const std::string& field) -> int {
+auto Codegen::findIndexInFields(Type* structType, const std::string& field)
+    -> int {
   for (unsigned int i = 0; i < structType->getFields().size(); i++) {
     if (structType->getFields()[i]->name == field) {
       return static_cast<int>(i);
@@ -2392,8 +2392,8 @@ auto Codegen::findIndexInFields(Type* structType,
   return -1;
 }
 
-auto Codegen::findTypeInFields(Type* structType,
-                               const std::string& field) -> lesma::Type* {
+auto Codegen::findTypeInFields(Type* structType, const std::string& field)
+    -> lesma::Type* {
   for (const auto& i : structType->getFields()) {
     if (i->name == field) {
       return i->type;
