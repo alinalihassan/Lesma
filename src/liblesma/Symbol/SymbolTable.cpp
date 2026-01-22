@@ -31,8 +31,8 @@ auto Field::operator=(Field&&) noexcept -> Field& = default;
  *
  * @param symbol Symbol Table Entry (takes ownership)
  */
-auto SymbolTable::InsertSymbol(std::unique_ptr<Value> symbol) -> void {
-  auto name = symbol->GetName();
+auto SymbolTable::insertSymbol(std::unique_ptr<Value> symbol) -> void {
+  auto name = symbol->getName();
   symbols.emplace(std::move(name), std::move(symbol));
 }
 
@@ -42,7 +42,7 @@ auto SymbolTable::InsertSymbol(std::unique_ptr<Value> symbol) -> void {
  * @param name Name of the type
  * @param type Type to insert (takes ownership)
  */
-auto SymbolTable::InsertType(const std::string& name,
+auto SymbolTable::insertType(const std::string& name,
                              std::unique_ptr<Type> type) -> void {
   types.insert_or_assign(name, std::move(type));
 }
@@ -54,23 +54,23 @@ auto SymbolTable::InsertType(const std::string& name,
  * @param name Name of the desired symbol
  * @return Desired symbol / nullptr if the symbol was not found
  */
-auto SymbolTable::LookupFunction(const std::string& name,
+auto SymbolTable::lookupFunction(const std::string& name,
                                  std::vector<lesma::Type*> paramTypes)
     -> Value* {
   auto range = symbols.equal_range(name);
   for (auto it = range.first; it != range.second; ++it) {
-    if (!it->second->GetType()->Is(BaseType::TY_FUNCTION)) {
+    if (!it->second->getType()->is(BaseType::TY_FUNCTION)) {
       continue;
     }
 
     // Check if the parameter types match
     bool paramsMatch = true;
-    std::vector<Field*> funcParamTypes = it->second->GetType()->GetFields();
+    std::vector<Field*> funcParamTypes = it->second->getType()->getFields();
     size_t const numParams = std::max(funcParamTypes.size(), paramTypes.size());
 
     for (size_t i = 0; i < numParams; ++i) {
       if (i < funcParamTypes.size() && i < paramTypes.size()) {
-        if (!funcParamTypes[i]->type->IsEqual(paramTypes[i])) {
+        if (!funcParamTypes[i]->type->isEqual(paramTypes[i])) {
           paramsMatch = false;
           break;
         }
@@ -79,7 +79,7 @@ auto SymbolTable::LookupFunction(const std::string& name,
         // Use default value for missing parameter
         paramTypes.push_back(funcParamTypes[i]->type);
       } else if (i >= funcParamTypes.size() &&
-                 it->second->GetType()->GetLlvmType()->isFunctionVarArg()) {
+                 it->second->getType()->getLlvmType()->isFunctionVarArg()) {
         // Varargs
         break;
       } else {
@@ -99,7 +99,7 @@ auto SymbolTable::LookupFunction(const std::string& name,
     return nullptr;
   }
 
-  return parent->LookupFunction(name, paramTypes);
+  return parent->lookupFunction(name, paramTypes);
 }
 
 /**
@@ -109,7 +109,7 @@ auto SymbolTable::LookupFunction(const std::string& name,
  * @param name Name of the desired symbol
  * @return Desired symbol / nullptr if the symbol was not found
  */
-auto SymbolTable::Lookup(const std::string& name) -> Value* {
+auto SymbolTable::lookup(const std::string& name) -> Value* {
   for (const auto& [key, sym] : symbols) {
     if (key == name) {
       return sym.get();
@@ -120,7 +120,7 @@ auto SymbolTable::Lookup(const std::string& name) -> Value* {
     return nullptr;
   }
 
-  return parent->Lookup(name);
+  return parent->lookup(name);
 }
 
 /**
@@ -130,11 +130,11 @@ auto SymbolTable::Lookup(const std::string& name) -> Value* {
  * @param name Name of the desired symbol
  * @return Desired symbol / nullptr if the symbol was not found
  */
-auto SymbolTable::LookupStruct(const std::string& name) -> Value* {
+auto SymbolTable::lookupStruct(const std::string& name) -> Value* {
   for (const auto& [key, sym] : symbols) {
-    if (sym->GetType()->GetLlvmType() != nullptr &&
-        sym->GetType()->IsOneOf({BaseType::TY_CLASS, BaseType::TY_ENUM}) &&
-        llvm::cast<llvm::StructType>(sym->GetType()->GetLlvmType())
+    if (sym->getType()->getLlvmType() != nullptr &&
+        sym->getType()->isOneOf({BaseType::TY_CLASS, BaseType::TY_ENUM}) &&
+        llvm::cast<llvm::StructType>(sym->getType()->getLlvmType())
                 ->getName() == name) {
       return sym.get();
     }
@@ -144,7 +144,7 @@ auto SymbolTable::LookupStruct(const std::string& name) -> Value* {
     return nullptr;
   }
 
-  return parent->LookupStruct(name);
+  return parent->lookupStruct(name);
 }
 
 /**
@@ -154,7 +154,7 @@ auto SymbolTable::LookupStruct(const std::string& name) -> Value* {
  * @param name Name of the desired symbol
  * @return Desired symbol / nullptr if the symbol was not found
  */
-auto SymbolTable::LookupType(const std::string& name) -> Type* {
+auto SymbolTable::lookupType(const std::string& name) -> Type* {
   // Check owned types first
   auto it = types.find(name);
   if (it != types.end()) {
@@ -171,7 +171,7 @@ auto SymbolTable::LookupType(const std::string& name) -> Type* {
   if (parent == nullptr) {
     return nullptr;
   }
-  return parent->LookupType(name);
+  return parent->lookupType(name);
 }
 
 /**
@@ -182,7 +182,7 @@ auto SymbolTable::LookupType(const std::string& name) -> Type* {
  * @param type Pointer to type (caller must ensure Type outlives this
  * SymbolTable)
  */
-auto SymbolTable::InsertTypeRef(const std::string& name, Type* type) -> void {
+auto SymbolTable::insertTypeRef(const std::string& name, Type* type) -> void {
   typeRefs.insert_or_assign(name, type);
 }
 
@@ -192,7 +192,7 @@ auto SymbolTable::InsertTypeRef(const std::string& name, Type* type) -> void {
  * @param blockName Name of the child scope
  * @return Newly created child table
  */
-auto SymbolTable::CreateChildBlock(const std::string& blockName)
+auto SymbolTable::createChildBlock(const std::string& blockName)
     -> SymbolTable* {
   int idx = 1;
   while (children.find(blockName + std::to_string(idx)) != children.end()) {
@@ -210,7 +210,7 @@ auto SymbolTable::CreateChildBlock(const std::string& blockName)
  *
  * @return Pointer to the parent symbol table
  */
-auto SymbolTable::GetParent() -> SymbolTable* { return parent; }
+auto SymbolTable::getParent() -> SymbolTable* { return parent; }
 
 /**
  * Navigate to a child table of the current one in the tree structure
@@ -218,7 +218,7 @@ auto SymbolTable::GetParent() -> SymbolTable* { return parent; }
  * @param scopeId Name of the child scope
  * @return Pointer to the child symbol table
  */
-auto SymbolTable::GetChild(const std::string& scopeId) -> SymbolTable* {
+auto SymbolTable::getChild(const std::string& scopeId) -> SymbolTable* {
   if (children.empty()) {
     return nullptr;
   }

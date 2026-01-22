@@ -15,7 +15,7 @@
 #include <unistd.h>
 
 namespace lesma {
-auto GetBasename(const std::string& filePath) -> std::string {
+auto getBasename(const std::string& filePath) -> std::string {
   auto filename = filePath.substr(filePath.find_last_of("/\\") + 1);
   auto filenameWoExt = filename.substr(0, filename.find_last_of('.'));
 
@@ -23,7 +23,7 @@ auto GetBasename(const std::string& filePath) -> std::string {
 }
 
 // NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
-auto ShowInline(llvm::SourceMgr* srcMgr, unsigned int bufferId,
+auto showInline(llvm::SourceMgr* srcMgr, unsigned int bufferId,
                 llvm::SMRange span, const std::string& file, bool isError,
                 const std::string& reason) -> void {
   std::istringstream ifs(srcMgr->getMemoryBuffer(bufferId)->getBuffer().str());
@@ -31,7 +31,7 @@ auto ShowInline(llvm::SourceMgr* srcMgr, unsigned int bufferId,
   auto color = isError ? fg(fmt::color::red) : fg(fmt::color::yellow);
   auto accent = fg(static_cast<fmt::color>(0x008EEA)); // 008EEA
 
-  Print(isError ? LogType::ERROR : LogType::WARNING, "");
+  print(isError ? LogType::ERROR : LogType::WARNING, "");
   fmt::print(fmt::emphasis::bold, "{}\n", reason);
 
   auto startLoc = srcMgr->getLineAndColumn(span.Start, bufferId);
@@ -64,7 +64,7 @@ auto ShowInline(llvm::SourceMgr* srcMgr, unsigned int bufferId,
   }
 }
 
-auto GetStdDir() -> std::string {
+auto getStdDir() -> std::string {
   std::string homedir;
 
   if (getenv("HOME") != nullptr) {

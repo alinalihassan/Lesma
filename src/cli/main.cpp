@@ -15,7 +15,7 @@ using namespace lesma;
 
 namespace {
 
-auto ParseDebugFlags(const std::vector<std::string>& debugOptions) -> Debug {
+auto parseDebugFlags(const std::vector<std::string>& debugOptions) -> Debug {
   Debug flags = Debug::NONE;
   for (const auto& opt : debugOptions) {
     if (opt == "lexer") {
@@ -31,7 +31,7 @@ auto ParseDebugFlags(const std::vector<std::string>& debugOptions) -> Debug {
   return flags;
 }
 
-auto ParseCli(int argc, char** argv) -> std::unique_ptr<CLIOptions> {
+auto parseCli(int argc, char** argv) -> std::unique_ptr<CLIOptions> {
   std::vector<std::string> debug;
   bool timer = false;
   std::string output = "output";
@@ -62,7 +62,7 @@ auto ParseCli(int argc, char** argv) -> std::unique_ptr<CLIOptions> {
   } catch (const CLI::ParseError& e) {
     if ((app.get_subcommands().empty() && argc == 1) ||
         (!app.get_subcommands().empty() && argc == 2)) {
-      Print(app.help());
+      lesma::print(app.help());
       std::exit(0);
     } else {
       std::exit(app.exit(e));
@@ -82,11 +82,11 @@ auto ParseCli(int argc, char** argv) -> std::unique_ptr<CLIOptions> {
 
 auto main(int argc, char** argv) -> int {
   // CLI Parsing
-  auto options = ParseCli(argc, argv);
-  auto debugFlags = ParseDebugFlags(options->debug);
+  auto options = parseCli(argc, argv);
+  auto debugFlags = parseDebugFlags(options->debug);
   auto driverOptions = std::make_unique<Options>(
       Options{SourceType::FILE, options->file, debugFlags, options->output,
               options->timer});
-  return options->jit ? Driver::Run(std::move(driverOptions))
-                      : Driver::Compile(std::move(driverOptions));
+  return options->jit ? Driver::run(std::move(driverOptions))
+                      : Driver::compile(std::move(driverOptions));
 }

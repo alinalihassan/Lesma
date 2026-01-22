@@ -25,7 +25,7 @@ struct CLIOptions {
 };
 
 template <typename S, typename... Args>
-void Print(LogType typ, const S& formatStr, const Args&... args) {
+void print(LogType typ, const S& formatStr, const Args&... args) {
   if (typ == LogType::ERROR) {
     fmt::print(fg(fmt::color::red) | fmt::emphasis::bold, "[-] Error: ");
   } else if (typ == LogType::WARNING) {
@@ -42,8 +42,8 @@ void Print(LogType typ, const S& formatStr, const Args&... args) {
 }
 
 template <typename S, typename... Args>
-void Print(const S& formatStr, const Args&... args) {
-  Print(LogType::CLEAR, formatStr, args...);
+void print(const S& formatStr, const Args&... args) {
+  print(LogType::CLEAR, formatStr, args...);
 }
 
 // Timer class for measuring execution time of code blocks
@@ -59,7 +59,7 @@ public:
   // Measure execution time of a callable, works with both void and non-void
   // return types
   template <typename F>
-  auto Measure(const std::string& operation, F&& func) -> decltype(auto) {
+  auto measure(const std::string& operation, F&& func) -> decltype(auto) {
     timer.start();
 
     if constexpr (std::is_void_v<std::invoke_result_t<F>>) {
@@ -67,31 +67,31 @@ public:
       double const elapsed = timer.get_elapsed_ms();
       total += elapsed;
       if (enabled) {
-        Print(LogType::DEBUG, "{} -> {:.2f} ms\n", operation, elapsed);
+        print(LogType::DEBUG, "{} -> {:.2f} ms\n", operation, elapsed);
       }
     } else {
       auto result = std::forward<F>(func)();
       double const elapsed = timer.get_elapsed_ms();
       total += elapsed;
       if (enabled) {
-        Print(LogType::DEBUG, "{} -> {:.2f} ms\n", operation, elapsed);
+        print(LogType::DEBUG, "{} -> {:.2f} ms\n", operation, elapsed);
       }
       return result;
     }
   }
 
-  [[nodiscard]] auto Total() const -> double { return total; }
+  [[nodiscard]] auto getTotal() const -> double { return total; }
 
-  auto PrintTotal() const -> void {
+  auto printTotal() const -> void {
     if (enabled) {
-      Print(LogType::DEBUG, "Total -> {:.2f} ms\n", total);
+      print(LogType::DEBUG, "Total -> {:.2f} ms\n", total);
     }
   }
 };
 
-auto ShowInline(llvm::SourceMgr* srcMgr, unsigned int bufferId,
+auto showInline(llvm::SourceMgr* srcMgr, unsigned int bufferId,
                 llvm::SMRange span, const std::string& file, bool isError,
                 const std::string& reason) -> void;
-auto GetBasename(const std::string& filePath) -> std::string;
-auto GetStdDir() -> std::string;
+auto getBasename(const std::string& filePath) -> std::string;
+auto getStdDir() -> std::string;
 } // namespace lesma

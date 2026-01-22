@@ -25,9 +25,9 @@ public:
     return reason.c_str();
   }
 
-  [[nodiscard]] auto GetSpan() const -> llvm::SMRange { return span; }
+  [[nodiscard]] auto getSpan() const -> llvm::SMRange { return span; }
 
-  [[nodiscard]] auto GetExitCode() const -> uint8_t { return exitCode; }
+  [[nodiscard]] auto getExitCode() const -> uint8_t { return exitCode; }
 
 protected:
   template <typename S, typename... Args>

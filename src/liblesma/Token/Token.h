@@ -20,12 +20,12 @@ struct Token {
   Token(const TokenType& type, std::string lexeme, llvm::SMRange span)
       : lexeme(std::move(lexeme)), type(type), span(span) {}
 
-  [[nodiscard]] auto GetStart() const -> llvm::SMLoc { return span.Start; }
-  [[nodiscard]] auto GetEnd() const -> llvm::SMLoc { return span.End; };
+  [[nodiscard]] auto getStart() const -> llvm::SMLoc { return span.Start; }
+  [[nodiscard]] auto getEnd() const -> llvm::SMLoc { return span.End; };
 
-  static auto GetIdentifierType(const std::string& identifier, Token* lastTok)
+  static auto getIdentifierType(const std::string& identifier, Token* lastTok)
       -> TokenType;
-  [[nodiscard]] auto Dump(const std::shared_ptr<llvm::SourceMgr>& srcMgr) const
+  [[nodiscard]] auto dump(const std::shared_ptr<llvm::SourceMgr>& srcMgr) const
       -> std::string;
 
   auto operator==(const Token& rhs) const -> bool {

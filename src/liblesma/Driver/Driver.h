@@ -39,11 +39,11 @@ struct Options {
 
 class Driver {
 private:
-  static auto BaseCompile(std::unique_ptr<lesma::Options> options, bool jit)
+  static auto baseCompile(std::unique_ptr<lesma::Options> options, bool jit)
       -> int;
 
 public:
-  static auto Run(std::unique_ptr<lesma::Options> options) -> int;
-  static auto Compile(std::unique_ptr<lesma::Options> options) -> int;
+  static auto run(std::unique_ptr<lesma::Options> options) -> int;
+  static auto compile(std::unique_ptr<lesma::Options> options) -> int;
 };
 } // namespace lesma

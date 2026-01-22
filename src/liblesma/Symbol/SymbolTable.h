@@ -20,21 +20,21 @@ public:
   SymbolTable(SymbolTable&&) = default;
   auto operator=(SymbolTable&&) -> SymbolTable& = default;
 
-  auto LookupFunction(const std::string& symbolName,
+  auto lookupFunction(const std::string& symbolName,
                       std::vector<lesma::Type*> paramTypes) -> Value*;
-  auto Lookup(const std::string& name) -> Value*;
-  auto LookupStruct(const std::string& name) -> Value*;
-  auto LookupType(const std::string& symbolName) -> Type*;
-  auto InsertSymbol(std::unique_ptr<Value> symbol) -> void;
-  auto InsertType(const std::string& name, std::unique_ptr<Type> type) -> void;
+  auto lookup(const std::string& name) -> Value*;
+  auto lookupStruct(const std::string& name) -> Value*;
+  auto lookupType(const std::string& symbolName) -> Type*;
+  auto insertSymbol(std::unique_ptr<Value> symbol) -> void;
+  auto insertType(const std::string& name, std::unique_ptr<Type> type) -> void;
   // For imported types - stores non-owning reference (caller must ensure Type
   // outlives SymbolTable)
-  auto InsertTypeRef(const std::string& name, Type* type) -> void;
-  auto CreateChildBlock(const std::string& blockName) -> SymbolTable*;
-  auto GetParent() -> SymbolTable*;
+  auto insertTypeRef(const std::string& name, Type* type) -> void;
+  auto createChildBlock(const std::string& blockName) -> SymbolTable*;
+  auto getParent() -> SymbolTable*;
 
   // Returns raw pointers for non-owning access
-  [[nodiscard]] auto GetSymbols() -> std::vector<Value*> {
+  [[nodiscard]] auto getSymbols() -> std::vector<Value*> {
     std::vector<Value*> result;
     result.reserve(symbols.size());
     for (const auto& [key, val] : symbols) {
@@ -43,7 +43,7 @@ public:
     return result;
   }
 
-  [[nodiscard]] auto GetTypes() -> std::vector<Type*> {
+  [[nodiscard]] auto getTypes() -> std::vector<Type*> {
     std::vector<Type*> result;
     result.reserve(types.size() + typeRefs.size());
     for (const auto& [key, val] : types) {
@@ -55,18 +55,18 @@ public:
     return result;
   }
 
-  auto GetChild(const std::string& scopeId) -> SymbolTable*;
+  auto getChild(const std::string& scopeId) -> SymbolTable*;
 
-  [[nodiscard]] auto ToString(int ind) -> std::string {
+  [[nodiscard]] auto toString(int ind) -> std::string {
     std::string res;
     for (const auto& [key, symbol] : symbols) {
       res += std::string(ind, ' ') + "Symbols: \n";
-      res += std::string(ind + 2, ' ') + symbol->ToString() + '\n';
+      res += std::string(ind + 2, ' ') + symbol->toString() + '\n';
     }
     for (const auto& [key, child] : children) {
       res += std::string(ind, ' ') + "Tables: \n";
       res += std::string(ind + 2, ' ') + key + ": \n";
-      res += child->ToString(ind + 2) + '\n';
+      res += child->toString(ind + 2) + '\n';
     }
 
     return res;

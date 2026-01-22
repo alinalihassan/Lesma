@@ -29,19 +29,19 @@ public:
   auto operator=(const AST&) -> AST& = delete;
   AST(AST&&) = default;
   auto operator=(AST&&) -> AST& = default;
-  virtual void Accept(ASTVisitor& visitor) const = 0;
+  virtual void accept(ASTVisitor& visitor) const = 0;
 
-  [[nodiscard]] [[maybe_unused]] auto GetSpan() const -> llvm::SMRange {
+  [[nodiscard]] [[maybe_unused]] auto getSpan() const -> llvm::SMRange {
     return loc;
   }
-  [[nodiscard]] [[maybe_unused]] auto GetStart() const -> llvm::SMLoc {
+  [[nodiscard]] [[maybe_unused]] auto getStart() const -> llvm::SMLoc {
     return loc.Start;
   }
-  [[nodiscard]] [[maybe_unused]] auto GetEnd() const -> llvm::SMLoc {
+  [[nodiscard]] [[maybe_unused]] auto getEnd() const -> llvm::SMLoc {
     return loc.End;
   }
 
-  virtual auto ToString(llvm::SourceMgr* srcMgr, const std::string& prefix,
+  virtual auto toString(llvm::SourceMgr* srcMgr, const std::string& prefix,
                         bool isTail) const -> std::string {
     return fmt::format("{}{}AST[Line({}-{}):Col({}-{})]:\n", prefix,
                        (isTail ? "└──" : "├──"),
@@ -55,13 +55,13 @@ public:
 class Expression : public AST {
 public:
   explicit Expression(llvm::SMRange loc) : AST(loc) {}
-  void Accept(ASTVisitor& visitor) const override { visitor.Visit(this); }
+  void accept(ASTVisitor& visitor) const override { visitor.visit(this); }
 };
 
 class Statement : public AST {
 public:
   explicit Statement(llvm::SMRange loc) : AST(loc) {}
-  void Accept(ASTVisitor& visitor) const override { visitor.Visit(this); }
+  void accept(ASTVisitor& visitor) const override { visitor.visit(this); }
 };
 
 class Literal : public Expression {
@@ -71,16 +71,16 @@ class Literal : public Expression {
 public:
   Literal(llvm::SMRange loc, std::string value, TokenType type)
       : Expression(loc), value(std::move(value)), type(type) {}
-  void Accept(ASTVisitor& visitor) const override { visitor.Visit(this); }
+  void accept(ASTVisitor& visitor) const override { visitor.visit(this); }
 
-  [[nodiscard]] [[maybe_unused]] auto GetValue() const -> std::string {
+  [[nodiscard]] [[maybe_unused]] auto getValue() const -> std::string {
     return value;
   }
-  [[nodiscard]] [[maybe_unused]] auto GetType() const -> TokenType {
+  [[nodiscard]] [[maybe_unused]] auto getType() const -> TokenType {
     return type;
   }
 
-  auto ToString(llvm::SourceMgr* /*srcMgr*/, const std::string& /*prefix*/,
+  auto toString(llvm::SourceMgr* /*srcMgr*/, const std::string& /*prefix*/,
                 bool /*isTail*/) const -> std::string override {
     if (type == TokenType::STRING) {
       return '"' + value + '"';
@@ -102,9 +102,9 @@ public:
   explicit Compound(llvm::SMRange loc,
                     std::vector<std::unique_ptr<Statement>> children)
       : Statement(loc), children(std::move(children)) {}
-  void Accept(ASTVisitor& visitor) const override { visitor.Visit(this); }
+  void accept(ASTVisitor& visitor) const override { visitor.visit(this); }
 
-  [[nodiscard]] [[maybe_unused]] auto GetChildren() const
+  [[nodiscard]] [[maybe_unused]] auto getChildren() const
       -> std::vector<Statement*> {
     std::vector<Statement*> result;
     result.reserve(children.size());
@@ -114,20 +114,20 @@ public:
     return result;
   }
 
-  [[maybe_unused]] auto AddChildren(std::unique_ptr<Statement> ast) -> void {
+  [[maybe_unused]] auto addChildren(std::unique_ptr<Statement> ast) -> void {
     children.push_back(std::move(ast));
   }
 
-  auto ToString(llvm::SourceMgr* srcMgr, const std::string& prefix,
+  auto toString(llvm::SourceMgr* srcMgr, const std::string& prefix,
                 bool isTail) const -> std::string override {
     auto ret = fmt::format("{}{}Compound[Line({}-{}):Col({}-{})]:\n", prefix,
                            isTail ? "└──" : "├──",
-                           srcMgr->getLineAndColumn(GetStart()).first,
-                           srcMgr->getLineAndColumn(GetEnd()).first,
-                           srcMgr->getLineAndColumn(GetStart()).second,
-                           srcMgr->getLineAndColumn(GetEnd()).second);
+                           srcMgr->getLineAndColumn(getStart()).first,
+                           srcMgr->getLineAndColumn(getEnd()).first,
+                           srcMgr->getLineAndColumn(getStart()).second,
+                           srcMgr->getLineAndColumn(getEnd()).second);
     for (const auto& child : children) {
-      ret += child->ToString(srcMgr, prefix + (isTail ? "    " : "│   "),
+      ret += child->toString(srcMgr, prefix + (isTail ? "    " : "│   "),
                              child.get() == children.back().get());
     }
     return ret;
@@ -158,18 +158,18 @@ public:
            std::unique_ptr<TypeExpr> ret)
       : Expression(loc), name(std::move(name)), type(type),
         elementType(nullptr), params(std::move(params)), ret(std::move(ret)) {}
-  void Accept(ASTVisitor& visitor) const override { visitor.Visit(this); }
+  void accept(ASTVisitor& visitor) const override { visitor.visit(this); }
 
-  [[nodiscard]] [[maybe_unused]] auto GetName() const -> std::string {
+  [[nodiscard]] [[maybe_unused]] auto getName() const -> std::string {
     return name;
   }
-  [[nodiscard]] [[maybe_unused]] auto GetType() const -> TokenType {
+  [[nodiscard]] [[maybe_unused]] auto getType() const -> TokenType {
     return type;
   }
-  [[nodiscard]] [[maybe_unused]] auto GetElementType() const -> TypeExpr* {
+  [[nodiscard]] [[maybe_unused]] auto getElementType() const -> TypeExpr* {
     return elementType.get();
   }
-  [[nodiscard]] [[maybe_unused]] auto GetParams() const
+  [[nodiscard]] [[maybe_unused]] auto getParams() const
       -> std::vector<TypeExpr*> {
     std::vector<TypeExpr*> result;
     result.reserve(params.size());
@@ -178,11 +178,11 @@ public:
     }
     return result;
   }
-  [[nodiscard]] [[maybe_unused]] auto GetReturnType() const -> TypeExpr* {
+  [[nodiscard]] [[maybe_unused]] auto getReturnType() const -> TypeExpr* {
     return ret.get();
   }
 
-  auto ToString(llvm::SourceMgr* /*srcMgr*/, const std::string& /*prefix*/,
+  auto toString(llvm::SourceMgr* /*srcMgr*/, const std::string& /*prefix*/,
                 bool /*isTail*/) const -> std::string override {
     return name;
   }
@@ -198,30 +198,30 @@ public:
        std::vector<std::string> values, bool exported)
       : Statement(loc), identifier(std::move(identifier)),
         values(std::move(values)), exported(exported) {};
-  void Accept(ASTVisitor& visitor) const override { visitor.Visit(this); }
+  void accept(ASTVisitor& visitor) const override { visitor.visit(this); }
 
-  [[nodiscard]] [[maybe_unused]] auto GetIdentifier() const -> std::string {
+  [[nodiscard]] [[maybe_unused]] auto getIdentifier() const -> std::string {
     return identifier;
   }
-  [[nodiscard]] [[maybe_unused]] auto GetValues() const
+  [[nodiscard]] [[maybe_unused]] auto getValues() const
       -> std::vector<std::string> {
     return values;
   }
-  [[nodiscard]] [[maybe_unused]] auto IsExported() const -> bool {
+  [[nodiscard]] [[maybe_unused]] auto isExported() const -> bool {
     return exported;
   }
 
-  auto ToString(llvm::SourceMgr* srcMgr, const std::string& prefix,
+  auto toString(llvm::SourceMgr* srcMgr, const std::string& prefix,
                 bool isTail) const -> std::string override {
     std::ostringstream imploded;
     std::copy(values.begin(), values.end(),
               std::ostream_iterator<std::string>(imploded, ", "));
     return fmt::format(
         "{}{}Enum[Line({}-{}):Col({}-{})]: {} with: {}\n", prefix,
-        isTail ? "└──" : "├──", srcMgr->getLineAndColumn(GetStart()).first,
-        srcMgr->getLineAndColumn(GetEnd()).first,
-        srcMgr->getLineAndColumn(GetStart()).second,
-        srcMgr->getLineAndColumn(GetEnd()).second, identifier, imploded.str());
+        isTail ? "└──" : "├──", srcMgr->getLineAndColumn(getStart()).first,
+        srcMgr->getLineAndColumn(getEnd()).first,
+        srcMgr->getLineAndColumn(getStart()).second,
+        srcMgr->getLineAndColumn(getEnd()).second, identifier, imploded.str());
   }
 };
 
@@ -240,34 +240,34 @@ public:
       : Statement(loc), filePath(std::move(filePath)), alias(std::move(alias)),
         importedNames(std::move(importedNames)), std(std), importAll(importAll),
         importToScope(importToScope) {};
-  void Accept(ASTVisitor& visitor) const override { visitor.Visit(this); }
+  void accept(ASTVisitor& visitor) const override { visitor.visit(this); }
 
-  [[nodiscard]] [[maybe_unused]] auto GetFilePath() const -> std::string {
+  [[nodiscard]] [[maybe_unused]] auto getFilePath() const -> std::string {
     return filePath;
   }
-  [[nodiscard]] [[maybe_unused]] auto GetAlias() const -> std::string {
+  [[nodiscard]] [[maybe_unused]] auto getAlias() const -> std::string {
     return alias;
   }
-  [[nodiscard]] [[maybe_unused]] auto GetImportAll() const -> bool {
+  [[nodiscard]] [[maybe_unused]] auto getImportAll() const -> bool {
     return importAll;
   }
-  [[nodiscard]] [[maybe_unused]] auto GetImportScope() const -> bool {
+  [[nodiscard]] [[maybe_unused]] auto getImportScope() const -> bool {
     return importToScope;
   }
-  [[nodiscard]] [[maybe_unused]] auto GetImportedNames() const
+  [[nodiscard]] [[maybe_unused]] auto getImportedNames() const
       -> std::vector<std::pair<std::string, std::string>> {
     return importedNames;
   }
-  [[nodiscard]] [[maybe_unused]] auto IsStd() const -> bool { return std; }
+  [[nodiscard]] [[maybe_unused]] auto isStd() const -> bool { return std; }
 
-  auto ToString(llvm::SourceMgr* srcMgr, const std::string& prefix,
+  auto toString(llvm::SourceMgr* srcMgr, const std::string& prefix,
                 bool isTail) const -> std::string override {
     return fmt::format("{}{}Import[Line({}-{}):Col({}-{})]: {} as {} from {}\n",
                        prefix, isTail ? "└──" : "├──",
-                       srcMgr->getLineAndColumn(GetStart()).first,
-                       srcMgr->getLineAndColumn(GetEnd()).first,
-                       srcMgr->getLineAndColumn(GetStart()).second,
-                       srcMgr->getLineAndColumn(GetEnd()).second, filePath,
+                       srcMgr->getLineAndColumn(getStart()).first,
+                       srcMgr->getLineAndColumn(getEnd()).first,
+                       srcMgr->getLineAndColumn(getStart()).second,
+                       srcMgr->getLineAndColumn(getEnd()).second, filePath,
                        alias, std ? "std" : "file");
   }
 };
@@ -284,32 +284,32 @@ public:
           bool isMutable)
       : Statement(loc), var(std::move(var)), type(std::move(type)),
         expr(std::move(expr)), isMutable(isMutable) {}
-  void Accept(ASTVisitor& visitor) const override { visitor.Visit(this); }
+  void accept(ASTVisitor& visitor) const override { visitor.visit(this); }
 
-  [[nodiscard]] [[maybe_unused]] auto GetIdentifier() const -> Literal* {
+  [[nodiscard]] [[maybe_unused]] auto getIdentifier() const -> Literal* {
     return var.get();
   }
-  [[nodiscard]] [[maybe_unused]] auto GetType() const -> TypeExpr* {
+  [[nodiscard]] [[maybe_unused]] auto getType() const -> TypeExpr* {
     return type.get();
   }
-  [[nodiscard]] [[maybe_unused]] auto GetValue() const -> Expression* {
+  [[nodiscard]] [[maybe_unused]] auto getValue() const -> Expression* {
     return expr.get();
   }
-  [[nodiscard]] [[maybe_unused]] auto GetMutability() const -> bool {
+  [[nodiscard]] [[maybe_unused]] auto getMutability() const -> bool {
     return isMutable;
   }
 
-  auto ToString(llvm::SourceMgr* srcMgr, const std::string& prefix,
+  auto toString(llvm::SourceMgr* srcMgr, const std::string& prefix,
                 bool isTail) const -> std::string override {
     return fmt::format(
         "{}{}VarDecl[Line({}-{}):Col({}-{})]: {}{}{}\n", prefix,
-        isTail ? "└──" : "├──", srcMgr->getLineAndColumn(GetStart()).first,
-        srcMgr->getLineAndColumn(GetEnd()).first,
-        srcMgr->getLineAndColumn(GetStart()).second,
-        srcMgr->getLineAndColumn(GetEnd()).second,
-        var->ToString(srcMgr, prefix, isTail),
-        (type ? ": " + type->ToString(srcMgr, prefix, isTail) : ""),
-        (expr ? " = " + expr->ToString(srcMgr, prefix, isTail) : ""));
+        isTail ? "└──" : "├──", srcMgr->getLineAndColumn(getStart()).first,
+        srcMgr->getLineAndColumn(getEnd()).first,
+        srcMgr->getLineAndColumn(getStart()).second,
+        srcMgr->getLineAndColumn(getEnd()).second,
+        var->toString(srcMgr, prefix, isTail),
+        (type ? ": " + type->toString(srcMgr, prefix, isTail) : ""),
+        (expr ? " = " + expr->toString(srcMgr, prefix, isTail) : ""));
   }
 };
 
@@ -321,9 +321,9 @@ public:
   If(llvm::SMRange loc, std::vector<std::unique_ptr<Expression>> conds,
      std::vector<std::unique_ptr<Compound>> blocks)
       : Statement(loc), conds(std::move(conds)), blocks(std::move(blocks)) {}
-  void Accept(ASTVisitor& visitor) const override { visitor.Visit(this); }
+  void accept(ASTVisitor& visitor) const override { visitor.visit(this); }
 
-  [[nodiscard]] [[maybe_unused]] auto GetConds() const
+  [[nodiscard]] [[maybe_unused]] auto getConds() const
       -> std::vector<Expression*> {
     std::vector<Expression*> result;
     result.reserve(conds.size());
@@ -332,7 +332,7 @@ public:
     }
     return result;
   }
-  [[nodiscard]] [[maybe_unused]] auto GetBlocks() const
+  [[nodiscard]] [[maybe_unused]] auto getBlocks() const
       -> std::vector<Compound*> {
     std::vector<Compound*> result;
     result.reserve(blocks.size());
@@ -342,21 +342,21 @@ public:
     return result;
   }
 
-  auto ToString(llvm::SourceMgr* srcMgr, const std::string& prefix,
+  auto toString(llvm::SourceMgr* srcMgr, const std::string& prefix,
                 bool isTail) const -> std::string override {
     auto ret = fmt::format("{}{}If[Line({}-{}):Col({}-{})]:\n", prefix,
                            isTail ? "└──" : "├──",
-                           srcMgr->getLineAndColumn(GetStart()).first,
-                           srcMgr->getLineAndColumn(GetEnd()).first,
-                           srcMgr->getLineAndColumn(GetStart()).second,
-                           srcMgr->getLineAndColumn(GetEnd()).second);
+                           srcMgr->getLineAndColumn(getStart()).first,
+                           srcMgr->getLineAndColumn(getEnd()).first,
+                           srcMgr->getLineAndColumn(getStart()).second,
+                           srcMgr->getLineAndColumn(getEnd()).second);
     for (unsigned long i = 0; i < conds.size(); i++) {
       ret += fmt::format(
           "{}{}Cond: {}\n{}", prefix + (isTail ? "    " : "│   "),
           i == conds.size() - 1 ? "└──" : "├──",
-          conds[i]->ToString(srcMgr, prefix + (isTail ? "    " : "│   "),
+          conds[i]->toString(srcMgr, prefix + (isTail ? "    " : "│   "),
                              i == conds.size() - 1),
-          blocks[i]->ToString(srcMgr,
+          blocks[i]->toString(srcMgr,
                               prefix + (isTail ? "    " : "│   ") +
                                   (i == conds.size() - 1 ? "    " : "│   "),
                               true));
@@ -374,26 +374,26 @@ public:
   While(llvm::SMRange loc, std::unique_ptr<Expression> cond,
         std::unique_ptr<Compound> block)
       : Statement(loc), cond(std::move(cond)), block(std::move(block)) {}
-  void Accept(ASTVisitor& visitor) const override { visitor.Visit(this); }
+  void accept(ASTVisitor& visitor) const override { visitor.visit(this); }
 
-  [[nodiscard]] [[maybe_unused]] auto GetCond() const -> Expression* {
+  [[nodiscard]] [[maybe_unused]] auto getCond() const -> Expression* {
     return cond.get();
   }
-  [[nodiscard]] [[maybe_unused]] auto GetBlock() const -> Compound* {
+  [[nodiscard]] [[maybe_unused]] auto getBlock() const -> Compound* {
     return block.get();
   }
 
-  auto ToString(llvm::SourceMgr* srcMgr, const std::string& prefix,
+  auto toString(llvm::SourceMgr* srcMgr, const std::string& prefix,
                 bool isTail) const -> std::string override {
     return fmt::format(
         "{}{}While[Line({}-{}):Col({}-{})]:\n{}{}Cond: {}\n{}", prefix,
-        isTail ? "└──" : "├──", srcMgr->getLineAndColumn(GetStart()).first,
-        srcMgr->getLineAndColumn(GetEnd()).first,
-        srcMgr->getLineAndColumn(GetStart()).second,
-        srcMgr->getLineAndColumn(GetEnd()).second,
+        isTail ? "└──" : "├──", srcMgr->getLineAndColumn(getStart()).first,
+        srcMgr->getLineAndColumn(getEnd()).first,
+        srcMgr->getLineAndColumn(getStart()).second,
+        srcMgr->getLineAndColumn(getEnd()).second,
         prefix + (isTail ? "    " : "│   "), "└──",
-        cond->ToString(srcMgr, prefix, true),
-        block->ToString(srcMgr, prefix + (isTail ? "        " : "│       "),
+        cond->toString(srcMgr, prefix, true),
+        block->toString(srcMgr, prefix + (isTail ? "        " : "│       "),
                         true));
   }
 };
@@ -434,15 +434,15 @@ public:
       : Statement(loc), name(std::move(name)),
         returnType(std::move(returnType)), parameters(std::move(parameters)),
         body(std::move(body)), varargs(varargs), exported(exported) {}
-  void Accept(ASTVisitor& visitor) const override { visitor.Visit(this); }
+  void accept(ASTVisitor& visitor) const override { visitor.visit(this); }
 
-  [[nodiscard]] [[maybe_unused]] auto GetName() const -> std::string {
+  [[nodiscard]] [[maybe_unused]] auto getName() const -> std::string {
     return name;
   }
-  [[nodiscard]] [[maybe_unused]] auto GetReturnType() const -> TypeExpr* {
+  [[nodiscard]] [[maybe_unused]] auto getReturnType() const -> TypeExpr* {
     return returnType.get();
   }
-  [[nodiscard]] [[maybe_unused]] auto GetParameters() const
+  [[nodiscard]] [[maybe_unused]] auto getParameters() const
       -> std::vector<Parameter*> {
     std::vector<Parameter*> result;
     result.reserve(parameters.size());
@@ -451,30 +451,30 @@ public:
     }
     return result;
   }
-  [[nodiscard]] [[maybe_unused]] auto GetBody() const -> Compound* {
+  [[nodiscard]] [[maybe_unused]] auto getBody() const -> Compound* {
     return body.get();
   }
-  [[nodiscard]] [[maybe_unused]] auto GetVarArgs() const -> bool {
+  [[nodiscard]] [[maybe_unused]] auto getVarArgs() const -> bool {
     return varargs;
   }
-  [[nodiscard]] [[maybe_unused]] auto IsExported() const -> bool {
+  [[nodiscard]] [[maybe_unused]] auto isExported() const -> bool {
     return exported;
   }
 
-  auto ToString(llvm::SourceMgr* srcMgr, const std::string& prefix,
+  auto toString(llvm::SourceMgr* srcMgr, const std::string& prefix,
                 bool isTail) const -> std::string override {
     auto ret = fmt::format("{}{}FuncDecl[Line({}-{}):Col({}-{})]: {}(", prefix,
                            isTail ? "└──" : "├──",
-                           srcMgr->getLineAndColumn(GetStart()).first,
-                           srcMgr->getLineAndColumn(GetEnd()).first,
-                           srcMgr->getLineAndColumn(GetStart()).second,
-                           srcMgr->getLineAndColumn(GetEnd()).second, name);
+                           srcMgr->getLineAndColumn(getStart()).first,
+                           srcMgr->getLineAndColumn(getEnd()).first,
+                           srcMgr->getLineAndColumn(getStart()).second,
+                           srcMgr->getLineAndColumn(getEnd()).second, name);
     for (const auto& param : parameters) {
       ret +=
-          param->name + ": " + param->type->ToString(srcMgr, prefix, isTail) +
+          param->name + ": " + param->type->toString(srcMgr, prefix, isTail) +
           (param->defaultVal == nullptr
                ? ""
-               : fmt::format("= {}", param->defaultVal->ToString(srcMgr, prefix,
+               : fmt::format("= {}", param->defaultVal->toString(srcMgr, prefix,
                                                                  isTail)));
       if (param.get() != parameters.back().get()) {
         ret += ", ";
@@ -484,8 +484,8 @@ public:
       ret += ", ...";
     }
     ret += fmt::format(
-        ") -> {}\n{}", returnType->ToString(srcMgr, prefix, isTail),
-        body->ToString(srcMgr, prefix + (isTail ? "    " : "│   "), true));
+        ") -> {}\n{}", returnType->toString(srcMgr, prefix, isTail),
+        body->toString(srcMgr, prefix + (isTail ? "    " : "│   "), true));
     return ret;
   }
 };
@@ -506,15 +506,15 @@ public:
         returnType(std::move(returnType)), parameters(std::move(parameters)),
         varargs(varargs), exported(exported) {}
 
-  void Accept(ASTVisitor& visitor) const override { visitor.Visit(this); }
+  void accept(ASTVisitor& visitor) const override { visitor.visit(this); }
 
-  [[nodiscard]] [[maybe_unused]] auto GetName() const -> std::string {
+  [[nodiscard]] [[maybe_unused]] auto getName() const -> std::string {
     return name;
   }
-  [[nodiscard]] [[maybe_unused]] auto GetReturnType() const -> TypeExpr* {
+  [[nodiscard]] [[maybe_unused]] auto getReturnType() const -> TypeExpr* {
     return returnType.get();
   }
-  [[nodiscard]] [[maybe_unused]] auto GetParameters() const
+  [[nodiscard]] [[maybe_unused]] auto getParameters() const
       -> std::vector<Parameter*> {
     std::vector<Parameter*> result;
     result.reserve(parameters.size());
@@ -523,27 +523,27 @@ public:
     }
     return result;
   }
-  [[nodiscard]] [[maybe_unused]] auto GetVarArgs() const -> bool {
+  [[nodiscard]] [[maybe_unused]] auto getVarArgs() const -> bool {
     return varargs;
   }
-  [[nodiscard]] [[maybe_unused]] auto IsExported() const -> bool {
+  [[nodiscard]] [[maybe_unused]] auto isExported() const -> bool {
     return exported;
   }
 
-  auto ToString(llvm::SourceMgr* srcMgr, const std::string& prefix,
+  auto toString(llvm::SourceMgr* srcMgr, const std::string& prefix,
                 bool isTail) const -> std::string override {
     auto ret = fmt::format("{}{}ExternFuncDecl[Line({}-{}):Col({}-{})]: {}(",
                            prefix, isTail ? "└──" : "├──",
-                           srcMgr->getLineAndColumn(GetStart()).first,
-                           srcMgr->getLineAndColumn(GetEnd()).first,
-                           srcMgr->getLineAndColumn(GetStart()).second,
-                           srcMgr->getLineAndColumn(GetEnd()).second, name);
+                           srcMgr->getLineAndColumn(getStart()).first,
+                           srcMgr->getLineAndColumn(getEnd()).first,
+                           srcMgr->getLineAndColumn(getStart()).second,
+                           srcMgr->getLineAndColumn(getEnd()).second, name);
     for (const auto& param : parameters) {
       ret +=
-          param->name + ": " + param->type->ToString(srcMgr, prefix, isTail) +
+          param->name + ": " + param->type->toString(srcMgr, prefix, isTail) +
           (param->defaultVal == nullptr
                ? ""
-               : fmt::format("= {}", param->defaultVal->ToString(srcMgr, prefix,
+               : fmt::format("= {}", param->defaultVal->toString(srcMgr, prefix,
                                                                  isTail)));
       if (param.get() != parameters.back().get()) {
         ret += ", ";
@@ -553,7 +553,7 @@ public:
       ret += ", ...";
     }
     ret +=
-        fmt::format(") -> {}\n", returnType->ToString(srcMgr, prefix, isTail));
+        fmt::format(") -> {}\n", returnType->toString(srcMgr, prefix, isTail));
     return ret;
   }
 };
@@ -567,12 +567,12 @@ public:
            std::vector<std::unique_ptr<Expression>> arguments)
       : Expression(loc), name(std::move(name)),
         arguments(std::move(arguments)) {}
-  void Accept(ASTVisitor& visitor) const override { visitor.Visit(this); }
+  void accept(ASTVisitor& visitor) const override { visitor.visit(this); }
 
-  [[nodiscard]] [[maybe_unused]] auto GetName() const -> std::string {
+  [[nodiscard]] [[maybe_unused]] auto getName() const -> std::string {
     return name;
   }
-  [[nodiscard]] [[maybe_unused]] auto GetArguments() const
+  [[nodiscard]] [[maybe_unused]] auto getArguments() const
       -> std::vector<Expression*> {
     std::vector<Expression*> result;
     result.reserve(arguments.size());
@@ -582,11 +582,11 @@ public:
     return result;
   }
 
-  auto ToString(llvm::SourceMgr* srcMgr, const std::string& prefix,
+  auto toString(llvm::SourceMgr* srcMgr, const std::string& prefix,
                 bool isTail) const -> std::string override {
     auto ret = name + "(";
     for (const auto& param : arguments) {
-      ret += param->ToString(srcMgr, prefix, isTail);
+      ret += param->toString(srcMgr, prefix, isTail);
       if (param.get() != arguments.back().get()) {
         ret += ", ";
       }
@@ -605,28 +605,28 @@ public:
   Assignment(llvm::SMRange loc, std::unique_ptr<Expression> lhs, TokenType op,
              std::unique_ptr<Expression> rhs)
       : Statement(loc), lhs(std::move(lhs)), op(op), rhs(std::move(rhs)) {}
-  void Accept(ASTVisitor& visitor) const override { visitor.Visit(this); }
+  void accept(ASTVisitor& visitor) const override { visitor.visit(this); }
 
-  [[nodiscard]] [[maybe_unused]] auto GetLeftHandSide() const -> Expression* {
+  [[nodiscard]] [[maybe_unused]] auto getLeftHandSide() const -> Expression* {
     return lhs.get();
   }
-  [[nodiscard]] [[maybe_unused]] auto GetOperator() const -> TokenType {
+  [[nodiscard]] [[maybe_unused]] auto getOperator() const -> TokenType {
     return op;
   }
-  [[nodiscard]] [[maybe_unused]] auto GetRightHandSide() const -> Expression* {
+  [[nodiscard]] [[maybe_unused]] auto getRightHandSide() const -> Expression* {
     return rhs.get();
   }
 
-  auto ToString(llvm::SourceMgr* srcMgr, const std::string& prefix,
+  auto toString(llvm::SourceMgr* srcMgr, const std::string& prefix,
                 bool isTail) const -> std::string override {
     return fmt::format(
         "{}{}Assignment[Line({}-{}):Col({}-{})]: {} {} {}\n", prefix,
-        isTail ? "└──" : "├──", srcMgr->getLineAndColumn(GetStart()).first,
-        srcMgr->getLineAndColumn(GetEnd()).first,
-        srcMgr->getLineAndColumn(GetStart()).second,
-        srcMgr->getLineAndColumn(GetEnd()).second,
-        lhs->ToString(srcMgr, prefix, isTail), std::string{NAMEOF_ENUM(op)},
-        rhs->ToString(srcMgr, prefix, isTail));
+        isTail ? "└──" : "├──", srcMgr->getLineAndColumn(getStart()).first,
+        srcMgr->getLineAndColumn(getEnd()).first,
+        srcMgr->getLineAndColumn(getStart()).second,
+        srcMgr->getLineAndColumn(getEnd()).second,
+        lhs->toString(srcMgr, prefix, isTail), std::string{NAMEOF_ENUM(op)},
+        rhs->toString(srcMgr, prefix, isTail));
   }
 };
 
@@ -636,21 +636,21 @@ class ExpressionStatement : public Statement {
 public:
   ExpressionStatement(llvm::SMRange loc, std::unique_ptr<Expression> expr)
       : Statement(loc), expr(std::move(expr)) {}
-  void Accept(ASTVisitor& visitor) const override { visitor.Visit(this); }
+  void accept(ASTVisitor& visitor) const override { visitor.visit(this); }
 
-  [[nodiscard]] [[maybe_unused]] auto GetExpression() const -> Expression* {
+  [[nodiscard]] [[maybe_unused]] auto getExpression() const -> Expression* {
     return expr.get();
   }
 
-  auto ToString(llvm::SourceMgr* srcMgr, const std::string& prefix,
+  auto toString(llvm::SourceMgr* srcMgr, const std::string& prefix,
                 bool isTail) const -> std::string override {
     return fmt::format("{}{}Expression[Line({}-{}):Col({}-{})]: {}\n", prefix,
                        isTail ? "└──" : "├──",
-                       srcMgr->getLineAndColumn(GetStart()).first,
-                       srcMgr->getLineAndColumn(GetEnd()).first,
-                       srcMgr->getLineAndColumn(GetStart()).second,
-                       srcMgr->getLineAndColumn(GetEnd()).second,
-                       expr->ToString(srcMgr, prefix, isTail));
+                       srcMgr->getLineAndColumn(getStart()).first,
+                       srcMgr->getLineAndColumn(getEnd()).first,
+                       srcMgr->getLineAndColumn(getStart()).second,
+                       srcMgr->getLineAndColumn(getEnd()).second,
+                       expr->toString(srcMgr, prefix, isTail));
   }
 };
 
@@ -664,23 +664,23 @@ public:
            std::unique_ptr<Expression> right)
       : Expression(loc), left(std::move(left)), op(op),
         right(std::move(right)) {}
-  void Accept(ASTVisitor& visitor) const override { visitor.Visit(this); }
+  void accept(ASTVisitor& visitor) const override { visitor.visit(this); }
 
-  [[nodiscard]] [[maybe_unused]] auto GetLeft() const -> Expression* {
+  [[nodiscard]] [[maybe_unused]] auto getLeft() const -> Expression* {
     return left.get();
   }
-  [[nodiscard]] [[maybe_unused]] auto GetOperator() const -> TokenType {
+  [[nodiscard]] [[maybe_unused]] auto getOperator() const -> TokenType {
     return op;
   }
-  [[nodiscard]] [[maybe_unused]] auto GetRight() const -> Expression* {
+  [[nodiscard]] [[maybe_unused]] auto getRight() const -> Expression* {
     return right.get();
   }
 
-  auto ToString(llvm::SourceMgr* srcMgr, const std::string& prefix,
+  auto toString(llvm::SourceMgr* srcMgr, const std::string& prefix,
                 bool isTail) const -> std::string override {
-    return left->ToString(srcMgr, prefix, isTail) + " " +
+    return left->toString(srcMgr, prefix, isTail) + " " +
            std::string{NAMEOF_ENUM(op)} + " " +
-           right->ToString(srcMgr, prefix, isTail);
+           right->toString(srcMgr, prefix, isTail);
   }
 };
 
@@ -694,23 +694,23 @@ public:
        std::unique_ptr<TypeExpr> right)
       : Expression(loc), left(std::move(left)), op(op),
         right(std::move(right)) {}
-  void Accept(ASTVisitor& visitor) const override { visitor.Visit(this); }
+  void accept(ASTVisitor& visitor) const override { visitor.visit(this); }
 
-  [[nodiscard]] [[maybe_unused]] auto GetLeft() const -> Expression* {
+  [[nodiscard]] [[maybe_unused]] auto getLeft() const -> Expression* {
     return left.get();
   }
-  [[nodiscard]] [[maybe_unused]] auto GetOperator() const -> TokenType {
+  [[nodiscard]] [[maybe_unused]] auto getOperator() const -> TokenType {
     return op;
   }
-  [[nodiscard]] [[maybe_unused]] auto GetRight() const -> TypeExpr* {
+  [[nodiscard]] [[maybe_unused]] auto getRight() const -> TypeExpr* {
     return right.get();
   }
 
-  auto ToString(llvm::SourceMgr* srcMgr, const std::string& prefix,
+  auto toString(llvm::SourceMgr* srcMgr, const std::string& prefix,
                 bool isTail) const -> std::string override {
-    return left->ToString(srcMgr, prefix, isTail) + " " +
+    return left->toString(srcMgr, prefix, isTail) + " " +
            std::string{NAMEOF_ENUM(op)} + " " +
-           right->ToString(srcMgr, prefix, isTail);
+           right->toString(srcMgr, prefix, isTail);
   }
 };
 
@@ -722,19 +722,19 @@ public:
   CastOp(llvm::SMRange loc, std::unique_ptr<Expression> expr,
          std::unique_ptr<TypeExpr> type)
       : Expression(loc), expr(std::move(expr)), type(std::move(type)) {}
-  void Accept(ASTVisitor& visitor) const override { visitor.Visit(this); }
+  void accept(ASTVisitor& visitor) const override { visitor.visit(this); }
 
-  [[nodiscard]] [[maybe_unused]] auto GetExpression() const -> Expression* {
+  [[nodiscard]] [[maybe_unused]] auto getExpression() const -> Expression* {
     return expr.get();
   }
-  [[nodiscard]] [[maybe_unused]] auto GetType() const -> TypeExpr* {
+  [[nodiscard]] [[maybe_unused]] auto getType() const -> TypeExpr* {
     return type.get();
   }
 
-  auto ToString(llvm::SourceMgr* srcMgr, const std::string& prefix,
+  auto toString(llvm::SourceMgr* srcMgr, const std::string& prefix,
                 bool isTail) const -> std::string override {
-    return expr->ToString(srcMgr, prefix, isTail) + " as " +
-           type->ToString(srcMgr, prefix, isTail);
+    return expr->toString(srcMgr, prefix, isTail) + " as " +
+           type->toString(srcMgr, prefix, isTail);
   }
 };
 
@@ -745,19 +745,19 @@ class UnaryOp : public Expression {
 public:
   UnaryOp(llvm::SMRange loc, TokenType op, std::unique_ptr<Expression> expr)
       : Expression(loc), op(op), expr(std::move(expr)) {}
-  void Accept(ASTVisitor& visitor) const override { visitor.Visit(this); }
+  void accept(ASTVisitor& visitor) const override { visitor.visit(this); }
 
-  [[nodiscard]] [[maybe_unused]] auto GetOperator() const -> TokenType {
+  [[nodiscard]] [[maybe_unused]] auto getOperator() const -> TokenType {
     return op;
   }
-  [[nodiscard]] [[maybe_unused]] auto GetExpression() const -> Expression* {
+  [[nodiscard]] [[maybe_unused]] auto getExpression() const -> Expression* {
     return expr.get();
   }
 
-  auto ToString(llvm::SourceMgr* srcMgr, const std::string& prefix,
+  auto toString(llvm::SourceMgr* srcMgr, const std::string& prefix,
                 bool isTail) const -> std::string override {
     return std::string{NAMEOF_ENUM(op)} +
-           expr->ToString(srcMgr, prefix, isTail);
+           expr->toString(srcMgr, prefix, isTail);
   }
 };
 
@@ -771,31 +771,31 @@ public:
         std::unique_ptr<Expression> right)
       : Expression(loc), left(std::move(left)), op(op),
         right(std::move(right)) {}
-  void Accept(ASTVisitor& visitor) const override { visitor.Visit(this); }
+  void accept(ASTVisitor& visitor) const override { visitor.visit(this); }
 
-  [[nodiscard]] [[maybe_unused]] auto GetLeft() const -> Expression* {
+  [[nodiscard]] [[maybe_unused]] auto getLeft() const -> Expression* {
     return left.get();
   }
-  [[nodiscard]] [[maybe_unused]] auto GetOperator() const -> TokenType {
+  [[nodiscard]] [[maybe_unused]] auto getOperator() const -> TokenType {
     return op;
   }
-  [[nodiscard]] [[maybe_unused]] auto GetRight() const -> Expression* {
+  [[nodiscard]] [[maybe_unused]] auto getRight() const -> Expression* {
     return right.get();
   }
 
-  auto ToString(llvm::SourceMgr* srcMgr, const std::string& prefix,
+  auto toString(llvm::SourceMgr* srcMgr, const std::string& prefix,
                 bool isTail) const -> std::string override {
-    return left->ToString(srcMgr, prefix, isTail) + "." +
-           right->ToString(srcMgr, prefix, isTail);
+    return left->toString(srcMgr, prefix, isTail) + "." +
+           right->toString(srcMgr, prefix, isTail);
   }
 };
 
 class Else : public Expression {
 public:
   explicit Else(llvm::SMRange loc) : Expression(loc) {}
-  void Accept(ASTVisitor& visitor) const override { visitor.Visit(this); }
+  void accept(ASTVisitor& visitor) const override { visitor.visit(this); }
 
-  auto ToString(llvm::SourceMgr* /*srcMgr*/, const std::string& /*prefix*/,
+  auto toString(llvm::SourceMgr* /*srcMgr*/, const std::string& /*prefix*/,
                 bool /*isTail*/) const -> std::string override {
     return "Else";
   }
@@ -804,32 +804,32 @@ public:
 class Break : public Statement {
 public:
   explicit Break(llvm::SMRange loc) : Statement(loc) {}
-  void Accept(ASTVisitor& visitor) const override { visitor.Visit(this); }
+  void accept(ASTVisitor& visitor) const override { visitor.visit(this); }
 
-  auto ToString(llvm::SourceMgr* srcMgr, const std::string& prefix,
+  auto toString(llvm::SourceMgr* srcMgr, const std::string& prefix,
                 bool isTail) const -> std::string override {
     return fmt::format("{}{}Break[Line({}-{}):Col({}-{})]:\n", prefix,
                        isTail ? "└──" : "├──",
-                       srcMgr->getLineAndColumn(GetStart()).first,
-                       srcMgr->getLineAndColumn(GetEnd()).first,
-                       srcMgr->getLineAndColumn(GetStart()).second,
-                       srcMgr->getLineAndColumn(GetEnd()).second);
+                       srcMgr->getLineAndColumn(getStart()).first,
+                       srcMgr->getLineAndColumn(getEnd()).first,
+                       srcMgr->getLineAndColumn(getStart()).second,
+                       srcMgr->getLineAndColumn(getEnd()).second);
   }
 };
 
 class Continue : public Statement {
 public:
   explicit Continue(llvm::SMRange loc) : Statement(loc) {}
-  void Accept(ASTVisitor& visitor) const override { visitor.Visit(this); }
+  void accept(ASTVisitor& visitor) const override { visitor.visit(this); }
 
-  auto ToString(llvm::SourceMgr* srcMgr, const std::string& prefix,
+  auto toString(llvm::SourceMgr* srcMgr, const std::string& prefix,
                 bool isTail) const -> std::string override {
     return fmt::format("{}{}Continue[Line({}-{}):Col({}-{})]:\n", prefix,
                        isTail ? "└──" : "├──",
-                       srcMgr->getLineAndColumn(GetStart()).first,
-                       srcMgr->getLineAndColumn(GetEnd()).first,
-                       srcMgr->getLineAndColumn(GetStart()).second,
-                       srcMgr->getLineAndColumn(GetEnd()).second);
+                       srcMgr->getLineAndColumn(getStart()).first,
+                       srcMgr->getLineAndColumn(getEnd()).first,
+                       srcMgr->getLineAndColumn(getStart()).second,
+                       srcMgr->getLineAndColumn(getEnd()).second);
   }
 };
 
@@ -839,21 +839,21 @@ class Return : public Statement {
 public:
   Return(llvm::SMRange loc, std::unique_ptr<Expression> value)
       : Statement(loc), value(std::move(value)) {}
-  void Accept(ASTVisitor& visitor) const override { visitor.Visit(this); }
+  void accept(ASTVisitor& visitor) const override { visitor.visit(this); }
 
-  [[nodiscard]] [[maybe_unused]] auto GetValue() const -> Expression* {
+  [[nodiscard]] [[maybe_unused]] auto getValue() const -> Expression* {
     return value.get();
   }
 
-  auto ToString(llvm::SourceMgr* srcMgr, const std::string& prefix,
+  auto toString(llvm::SourceMgr* srcMgr, const std::string& prefix,
                 bool isTail) const -> std::string override {
     return fmt::format("{}{}Return[Line({}-{}):Col({}-{})]: {}\n", prefix,
                        isTail ? "└──" : "├──",
-                       srcMgr->getLineAndColumn(GetStart()).first,
-                       srcMgr->getLineAndColumn(GetEnd()).first,
-                       srcMgr->getLineAndColumn(GetStart()).second,
-                       srcMgr->getLineAndColumn(GetEnd()).second,
-                       value ? value->ToString(srcMgr, prefix, true) : "void");
+                       srcMgr->getLineAndColumn(getStart()).first,
+                       srcMgr->getLineAndColumn(getEnd()).first,
+                       srcMgr->getLineAndColumn(getStart()).second,
+                       srcMgr->getLineAndColumn(getEnd()).second,
+                       value ? value->toString(srcMgr, prefix, true) : "void");
   }
 };
 
@@ -863,21 +863,21 @@ class Defer : public Statement {
 public:
   Defer(llvm::SMRange loc, std::unique_ptr<Statement> stmt)
       : Statement(loc), stmt(std::move(stmt)) {}
-  void Accept(ASTVisitor& visitor) const override { visitor.Visit(this); }
+  void accept(ASTVisitor& visitor) const override { visitor.visit(this); }
 
-  [[nodiscard]] [[maybe_unused]] auto GetStatement() const -> Statement* {
+  [[nodiscard]] [[maybe_unused]] auto getStatement() const -> Statement* {
     return stmt.get();
   }
 
-  auto ToString(llvm::SourceMgr* srcMgr, const std::string& prefix,
+  auto toString(llvm::SourceMgr* srcMgr, const std::string& prefix,
                 bool isTail) const -> std::string override {
     return fmt::format(
         "{}{}Defer[Line({}-{}):Col({}-{})]:\n{}", prefix,
-        isTail ? "└──" : "├──", srcMgr->getLineAndColumn(GetStart()).first,
-        srcMgr->getLineAndColumn(GetEnd()).first,
-        srcMgr->getLineAndColumn(GetStart()).second,
-        srcMgr->getLineAndColumn(GetEnd()).second,
-        stmt->ToString(srcMgr, prefix + (isTail ? "    " : "│   "), true));
+        isTail ? "└──" : "├──", srcMgr->getLineAndColumn(getStart()).first,
+        srcMgr->getLineAndColumn(getEnd()).first,
+        srcMgr->getLineAndColumn(getStart()).second,
+        srcMgr->getLineAndColumn(getEnd()).second,
+        stmt->toString(srcMgr, prefix + (isTail ? "    " : "│   "), true));
   }
 };
 
@@ -894,12 +894,12 @@ public:
       : Statement(loc), identifier(std::move(identifier)),
         fields(std::move(fields)), methods(std::move(methods)),
         exported(exported) {};
-  void Accept(ASTVisitor& visitor) const override { visitor.Visit(this); }
+  void accept(ASTVisitor& visitor) const override { visitor.visit(this); }
 
-  [[nodiscard]] [[maybe_unused]] auto GetIdentifier() const -> std::string {
+  [[nodiscard]] [[maybe_unused]] auto getIdentifier() const -> std::string {
     return identifier;
   }
-  [[nodiscard]] [[maybe_unused]] auto GetFields() const
+  [[nodiscard]] [[maybe_unused]] auto getFields() const
       -> std::vector<VarDecl*> {
     std::vector<VarDecl*> result;
     result.reserve(fields.size());
@@ -908,7 +908,7 @@ public:
     }
     return result;
   }
-  [[nodiscard]] [[maybe_unused]] auto GetMethods() const
+  [[nodiscard]] [[maybe_unused]] auto getMethods() const
       -> std::vector<FuncDecl*> {
     std::vector<FuncDecl*> result;
     result.reserve(methods.size());
@@ -917,30 +917,30 @@ public:
     }
     return result;
   }
-  [[nodiscard]] [[maybe_unused]] auto IsExported() const -> bool {
+  [[nodiscard]] [[maybe_unused]] auto isExported() const -> bool {
     return exported;
   }
 
-  auto ToString(llvm::SourceMgr* srcMgr, const std::string& prefix,
+  auto toString(llvm::SourceMgr* srcMgr, const std::string& prefix,
                 bool isTail) const -> std::string override {
     std::string fieldsStr;
     for (const auto& field : fields) {
       fieldsStr +=
-          field->ToString(srcMgr, prefix + (isTail ? "    " : "│   "), false);
+          field->toString(srcMgr, prefix + (isTail ? "    " : "│   "), false);
     }
 
     std::string methodsStr;
     for (const auto& method : methods) {
       methodsStr +=
-          method->ToString(srcMgr, prefix + (isTail ? "    " : "│   "),
+          method->toString(srcMgr, prefix + (isTail ? "    " : "│   "),
                            method.get() == methods.back().get());
     }
     return fmt::format("{}{}Class[Line({}-{}):Col({}-{})]: {}: \n{}{}", prefix,
                        isTail ? "└──" : "├──",
-                       srcMgr->getLineAndColumn(GetStart()).first,
-                       srcMgr->getLineAndColumn(GetEnd()).first,
-                       srcMgr->getLineAndColumn(GetStart()).second,
-                       srcMgr->getLineAndColumn(GetEnd()).second, identifier,
+                       srcMgr->getLineAndColumn(getStart()).first,
+                       srcMgr->getLineAndColumn(getEnd()).first,
+                       srcMgr->getLineAndColumn(getStart()).second,
+                       srcMgr->getLineAndColumn(getEnd()).second, identifier,
                        fieldsStr, methodsStr);
   }
 };

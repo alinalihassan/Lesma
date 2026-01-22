@@ -20,7 +20,7 @@
 
 using namespace lesma;
 
-auto Driver::BaseCompile(std::unique_ptr<lesma::Options> options, bool jit)
+auto Driver::baseCompile(std::unique_ptr<lesma::Options> options, bool jit)
     -> int {
   Timer timer(options->timer);
 
@@ -29,7 +29,7 @@ auto Driver::BaseCompile(std::unique_ptr<lesma::Options> options, bool jit)
 
   try {
     // Read Source
-    timer.Measure("File read", [&]() -> void {
+    timer.measure("File read", [&]() -> void {
       if (options->sourceType == SourceType::FILE) {
         auto buffer = llvm::MemoryBuffer::getFileAsStream(options->source);
         if (!buffer) {
@@ -45,92 +45,92 @@ auto Driver::BaseCompile(std::unique_ptr<lesma::Options> options, bool jit)
 
     // Lexer
     auto lexer =
-        timer.Measure("Lexer scan", [&]() -> std::unique_ptr<lesma::Lexer> {
+        timer.measure("Lexer scan", [&]() -> std::unique_ptr<lesma::Lexer> {
           auto lex = std::make_unique<Lexer>(srcMgr);
-          lex->ScanAll();
+          lex->scanAll();
           return lex;
         });
 
     if ((options->debug & Debug::LEXER) != Debug::NONE) {
-      Print(LogType::DEBUG, "TOKENS: \n");
-      for (const auto& tok : lexer->GetTokens()) {
-        Print("Token: {}\n", tok->Dump(srcMgr));
+      lesma::print(LogType::DEBUG, "TOKENS: \n");
+      for (const auto& tok : lexer->getTokens()) {
+        lesma::print("Token: {}\n", tok->dump(srcMgr));
       }
     }
 
     // Parser
     auto parser =
-        timer.Measure("Parsing", [&]() -> std::unique_ptr<lesma::Parser> {
-          auto pars = std::make_unique<Parser>(lexer->GetTokens());
-          pars->Parse();
+        timer.measure("Parsing", [&]() -> std::unique_ptr<lesma::Parser> {
+          auto pars = std::make_unique<Parser>(lexer->getTokens());
+          pars->parse();
           return pars;
         });
 
     if ((options->debug & Debug::AST) != Debug::NONE) {
-      Print(LogType::DEBUG, "AST:\n{}",
-            parser->GetAst()->ToString(srcMgr.get(), "", true));
+      lesma::print(LogType::DEBUG, "AST:\n{}",
+            parser->getAst()->toString(srcMgr.get(), "", true));
     }
 
     // Codegen
     auto codegen =
-        timer.Measure("Compiling", [&]() -> std::unique_ptr<lesma::Codegen> {
+        timer.measure("Compiling", [&]() -> std::unique_ptr<lesma::Codegen> {
           std::vector<std::string> const modules;
           auto cg = std::make_unique<Codegen>(
               std::move(parser), srcMgr,
               options->sourceType == SourceType::FILE ? options->source : "",
               modules, jit, true);
-          cg->Run();
+          cg->run();
           return cg;
         });
 
     if ((options->debug & Debug::IR) != Debug::NONE) {
-      Print(LogType::DEBUG, "LLVM IR: \n");
-      codegen->Dump();
+      lesma::print(LogType::DEBUG, "LLVM IR: \n");
+      codegen->dump();
     }
 
     // Optimization
-    timer.Measure("Optimizing",
-                  [&]() -> void { codegen->Optimize(OptimizationLevel::O3); });
+    timer.measure("Optimizing",
+                  [&]() -> void { codegen->optimize(OptimizationLevel::O3); });
 
     int exitCode = 0;
     if (!jit) {
       // Compile to Object File
-      timer.Measure("Writing Object File", [&]() -> void {
-        codegen->WriteToObjectFile(options->outputFilename);
+      timer.measure("Writing Object File", [&]() -> void {
+        codegen->writeToObjectFile(options->outputFilename);
       });
 
       // Link Object File
-      timer.Measure("Linking Object File", [&]() -> void {
-        codegen->LinkObjectFile(fmt::format("{}.o", options->outputFilename));
+      timer.measure("Linking Object File", [&]() -> void {
+        codegen->linkObjectFile(fmt::format("{}.o", options->outputFilename));
       });
     } else {
       // Executing
-      timer.Measure("JIT", [&]() -> void { codegen->PrepareJit(); });
+      timer.measure("JIT", [&]() -> void { codegen->prepareJit(); });
 
-      exitCode = timer.Measure("Execution",
-                               [&]() -> int { return codegen->ExecuteJit(); });
+      exitCode = timer.measure("Execution",
+                               [&]() -> int { return codegen->executeJit(); });
     }
 
-    timer.PrintTotal();
+    timer.printTotal();
 
     return exitCode;
   } catch (const LesmaError& err) {
-    if (!err.GetSpan().isValid()) {
-      Print(LogType::ERROR, err.what());
+    if (!err.getSpan().isValid()) {
+      lesma::print(LogType::ERROR, err.what());
     } else {
-      ShowInline(srcMgr.get(), 1, err.GetSpan(),
+      showInline(srcMgr.get(), 1, err.getSpan(),
                  options->sourceType == SourceType::FILE ? options->source : "",
                  true, err.what());
     }
 
-    return err.GetExitCode();
+    return err.getExitCode();
   }
 }
 
-auto Driver::Run(std::unique_ptr<lesma::Options> options) -> int {
-  return BaseCompile(std::move(options), true);
+auto Driver::run(std::unique_ptr<lesma::Options> options) -> int {
+  return baseCompile(std::move(options), true);
 }
 
-auto Driver::Compile(std::unique_ptr<lesma::Options> options) -> int {
-  return BaseCompile(std::move(options), false);
+auto Driver::compile(std::unique_ptr<lesma::Options> options) -> int {
+  return baseCompile(std::move(options), false);
 }

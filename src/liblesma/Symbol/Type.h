@@ -79,27 +79,27 @@ public:
   Type(Type&&) = default;
   auto operator=(Type&&) -> Type& = default;
 
-  [[nodiscard]] auto Is(BaseType type) const -> bool {
+  [[nodiscard]] auto is(BaseType type) const -> bool {
     return baseType == type;
   }
-  [[nodiscard]] auto IsPrimitive() const -> bool {
-    return IsOneOf({BaseType::TY_INT, BaseType::TY_FLOAT, BaseType::TY_STRING,
+  [[nodiscard]] auto isPrimitive() const -> bool {
+    return isOneOf({BaseType::TY_INT, BaseType::TY_FLOAT, BaseType::TY_STRING,
                     BaseType::TY_BOOL});
   }
-  [[nodiscard]] auto IsOneOf(const std::vector<BaseType>& baseTypes) const
+  [[nodiscard]] auto isOneOf(const std::vector<BaseType>& baseTypes) const
       -> bool {
     return std::any_of(
         baseTypes.begin(), baseTypes.end(),
         [this](BaseType type) -> bool { return type == this->baseType; });
   }
-  [[nodiscard]] auto GetBaseType() const -> BaseType { return baseType; }
-  [[nodiscard]] auto GetElementType() const -> Type* { return elementType; }
-  [[nodiscard]] auto GetReturnType() const -> Type* { return returnType; }
-  [[nodiscard]] auto GetLlvmType() const -> llvm::Type* { return llvmType; }
-  [[nodiscard]] auto IsSigned() const -> bool { return signedInt; }
+  [[nodiscard]] auto getBaseType() const -> BaseType { return baseType; }
+  [[nodiscard]] auto getElementType() const -> Type* { return elementType; }
+  [[nodiscard]] auto getReturnType() const -> Type* { return returnType; }
+  [[nodiscard]] auto getLlvmType() const -> llvm::Type* { return llvmType; }
+  [[nodiscard]] auto isSigned() const -> bool { return signedInt; }
 
   // Returns raw pointers for non-owning access
-  [[nodiscard]] auto GetFields() -> std::vector<Field*> {
+  [[nodiscard]] auto getFields() -> std::vector<Field*> {
     std::vector<Field*> result;
     result.reserve(fields.size());
     for (const auto& field : fields) {
@@ -108,25 +108,25 @@ public:
     return result;
   }
 
-  auto SetLlvmType(llvm::Type* type) -> void { llvmType = type; }
-  auto SetBaseType(BaseType type) -> void { baseType = type; }
-  auto SetElementType(Type* type) -> void { elementType = type; }
-  auto SetReturnType(Type* type) -> void { returnType = type; }
-  auto AddField(std::unique_ptr<Field> field) -> void {
+  auto setLlvmType(llvm::Type* type) -> void { llvmType = type; }
+  auto setBaseType(BaseType type) -> void { baseType = type; }
+  auto setElementType(Type* type) -> void { elementType = type; }
+  auto setReturnType(Type* type) -> void { returnType = type; }
+  auto addField(std::unique_ptr<Field> field) -> void {
     fields.push_back(std::move(field));
   }
 
-  auto IsEqual(Type* rhs) const -> bool {
+  auto isEqual(Type* rhs) const -> bool {
     if (rhs == nullptr) {
       return false;
     }
 
-    if (this->GetBaseType() != rhs->GetBaseType()) {
+    if (this->getBaseType() != rhs->getBaseType()) {
       return false;
     }
 
-    Type const* thisElementType = this->GetElementType();
-    Type* rhsElementType = rhs->GetElementType();
+    Type const* thisElementType = this->getElementType();
+    Type* rhsElementType = rhs->getElementType();
 
     if (thisElementType == nullptr && rhsElementType == nullptr) {
       return true;
@@ -135,10 +135,10 @@ public:
       return false;
     }
 
-    return thisElementType->IsEqual(rhsElementType);
+    return thisElementType->isEqual(rhsElementType);
   }
 
-  [[nodiscard]] auto ToString() const -> std::string {
+  [[nodiscard]] auto toString() const -> std::string {
     std::string result;
 
     switch (baseType) {
@@ -181,19 +181,19 @@ public:
     }
 
     if (elementType != nullptr) {
-      result += "<" + elementType->ToString() + ">";
+      result += "<" + elementType->toString() + ">";
     }
 
     if (!fields.empty()) {
       result += baseType == BaseType::TY_FUNCTION ? " ( " : " { ";
       for (const auto& field : fields) {
-        result += field->name + ": " + field->type->ToString() + "; ";
+        result += field->name + ": " + field->type->toString() + "; ";
       }
       result += baseType == BaseType::TY_FUNCTION ? ")" : "}";
     }
 
     if (returnType != nullptr) {
-      result += " -> " + returnType->ToString();
+      result += " -> " + returnType->toString();
     }
 
     return result;
