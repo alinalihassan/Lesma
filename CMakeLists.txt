@@ -160,7 +160,7 @@ if (LESMA_BUILD_TESTS)
   set(TEST_SOURCES tests/test.cpp)
 
   add_executable(${TESTS_NAME} ${TEST_SOURCES})
-  target_link_libraries(${TESTS_NAME} PRIVATE ${LIB_NAME} GTest::gtest GTest::gtest_main GTest::gmock GTest::gmock_main)
+  target_link_libraries(${TESTS_NAME} PRIVATE ${LIB_NAME} GTest::gmock)
 
   find_program(BASH_PROGRAM bash)
   if (BASH_PROGRAM)
@@ -180,7 +180,7 @@ if (LESMA_BUILD_BENCHMARKS)
   set(BENCHMARK_SOURCES benchmark/benchmark.cpp)
 
   add_executable(${BENCHMARKS_NAME} ${BENCHMARK_SOURCES})
-  target_link_libraries(${BENCHMARKS_NAME} PRIVATE ${LIB_NAME} benchmark::benchmark benchmark::benchmark_main)
+  target_link_libraries(${BENCHMARKS_NAME} PRIVATE ${LIB_NAME} benchmark::benchmark_main)
 endif ()
 
 # CPack
