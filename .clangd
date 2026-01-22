@@ -10,18 +10,21 @@ Diagnostics:
       - readability-*
       - cppcoreguidelines-*
       - misc-*
-      - clang-analyzer-*          # Static analysis (catches real bugs)
-      - concurrency-*             # Thread safety issues
+      - clang-analyzer-*
+      - concurrency-*
     Remove:
-      - readability-identifier-length       # Too noisy
+      - readability-identifier-length
       - readability-function-cognitive-complexity
       - misc-no-recursion
       - cppcoreguidelines-avoid-magic-numbers
       - readability-magic-numbers
-      - cppcoreguidelines-non-private-member-variables-in-classes  # Allow POD-like structs with public members
-      - misc-non-private-member-variables-in-classes               # Alias of above
+      - cppcoreguidelines-non-private-member-variables-in-classes
+      - misc-non-private-member-variables-in-classes
     CheckOptions:
-      readability-identifier-naming.ClassCase: CamelCase
-      readability-identifier-naming.FunctionCase: camelBack
+      readability-identifier-naming.GlobalConstantCase: UPPER_CASE
       readability-identifier-naming.VariableCase: camelBack
-      readability-identifier-naming.PrivateMemberSuffix: _
+      readability-identifier-naming.FunctionCase: CamelCase
+      readability-identifier-naming.ParameterCase: camelBack
+      readability-identifier-naming.ClassCase: CamelCase
+      readability-identifier-naming.MemberCase: camelBack
+      readability-identifier-naming.EnumCase: CamelCase

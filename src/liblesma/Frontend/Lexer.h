@@ -18,94 +18,103 @@
 
 namespace lesma {
 class LexerError : public LesmaErrorWithExitCode<EX_DATAERR> {
-    using LesmaErrorWithExitCode<EX_DATAERR>::LesmaErrorWithExitCode;
+  using LesmaErrorWithExitCode<EX_DATAERR>::LesmaErrorWithExitCode;
 };
 
 class Lexer {
 public:
-    explicit Lexer(const std::shared_ptr<llvm::SourceMgr> &srcMgr)
-        : curBuffer_(srcMgr->getMemoryBuffer(srcMgr->getNumBuffers())),
-          begin_loc_(llvm::SMLoc::getFromPointer(curBuffer_->getBufferStart())),
-          loc_(llvm::SMLoc::getFromPointer(curBuffer_->getBufferStart())), srcMgr_(srcMgr) {}
-    ~Lexer() = default;
+  explicit Lexer(const std::shared_ptr<llvm::SourceMgr>& srcMgr)
+      : curBuffer(srcMgr->getMemoryBuffer(srcMgr->getNumBuffers())),
+        beginLoc(llvm::SMLoc::getFromPointer(curBuffer->getBufferStart())),
+        loc(llvm::SMLoc::getFromPointer(curBuffer->getBufferStart())),
+        srcMgr(srcMgr) {}
+  ~Lexer() = default;
 
-    Lexer(const Lexer &) = delete;
-    Lexer &operator=(const Lexer &) = delete;
-    Lexer(Lexer &&) = default;
-    Lexer &operator=(Lexer &&) = default;
+  Lexer(const Lexer&) = delete;
+  auto operator=(const Lexer&) -> Lexer& = delete;
+  Lexer(Lexer&&) = default;
+  auto operator=(Lexer&&) -> Lexer& = default;
 
-    auto scanAll() -> void;
-    auto getTokens() -> std::vector<Token *>;
-    auto getOwnedTokens() -> std::vector<std::unique_ptr<Token>> & { return tokens_; };
+  auto ScanAll() -> void;
+  auto GetTokens() -> std::vector<Token*>;
+  auto GetOwnedTokens() -> std::vector<std::unique_ptr<Token>>& {
+    return tokens;
+  };
 
 private:
-    auto scanOne(bool continuation = false) -> std::unique_ptr<Token>;
+  auto ScanOne(bool continuation = false) -> std::unique_ptr<Token>;
 
-    auto matchAndAdvance(char expected) -> bool;
+  auto MatchAndAdvance(char expected) -> bool;
 
-    auto peek(int offset = 0) -> char;
+  auto Peek(int offset = 0) -> char;
 
-    auto addStringToken() -> std::unique_ptr<Token>;
+  auto AddStringToken() -> std::unique_ptr<Token>;
 
-    static auto isDigit(char c) -> bool { return c >= '0' && c <= '9'; }
+  static auto IsDigit(char c) -> bool { return c >= '0' && c <= '9'; }
 
-    static auto isAlpha(char c) -> bool { return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '_'; }
+  static auto IsAlpha(char c) -> bool {
+    return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '_';
+  }
 
-    static auto isAlphaNumeric(char c) -> bool { return isAlpha(c) || isDigit(c); }
+  static auto IsAlphaNumeric(char c) -> bool {
+    return IsAlpha(c) || IsDigit(c);
+  }
 
-    auto addNumToken() -> std::unique_ptr<Token>;
+  auto AddNumToken() -> std::unique_ptr<Token>;
 
-    auto makeToken(TokenType type) -> std::unique_ptr<Token>;
-    auto makeToken(TokenType type, const std::string &value) -> std::unique_ptr<Token>;
+  auto MakeToken(TokenType type) -> std::unique_ptr<Token>;
+  auto MakeToken(TokenType type, const std::string& value)
+      -> std::unique_ptr<Token>;
 
-    auto error(const std::string &msg) const -> void;
+  auto Error(const std::string& msg) const -> void;
 
-    auto isAtEnd() -> bool { return curPos_ >= curBuffer_->getBufferSize(); }
+  auto IsAtEnd() -> bool { return curPos >= curBuffer->getBufferSize(); }
 
-    // Helper to get pointer at current position for SMLoc (isolates pointer arithmetic)
-    auto getLocPointer() const -> const char * {
-        // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
-        return curBuffer_->getBufferStart() + curPos_;
-    }
+  // Helper to get pointer at current position for SMLoc (isolates pointer
+  // arithmetic)
+  [[nodiscard]] auto GetLocPointer() const -> const char* {
+    // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
+    return curBuffer->getBufferStart() + curPos;
+  }
 
-    // Helper to get pointer at specific offset for SMLoc
-    auto getLocPointer(size_t offset) const -> const char * {
-        // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
-        return curBuffer_->getBufferStart() + offset;
-    }
+  // Helper to get pointer at specific offset for SMLoc
+  [[nodiscard]] auto GetLocPointer(size_t offset) const -> const char* {
+    // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
+    return curBuffer->getBufferStart() + offset;
+  }
 
-    // Helper to get character at specific position (isolates array subscript)
-    auto getCharAt(size_t pos) const -> char {
-        // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
-        return curBuffer_->getBufferStart()[pos];
-    }
+  // Helper to get character at specific position (isolates array subscript)
+  [[nodiscard]] auto GetCharAt(size_t pos) const -> char {
+    // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
+    return curBuffer->getBufferStart()[pos];
+  }
 
-    auto lastChar() -> char;
+  auto LastChar() -> char;
 
-    auto advance() -> char;
+  auto Advance() -> char;
 
-    auto getLastToken() -> Token *;
-    auto addIdentifierToken() -> std::unique_ptr<Token>;
+  auto GetLastToken() -> Token*;
+  auto AddIdentifierToken() -> std::unique_ptr<Token>;
 
-    auto handleWhitespace(char c) -> void;
-    auto handleIndentation(bool continuation) -> bool;
-    auto fallback() -> void;
+  auto HandleWhitespace(char c) -> void;
+  auto HandleIndentation(bool continuation) -> bool;
+  auto Fallback() -> void;
 
-    const llvm::MemoryBuffer *curBuffer_;
-    size_t curPos_ = 0;
-    unsigned int line_ = 1;
-    unsigned int col_ = 1;
-    llvm::SMLoc begin_loc_;
-    llvm::SMLoc loc_;
-    std::vector<std::unique_ptr<Token>> tokens_;
-    std::shared_ptr<llvm::SourceMgr> srcMgr_;
+  const llvm::MemoryBuffer* curBuffer;
+  size_t curPos = 0;
+  unsigned int line = 1;
+  unsigned int col = 1;
+  llvm::SMLoc beginLoc;
+  llvm::SMLoc loc;
+  std::vector<std::unique_ptr<Token>> tokens;
+  std::shared_ptr<llvm::SourceMgr> srcMgr;
 
-    std::optional<char> first_indent_char_;
-    int level_ = 0;
-    int indent_ = 0;
-    std::vector<int> indent_stack_ = {0};
-    std::vector<int> alt_indent_stack_ = {0};
+  std::optional<char> firstIndentChar;
+  int level = 0;
+  int indent = 0;
+  std::vector<int> indentStack = {0};
+  std::vector<int> altIndentStack = {0};
 
-    auto resetTokenBeg() -> void;
+  auto ResetTokenBeg() -> void;
 };
-}  // namespace lesma
+} // namespace lesma

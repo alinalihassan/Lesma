@@ -4,8 +4,8 @@
 #include <string>
 #include <string_view>
 #include <unordered_map>
-
 #include <llvm/Support/SourceMgr.h>
+
 
 #include "nameof.hpp"
 #include <fmt/format.h>
@@ -14,16 +14,18 @@
 
 using namespace lesma;
 
-auto Token::dump(const std::shared_ptr<llvm::SourceMgr> &srcMgr) const -> std::string {
-    unsigned bufId = srcMgr->getNumBuffers() - 1;
-    auto [startLine, startCol] = srcMgr->getLineAndColumn(span.Start, bufId);
-    auto [endLine, endCol] = srcMgr->getLineAndColumn(span.End, bufId);
+auto Token::Dump(const std::shared_ptr<llvm::SourceMgr>& srcMgr) const
+    -> std::string {
+  unsigned const bufId = srcMgr->getNumBuffers() - 1;
+  auto [startLine, startCol] = srcMgr->getLineAndColumn(span.Start, bufId);
+  auto [endLine, endCol] = srcMgr->getLineAndColumn(span.End, bufId);
 
-    return fmt::format("[Type: {}, Lexeme: {}, Line: {} - {}, Col: {} - {}]", NAMEOF_ENUM(type), lexeme, startLine,
-                       endLine, startCol, endCol);
+  return fmt::format("[Type: {}, Lexeme: {}, Line: {} - {}, Col: {} - {}]",
+                     NAMEOF_ENUM(type), lexeme, startLine, endLine, startCol,
+                     endCol);
 }
 
-static const std::unordered_map<std::string_view, TokenType> keywords = {
+static const std::unordered_map<std::string_view, TokenType> KEYWORDS = {
     // Keywords
     {"and", TokenType::AND},
     {"class", TokenType::CLASS},
@@ -68,21 +70,22 @@ static const std::unordered_map<std::string_view, TokenType> keywords = {
     {"void", TokenType::VOID_TYPE},
 };
 
-auto Token::getIdentifierType(const std::string &identifier, Token *lastTok) -> TokenType {
-    // Multi-word keywords first (check lastTok is not null)
-    if (lastTok != nullptr) {
-        if (identifier == "if" && lastTok->type == TokenType::ELSE) {
-            return TokenType::ELSE_IF;
-        }
-        if (identifier == "not" && lastTok->type == TokenType::IS) {
-            return TokenType::IS_NOT;
-        }
+auto Token::GetIdentifierType(const std::string& identifier, Token* lastTok)
+    -> TokenType {
+  // Multi-word keywords first (check lastTok is not null)
+  if (lastTok != nullptr) {
+    if (identifier == "if" && lastTok->type == TokenType::ELSE) {
+      return TokenType::ELSE_IF;
     }
-
-    auto it = keywords.find(identifier);
-    if (it != keywords.end()) {
-        return it->second;
+    if (identifier == "not" && lastTok->type == TokenType::IS) {
+      return TokenType::IS_NOT;
     }
+  }
 
-    return TokenType::IDENTIFIER;
+  auto it = KEYWORDS.find(identifier);
+  if (it != KEYWORDS.end()) {
+    return it->second;
+  }
+
+  return TokenType::IDENTIFIER;
 }
