@@ -1,3 +1,4 @@
+#include <iterator>
 #include <utility>
 
 #include <benchmark/benchmark.h>
@@ -55,7 +56,8 @@ namespace {
     }
 
     [[maybe_unused]] auto getRange(const std::string &source, int x, int y) -> llvm::SMRange {
-        return {llvm::SMLoc::getFromPointer(source.c_str() + x), llvm::SMLoc::getFromPointer(source.c_str() + y)};
+        return {llvm::SMLoc::getFromPointer(std::next(source.c_str(), x)),
+                llvm::SMLoc::getFromPointer(std::next(source.c_str(), y))};
     }
 
 }// namespace

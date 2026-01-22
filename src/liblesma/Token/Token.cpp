@@ -23,8 +23,6 @@ auto Token::dump(const std::shared_ptr<llvm::SourceMgr> &srcMgr) const -> std::s
                        NAMEOF_ENUM(type), lexeme, startLine, endLine, startCol, endCol);
 }
 
-// Static keyword lookup table for O(1) identifier resolution
-// NOLINTNEXTLINE(cert-err58-cpp)
 static const std::unordered_map<std::string_view, TokenType> keywords = {
         // Keywords
         {"and", TokenType::AND},
@@ -81,7 +79,6 @@ auto Token::getIdentifierType(const std::string &identifier, Token *lastTok) -> 
         }
     }
 
-    // Lookup in keyword table
     auto it = keywords.find(identifier);
     if (it != keywords.end()) {
         return it->second;
