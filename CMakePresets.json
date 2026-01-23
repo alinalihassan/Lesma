@@ -7,9 +7,17 @@
   },
   "configurePresets": [
     {
+      "name": "vcpkg-base",
+      "hidden": true,
+      "cacheVariables": {
+        "CMAKE_TOOLCHAIN_FILE": "$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake"
+      }
+    },
+    {
       "name": "Debug",
       "displayName": "Debug",
       "description": "Configures the project for debugging",
+      "inherits": "vcpkg-base",
       "generator": "Ninja",
       "binaryDir": "${sourceDir}/build/Debug",
       "cacheVariables": {
@@ -23,6 +31,7 @@
       "name": "Release",
       "displayName": "Release",
       "description": "Configures the project for release",
+      "inherits": "vcpkg-base",
       "generator": "Ninja",
       "binaryDir": "${sourceDir}/build/Release",
       "cacheVariables": {
@@ -36,6 +45,7 @@
       "name": "Release_Dist",
       "displayName": "Release and Distribute",
       "description": "Configures the project for release and create distributable. This is meant for CI/CD",
+      "inherits": "vcpkg-base",
       "generator": "Ninja",
       "binaryDir": "${sourceDir}/build/Release",
       "debug": {

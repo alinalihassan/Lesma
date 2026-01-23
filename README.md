@@ -50,7 +50,7 @@ bash -c "$(curl -fsSL https://raw.githubusercontent.com/alinalihassan/Lesma/main
 
 ## 🔧 Build
 
-In order to build Lesma, you need Clang, LLVM (17+), and Ninja installed. It's currently only supported on Linux and macOS.
+In order to build Lesma, you need Clang, LLVM (17+), vcpkg, and Ninja installed. It's currently only supported on Linux and macOS.
 For a more comprehensive guide, and more information on how to install the prerequisites,
 read the documentation on [Getting Started](https://lesma.org/docs/introduction/getting-started)
 
@@ -61,6 +61,24 @@ read the documentation on [Getting Started](https://lesma.org/docs/introduction/
 - Ninja
 - Clang
 - LLVM 17+ (with Clang)
+- vcpkg
+
+### Installing vcpkg
+
+vcpkg is used to manage C++ dependencies. Install it in your home directory or another location:
+
+```bash
+git clone https://github.com/microsoft/vcpkg.git ~/vcpkg
+cd ~/vcpkg
+./bootstrap-vcpkg.sh  # On Linux/macOS
+```
+
+Then set the `VCPKG_ROOT` environment variable (add to your shell profile for persistence):
+
+```bash
+export VCPKG_ROOT="$HOME/vcpkg"
+export PATH="$VCPKG_ROOT:$PATH"
+```
 
 ### Installing LLVM
 
@@ -84,10 +102,6 @@ sudo apt-get install llvm-17-dev clang-17 libclang-17-dev
 This option builds LLVM from source using vcpkg. It takes significant time (~1-2 hours) but works on any platform.
 
 ```bash
-git clone https://github.com/alinalihassan/Lesma
-cd Lesma
-git submodule update --init --recursive
-
 # Configure with LLVM build enabled
 cmake . -Bbuild -DLESMA_BUILD_LLVM=ON -G Ninja
 cmake --build build
@@ -99,21 +113,28 @@ cmake --build build
     ```bash
     git clone https://github.com/alinalihassan/Lesma
     cd Lesma
-    git submodule update --init --recursive
     ```
 
-2. Run CMake to configure and build
+2. (Optional) Create a local CMake user preset for your vcpkg installation
+    ```bash
+    cp CMakeUserPresets.json.example CMakeUserPresets.json
+    # Edit CMakeUserPresets.json to set your VCPKG_ROOT path
+    ```
+    
+    If `VCPKG_ROOT` is already set in your environment, you can skip this step.
+
+3. Run CMake to configure and build
     ```bash
     # Using presets (recommended)
     cmake --preset Debug
     cmake --build --preset Debug
 
     # Or manually
-    cmake . -Bbuild -G Ninja
+    cmake . -Bbuild -DCMAKE_TOOLCHAIN_FILE=$VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake -G Ninja
     cmake --build build
     ```
 
-3. Run tests (optional)
+4. Run tests (optional)
     ```bash
     cd build/Debug  # or build/Release
     ctest --output-on-failure

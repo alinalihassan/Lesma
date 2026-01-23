@@ -27,24 +27,22 @@ jobs:
         with:
           repository: ${{ github.event.pull_request.head.repo.full_name }}
           ref: ${{ github.event.pull_request.head.ref }}
-          fetch-depth: 0
-          submodules: recursive
 
-      - name: Clang Format
-        if: ${{ matrix.os == 'ubuntu-latest' }}
-        uses: DoozyX/clang-format-lint-action@v0.18
-        with:
-          source: './src/'
-          extensions: 'h,cpp'
-          clangFormatVersion: 18
-          inplace: True
+      # - name: Clang Format
+      #   if: ${{ matrix.os == 'ubuntu-latest' }}
+      #   uses: DoozyX/clang-format-lint-action@v0.18
+      #   with:
+      #     source: './src/'
+      #     extensions: 'h,cpp'
+      #     clangFormatVersion: 18
+      #     inplace: True
 
-      - name: Commit formatting diff
-        uses: EndBug/add-and-commit@v9
-        with:
-          author_name: GitHub
-          author_email: github_action@lesma.com
-          message: 'Committing clang-format changes'
+      # - name: Commit formatting diff
+      #   uses: EndBug/add-and-commit@v9
+      #   with:
+      #     author_name: GitHub
+      #     author_email: github_action@lesma.com
+      #     message: 'Committing clang-format changes'
 
       - name: Install LLVM and Clang
         uses: KyleMayes/install-llvm-action@v2
@@ -54,11 +52,14 @@ jobs:
       - name: Install CMake & Ninja
         uses: lukka/get-cmake@latest
 
+      - name: Get vcpkg baseline from vcpkg.json
+        id: vcpkg-baseline
+        run: echo "baseline=$(jq -r '."builtin-baseline"' vcpkg.json)" >> $GITHUB_OUTPUT
+
       - name: Setup vcpkg
         uses: lukka/run-vcpkg@v11
         with:
-          vcpkgDirectory: '${{ github.workspace }}/thirdparty/vcpkg'
-          doNotUpdateVcpkg: true
+          vcpkgGitCommitId: '${{ steps.vcpkg-baseline.outputs.baseline }}'
 
       - name: Run CMake with Ninja
         uses: lukka/run-cmake@v10

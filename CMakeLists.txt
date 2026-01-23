@@ -23,10 +23,6 @@ file(READ ${CMAKE_CURRENT_SOURCE_DIR}/vcpkg.json VCPKG_MANIFEST)
 string(JSON LESMA_VERSION GET ${VCPKG_MANIFEST} version)
 set(VERSION ${LESMA_VERSION})
 
-# Set the vcpkg toolchain file
-set(VCPKG_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/vcpkg")
-set(CMAKE_TOOLCHAIN_FILE "${VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake")
-
 # Project
 project(Lesma VERSION ${VERSION} DESCRIPTION "Lesma Compiler")
 
