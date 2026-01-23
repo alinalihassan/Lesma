@@ -30,11 +30,6 @@ jobs:
           fetch-depth: 0
           submodules: recursive
 
-      # TMPFIX: Use Xcode git (macOS)
-      - name: Use Xcode git (macOS)
-        if: runner.os == 'macOS'
-        run: echo "/usr/bin" >> $GITHUB_PATH
-
       - name: Clang Format
         if: ${{ matrix.os == 'ubuntu-latest' }}
         uses: DoozyX/clang-format-lint-action@v0.18
@@ -51,20 +46,10 @@ jobs:
           author_email: github_action@lesma.com
           message: 'Committing clang-format changes'
 
-      - name: Cache LLVM and Clang
-        id: cache-llvm
-        uses: actions/cache@v4
-        with:
-          path: |
-            C:/Program Files/LLVM
-            ./llvm
-          key: llvm-21-${{ matrix.os }}
-
       - name: Install LLVM and Clang
         uses: KyleMayes/install-llvm-action@v2
         with:
           version: "21"
-          cached: ${{ steps.cache-llvm.outputs.cache-hit }}
 
       - name: Install CMake & Ninja
         uses: lukka/get-cmake@latest
