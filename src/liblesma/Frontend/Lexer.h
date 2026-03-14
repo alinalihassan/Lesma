@@ -24,7 +24,8 @@ class LexerError : public LesmaErrorWithExitCode<EX_DATAERR> {
 class Lexer {
 public:
   explicit Lexer(const std::shared_ptr<llvm::SourceMgr>& srcMgr)
-      : curBuffer(srcMgr->getMemoryBuffer(srcMgr->getNumBuffers())),
+      : curBuffer(srcMgr->getMemoryBuffer(
+            srcMgr->getNumBuffers() > 0 ? srcMgr->getNumBuffers() - 1 : 0)),
         beginLoc(llvm::SMLoc::getFromPointer(curBuffer->getBufferStart())),
         loc(llvm::SMLoc::getFromPointer(curBuffer->getBufferStart())),
         srcMgr(srcMgr) {}
@@ -36,7 +37,7 @@ public:
   auto operator=(Lexer&&) -> Lexer& = default;
 
   auto scanAll() -> void;
-  auto getTokens() -> std::vector<Token*>;
+  [[nodiscard]] auto getTokens() -> std::vector<Token*>;
   auto getOwnedTokens() -> std::vector<std::unique_ptr<Token>>& {
     return tokens;
   };

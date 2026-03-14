@@ -18,10 +18,14 @@
 
 namespace lesma {
 auto getBasename(const std::string& filePath) -> std::string {
-  auto filename = filePath.substr(filePath.find_last_of("/\\") + 1);
-  auto filenameWoExt = filename.substr(0, filename.find_last_of('.'));
-
-  return filenameWoExt;
+  if (filePath.empty()) {
+    return "";
+  }
+  auto const sep = filePath.find_last_of("/\\");
+  auto const filename =
+      (sep == std::string::npos) ? filePath : filePath.substr(sep + 1);
+  auto const dot = filename.find_last_of('.');
+  return (dot == std::string::npos) ? filename : filename.substr(0, dot);
 }
 
 // NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
@@ -86,7 +90,8 @@ auto getStdDir() -> std::string {
   if (getenv("HOME") != nullptr) {
     homedir = getenv("HOME");
   } else {
-    homedir = getpwuid(getuid())->pw_dir;
+    struct passwd* pw = getpwuid(getuid());
+    homedir = (pw != nullptr && pw->pw_dir != nullptr) ? pw->pw_dir : ".";
   }
   return fmt::format("{}/.lesma/stdlib/", homedir);
 #endif

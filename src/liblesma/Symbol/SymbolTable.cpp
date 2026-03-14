@@ -75,8 +75,7 @@ auto SymbolTable::lookupFunction(
         }
       } else if (i < funcParamTypes.size() &&
                  funcParamTypes[i]->defaultValue != nullptr) {
-        // Use default value for missing parameter
-        paramTypes.push_back(funcParamTypes[i]->type);
+        // Caller omitted this arg; default value applies — continue matching.
       } else if (i >= funcParamTypes.size() &&
                  it->second->getType()->getLlvmType()->isFunctionVarArg()) {
         // Varargs
@@ -194,7 +193,7 @@ auto SymbolTable::insertTypeRef(const std::string& name, Type* type) -> void {
 auto SymbolTable::createChildBlock(const std::string& blockName)
     -> SymbolTable* {
   int idx = 1;
-  while (children.find(blockName + std::to_string(idx)) != children.end()) {
+  while (children.contains(blockName + std::to_string(idx))) {
     idx++;
   }
   auto key = blockName + std::to_string(idx);

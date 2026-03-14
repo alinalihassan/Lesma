@@ -30,7 +30,7 @@ public:
 
   auto parse() -> void;
 
-  auto getAst() -> Compound* { return tree.get(); }
+  [[nodiscard]] auto getAst() -> Compound* { return tree.get(); }
 
 private:
   auto peek() -> Token* { return peek(0); }
@@ -40,7 +40,9 @@ private:
   auto consume(TokenType type, const std::string& errorMessage) -> Token*;
   auto consumeNewline() -> Token*;
 
-  auto previous() -> Token* { return peek(-1); }
+  [[nodiscard]] auto previous() -> Token* {
+    return (index > 0) ? tokens.at(index - 1) : nullptr;
+  }
 
   auto isAtEnd() -> bool { return peek()->type == TokenType::EOF_TOKEN; }
 
