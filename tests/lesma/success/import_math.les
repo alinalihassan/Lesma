@@ -1,0 +1,3 @@
+# Shared "math" module for recursive-import test
+export def add(a: int, b: int) -> int
+    return a + b

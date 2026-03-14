@@ -1,0 +1,11 @@
+# Same file imported multiple times; compiled once. Named and non-named (default alias).
+import "function_call.les" as fc1
+import "function_call.les" as fc2
+import "function_call.les"
+
+if fc1.fib() != 101
+	exit(1)
+if fc2.fib() != 101
+	exit(1)
+if function_call.fib() != 101
+	exit(1)

@@ -1,5 +1,6 @@
 #include "Codegen.h"
 
+#include <algorithm>
 #include <cstddef>
 #include <filesystem>
 #include <memory>
@@ -85,7 +86,10 @@ Codegen::Codegen(std::shared_ptr<Parser> parser,
                  std::shared_ptr<SourceMgr> srcMgr, const std::string& filename,
                  std::vector<std::string> imports, bool jit, bool main,
                  std::string alias,
-                 const std::shared_ptr<ThreadSafeContext>& context) {
+                 const std::shared_ptr<ThreadSafeContext>& context,
+                 std::shared_ptr<std::vector<std::string>> sharedModules,
+                 std::shared_ptr<std::vector<std::unique_ptr<SymbolTable>>>
+                     sharedScopes) {
   InitializeNativeTarget();
   InitializeNativeTargetAsmPrinter();
   InitializeNativeTargetAsmParser();
@@ -111,7 +115,15 @@ Codegen::Codegen(std::shared_ptr<Parser> parser,
   isMain = main;
   isJit = jit;
 
-  importedModules = std::move(imports);
+  if (sharedModules && sharedScopes) {
+    importedModules = std::move(sharedModules);
+    importedScopes = std::move(sharedScopes);
+  } else {
+    importedModules =
+        std::make_shared<std::vector<std::string>>(std::move(imports));
+    importedScopes =
+        std::make_shared<std::vector<std::unique_ptr<SymbolTable>>>();
+  }
   topLevelFunc = initializeTopLevel();
 
   // If it's not base.les stdlib, then import it
@@ -287,13 +299,97 @@ auto Codegen::compileModule(
                   std::filesystem::absolute(mainPath).parent_path().c_str(),
                   filepath);
 
-  // If module is already imported, don't compile again. Re-enabling this check
-  // would avoid recompiling the same file when reached via different import
-  // paths, but it currently breaks nested imports (same file imported by
-  // multiple modules).
-  //    if (std::find(importedModules.begin(), importedModules.end(),
-  //    absolutePath) != importedModules.end())
-  //        return;
+  // If this codegen already compiled this module, only merge its symbols (no
+  // recompilation). Only skip when we have the scope (same codegen compiled it);
+  // otherwise a child may see the path in the list but not have the scope.
+  auto it = std::find(importedModules->begin(), importedModules->end(),
+                      absolutePath);
+  if (it != importedModules->end()) {
+    auto existingIdx =
+        static_cast<size_t>(it - importedModules->begin());
+    if (existingIdx >= importedScopes->size()) {
+      it = importedModules->end();
+    }
+  }
+  if (it != importedModules->end()) {
+    auto existingIdx =
+        static_cast<size_t>(it - importedModules->begin());
+    SymbolTable* existingScope = importedScopes->at(existingIdx).get();
+
+    if (!importToScope) {
+      auto importTyp = std::make_unique<Type>(BaseType::TY_IMPORT);
+      auto* importTypPtr = importTyp.get();
+      auto importSym =
+          std::make_unique<Value>(moduleAlias, importTypPtr);
+      scope->insertSymbol(std::move(importSym));
+      scope->insertType(moduleAlias, std::move(importTyp));
+    }
+
+    auto findInImports =
+        [importedNames](const std::string& import) -> std::string {
+      for (const auto& impPair : importedNames) {
+        if (impPair.first == import) {
+          return impPair.second;
+        }
+      }
+      return "";
+    };
+
+    for (auto* sym : existingScope->getSymbols()) {
+      auto impAlias = findInImports(sym->getName());
+      if (sym->getType()->isOneOf({BaseType::TY_ENUM, BaseType::TY_CLASS}) &&
+          sym->isExported() && (importAll || !impAlias.empty())) {
+        llvm::StructType* structType =
+            StructType::getTypeByName(theModule->getContext(), sym->getName());
+        auto structSymbol = std::make_unique<Value>(
+            impAlias.empty() ? sym->getName() : impAlias, sym->getType());
+        structSymbol->getType()->setLlvmType(structType);
+        scope->insertTypeRef(sym->getName(), sym->getType());
+        scope->insertSymbol(std::move(structSymbol));
+      } else if (sym->getType()->is(BaseType::TY_FUNCTION) &&
+                 sym->isExported()) {
+        auto* fTy = llvm::cast<FunctionType>(sym->getType()->getLlvmType());
+        llvm::Function* f = nullptr;
+        if (isJit) {
+          f = llvm::cast<Function>(
+              theModule->getOrInsertFunction(sym->getMangledName(), fTy)
+                  .getCallee());
+        }
+        auto name = sym->getName();
+        std::vector<lesma::Type*> paramTypes;
+        for (auto* field : sym->getType()->getFields()) {
+          paramTypes.push_back(field->type);
+        }
+        Value* funcSymbol = existingScope->lookupFunction(name, paramTypes);
+        impAlias = findInImports(name);
+        if (funcSymbol != nullptr && funcSymbol->isExported() &&
+            (importAll || !impAlias.empty() ||
+             isMethod(sym->getMangledName()))) {
+          auto symbol = std::make_unique<Value>(
+              impAlias.empty()
+                  ? name
+                  : std::regex_replace(name, std::regex(name), impAlias),
+              funcSymbol->getType());
+          if (isJit) {
+            symbol->getType()->setLlvmType(fTy);
+            symbol->setLlvmValue(f);
+            symbol->setExported(false);
+            symbol->setMangledName(sym->getMangledName());
+          } else {
+            auto* newFunc = Function::Create(
+                fTy, Function::ExternalLinkage, sym->getMangledName(),
+                *theModule);
+            symbol->getType()->setLlvmType(newFunc->getFunctionType());
+            symbol->setLlvmValue(newFunc);
+            symbol->setExported(false);
+            symbol->setMangledName(sym->getMangledName());
+          }
+          scope->insertSymbol(std::move(symbol));
+        }
+      }
+    }
+    return;
+  }
 
   auto buffer = MemoryBuffer::getFile(absolutePath);
   if (std::error_code ec = buffer.getError()) {
@@ -304,7 +400,7 @@ auto Codegen::compileModule(
       sourceManager->AddNewSourceBuffer(std::move(*buffer), llvm::SMLoc());
   // auto sourceStr =
   // sourceManager->getMemoryBuffer(fileId)->getBuffer().str();
-  importedModules.push_back(absolutePath);
+  importedModules->push_back(absolutePath);
 
   try {
     // Lexer
@@ -318,15 +414,14 @@ auto Codegen::compileModule(
     // Per-module Codegen; we transfer rootScope and typeCache into
     // importedScopes/typeCache below so symbols and types stay alive.
     auto codegen = std::make_unique<Codegen>(
-        std::move(parser), sourceManager, absolutePath, importedModules, isJit,
-        false, !importToScope ? moduleAlias : "", theContext);
+        std::move(parser), sourceManager, absolutePath, std::vector<std::string>{},
+        isJit, false, !importToScope ? moduleAlias : "", theContext,
+        importedModules, importedScopes);
     codegen->run();
 
     // Optimize
     codegen->optimize(OptimizationLevel::O3);
     codegen->theModule->setModuleIdentifier(filepath);
-
-    importedModules = std::move(codegen->importedModules);
 
     if (!importToScope) {
       auto importTyp = std::make_unique<Type>(BaseType::TY_IMPORT);
@@ -433,7 +528,7 @@ auto Codegen::compileModule(
     // Transfer ownership of imported Scope and type cache to keep Types/Values
     // alive (Types/Values in imported scope are referenced by newly created
     // symbols)
-    importedScopes.push_back(std::move(codegen->rootScope));
+    importedScopes->push_back(std::move(codegen->rootScope));
     codegen->scope = nullptr; // Clear navigation pointer (rootscope now moved)
 
     // Transfer type cache to keep cached types alive

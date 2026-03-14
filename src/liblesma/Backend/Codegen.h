@@ -58,9 +58,9 @@ class Codegen final : public ASTVisitor {
   lesma::Value* currentFunction = nullptr;
 
   std::vector<std::string> objectFiles;
-  std::vector<std::string> importedModules;
-  std::vector<std::unique_ptr<SymbolTable>>
-      importedScopes; // Keep imported scopes alive
+  std::shared_ptr<std::vector<std::string>> importedModules;
+  std::shared_ptr<std::vector<std::unique_ptr<SymbolTable>>>
+      importedScopes; // Shared so child (e.g. B) sees parent's (A) imports (e.g. math)
   std::vector<std::unique_ptr<lesma::Type>>
       typeCache; // Cache for primitive types to prevent dangling pointers
   std::vector<std::tuple<lesma::Value*, const FuncDecl*, Value*>> prototypes;
@@ -78,7 +78,10 @@ public:
   Codegen(std::shared_ptr<Parser> parser, std::shared_ptr<SourceMgr> srcMgr,
           const std::string& filename, std::vector<std::string> imports,
           bool jit, bool main, std::string alias = "",
-          const std::shared_ptr<ThreadSafeContext>& = nullptr);
+          const std::shared_ptr<ThreadSafeContext>& = nullptr,
+          std::shared_ptr<std::vector<std::string>> sharedModules = nullptr,
+          std::shared_ptr<std::vector<std::unique_ptr<SymbolTable>>>
+              sharedScopes = nullptr);
   ~Codegen() override = default;
 
   Codegen(const Codegen&) = delete;
