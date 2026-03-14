@@ -69,6 +69,7 @@ class Codegen final : public ASTVisitor {
   Value* selfSymbol = nullptr;
   bool isBreak = false;
   bool isReturn = false;
+  bool blockHadReturn = false;
   bool isAssignment = false;
   bool isJit = false;
   bool isMain = true;

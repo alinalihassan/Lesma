@@ -855,17 +855,10 @@ auto Codegen::visit(const If* node) -> void {
     builder->SetInsertPoint(bIfTrue);
 
     scope = scope->createChildBlock("if");
+    blockHadReturn = false;
     node->getBlocks().at(i)->accept(*this);
 
-    // TODO: Really slow and hacky way to check if there was a return in block
-    bool returned = false;
-    for (auto* stat : node->getBlocks().at(i)->getChildren()) {
-      if (dynamic_cast<Return*>(stat) != nullptr) {
-        returned = true;
-      }
-    }
-
-    if (!isBreak && !returned) {
+    if (!isBreak && !blockHadReturn) {
       builder->CreateBr(bEnd);
     }
 
@@ -1253,6 +1246,7 @@ auto Codegen::visit(const Return* node) -> void {
   }
 
   isReturn = true;
+  blockHadReturn = true;
 
   if (node->getValue() == nullptr) {
     if (currentFunction->getType()->getReturnType()->is(BaseType::TY_VOID)) {
