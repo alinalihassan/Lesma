@@ -64,7 +64,7 @@ auto Lexer::scanOne(bool continuation) -> std::unique_ptr<Token> {
   case ',':
     return makeToken(TokenType::COMMA);
   case '.': {
-    if (matchAndAdvance(('.'))) {
+    if (matchAndAdvance('.')) {
       if (matchAndAdvance('.')) {
         return makeToken(TokenType::ELLIPSIS);
       }

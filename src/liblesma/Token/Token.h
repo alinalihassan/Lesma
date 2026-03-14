@@ -36,7 +36,8 @@ struct Token {
   auto operator!=(const Token& rhs) const -> bool { return !operator==(rhs); }
 
   friend auto operator<<(std::ostream& os, const Token& tok) -> std::ostream& {
-    os << *tok.span.Start.getPointer() << " - " << *tok.span.End.getPointer();
+    os << "Token{lexeme=\"" << tok.lexeme << "\", type="
+       << static_cast<std::uint8_t>(tok.type) << "}";
     return os;
   }
 };

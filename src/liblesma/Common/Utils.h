@@ -14,6 +14,7 @@
 #include "plf_nanotimer.h"
 
 namespace lesma {
+// CLEAR = no log prefix (plain output); use for version, help, etc.
 enum class LogType : std::uint8_t { ERROR, WARNING, DEBUG, SUCCESS, CLEAR };
 
 struct CLIOptions {
@@ -37,6 +38,7 @@ void print(LogType typ, const S& formatStr, const Args&... args) {
     fmt::print(fg(fmt::color::forest_green) | fmt::emphasis::bold,
                "[+] Success: ");
   }
+  // LogType::CLEAR: no prefix (plain output)
 
   // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-array-to-pointer-decay)
   fmt::print(fmt::runtime(formatStr), args...);
@@ -61,22 +63,19 @@ public:
   // return types
   template <typename F>
   auto measure(const std::string& operation, F&& func) -> decltype(auto) {
+    auto recordElapsed = [this, &operation](double elapsed) {
+      total += elapsed;
+      if (enabled) {
+        print(LogType::DEBUG, "{} -> {:.2f} ms\n", operation, elapsed);
+      }
+    };
     timer.start();
-
     if constexpr (std::is_void_v<std::invoke_result_t<F>>) {
       std::forward<F>(func)();
-      double const elapsed = timer.get_elapsed_ms();
-      total += elapsed;
-      if (enabled) {
-        print(LogType::DEBUG, "{} -> {:.2f} ms\n", operation, elapsed);
-      }
+      recordElapsed(timer.get_elapsed_ms());
     } else {
       auto result = std::forward<F>(func)();
-      double const elapsed = timer.get_elapsed_ms();
-      total += elapsed;
-      if (enabled) {
-        print(LogType::DEBUG, "{} -> {:.2f} ms\n", operation, elapsed);
-      }
+      recordElapsed(timer.get_elapsed_ms());
       return result;
     }
   }

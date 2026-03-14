@@ -74,6 +74,8 @@ auto Driver::baseCompile(std::unique_ptr<lesma::Options> options,
     // Codegen
     auto codegen =
         timer.measure("Compiling", [&]() -> std::unique_ptr<lesma::Codegen> {
+          // No preloaded modules; Codegen populates importedModules as it
+          // compiles each import.
           std::vector<std::string> const modules;
           auto cg = std::make_unique<Codegen>(
               std::move(parser), srcMgr,
@@ -118,7 +120,10 @@ auto Driver::baseCompile(std::unique_ptr<lesma::Options> options,
     if (!err.getSpan().isValid()) {
       lesma::print(LogType::ERROR, err.what());
     } else {
-      showInline(srcMgr.get(), 1, err.getSpan(),
+      // Main source buffer is the one we added; LLVM uses 0-based buffer IDs.
+      unsigned const mainBufferId =
+          srcMgr->getNumBuffers() > 0 ? srcMgr->getNumBuffers() - 1 : 0;
+      showInline(srcMgr.get(), mainBufferId, err.getSpan(),
                  options->sourceType == SourceType::FILE ? options->source : "",
                  true, err.what());
     }

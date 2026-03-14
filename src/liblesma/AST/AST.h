@@ -470,8 +470,10 @@ public:
                            srcMgr->getLineAndColumn(getStart()).second,
                            srcMgr->getLineAndColumn(getEnd()).second, name);
     for (const auto& param : parameters) {
-      ret +=
-          param->name + ": " + param->type->toString(srcMgr, prefix, isTail) +
+      ret += param->name + ": " +
+          (param->type != nullptr
+               ? param->type->toString(srcMgr, prefix, isTail)
+               : "?") +
           (param->defaultVal == nullptr
                ? ""
                : fmt::format("= {}", param->defaultVal->toString(srcMgr, prefix,
@@ -539,8 +541,10 @@ public:
                            srcMgr->getLineAndColumn(getStart()).second,
                            srcMgr->getLineAndColumn(getEnd()).second, name);
     for (const auto& param : parameters) {
-      ret +=
-          param->name + ": " + param->type->toString(srcMgr, prefix, isTail) +
+      ret += param->name + ": " +
+          (param->type != nullptr
+               ? param->type->toString(srcMgr, prefix, isTail)
+               : "?") +
           (param->defaultVal == nullptr
                ? ""
                : fmt::format("= {}", param->defaultVal->toString(srcMgr, prefix,
@@ -878,6 +882,29 @@ public:
         srcMgr->getLineAndColumn(getStart()).second,
         srcMgr->getLineAndColumn(getEnd()).second,
         stmt->toString(srcMgr, prefix + (isTail ? "    " : "│   "), true));
+  }
+};
+
+class UnimplementedStatement : public Statement {
+  std::string message;
+
+public:
+  UnimplementedStatement(llvm::SMRange loc, std::string message)
+      : Statement(loc), message(std::move(message)) {}
+  void accept(ASTVisitor& visitor) const override { visitor.visit(this); }
+
+  [[nodiscard]] auto getMessage() const -> const std::string& {
+    return message;
+  }
+
+  auto toString(llvm::SourceMgr* srcMgr, const std::string& prefix,
+                bool isTail) const -> std::string override {
+    return fmt::format("{}{}Unimplemented[Line({}-{}):Col({}-{})]: {}\n",
+                       prefix, isTail ? "└──" : "├──",
+                       srcMgr->getLineAndColumn(getStart()).first,
+                       srcMgr->getLineAndColumn(getEnd()).first,
+                       srcMgr->getLineAndColumn(getStart()).second,
+                       srcMgr->getLineAndColumn(getEnd()).second, message);
   }
 };
 

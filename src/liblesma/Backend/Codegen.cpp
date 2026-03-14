@@ -287,10 +287,12 @@ auto Codegen::compileModule(
                   std::filesystem::absolute(mainPath).parent_path().c_str(),
                   filepath);
 
-  // If module is already imported, don't compile again
-  // TODO: Re-enable this again, currently it destroys nested imports
-  //    if (std::find(ImportedModules.begin(), ImportedModules.end(),
-  //    absolute_path) != ImportedModules.end())
+  // If module is already imported, don't compile again. Re-enabling this check
+  // would avoid recompiling the same file when reached via different import
+  // paths, but it currently breaks nested imports (same file imported by
+  // multiple modules).
+  //    if (std::find(importedModules.begin(), importedModules.end(),
+  //    absolutePath) != importedModules.end())
   //        return;
 
   auto buffer = MemoryBuffer::getFile(absolutePath);
@@ -313,8 +315,8 @@ auto Codegen::compileModule(
     auto parser = std::make_unique<Parser>(lexer->getTokens());
     parser->parse();
 
-    // TODO: Delete it, memory leak, smart pointer made us lose the references
-    // to other modules Codegen
+    // Per-module Codegen; we transfer rootScope and typeCache into
+    // importedScopes/typeCache below so symbols and types stay alive.
     auto codegen = std::make_unique<Codegen>(
         std::move(parser), sourceManager, absolutePath, importedModules, isJit,
         false, !importToScope ? moduleAlias : "", theContext);
@@ -357,10 +359,9 @@ auto Codegen::compileModule(
       objectFiles.push_back(fmt::format("{}.o", objFile));
     }
 
-    // Import Symbols
-    // TODO: This section has ownership issues - Types from imported scope are
-    // referenced but the imported scope will be destroyed. Need to clone Types
-    // properly.
+    // Import Symbols. Ownership: codegen->rootScope is moved into
+    // importedScopes below so the imported scope and its Types/Values stay
+    // alive; typeCache is merged so cached types are retained.
     for (auto* sym : codegen->scope->getSymbols()) {
       auto impAlias = findInImports(sym->getName());
       if (sym->getType()->isOneOf({BaseType::TY_ENUM, BaseType::TY_CLASS}) &&
@@ -1281,6 +1282,10 @@ auto Codegen::visit(const Return* node) -> void {
 
 auto Codegen::visit(const Defer* node) -> void {
   deferStack.top().push_back(node->getStatement());
+}
+
+auto Codegen::visit(const UnimplementedStatement* node) -> void {
+  throw CodegenError(node->getSpan(), "{}", node->getMessage());
 }
 
 auto Codegen::visit(const ExpressionStatement* node) -> void {

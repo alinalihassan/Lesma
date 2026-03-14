@@ -80,16 +80,18 @@ public:
   Value(Value&&) = default;
   auto operator=(Value&&) -> Value& = default;
 
-  [[nodiscard]] auto getName() -> std::string { return name; }
-  [[nodiscard]] auto getMangledName() -> std::string { return mangledName; }
-  [[nodiscard]] auto getLlvmValue() -> llvm::Value* { return llvmValue; }
+  [[nodiscard]] auto getName() const -> std::string { return name; }
+  [[nodiscard]] auto getMangledName() const -> std::string { return mangledName; }
+  [[nodiscard]] auto getLlvmValue() const -> llvm::Value* { return llvmValue; }
   [[nodiscard]] auto getMutability() const -> bool { return mutableVar; }
   [[nodiscard]] auto getSigned() const -> bool { return signedVar; }
-  [[nodiscard]] auto getState() -> SymbolState { return state; }
+  [[nodiscard]] auto getState() const -> SymbolState { return state; }
   [[nodiscard]] auto getType() const -> Type* {
     return ownedType ? ownedType.get() : type;
   }
-  [[nodiscard]] auto getConstructor() -> lesma::Value* { return constructor; }
+  [[nodiscard]] auto getConstructor() const -> lesma::Value* {
+    return constructor;
+  }
   [[nodiscard]] auto isExported() const -> bool { return exported; }
   [[nodiscard]] auto isUsed() const -> bool { return used; }
 
@@ -102,7 +104,7 @@ public:
   auto setExported(bool value) -> void { exported = value; }
   auto setConstructor(lesma::Value* value) -> void { constructor = value; }
 
-  auto toString() -> std::string {
+  auto toString() const -> std::string {
     std::string typeStr;
     std::string valueStr;
     llvm::raw_string_ostream rso(typeStr);

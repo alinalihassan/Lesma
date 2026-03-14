@@ -18,9 +18,9 @@
 
 using namespace lesma;
 
-template <TokenType type, TokenType... remained_types>
+template <TokenType type, TokenType... remaining_types>
 auto Parser::advanceIfMatchAny() -> bool {
-  if (checkAny<type, remained_types...>()) {
+  if (checkAny<type, remaining_types...>()) {
     advance();
     return true;
   }
@@ -28,16 +28,16 @@ auto Parser::advanceIfMatchAny() -> bool {
   return false;
 }
 
-template <TokenType type, TokenType... remained_types>
+template <TokenType type, TokenType... remaining_types>
 auto Parser::checkAny() -> bool {
-  return checkAny<type, remained_types...>(0);
+  return checkAny<type, remaining_types...>(0);
 }
 
-template <TokenType type, TokenType... remained_types>
+template <TokenType type, TokenType... remaining_types>
 auto Parser::checkAnyInLine() -> bool {
   int i = 0;
   while (!checkAny<TokenType::NEWLINE, TokenType::EOF_TOKEN>(i)) {
-    if (checkAny<type, remained_types...>(i)) {
+    if (checkAny<type, remaining_types...>(i)) {
       return true;
     }
     i++;
@@ -46,11 +46,11 @@ auto Parser::checkAnyInLine() -> bool {
   return false;
 }
 
-template <TokenType type, TokenType... remained_types>
+template <TokenType type, TokenType... remaining_types>
 auto Parser::checkAny(unsigned long pos) -> bool {
   if (!check(type, pos)) {
-    if constexpr (sizeof...(remained_types) > 0) {
-      return checkAny<remained_types...>(pos);
+    if constexpr (sizeof...(remaining_types) > 0) {
+      return checkAny<remaining_types...>(pos);
     } else {
       return false;
     }
@@ -433,9 +433,15 @@ auto Parser::parseWhile() -> std::unique_ptr<Statement> {
 }
 
 auto Parser::parseFor() -> std::unique_ptr<Statement> {
-  error(peek(), "Unimplemented");
-
-  return nullptr;
+  auto loc = peek()->span;
+  consume(TokenType::FOR);
+  consume(TokenType::IDENTIFIER);
+  consume(TokenType::IN);
+  parseExpression();
+  auto block = parseBlock();
+  return std::make_unique<UnimplementedStatement>(
+      llvm::SMRange{loc.Start, block->getEnd()},
+      "for loop is not yet implemented");
 }
 
 auto Parser::parseAssignment() -> std::unique_ptr<Statement> {
@@ -575,7 +581,7 @@ auto Parser::parseBlock() -> std::unique_ptr<Compound> {
   std::vector<std::unique_ptr<Statement>> statements;
 
   consume(TokenType::NEWLINE);
-  consume(TokenType::INDENT);
+  auto* indentTok = consume(TokenType::INDENT);
 
   while (!checkAny<TokenType::DEDENT, TokenType::EOF_TOKEN>()) {
     statements.push_back(parseStatement(false));
@@ -583,6 +589,9 @@ auto Parser::parseBlock() -> std::unique_ptr<Compound> {
 
   advanceIfMatchAny<TokenType::DEDENT>();
 
+  if (statements.empty()) {
+    return std::make_unique<Compound>(indentTok->span, std::move(statements));
+  }
   return std::make_unique<Compound>(
       llvm::SMRange{statements.front()->getStart(),
                     statements.back()->getEnd()},
@@ -838,6 +847,9 @@ auto Parser::parseCompound() -> std::unique_ptr<Compound> {
       consume(TokenType::NEWLINE);
     }
     statements.push_back(parseStatement(true));
+  }
+  if (statements.empty()) {
+    return std::make_unique<Compound>(peek()->span, std::move(statements));
   }
   return std::make_unique<Compound>(
       llvm::SMRange{statements.front()->getStart(),

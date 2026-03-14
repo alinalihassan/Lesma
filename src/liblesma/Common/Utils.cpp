@@ -11,8 +11,10 @@
 #include <fmt/base.h>
 #include <fmt/color.h>
 #include <fmt/format.h>
+#if !defined(_WIN32) && !defined(_WIN64)
 #include <pwd.h>
 #include <unistd.h>
+#endif
 
 namespace lesma {
 auto getBasename(const std::string& filePath) -> std::string {
@@ -66,13 +68,27 @@ auto showInline(llvm::SourceMgr* srcMgr, unsigned int bufferId,
 
 auto getStdDir() -> std::string {
   std::string homedir;
-
+#if defined(_WIN32) || defined(_WIN64)
+  const char* env = getenv("USERPROFILE");
+  if (env != nullptr) {
+    homedir = env;
+  } else {
+    env = getenv("HOMEDRIVE");
+    const char* path = getenv("HOMEPATH");
+    if (env != nullptr && path != nullptr) {
+      homedir = std::string(env) + path;
+    } else {
+      homedir = ".";
+    }
+  }
+  return fmt::format("{}\\.lesma\\stdlib\\", homedir);
+#else
   if (getenv("HOME") != nullptr) {
     homedir = getenv("HOME");
   } else {
     homedir = getpwuid(getuid())->pw_dir;
   }
-
   return fmt::format("{}/.lesma/stdlib/", homedir);
+#endif
 }
 } // namespace lesma

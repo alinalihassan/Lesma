@@ -123,6 +123,7 @@ protected:
   auto visit(const Continue* node) -> void override;
   auto visit(const Return* node) -> void override;
   auto visit(const Defer* node) -> void override;
+  auto visit(const UnimplementedStatement* node) -> void override;
   auto visit(const ExpressionStatement* node) -> void override;
 
   auto visit(const Expression* node) -> void override;

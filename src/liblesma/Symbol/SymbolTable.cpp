@@ -103,16 +103,16 @@ auto SymbolTable::lookupFunction(
 
 /**
  * Check if a symbol exists in the current or any parent scope and return it if
- * possible
+ * possible. When multiple symbols share the same name (e.g. overloaded
+ * functions), one match is returned; use lookupFunction for overload resolution.
  *
  * @param name Name of the desired symbol
  * @return Desired symbol / nullptr if the symbol was not found
  */
 auto SymbolTable::lookup(const std::string& name) -> Value* {
-  for (const auto& [key, sym] : symbols) {
-    if (key == name) {
-      return sym.get();
-    }
+  auto [it, end] = symbols.equal_range(name);
+  if (it != end) {
+    return it->second.get();
   }
 
   if (parent == nullptr) {

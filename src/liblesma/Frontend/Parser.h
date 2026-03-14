@@ -58,16 +58,16 @@ private:
     return peek(pos)->type == type;
   }
 
-  template <TokenType type, TokenType... remained_types>
+  template <TokenType type, TokenType... remaining_types>
   auto advanceIfMatchAny() -> bool;
 
-  template <TokenType type, TokenType... remained_types>
+  template <TokenType type, TokenType... remaining_types>
   auto checkAny() -> bool;
 
-  template <TokenType type, TokenType... remained_types>
+  template <TokenType type, TokenType... remaining_types>
   auto checkAnyInLine() -> bool;
 
-  template <TokenType type, TokenType... remained_types>
+  template <TokenType type, TokenType... remaining_types>
   auto checkAny(unsigned long pos) -> bool;
 
   std::vector<Token*> tokens;

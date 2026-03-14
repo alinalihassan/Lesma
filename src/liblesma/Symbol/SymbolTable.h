@@ -42,9 +42,28 @@ public:
     }
     return result;
   }
+  [[nodiscard]] auto getSymbols() const -> std::vector<const Value*> {
+    std::vector<const Value*> result;
+    result.reserve(symbols.size());
+    for (const auto& [key, val] : symbols) {
+      result.push_back(val.get());
+    }
+    return result;
+  }
 
   [[nodiscard]] auto getTypes() -> std::vector<Type*> {
     std::vector<Type*> result;
+    result.reserve(types.size() + typeRefs.size());
+    for (const auto& [key, val] : types) {
+      result.push_back(val.get());
+    }
+    for (const auto& [key, val] : typeRefs) {
+      result.push_back(val);
+    }
+    return result;
+  }
+  [[nodiscard]] auto getTypes() const -> std::vector<const Type*> {
+    std::vector<const Type*> result;
     result.reserve(types.size() + typeRefs.size());
     for (const auto& [key, val] : types) {
       result.push_back(val.get());
