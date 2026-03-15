@@ -16,7 +16,7 @@ using namespace lesma;
 
 auto Token::dump(const std::shared_ptr<llvm::SourceMgr>& srcMgr) const
     -> std::string {
-  unsigned const bufId = srcMgr->getNumBuffers() - 1;
+  unsigned const bufId = srcMgr->getNumBuffers();
   auto [startLine, startCol] = srcMgr->getLineAndColumn(span.Start, bufId);
   auto [endLine, endCol] = srcMgr->getLineAndColumn(span.End, bufId);
 

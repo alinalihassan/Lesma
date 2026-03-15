@@ -72,11 +72,14 @@ LLD_HAS_DRIVER(elf)
 #include <nameof.hpp>
 
 #include "liblesma/AST/AST.h"
-#include "liblesma/Common/LesmaError.h"
+#include "liblesma/Backend/CodegenError.h"
+#include "liblesma/Backend/CodegenTypeUtils.h"
+#include "liblesma/Backend/MangleUtils.h"
 #include "liblesma/Common/Utils.h"
 #include "liblesma/Frontend/Lexer.h"
 #include "liblesma/Frontend/Parser.h"
 #include "liblesma/Symbol/Type.h"
+#include "liblesma/Symbol/TypeUtils.h"
 #include "liblesma/Symbol/Value.h"
 #include "liblesma/Token/TokenType.h"
 
@@ -265,16 +268,13 @@ auto Codegen::defineFunction(lesma::Value* value, const FuncDecl* node,
 
   isReturn = false;
 
-  // Verify function
-  // TODO: Verify function again, unfortunately functions from other modules
-  // have attributes attached without context of usage, and verify gives error
-  //    std::string output;
-  //    llvm::raw_string_ostream oss(output);
-  //    if (llvm::verifyFunction(*F, &oss)) {
-  //        F->print(outs());
-  //        throw CodegenError(node->GetSpan(), "Invalid Function {}\n{}",
-  //        node->GetName(), output);
-  //    }
+  // Verify only this module's function (not cross-module declarations).
+  std::string verifyOutput;
+  llvm::raw_string_ostream oss(verifyOutput);
+  if (llvm::verifyFunction(*f, &oss)) {
+    throw CodegenError(node->getSpan(), "Invalid function {}\n{}", node->getName(),
+                       verifyOutput);
+  }
 
   // Insert Function to Symbol Table
   scope = scope->getParent();
@@ -362,9 +362,23 @@ auto Codegen::compileModule(
         }
         Value* funcSymbol = existingScope->lookupFunction(name, paramTypes);
         impAlias = findInImports(name);
+        const bool isMethodSym = MangleUtils::isMethod(sym->getMangledName());
+        bool methodClassImported = true;
+        if (isMethodSym && !importAll) {
+          const std::string& mn = sym->getMangledName();
+          const size_t colcol = mn.find("::");
+          if (colcol != std::string::npos) {
+            std::string classPart = mn.substr(0, colcol);
+            const size_t arrow = classPart.find("=>");
+            if (arrow != std::string::npos) {
+              classPart = classPart.substr(arrow + 2);
+            }
+            methodClassImported = !findInImports(classPart).empty();
+          }
+        }
         if (funcSymbol != nullptr && funcSymbol->isExported() &&
             (importAll || !impAlias.empty() ||
-             isMethod(sym->getMangledName()))) {
+             (isMethodSym && methodClassImported))) {
           auto symbol = std::make_unique<Value>(
               impAlias.empty()
                   ? name
@@ -497,7 +511,7 @@ auto Codegen::compileModule(
         // specified
         if (funcSymbol != nullptr && funcSymbol->isExported() &&
             (importAll || !impAlias.empty() ||
-             isMethod(sym->getMangledName()))) {
+             MangleUtils::isMethod(sym->getMangledName()))) {
           auto symbol = std::make_unique<Value>(
               impAlias.empty()
                   ? name
@@ -836,9 +850,13 @@ auto Codegen::visit(const TypeExpr* node) -> void {
     result = std::make_unique<Value>(type);
   } else if (node->getType() == TokenType::PTR_TYPE) {
     node->getElementType()->accept(*this);
-    auto* type = cacheType(std::make_unique<Type>(
-        BaseType::TY_PTR, builder->getPtrTy(), result->getType()));
-    result = std::make_unique<Value>(type);
+    // Function type is already a pointer at LLVM level; parser uses *func for
+    // consistency, so do not add another pointer layer.
+    if (!result->getType()->is(BaseType::TY_FUNCTION)) {
+      auto* type = cacheType(std::make_unique<Type>(
+          BaseType::TY_PTR, builder->getPtrTy(), result->getType()));
+      result = std::make_unique<Value>(type);
+    }
   } else if (node->getType() == TokenType::FUNC_TYPE) {
     node->getReturnType()->accept(*this);
     auto retType = std::move(result);
@@ -887,9 +905,6 @@ auto Codegen::visit(const VarDecl* node) -> void {
   lesma::Type* type = nullptr;
   std::unique_ptr<lesma::Value> val;
 
-  // TODO: We shouldn't need to use this
-  bool isClass = false;
-
   if (node->getValue() != nullptr) {
     node->getValue()->accept(*this);
     val = std::move(result);
@@ -908,8 +923,9 @@ auto Codegen::visit(const VarDecl* node) -> void {
     // Cache the pointer type to prevent dangling pointers
     type = cacheType(
         std::make_unique<Type>(BaseType::TY_PTR, builder->getPtrTy(), type));
-    isClass = true;
   }
+  const bool isPtrToClass =
+      type->is(BaseType::TY_PTR) && type->getElementType()->is(BaseType::TY_CLASS);
   auto symbol = std::make_unique<Value>(node->getIdentifier()->getValue(), type,
                                         node->getType() != nullptr
                                             ? SymbolState::INITIALIZED
@@ -920,8 +936,8 @@ auto Codegen::visit(const VarDecl* node) -> void {
 
   // Convert declared value to declared type implicitly
   if (node->getValue() != nullptr) {
-    auto castVal = cast(node->getSpan(), val.get(),
-                        isClass ? type->getElementType() : type);
+    lesma::Type* castTarget = isPtrToClass ? type->getElementType() : type;
+    auto castVal = cast(node->getSpan(), val.get(), castTarget);
     builder->CreateStore(castVal->getLlvmValue(), ptr);
   }
 }
@@ -1208,7 +1224,7 @@ auto Codegen::visit(const Assignment* node) -> void {
     node->getLeftHandSide()->accept(*this);
     lhsOwner = std::move(result);
     lhs = lhsOwner.get();
-    // TODO: Fix me, for some reason self.x is a ptr but x is not
+    // DotOp on class field yields pointer (StructGEP); cast RHS to element type.
     isPtr = true;
   } else {
     throw CodegenError(
@@ -1221,81 +1237,17 @@ auto Codegen::visit(const Assignment* node) -> void {
   node->getRightHandSide()->accept(*this);
   auto value = cast(node->getSpan(), result.get(),
                     isPtr ? lhs->getType()->getElementType() : lhs->getType());
-  llvm::Value* varVal = nullptr;
 
   switch (node->getOperator()) {
   case TokenType::EQUAL:
     builder->CreateStore(value->getLlvmValue(), lhs->getLlvmValue());
     break;
   case TokenType::PLUS_EQUAL:
-    varVal =
-        builder->CreateLoad(lhs->getType()->getLlvmType(), lhs->getLlvmValue());
-    if (lhs->getType()->is(BaseType::TY_FLOAT)) {
-      auto* newVal = builder->CreateFAdd(value->getLlvmValue(), varVal);
-      builder->CreateStore(newVal, lhs->getLlvmValue());
-    } else if (lhs->getType()->is(BaseType::TY_INT)) {
-      auto* newVal = builder->CreateAdd(value->getLlvmValue(), varVal);
-      builder->CreateStore(newVal, lhs->getLlvmValue());
-    } else {
-      throw CodegenError(node->getSpan(), "Invalid operator: {}",
-                         NAMEOF_ENUM(node->getOperator()));
-    }
-    break;
   case TokenType::MINUS_EQUAL:
-    varVal =
-        builder->CreateLoad(lhs->getType()->getLlvmType(), lhs->getLlvmValue());
-    if (lhs->getType()->is(BaseType::TY_FLOAT)) {
-      auto* newVal = builder->CreateFSub(value->getLlvmValue(), varVal);
-      builder->CreateStore(newVal, lhs->getLlvmValue());
-    } else if (lhs->getType()->is(BaseType::TY_INT)) {
-      auto* newVal = builder->CreateSub(value->getLlvmValue(), varVal);
-      builder->CreateStore(newVal, lhs->getLlvmValue());
-    } else {
-      throw CodegenError(node->getSpan(), "Invalid operator: {}",
-                         NAMEOF_ENUM(node->getOperator()));
-    }
-    break;
   case TokenType::SLASH_EQUAL:
-    varVal =
-        builder->CreateLoad(lhs->getType()->getLlvmType(), lhs->getLlvmValue());
-    if (lhs->getType()->is(BaseType::TY_FLOAT)) {
-      auto* newVal = builder->CreateFDiv(value->getLlvmValue(), varVal);
-      builder->CreateStore(newVal, lhs->getLlvmValue());
-    } else if (lhs->getType()->is(BaseType::TY_INT)) {
-      auto* newVal = builder->CreateSDiv(value->getLlvmValue(), varVal);
-      builder->CreateStore(newVal, lhs->getLlvmValue());
-    } else {
-      throw CodegenError(node->getSpan(), "Invalid operator: {}",
-                         NAMEOF_ENUM(node->getOperator()));
-    }
-    break;
   case TokenType::STAR_EQUAL:
-    varVal =
-        builder->CreateLoad(lhs->getType()->getLlvmType(), lhs->getLlvmValue());
-    if (lhs->getType()->is(BaseType::TY_FLOAT)) {
-      auto* newVal = builder->CreateFMul(value->getLlvmValue(), varVal);
-      builder->CreateStore(newVal, lhs->getLlvmValue());
-    } else if (lhs->getType()->is(BaseType::TY_INT)) {
-      auto* newVal = builder->CreateMul(value->getLlvmValue(), varVal);
-      builder->CreateStore(newVal, lhs->getLlvmValue());
-    } else {
-      throw CodegenError(node->getSpan(), "Invalid operator: {}",
-                         NAMEOF_ENUM(node->getOperator()));
-    }
-    break;
   case TokenType::MOD_EQUAL:
-    varVal =
-        builder->CreateLoad(lhs->getType()->getLlvmType(), lhs->getLlvmValue());
-    if (lhs->getType()->is(BaseType::TY_FLOAT)) {
-      auto* newVal = builder->CreateFRem(value->getLlvmValue(), varVal);
-      builder->CreateStore(newVal, lhs->getLlvmValue());
-    } else if (lhs->getType()->is(BaseType::TY_INT)) {
-      auto* newVal = builder->CreateSRem(value->getLlvmValue(), varVal);
-      builder->CreateStore(newVal, lhs->getLlvmValue());
-    } else {
-      throw CodegenError(node->getSpan(), "Invalid operator: {}",
-                         NAMEOF_ENUM(node->getOperator()));
-    }
+    emitCompoundAssign(node->getSpan(), node->getOperator(), lhs, value.get());
     break;
   case TokenType::POWER_EQUAL:
     throw CodegenError(node->getSpan(), "Power operator not implemented yet.");
@@ -1490,7 +1442,8 @@ auto Codegen::visit(const BinaryOp* node) -> void {
   auto left = std::move(result);
   node->getRight()->accept(*this);
   auto right = std::move(result);
-  lesma::Type* finalType = getExtendedType(left->getType(), right->getType());
+  lesma::Type* finalType =
+      CodegenTypeUtils::getExtendedType(left->getType(), right->getType());
 
   switch (node->getOperator()) {
   case TokenType::MINUS:
@@ -1923,7 +1876,7 @@ auto Codegen::visit(const DotOp* node) -> void {
         }
 
         // Setting value to the enum
-        auto val = findIndexInFields(typeSym, right->getValue());
+        auto val = TypeUtils::findIndexInFields(typeSym, right->getValue());
         // Field not found in enum
         if (val == -1) {
           throw CodegenError(node->getLeft()->getSpan(),
@@ -1937,8 +1890,7 @@ auto Codegen::visit(const DotOp* node) -> void {
         auto* field = builder->CreateStructGEP(
             structVal->getType()->getLlvmType(), enumPtr, 0);
         builder->CreateStore(builder->getInt8(val), field);
-        // TODO: Returning the enum directly or a ptr to it? We used to return a
-        // pointer
+        // Enum variant literals are returned by value (not pointer).
         auto* enumVal =
             builder->CreateLoad(structVal->getType()->getLlvmType(), enumPtr);
 
@@ -2010,16 +1962,15 @@ auto Codegen::visit(const DotOp* node) -> void {
         method = dynamic_cast<FuncCall*>(node->getRight());
       }
 
-      // TODO: Somehow, when we call a class method with a variable x,
-      //  we lose the class name from cls, so we set it again
+      // lookupStruct returns by LLVM struct name; ensure display name matches.
       auto* cls =
           scope->lookupStruct(lesmaType->getLlvmType()->getStructName().str());
       cls->setName(lesmaType->getLlvmType()->getStructName().str());
 
       if (cls->getType()->is(BaseType::TY_CLASS)) {
         if (!field.empty()) {
-          auto index = findIndexInFields(cls->getType(), field);
-          auto* type = findTypeInFields(cls->getType(), field);
+          auto index = TypeUtils::findIndexInFields(cls->getType(), field);
+          auto* type = TypeUtils::findTypeInFields(cls->getType(), field);
           if (index == -1) {
             throw CodegenError(node->getRight()->getSpan(),
                                "Could not find field {} in {}", field,
@@ -2217,71 +2168,18 @@ auto Codegen::visit(const Else* /*node*/) -> void {
       "", type, llvm::ConstantInt::getTrue(theModule->getContext()));
 }
 
-auto Codegen::getTypeMangledName(llvm::SMRange span,
-                                 lesma::Type* type) -> std::string {
-  auto* llvmTy = type->getLlvmType();
-  if (type->is(BaseType::TY_BOOL)) {
-    return "b";
-  }
-  if (type->is(BaseType::TY_INT) && llvmTy->isIntegerTy(8)) {
-    return "c";
-  }
-  if (type->is(BaseType::TY_INT) && llvmTy->isIntegerTy(16)) {
-    return "i16";
-  }
-  if (type->is(BaseType::TY_INT) && llvmTy->isIntegerTy(32)) {
-    return "i32";
-  }
-  if (type->is(BaseType::TY_INT)) {
-    return "i";
-  }
-  if (type->is(BaseType::TY_FLOAT) && llvmTy->isFloatTy()) {
-    return "f32";
-  }
-  if (type->is(BaseType::TY_FLOAT) && llvmTy->isFloatingPointTy()) {
-    return "f";
-  }
-  if (type->is(BaseType::TY_STRING)) {
-    return "str";
-  }
-  if (type->is(BaseType::TY_VOID)) {
-    return "void";
-  }
-  if (type->is(BaseType::TY_ARRAY) && llvmTy->isArrayTy()) {
-    return "(arr_" + getTypeMangledName(span, type->getElementType()) + ")";
-  }
-  if (type->is(BaseType::TY_PTR)) {
-    return "(ptr_" + getTypeMangledName(span, type->getElementType()) + ")";
-  }
-  if (type->is(BaseType::TY_FUNCTION)) {
-    std::string paramStr;
-    for (const auto& field : type->getFields()) {
-      paramStr += getTypeMangledName(span, field->type) + "_";
-    }
-    return "(func_" + paramStr + ")";
-  }
-  if (type->isOneOf({BaseType::TY_CLASS, BaseType::TY_ENUM})) {
-    std::string paramStr;
-    for (const auto& field : type->getFields()) {
-      paramStr += getTypeMangledName(span, field->type) + "_";
-    }
-    return "(struct_" + type->getLlvmType()->getStructName().str() + ")";
-  }
-
-  throw CodegenError(span, "Unknown type found during mangling");
-}
-
-auto Codegen::isMethod(const std::string& mangledName) -> bool {
-  return mangledName.find("::") != std::string::npos;
+auto Codegen::cast(llvm::SMRange span, lesma::Value* val,
+                   lesma::Type* type) -> std::unique_ptr<lesma::Value> {
+  return CodegenTypeUtils::cast(span, val, type, builder.get());
 }
 
 auto Codegen::getMangledName(llvm::SMRange span, std::string funcName,
                              const std::vector<lesma::Type*>& paramTypes,
-                             bool isMethod, std::string alias) -> std::string {
+                             bool isMethodFlag, std::string alias) -> std::string {
   alias = alias.empty() ? this->alias : alias;
   std::string name =
       (alias.empty() ? "" : "&" + alias + "=>") +
-      (selfSymbol != nullptr && isMethod
+      (selfSymbol != nullptr && isMethodFlag
            ? selfSymbol->getName() + "::" + std::move(funcName) + ":"
            : "." + std::move(funcName) + ":");
   bool first = true;
@@ -2292,130 +2190,50 @@ auto Codegen::getMangledName(llvm::SMRange span, std::string funcName,
     } else {
       first = false;
     }
-
-    name += getTypeMangledName(span, paramType);
+    name += MangleUtils::getTypeMangledName(span, paramType);
   }
 
   return name;
 }
 
-auto Codegen::isMangled(std::string name) -> bool {
-  return name.find(':') != std::string::npos || name.at(0) == '.';
-}
-
-auto Codegen::getDemangledName(const std::string& name) -> std::string {
-  if (!isMangled(name)) {
-    return name;
+auto Codegen::emitCompoundAssign(llvm::SMRange span, TokenType op,
+                                  lesma::Value* lhs,
+                                  lesma::Value* value) -> void {
+  if (!lhs->getType()->is(BaseType::TY_FLOAT) &&
+      !lhs->getType()->is(BaseType::TY_INT)) {
+    throw CodegenError(span, "Invalid operator: {}", NAMEOF_ENUM(op));
   }
+  const bool isFloat = lhs->getType()->is(BaseType::TY_FLOAT);
+  auto* varVal =
+      builder->CreateLoad(lhs->getType()->getLlvmType(), lhs->getLlvmValue());
+  llvm::Value* newVal = nullptr;
 
-  auto demangledName = name;
-
-  // Remove class mangling
-  auto classMangling = demangledName.find("::");
-  if (classMangling != std::string::npos) {
-    demangledName = demangledName.substr(classMangling + 2);
+  switch (op) {
+  case TokenType::PLUS_EQUAL:
+    newVal = isFloat ? builder->CreateFAdd(value->getLlvmValue(), varVal)
+                    : builder->CreateAdd(value->getLlvmValue(), varVal);
+    break;
+  case TokenType::MINUS_EQUAL:
+    newVal = isFloat ? builder->CreateFSub(value->getLlvmValue(), varVal)
+                    : builder->CreateSub(value->getLlvmValue(), varVal);
+    break;
+  case TokenType::SLASH_EQUAL:
+    newVal = isFloat ? builder->CreateFDiv(value->getLlvmValue(), varVal)
+                    : builder->CreateSDiv(value->getLlvmValue(), varVal);
+    break;
+  case TokenType::STAR_EQUAL:
+    newVal = isFloat ? builder->CreateFMul(value->getLlvmValue(), varVal)
+                    : builder->CreateMul(value->getLlvmValue(), varVal);
+    break;
+  case TokenType::MOD_EQUAL:
+    newVal = isFloat ? builder->CreateFRem(value->getLlvmValue(), varVal)
+                    : builder->CreateSRem(value->getLlvmValue(), varVal);
+    break;
+  default:
+    throw CodegenError(span, "Invalid compound operator: {}",
+                       NAMEOF_ENUM(op));
   }
-
-  // Remove standard '.' mangling to differentiate from native functions
-  if (demangledName.at(0) == '.') {
-    demangledName.erase(0, 1);
-  }
-
-  // Remove parameters mangling
-  auto parameterMangling = demangledName.find(':');
-  if (parameterMangling != std::string::npos) {
-    demangledName = demangledName.substr(0, parameterMangling);
-  }
-
-  return demangledName;
-}
-
-auto Codegen::getExtendedType(lesma::Type* left,
-                              lesma::Type* right) -> lesma::Type* {
-  if (left->getBaseType() == right->getBaseType()) {
-    return left;
-  }
-
-  if (left->is(BaseType::TY_INT) && right->is(BaseType::TY_INT)) {
-    // TODO: We should ideally only have one int type, but our FFI
-    // implementation needs access to all types
-    if (left->getLlvmType()->getIntegerBitWidth() >
-        right->getLlvmType()->getIntegerBitWidth()) {
-      return left;
-    }
-    return right;
-  }
-  if (left->is(BaseType::TY_INT) && right->is(BaseType::TY_FLOAT)) {
-    return right;
-  }
-  if (left->is(BaseType::TY_FLOAT) && right->is(BaseType::TY_INT)) {
-    return left;
-  }
-  if (left->is(BaseType::TY_FLOAT) && right->is(BaseType::TY_FLOAT)) {
-    if (left->getLlvmType()->isFP128Ty() || right->getLlvmType()->isFP128Ty()) {
-      return left->getLlvmType()->isFP128Ty() ? left : right;
-    }
-    if (left->getLlvmType()->isDoubleTy() ||
-        right->getLlvmType()->isDoubleTy()) {
-      return left->getLlvmType()->isDoubleTy() ? left : right;
-    }
-    if (left->getLlvmType()->isFloatTy() || right->getLlvmType()->isFloatTy()) {
-      return left->getLlvmType()->isFloatTy() ? left : right;
-    }
-    if (left->getLlvmType()->isHalfTy() || right->getLlvmType()->isHalfTy()) {
-      return left->getLlvmType()->isHalfTy() ? left : right;
-    }
-  }
-  return nullptr;
-}
-
-auto Codegen::cast(llvm::SMRange span, lesma::Value* val,
-                   lesma::Type* type) -> std::unique_ptr<lesma::Value> {
-  if (type == nullptr) {
-    return std::make_unique<Value>(*val); // Copy for borrowed value
-  }
-
-  // If they're the same type
-  if (val->getType()->isEqual(type)) {
-    return std::make_unique<Value>(*val); // Copy for borrowed value
-  }
-
-  if (type->is(BaseType::TY_INT)) {
-    if (val->getType()->is(BaseType::TY_FLOAT)) {
-      return std::make_unique<Value>(
-          "", type,
-          builder->CreateFPToSI(val->getLlvmValue(), type->getLlvmType()));
-    }
-    if (val->getType()->is(BaseType::TY_INT)) {
-      return std::make_unique<Value>("", type,
-                                     builder->CreateIntCast(val->getLlvmValue(),
-                                                            type->getLlvmType(),
-                                                            type->isSigned()));
-    }
-  } else if (type->is(BaseType::TY_FLOAT)) {
-    if (val->getType()->is(BaseType::TY_INT)) {
-      return std::make_unique<Value>(
-          "", type,
-          builder->CreateSIToFP(val->getLlvmValue(), type->getLlvmType()));
-    }
-    if (val->getType()->is(BaseType::TY_FLOAT)) {
-      return std::make_unique<Value>(
-          "", type,
-          builder->CreateFPCast(val->getLlvmValue(), type->getLlvmType()));
-    }
-  } else if (type->is(BaseType::TY_STRING)) {
-    if (val->getType()->is(BaseType::TY_PTR) &&
-        (val->getType()->getElementType()->is(BaseType::TY_INT) ||
-         val->getType()->getElementType()->is(BaseType::TY_VOID))) {
-      return std::make_unique<Value>(
-          "", type,
-          builder->CreateBitCast(val->getLlvmValue(), type->getLlvmType()));
-    }
-  }
-
-  throw CodegenError(span, "Unsupported Cast between {} and {}",
-                     getTypeMangledName(span, val->getType()),
-                     getTypeMangledName(span, type));
+  builder->CreateStore(newVal, lhs->getLlvmValue());
 }
 
 auto Codegen::genFuncCall(const FuncCall* node,
@@ -2495,26 +2313,4 @@ auto Codegen::genFuncCall(const FuncCall* node,
 
   return std::make_unique<Value>("", symbol->getType()->getReturnType(),
                                  builder->CreateCall(func, paramsLLVM));
-}
-
-auto Codegen::findIndexInFields(Type* structType,
-                                const std::string& field) -> int {
-  for (unsigned int i = 0; i < structType->getFields().size(); i++) {
-    if (structType->getFields()[i]->name == field) {
-      return static_cast<int>(i);
-    }
-  }
-
-  return -1;
-}
-
-auto Codegen::findTypeInFields(Type* structType,
-                               const std::string& field) -> lesma::Type* {
-  for (const auto& i : structType->getFields()) {
-    if (i->name == field) {
-      return i->type;
-    }
-  }
-
-  return nullptr;
 }

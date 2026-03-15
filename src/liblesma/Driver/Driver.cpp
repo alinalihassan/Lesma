@@ -26,6 +26,7 @@ auto Driver::baseCompile(std::unique_ptr<lesma::Options> options,
 
   // Configure Source Manager
   auto srcMgr = std::make_shared<llvm::SourceMgr>();
+  unsigned mainBufferId = 0;
 
   try {
     // Read Source
@@ -36,10 +37,12 @@ auto Driver::baseCompile(std::unique_ptr<lesma::Options> options,
           throw LesmaError(llvm::SMRange(), "Could not read file: {}",
                            options->source);
         }
-        srcMgr->AddNewSourceBuffer(std::move(*buffer), llvm::SMLoc());
+        mainBufferId =
+            srcMgr->AddNewSourceBuffer(std::move(*buffer), llvm::SMLoc());
       } else {
         auto buffer = llvm::MemoryBuffer::getMemBuffer(options->source);
-        srcMgr->AddNewSourceBuffer(std::move(buffer), llvm::SMLoc());
+        mainBufferId =
+            srcMgr->AddNewSourceBuffer(std::move(buffer), llvm::SMLoc());
       }
     });
 
@@ -120,9 +123,6 @@ auto Driver::baseCompile(std::unique_ptr<lesma::Options> options,
     if (!err.getSpan().isValid()) {
       lesma::print(LogType::ERROR, err.what());
     } else {
-      // Main source buffer is the one we added; LLVM uses 0-based buffer IDs.
-      unsigned const mainBufferId =
-          srcMgr->getNumBuffers() > 0 ? srcMgr->getNumBuffers() - 1 : 0;
       showInline(srcMgr.get(), mainBufferId, err.getSpan(),
                  options->sourceType == SourceType::FILE ? options->source : "",
                  true, err.what());

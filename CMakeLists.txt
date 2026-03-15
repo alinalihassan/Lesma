@@ -99,7 +99,10 @@ set(COMMON_SOURCES
   src/liblesma/Frontend/Parser.cpp
   src/liblesma/Token/Token.cpp
   src/liblesma/Backend/Codegen.cpp
+  src/liblesma/Backend/CodegenTypeUtils.cpp
+  src/liblesma/Backend/MangleUtils.cpp
   src/liblesma/Symbol/SymbolTable.cpp
+  src/liblesma/Symbol/TypeUtils.cpp
   src/liblesma/Driver/Driver.cpp
   )
 
@@ -113,8 +116,7 @@ set(COMMON_INCLUDE ${PLF_NANOTIMER_INCLUDE_DIRS})
 # Lesma Library
 
 ## Create Library
-add_library(${LIB_NAME} ${COMMON_SOURCES}
-        src/liblesma/Backend/Codegen.cpp)
+add_library(${LIB_NAME} ${COMMON_SOURCES})
 target_link_libraries(${LIB_NAME} ${COMMON_LIBS})
 
 target_include_directories(${LIB_NAME} PUBLIC

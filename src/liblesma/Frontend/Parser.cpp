@@ -135,10 +135,13 @@ auto Parser::parseType() -> std::unique_ptr<TypeExpr> {
           type->lexeme, type->type);
     }
 
-    // TODO: This should really be a pointer to a function type
-    return std::make_unique<TypeExpr>(
+    // Function types are represented as pointer-to-function in the type system.
+    auto inner = std::make_unique<TypeExpr>(
         llvm::SMRange{type->getStart(), ret->getEnd()}, lexeme,
         TokenType::FUNC_TYPE, std::move(params), std::move(ret));
+    return std::make_unique<TypeExpr>(
+        llvm::SMRange{type->getStart(), inner->getEnd()}, "*" + lexeme,
+        TokenType::PTR_TYPE, std::move(inner));
   }
 
   if (check(TokenType::IDENTIFIER)) {

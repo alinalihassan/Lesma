@@ -20,8 +20,9 @@
 #include <sysexits.h>
 
 #include "liblesma/AST/ASTVisitor.h"
-#include "liblesma/Common/LesmaError.h"
+#include "liblesma/Backend/MangleUtils.h"
 #include "liblesma/Frontend/Parser.h"
+#include "liblesma/Symbol/TypeUtils.h"
 #include "liblesma/Symbol/SymbolTable.h"
 #include "liblesma/Symbol/Type.h"
 #include "liblesma/Symbol/Value.h"
@@ -30,11 +31,6 @@ using namespace llvm;
 using namespace llvm::orc;
 
 namespace lesma {
-class CodegenError : public LesmaErrorWithExitCode<EX_DATAERR> {
-public:
-  using LesmaErrorWithExitCode<EX_DATAERR>::LesmaErrorWithExitCode;
-};
-
 using MainFnTy = int();
 
 class Codegen final : public ASTVisitor {
@@ -142,33 +138,22 @@ protected:
 
   auto visit(const TypeExpr* node) -> void override;
 
-  // TODO: Helper functions, move them out somewhere
-  // Type related helper functions
   auto cast(llvm::SMRange span, lesma::Value* val,
             lesma::Type* type) -> std::unique_ptr<lesma::Value>;
-  static auto getExtendedType(lesma::Type* left,
-                              lesma::Type* right) -> lesma::Type*;
 
-  // Name mangling functions and such
-  static auto isMethod(const std::string& mangledName) -> bool;
   auto getMangledName(llvm::SMRange span, std::string funcName,
                       const std::vector<lesma::Type*>& paramTypes,
                       bool isMethod = false,
                       std::string alias = "") -> std::string;
-  [[maybe_unused]] static auto isMangled(std::string name) -> bool;
-  static auto getDemangledName(const std::string& mangledName) -> std::string;
-  auto getTypeMangledName(llvm::SMRange span, lesma::Type* type) -> std::string;
 
-  // Other
   auto genFuncCall(const FuncCall* node,
                    const std::vector<lesma::Value*>& extraParams)
       -> std::unique_ptr<lesma::Value>;
-  static auto findIndexInFields(Type* structType,
-                                const std::string& field) -> int;
-  static auto findTypeInFields(Type* structType,
-                               const std::string& field) -> lesma::Type*;
   auto defineFunction(lesma::Value* value, const FuncDecl* node,
                       Value* clsSymbol) -> void;
+
+  auto emitCompoundAssign(llvm::SMRange span, TokenType op, lesma::Value* lhs,
+                          lesma::Value* value) -> void;
 
   // Cache a type to keep it alive - returns raw pointer to the cached type
   auto cacheType(std::unique_ptr<lesma::Type> type) -> lesma::Type* {

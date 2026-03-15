@@ -1,0 +1,82 @@
+# AGENTS.md — Lesma project guide for AI agents
+
+This file gives future agents (and humans) a quick reference for how the Lesma compiler works, how to build it, and how to validate changes.
+
+---
+
+## What Lesma is
+
+Lesma is a compiled, statically typed, imperative, object-oriented language that targets LLVM. The compiler is C++23 and uses LLVM for code generation, optimization, JIT, and object-file emission. The standard library is written in Lesma (`.les` files in `src/stdlib/`).
+
+---
+
+## Project layout
+
+- **`src/`** — Compiler and stdlib
+  - **`src/cli/main.cpp`** — CLI entry point (when `LESMA_BUILD_CLI` is on).
+  - **`src/liblesma/`** — Core library:
+    - **`Common/`** — Utils, logging, errors (`LesmaError`, `CodegenError` in `Backend/CodegenError.h`).
+    - **`Frontend/`** — Lexer, Parser (tokens → AST).
+    - **`AST/`** — AST node definitions and visitor interface.
+    - **`Token/`** — Token types and `Token` class.
+    - **`Symbol/`** — Symbol table, `Type`, `Value`, `TypeUtils`.
+    - **`Backend/`** — Codegen (AST → LLVM IR), `MangleUtils`, `CodegenTypeUtils`, linking/JIT.
+  - **`src/stdlib/`** — Lesma standard library (e.g. `base.les`, `math.les`, `time.les`).
+- **`tests/lesma/success/`** — Programs that must compile and run (exit 0).
+- **`tests/lesma/failure/`** — Programs that must be rejected (expected to fail).
+- **`scripts/run_tests.sh`** — Runs the compiler on all success/failure cases (run + compile for each).
+
+---
+
+## Compilation pipeline
+
+1. **Driver** (`Driver/Driver.cpp`) — Reads source (file or string), creates `SourceMgr`, adds the main buffer, then runs:
+2. **Lexer** — Scans the buffer into tokens. Uses LLVM `SourceMgr`; **buffer IDs are 1-based**: the “current” buffer ID is `srcMgr->getNumBuffers()` (not `getNumBuffers() - 1`).
+3. **Parser** — Builds an AST from tokens (visitor-style).
+4. **Codegen** — Walks the AST and emits LLVM IR; handles imports by compiling other modules and merging symbols. Can output object files or run via JIT.
+
+When reporting errors, the Driver and Codegen use `showInline()` in `Common/Utils.cpp` with a **buffer ID**: the main file’s ID is the value returned by `AddNewSourceBuffer()` (stored in Driver as `mainBufferId`). For imported modules, Codegen uses the `fileId` returned when that module’s buffer was added. Using the wrong ID (e.g. 0 when IDs are 1-based) triggers LLVM’s `isValidBufferID` assertion in `getMemoryBuffer()`.
+
+---
+
+## How to compile the project
+
+- **Prerequisites:** CMake 3.24+, Ninja, Clang, LLVM 17+, and vcpkg (with Lesma’s `vcpkg.json`). vcpkg is typically used as a submodule; bootstrap it and use the vcpkg toolchain when configuring.
+- **Configure (example):** From the repo root, using the vcpkg toolchain and a build directory such as `build` or `build/Debug`:
+  ```bash
+  cmake -B build -S . \
+    -DCMAKE_TOOLCHAIN_FILE="$(pwd)/vcpkg/scripts/buildsystems/vcpkg.cmake" \
+    -DCMAKE_BUILD_TYPE=Debug \
+    -DLESMA_BUILD_CLI=ON \
+    -DLESMA_BUILD_TESTS=ON
+  ```
+  If the project already uses a multi-config generator, the binary may live under `build/Debug/lesma` (or similar); use whatever path your tree uses.
+- **Build:**
+  ```bash
+  cmake --build build
+  ```
+  Or build only the CLI: `cmake --build build --target lesma` (adjust if your build dir is `build/Debug`).
+- The **compiler binary** is the `lesma` executable (e.g. `build/lesma` or `build/Debug/lesma`). The script `scripts/run_tests.sh` takes the path to this binary as its first argument.
+
+---
+
+## Always run tests after making changes
+
+After any change to the compiler or tests, run the Lesma test suite so that success cases still pass and failure cases are still rejected.
+
+- **Command (from repo root):**
+  ```bash
+  ./scripts/run_tests.sh
+  ```
+  The script auto-detects the compiler: it looks for `build/Debug/lesma` then `build/lesma`. You can still pass the path explicitly: `./scripts/run_tests.sh build/Debug/lesma`.
+- **What it does:** For each `.les` file in `tests/lesma/success/` it runs `lesma run` and `lesma compile` and expects exit code 0. For each file in `tests/lesma/failure/` it expects the compiler to fail (non-zero exit).
+- **Success criterion:** The script should report **0 failures** and 44 successes (or the current total number of tests). Any failing test should be fixed before considering the change complete.
+
+---
+
+## Summary
+
+- **Pipeline:** Source → Lexer → Parser → Codegen (Driver + SourceMgr, then Lexer, Parser, Backend).
+- **Buffer IDs:** LLVM `SourceMgr` uses 1-based buffer IDs; use `getNumBuffers()` as the ID for the last-added buffer; store `AddNewSourceBuffer()`’s return value for the main file in error reporting.
+- **Build:** CMake + vcpkg toolchain; build the `lesma` target.
+- **Validation:** Always run `scripts/run_tests.sh <path-to-lesma>` and ensure 0 failures.

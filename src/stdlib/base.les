@@ -17,10 +17,9 @@ export def input(prompt: str) -> str
     if strlen(prompt) > 0
         printf("%s", prompt)
 
-    var line: str = malloc(256) as str
+    var line: str = malloc(4096) as str
 
-    # TODO: Currently only reading 255 characters, could be longer
-    scanf("%255[^\n]%*c",line)
+    scanf("%4095[^\n]%*c", line)
 
     return line
 
