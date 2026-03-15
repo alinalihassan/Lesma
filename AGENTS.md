@@ -74,9 +74,37 @@ After any change to the compiler or tests, run the Lesma test suite so that succ
 
 ---
 
+## Memory and leak checking
+
+The project uses **AddressSanitizer (ASan)** and **LeakSanitizer (LSan)** for memory error and leak detection. These work on **macOS (including Apple Silicon)** and Linux with Clang; no Valgrind is required on macOS.
+
+- **Recommended on all platforms (including Apple Silicon):** Build with the **Debug_Asan** preset and run the test suite. Any leak or use-after-free will be reported when the process exits or when it occurs.
+  ```bash
+  cmake --preset Debug_Asan
+  cmake --build --preset Debug_Asan
+  ASAN_OPTIONS=detect_container_overflow=0 ./scripts/run_tests.sh build/Debug_Asan/lesma
+  ```
+  (On macOS with system LLVM, `ASAN_OPTIONS=detect_container_overflow=0` avoids a false positive in LLVM’s static initializers. CI sets this automatically.) Or with ctest (when `LESMA_BUILD_TESTS` is ON): `ctest --test-dir build/Debug_Asan --output-on-failure`.
+
+- **Option without presets:** Configure with `-DLESMA_SANITIZE_ADDRESS=ON` and `-DCMAKE_BUILD_TYPE=Debug`, then build and run the same tests.
+
+- **macOS only — quick leak check:** You can run Apple’s `leaks` tool on any built binary (no recompile needed):
+  ```bash
+  leaks --atExit -- build/Debug/lesma run tests/lesma/success/hello.les
+  ```
+
+- **Valgrind:** Valgrind does **not** support Apple Silicon reliably (experimental builds can crash). On **Linux** you can optionally run the test suite under Valgrind for extra coverage:
+  ```bash
+  valgrind --leak-check=full --error-exitcode=1 ./scripts/run_tests.sh build/Debug/lesma
+  ```
+  CI runs a **Memory (ASan)** job on both `ubuntu-latest` and `macos-latest` using the Debug_Asan preset; fix any sanitizer failures before merging.
+
+---
+
 ## Summary
 
 - **Pipeline:** Source → Lexer → Parser → Codegen (Driver + SourceMgr, then Lexer, Parser, Backend).
 - **Buffer IDs:** LLVM `SourceMgr` uses 1-based buffer IDs; use `getNumBuffers()` as the ID for the last-added buffer; store `AddNewSourceBuffer()`’s return value for the main file in error reporting.
 - **Build:** CMake + vcpkg toolchain; build the `lesma` target.
 - **Validation:** Always run `scripts/run_tests.sh <path-to-lesma>` and ensure 0 failures.
+- **Memory:** Use the **Debug_Asan** preset (AddressSanitizer + LeakSanitizer) on macOS and Linux; Valgrind is Linux-only and not supported on Apple Silicon.

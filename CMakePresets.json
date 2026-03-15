@@ -58,6 +58,16 @@
         "LESMA_BUILD_BENCHMARKS": "ON",
         "LESMA_BUILD_DIST": "ON"
       }
+    },
+    {
+      "name": "Debug_Asan",
+      "displayName": "Debug with AddressSanitizer",
+      "description": "Debug build with AddressSanitizer and LeakSanitizer for memory and leak detection. Use on macOS (including Apple Silicon) and Linux instead of Valgrind.",
+      "inherits": "Debug",
+      "binaryDir": "${sourceDir}/build/Debug_Asan",
+      "cacheVariables": {
+        "LESMA_SANITIZE_ADDRESS": "ON"
+      }
     }
   ],
   "buildPresets": [
@@ -72,6 +82,10 @@
     {
       "name": "Release_Dist",
       "configurePreset": "Release_Dist"
+    },
+    {
+      "name": "Debug_Asan",
+      "configurePreset": "Debug_Asan"
     }
   ],
   "testPresets": [
@@ -82,6 +96,10 @@
     {
       "name": "Release",
       "configurePreset": "Release"
+    },
+    {
+      "name": "Debug_Asan",
+      "configurePreset": "Debug_Asan"
     }
   ],
   "workflowPresets": [

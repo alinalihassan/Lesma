@@ -456,19 +456,8 @@ auto Codegen::compileModule(
       return "";
     };
 
-    if (isJit) {
-      // Add the module to JIT
-      cantFail(theJit->addIRModule(ThreadSafeModule(
-                   std::move(codegen->theModule), *theContext)),
-               fmt::format("Failed adding import {} to JIT", filename).c_str());
-    } else {
-      // Create object file to be linked
-      std::string objFile = fmt::format("tmp{}", objectFiles.size());
-      codegen->writeToObjectFile(objFile);
-      objectFiles.push_back(fmt::format("{}.o", objFile));
-    }
-
-    // Import Symbols. Ownership: codegen->rootScope is moved into
+    // Import Symbols (must run before moving codegen->theModule into JIT or
+    // writing object file). Ownership: codegen->rootScope is moved into
     // importedScopes below so the imported scope and its Types/Values stay
     // alive; typeCache is merged so cached types are retained.
     for (auto* sym : codegen->scope->getSymbols()) {
@@ -486,12 +475,15 @@ auto Codegen::compileModule(
         scope->insertSymbol(std::move(structSymbol));
       } else if (sym->getType()->is(BaseType::TY_FUNCTION) &&
                  sym->isExported()) {
-        auto* f = llvm::dyn_cast<Function>(sym->getLlvmValue());
+        // After optimize(), GlobalDCE may have removed the function; do not
+        // use sym->getLlvmValue() (use-after-free). Look up by name; if DCE
+        // removed it we still add the symbol so the importer can call it.
+        auto* f = codegen->theModule->getFunction(sym->getMangledName());
         auto* fTy = llvm::cast<FunctionType>(sym->getType()->getLlvmType());
 
         if (isJit) {
-          // Insert the function declaration, since we linked the modules
-          // earlier
+          // Use declaration in current module (needed if DCE removed f, or for
+          // JIT linking)
           f = llvm::cast<Function>(
               theModule->getOrInsertFunction(sym->getMangledName(), fTy)
                   .getCallee());
@@ -548,6 +540,18 @@ auto Codegen::compileModule(
     // Transfer type cache to keep cached types alive
     for (auto& type : codegen->typeCache) {
       typeCache.push_back(std::move(type));
+    }
+
+    if (isJit) {
+      // Add the module to JIT (after importing symbols; theModule still valid)
+      cantFail(theJit->addIRModule(ThreadSafeModule(
+                   std::move(codegen->theModule), *theContext)),
+               fmt::format("Failed adding import {} to JIT", filename).c_str());
+    } else {
+      // Create object file to be linked
+      std::string objFile = fmt::format("tmp{}", objectFiles.size());
+      codegen->writeToObjectFile(objFile);
+      objectFiles.push_back(fmt::format("{}.o", objFile));
     }
   } catch (const LesmaError& err) {
     if (!err.getSpan().isValid()) {
