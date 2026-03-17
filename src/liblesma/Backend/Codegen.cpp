@@ -4,9 +4,11 @@
 #include <cstddef>
 #include <filesystem>
 #include <memory>
+#include <optional>
 #include <regex>
 #include <string>
 #include <system_error>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -92,7 +94,10 @@ Codegen::Codegen(std::shared_ptr<Parser> parser,
                  const std::shared_ptr<ThreadSafeContext>& context,
                  std::shared_ptr<std::vector<std::string>> sharedModules,
                  std::shared_ptr<std::vector<std::unique_ptr<SymbolTable>>>
-                     sharedScopes) {
+                     sharedScopes,
+                 std::optional<std::unique_ptr<SymbolTable>> preScope,
+                 std::optional<std::vector<std::unique_ptr<lesma::Type>>>
+                     preTypeCache) {
   InitializeNativeTarget();
   InitializeNativeTargetAsmPrinter();
   InitializeNativeTargetAsmParser();
@@ -110,8 +115,17 @@ Codegen::Codegen(std::shared_ptr<Parser> parser,
   builder = std::make_unique<IRBuilder<>>(theModule->getContext());
   this->parser = std::move(parser);
   sourceManager = std::move(srcMgr);
-  rootScope = std::make_unique<SymbolTable>(nullptr);
+  if (preScope && *preScope) {
+    rootScope = std::move(*preScope);
+  } else {
+    rootScope = std::make_unique<SymbolTable>(nullptr);
+  }
   scope = rootScope.get();
+  if (preTypeCache && !preTypeCache->empty()) {
+    for (auto& t : *preTypeCache) {
+      typeCache.push_back(std::move(t));
+    }
+  }
 
   this->alias = std::move(alias);
   this->filename = filename;
@@ -128,12 +142,8 @@ Codegen::Codegen(std::shared_ptr<Parser> parser,
         std::make_shared<std::vector<std::unique_ptr<SymbolTable>>>();
   }
   topLevelFunc = initializeTopLevel();
-
-  // If it's not base.les stdlib, then import it
-  if (std::filesystem::absolute(filename) != getStdDir() + "base.les") {
-    compileModule(llvm::SMRange(), getStdDir() + "base.les", true, "base", true,
-                  true, {});
-  }
+  // base.les is loaded at the start of run() so we don't load it during
+  // constructor re-entrancy when creating Codegens for imported modules.
 }
 
 auto Codegen::initializeModule() -> std::unique_ptr<Module> {
@@ -405,8 +415,24 @@ auto Codegen::compileModule(
     return;
   }
 
+  // Guard against circular import: if this module is already being compiled
+  // (path in importedModules but scope not yet in importedScopes), we would
+  // fall through and re-compile it → infinite recursion. Detect and error.
+  static thread_local std::unordered_set<std::string> compiling;
+  if (compiling.count(absolutePath)) {
+    throw CodegenError(span, "Circular import detected: {}", filepath);
+  }
+  if (compiling.size() >= 32) {
+    throw CodegenError(span,
+                      "Import recursion depth exceeded (possible circular "
+                      "import): {}",
+                      filepath);
+  }
+  compiling.insert(absolutePath);
+
   auto buffer = MemoryBuffer::getFile(absolutePath);
   if (std::error_code ec = buffer.getError()) {
+    compiling.erase(absolutePath);
     throw LesmaError(llvm::SMRange(), "Could not read file: {}", absolutePath);
   }
 
@@ -554,6 +580,7 @@ auto Codegen::compileModule(
       objectFiles.push_back(fmt::format("{}.o", objFile));
     }
   } catch (const LesmaError& err) {
+    compiling.erase(absolutePath);
     if (!err.getSpan().isValid()) {
       lesma::print(LogType::ERROR, err.what());
     } else {
@@ -563,6 +590,7 @@ auto Codegen::compileModule(
 
     throw CodegenError(span, "Unable to import {} due to errors", filepath);
   }
+  compiling.erase(absolutePath);
 }
 
 auto Codegen::optimize(OptimizationLevel opt) -> void {
@@ -781,6 +809,14 @@ auto Codegen::executeJit() -> int {
 }
 
 auto Codegen::run() -> void {
+  // Load base stdlib once so every module has exit/print/etc. Done here
+  // (not in constructor) to avoid re-entrancy when creating Codegens for
+  // imported modules.
+  if (std::filesystem::absolute(filename) != getStdDir() + "base.les") {
+    compileModule(llvm::SMRange(), getStdDir() + "base.les", true, "base", true,
+                  true, {});
+  }
+
   deferStack.emplace();
   parser->getAst()->accept(*this);
 
@@ -885,18 +921,74 @@ auto Codegen::visit(const TypeExpr* node) -> void {
   } else if (node->getType() == TokenType::CUSTOM_TYPE) {
     auto* typ = scope->lookupType(node->getName());
     auto* sym = scope->lookupStruct(node->getName());
-    if (typ == nullptr || sym->getType()->getLlvmType() == nullptr) {
+    if (typ == nullptr || sym == nullptr) {
       throw CodegenError(node->getSpan(), "Type not found: {}",
                          node->getName());
     }
+    if (sym->getType()->getLlvmType() == nullptr) {
+      getOrCreateLlvmType(sym->getType());
+    }
 
-    // Borrow from symbol table - make a shallow copy
-    result = sym == nullptr ? std::make_unique<Value>(typ)
-                            : std::make_unique<Value>(*sym);
+    result = std::make_unique<Value>(*sym);
   } else {
     throw CodegenError(node->getSpan(), "Unimplemented type {}",
                        NAMEOF_ENUM(node->getType()));
   }
+}
+
+auto Codegen::getOrCreateLlvmType(lesma::Type* type) -> llvm::Type* {
+  if (type->getLlvmType() != nullptr) {
+    return type->getLlvmType();
+  }
+  switch (type->getBaseType()) {
+  case BaseType::TY_INT:
+    type->setLlvmType(builder->getInt64Ty());
+    break;
+  case BaseType::TY_FLOAT:
+    type->setLlvmType(builder->getDoubleTy());
+    break;
+  case BaseType::TY_BOOL:
+    type->setLlvmType(builder->getInt1Ty());
+    break;
+  case BaseType::TY_STRING:
+    type->setLlvmType(builder->getPtrTy());
+    break;
+  case BaseType::TY_VOID:
+    type->setLlvmType(builder->getVoidTy());
+    break;
+  case BaseType::TY_PTR:
+    if (type->getElementType() != nullptr) {
+      getOrCreateLlvmType(type->getElementType());
+    }
+    type->setLlvmType(builder->getPtrTy());
+    break;
+  case BaseType::TY_FUNCTION:
+    getOrCreateLlvmType(type->getReturnType());
+    for (auto* f : type->getFields()) {
+      getOrCreateLlvmType(f->type);
+    }
+    type->setLlvmType(builder->getPtrTy());
+    break;
+  case BaseType::TY_CLASS:
+  case BaseType::TY_ENUM: {
+    // Create opaque struct first to break recursion (e.g. class with field *Self)
+    llvm::StructType* st = llvm::StructType::create(theModule->getContext());
+    type->setLlvmType(st);
+    std::vector<llvm::Type*> elementTypes;
+    for (auto* f : type->getFields()) {
+      elementTypes.push_back(getOrCreateLlvmType(f->type));
+    }
+    if (elementTypes.empty()) {
+      elementTypes.push_back(builder->getInt8Ty());
+    }
+    st->setBody(elementTypes);
+    break;
+  }
+  default:
+    type->setLlvmType(builder->getPtrTy());
+    break;
+  }
+  return type->getLlvmType();
 }
 
 auto Codegen::visit(const Compound* node) -> void {
@@ -906,6 +998,35 @@ auto Codegen::visit(const Compound* node) -> void {
 }
 
 auto Codegen::visit(const VarDecl* node) -> void {
+  const std::string name = node->getIdentifier()->getValue();
+  lesma::Value* existing = scope->lookup(name);
+
+  if (existing != nullptr && existing->getLlvmValue() == nullptr) {
+    // Reuse symbol from typecheck; fill in LLVM value
+    lesma::Type* type = existing->getType();
+    getOrCreateLlvmType(type);
+    llvm::Type* allocaTy = type->is(BaseType::TY_CLASS)
+                               ? builder->getPtrTy()
+                               : type->getLlvmType();
+    auto* ptr = builder->CreateAlloca(allocaTy, nullptr, name);
+    existing->setLlvmValue(ptr);
+    existing->setMutable(node->getMutability());
+    const bool isPtrToClass = type->is(BaseType::TY_PTR) &&
+                              type->getElementType() != nullptr &&
+                              type->getElementType()->is(BaseType::TY_CLASS);
+    if (node->getValue() != nullptr) {
+      node->getValue()->accept(*this);
+      auto val = std::move(result);
+      lesma::Type* castTarget =
+          (type->is(BaseType::TY_CLASS) || isPtrToClass)
+              ? (type->is(BaseType::TY_CLASS) ? type : type->getElementType())
+              : type;
+      auto castVal = cast(node->getSpan(), val.get(), castTarget);
+      builder->CreateStore(castVal->getLlvmValue(), ptr);
+    }
+    return;
+  }
+
   lesma::Type* type = nullptr;
   std::unique_ptr<lesma::Value> val;
 
@@ -920,17 +1041,16 @@ auto Codegen::visit(const VarDecl* node) -> void {
     type = result->getType();
   }
 
-  auto* ptr = builder->CreateAlloca(type->getLlvmType(), nullptr,
-                                    node->getIdentifier()->getValue());
+  getOrCreateLlvmType(type);
+  auto* ptr = builder->CreateAlloca(type->getLlvmType(), nullptr, name);
 
   if (type->is(BaseType::TY_CLASS)) {
-    // Cache the pointer type to prevent dangling pointers
     type = cacheType(
         std::make_unique<Type>(BaseType::TY_PTR, builder->getPtrTy(), type));
   }
   const bool isPtrToClass =
       type->is(BaseType::TY_PTR) && type->getElementType()->is(BaseType::TY_CLASS);
-  auto symbol = std::make_unique<Value>(node->getIdentifier()->getValue(), type,
+  auto symbol = std::make_unique<Value>(name, type,
                                         node->getType() != nullptr
                                             ? SymbolState::INITIALIZED
                                             : SymbolState::DECLARED);
@@ -938,7 +1058,6 @@ auto Codegen::visit(const VarDecl* node) -> void {
   symbol->setMutable(node->getMutability());
   scope->insertSymbol(std::move(symbol));
 
-  // Convert declared value to declared type implicitly
   if (node->getValue() != nullptr) {
     lesma::Type* castTarget = isPtrToClass ? type->getElementType() : type;
     auto castVal = cast(node->getSpan(), val.get(), castTarget);
@@ -1089,10 +1208,36 @@ auto Codegen::visit(const FuncDecl* node) -> void {
           param->name);
     }
 
-    paramTypes.push_back(typeResult->getType());
-    paramLLVMTypes.push_back(typeResult->getType()->getLlvmType());
-    fields.push_back(std::make_unique<Field>(param->name, typeResult->getType(),
+    lesma::Type* paramType = typeResult->getType();
+    getOrCreateLlvmType(paramType);
+    paramTypes.push_back(paramType);
+    paramLLVMTypes.push_back(paramType->getLlvmType());
+    fields.push_back(std::make_unique<Field>(param->name, paramType,
                                              std::move(defaultValResult)));
+  }
+
+  node->getReturnType()->accept(*this);
+  lesma::Type* returnType = result->getType();
+  getOrCreateLlvmType(returnType);
+
+  lesma::Value* existingFunc =
+      scope->lookupFunction(node->getName(), paramTypes);
+  if (existingFunc != nullptr && existingFunc->getLlvmValue() == nullptr) {
+    // Reuse symbol from typecheck; create LLVM function and set it
+    auto mangledName = getMangledName(node->getSpan(), node->getName(),
+                                      paramTypes, selfSymbol != nullptr);
+    auto linkage =
+        shouldExport ? Function::ExternalLinkage : Function::PrivateLinkage;
+    llvm::FunctionType* funcType = FunctionType::get(
+        returnType->getLlvmType(), paramLLVMTypes, node->getVarArgs());
+    Function* f =
+        Function::Create(funcType, linkage, mangledName, *theModule);
+    existingFunc->getType()->setLlvmType(funcType);
+    existingFunc->setLlvmValue(f);
+    existingFunc->setMangledName(mangledName);
+    prototypes.emplace_back(existingFunc, node, selfSymbol);
+    result = std::make_unique<Value>(*existingFunc);
+    return;
   }
 
   auto mangledName = getMangledName(node->getSpan(), node->getName(),
@@ -1100,10 +1245,8 @@ auto Codegen::visit(const FuncDecl* node) -> void {
   auto linkage =
       shouldExport ? Function::ExternalLinkage : Function::PrivateLinkage;
 
-  node->getReturnType()->accept(*this);
-
   llvm::FunctionType* funcType = FunctionType::get(
-      result->getType()->getLlvmType(), paramLLVMTypes, node->getVarArgs());
+      returnType->getLlvmType(), paramLLVMTypes, node->getVarArgs());
   Function* f = Function::Create(funcType, linkage, mangledName, *theModule);
 
   auto funcSymbol = std::make_unique<Value>(
@@ -1111,15 +1254,13 @@ auto Codegen::visit(const FuncDecl* node) -> void {
       std::make_unique<Type>(BaseType::TY_FUNCTION, funcType,
                              std::move(fields)),
       f);
-  funcSymbol->getType()->setReturnType(result->getType());
+  funcSymbol->getType()->setReturnType(returnType);
   funcSymbol->setExported(node->isExported());
   funcSymbol->setMangledName(mangledName);
   auto* funcSymbolPtr = funcSymbol.get();
   scope->insertSymbol(std::move(funcSymbol));
 
   prototypes.emplace_back(funcSymbolPtr, node, selfSymbol);
-  // Even though it's a statement, we pass the func symbol to result so parent
-  // classes can modify them
   result = std::make_unique<Value>(*funcSymbolPtr);
 }
 
@@ -1162,9 +1303,11 @@ auto Codegen::visit(const ExternFuncDecl* node) -> void {
           param->name);
     }
 
-    paramTypes.push_back(typeResult->getType());
-    paramLLVMTypes.push_back(typeResult->getType()->getLlvmType());
-    fields.push_back(std::make_unique<Field>(param->name, typeResult->getType(),
+    lesma::Type* paramType = typeResult->getType();
+    getOrCreateLlvmType(paramType);
+    paramTypes.push_back(paramType);
+    paramLLVMTypes.push_back(paramType->getLlvmType());
+    fields.push_back(std::make_unique<Field>(param->name, paramType,
                                              std::move(defaultValResult)));
   }
 
@@ -1175,14 +1318,35 @@ auto Codegen::visit(const ExternFuncDecl* node) -> void {
         std::make_unique<Type>(BaseType::TY_VOID, builder->getVoidTy()));
   } else {
     retType = result->getType();
+    getOrCreateLlvmType(retType);
   }
 
-  Function* f = nullptr;
-  if (theModule->getFunction(node->getName()) != nullptr &&
-      scope->lookupFunction(node->getName(), paramTypes) != nullptr) {
+  lesma::Value* existingFunc =
+      scope->lookupFunction(node->getName(), paramTypes);
+  if (existingFunc != nullptr && existingFunc->getLlvmValue() != nullptr) {
+    return; // Already declared (e.g. from another module)
+  }
+  if (existingFunc != nullptr && existingFunc->getLlvmValue() == nullptr) {
+    // Reuse symbol from typecheck
+    Function* f = nullptr;
+    if (theModule->getFunction(node->getName()) != nullptr) {
+      f = theModule->getFunction(node->getName());
+    } else {
+      FunctionType* ft = FunctionType::get(retType->getLlvmType(),
+                                           paramLLVMTypes, node->getVarArgs());
+      f = llvm::cast<Function>(
+          theModule->getOrInsertFunction(node->getName(), ft).getCallee());
+      if (node->isExported()) {
+        f->setLinkage(llvm::GlobalValue::ExternalLinkage);
+      }
+    }
+    existingFunc->getType()->setLlvmType(f->getFunctionType());
+    existingFunc->setLlvmValue(f);
+    existingFunc->setMangledName(node->getName());
     return;
   }
 
+  Function* f = nullptr;
   if (theModule->getFunction(node->getName()) != nullptr) {
     f = theModule->getFunction(node->getName());
   } else {
@@ -1311,6 +1475,7 @@ auto Codegen::visit(const Return* node) -> void {
     }
   } else {
     node->getValue()->accept(*this);
+    getOrCreateLlvmType(result->getType());
     if (builder->getCurrentFunctionReturnType() ==
         result->getType()->getLlvmType()) {
       builder->CreateRet(result->getLlvmValue());
@@ -1344,6 +1509,55 @@ auto Codegen::visit(const Import* node) -> void {
 }
 
 auto Codegen::visit(const Class* node) -> void {
+  lesma::Value* existingStruct = scope->lookupStruct(node->getIdentifier());
+  if (existingStruct != nullptr &&
+      existingStruct->getType()->getLlvmType() == nullptr) {
+    // Reuse symbol from typecheck; fill LLVM struct type and visit methods
+    lesma::Type* type = existingStruct->getType();
+    std::vector<llvm::Type*> elementLLVMTypes;
+    for (auto* f : type->getFields()) {
+      elementLLVMTypes.push_back(getOrCreateLlvmType(f->type));
+    }
+    auto* structType = llvm::StructType::create(
+        theModule->getContext(), elementLLVMTypes, node->getIdentifier());
+    type->setLlvmType(structType);
+
+    // Use the typechecker's self (ptr-to-class) type from typeCache so method
+    // lookup matches (same Type* as in function param types).
+    lesma::Type* selfType = nullptr;
+    for (auto& t : typeCache) {
+      if (t->is(BaseType::TY_PTR) && t->getElementType() == type) {
+        selfType = t.get();
+        break;
+      }
+    }
+    if (selfType == nullptr) {
+      selfType = cacheType(
+          std::make_unique<Type>(BaseType::TY_PTR, builder->getPtrTy(), type));
+    } else {
+      getOrCreateLlvmType(selfType);
+    }
+    methodSelfSymbols.push_back(
+        std::make_unique<Value>(node->getIdentifier(), selfType));
+    selfSymbol = methodSelfSymbols.back().get();
+    auto hasConstructor = false;
+    for (auto* func : node->getMethods()) {
+      func->accept(*this);
+      if (func->getName() == "new") {
+        hasConstructor = true;
+        std::vector<lesma::Type*> constructorParams = {selfSymbol->getType()};
+        auto* constructor = scope->lookupFunction("new", constructorParams);
+        existingStruct->setConstructor(constructor);
+      }
+    }
+    selfSymbol = nullptr;
+    if (!hasConstructor) {
+      throw CodegenError(node->getSpan(), "Class {} has no constructors",
+                         node->getIdentifier());
+    }
+    return;
+  }
+
   std::vector<std::unique_ptr<Field>> fields;
   std::vector<llvm::Type*> elementLLVMTypes;
 
@@ -1354,15 +1568,14 @@ auto Codegen::visit(const Class* node) -> void {
       field->getValue()->accept(*this);
     }
 
+    getOrCreateLlvmType(result->getType());
     elementLLVMTypes.push_back(result->getType()->getLlvmType());
     std::unique_ptr<Value> defaultVal;
     if (field->getValue() != nullptr) {
       defaultVal = std::move(result);
-      // Re-evaluate to get the type for the Field (result was moved)
       if (field->getType() != nullptr) {
         field->getType()->accept(*this);
       } else {
-        // Make a copy of the default value to get its type
         result = std::make_unique<Value>(*defaultVal);
       }
     }
@@ -1384,21 +1597,17 @@ auto Codegen::visit(const Class* node) -> void {
   scope->insertType(node->getIdentifier(), std::move(type));
   scope->insertSymbol(std::move(structSymbol));
 
-  // Cache the self type to prevent dangling pointers in function Fields
   auto* selfType = cacheType(
       std::make_unique<Type>(BaseType::TY_PTR, builder->getPtrTy(), typePtr));
-  auto classSelfSymbol =
-      std::make_unique<Value>(node->getIdentifier(), selfType);
-  classSelfSymbol->setExported(node->isExported());
-  selfSymbol = classSelfSymbol.get();
+  methodSelfSymbols.push_back(
+      std::make_unique<Value>(node->getIdentifier(), selfType));
+  methodSelfSymbols.back()->setExported(node->isExported());
+  selfSymbol = methodSelfSymbols.back().get();
   auto hasConstructor = false;
   for (auto* func : node->getMethods()) {
     func->accept(*this);
     if (func->getName() == "new") {
       hasConstructor = true;
-      // result contains a copy of the func symbol; actual symbol is in
-      // SymbolTable Look up the actual constructor from scope - needs self type
-      // as first param
       std::vector<lesma::Type*> constructorParams = {selfSymbol->getType()};
       auto* constructor = scope->lookupFunction("new", constructorParams);
       structSymbolPtr->setConstructor(constructor);
@@ -1411,17 +1620,32 @@ auto Codegen::visit(const Class* node) -> void {
   }
 
   selfSymbol = nullptr;
-  // classSelfSymbol unique_ptr goes out of scope and properly deletes the Value
 }
 
 auto Codegen::visit(const Enum* node) -> void {
+  lesma::Value* existingEnum = scope->lookupStruct(node->getIdentifier());
+  if (existingEnum != nullptr &&
+      existingEnum->getType()->getLlvmType() == nullptr) {
+    lesma::Type* type = existingEnum->getType();
+    std::vector<llvm::Type*> elementTypes;
+    for (auto* f : type->getFields()) {
+      elementTypes.push_back(getOrCreateLlvmType(f->type));
+    }
+    if (elementTypes.empty()) {
+      elementTypes.push_back(builder->getInt8Ty());
+    }
+    auto* structType = llvm::StructType::create(
+        theModule->getContext(), elementTypes, node->getIdentifier());
+    type->setLlvmType(structType);
+    return;
+  }
+
   std::vector<llvm::Type*> elementTypes = {builder->getInt8Ty()};
   llvm::StructType* structType = llvm::StructType::create(
       theModule->getContext(), elementTypes, node->getIdentifier());
   std::vector<std::unique_ptr<Field>> fields;
 
   for (const auto& field : node->getValues()) {
-    // Cache enum field types to prevent dangling pointers
     auto* fieldType = cacheType(
         std::make_unique<Type>(BaseType::TY_VOID, builder->getVoidTy()));
     fields.push_back(std::make_unique<Field>(field, fieldType));
@@ -2150,6 +2374,7 @@ auto Codegen::visit(const Literal* node) -> void {
       throw CodegenError(node->getSpan(), "Unknown variable name {}",
                          node->getValue());
     }
+    getOrCreateLlvmType(val->getType());
 
     if (val->getType()->isOneOf({BaseType::TY_CLASS})) {
       // If it's a class, don't load the value - make a copy from symbol table
@@ -2247,13 +2472,43 @@ auto Codegen::genFuncCall(const FuncCall* node,
   std::vector<llvm::Value*> paramsLLVM;
 
   for (auto* arg : extraParams) {
-    paramTypes.push_back(arg->getType());
+    lesma::Type* argType = arg->getType();
+    // Method params expect pointer-to-class; use same Type* as in scope for lookup
+    if (argType->is(BaseType::TY_CLASS)) {
+      for (auto& t : typeCache) {
+        if (t->is(BaseType::TY_PTR) && t->getElementType() == argType) {
+          argType = t.get();
+          break;
+        }
+      }
+      if (argType->is(BaseType::TY_CLASS)) {
+        argType = cacheType(
+            std::make_unique<Type>(BaseType::TY_PTR, builder->getPtrTy(), argType));
+      }
+    }
+    paramTypes.push_back(argType);
     paramsLLVM.push_back(arg->getLlvmValue());
   }
 
   for (auto* arg : node->getArguments()) {
     arg->accept(*this);
-    paramTypes.push_back(result->getType());
+    lesma::Type* argType = result->getType();
+    if (argType->is(BaseType::TY_CLASS)) {
+      lesma::Type* ptrType = nullptr;
+      for (auto& t : typeCache) {
+        if (t->is(BaseType::TY_PTR) && t->getElementType() == argType) {
+          ptrType = t.get();
+          break;
+        }
+      }
+      if (ptrType != nullptr) {
+        argType = ptrType;
+      } else {
+        argType = cacheType(
+            std::make_unique<Type>(BaseType::TY_PTR, builder->getPtrTy(), argType));
+      }
+    }
+    paramTypes.push_back(argType);
     paramsLLVM.push_back(result->getLlvmValue());
   }
 

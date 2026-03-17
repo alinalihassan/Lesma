@@ -57,12 +57,12 @@ auto SymbolTable::insertType(const std::string& name,
 auto SymbolTable::lookupFunction(
     const std::string& name, std::vector<lesma::Type*> paramTypes) -> Value* {
   auto range = symbols.equal_range(name);
+  Value* matchWithoutValue = nullptr;
   for (auto it = range.first; it != range.second; ++it) {
     if (!it->second->getType()->is(BaseType::TY_FUNCTION)) {
       continue;
     }
 
-    // Check if the parameter types match
     bool paramsMatch = true;
     std::vector<Field*> funcParamTypes = it->second->getType()->getFields();
     size_t const numParams = std::max(funcParamTypes.size(), paramTypes.size());
@@ -75,10 +75,13 @@ auto SymbolTable::lookupFunction(
         }
       } else if (i < funcParamTypes.size() &&
                  funcParamTypes[i]->defaultValue != nullptr) {
-        // Caller omitted this arg; default value applies — continue matching.
-      } else if (i >= funcParamTypes.size() &&
-                 it->second->getType()->getLlvmType()->isFunctionVarArg()) {
-        // Varargs
+        // Caller omitted this arg; default value applies
+      } else if (i >= funcParamTypes.size()) {
+        auto* llvmTy = it->second->getType()->getLlvmType();
+        if (llvmTy != nullptr && llvmTy->isFunctionVarArg()) {
+          break;
+        }
+        paramsMatch = false;
         break;
       } else {
         paramsMatch = false;
@@ -87,10 +90,20 @@ auto SymbolTable::lookupFunction(
     }
 
     if (!paramsMatch) {
-      continue; // Parameter types don't match
+      continue;
     }
 
-    return it->second.get();
+    // Prefer symbol that has LLVM value (from codegen) over typecheck stub
+    if (it->second->getLlvmValue() != nullptr) {
+      return it->second.get();
+    }
+    if (matchWithoutValue == nullptr) {
+      matchWithoutValue = it->second.get();
+    }
+  }
+
+  if (matchWithoutValue != nullptr) {
+    return matchWithoutValue;
   }
 
   if (parent == nullptr) {
@@ -104,14 +117,26 @@ auto SymbolTable::lookupFunction(
  * Check if a symbol exists in the current or any parent scope and return it if
  * possible. When multiple symbols share the same name (e.g. overloaded
  * functions), one match is returned; use lookupFunction for overload resolution.
+ * When typecheck stubs and codegen definitions coexist (same name), prefer the
+ * definition (getLlvmValue() != nullptr).
  *
  * @param name Name of the desired symbol
  * @return Desired symbol / nullptr if the symbol was not found
  */
 auto SymbolTable::lookup(const std::string& name) -> Value* {
   auto [it, end] = symbols.equal_range(name);
-  if (it != end) {
-    return it->second.get();
+  Value* withValue = nullptr;
+  for (auto i = it; i != end; ++i) {
+    Value* v = i->second.get();
+    if (v->getLlvmValue() != nullptr) {
+      return v; // Prefer symbol that has LLVM value (from codegen)
+    }
+    if (withValue == nullptr) {
+      withValue = v;
+    }
+  }
+  if (withValue != nullptr) {
+    return withValue;
   }
 
   if (parent == nullptr) {
@@ -130,10 +155,16 @@ auto SymbolTable::lookup(const std::string& name) -> Value* {
  */
 auto SymbolTable::lookupStruct(const std::string& name) -> Value* {
   for (const auto& [key, sym] : symbols) {
-    if (sym->getType()->getLlvmType() != nullptr &&
-        sym->getType()->isOneOf({BaseType::TY_CLASS, BaseType::TY_ENUM}) &&
-        llvm::cast<llvm::StructType>(sym->getType()->getLlvmType())
-                ->getName() == name) {
+    if (!sym->getType()->isOneOf({BaseType::TY_CLASS, BaseType::TY_ENUM})) {
+      continue;
+    }
+    auto* llvmTy = sym->getType()->getLlvmType();
+    if (llvmTy != nullptr) {
+      if (llvm::cast<llvm::StructType>(llvmTy)->getName() == name) {
+        return sym.get();
+      }
+    } else if (key == name) {
+      // Typechecker inserts class/enum symbols by name with no LLVM type yet
       return sym.get();
     }
   }
