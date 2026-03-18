@@ -177,9 +177,11 @@ auto Typechecker::resolveType(const TypeExpr* node) -> Type* {
     Type* typ = scope->lookupType(node->getName());
     Value* sym = scope->lookupStruct(node->getName());
     if (typ == nullptr && sym == nullptr) {
-      auto genericType = cacheType(std::make_unique<Type>(node->getName()));
-      currentGenericTypes[node->getName()] = genericType;
-      return genericType;
+      throw TypeCheckError(
+          node->getSpan(),
+          "Type '{}' not found. If you meant a generic type parameter, add it "
+          "to the generic parameter list (e.g. def foo<T>(x: T) -> T).",
+          node->getName());
     }
     return sym != nullptr ? sym->getType() : typ;
   }
