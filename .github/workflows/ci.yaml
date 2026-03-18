@@ -34,8 +34,6 @@ jobs:
           brew update
           brew install llvm@21 lld@21 cmake ninja
           echo "$(brew --prefix llvm@21)/bin" >> $GITHUB_PATH
-          echo "CC=$(brew --prefix llvm@21)/bin/clang" >> $GITHUB_ENV
-          echo "CXX=$(brew --prefix llvm@21)/bin/clang++" >> $GITHUB_ENV
 
       - name: Bootstrap vcpkg
         run: ./vcpkg/bootstrap-vcpkg.sh
