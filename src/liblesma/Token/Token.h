@@ -23,10 +23,10 @@ struct Token {
   [[nodiscard]] auto getStart() const -> llvm::SMLoc { return span.Start; }
   [[nodiscard]] auto getEnd() const -> llvm::SMLoc { return span.End; };
 
-  static auto getIdentifierType(const std::string& identifier,
-                                Token* lastTok) -> TokenType;
-  [[nodiscard]] auto
-  dump(const std::shared_ptr<llvm::SourceMgr>& srcMgr) const -> std::string;
+  static auto getIdentifierType(const std::string& identifier, Token* lastTok)
+      -> TokenType;
+  [[nodiscard]] auto dump(const std::shared_ptr<llvm::SourceMgr>& srcMgr) const
+      -> std::string;
 
   auto operator==(const Token& rhs) const -> bool {
     return (lexeme == rhs.lexeme) && (type == rhs.type) &&
@@ -36,8 +36,8 @@ struct Token {
   auto operator!=(const Token& rhs) const -> bool { return !operator==(rhs); }
 
   friend auto operator<<(std::ostream& os, const Token& tok) -> std::ostream& {
-    os << "Token{lexeme=\"" << tok.lexeme << "\", type="
-       << static_cast<std::uint8_t>(tok.type) << "}";
+    os << "Token{lexeme=\"" << tok.lexeme
+       << "\", type=" << static_cast<unsigned int>(tok.type) << "}";
     return os;
   }
 };
