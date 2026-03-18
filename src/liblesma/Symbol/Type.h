@@ -135,11 +135,14 @@ public:
       return false;
     }
 
-    // Class/enum types: if both have LLVM struct types, compare by identity
+    // Class/enum types: compare by LLVM type identity only; do not fall through
+    // to element-type logic when either llvmType is null (would incorrectly
+    // return true for distinct types that both have null elementType).
     if (isOneOf({BaseType::TY_CLASS, BaseType::TY_ENUM})) {
       if (llvmType != nullptr && rhs->llvmType != nullptr) {
         return llvmType == rhs->llvmType;
       }
+      return false;
     }
 
     Type const* thisElementType = this->getElementType();
