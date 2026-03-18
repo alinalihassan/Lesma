@@ -82,6 +82,9 @@ auto getStdDir() -> std::string {
     if (env != nullptr && path != nullptr) {
       homedir = std::string(env) + path;
     } else {
+      fmt::print(fg(fmt::color::yellow),
+                 "Warning: Could not determine home directory, using current "
+                 "directory\n");
       homedir = ".";
     }
   }
@@ -90,6 +93,9 @@ auto getStdDir() -> std::string {
   if (getenv("HOME") != nullptr) {
     homedir = getenv("HOME");
   } else {
+    fmt::print(fg(fmt::color::yellow),
+               "Warning: Could not determine home directory, using current "
+               "directory\n");
     struct passwd* pw = getpwuid(getuid());
     homedir = (pw != nullptr && pw->pw_dir != nullptr) ? pw->pw_dir : ".";
   }

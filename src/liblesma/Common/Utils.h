@@ -27,19 +27,25 @@ struct CLIOptions {
 
 template <typename S, typename... Args>
 void print(LogType typ, const S& formatStr, const Args&... args) {
-  if (typ == LogType::ERROR) {
+  switch (typ) {
+  case LogType::ERROR:
     fmt::print(fg(fmt::color::red) | fmt::emphasis::bold, "[-] Error: ");
-  } else if (typ == LogType::WARNING) {
+    break;
+  case LogType::WARNING:
     fmt::print(fg(fmt::color::yellow) | fmt::emphasis::bold, "[!] Warning: ");
-  } else if (typ == LogType::DEBUG) {
+    break;
+  case LogType::DEBUG:
     fmt::print(fg(fmt::color::medium_purple) | fmt::emphasis::bold,
                "[?] Debug: ");
-  } else if (typ == LogType::SUCCESS) {
+    break;
+  case LogType::SUCCESS:
     fmt::print(fg(fmt::color::forest_green) | fmt::emphasis::bold,
                "[+] Success: ");
+    break;
+  case LogType::CLEAR:
+    /* no prefix */
+    break;
   }
-  // LogType::CLEAR: no prefix (plain output)
-
   // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-array-to-pointer-decay)
   fmt::print(fmt::runtime(formatStr), args...);
 }
