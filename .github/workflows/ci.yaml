@@ -32,11 +32,10 @@ jobs:
           HOMEBREW_NO_INSTALLED_DEPENDENTS_CHECK: 1
         run: |
           brew update
-          brew install llvm lld cmake ninja
-          echo "$(brew --prefix llvm)/bin" >> $GITHUB_PATH
-          echo "CC=$(brew --prefix llvm)/bin/clang" >> $GITHUB_ENV
-          echo "CXX=$(brew --prefix llvm)/bin/clang++" >> $GITHUB_ENV
-          echo "LLD_DIR=$(brew --prefix lld)/lib/cmake/lld" >> $GITHUB_ENV
+          brew install llvm@21 lld@21 cmake ninja
+          echo "$(brew --prefix llvm@21)/bin" >> $GITHUB_PATH
+          echo "CC=$(brew --prefix llvm@21)/bin/clang" >> $GITHUB_ENV
+          echo "CXX=$(brew --prefix llvm@21)/bin/clang++" >> $GITHUB_ENV
 
       - name: Bootstrap vcpkg
         run: ./vcpkg/bootstrap-vcpkg.sh
