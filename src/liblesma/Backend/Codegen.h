@@ -5,9 +5,9 @@
 #include <optional>
 #include <stack>
 #include <string>
+#include <tuple>
 #include <unordered_map>
 #include <unordered_set>
-#include <tuple>
 #include <utility>
 #include <vector>
 
@@ -26,9 +26,9 @@
 #include "liblesma/AST/ASTVisitor.h"
 #include "liblesma/Backend/MangleUtils.h"
 #include "liblesma/Frontend/Parser.h"
-#include "liblesma/Symbol/TypeUtils.h"
 #include "liblesma/Symbol/SymbolTable.h"
 #include "liblesma/Symbol/Type.h"
+#include "liblesma/Symbol/TypeUtils.h"
 #include "liblesma/Symbol/Value.h"
 
 using namespace llvm;
@@ -60,46 +60,45 @@ class Codegen final : public ASTVisitor {
   std::vector<std::string> objectFiles;
   std::shared_ptr<std::vector<std::string>> importedModules;
   std::shared_ptr<std::vector<std::unique_ptr<SymbolTable>>>
-      importedScopes; // Shared so child (e.g. B) sees parent's (A) imports (e.g. math)
-  std::vector<std::unique_ptr<Codegen>>
-      importedCodegens; // Keep imported module codegens alive so Class* in symbols stay valid
-  // deque so push_back never invalidates Type* pointers stored in scope (from typecheck)
+      importedScopes; // Shared so child (e.g. B) sees parent's (A) imports
+                      // (e.g. math)
+  std::vector<std::unique_ptr<Codegen>> importedCodegens; // Keep imported module codegens alive so
+                                                          // Class* in symbols stay valid
+  // deque so push_back never invalidates Type* pointers stored in scope (from
+  // typecheck)
   std::deque<std::unique_ptr<lesma::Type>> typeCache;
   std::vector<std::tuple<lesma::Value*, const FuncDecl*, Value*>> prototypes;
   std::unordered_map<std::string, const FuncDecl*> genericFunctions;
-  std::unordered_map<std::string, std::unordered_map<std::string, const FuncDecl*>>
-      genericMethods;
+  std::unordered_map<std::string, std::unordered_map<std::string, const FuncDecl*>> genericMethods;
   std::unordered_map<std::string, const Class*> genericClasses;
   std::unordered_map<std::string, lesma::Type*> currentGenericTypes;
   std::unordered_map<std::string, lesma::Value*> specializedFunctions;
   std::unordered_map<std::string, lesma::Value*> specializedClasses;
   std::unordered_map<lesma::Value*, std::unordered_map<std::string, lesma::Type*>>
       specializationEnvs;
-  // deque so push_back never invalidates pointers to existing elements (used in prototypes)
+  // deque so push_back never invalidates pointers to existing elements (used in
+  // prototypes)
   std::deque<std::unique_ptr<lesma::Value>> methodSelfSymbols;
   llvm::Function* topLevelFunc;
   MainFnTy* mainFuncAddress = nullptr;
   Value* selfSymbol = nullptr;
   bool isBreak = false;
   bool isReturn = false;
-  bool blockHadReturn = false;
   bool isAssignment = false;
   bool isJit = false;
   bool isMain = true;
 
 public:
   /** \p preScope and \p preTypeCache: when provided (main module after
-   * typecheck), Codegen reuses them instead of building scope/cache from scratch. */
+   * typecheck), Codegen reuses them instead of building scope/cache from
+   * scratch. */
   Codegen(std::shared_ptr<Parser> parser, std::shared_ptr<SourceMgr> srcMgr,
-          const std::string& filename, std::vector<std::string> imports,
-          bool jit, bool main, std::string alias = "",
-          const std::shared_ptr<ThreadSafeContext>& = nullptr,
+          const std::string& filename, std::vector<std::string> imports, bool jit, bool main,
+          std::string alias = "", const std::shared_ptr<ThreadSafeContext>& = nullptr,
           std::shared_ptr<std::vector<std::string>> sharedModules = nullptr,
-          std::shared_ptr<std::vector<std::unique_ptr<SymbolTable>>>
-              sharedScopes = nullptr,
+          std::shared_ptr<std::vector<std::unique_ptr<SymbolTable>>> sharedScopes = nullptr,
           std::optional<std::unique_ptr<SymbolTable>> preScope = std::nullopt,
-          std::optional<std::vector<std::unique_ptr<lesma::Type>>> preTypeCache =
-              std::nullopt);
+          std::optional<std::vector<std::unique_ptr<lesma::Type>>> preTypeCache = std::nullopt);
   ~Codegen() override = default;
 
   Codegen(const Codegen&) = delete;
@@ -124,11 +123,9 @@ protected:
   auto linkObjectFileWithClang(const std::string& objFilename) -> void;
   auto linkObjectFileWithLld(const std::string& objFilename) -> void;
 
-  auto compileModule(llvm::SMRange span, const std::string& filepath,
-                     bool isStd, const std::string& alias, bool importAll,
-                     bool importToScope,
-                     const std::vector<std::pair<std::string, std::string>>&
-                         importedNames) -> void;
+  auto compileModule(llvm::SMRange span, const std::string& filepath, bool isStd,
+                     const std::string& alias, bool importAll, bool importToScope,
+                     const std::vector<std::pair<std::string, std::string>>& importedNames) -> void;
 
   auto visit(const Statement* node) -> void override;
   auto visit(const Compound* node) -> void override;
@@ -160,25 +157,23 @@ protected:
 
   auto visit(const TypeExpr* node) -> void override;
 
-  auto cast(llvm::SMRange span, lesma::Value* val,
-            lesma::Type* type) -> std::unique_ptr<lesma::Value>;
+  auto cast(llvm::SMRange span, lesma::Value* val, lesma::Type* type)
+      -> std::unique_ptr<lesma::Value>;
 
   auto getMangledName(llvm::SMRange span, std::string funcName,
-                      const std::vector<lesma::Type*>& paramTypes,
-                      bool isMethod = false,
+                      const std::vector<lesma::Type*>& paramTypes, bool isMethod = false,
                       std::string alias = "") -> std::string;
 
-  auto genFuncCall(const FuncCall* node,
-                   const std::vector<lesma::Value*>& extraParams)
+  auto genFuncCall(const FuncCall* node, const std::vector<lesma::Value*>& extraParams)
       -> std::unique_ptr<lesma::Value>;
-  auto defineFunction(lesma::Value* value, const FuncDecl* node,
-                      Value* clsSymbol) -> void;
+  auto defineFunction(lesma::Value* value, const FuncDecl* node, Value* clsSymbol) -> void;
   auto specializeFunction(const FuncDecl* node, const std::vector<lesma::Type*>& paramTypes,
                           const std::vector<std::string>& genericNames) -> lesma::Value*;
-  auto specializeClass(const Class* node, const std::vector<lesma::Type*>& constructorArgTypes) -> lesma::Value*;
+  auto specializeClass(const Class* node, const std::vector<lesma::Type*>& constructorArgTypes)
+      -> lesma::Value*;
 
-  auto emitCompoundAssign(llvm::SMRange span, TokenType op, lesma::Value* lhs,
-                          lesma::Value* value) -> void;
+  auto emitCompoundAssign(llvm::SMRange span, TokenType op, lesma::Value* lhs, lesma::Value* value)
+      -> void;
 
   // Cache a type to keep it alive - returns raw pointer to the cached type
   auto cacheType(std::unique_ptr<lesma::Type> type) -> lesma::Type* {
@@ -191,9 +186,8 @@ protected:
 
   /** Populate \p env by structurally matching declared (TypeExpr) vs actual
    * (lesma::Type), binding generic names from \p genericNameSet. */
-  static void bindGenericsFromTypePair(
-      const TypeExpr* declared, lesma::Type* actual,
-      const std::unordered_set<std::string>& genericNameSet,
-      std::unordered_map<std::string, lesma::Type*>& env);
+  static void bindGenericsFromTypePair(const TypeExpr* declared, lesma::Type* actual,
+                                       const std::unordered_set<std::string>& genericNameSet,
+                                       std::unordered_map<std::string, lesma::Type*>& env);
 };
 } // namespace lesma

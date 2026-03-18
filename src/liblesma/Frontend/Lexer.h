@@ -26,8 +26,7 @@ public:
   explicit Lexer(const std::shared_ptr<llvm::SourceMgr>& srcMgr)
       : curBuffer(srcMgr->getMemoryBuffer(srcMgr->getNumBuffers())),
         beginLoc(llvm::SMLoc::getFromPointer(curBuffer->getBufferStart())),
-        loc(llvm::SMLoc::getFromPointer(curBuffer->getBufferStart())),
-        srcMgr(srcMgr) {}
+        loc(llvm::SMLoc::getFromPointer(curBuffer->getBufferStart())), srcMgr(srcMgr) {}
   ~Lexer() = default;
 
   Lexer(const Lexer&) = delete;
@@ -37,9 +36,7 @@ public:
 
   auto scanAll() -> void;
   [[nodiscard]] auto getTokens() -> std::vector<Token*>;
-  auto getOwnedTokens() -> std::vector<std::unique_ptr<Token>>& {
-    return tokens;
-  };
+  auto getOwnedTokens() -> std::vector<std::unique_ptr<Token>>& { return tokens; };
 
 private:
   auto scanOne(bool continuation = false) -> std::unique_ptr<Token>;
@@ -56,15 +53,12 @@ private:
     return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '_';
   }
 
-  static auto isAlphaNumeric(char c) -> bool {
-    return isAlpha(c) || isDigit(c);
-  }
+  static auto isAlphaNumeric(char c) -> bool { return isAlpha(c) || isDigit(c); }
 
   auto addNumToken() -> std::unique_ptr<Token>;
 
   auto makeToken(TokenType type) -> std::unique_ptr<Token>;
-  auto makeToken(TokenType type,
-                 const std::string& value) -> std::unique_ptr<Token>;
+  auto makeToken(TokenType type, const std::string& value) -> std::unique_ptr<Token>;
 
   auto error(const std::string& msg) const -> void;
 

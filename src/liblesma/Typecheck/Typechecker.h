@@ -2,8 +2,8 @@
 
 #include <functional>
 #include <memory>
-#include <unordered_map>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 #include "liblesma/AST/ASTVisitor.h"
@@ -13,10 +13,10 @@
 
 namespace lesma {
 
-/** Callback to resolve import *: (filepath, isStd, mainFilePath) -> exported names. */
+/** Callback to resolve import *: (filepath, isStd, mainFilePath) -> exported
+ * names. */
 using GetExportsFn =
-    std::function<std::vector<std::string>(const std::string&, bool,
-                                           const std::string&)>;
+    std::function<std::vector<std::string>(const std::string&, bool, const std::string&)>;
 
 /**
  * Semantic typecheck pass. Runs after parsing, before codegen.
@@ -27,7 +27,8 @@ using GetExportsFn =
  * - Return types vs function signature
  * - Binary/unary op operand types
  * - Function call argument counts and types
- * When getExports is provided, import * adds exported names from the imported file.
+ * When getExports is provided, import * adds exported names from the imported
+ * file.
  */
 class Typechecker final : public ASTVisitor {
   std::unique_ptr<SymbolTable> rootScope;
@@ -42,21 +43,24 @@ class Typechecker final : public ASTVisitor {
   Type* currentClassType = nullptr; // Set when visiting class methods, for self
   bool inTopLevel = true;
   std::unordered_map<std::string, Type*> currentGenericTypes;
-  /** Specialized class types: key = template toString + "|" + concrete types, value = Type* with concrete fields. */
+  /** Specialized class types: key = template toString + "|" + concrete types,
+   * value = Type* with concrete fields. */
   std::unordered_map<std::string, Type*> specializedClassTypes;
-  /** For each specialized class type, the substitution map (generic name -> concrete type) used to create it. */
+  /** For each specialized class type, the substitution map (generic name ->
+   * concrete type) used to create it. */
   std::unordered_map<Type*, std::unordered_map<std::string, Type*>> specializedTypeEnv;
-  /** For each specialized class type, the template class type it was created from. */
+  /** For each specialized class type, the template class type it was created
+   * from. */
   std::unordered_map<Type*, Type*> specializedTypeToTemplate;
 
   void registerBaseStubs();
-  /** Get or create a specialized class type by substituting env into template's fields. */
+  /** Get or create a specialized class type by substituting env into template's
+   * fields. */
   auto getOrCreateSpecializedClassType(Type* classTemplate,
-                                      const std::vector<std::string>& genericParamNames,
-                                      const std::unordered_map<std::string, Type*>& env) -> Type*;
+                                       const std::vector<std::string>& genericParamNames,
+                                       const std::unordered_map<std::string, Type*>& env) -> Type*;
   /** Substitute env into type (for fields); returns cached type. */
-  auto substituteInType(Type* t,
-                       const std::unordered_map<std::string, Type*>& env) -> Type*;
+  auto substituteInType(Type* t, const std::unordered_map<std::string, Type*>& env) -> Type*;
 
   auto cacheType(std::unique_ptr<Type> type) -> Type*;
   auto resolveType(const TypeExpr* node) -> Type*;
@@ -68,7 +72,8 @@ class Typechecker final : public ASTVisitor {
 public:
   /** Typecheck with no import * resolution. */
   explicit Typechecker();
-  /** Typecheck with import * resolution; mainFilePath used for relative imports. */
+  /** Typecheck with import * resolution; mainFilePath used for relative
+   * imports. */
   Typechecker(std::string mainFilePath, GetExportsFn getExports);
   ~Typechecker() override = default;
 
@@ -78,9 +83,11 @@ public:
   /** Run typecheck on the given AST. Throws TypeCheckError on first error. */
   auto run(const Compound* ast) -> void;
 
-  /** Take ownership of the symbol table built during typecheck (call after run()). */
+  /** Take ownership of the symbol table built during typecheck (call after
+   * run()). */
   auto takeRootScope() -> std::unique_ptr<SymbolTable>;
-  /** Take ownership of the type cache built during typecheck (call after run()). */
+  /** Take ownership of the type cache built during typecheck (call after
+   * run()). */
   auto takeTypeCache() -> std::vector<std::unique_ptr<Type>>;
 
   auto visit(const Statement* node) -> void override;

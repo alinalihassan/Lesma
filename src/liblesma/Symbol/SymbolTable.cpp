@@ -42,8 +42,7 @@ auto SymbolTable::insertSymbol(std::unique_ptr<Value> symbol) -> void {
  * @param name Name of the type
  * @param type Type to insert (takes ownership)
  */
-auto SymbolTable::insertType(const std::string& name,
-                             std::unique_ptr<Type> type) -> void {
+auto SymbolTable::insertType(const std::string& name, std::unique_ptr<Type> type) -> void {
   types.insert_or_assign(name, std::move(type));
 }
 
@@ -54,8 +53,8 @@ auto SymbolTable::insertType(const std::string& name,
  * @param name Name of the desired symbol
  * @return Desired symbol / nullptr if the symbol was not found
  */
-auto SymbolTable::lookupFunction(
-    const std::string& name, std::vector<lesma::Type*> paramTypes) -> Value* {
+auto SymbolTable::lookupFunction(const std::string& name, std::vector<lesma::Type*> paramTypes)
+    -> Value* {
   auto range = symbols.equal_range(name);
   Value* matchWithoutValue = nullptr;
   for (auto it = range.first; it != range.second; ++it) {
@@ -74,14 +73,14 @@ auto SymbolTable::lookupFunction(
         }
         if (paramTypes[i]->is(BaseType::TY_GENERIC)) {
           paramsMatch = false;
-          break; // Argument must be concrete; generic-typed args no longer match
+          break; // Argument must be concrete; generic-typed args no longer
+                 // match
         }
         if (!funcParamTypes[i]->type->isEqual(paramTypes[i])) {
           paramsMatch = false;
           break;
         }
-      } else if (i < funcParamTypes.size() &&
-                 funcParamTypes[i]->defaultValue != nullptr) {
+      } else if (i < funcParamTypes.size() && funcParamTypes[i]->defaultValue != nullptr) {
         // Caller omitted this arg; default value applies
       } else if (i >= funcParamTypes.size()) {
         auto* llvmTy = it->second->getType()->getLlvmType();
@@ -123,9 +122,9 @@ auto SymbolTable::lookupFunction(
 /**
  * Check if a symbol exists in the current or any parent scope and return it if
  * possible. When multiple symbols share the same name (e.g. overloaded
- * functions), one match is returned; use lookupFunction for overload resolution.
- * When typecheck stubs and codegen definitions coexist (same name), prefer the
- * definition (getLlvmValue() != nullptr).
+ * functions), one match is returned; use lookupFunction for overload
+ * resolution. When typecheck stubs and codegen definitions coexist (same name),
+ * prefer the definition (getLlvmValue() != nullptr).
  *
  * @param name Name of the desired symbol
  * @return Desired symbol / nullptr if the symbol was not found
@@ -228,8 +227,7 @@ auto SymbolTable::insertTypeRef(const std::string& name, Type* type) -> void {
  * @param blockName Name of the child scope
  * @return Newly created child table
  */
-auto SymbolTable::createChildBlock(const std::string& blockName)
-    -> SymbolTable* {
+auto SymbolTable::createChildBlock(const std::string& blockName) -> SymbolTable* {
   int idx = 1;
   while (children.contains(blockName + std::to_string(idx))) {
     idx++;

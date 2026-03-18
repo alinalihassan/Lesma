@@ -20,8 +20,8 @@ public:
   SymbolTable(SymbolTable&&) = default;
   auto operator=(SymbolTable&&) -> SymbolTable& = default;
 
-  auto lookupFunction(const std::string& symbolName,
-                      std::vector<lesma::Type*> paramTypes) -> Value*;
+  auto lookupFunction(const std::string& symbolName, std::vector<lesma::Type*> paramTypes)
+      -> Value*;
   auto lookup(const std::string& name) -> Value*;
   auto lookupStruct(const std::string& name) -> Value*;
   auto lookupType(const std::string& symbolName) -> Type*;

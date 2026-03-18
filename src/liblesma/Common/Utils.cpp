@@ -22,16 +22,14 @@ auto getBasename(const std::string& filePath) -> std::string {
     return "";
   }
   auto const sep = filePath.find_last_of("/\\");
-  auto const filename =
-      (sep == std::string::npos) ? filePath : filePath.substr(sep + 1);
+  auto const filename = (sep == std::string::npos) ? filePath : filePath.substr(sep + 1);
   auto const dot = filename.find_last_of('.');
   return (dot == std::string::npos) ? filename : filename.substr(0, dot);
 }
 
 // NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
-auto showInline(llvm::SourceMgr* srcMgr, unsigned int bufferId,
-                llvm::SMRange span, const std::string& file, bool isError,
-                const std::string& reason) -> void {
+auto showInline(llvm::SourceMgr* srcMgr, unsigned int bufferId, llvm::SMRange span,
+                const std::string& file, bool isError, const std::string& reason) -> void {
   std::istringstream ifs(srcMgr->getMemoryBuffer(bufferId)->getBuffer().str());
   unsigned int lineNum = 1;
   auto color = isError ? fg(fmt::color::red) : fg(fmt::color::yellow);
@@ -42,25 +40,21 @@ auto showInline(llvm::SourceMgr* srcMgr, unsigned int bufferId,
 
   auto startLoc = srcMgr->getLineAndColumn(span.Start, bufferId);
   auto endLoc = srcMgr->getLineAndColumn(span.End, bufferId);
-  fmt::print(accent, "{}--> ",
-             std::string(int(log10(startLoc.first) + 1), ' '));
+  fmt::print(accent, "{}--> ", std::string(int(log10(startLoc.first) + 1), ' '));
   fmt::print("{}:{}:{}\n", file, startLoc.first, startLoc.second);
 
   for (std::string line; std::getline(ifs, line);) {
     if (lineNum == startLoc.first) {
       // First line
-      fmt::print(accent, "{} |\n",
-                 std::string(int(log10(startLoc.first) + 1), ' '));
+      fmt::print(accent, "{} |\n", std::string(int(log10(startLoc.first) + 1), ' '));
 
       // Second line
       fmt::print(accent, "{} | ", lineNum);
       fmt::print("{}\n", line);
 
       // Third line
-      fmt::print(accent, "{} |",
-                 std::string(int(log10(startLoc.first) + 1), ' '));
-      fmt::print(color | fmt::emphasis::bold, "{}{}\n",
-                 std::string(startLoc.second, ' '),
+      fmt::print(accent, "{} |", std::string(int(log10(startLoc.first) + 1), ' '));
+      fmt::print(color | fmt::emphasis::bold, "{}{}\n", std::string(startLoc.second, ' '),
                  std::string(endLoc.second - startLoc.second, '^'));
 
       // TODO: Support multiline
@@ -93,9 +87,8 @@ auto getStdDir() -> std::string {
   if (getenv("HOME") != nullptr) {
     homedir = getenv("HOME");
   } else {
-    fmt::print(fg(fmt::color::yellow),
-               "Warning: Could not determine home directory, using current "
-               "directory\n");
+    fmt::print(fg(fmt::color::yellow), "Warning: Could not determine home directory, using current "
+                                       "directory\n");
     struct passwd* pw = getpwuid(getuid());
     homedir = (pw != nullptr && pw->pw_dir != nullptr) ? pw->pw_dir : ".";
   }

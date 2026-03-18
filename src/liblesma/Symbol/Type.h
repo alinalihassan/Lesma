@@ -62,21 +62,17 @@ class Type {
 
 public:
   explicit Type(BaseType baseType)
-      : baseType(baseType), llvmType(nullptr), elementType(nullptr),
-        returnType(nullptr) {}
+      : baseType(baseType), llvmType(nullptr), elementType(nullptr), returnType(nullptr) {}
   explicit Type(BaseType baseType, llvm::Type* llvmType)
-      : baseType(baseType), llvmType(llvmType), elementType(nullptr),
-        returnType(nullptr) {}
+      : baseType(baseType), llvmType(llvmType), elementType(nullptr), returnType(nullptr) {}
   explicit Type(BaseType baseType, llvm::Type* llvmType, Type* elementType)
-      : baseType(baseType), llvmType(llvmType), elementType(elementType),
-        returnType(nullptr) {}
+      : baseType(baseType), llvmType(llvmType), elementType(elementType), returnType(nullptr) {}
   explicit Type(std::string genericName)
       : baseType(BaseType::TY_GENERIC), llvmType(nullptr), elementType(nullptr),
         returnType(nullptr), genericName(std::move(genericName)) {}
-  explicit Type(BaseType baseType, llvm::Type* llvmType,
-                std::vector<std::unique_ptr<Field>> fields)
-      : baseType(baseType), llvmType(llvmType), elementType(nullptr),
-        returnType(nullptr), fields(std::move(fields)) {}
+  explicit Type(BaseType baseType, llvm::Type* llvmType, std::vector<std::unique_ptr<Field>> fields)
+      : baseType(baseType), llvmType(llvmType), elementType(nullptr), returnType(nullptr),
+        fields(std::move(fields)) {}
 
   ~Type() = default;
   Type(const Type&) = delete;
@@ -84,18 +80,13 @@ public:
   Type(Type&&) = default;
   auto operator=(Type&&) -> Type& = default;
 
-  [[nodiscard]] auto is(BaseType type) const -> bool {
-    return baseType == type;
-  }
+  [[nodiscard]] auto is(BaseType type) const -> bool { return baseType == type; }
   [[nodiscard]] auto isPrimitive() const -> bool {
-    return isOneOf({BaseType::TY_INT, BaseType::TY_FLOAT, BaseType::TY_STRING,
-                    BaseType::TY_BOOL});
+    return isOneOf({BaseType::TY_INT, BaseType::TY_FLOAT, BaseType::TY_STRING, BaseType::TY_BOOL});
   }
-  [[nodiscard]] auto
-  isOneOf(const std::vector<BaseType>& baseTypes) const -> bool {
-    return std::any_of(
-        baseTypes.begin(), baseTypes.end(),
-        [this](BaseType type) -> bool { return type == this->baseType; });
+  [[nodiscard]] auto isOneOf(const std::vector<BaseType>& baseTypes) const -> bool {
+    return std::any_of(baseTypes.begin(), baseTypes.end(),
+                       [this](BaseType type) -> bool { return type == this->baseType; });
   }
   [[nodiscard]] auto getBaseType() const -> BaseType { return baseType; }
   [[nodiscard]] auto getElementType() const -> Type* { return elementType; }
@@ -119,9 +110,7 @@ public:
   auto setElementType(Type* type) -> void { elementType = type; }
   auto setReturnType(Type* type) -> void { returnType = type; }
   auto setGenericName(std::string name) -> void { genericName = std::move(name); }
-  auto addField(std::unique_ptr<Field> field) -> void {
-    fields.push_back(std::move(field));
-  }
+  auto addField(std::unique_ptr<Field> field) -> void { fields.push_back(std::move(field)); }
 
   auto isEqual(Type* rhs) const -> bool {
     if (rhs == nullptr) {

@@ -38,27 +38,24 @@ public:
   explicit Value(Type* type) : type(type), state(SymbolState::INITIALIZED) {}
 
   Value(std::string name, Type* type)
-      : name(std::move(name)), mangledName(name), type(type),
-        state(SymbolState::INITIALIZED) {}
+      : name(std::move(name)), mangledName(name), type(type), state(SymbolState::INITIALIZED) {}
 
   Value(std::string name, Type* type, llvm::Value* value)
-      : name(std::move(name)), mangledName(name), type(type),
-        state(SymbolState::INITIALIZED), llvmValue(value) {}
+      : name(std::move(name)), mangledName(name), type(type), state(SymbolState::INITIALIZED),
+        llvmValue(value) {}
 
   Value(std::string name, Type* type, SymbolState state)
       : name(std::move(name)), mangledName(name), type(type), state(state) {}
 
-  Value(std::string name, Type* type, SymbolState state, bool mutableVar,
-        bool signedVar)
+  Value(std::string name, Type* type, SymbolState state, bool mutableVar, bool signedVar)
       : name(std::move(name)), type(type), state(state), mutableVar(mutableVar),
         signedVar(signedVar) {}
 
   // Copy constructor - creates a shallow copy with non-owning Type reference
   Value(const Value& other)
-      : name(other.name), mangledName(other.mangledName), type(other.getType()),
-        state(other.state), llvmValue(other.llvmValue), used(other.used),
-        mutableVar(other.mutableVar), signedVar(other.signedVar),
-        exported(other.exported), constructor(other.constructor),
+      : name(other.name), mangledName(other.mangledName), type(other.getType()), state(other.state),
+        llvmValue(other.llvmValue), used(other.used), mutableVar(other.mutableVar),
+        signedVar(other.signedVar), exported(other.exported), constructor(other.constructor),
         genericClassTemplate(other.genericClassTemplate) {}
 
   ~Value() = default;
@@ -88,17 +85,12 @@ public:
   [[nodiscard]] auto getMutability() const -> bool { return mutableVar; }
   [[nodiscard]] auto getSigned() const -> bool { return signedVar; }
   [[nodiscard]] auto getState() const -> SymbolState { return state; }
-  [[nodiscard]] auto getType() const -> Type* {
-    return ownedType ? ownedType.get() : type;
-  }
-  [[nodiscard]] auto getConstructor() const -> lesma::Value* {
-    return constructor;
-  }
+  [[nodiscard]] auto getType() const -> Type* { return ownedType ? ownedType.get() : type; }
+  [[nodiscard]] auto getConstructor() const -> lesma::Value* { return constructor; }
   /** Opaque pointer to the Class* AST for generic class templates (used when
-   *  specializing imported generics). Codegen interprets this as const Class*. */
-  [[nodiscard]] auto getGenericClassTemplate() const -> void* {
-    return genericClassTemplate;
-  }
+   *  specializing imported generics). Codegen interprets this as const Class*.
+   */
+  [[nodiscard]] auto getGenericClassTemplate() const -> void* { return genericClassTemplate; }
   [[nodiscard]] auto isExported() const -> bool { return exported; }
   [[nodiscard]] auto isUsed() const -> bool { return used; }
 
@@ -132,7 +124,7 @@ private:
   std::string name;
   std::string mangledName;
   std::unique_ptr<Type> ownedType; // Owned Type (when Value creates its own)
-  Type* type = nullptr; // Non-owning reference (when Type is owned elsewhere)
+  Type* type = nullptr;            // Non-owning reference (when Type is owned elsewhere)
   SymbolState state = SymbolState::DECLARED;
   llvm::Value* llvmValue = nullptr;
   // For analysis

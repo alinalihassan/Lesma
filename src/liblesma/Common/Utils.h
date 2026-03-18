@@ -35,12 +35,10 @@ void print(LogType typ, const S& formatStr, const Args&... args) {
     fmt::print(fg(fmt::color::yellow) | fmt::emphasis::bold, "[!] Warning: ");
     break;
   case LogType::DEBUG:
-    fmt::print(fg(fmt::color::medium_purple) | fmt::emphasis::bold,
-               "[?] Debug: ");
+    fmt::print(fg(fmt::color::medium_purple) | fmt::emphasis::bold, "[?] Debug: ");
     break;
   case LogType::SUCCESS:
-    fmt::print(fg(fmt::color::forest_green) | fmt::emphasis::bold,
-               "[+] Success: ");
+    fmt::print(fg(fmt::color::forest_green) | fmt::emphasis::bold, "[+] Success: ");
     break;
   case LogType::CLEAR:
     /* no prefix */
@@ -95,9 +93,8 @@ public:
   }
 };
 
-auto showInline(llvm::SourceMgr* srcMgr, unsigned int bufferId,
-                llvm::SMRange span, const std::string& file, bool isError,
-                const std::string& reason) -> void;
+auto showInline(llvm::SourceMgr* srcMgr, unsigned int bufferId, llvm::SMRange span,
+                const std::string& file, bool isError, const std::string& reason) -> void;
 auto getBasename(const std::string& filePath) -> std::string;
 auto getStdDir() -> std::string;
 } // namespace lesma

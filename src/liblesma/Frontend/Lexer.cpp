@@ -34,8 +34,7 @@ auto Lexer::getTokens() -> std::vector<Token*> {
 // NOLINTNEXTLINE(readability-function-cognitive-complexity)
 auto Lexer::scanOne(bool continuation) -> std::unique_ptr<Token> {
   if (isAtEnd()) {
-    return std::make_unique<Token>(TokenType::EOF_TOKEN, "EOF",
-                                   llvm::SMRange{beginLoc, loc});
+    return std::make_unique<Token>(TokenType::EOF_TOKEN, "EOF", llvm::SMRange{beginLoc, loc});
   }
   resetTokenBeg();
   char c = advance();
@@ -102,8 +101,7 @@ auto Lexer::scanOne(bool continuation) -> std::unique_ptr<Token> {
   case '&':
     return makeToken(TokenType::AMPERSAND);
   case '!':
-    return makeToken(matchAndAdvance('=') ? TokenType::BANG_EQUAL
-                                          : TokenType::BANG);
+    return makeToken(matchAndAdvance('=') ? TokenType::BANG_EQUAL : TokenType::BANG);
   case '=': {
     if (matchAndAdvance('=')) {
       return makeToken(TokenType::EQUAL_EQUAL);
@@ -115,11 +113,9 @@ auto Lexer::scanOne(bool continuation) -> std::unique_ptr<Token> {
     return makeToken(TokenType::EQUAL);
   }
   case '<':
-    return makeToken(matchAndAdvance('=') ? TokenType::LESS_EQUAL
-                                          : TokenType::LESS);
+    return makeToken(matchAndAdvance('=') ? TokenType::LESS_EQUAL : TokenType::LESS);
   case '>':
-    return makeToken(matchAndAdvance('=') ? TokenType::GREATER_EQUAL
-                                          : TokenType::GREATER);
+    return makeToken(matchAndAdvance('=') ? TokenType::GREATER_EQUAL : TokenType::GREATER);
   case '/': {
     if (matchAndAdvance('=')) {
       return makeToken(TokenType::SLASH_EQUAL);
@@ -164,8 +160,7 @@ auto Lexer::scanOne(bool continuation) -> std::unique_ptr<Token> {
     }
 
     if (c != '\n') {
-      error(
-          fmt::format("Newline expected after line continuation, found {}", c));
+      error(fmt::format("Newline expected after line continuation, found {}", c));
     }
 
     line++;
@@ -184,8 +179,8 @@ auto Lexer::scanOne(bool continuation) -> std::unique_ptr<Token> {
     line++;
     col = 1;
     if (!continuation && level == 0) {
-      tokens.push_back(std::make_unique<Token>(TokenType::NEWLINE, "NEWLINE",
-                                               llvm::SMRange{beginLoc, loc}));
+      tokens.push_back(
+          std::make_unique<Token>(TokenType::NEWLINE, "NEWLINE", llvm::SMRange{beginLoc, loc}));
     }
     handleIndentation(continuation);
     return scanOne(false);
@@ -292,26 +287,23 @@ auto Lexer::handleIndentation(bool continuation) -> bool {
   }
 
   while (changes != 0) {
-    tokens.push_back(std::make_unique<Token>(
-        changes > 0 ? TokenType::INDENT : TokenType::DEDENT,
-        changes > 0 ? "INDENT" : "DEDENT", llvm::SMRange{beginLoc, loc}));
+    tokens.push_back(std::make_unique<Token>(changes > 0 ? TokenType::INDENT : TokenType::DEDENT,
+                                             changes > 0 ? "INDENT" : "DEDENT",
+                                             llvm::SMRange{beginLoc, loc}));
     changes += changes > 0 ? -1 : 1;
   }
   return true;
 }
 
 auto Lexer::makeToken(TokenType type) -> std::unique_ptr<Token> {
-  auto token = std::make_unique<Token>(
-      type, std::string(beginLoc.getPointer(), loc.getPointer()),
-      llvm::SMRange{beginLoc, loc});
+  auto token = std::make_unique<Token>(type, std::string(beginLoc.getPointer(), loc.getPointer()),
+                                       llvm::SMRange{beginLoc, loc});
   resetTokenBeg();
   return token;
 }
 
-auto Lexer::makeToken(TokenType type,
-                      const std::string& value) -> std::unique_ptr<Token> {
-  auto token =
-      std::make_unique<Token>(type, value, llvm::SMRange{beginLoc, loc});
+auto Lexer::makeToken(TokenType type, const std::string& value) -> std::unique_ptr<Token> {
+  auto token = std::make_unique<Token>(type, value, llvm::SMRange{beginLoc, loc});
   resetTokenBeg();
   return token;
 }

@@ -38,13 +38,10 @@ auto parseCli(int argc, char** argv) -> std::unique_ptr<CLIOptions> {
   std::string file;
 
   CLI::App app{"Lesma programming language", "lesma"};
-  app.set_version_flag("-v,--version", LESMA_VERSION,
-                       "Print the Lesma version");
-  app.set_help_all_flag("-s,--subcommands",
-                        "Expand help to show subcommand flags and options");
+  app.set_version_flag("-v,--version", LESMA_VERSION, "Print the Lesma version");
+  app.set_help_all_flag("-s,--subcommands", "Expand help to show subcommand flags and options");
   auto* debugOpt =
-      app.add_option("-d,--debug", debug,
-                     "Debug options: lexer, ast, ir, all (default: all)")
+      app.add_option("-d,--debug", debug, "Debug options: lexer, ast, ir, all (default: all)")
           ->expected(0, -1)
           ->check(CLI::IsMember({"lexer", "ast", "ir", "all"}));
   app.add_flag("-t,--timer", timer, "Enable compiler timer");
@@ -74,8 +71,8 @@ auto parseCli(int argc, char** argv) -> std::unique_ptr<CLIOptions> {
     debug.emplace_back("all");
   }
 
-  return std::make_unique<CLIOptions>(CLIOptions{
-      std::filesystem::absolute(file), output, debug, timer, run->parsed()});
+  return std::make_unique<CLIOptions>(
+      CLIOptions{std::filesystem::absolute(file), output, debug, timer, run->parsed()});
 }
 
 } // namespace
@@ -85,8 +82,7 @@ auto main(int argc, char** argv) -> int {
   auto options = parseCli(argc, argv);
   auto debugFlags = parseDebugFlags(options->debug);
   auto driverOptions = std::make_unique<Options>(
-      Options{SourceType::FILE, options->file, debugFlags, options->output,
-              options->timer});
+      Options{SourceType::FILE, options->file, debugFlags, options->output, options->timer});
   return options->jit ? Driver::run(std::move(driverOptions))
                       : Driver::compile(std::move(driverOptions));
 }
