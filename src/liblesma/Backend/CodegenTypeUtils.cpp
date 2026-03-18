@@ -13,7 +13,7 @@
 namespace lesma {
 namespace CodegenTypeUtils {
 auto getExtendedType(Type* left, Type* right) -> Type* {
-  if (left->getBaseType() == right->getBaseType()) {
+  if (left->isEqual(right)) {
     return left;
   }
 
