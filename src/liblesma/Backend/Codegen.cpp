@@ -1050,10 +1050,9 @@ void Codegen::bindGenericsFromTypePair(
 
 auto Codegen::specializeFunction(const FuncDecl* node, const std::vector<lesma::Type*>& paramTypes,
                                  const std::vector<std::string>& genericNames) -> lesma::Value* {
-  std::string key = node->getName();
-  for (auto* t : paramTypes) {
-    key += "|" + t->toString();
-  }
+  std::string key =
+      getMangledName(node->getSpan(), node->getName(), paramTypes,
+                     selfSymbol != nullptr);
   if (auto it = specializedFunctions.find(key); it != specializedFunctions.end()) {
     return it->second;
   }
@@ -1146,9 +1145,10 @@ auto Codegen::specializeClass(const Class* node,
     }
   }
 
-  std::string key = node->getIdentifier();
+  std::string key =
+      (alias.empty() ? "" : "&" + alias + "=>") + node->getIdentifier();
   for (const auto& gn : genericNames) {
-    key += "|" + env[gn]->toString();
+    key += "|" + MangleUtils::getTypeMangledName(node->getSpan(), env[gn]);
   }
   if (auto it = specializedClasses.find(key); it != specializedClasses.end()) {
     return it->second;
@@ -1157,9 +1157,10 @@ auto Codegen::specializeClass(const Class* node,
   auto saved = currentGenericTypes;
   currentGenericTypes = env;
 
-  std::string concreteName = node->getIdentifier();
+  std::string concreteName =
+      (alias.empty() ? "" : alias + "_") + node->getIdentifier();
   for (const auto& gn : genericNames) {
-    concreteName += "_" + env[gn]->toString();
+    concreteName += "_" + MangleUtils::getTypeMangledName(node->getSpan(), env[gn]);
   }
 
   std::vector<std::unique_ptr<Field>> fields;
