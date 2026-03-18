@@ -35,12 +35,15 @@ jobs:
         run: echo "baseline=$(jq -r '."builtin-baseline"' vcpkg.json)" >> $GITHUB_OUTPUT
 
       - name: Fetch vcpkg baseline commit
-        run: git -C vcpkg fetch origin
+        run: |
+          git -C vcpkg fetch origin ${{ steps.vcpkg-baseline.outputs.baseline }}
+          git -C vcpkg checkout ${{ steps.vcpkg-baseline.outputs.baseline }}
 
       - name: Setup vcpkg
         uses: lukka/run-vcpkg@v11
         with:
           vcpkgGitCommitId: '${{ steps.vcpkg-baseline.outputs.baseline }}'
+          doNotUpdateVcpkg: true
 
       - name: Run CMake with Ninja
         uses: lukka/run-cmake@v10
