@@ -111,5 +111,9 @@ private:
   auto parseUnary() -> std::unique_ptr<Expression>;
   auto parseTerm() -> std::unique_ptr<Expression>;
   auto parseFunctionCall() -> std::unique_ptr<Expression>;
+
+  // Lookahead: true if from current position we have IDENTIFIER LESS type-list GREATER LEFT_PAREN (so parsing as call with explicit type args is valid).
+  auto hasExplicitTypeArgsAndParen() -> bool;
+  auto skipOneTypeAt(unsigned long& off) -> bool;
 };
 } // namespace lesma

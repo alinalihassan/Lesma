@@ -1,0 +1,4 @@
+def identity<T>(x: T) -> T
+    return x
+
+identity<int>(3.14)

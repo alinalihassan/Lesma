@@ -1,8 +1,12 @@
 #pragma once
 
+#include <deque>
 #include <memory>
+#include <optional>
 #include <stack>
 #include <string>
+#include <unordered_map>
+#include <unordered_set>
 #include <tuple>
 #include <utility>
 #include <vector>
@@ -57,9 +61,22 @@ class Codegen final : public ASTVisitor {
   std::shared_ptr<std::vector<std::string>> importedModules;
   std::shared_ptr<std::vector<std::unique_ptr<SymbolTable>>>
       importedScopes; // Shared so child (e.g. B) sees parent's (A) imports (e.g. math)
-  std::vector<std::unique_ptr<lesma::Type>>
-      typeCache; // Cache for primitive types to prevent dangling pointers
+  std::vector<std::unique_ptr<Codegen>>
+      importedCodegens; // Keep imported module codegens alive so Class* in symbols stay valid
+  // deque so push_back never invalidates Type* pointers stored in scope (from typecheck)
+  std::deque<std::unique_ptr<lesma::Type>> typeCache;
   std::vector<std::tuple<lesma::Value*, const FuncDecl*, Value*>> prototypes;
+  std::unordered_map<std::string, const FuncDecl*> genericFunctions;
+  std::unordered_map<std::string, std::unordered_map<std::string, const FuncDecl*>>
+      genericMethods;
+  std::unordered_map<std::string, const Class*> genericClasses;
+  std::unordered_map<std::string, lesma::Type*> currentGenericTypes;
+  std::unordered_map<std::string, lesma::Value*> specializedFunctions;
+  std::unordered_map<std::string, lesma::Value*> specializedClasses;
+  std::unordered_map<lesma::Value*, std::unordered_map<std::string, lesma::Type*>>
+      specializationEnvs;
+  // deque so push_back never invalidates pointers to existing elements (used in prototypes)
+  std::deque<std::unique_ptr<lesma::Value>> methodSelfSymbols;
   llvm::Function* topLevelFunc;
   MainFnTy* mainFuncAddress = nullptr;
   Value* selfSymbol = nullptr;
@@ -71,13 +88,18 @@ class Codegen final : public ASTVisitor {
   bool isMain = true;
 
 public:
+  /** \p preScope and \p preTypeCache: when provided (main module after
+   * typecheck), Codegen reuses them instead of building scope/cache from scratch. */
   Codegen(std::shared_ptr<Parser> parser, std::shared_ptr<SourceMgr> srcMgr,
           const std::string& filename, std::vector<std::string> imports,
           bool jit, bool main, std::string alias = "",
           const std::shared_ptr<ThreadSafeContext>& = nullptr,
           std::shared_ptr<std::vector<std::string>> sharedModules = nullptr,
           std::shared_ptr<std::vector<std::unique_ptr<SymbolTable>>>
-              sharedScopes = nullptr);
+              sharedScopes = nullptr,
+          std::optional<std::unique_ptr<SymbolTable>> preScope = std::nullopt,
+          std::optional<std::vector<std::unique_ptr<lesma::Type>>> preTypeCache =
+              std::nullopt);
   ~Codegen() override = default;
 
   Codegen(const Codegen&) = delete;
@@ -151,6 +173,9 @@ protected:
       -> std::unique_ptr<lesma::Value>;
   auto defineFunction(lesma::Value* value, const FuncDecl* node,
                       Value* clsSymbol) -> void;
+  auto specializeFunction(const FuncDecl* node, const std::vector<lesma::Type*>& paramTypes,
+                          const std::vector<std::string>& genericNames) -> lesma::Value*;
+  auto specializeClass(const Class* node, const std::vector<lesma::Type*>& constructorArgTypes) -> lesma::Value*;
 
   auto emitCompoundAssign(llvm::SMRange span, TokenType op, lesma::Value* lhs,
                           lesma::Value* value) -> void;
@@ -160,5 +185,15 @@ protected:
     typeCache.push_back(std::move(type));
     return typeCache.back().get();
   }
+
+  /** Ensure \p type has an LLVM type (fill in when from typechecker). */
+  auto getOrCreateLlvmType(lesma::Type* type) -> llvm::Type*;
+
+  /** Populate \p env by structurally matching declared (TypeExpr) vs actual
+   * (lesma::Type), binding generic names from \p genericNameSet. */
+  static void bindGenericsFromTypePair(
+      const TypeExpr* declared, lesma::Type* actual,
+      const std::unordered_set<std::string>& genericNameSet,
+      std::unordered_map<std::string, lesma::Type*>& env);
 };
 } // namespace lesma

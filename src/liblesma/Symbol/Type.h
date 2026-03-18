@@ -22,6 +22,7 @@ enum class BaseType : std::uint8_t {
   TY_ARRAY,
   TY_VOID,
   TY_FUNCTION,
+  TY_GENERIC,
   TY_CLASS,
   TY_ENUM,
   TY_IMPORT,
@@ -54,6 +55,7 @@ class Type {
   // Non-owning references to other Types (owned elsewhere)
   Type* elementType;
   Type* returnType;
+  std::string genericName;
   // Owned collection of Fields
   std::vector<std::unique_ptr<Field>> fields;
   bool signedInt = true;
@@ -68,6 +70,9 @@ public:
   explicit Type(BaseType baseType, llvm::Type* llvmType, Type* elementType)
       : baseType(baseType), llvmType(llvmType), elementType(elementType),
         returnType(nullptr) {}
+  explicit Type(std::string genericName)
+      : baseType(BaseType::TY_GENERIC), llvmType(nullptr), elementType(nullptr),
+        returnType(nullptr), genericName(std::move(genericName)) {}
   explicit Type(BaseType baseType, llvm::Type* llvmType,
                 std::vector<std::unique_ptr<Field>> fields)
       : baseType(baseType), llvmType(llvmType), elementType(nullptr),
@@ -96,6 +101,7 @@ public:
   [[nodiscard]] auto getElementType() const -> Type* { return elementType; }
   [[nodiscard]] auto getReturnType() const -> Type* { return returnType; }
   [[nodiscard]] auto getLlvmType() const -> llvm::Type* { return llvmType; }
+  [[nodiscard]] auto getGenericName() const -> std::string { return genericName; }
   [[nodiscard]] auto isSigned() const -> bool { return signedInt; }
 
   // Returns raw pointers for non-owning access
@@ -112,6 +118,7 @@ public:
   auto setBaseType(BaseType type) -> void { baseType = type; }
   auto setElementType(Type* type) -> void { elementType = type; }
   auto setReturnType(Type* type) -> void { returnType = type; }
+  auto setGenericName(std::string name) -> void { genericName = std::move(name); }
   auto addField(std::unique_ptr<Field> field) -> void {
     fields.push_back(std::move(field));
   }
@@ -120,9 +127,19 @@ public:
     if (rhs == nullptr) {
       return false;
     }
+    if (this == rhs) {
+      return true;
+    }
 
     if (this->getBaseType() != rhs->getBaseType()) {
       return false;
+    }
+
+    // Class/enum types: if both have LLVM struct types, compare by identity
+    if (isOneOf({BaseType::TY_CLASS, BaseType::TY_ENUM})) {
+      if (llvmType != nullptr && rhs->llvmType != nullptr) {
+        return llvmType == rhs->llvmType;
+      }
     }
 
     Type const* thisElementType = this->getElementType();
@@ -168,6 +185,9 @@ public:
       break;
     case BaseType::TY_FUNCTION:
       result = "Function";
+      break;
+    case BaseType::TY_GENERIC:
+      result = genericName;
       break;
     case BaseType::TY_CLASS:
       result = "Class";
