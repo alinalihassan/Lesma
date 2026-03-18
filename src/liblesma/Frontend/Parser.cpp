@@ -649,6 +649,12 @@ auto Parser::parseBlock() -> std::unique_ptr<Compound> {
   auto* indentTok = consume(TokenType::INDENT);
 
   while (!checkAny<TokenType::DEDENT, TokenType::EOF_TOKEN>()) {
+    while (peek()->type == TokenType::NEWLINE) {
+      consume(TokenType::NEWLINE);
+    }
+    if (checkAny<TokenType::DEDENT, TokenType::EOF_TOKEN>()) {
+      break;
+    }
     statements.push_back(parseStatement(false));
   }
 
@@ -934,6 +940,9 @@ auto Parser::parseCompound() -> std::unique_ptr<Compound> {
     // Remove lingering newlines
     while (peek()->type == TokenType::NEWLINE) {
       consume(TokenType::NEWLINE);
+    }
+    if (isAtEnd()) {
+      break;
     }
     statements.push_back(parseStatement(true));
   }
