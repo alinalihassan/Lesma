@@ -1,0 +1,15 @@
+class Box<T>
+    var val: T
+    def new(v: T)
+        self.val = v
+    def getVal() -> T
+        return self.val
+
+var intBox = Box(42)
+var floatBox = Box(3.14)
+
+if intBox.getVal() != 42
+    exit(1)
+
+if floatBox.getVal() != 3.14
+    exit(1)

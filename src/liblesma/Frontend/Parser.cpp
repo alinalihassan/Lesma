@@ -800,6 +800,17 @@ auto Parser::parseClass() -> std::unique_ptr<Statement> {
   consume(TokenType::CLASS);
 
   auto* token = consume(TokenType::IDENTIFIER);
+  std::vector<std::string> genericParams;
+  if (check(TokenType::LESS)) {
+    consume(TokenType::LESS);
+    while (!check(TokenType::GREATER)) {
+      genericParams.push_back(consume(TokenType::IDENTIFIER)->lexeme);
+      if (!check(TokenType::GREATER)) {
+        consume(TokenType::COMMA);
+      }
+    }
+    consume(TokenType::GREATER);
+  }
   consume(TokenType::NEWLINE);
 
   std::vector<std::unique_ptr<VarDecl>> fields;
@@ -830,8 +841,9 @@ auto Parser::parseClass() -> std::unique_ptr<Statement> {
 
   advanceIfMatchAny<TokenType::DEDENT>();
 
-  return std::make_unique<Class>(loc, token->lexeme, std::move(fields),
-                                 std::move(methods), isExported);
+  return std::make_unique<Class>(loc, token->lexeme, std::move(genericParams),
+                                 std::move(fields), std::move(methods),
+                                 isExported);
 }
 
 auto Parser::parseEnum() -> std::unique_ptr<Statement> {

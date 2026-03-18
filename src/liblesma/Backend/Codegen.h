@@ -64,8 +64,10 @@ class Codegen final : public ASTVisitor {
   std::deque<std::unique_ptr<lesma::Type>> typeCache;
   std::vector<std::tuple<lesma::Value*, const FuncDecl*, Value*>> prototypes;
   std::unordered_map<std::string, const FuncDecl*> genericFunctions;
+  std::unordered_map<std::string, const Class*> genericClasses;
   std::unordered_map<std::string, lesma::Type*> currentGenericTypes;
   std::unordered_map<std::string, lesma::Value*> specializedFunctions;
+  std::unordered_map<std::string, lesma::Value*> specializedClasses;
   std::unordered_map<lesma::Value*, std::unordered_map<std::string, lesma::Type*>>
       specializationEnvs;
   // deque so push_back never invalidates pointers to existing elements (used in prototypes)
@@ -168,6 +170,7 @@ protected:
                       Value* clsSymbol) -> void;
   auto specializeFunction(const FuncDecl* node, const std::vector<lesma::Type*>& paramTypes,
                           const std::vector<std::string>& genericNames) -> lesma::Value*;
+  auto specializeClass(const Class* node, const std::vector<lesma::Type*>& constructorArgTypes) -> lesma::Value*;
 
   auto emitCompoundAssign(llvm::SMRange span, TokenType op, lesma::Value* lhs,
                           lesma::Value* value) -> void;

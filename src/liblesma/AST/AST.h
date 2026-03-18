@@ -932,21 +932,27 @@ public:
 
 class Class : public Statement {
   std::string identifier;
+  std::vector<std::string> genericParams;
   std::vector<std::unique_ptr<VarDecl>> fields;
   std::vector<std::unique_ptr<FuncDecl>> methods;
   bool exported;
 
 public:
   Class(llvm::SMRange loc, std::string identifier,
+        std::vector<std::string> genericParams,
         std::vector<std::unique_ptr<VarDecl>> fields,
         std::vector<std::unique_ptr<FuncDecl>> methods, bool exported)
       : Statement(loc), identifier(std::move(identifier)),
+        genericParams(std::move(genericParams)),
         fields(std::move(fields)), methods(std::move(methods)),
         exported(exported) {};
   void accept(ASTVisitor& visitor) const override { visitor.visit(this); }
 
   [[nodiscard]] [[maybe_unused]] auto getIdentifier() const -> std::string {
     return identifier;
+  }
+  [[nodiscard]] [[maybe_unused]] auto getGenericParams() const -> std::vector<std::string> {
+    return genericParams;
   }
   [[nodiscard]] [[maybe_unused]] auto
   getFields() const -> std::vector<VarDecl*> {

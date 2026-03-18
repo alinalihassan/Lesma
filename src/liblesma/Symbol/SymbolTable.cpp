@@ -69,7 +69,8 @@ auto SymbolTable::lookupFunction(
 
     for (size_t i = 0; i < numParams; ++i) {
       if (i < funcParamTypes.size() && i < paramTypes.size()) {
-        if (funcParamTypes[i]->type->is(BaseType::TY_GENERIC)) {
+        if (funcParamTypes[i]->type->is(BaseType::TY_GENERIC) ||
+            paramTypes[i]->is(BaseType::TY_GENERIC)) {
           continue;
         }
         if (!funcParamTypes[i]->type->isEqual(paramTypes[i])) {

@@ -127,9 +127,19 @@ public:
     if (rhs == nullptr) {
       return false;
     }
+    if (this == rhs) {
+      return true;
+    }
 
     if (this->getBaseType() != rhs->getBaseType()) {
       return false;
+    }
+
+    // Class/enum types: if both have LLVM struct types, compare by identity
+    if (isOneOf({BaseType::TY_CLASS, BaseType::TY_ENUM})) {
+      if (llvmType != nullptr && rhs->llvmType != nullptr) {
+        return llvmType == rhs->llvmType;
+      }
     }
 
     Type const* thisElementType = this->getElementType();

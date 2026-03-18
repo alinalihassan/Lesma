@@ -50,6 +50,9 @@ auto Typechecker::isAssignableTo(Type* from, Type* to) -> bool {
   if (from == nullptr) {
     return false;
   }
+  if (from->is(BaseType::TY_GENERIC) || to->is(BaseType::TY_GENERIC)) {
+    return true;
+  }
   if (from->isEqual(to)) {
     return true;
   }
@@ -228,7 +231,8 @@ auto Typechecker::visit(const If* node) -> void {
   for (Expression* cond : node->getConds()) {
     cond->accept(*this);
     if (result->getType() != nullptr &&
-        !result->getType()->is(BaseType::TY_BOOL)) {
+        !result->getType()->is(BaseType::TY_BOOL) &&
+        !result->getType()->is(BaseType::TY_GENERIC)) {
       throw TypeCheckError(cond->getSpan(),
                           "Condition must be Bool, got {}",
                           result->getType()->toString());
@@ -242,7 +246,8 @@ auto Typechecker::visit(const If* node) -> void {
 auto Typechecker::visit(const While* node) -> void {
   node->getCond()->accept(*this);
   if (result->getType() != nullptr &&
-      !result->getType()->is(BaseType::TY_BOOL)) {
+      !result->getType()->is(BaseType::TY_BOOL) &&
+      !result->getType()->is(BaseType::TY_GENERIC)) {
     throw TypeCheckError(node->getCond()->getSpan(),
                         "Condition must be Bool, got {}",
                         result->getType()->toString());
@@ -294,6 +299,12 @@ auto Typechecker::visit(const Enum* node) -> void {
 }
 
 auto Typechecker::visit(const Class* node) -> void {
+  auto savedGenerics = currentGenericTypes;
+  for (const auto& name : node->getGenericParams()) {
+    auto* genericType = cacheType(std::make_unique<Type>(name));
+    currentGenericTypes[name] = genericType;
+  }
+
   std::vector<std::unique_ptr<Field>> fields;
   for (VarDecl* field : node->getFields()) {
     if (field->getType() != nullptr) {
@@ -326,6 +337,8 @@ auto Typechecker::visit(const Class* node) -> void {
     scope = scope->getParent();
     currentClassType = nullptr;
   }
+
+  currentGenericTypes = std::move(savedGenerics);
 }
 
 auto Typechecker::visit(const FuncDecl* node) -> void {
@@ -543,7 +556,9 @@ auto Typechecker::visit(const FuncCall* node) -> void {
                          node->getName());
   }
   std::function<void(Type*, Type*)> inferGeneric = [&](Type* pattern, Type* actual) -> void {
-    if (pattern == nullptr || actual == nullptr) return;
+    if (pattern == nullptr || actual == nullptr) {
+      return;
+    }
     if (pattern->is(BaseType::TY_GENERIC)) {
       currentGenericTypes[pattern->getGenericName()] = actual;
       return;
@@ -581,6 +596,8 @@ auto Typechecker::visit(const BinaryOp* node) -> void {
   std::unique_ptr<Value> right = std::move(result);
   Type* leftTy = left->getType();
   Type* rightTy = right->getType();
+
+  bool hasGeneric = leftTy->is(BaseType::TY_GENERIC) || rightTy->is(BaseType::TY_GENERIC);
   Type* unified = getExtendedType(leftTy, rightTy);
 
   switch (node->getOperator()) {
@@ -589,6 +606,10 @@ auto Typechecker::visit(const BinaryOp* node) -> void {
   case TokenType::STAR:
   case TokenType::SLASH:
   case TokenType::MOD:
+    if (hasGeneric) {
+      result = std::make_unique<Value>(leftTy->is(BaseType::TY_GENERIC) ? leftTy : rightTy);
+      break;
+    }
     if (unified == nullptr) {
       throw TypeCheckError(
           node->getSpan(),
@@ -608,7 +629,7 @@ auto Typechecker::visit(const BinaryOp* node) -> void {
   case TokenType::GREATER_EQUAL:
   case TokenType::LESS:
   case TokenType::LESS_EQUAL:
-    if (unified == nullptr && !leftTy->isEqual(rightTy)) {
+    if (!hasGeneric && unified == nullptr && !leftTy->isEqual(rightTy)) {
       throw TypeCheckError(node->getSpan(),
                           "Comparison requires compatible types: {} and {}",
                           leftTy->toString(), rightTy->toString());
@@ -618,8 +639,8 @@ auto Typechecker::visit(const BinaryOp* node) -> void {
     break;
   case TokenType::AND:
   case TokenType::OR:
-    if (leftTy == nullptr || !leftTy->is(BaseType::TY_BOOL) || rightTy == nullptr ||
-        !rightTy->is(BaseType::TY_BOOL)) {
+    if (!hasGeneric && (leftTy == nullptr || !leftTy->is(BaseType::TY_BOOL) || rightTy == nullptr ||
+        !rightTy->is(BaseType::TY_BOOL))) {
       throw TypeCheckError(node->getSpan(),
                           "Logical operator requires Bool operands");
     }
@@ -721,6 +742,10 @@ auto Typechecker::visit(const UnaryOp* node) -> void {
   Type* operand = result->getType();
   switch (node->getOperator()) {
   case TokenType::MINUS:
+    if (operand != nullptr && operand->is(BaseType::TY_GENERIC)) {
+      result = std::make_unique<Value>(operand);
+      break;
+    }
     if (operand == nullptr || !operand->isOneOf({BaseType::TY_INT, BaseType::TY_FLOAT})) {
       throw TypeCheckError(node->getSpan(),
                           "Unary minus requires numeric type");
@@ -729,6 +754,11 @@ auto Typechecker::visit(const UnaryOp* node) -> void {
     break;
   case TokenType::BANG:
   case TokenType::NOT:
+    if (operand != nullptr && operand->is(BaseType::TY_GENERIC)) {
+      result = std::make_unique<Value>(
+          cacheType(std::make_unique<Type>(BaseType::TY_BOOL)));
+      break;
+    }
     if (operand == nullptr || !operand->is(BaseType::TY_BOOL)) {
       throw TypeCheckError(node->getSpan(),
                           "Unary not requires Bool type");

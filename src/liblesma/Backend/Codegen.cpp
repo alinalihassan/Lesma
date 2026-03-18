@@ -828,14 +828,15 @@ auto Codegen::run() -> void {
     inst->accept(*this);
   }
 
-  // Define the function bodies
-  for (auto& prot : prototypes) {
-    auto* fn = std::get<0>(prot);
+  // Define the function bodies (index-based: specializeFunction may append
+  // new prototypes while we iterate, e.g. when combine<int> triggers add<int>)
+  for (size_t pi = 0; pi < prototypes.size(); ++pi) {
+    auto* fn = std::get<0>(prototypes[pi]);
     auto savedGenerics = currentGenericTypes;
     if (auto env = specializationEnvs.find(fn); env != specializationEnvs.end()) {
       currentGenericTypes = env->second;
     }
-    defineFunction(fn, std::get<1>(prot), std::get<2>(prot));
+    defineFunction(fn, std::get<1>(prototypes[pi]), std::get<2>(prototypes[pi]));
     currentGenericTypes = std::move(savedGenerics);
   }
 
@@ -1020,8 +1021,14 @@ auto Codegen::specializeFunction(const FuncDecl* node, const std::vector<lesma::
   }
 
   std::unordered_map<std::string, lesma::Type*> env;
-  for (size_t i = 0; i < genericNames.size() && i < paramTypes.size(); ++i) {
-    env[genericNames[i]] = paramTypes[i];
+  std::unordered_set<std::string> genericNameSet(genericNames.begin(), genericNames.end());
+  auto templateParams = node->getParameters();
+  size_t offset = (selfSymbol != nullptr) ? 1U : 0U;
+  for (size_t i = 0; i < templateParams.size() && (i + offset) < paramTypes.size(); ++i) {
+    const std::string& typeName = templateParams[i]->type->getName();
+    if (genericNameSet.contains(typeName) && !env.contains(typeName)) {
+      env[typeName] = paramTypes[i + offset];
+    }
   }
   auto saved = currentGenericTypes;
   currentGenericTypes = std::move(env);
@@ -1064,6 +1071,114 @@ auto Codegen::specializeFunction(const FuncDecl* node, const std::vector<lesma::
   specializationEnvs.emplace(funcPtr, currentGenericTypes);
   currentGenericTypes = std::move(saved);
   return funcPtr;
+}
+
+auto Codegen::specializeClass(const Class* node,
+                              const std::vector<lesma::Type*>& constructorArgTypes) -> lesma::Value* {
+  auto genericNames = node->getGenericParams();
+
+  const FuncDecl* constructorDecl = nullptr;
+  for (auto* method : node->getMethods()) {
+    if (method->getName() == "new") {
+      constructorDecl = method;
+      break;
+    }
+  }
+
+  std::unordered_map<std::string, lesma::Type*> env;
+  std::unordered_set<std::string> genericNameSet(genericNames.begin(), genericNames.end());
+  if (constructorDecl != nullptr) {
+    auto params = constructorDecl->getParameters();
+    for (size_t i = 0; i < params.size() && i < constructorArgTypes.size(); ++i) {
+      const std::string& typeName = params[i]->type->getName();
+      if (genericNameSet.contains(typeName) && !env.contains(typeName)) {
+        env[typeName] = constructorArgTypes[i];
+      }
+    }
+  }
+
+  std::string key = node->getIdentifier();
+  for (const auto& gn : genericNames) {
+    if (env.contains(gn)) {
+      key += "|" + env[gn]->toString();
+    }
+  }
+  if (auto it = specializedClasses.find(key); it != specializedClasses.end()) {
+    return it->second;
+  }
+
+  auto saved = currentGenericTypes;
+  currentGenericTypes = env;
+
+  std::string concreteName = node->getIdentifier();
+  for (const auto& gn : genericNames) {
+    if (env.contains(gn)) {
+      concreteName += "_" + env[gn]->toString();
+    }
+  }
+
+  std::vector<std::unique_ptr<Field>> fields;
+  std::vector<llvm::Type*> elementLLVMTypes;
+  for (auto* field : node->getFields()) {
+    if (field->getType() != nullptr) {
+      field->getType()->accept(*this);
+    } else {
+      field->getValue()->accept(*this);
+    }
+    getOrCreateLlvmType(result->getType());
+    elementLLVMTypes.push_back(result->getType()->getLlvmType());
+    std::unique_ptr<Value> defaultVal;
+    if (field->getValue() != nullptr) {
+      defaultVal = std::move(result);
+      if (field->getType() != nullptr) {
+        field->getType()->accept(*this);
+      } else {
+        result = std::make_unique<Value>(*defaultVal);
+      }
+    }
+    fields.push_back(std::make_unique<Field>(field->getIdentifier()->getValue(),
+                                             result->getType(),
+                                             std::move(defaultVal)));
+  }
+
+  auto* structType = llvm::StructType::create(
+      theModule->getContext(), elementLLVMTypes, concreteName);
+  auto type = std::make_unique<Type>(BaseType::TY_CLASS, structType, std::move(fields));
+  auto* typePtr = type.get();
+  scope->insertType(concreteName, std::move(type));
+
+  auto structSymbol = std::make_unique<Value>(concreteName, typePtr);
+  structSymbol->setExported(node->isExported());
+  auto* structSymbolPtr = structSymbol.get();
+
+  auto* selfType = cacheType(
+      std::make_unique<Type>(BaseType::TY_PTR, builder->getPtrTy(), typePtr));
+  methodSelfSymbols.push_back(
+      std::make_unique<Value>(concreteName, selfType));
+  methodSelfSymbols.back()->setExported(node->isExported());
+  selfSymbol = methodSelfSymbols.back().get();
+
+  auto hasConstructor = false;
+  for (auto* method : node->getMethods()) {
+    method->accept(*this);
+    if (method->getName() == "new") {
+      hasConstructor = true;
+      std::vector<lesma::Type*> constructorParams = {selfSymbol->getType()};
+      auto* constructor = scope->lookupFunction("new", constructorParams);
+      structSymbolPtr->setConstructor(constructor);
+    }
+  }
+  selfSymbol = nullptr;
+
+  if (!hasConstructor) {
+    throw CodegenError(node->getSpan(), "Generic class {} has no constructors",
+                       node->getIdentifier());
+  }
+
+  scope->insertSymbol(std::move(structSymbol));
+  specializedClasses.emplace(key, structSymbolPtr);
+  currentGenericTypes = std::move(saved);
+  return structSymbolPtr;
 }
 
 auto Codegen::visit(const Compound* node) -> void {
@@ -1604,6 +1719,11 @@ auto Codegen::visit(const Import* node) -> void {
 }
 
 auto Codegen::visit(const Class* node) -> void {
+  if (!node->getGenericParams().empty()) {
+    genericClasses[node->getIdentifier()] = node;
+    return;
+  }
+
   lesma::Value* existingStruct = scope->lookupStruct(node->getIdentifier());
   if (existingStruct != nullptr &&
       existingStruct->getType()->getLlvmType() == nullptr) {
@@ -2157,10 +2277,10 @@ auto Codegen::visit(const BinaryOp* node) -> void {
   }
 
   throw CodegenError(node->getSpan(),
-                     "Unimplemented binary operator {} for {} and {}",
+                     "Operator {} is not supported for types {} and {}",
                      NAMEOF_ENUM(node->getOperator()),
-                     node->getLeft()->toString(sourceManager.get(), "", true),
-                     node->getRight()->toString(sourceManager.get(), "", true));
+                     left->getType()->toString(),
+                     right->getType()->toString());
 }
 
 auto Codegen::visit(const DotOp* node) -> void {
@@ -2614,6 +2734,15 @@ auto Codegen::genFuncCall(const FuncCall* node,
   llvm::Value* classPtr = nullptr;
   // Keep the Type alive for the duration of the lookup
   std::unique_ptr<Type> selfParamType;
+
+  // Generic class: specialize before using
+  if (classSym == nullptr || (classSym->getType()->is(BaseType::TY_CLASS) &&
+                              classSym->getType()->getLlvmType() == nullptr)) {
+    if (auto git = genericClasses.find(node->getName()); git != genericClasses.end()) {
+      classSym = specializeClass(git->second, paramTypes);
+    }
+  }
+
   if (classSym != nullptr && classSym->getType()->is(BaseType::TY_CLASS)) {
     // It's a class constructor, allocate and add self param
     classPtr = builder->CreateAlloca(classSym->getType()->getLlvmType());
