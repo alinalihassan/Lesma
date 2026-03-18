@@ -61,6 +61,8 @@ class Codegen final : public ASTVisitor {
   std::shared_ptr<std::vector<std::string>> importedModules;
   std::shared_ptr<std::vector<std::unique_ptr<SymbolTable>>>
       importedScopes; // Shared so child (e.g. B) sees parent's (A) imports (e.g. math)
+  std::vector<std::unique_ptr<Codegen>>
+      importedCodegens; // Keep imported module codegens alive so Class* in symbols stay valid
   // deque so push_back never invalidates Type* pointers stored in scope (from typecheck)
   std::deque<std::unique_ptr<lesma::Type>> typeCache;
   std::vector<std::tuple<lesma::Value*, const FuncDecl*, Value*>> prototypes;

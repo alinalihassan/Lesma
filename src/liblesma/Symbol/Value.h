@@ -58,7 +58,8 @@ public:
       : name(other.name), mangledName(other.mangledName), type(other.getType()),
         state(other.state), llvmValue(other.llvmValue), used(other.used),
         mutableVar(other.mutableVar), signedVar(other.signedVar),
-        exported(other.exported), constructor(other.constructor) {}
+        exported(other.exported), constructor(other.constructor),
+        genericClassTemplate(other.genericClassTemplate) {}
 
   ~Value() = default;
   auto operator=(const Value& other) -> Value& {
@@ -74,6 +75,7 @@ public:
       signedVar = other.signedVar;
       exported = other.exported;
       constructor = other.constructor;
+      genericClassTemplate = other.genericClassTemplate;
     }
     return *this;
   }
@@ -92,6 +94,11 @@ public:
   [[nodiscard]] auto getConstructor() const -> lesma::Value* {
     return constructor;
   }
+  /** Opaque pointer to the Class* AST for generic class templates (used when
+   *  specializing imported generics). Codegen interprets this as const Class*. */
+  [[nodiscard]] auto getGenericClassTemplate() const -> void* {
+    return genericClassTemplate;
+  }
   [[nodiscard]] auto isExported() const -> bool { return exported; }
   [[nodiscard]] auto isUsed() const -> bool { return used; }
 
@@ -103,6 +110,7 @@ public:
   auto setMutable(bool value) -> void { mutableVar = value; }
   auto setExported(bool value) -> void { exported = value; }
   auto setConstructor(lesma::Value* value) -> void { constructor = value; }
+  auto setGenericClassTemplate(void* ptr) -> void { genericClassTemplate = ptr; }
 
   auto toString() const -> std::string {
     std::string typeStr;
@@ -137,5 +145,6 @@ private:
   bool exported = false;
   // For classes
   lesma::Value* constructor = nullptr;
+  void* genericClassTemplate = nullptr;
 };
 } // namespace lesma

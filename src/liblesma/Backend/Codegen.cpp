@@ -354,6 +354,7 @@ auto Codegen::compileModule(
         auto structSymbol = std::make_unique<Value>(
             impAlias.empty() ? sym->getName() : impAlias, sym->getType());
         structSymbol->getType()->setLlvmType(structType);
+        structSymbol->setGenericClassTemplate(sym->getGenericClassTemplate());
         scope->insertTypeRef(sym->getName(), sym->getType());
         scope->insertSymbol(std::move(structSymbol));
       } else if (sym->getType()->is(BaseType::TY_FUNCTION) &&
@@ -496,6 +497,7 @@ auto Codegen::compileModule(
         auto structSymbol = std::make_unique<Value>(
             impAlias.empty() ? sym->getName() : impAlias, sym->getType());
         structSymbol->getType()->setLlvmType(structType);
+        structSymbol->setGenericClassTemplate(sym->getGenericClassTemplate());
         // Insert non-owning reference to imported Type
         scope->insertTypeRef(sym->getName(), sym->getType());
         scope->insertSymbol(std::move(structSymbol));
@@ -579,6 +581,8 @@ auto Codegen::compileModule(
       codegen->writeToObjectFile(objFile);
       objectFiles.push_back(fmt::format("{}.o", objFile));
     }
+    // Keep the imported codegen alive so Class* stored in copied symbols stay valid
+    importedCodegens.push_back(std::move(codegen));
   } catch (const LesmaError& err) {
     compiling.erase(absolutePath);
     if (!err.getSpan().isValid()) {
@@ -1771,6 +1775,21 @@ auto Codegen::visit(const Import* node) -> void {
 auto Codegen::visit(const Class* node) -> void {
   if (!node->getGenericParams().empty()) {
     genericClasses[node->getIdentifier()] = node;
+    // Register in scope so the import/export walker can see exported generic
+    // classes (same symbol name as non-generic classes).
+    if (scope->lookupStruct(node->getIdentifier()) == nullptr) {
+      std::vector<std::unique_ptr<Field>> fields;
+      auto type = std::make_unique<Type>(BaseType::TY_CLASS, nullptr,
+                                         std::move(fields));
+      auto* typePtr = type.get();
+      scope->insertType(node->getIdentifier(), std::move(type));
+      auto structSymbol =
+          std::make_unique<Value>(node->getIdentifier(), typePtr);
+      structSymbol->setExported(node->isExported());
+      structSymbol->setGenericClassTemplate(
+          const_cast<Class*>(node)); // so importer can specialize
+      scope->insertSymbol(std::move(structSymbol));
+    }
     return;
   }
 
@@ -2785,11 +2804,18 @@ auto Codegen::genFuncCall(const FuncCall* node,
   // Keep the Type alive for the duration of the lookup
   std::unique_ptr<Type> selfParamType;
 
-  // Generic class: specialize before using
+  // Generic class: specialize before using (local or imported)
   if (classSym == nullptr || (classSym->getType()->is(BaseType::TY_CLASS) &&
                               classSym->getType()->getLlvmType() == nullptr)) {
+    const Class* templateClass = nullptr;
     if (auto git = genericClasses.find(node->getName()); git != genericClasses.end()) {
-      classSym = specializeClass(git->second, paramTypes);
+      templateClass = git->second;
+    } else if (classSym != nullptr &&
+               classSym->getGenericClassTemplate() != nullptr) {
+      templateClass = static_cast<const Class*>(classSym->getGenericClassTemplate());
+    }
+    if (templateClass != nullptr) {
+      classSym = specializeClass(templateClass, paramTypes);
     }
   }
 

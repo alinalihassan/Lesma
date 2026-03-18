@@ -1,0 +1,7 @@
+# Module exporting a generic class so import/export walker can see it.
+export class Box<T>
+    var val: T
+    def new(v: T)
+        self.val = v
+    def getVal() -> T
+        return self.val
