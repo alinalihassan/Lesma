@@ -2485,20 +2485,20 @@ auto Codegen::emitCompoundAssign(llvm::SMRange span, TokenType op, lesma::Value*
                      : builder->CreateAdd(value->getLlvmValue(), varVal);
     break;
   case TokenType::MINUS_EQUAL:
-    newVal = isFloat ? builder->CreateFSub(value->getLlvmValue(), varVal)
-                     : builder->CreateSub(value->getLlvmValue(), varVal);
+    newVal = isFloat ? builder->CreateFSub(varVal, value->getLlvmValue())
+                     : builder->CreateSub(varVal, value->getLlvmValue());
     break;
   case TokenType::SLASH_EQUAL:
-    newVal = isFloat ? builder->CreateFDiv(value->getLlvmValue(), varVal)
-                     : builder->CreateSDiv(value->getLlvmValue(), varVal);
+    newVal = isFloat ? builder->CreateFDiv(varVal, value->getLlvmValue())
+                     : builder->CreateSDiv(varVal, value->getLlvmValue());
     break;
   case TokenType::STAR_EQUAL:
     newVal = isFloat ? builder->CreateFMul(value->getLlvmValue(), varVal)
                      : builder->CreateMul(value->getLlvmValue(), varVal);
     break;
   case TokenType::MOD_EQUAL:
-    newVal = isFloat ? builder->CreateFRem(value->getLlvmValue(), varVal)
-                     : builder->CreateSRem(value->getLlvmValue(), varVal);
+    newVal = isFloat ? builder->CreateFRem(varVal, value->getLlvmValue())
+                     : builder->CreateSRem(varVal, value->getLlvmValue());
     break;
   default:
     throw CodegenError(span, "Invalid compound operator: {}", NAMEOF_ENUM(op));
