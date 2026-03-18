@@ -33,17 +33,13 @@ jobs:
         run: |
           brew update
           brew install llvm@21 lld@21 cmake ninja
-          # Do not add Homebrew llvm bin to PATH: use system (Xcode) clang to avoid
-          # libc++ vs SDK header-order errors. CMake will find LLVM/Clang/LLD via -D below.
-          echo "LLVM_DIR=$(brew --prefix llvm@21)/lib/cmake/llvm" >> $GITHUB_ENV
-          echo "Clang_DIR=$(brew --prefix llvm@21)/lib/cmake/clang" >> $GITHUB_ENV
-          echo "LLD_DIR=$(brew --prefix lld@21)/lib/cmake/lld" >> $GITHUB_ENV
+          echo "CMAKE_PREFIX_PATH=$(brew --prefix llvm@21);$(brew --prefix lld@21)" >> $GITHUB_ENV
 
       - name: Bootstrap vcpkg
         run: ./vcpkg/bootstrap-vcpkg.sh
 
       - name: Configure
-        run: cmake --preset Release_Dist_CI -DLLVM_DIR="$LLVM_DIR" -DClang_DIR="$Clang_DIR" -DLLD_DIR="$LLD_DIR"
+        run: cmake --preset Release_Dist_CI -DCMAKE_PREFIX_PATH="$CMAKE_PREFIX_PATH"
 
       - name: Build
         run: cmake --build --preset Release_Dist_CI
