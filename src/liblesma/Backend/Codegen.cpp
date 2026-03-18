@@ -1010,6 +1010,44 @@ auto Codegen::getOrCreateLlvmType(lesma::Type* type) -> llvm::Type* {
   return type->getLlvmType();
 }
 
+void Codegen::bindGenericsFromTypePair(
+    const TypeExpr* declared, lesma::Type* actual,
+    const std::unordered_set<std::string>& genericNameSet,
+    std::unordered_map<std::string, lesma::Type*>& env) {
+  if (declared == nullptr || actual == nullptr) {
+    return;
+  }
+  if (declared->getType() == TokenType::CUSTOM_TYPE) {
+    const std::string& name = declared->getName();
+    if (genericNameSet.contains(name) && !env.contains(name)) {
+      env[name] = actual;
+    }
+    return;
+  }
+  if (declared->getType() == TokenType::PTR_TYPE &&
+      actual->is(BaseType::TY_PTR) && declared->getElementType() != nullptr &&
+      actual->getElementType() != nullptr) {
+    bindGenericsFromTypePair(declared->getElementType(),
+                             actual->getElementType(), genericNameSet, env);
+    return;
+  }
+  if (declared->getType() == TokenType::FUNC_TYPE &&
+      actual->is(BaseType::TY_FUNCTION)) {
+    if (declared->getReturnType() != nullptr &&
+        actual->getReturnType() != nullptr) {
+      bindGenericsFromTypePair(declared->getReturnType(),
+                               actual->getReturnType(), genericNameSet, env);
+    }
+    auto declParams = declared->getParams();
+    auto actualFields = actual->getFields();
+    for (size_t i = 0; i < declParams.size() && i < actualFields.size();
+         ++i) {
+      bindGenericsFromTypePair(declParams[i], actualFields[i]->type,
+                               genericNameSet, env);
+    }
+  }
+}
+
 auto Codegen::specializeFunction(const FuncDecl* node, const std::vector<lesma::Type*>& paramTypes,
                                  const std::vector<std::string>& genericNames) -> lesma::Value* {
   std::string key = node->getName();
@@ -1025,9 +1063,10 @@ auto Codegen::specializeFunction(const FuncDecl* node, const std::vector<lesma::
   auto templateParams = node->getParameters();
   size_t offset = (selfSymbol != nullptr) ? 1U : 0U;
   for (size_t i = 0; i < templateParams.size() && (i + offset) < paramTypes.size(); ++i) {
-    const std::string& typeName = templateParams[i]->type->getName();
-    if (genericNameSet.contains(typeName) && !env.contains(typeName)) {
-      env[typeName] = paramTypes[i + offset];
+    TypeExpr* declType = templateParams[i]->type.get();
+    if (declType != nullptr) {
+      bindGenericsFromTypePair(declType, paramTypes[i + offset],
+                               genericNameSet, env);
     }
   }
   auto saved = currentGenericTypes;
@@ -1090,9 +1129,10 @@ auto Codegen::specializeClass(const Class* node,
   if (constructorDecl != nullptr) {
     auto params = constructorDecl->getParameters();
     for (size_t i = 0; i < params.size() && i < constructorArgTypes.size(); ++i) {
-      const std::string& typeName = params[i]->type->getName();
-      if (genericNameSet.contains(typeName) && !env.contains(typeName)) {
-        env[typeName] = constructorArgTypes[i];
+      TypeExpr* declType = params[i]->type.get();
+      if (declType != nullptr) {
+        bindGenericsFromTypePair(declType, constructorArgTypes[i],
+                                 genericNameSet, env);
       }
     }
   }

@@ -3,9 +3,10 @@
 #include <deque>
 #include <memory>
 #include <optional>
-#include <unordered_map>
 #include <stack>
 #include <string>
+#include <unordered_map>
+#include <unordered_set>
 #include <tuple>
 #include <utility>
 #include <vector>
@@ -185,5 +186,12 @@ protected:
 
   /** Ensure \p type has an LLVM type (fill in when from typechecker). */
   auto getOrCreateLlvmType(lesma::Type* type) -> llvm::Type*;
+
+  /** Populate \p env by structurally matching declared (TypeExpr) vs actual
+   * (lesma::Type), binding generic names from \p genericNameSet. */
+  static void bindGenericsFromTypePair(
+      const TypeExpr* declared, lesma::Type* actual,
+      const std::unordered_set<std::string>& genericNameSet,
+      std::unordered_map<std::string, lesma::Type*>& env);
 };
 } // namespace lesma
