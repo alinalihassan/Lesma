@@ -64,6 +64,8 @@ class Codegen final : public ASTVisitor {
   std::deque<std::unique_ptr<lesma::Type>> typeCache;
   std::vector<std::tuple<lesma::Value*, const FuncDecl*, Value*>> prototypes;
   std::unordered_map<std::string, const FuncDecl*> genericFunctions;
+  std::unordered_map<std::string, std::unordered_map<std::string, const FuncDecl*>>
+      genericMethods;
   std::unordered_map<std::string, const Class*> genericClasses;
   std::unordered_map<std::string, lesma::Type*> currentGenericTypes;
   std::unordered_map<std::string, lesma::Value*> specializedFunctions;

@@ -155,10 +155,72 @@ auto Parser::parseType() -> std::unique_ptr<TypeExpr> {
   return nullptr;
 }
 
+auto Parser::skipOneTypeAt(unsigned long& off) -> bool {
+  if (index + off >= tokens.size()) {
+    return false;
+  }
+  TokenType t = peek(off)->type;
+  if (checkAny<TokenType::INT_TYPE, TokenType::FLOAT_TYPE,
+               TokenType::STRING_TYPE, TokenType::BOOL_TYPE,
+               TokenType::INT8_TYPE, TokenType::INT16_TYPE,
+               TokenType::INT32_TYPE, TokenType::FLOAT32_TYPE,
+               TokenType::VOID_TYPE>(off)) {
+    off++;
+    return true;
+  }
+  if (t == TokenType::IDENTIFIER) {
+    off++;
+    return true;
+  }
+  if (t == TokenType::STAR) {
+    off++;
+    return skipOneTypeAt(off);
+  }
+  return false;
+}
+
+auto Parser::hasExplicitTypeArgsAndParen() -> bool {
+  if (!check(TokenType::IDENTIFIER) || !check(TokenType::LESS, 1)) {
+    return false;
+  }
+  unsigned long off = 2;
+  while (index + off < tokens.size()) {
+    if (peek(off)->type == TokenType::GREATER) {
+      return index + off + 1 < tokens.size() &&
+             peek(off + 1)->type == TokenType::LEFT_PAREN;
+    }
+    if (!skipOneTypeAt(off)) {
+      return false;
+    }
+    if (index + off >= tokens.size()) {
+      return false;
+    }
+    if (peek(off)->type == TokenType::COMMA) {
+      off++;
+    } else if (peek(off)->type != TokenType::GREATER) {
+      return false;
+    }
+  }
+  return false;
+}
+
 // Expression
 auto Parser::parseFunctionCall() -> std::unique_ptr<Expression> {
   auto* token = peek();
   consume(TokenType::IDENTIFIER);
+
+  std::vector<std::unique_ptr<TypeExpr>> explicitTypeArgs;
+  if (check(TokenType::LESS)) {
+    consume(TokenType::LESS);
+    while (!check(TokenType::GREATER)) {
+      explicitTypeArgs.push_back(parseType());
+      if (!check(TokenType::GREATER)) {
+        consume(TokenType::COMMA);
+      }
+    }
+    consume(TokenType::GREATER);
+  }
+
   consume(TokenType::LEFT_PAREN);
 
   std::vector<std::unique_ptr<Expression>> params;
@@ -177,7 +239,7 @@ auto Parser::parseFunctionCall() -> std::unique_ptr<Expression> {
 
   return std::make_unique<FuncCall>(
       llvm::SMRange{token->getStart(), paren->span.End}, token->lexeme,
-      std::move(params));
+      std::move(explicitTypeArgs), std::move(params));
 }
 
 auto Parser::parseTerm() -> std::unique_ptr<Expression> {
@@ -191,7 +253,7 @@ auto Parser::parseTerm() -> std::unique_ptr<Expression> {
     return std::make_unique<Literal>(token->span, token->lexeme, token->type);
   }
   case TokenType::IDENTIFIER: {
-    if (checkAny<TokenType::LEFT_PAREN>(1)) {
+    if (check(TokenType::LEFT_PAREN, 1) || hasExplicitTypeArgsAndParen()) {
       return parseFunctionCall();
     }
 

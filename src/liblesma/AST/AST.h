@@ -586,17 +586,29 @@ public:
 
 class FuncCall : public Expression {
   std::string name;
+  std::vector<std::unique_ptr<TypeExpr>> explicitTypeArgs;
   std::vector<std::unique_ptr<Expression>> arguments;
 
 public:
   FuncCall(llvm::SMRange loc, std::string name,
+           std::vector<std::unique_ptr<TypeExpr>> explicitTypeArgs,
            std::vector<std::unique_ptr<Expression>> arguments)
       : Expression(loc), name(std::move(name)),
+        explicitTypeArgs(std::move(explicitTypeArgs)),
         arguments(std::move(arguments)) {}
   void accept(ASTVisitor& visitor) const override { visitor.visit(this); }
 
   [[nodiscard]] [[maybe_unused]] auto getName() const -> std::string {
     return name;
+  }
+  [[nodiscard]] [[maybe_unused]] auto getExplicitTypeArgs() const
+      -> std::vector<TypeExpr*> {
+    std::vector<TypeExpr*> result;
+    result.reserve(explicitTypeArgs.size());
+    for (const auto& t : explicitTypeArgs) {
+      result.push_back(t.get());
+    }
+    return result;
   }
   [[nodiscard]] [[maybe_unused]] auto
   getArguments() const -> std::vector<Expression*> {

@@ -1,6 +1,8 @@
 #include "Typechecker.h"
 
 #include <memory>
+#include <sstream>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -16,6 +18,58 @@ namespace lesma {
 auto Typechecker::cacheType(std::unique_ptr<Type> type) -> Type* {
   typeCache.push_back(std::move(type));
   return typeCache.back().get();
+}
+
+auto Typechecker::substituteInType(Type* t,
+                                  const std::unordered_map<std::string, Type*>& env)
+    -> Type* {
+  if (t == nullptr) {
+    return nullptr;
+  }
+  if (t->is(BaseType::TY_GENERIC)) {
+    auto it = env.find(t->getGenericName());
+    if (it != env.end()) {
+      return it->second;
+    }
+    return t;
+  }
+  if (t->is(BaseType::TY_PTR) && t->getElementType() != nullptr) {
+    Type* elem = substituteInType(t->getElementType(), env);
+    return cacheType(
+        std::make_unique<Type>(BaseType::TY_PTR, nullptr, elem));
+  }
+  return t;
+}
+
+auto Typechecker::getOrCreateSpecializedClassType(
+    Type* classTemplate,
+    const std::vector<std::string>& genericParamNames,
+    const std::unordered_map<std::string, Type*>& env) -> Type* {
+  std::ostringstream key;
+  key << classTemplate->toString();
+  for (const auto& name : genericParamNames) {
+    auto it = env.find(name);
+    if (it != env.end()) {
+      key << "|" << it->second->toString();
+    }
+  }
+  std::string keyStr = key.str();
+  auto it = specializedClassTypes.find(keyStr);
+  if (it != specializedClassTypes.end()) {
+    return it->second;
+  }
+  std::vector<std::unique_ptr<Field>> newFields;
+  for (Field* f : classTemplate->getFields()) {
+    Type* subst = substituteInType(f->type, env);
+    newFields.push_back(std::make_unique<Field>(f->name, subst));
+  }
+  auto specialized = std::make_unique<Type>(BaseType::TY_CLASS, nullptr,
+                                           std::move(newFields));
+  Type* ptr = cacheType(std::move(specialized));
+  specializedClassTypes[keyStr] = ptr;
+  specializedTypeEnv[ptr] = env;
+  specializedTypeToTemplate[ptr] = classTemplate;
+  return ptr;
 }
 
 auto Typechecker::getExtendedType(Type* left, Type* right) -> Type* {
@@ -534,11 +588,110 @@ auto Typechecker::visit(const FuncCall* node) -> void {
     }
     argTypes.push_back(t);
   }
+  if (!node->getExplicitTypeArgs().empty()) {
+    Value* classSym = scope->lookup(node->getName());
+    if (classSym != nullptr && classSym->getType()->is(BaseType::TY_CLASS)) {
+      Type* classType = classSym->getType();
+      auto classFields = classType->getFields();
+      std::vector<std::string> genericParamNames;
+      std::unordered_set<std::string> seen;
+      for (auto* f : classFields) {
+        if (f->type->is(BaseType::TY_GENERIC)) {
+          const std::string& n = f->type->getGenericName();
+          if (seen.insert(n).second) {
+            genericParamNames.push_back(n);
+          }
+        }
+      }
+      std::vector<Type*> explicitTypes;
+      for (TypeExpr* texpr : node->getExplicitTypeArgs()) {
+        texpr->accept(*this);
+        explicitTypes.push_back(result->getType());
+      }
+      if (explicitTypes.size() != genericParamNames.size()) {
+        throw TypeCheckError(node->getSpan(),
+                             "Explicit type argument count {} does not match "
+                             "generic class parameter count {}",
+                             explicitTypes.size(), genericParamNames.size());
+      }
+      Type* ptrToClass =
+          cacheType(std::make_unique<Type>(BaseType::TY_PTR, nullptr, classType));
+      std::vector<Type*> constructorParamTypes = {ptrToClass};
+      for (Type* t : explicitTypes) {
+        constructorParamTypes.push_back(t);
+      }
+      Value* constructor =
+          scope->lookupFunction("new", constructorParamTypes);
+      if (constructor == nullptr) {
+        throw TypeCheckError(node->getSpan(),
+                             "Constructor not found for {} with given type arguments",
+                             node->getName());
+      }
+      for (size_t i = 0; i < argTypes.size(); ++i) {
+        if (i < explicitTypes.size() &&
+            !argTypes[i]->isEqual(explicitTypes[i])) {
+          throw TypeCheckError(node->getSpan(),
+                               "Argument type {} does not match explicit "
+                               "parameter type {}",
+                               argTypes[i]->toString(), explicitTypes[i]->toString());
+        }
+      }
+      std::unordered_map<std::string, Type*> env;
+      for (size_t i = 0; i < genericParamNames.size(); ++i) {
+        env[genericParamNames[i]] = explicitTypes[i];
+      }
+      Type* specialized =
+          getOrCreateSpecializedClassType(classType, genericParamNames, env);
+      result = std::make_unique<Value>(specialized);
+      return;
+    }
+  }
+
   Value* callee = scope->lookupFunction(node->getName(), argTypes);
   if (callee == nullptr) {
     Value* sym = scope->lookup(node->getName());
     if (sym != nullptr) {
-      if (sym->getType()->isOneOf({BaseType::TY_CLASS, BaseType::TY_ENUM})) {
+      if (sym->getType()->is(BaseType::TY_CLASS)) {
+        Type* classType = sym->getType();
+        if (!node->getArguments().empty()) {
+          std::vector<std::string> genericParamNames;
+          std::unordered_set<std::string> seen;
+          for (auto* f : classType->getFields()) {
+            if (f->type->is(BaseType::TY_GENERIC)) {
+              const std::string& n = f->type->getGenericName();
+              if (seen.insert(n).second) {
+                genericParamNames.push_back(n);
+              }
+            }
+          }
+          Type* ptrToClass =
+              cacheType(std::make_unique<Type>(BaseType::TY_PTR, nullptr, classType));
+          std::vector<Type*> constructorParamTypes = {ptrToClass};
+          for (Type* t : argTypes) {
+            constructorParamTypes.push_back(t);
+          }
+          Value* constructor =
+              scope->lookupFunction("new", constructorParamTypes);
+          if (constructor != nullptr) {
+            std::unordered_map<std::string, Type*> env;
+            auto* funcType = constructor->getType();
+            auto ctorParams = funcType->getFields();
+            for (size_t i = 1; i < ctorParams.size() && i - 1 < argTypes.size();
+                 ++i) {
+              if (ctorParams[i]->type->is(BaseType::TY_GENERIC)) {
+                env[ctorParams[i]->type->getGenericName()] = argTypes[i - 1];
+              }
+            }
+            Type* specialized = getOrCreateSpecializedClassType(
+                classType, genericParamNames, env);
+            result = std::make_unique<Value>(specialized);
+            return;
+          }
+        }
+        result = std::make_unique<Value>(classType);
+        return;
+      }
+      if (sym->getType()->is(BaseType::TY_ENUM)) {
         result = std::make_unique<Value>(sym->getType());
         return;
       }
@@ -555,6 +708,77 @@ auto Typechecker::visit(const FuncCall* node) -> void {
     throw TypeCheckError(node->getSpan(), "Not a function: {}",
                          node->getName());
   }
+
+  auto* funcType = callee->getType();
+  auto fields = funcType->getFields();
+
+  if (!node->getExplicitTypeArgs().empty()) {
+    std::vector<Type*> explicitTypes;
+    for (TypeExpr* texpr : node->getExplicitTypeArgs()) {
+      texpr->accept(*this);
+      explicitTypes.push_back(result->getType());
+    }
+    std::vector<std::string> genericParamNames;
+    {
+      std::unordered_set<std::string> seen;
+      for (auto* f : fields) {
+        if (f->type->is(BaseType::TY_GENERIC)) {
+          const std::string& n = f->type->getGenericName();
+          if (seen.insert(n).second) {
+            genericParamNames.push_back(n);
+          }
+        }
+      }
+      Type* retType = funcType->getReturnType();
+      if (retType != nullptr && retType->is(BaseType::TY_GENERIC)) {
+        const std::string& n = retType->getGenericName();
+        if (seen.insert(n).second) {
+          genericParamNames.push_back(n);
+        }
+      }
+    }
+    if (explicitTypes.size() != genericParamNames.size()) {
+      throw TypeCheckError(node->getSpan(),
+                           "Explicit type argument count {} does not match "
+                           "generic parameter count {}",
+                           explicitTypes.size(), genericParamNames.size());
+    }
+    std::unordered_map<std::string, Type*> explicitSubst;
+    for (size_t i = 0; i < genericParamNames.size(); ++i) {
+      explicitSubst[genericParamNames[i]] = explicitTypes[i];
+    }
+    auto substitute = [&](Type* t) -> Type* {
+      if (t != nullptr && t->is(BaseType::TY_GENERIC)) {
+        auto it = explicitSubst.find(t->getGenericName());
+        if (it != explicitSubst.end()) {
+          return it->second;
+        }
+      }
+      return t;
+    };
+    for (size_t i = 0; i < fields.size() && i < argTypes.size(); ++i) {
+      Type* expected = substitute(fields[i]->type);
+      if (expected != nullptr && !argTypes[i]->isEqual(expected)) {
+        throw TypeCheckError(node->getSpan(),
+                             "Argument type {} does not match explicit "
+                             "parameter type {}",
+                             argTypes[i]->toString(), expected->toString());
+      }
+    }
+    if (node->getName() == "new" && !fields.empty() &&
+        fields[0]->type->is(BaseType::TY_PTR)) {
+      result = std::make_unique<Value>(
+          substitute(fields[0]->type->getElementType()));
+    } else {
+      Type* retType = funcType->getReturnType();
+      if (retType != nullptr) {
+        retType = substitute(retType);
+      }
+      result = std::make_unique<Value>(retType);
+    }
+    return;
+  }
+
   std::function<void(Type*, Type*)> inferGeneric = [&](Type* pattern, Type* actual) -> void {
     if (pattern == nullptr || actual == nullptr) {
       return;
@@ -567,16 +791,27 @@ auto Typechecker::visit(const FuncCall* node) -> void {
       inferGeneric(pattern->getElementType(), actual->getElementType());
     }
   };
-  auto* funcType = callee->getType();
-  auto fields = funcType->getFields();
   for (size_t i = 0; i < fields.size() && i < argTypes.size(); ++i) {
     inferGeneric(fields[i]->type, argTypes[i]);
   }
-  // Constructor call: result type is the class type (receiver), not return type
+  // Constructor call: result type is the specialized class type (receiver)
   if (node->getName() == "new" && !funcType->getFields().empty() &&
       funcType->getFields()[0]->type->is(BaseType::TY_PTR)) {
-    result = std::make_unique<Value>(
-        funcType->getFields()[0]->type->getElementType());
+    Type* classType = funcType->getFields()[0]->type->getElementType();
+    std::vector<std::string> genericParamNames;
+    std::unordered_set<std::string> seen;
+    for (auto* f : classType->getFields()) {
+      if (f->type->is(BaseType::TY_GENERIC)) {
+        const std::string& n = f->type->getGenericName();
+        if (seen.insert(n).second) {
+          genericParamNames.push_back(n);
+        }
+      }
+    }
+    Type* specialized =
+        getOrCreateSpecializedClassType(classType, genericParamNames,
+                                       currentGenericTypes);
+    result = std::make_unique<Value>(specialized);
   } else {
     Type* retType = funcType->getReturnType();
     if (retType != nullptr && retType->is(BaseType::TY_GENERIC)) {
@@ -693,8 +928,13 @@ auto Typechecker::visit(const DotOp* node) -> void {
       arg->accept(*this);
       argTypes.push_back(result->getType());
     }
-    Type* selfType = base->is(BaseType::TY_PTR) ? base
-                    : cacheType(std::make_unique<Type>(BaseType::TY_PTR, nullptr, base));
+    Type* receiverForLookup = base;
+    auto templateIt = specializedTypeToTemplate.find(base);
+    if (templateIt != specializedTypeToTemplate.end()) {
+      receiverForLookup = templateIt->second;
+    }
+    Type* selfType = receiverForLookup->is(BaseType::TY_PTR) ? receiverForLookup
+                    : cacheType(std::make_unique<Type>(BaseType::TY_PTR, nullptr, receiverForLookup));
     std::vector<Type*> methodArgTypes = {selfType};
     methodArgTypes.insert(methodArgTypes.end(), argTypes.begin(), argTypes.end());
     Value* method = scope->lookupFunction(fc->getName(), methodArgTypes);
@@ -702,7 +942,12 @@ auto Typechecker::visit(const DotOp* node) -> void {
       throw TypeCheckError(node->getSpan(), "Function not found: {}",
                            fc->getName());
     }
-    result = std::make_unique<Value>(method->getType()->getReturnType());
+    Type* retType = method->getType()->getReturnType();
+    auto it = specializedTypeEnv.find(base);
+    if (it != specializedTypeEnv.end() && retType != nullptr) {
+      retType = substituteInType(retType, it->second);
+    }
+    result = std::make_unique<Value>(retType);
     return;
   }
   if (dynamic_cast<Literal*>(node->getRight()) == nullptr) {

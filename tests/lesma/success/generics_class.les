@@ -13,3 +13,15 @@ if intBox.getVal() != 42
 
 if floatBox.getVal() != 3.14
     exit(1)
+
+# Part 3: multiple type params on generic classes
+class Pair<T, U>
+    var a: T
+    var b: U
+    def new(x: T, y: U)
+        self.a = x
+        self.b = y
+
+var p = Pair(1, 3.14)
+if p.a != 1 or p.b != 3.14
+    exit(1)

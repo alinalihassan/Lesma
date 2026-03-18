@@ -1097,11 +1097,18 @@ auto Codegen::specializeClass(const Class* node,
     }
   }
 
+  for (const auto& gn : genericNames) {
+    if (!env.contains(gn)) {
+      throw CodegenError(node->getSpan(),
+                         "Generic class {} requires type arguments for all parameters; "
+                         "could not infer {} from constructor",
+                         node->getIdentifier(), gn);
+    }
+  }
+
   std::string key = node->getIdentifier();
   for (const auto& gn : genericNames) {
-    if (env.contains(gn)) {
-      key += "|" + env[gn]->toString();
-    }
+    key += "|" + env[gn]->toString();
   }
   if (auto it = specializedClasses.find(key); it != specializedClasses.end()) {
     return it->second;
@@ -1112,9 +1119,7 @@ auto Codegen::specializeClass(const Class* node,
 
   std::string concreteName = node->getIdentifier();
   for (const auto& gn : genericNames) {
-    if (env.contains(gn)) {
-      concreteName += "_" + env[gn]->toString();
-    }
+    concreteName += "_" + env[gn]->toString();
   }
 
   std::vector<std::unique_ptr<Field>> fields;
@@ -1350,7 +1355,11 @@ auto Codegen::visit(const FuncDecl* node) -> void {
     for (const auto& name : node->getGenericParams()) {
       currentGenericTypes[name] = cacheType(std::make_unique<Type>(name));
     }
-    genericFunctions[node->getName()] = node;
+    if (selfSymbol != nullptr) {
+      genericMethods[selfSymbol->getName()][node->getName()] = node;
+    } else {
+      genericFunctions[node->getName()] = node;
+    }
     std::vector<std::unique_ptr<Field>> fields;
     if (selfSymbol != nullptr) fields.push_back(std::make_unique<Field>("self", selfSymbol->getType()));
     for (auto* param : node->getParameters()) {
@@ -2765,9 +2774,25 @@ auto Codegen::genFuncCall(const FuncCall* node,
 
   if (symbol->getType()->getFields().size() == paramTypes.size() &&
       symbol->getLlvmValue() == nullptr) {
-    if (auto git = genericFunctions.find(node->getName()); git != genericFunctions.end()) {
-      std::vector<std::string> genericNames = git->second->getGenericParams();
-      symbol = specializeFunction(git->second, paramTypes, genericNames);
+    const FuncDecl* templateDecl = nullptr;
+    if (selfSymbol != nullptr) {
+      auto cit = genericMethods.find(selfSymbol->getName());
+      if (cit != genericMethods.end()) {
+        auto mit = cit->second.find(node->getName());
+        if (mit != cit->second.end()) {
+          templateDecl = mit->second;
+        }
+      }
+    }
+    if (templateDecl == nullptr) {
+      auto git = genericFunctions.find(node->getName());
+      if (git != genericFunctions.end()) {
+        templateDecl = git->second;
+      }
+    }
+    if (templateDecl != nullptr) {
+      std::vector<std::string> genericNames = templateDecl->getGenericParams();
+      symbol = specializeFunction(templateDecl, paramTypes, genericNames);
     }
   }
 

@@ -42,8 +42,21 @@ class Typechecker final : public ASTVisitor {
   Type* currentClassType = nullptr; // Set when visiting class methods, for self
   bool inTopLevel = true;
   std::unordered_map<std::string, Type*> currentGenericTypes;
+  /** Specialized class types: key = template toString + "|" + concrete types, value = Type* with concrete fields. */
+  std::unordered_map<std::string, Type*> specializedClassTypes;
+  /** For each specialized class type, the substitution map (generic name -> concrete type) used to create it. */
+  std::unordered_map<Type*, std::unordered_map<std::string, Type*>> specializedTypeEnv;
+  /** For each specialized class type, the template class type it was created from. */
+  std::unordered_map<Type*, Type*> specializedTypeToTemplate;
 
   void registerBaseStubs();
+  /** Get or create a specialized class type by substituting env into template's fields. */
+  auto getOrCreateSpecializedClassType(Type* classTemplate,
+                                      const std::vector<std::string>& genericParamNames,
+                                      const std::unordered_map<std::string, Type*>& env) -> Type*;
+  /** Substitute env into type (for fields); returns cached type. */
+  auto substituteInType(Type* t,
+                       const std::unordered_map<std::string, Type*>& env) -> Type*;
 
   auto cacheType(std::unique_ptr<Type> type) -> Type*;
   auto resolveType(const TypeExpr* node) -> Type*;
