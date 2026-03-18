@@ -3,6 +3,7 @@
 #include <deque>
 #include <memory>
 #include <optional>
+#include <unordered_map>
 #include <stack>
 #include <string>
 #include <tuple>
@@ -62,6 +63,11 @@ class Codegen final : public ASTVisitor {
   // deque so push_back never invalidates Type* pointers stored in scope (from typecheck)
   std::deque<std::unique_ptr<lesma::Type>> typeCache;
   std::vector<std::tuple<lesma::Value*, const FuncDecl*, Value*>> prototypes;
+  std::unordered_map<std::string, const FuncDecl*> genericFunctions;
+  std::unordered_map<std::string, lesma::Type*> currentGenericTypes;
+  std::unordered_map<std::string, lesma::Value*> specializedFunctions;
+  std::unordered_map<lesma::Value*, std::unordered_map<std::string, lesma::Type*>>
+      specializationEnvs;
   // deque so push_back never invalidates pointers to existing elements (used in prototypes)
   std::deque<std::unique_ptr<lesma::Value>> methodSelfSymbols;
   llvm::Function* topLevelFunc;
@@ -160,6 +166,8 @@ protected:
       -> std::unique_ptr<lesma::Value>;
   auto defineFunction(lesma::Value* value, const FuncDecl* node,
                       Value* clsSymbol) -> void;
+  auto specializeFunction(const FuncDecl* node, const std::vector<lesma::Type*>& paramTypes,
+                          const std::vector<std::string>& genericNames) -> lesma::Value*;
 
   auto emitCompoundAssign(llvm::SMRange span, TokenType op, lesma::Value* lhs,
                           lesma::Value* value) -> void;

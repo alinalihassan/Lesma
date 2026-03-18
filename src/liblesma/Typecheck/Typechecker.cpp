@@ -113,11 +113,16 @@ auto Typechecker::resolveType(const TypeExpr* node) -> Type* {
     return cacheType(std::move(funcType));
   }
   if (node->getType() == TokenType::CUSTOM_TYPE) {
+    auto genericIt = currentGenericTypes.find(node->getName());
+    if (genericIt != currentGenericTypes.end()) {
+      return genericIt->second;
+    }
     Type* typ = scope->lookupType(node->getName());
     Value* sym = scope->lookupStruct(node->getName());
     if (typ == nullptr && sym == nullptr) {
-      throw TypeCheckError(node->getSpan(), "Type not found: {}",
-                           node->getName());
+      auto genericType = cacheType(std::make_unique<Type>(node->getName()));
+      currentGenericTypes[node->getName()] = genericType;
+      return genericType;
     }
     return sym != nullptr ? sym->getType() : typ;
   }
@@ -324,6 +329,12 @@ auto Typechecker::visit(const Class* node) -> void {
 }
 
 auto Typechecker::visit(const FuncDecl* node) -> void {
+  auto savedGenerics = currentGenericTypes;
+  for (const auto& name : node->getGenericParams()) {
+    auto* genericType = cacheType(std::make_unique<Type>(name));
+    currentGenericTypes[name] = genericType;
+    scope->insertType(name, std::make_unique<Type>(name));
+  }
   node->getReturnType()->accept(*this);
   Type* returnType = result->getType();
   std::vector<std::unique_ptr<Field>> paramFields;
@@ -381,9 +392,16 @@ auto Typechecker::visit(const FuncDecl* node) -> void {
   scope = scope->getParent();
   currentFunction = nullptr;
   inTopLevel = true;
+  currentGenericTypes = std::move(savedGenerics);
 }
 
 auto Typechecker::visit(const ExternFuncDecl* node) -> void {
+  auto savedGenerics = currentGenericTypes;
+  for (const auto& name : node->getGenericParams()) {
+    auto* genericType = cacheType(std::make_unique<Type>(name));
+    currentGenericTypes[name] = genericType;
+    scope->insertType(name, std::make_unique<Type>(name));
+  }
   node->getReturnType()->accept(*this);
   Type* returnType = result->getType();
   std::vector<std::unique_ptr<Field>> paramFields;
@@ -407,6 +425,7 @@ auto Typechecker::visit(const ExternFuncDecl* node) -> void {
       std::make_unique<Value>(node->getName(), funcTypePtr);
   funcSymbol->setExported(node->isExported());
   scope->insertSymbol(std::move(funcSymbol));
+  currentGenericTypes = std::move(savedGenerics);
 }
 
 auto Typechecker::visit(const Assignment* node) -> void {
@@ -523,13 +542,35 @@ auto Typechecker::visit(const FuncCall* node) -> void {
     throw TypeCheckError(node->getSpan(), "Not a function: {}",
                          node->getName());
   }
+  std::function<void(Type*, Type*)> inferGeneric = [&](Type* pattern, Type* actual) -> void {
+    if (pattern == nullptr || actual == nullptr) return;
+    if (pattern->is(BaseType::TY_GENERIC)) {
+      currentGenericTypes[pattern->getGenericName()] = actual;
+      return;
+    }
+    if (pattern->is(BaseType::TY_PTR) && actual->is(BaseType::TY_PTR)) {
+      inferGeneric(pattern->getElementType(), actual->getElementType());
+    }
+  };
+  auto* funcType = callee->getType();
+  auto fields = funcType->getFields();
+  for (size_t i = 0; i < fields.size() && i < argTypes.size(); ++i) {
+    inferGeneric(fields[i]->type, argTypes[i]);
+  }
   // Constructor call: result type is the class type (receiver), not return type
-  if (node->getName() == "new" && !callee->getType()->getFields().empty() &&
-      callee->getType()->getFields()[0]->type->is(BaseType::TY_PTR)) {
+  if (node->getName() == "new" && !funcType->getFields().empty() &&
+      funcType->getFields()[0]->type->is(BaseType::TY_PTR)) {
     result = std::make_unique<Value>(
-        callee->getType()->getFields()[0]->type->getElementType());
+        funcType->getFields()[0]->type->getElementType());
   } else {
-    result = std::make_unique<Value>(callee->getType()->getReturnType());
+    Type* retType = funcType->getReturnType();
+    if (retType != nullptr && retType->is(BaseType::TY_GENERIC)) {
+      auto it = currentGenericTypes.find(retType->getGenericName());
+      if (it != currentGenericTypes.end()) {
+        retType = it->second;
+      }
+    }
+    result = std::make_unique<Value>(retType);
   }
 }
 

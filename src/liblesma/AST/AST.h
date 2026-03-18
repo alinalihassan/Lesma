@@ -420,6 +420,7 @@ public:
 
 class FuncDecl : public Statement {
   std::string name;
+  std::vector<std::string> genericParams;
   std::unique_ptr<TypeExpr> returnType;
   std::vector<std::unique_ptr<Parameter>> parameters;
   std::unique_ptr<Compound> body;
@@ -428,16 +429,21 @@ class FuncDecl : public Statement {
 
 public:
   FuncDecl(llvm::SMRange loc, std::string name,
+           std::vector<std::string> genericParams,
            std::unique_ptr<TypeExpr> returnType,
            std::vector<std::unique_ptr<Parameter>> parameters,
            std::unique_ptr<Compound> body, bool varargs, bool exported)
       : Statement(loc), name(std::move(name)),
+        genericParams(std::move(genericParams)),
         returnType(std::move(returnType)), parameters(std::move(parameters)),
         body(std::move(body)), varargs(varargs), exported(exported) {}
   void accept(ASTVisitor& visitor) const override { visitor.visit(this); }
 
   [[nodiscard]] [[maybe_unused]] auto getName() const -> std::string {
     return name;
+  }
+  [[nodiscard]] [[maybe_unused]] auto getGenericParams() const -> std::vector<std::string> {
+    return genericParams;
   }
   [[nodiscard]] [[maybe_unused]] auto getReturnType() const -> TypeExpr* {
     return returnType.get();
@@ -482,6 +488,16 @@ public:
         ret += ", ";
       }
     }
+    if (!genericParams.empty()) {
+      ret += "[";
+      for (const auto& gp : genericParams) {
+        ret += gp;
+        if (&gp != &genericParams.back()) {
+          ret += ", ";
+        }
+      }
+      ret += "]";
+    }
     if (varargs) {
       ret += ", ...";
     }
@@ -494,6 +510,7 @@ public:
 
 class ExternFuncDecl : public Statement {
   std::string name;
+  std::vector<std::string> genericParams;
   std::unique_ptr<TypeExpr> returnType;
   std::vector<std::unique_ptr<Parameter>> parameters;
   bool varargs;
@@ -501,10 +518,12 @@ class ExternFuncDecl : public Statement {
 
 public:
   ExternFuncDecl(llvm::SMRange loc, std::string name,
+                 std::vector<std::string> genericParams,
                  std::unique_ptr<TypeExpr> returnType,
                  std::vector<std::unique_ptr<Parameter>> parameters,
                  bool varargs, bool exported)
       : Statement(loc), name(std::move(name)),
+        genericParams(std::move(genericParams)),
         returnType(std::move(returnType)), parameters(std::move(parameters)),
         varargs(varargs), exported(exported) {}
 
@@ -512,6 +531,9 @@ public:
 
   [[nodiscard]] [[maybe_unused]] auto getName() const -> std::string {
     return name;
+  }
+  [[nodiscard]] [[maybe_unused]] auto getGenericParams() const -> std::vector<std::string> {
+    return genericParams;
   }
   [[nodiscard]] [[maybe_unused]] auto getReturnType() const -> TypeExpr* {
     return returnType.get();

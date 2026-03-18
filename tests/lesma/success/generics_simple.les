@@ -1,0 +1,9 @@
+# Test simple function generics
+def identity<T>(x: T) -> T
+    return x
+
+if identity(11) != 11
+    exit(1)
+
+if identity(1.5) != 1.5
+    exit(1)

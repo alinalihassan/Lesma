@@ -830,7 +830,13 @@ auto Codegen::run() -> void {
 
   // Define the function bodies
   for (auto& prot : prototypes) {
-    defineFunction(std::get<0>(prot), std::get<1>(prot), std::get<2>(prot));
+    auto* fn = std::get<0>(prot);
+    auto savedGenerics = currentGenericTypes;
+    if (auto env = specializationEnvs.find(fn); env != specializationEnvs.end()) {
+      currentGenericTypes = env->second;
+    }
+    defineFunction(fn, std::get<1>(prot), std::get<2>(prot));
+    currentGenericTypes = std::move(savedGenerics);
   }
 
   // Return 0 for top-level function
@@ -919,9 +925,14 @@ auto Codegen::visit(const TypeExpr* node) -> void {
     funcType->setReturnType(retType->getType());
     result = std::make_unique<Value>(cacheType(std::move(funcType)));
   } else if (node->getType() == TokenType::CUSTOM_TYPE) {
+    auto git = currentGenericTypes.find(node->getName());
+    if (git != currentGenericTypes.end()) {
+      result = std::make_unique<Value>(git->second);
+      return;
+    }
     auto* typ = scope->lookupType(node->getName());
     auto* sym = scope->lookupStruct(node->getName());
-    if (typ == nullptr || sym == nullptr) {
+    if (typ == nullptr && sym == nullptr) {
       throw CodegenError(node->getSpan(), "Type not found: {}",
                          node->getName());
     }
@@ -941,6 +952,13 @@ auto Codegen::getOrCreateLlvmType(lesma::Type* type) -> llvm::Type* {
     return type->getLlvmType();
   }
   switch (type->getBaseType()) {
+  case BaseType::TY_GENERIC: {
+    auto it = currentGenericTypes.find(type->getGenericName());
+    if (it == currentGenericTypes.end()) {
+      throw CodegenError({}, "Unknown generic type {}", type->getGenericName());
+    }
+    return getOrCreateLlvmType(it->second);
+  }
   case BaseType::TY_INT:
     type->setLlvmType(builder->getInt64Ty());
     break;
@@ -989,6 +1007,63 @@ auto Codegen::getOrCreateLlvmType(lesma::Type* type) -> llvm::Type* {
     break;
   }
   return type->getLlvmType();
+}
+
+auto Codegen::specializeFunction(const FuncDecl* node, const std::vector<lesma::Type*>& paramTypes,
+                                 const std::vector<std::string>& genericNames) -> lesma::Value* {
+  std::string key = node->getName();
+  for (auto* t : paramTypes) {
+    key += "|" + t->toString();
+  }
+  if (auto it = specializedFunctions.find(key); it != specializedFunctions.end()) {
+    return it->second;
+  }
+
+  std::unordered_map<std::string, lesma::Type*> env;
+  for (size_t i = 0; i < genericNames.size() && i < paramTypes.size(); ++i) {
+    env[genericNames[i]] = paramTypes[i];
+  }
+  auto saved = currentGenericTypes;
+  currentGenericTypes = std::move(env);
+
+  std::vector<std::unique_ptr<Field>> fields;
+  std::vector<lesma::Type*> concreteParamTypes;
+  if (selfSymbol != nullptr) {
+    fields.push_back(std::make_unique<Field>("self", selfSymbol->getType()));
+    concreteParamTypes.push_back(selfSymbol->getType());
+  }
+  for (auto* param : node->getParameters()) {
+    param->type->accept(*this);
+    fields.push_back(std::make_unique<Field>(param->name, result->getType()));
+    concreteParamTypes.push_back(result->getType());
+  }
+  node->getReturnType()->accept(*this);
+  auto* returnType = result->getType();
+  std::vector<llvm::Type*> paramLLVMTypes;
+  for (auto* t : concreteParamTypes) {
+    getOrCreateLlvmType(t);
+    paramLLVMTypes.push_back(t->getLlvmType());
+  }
+  getOrCreateLlvmType(returnType);
+  auto funcType = std::make_unique<Type>(BaseType::TY_FUNCTION, builder->getPtrTy(), std::move(fields));
+  funcType->setReturnType(returnType);
+  auto* typePtr = cacheType(std::move(funcType));
+  auto mangledName = getMangledName(node->getSpan(), node->getName(), concreteParamTypes, selfSymbol != nullptr);
+  auto func = std::make_unique<Value>(node->getName(), typePtr);
+  func->setMangledName(mangledName);
+  func->setExported(node->isExported());
+  auto linkage = node->isExported() ? Function::ExternalLinkage : Function::PrivateLinkage;
+  auto* llvmFuncType = FunctionType::get(returnType->getLlvmType(), paramLLVMTypes, node->getVarArgs());
+  auto* llvmFunc = Function::Create(llvmFuncType, linkage, mangledName, *theModule);
+  typePtr->setLlvmType(llvmFuncType);
+  func->setLlvmValue(llvmFunc);
+  auto* funcPtr = func.get();
+  scope->insertSymbol(std::move(func));
+  prototypes.emplace_back(funcPtr, node, selfSymbol);
+  specializedFunctions.emplace(std::move(key), funcPtr);
+  specializationEnvs.emplace(funcPtr, currentGenericTypes);
+  currentGenericTypes = std::move(saved);
+  return funcPtr;
 }
 
 auto Codegen::visit(const Compound* node) -> void {
@@ -1155,6 +1230,26 @@ auto Codegen::visit(const While* node) -> void {
 }
 
 auto Codegen::visit(const FuncDecl* node) -> void {
+  if (!node->getGenericParams().empty()) {
+    auto savedGenerics = currentGenericTypes;
+    for (const auto& name : node->getGenericParams()) {
+      currentGenericTypes[name] = cacheType(std::make_unique<Type>(name));
+    }
+    genericFunctions[node->getName()] = node;
+    std::vector<std::unique_ptr<Field>> fields;
+    if (selfSymbol != nullptr) fields.push_back(std::make_unique<Field>("self", selfSymbol->getType()));
+    for (auto* param : node->getParameters()) {
+      fields.push_back(std::make_unique<Field>(param->name, cacheType(std::make_unique<Type>(param->type->getName()))));
+    }
+    auto funcType = std::make_unique<Type>(BaseType::TY_FUNCTION, builder->getPtrTy(), std::move(fields));
+    funcType->setReturnType(cacheType(std::make_unique<Type>(node->getReturnType()->getName())));
+    auto* typePtr = cacheType(std::move(funcType));
+    auto funcSymbol = std::make_unique<Value>(node->getName(), typePtr);
+    funcSymbol->setExported(node->isExported());
+    scope->insertSymbol(std::move(funcSymbol));
+    currentGenericTypes = std::move(savedGenerics);
+    return;
+  }
   if (selfSymbol != nullptr && node->getName() == "new" &&
       node->getReturnType()->getType() != TokenType::VOID_TYPE) {
     throw CodegenError(node->getSpan(),
@@ -2537,6 +2632,14 @@ auto Codegen::genFuncCall(const FuncCall* node,
     throw CodegenError(node->getSpan(), "{} {} not in current scope.",
                        classSym != nullptr ? "Constructor for" : "Function",
                        node->getName());
+  }
+
+  if (symbol->getType()->getFields().size() == paramTypes.size() &&
+      symbol->getLlvmValue() == nullptr) {
+    if (auto git = genericFunctions.find(node->getName()); git != genericFunctions.end()) {
+      std::vector<std::string> genericNames = git->second->getGenericParams();
+      symbol = specializeFunction(git->second, paramTypes, genericNames);
+    }
   }
 
   if (!symbol->getType()->isOneOf(

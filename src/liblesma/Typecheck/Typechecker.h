@@ -2,6 +2,7 @@
 
 #include <functional>
 #include <memory>
+#include <unordered_map>
 #include <string>
 #include <vector>
 
@@ -40,6 +41,7 @@ class Typechecker final : public ASTVisitor {
   Value* currentFunction = nullptr;
   Type* currentClassType = nullptr; // Set when visiting class methods, for self
   bool inTopLevel = true;
+  std::unordered_map<std::string, Type*> currentGenericTypes;
 
   void registerBaseStubs();
 

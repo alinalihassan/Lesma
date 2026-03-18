@@ -616,6 +616,17 @@ auto Parser::parseFunctionDeclaration() -> std::unique_ptr<Statement> {
   }
 
   auto* identifier = consume(TokenType::IDENTIFIER);
+  std::vector<std::string> genericParams;
+  if (check(TokenType::LESS)) {
+    consume(TokenType::LESS);
+    while (!check(TokenType::GREATER)) {
+      genericParams.push_back(consume(TokenType::IDENTIFIER)->lexeme);
+      if (!check(TokenType::GREATER)) {
+        consume(TokenType::COMMA);
+      }
+    }
+    consume(TokenType::GREATER);
+  }
 
   // Parse parameters
   consume(TokenType::LEFT_PAREN);
@@ -673,15 +684,16 @@ auto Parser::parseFunctionDeclaration() -> std::unique_ptr<Statement> {
     consumeNewline();
     return std::make_unique<ExternFuncDecl>(
         llvm::SMRange{loc.Start, returnType->getEnd()}, identifier->lexeme,
-        std::move(returnType), std::move(parameters), varargs, isExported);
+        std::move(genericParams), std::move(returnType), std::move(parameters),
+        varargs, isExported);
   }
 
   auto body = parseBlock();
 
   return std::make_unique<FuncDecl>(
       llvm::SMRange{loc.Start, returnType->getEnd()}, identifier->lexeme,
-      std::move(returnType), std::move(parameters), std::move(body), false,
-      isExported);
+      std::move(genericParams), std::move(returnType), std::move(parameters),
+      std::move(body), false, isExported);
 }
 
 auto Parser::parseExport() -> std::unique_ptr<Statement> {

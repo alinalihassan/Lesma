@@ -1,0 +1,12 @@
+# Test simple function generics
+def add<T>(x: T, y: T) -> T
+    return x + y
+
+def mul<T>(x: T, y: T) -> T
+    return x * y
+
+def combine<T>(x: T, y: T) -> T
+    return add(x, y) + mul(x, y)
+
+if combine(3, 2) != 11
+    exit(1)
