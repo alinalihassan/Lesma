@@ -15,9 +15,8 @@
 using namespace lesma;
 
 auto Token::dump(const std::shared_ptr<llvm::SourceMgr>& srcMgr) const -> std::string {
-  unsigned const bufId = srcMgr->getNumBuffers();
-  auto [startLine, startCol] = srcMgr->getLineAndColumn(span.Start, bufId);
-  auto [endLine, endCol] = srcMgr->getLineAndColumn(span.End, bufId);
+  auto [startLine, startCol] = srcMgr->getLineAndColumn(span.Start);
+  auto [endLine, endCol] = srcMgr->getLineAndColumn(span.End);
 
   return fmt::format("[Type: {}, Lexeme: {}, Line: {} - {}, Col: {} - {}]", NAMEOF_ENUM(type),
                      lexeme, startLine, endLine, startCol, endCol);
