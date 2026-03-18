@@ -816,7 +816,9 @@ auto Codegen::run() -> void {
   // Load base stdlib once so every module has exit/print/etc. Done here
   // (not in constructor) to avoid re-entrancy when creating Codegens for
   // imported modules.
-  if (std::filesystem::absolute(filename) != getStdDir() + "base.les") {
+  auto const basePath = std::filesystem::absolute(
+      std::filesystem::path(getStdDir()) / "base.les").lexically_normal();
+  if (std::filesystem::absolute(std::filesystem::path(filename)).lexically_normal() != basePath) {
     compileModule(llvm::SMRange(), getStdDir() + "base.les", true, "base", true,
                   true, {});
   }
