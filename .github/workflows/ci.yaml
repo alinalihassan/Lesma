@@ -14,24 +14,19 @@ env:
 jobs:
   build:
     name: Build
-    runs-on: ${{ matrix.os }}
-
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ ubuntu-latest, macos-latest ]
+    runs-on: macos-latest
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Install LLVM and Clang
-        uses: KyleMayes/install-llvm-action@v2
-        with:
-          version: "21"
-
-      - name: Install CMake & Ninja
-        uses: lukka/get-cmake@latest
+      - name: Install dependencies with Homebrew
+        run: |
+          brew update
+          brew install llvm cmake ninja
+          echo "$(brew --prefix llvm)/bin" >> $GITHUB_PATH
+          echo "CC=$(brew --prefix llvm)/bin/clang" >> $GITHUB_ENV
+          echo "CXX=$(brew --prefix llvm)/bin/clang++" >> $GITHUB_ENV
 
       - name: Get vcpkg baseline from vcpkg.json
         id: vcpkg-baseline
@@ -58,7 +53,7 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: lesma-${{ matrix.os }}
+          name: lesma-macos
           path: ${{github.workspace}}/build/Release/Lesma*.tar.gz
 
   release:
