@@ -34,6 +34,9 @@ jobs:
         id: vcpkg-baseline
         run: echo "baseline=$(jq -r '."builtin-baseline"' vcpkg.json)" >> $GITHUB_OUTPUT
 
+      - name: Fetch vcpkg baseline commit
+        run: git -C vcpkg fetch origin
+
       - name: Setup vcpkg
         uses: lukka/run-vcpkg@v11
         with:
