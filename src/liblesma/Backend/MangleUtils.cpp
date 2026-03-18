@@ -67,6 +67,9 @@ auto isMethod(const std::string& mangledName) -> bool {
 }
 
 auto isMangled(std::string name) -> bool {
+  if (name.empty()) {
+    return false;
+  }
   return name.find(':') != std::string::npos || name.at(0) == '.';
 }
 
@@ -84,7 +87,7 @@ auto getDemangledName(const std::string& name) -> std::string {
   }
 
   // Remove standard '.' mangling to differentiate from native functions
-  if (demangledName.at(0) == '.') {
+  if (!demangledName.empty() && demangledName.at(0) == '.') {
     demangledName.erase(0, 1);
   }
 
