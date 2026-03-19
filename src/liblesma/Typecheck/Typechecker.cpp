@@ -388,24 +388,31 @@ Typechecker::Typechecker(std::string mainFilePath_, GetExportsFn getExports_)
   scope = rootScope.get();
 }
 
-void Typechecker::registerBaseStubs() {
-  // exit(Int) -> Void
-  auto exitRet = cacheType(std::make_unique<Type>(BaseType::TY_VOID));
-  std::vector<std::unique_ptr<Field>> exitParams;
-  exitParams.push_back(
-      std::make_unique<Field>("", cacheType(std::make_unique<Type>(BaseType::TY_INT))));
-  auto exitType = std::make_unique<Type>(BaseType::TY_FUNCTION, nullptr, std::move(exitParams));
-  exitType->setReturnType(exitRet);
-  scope->insertSymbol(std::make_unique<Value>("exit", cacheType(std::move(exitType))));
-  // print overloads: (Str)->Void, (Int)->Void, (Float)->Void, (Bool)->Void
-  for (BaseType argTy :
-       {BaseType::TY_STRING, BaseType::TY_INT, BaseType::TY_FLOAT, BaseType::TY_BOOL}) {
-    auto ret = cacheType(std::make_unique<Type>(BaseType::TY_VOID));
-    std::vector<std::unique_ptr<Field>> params;
-    params.push_back(std::make_unique<Field>("", cacheType(std::make_unique<Type>(argTy))));
-    auto printType = std::make_unique<Type>(BaseType::TY_FUNCTION, nullptr, std::move(params));
-    printType->setReturnType(ret);
-    scope->insertSymbol(std::make_unique<Value>("print", cacheType(std::move(printType))));
+void Typechecker::loadImplicitBaseModule() {
+  const auto basePath =
+      std::filesystem::absolute(std::filesystem::path(getStdDir()) / "base.les").lexically_normal();
+  if (!mainFilePath.empty() &&
+      std::filesystem::absolute(std::filesystem::path(mainFilePath)).lexically_normal() ==
+          basePath) {
+    return;
+  }
+
+  SymbolTable* baseScope = getOrTypecheckImport(basePath.string());
+  if (baseScope == nullptr) {
+    return;
+  }
+
+  auto* importType = cacheType(std::make_unique<Type>(BaseType::TY_IMPORT));
+  for (auto* sym : baseScope->getSymbols()) {
+    if (!sym->isExported()) {
+      continue;
+    }
+    const std::string& name = sym->getName();
+    if (importedNameToSource.contains(name)) {
+      continue;
+    }
+    scope->insertSymbol(std::make_unique<Value>(name, importType));
+    importedNameToSource[name] = std::make_pair(basePath.string(), name);
   }
 }
 
@@ -446,7 +453,7 @@ auto Typechecker::getOrTypecheckImport(const std::string& absolutePath) -> Symbo
 }
 
 auto Typechecker::run(const Compound* ast) -> void {
-  registerBaseStubs();
+  loadImplicitBaseModule();
   declarationPass = true;
   ast->accept(*this);
   declarationPass = false;

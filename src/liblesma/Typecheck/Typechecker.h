@@ -81,7 +81,7 @@ class Typechecker final : public ASTVisitor {
    * or typecheck fails. */
   auto getOrTypecheckImport(const std::string& absolutePath) -> SymbolTable*;
 
-  void registerBaseStubs();
+  void loadImplicitBaseModule();
   /** Get or create a specialized class type by substituting env into template's
    * fields. */
   auto getOrCreateSpecializedClassType(Type* classTemplate,
