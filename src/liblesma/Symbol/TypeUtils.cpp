@@ -2,8 +2,7 @@
 
 #include "liblesma/Symbol/Type.h"
 
-namespace lesma {
-namespace TypeUtils {
+namespace lesma::TypeUtils {
 auto findIndexInFields(Type* structType, const std::string& field) -> int {
   for (unsigned int i = 0; i < structType->getFields().size(); i++) {
     if (structType->getFields()[i]->name == field) {
@@ -21,5 +20,4 @@ auto findTypeInFields(Type* structType, const std::string& field) -> Type* {
   }
   return nullptr;
 }
-} // namespace TypeUtils
-} // namespace lesma
+} // namespace lesma::TypeUtils

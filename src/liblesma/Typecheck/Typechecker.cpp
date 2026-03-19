@@ -1,5 +1,6 @@
 #include "Typechecker.h"
 
+#include <algorithm>
 #include <filesystem>
 #include <memory>
 #include <sstream>
@@ -7,12 +8,12 @@
 #include <utility>
 #include <vector>
 
-#include "fmt/format.h"
-#include "nameof.hpp"
-
 #include "llvm/Support/MemoryBuffer.h"
 #include "llvm/Support/SMLoc.h"
 #include "llvm/Support/SourceMgr.h"
+
+#include "fmt/format.h"
+#include "nameof.hpp"
 
 #include "liblesma/AST/AST.h"
 #include "liblesma/Common/TypeCheckError.h"
@@ -23,6 +24,47 @@
 #include "liblesma/Token/TokenType.h"
 
 namespace lesma {
+
+auto Typechecker::pathLeadsToEndWithoutReturn(const std::vector<Statement*>& statements,
+                                             size_t index) -> bool {
+  if (index >= statements.size()) {
+    return true; // fell off the end
+  }
+  Statement* s = statements[index];
+  if (dynamic_cast<Return*>(s) != nullptr) {
+    return false; // this path returns
+  }
+  if (auto* comp = dynamic_cast<Compound*>(s)) {
+    // If inner block always returns, we never fall off it.
+    if (!pathLeadsToEndWithoutReturn(comp->getChildren(), 0)) {
+      return false;
+    }
+    return pathLeadsToEndWithoutReturn(statements, index + 1);
+  }
+  if (auto* ifStmt = dynamic_cast<If*>(s)) {
+    const auto& blocks = ifStmt->getBlocks();
+    // If there is no else (only one block), we can skip the branch and fall through to index+1.
+    if (blocks.size() == 1U && pathLeadsToEndWithoutReturn(statements, index + 1)) {
+      return true;
+    }
+    if (std::any_of(blocks.begin(), blocks.end(), [this](Compound* block) {
+          return pathLeadsToEndWithoutReturn(block->getChildren(), 0);
+        })) {
+      return true; // some branch can fall off
+    }
+    return false; // all branches return or have no path to end
+  }
+  if (dynamic_cast<While*>(s) != nullptr) {
+    // Can skip loop (0 iterations) and reach next statement.
+    return pathLeadsToEndWithoutReturn(statements, index + 1);
+  }
+  // VarDecl, Assignment, ExpressionStatement, Break, Continue, Defer, etc.: fall through
+  return pathLeadsToEndWithoutReturn(statements, index + 1);
+}
+
+auto Typechecker::blockAlwaysReturns(const Compound* body) -> bool {
+  return !pathLeadsToEndWithoutReturn(body->getChildren(), 0);
+}
 
 auto Typechecker::cacheType(std::unique_ptr<Type> type) -> Type* {
   typeCache.push_back(std::move(type));
@@ -222,13 +264,12 @@ void Typechecker::registerBaseStubs() {
   }
 }
 
-auto Typechecker::resolveImportPath(const std::string& filepath, bool isStd) const
-    -> std::string {
+auto Typechecker::resolveImportPath(const std::string& filepath, bool isStd) const -> std::string {
   if (isStd || mainFilePath.empty()) {
     return filepath;
   }
-  return fmt::format("{}/{}",
-                     std::filesystem::absolute(mainFilePath).parent_path().string(), filepath);
+  return fmt::format("{}/{}", std::filesystem::absolute(mainFilePath).parent_path().string(),
+                     filepath);
 }
 
 auto Typechecker::getOrTypecheckImport(const std::string& absolutePath) -> SymbolTable* {
@@ -255,8 +296,7 @@ auto Typechecker::getOrTypecheckImport(const std::string& absolutePath) -> Symbo
   auto subScope = sub.takeRootScope();
   auto subCache = sub.takeTypeCache();
   SymbolTable* scopePtr = subScope.get();
-  importedModuleCache[absolutePath] =
-      std::make_pair(std::move(subScope), std::move(subCache));
+  importedModuleCache[absolutePath] = std::make_pair(std::move(subScope), std::move(subCache));
   return scopePtr;
 }
 
@@ -399,9 +439,10 @@ auto Typechecker::visit(const Class* node) -> void {
       Type* initType = result->getType();
       if (fieldType != nullptr) {
         if (!isAssignableTo(initType, fieldType)) {
-          throw TypeCheckError(field->getSpan(),
-                               "Class field initializer type {} is not assignable to declared type {}",
-                               initType->toString(), fieldType->toString());
+          throw TypeCheckError(
+              field->getSpan(),
+              "Class field initializer type {} is not assignable to declared type {}",
+              initType->toString(), fieldType->toString());
         }
       } else {
         fieldType = initType;
@@ -410,8 +451,7 @@ auto Typechecker::visit(const Class* node) -> void {
     if (fieldType == nullptr) {
       throw TypeCheckError(field->getSpan(), "Class field has no type");
     }
-    fields.push_back(
-        std::make_unique<Field>(field->getIdentifier()->getValue(), fieldType));
+    fields.push_back(std::make_unique<Field>(field->getIdentifier()->getValue(), fieldType));
   }
   auto type = std::make_unique<Type>(BaseType::TY_CLASS, nullptr, std::move(fields));
   Type* typePtr = type.get();
@@ -440,7 +480,8 @@ auto Typechecker::visit(const FuncDecl* node) -> void {
   for (const auto& name : node->getGenericParams()) {
     auto* genericType = cacheType(std::make_unique<Type>(name));
     currentGenericTypes[name] = genericType;
-    // Do not insert into scope: generic params are only visible via currentGenericTypes and must not leak to outer lookups.
+    // Do not insert into scope: generic params are only visible via currentGenericTypes and must
+    // not leak to outer lookups.
   }
   node->getReturnType()->accept(*this);
   Type* returnType = result->getType();
@@ -497,8 +538,14 @@ auto Typechecker::visit(const FuncDecl* node) -> void {
   currentFunction = insertScope->lookupFunction(node->getName(), paramTypes);
   inTopLevel = false;
   node->getBody()->accept(*this);
+  Type* funcReturnType = currentFunction->getType()->getReturnType();
+  if (funcReturnType != nullptr && !funcReturnType->is(BaseType::TY_VOID) &&
+      !blockAlwaysReturns(node->getBody())) {
+    throw TypeCheckError(node->getSpan(), "Non-void function may reach end without returning");
+  }
   scope = scope->getParent();
-  scope = scope->getParent(); // pop generics scope so generic param names are not visible to outer lookups
+  scope = scope->getParent(); // pop generics scope so generic param names are not visible to outer
+                              // lookups
   currentFunction = nullptr;
   inTopLevel = true;
   currentGenericTypes = std::move(savedGenerics);
@@ -511,7 +558,8 @@ auto Typechecker::visit(const ExternFuncDecl* node) -> void {
   for (const auto& name : node->getGenericParams()) {
     auto* genericType = cacheType(std::make_unique<Type>(name));
     currentGenericTypes[name] = genericType;
-    // Do not insert into scope: generic params are only visible via currentGenericTypes and must not leak to outer lookups.
+    // Do not insert into scope: generic params are only visible via currentGenericTypes and must
+    // not leak to outer lookups.
   }
   node->getReturnType()->accept(*this);
   Type* returnType = result->getType();
@@ -531,7 +579,8 @@ auto Typechecker::visit(const ExternFuncDecl* node) -> void {
   Type* funcTypePtr = cacheType(std::move(funcType));
   auto funcSymbol = std::make_unique<Value>(node->getName(), funcTypePtr);
   funcSymbol->setExported(node->isExported());
-  scope->getParent()->insertSymbol(std::move(funcSymbol)); // insert into enclosing scope, not generics
+  scope->getParent()->insertSymbol(
+      std::move(funcSymbol)); // insert into enclosing scope, not generics
   scope = scope->getParent(); // pop generics scope
   currentGenericTypes = std::move(savedGenerics);
 }
@@ -928,8 +977,9 @@ auto Typechecker::visit(const DotOp* node) -> void {
           Value* func = importScope->lookupFunction(fc->getName(), argTypes);
           if (func != nullptr) {
             Type* retType = func->getType()->getReturnType();
-            result = std::make_unique<Value>(retType != nullptr ? retType
-                                                               : cacheType(std::make_unique<Type>(BaseType::TY_VOID)));
+            result = std::make_unique<Value>(
+                retType != nullptr ? retType
+                                   : cacheType(std::make_unique<Type>(BaseType::TY_VOID)));
             return;
           }
         }

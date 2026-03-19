@@ -81,6 +81,11 @@ class Typechecker final : public ASTVisitor {
   /** Whether a value of type 'from' can be assigned/cast to type 'to'. */
   auto isAssignableTo(Type* from, Type* to) -> bool;
 
+  /** Returns true if some path through the statements reaches end of block without a return. */
+  auto pathLeadsToEndWithoutReturn(const std::vector<Statement*>& statements, size_t index) -> bool;
+  /** Returns true if the block always returns on every path. */
+  auto blockAlwaysReturns(const Compound* body) -> bool;
+
 public:
   /** Typecheck with no import * resolution. */
   explicit Typechecker();
