@@ -1342,6 +1342,11 @@ auto Typechecker::visit(const DotOp* node) -> void {
             : cacheType(std::make_unique<Type>(BaseType::TY_PTR, nullptr, receiverForLookup));
     std::vector<Type*> methodArgTypes = {selfType};
     methodArgTypes.insert(methodArgTypes.end(), argTypes.begin(), argTypes.end());
+    std::unordered_map<std::string, Type*> methodTypeEnv;
+    auto specializedIt = specializedTypeEnv.find(base);
+    if (specializedIt != specializedTypeEnv.end()) {
+      methodTypeEnv = specializedIt->second;
+    }
     Value* method = scope->lookupFunction(fc->getName(), methodArgTypes);
     if (method == nullptr) {
       for (auto& [_, cachedModule] : importedModuleCache) {
@@ -1354,10 +1359,37 @@ auto Typechecker::visit(const DotOp* node) -> void {
     if (method == nullptr) {
       throw TypeCheckError(node->getSpan(), "Function not found: {}", fc->getName());
     }
-    Type* retType = method->getType()->getReturnType();
-    auto it = specializedTypeEnv.find(base);
-    if (it != specializedTypeEnv.end() && retType != nullptr) {
-      retType = substituteInType(retType, it->second);
+    auto* methodType = method->getType();
+    if (!fc->getExplicitTypeArgs().empty()) {
+      std::vector<Type*> explicitTypes;
+      explicitTypes.reserve(fc->getExplicitTypeArgs().size());
+      for (TypeExpr* texpr : fc->getExplicitTypeArgs()) {
+        explicitTypes.push_back(resolveType(texpr));
+      }
+      const std::vector<std::string>& genericParamNames = getDeclaredGenericParams(methodType);
+      if (explicitTypes.size() != genericParamNames.size()) {
+        throw TypeCheckError(node->getSpan(),
+                             "Explicit type argument count {} does not match "
+                             "generic parameter count {}",
+                             explicitTypes.size(), genericParamNames.size());
+      }
+      for (size_t i = 0; i < genericParamNames.size(); ++i) {
+        methodTypeEnv[genericParamNames[i]] = explicitTypes[i];
+      }
+      auto fields = methodType->getFields();
+      for (size_t i = 0; i < fields.size() && i < methodArgTypes.size(); ++i) {
+        Type* expected = substituteInType(fields[i]->type, methodTypeEnv);
+        if (expected != nullptr && !methodArgTypes[i]->isEqual(expected)) {
+          throw TypeCheckError(node->getSpan(),
+                               "Argument type {} does not match explicit "
+                               "parameter type {}",
+                               methodArgTypes[i]->toString(), expected->toString());
+        }
+      }
+    }
+    Type* retType = methodType->getReturnType();
+    if (!methodTypeEnv.empty() && retType != nullptr) {
+      retType = substituteInType(retType, methodTypeEnv);
     }
     result = std::make_unique<Value>(retType);
     return;
