@@ -208,19 +208,24 @@ auto SymbolTable::lookup(const std::string& name) -> Value* {
  * @return Desired symbol / nullptr if the symbol was not found
  */
 auto SymbolTable::lookupStruct(const std::string& name) -> Value* {
+  Value* nameFallback = nullptr;
   for (const auto& [key, sym] : symbols) {
     if (!sym->getType()->isOneOf({BaseType::TY_CLASS, BaseType::TY_ENUM})) {
       continue;
     }
     auto* llvmTy = sym->getType()->getLlvmType();
     if (llvmTy != nullptr) {
-      if (llvm::cast<llvm::StructType>(llvmTy)->getName() == name) {
+      if (auto* st = llvm::dyn_cast<llvm::StructType>(llvmTy);
+          st != nullptr && st->getName() == name) {
         return sym.get();
       }
     } else if (key == name) {
       // Typechecker inserts class/enum symbols by name with no LLVM type yet
-      return sym.get();
+      nameFallback = sym.get();
     }
+  }
+  if (nameFallback != nullptr) {
+    return nameFallback;
   }
 
   if (parent == nullptr) {
