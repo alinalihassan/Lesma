@@ -45,6 +45,9 @@ auto getTypeMangledName(llvm::SMRange span, Type* type) -> std::string {
   if (type->is(BaseType::TY_VOID)) {
     return "void";
   }
+  if (type->is(BaseType::TY_GENERIC)) {
+    return "(gen_" + type->getGenericName() + ")";
+  }
   if (type->is(BaseType::TY_ARRAY) && llvmTy->isArrayTy()) {
     return "(arr_" + getTypeMangledName(span, type->getElementType()) + ")";
   }
