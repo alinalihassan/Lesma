@@ -918,12 +918,13 @@ auto Typechecker::visit(const FuncCall* node) -> void {
     return;
   }
 
+  std::unordered_map<std::string, Type*> localGenericTypes;
   std::function<void(Type*, Type*)> inferGeneric = [&](Type* pattern, Type* actual) -> void {
     if (pattern == nullptr || actual == nullptr) {
       return;
     }
     if (pattern->is(BaseType::TY_GENERIC)) {
-      currentGenericTypes[pattern->getGenericName()] = actual;
+      localGenericTypes[pattern->getGenericName()] = actual;
       return;
     }
     if (pattern->is(BaseType::TY_PTR) && actual->is(BaseType::TY_PTR)) {
@@ -940,13 +941,13 @@ auto Typechecker::visit(const FuncCall* node) -> void {
     const std::vector<std::string>& genericParamNames =
         getDeclaredGenericParams(classType);
     Type* specialized =
-        getOrCreateSpecializedClassType(classType, genericParamNames, currentGenericTypes);
+        getOrCreateSpecializedClassType(classType, genericParamNames, localGenericTypes);
     result = std::make_unique<Value>(specialized);
   } else {
     Type* retType = funcType->getReturnType();
     if (retType != nullptr && retType->is(BaseType::TY_GENERIC)) {
-      auto it = currentGenericTypes.find(retType->getGenericName());
-      if (it != currentGenericTypes.end()) {
+      auto it = localGenericTypes.find(retType->getGenericName());
+      if (it != localGenericTypes.end()) {
         retType = it->second;
       }
     }
