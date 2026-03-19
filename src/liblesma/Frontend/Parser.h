@@ -111,6 +111,7 @@ private:
   // Lookahead: true if from current position we have IDENTIFIER LESS type-list
   // GREATER LEFT_PAREN (so parsing as call with explicit type args is valid).
   auto hasExplicitTypeArgsAndParen() -> bool;
+  auto parseTypeAt(unsigned long& off) -> bool;
   auto skipOneTypeAt(unsigned long& off) -> bool;
 };
 } // namespace lesma

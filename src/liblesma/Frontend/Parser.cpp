@@ -147,26 +147,65 @@ auto Parser::parseType() -> std::unique_ptr<TypeExpr> {
   return nullptr;
 }
 
-auto Parser::skipOneTypeAt(unsigned long& off) -> bool {
+auto Parser::parseTypeAt(unsigned long& off) -> bool {
   if (index + off >= tokens.size()) {
     return false;
   }
-  TokenType t = peek(off)->type;
+
+  if (check(TokenType::STAR, off)) {
+    off++;
+    return parseTypeAt(off);
+  }
+
   if (checkAny<TokenType::INT_TYPE, TokenType::FLOAT_TYPE, TokenType::STRING_TYPE,
                TokenType::BOOL_TYPE, TokenType::INT8_TYPE, TokenType::INT16_TYPE,
                TokenType::INT32_TYPE, TokenType::FLOAT32_TYPE, TokenType::VOID_TYPE>(off)) {
     off++;
     return true;
   }
-  if (t == TokenType::IDENTIFIER) {
+
+  if (check(TokenType::FUNC, off)) {
+    off++;
+
+    if (index + off >= tokens.size() || peek(off)->type != TokenType::LEFT_PAREN) {
+      return false;
+    }
+    off++;
+
+    if (!parseTypeAt(off)) {
+      return false;
+    }
+
+    while (index + off < tokens.size() && peek(off)->type == TokenType::COMMA) {
+      off++;
+      if (!parseTypeAt(off)) {
+        return false;
+      }
+    }
+
+    if (index + off >= tokens.size() || peek(off)->type != TokenType::RIGHT_PAREN) {
+      return false;
+    }
+    off++;
+
+    if (index + off < tokens.size() && peek(off)->type == TokenType::ARROW) {
+      off++;
+      return parseTypeAt(off);
+    }
+
+    return true;
+  }
+
+  if (check(TokenType::IDENTIFIER, off)) {
     off++;
     return true;
   }
-  if (t == TokenType::STAR) {
-    off++;
-    return skipOneTypeAt(off);
-  }
+
   return false;
+}
+
+auto Parser::skipOneTypeAt(unsigned long& off) -> bool {
+  return parseTypeAt(off);
 }
 
 auto Parser::hasExplicitTypeArgsAndParen() -> bool {
