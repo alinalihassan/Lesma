@@ -341,15 +341,29 @@ auto Typechecker::visit(const Class* node) -> void {
 
   std::vector<std::unique_ptr<Field>> fields;
   for (VarDecl* field : node->getFields()) {
+    Type* fieldType = nullptr;
     if (field->getType() != nullptr) {
       field->getType()->accept(*this);
-    } else if (field->getValue() != nullptr) {
+      fieldType = result->getType();
+    }
+    if (field->getValue() != nullptr) {
       field->getValue()->accept(*this);
-    } else {
+      Type* initType = result->getType();
+      if (fieldType != nullptr) {
+        if (!isAssignableTo(initType, fieldType)) {
+          throw TypeCheckError(field->getSpan(),
+                               "Class field initializer type {} is not assignable to declared type {}",
+                               initType->toString(), fieldType->toString());
+        }
+      } else {
+        fieldType = initType;
+      }
+    }
+    if (fieldType == nullptr) {
       throw TypeCheckError(field->getSpan(), "Class field has no type");
     }
     fields.push_back(
-        std::make_unique<Field>(field->getIdentifier()->getValue(), result->getType()));
+        std::make_unique<Field>(field->getIdentifier()->getValue(), fieldType));
   }
   auto type = std::make_unique<Type>(BaseType::TY_CLASS, nullptr, std::move(fields));
   Type* typePtr = type.get();
@@ -397,6 +411,14 @@ auto Typechecker::visit(const FuncDecl* node) -> void {
     // Match codegen: function params use pointer-to-class so lookup matches
     if (paramType->is(BaseType::TY_CLASS)) {
       paramType = cacheType(std::make_unique<Type>(BaseType::TY_PTR, nullptr, paramType));
+    }
+    if (param->defaultVal != nullptr) {
+      param->defaultVal->accept(*this);
+      if (!isAssignableTo(result->getType(), paramType)) {
+        throw TypeCheckError(param->defaultVal->getSpan(),
+                             "Default value type {} is not assignable to parameter type {}",
+                             result->getType()->toString(), paramType->toString());
+      }
     }
     paramTypes.push_back(paramType);
     std::unique_ptr<Field> field;
