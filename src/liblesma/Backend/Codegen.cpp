@@ -1023,9 +1023,10 @@ auto Codegen::specializeFunction(const FuncDecl* node, const std::vector<lesma::
   std::unordered_map<std::string, lesma::Type*> env;
   if (!explicitTypeArgs.empty()) {
     if (explicitTypeArgs.size() != genericNames.size()) {
-      throw CodegenError(node->getSpan(),
-                         "Explicit type argument count {} does not match generic parameter count {}",
-                         explicitTypeArgs.size(), genericNames.size());
+      throw CodegenError(
+          node->getSpan(),
+          "Explicit type argument count {} does not match generic parameter count {}",
+          explicitTypeArgs.size(), genericNames.size());
     }
     for (size_t i = 0; i < genericNames.size(); ++i) {
       env[genericNames[i]] = explicitTypeArgs[i];
@@ -1090,8 +1091,7 @@ auto Codegen::specializeFunction(const FuncDecl* node, const std::vector<lesma::
 
 auto Codegen::specializeClass(const Class* node,
                               const std::vector<lesma::Type*>& constructorArgTypes,
-                              const std::vector<lesma::Type*>& explicitTypeArgs)
-    -> lesma::Value* {
+                              const std::vector<lesma::Type*>& explicitTypeArgs) -> lesma::Value* {
   auto genericNames = node->getGenericParams();
 
   const FuncDecl* constructorDecl = nullptr;

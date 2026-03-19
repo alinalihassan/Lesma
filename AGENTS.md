@@ -102,6 +102,19 @@ The project uses **AddressSanitizer (ASan)** and **LeakSanitizer (LSan)** for me
 
 ---
 
+## IDE / clangd (VS Code, Cursor, etc.)
+
+CMake sets `CMAKE_EXPORT_COMPILE_COMMANDS ON`, but the database is written under your **build directory** (e.g. `build/Debug/compile_commands.json`), not the repo root. **clangd** only auto-discovers it if you symlink it to the root or configure a path.
+
+- The repo includes **`.clangd`** pointing at `build/Debug` for the default CMake preset. After `cmake --preset Debug` (and at least one build so targets exist), **reload the window** or restart clangd so it picks up flags (LLVM, vcpkg, lsp-framework includes).
+- If you use another build folder, edit `.clangd`’s `CompilationDatabase` or run:  
+  `ln -sf build/Debug/compile_commands.json compile_commands.json`  
+  (root `compile_commands.json` is gitignored.)
+- Spurious **`module_odr_violation_*`** diagnostics in system headers on macOS are suppressed in `.clangd`; they are a known libc++/clangd interaction, not Lesma bugs.
+- **Namespace note:** Lesma’s document store lives in `lesma::lsp_srv` so it does not nest a `lsp` namespace beside the global **`::lsp`** types from lsp-framework.
+
+---
+
 ## C++ style
 
 The codebase follows consistent C++ style. Respect it when editing.

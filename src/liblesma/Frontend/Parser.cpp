@@ -204,9 +204,7 @@ auto Parser::parseTypeAt(unsigned long& off) -> bool {
   return false;
 }
 
-auto Parser::skipOneTypeAt(unsigned long& off) -> bool {
-  return parseTypeAt(off);
-}
+auto Parser::skipOneTypeAt(unsigned long& off) -> bool { return parseTypeAt(off); }
 
 auto Parser::hasExplicitTypeArgsAndParen() -> bool {
   if (!check(TokenType::IDENTIFIER) || !check(TokenType::LESS, 1)) {

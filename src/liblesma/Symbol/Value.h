@@ -32,7 +32,8 @@ enum class ValueCategory : std::uint8_t {
 class Value {
 public:
   // Constructors that take ownership of Type
-  explicit Value(std::unique_ptr<Type> type) : ownedType(std::move(type)), state(SymbolState::INITIALIZED) {}
+  explicit Value(std::unique_ptr<Type> type)
+      : ownedType(std::move(type)), state(SymbolState::INITIALIZED) {}
 
   Value(std::string name, std::unique_ptr<Type> type)
       : name(std::move(name)), mangledName(name), ownedType(std::move(type)),
@@ -125,9 +126,7 @@ public:
   [[nodiscard]] auto usesAddressableStorage() const -> bool {
     return category == ValueCategory::ADDRESSABLE_STORAGE;
   }
-  [[nodiscard]] auto usesDirectLlvmValue() const -> bool {
-    return !usesAddressableStorage();
-  }
+  [[nodiscard]] auto usesDirectLlvmValue() const -> bool { return !usesAddressableStorage(); }
 
   auto toString() const -> std::string {
     std::string typeStr;

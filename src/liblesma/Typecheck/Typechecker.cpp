@@ -153,8 +153,7 @@ auto Typechecker::substituteInType(Type* t, const std::unordered_map<std::string
   if (t->is(BaseType::TY_FUNCTION)) {
     std::vector<std::unique_ptr<Field>> fields;
     for (Field* field : t->getFields()) {
-      fields.push_back(
-          std::make_unique<Field>(field->name, substituteInType(field->type, env)));
+      fields.push_back(std::make_unique<Field>(field->name, substituteInType(field->type, env)));
     }
     auto funcType = std::make_unique<Type>(BaseType::TY_FUNCTION, nullptr, std::move(fields));
     funcType->setReturnType(substituteInType(t->getReturnType(), env));
