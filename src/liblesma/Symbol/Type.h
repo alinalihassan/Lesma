@@ -136,6 +136,9 @@ public:
     case BaseType::TY_INT: {
       llvm::Type* l = getLlvmType();
       llvm::Type* r = rhs->getLlvmType();
+      if (l == nullptr && r == nullptr) {
+        return isSigned() == rhs->isSigned();
+      }
       if (l == nullptr || r == nullptr || !l->isIntegerTy() || !r->isIntegerTy()) {
         return false;
       }
@@ -145,6 +148,9 @@ public:
     case BaseType::TY_FLOAT: {
       llvm::Type* l = getLlvmType();
       llvm::Type* r = rhs->getLlvmType();
+      if (l == nullptr && r == nullptr) {
+        return true;
+      }
       if (l == nullptr || r == nullptr || !l->isFloatingPointTy() || !r->isFloatingPointTy()) {
         return false;
       }
@@ -160,6 +166,9 @@ public:
     case BaseType::TY_ARRAY: {
       Type const* thisElementType = getElementType();
       Type* rhsElementType = rhs->getElementType();
+      if (thisElementType == nullptr && rhsElementType == nullptr) {
+        return true;
+      }
       if (thisElementType == nullptr || rhsElementType == nullptr) {
         return false;
       }
