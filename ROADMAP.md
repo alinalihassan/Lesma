@@ -19,3 +19,8 @@
 - [ ] Add string interpolation
 - [ ] Add multithreading using pthread for now (async/await? ala Spice)
 - [ ] Add multiple value return without having to make structs
+
+## Bugs
+
+- [ ] Nested dot access is not implemented yet (for example `holder.payload.value`)
+- [ ] Dereferencing a pointer loaded from a class field does not work correctly at runtime/codegen

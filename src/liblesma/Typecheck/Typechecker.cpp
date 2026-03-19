@@ -931,8 +931,7 @@ auto Typechecker::visit(const Assignment* node) -> void {
   if (dynamic_cast<DotOp*>(node->getLeftHandSide()) != nullptr) {
     node->getLeftHandSide()->accept(*this);
     Type* lhsType = result->getType();
-    Type* targetType =
-        lhsType != nullptr && lhsType->is(BaseType::TY_PTR) ? lhsType->getElementType() : lhsType;
+    Type* targetType = lhsType;
     node->getRightHandSide()->accept(*this);
     Type* rhsType = result->getType();
     if (binaryOp.has_value()) {
