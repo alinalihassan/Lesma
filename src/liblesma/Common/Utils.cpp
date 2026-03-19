@@ -92,10 +92,15 @@ auto getStdDir() -> std::string {
   if (getenv("HOME") != nullptr) {
     homedir = getenv("HOME");
   } else {
-    fmt::print(fg(fmt::color::yellow), "Warning: Could not determine home directory, using current "
-                                       "directory\n");
     struct passwd* pw = getpwuid(getuid());
-    homedir = (pw != nullptr && pw->pw_dir != nullptr) ? pw->pw_dir : ".";
+    if (pw != nullptr && pw->pw_dir != nullptr) {
+      homedir = pw->pw_dir;
+    } else {
+      fmt::print(fg(fmt::color::yellow),
+                 "Warning: Could not determine home directory, using current "
+                 "directory\n");
+      homedir = ".";
+    }
   }
   return fmt::format("{}/.lesma/stdlib/", homedir);
 #endif
