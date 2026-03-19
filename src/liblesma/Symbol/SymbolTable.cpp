@@ -53,22 +53,36 @@ auto SymbolTable::insertType(const std::string& name, std::unique_ptr<Type> type
  * @param name Name of the desired symbol
  * @return Desired symbol / nullptr if the symbol was not found
  */
+namespace {
+// Match rank for overload resolution: higher = better. Overall candidate rank
+// is the minimum over all parameter positions (worst match wins).
+constexpr int RANK_EXACT = 3;     // concrete-typed parameter match
+constexpr int RANK_GENERIC = 2;   // formal is generic
+constexpr int RANK_DEFAULTED = 1; // caller omitted, default applies
+constexpr int RANK_VARARG = 0;    // extra args absorbed by vararg
+} // namespace
+
 auto SymbolTable::lookupFunction(const std::string& name, std::vector<lesma::Type*> paramTypes)
     -> Value* {
   auto range = symbols.equal_range(name);
-  Value* matchWithoutValue = nullptr;
+  Value* bestCandidate = nullptr;
+  int bestRank = -1;
+  bool bestHasValue = false;
+
   for (auto it = range.first; it != range.second; ++it) {
     if (!it->second->getType()->is(BaseType::TY_FUNCTION)) {
       continue;
     }
 
     bool paramsMatch = true;
+    int candidateRank = RANK_EXACT;
     std::vector<Field*> funcParamTypes = it->second->getType()->getFields();
     size_t const numParams = std::max(funcParamTypes.size(), paramTypes.size());
 
     for (size_t i = 0; i < numParams; ++i) {
       if (i < funcParamTypes.size() && i < paramTypes.size()) {
         if (funcParamTypes[i]->type->is(BaseType::TY_GENERIC)) {
+          candidateRank = std::min(candidateRank, RANK_GENERIC);
           continue; // Formal is generic: match any argument
         }
         if (paramTypes[i]->is(BaseType::TY_GENERIC)) {
@@ -80,11 +94,14 @@ auto SymbolTable::lookupFunction(const std::string& name, std::vector<lesma::Typ
           paramsMatch = false;
           break;
         }
+        candidateRank = std::min(candidateRank, RANK_EXACT);
       } else if (i < funcParamTypes.size() && funcParamTypes[i]->defaultValue != nullptr) {
+        candidateRank = std::min(candidateRank, RANK_DEFAULTED);
         // Caller omitted this arg; default value applies
       } else if (i >= funcParamTypes.size()) {
         auto* llvmTy = it->second->getType()->getLlvmType();
         if (llvmTy != nullptr && llvmTy->isFunctionVarArg()) {
+          candidateRank = std::min(candidateRank, RANK_VARARG);
           break;
         }
         paramsMatch = false;
@@ -99,17 +116,17 @@ auto SymbolTable::lookupFunction(const std::string& name, std::vector<lesma::Typ
       continue;
     }
 
-    // Prefer symbol that has LLVM value (from codegen) over typecheck stub
-    if (it->second->getLlvmValue() != nullptr) {
-      return it->second.get();
-    }
-    if (matchWithoutValue == nullptr) {
-      matchWithoutValue = it->second.get();
+    bool hasValue = (it->second->getLlvmValue() != nullptr);
+    if (candidateRank > bestRank ||
+        (candidateRank == bestRank && hasValue && !bestHasValue)) {
+      bestRank = candidateRank;
+      bestCandidate = it->second.get();
+      bestHasValue = hasValue;
     }
   }
 
-  if (matchWithoutValue != nullptr) {
-    return matchWithoutValue;
+  if (bestCandidate != nullptr) {
+    return bestCandidate;
   }
 
   if (parent == nullptr) {
