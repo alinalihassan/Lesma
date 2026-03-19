@@ -1,5 +1,6 @@
 def extern printf(fmt: str, ...)
-def extern scanf(fmt: str, ...)
+def extern scanf(fmt: str, ...) -> int
+def extern calloc(count: int, size: int) -> *int8
 def extern malloc(size: int) -> *int8
 def extern strlen(x: str) -> int
 def extern atoll(x: str) -> int
@@ -17,9 +18,16 @@ export def input(prompt: str) -> str
     if strlen(prompt) > 0
         printf("%s", prompt)
 
-    var line: str = malloc(4096) as str
+    var line: str = calloc(4096, 1) as str
+    var ignored: str = calloc(2, 1) as str
+    let read: int = scanf("%4095[^\n]", line)
 
-    scanf("%4095[^\n]%*c", line)
+    if read == 0
+        scanf("%1c", ignored)
+        return line
+
+    if read > 0
+        scanf("%1c", ignored)
 
     return line
 
