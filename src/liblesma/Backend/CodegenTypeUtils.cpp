@@ -60,18 +60,23 @@ auto cast(llvm::SMRange span, Value* val, Type* type, llvm::IRBuilder<>* builder
 
   if (type->is(BaseType::TY_INT)) {
     if (val->getType()->is(BaseType::TY_FLOAT)) {
-      return std::make_unique<Value>(
-          "", type, builder->CreateFPToSI(val->getLlvmValue(), type->getLlvmType()));
+      auto* casted = type->isSigned()
+                         ? builder->CreateFPToSI(val->getLlvmValue(), type->getLlvmType())
+                         : builder->CreateFPToUI(val->getLlvmValue(), type->getLlvmType());
+      return std::make_unique<Value>("", type, casted);
     }
     if (val->getType()->is(BaseType::TY_INT)) {
-      return std::make_unique<Value>(
-          "", type,
-          builder->CreateIntCast(val->getLlvmValue(), type->getLlvmType(), type->isSigned()));
+      return std::make_unique<Value>("", type,
+                                     builder->CreateIntCast(val->getLlvmValue(),
+                                                            type->getLlvmType(),
+                                                            val->getType()->isSigned()));
     }
   } else if (type->is(BaseType::TY_FLOAT)) {
     if (val->getType()->is(BaseType::TY_INT)) {
-      return std::make_unique<Value>(
-          "", type, builder->CreateSIToFP(val->getLlvmValue(), type->getLlvmType()));
+      auto* casted = val->getType()->isSigned()
+                         ? builder->CreateSIToFP(val->getLlvmValue(), type->getLlvmType())
+                         : builder->CreateUIToFP(val->getLlvmValue(), type->getLlvmType());
+      return std::make_unique<Value>("", type, casted);
     }
     if (val->getType()->is(BaseType::TY_FLOAT)) {
       return std::make_unique<Value>(
