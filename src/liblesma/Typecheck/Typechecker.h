@@ -6,10 +6,15 @@
 #include <unordered_map>
 #include <vector>
 
+#include <optional>
+
+#include "llvm/Support/SMLoc.h"
+
 #include "liblesma/AST/ASTVisitor.h"
 #include "liblesma/Symbol/SymbolTable.h"
 #include "liblesma/Symbol/Type.h"
 #include "liblesma/Symbol/Value.h"
+#include "liblesma/Token/TokenType.h"
 
 namespace lesma {
 
@@ -80,6 +85,11 @@ class Typechecker final : public ASTVisitor {
   auto getExtendedType(Type* left, Type* right) -> Type*;
   /** Whether a value of type 'from' can be assigned/cast to type 'to'. */
   auto isAssignableTo(Type* from, Type* to) -> bool;
+  /** Result type of a binary operator (arithmetic, comparison, logical). Throws on unsupported op. */
+  auto typecheckBinaryOpResult(TokenType op, Type* leftTy, Type* rightTy, llvm::SMRange span)
+      -> Type*;
+  /** Map compound-assignment operator to the corresponding binary operator; nullopt if not compound. */
+  auto compoundToBinaryOp(TokenType op) -> std::optional<TokenType>;
 
   /** Returns true if some path through the statements reaches end of block without a return. */
   auto pathLeadsToEndWithoutReturn(const std::vector<Statement*>& statements, size_t index) -> bool;

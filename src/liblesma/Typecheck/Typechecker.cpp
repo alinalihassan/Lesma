@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <filesystem>
 #include <memory>
+#include <optional>
 #include <sstream>
 #include <unordered_set>
 #include <utility>
@@ -143,6 +144,52 @@ auto Typechecker::getExtendedType(Type* left, Type* right) -> Type* {
     return left;
   }
   return nullptr;
+}
+
+auto Typechecker::typecheckBinaryOpResult(TokenType op, Type* leftTy, Type* rightTy,
+                                         llvm::SMRange span) -> Type* {
+  bool hasGeneric = leftTy->is(BaseType::TY_GENERIC) || rightTy->is(BaseType::TY_GENERIC);
+  Type* unified = getExtendedType(leftTy, rightTy);
+
+  switch (op) {
+  case TokenType::PLUS:
+  case TokenType::MINUS:
+  case TokenType::STAR:
+  case TokenType::SLASH:
+  case TokenType::MOD:
+  case TokenType::POWER:
+    if (hasGeneric) {
+      return leftTy->is(BaseType::TY_GENERIC) ? leftTy : rightTy;
+    }
+    if (unified == nullptr) {
+      throw TypeCheckError(span, "Operator {} not applicable to {} and {}", NAMEOF_ENUM(op),
+                           leftTy->toString(), rightTy->toString());
+    }
+    if (!unified->isOneOf({BaseType::TY_INT, BaseType::TY_FLOAT})) {
+      throw TypeCheckError(span, "Arithmetic operator requires numeric types");
+    }
+    return unified;
+  case TokenType::EQUAL_EQUAL:
+  case TokenType::BANG_EQUAL:
+  case TokenType::GREATER:
+  case TokenType::GREATER_EQUAL:
+  case TokenType::LESS:
+  case TokenType::LESS_EQUAL:
+    if (!hasGeneric && unified == nullptr && !leftTy->isEqual(rightTy)) {
+      throw TypeCheckError(span, "Comparison requires compatible types: {} and {}",
+                           leftTy->toString(), rightTy->toString());
+    }
+    return cacheType(std::make_unique<Type>(BaseType::TY_BOOL));
+  case TokenType::AND:
+  case TokenType::OR:
+    if (!hasGeneric && (leftTy == nullptr || !leftTy->is(BaseType::TY_BOOL) || rightTy == nullptr ||
+                        !rightTy->is(BaseType::TY_BOOL))) {
+      throw TypeCheckError(span, "Logical operator requires Bool operands");
+    }
+    return cacheType(std::make_unique<Type>(BaseType::TY_BOOL));
+  default:
+    throw TypeCheckError(span, "Unsupported binary operator: {}", NAMEOF_ENUM(op));
+  }
 }
 
 auto Typechecker::isAssignableTo(Type* from, Type* to) -> bool {
@@ -585,7 +632,22 @@ auto Typechecker::visit(const ExternFuncDecl* node) -> void {
   currentGenericTypes = std::move(savedGenerics);
 }
 
+auto Typechecker::compoundToBinaryOp(TokenType op) -> std::optional<TokenType> {
+  switch (op) {
+  case TokenType::PLUS_EQUAL: return TokenType::PLUS;
+  case TokenType::MINUS_EQUAL: return TokenType::MINUS;
+  case TokenType::STAR_EQUAL: return TokenType::STAR;
+  case TokenType::SLASH_EQUAL: return TokenType::SLASH;
+  case TokenType::MOD_EQUAL: return TokenType::MOD;
+  case TokenType::POWER_EQUAL: return TokenType::POWER;
+  default: return std::nullopt;
+  }
+}
+
 auto Typechecker::visit(const Assignment* node) -> void {
+  TokenType assignOp = node->getOperator();
+  std::optional<TokenType> binaryOp = compoundToBinaryOp(assignOp);
+
   if (auto* lit = dynamic_cast<Literal*>(node->getLeftHandSide())) {
     Value* sym = scope->lookup(lit->getValue());
     if (sym == nullptr) {
@@ -595,10 +657,26 @@ auto Typechecker::visit(const Assignment* node) -> void {
       throw TypeCheckError(node->getSpan(), "Cannot assign to immutable variable {}",
                            lit->getValue());
     }
+    Type* lhsType = sym->getType();
     node->getRightHandSide()->accept(*this);
-    if (!isAssignableTo(result->getType(), sym->getType())) {
-      throw TypeCheckError(node->getSpan(), "Cannot assign type {} to variable of type {}",
-                           result->getType()->toString(), sym->getType()->toString());
+    Type* rhsType = result->getType();
+    if (binaryOp.has_value()) {
+      Type* resultType =
+          typecheckBinaryOpResult(*binaryOp, lhsType, rhsType, node->getSpan());
+      if (!isAssignableTo(resultType, lhsType)) {
+        throw TypeCheckError(node->getSpan(),
+                             "Compound assignment result type {} is not assignable to variable of type {}",
+                             resultType->toString(), lhsType->toString());
+      }
+    } else {
+      if (assignOp != TokenType::EQUAL) {
+        throw TypeCheckError(node->getSpan(), "Unsupported assignment operator: {}",
+                             NAMEOF_ENUM(assignOp));
+      }
+      if (!isAssignableTo(rhsType, lhsType)) {
+        throw TypeCheckError(node->getSpan(), "Cannot assign type {} to variable of type {}",
+                             rhsType->toString(), lhsType->toString());
+      }
     }
     return;
   }
@@ -608,9 +686,24 @@ auto Typechecker::visit(const Assignment* node) -> void {
     Type* targetType =
         lhsType != nullptr && lhsType->is(BaseType::TY_PTR) ? lhsType->getElementType() : lhsType;
     node->getRightHandSide()->accept(*this);
-    if (targetType != nullptr && !isAssignableTo(result->getType(), targetType)) {
-      throw TypeCheckError(node->getSpan(), "Cannot assign type {} to field of type {}",
-                           result->getType()->toString(), targetType->toString());
+    Type* rhsType = result->getType();
+    if (binaryOp.has_value()) {
+      Type* resultType =
+          typecheckBinaryOpResult(*binaryOp, targetType, rhsType, node->getSpan());
+      if (targetType != nullptr && !isAssignableTo(resultType, targetType)) {
+        throw TypeCheckError(node->getSpan(),
+                             "Compound assignment result type {} is not assignable to field of type {}",
+                             resultType->toString(), targetType->toString());
+      }
+    } else {
+      if (assignOp != TokenType::EQUAL) {
+        throw TypeCheckError(node->getSpan(), "Unsupported assignment operator: {}",
+                             NAMEOF_ENUM(assignOp));
+      }
+      if (targetType != nullptr && !isAssignableTo(rhsType, targetType)) {
+        throw TypeCheckError(node->getSpan(), "Cannot assign type {} to field of type {}",
+                             rhsType->toString(), targetType->toString());
+      }
     }
     return;
   }
@@ -891,56 +984,9 @@ auto Typechecker::visit(const BinaryOp* node) -> void {
   std::unique_ptr<Value> left = std::move(result);
   node->getRight()->accept(*this);
   std::unique_ptr<Value> right = std::move(result);
-  Type* leftTy = left->getType();
-  Type* rightTy = right->getType();
-
-  bool hasGeneric = leftTy->is(BaseType::TY_GENERIC) || rightTy->is(BaseType::TY_GENERIC);
-  Type* unified = getExtendedType(leftTy, rightTy);
-
-  switch (node->getOperator()) {
-  case TokenType::PLUS:
-  case TokenType::MINUS:
-  case TokenType::STAR:
-  case TokenType::SLASH:
-  case TokenType::MOD:
-    if (hasGeneric) {
-      result = std::make_unique<Value>(leftTy->is(BaseType::TY_GENERIC) ? leftTy : rightTy);
-      break;
-    }
-    if (unified == nullptr) {
-      throw TypeCheckError(node->getSpan(), "Operator {} not applicable to {} and {}",
-                           NAMEOF_ENUM(node->getOperator()), leftTy->toString(),
-                           rightTy->toString());
-    }
-    if (!unified->isOneOf({BaseType::TY_INT, BaseType::TY_FLOAT})) {
-      throw TypeCheckError(node->getSpan(), "Arithmetic operator requires numeric types");
-    }
-    result = std::make_unique<Value>(unified);
-    break;
-  case TokenType::EQUAL_EQUAL:
-  case TokenType::BANG_EQUAL:
-  case TokenType::GREATER:
-  case TokenType::GREATER_EQUAL:
-  case TokenType::LESS:
-  case TokenType::LESS_EQUAL:
-    if (!hasGeneric && unified == nullptr && !leftTy->isEqual(rightTy)) {
-      throw TypeCheckError(node->getSpan(), "Comparison requires compatible types: {} and {}",
-                           leftTy->toString(), rightTy->toString());
-    }
-    result = std::make_unique<Value>(cacheType(std::make_unique<Type>(BaseType::TY_BOOL)));
-    break;
-  case TokenType::AND:
-  case TokenType::OR:
-    if (!hasGeneric && (leftTy == nullptr || !leftTy->is(BaseType::TY_BOOL) || rightTy == nullptr ||
-                        !rightTy->is(BaseType::TY_BOOL))) {
-      throw TypeCheckError(node->getSpan(), "Logical operator requires Bool operands");
-    }
-    result = std::make_unique<Value>(cacheType(std::make_unique<Type>(BaseType::TY_BOOL)));
-    break;
-  default:
-    throw TypeCheckError(node->getSpan(), "Unsupported binary operator: {}",
-                         NAMEOF_ENUM(node->getOperator()));
-  }
+  Type* resultType =
+      typecheckBinaryOpResult(node->getOperator(), left->getType(), right->getType(), node->getSpan());
+  result = std::make_unique<Value>(resultType);
 }
 
 auto Typechecker::visit(const DotOp* node) -> void {

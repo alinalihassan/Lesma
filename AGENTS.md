@@ -101,6 +101,16 @@ The project uses **AddressSanitizer (ASan)** and **LeakSanitizer (LSan)** for me
 
 ---
 
+## C++ style
+
+The codebase follows consistent C++ style. Respect it when editing.
+
+- **Formatting and lint:** `.clang-format` and `.clang-tidy` define formatting and many clang-tidy checks (e.g. `modernize-*`, `readability-*`, `cppcoreguidelines-*`). Naming: `camelBack` for variables/functions/parameters/members, `CamelCase` for classes/enums, `UPPER_CASE` for global constants. Integer literal suffixes are uppercase (e.g. `0U`).
+- **Helpers in classes:** Prefer **private methods** on the class over free functions in an anonymous namespace. When a helper is only used by one class, add it as a private member so the style stays consistent and the API is clearer.
+- **Includes:** Include order and grouping follow `.clang-format` (e.g. standard library, then LLVM, then project `liblesma/`).
+
+---
+
 ## Summary
 
 - **Pipeline:** Source → Lexer → Parser → Codegen (Driver + SourceMgr, then Lexer, Parser, Backend).
@@ -108,3 +118,4 @@ The project uses **AddressSanitizer (ASan)** and **LeakSanitizer (LSan)** for me
 - **Build:** CMake + vcpkg toolchain; build the `lesma` target.
 - **Validation:** Always run `scripts/run_tests.sh <path-to-lesma>` and ensure 0 failures.
 - **Memory:** Use the **Debug_Asan** preset (AddressSanitizer + LeakSanitizer) on macOS and Linux; Valgrind is Linux-only and not supported on Apple Silicon.
+- **C++ style:** Follow `.clang-format` and `.clang-tidy`; use private methods instead of anonymous-namespace helpers where the helper belongs to a class.
