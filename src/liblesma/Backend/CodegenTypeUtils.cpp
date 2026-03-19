@@ -83,11 +83,17 @@ auto cast(llvm::SMRange span, Value* val, Type* type, llvm::IRBuilder<>* builder
           "", type, builder->CreateFPCast(val->getLlvmValue(), type->getLlvmType()));
     }
   } else if (type->is(BaseType::TY_STRING)) {
-    if (val->getType()->is(BaseType::TY_PTR) &&
-        (val->getType()->getElementType()->is(BaseType::TY_INT) ||
-         val->getType()->getElementType()->is(BaseType::TY_VOID))) {
-      return std::make_unique<Value>(
-          "", type, builder->CreateBitCast(val->getLlvmValue(), type->getLlvmType()));
+    if (val->getType()->is(BaseType::TY_PTR)) {
+      Type* elem = val->getType()->getElementType();
+      const bool isPtrToVoid = elem != nullptr && elem->is(BaseType::TY_VOID);
+      const bool isPtrToByte =
+          elem != nullptr && elem->is(BaseType::TY_INT) && elem->getLlvmType() != nullptr &&
+          elem->getLlvmType()->isIntegerTy() &&
+          elem->getLlvmType()->getIntegerBitWidth() == 8U;
+      if (isPtrToVoid || isPtrToByte) {
+        return std::make_unique<Value>(
+            "", type, builder->CreateBitCast(val->getLlvmValue(), type->getLlvmType()));
+      }
     }
   }
 
