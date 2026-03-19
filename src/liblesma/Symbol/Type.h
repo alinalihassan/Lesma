@@ -96,7 +96,7 @@ public:
   [[nodiscard]] auto isSigned() const -> bool { return signedInt; }
 
   // Returns raw pointers for non-owning access
-  [[nodiscard]] auto getFields() -> std::vector<Field*> {
+  [[nodiscard]] auto getFields() const -> std::vector<Field*> {
     std::vector<Field*> result;
     result.reserve(fields.size());
     for (const auto& field : fields) {
@@ -124,9 +124,7 @@ public:
       return false;
     }
 
-    // Class/enum types: compare by LLVM type identity only; do not fall through
-    // to element-type logic when either llvmType is null (would incorrectly
-    // return true for distinct types that both have null elementType).
+    // Class/enum types: compare by LLVM type identity only.
     if (isOneOf({BaseType::TY_CLASS, BaseType::TY_ENUM})) {
       if (llvmType != nullptr && rhs->llvmType != nullptr) {
         return llvmType == rhs->llvmType;
@@ -134,17 +132,68 @@ public:
       return false;
     }
 
-    Type const* thisElementType = this->getElementType();
-    Type* rhsElementType = rhs->getElementType();
-
-    if (thisElementType == nullptr && rhsElementType == nullptr) {
+    switch (baseType) {
+    case BaseType::TY_INT: {
+      llvm::Type* l = getLlvmType();
+      llvm::Type* r = rhs->getLlvmType();
+      if (l == nullptr || r == nullptr || !l->isIntegerTy() || !r->isIntegerTy()) {
+        return false;
+      }
+      return isSigned() == rhs->isSigned() &&
+             l->getIntegerBitWidth() == r->getIntegerBitWidth();
+    }
+    case BaseType::TY_FLOAT: {
+      llvm::Type* l = getLlvmType();
+      llvm::Type* r = rhs->getLlvmType();
+      if (l == nullptr || r == nullptr || !l->isFloatingPointTy() || !r->isFloatingPointTy()) {
+        return false;
+      }
+      return l == r;
+    }
+    case BaseType::TY_STRING:
+    case BaseType::TY_BOOL:
+    case BaseType::TY_VOID:
+    case BaseType::TY_INVALID:
+    case BaseType::TY_IMPORT:
       return true;
+    case BaseType::TY_PTR:
+    case BaseType::TY_ARRAY: {
+      Type const* thisElementType = getElementType();
+      Type* rhsElementType = rhs->getElementType();
+      if (thisElementType == nullptr || rhsElementType == nullptr) {
+        return false;
+      }
+      return thisElementType->isEqual(rhsElementType);
     }
-    if (thisElementType == nullptr || rhsElementType == nullptr) {
-      return false;
+    case BaseType::TY_FUNCTION: {
+      auto lf = getFields();
+      auto rf = rhs->getFields();
+      if (lf.size() != rf.size()) {
+        return false;
+      }
+      for (size_t i = 0; i < lf.size(); ++i) {
+        if (!lf[i]->type->isEqual(rf[i]->type)) {
+          return false;
+        }
+      }
+      Type* lret = getReturnType();
+      Type* rret = rhs->getReturnType();
+      if (lret == nullptr && rret == nullptr) {
+        return true;
+      }
+      if (lret == nullptr || rret == nullptr) {
+        return false;
+      }
+      return lret->isEqual(rret);
     }
-
-    return thisElementType->isEqual(rhsElementType);
+    case BaseType::TY_GENERIC:
+      return genericName == rhs->getGenericName();
+    case BaseType::TY_CLASS:
+    case BaseType::TY_ENUM:
+      // Handled above; unreachable but required for switch completeness.
+      return llvmType != nullptr && rhs->llvmType != nullptr && llvmType == rhs->llvmType;
+    }
+    return false;
   }
 
   [[nodiscard]] auto toString() const -> std::string {
