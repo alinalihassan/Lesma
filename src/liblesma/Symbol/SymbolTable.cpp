@@ -108,10 +108,15 @@ auto SymbolTable::lookupFunction(const std::string& name, std::vector<lesma::Typ
             }
           } else {
             if (argTy->is(BaseType::TY_GENERIC)) {
-              paramsMatch = false;
-              break; // argument must be concrete
+              // Typechecking generic function body: formals are generic; match by same name.
+              if (formalTy->getGenericName() != argTy->getGenericName()) {
+                paramsMatch = false;
+                break;
+              }
+              genericBindings[genericName] = argTy;
+            } else {
+              genericBindings[genericName] = argTy;
             }
-            genericBindings[genericName] = argTy;
           }
           candidateRanks.push_back(RANK_GENERIC);
           continue;

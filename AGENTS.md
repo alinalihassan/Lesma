@@ -62,13 +62,14 @@ When reporting errors, the Driver and Codegen use `showInline()` in `Common/Util
 
 ## Always run tests after making changes
 
-After any change to the compiler or tests, run the Lesma test suite so that success cases still pass and failure cases are still rejected.
+After any change to the compiler or tests, **rebuild first**, then run the Lesma test suite so that success cases still pass and failure cases are still rejected.
 
-- **Command (from repo root):**
+- **Commands (from repo root):** Build with the Debug preset, then run tests:
   ```bash
-  ./scripts/run_tests.sh
+  cmake --build --preset Debug && ./scripts/run_tests.sh
   ```
-  The script auto-detects the compiler: it looks for `build/Debug/lesma` then `build/lesma`. You can still pass the path explicitly: `./scripts/run_tests.sh build/Debug/lesma`.
+  You must compile before running tests; otherwise the test script may run an outdated binary and results will be misleading.
+- The script auto-detects the compiler: it looks for `build/Debug/lesma` then `build/lesma`. You can still pass the path explicitly: `./scripts/run_tests.sh build/Debug/lesma`.
 - **What it does:** For each `.les` file in `tests/lesma/success/` it runs `lesma run` and `lesma compile` and expects exit code 0. For each file in `tests/lesma/failure/` it expects the compiler to fail (non-zero exit).
 - **Success criterion:** The script should report **0 failures** and 44 successes (or the current total number of tests). Any failing test should be fixed before considering the change complete.
 

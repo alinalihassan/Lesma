@@ -133,12 +133,50 @@ public:
       return false;
     }
 
-    // Class/enum types: compare by LLVM type identity only.
+    // Class/enum types: when both have LLVM types, compare by pointer identity;
+    // otherwise compare by structure (genericParams + fields) so that types are
+    // equal before LLVM lowering.
     if (isOneOf({BaseType::TY_CLASS, BaseType::TY_ENUM})) {
       if (llvmType != nullptr && rhs->llvmType != nullptr) {
         return llvmType == rhs->llvmType;
       }
-      return false;
+      // Semantic identity when llvmType not yet set: same generic params and fields.
+      const std::vector<std::string>& lp = getGenericParams();
+      const std::vector<std::string>& rp = rhs->getGenericParams();
+      if (lp.size() != rp.size()) {
+        return false;
+      }
+      for (size_t i = 0; i < lp.size(); ++i) {
+        if (lp[i] != rp[i]) {
+          return false;
+        }
+      }
+      auto lf = getFields();
+      auto rf = rhs->getFields();
+      if (lf.size() != rf.size()) {
+        return false;
+      }
+      for (size_t i = 0; i < lf.size(); ++i) {
+        if (lf[i]->name != rf[i]->name) {
+          return false;
+        }
+        Type* lt = lf[i]->type;
+        Type* rt = rf[i]->type;
+        if (lt == nullptr || rt == nullptr) {
+          if (lt != rt) {
+            return false;
+          }
+          continue;
+        }
+        // Cycle check: same (this, rhs) pair avoids infinite recursion (e.g. class with *Self).
+        if ((lt == this && rt == rhs) || (lt == rhs && rt == this)) {
+          continue;
+        }
+        if (!lt->isEqual(rt)) {
+          return false;
+        }
+      }
+      return true;
     }
 
     switch (baseType) {
