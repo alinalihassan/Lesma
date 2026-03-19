@@ -1011,7 +1011,9 @@ void Codegen::bindGenericsFromTypePair(const TypeExpr* declared, lesma::Type* ac
 }
 
 auto Codegen::specializeFunction(const FuncDecl* node, const std::vector<lesma::Type*>& paramTypes,
-                                 const std::vector<std::string>& genericNames) -> lesma::Value* {
+                                 const std::vector<std::string>& genericNames,
+                                 const std::vector<lesma::Type*>& explicitTypeArgs)
+    -> lesma::Value* {
   std::string key =
       getMangledName(node->getSpan(), node->getName(), paramTypes, selfSymbol != nullptr);
   if (auto it = specializedFunctions.find(key); it != specializedFunctions.end()) {
@@ -1019,6 +1021,16 @@ auto Codegen::specializeFunction(const FuncDecl* node, const std::vector<lesma::
   }
 
   std::unordered_map<std::string, lesma::Type*> env;
+  if (!explicitTypeArgs.empty()) {
+    if (explicitTypeArgs.size() != genericNames.size()) {
+      throw CodegenError(node->getSpan(),
+                         "Explicit type argument count {} does not match generic parameter count {}",
+                         explicitTypeArgs.size(), genericNames.size());
+    }
+    for (size_t i = 0; i < genericNames.size(); ++i) {
+      env[genericNames[i]] = explicitTypeArgs[i];
+    }
+  }
   std::unordered_set<std::string> genericNameSet(genericNames.begin(), genericNames.end());
   auto templateParams = node->getParameters();
   size_t offset = (selfSymbol != nullptr) ? 1U : 0U;
@@ -1077,7 +1089,8 @@ auto Codegen::specializeFunction(const FuncDecl* node, const std::vector<lesma::
 }
 
 auto Codegen::specializeClass(const Class* node,
-                              const std::vector<lesma::Type*>& constructorArgTypes)
+                              const std::vector<lesma::Type*>& constructorArgTypes,
+                              const std::vector<lesma::Type*>& explicitTypeArgs)
     -> lesma::Value* {
   auto genericNames = node->getGenericParams();
 
@@ -1090,6 +1103,17 @@ auto Codegen::specializeClass(const Class* node,
   }
 
   std::unordered_map<std::string, lesma::Type*> env;
+  if (!explicitTypeArgs.empty()) {
+    if (explicitTypeArgs.size() != genericNames.size()) {
+      throw CodegenError(node->getSpan(),
+                         "Explicit type argument count {} does not match generic class parameter "
+                         "count {}",
+                         explicitTypeArgs.size(), genericNames.size());
+    }
+    for (size_t i = 0; i < genericNames.size(); ++i) {
+      env[genericNames[i]] = explicitTypeArgs[i];
+    }
+  }
   std::unordered_set<std::string> genericNameSet(genericNames.begin(), genericNames.end());
   if (constructorDecl != nullptr) {
     auto params = constructorDecl->getParameters();
@@ -2456,6 +2480,7 @@ auto Codegen::genFuncCall(const FuncCall* node, const std::vector<lesma::Value*>
     -> std::unique_ptr<lesma::Value> {
   std::vector<lesma::Type*> paramTypes;
   std::vector<llvm::Value*> paramsLLVM;
+  std::vector<lesma::Type*> explicitTypeArgs;
 
   for (auto* arg : extraParams) {
     lesma::Type* argType = arg->getType();
@@ -2497,6 +2522,11 @@ auto Codegen::genFuncCall(const FuncCall* node, const std::vector<lesma::Value*>
     paramsLLVM.push_back(result->getLlvmValue());
   }
 
+  for (auto* explicitTypeArg : node->getExplicitTypeArgs()) {
+    explicitTypeArg->accept(*this);
+    explicitTypeArgs.push_back(result->getType());
+  }
+
   Value* symbol = nullptr;
   // Check if it's a constructor like `Classname()`
   auto* selfSymbolTmp = selfSymbol;
@@ -2515,7 +2545,7 @@ auto Codegen::genFuncCall(const FuncCall* node, const std::vector<lesma::Value*>
       templateClass = static_cast<const Class*>(classSym->getGenericClassTemplate());
     }
     if (templateClass != nullptr) {
-      classSym = specializeClass(templateClass, paramTypes);
+      classSym = specializeClass(templateClass, paramTypes, explicitTypeArgs);
     }
   }
 
@@ -2558,7 +2588,7 @@ auto Codegen::genFuncCall(const FuncCall* node, const std::vector<lesma::Value*>
     }
     if (templateDecl != nullptr) {
       std::vector<std::string> genericNames = templateDecl->getGenericParams();
-      symbol = specializeFunction(templateDecl, paramTypes, genericNames);
+      symbol = specializeFunction(templateDecl, paramTypes, genericNames, explicitTypeArgs);
     }
   }
 

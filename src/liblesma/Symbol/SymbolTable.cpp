@@ -74,6 +74,71 @@ auto rankVectorBetter(const std::vector<int>& ranksA, const std::vector<int>& ra
   }
   return ranksA.size() < ranksB.size();
 }
+
+auto typeContainsGeneric(Type* type) -> bool {
+  if (type == nullptr) {
+    return false;
+  }
+  if (type->is(BaseType::TY_GENERIC)) {
+    return true;
+  }
+  if (type->isOneOf({BaseType::TY_PTR, BaseType::TY_ARRAY})) {
+    return typeContainsGeneric(type->getElementType());
+  }
+  if (type->is(BaseType::TY_FUNCTION)) {
+    for (Field* field : type->getFields()) {
+      if (typeContainsGeneric(field->type)) {
+        return true;
+      }
+    }
+    return typeContainsGeneric(type->getReturnType());
+  }
+  return false;
+}
+
+auto matchGenericParameter(Type* formalTy, Type* argTy,
+                           std::unordered_map<std::string, Type*>& genericBindings) -> bool {
+  if (formalTy == nullptr || argTy == nullptr) {
+    return formalTy == argTy;
+  }
+  if (formalTy->is(BaseType::TY_GENERIC)) {
+    std::string const& genericName = formalTy->getGenericName();
+    auto bindingIt = genericBindings.find(genericName);
+    if (bindingIt != genericBindings.end()) {
+      return argTy->isEqual(bindingIt->second);
+    }
+    if (argTy->is(BaseType::TY_GENERIC) && formalTy->getGenericName() != argTy->getGenericName()) {
+      return false;
+    }
+    genericBindings[genericName] = argTy;
+    return true;
+  }
+  if (formalTy->getBaseType() != argTy->getBaseType()) {
+    return false;
+  }
+  if (formalTy->isOneOf({BaseType::TY_PTR, BaseType::TY_ARRAY})) {
+    return matchGenericParameter(formalTy->getElementType(), argTy->getElementType(),
+                                 genericBindings);
+  }
+  if (formalTy->is(BaseType::TY_FUNCTION)) {
+    if (formalTy->isVarArgs() != argTy->isVarArgs()) {
+      return false;
+    }
+    auto formalFields = formalTy->getFields();
+    auto argFields = argTy->getFields();
+    if (formalFields.size() != argFields.size()) {
+      return false;
+    }
+    for (size_t i = 0; i < formalFields.size(); ++i) {
+      if (!matchGenericParameter(formalFields[i]->type, argFields[i]->type, genericBindings)) {
+        return false;
+      }
+    }
+    return matchGenericParameter(formalTy->getReturnType(), argTy->getReturnType(),
+                                 genericBindings);
+  }
+  return formalTy->isEqual(argTy);
+}
 } // namespace
 
 auto SymbolTable::lookupFunction(const std::string& name, std::vector<lesma::Type*> paramTypes)
@@ -98,38 +163,15 @@ auto SymbolTable::lookupFunction(const std::string& name, std::vector<lesma::Typ
       if (i < funcParamTypes.size() && i < paramTypes.size()) {
         Type* formalTy = funcParamTypes[i]->type;
         Type* argTy = paramTypes[i];
-        if (formalTy->is(BaseType::TY_GENERIC)) {
-          std::string const& genericName = formalTy->getGenericName();
-          auto bindingIt = genericBindings.find(genericName);
-          if (bindingIt != genericBindings.end()) {
-            if (!argTy->isEqual(bindingIt->second)) {
-              paramsMatch = false;
-              break; // repeated generic must match previously bound type
-            }
-          } else {
-            if (argTy->is(BaseType::TY_GENERIC)) {
-              // Typechecking generic function body: formals are generic; match by same name.
-              if (formalTy->getGenericName() != argTy->getGenericName()) {
-                paramsMatch = false;
-                break;
-              }
-              genericBindings[genericName] = argTy;
-            } else {
-              genericBindings[genericName] = argTy;
-            }
-          }
-          candidateRanks.push_back(RANK_GENERIC);
-          continue;
-        }
-        if (argTy->is(BaseType::TY_GENERIC)) {
+        if (argTy->is(BaseType::TY_GENERIC) && !typeContainsGeneric(formalTy)) {
           paramsMatch = false;
           break; // argument must be concrete
         }
-        if (!formalTy->isEqual(argTy)) {
+        if (!matchGenericParameter(formalTy, argTy, genericBindings)) {
           paramsMatch = false;
           break;
         }
-        candidateRanks.push_back(RANK_EXACT);
+        candidateRanks.push_back(typeContainsGeneric(formalTy) ? RANK_GENERIC : RANK_EXACT);
       } else if (i < funcParamTypes.size() && funcParamTypes[i]->defaultValue != nullptr) {
         candidateRanks.push_back(RANK_DEFAULTED);
       } else if (i >= funcParamTypes.size()) {

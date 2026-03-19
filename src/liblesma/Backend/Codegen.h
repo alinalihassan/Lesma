@@ -175,8 +175,11 @@ protected:
       -> std::unique_ptr<lesma::Value>;
   auto defineFunction(lesma::Value* value, const FuncDecl* node, Value* clsSymbol) -> void;
   auto specializeFunction(const FuncDecl* node, const std::vector<lesma::Type*>& paramTypes,
-                          const std::vector<std::string>& genericNames) -> lesma::Value*;
-  auto specializeClass(const Class* node, const std::vector<lesma::Type*>& constructorArgTypes)
+                          const std::vector<std::string>& genericNames,
+                          const std::vector<lesma::Type*>& explicitTypeArgs = {})
+      -> lesma::Value*;
+  auto specializeClass(const Class* node, const std::vector<lesma::Type*>& constructorArgTypes,
+                       const std::vector<lesma::Type*>& explicitTypeArgs = {})
       -> lesma::Value*;
 
   auto emitCompoundAssign(llvm::SMRange span, TokenType op, lesma::Value* lhs, lesma::Value* value)

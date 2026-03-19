@@ -1,0 +1,9 @@
+class Phantom<T, U>
+    var value: U
+    def new(value: U)
+        self.value = value
+
+var phantom = Phantom<int, bool>(true)
+
+if not phantom.value
+    exit(1)

@@ -89,6 +89,10 @@ class Typechecker final : public ASTVisitor {
                                        const std::unordered_map<std::string, Type*>& env) -> Type*;
   /** Substitute env into type (for fields); returns cached type. */
   auto substituteInType(Type* t, const std::unordered_map<std::string, Type*>& env) -> Type*;
+  /** Infer generic bindings from a parameter/argument type pair. */
+  auto inferGenericBindings(Type* pattern, Type* actual,
+                            std::unordered_map<std::string, Type*>& bindings,
+                            llvm::SMRange span) -> void;
 
   auto cacheType(std::unique_ptr<Type> type) -> Type*;
   auto materializeImportedType(Type* type) -> Type*;

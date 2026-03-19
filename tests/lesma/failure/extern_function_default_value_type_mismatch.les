@@ -1,0 +1,1 @@
+def extern abs(x: int = "x") -> int
