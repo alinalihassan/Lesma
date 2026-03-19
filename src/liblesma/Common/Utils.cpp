@@ -55,7 +55,7 @@ auto showInline(llvm::SourceMgr* srcMgr, unsigned int bufferId, llvm::SMRange sp
       // Third line: caret width guarded to avoid underflow and huge allocations
       // when end is on a different line or end column < start column
       unsigned int caretWidth = 1;
-      if (startLoc.first == endLoc.first && endLoc.second >= startLoc.second) {
+      if (startLoc.first == endLoc.first && endLoc.second > startLoc.second) {
         caretWidth = endLoc.second - startLoc.second;
       }
       fmt::print(accent, "{} |", std::string(int(log10(startLoc.first) + 1), ' '));
