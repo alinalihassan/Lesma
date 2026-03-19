@@ -2,6 +2,8 @@
 
 #include <string>
 
+#include <llvm/IR/DerivedTypes.h>
+#include <llvm/Support/Casting.h>
 #include <llvm/Support/SMLoc.h>
 
 #include "liblesma/Backend/CodegenError.h"
@@ -56,7 +58,10 @@ auto getTypeMangledName(llvm::SMRange span, Type* type) -> std::string {
     for (const auto& field : type->getFields()) {
       paramStr += getTypeMangledName(span, field->type) + "_";
     }
-    return "(struct_" + type->getLlvmType()->getStructName().str() + ")";
+    if (auto* structTy = llvm::dyn_cast<llvm::StructType>(llvmTy)) {
+      return "(struct_" + structTy->getName().str() + ")";
+    }
+    throw CodegenError(span, "Class/Enum type does not have LLVM struct type");
   }
 
   throw CodegenError(span, "Unknown type found during mangling");
