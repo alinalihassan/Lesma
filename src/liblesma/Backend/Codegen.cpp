@@ -206,6 +206,10 @@ auto Codegen::defineFunction(lesma::Value* value, const FuncDecl* node, Value* c
   currentFunction = value;
   deferStack.emplace();
 
+  if (value->getLlvmValue() == nullptr) {
+    throw CodegenError(node->getSpan(), "Function {} is declared but has no LLVM body",
+                       node->getName());
+  }
   auto* f = llvm::cast<Function>(value->getLlvmValue());
 
   BasicBlock* entry = BasicBlock::Create(theModule->getContext(), "entry", f);
@@ -289,6 +293,11 @@ auto Codegen::compileModule(
             : fmt::format("{}/{}", std::filesystem::absolute(mainPath).parent_path().c_str(),
                           filepath);
 
+  static thread_local std::unordered_set<std::string> compiling;
+  if (compiling.contains(absolutePath)) {
+    throw CodegenError(span, "Circular import detected: {}", filepath);
+  }
+
   // If this codegen already compiled this module, only merge its symbols (no
   // recompilation). Only skip when we have the scope (same codegen compiled
   // it); otherwise a child may see the path in the list but not have the scope.
@@ -296,7 +305,7 @@ auto Codegen::compileModule(
   if (it != importedModules->end()) {
     auto existingIdx = static_cast<size_t>(it - importedModules->begin());
     if (existingIdx >= importedScopes->size()) {
-      it = importedModules->end();
+      throw CodegenError(span, "Circular import detected: {}", filepath);
     }
   }
   if (it != importedModules->end()) {
@@ -322,8 +331,10 @@ auto Codegen::compileModule(
 
     for (auto* sym : existingScope->getSymbols()) {
       auto impAlias = findInImports(sym->getName());
+      const bool exposeClassForModuleImport =
+          !importToScope && sym->getType()->is(BaseType::TY_CLASS);
       if (sym->getType()->isOneOf({BaseType::TY_ENUM, BaseType::TY_CLASS}) && sym->isExported() &&
-          (importAll || !impAlias.empty())) {
+          (importAll || !impAlias.empty() || exposeClassForModuleImport)) {
         llvm::StructType* structType =
             StructType::getTypeByName(theModule->getContext(), sym->getName());
         auto structSymbol =
@@ -333,6 +344,9 @@ auto Codegen::compileModule(
         scope->insertTypeRef(sym->getName(), sym->getType());
         scope->insertSymbol(std::move(structSymbol));
       } else if (sym->getType()->is(BaseType::TY_FUNCTION) && sym->isExported()) {
+        if (sym->getType()->getLlvmType() == nullptr) {
+          throw CodegenError(span, "Imported function {} has no LLVM function type", sym->getName());
+        }
         auto* fTy = llvm::cast<FunctionType>(sym->getType()->getLlvmType());
         llvm::Function* f = nullptr;
         if (isJit) {
@@ -361,7 +375,8 @@ auto Codegen::compileModule(
           }
         }
         if (funcSymbol != nullptr && funcSymbol->isExported() &&
-            (importAll || !impAlias.empty() || (isMethodSym && methodClassImported))) {
+            (importAll || !impAlias.empty() ||
+             (isMethodSym && (methodClassImported || !importToScope)))) {
           auto symbol = std::make_unique<Value>(
               impAlias.empty() ? name : std::regex_replace(name, std::regex(name), impAlias),
               funcSymbol->getType());
@@ -388,10 +403,6 @@ auto Codegen::compileModule(
   // Guard against circular import: if this module is already being compiled
   // (path in importedModules but scope not yet in importedScopes), we would
   // fall through and re-compile it → infinite recursion. Detect and error.
-  static thread_local std::unordered_set<std::string> compiling;
-  if (compiling.count(absolutePath)) {
-    throw CodegenError(span, "Circular import detected: {}", filepath);
-  }
   if (compiling.size() >= 32) {
     throw CodegenError(span,
                        "Import recursion depth exceeded (possible circular "
@@ -455,8 +466,10 @@ auto Codegen::compileModule(
     // alive; typeCache is merged so cached types are retained.
     for (auto* sym : codegen->scope->getSymbols()) {
       auto impAlias = findInImports(sym->getName());
+      const bool exposeClassForModuleImport =
+          !importToScope && sym->getType()->is(BaseType::TY_CLASS);
       if (sym->getType()->isOneOf({BaseType::TY_ENUM, BaseType::TY_CLASS}) && sym->isExported() &&
-          (importAll || !impAlias.empty())) {
+          (importAll || !impAlias.empty() || exposeClassForModuleImport)) {
         llvm::StructType* structType =
             StructType::getTypeByName(theModule->getContext(), sym->getName());
 
@@ -472,6 +485,9 @@ auto Codegen::compileModule(
         // use sym->getLlvmValue() (use-after-free). Look up by name; if DCE
         // removed it we still add the symbol so the importer can call it.
         auto* f = codegen->theModule->getFunction(sym->getMangledName());
+        if (sym->getType()->getLlvmType() == nullptr) {
+          throw CodegenError(span, "Imported function {} has no LLVM function type", sym->getName());
+        }
         auto* fTy = llvm::cast<FunctionType>(sym->getType()->getLlvmType());
 
         if (isJit) {
@@ -491,10 +507,23 @@ auto Codegen::compileModule(
 
         // Only import if it's exported
         impAlias = findInImports(name);
-        // TODO: methods should only be imported if they class is in the imports
-        // specified
+        const bool isMethodSym = MangleUtils::isMethod(sym->getMangledName());
+        bool methodClassImported = true;
+        if (isMethodSym && !importAll && importToScope) {
+          const std::string& mn = sym->getMangledName();
+          const size_t colcol = mn.find("::");
+          if (colcol != std::string::npos) {
+            std::string classPart = mn.substr(0, colcol);
+            const size_t arrow = classPart.find("=>");
+            if (arrow != std::string::npos) {
+              classPart = classPart.substr(arrow + 2);
+            }
+            methodClassImported = !findInImports(classPart).empty();
+          }
+        }
         if (funcSymbol != nullptr && funcSymbol->isExported() &&
-            (importAll || !impAlias.empty() || MangleUtils::isMethod(sym->getMangledName()))) {
+            (importAll || !impAlias.empty() ||
+             (isMethodSym && (methodClassImported || !importToScope)))) {
           auto symbol = std::make_unique<Value>(
               impAlias.empty() ? name : std::regex_replace(name, std::regex(name), impAlias),
               funcSymbol->getType());
@@ -1173,20 +1202,34 @@ auto Codegen::visit(const VarDecl* node) -> void {
   if (existing != nullptr && existing->getLlvmValue() == nullptr) {
     // Reuse symbol from typecheck; fill in LLVM value
     lesma::Type* type = existing->getType();
+    std::unique_ptr<lesma::Value> valueResult;
+    if (node->getValue() != nullptr) {
+      node->getValue()->accept(*this);
+      valueResult = std::move(result);
+      if (type->is(BaseType::TY_CLASS) && valueResult->getType() != nullptr &&
+          valueResult->getType()->is(BaseType::TY_CLASS)) {
+        type = valueResult->getType();
+      }
+    }
     getOrCreateLlvmType(type);
-    llvm::Type* allocaTy = type->is(BaseType::TY_CLASS) ? builder->getPtrTy() : type->getLlvmType();
+    if (type->is(BaseType::TY_CLASS)) {
+      lesma::Type* ptrType =
+          cacheType(std::make_unique<Type>(BaseType::TY_PTR, builder->getPtrTy(), type));
+      existing->setType(ptrType);
+    }
+    lesma::Type* storedType = existing->getType();
+    const bool isPtrToClass =
+        storedType->is(BaseType::TY_PTR) && storedType->getElementType() != nullptr &&
+        storedType->getElementType()->is(BaseType::TY_CLASS);
+    llvm::Type* allocaTy =
+        (storedType->is(BaseType::TY_CLASS) || isPtrToClass) ? builder->getPtrTy()
+                                                             : storedType->getLlvmType();
     auto* ptr = builder->CreateAlloca(allocaTy, nullptr, name);
     existing->setLlvmValue(ptr);
     existing->setMutable(node->getMutability());
-    const bool isPtrToClass = type->is(BaseType::TY_PTR) && type->getElementType() != nullptr &&
-                              type->getElementType()->is(BaseType::TY_CLASS);
-    if (node->getValue() != nullptr) {
-      node->getValue()->accept(*this);
-      auto val = std::move(result);
-      lesma::Type* castTarget = (type->is(BaseType::TY_CLASS) || isPtrToClass)
-                                    ? (type->is(BaseType::TY_CLASS) ? type : type->getElementType())
-                                    : type;
-      auto castVal = cast(node->getSpan(), val.get(), castTarget);
+    if (valueResult != nullptr) {
+      lesma::Type* castTarget = isPtrToClass ? storedType->getElementType() : storedType;
+      auto castVal = cast(node->getSpan(), valueResult.get(), castTarget);
       builder->CreateStore(castVal->getLlvmValue(), ptr);
     }
     return;
@@ -1323,8 +1366,9 @@ auto Codegen::visit(const FuncDecl* node) -> void {
       genericFunctions[node->getName()] = node;
     }
     std::vector<std::unique_ptr<Field>> fields;
-    if (selfSymbol != nullptr)
+    if (selfSymbol != nullptr) {
       fields.push_back(std::make_unique<Field>("self", selfSymbol->getType()));
+    }
     for (auto* param : node->getParameters()) {
       fields.push_back(std::make_unique<Field>(
           param->name, cacheType(std::make_unique<Type>(param->type->getName()))));
@@ -1409,7 +1453,11 @@ auto Codegen::visit(const FuncDecl* node) -> void {
     llvm::FunctionType* funcType =
         FunctionType::get(returnType->getLlvmType(), paramLLVMTypes, node->getVarArgs());
     Function* f = Function::Create(funcType, linkage, mangledName, *theModule);
-    existingFunc->getType()->setLlvmType(funcType);
+    auto loweredType =
+        std::make_unique<Type>(BaseType::TY_FUNCTION, funcType, std::move(fields));
+    loweredType->setReturnType(returnType);
+    loweredType->setGenericParams(node->getGenericParams());
+    existingFunc->setType(cacheType(std::move(loweredType)));
     existingFunc->setLlvmValue(f);
     existingFunc->setMangledName(mangledName);
     prototypes.emplace_back(existingFunc, node, selfSymbol);
@@ -1508,7 +1556,11 @@ auto Codegen::visit(const ExternFuncDecl* node) -> void {
         f->setLinkage(llvm::GlobalValue::ExternalLinkage);
       }
     }
-    existingFunc->getType()->setLlvmType(f->getFunctionType());
+    auto loweredType =
+        std::make_unique<Type>(BaseType::TY_FUNCTION, f->getFunctionType(), std::move(fields));
+    loweredType->setReturnType(retType);
+    loweredType->setGenericParams(node->getGenericParams());
+    existingFunc->setType(cacheType(std::move(loweredType)));
     existingFunc->setLlvmValue(f);
     existingFunc->setMangledName(node->getName());
     return;
@@ -1788,13 +1840,7 @@ auto Codegen::visit(const Enum* node) -> void {
   lesma::Value* existingEnum = scope->lookupStruct(node->getIdentifier());
   if (existingEnum != nullptr && existingEnum->getType()->getLlvmType() == nullptr) {
     lesma::Type* type = existingEnum->getType();
-    std::vector<llvm::Type*> elementTypes;
-    for (auto* f : type->getFields()) {
-      elementTypes.push_back(getOrCreateLlvmType(f->type));
-    }
-    if (elementTypes.empty()) {
-      elementTypes.push_back(builder->getInt8Ty());
-    }
+    std::vector<llvm::Type*> elementTypes = {builder->getInt8Ty()};
     auto* structType =
         llvm::StructType::create(theModule->getContext(), elementTypes, node->getIdentifier());
     type->setLlvmType(structType);
@@ -1828,6 +1874,10 @@ auto Codegen::visit(const BinaryOp* node) -> void {
   node->getRight()->accept(*this);
   auto right = std::move(result);
   lesma::Type* finalType = CodegenTypeUtils::getExtendedType(left->getType(), right->getType());
+  if (finalType == nullptr && left->getType()->is(BaseType::TY_ENUM) &&
+      right->getType()->is(BaseType::TY_ENUM) && left->getType()->isEqual(right->getType())) {
+    finalType = left->getType();
+  }
 
   switch (node->getOperator()) {
   case TokenType::MINUS:
@@ -1951,7 +2001,7 @@ auto Codegen::visit(const BinaryOp* node) -> void {
     right = cast(node->getSpan(), right.get(), finalType);
 
     // Enum comparison
-    if (finalType->is(BaseType::TY_ENUM)) {
+    if (finalType != nullptr && finalType->is(BaseType::TY_ENUM)) {
       // Both are pointers to structs
       auto leftName = left->getType()->getLlvmType()->getStructName().str();
       auto rightName = right->getType()->getLlvmType()->getStructName().str();
@@ -2000,7 +2050,7 @@ auto Codegen::visit(const BinaryOp* node) -> void {
     right = cast(node->getSpan(), right.get(), finalType);
 
     // Enum comparison
-    if (finalType->is(BaseType::TY_ENUM)) {
+    if (finalType != nullptr && finalType->is(BaseType::TY_ENUM)) {
       // Both are pointers to structs
       auto leftName = left->getType()->getLlvmType()->getStructName().str();
       auto rightName = right->getType()->getLlvmType()->getStructName().str();
@@ -2634,9 +2684,21 @@ auto Codegen::genFuncCall(const FuncCall* node, const std::vector<lesma::Value*>
       paramsLLVM.push_back(field->defaultValue->getLlvmValue());
     }
   }
-  auto* func = llvm::cast<Function>(symbol->getType()->is(BaseType::TY_CLASS)
-                                        ? symbol->getConstructor()->getLlvmValue()
-                                        : symbol->getLlvmValue());
+  llvm::Value* callableValue = nullptr;
+  if (symbol->getType()->is(BaseType::TY_CLASS)) {
+    if (symbol->getConstructor() == nullptr || symbol->getConstructor()->getLlvmValue() == nullptr) {
+      throw CodegenError(node->getSpan(), "Constructor for {} is declared but not defined",
+                         node->getName());
+    }
+    callableValue = symbol->getConstructor()->getLlvmValue();
+  } else {
+    if (symbol->getLlvmValue() == nullptr) {
+      throw CodegenError(node->getSpan(), "Function {} is declared but not defined",
+                         node->getName());
+    }
+    callableValue = symbol->getLlvmValue();
+  }
+  auto* func = llvm::cast<Function>(callableValue);
   if (classSym != nullptr && classSym->getType()->is(BaseType::TY_CLASS)) {
     builder->CreateCall(func, paramsLLVM);
     selfSymbol = selfSymbolTmp;

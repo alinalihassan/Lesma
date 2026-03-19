@@ -97,6 +97,10 @@ public:
   auto setLlvmValue(llvm::Value* value) -> void { llvmValue = value; }
   auto setName(const std::string& value) -> void { name = value; }
   auto setMangledName(const std::string& value) -> void { mangledName = value; }
+  auto setType(Type* value) -> void {
+    ownedType.reset();
+    type = value;
+  }
   auto setUsed(bool value) -> void { used = value; }
   auto setSigned(bool value) -> void { signedVar = value; }
   auto setMutable(bool value) -> void { mutableVar = value; }

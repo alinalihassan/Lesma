@@ -13,6 +13,11 @@ namespace lesma {
 namespace MangleUtils {
 auto getTypeMangledName(llvm::SMRange span, Type* type) -> std::string {
   auto* llvmTy = type->getLlvmType();
+  if (llvmTy == nullptr &&
+      type->isOneOf({BaseType::TY_INT, BaseType::TY_FLOAT, BaseType::TY_STRING, BaseType::TY_BOOL,
+                     BaseType::TY_VOID, BaseType::TY_CLASS, BaseType::TY_ENUM})) {
+    throw CodegenError(span, "Type {} is missing LLVM type during mangling", type->toString());
+  }
   if (type->is(BaseType::TY_BOOL)) {
     return "b";
   }
@@ -54,10 +59,6 @@ auto getTypeMangledName(llvm::SMRange span, Type* type) -> std::string {
     return "(func_" + paramStr + ")";
   }
   if (type->isOneOf({BaseType::TY_CLASS, BaseType::TY_ENUM})) {
-    std::string paramStr;
-    for (const auto& field : type->getFields()) {
-      paramStr += getTypeMangledName(span, field->type) + "_";
-    }
     if (auto* structTy = llvm::dyn_cast<llvm::StructType>(llvmTy)) {
       return "(struct_" + structTy->getName().str() + ")";
     }

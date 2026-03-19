@@ -135,7 +135,7 @@ auto Driver::baseCompile(std::unique_ptr<lesma::Options> options, bool jit) -> i
     // Codegen until the hang with import_std_in_scope (and similar) is fixed.
     // Passing preScope/preTypeCache causes an infinite loop somewhere in
     // Codegen when the main file has both std and local imports.
-    constexpr bool useTypecheckScope = false;
+    constexpr bool useTypecheckScope = true;
     auto codegen = timer.measure("Compiling", [&]() -> std::unique_ptr<lesma::Codegen> {
       std::vector<std::string> const modules;
       auto cg = std::make_unique<Codegen>(

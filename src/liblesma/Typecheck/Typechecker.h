@@ -57,12 +57,16 @@ class Typechecker final : public ASTVisitor {
   /** For each specialized class type, the template class type it was created
    * from. */
   std::unordered_map<Type*, Type*> specializedTypeToTemplate;
+  /** Imported types materialized into this typechecker's cache so they outlive imported scopes. */
+  std::unordered_map<Type*, Type*> importedTypeCopies;
 
   /** Declared generic param list for a class or function type (resolves to template for specialized classes). */
   auto getDeclaredGenericParams(Type* type) const -> const std::vector<std::string>&;
 
   /** Import alias (e.g. "import_math") -> absolute path, for resolving return types of import_math.func(). */
   std::unordered_map<std::string, std::string> importAliasToPath;
+  /** Named import/local binding -> (absolute path, exported name). */
+  std::unordered_map<std::string, std::pair<std::string, std::string>> importedNameToSource;
   /** Cache of typechecked imported modules: path -> (root scope, type cache) so we can lookupFunction. */
   std::unordered_map<std::string,
                      std::pair<std::unique_ptr<SymbolTable>, std::vector<std::unique_ptr<Type>>>>
@@ -83,6 +87,7 @@ class Typechecker final : public ASTVisitor {
   auto substituteInType(Type* t, const std::unordered_map<std::string, Type*>& env) -> Type*;
 
   auto cacheType(std::unique_ptr<Type> type) -> Type*;
+  auto materializeImportedType(Type* type) -> Type*;
   auto resolveType(const TypeExpr* node) -> Type*;
   /** Returns the unified type for binary ops, or nullptr if incompatible. */
   auto getExtendedType(Type* left, Type* right) -> Type*;

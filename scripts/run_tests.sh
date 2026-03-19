@@ -2,6 +2,9 @@
 
 SCRIPT_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
 
+# Per-test timeout (seconds) to avoid hanging on infinite loops
+TEST_TIMEOUT=1
+
 fail_count=0
 success_count=0
 
@@ -11,11 +14,16 @@ test_compiler() {
   local compiler_path="$3"
   local quiet="${4:-}"
   if [ -n "${quiet}" ]; then
-    "${compiler_path}" "${mode}" "${file}" >/dev/null 2>&1
+    timeout "${TEST_TIMEOUT}" "${compiler_path}" "${mode}" "${file}" >/dev/null 2>&1
   else
-    "${compiler_path}" "${mode}" "${file}"
+    timeout "${TEST_TIMEOUT}" "${compiler_path}" "${mode}" "${file}"
   fi
-  return $?
+  local ret=$?
+  # timeout returns 124 when the command is killed
+  if [ $ret -eq 124 ]; then
+    printf "  Timed out after %ds\n" "${TEST_TIMEOUT}" >&2
+  fi
+  return $ret
 }
 
 test_case() {
