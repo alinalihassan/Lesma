@@ -108,8 +108,9 @@ auto Typechecker::isAssignableTo(Type* from, Type* to) -> bool {
   if (from->isEqual(to)) {
     return true;
   }
+  // Void is only assignable to Void
   if (from->is(BaseType::TY_VOID)) {
-    return true;
+    return to->is(BaseType::TY_VOID);
   }
   if (to->is(BaseType::TY_INT)) {
     return from->is(BaseType::TY_INT) || from->is(BaseType::TY_FLOAT);
