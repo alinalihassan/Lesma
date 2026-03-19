@@ -314,7 +314,7 @@ public:
       result += "<" + elementType->toString() + ">";
     }
 
-    if (!fields.empty()) {
+    if (!fields.empty() && !isOneOf({BaseType::TY_CLASS, BaseType::TY_ENUM})) {
       result += baseType == BaseType::TY_FUNCTION ? " ( " : " { ";
       for (const auto& field : fields) {
         result += field->name + ": " + field->type->toString() + "; ";

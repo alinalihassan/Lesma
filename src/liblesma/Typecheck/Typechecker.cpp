@@ -250,6 +250,12 @@ auto Typechecker::typecheckBinaryOpResult(TokenType op, Type* leftTy, Type* righ
   case TokenType::GREATER_EQUAL:
   case TokenType::LESS:
   case TokenType::LESS_EQUAL:
+    if (leftTy->isOneOf({BaseType::TY_ENUM, BaseType::TY_CLASS}) ||
+        rightTy->isOneOf({BaseType::TY_ENUM, BaseType::TY_CLASS})) {
+      if (leftTy != rightTy) {
+        throw TypeCheckError(span, "Comparison requires operands of the same enum or class type");
+      }
+    }
     if (!hasGeneric && unified == nullptr && !leftTy->isEqual(rightTy)) {
       throw TypeCheckError(span, "Comparison requires compatible types: {} and {}",
                            leftTy->toString(), rightTy->toString());

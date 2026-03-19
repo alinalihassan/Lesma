@@ -1867,8 +1867,14 @@ auto Codegen::visit(const BinaryOp* node) -> void {
     left = cast(node->getSpan(), left.get(), finalType);
     right = cast(node->getSpan(), right.get(), finalType);
 
+    if (finalType == nullptr) {
+      throw CodegenError(node->getSpan(), "Operator {} is not supported for types {} and {}",
+                         NAMEOF_ENUM(node->getOperator()), left->getType()->toString(),
+                         right->getType()->toString());
+    }
+
     // Enum comparison
-    if (finalType != nullptr && finalType->is(BaseType::TY_ENUM)) {
+    if (finalType->is(BaseType::TY_ENUM)) {
       // Both are pointers to structs
       auto leftName = left->getType()->getLlvmType()->getStructName().str();
       auto rightName = right->getType()->getLlvmType()->getStructName().str();
@@ -1893,10 +1899,6 @@ auto Codegen::visit(const BinaryOp* node) -> void {
       return;
     }
 
-    if (finalType == nullptr) {
-      break;
-    }
-
     if (finalType->is(BaseType::TY_FLOAT)) {
       result = std::make_unique<Value>(
           "", cacheType(std::make_unique<Type>(BaseType::TY_BOOL, builder->getInt1Ty())),
@@ -1916,8 +1918,14 @@ auto Codegen::visit(const BinaryOp* node) -> void {
     left = cast(node->getSpan(), left.get(), finalType);
     right = cast(node->getSpan(), right.get(), finalType);
 
+    if (finalType == nullptr) {
+      throw CodegenError(node->getSpan(), "Operator {} is not supported for types {} and {}",
+                         NAMEOF_ENUM(node->getOperator()), left->getType()->toString(),
+                         right->getType()->toString());
+    }
+
     // Enum comparison
-    if (finalType != nullptr && finalType->is(BaseType::TY_ENUM)) {
+    if (finalType->is(BaseType::TY_ENUM)) {
       // Both are pointers to structs
       auto leftName = left->getType()->getLlvmType()->getStructName().str();
       auto rightName = right->getType()->getLlvmType()->getStructName().str();
