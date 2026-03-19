@@ -283,7 +283,7 @@ auto Parser::parseDot() -> std::unique_ptr<Expression> {
 
 auto Parser::parseUnary() -> std::unique_ptr<Expression> {
   // Handle unary operators recursively to allow chaining: - - x, * * ptr, etc.
-  if (advanceIfMatchAny<TokenType::MINUS, TokenType::STAR, TokenType::AMPERSAND>()) {
+  if (advanceIfMatchAny<TokenType::MINUS, TokenType::STAR, TokenType::AMPERSAND, TokenType::BANG>()) {
     auto* op = previous();
     auto expr = parseUnary(); // Recursive call for chained unary operators
     return std::make_unique<UnaryOp>(llvm::SMRange{op->getStart(), expr->getEnd()}, op->type,

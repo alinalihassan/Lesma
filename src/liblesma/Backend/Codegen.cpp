@@ -2357,7 +2357,7 @@ auto Codegen::visit(const UnaryOp* node) -> void {
       throw CodegenError(node->getSpan(), "Cannot apply {} to {}", NAMEOF_ENUM(node->getOperator()),
                          node->getExpression()->toString(sourceManager.get(), "", true));
     }
-  } else if (node->getOperator() == TokenType::NOT) {
+  } else if (node->getOperator() == TokenType::NOT || node->getOperator() == TokenType::BANG) {
     if (result->getType()->is(BaseType::TY_BOOL)) {
       val = builder->CreateNot(result->getLlvmValue());
     } else {
