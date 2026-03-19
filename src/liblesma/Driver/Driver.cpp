@@ -60,6 +60,10 @@ auto getExportsFromFile(const std::string& filepath, bool isStd, const std::stri
       if (e->isExported()) {
         out.push_back(e->getIdentifier());
       }
+    } else if (auto* ef = dynamic_cast<ExternFuncDecl*>(stmt)) {
+      if (ef->isExported()) {
+        out.push_back(ef->getName());
+      }
     }
   }
   return out;
