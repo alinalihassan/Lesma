@@ -572,7 +572,9 @@ auto Typechecker::visit(const FuncDecl* node) -> void {
   Type* funcTypePtr = cacheType(std::move(funcType));
   auto funcSymbol = std::make_unique<Value>(node->getName(), funcTypePtr);
   funcSymbol->setExported(node->isExported());
-  SymbolTable* insertScope = scope->getParent(); // enclosing scope (generics is current)
+  // Insert into enclosing scope so methods are visible from outer scopes (same as before generics scope).
+  SymbolTable* insertScope =
+      (currentClassType != nullptr) ? scope->getParent()->getParent() : scope->getParent();
   insertScope->insertSymbol(std::move(funcSymbol));
 
   SymbolTable* child = scope->createChildBlock("function");
@@ -1021,6 +1023,12 @@ auto Typechecker::visit(const DotOp* node) -> void {
             argTypes.push_back(t);
           }
           Value* func = importScope->lookupFunction(fc->getName(), argTypes);
+          if (func == nullptr) {
+            Value* sym = importScope->lookup(fc->getName());
+            if (sym != nullptr && sym->getType()->is(BaseType::TY_FUNCTION)) {
+              func = sym;
+            }
+          }
           if (func != nullptr) {
             Type* retType = func->getType()->getReturnType();
             result = std::make_unique<Value>(
