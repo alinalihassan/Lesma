@@ -243,8 +243,10 @@ auto Codegen::defineFunction(lesma::Value* value, const FuncDecl* node, Value* c
     if (auto* existingParam = lookupInCurrentScope(paramName);
         existingParam != nullptr && existingParam->getLlvmValue() == nullptr) {
       existingParam->setLlvmValue(ptr);
+      existingParam->setCategory(ValueCategory::ADDRESSABLE_STORAGE);
     } else {
       auto symbol = std::make_unique<Value>(field->name, field->type, ptr);
+      symbol->setCategory(ValueCategory::ADDRESSABLE_STORAGE);
       scope->insertSymbol(std::move(symbol));
     }
 
@@ -362,6 +364,7 @@ auto Codegen::insertImportAlias(const std::string& moduleAlias, bool importToSco
   auto importTyp = std::make_unique<Type>(BaseType::TY_IMPORT);
   auto* importTypPtr = importTyp.get();
   auto importSym = std::make_unique<Value>(moduleAlias, importTypPtr);
+  importSym->setCategory(ValueCategory::MODULE_SYMBOL);
   scope->insertSymbol(std::move(importSym));
   scope->insertType(moduleAlias, std::move(importTyp));
 }
@@ -388,6 +391,7 @@ auto Codegen::exposeImportedSymbols(
           StructType::getTypeByName(theModule->getContext(), sym->getName());
       auto structSymbol =
           std::make_unique<Value>(impAlias.empty() ? sym->getName() : impAlias, sym->getType());
+      structSymbol->setCategory(ValueCategory::TYPE_SYMBOL);
       structSymbol->getType()->setLlvmType(structType);
       structSymbol->setGenericClassTemplate(sym->getGenericClassTemplate());
       scope->insertTypeRef(sym->getName(), sym->getType());
@@ -440,6 +444,7 @@ auto Codegen::exposeImportedSymbols(
     auto symbol =
         reuseExistingLocal ? nullptr : std::make_unique<Value>(localName, funcSymbol->getType());
     Value* targetSymbol = reuseExistingLocal ? localSymbol : symbol.get();
+    targetSymbol->setCategory(ValueCategory::CALLABLE_SYMBOL);
     if (isJit) {
       auto* f = llvm::cast<Function>(
           theModule->getOrInsertFunction(sym->getMangledName(), fTy).getCallee());
@@ -1053,6 +1058,7 @@ auto Codegen::specializeFunction(const FuncDecl* node, const std::vector<lesma::
   auto mangledName =
       getMangledName(node->getSpan(), node->getName(), concreteParamTypes, selfSymbol != nullptr);
   auto func = std::make_unique<Value>(node->getName(), typePtr);
+  func->setCategory(ValueCategory::CALLABLE_SYMBOL);
   func->setMangledName(mangledName);
   func->setExported(node->isExported());
   auto linkage = node->isExported() ? Function::ExternalLinkage : Function::PrivateLinkage;
@@ -1150,6 +1156,7 @@ auto Codegen::specializeClass(const Class* node,
   scope->insertType(concreteName, std::move(type));
 
   auto structSymbol = std::make_unique<Value>(concreteName, typePtr);
+  structSymbol->setCategory(ValueCategory::TYPE_SYMBOL);
   structSymbol->setExported(node->isExported());
   auto* structSymbolPtr = structSymbol.get();
 
@@ -1226,6 +1233,7 @@ auto Codegen::visit(const VarDecl* node) -> void {
                                : storedType->getLlvmType();
     auto* ptr = builder->CreateAlloca(allocaTy, nullptr, name);
     existing->setLlvmValue(ptr);
+    existing->setCategory(ValueCategory::ADDRESSABLE_STORAGE);
     existing->setMutable(node->getMutability());
     if (valueResult != nullptr) {
       lesma::Type* castTarget = isPtrToClass ? storedType->getElementType() : storedType;
@@ -1260,6 +1268,7 @@ auto Codegen::visit(const VarDecl* node) -> void {
   auto symbol = std::make_unique<Value>(
       name, type, node->getType() != nullptr ? SymbolState::INITIALIZED : SymbolState::DECLARED);
   symbol->setLlvmValue(ptr);
+  symbol->setCategory(ValueCategory::ADDRESSABLE_STORAGE);
   symbol->setMutable(node->getMutability());
   scope->insertSymbol(std::move(symbol));
 
@@ -1444,6 +1453,7 @@ auto Codegen::visit(const FuncDecl* node) -> void {
   if (existingFunc != nullptr) {
     existingFunc->setType(cacheType(std::move(loweredType)));
     existingFunc->setLlvmValue(f);
+    existingFunc->setCategory(ValueCategory::CALLABLE_SYMBOL);
     existingFunc->setMangledName(mangledName);
     prototypes.emplace_back(existingFunc, node, selfSymbol);
     result = std::make_unique<Value>(*existingFunc);
@@ -1451,6 +1461,7 @@ auto Codegen::visit(const FuncDecl* node) -> void {
   }
 
   auto funcSymbol = std::make_unique<Value>(node->getName(), cacheType(std::move(loweredType)), f);
+  funcSymbol->setCategory(ValueCategory::CALLABLE_SYMBOL);
   funcSymbol->setExported(node->isExported());
   funcSymbol->setMangledName(mangledName);
   auto* funcSymbolPtr = funcSymbol.get();
@@ -1540,6 +1551,7 @@ auto Codegen::visit(const ExternFuncDecl* node) -> void {
   loweredType->setVarArgs(node->getVarArgs());
   existingFunc->setType(cacheType(std::move(loweredType)));
   existingFunc->setLlvmValue(f);
+  existingFunc->setCategory(ValueCategory::CALLABLE_SYMBOL);
   existingFunc->setMangledName(node->getName());
 }
 
@@ -2347,17 +2359,7 @@ auto Codegen::visit(const Literal* node) -> void {
     if (val == nullptr) {
       throw CodegenError(node->getSpan(), "Unknown variable name {}", node->getValue());
     }
-    getOrCreateLlvmType(val->getType());
-
-    if (val->getType()->isOneOf({BaseType::TY_CLASS})) {
-      // If it's a class, don't load the value - make a copy from symbol table
-      result = std::make_unique<Value>(*val);
-    } else {
-      // Load the value.
-      llvm::Value* llvmVal =
-          builder->CreateLoad(val->getType()->getLlvmType(), val->getLlvmValue());
-      result = std::make_unique<Value>("", val->getType(), llvmVal);
-    }
+    result = materializeSymbolValue(val);
   } else {
     throw CodegenError(node->getSpan(), "Unknown literal {}", node->getValue());
   }
@@ -2371,6 +2373,25 @@ auto Codegen::visit(const Else* /*node*/) -> void {
 auto Codegen::cast(llvm::SMRange span, lesma::Value* val, lesma::Type* type)
     -> std::unique_ptr<lesma::Value> {
   return CodegenTypeUtils::cast(span, val, type, builder.get());
+}
+
+auto Codegen::symbolUsesDirectLlvmValue(const lesma::Value* symbol) const -> bool {
+  return symbol != nullptr && symbol->usesDirectLlvmValue();
+}
+
+auto Codegen::materializeSymbolValue(lesma::Value* symbol) -> std::unique_ptr<lesma::Value> {
+  if (symbol == nullptr) {
+    return nullptr;
+  }
+
+  getOrCreateLlvmType(symbol->getType());
+  if (symbolUsesDirectLlvmValue(symbol)) {
+    return std::make_unique<Value>(*symbol);
+  }
+
+  llvm::Value* llvmVal =
+      builder->CreateLoad(symbol->getType()->getLlvmType(), symbol->getLlvmValue());
+  return std::make_unique<Value>("", symbol->getType(), llvmVal);
 }
 
 auto Codegen::getMangledName(llvm::SMRange span, std::string funcName,

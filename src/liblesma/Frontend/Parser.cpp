@@ -125,8 +125,8 @@ auto Parser::parseType() -> std::unique_ptr<TypeExpr> {
       lexeme += " -> " + ret->getName();
     } else {
       ret = std::make_unique<TypeExpr>(
-          llvm::SMRange{params.back()->getEnd(), params.back()->getEnd()}, type->lexeme,
-          type->type);
+          llvm::SMRange{params.back()->getEnd(), params.back()->getEnd()}, "void",
+          TokenType::VOID_TYPE);
     }
 
     // Function types are represented as pointer-to-function in the type system.

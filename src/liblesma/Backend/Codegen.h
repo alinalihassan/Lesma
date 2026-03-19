@@ -181,6 +181,8 @@ protected:
 
   auto emitCompoundAssign(llvm::SMRange span, TokenType op, lesma::Value* lhs, lesma::Value* value)
       -> void;
+  auto symbolUsesDirectLlvmValue(const lesma::Value* symbol) const -> bool;
+  auto materializeSymbolValue(lesma::Value* symbol) -> std::unique_ptr<lesma::Value>;
 
   // Cache a type to keep it alive - returns raw pointer to the cached type
   auto cacheType(std::unique_ptr<lesma::Type> type) -> lesma::Type* {

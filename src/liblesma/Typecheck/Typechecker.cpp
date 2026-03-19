@@ -411,7 +411,9 @@ void Typechecker::loadImplicitBaseModule() {
     if (importedNameToSource.contains(name)) {
       continue;
     }
-    scope->insertSymbol(std::make_unique<Value>(name, importType));
+    auto symbol = std::make_unique<Value>(name, importType);
+    symbol->setCategory(ValueCategory::MODULE_SYMBOL);
+    scope->insertSymbol(std::move(symbol));
     importedNameToSource[name] = std::make_pair(basePath.string(), name);
   }
 }
@@ -506,6 +508,7 @@ auto Typechecker::visit(const VarDecl* node) -> void {
   // Typechecker does not allocate; we only register the symbol for lookup.
   auto symbol = std::make_unique<Value>(node->getIdentifier()->getValue(), declType,
                                         SymbolState::INITIALIZED);
+  symbol->setCategory(ValueCategory::ADDRESSABLE_STORAGE);
   symbol->setMutable(node->getMutability());
   scope->insertSymbol(std::move(symbol));
 }
@@ -542,7 +545,9 @@ auto Typechecker::visit(const Import* node) -> void {
   const std::string resolvedPath = resolveImportPath(node->getFilePath(), node->isStd());
   auto addImportSymbol = [this, &importType](const std::string& name) {
     if (!name.empty()) {
-      scope->insertSymbol(std::make_unique<Value>(name, importType));
+      auto symbol = std::make_unique<Value>(name, importType);
+      symbol->setCategory(ValueCategory::MODULE_SYMBOL);
+      scope->insertSymbol(std::move(symbol));
     }
   };
   if (node->getImportAll() && getExports) {
@@ -583,6 +588,7 @@ auto Typechecker::visit(const Enum* node) -> void {
   }
   scope->insertType(node->getIdentifier(), std::move(type));
   auto enumSymbol = std::make_unique<Value>(node->getIdentifier(), typePtr);
+  enumSymbol->setCategory(ValueCategory::TYPE_SYMBOL);
   enumSymbol->setExported(node->isExported());
   scope->insertSymbol(std::move(enumSymbol));
 }
@@ -626,6 +632,7 @@ auto Typechecker::visit(const Class* node) -> void {
     classTypePtr = type.get();
     scope->insertType(node->getIdentifier(), std::move(type));
     auto classSymbol = std::make_unique<Value>(node->getIdentifier(), classTypePtr);
+    classSymbol->setCategory(ValueCategory::TYPE_SYMBOL);
     classSymbol->setExported(node->isExported());
     scope->insertSymbol(std::move(classSymbol));
   }
@@ -636,7 +643,9 @@ auto Typechecker::visit(const Class* node) -> void {
     currentClassType = classTypePtr;
     SymbolTable* methodScope = scope->createChildBlock("method");
     scope = methodScope;
-    scope->insertSymbol(std::make_unique<Value>("self", selfPtrType));
+    auto selfSymbol = std::make_unique<Value>("self", selfPtrType);
+    selfSymbol->setCategory(ValueCategory::ADDRESSABLE_STORAGE);
+    scope->insertSymbol(std::move(selfSymbol));
     func->accept(*this);
     scope = scope->getParent();
     currentClassType = nullptr;
@@ -706,6 +715,7 @@ auto Typechecker::visit(const FuncDecl* node) -> void {
   if (declarationPass) {
     if (funcSymbol == nullptr) {
       auto declaredFunc = std::make_unique<Value>(node->getName(), funcTypePtr);
+      declaredFunc->setCategory(ValueCategory::CALLABLE_SYMBOL);
       declaredFunc->setExported(node->isExported());
       insertScope->insertSymbol(std::move(declaredFunc));
       funcSymbol = insertScope->lookupFunction(node->getName(), paramTypes);
@@ -722,7 +732,9 @@ auto Typechecker::visit(const FuncDecl* node) -> void {
       const size_t paramOffset = (currentClassType != nullptr) ? 1U : 0U;
       for (size_t i = 0; i < node->getParameters().size(); ++i) {
         Parameter* param = node->getParameters()[i];
-        scope->insertSymbol(std::make_unique<Value>(param->name, paramTypes[paramOffset + i]));
+        auto paramSymbol = std::make_unique<Value>(param->name, paramTypes[paramOffset + i]);
+        paramSymbol->setCategory(ValueCategory::ADDRESSABLE_STORAGE);
+        scope->insertSymbol(std::move(paramSymbol));
       }
       scope = savedScopePtr;
     }
@@ -783,6 +795,7 @@ auto Typechecker::visit(const ExternFuncDecl* node) -> void {
   Value* existingFunc = scope->getParent()->lookupFunction(node->getName(), paramTypes);
   if (existingFunc == nullptr) {
     auto funcSymbol = std::make_unique<Value>(node->getName(), funcTypePtr);
+    funcSymbol->setCategory(ValueCategory::CALLABLE_SYMBOL);
     funcSymbol->setExported(node->isExported());
     scope->getParent()->insertSymbol(
         std::move(funcSymbol)); // insert into enclosing scope, not generics

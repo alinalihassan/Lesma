@@ -17,6 +17,13 @@ namespace lesma {
 class SymbolTable;
 
 enum class SymbolState : std::uint8_t { DECLARED, INITIALIZED };
+enum class ValueCategory : std::uint8_t {
+  DIRECT_VALUE,
+  ADDRESSABLE_STORAGE,
+  CALLABLE_SYMBOL,
+  TYPE_SYMBOL,
+  MODULE_SYMBOL,
+};
 
 /**
  * Entry of a symbol table, representing an individual symbol with all its
@@ -25,8 +32,7 @@ enum class SymbolState : std::uint8_t { DECLARED, INITIALIZED };
 class Value {
 public:
   // Constructors that take ownership of Type
-  explicit Value(std::unique_ptr<Type> type)
-      : ownedType(std::move(type)), state(SymbolState::INITIALIZED) {}
+  explicit Value(std::unique_ptr<Type> type) : ownedType(std::move(type)), state(SymbolState::INITIALIZED) {}
 
   Value(std::string name, std::unique_ptr<Type> type)
       : name(std::move(name)), mangledName(name), ownedType(std::move(type)),
@@ -56,9 +62,10 @@ public:
   // Copy constructor - creates a shallow copy with non-owning Type reference
   Value(const Value& other)
       : name(other.name), mangledName(other.mangledName), type(other.getType()), state(other.state),
-        llvmValue(other.llvmValue), used(other.used), mutableVar(other.mutableVar),
-        signedVar(other.signedVar), exported(other.exported), constructor(other.constructor),
-        genericClassTemplate(other.genericClassTemplate), bodyScope(other.bodyScope) {}
+        llvmValue(other.llvmValue), category(other.category), used(other.used),
+        mutableVar(other.mutableVar), signedVar(other.signedVar), exported(other.exported),
+        constructor(other.constructor), genericClassTemplate(other.genericClassTemplate),
+        bodyScope(other.bodyScope) {}
 
   ~Value() = default;
   auto operator=(const Value& other) -> Value& {
@@ -69,6 +76,7 @@ public:
       type = other.getType();
       state = other.state;
       llvmValue = other.llvmValue;
+      category = other.category;
       used = other.used;
       mutableVar = other.mutableVar;
       signedVar = other.signedVar;
@@ -89,6 +97,7 @@ public:
   [[nodiscard]] auto getSigned() const -> bool { return signedVar; }
   [[nodiscard]] auto getState() const -> SymbolState { return state; }
   [[nodiscard]] auto getType() const -> Type* { return ownedType ? ownedType.get() : type; }
+  [[nodiscard]] auto getCategory() const -> ValueCategory { return category; }
   [[nodiscard]] auto getConstructor() const -> lesma::Value* { return constructor; }
   [[nodiscard]] auto getBodyScope() const -> SymbolTable* { return bodyScope; }
   /** Opaque pointer to the Class* AST for generic class templates (used when
@@ -108,10 +117,17 @@ public:
   auto setUsed(bool value) -> void { used = value; }
   auto setSigned(bool value) -> void { signedVar = value; }
   auto setMutable(bool value) -> void { mutableVar = value; }
+  auto setCategory(ValueCategory value) -> void { category = value; }
   auto setExported(bool value) -> void { exported = value; }
   auto setConstructor(lesma::Value* value) -> void { constructor = value; }
   auto setGenericClassTemplate(void* ptr) -> void { genericClassTemplate = ptr; }
   auto setBodyScope(SymbolTable* value) -> void { bodyScope = value; }
+  [[nodiscard]] auto usesAddressableStorage() const -> bool {
+    return category == ValueCategory::ADDRESSABLE_STORAGE;
+  }
+  [[nodiscard]] auto usesDirectLlvmValue() const -> bool {
+    return !usesAddressableStorage();
+  }
 
   auto toString() const -> std::string {
     std::string typeStr;
@@ -136,6 +152,7 @@ private:
   Type* type = nullptr;            // Non-owning reference (when Type is owned elsewhere)
   SymbolState state = SymbolState::DECLARED;
   llvm::Value* llvmValue = nullptr;
+  ValueCategory category = ValueCategory::DIRECT_VALUE;
   // For analysis
   bool used = false;
   // For variables
