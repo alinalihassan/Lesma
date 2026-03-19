@@ -1,16 +1,24 @@
 #include "Typechecker.h"
 
+#include <filesystem>
 #include <memory>
 #include <sstream>
 #include <unordered_set>
 #include <utility>
 #include <vector>
 
+#include "fmt/format.h"
 #include "nameof.hpp"
+
+#include "llvm/Support/MemoryBuffer.h"
+#include "llvm/Support/SMLoc.h"
+#include "llvm/Support/SourceMgr.h"
 
 #include "liblesma/AST/AST.h"
 #include "liblesma/Common/TypeCheckError.h"
 #include "liblesma/Common/Utils.h"
+#include "liblesma/Frontend/Lexer.h"
+#include "liblesma/Frontend/Parser.h"
 #include "liblesma/Symbol/TypeUtils.h"
 #include "liblesma/Token/TokenType.h"
 
@@ -214,6 +222,44 @@ void Typechecker::registerBaseStubs() {
   }
 }
 
+auto Typechecker::resolveImportPath(const std::string& filepath, bool isStd) const
+    -> std::string {
+  if (isStd || mainFilePath.empty()) {
+    return filepath;
+  }
+  return fmt::format("{}/{}",
+                     std::filesystem::absolute(mainFilePath).parent_path().string(), filepath);
+}
+
+auto Typechecker::getOrTypecheckImport(const std::string& absolutePath) -> SymbolTable* {
+  auto it = importedModuleCache.find(absolutePath);
+  if (it != importedModuleCache.end()) {
+    return it->second.first.get();
+  }
+  auto buffer = llvm::MemoryBuffer::getFile(absolutePath);
+  if (!buffer) {
+    return nullptr;
+  }
+  auto srcMgr = std::make_shared<llvm::SourceMgr>();
+  srcMgr->AddNewSourceBuffer(std::move(*buffer), llvm::SMLoc());
+  auto lexer = std::make_unique<Lexer>(srcMgr);
+  lexer->scanAll();
+  auto parser = std::make_unique<Parser>(lexer->getTokens());
+  parser->parse();
+  Compound* ast = parser->getAst();
+  if (ast == nullptr) {
+    return nullptr;
+  }
+  Typechecker sub(mainFilePath, getExports);
+  sub.run(ast);
+  auto subScope = sub.takeRootScope();
+  auto subCache = sub.takeTypeCache();
+  SymbolTable* scopePtr = subScope.get();
+  importedModuleCache[absolutePath] =
+      std::make_pair(std::move(subScope), std::move(subCache));
+  return scopePtr;
+}
+
 auto Typechecker::run(const Compound* ast) -> void {
   registerBaseStubs();
   ast->accept(*this);
@@ -308,12 +354,14 @@ auto Typechecker::visit(const Import* node) -> void {
     std::string aliasName =
         node->getAlias().empty() ? getBasename(node->getFilePath()) : node->getAlias();
     addImportSymbol(aliasName);
+    importAliasToPath[aliasName] = resolveImportPath(node->getFilePath(), node->isStd());
     return;
   }
   if (node->getImportedNames().empty()) {
     std::string aliasName =
         node->getAlias().empty() ? getBasename(node->getFilePath()) : node->getAlias();
     addImportSymbol(aliasName);
+    importAliasToPath[aliasName] = resolveImportPath(node->getFilePath(), node->isStd());
     return;
   }
   for (const auto& [name, alias] : node->getImportedNames()) {
@@ -390,7 +438,7 @@ auto Typechecker::visit(const FuncDecl* node) -> void {
   for (const auto& name : node->getGenericParams()) {
     auto* genericType = cacheType(std::make_unique<Type>(name));
     currentGenericTypes[name] = genericType;
-    scope->insertType(name, std::make_unique<Type>(name));
+    // Do not insert into scope: generic params are only visible via currentGenericTypes and must not leak to outer lookups.
   }
   node->getReturnType()->accept(*this);
   Type* returnType = result->getType();
@@ -458,7 +506,7 @@ auto Typechecker::visit(const ExternFuncDecl* node) -> void {
   for (const auto& name : node->getGenericParams()) {
     auto* genericType = cacheType(std::make_unique<Type>(name));
     currentGenericTypes[name] = genericType;
-    scope->insertType(name, std::make_unique<Type>(name));
+    // Do not insert into scope: generic params are only visible via currentGenericTypes and must not leak to outer lookups.
   }
   node->getReturnType()->accept(*this);
   Type* returnType = result->getType();
@@ -857,6 +905,29 @@ auto Typechecker::visit(const DotOp* node) -> void {
   }
   if (base->is(BaseType::TY_IMPORT)) {
     if (auto* fc = dynamic_cast<FuncCall*>(node->getRight())) {
+      std::string alias = result->getName();
+      auto pathIt = importAliasToPath.find(alias);
+      if (pathIt != importAliasToPath.end()) {
+        SymbolTable* importScope = getOrTypecheckImport(pathIt->second);
+        if (importScope != nullptr) {
+          std::vector<Type*> argTypes;
+          for (Expression* arg : fc->getArguments()) {
+            arg->accept(*this);
+            Type* t = result->getType();
+            if (t != nullptr && t->is(BaseType::TY_CLASS)) {
+              t = cacheType(std::make_unique<Type>(BaseType::TY_PTR, nullptr, t));
+            }
+            argTypes.push_back(t);
+          }
+          Value* func = importScope->lookupFunction(fc->getName(), argTypes);
+          if (func != nullptr) {
+            Type* retType = func->getType()->getReturnType();
+            result = std::make_unique<Value>(retType != nullptr ? retType
+                                                               : cacheType(std::make_unique<Type>(BaseType::TY_VOID)));
+            return;
+          }
+        }
+      }
       for (Expression* arg : fc->getArguments()) {
         arg->accept(*this);
       }

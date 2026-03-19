@@ -53,6 +53,18 @@ class Typechecker final : public ASTVisitor {
    * from. */
   std::unordered_map<Type*, Type*> specializedTypeToTemplate;
 
+  /** Import alias (e.g. "import_math") -> absolute path, for resolving return types of import_math.func(). */
+  std::unordered_map<std::string, std::string> importAliasToPath;
+  /** Cache of typechecked imported modules: path -> (root scope, type cache) so we can lookupFunction. */
+  std::unordered_map<std::string,
+                     std::pair<std::unique_ptr<SymbolTable>, std::vector<std::unique_ptr<Type>>>>
+      importedModuleCache;
+
+  /** Resolve absolute path for an import (same logic as Driver getExportsFromFile). */
+  auto resolveImportPath(const std::string& filepath, bool isStd) const -> std::string;
+  /** Typecheck an imported file and return its root scope (cached). Returns nullptr if path unknown or typecheck fails. */
+  auto getOrTypecheckImport(const std::string& absolutePath) -> SymbolTable*;
+
   void registerBaseStubs();
   /** Get or create a specialized class type by substituting env into template's
    * fields. */
