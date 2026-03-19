@@ -435,6 +435,8 @@ auto Typechecker::visit(const Class* node) -> void {
 
 auto Typechecker::visit(const FuncDecl* node) -> void {
   auto savedGenerics = currentGenericTypes;
+  SymbolTable* genericsScope = scope->createChildBlock("generics");
+  scope = genericsScope;
   for (const auto& name : node->getGenericParams()) {
     auto* genericType = cacheType(std::make_unique<Type>(name));
     currentGenericTypes[name] = genericType;
@@ -482,7 +484,7 @@ auto Typechecker::visit(const FuncDecl* node) -> void {
   Type* funcTypePtr = cacheType(std::move(funcType));
   auto funcSymbol = std::make_unique<Value>(node->getName(), funcTypePtr);
   funcSymbol->setExported(node->isExported());
-  SymbolTable* insertScope = (currentClassType != nullptr) ? scope->getParent() : scope;
+  SymbolTable* insertScope = scope->getParent(); // enclosing scope (generics is current)
   insertScope->insertSymbol(std::move(funcSymbol));
 
   SymbolTable* child = scope->createChildBlock("function");
@@ -496,6 +498,7 @@ auto Typechecker::visit(const FuncDecl* node) -> void {
   inTopLevel = false;
   node->getBody()->accept(*this);
   scope = scope->getParent();
+  scope = scope->getParent(); // pop generics scope so generic param names are not visible to outer lookups
   currentFunction = nullptr;
   inTopLevel = true;
   currentGenericTypes = std::move(savedGenerics);
@@ -503,6 +506,8 @@ auto Typechecker::visit(const FuncDecl* node) -> void {
 
 auto Typechecker::visit(const ExternFuncDecl* node) -> void {
   auto savedGenerics = currentGenericTypes;
+  SymbolTable* genericsScope = scope->createChildBlock("generics");
+  scope = genericsScope;
   for (const auto& name : node->getGenericParams()) {
     auto* genericType = cacheType(std::make_unique<Type>(name));
     currentGenericTypes[name] = genericType;
@@ -526,7 +531,8 @@ auto Typechecker::visit(const ExternFuncDecl* node) -> void {
   Type* funcTypePtr = cacheType(std::move(funcType));
   auto funcSymbol = std::make_unique<Value>(node->getName(), funcTypePtr);
   funcSymbol->setExported(node->isExported());
-  scope->insertSymbol(std::move(funcSymbol));
+  scope->getParent()->insertSymbol(std::move(funcSymbol)); // insert into enclosing scope, not generics
+  scope = scope->getParent(); // pop generics scope
   currentGenericTypes = std::move(savedGenerics);
 }
 
