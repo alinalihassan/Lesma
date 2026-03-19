@@ -4,6 +4,7 @@
 #include <cstddef>
 #include <memory>
 #include <string>
+#include <unordered_map>
 #include <utility>
 #include <vector>
 
@@ -54,19 +55,32 @@ auto SymbolTable::insertType(const std::string& name, std::unique_ptr<Type> type
  * @return Desired symbol / nullptr if the symbol was not found
  */
 namespace {
-// Match rank for overload resolution: higher = better. Overall candidate rank
-// is the minimum over all parameter positions (worst match wins).
+// Match rank for overload resolution: higher = better. Candidates are compared
+// lexicographically by per-parameter rank vectors (earlier position breaks
+// ties; then shorter vector wins).
 constexpr int RANK_EXACT = 3;     // concrete-typed parameter match
-constexpr int RANK_GENERIC = 2;   // formal is generic
+constexpr int RANK_GENERIC = 2;   // formal is generic (with consistent binding)
 constexpr int RANK_DEFAULTED = 1; // caller omitted, default applies
 constexpr int RANK_VARARG = 0;    // extra args absorbed by vararg
+
+// Returns true if ranksA is strictly better than ranksB (lexicographic; then
+// shorter wins when prefix equal).
+auto rankVectorBetter(const std::vector<int>& ranksA, const std::vector<int>& ranksB) -> bool {
+  size_t n = std::min(ranksA.size(), ranksB.size());
+  for (size_t i = 0; i < n; ++i) {
+    if (ranksA[i] != ranksB[i]) {
+      return ranksA[i] > ranksB[i];
+    }
+  }
+  return ranksA.size() < ranksB.size();
+}
 } // namespace
 
 auto SymbolTable::lookupFunction(const std::string& name, std::vector<lesma::Type*> paramTypes)
     -> Value* {
   auto range = symbols.equal_range(name);
   Value* bestCandidate = nullptr;
-  int bestRank = -1;
+  std::vector<int> bestRanks;
   bool bestHasValue = false;
 
   for (auto it = range.first; it != range.second; ++it) {
@@ -75,33 +89,48 @@ auto SymbolTable::lookupFunction(const std::string& name, std::vector<lesma::Typ
     }
 
     bool paramsMatch = true;
-    int candidateRank = RANK_EXACT;
+    std::vector<int> candidateRanks;
+    std::unordered_map<std::string, Type*> genericBindings;
     std::vector<Field*> funcParamTypes = it->second->getType()->getFields();
     size_t const numParams = std::max(funcParamTypes.size(), paramTypes.size());
 
     for (size_t i = 0; i < numParams; ++i) {
       if (i < funcParamTypes.size() && i < paramTypes.size()) {
-        if (funcParamTypes[i]->type->is(BaseType::TY_GENERIC)) {
-          candidateRank = std::min(candidateRank, RANK_GENERIC);
-          continue; // Formal is generic: match any argument
+        Type* formalTy = funcParamTypes[i]->type;
+        Type* argTy = paramTypes[i];
+        if (formalTy->is(BaseType::TY_GENERIC)) {
+          std::string const& genericName = formalTy->getGenericName();
+          auto bindingIt = genericBindings.find(genericName);
+          if (bindingIt != genericBindings.end()) {
+            if (!argTy->isEqual(bindingIt->second)) {
+              paramsMatch = false;
+              break; // repeated generic must match previously bound type
+            }
+          } else {
+            if (argTy->is(BaseType::TY_GENERIC)) {
+              paramsMatch = false;
+              break; // argument must be concrete
+            }
+            genericBindings[genericName] = argTy;
+          }
+          candidateRanks.push_back(RANK_GENERIC);
+          continue;
         }
-        if (paramTypes[i]->is(BaseType::TY_GENERIC)) {
+        if (argTy->is(BaseType::TY_GENERIC)) {
           paramsMatch = false;
-          break; // Argument must be concrete; generic-typed args no longer
-                 // match
+          break; // argument must be concrete
         }
-        if (!funcParamTypes[i]->type->isEqual(paramTypes[i])) {
+        if (!formalTy->isEqual(argTy)) {
           paramsMatch = false;
           break;
         }
-        candidateRank = std::min(candidateRank, RANK_EXACT);
+        candidateRanks.push_back(RANK_EXACT);
       } else if (i < funcParamTypes.size() && funcParamTypes[i]->defaultValue != nullptr) {
-        candidateRank = std::min(candidateRank, RANK_DEFAULTED);
-        // Caller omitted this arg; default value applies
+        candidateRanks.push_back(RANK_DEFAULTED);
       } else if (i >= funcParamTypes.size()) {
         auto* llvmTy = it->second->getType()->getLlvmType();
         if (llvmTy != nullptr && llvmTy->isFunctionVarArg()) {
-          candidateRank = std::min(candidateRank, RANK_VARARG);
+          candidateRanks.push_back(RANK_VARARG);
           break;
         }
         paramsMatch = false;
@@ -117,9 +146,11 @@ auto SymbolTable::lookupFunction(const std::string& name, std::vector<lesma::Typ
     }
 
     bool hasValue = (it->second->getLlvmValue() != nullptr);
-    if (candidateRank > bestRank ||
-        (candidateRank == bestRank && hasValue && !bestHasValue)) {
-      bestRank = candidateRank;
+    bool candidateWins =
+        bestCandidate == nullptr || rankVectorBetter(candidateRanks, bestRanks) ||
+        (!rankVectorBetter(bestRanks, candidateRanks) && hasValue && !bestHasValue);
+    if (candidateWins) {
+      bestRanks = std::move(candidateRanks);
       bestCandidate = it->second.get();
       bestHasValue = hasValue;
     }
