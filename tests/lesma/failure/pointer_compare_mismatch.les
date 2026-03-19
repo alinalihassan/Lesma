@@ -1,0 +1,8 @@
+var intValue = 1
+var floatValue = 1.0
+
+let intPtr: *int = &intValue
+let floatPtr: *float = &floatValue
+
+if intPtr == floatPtr
+    let error = true

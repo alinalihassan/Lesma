@@ -1,0 +1,17 @@
+class Foo
+    var value: int
+
+    def new(value: int)
+        self.value = value
+
+class Bar
+    var value: int
+
+    def new(value: int)
+        self.value = value
+
+var foo = Foo(1)
+var bar = Bar(1)
+
+if foo < bar
+    let error = true

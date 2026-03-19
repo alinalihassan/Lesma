@@ -249,7 +249,7 @@ auto Typechecker::getOrCreateSpecializedClassType(Type* classTemplate,
 }
 
 auto Typechecker::getExtendedType(Type* left, Type* right) -> Type* {
-  if (left->getBaseType() == right->getBaseType()) {
+  if (left->isEqual(right)) {
     return left;
   }
   if (left->is(BaseType::TY_VOID)) {
