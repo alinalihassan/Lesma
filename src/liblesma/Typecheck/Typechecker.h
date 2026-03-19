@@ -2,11 +2,10 @@
 
 #include <functional>
 #include <memory>
+#include <optional>
 #include <string>
 #include <unordered_map>
 #include <vector>
-
-#include <optional>
 
 #include "llvm/Support/SMLoc.h"
 
@@ -47,6 +46,7 @@ class Typechecker final : public ASTVisitor {
   Value* currentFunction = nullptr;
   Type* currentClassType = nullptr; // Set when visiting class methods, for self
   bool inTopLevel = true;
+  bool declarationPass = false;
   std::unordered_map<std::string, Type*> currentGenericTypes;
   /** Specialized class types: key = template toString + "|" + concrete types,
    * value = Type* with concrete fields. */
@@ -60,21 +60,25 @@ class Typechecker final : public ASTVisitor {
   /** Imported types materialized into this typechecker's cache so they outlive imported scopes. */
   std::unordered_map<Type*, Type*> importedTypeCopies;
 
-  /** Declared generic param list for a class or function type (resolves to template for specialized classes). */
+  /** Declared generic param list for a class or function type (resolves to template for specialized
+   * classes). */
   auto getDeclaredGenericParams(Type* type) const -> const std::vector<std::string>&;
 
-  /** Import alias (e.g. "import_math") -> absolute path, for resolving return types of import_math.func(). */
+  /** Import alias (e.g. "import_math") -> absolute path, for resolving return types of
+   * import_math.func(). */
   std::unordered_map<std::string, std::string> importAliasToPath;
   /** Named import/local binding -> (absolute path, exported name). */
   std::unordered_map<std::string, std::pair<std::string, std::string>> importedNameToSource;
-  /** Cache of typechecked imported modules: path -> (root scope, type cache) so we can lookupFunction. */
+  /** Cache of typechecked imported modules: path -> (root scope, type cache) so we can
+   * lookupFunction. */
   std::unordered_map<std::string,
                      std::pair<std::unique_ptr<SymbolTable>, std::vector<std::unique_ptr<Type>>>>
       importedModuleCache;
 
   /** Resolve absolute path for an import (same logic as Driver getExportsFromFile). */
   auto resolveImportPath(const std::string& filepath, bool isStd) const -> std::string;
-  /** Typecheck an imported file and return its root scope (cached). Returns nullptr if path unknown or typecheck fails. */
+  /** Typecheck an imported file and return its root scope (cached). Returns nullptr if path unknown
+   * or typecheck fails. */
   auto getOrTypecheckImport(const std::string& absolutePath) -> SymbolTable*;
 
   void registerBaseStubs();
@@ -93,10 +97,12 @@ class Typechecker final : public ASTVisitor {
   auto getExtendedType(Type* left, Type* right) -> Type*;
   /** Whether a value of type 'from' can be assigned/cast to type 'to'. */
   auto isAssignableTo(Type* from, Type* to) -> bool;
-  /** Result type of a binary operator (arithmetic, comparison, logical). Throws on unsupported op. */
+  /** Result type of a binary operator (arithmetic, comparison, logical). Throws on unsupported op.
+   */
   auto typecheckBinaryOpResult(TokenType op, Type* leftTy, Type* rightTy, llvm::SMRange span)
       -> Type*;
-  /** Map compound-assignment operator to the corresponding binary operator; nullopt if not compound. */
+  /** Map compound-assignment operator to the corresponding binary operator; nullopt if not
+   * compound. */
   auto compoundToBinaryOp(TokenType op) -> std::optional<TokenType>;
 
   /** Returns true if some path through the statements reaches end of block without a return. */

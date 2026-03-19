@@ -14,6 +14,8 @@
 #include "Type.h"
 
 namespace lesma {
+class SymbolTable;
+
 enum class SymbolState : std::uint8_t { DECLARED, INITIALIZED };
 
 /**
@@ -56,7 +58,7 @@ public:
       : name(other.name), mangledName(other.mangledName), type(other.getType()), state(other.state),
         llvmValue(other.llvmValue), used(other.used), mutableVar(other.mutableVar),
         signedVar(other.signedVar), exported(other.exported), constructor(other.constructor),
-        genericClassTemplate(other.genericClassTemplate) {}
+        genericClassTemplate(other.genericClassTemplate), bodyScope(other.bodyScope) {}
 
   ~Value() = default;
   auto operator=(const Value& other) -> Value& {
@@ -73,6 +75,7 @@ public:
       exported = other.exported;
       constructor = other.constructor;
       genericClassTemplate = other.genericClassTemplate;
+      bodyScope = other.bodyScope;
     }
     return *this;
   }
@@ -87,6 +90,7 @@ public:
   [[nodiscard]] auto getState() const -> SymbolState { return state; }
   [[nodiscard]] auto getType() const -> Type* { return ownedType ? ownedType.get() : type; }
   [[nodiscard]] auto getConstructor() const -> lesma::Value* { return constructor; }
+  [[nodiscard]] auto getBodyScope() const -> SymbolTable* { return bodyScope; }
   /** Opaque pointer to the Class* AST for generic class templates (used when
    *  specializing imported generics). Codegen interprets this as const Class*.
    */
@@ -107,6 +111,7 @@ public:
   auto setExported(bool value) -> void { exported = value; }
   auto setConstructor(lesma::Value* value) -> void { constructor = value; }
   auto setGenericClassTemplate(void* ptr) -> void { genericClassTemplate = ptr; }
+  auto setBodyScope(SymbolTable* value) -> void { bodyScope = value; }
 
   auto toString() const -> std::string {
     std::string typeStr;
@@ -142,5 +147,6 @@ private:
   // For classes
   lesma::Value* constructor = nullptr;
   void* genericClassTemplate = nullptr;
+  SymbolTable* bodyScope = nullptr;
 };
 } // namespace lesma

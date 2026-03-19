@@ -2,7 +2,6 @@
 
 #include <deque>
 #include <memory>
-#include <optional>
 #include <stack>
 #include <string>
 #include <tuple>
@@ -89,16 +88,15 @@ class Codegen final : public ASTVisitor {
   bool isMain = true;
 
 public:
-  /** \p preScope and \p preTypeCache: when provided (main module after
-   * typecheck), Codegen reuses them instead of building scope/cache from
-   * scratch. */
+  /** Codegen lowers a module using the semantic scope and type cache produced
+   * by the typechecker. */
   Codegen(std::shared_ptr<Parser> parser, std::shared_ptr<SourceMgr> srcMgr,
           const std::string& filename, std::vector<std::string> imports, bool jit, bool main,
           std::string alias = "", const std::shared_ptr<ThreadSafeContext>& = nullptr,
           std::shared_ptr<std::vector<std::string>> sharedModules = nullptr,
           std::shared_ptr<std::vector<std::unique_ptr<SymbolTable>>> sharedScopes = nullptr,
-          std::optional<std::unique_ptr<SymbolTable>> preScope = std::nullopt,
-          std::optional<std::vector<std::unique_ptr<lesma::Type>>> preTypeCache = std::nullopt);
+          std::unique_ptr<SymbolTable> preScope = nullptr,
+          std::vector<std::unique_ptr<lesma::Type>> preTypeCache = {});
   ~Codegen() override = default;
 
   Codegen(const Codegen&) = delete;
@@ -126,6 +124,15 @@ protected:
   auto compileModule(llvm::SMRange span, const std::string& filepath, bool isStd,
                      const std::string& alias, bool importAll, bool importToScope,
                      const std::vector<std::pair<std::string, std::string>>& importedNames) -> void;
+  auto getExportsFromFile(const std::string& filepath, bool isStd, const std::string& mainFilePath)
+      -> std::vector<std::string>;
+  auto typecheckModule(const Compound* ast, const std::string& modulePath)
+      -> std::pair<std::unique_ptr<SymbolTable>, std::vector<std::unique_ptr<lesma::Type>>>;
+  auto insertImportAlias(const std::string& moduleAlias, bool importToScope) -> void;
+  auto exposeImportedSymbols(llvm::SMRange span, SymbolTable* importedScope, bool importAll,
+                             bool importToScope,
+                             const std::vector<std::pair<std::string, std::string>>& importedNames)
+      -> void;
 
   auto visit(const Statement* node) -> void override;
   auto visit(const Compound* node) -> void override;

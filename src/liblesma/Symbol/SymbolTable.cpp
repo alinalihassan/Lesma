@@ -133,8 +133,7 @@ auto SymbolTable::lookupFunction(const std::string& name, std::vector<lesma::Typ
       } else if (i < funcParamTypes.size() && funcParamTypes[i]->defaultValue != nullptr) {
         candidateRanks.push_back(RANK_DEFAULTED);
       } else if (i >= funcParamTypes.size()) {
-        auto* llvmTy = it->second->getType()->getLlvmType();
-        if (llvmTy != nullptr && llvmTy->isFunctionVarArg()) {
+        if (it->second->getType()->isVarArgs()) {
           candidateRanks.push_back(RANK_VARARG);
           break;
         }

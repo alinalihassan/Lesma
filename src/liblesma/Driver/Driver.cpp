@@ -2,7 +2,6 @@
 
 #include <filesystem>
 #include <memory>
-#include <optional>
 #include <string>
 #include <utility>
 #include <vector>
@@ -119,8 +118,8 @@ auto Driver::baseCompile(std::unique_ptr<lesma::Options> options, bool jit) -> i
 
     // Typecheck (required); scope and type cache are passed to Codegen
     std::string mainFilePath = options->sourceType == SourceType::FILE ? options->source : "";
-    std::optional<std::unique_ptr<lesma::SymbolTable>> preScope;
-    std::optional<std::vector<std::unique_ptr<lesma::Type>>> preTypeCache;
+    std::unique_ptr<lesma::SymbolTable> preScope;
+    std::vector<std::unique_ptr<lesma::Type>> preTypeCache;
     timer.measure("Typecheck", [&]() -> void {
       Typechecker typechecker(mainFilePath,
                               [&](const std::string& path, bool isStd, const std::string& main) {
@@ -131,18 +130,12 @@ auto Driver::baseCompile(std::unique_ptr<lesma::Options> options, bool jit) -> i
       preTypeCache = typechecker.takeTypeCache();
     });
 
-    // Codegen: run typecheck for diagnostics but do not pass scope/cache to
-    // Codegen until the hang with import_std_in_scope (and similar) is fixed.
-    // Passing preScope/preTypeCache causes an infinite loop somewhere in
-    // Codegen when the main file has both std and local imports.
-    constexpr bool useTypecheckScope = true;
     auto codegen = timer.measure("Compiling", [&]() -> std::unique_ptr<lesma::Codegen> {
       std::vector<std::string> const modules;
       auto cg = std::make_unique<Codegen>(
           std::move(parser), srcMgr, options->sourceType == SourceType::FILE ? options->source : "",
-          modules, jit, true, "", nullptr, nullptr, nullptr,
-          useTypecheckScope ? std::move(preScope) : std::nullopt,
-          useTypecheckScope ? std::move(preTypeCache) : std::nullopt);
+          modules, jit, true, "", nullptr, nullptr, nullptr, std::move(preScope),
+          std::move(preTypeCache));
       cg->run();
       return cg;
     });

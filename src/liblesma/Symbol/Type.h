@@ -60,6 +60,7 @@ class Type {
   std::vector<std::string> genericParams;
   // Owned collection of Fields
   std::vector<std::unique_ptr<Field>> fields;
+  bool varArgs = false;
   bool signedInt = true;
 
 public:
@@ -99,6 +100,7 @@ public:
   [[nodiscard]] auto getGenericParams() const -> const std::vector<std::string>& {
     return genericParams;
   }
+  [[nodiscard]] auto isVarArgs() const -> bool { return varArgs; }
   [[nodiscard]] auto isSigned() const -> bool { return signedInt; }
 
   // Returns raw pointers for non-owning access
@@ -119,6 +121,7 @@ public:
   auto setGenericParams(std::vector<std::string> params) -> void {
     genericParams = std::move(params);
   }
+  auto setVarArgs(bool value) -> void { varArgs = value; }
   auto addField(std::unique_ptr<Field> field) -> void { fields.push_back(std::move(field)); }
 
   auto isEqual(Type* rhs) const -> bool {
@@ -186,11 +189,14 @@ public:
       if (l == nullptr && r == nullptr) {
         return isSigned() == rhs->isSigned();
       }
-      if (l == nullptr || r == nullptr || !l->isIntegerTy() || !r->isIntegerTy()) {
+      if (l == nullptr || r == nullptr) {
+        llvm::Type* concrete = (l != nullptr) ? l : r;
+        return concrete != nullptr && concrete->isIntegerTy() && isSigned() == rhs->isSigned();
+      }
+      if (!l->isIntegerTy() || !r->isIntegerTy()) {
         return false;
       }
-      return isSigned() == rhs->isSigned() &&
-             l->getIntegerBitWidth() == r->getIntegerBitWidth();
+      return isSigned() == rhs->isSigned() && l->getIntegerBitWidth() == r->getIntegerBitWidth();
     }
     case BaseType::TY_FLOAT: {
       llvm::Type* l = getLlvmType();
@@ -198,7 +204,11 @@ public:
       if (l == nullptr && r == nullptr) {
         return true;
       }
-      if (l == nullptr || r == nullptr || !l->isFloatingPointTy() || !r->isFloatingPointTy()) {
+      if (l == nullptr || r == nullptr) {
+        llvm::Type* concrete = (l != nullptr) ? l : r;
+        return concrete != nullptr && concrete->isFloatingPointTy();
+      }
+      if (!l->isFloatingPointTy() || !r->isFloatingPointTy()) {
         return false;
       }
       return l == r;
@@ -222,6 +232,9 @@ public:
       return thisElementType->isEqual(rhsElementType);
     }
     case BaseType::TY_FUNCTION: {
+      if (varArgs != rhs->isVarArgs()) {
+        return false;
+      }
       auto lf = getFields();
       auto rf = rhs->getFields();
       if (lf.size() != rf.size()) {

@@ -88,8 +88,7 @@ auto cast(llvm::SMRange span, Value* val, Type* type, llvm::IRBuilder<>* builder
       const bool isPtrToVoid = elem != nullptr && elem->is(BaseType::TY_VOID);
       const bool isPtrToByte =
           elem != nullptr && elem->is(BaseType::TY_INT) && elem->getLlvmType() != nullptr &&
-          elem->getLlvmType()->isIntegerTy() &&
-          elem->getLlvmType()->getIntegerBitWidth() == 8U;
+          elem->getLlvmType()->isIntegerTy() && elem->getLlvmType()->getIntegerBitWidth() == 8U;
       if (isPtrToVoid || isPtrToByte) {
         return std::make_unique<Value>(
             "", type, builder->CreateBitCast(val->getLlvmValue(), type->getLlvmType()));

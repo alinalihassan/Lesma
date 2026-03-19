@@ -26,7 +26,7 @@
 namespace lesma {
 
 auto Typechecker::pathLeadsToEndWithoutReturn(const std::vector<Statement*>& statements,
-                                             size_t index) -> bool {
+                                              size_t index) -> bool {
   if (index >= statements.size()) {
     return true; // fell off the end
   }
@@ -43,16 +43,16 @@ auto Typechecker::pathLeadsToEndWithoutReturn(const std::vector<Statement*>& sta
   }
   if (auto* ifStmt = dynamic_cast<If*>(s)) {
     const auto& blocks = ifStmt->getBlocks();
-    // If there is no else (only one block), we can skip the branch and fall through to index+1.
-    if (blocks.size() == 1U && pathLeadsToEndWithoutReturn(statements, index + 1)) {
-      return true;
-    }
-    if (std::any_of(blocks.begin(), blocks.end(), [this](Compound* block) {
+    const bool someBranchFallsThrough =
+        std::any_of(blocks.begin(), blocks.end(), [this](Compound* block) {
           return pathLeadsToEndWithoutReturn(block->getChildren(), 0);
-        })) {
-      return true; // some branch can fall off
+        });
+    // Any branch that falls through continues with the following statements.
+    // Without an else-branch, skipping the whole if also falls through.
+    if (blocks.size() == 1U || someBranchFallsThrough) {
+      return pathLeadsToEndWithoutReturn(statements, index + 1);
     }
-    return false; // all branches return or have no path to end
+    return false; // all branches return
   }
   if (dynamic_cast<While*>(s) != nullptr) {
     // Can skip loop (0 iterations) and reach next statement.
@@ -80,14 +80,13 @@ auto Typechecker::materializeImportedType(Type* type) -> Type* {
     return existing->second;
   }
   if (type->is(BaseType::TY_CLASS) || type->is(BaseType::TY_ENUM)) {
-    auto placeholder = std::make_unique<Type>(type->getBaseType(), nullptr,
-                                              std::vector<std::unique_ptr<Field>>{});
+    auto placeholder =
+        std::make_unique<Type>(type->getBaseType(), nullptr, std::vector<std::unique_ptr<Field>>{});
     Type* copy = cacheType(std::move(placeholder));
     importedTypeCopies[type] = copy;
     copy->setGenericParams(type->getGenericParams());
     for (Field* field : type->getFields()) {
-      copy->addField(
-          std::make_unique<Field>(field->name, materializeImportedType(field->type)));
+      copy->addField(std::make_unique<Field>(field->name, materializeImportedType(field->type)));
     }
     if (auto envIt = specializedTypeEnv.find(type); envIt != specializedTypeEnv.end()) {
       std::unordered_map<std::string, Type*> envCopy;
@@ -96,7 +95,8 @@ auto Typechecker::materializeImportedType(Type* type) -> Type* {
       }
       specializedTypeEnv[copy] = std::move(envCopy);
     }
-    if (auto tmplIt = specializedTypeToTemplate.find(type); tmplIt != specializedTypeToTemplate.end()) {
+    if (auto tmplIt = specializedTypeToTemplate.find(type);
+        tmplIt != specializedTypeToTemplate.end()) {
       specializedTypeToTemplate[copy] = materializeImportedType(tmplIt->second);
     }
     return copy;
@@ -110,12 +110,12 @@ auto Typechecker::materializeImportedType(Type* type) -> Type* {
   if (type->is(BaseType::TY_FUNCTION)) {
     std::vector<std::unique_ptr<Field>> fields;
     for (Field* field : type->getFields()) {
-      fields.push_back(
-          std::make_unique<Field>(field->name, materializeImportedType(field->type)));
+      fields.push_back(std::make_unique<Field>(field->name, materializeImportedType(field->type)));
     }
     auto funcType = std::make_unique<Type>(BaseType::TY_FUNCTION, nullptr, std::move(fields));
     funcType->setReturnType(materializeImportedType(type->getReturnType()));
     funcType->setGenericParams(type->getGenericParams());
+    funcType->setVarArgs(type->isVarArgs());
     Type* copy = cacheType(std::move(funcType));
     importedTypeCopies[type] = copy;
     return copy;
@@ -149,8 +149,7 @@ auto Typechecker::substituteInType(Type* t, const std::unordered_map<std::string
   return t;
 }
 
-auto Typechecker::getDeclaredGenericParams(Type* type) const
-    -> const std::vector<std::string>& {
+auto Typechecker::getDeclaredGenericParams(Type* type) const -> const std::vector<std::string>& {
   static const std::vector<std::string> emptyParams;
   if (type == nullptr) {
     return emptyParams;
@@ -223,7 +222,7 @@ auto Typechecker::getExtendedType(Type* left, Type* right) -> Type* {
 }
 
 auto Typechecker::typecheckBinaryOpResult(TokenType op, Type* leftTy, Type* rightTy,
-                                         llvm::SMRange span) -> Type* {
+                                          llvm::SMRange span) -> Type* {
   bool hasGeneric = leftTy->is(BaseType::TY_GENERIC) || rightTy->is(BaseType::TY_GENERIC);
   Type* unified = getExtendedType(leftTy, rightTy);
 
@@ -345,7 +344,8 @@ auto Typechecker::resolveType(const TypeExpr* node) -> Type* {
     Type* typ = scope->lookupType(node->getName());
     Value* sym = scope->lookupStruct(node->getName());
     bool resolvedFromImport = false;
-    if ((typ == nullptr && sym == nullptr) || (sym != nullptr && sym->getType()->is(BaseType::TY_IMPORT))) {
+    if ((typ == nullptr && sym == nullptr) ||
+        (sym != nullptr && sym->getType()->is(BaseType::TY_IMPORT))) {
       auto importedIt = importedNameToSource.find(node->getName());
       if (importedIt != importedNameToSource.end()) {
         SymbolTable* importScope = getOrTypecheckImport(importedIt->second.first);
@@ -363,7 +363,8 @@ auto Typechecker::resolveType(const TypeExpr* node) -> Type* {
                            node->getName());
     }
     if (resolvedFromImport) {
-      return sym != nullptr ? materializeImportedType(sym->getType()) : materializeImportedType(typ);
+      return sym != nullptr ? materializeImportedType(sym->getType())
+                            : materializeImportedType(typ);
     }
     return sym != nullptr ? sym->getType() : typ;
   }
@@ -440,6 +441,9 @@ auto Typechecker::getOrTypecheckImport(const std::string& absolutePath) -> Symbo
 
 auto Typechecker::run(const Compound* ast) -> void {
   registerBaseStubs();
+  declarationPass = true;
+  ast->accept(*this);
+  declarationPass = false;
   ast->accept(*this);
 }
 
@@ -518,6 +522,9 @@ auto Typechecker::visit(const While* node) -> void {
 }
 
 auto Typechecker::visit(const Import* node) -> void {
+  if (!declarationPass) {
+    return;
+  }
   auto importType = cacheType(std::make_unique<Type>(BaseType::TY_IMPORT));
   const std::string resolvedPath = resolveImportPath(node->getFilePath(), node->isStd());
   auto addImportSymbol = [this, &importType](const std::string& name) {
@@ -552,6 +559,9 @@ auto Typechecker::visit(const Import* node) -> void {
 }
 
 auto Typechecker::visit(const Enum* node) -> void {
+  if (!declarationPass) {
+    return;
+  }
   auto type =
       std::make_unique<Type>(BaseType::TY_ENUM, nullptr, std::vector<std::unique_ptr<Field>>{});
   Type* typePtr = type.get();
@@ -571,40 +581,42 @@ auto Typechecker::visit(const Class* node) -> void {
     currentGenericTypes[name] = genericType;
   }
 
-  std::vector<std::unique_ptr<Field>> fields;
-  for (VarDecl* field : node->getFields()) {
-    Type* fieldType = nullptr;
-    if (field->getType() != nullptr) {
-      field->getType()->accept(*this);
-      fieldType = result->getType();
-    }
-    if (field->getValue() != nullptr) {
-      field->getValue()->accept(*this);
-      Type* initType = result->getType();
-      if (fieldType != nullptr) {
-        if (!isAssignableTo(initType, fieldType)) {
-          throw TypeCheckError(
-              field->getSpan(),
-              "Class field initializer type {} is not assignable to declared type {}",
-              initType->toString(), fieldType->toString());
-        }
-      } else {
-        fieldType = initType;
-      }
-    }
-    if (fieldType == nullptr) {
-      throw TypeCheckError(field->getSpan(), "Class field has no type");
-    }
-    fields.push_back(std::make_unique<Field>(field->getIdentifier()->getValue(), fieldType));
-  }
-  auto type = std::make_unique<Type>(BaseType::TY_CLASS, nullptr, std::move(fields));
-  Type* typePtr = type.get();
-  scope->insertType(node->getIdentifier(), std::move(type));
-  auto classSymbol = std::make_unique<Value>(node->getIdentifier(), typePtr);
-  classSymbol->setExported(node->isExported());
-  scope->insertSymbol(std::move(classSymbol));
-
   Type* classTypePtr = scope->lookupType(node->getIdentifier());
+  if (declarationPass) {
+    std::vector<std::unique_ptr<Field>> fields;
+    for (VarDecl* field : node->getFields()) {
+      Type* fieldType = nullptr;
+      if (field->getType() != nullptr) {
+        field->getType()->accept(*this);
+        fieldType = result->getType();
+      }
+      if (field->getValue() != nullptr) {
+        field->getValue()->accept(*this);
+        Type* initType = result->getType();
+        if (fieldType != nullptr) {
+          if (!isAssignableTo(initType, fieldType)) {
+            throw TypeCheckError(
+                field->getSpan(),
+                "Class field initializer type {} is not assignable to declared type {}",
+                initType->toString(), fieldType->toString());
+          }
+        } else {
+          fieldType = initType;
+        }
+      }
+      if (fieldType == nullptr) {
+        throw TypeCheckError(field->getSpan(), "Class field has no type");
+      }
+      fields.push_back(std::make_unique<Field>(field->getIdentifier()->getValue(), fieldType));
+    }
+    auto type = std::make_unique<Type>(BaseType::TY_CLASS, nullptr, std::move(fields));
+    classTypePtr = type.get();
+    scope->insertType(node->getIdentifier(), std::move(type));
+    auto classSymbol = std::make_unique<Value>(node->getIdentifier(), classTypePtr);
+    classSymbol->setExported(node->isExported());
+    scope->insertSymbol(std::move(classSymbol));
+  }
+
   classTypePtr->setGenericParams(node->getGenericParams());
   auto* selfPtrType = cacheType(std::make_unique<Type>(BaseType::TY_PTR, nullptr, classTypePtr));
   for (FuncDecl* func : node->getMethods()) {
@@ -669,39 +681,65 @@ auto Typechecker::visit(const FuncDecl* node) -> void {
   }
   auto funcType = std::make_unique<Type>(BaseType::TY_FUNCTION, nullptr, std::move(paramFields));
   funcType->setReturnType(returnType);
+  funcType->setVarArgs(node->getVarArgs());
   Type* funcTypePtr = cacheType(std::move(funcType));
   funcTypePtr->setGenericParams(node->getGenericParams());
-  auto funcSymbol = std::make_unique<Value>(node->getName(), funcTypePtr);
-  funcSymbol->setExported(node->isExported());
-  // Insert into enclosing scope so methods are visible from outer scopes (same as before generics scope).
+  // Insert into enclosing scope so methods are visible from outer scopes (same as before generics
+  // scope).
   SymbolTable* insertScope =
       (currentClassType != nullptr) ? scope->getParent()->getParent() : scope->getParent();
-  insertScope->insertSymbol(std::move(funcSymbol));
+  Value* funcSymbol = insertScope->lookupFunction(node->getName(), paramTypes);
 
-  SymbolTable* child = scope->createChildBlock("function");
-  scope = child;
-  const size_t paramOffset = (currentClassType != nullptr) ? 1U : 0U;
-  for (size_t i = 0; i < node->getParameters().size(); ++i) {
-    Parameter* param = node->getParameters()[i];
-    scope->insertSymbol(std::make_unique<Value>(param->name, paramTypes[paramOffset + i]));
+  if (declarationPass) {
+    if (funcSymbol == nullptr) {
+      auto declaredFunc = std::make_unique<Value>(node->getName(), funcTypePtr);
+      declaredFunc->setExported(node->isExported());
+      insertScope->insertSymbol(std::move(declaredFunc));
+      funcSymbol = insertScope->lookupFunction(node->getName(), paramTypes);
+    } else {
+      funcSymbol->setType(funcTypePtr);
+      funcSymbol->setExported(node->isExported());
+    }
+
+    if (funcSymbol != nullptr && funcSymbol->getBodyScope() == nullptr) {
+      SymbolTable* child = scope->createChildBlock("function");
+      funcSymbol->setBodyScope(child);
+      SymbolTable* savedScopePtr = scope;
+      scope = child;
+      const size_t paramOffset = (currentClassType != nullptr) ? 1U : 0U;
+      for (size_t i = 0; i < node->getParameters().size(); ++i) {
+        Parameter* param = node->getParameters()[i];
+        scope->insertSymbol(std::make_unique<Value>(param->name, paramTypes[paramOffset + i]));
+      }
+      scope = savedScopePtr;
+    }
+  } else {
+    currentFunction = funcSymbol;
+    if (currentFunction == nullptr) {
+      throw TypeCheckError(node->getSpan(), "Function not found during definition pass: {}",
+                           node->getName());
+    }
+    scope = currentFunction->getBodyScope();
+    inTopLevel = false;
+    node->getBody()->accept(*this);
+    Type* funcReturnType = currentFunction->getType()->getReturnType();
+    if (funcReturnType != nullptr && !funcReturnType->is(BaseType::TY_VOID) &&
+        !blockAlwaysReturns(node->getBody())) {
+      throw TypeCheckError(node->getSpan(), "Non-void function may reach end without returning");
+    }
+    scope = scope->getParent();
+    currentFunction = nullptr;
+    inTopLevel = true;
   }
-  currentFunction = insertScope->lookupFunction(node->getName(), paramTypes);
-  inTopLevel = false;
-  node->getBody()->accept(*this);
-  Type* funcReturnType = currentFunction->getType()->getReturnType();
-  if (funcReturnType != nullptr && !funcReturnType->is(BaseType::TY_VOID) &&
-      !blockAlwaysReturns(node->getBody())) {
-    throw TypeCheckError(node->getSpan(), "Non-void function may reach end without returning");
-  }
-  scope = scope->getParent();
   scope = scope->getParent(); // pop generics scope so generic param names are not visible to outer
                               // lookups
-  currentFunction = nullptr;
-  inTopLevel = true;
   currentGenericTypes = std::move(savedGenerics);
 }
 
 auto Typechecker::visit(const ExternFuncDecl* node) -> void {
+  if (!declarationPass) {
+    return;
+  }
   auto savedGenerics = currentGenericTypes;
   SymbolTable* genericsScope = scope->createChildBlock("generics");
   scope = genericsScope;
@@ -726,25 +764,39 @@ auto Typechecker::visit(const ExternFuncDecl* node) -> void {
   }
   auto funcType = std::make_unique<Type>(BaseType::TY_FUNCTION, nullptr, std::move(paramFields));
   funcType->setReturnType(returnType);
+  funcType->setVarArgs(node->getVarArgs());
   Type* funcTypePtr = cacheType(std::move(funcType));
   funcTypePtr->setGenericParams(node->getGenericParams());
-  auto funcSymbol = std::make_unique<Value>(node->getName(), funcTypePtr);
-  funcSymbol->setExported(node->isExported());
-  scope->getParent()->insertSymbol(
-      std::move(funcSymbol)); // insert into enclosing scope, not generics
+  Value* existingFunc = scope->getParent()->lookupFunction(node->getName(), paramTypes);
+  if (existingFunc == nullptr) {
+    auto funcSymbol = std::make_unique<Value>(node->getName(), funcTypePtr);
+    funcSymbol->setExported(node->isExported());
+    scope->getParent()->insertSymbol(
+        std::move(funcSymbol)); // insert into enclosing scope, not generics
+  } else {
+    existingFunc->setType(funcTypePtr);
+    existingFunc->setExported(node->isExported());
+  }
   scope = scope->getParent(); // pop generics scope
   currentGenericTypes = std::move(savedGenerics);
 }
 
 auto Typechecker::compoundToBinaryOp(TokenType op) -> std::optional<TokenType> {
   switch (op) {
-  case TokenType::PLUS_EQUAL: return TokenType::PLUS;
-  case TokenType::MINUS_EQUAL: return TokenType::MINUS;
-  case TokenType::STAR_EQUAL: return TokenType::STAR;
-  case TokenType::SLASH_EQUAL: return TokenType::SLASH;
-  case TokenType::MOD_EQUAL: return TokenType::MOD;
-  case TokenType::POWER_EQUAL: return TokenType::POWER;
-  default: return std::nullopt;
+  case TokenType::PLUS_EQUAL:
+    return TokenType::PLUS;
+  case TokenType::MINUS_EQUAL:
+    return TokenType::MINUS;
+  case TokenType::STAR_EQUAL:
+    return TokenType::STAR;
+  case TokenType::SLASH_EQUAL:
+    return TokenType::SLASH;
+  case TokenType::MOD_EQUAL:
+    return TokenType::MOD;
+  case TokenType::POWER_EQUAL:
+    return TokenType::POWER;
+  default:
+    return std::nullopt;
   }
 }
 
@@ -765,12 +817,12 @@ auto Typechecker::visit(const Assignment* node) -> void {
     node->getRightHandSide()->accept(*this);
     Type* rhsType = result->getType();
     if (binaryOp.has_value()) {
-      Type* resultType =
-          typecheckBinaryOpResult(*binaryOp, lhsType, rhsType, node->getSpan());
+      Type* resultType = typecheckBinaryOpResult(*binaryOp, lhsType, rhsType, node->getSpan());
       if (!isAssignableTo(resultType, lhsType)) {
-        throw TypeCheckError(node->getSpan(),
-                             "Compound assignment result type {} is not assignable to variable of type {}",
-                             resultType->toString(), lhsType->toString());
+        throw TypeCheckError(
+            node->getSpan(),
+            "Compound assignment result type {} is not assignable to variable of type {}",
+            resultType->toString(), lhsType->toString());
       }
     } else {
       if (assignOp != TokenType::EQUAL) {
@@ -792,12 +844,12 @@ auto Typechecker::visit(const Assignment* node) -> void {
     node->getRightHandSide()->accept(*this);
     Type* rhsType = result->getType();
     if (binaryOp.has_value()) {
-      Type* resultType =
-          typecheckBinaryOpResult(*binaryOp, targetType, rhsType, node->getSpan());
+      Type* resultType = typecheckBinaryOpResult(*binaryOp, targetType, rhsType, node->getSpan());
       if (targetType != nullptr && !isAssignableTo(resultType, targetType)) {
-        throw TypeCheckError(node->getSpan(),
-                             "Compound assignment result type {} is not assignable to field of type {}",
-                             resultType->toString(), targetType->toString());
+        throw TypeCheckError(
+            node->getSpan(),
+            "Compound assignment result type {} is not assignable to field of type {}",
+            resultType->toString(), targetType->toString());
       }
     } else {
       if (assignOp != TokenType::EQUAL) {
@@ -932,17 +984,16 @@ auto Typechecker::visit(const FuncCall* node) -> void {
         Type* classType =
             importedScope != nullptr ? materializeImportedType(sym->getType()) : sym->getType();
         if (!node->getArguments().empty()) {
-          const std::vector<std::string>& genericParamNames =
-              getDeclaredGenericParams(classType);
+          const std::vector<std::string>& genericParamNames = getDeclaredGenericParams(classType);
           Type* ptrToClass =
               cacheType(std::make_unique<Type>(BaseType::TY_PTR, nullptr, classType));
           std::vector<Type*> constructorParamTypes = {ptrToClass};
           for (Type* t : argTypes) {
             constructorParamTypes.push_back(t);
           }
-          Value* constructor =
-              importedScope != nullptr ? importedScope->lookupFunction("new", constructorParamTypes)
-                                       : scope->lookupFunction("new", constructorParamTypes);
+          Value* constructor = importedScope != nullptr
+                                   ? importedScope->lookupFunction("new", constructorParamTypes)
+                                   : scope->lookupFunction("new", constructorParamTypes);
           if (constructor != nullptr) {
             std::unordered_map<std::string, Type*> env;
             auto* funcType = constructor->getType();
@@ -953,9 +1004,8 @@ auto Typechecker::visit(const FuncCall* node) -> void {
               }
             }
             Type* specialized = getOrCreateSpecializedClassType(classType, genericParamNames, env);
-            result = std::make_unique<Value>(importedScope != nullptr
-                                                 ? materializeImportedType(specialized)
-                                                 : specialized);
+            result = std::make_unique<Value>(
+                importedScope != nullptr ? materializeImportedType(specialized) : specialized);
             return;
           }
         }
@@ -963,9 +1013,8 @@ auto Typechecker::visit(const FuncCall* node) -> void {
         return;
       }
       if (sym->getType()->is(BaseType::TY_ENUM)) {
-        result = std::make_unique<Value>(importedScope != nullptr
-                                             ? materializeImportedType(sym->getType())
-                                             : sym->getType());
+        result = std::make_unique<Value>(
+            importedScope != nullptr ? materializeImportedType(sym->getType()) : sym->getType());
         return;
       }
       if (sym->getType()->is(BaseType::TY_IMPORT)) {
@@ -988,8 +1037,7 @@ auto Typechecker::visit(const FuncCall* node) -> void {
       texpr->accept(*this);
       explicitTypes.push_back(result->getType());
     }
-    const std::vector<std::string>& genericParamNames =
-        getDeclaredGenericParams(funcType);
+    const std::vector<std::string>& genericParamNames = getDeclaredGenericParams(funcType);
     if (explicitTypes.size() != genericParamNames.size()) {
       throw TypeCheckError(node->getSpan(),
                            "Explicit type argument count {} does not match "
@@ -1050,8 +1098,7 @@ auto Typechecker::visit(const FuncCall* node) -> void {
   if (node->getName() == "new" && !funcType->getFields().empty() &&
       funcType->getFields()[0]->type->is(BaseType::TY_PTR)) {
     Type* classType = funcType->getFields()[0]->type->getElementType();
-    const std::vector<std::string>& genericParamNames =
-        getDeclaredGenericParams(classType);
+    const std::vector<std::string>& genericParamNames = getDeclaredGenericParams(classType);
     Type* specialized =
         getOrCreateSpecializedClassType(classType, genericParamNames, localGenericTypes);
     result = std::make_unique<Value>(specialized);
@@ -1072,8 +1119,8 @@ auto Typechecker::visit(const BinaryOp* node) -> void {
   std::unique_ptr<Value> left = std::move(result);
   node->getRight()->accept(*this);
   std::unique_ptr<Value> right = std::move(result);
-  Type* resultType =
-      typecheckBinaryOpResult(node->getOperator(), left->getType(), right->getType(), node->getSpan());
+  Type* resultType = typecheckBinaryOpResult(node->getOperator(), left->getType(), right->getType(),
+                                             node->getSpan());
   result = std::make_unique<Value>(resultType);
 }
 
@@ -1124,10 +1171,10 @@ auto Typechecker::visit(const DotOp* node) -> void {
                   explicitTypes.push_back(result->getType());
                 }
                 if (explicitTypes.size() != genericParamNames.size()) {
-                  throw TypeCheckError(
-                      node->getSpan(),
-                      "Explicit type argument count {} does not match generic class parameter count {}",
-                      explicitTypes.size(), genericParamNames.size());
+                  throw TypeCheckError(node->getSpan(),
+                                       "Explicit type argument count {} does not match generic "
+                                       "class parameter count {}",
+                                       explicitTypes.size(), genericParamNames.size());
                 }
                 std::unordered_map<std::string, Type*> env;
                 for (size_t i = 0; i < genericParamNames.size(); ++i) {
