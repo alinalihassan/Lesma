@@ -56,6 +56,8 @@ class Type {
   Type* elementType;
   Type* returnType;
   std::string genericName;
+  /** Declared generic parameter names in order (for TY_CLASS and TY_FUNCTION). */
+  std::vector<std::string> genericParams;
   // Owned collection of Fields
   std::vector<std::unique_ptr<Field>> fields;
   bool signedInt = true;
@@ -93,6 +95,10 @@ public:
   [[nodiscard]] auto getReturnType() const -> Type* { return returnType; }
   [[nodiscard]] auto getLlvmType() const -> llvm::Type* { return llvmType; }
   [[nodiscard]] auto getGenericName() const -> std::string { return genericName; }
+  /** Declared generic parameter names in order (for class/function types). */
+  [[nodiscard]] auto getGenericParams() const -> const std::vector<std::string>& {
+    return genericParams;
+  }
   [[nodiscard]] auto isSigned() const -> bool { return signedInt; }
 
   // Returns raw pointers for non-owning access
@@ -110,6 +116,9 @@ public:
   auto setElementType(Type* type) -> void { elementType = type; }
   auto setReturnType(Type* type) -> void { returnType = type; }
   auto setGenericName(std::string name) -> void { genericName = std::move(name); }
+  auto setGenericParams(std::vector<std::string> params) -> void {
+    genericParams = std::move(params);
+  }
   auto addField(std::unique_ptr<Field> field) -> void { fields.push_back(std::move(field)); }
 
   auto isEqual(Type* rhs) const -> bool {

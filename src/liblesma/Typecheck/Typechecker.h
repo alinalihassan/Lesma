@@ -58,6 +58,9 @@ class Typechecker final : public ASTVisitor {
    * from. */
   std::unordered_map<Type*, Type*> specializedTypeToTemplate;
 
+  /** Declared generic param list for a class or function type (resolves to template for specialized classes). */
+  auto getDeclaredGenericParams(Type* type) const -> const std::vector<std::string>&;
+
   /** Import alias (e.g. "import_math") -> absolute path, for resolving return types of import_math.func(). */
   std::unordered_map<std::string, std::string> importAliasToPath;
   /** Cache of typechecked imported modules: path -> (root scope, type cache) so we can lookupFunction. */

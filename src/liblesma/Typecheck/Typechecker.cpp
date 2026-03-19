@@ -5,7 +5,6 @@
 #include <memory>
 #include <optional>
 #include <sstream>
-#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -89,6 +88,20 @@ auto Typechecker::substituteInType(Type* t, const std::unordered_map<std::string
     return cacheType(std::make_unique<Type>(BaseType::TY_PTR, nullptr, elem));
   }
   return t;
+}
+
+auto Typechecker::getDeclaredGenericParams(Type* type) const
+    -> const std::vector<std::string>& {
+  static const std::vector<std::string> emptyParams;
+  if (type == nullptr) {
+    return emptyParams;
+  }
+  Type* key = type;
+  auto it = specializedTypeToTemplate.find(type);
+  if (it != specializedTypeToTemplate.end()) {
+    key = it->second;
+  }
+  return key->getGenericParams();
 }
 
 auto Typechecker::getOrCreateSpecializedClassType(Type* classTemplate,
@@ -506,6 +519,7 @@ auto Typechecker::visit(const Class* node) -> void {
   scope->insertSymbol(std::make_unique<Value>(node->getIdentifier(), typePtr));
 
   Type* classTypePtr = scope->lookupType(node->getIdentifier());
+  classTypePtr->setGenericParams(node->getGenericParams());
   auto* selfPtrType = cacheType(std::make_unique<Type>(BaseType::TY_PTR, nullptr, classTypePtr));
   for (FuncDecl* func : node->getMethods()) {
     currentClassType = classTypePtr;
@@ -570,6 +584,7 @@ auto Typechecker::visit(const FuncDecl* node) -> void {
   auto funcType = std::make_unique<Type>(BaseType::TY_FUNCTION, nullptr, std::move(paramFields));
   funcType->setReturnType(returnType);
   Type* funcTypePtr = cacheType(std::move(funcType));
+  funcTypePtr->setGenericParams(node->getGenericParams());
   auto funcSymbol = std::make_unique<Value>(node->getName(), funcTypePtr);
   funcSymbol->setExported(node->isExported());
   // Insert into enclosing scope so methods are visible from outer scopes (same as before generics scope).
@@ -626,6 +641,7 @@ auto Typechecker::visit(const ExternFuncDecl* node) -> void {
   auto funcType = std::make_unique<Type>(BaseType::TY_FUNCTION, nullptr, std::move(paramFields));
   funcType->setReturnType(returnType);
   Type* funcTypePtr = cacheType(std::move(funcType));
+  funcTypePtr->setGenericParams(node->getGenericParams());
   auto funcSymbol = std::make_unique<Value>(node->getName(), funcTypePtr);
   funcSymbol->setExported(node->isExported());
   scope->getParent()->insertSymbol(
@@ -762,17 +778,7 @@ auto Typechecker::visit(const FuncCall* node) -> void {
     Value* classSym = scope->lookup(node->getName());
     if (classSym != nullptr && classSym->getType()->is(BaseType::TY_CLASS)) {
       Type* classType = classSym->getType();
-      auto classFields = classType->getFields();
-      std::vector<std::string> genericParamNames;
-      std::unordered_set<std::string> seen;
-      for (auto* f : classFields) {
-        if (f->type->is(BaseType::TY_GENERIC)) {
-          const std::string& n = f->type->getGenericName();
-          if (seen.insert(n).second) {
-            genericParamNames.push_back(n);
-          }
-        }
-      }
+      const std::vector<std::string>& genericParamNames = getDeclaredGenericParams(classType);
       std::vector<Type*> explicitTypes;
       for (TypeExpr* texpr : node->getExplicitTypeArgs()) {
         texpr->accept(*this);
@@ -820,16 +826,8 @@ auto Typechecker::visit(const FuncCall* node) -> void {
       if (sym->getType()->is(BaseType::TY_CLASS)) {
         Type* classType = sym->getType();
         if (!node->getArguments().empty()) {
-          std::vector<std::string> genericParamNames;
-          std::unordered_set<std::string> seen;
-          for (auto* f : classType->getFields()) {
-            if (f->type->is(BaseType::TY_GENERIC)) {
-              const std::string& n = f->type->getGenericName();
-              if (seen.insert(n).second) {
-                genericParamNames.push_back(n);
-              }
-            }
-          }
+          const std::vector<std::string>& genericParamNames =
+              getDeclaredGenericParams(classType);
           Type* ptrToClass =
               cacheType(std::make_unique<Type>(BaseType::TY_PTR, nullptr, classType));
           std::vector<Type*> constructorParamTypes = {ptrToClass};
@@ -878,25 +876,8 @@ auto Typechecker::visit(const FuncCall* node) -> void {
       texpr->accept(*this);
       explicitTypes.push_back(result->getType());
     }
-    std::vector<std::string> genericParamNames;
-    {
-      std::unordered_set<std::string> seen;
-      for (auto* f : fields) {
-        if (f->type->is(BaseType::TY_GENERIC)) {
-          const std::string& n = f->type->getGenericName();
-          if (seen.insert(n).second) {
-            genericParamNames.push_back(n);
-          }
-        }
-      }
-      Type* retType = funcType->getReturnType();
-      if (retType != nullptr && retType->is(BaseType::TY_GENERIC)) {
-        const std::string& n = retType->getGenericName();
-        if (seen.insert(n).second) {
-          genericParamNames.push_back(n);
-        }
-      }
-    }
+    const std::vector<std::string>& genericParamNames =
+        getDeclaredGenericParams(funcType);
     if (explicitTypes.size() != genericParamNames.size()) {
       throw TypeCheckError(node->getSpan(),
                            "Explicit type argument count {} does not match "
@@ -956,16 +937,8 @@ auto Typechecker::visit(const FuncCall* node) -> void {
   if (node->getName() == "new" && !funcType->getFields().empty() &&
       funcType->getFields()[0]->type->is(BaseType::TY_PTR)) {
     Type* classType = funcType->getFields()[0]->type->getElementType();
-    std::vector<std::string> genericParamNames;
-    std::unordered_set<std::string> seen;
-    for (auto* f : classType->getFields()) {
-      if (f->type->is(BaseType::TY_GENERIC)) {
-        const std::string& n = f->type->getGenericName();
-        if (seen.insert(n).second) {
-          genericParamNames.push_back(n);
-        }
-      }
-    }
+    const std::vector<std::string>& genericParamNames =
+        getDeclaredGenericParams(classType);
     Type* specialized =
         getOrCreateSpecializedClassType(classType, genericParamNames, currentGenericTypes);
     result = std::make_unique<Value>(specialized);
