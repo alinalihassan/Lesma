@@ -78,7 +78,7 @@ public:
       std::forward<F>(func)();
       recordElapsed(timer.get_elapsed_ms());
     } else {
-      auto result = std::forward<F>(func)();
+      decltype(auto) result = std::forward<F>(func)();
       recordElapsed(timer.get_elapsed_ms());
       return result;
     }
