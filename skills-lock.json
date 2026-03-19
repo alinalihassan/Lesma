@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "skills": {
+    "llvm": {
+      "source": "mohitmishra786/low-level-dev-skills",
+      "sourceType": "github",
+      "computedHash": "5e0abcd00e0dd5b20ca652374c16d15594078417dc85b9617caa05300b65de11"
+    }
+  }
+}

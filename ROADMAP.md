@@ -2,7 +2,7 @@
 
 - [x] Improve Visitor Pattern
 - [x] Migrate to LLVM 16 with custom Value and Type classes
-- [ ] Fix multiple imports not working (TODO: We should only import each file once)
+- [x] Fix multiple imports not working (import each file once)
 - [x] Add default values in function declarations
 - [ ] Add operator overloading
 - [ ] Add global variables (like 'export let pi = 3.14')
@@ -19,3 +19,8 @@
 - [ ] Add string interpolation
 - [ ] Add multithreading using pthread for now (async/await? ala Spice)
 - [ ] Add multiple value return without having to make structs
+
+## Bugs
+
+- [ ] Nested dot access is not implemented yet (for example `holder.payload.value`)
+- [ ] Dereferencing a pointer loaded from a class field does not work correctly at runtime/codegen

@@ -1,0 +1,32 @@
+enum Status
+    READY
+    DONE
+
+class Payload
+    var value: int
+
+    def new(value: int)
+        self.value = value
+
+class Holder
+    var payload: Payload
+    var status: Status
+
+    def new(value: int)
+        self.payload = Payload(value)
+        self.status = Status.READY
+
+    def isReady() -> bool
+        return self.status == Status.READY
+
+    def markDone()
+        self.status = Status.DONE
+
+var holder = Holder(101)
+
+if not holder.isReady()
+    exit(1)
+
+holder.markDone()
+if holder.isReady()
+    exit(1)

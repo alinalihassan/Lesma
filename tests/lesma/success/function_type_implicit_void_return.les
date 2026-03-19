@@ -1,0 +1,11 @@
+# Function types without an explicit return type should default to void.
+def accepts(callback: *func(int))
+    var seen = 1
+
+def printer(value: int)
+    print(value)
+
+accepts(printer)
+
+let callback: *func(int) = printer
+accepts(callback)

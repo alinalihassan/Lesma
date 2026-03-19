@@ -14,6 +14,7 @@
 #include "plf_nanotimer.h"
 
 namespace lesma {
+// CLEAR = no log prefix (plain output); use for version, help, etc.
 enum class LogType : std::uint8_t { ERROR, WARNING, DEBUG, SUCCESS, CLEAR };
 
 struct CLIOptions {
@@ -26,18 +27,23 @@ struct CLIOptions {
 
 template <typename S, typename... Args>
 void print(LogType typ, const S& formatStr, const Args&... args) {
-  if (typ == LogType::ERROR) {
+  switch (typ) {
+  case LogType::ERROR:
     fmt::print(fg(fmt::color::red) | fmt::emphasis::bold, "[-] Error: ");
-  } else if (typ == LogType::WARNING) {
+    break;
+  case LogType::WARNING:
     fmt::print(fg(fmt::color::yellow) | fmt::emphasis::bold, "[!] Warning: ");
-  } else if (typ == LogType::DEBUG) {
-    fmt::print(fg(fmt::color::medium_purple) | fmt::emphasis::bold,
-               "[?] Debug: ");
-  } else if (typ == LogType::SUCCESS) {
-    fmt::print(fg(fmt::color::forest_green) | fmt::emphasis::bold,
-               "[+] Success: ");
+    break;
+  case LogType::DEBUG:
+    fmt::print(fg(fmt::color::medium_purple) | fmt::emphasis::bold, "[?] Debug: ");
+    break;
+  case LogType::SUCCESS:
+    fmt::print(fg(fmt::color::forest_green) | fmt::emphasis::bold, "[+] Success: ");
+    break;
+  case LogType::CLEAR:
+    /* no prefix */
+    break;
   }
-
   // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-array-to-pointer-decay)
   fmt::print(fmt::runtime(formatStr), args...);
 }
@@ -61,22 +67,19 @@ public:
   // return types
   template <typename F>
   auto measure(const std::string& operation, F&& func) -> decltype(auto) {
+    auto recordElapsed = [this, &operation](double elapsed) {
+      total += elapsed;
+      if (enabled) {
+        print(LogType::DEBUG, "{} -> {:.2f} ms\n", operation, elapsed);
+      }
+    };
     timer.start();
-
     if constexpr (std::is_void_v<std::invoke_result_t<F>>) {
       std::forward<F>(func)();
-      double const elapsed = timer.get_elapsed_ms();
-      total += elapsed;
-      if (enabled) {
-        print(LogType::DEBUG, "{} -> {:.2f} ms\n", operation, elapsed);
-      }
+      recordElapsed(timer.get_elapsed_ms());
     } else {
-      auto result = std::forward<F>(func)();
-      double const elapsed = timer.get_elapsed_ms();
-      total += elapsed;
-      if (enabled) {
-        print(LogType::DEBUG, "{} -> {:.2f} ms\n", operation, elapsed);
-      }
+      decltype(auto) result = std::forward<F>(func)();
+      recordElapsed(timer.get_elapsed_ms());
       return result;
     }
   }
@@ -90,9 +93,8 @@ public:
   }
 };
 
-auto showInline(llvm::SourceMgr* srcMgr, unsigned int bufferId,
-                llvm::SMRange span, const std::string& file, bool isError,
-                const std::string& reason) -> void;
+auto showInline(llvm::SourceMgr* srcMgr, unsigned int bufferId, llvm::SMRange span,
+                const std::string& file, bool isError, const std::string& reason) -> void;
 auto getBasename(const std::string& filePath) -> std::string;
 auto getStdDir() -> std::string;
 } // namespace lesma

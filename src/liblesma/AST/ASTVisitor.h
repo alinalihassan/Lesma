@@ -17,6 +17,7 @@ class Break;
 class Continue;
 class Return;
 class Defer;
+class UnimplementedStatement;
 class Expression;
 class Literal;
 class FuncCall;
@@ -51,6 +52,7 @@ public:
   virtual auto visit(const Continue* node) -> void = 0;
   virtual auto visit(const Return* node) -> void = 0;
   virtual auto visit(const Defer* node) -> void = 0;
+  virtual auto visit(const UnimplementedStatement* node) -> void = 0;
 
   virtual auto visit(const Expression* node) -> void = 0;
   virtual auto visit(const Literal* node) -> void = 0;

@@ -22,6 +22,7 @@ enum class BaseType : std::uint8_t {
   TY_ARRAY,
   TY_VOID,
   TY_FUNCTION,
+  TY_GENERIC,
   TY_CLASS,
   TY_ENUM,
   TY_IMPORT,
@@ -54,24 +55,27 @@ class Type {
   // Non-owning references to other Types (owned elsewhere)
   Type* elementType;
   Type* returnType;
+  std::string genericName;
+  /** Declared generic parameter names in order (for TY_CLASS and TY_FUNCTION). */
+  std::vector<std::string> genericParams;
   // Owned collection of Fields
   std::vector<std::unique_ptr<Field>> fields;
+  bool varArgs = false;
   bool signedInt = true;
 
 public:
   explicit Type(BaseType baseType)
-      : baseType(baseType), llvmType(nullptr), elementType(nullptr),
-        returnType(nullptr) {}
+      : baseType(baseType), llvmType(nullptr), elementType(nullptr), returnType(nullptr) {}
   explicit Type(BaseType baseType, llvm::Type* llvmType)
-      : baseType(baseType), llvmType(llvmType), elementType(nullptr),
-        returnType(nullptr) {}
+      : baseType(baseType), llvmType(llvmType), elementType(nullptr), returnType(nullptr) {}
   explicit Type(BaseType baseType, llvm::Type* llvmType, Type* elementType)
-      : baseType(baseType), llvmType(llvmType), elementType(elementType),
-        returnType(nullptr) {}
-  explicit Type(BaseType baseType, llvm::Type* llvmType,
-                std::vector<std::unique_ptr<Field>> fields)
-      : baseType(baseType), llvmType(llvmType), elementType(nullptr),
-        returnType(nullptr), fields(std::move(fields)) {}
+      : baseType(baseType), llvmType(llvmType), elementType(elementType), returnType(nullptr) {}
+  explicit Type(std::string genericName)
+      : baseType(BaseType::TY_GENERIC), llvmType(nullptr), elementType(nullptr),
+        returnType(nullptr), genericName(std::move(genericName)) {}
+  explicit Type(BaseType baseType, llvm::Type* llvmType, std::vector<std::unique_ptr<Field>> fields)
+      : baseType(baseType), llvmType(llvmType), elementType(nullptr), returnType(nullptr),
+        fields(std::move(fields)) {}
 
   ~Type() = default;
   Type(const Type&) = delete;
@@ -79,27 +83,28 @@ public:
   Type(Type&&) = default;
   auto operator=(Type&&) -> Type& = default;
 
-  [[nodiscard]] auto is(BaseType type) const -> bool {
-    return baseType == type;
-  }
+  [[nodiscard]] auto is(BaseType type) const -> bool { return baseType == type; }
   [[nodiscard]] auto isPrimitive() const -> bool {
-    return isOneOf({BaseType::TY_INT, BaseType::TY_FLOAT, BaseType::TY_STRING,
-                    BaseType::TY_BOOL});
+    return isOneOf({BaseType::TY_INT, BaseType::TY_FLOAT, BaseType::TY_STRING, BaseType::TY_BOOL});
   }
-  [[nodiscard]] auto
-  isOneOf(const std::vector<BaseType>& baseTypes) const -> bool {
-    return std::any_of(
-        baseTypes.begin(), baseTypes.end(),
-        [this](BaseType type) -> bool { return type == this->baseType; });
+  [[nodiscard]] auto isOneOf(const std::vector<BaseType>& baseTypes) const -> bool {
+    return std::any_of(baseTypes.begin(), baseTypes.end(),
+                       [this](BaseType type) -> bool { return type == this->baseType; });
   }
   [[nodiscard]] auto getBaseType() const -> BaseType { return baseType; }
   [[nodiscard]] auto getElementType() const -> Type* { return elementType; }
   [[nodiscard]] auto getReturnType() const -> Type* { return returnType; }
   [[nodiscard]] auto getLlvmType() const -> llvm::Type* { return llvmType; }
+  [[nodiscard]] auto getGenericName() const -> std::string { return genericName; }
+  /** Declared generic parameter names in order (for class/function types). */
+  [[nodiscard]] auto getGenericParams() const -> const std::vector<std::string>& {
+    return genericParams;
+  }
+  [[nodiscard]] auto isVarArgs() const -> bool { return varArgs; }
   [[nodiscard]] auto isSigned() const -> bool { return signedInt; }
 
   // Returns raw pointers for non-owning access
-  [[nodiscard]] auto getFields() -> std::vector<Field*> {
+  [[nodiscard]] auto getFields() const -> std::vector<Field*> {
     std::vector<Field*> result;
     result.reserve(fields.size());
     for (const auto& field : fields) {
@@ -112,30 +117,152 @@ public:
   auto setBaseType(BaseType type) -> void { baseType = type; }
   auto setElementType(Type* type) -> void { elementType = type; }
   auto setReturnType(Type* type) -> void { returnType = type; }
-  auto addField(std::unique_ptr<Field> field) -> void {
-    fields.push_back(std::move(field));
+  auto setGenericName(std::string name) -> void { genericName = std::move(name); }
+  auto setGenericParams(std::vector<std::string> params) -> void {
+    genericParams = std::move(params);
   }
+  auto setVarArgs(bool value) -> void { varArgs = value; }
+  auto addField(std::unique_ptr<Field> field) -> void { fields.push_back(std::move(field)); }
 
   auto isEqual(Type* rhs) const -> bool {
     if (rhs == nullptr) {
       return false;
+    }
+    if (this == rhs) {
+      return true;
     }
 
     if (this->getBaseType() != rhs->getBaseType()) {
       return false;
     }
 
-    Type const* thisElementType = this->getElementType();
-    Type* rhsElementType = rhs->getElementType();
-
-    if (thisElementType == nullptr && rhsElementType == nullptr) {
+    // Class/enum types: when both have LLVM types, compare by pointer identity;
+    // otherwise compare by structure (genericParams + fields) so that types are
+    // equal before LLVM lowering.
+    if (isOneOf({BaseType::TY_CLASS, BaseType::TY_ENUM})) {
+      if (llvmType != nullptr && rhs->llvmType != nullptr) {
+        return llvmType == rhs->llvmType;
+      }
+      // Semantic identity when llvmType not yet set: same generic params and fields.
+      const std::vector<std::string>& lp = getGenericParams();
+      const std::vector<std::string>& rp = rhs->getGenericParams();
+      if (lp.size() != rp.size()) {
+        return false;
+      }
+      for (size_t i = 0; i < lp.size(); ++i) {
+        if (lp[i] != rp[i]) {
+          return false;
+        }
+      }
+      auto lf = getFields();
+      auto rf = rhs->getFields();
+      if (lf.size() != rf.size()) {
+        return false;
+      }
+      for (size_t i = 0; i < lf.size(); ++i) {
+        if (lf[i]->name != rf[i]->name) {
+          return false;
+        }
+        Type* lt = lf[i]->type;
+        Type* rt = rf[i]->type;
+        if (lt == nullptr || rt == nullptr) {
+          if (lt != rt) {
+            return false;
+          }
+          continue;
+        }
+        // Cycle check: same (this, rhs) pair avoids infinite recursion (e.g. class with *Self).
+        if ((lt == this && rt == rhs) || (lt == rhs && rt == this)) {
+          continue;
+        }
+        if (!lt->isEqual(rt)) {
+          return false;
+        }
+      }
       return true;
     }
-    if (thisElementType == nullptr || rhsElementType == nullptr) {
-      return false;
-    }
 
-    return thisElementType->isEqual(rhsElementType);
+    switch (baseType) {
+    case BaseType::TY_INT: {
+      llvm::Type* l = getLlvmType();
+      llvm::Type* r = rhs->getLlvmType();
+      if (l == nullptr && r == nullptr) {
+        return isSigned() == rhs->isSigned();
+      }
+      if (l == nullptr || r == nullptr) {
+        llvm::Type* concrete = (l != nullptr) ? l : r;
+        return concrete != nullptr && concrete->isIntegerTy() && isSigned() == rhs->isSigned();
+      }
+      if (!l->isIntegerTy() || !r->isIntegerTy()) {
+        return false;
+      }
+      return isSigned() == rhs->isSigned() && l->getIntegerBitWidth() == r->getIntegerBitWidth();
+    }
+    case BaseType::TY_FLOAT: {
+      llvm::Type* l = getLlvmType();
+      llvm::Type* r = rhs->getLlvmType();
+      if (l == nullptr && r == nullptr) {
+        return true;
+      }
+      if (l == nullptr || r == nullptr) {
+        llvm::Type* concrete = (l != nullptr) ? l : r;
+        return concrete != nullptr && concrete->isFloatingPointTy();
+      }
+      if (!l->isFloatingPointTy() || !r->isFloatingPointTy()) {
+        return false;
+      }
+      return l == r;
+    }
+    case BaseType::TY_STRING:
+    case BaseType::TY_BOOL:
+    case BaseType::TY_VOID:
+    case BaseType::TY_INVALID:
+    case BaseType::TY_IMPORT:
+      return true;
+    case BaseType::TY_PTR:
+    case BaseType::TY_ARRAY: {
+      Type const* thisElementType = getElementType();
+      Type* rhsElementType = rhs->getElementType();
+      if (thisElementType == nullptr && rhsElementType == nullptr) {
+        return true;
+      }
+      if (thisElementType == nullptr || rhsElementType == nullptr) {
+        return false;
+      }
+      return thisElementType->isEqual(rhsElementType);
+    }
+    case BaseType::TY_FUNCTION: {
+      if (varArgs != rhs->isVarArgs()) {
+        return false;
+      }
+      auto lf = getFields();
+      auto rf = rhs->getFields();
+      if (lf.size() != rf.size()) {
+        return false;
+      }
+      for (size_t i = 0; i < lf.size(); ++i) {
+        if (!lf[i]->type->isEqual(rf[i]->type)) {
+          return false;
+        }
+      }
+      Type* lret = getReturnType();
+      Type* rret = rhs->getReturnType();
+      if (lret == nullptr && rret == nullptr) {
+        return true;
+      }
+      if (lret == nullptr || rret == nullptr) {
+        return false;
+      }
+      return lret->isEqual(rret);
+    }
+    case BaseType::TY_GENERIC:
+      return genericName == rhs->getGenericName();
+    case BaseType::TY_CLASS:
+    case BaseType::TY_ENUM:
+      // Handled above; unreachable but required for switch completeness.
+      return llvmType != nullptr && rhs->llvmType != nullptr && llvmType == rhs->llvmType;
+    }
+    return false;
   }
 
   [[nodiscard]] auto toString() const -> std::string {
@@ -169,6 +296,9 @@ public:
     case BaseType::TY_FUNCTION:
       result = "Function";
       break;
+    case BaseType::TY_GENERIC:
+      result = genericName;
+      break;
     case BaseType::TY_CLASS:
       result = "Class";
       break;
@@ -184,7 +314,7 @@ public:
       result += "<" + elementType->toString() + ">";
     }
 
-    if (!fields.empty()) {
+    if (!fields.empty() && !isOneOf({BaseType::TY_CLASS, BaseType::TY_ENUM})) {
       result += baseType == BaseType::TY_FUNCTION ? " ( " : " { ";
       for (const auto& field : fields) {
         result += field->name + ": " + field->type->toString() + "; ";

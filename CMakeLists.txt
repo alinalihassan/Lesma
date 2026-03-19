@@ -17,6 +17,7 @@ add_feature_option(LESMA_BUILD_TESTS "tests" "Build Tests" OFF)
 add_feature_option(LESMA_BUILD_BENCHMARKS "benchmarks" "Build Benchmarks" OFF)
 add_feature_option(LESMA_BUILD_DIST "dist" "Build Dist" OFF)
 add_feature_option(LESMA_BUILD_LLVM "build-llvm" "Build LLVM 15 via vcpkg" OFF)
+option(LESMA_SANITIZE_ADDRESS "Build with AddressSanitizer and LeakSanitizer for memory error and leak detection (Debug builds, all platforms)" OFF)
 
 # Get version from vcpkg
 file(READ ${CMAKE_CURRENT_SOURCE_DIR}/vcpkg.json VCPKG_MANIFEST)
@@ -36,6 +37,18 @@ endif ()
 set(CMAKE_CXX_STANDARD 23)
 add_definitions(${CMAKE_CXX_FLAGS} -Wall -Wextra -Wpedantic -frtti)
 set(CMAKE_CXX_FLAGS_RELEASE "-O3")
+
+# AddressSanitizer + LeakSanitizer (works on macOS Apple Silicon and Linux; use instead of Valgrind on macOS)
+if (LESMA_SANITIZE_ADDRESS)
+  if (NOT CMAKE_BUILD_TYPE STREQUAL "Debug")
+    message(WARNING "LESMA_SANITIZE_ADDRESS is best used with CMAKE_BUILD_TYPE=Debug; current type is ${CMAKE_BUILD_TYPE}")
+  endif ()
+  set(SANITIZE_FLAGS "-fsanitize=address -fno-omit-frame-pointer")
+  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${SANITIZE_FLAGS}")
+  set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} ${SANITIZE_FLAGS}")
+  set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} ${SANITIZE_FLAGS}")
+  message(STATUS "AddressSanitizer and LeakSanitizer enabled (memory and leak detection)")
+endif ()
 
 # External dependencies
 find_package(fmt CONFIG REQUIRED)
@@ -98,8 +111,12 @@ set(COMMON_SOURCES
   src/liblesma/Frontend/Lexer.cpp
   src/liblesma/Frontend/Parser.cpp
   src/liblesma/Token/Token.cpp
+  src/liblesma/Typecheck/Typechecker.cpp
   src/liblesma/Backend/Codegen.cpp
+  src/liblesma/Backend/CodegenTypeUtils.cpp
+  src/liblesma/Backend/MangleUtils.cpp
   src/liblesma/Symbol/SymbolTable.cpp
+  src/liblesma/Symbol/TypeUtils.cpp
   src/liblesma/Driver/Driver.cpp
   )
 
@@ -113,8 +130,7 @@ set(COMMON_INCLUDE ${PLF_NANOTIMER_INCLUDE_DIRS})
 # Lesma Library
 
 ## Create Library
-add_library(${LIB_NAME} ${COMMON_SOURCES}
-        src/liblesma/Backend/Codegen.cpp)
+add_library(${LIB_NAME} ${COMMON_SOURCES})
 target_link_libraries(${LIB_NAME} ${COMMON_LIBS})
 
 target_include_directories(${LIB_NAME} PUBLIC

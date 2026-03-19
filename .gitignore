@@ -19,3 +19,4 @@ test*.les
 **/*.o
 .cache/
 compile_commands.json
+/output

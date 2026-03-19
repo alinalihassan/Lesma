@@ -1,0 +1,8 @@
+class Wrapper
+    def new()
+        pass
+    def id<T>(v: T) -> T
+        return v
+
+var w = Wrapper()
+w.id<int>(true)

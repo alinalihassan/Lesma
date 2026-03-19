@@ -2,6 +2,9 @@
 
 SCRIPT_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
 
+# Per-test timeout (seconds) to avoid hanging on infinite loops
+TEST_TIMEOUT=1
+
 fail_count=0
 success_count=0
 
@@ -9,8 +12,18 @@ test_compiler() {
   local file="$1"
   local mode="$2"
   local compiler_path="$3"
-  "${compiler_path}" "${mode}" "${file}"
-  return $?
+  local quiet="${4:-}"
+  if [ -n "${quiet}" ]; then
+    timeout "${TEST_TIMEOUT}" "${compiler_path}" "${mode}" "${file}" >/dev/null 2>&1
+  else
+    timeout "${TEST_TIMEOUT}" "${compiler_path}" "${mode}" "${file}"
+  fi
+  local ret=$?
+  # timeout returns 124 when the command is killed
+  if [ $ret -eq 124 ]; then
+    printf "  Timed out after %ds\n" "${TEST_TIMEOUT}" >&2
+  fi
+  return $ret
 }
 
 test_case() {
@@ -22,11 +35,17 @@ test_case() {
 
   test_expected_ret_value=0
 
-  test_compiler "${file}" "run" "${compiler_path}"
-  test_jit_ret_value=$?
-
-  test_compiler "${file}" "compile" "${compiler_path}"
-  test_aot_ret_value=$?
+  if [ "$expected_to_fail" -eq 1 ]; then
+    test_compiler "${file}" "run" "${compiler_path}" quiet
+    test_jit_ret_value=$?
+    test_compiler "${file}" "compile" "${compiler_path}" quiet
+    test_aot_ret_value=$?
+  else
+    test_compiler "${file}" "run" "${compiler_path}"
+    test_jit_ret_value=$?
+    test_compiler "${file}" "compile" "${compiler_path}"
+    test_aot_ret_value=$?
+  fi
 
   if [ "$test_jit_ret_value" -ne "$test_expected_ret_value" ] && [ "$expected_to_fail" -eq 0 ]; then
     fail_count=$((fail_count + 1))
@@ -43,9 +62,19 @@ test_case() {
   fi
 }
 
-compiler_path="${SCRIPT_DIR}/../build/lesma"
+# Default: first arg, or auto-detect from common build layouts
 if [ $# -gt 0 ]; then
   compiler_path="$1"
+else
+  ROOT="${SCRIPT_DIR}/.."
+  if [ -x "${ROOT}/build/Debug/lesma" ]; then
+    compiler_path="${ROOT}/build/Debug/lesma"
+  elif [ -x "${ROOT}/build/lesma" ]; then
+    compiler_path="${ROOT}/build/lesma"
+  else
+    printf "Error: lesma binary not found. Build the project first, or pass the path:\n  %s <path-to-lesma>\n" "$(basename "$0")" >&2
+    exit 1
+  fi
 fi
 
 # Test success cases

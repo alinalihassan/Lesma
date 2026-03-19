@@ -30,7 +30,7 @@ public:
 
   auto parse() -> void;
 
-  auto getAst() -> Compound* { return tree.get(); }
+  [[nodiscard]] auto getAst() -> Compound* { return tree.get(); }
 
 private:
   auto peek() -> Token* { return peek(0); }
@@ -40,7 +40,7 @@ private:
   auto consume(TokenType type, const std::string& errorMessage) -> Token*;
   auto consumeNewline() -> Token*;
 
-  auto previous() -> Token* { return peek(-1); }
+  [[nodiscard]] auto previous() -> Token* { return (index > 0) ? tokens.at(index - 1) : nullptr; }
 
   auto isAtEnd() -> bool { return peek()->type == TokenType::EOF_TOKEN; }
 
@@ -54,20 +54,18 @@ private:
 
   auto check(TokenType type) -> bool { return check(type, 0); }
 
-  auto check(TokenType type, unsigned long pos) -> bool {
-    return peek(pos)->type == type;
-  }
+  auto check(TokenType type, unsigned long pos) -> bool { return peek(pos)->type == type; }
 
-  template <TokenType type, TokenType... remained_types>
+  template <TokenType type, TokenType... remaining_types>
   auto advanceIfMatchAny() -> bool;
 
-  template <TokenType type, TokenType... remained_types>
+  template <TokenType type, TokenType... remaining_types>
   auto checkAny() -> bool;
 
-  template <TokenType type, TokenType... remained_types>
+  template <TokenType type, TokenType... remaining_types>
   auto checkAnyInLine() -> bool;
 
-  template <TokenType type, TokenType... remained_types>
+  template <TokenType type, TokenType... remaining_types>
   auto checkAny(unsigned long pos) -> bool;
 
   std::vector<Token*> tokens;
@@ -109,5 +107,11 @@ private:
   auto parseUnary() -> std::unique_ptr<Expression>;
   auto parseTerm() -> std::unique_ptr<Expression>;
   auto parseFunctionCall() -> std::unique_ptr<Expression>;
+
+  // Lookahead: true if from current position we have IDENTIFIER LESS type-list
+  // GREATER LEFT_PAREN (so parsing as call with explicit type args is valid).
+  auto hasExplicitTypeArgsAndParen() -> bool;
+  auto parseTypeAt(unsigned long& off) -> bool;
+  auto skipOneTypeAt(unsigned long& off) -> bool;
 };
 } // namespace lesma

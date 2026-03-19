@@ -14,15 +14,12 @@
 
 using namespace lesma;
 
-auto Token::dump(const std::shared_ptr<llvm::SourceMgr>& srcMgr) const
-    -> std::string {
-  unsigned const bufId = srcMgr->getNumBuffers() - 1;
-  auto [startLine, startCol] = srcMgr->getLineAndColumn(span.Start, bufId);
-  auto [endLine, endCol] = srcMgr->getLineAndColumn(span.End, bufId);
+auto Token::dump(const std::shared_ptr<llvm::SourceMgr>& srcMgr) const -> std::string {
+  auto [startLine, startCol] = srcMgr->getLineAndColumn(span.Start);
+  auto [endLine, endCol] = srcMgr->getLineAndColumn(span.End);
 
-  return fmt::format("[Type: {}, Lexeme: {}, Line: {} - {}, Col: {} - {}]",
-                     NAMEOF_ENUM(type), lexeme, startLine, endLine, startCol,
-                     endCol);
+  return fmt::format("[Type: {}, Lexeme: {}, Line: {} - {}, Col: {} - {}]", NAMEOF_ENUM(type),
+                     lexeme, startLine, endLine, startCol, endCol);
 }
 
 static const std::unordered_map<std::string_view, TokenType> KEYWORDS = {
@@ -70,8 +67,7 @@ static const std::unordered_map<std::string_view, TokenType> KEYWORDS = {
     {"void", TokenType::VOID_TYPE},
 };
 
-auto Token::getIdentifierType(const std::string& identifier,
-                              Token* lastTok) -> TokenType {
+auto Token::getIdentifierType(const std::string& identifier, Token* lastTok) -> TokenType {
   // Multi-word keywords first (check lastTok is not null)
   if (lastTok != nullptr) {
     if (identifier == "if" && lastTok->type == TokenType::ELSE) {
