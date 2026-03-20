@@ -166,19 +166,24 @@ class Enum : public Statement {
   std::string identifier;
   llvm::SMRange nameSpan;
   std::vector<std::string> values;
+  std::vector<llvm::SMRange> valueSpans;
   bool exported;
 
 public:
   Enum(llvm::SMRange loc, std::string identifier, llvm::SMRange nameSpan,
-       std::vector<std::string> values, bool exported)
+       std::vector<std::string> values, std::vector<llvm::SMRange> valueSpans, bool exported)
       : Statement(loc), identifier(std::move(identifier)), nameSpan(nameSpan),
-        values(std::move(values)), exported(exported) {};
+        values(std::move(values)), valueSpans(std::move(valueSpans)), exported(exported) {};
   void accept(ASTVisitor& visitor) const override { visitor.visit(this); }
 
   [[nodiscard]] [[maybe_unused]] auto getIdentifier() const -> std::string { return identifier; }
   [[nodiscard]] [[maybe_unused]] auto getNameSpan() const -> llvm::SMRange { return nameSpan; }
   [[nodiscard]] [[maybe_unused]] auto getValues() const -> std::vector<std::string> {
     return values;
+  }
+  [[nodiscard]] [[maybe_unused]] auto getValueSpans() const
+      -> const std::vector<llvm::SMRange>& {
+    return valueSpans;
   }
   [[nodiscard]] [[maybe_unused]] auto isExported() const -> bool { return exported; }
 

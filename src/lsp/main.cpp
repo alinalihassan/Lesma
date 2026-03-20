@@ -17,6 +17,7 @@
 #include <lsp/io/standardio.h>
 #include <lsp/messagehandler.h>
 #include <lsp/messages.h>
+#include <lsp/types.h>
 
 #include "liblesma/AST/AST.h"
 #include "liblesma/Driver/AnalysisResult.h"
@@ -94,11 +95,10 @@ public:
 }
 
 void runAnalyzeAndPublish(const ::lsp::DocumentUri& uri,
-                          const lesma::lsp_srv::DocumentStore& docStore,
-                          const std::string& content, int version,
-                          AnalysisCache& analysisCache, ::lsp::MessageHandler& messageHandler) {
-  DocumentAnalysisSnapshot& snapshot =
-      analysisCache.getOrAnalyze(uri, docStore, content, version);
+                          const lesma::lsp_srv::DocumentStore& docStore, const std::string& content,
+                          int version, AnalysisCache& analysisCache,
+                          ::lsp::MessageHandler& messageHandler) {
+  DocumentAnalysisSnapshot& snapshot = analysisCache.getOrAnalyze(uri, docStore, content, version);
   AnalysisResult& result = snapshot.result;
 
   std::vector<::lsp::Diagnostic> lspDiagnostics;
@@ -134,8 +134,7 @@ std::string getTypeName(lesma::Type* type, lesma::SymbolTable* rootScope) {
       }
       // Check symbols in this scope
       for (lesma::Value* sym : scope->getSymbols()) {
-        if (sym->getCategory() == lesma::ValueCategory::TYPE_SYMBOL &&
-            sym->getType() == type) {
+        if (sym->getCategory() == lesma::ValueCategory::TYPE_SYMBOL && sym->getType() == type) {
           return sym;
         }
       }
@@ -178,8 +177,13 @@ std::string formatHoverContent(lesma::Value* value, lesma::SymbolTable* rootScop
   switch (value->getCategory()) {
   case lesma::ValueCategory::CALLABLE_SYMBOL:
     return "**" + name + "**\n\nType: `" + typeStr + "`";
-  case lesma::ValueCategory::TYPE_SYMBOL:
-    return "**" + name + "**\n\n" + typeStr;
+  case lesma::ValueCategory::TYPE_SYMBOL: {
+    // For TYPE_SYMBOL (classes/enums), show as "enum `Name`" or "class `Name`"
+    if (type != nullptr && type->is(lesma::BaseType::TY_ENUM)) {
+      return "enum `" + name + "`";
+    }
+    return "class `" + name + "`";
+  }
   case lesma::ValueCategory::MODULE_SYMBOL:
     return "**" + name + "**\n\n(import)";
   case lesma::ValueCategory::ADDRESSABLE_STORAGE:
@@ -202,8 +206,8 @@ struct InnermostFunc {
   lesma::Class* enclosingClass = nullptr;
 };
 
-void considerFunc(lesma::FuncDecl* f, lesma::Class* cls, unsigned targetOffset,
-                  llvm::SourceMgr* sm, unsigned bid, InnermostFunc& best, unsigned& bestLen) {
+void considerFunc(lesma::FuncDecl* f, lesma::Class* cls, unsigned targetOffset, llvm::SourceMgr* sm,
+                  unsigned bid, InnermostFunc& best, unsigned& bestLen) {
   if (f->getBody() == nullptr) {
     return;
   }
@@ -247,6 +251,8 @@ void scanCompoundForFuncs(lesma::Compound* c, lesma::Class* cls, unsigned target
   }
 }
 
+enum Level { LOW, MEDIUM, HIGH };
+
 InnermostFunc findInnermostFuncContaining(lesma::Compound* ast, unsigned targetOffset,
                                           llvm::SourceMgr* sm, unsigned bid) {
   InnermostFunc best;
@@ -256,16 +262,15 @@ InnermostFunc findInnermostFuncContaining(lesma::Compound* ast, unsigned targetO
 }
 
 lesma::Value* lookupValueForHover(lesma::Compound* ast, lesma::SymbolTable* root,
-                                llvm::SourceMgr* srcMgr, unsigned bufferId, unsigned line,
-                                unsigned character, const std::string& name) {
+                                  llvm::SourceMgr* srcMgr, unsigned bufferId, unsigned line,
+                                  unsigned character, const std::string& name) {
   auto const* buf = srcMgr->getMemoryBuffer(bufferId);
   if (buf == nullptr) {
     return nullptr;
   }
   unsigned const targetOffset = static_cast<unsigned>(
       lesma::lsp_srv::bufferByteOffsetFromLspPosition(buf->getBuffer(), line, character));
-  InnermostFunc const inner =
-      findInnermostFuncContaining(ast, targetOffset, srcMgr, bufferId);
+  InnermostFunc const inner = findInnermostFuncContaining(ast, targetOffset, srcMgr, bufferId);
   if (inner.func != nullptr && inner.enclosingClass == nullptr) {
     lesma::Value* const funcSym = root->lookup(inner.func->getName());
     if (funcSym != nullptr && funcSym->getBodyScope() != nullptr) {
@@ -277,10 +282,16 @@ lesma::Value* lookupValueForHover(lesma::Compound* ast, lesma::SymbolTable* root
   return root->lookup(name);
 }
 
+/** Identifier at cursor plus optional "dot base" when cursor is on the right of a DotOp (e.g. MyEnum.OptionA). */
+struct CursorIdentifier {
+  std::string name;
+  std::optional<std::string> dotBase;
+};
+
 /** Find identifier at cursor position by walking AST to find the identifier token. */
-std::optional<std::string> findIdentifierAtCursor(const lesma::Compound* ast,
-                                                   llvm::SourceMgr* srcMgr, unsigned bufferId,
-                                                   unsigned line, unsigned character) {
+std::optional<CursorIdentifier> findIdentifierAtCursor(const lesma::Compound* ast,
+                                                        llvm::SourceMgr* srcMgr, unsigned bufferId,
+                                                        unsigned line, unsigned character) {
   unsigned targetOffset = 0;
   {
     auto const* buf = srcMgr->getMemoryBuffer(bufferId);
@@ -293,7 +304,7 @@ std::optional<std::string> findIdentifierAtCursor(const lesma::Compound* ast,
         lesma::lsp_srv::bufferByteOffsetFromLspPosition(ref, line, character));
   }
 
-  std::optional<std::string> result;
+  std::optional<CursorIdentifier> result;
   std::function<void(const lesma::Expression*)> visitExpr = [&](const lesma::Expression* node) {
     if (node == nullptr || result) {
       return;
@@ -307,7 +318,7 @@ std::optional<std::string> findIdentifierAtCursor(const lesma::Compound* ast,
     if (targetOffset >= startOff && targetOffset < endOff) {
       if (auto const* lit = dynamic_cast<const lesma::Literal*>(node)) {
         if (lit->getType() == lesma::TokenType::IDENTIFIER) {
-          result = lit->getValue();
+          result = CursorIdentifier{lit->getValue(), std::nullopt};
         }
       }
       if (auto const* fc = dynamic_cast<const lesma::FuncCall*>(node)) {
@@ -320,7 +331,7 @@ std::optional<std::string> findIdentifierAtCursor(const lesma::Compound* ast,
           // Otherwise, check arguments
           unsigned nameLen = nameEnd - nameStart;
           if (targetOffset < nameStart + nameLen / 2) {
-            result = fc->getName();
+            result = CursorIdentifier{fc->getName(), std::nullopt};
             if (result) {
               return;
             }
@@ -357,8 +368,15 @@ std::optional<std::string> findIdentifierAtCursor(const lesma::Compound* ast,
             unsigned rightStart = getOffsetFromSMLoc(srcMgr, bufferId, rightSpan.Start);
             unsigned rightEnd = getOffsetFromSMLoc(srcMgr, bufferId, rightSpan.End);
             if (targetOffset >= rightStart && targetOffset < rightEnd) {
+              std::optional<std::string> leftName;
+              if (auto const* leftLit = dynamic_cast<const lesma::Literal*>(dot->getLeft())) {
+                if (leftLit->getType() == lesma::TokenType::IDENTIFIER) {
+                  leftName = leftLit->getValue();
+                }
+              }
               visitExpr(dot->getRight());
               if (result) {
+                result = CursorIdentifier{result->name, leftName};
                 return;
               }
             }
@@ -391,7 +409,10 @@ std::optional<std::string> findIdentifierAtCursor(const lesma::Compound* ast,
     }
     unsigned startOff = getOffsetFromSMLoc(srcMgr, bufferId, span.Start);
     unsigned endOff = getOffsetFromSMLoc(srcMgr, bufferId, span.End);
-    if (targetOffset >= startOff && targetOffset < endOff) {
+    // Match if cursor is within the statement span, or immediately after it (for name spans)
+    bool isInSpan = targetOffset >= startOff && targetOffset < endOff;
+    bool isJustAfterSpan = targetOffset >= endOff && targetOffset <= endOff + 2U;
+    if (isInSpan || isJustAfterSpan) {
       if (auto const* v = dynamic_cast<const lesma::VarDecl*>(node)) {
         // Check if cursor is on the identifier itself (not just anywhere in VarDecl)
         if (v->getIdentifier() != nullptr &&
@@ -400,14 +421,93 @@ std::optional<std::string> findIdentifierAtCursor(const lesma::Compound* ast,
           if (idSpan.isValid()) {
             unsigned idStart = getOffsetFromSMLoc(srcMgr, bufferId, idSpan.Start);
             unsigned idEnd = getOffsetFromSMLoc(srcMgr, bufferId, idSpan.End);
-            if (targetOffset >= idStart && targetOffset < idEnd) {
-              result = v->getIdentifier()->getValue();
+            bool isInId = targetOffset >= idStart && targetOffset < idEnd;
+            bool isJustAfterId = targetOffset >= idEnd && targetOffset <= idEnd + 2U;
+            if (isInId || isJustAfterId) {
+              result = CursorIdentifier{v->getIdentifier()->getValue(), std::nullopt};
             }
           }
         }
         // Also visit the expression (initializer) to find identifiers there
         if (!result && v->getValue() != nullptr) {
           visitExpr(v->getValue());
+        }
+      }
+      if (auto const* f = dynamic_cast<const lesma::FuncDecl*>(node)) {
+        // Check if cursor is on the function name
+        llvm::SMRange nameSpan = f->getNameSpan();
+        if (nameSpan.isValid()) {
+          unsigned nameStart = getOffsetFromSMLoc(srcMgr, bufferId, nameSpan.Start);
+          unsigned nameEnd = getOffsetFromSMLoc(srcMgr, bufferId, nameSpan.End);
+          bool isInName = targetOffset >= nameStart && targetOffset < nameEnd;
+          bool isJustAfterName = targetOffset >= nameEnd && targetOffset <= nameEnd + 2U;
+          if (isInName || isJustAfterName) {
+            result = CursorIdentifier{f->getName(), std::nullopt};
+          }
+        }
+        // Also visit body to find identifiers in expressions
+        if (!result && f->getBody() != nullptr) {
+          for (lesma::Statement* s : f->getBody()->getChildren()) {
+            visit(s);
+            if (result) {
+              return;
+            }
+          }
+        }
+      }
+      if (auto const* c = dynamic_cast<const lesma::Class*>(node)) {
+        // Check if cursor is on the class name
+        llvm::SMRange nameSpan = c->getNameSpan();
+        if (nameSpan.isValid()) {
+          unsigned nameStart = getOffsetFromSMLoc(srcMgr, bufferId, nameSpan.Start);
+          unsigned nameEnd = getOffsetFromSMLoc(srcMgr, bufferId, nameSpan.End);
+          bool isInName = targetOffset >= nameStart && targetOffset < nameEnd;
+          bool isJustAfterName = targetOffset >= nameEnd && targetOffset <= nameEnd + 2U;
+          if (isInName || isJustAfterName) {
+            result = CursorIdentifier{c->getIdentifier(), std::nullopt};
+          }
+        }
+        // Also visit methods and fields
+        if (!result) {
+          for (lesma::FuncDecl* m : c->getMethods()) {
+            visit(m);
+            if (result) {
+              return;
+            }
+          }
+        }
+      }
+      if (auto const* e = dynamic_cast<const lesma::Enum*>(node)) {
+        // Check if cursor is on the enum name
+        llvm::SMRange nameSpan = e->getNameSpan();
+        if (nameSpan.isValid()) {
+          unsigned nameStart = getOffsetFromSMLoc(srcMgr, bufferId, nameSpan.Start);
+          unsigned nameEnd = getOffsetFromSMLoc(srcMgr, bufferId, nameSpan.End);
+          bool isInName = targetOffset >= nameStart && targetOffset < nameEnd;
+          bool isJustAfterName = targetOffset >= nameEnd && targetOffset <= nameEnd + 2U;
+          if (isInName || isJustAfterName) {
+            result = CursorIdentifier{e->getIdentifier(), std::nullopt};
+          }
+        }
+        // Check if cursor is on an enum value (e.g. RED in "enum Color\n  RED\n  GREEN").
+        // Enum statement span is only the "enum" keyword, so we always check value spans here.
+        if (!result) {
+          std::vector<std::string> const& values = e->getValues();
+          std::vector<llvm::SMRange> const& valueSpans = e->getValueSpans();
+          for (size_t i = 0; i < values.size() && i < valueSpans.size(); ++i) {
+            llvm::SMRange span = valueSpans[i];
+            if (!span.isValid()) {
+              continue;
+            }
+            unsigned startOff = getOffsetFromSMLoc(srcMgr, bufferId, span.Start);
+            unsigned endOff = getOffsetFromSMLoc(srcMgr, bufferId, span.End);
+            bool isIn = targetOffset >= startOff && targetOffset < endOff;
+            bool isJustAfter = targetOffset >= endOff && targetOffset <= endOff + 2U;
+            if (isIn || isJustAfter) {
+              result = CursorIdentifier{values[i], std::nullopt};
+              break;
+            }
+          }
         }
       }
       if (auto const* compound = dynamic_cast<const lesma::Compound*>(node)) {
@@ -446,6 +546,40 @@ std::optional<std::string> findIdentifierAtCursor(const lesma::Compound* ast,
     if (result) {
       return result;
     }
+    // Enum statement span is only the "enum" keyword; check name and value spans
+    // separately so hover works on "Color" and RED/BLUE/GREEN in "enum Color\n  RED\n  ..."
+    if (!result) {
+      if (auto const* e = dynamic_cast<const lesma::Enum*>(stmt)) {
+        llvm::SMRange nameSpan = e->getNameSpan();
+        if (nameSpan.isValid()) {
+          unsigned nameStart = getOffsetFromSMLoc(srcMgr, bufferId, nameSpan.Start);
+          unsigned nameEnd = getOffsetFromSMLoc(srcMgr, bufferId, nameSpan.End);
+          bool isInName = targetOffset >= nameStart && targetOffset < nameEnd;
+          bool isJustAfterName = targetOffset >= nameEnd && targetOffset <= nameEnd + 2U;
+          if (isInName || isJustAfterName) {
+            result = CursorIdentifier{e->getIdentifier(), std::nullopt};
+          }
+        }
+        if (!result) {
+          std::vector<std::string> const& values = e->getValues();
+          std::vector<llvm::SMRange> const& valueSpans = e->getValueSpans();
+          for (size_t i = 0; i < values.size() && i < valueSpans.size(); ++i) {
+          llvm::SMRange span = valueSpans[i];
+          if (!span.isValid()) {
+            continue;
+          }
+          unsigned valStart = getOffsetFromSMLoc(srcMgr, bufferId, span.Start);
+          unsigned valEnd = getOffsetFromSMLoc(srcMgr, bufferId, span.End);
+          bool isIn = targetOffset >= valStart && targetOffset < valEnd;
+          bool isJustAfter = targetOffset >= valEnd && targetOffset <= valEnd + 2U;
+          if (isIn || isJustAfter) {
+            result = CursorIdentifier{values[i], std::nullopt};
+            break;
+          }
+        }
+        }
+      }
+    }
     // Also check expressions in statements that contain them
     if (auto const* es = dynamic_cast<const lesma::ExpressionStatement*>(stmt)) {
       if (es->getExpression() != nullptr) {
@@ -483,9 +617,188 @@ std::optional<std::string> findIdentifierAtCursor(const lesma::Compound* ast,
   return result;
 }
 
+/** Semantic token type indices (must match server legend). */
+enum class SemanticTokenType : unsigned {
+  Enum = 0,
+  EnumMember = 1,
+};
+
+/** Collect semantic tokens for enum member references (e.g. MyEnum.OptionA). */
+std::vector<std::uint32_t> collectSemanticTokens(const AnalysisResult& analysisResult,
+                                                  unsigned bufferId) {
+  std::vector<std::tuple<unsigned, unsigned, unsigned, unsigned>> rawTokens;
+  llvm::SourceMgr* srcMgr = analysisResult.sourceMgr.get();
+  lesma::SymbolTable* root = analysisResult.rootScope.get();
+  lesma::Compound* ast = analysisResult.parser ? analysisResult.parser->getAst() : nullptr;
+  if (srcMgr == nullptr || root == nullptr || ast == nullptr) {
+    return {};
+  }
+
+  std::function<void(const lesma::Expression*)> visitExpr = [&](const lesma::Expression* node) {
+    if (node == nullptr) {
+      return;
+    }
+    if (auto const* dot = dynamic_cast<const lesma::DotOp*>(node)) {
+      lesma::Value* baseVal = nullptr;
+      if (auto const* leftLit = dynamic_cast<const lesma::Literal*>(dot->getLeft())) {
+        if (leftLit->getType() == lesma::TokenType::IDENTIFIER) {
+          baseVal = root->lookup(leftLit->getValue());
+        }
+      }
+      if (baseVal != nullptr && baseVal->getType() != nullptr &&
+          baseVal->getType()->is(lesma::BaseType::TY_ENUM) && dot->getRight() != nullptr) {
+        if (auto const* rightLit = dynamic_cast<const lesma::Literal*>(dot->getRight())) {
+          if (rightLit->getType() == lesma::TokenType::IDENTIFIER) {
+            llvm::SMRange span = rightLit->getSpan();
+            if (span.isValid()) {
+              auto [line1, startCol1] = srcMgr->getLineAndColumn(span.Start, bufferId);
+              auto [endLine1, endCol1] = srcMgr->getLineAndColumn(span.End, bufferId);
+              unsigned line0 = line1 > 0U ? line1 - 1U : 0U;
+              unsigned startChar = startCol1 > 0U ? startCol1 - 1U : 0U;
+              unsigned length = (endLine1 == line1 && endCol1 >= startCol1)
+                                   ? (endCol1 - startCol1)
+                                   : 0U;
+              rawTokens.emplace_back(line0, startChar, length,
+                                     static_cast<unsigned>(SemanticTokenType::EnumMember));
+            }
+          }
+        }
+      }
+      if (dot->getLeft() != nullptr) {
+        visitExpr(dot->getLeft());
+      }
+      if (dot->getRight() != nullptr) {
+        visitExpr(dot->getRight());
+      }
+      return;
+    }
+    if (auto const* fc = dynamic_cast<const lesma::FuncCall*>(node)) {
+      for (lesma::Expression* arg : fc->getArguments()) {
+        if (arg != nullptr) {
+          visitExpr(arg);
+        }
+      }
+      return;
+    }
+    if (auto const* bin = dynamic_cast<const lesma::BinaryOp*>(node)) {
+      visitExpr(bin->getLeft());
+      visitExpr(bin->getRight());
+      return;
+    }
+    if (auto const* un = dynamic_cast<const lesma::UnaryOp*>(node)) {
+      visitExpr(un->getExpression());
+      return;
+    }
+  };
+
+  std::function<void(const lesma::Statement*)> visitStmt = [&](const lesma::Statement* node) {
+    if (node == nullptr) {
+      return;
+    }
+    // Enum member declarations (e.g. OptionA, OptionB in "enum E { OptionA, OptionB }")
+    if (auto const* e = dynamic_cast<const lesma::Enum*>(node)) {
+      for (llvm::SMRange span : e->getValueSpans()) {
+        if (span.isValid()) {
+          auto [line1, startCol1] = srcMgr->getLineAndColumn(span.Start, bufferId);
+          auto [endLine1, endCol1] = srcMgr->getLineAndColumn(span.End, bufferId);
+          unsigned line0 = line1 > 0U ? line1 - 1U : 0U;
+          unsigned startChar = startCol1 > 0U ? startCol1 - 1U : 0U;
+          unsigned length = (endLine1 == line1 && endCol1 >= startCol1)
+                               ? (endCol1 - startCol1)
+                               : 0U;
+          rawTokens.emplace_back(line0, startChar, length,
+                                 static_cast<unsigned>(SemanticTokenType::EnumMember));
+        }
+      }
+    }
+    if (auto const* es = dynamic_cast<const lesma::ExpressionStatement*>(node)) {
+      if (es->getExpression() != nullptr) {
+        visitExpr(es->getExpression());
+      }
+      return;
+    }
+    if (auto const* v = dynamic_cast<const lesma::VarDecl*>(node)) {
+      if (v->getValue() != nullptr) {
+        visitExpr(v->getValue());
+      }
+      return;
+    }
+    if (auto const* ifNode = dynamic_cast<const lesma::If*>(node)) {
+      for (lesma::Expression* cond : ifNode->getConds()) {
+        visitExpr(cond);
+      }
+      for (lesma::Compound* block : ifNode->getBlocks()) {
+        if (block != nullptr) {
+          for (lesma::Statement* s : block->getChildren()) {
+            visitStmt(s);
+          }
+        }
+      }
+      return;
+    }
+    if (auto const* whileNode = dynamic_cast<const lesma::While*>(node)) {
+      if (whileNode->getCond() != nullptr) {
+        visitExpr(whileNode->getCond());
+      }
+      if (whileNode->getBlock() != nullptr) {
+        for (lesma::Statement* s : whileNode->getBlock()->getChildren()) {
+          visitStmt(s);
+        }
+      }
+      return;
+    }
+    if (auto const* compound = dynamic_cast<const lesma::Compound*>(node)) {
+      for (lesma::Statement* s : compound->getChildren()) {
+        visitStmt(s);
+      }
+    }
+    if (auto const* f = dynamic_cast<const lesma::FuncDecl*>(node)) {
+      if (f->getBody() != nullptr) {
+        for (lesma::Statement* s : f->getBody()->getChildren()) {
+          visitStmt(s);
+        }
+      }
+    }
+    if (auto const* c = dynamic_cast<const lesma::Class*>(node)) {
+      for (lesma::FuncDecl* m : c->getMethods()) {
+        visitStmt(m);
+      }
+    }
+  };
+
+  for (lesma::Statement* stmt : ast->getChildren()) {
+    visitStmt(stmt);
+  }
+
+  std::sort(rawTokens.begin(), rawTokens.end(),
+            [](const auto& a, const auto& b) {
+              if (std::get<0>(a) != std::get<0>(b)) {
+                return std::get<0>(a) < std::get<0>(b);
+              }
+              return std::get<1>(a) < std::get<1>(b);
+            });
+
+  std::vector<std::uint32_t> data;
+  data.reserve(rawTokens.size() * 5U);
+  unsigned prevLine = 0U;
+  unsigned prevChar = 0U;
+  for (const auto& [line, startChar, length, typeIndex] : rawTokens) {
+    unsigned deltaLine = (line > prevLine) ? (line - prevLine) : 0U;
+    unsigned deltaStartChar = (line > prevLine) ? startChar : (startChar - prevChar);
+    data.push_back(deltaLine);
+    data.push_back(deltaStartChar);
+    data.push_back(length);
+    data.push_back(typeIndex);
+    data.push_back(0U); // no modifiers
+    prevLine = line;
+    prevChar = startChar;
+  }
+  return data;
+}
+
 /** Resolve symbol at cursor using compiler metadata. Returns the Value* if found. */
-lesma::Value* resolveSymbolAtCursor(const AnalysisResult& result, unsigned line,
-                                    unsigned character, const std::string& name) {
+lesma::Value* resolveSymbolAtCursor(const AnalysisResult& result, unsigned line, unsigned character,
+                                    const std::string& name) {
   if (result.rootScope == nullptr || result.sourceMgr == nullptr) {
     return nullptr;
   }
@@ -498,9 +811,89 @@ lesma::Value* resolveSymbolAtCursor(const AnalysisResult& result, unsigned line,
                              result.mainBufferId, line, character, name);
 }
 
+/** If the cursor is on an enum member declaration (e.g. Red in "enum Color { Red, Green }"),
+ * return the enum name. Otherwise return nullopt. */
+auto findEnumMemberDeclarationAtCursor(const lesma::Compound* ast, llvm::SourceMgr* srcMgr,
+                                      unsigned bufferId, unsigned line, unsigned character,
+                                      const std::string& memberName)
+    -> std::optional<std::string> {
+  if (ast == nullptr || srcMgr == nullptr) {
+    return std::nullopt;
+  }
+  auto const* buf = srcMgr->getMemoryBuffer(bufferId);
+  if (buf == nullptr) {
+    return std::nullopt;
+  }
+  unsigned const targetOffset = static_cast<unsigned>(
+      lesma::lsp_srv::bufferByteOffsetFromLspPosition(buf->getBuffer(), line, character));
+  for (lesma::Statement* stmt : ast->getChildren()) {
+    auto const* e = dynamic_cast<const lesma::Enum*>(stmt);
+    if (e == nullptr) {
+      continue;
+    }
+    std::vector<std::string> const& values = e->getValues();
+    std::vector<llvm::SMRange> const& valueSpans = e->getValueSpans();
+    for (size_t i = 0; i < values.size() && i < valueSpans.size(); ++i) {
+      if (values[i] != memberName) {
+        continue;
+      }
+      llvm::SMRange span = valueSpans[i];
+      if (!span.isValid()) {
+        continue;
+      }
+      unsigned startOff = getOffsetFromSMLoc(srcMgr, bufferId, span.Start);
+      unsigned endOff = getOffsetFromSMLoc(srcMgr, bufferId, span.End);
+      if (targetOffset >= startOff && targetOffset < endOff) {
+        return e->getIdentifier();
+      }
+    }
+  }
+  return std::nullopt;
+}
+
+/** Resolve go-to-definition for an enum member (e.g. OptionA in MyEnum.OptionA). */
+auto tryResolveEnumMemberDefinitionLocation(const AnalysisResult& result,
+                                           const std::string& dotBase,
+                                           const std::string& memberName)
+    -> std::optional<::lsp::Location> {
+  lesma::Compound* ast = result.parser ? result.parser->getAst() : nullptr;
+  if (ast == nullptr || result.sourceMgr == nullptr || result.mainFilePath.empty()) {
+    return std::nullopt;
+  }
+  for (lesma::Statement* stmt : ast->getChildren()) {
+    auto const* e = dynamic_cast<const lesma::Enum*>(stmt);
+    if (e == nullptr || e->getIdentifier() != dotBase) {
+      continue;
+    }
+    std::vector<std::string> const& values = e->getValues();
+    std::vector<llvm::SMRange> const& valueSpans = e->getValueSpans();
+    for (size_t i = 0; i < values.size() && i < valueSpans.size(); ++i) {
+      if (values[i] == memberName) {
+        llvm::SMRange span = valueSpans[i];
+        if (!span.isValid()) {
+          return std::nullopt;
+        }
+        ::lsp::Location loc;
+        std::filesystem::path const p(result.mainFilePath);
+        std::error_code ec;
+        std::filesystem::path absPath = std::filesystem::absolute(p, ec);
+        if (!ec) {
+          loc.uri = ::lsp::FileUri::fromPath(absPath.string());
+        } else {
+          loc.uri = ::lsp::FileUri::fromPath(result.mainFilePath);
+        }
+        loc.range = smRangeToLspRange(result.sourceMgr.get(), result.mainBufferId, span);
+        return loc;
+      }
+    }
+    return std::nullopt;
+  }
+  return std::nullopt;
+}
+
 /** Resolve definition location using compiler metadata from Value. */
-auto tryResolveDefinitionLocation(const AnalysisResult& result, unsigned line,
-                                   unsigned character) -> std::optional<::lsp::Location> {
+auto tryResolveDefinitionLocation(const AnalysisResult& result, unsigned line, unsigned character)
+    -> std::optional<::lsp::Location> {
   if (result.parser == nullptr || result.sourceMgr == nullptr) {
     return std::nullopt;
   }
@@ -508,14 +901,22 @@ auto tryResolveDefinitionLocation(const AnalysisResult& result, unsigned line,
   if (ast == nullptr) {
     return std::nullopt;
   }
-  std::optional<std::string> name =
+  std::optional<CursorIdentifier> id =
       findIdentifierAtCursor(ast, result.sourceMgr.get(), result.mainBufferId, line, character);
-  if (!name) {
+  if (!id) {
     return std::nullopt;
   }
   // Resolve symbol using compiler metadata
-  lesma::Value* value = resolveSymbolAtCursor(result, line, character, *name);
+  lesma::Value* value = resolveSymbolAtCursor(result, line, character, id->name);
   if (value == nullptr) {
+    // Enum member (e.g. MyEnum.OptionA): not a Value, resolve via AST
+    if (id->dotBase) {
+      auto enumMemberLoc =
+          tryResolveEnumMemberDefinitionLocation(result, *id->dotBase, id->name);
+      if (enumMemberLoc) {
+        return *enumMemberLoc;
+      }
+    }
     return std::nullopt;
   }
   llvm::SMRange declSpan = value->getDeclarationSpan();
@@ -575,12 +976,23 @@ auto main() -> int {
                                              .change = ::lsp::TextDocumentSyncKind::Full});
       caps.hoverProvider = ::lsp::Opt<::lsp::OneOf<bool, ::lsp::HoverOptions>>(true);
       caps.definitionProvider = ::lsp::Opt<::lsp::OneOf<bool, ::lsp::DefinitionOptions>>(true);
-      caps.declarationProvider = ::lsp::Opt<::lsp::OneOf<bool, ::lsp::DeclarationOptions,
-                                                         ::lsp::DeclarationRegistrationOptions>>(
-          ::lsp::OneOf<bool, ::lsp::DeclarationOptions, ::lsp::DeclarationRegistrationOptions>{true});
+      caps.declarationProvider = ::lsp::Opt<
+          ::lsp::OneOf<bool, ::lsp::DeclarationOptions, ::lsp::DeclarationRegistrationOptions>>(
+          ::lsp::OneOf<bool, ::lsp::DeclarationOptions, ::lsp::DeclarationRegistrationOptions>{
+              true});
       caps.completionProvider = ::lsp::Opt<::lsp::CompletionOptions>(::lsp::CompletionOptions{
           .triggerCharacters = ::lsp::Opt<::lsp::Array<::lsp::String>>({std::string(".")}),
       });
+      caps.semanticTokensProvider = ::lsp::Opt<
+          ::lsp::OneOf<::lsp::SemanticTokensOptions, ::lsp::SemanticTokensRegistrationOptions>>(
+          ::lsp::SemanticTokensOptions{
+              .legend =
+                  ::lsp::SemanticTokensLegend{
+                      .tokenTypes = ::lsp::Array<::lsp::String>{"enum", "enumMember"},
+                      .tokenModifiers = ::lsp::Array<::lsp::String>(),
+                  },
+              .full = ::lsp::Opt<::lsp::OneOf<bool, ::lsp::SemanticTokensOptionsFull>>(true),
+          });
       return ::lsp::requests::Initialize::Result{
           .capabilities = caps,
           .serverInfo =
@@ -602,7 +1014,7 @@ auto main() -> int {
           auto& doc = params.textDocument;
           docStore.open(doc.uri, doc.version, doc.text);
           runAnalyzeAndPublish(doc.uri, docStore, doc.text, doc.version, analysisCache,
-                                messageHandler);
+                               messageHandler);
         });
 
     messageHandler.add<::lsp::notifications::TextDocument_DidChange>(
@@ -626,7 +1038,7 @@ auto main() -> int {
           if (!text.empty()) {
             docStore.change(uri, params.textDocument.version, text);
             runAnalyzeAndPublish(uri, docStore, text, params.textDocument.version, analysisCache,
-                                  messageHandler);
+                                 messageHandler);
           }
         });
 
@@ -646,8 +1058,8 @@ auto main() -> int {
           if (!doc) {
             return ::lsp::TextDocument_HoverResult();
           }
-          DocumentAnalysisSnapshot& snapshot =
-              analysisCache.getOrAnalyze(params.textDocument.uri, docStore, doc->text, doc->version);
+          DocumentAnalysisSnapshot& snapshot = analysisCache.getOrAnalyze(
+              params.textDocument.uri, docStore, doc->text, doc->version);
           AnalysisResult& result = snapshot.result;
           if (result.parser == nullptr) {
             return ::lsp::TextDocument_HoverResult();
@@ -658,13 +1070,13 @@ auto main() -> int {
           }
           unsigned line = params.position.line;
           unsigned character = params.position.character;
-          std::optional<std::string> name = findIdentifierAtCursor(
+          std::optional<CursorIdentifier> id = findIdentifierAtCursor(
               ast, result.sourceMgr.get(), result.mainBufferId, line, character);
-          if (!name) {
+          if (!id) {
             return ::lsp::TextDocument_HoverResult();
           }
           // Resolve symbol using compiler metadata
-          lesma::Value* value = resolveSymbolAtCursor(result, line, character, *name);
+          lesma::Value* value = resolveSymbolAtCursor(result, line, character, id->name);
           if (value != nullptr && value->getType() != nullptr) {
             std::string hoverText = formatHoverContent(value, result.rootScope.get());
             ::lsp::Hover hover;
@@ -674,7 +1086,53 @@ auto main() -> int {
             };
             return ::lsp::TextDocument_HoverResult(std::move(hover));
           }
+          // Enum member hover (e.g. MyEnum.OptionA): not a Value, but a field on the enum type
+          if (id->dotBase && result.rootScope != nullptr) {
+            lesma::Value* baseVal = result.rootScope->lookup(*id->dotBase);
+            if (baseVal != nullptr && baseVal->getType() != nullptr &&
+                baseVal->getType()->is(lesma::BaseType::TY_ENUM)) {
+              for (lesma::Field* field : baseVal->getType()->getFields()) {
+                if (field != nullptr && field->name == id->name) {
+                  ::lsp::Hover hover;
+                  hover.contents = ::lsp::MarkupContent{
+                      .kind = ::lsp::MarkupKindEnum(::lsp::MarkupKind::Markdown),
+                      .value = "**" + id->name + "**\n\nmember of enum `" + *id->dotBase + "`",
+                  };
+                  return ::lsp::TextDocument_HoverResult(std::move(hover));
+                }
+              }
+            }
+          }
+          // Enum member declaration hover (e.g. Red in "enum Color { Red, Green }")
+          std::optional<std::string> enumName = findEnumMemberDeclarationAtCursor(
+              ast, result.sourceMgr.get(), result.mainBufferId, line, character, id->name);
+          if (enumName) {
+            ::lsp::Hover hover;
+            hover.contents = ::lsp::MarkupContent{
+                .kind = ::lsp::MarkupKindEnum(::lsp::MarkupKind::Markdown),
+                .value = "**" + id->name + "**\n\nmember of enum `" + *enumName + "`",
+            };
+            return ::lsp::TextDocument_HoverResult(std::move(hover));
+          }
           return ::lsp::TextDocument_HoverResult();
+        });
+
+    messageHandler.add<::lsp::requests::TextDocument_SemanticTokens_Full>(
+        [&docStore, &analysisCache](
+            ::lsp::requests::TextDocument_SemanticTokens_Full::Params&& params)
+            -> ::lsp::TextDocument_SemanticTokens_FullResult {
+          auto doc = docStore.getDocument(params.textDocument.uri);
+          if (!doc) {
+            return ::lsp::TextDocument_SemanticTokens_FullResult();
+          }
+          DocumentAnalysisSnapshot& snapshot = analysisCache.getOrAnalyze(
+              params.textDocument.uri, docStore, doc->text, doc->version);
+          AnalysisResult& result = snapshot.result;
+          std::vector<std::uint32_t> data =
+              collectSemanticTokens(result, result.mainBufferId);
+          ::lsp::SemanticTokens tokens;
+          tokens.data = ::lsp::Array<std::uint32_t>(data.begin(), data.end());
+          return ::lsp::TextDocument_SemanticTokens_FullResult(std::move(tokens));
         });
 
     messageHandler.add<::lsp::requests::TextDocument_Completion>(
@@ -684,8 +1142,8 @@ auto main() -> int {
           if (!doc) {
             return ::lsp::TextDocument_CompletionResult();
           }
-          DocumentAnalysisSnapshot& snapshot =
-              analysisCache.getOrAnalyze(params.textDocument.uri, docStore, doc->text, doc->version);
+          DocumentAnalysisSnapshot& snapshot = analysisCache.getOrAnalyze(
+              params.textDocument.uri, docStore, doc->text, doc->version);
           AnalysisResult& result = snapshot.result;
           std::vector<std::string> names = lesma::lsp_srv::memberCompletionNames(
               result, params.position.line, params.position.character);
@@ -711,11 +1169,11 @@ auto main() -> int {
           if (!doc) {
             return ::lsp::TextDocument_DefinitionResult();
           }
-          DocumentAnalysisSnapshot& snapshot =
-              analysisCache.getOrAnalyze(params.textDocument.uri, docStore, doc->text, doc->version);
+          DocumentAnalysisSnapshot& snapshot = analysisCache.getOrAnalyze(
+              params.textDocument.uri, docStore, doc->text, doc->version);
           AnalysisResult& result = snapshot.result;
-          auto loc = tryResolveDefinitionLocation(result, params.position.line,
-                                                  params.position.character);
+          auto loc =
+              tryResolveDefinitionLocation(result, params.position.line, params.position.character);
           if (!loc) {
             return ::lsp::TextDocument_DefinitionResult();
           }
@@ -729,11 +1187,11 @@ auto main() -> int {
           if (!doc) {
             return ::lsp::TextDocument_DeclarationResult();
           }
-          DocumentAnalysisSnapshot& snapshot =
-              analysisCache.getOrAnalyze(params.textDocument.uri, docStore, doc->text, doc->version);
+          DocumentAnalysisSnapshot& snapshot = analysisCache.getOrAnalyze(
+              params.textDocument.uri, docStore, doc->text, doc->version);
           AnalysisResult& result = snapshot.result;
-          auto loc = tryResolveDefinitionLocation(result, params.position.line,
-                                                  params.position.character);
+          auto loc =
+              tryResolveDefinitionLocation(result, params.position.line, params.position.character);
           if (!loc) {
             return ::lsp::TextDocument_DeclarationResult();
           }

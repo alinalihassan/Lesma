@@ -913,16 +913,20 @@ auto Parser::parseEnum() -> std::unique_ptr<Statement> {
   consume(TokenType::NEWLINE);
 
   std::vector<std::string> values;
+  std::vector<llvm::SMRange> valueSpans;
   consume(TokenType::INDENT);
 
   while (!checkAny<TokenType::DEDENT, TokenType::EOF_TOKEN>()) {
-    values.push_back(consume(TokenType::IDENTIFIER)->lexeme);
+    auto* valueToken = consume(TokenType::IDENTIFIER);
+    values.push_back(valueToken->lexeme);
+    valueSpans.push_back(valueToken->span);
     consume(TokenType::NEWLINE);
   }
 
   advanceIfMatchAny<TokenType::DEDENT>();
 
-  return std::make_unique<Enum>(loc, token->lexeme, token->span, values, isExported);
+  return std::make_unique<Enum>(loc, token->lexeme, token->span, values, std::move(valueSpans),
+                                isExported);
 }
 
 auto Parser::parseCompound() -> std::unique_ptr<Compound> {

@@ -108,6 +108,14 @@ auto lesma::analyze(std::unique_ptr<Options> options) -> AnalysisResult {
   try {
     lexer = std::make_unique<Lexer>(srcMgr);
     lexer->scanAll();
+    if ((options->debug & Debug::LEXER) != Debug::NONE) {
+      lesma::print(LogType::DEBUG, "Lexer tokens:\n");
+      for (Token* tok : lexer->getTokens()) {
+        if (tok != nullptr) {
+          lesma::print(LogType::DEBUG, "{}\n", tok->dump(srcMgr));
+        }
+      }
+    }
   } catch (const LesmaError& err) {
     result.diagnostics.push_back(
         AnalysisDiagnostic{err.what(), err.getSpan().isValid() ? err.getSpan() : llvm::SMRange()});
@@ -120,6 +128,12 @@ auto lesma::analyze(std::unique_ptr<Options> options) -> AnalysisResult {
   try {
     parser = std::make_unique<Parser>(lexer->getTokens());
     parser->parse();
+    if ((options->debug & Debug::AST) != Debug::NONE) {
+      Compound* ast = parser->getAst();
+      if (ast != nullptr) {
+        lesma::print(LogType::DEBUG, "AST:\n{}\n", ast->toString(srcMgr.get(), "", true));
+      }
+    }
   } catch (const LesmaError& err) {
     result.diagnostics.push_back(
         AnalysisDiagnostic{err.what(), err.getSpan().isValid() ? err.getSpan() : llvm::SMRange()});
