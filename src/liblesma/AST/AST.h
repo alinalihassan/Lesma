@@ -19,6 +19,8 @@
 #include "liblesma/Token/TokenType.h"
 
 namespace lesma {
+class Value;
+
 class AST {
   llvm::SMRange loc;
 
@@ -365,6 +367,8 @@ class FuncDecl : public Statement {
   std::unique_ptr<Compound> body;
   bool varargs;
   bool exported;
+  /** Set by typechecker: the symbol for this overload (used by LSP for hover/definition). */
+  mutable Value* resolvedSymbol = nullptr;
 
 public:
   FuncDecl(llvm::SMRange loc, std::string name, llvm::SMRange nameSpan,
@@ -396,6 +400,9 @@ public:
   [[nodiscard]] [[maybe_unused]] auto getBody() const -> Compound* { return body.get(); }
   [[nodiscard]] [[maybe_unused]] auto getVarArgs() const -> bool { return varargs; }
   [[nodiscard]] [[maybe_unused]] auto isExported() const -> bool { return exported; }
+  /** Symbol for this declaration (set by typechecker; used by LSP for overload resolution). */
+  [[nodiscard]] auto getResolvedSymbol() const -> Value* { return resolvedSymbol; }
+  auto setResolvedSymbol(Value* v) const -> void { resolvedSymbol = v; }
 
   auto toString(llvm::SourceMgr* srcMgr, const std::string& prefix, bool isTail) const
       -> std::string override {

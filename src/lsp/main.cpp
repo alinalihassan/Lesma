@@ -261,6 +261,78 @@ InnermostFunc findInnermostFuncContaining(lesma::Compound* ast, unsigned targetO
   return best;
 }
 
+/** Find function (or method) whose signature contains the cursor (name or any parameter).
+ * Used so parameter names in "def foo(x: Int)" resolve to the parameter symbol. */
+InnermostFunc findFuncWithCursorInSignature(lesma::Compound* ast, unsigned targetOffset,
+                                            llvm::SourceMgr* sm, unsigned bid) {
+  InnermostFunc out;
+  std::function<void(lesma::Statement*, lesma::Class*)> scan = [&](lesma::Statement* stmt,
+                                                                     lesma::Class* cls) {
+    if (stmt == nullptr || out.func != nullptr) {
+      return;
+    }
+    auto const inSpan = [&](llvm::SMRange span) -> bool {
+      if (!span.isValid()) {
+        return false;
+      }
+      unsigned a = getOffsetFromSMLoc(sm, bid, span.Start);
+      unsigned b = getOffsetFromSMLoc(sm, bid, span.End);
+      return targetOffset >= a && targetOffset < b;
+    };
+    if (auto const* f = dynamic_cast<const lesma::FuncDecl*>(stmt)) {
+      if (inSpan(f->getNameSpan())) {
+        out.func = const_cast<lesma::FuncDecl*>(f);
+        out.enclosingClass = cls;
+        return;
+      }
+      for (lesma::Parameter* p : f->getParameters()) {
+        if (p != nullptr && inSpan(p->nameSpan)) {
+          out.func = const_cast<lesma::FuncDecl*>(f);
+          out.enclosingClass = cls;
+          return;
+        }
+      }
+      if (f->getBody() != nullptr) {
+        for (lesma::Statement* s : f->getBody()->getChildren()) {
+          scan(s, cls);
+          if (out.func != nullptr) {
+            return;
+          }
+        }
+      }
+      return;
+    }
+    if (dynamic_cast<const lesma::ExternFuncDecl*>(stmt) != nullptr) {
+      return;
+    }
+    if (auto const* c = dynamic_cast<const lesma::Class*>(stmt)) {
+      for (lesma::FuncDecl* m : c->getMethods()) {
+        if (m != nullptr) {
+          scan(m, const_cast<lesma::Class*>(c));
+          if (out.func != nullptr) {
+            return;
+          }
+        }
+      }
+    }
+    if (auto const* compound = dynamic_cast<const lesma::Compound*>(stmt)) {
+      for (lesma::Statement* s : compound->getChildren()) {
+        scan(s, cls);
+        if (out.func != nullptr) {
+          return;
+        }
+      }
+    }
+  };
+  for (lesma::Statement* s : ast->getChildren()) {
+    scan(s, nullptr);
+    if (out.func != nullptr) {
+      break;
+    }
+  }
+  return out;
+}
+
 lesma::Value* lookupValueForHover(lesma::Compound* ast, lesma::SymbolTable* root,
                                   llvm::SourceMgr* srcMgr, unsigned bufferId, unsigned line,
                                   unsigned character, const std::string& name) {
@@ -270,9 +342,39 @@ lesma::Value* lookupValueForHover(lesma::Compound* ast, lesma::SymbolTable* root
   }
   unsigned const targetOffset = static_cast<unsigned>(
       lesma::lsp_srv::bufferByteOffsetFromLspPosition(buf->getBuffer(), line, character));
+
+  // If cursor is in a function's signature (e.g. on a parameter or function name), use the resolved symbol.
+  // Use the symbol the typechecker resolved for this exact overload (getResolvedSymbol).
+  InnermostFunc const sigFunc = findFuncWithCursorInSignature(ast, targetOffset, srcMgr, bufferId);
+  if (sigFunc.func != nullptr) {
+    lesma::Value* funcSym = sigFunc.func->getResolvedSymbol();
+    if (funcSym == nullptr) {
+      funcSym = root->lookup(sigFunc.func->getName());
+    }
+    // If hovering on the function name itself, return the function symbol
+    if (funcSym != nullptr && name == sigFunc.func->getName()) {
+      return funcSym;
+    }
+    // Otherwise, look up in the function's body scope (for parameters, locals)
+    if (funcSym != nullptr && funcSym->getBodyScope() != nullptr) {
+      if (lesma::Value* v = funcSym->getBodyScope()->lookup(name)) {
+        return v;
+      }
+    }
+  }
+
+  // Cursor in a function body: use the innermost function's resolved symbol (correct overload).
   InnermostFunc const inner = findInnermostFuncContaining(ast, targetOffset, srcMgr, bufferId);
-  if (inner.func != nullptr && inner.enclosingClass == nullptr) {
-    lesma::Value* const funcSym = root->lookup(inner.func->getName());
+  if (inner.func != nullptr) {
+    lesma::Value* funcSym = inner.func->getResolvedSymbol();
+    if (funcSym == nullptr) {
+      funcSym = root->lookup(inner.func->getName());
+    }
+    // If hovering on the function name itself, return the function symbol
+    if (funcSym != nullptr && name == inner.func->getName()) {
+      return funcSym;
+    }
+    // Otherwise, look up in the function's body scope (for locals)
     if (funcSym != nullptr && funcSym->getBodyScope() != nullptr) {
       if (lesma::Value* v = funcSym->getBodyScope()->lookup(name)) {
         return v;
@@ -282,10 +384,11 @@ lesma::Value* lookupValueForHover(lesma::Compound* ast, lesma::SymbolTable* root
   return root->lookup(name);
 }
 
-/** Identifier at cursor plus optional "dot base" when cursor is on the right of a DotOp (e.g. MyEnum.OptionA). */
+/** Identifier at cursor plus optional "dot base" and source range (for hover.range to avoid duplicate symbol in UI). */
 struct CursorIdentifier {
   std::string name;
   std::optional<std::string> dotBase;
+  std::optional<::lsp::Range> range;
 };
 
 /** Find identifier at cursor position by walking AST to find the identifier token. */
@@ -318,7 +421,11 @@ std::optional<CursorIdentifier> findIdentifierAtCursor(const lesma::Compound* as
     if (targetOffset >= startOff && targetOffset < endOff) {
       if (auto const* lit = dynamic_cast<const lesma::Literal*>(node)) {
         if (lit->getType() == lesma::TokenType::IDENTIFIER) {
-          result = CursorIdentifier{lit->getValue(), std::nullopt};
+          llvm::SMRange span = lit->getSpan();
+          result = CursorIdentifier{lit->getValue(), std::nullopt,
+                                    span.isValid() ? std::optional<::lsp::Range>(
+                                        smRangeToLspRange(srcMgr, bufferId, span))
+                                                   : std::nullopt};
         }
       }
       if (auto const* fc = dynamic_cast<const lesma::FuncCall*>(node)) {
@@ -331,7 +438,7 @@ std::optional<CursorIdentifier> findIdentifierAtCursor(const lesma::Compound* as
           // Otherwise, check arguments
           unsigned nameLen = nameEnd - nameStart;
           if (targetOffset < nameStart + nameLen / 2) {
-            result = CursorIdentifier{fc->getName(), std::nullopt};
+            result = CursorIdentifier{fc->getName(), std::nullopt, std::nullopt};
             if (result) {
               return;
             }
@@ -376,7 +483,7 @@ std::optional<CursorIdentifier> findIdentifierAtCursor(const lesma::Compound* as
               }
               visitExpr(dot->getRight());
               if (result) {
-                result = CursorIdentifier{result->name, leftName};
+                result = CursorIdentifier{result->name, leftName, result->range};
                 return;
               }
             }
@@ -424,7 +531,12 @@ std::optional<CursorIdentifier> findIdentifierAtCursor(const lesma::Compound* as
             bool isInId = targetOffset >= idStart && targetOffset < idEnd;
             bool isJustAfterId = targetOffset >= idEnd && targetOffset <= idEnd + 2U;
             if (isInId || isJustAfterId) {
-              result = CursorIdentifier{v->getIdentifier()->getValue(), std::nullopt};
+              llvm::SMRange idSpan = v->getIdentifier()->getSpan();
+              result = CursorIdentifier{v->getIdentifier()->getValue(), std::nullopt,
+                                        idSpan.isValid()
+                                            ? std::optional<::lsp::Range>(
+                                                  smRangeToLspRange(srcMgr, bufferId, idSpan))
+                                            : std::nullopt};
             }
           }
         }
@@ -434,15 +546,39 @@ std::optional<CursorIdentifier> findIdentifierAtCursor(const lesma::Compound* as
         }
       }
       if (auto const* f = dynamic_cast<const lesma::FuncDecl*>(node)) {
-        // Check if cursor is on the function name
-        llvm::SMRange nameSpan = f->getNameSpan();
-        if (nameSpan.isValid()) {
-          unsigned nameStart = getOffsetFromSMLoc(srcMgr, bufferId, nameSpan.Start);
-          unsigned nameEnd = getOffsetFromSMLoc(srcMgr, bufferId, nameSpan.End);
-          bool isInName = targetOffset >= nameStart && targetOffset < nameEnd;
-          bool isJustAfterName = targetOffset >= nameEnd && targetOffset <= nameEnd + 2U;
-          if (isInName || isJustAfterName) {
-            result = CursorIdentifier{f->getName(), std::nullopt};
+        // Check parameter names first so the first parameter shows param hover, not function
+        for (lesma::Parameter* p : f->getParameters()) {
+          if (p != nullptr && p->nameSpan.isValid()) {
+            unsigned a = getOffsetFromSMLoc(srcMgr, bufferId, p->nameSpan.Start);
+            unsigned b = getOffsetFromSMLoc(srcMgr, bufferId, p->nameSpan.End);
+            bool in = targetOffset >= a && targetOffset < b;
+            bool justAfter = targetOffset >= b && targetOffset <= b + 2U;
+            if (in || justAfter) {
+              result = CursorIdentifier{
+                  p->name, std::nullopt,
+                  p->nameSpan.isValid()
+                      ? std::optional<::lsp::Range>(
+                            smRangeToLspRange(srcMgr, bufferId, p->nameSpan))
+                      : std::nullopt};
+              break;
+            }
+          }
+        }
+        // Then check if cursor is on the function name
+        if (!result) {
+          llvm::SMRange nameSpan = f->getNameSpan();
+          if (nameSpan.isValid()) {
+            unsigned nameStart = getOffsetFromSMLoc(srcMgr, bufferId, nameSpan.Start);
+            unsigned nameEnd = getOffsetFromSMLoc(srcMgr, bufferId, nameSpan.End);
+            bool isInName = targetOffset >= nameStart && targetOffset < nameEnd;
+            bool isJustAfterName = targetOffset >= nameEnd && targetOffset <= nameEnd + 2U;
+            if (isInName || isJustAfterName) {
+              result = CursorIdentifier{f->getName(), std::nullopt,
+                                        nameSpan.isValid()
+                                            ? std::optional<::lsp::Range>(
+                                                  smRangeToLspRange(srcMgr, bufferId, nameSpan))
+                                            : std::nullopt};
+            }
           }
         }
         // Also visit body to find identifiers in expressions
@@ -464,7 +600,11 @@ std::optional<CursorIdentifier> findIdentifierAtCursor(const lesma::Compound* as
           bool isInName = targetOffset >= nameStart && targetOffset < nameEnd;
           bool isJustAfterName = targetOffset >= nameEnd && targetOffset <= nameEnd + 2U;
           if (isInName || isJustAfterName) {
-            result = CursorIdentifier{c->getIdentifier(), std::nullopt};
+            result = CursorIdentifier{c->getIdentifier(), std::nullopt,
+                                      nameSpan.isValid()
+                                          ? std::optional<::lsp::Range>(
+                                                smRangeToLspRange(srcMgr, bufferId, nameSpan))
+                                          : std::nullopt};
           }
         }
         // Also visit methods and fields
@@ -486,7 +626,11 @@ std::optional<CursorIdentifier> findIdentifierAtCursor(const lesma::Compound* as
           bool isInName = targetOffset >= nameStart && targetOffset < nameEnd;
           bool isJustAfterName = targetOffset >= nameEnd && targetOffset <= nameEnd + 2U;
           if (isInName || isJustAfterName) {
-            result = CursorIdentifier{e->getIdentifier(), std::nullopt};
+            result = CursorIdentifier{e->getIdentifier(), std::nullopt,
+                                      nameSpan.isValid()
+                                          ? std::optional<::lsp::Range>(
+                                                smRangeToLspRange(srcMgr, bufferId, nameSpan))
+                                          : std::nullopt};
           }
         }
         // Check if cursor is on an enum value (e.g. RED in "enum Color\n  RED\n  GREEN").
@@ -504,7 +648,11 @@ std::optional<CursorIdentifier> findIdentifierAtCursor(const lesma::Compound* as
             bool isIn = targetOffset >= startOff && targetOffset < endOff;
             bool isJustAfter = targetOffset >= endOff && targetOffset <= endOff + 2U;
             if (isIn || isJustAfter) {
-              result = CursorIdentifier{values[i], std::nullopt};
+              result = CursorIdentifier{
+                  values[i], std::nullopt,
+                  span.isValid() ? std::optional<::lsp::Range>(
+                                      smRangeToLspRange(srcMgr, bufferId, span))
+                                : std::nullopt};
               break;
             }
           }
@@ -546,39 +694,53 @@ std::optional<CursorIdentifier> findIdentifierAtCursor(const lesma::Compound* as
     if (result) {
       return result;
     }
-    // Enum statement span is only the "enum" keyword; check name and value spans
-    // separately so hover works on "Color" and RED/BLUE/GREEN in "enum Color\n  RED\n  ..."
+    // Parameter names in function/method signatures (cursor on "x" in "def foo(x: Int)")
     if (!result) {
-      if (auto const* e = dynamic_cast<const lesma::Enum*>(stmt)) {
-        llvm::SMRange nameSpan = e->getNameSpan();
-        if (nameSpan.isValid()) {
-          unsigned nameStart = getOffsetFromSMLoc(srcMgr, bufferId, nameSpan.Start);
-          unsigned nameEnd = getOffsetFromSMLoc(srcMgr, bufferId, nameSpan.End);
-          bool isInName = targetOffset >= nameStart && targetOffset < nameEnd;
-          bool isJustAfterName = targetOffset >= nameEnd && targetOffset <= nameEnd + 2U;
-          if (isInName || isJustAfterName) {
-            result = CursorIdentifier{e->getIdentifier(), std::nullopt};
-          }
-        }
-        if (!result) {
-          std::vector<std::string> const& values = e->getValues();
-          std::vector<llvm::SMRange> const& valueSpans = e->getValueSpans();
-          for (size_t i = 0; i < values.size() && i < valueSpans.size(); ++i) {
-          llvm::SMRange span = valueSpans[i];
-          if (!span.isValid()) {
-            continue;
-          }
-          unsigned valStart = getOffsetFromSMLoc(srcMgr, bufferId, span.Start);
-          unsigned valEnd = getOffsetFromSMLoc(srcMgr, bufferId, span.End);
-          bool isIn = targetOffset >= valStart && targetOffset < valEnd;
-          bool isJustAfter = targetOffset >= valEnd && targetOffset <= valEnd + 2U;
-          if (isIn || isJustAfter) {
-            result = CursorIdentifier{values[i], std::nullopt};
-            break;
-          }
-        }
-        }
-      }
+      std::function<void(const lesma::Statement*, lesma::Class*)> checkParams =
+          [&](const lesma::Statement* node, lesma::Class* cls) {
+            if (node == nullptr || result) {
+              return;
+            }
+            if (auto const* f = dynamic_cast<const lesma::FuncDecl*>(node)) {
+              for (lesma::Parameter* p : f->getParameters()) {
+                if (p != nullptr && p->nameSpan.isValid()) {
+                  unsigned a = getOffsetFromSMLoc(srcMgr, bufferId, p->nameSpan.Start);
+                  unsigned b = getOffsetFromSMLoc(srcMgr, bufferId, p->nameSpan.End);
+                  bool in = targetOffset >= a && targetOffset < b;
+                  bool justAfter = targetOffset >= b && targetOffset <= b + 2U;
+                  if (in || justAfter) {
+                    result = CursorIdentifier{
+                        p->name, std::nullopt,
+                        p->nameSpan.isValid()
+                            ? std::optional<::lsp::Range>(
+                                  smRangeToLspRange(srcMgr, bufferId, p->nameSpan))
+                            : std::nullopt};
+                    return;
+                  }
+                }
+              }
+              if (f->getBody() != nullptr) {
+                for (lesma::Statement* s : f->getBody()->getChildren()) {
+                  checkParams(s, cls);
+                  if (result) {
+                    return;
+                  }
+                }
+              }
+              return;
+            }
+            if (auto const* c = dynamic_cast<const lesma::Class*>(node)) {
+              for (lesma::FuncDecl* m : c->getMethods()) {
+                if (m != nullptr) {
+                  checkParams(m, const_cast<lesma::Class*>(c));
+                  if (result) {
+                    return;
+                  }
+                }
+              }
+            }
+          };
+      checkParams(stmt, nullptr);
     }
     // Also check expressions in statements that contain them
     if (auto const* es = dynamic_cast<const lesma::ExpressionStatement*>(stmt)) {
@@ -1084,6 +1246,9 @@ auto main() -> int {
                 .kind = ::lsp::MarkupKindEnum(::lsp::MarkupKind::Markdown),
                 .value = std::move(hoverText),
             };
+            if (id->range) {
+              hover.range = id->range;
+            }
             return ::lsp::TextDocument_HoverResult(std::move(hover));
           }
           // Enum member hover (e.g. MyEnum.OptionA): not a Value, but a field on the enum type

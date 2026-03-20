@@ -778,11 +778,17 @@ auto Typechecker::visit(const FuncDecl* node) -> void {
       declaredFunc->setDeclarationFilePath(mainFilePath);
       insertScope->insertSymbol(std::move(declaredFunc));
       funcSymbol = insertScope->lookupFunction(node->getName(), paramTypes);
+      // Set resolvedSymbol immediately after we get the symbol for this exact overload
+      if (funcSymbol != nullptr) {
+        const_cast<FuncDecl*>(node)->setResolvedSymbol(funcSymbol);
+      }
     } else {
       funcSymbol->setType(funcTypePtr);
       funcSymbol->setExported(node->isExported());
       funcSymbol->setDeclarationSpan(node->getNameSpan());
       funcSymbol->setDeclarationFilePath(mainFilePath);
+      // Set resolvedSymbol for existing symbol (this exact overload)
+      const_cast<FuncDecl*>(node)->setResolvedSymbol(funcSymbol);
     }
 
     if (funcSymbol != nullptr && funcSymbol->getBodyScope() == nullptr) {
@@ -807,6 +813,8 @@ auto Typechecker::visit(const FuncDecl* node) -> void {
       throw TypeCheckError(node->getSpan(), "Function not found during definition pass: {}",
                            node->getName());
     }
+    // Set resolvedSymbol in definition pass (should already be set in declaration pass, but ensure it)
+    const_cast<FuncDecl*>(node)->setResolvedSymbol(currentFunction);
     scope = currentFunction->getBodyScope();
     inTopLevel = false;
     node->getBody()->accept(*this);
