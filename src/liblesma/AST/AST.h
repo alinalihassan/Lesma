@@ -242,6 +242,8 @@ class VarDecl : public Statement {
   std::unique_ptr<TypeExpr> type;
   std::unique_ptr<Expression> expr;
   bool isMutable;
+  /** Set by typechecker: resolved symbol for this declaration. */
+  mutable Value* resolvedSymbol = nullptr;
 
 public:
   VarDecl(llvm::SMRange loc, std::unique_ptr<Literal> var, std::unique_ptr<TypeExpr> type,
@@ -254,6 +256,8 @@ public:
   [[nodiscard]] [[maybe_unused]] auto getType() const -> TypeExpr* { return type.get(); }
   [[nodiscard]] [[maybe_unused]] auto getValue() const -> Expression* { return expr.get(); }
   [[nodiscard]] [[maybe_unused]] auto getMutability() const -> bool { return isMutable; }
+  [[nodiscard]] auto getResolvedSymbol() const -> Value* { return resolvedSymbol; }
+  auto setResolvedSymbol(Value* v) const -> void { resolvedSymbol = v; }
 
   auto toString(llvm::SourceMgr* srcMgr, const std::string& prefix, bool isTail) const
       -> std::string override {

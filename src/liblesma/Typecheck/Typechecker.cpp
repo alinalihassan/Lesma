@@ -563,6 +563,7 @@ auto Typechecker::visit(const VarDecl* node) -> void {
   symbol->setMutable(node->getMutability());
   symbol->setDeclarationSpan(node->getIdentifier()->getSpan());
   symbol->setDeclarationFilePath(mainFilePath);
+  const_cast<VarDecl*>(node)->setResolvedSymbol(symbol.get());
   scope->insertSymbol(std::move(symbol));
 }
 

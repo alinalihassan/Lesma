@@ -159,6 +159,38 @@ std::string getTypeName(lesma::Type* type, lesma::SymbolTable* rootScope) {
   return "";
 }
 
+std::string formatTypeName(lesma::Type* type, lesma::SymbolTable* rootScope) {
+  if (type == nullptr) {
+    return "?";
+  }
+  std::string namedType = getTypeName(type, rootScope);
+  if (!namedType.empty()) {
+    return namedType;
+  }
+  if (type->is(lesma::BaseType::TY_PTR) && type->getElementType() != nullptr) {
+    return formatTypeName(type->getElementType(), rootScope) + "*";
+  }
+  if (type->is(lesma::BaseType::TY_ARRAY) && type->getElementType() != nullptr) {
+    return formatTypeName(type->getElementType(), rootScope) + "[]";
+  }
+  if (type->is(lesma::BaseType::TY_INT)) {
+    return type->isSigned() ? "int" : "uint";
+  }
+  if (type->is(lesma::BaseType::TY_FLOAT)) {
+    return "float";
+  }
+  if (type->is(lesma::BaseType::TY_STRING)) {
+    return "string";
+  }
+  if (type->is(lesma::BaseType::TY_BOOL)) {
+    return "bool";
+  }
+  if (type->is(lesma::BaseType::TY_VOID)) {
+    return "void";
+  }
+  return type->toString();
+}
+
 /** Build hover text from a symbol: name, kind, and type in readable Markdown. */
 std::string formatHoverContent(lesma::Value* value, lesma::SymbolTable* rootScope) {
   if (value == nullptr) {
@@ -958,6 +990,124 @@ std::vector<std::uint32_t> collectSemanticTokens(const AnalysisResult& analysisR
   return data;
 }
 
+std::vector<::lsp::InlayHint> collectInlayHints(const AnalysisResult& analysisResult,
+                                                unsigned bufferId, const ::lsp::Range& range) {
+  std::vector<::lsp::InlayHint> hints;
+  llvm::SourceMgr* srcMgr = analysisResult.sourceMgr.get();
+  lesma::SymbolTable* root = analysisResult.rootScope.get();
+  lesma::Compound* ast = analysisResult.parser ? analysisResult.parser->getAst() : nullptr;
+  if (srcMgr == nullptr || root == nullptr || ast == nullptr) {
+    return hints;
+  }
+
+  auto const* buf = srcMgr->getMemoryBuffer(bufferId);
+  if (buf == nullptr) {
+    return hints;
+  }
+
+  llvm::StringRef const text = buf->getBuffer();
+  unsigned const rangeStart = static_cast<unsigned>(
+      lesma::lsp_srv::bufferByteOffsetFromLspPosition(text, range.start.line, range.start.character));
+  unsigned const rangeEnd = static_cast<unsigned>(
+      lesma::lsp_srv::bufferByteOffsetFromLspPosition(text, range.end.line, range.end.character));
+
+  auto isInRequestedRange = [&](llvm::SMRange span) -> bool {
+    if (!span.isValid()) {
+      return false;
+    }
+    unsigned const offset = getOffsetFromSMLoc(srcMgr, bufferId, span.End);
+    return offset >= rangeStart && offset <= rangeEnd;
+  };
+
+  auto maybeAddVarHint = [&](const lesma::VarDecl* varDecl) {
+    if (varDecl == nullptr || varDecl->getType() != nullptr) {
+      return;
+    }
+    lesma::Literal* ident = varDecl->getIdentifier();
+    lesma::Value* symbol = varDecl->getResolvedSymbol();
+    if (ident == nullptr || symbol == nullptr || symbol->getType() == nullptr) {
+      return;
+    }
+    llvm::SMRange span = ident->getSpan();
+    if (!span.isValid() || !isInRequestedRange(span)) {
+      return;
+    }
+
+    ::lsp::Range identRange = smRangeToLspRange(srcMgr, bufferId, span);
+    ::lsp::Position insertPos = identRange.end;
+    std::string typeText = ": " + formatTypeName(symbol->getType(), root);
+
+    ::lsp::InlayHint hint;
+    hint.position = insertPos;
+    hint.label = ::lsp::String(typeText);
+    hint.kind = ::lsp::Opt<::lsp::InlayHintKindEnum>(::lsp::InlayHintKind::Type);
+    hint.textEdits =
+        ::lsp::Opt<::lsp::Array<::lsp::TextEdit>>({::lsp::TextEdit{
+            .range = ::lsp::Range{.start = insertPos, .end = insertPos},
+            .newText = typeText,
+        }});
+    hint.tooltip = ::lsp::Opt<::lsp::OneOf<::lsp::String, ::lsp::MarkupContent>>(
+        ::lsp::String("Insert inferred type annotation"));
+    hints.push_back(std::move(hint));
+  };
+
+  std::function<void(const lesma::Statement*)> visitStmt = [&](const lesma::Statement* node) {
+    if (node == nullptr) {
+      return;
+    }
+    if (auto const* varDecl = dynamic_cast<const lesma::VarDecl*>(node)) {
+      maybeAddVarHint(varDecl);
+      return;
+    }
+    if (auto const* ifNode = dynamic_cast<const lesma::If*>(node)) {
+      for (lesma::Compound* block : ifNode->getBlocks()) {
+        if (block != nullptr) {
+          for (lesma::Statement* s : block->getChildren()) {
+            visitStmt(s);
+          }
+        }
+      }
+      return;
+    }
+    if (auto const* whileNode = dynamic_cast<const lesma::While*>(node)) {
+      if (whileNode->getBlock() != nullptr) {
+        for (lesma::Statement* s : whileNode->getBlock()->getChildren()) {
+          visitStmt(s);
+        }
+      }
+      return;
+    }
+    if (auto const* compound = dynamic_cast<const lesma::Compound*>(node)) {
+      for (lesma::Statement* s : compound->getChildren()) {
+        visitStmt(s);
+      }
+      return;
+    }
+    if (auto const* func = dynamic_cast<const lesma::FuncDecl*>(node)) {
+      if (func->getBody() != nullptr) {
+        for (lesma::Statement* s : func->getBody()->getChildren()) {
+          visitStmt(s);
+        }
+      }
+      return;
+    }
+    if (auto const* klass = dynamic_cast<const lesma::Class*>(node)) {
+      for (lesma::VarDecl* field : klass->getFields()) {
+        maybeAddVarHint(field);
+      }
+      for (lesma::FuncDecl* method : klass->getMethods()) {
+        visitStmt(method);
+      }
+    }
+  };
+
+  for (lesma::Statement* stmt : ast->getChildren()) {
+    visitStmt(stmt);
+  }
+
+  return hints;
+}
+
 /** Resolve symbol at cursor using compiler metadata. Returns the Value* if found. */
 lesma::Value* resolveSymbolAtCursor(const AnalysisResult& result, unsigned line, unsigned character,
                                     const std::string& name) {
@@ -1155,6 +1305,9 @@ auto main() -> int {
                   },
               .full = ::lsp::Opt<::lsp::OneOf<bool, ::lsp::SemanticTokensOptionsFull>>(true),
           });
+      caps.inlayHintProvider =
+          ::lsp::Opt<::lsp::OneOf<bool, ::lsp::InlayHintOptions, ::lsp::InlayHintRegistrationOptions>>(
+              true);
       return ::lsp::requests::Initialize::Result{
           .capabilities = caps,
           .serverInfo =
@@ -1298,6 +1451,22 @@ auto main() -> int {
           ::lsp::SemanticTokens tokens;
           tokens.data = ::lsp::Array<std::uint32_t>(data.begin(), data.end());
           return ::lsp::TextDocument_SemanticTokens_FullResult(std::move(tokens));
+        });
+
+    messageHandler.add<::lsp::requests::TextDocument_InlayHint>(
+        [&docStore, &analysisCache](::lsp::requests::TextDocument_InlayHint::Params&& params)
+            -> ::lsp::TextDocument_InlayHintResult {
+          auto doc = docStore.getDocument(params.textDocument.uri);
+          if (!doc) {
+            return ::lsp::TextDocument_InlayHintResult();
+          }
+          DocumentAnalysisSnapshot& snapshot = analysisCache.getOrAnalyze(
+              params.textDocument.uri, docStore, doc->text, doc->version);
+          AnalysisResult& result = snapshot.result;
+          std::vector<::lsp::InlayHint> hints =
+              collectInlayHints(result, result.mainBufferId, params.range);
+          return ::lsp::TextDocument_InlayHintResult(
+              ::lsp::Array<::lsp::InlayHint>(hints.begin(), hints.end()));
         });
 
     messageHandler.add<::lsp::requests::TextDocument_Completion>(
