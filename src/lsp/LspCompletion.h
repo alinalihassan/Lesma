@@ -1,5 +1,6 @@
 #pragma once
 
+#include <lsp/types.h>
 #include <string>
 #include <vector>
 
@@ -7,8 +8,8 @@
 
 namespace lesma::lsp_srv {
 
-/** Member names after `.` when the base type is a class or enum (fields + methods). */
-[[nodiscard]] auto memberCompletionNames(const AnalysisResult& result, unsigned line,
-                                           unsigned character) -> std::vector<std::string>;
+/** Completion items for either member access or plain identifier completion. */
+[[nodiscard]] auto completionItems(const AnalysisResult& result, unsigned line,
+                                   unsigned character) -> std::vector<::lsp::CompletionItem>;
 
 } // namespace lesma::lsp_srv
