@@ -81,8 +81,14 @@ auto main(int argc, char** argv) -> int {
   // CLI Parsing
   auto options = parseCli(argc, argv);
   auto debugFlags = parseDebugFlags(options->debug);
-  auto driverOptions = std::make_unique<Options>(
-      Options{SourceType::FILE, options->file, debugFlags, options->output, options->timer});
+  auto driverOptions = std::make_unique<Options>(Options{
+      SourceType::FILE,
+      options->file,
+      debugFlags,
+      options->output,
+      options->timer,
+      "",
+  });
   return options->jit ? Driver::run(std::move(driverOptions))
                       : Driver::compile(std::move(driverOptions));
 }

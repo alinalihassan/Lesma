@@ -72,7 +72,11 @@ auto getExportsFromFile(const std::string& filepath, bool isStd, const std::stri
 
 auto lesma::analyze(std::unique_ptr<Options> options) -> AnalysisResult {
   AnalysisResult result;
-  result.mainFilePath = options->sourceType == SourceType::FILE ? options->source : "";
+  if (options->sourceType == SourceType::FILE) {
+    result.mainFilePath = options->source;
+  } else {
+    result.mainFilePath = options->implicitFilePath;
+  }
 
   auto srcMgr = std::make_shared<llvm::SourceMgr>();
   unsigned mainBufferId = 0;
@@ -124,11 +128,11 @@ auto lesma::analyze(std::unique_ptr<Options> options) -> AnalysisResult {
     return result;
   }
 
+  Typechecker typechecker(result.mainFilePath,
+                          [&](const std::string& path, bool isStd, const std::string& main) {
+                            return getExportsFromFile(path, isStd, main);
+                          });
   try {
-    Typechecker typechecker(result.mainFilePath,
-                            [&](const std::string& path, bool isStd, const std::string& main) {
-                              return getExportsFromFile(path, isStd, main);
-                            });
     typechecker.run(parser->getAst());
     result.sourceMgr = std::move(srcMgr);
     result.mainBufferId = mainBufferId;
@@ -142,6 +146,9 @@ auto lesma::analyze(std::unique_ptr<Options> options) -> AnalysisResult {
     result.sourceMgr = std::move(srcMgr);
     result.mainBufferId = mainBufferId;
     result.parser = std::move(parser);
+    // Capture partial rootScope even if typecheck failed partway through
+    result.rootScope = typechecker.takeRootScope();
+    result.typeCache = typechecker.takeTypeCache();
     return result;
   }
 }

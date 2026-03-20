@@ -164,16 +164,19 @@ public:
 
 class Enum : public Statement {
   std::string identifier;
+  llvm::SMRange nameSpan;
   std::vector<std::string> values;
   bool exported;
 
 public:
-  Enum(llvm::SMRange loc, std::string identifier, std::vector<std::string> values, bool exported)
-      : Statement(loc), identifier(std::move(identifier)), values(std::move(values)),
-        exported(exported) {};
+  Enum(llvm::SMRange loc, std::string identifier, llvm::SMRange nameSpan,
+       std::vector<std::string> values, bool exported)
+      : Statement(loc), identifier(std::move(identifier)), nameSpan(nameSpan),
+        values(std::move(values)), exported(exported) {};
   void accept(ASTVisitor& visitor) const override { visitor.visit(this); }
 
   [[nodiscard]] [[maybe_unused]] auto getIdentifier() const -> std::string { return identifier; }
+  [[nodiscard]] [[maybe_unused]] auto getNameSpan() const -> llvm::SMRange { return nameSpan; }
   [[nodiscard]] [[maybe_unused]] auto getValues() const -> std::vector<std::string> {
     return values;
   }
@@ -331,13 +334,14 @@ public:
 class Parameter {
 public:
   std::string name;
+  llvm::SMRange nameSpan;
   std::unique_ptr<TypeExpr> type;
   bool optional;
   std::unique_ptr<Expression> defaultVal;
 
-  Parameter(std::string name, std::unique_ptr<TypeExpr> type = nullptr, bool optional = false,
-            std::unique_ptr<Expression> defaultVal = nullptr)
-      : name(std::move(name)), type(std::move(type)), optional(optional),
+  Parameter(std::string name, llvm::SMRange nameSpan, std::unique_ptr<TypeExpr> type = nullptr,
+            bool optional = false, std::unique_ptr<Expression> defaultVal = nullptr)
+      : name(std::move(name)), nameSpan(nameSpan), type(std::move(type)), optional(optional),
         defaultVal(std::move(defaultVal)) {}
 
   Parameter(const Parameter&) = delete;
@@ -349,6 +353,7 @@ public:
 
 class FuncDecl : public Statement {
   std::string name;
+  llvm::SMRange nameSpan;
   std::vector<std::string> genericParams;
   std::unique_ptr<TypeExpr> returnType;
   std::vector<std::unique_ptr<Parameter>> parameters;
@@ -357,15 +362,18 @@ class FuncDecl : public Statement {
   bool exported;
 
 public:
-  FuncDecl(llvm::SMRange loc, std::string name, std::vector<std::string> genericParams,
-           std::unique_ptr<TypeExpr> returnType, std::vector<std::unique_ptr<Parameter>> parameters,
-           std::unique_ptr<Compound> body, bool varargs, bool exported)
-      : Statement(loc), name(std::move(name)), genericParams(std::move(genericParams)),
-        returnType(std::move(returnType)), parameters(std::move(parameters)), body(std::move(body)),
-        varargs(varargs), exported(exported) {}
+  FuncDecl(llvm::SMRange loc, std::string name, llvm::SMRange nameSpan,
+           std::vector<std::string> genericParams, std::unique_ptr<TypeExpr> returnType,
+           std::vector<std::unique_ptr<Parameter>> parameters, std::unique_ptr<Compound> body,
+           bool varargs, bool exported)
+      : Statement(loc), name(std::move(name)), nameSpan(nameSpan),
+        genericParams(std::move(genericParams)), returnType(std::move(returnType)),
+        parameters(std::move(parameters)), body(std::move(body)), varargs(varargs),
+        exported(exported) {}
   void accept(ASTVisitor& visitor) const override { visitor.visit(this); }
 
   [[nodiscard]] [[maybe_unused]] auto getName() const -> std::string { return name; }
+  [[nodiscard]] [[maybe_unused]] auto getNameSpan() const -> llvm::SMRange { return nameSpan; }
   [[nodiscard]] [[maybe_unused]] auto getGenericParams() const -> std::vector<std::string> {
     return genericParams;
   }
@@ -422,6 +430,7 @@ public:
 
 class ExternFuncDecl : public Statement {
   std::string name;
+  llvm::SMRange nameSpan;
   std::vector<std::string> genericParams;
   std::unique_ptr<TypeExpr> returnType;
   std::vector<std::unique_ptr<Parameter>> parameters;
@@ -429,16 +438,17 @@ class ExternFuncDecl : public Statement {
   bool exported;
 
 public:
-  ExternFuncDecl(llvm::SMRange loc, std::string name, std::vector<std::string> genericParams,
-                 std::unique_ptr<TypeExpr> returnType,
+  ExternFuncDecl(llvm::SMRange loc, std::string name, llvm::SMRange nameSpan,
+                 std::vector<std::string> genericParams, std::unique_ptr<TypeExpr> returnType,
                  std::vector<std::unique_ptr<Parameter>> parameters, bool varargs, bool exported)
-      : Statement(loc), name(std::move(name)), genericParams(std::move(genericParams)),
-        returnType(std::move(returnType)), parameters(std::move(parameters)), varargs(varargs),
-        exported(exported) {}
+      : Statement(loc), name(std::move(name)), nameSpan(nameSpan),
+        genericParams(std::move(genericParams)), returnType(std::move(returnType)),
+        parameters(std::move(parameters)), varargs(varargs), exported(exported) {}
 
   void accept(ASTVisitor& visitor) const override { visitor.visit(this); }
 
   [[nodiscard]] [[maybe_unused]] auto getName() const -> std::string { return name; }
+  [[nodiscard]] [[maybe_unused]] auto getNameSpan() const -> llvm::SMRange { return nameSpan; }
   [[nodiscard]] [[maybe_unused]] auto getGenericParams() const -> std::vector<std::string> {
     return genericParams;
   }
@@ -774,20 +784,23 @@ public:
 
 class Class : public Statement {
   std::string identifier;
+  llvm::SMRange nameSpan;
   std::vector<std::string> genericParams;
   std::vector<std::unique_ptr<VarDecl>> fields;
   std::vector<std::unique_ptr<FuncDecl>> methods;
   bool exported;
 
 public:
-  Class(llvm::SMRange loc, std::string identifier, std::vector<std::string> genericParams,
-        std::vector<std::unique_ptr<VarDecl>> fields,
+  Class(llvm::SMRange loc, std::string identifier, llvm::SMRange nameSpan,
+        std::vector<std::string> genericParams, std::vector<std::unique_ptr<VarDecl>> fields,
         std::vector<std::unique_ptr<FuncDecl>> methods, bool exported)
-      : Statement(loc), identifier(std::move(identifier)), genericParams(std::move(genericParams)),
-        fields(std::move(fields)), methods(std::move(methods)), exported(exported) {};
+      : Statement(loc), identifier(std::move(identifier)), nameSpan(nameSpan),
+        genericParams(std::move(genericParams)), fields(std::move(fields)),
+        methods(std::move(methods)), exported(exported) {};
   void accept(ASTVisitor& visitor) const override { visitor.visit(this); }
 
   [[nodiscard]] [[maybe_unused]] auto getIdentifier() const -> std::string { return identifier; }
+  [[nodiscard]] [[maybe_unused]] auto getNameSpan() const -> llvm::SMRange { return nameSpan; }
   [[nodiscard]] [[maybe_unused]] auto getGenericParams() const -> std::vector<std::string> {
     return genericParams;
   }

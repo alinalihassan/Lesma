@@ -9,6 +9,7 @@
 
 #include <llvm/IR/Type.h>
 #include <llvm/IR/Value.h>
+#include <llvm/Support/SMLoc.h>
 #include <llvm/Support/raw_ostream.h>
 
 #include "Type.h"
@@ -66,7 +67,8 @@ public:
         llvmValue(other.llvmValue), category(other.category), used(other.used),
         mutableVar(other.mutableVar), signedVar(other.signedVar), exported(other.exported),
         constructor(other.constructor), genericClassTemplate(other.genericClassTemplate),
-        bodyScope(other.bodyScope) {}
+        bodyScope(other.bodyScope), declarationSpan(other.declarationSpan),
+        declarationFilePath(other.declarationFilePath) {}
 
   ~Value() = default;
   auto operator=(const Value& other) -> Value& {
@@ -85,6 +87,8 @@ public:
       constructor = other.constructor;
       genericClassTemplate = other.genericClassTemplate;
       bodyScope = other.bodyScope;
+      declarationSpan = other.declarationSpan;
+      declarationFilePath = other.declarationFilePath;
     }
     return *this;
   }
@@ -107,6 +111,11 @@ public:
   [[nodiscard]] auto getGenericClassTemplate() const -> void* { return genericClassTemplate; }
   [[nodiscard]] auto isExported() const -> bool { return exported; }
   [[nodiscard]] auto isUsed() const -> bool { return used; }
+  /** Declaration location for LSP go-to-definition. */
+  [[nodiscard]] auto getDeclarationSpan() const -> llvm::SMRange { return declarationSpan; }
+  [[nodiscard]] auto getDeclarationFilePath() const -> const std::string& {
+    return declarationFilePath;
+  }
 
   auto setLlvmValue(llvm::Value* value) -> void { llvmValue = value; }
   auto setName(const std::string& value) -> void { name = value; }
@@ -123,6 +132,8 @@ public:
   auto setConstructor(lesma::Value* value) -> void { constructor = value; }
   auto setGenericClassTemplate(void* ptr) -> void { genericClassTemplate = ptr; }
   auto setBodyScope(SymbolTable* value) -> void { bodyScope = value; }
+  auto setDeclarationSpan(llvm::SMRange span) -> void { declarationSpan = span; }
+  auto setDeclarationFilePath(std::string path) -> void { declarationFilePath = std::move(path); }
   [[nodiscard]] auto usesAddressableStorage() const -> bool {
     return category == ValueCategory::ADDRESSABLE_STORAGE;
   }
@@ -164,5 +175,8 @@ private:
   lesma::Value* constructor = nullptr;
   void* genericClassTemplate = nullptr;
   SymbolTable* bodyScope = nullptr;
+  // For LSP: declaration location
+  llvm::SMRange declarationSpan;
+  std::string declarationFilePath;
 };
 } // namespace lesma

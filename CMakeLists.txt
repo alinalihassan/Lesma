@@ -202,7 +202,8 @@ if (LESMA_BUILD_LSP)
   )
   FetchContent_MakeAvailable(lsp_framework)
 
-  set(LSP_SERVER_SOURCES src/lsp/main.cpp src/lsp/DocumentStore.cpp)
+  set(LSP_SERVER_SOURCES src/lsp/main.cpp src/lsp/DocumentStore.cpp src/lsp/LspCompletion.cpp
+      src/lsp/LspUtf16.cpp)
   add_executable(lesma-lsp ${LSP_SERVER_SOURCES})
   target_link_libraries(lesma-lsp PRIVATE ${LIB_NAME} lsp)
   target_include_directories(lesma-lsp PRIVATE ${lsp_framework_SOURCE_DIR})

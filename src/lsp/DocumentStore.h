@@ -26,6 +26,9 @@ public:
 
   /** Returns path for use as mainFilePath in analysis (resolves relative imports). */
   [[nodiscard]] std::optional<std::string> getPath(const ::lsp::DocumentUri& uri) const;
+  /** Decoded, canonical filesystem path for STRING-source analyze() (imports); nullopt if not a
+   *  file URI (e.g. untitled). */
+  [[nodiscard]] std::optional<std::string> getAnalyzeMainFilePath(const ::lsp::DocumentUri& uri) const;
   [[nodiscard]] std::optional<std::string> getContent(const ::lsp::DocumentUri& uri) const;
   [[nodiscard]] std::optional<Document> getDocument(const ::lsp::DocumentUri& uri) const;
 

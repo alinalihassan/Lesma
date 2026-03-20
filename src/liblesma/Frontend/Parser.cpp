@@ -723,7 +723,8 @@ auto Parser::parseFunctionDeclaration() -> std::unique_ptr<Statement> {
                           paramIdent->lexeme);
       }
 
-      parameters.push_back(std::make_unique<Parameter>(paramIdent->lexeme, std::move(type), false,
+      parameters.push_back(std::make_unique<Parameter>(paramIdent->lexeme, paramIdent->span,
+                                                       std::move(type), false,
                                                        std::move(defaultVal)));
     }
 
@@ -744,16 +745,17 @@ auto Parser::parseFunctionDeclaration() -> std::unique_ptr<Statement> {
   if (externFunc) {
     consumeNewline();
     return std::make_unique<ExternFuncDecl>(llvm::SMRange{loc.Start, returnType->getEnd()},
-                                            identifier->lexeme, std::move(genericParams),
-                                            std::move(returnType), std::move(parameters), varargs,
-                                            isExported);
+                                            identifier->lexeme, identifier->span,
+                                            std::move(genericParams), std::move(returnType),
+                                            std::move(parameters), varargs, isExported);
   }
 
   auto body = parseBlock();
 
-  return std::make_unique<FuncDecl>(
-      llvm::SMRange{loc.Start, returnType->getEnd()}, identifier->lexeme, std::move(genericParams),
-      std::move(returnType), std::move(parameters), std::move(body), false, isExported);
+  return std::make_unique<FuncDecl>(llvm::SMRange{loc.Start, returnType->getEnd()},
+                                    identifier->lexeme, identifier->span, std::move(genericParams),
+                                    std::move(returnType), std::move(parameters), std::move(body),
+                                    false, isExported);
 }
 
 auto Parser::parseExport() -> std::unique_ptr<Statement> {
@@ -899,8 +901,8 @@ auto Parser::parseClass() -> std::unique_ptr<Statement> {
 
   advanceIfMatchAny<TokenType::DEDENT>();
 
-  return std::make_unique<Class>(loc, token->lexeme, std::move(genericParams), std::move(fields),
-                                 std::move(methods), isExported);
+  return std::make_unique<Class>(loc, token->lexeme, token->span, std::move(genericParams),
+                                 std::move(fields), std::move(methods), isExported);
 }
 
 auto Parser::parseEnum() -> std::unique_ptr<Statement> {
@@ -920,7 +922,7 @@ auto Parser::parseEnum() -> std::unique_ptr<Statement> {
 
   advanceIfMatchAny<TokenType::DEDENT>();
 
-  return std::make_unique<Enum>(loc, token->lexeme, values, isExported);
+  return std::make_unique<Enum>(loc, token->lexeme, token->span, values, isExported);
 }
 
 auto Parser::parseCompound() -> std::unique_ptr<Compound> {

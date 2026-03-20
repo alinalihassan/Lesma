@@ -35,6 +35,9 @@ struct Options {
   Debug debug = Debug::NONE;
   std::string outputFilename = "output";
   bool timer = false;
+  /** When sourceType is STRING, used as the logical file path (imports, diagnostics). LSP sets
+   *  this to the open document's filesystem path. */
+  std::string implicitFilePath;
 };
 
 class Driver {

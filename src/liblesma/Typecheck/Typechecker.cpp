@@ -561,6 +561,8 @@ auto Typechecker::visit(const VarDecl* node) -> void {
                                         SymbolState::INITIALIZED);
   symbol->setCategory(ValueCategory::ADDRESSABLE_STORAGE);
   symbol->setMutable(node->getMutability());
+  symbol->setDeclarationSpan(node->getIdentifier()->getSpan());
+  symbol->setDeclarationFilePath(mainFilePath);
   scope->insertSymbol(std::move(symbol));
 }
 
@@ -641,6 +643,8 @@ auto Typechecker::visit(const Enum* node) -> void {
   auto enumSymbol = std::make_unique<Value>(node->getIdentifier(), typePtr);
   enumSymbol->setCategory(ValueCategory::TYPE_SYMBOL);
   enumSymbol->setExported(node->isExported());
+  enumSymbol->setDeclarationSpan(node->getNameSpan());
+  enumSymbol->setDeclarationFilePath(mainFilePath);
   scope->insertSymbol(std::move(enumSymbol));
 }
 
@@ -685,6 +689,8 @@ auto Typechecker::visit(const Class* node) -> void {
     auto classSymbol = std::make_unique<Value>(node->getIdentifier(), classTypePtr);
     classSymbol->setCategory(ValueCategory::TYPE_SYMBOL);
     classSymbol->setExported(node->isExported());
+    classSymbol->setDeclarationSpan(node->getNameSpan());
+    classSymbol->setDeclarationFilePath(mainFilePath);
     scope->insertSymbol(std::move(classSymbol));
   }
 
@@ -768,11 +774,15 @@ auto Typechecker::visit(const FuncDecl* node) -> void {
       auto declaredFunc = std::make_unique<Value>(node->getName(), funcTypePtr);
       declaredFunc->setCategory(ValueCategory::CALLABLE_SYMBOL);
       declaredFunc->setExported(node->isExported());
+      declaredFunc->setDeclarationSpan(node->getNameSpan());
+      declaredFunc->setDeclarationFilePath(mainFilePath);
       insertScope->insertSymbol(std::move(declaredFunc));
       funcSymbol = insertScope->lookupFunction(node->getName(), paramTypes);
     } else {
       funcSymbol->setType(funcTypePtr);
       funcSymbol->setExported(node->isExported());
+      funcSymbol->setDeclarationSpan(node->getNameSpan());
+      funcSymbol->setDeclarationFilePath(mainFilePath);
     }
 
     if (funcSymbol != nullptr && funcSymbol->getBodyScope() == nullptr) {
@@ -785,6 +795,8 @@ auto Typechecker::visit(const FuncDecl* node) -> void {
         Parameter* param = node->getParameters()[i];
         auto paramSymbol = std::make_unique<Value>(param->name, paramTypes[paramOffset + i]);
         paramSymbol->setCategory(ValueCategory::ADDRESSABLE_STORAGE);
+        paramSymbol->setDeclarationSpan(param->nameSpan);
+        paramSymbol->setDeclarationFilePath(mainFilePath);
         scope->insertSymbol(std::move(paramSymbol));
       }
       scope = savedScopePtr;
@@ -862,11 +874,15 @@ auto Typechecker::visit(const ExternFuncDecl* node) -> void {
     auto funcSymbol = std::make_unique<Value>(node->getName(), funcTypePtr);
     funcSymbol->setCategory(ValueCategory::CALLABLE_SYMBOL);
     funcSymbol->setExported(node->isExported());
+    funcSymbol->setDeclarationSpan(node->getNameSpan());
+    funcSymbol->setDeclarationFilePath(mainFilePath);
     scope->getParent()->insertSymbol(
         std::move(funcSymbol)); // insert into enclosing scope, not generics
   } else {
     existingFunc->setType(funcTypePtr);
     existingFunc->setExported(node->isExported());
+    existingFunc->setDeclarationSpan(node->getNameSpan());
+    existingFunc->setDeclarationFilePath(mainFilePath);
   }
   scope = scope->getParent(); // pop generics scope
   currentGenericTypes = std::move(savedGenerics);
