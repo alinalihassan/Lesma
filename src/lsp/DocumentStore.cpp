@@ -59,7 +59,8 @@ std::optional<std::string> DocumentStore::getPath(const ::lsp::DocumentUri& uri)
   return it->second.path;
 }
 
-std::optional<std::string> DocumentStore::getAnalyzeMainFilePath(const ::lsp::DocumentUri& uri) const {
+std::optional<std::string>
+DocumentStore::getAnalyzeMainFilePath(const ::lsp::DocumentUri& uri) const {
   auto doc = getDocument(uri);
   if (!doc) {
     return std::nullopt;

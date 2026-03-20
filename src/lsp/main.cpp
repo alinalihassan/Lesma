@@ -311,9 +311,60 @@ std::optional<std::string> findIdentifierAtCursor(const lesma::Compound* ast,
         }
       }
       if (auto const* fc = dynamic_cast<const lesma::FuncCall*>(node)) {
-        result = fc->getName();
+        // Check if cursor is on the function name (rough heuristic)
+        llvm::SMRange nameSpan = fc->getSpan();
+        if (nameSpan.isValid()) {
+          unsigned nameStart = getOffsetFromSMLoc(srcMgr, bufferId, nameSpan.Start);
+          unsigned nameEnd = getOffsetFromSMLoc(srcMgr, bufferId, nameSpan.End);
+          // Rough check: if cursor is in first part of FuncCall, it's the name
+          // Otherwise, check arguments
+          unsigned nameLen = nameEnd - nameStart;
+          if (targetOffset < nameStart + nameLen / 2) {
+            result = fc->getName();
+            if (result) {
+              return;
+            }
+          }
+        }
+        // Visit arguments to find identifiers in them (e.g., holder.callback)
+        for (lesma::Expression* arg : fc->getArguments()) {
+          if (arg != nullptr) {
+            visitExpr(arg);
+            if (result) {
+              return;
+            }
+          }
+        }
       }
       if (auto const* dot = dynamic_cast<const lesma::DotOp*>(node)) {
+        // For DotOp, check which side the cursor is on by examining spans
+        if (dot->getLeft() != nullptr) {
+          llvm::SMRange leftSpan = dot->getLeft()->getSpan();
+          if (leftSpan.isValid()) {
+            unsigned leftStart = getOffsetFromSMLoc(srcMgr, bufferId, leftSpan.Start);
+            unsigned leftEnd = getOffsetFromSMLoc(srcMgr, bufferId, leftSpan.End);
+            if (targetOffset >= leftStart && targetOffset < leftEnd) {
+              visitExpr(dot->getLeft());
+              if (result) {
+                return;
+              }
+            }
+          }
+        }
+        if (dot->getRight() != nullptr) {
+          llvm::SMRange rightSpan = dot->getRight()->getSpan();
+          if (rightSpan.isValid()) {
+            unsigned rightStart = getOffsetFromSMLoc(srcMgr, bufferId, rightSpan.Start);
+            unsigned rightEnd = getOffsetFromSMLoc(srcMgr, bufferId, rightSpan.End);
+            if (targetOffset >= rightStart && targetOffset < rightEnd) {
+              visitExpr(dot->getRight());
+              if (result) {
+                return;
+              }
+            }
+          }
+        }
+        // Fallback: if cursor is in DotOp but not in either side, try both
         visitExpr(dot->getLeft());
         if (!result && dot->getRight() != nullptr) {
           visitExpr(dot->getRight());
