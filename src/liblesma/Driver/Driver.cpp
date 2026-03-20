@@ -153,6 +153,9 @@ auto lesma::analyze(std::unique_ptr<Options> options) -> AnalysisResult {
     result.parser = std::move(parser);
     result.rootScope = typechecker.takeRootScope();
     result.typeCache = typechecker.takeTypeCache();
+    result.importAliasToPath = typechecker.takeImportAliasToPath();
+    result.importedNameToSource = typechecker.takeImportedNameToSource();
+    result.importedModules = typechecker.takeImportedModules();
     return result;
   } catch (const LesmaError& err) {
     result.diagnostics.push_back(
@@ -163,6 +166,9 @@ auto lesma::analyze(std::unique_ptr<Options> options) -> AnalysisResult {
     // Capture partial rootScope even if typecheck failed partway through
     result.rootScope = typechecker.takeRootScope();
     result.typeCache = typechecker.takeTypeCache();
+    result.importAliasToPath = typechecker.takeImportAliasToPath();
+    result.importedNameToSource = typechecker.takeImportedNameToSource();
+    result.importedModules = typechecker.takeImportedModules();
     return result;
   }
 }

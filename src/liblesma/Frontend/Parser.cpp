@@ -813,14 +813,17 @@ auto Parser::parseImport() -> std::unique_ptr<Statement> {
 
   if (!selectiveImport) {
     std::string alias = getBasename(token->lexeme);
+    llvm::SMRange aliasSpan = token->type == TokenType::IDENTIFIER ? token->span : llvm::SMRange();
     if (advanceIfMatchAny<TokenType::AS>()) {
-      alias = consume(TokenType::IDENTIFIER)->lexeme;
+      Token const* aliasToken = consume(TokenType::IDENTIFIER);
+      alias = aliasToken->lexeme;
+      aliasSpan = aliasToken->span;
     }
 
     consumeNewline();
     return std::make_unique<Import>(llvm::SMRange{loc.Start, token->getEnd()}, filepath, alias,
-                                    token->type == TokenType::IDENTIFIER, true, false,
-                                    std::vector<std::pair<std::string, std::string>>{});
+                                    aliasSpan, token->type == TokenType::IDENTIFIER, true, false,
+                                    std::vector<ImportedNameBinding>{});
   }
 
   consume(TokenType::IMPORT);
@@ -829,20 +832,31 @@ auto Parser::parseImport() -> std::unique_ptr<Statement> {
     consumeNewline();
     return std::make_unique<Import>(llvm::SMRange{loc.Start, token->getEnd()}, filepath,
                                     getBasename(token->lexeme),
+                                    token->type == TokenType::IDENTIFIER ? token->span
+                                                                         : llvm::SMRange(),
                                     token->type == TokenType::IDENTIFIER, true, true,
-                                    std::vector<std::pair<std::string, std::string>>{});
+                                    std::vector<ImportedNameBinding>{});
   }
 
-  std::vector<std::pair<std::string, std::string>> importedNames;
+  std::vector<ImportedNameBinding> importedNames;
 
   while (true) {
-    auto ident = consume(TokenType::IDENTIFIER)->lexeme;
+    Token const* identToken = consume(TokenType::IDENTIFIER);
+    auto ident = identToken->lexeme;
     auto alias = ident;
+    llvm::SMRange aliasSpan = identToken->span;
     if (advanceIfMatchAny<TokenType::AS>()) {
-      alias = consume(TokenType::IDENTIFIER)->lexeme;
+      Token const* aliasToken = consume(TokenType::IDENTIFIER);
+      alias = aliasToken->lexeme;
+      aliasSpan = aliasToken->span;
     }
 
-    importedNames.emplace_back(ident, alias);
+    importedNames.push_back(ImportedNameBinding{
+        .name = ident,
+        .alias = alias,
+        .nameSpan = identToken->span,
+        .aliasSpan = aliasSpan,
+    });
 
     if (!advanceIfMatchAny<TokenType::COMMA>()) {
       break;
@@ -851,8 +865,10 @@ auto Parser::parseImport() -> std::unique_ptr<Statement> {
 
   consumeNewline();
   return std::make_unique<Import>(llvm::SMRange{loc.Start, token->getEnd()}, filepath,
-                                  getBasename(token->lexeme), token->type == TokenType::IDENTIFIER,
-                                  false, true, importedNames);
+                                  getBasename(token->lexeme),
+                                  token->type == TokenType::IDENTIFIER ? token->span
+                                                                       : llvm::SMRange(),
+                                  token->type == TokenType::IDENTIFIER, false, true, importedNames);
 }
 
 auto Parser::parseClass() -> std::unique_ptr<Statement> {

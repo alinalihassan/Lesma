@@ -2,6 +2,7 @@
 
 #include <memory>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 #include "llvm/Support/SMLoc.h"
@@ -20,6 +21,24 @@ struct AnalysisDiagnostic {
   llvm::SMRange span;
 };
 
+using ImportAliasMap = std::unordered_map<std::string, std::string>;
+using ImportedNameSourceMap =
+    std::unordered_map<std::string, std::pair<std::string, std::string>>;
+
+struct ImportedModuleAnalysis {
+  std::shared_ptr<llvm::SourceMgr> sourceMgr;
+  unsigned mainBufferId = 0;
+  std::string mainFilePath;
+
+  std::unique_ptr<Parser> parser;
+  std::unique_ptr<SymbolTable> rootScope;
+  std::vector<std::unique_ptr<Type>> typeCache;
+
+  ImportAliasMap importAliasToPath;
+  ImportedNameSourceMap importedNameToSource;
+  std::unordered_map<std::string, std::shared_ptr<ImportedModuleAnalysis>> importedModules;
+};
+
 /**
  * Result of running the compiler pipeline up to (and including) typecheck,
  * without codegen. Used by the LSP and by Driver for the full compile path.
@@ -36,6 +55,9 @@ struct AnalysisResult {
   std::unique_ptr<Parser> parser;
   std::unique_ptr<SymbolTable> rootScope;
   std::vector<std::unique_ptr<Type>> typeCache;
+  ImportAliasMap importAliasToPath;
+  ImportedNameSourceMap importedNameToSource;
+  std::unordered_map<std::string, std::shared_ptr<ImportedModuleAnalysis>> importedModules;
 
   [[nodiscard]] auto hasErrors() const -> bool { return !diagnostics.empty(); }
 };

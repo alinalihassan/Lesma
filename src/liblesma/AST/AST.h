@@ -201,28 +201,38 @@ public:
   }
 };
 
+struct ImportedNameBinding {
+  std::string name;
+  std::string alias;
+  llvm::SMRange nameSpan;
+  llvm::SMRange aliasSpan;
+};
+
 class Import : public Statement {
   std::string filePath;
   std::string alias;
-  std::vector<std::pair<std::string, std::string>> importedNames;
+  llvm::SMRange aliasSpan;
+  std::vector<ImportedNameBinding> importedNames;
   bool std;
   bool importAll;
   bool importToScope;
 
 public:
-  Import(llvm::SMRange loc, std::string filePath, std::string alias, bool std, bool importAll,
-         bool importToScope, std::vector<std::pair<std::string, std::string>> importedNames)
-      : Statement(loc), filePath(std::move(filePath)), alias(std::move(alias)),
+  Import(llvm::SMRange loc, std::string filePath, std::string alias, llvm::SMRange aliasSpan,
+         bool std, bool importAll, bool importToScope,
+         std::vector<ImportedNameBinding> importedNames)
+      : Statement(loc), filePath(std::move(filePath)), alias(std::move(alias)), aliasSpan(aliasSpan),
         importedNames(std::move(importedNames)), std(std), importAll(importAll),
         importToScope(importToScope) {};
   void accept(ASTVisitor& visitor) const override { visitor.visit(this); }
 
   [[nodiscard]] [[maybe_unused]] auto getFilePath() const -> std::string { return filePath; }
   [[nodiscard]] [[maybe_unused]] auto getAlias() const -> std::string { return alias; }
+  [[nodiscard]] [[maybe_unused]] auto getAliasSpan() const -> llvm::SMRange { return aliasSpan; }
   [[nodiscard]] [[maybe_unused]] auto getImportAll() const -> bool { return importAll; }
   [[nodiscard]] [[maybe_unused]] auto getImportScope() const -> bool { return importToScope; }
   [[nodiscard]] [[maybe_unused]] auto getImportedNames() const
-      -> std::vector<std::pair<std::string, std::string>> {
+      -> const std::vector<ImportedNameBinding>& {
     return importedNames;
   }
   [[nodiscard]] [[maybe_unused]] auto isStd() const -> bool { return std; }

@@ -123,15 +123,14 @@ protected:
 
   auto compileModule(llvm::SMRange span, const std::string& filepath, bool isStd,
                      const std::string& alias, bool importAll, bool importToScope,
-                     const std::vector<std::pair<std::string, std::string>>& importedNames) -> void;
+                     const std::vector<ImportedNameBinding>& importedNames) -> void;
   auto getExportsFromFile(const std::string& filepath, bool isStd, const std::string& mainFilePath)
       -> std::vector<std::string>;
   auto typecheckModule(const Compound* ast, const std::string& modulePath)
       -> std::pair<std::unique_ptr<SymbolTable>, std::vector<std::unique_ptr<lesma::Type>>>;
   auto insertImportAlias(const std::string& moduleAlias, bool importToScope) -> void;
   auto exposeImportedSymbols(llvm::SMRange span, SymbolTable* importedScope, bool importAll,
-                             bool importToScope,
-                             const std::vector<std::pair<std::string, std::string>>& importedNames)
+                             bool importToScope, const std::vector<ImportedNameBinding>& importedNames)
       -> void;
 
   auto visit(const Statement* node) -> void override;

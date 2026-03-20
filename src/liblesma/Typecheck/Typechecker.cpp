@@ -25,6 +25,54 @@
 
 namespace lesma {
 
+namespace {
+
+auto makeGenericDisplaySuffix(const std::vector<std::string>& genericParamNames) -> std::string {
+  if (genericParamNames.empty()) {
+    return {};
+  }
+  std::string suffix = "<";
+  for (size_t i = 0; i < genericParamNames.size(); ++i) {
+    if (i > 0U) {
+      suffix += ", ";
+    }
+    suffix += genericParamNames[i];
+  }
+  suffix += ">";
+  return suffix;
+}
+
+auto makeSpecializedDisplayName(Type* classTemplate,
+                                const std::vector<std::string>& genericParamNames,
+                                const std::unordered_map<std::string, Type*>& env) -> std::string {
+  if (classTemplate == nullptr) {
+    return {};
+  }
+  std::string baseName = classTemplate->getDisplayName();
+  if (baseName.empty()) {
+    baseName = classTemplate->toString();
+  }
+  size_t genericStart = baseName.find('<');
+  if (genericStart != std::string::npos) {
+    baseName = baseName.substr(0U, genericStart);
+  }
+  if (genericParamNames.empty()) {
+    return baseName;
+  }
+  std::string result = baseName + "<";
+  for (size_t i = 0; i < genericParamNames.size(); ++i) {
+    if (i > 0U) {
+      result += ", ";
+    }
+    auto it = env.find(genericParamNames[i]);
+    result += it != env.end() && it->second != nullptr ? it->second->toString() : genericParamNames[i];
+  }
+  result += ">";
+  return result;
+}
+
+} // namespace
+
 auto Typechecker::pathLeadsToEndWithoutReturn(const std::vector<Statement*>& statements,
                                               size_t index) -> bool {
   if (index >= statements.size()) {
@@ -84,6 +132,7 @@ auto Typechecker::materializeImportedType(Type* type) -> Type* {
         std::make_unique<Type>(type->getBaseType(), nullptr, std::vector<std::unique_ptr<Field>>{});
     Type* copy = cacheType(std::move(placeholder));
     importedTypeCopies[type] = copy;
+    copy->setDisplayName(type->getDisplayName());
     copy->setGenericParams(type->getGenericParams());
     for (Field* field : type->getFields()) {
       copy->addField(std::make_unique<Field>(field->name, materializeImportedType(field->type)));
@@ -98,6 +147,9 @@ auto Typechecker::materializeImportedType(Type* type) -> Type* {
     if (auto tmplIt = specializedTypeToTemplate.find(type);
         tmplIt != specializedTypeToTemplate.end()) {
       specializedTypeToTemplate[copy] = materializeImportedType(tmplIt->second);
+      copy->setDisplayName(
+          makeSpecializedDisplayName(specializedTypeToTemplate[copy], copy->getGenericParams(),
+                                     specializedTypeEnv[copy]));
     }
     return copy;
   }
@@ -244,6 +296,8 @@ auto Typechecker::getOrCreateSpecializedClassType(Type* classTemplate,
   specializedClassTypes[keyStr] = ptr;
   specializedTypeEnv[ptr] = env;
   specializedTypeToTemplate[ptr] = classTemplate;
+  ptr->setGenericParams(genericParamNames);
+  ptr->setDisplayName(makeSpecializedDisplayName(classTemplate, genericParamNames, env));
   return ptr;
 }
 
@@ -480,14 +534,14 @@ auto Typechecker::resolveImportPath(const std::string& filepath, bool isStd) con
 auto Typechecker::getOrTypecheckImport(const std::string& absolutePath) -> SymbolTable* {
   auto it = importedModuleCache.find(absolutePath);
   if (it != importedModuleCache.end()) {
-    return it->second.first.get();
+    return it->second != nullptr ? it->second->rootScope.get() : nullptr;
   }
   auto buffer = llvm::MemoryBuffer::getFile(absolutePath);
   if (!buffer) {
     return nullptr;
   }
   auto srcMgr = std::make_shared<llvm::SourceMgr>();
-  srcMgr->AddNewSourceBuffer(std::move(*buffer), llvm::SMLoc());
+  unsigned const bufferId = srcMgr->AddNewSourceBuffer(std::move(*buffer), llvm::SMLoc());
   auto lexer = std::make_unique<Lexer>(srcMgr);
   lexer->scanAll();
   auto parser = std::make_unique<Parser>(lexer->getTokens());
@@ -498,10 +552,18 @@ auto Typechecker::getOrTypecheckImport(const std::string& absolutePath) -> Symbo
   }
   Typechecker sub(absolutePath, getExports);
   sub.run(ast);
-  auto subScope = sub.takeRootScope();
-  auto subCache = sub.takeTypeCache();
-  SymbolTable* scopePtr = subScope.get();
-  importedModuleCache[absolutePath] = std::make_pair(std::move(subScope), std::move(subCache));
+  auto imported = std::make_shared<ImportedModuleAnalysis>();
+  imported->sourceMgr = std::move(srcMgr);
+  imported->mainBufferId = bufferId;
+  imported->mainFilePath = absolutePath;
+  imported->parser = std::move(parser);
+  imported->rootScope = sub.takeRootScope();
+  imported->typeCache = sub.takeTypeCache();
+  imported->importAliasToPath = sub.takeImportAliasToPath();
+  imported->importedNameToSource = sub.takeImportedNameToSource();
+  imported->importedModules = sub.takeImportedModules();
+  SymbolTable* scopePtr = imported->rootScope.get();
+  importedModuleCache[absolutePath] = std::move(imported);
   return scopePtr;
 }
 
@@ -520,6 +582,17 @@ auto Typechecker::takeRootScope() -> std::unique_ptr<SymbolTable> {
 
 auto Typechecker::takeTypeCache() -> std::vector<std::unique_ptr<Type>> {
   return std::move(typeCache);
+}
+
+auto Typechecker::takeImportAliasToPath() -> ImportAliasMap { return std::move(importAliasToPath); }
+
+auto Typechecker::takeImportedNameToSource() -> ImportedNameSourceMap {
+  return std::move(importedNameToSource);
+}
+
+auto Typechecker::takeImportedModules()
+    -> std::unordered_map<std::string, std::shared_ptr<ImportedModuleAnalysis>> {
+  return std::move(importedModuleCache);
 }
 
 auto Typechecker::visit(const Statement* /*node*/) -> void {}
@@ -623,7 +696,9 @@ auto Typechecker::visit(const Import* node) -> void {
     importAliasToPath[aliasName] = resolvedPath;
     return;
   }
-  for (const auto& [name, alias] : node->getImportedNames()) {
+  for (const ImportedNameBinding& binding : node->getImportedNames()) {
+    const std::string& name = binding.name;
+    const std::string& alias = binding.alias;
     const std::string localName = alias.empty() ? name : alias;
     addImportSymbol(localName);
     importedNameToSource[localName] = std::make_pair(resolvedPath, name);
@@ -637,6 +712,7 @@ auto Typechecker::visit(const Enum* node) -> void {
   auto type =
       std::make_unique<Type>(BaseType::TY_ENUM, nullptr, std::vector<std::unique_ptr<Field>>{});
   Type* typePtr = type.get();
+  type->setDisplayName(node->getIdentifier());
   for (const std::string& field : node->getValues()) {
     type->addField(std::make_unique<Field>(field, typePtr));
   }
@@ -685,6 +761,7 @@ auto Typechecker::visit(const Class* node) -> void {
       fields.push_back(std::make_unique<Field>(field->getIdentifier()->getValue(), fieldType));
     }
     auto type = std::make_unique<Type>(BaseType::TY_CLASS, nullptr, std::move(fields));
+    type->setDisplayName(node->getIdentifier() + makeGenericDisplaySuffix(node->getGenericParams()));
     classTypePtr = type.get();
     scope->insertType(node->getIdentifier(), std::move(type));
     auto classSymbol = std::make_unique<Value>(node->getIdentifier(), classTypePtr);
@@ -1373,7 +1450,10 @@ auto Typechecker::visit(const DotOp* node) -> void {
     Value* method = scope->lookupFunction(fc->getName(), methodArgTypes);
     if (method == nullptr) {
       for (auto& [_, cachedModule] : importedModuleCache) {
-        method = cachedModule.first->lookupFunction(fc->getName(), methodArgTypes);
+        if (cachedModule == nullptr || cachedModule->rootScope == nullptr) {
+          continue;
+        }
+        method = cachedModule->rootScope->lookupFunction(fc->getName(), methodArgTypes);
         if (method != nullptr) {
           break;
         }

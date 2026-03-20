@@ -56,6 +56,7 @@ class Type {
   Type* elementType;
   Type* returnType;
   std::string genericName;
+  std::string displayName;
   /** Declared generic parameter names in order (for TY_CLASS and TY_FUNCTION). */
   std::vector<std::string> genericParams;
   // Owned collection of Fields
@@ -96,6 +97,7 @@ public:
   [[nodiscard]] auto getReturnType() const -> Type* { return returnType; }
   [[nodiscard]] auto getLlvmType() const -> llvm::Type* { return llvmType; }
   [[nodiscard]] auto getGenericName() const -> std::string { return genericName; }
+  [[nodiscard]] auto getDisplayName() const -> const std::string& { return displayName; }
   /** Declared generic parameter names in order (for class/function types). */
   [[nodiscard]] auto getGenericParams() const -> const std::vector<std::string>& {
     return genericParams;
@@ -118,6 +120,7 @@ public:
   auto setElementType(Type* type) -> void { elementType = type; }
   auto setReturnType(Type* type) -> void { returnType = type; }
   auto setGenericName(std::string name) -> void { genericName = std::move(name); }
+  auto setDisplayName(std::string name) -> void { displayName = std::move(name); }
   auto setGenericParams(std::vector<std::string> params) -> void {
     genericParams = std::move(params);
   }
@@ -300,10 +303,10 @@ public:
       result = genericName;
       break;
     case BaseType::TY_CLASS:
-      result = "Class";
+      result = displayName.empty() ? "Class" : displayName;
       break;
     case BaseType::TY_ENUM:
-      result = "Enum";
+      result = displayName.empty() ? "Enum" : displayName;
       break;
     case BaseType::TY_IMPORT:
       result = "Import";

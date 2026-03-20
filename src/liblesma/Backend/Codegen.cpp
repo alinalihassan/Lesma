@@ -371,11 +371,11 @@ auto Codegen::insertImportAlias(const std::string& moduleAlias, bool importToSco
 
 auto Codegen::exposeImportedSymbols(
     llvm::SMRange /*span*/, SymbolTable* importedScope, bool importAll, bool importToScope,
-    const std::vector<std::pair<std::string, std::string>>& importedNames) -> void {
+    const std::vector<ImportedNameBinding>& importedNames) -> void {
   auto findImportedAlias = [&importedNames](const std::string& import) -> std::string {
-    for (const auto& impPair : importedNames) {
-      if (impPair.first == import) {
-        return impPair.second;
+    for (const ImportedNameBinding& binding : importedNames) {
+      if (binding.name == import) {
+        return binding.alias;
       }
     }
     return "";
@@ -469,7 +469,7 @@ auto Codegen::exposeImportedSymbols(
 auto Codegen::compileModule(
     llvm::SMRange span, const std::string& filepath, bool isStd, const std::string& moduleAlias,
     bool importAll, bool importToScope,
-    const std::vector<std::pair<std::string, std::string> /*unused*/>& importedNames) -> void {
+    const std::vector<ImportedNameBinding>& importedNames) -> void {
   std::filesystem::path mainPath = filename;
   // Read source
   auto absolutePath =

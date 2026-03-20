@@ -75,6 +75,209 @@ public:
   }
 };
 
+struct AnalysisView {
+  llvm::SourceMgr* sourceMgr = nullptr;
+  unsigned bufferId = 0;
+  const std::string* mainFilePath = nullptr;
+  lesma::Compound* ast = nullptr;
+  lesma::SymbolTable* rootScope = nullptr;
+  const lesma::ImportAliasMap* importAliasToPath = nullptr;
+  const lesma::ImportedNameSourceMap* importedNameToSource = nullptr;
+  const std::unordered_map<std::string, std::shared_ptr<lesma::ImportedModuleAnalysis>>*
+      importedModules = nullptr;
+};
+
+struct ResolvedSymbol {
+  lesma::Value* value = nullptr;
+  AnalysisView owner;
+};
+
+struct SymbolIdentity {
+  std::string path;
+  ::lsp::Range range;
+  std::string name;
+};
+
+struct EnumMemberIdentity {
+  std::string path;
+  std::string enumName;
+  std::string memberName;
+  ::lsp::Range range;
+};
+
+auto makeAnalysisView(const AnalysisResult& result) -> AnalysisView {
+  return AnalysisView{
+      .sourceMgr = result.sourceMgr.get(),
+      .bufferId = result.mainBufferId,
+      .mainFilePath = &result.mainFilePath,
+      .ast = result.parser ? result.parser->getAst() : nullptr,
+      .rootScope = result.rootScope.get(),
+      .importAliasToPath = &result.importAliasToPath,
+      .importedNameToSource = &result.importedNameToSource,
+      .importedModules = &result.importedModules,
+  };
+}
+
+auto makeAnalysisView(const lesma::ImportedModuleAnalysis& result) -> AnalysisView {
+  return AnalysisView{
+      .sourceMgr = result.sourceMgr.get(),
+      .bufferId = result.mainBufferId,
+      .mainFilePath = &result.mainFilePath,
+      .ast = result.parser ? result.parser->getAst() : nullptr,
+      .rootScope = result.rootScope.get(),
+      .importAliasToPath = &result.importAliasToPath,
+      .importedNameToSource = &result.importedNameToSource,
+      .importedModules = &result.importedModules,
+  };
+}
+
+auto isUsableAnalysis(const AnalysisView& analysis) -> bool {
+  return analysis.sourceMgr != nullptr && analysis.rootScope != nullptr && analysis.ast != nullptr &&
+         analysis.mainFilePath != nullptr;
+}
+
+auto normalizePath(const std::string& path) -> std::string {
+  if (path.empty()) {
+    return {};
+  }
+  std::error_code ec;
+  std::filesystem::path const absolute = std::filesystem::absolute(std::filesystem::path(path), ec);
+  return (!ec ? absolute : std::filesystem::path(path)).lexically_normal().string();
+}
+
+auto uriFromPath(const std::string& path) -> ::lsp::DocumentUri {
+  std::string normalized = normalizePath(path);
+  return ::lsp::FileUri::fromPath(normalized.empty() ? path : normalized);
+}
+
+auto resolveImportAbsolutePath(const AnalysisView& analysis, const lesma::Import* importNode)
+    -> std::string {
+  if (importNode == nullptr) {
+    return {};
+  }
+  if (importNode->isStd() || analysis.mainFilePath == nullptr || analysis.mainFilePath->empty()) {
+    return importNode->getFilePath();
+  }
+  std::filesystem::path const baseDir =
+      std::filesystem::absolute(std::filesystem::path(*analysis.mainFilePath)).parent_path();
+  return normalizePath((baseDir / importNode->getFilePath()).string());
+}
+
+auto findModuleImportPathByAlias(const AnalysisView& analysis, const std::string& alias)
+    -> std::optional<std::string> {
+  if (!isUsableAnalysis(analysis)) {
+    return std::nullopt;
+  }
+  if (analysis.importAliasToPath != nullptr) {
+    auto pathIt = analysis.importAliasToPath->find(alias);
+    if (pathIt != analysis.importAliasToPath->end()) {
+      return normalizePath(pathIt->second);
+    }
+  }
+  for (lesma::Statement* stmt : analysis.ast->getChildren()) {
+    auto const* importNode = dynamic_cast<const lesma::Import*>(stmt);
+    if (importNode == nullptr) {
+      continue;
+    }
+    if (importNode->getAlias() == alias) {
+      std::string path = resolveImportAbsolutePath(analysis, importNode);
+      if (!path.empty()) {
+        return path;
+      }
+    }
+  }
+  return std::nullopt;
+}
+
+auto collectAnalysisViewsRecursive(
+    const std::unordered_map<std::string, std::shared_ptr<lesma::ImportedModuleAnalysis>>& modules,
+    std::unordered_set<std::string>& visited, std::vector<AnalysisView>& out) -> void {
+  for (auto const& [path, module] : modules) {
+    if (module == nullptr) {
+      continue;
+    }
+    std::string normalized = normalizePath(path.empty() ? module->mainFilePath : path);
+    if (!normalized.empty() && !visited.insert(normalized).second) {
+      continue;
+    }
+    out.push_back(makeAnalysisView(*module));
+    collectAnalysisViewsRecursive(module->importedModules, visited, out);
+  }
+}
+
+auto collectAnalysisViews(const AnalysisResult& result) -> std::vector<AnalysisView> {
+  std::vector<AnalysisView> out;
+  AnalysisView mainView = makeAnalysisView(result);
+  if (!isUsableAnalysis(mainView)) {
+    return out;
+  }
+  out.push_back(mainView);
+  std::unordered_set<std::string> visited;
+  std::string mainPath = normalizePath(result.mainFilePath);
+  if (!mainPath.empty()) {
+    visited.insert(mainPath);
+  }
+  collectAnalysisViewsRecursive(result.importedModules, visited, out);
+  return out;
+}
+
+auto makeImportedModuleAnalysis(AnalysisResult analyzed)
+    -> std::shared_ptr<lesma::ImportedModuleAnalysis> {
+  auto imported = std::make_shared<lesma::ImportedModuleAnalysis>();
+  imported->sourceMgr = std::move(analyzed.sourceMgr);
+  imported->mainBufferId = analyzed.mainBufferId;
+  imported->mainFilePath = std::move(analyzed.mainFilePath);
+  imported->parser = std::move(analyzed.parser);
+  imported->rootScope = std::move(analyzed.rootScope);
+  imported->typeCache = std::move(analyzed.typeCache);
+  imported->importAliasToPath = std::move(analyzed.importAliasToPath);
+  imported->importedNameToSource = std::move(analyzed.importedNameToSource);
+  imported->importedModules = std::move(analyzed.importedModules);
+  return imported;
+}
+
+auto getLazyImportedAnalysis(const std::string& path)
+    -> std::shared_ptr<lesma::ImportedModuleAnalysis> {
+  static std::unordered_map<std::string, std::shared_ptr<lesma::ImportedModuleAnalysis>> cache;
+  std::string normalized = normalizePath(path);
+  auto existing = cache.find(normalized);
+  if (existing != cache.end()) {
+    return existing->second;
+  }
+  auto options = std::make_unique<Options>(Options{
+      SourceType::FILE,
+      normalized,
+      Debug::NONE,
+      "output",
+      false,
+      "",
+  });
+  AnalysisResult analyzed = lesma::analyze(std::move(options));
+  AnalysisView view = makeAnalysisView(analyzed);
+  if (!isUsableAnalysis(view)) {
+    cache[normalized] = nullptr;
+    return nullptr;
+  }
+  std::shared_ptr<lesma::ImportedModuleAnalysis> imported =
+      makeImportedModuleAnalysis(std::move(analyzed));
+  cache[normalized] = imported;
+  return imported;
+}
+
+auto findAnalysisViewForPath(const AnalysisResult& result, const std::string& path)
+    -> std::optional<AnalysisView> {
+  std::string target = normalizePath(path);
+  for (const AnalysisView& view : collectAnalysisViews(result)) {
+    if (view.mainFilePath != nullptr && normalizePath(*view.mainFilePath) == target) {
+      return view;
+    }
+  }
+  if (std::shared_ptr<lesma::ImportedModuleAnalysis> imported = getLazyImportedAnalysis(target)) {
+    return makeAnalysisView(*imported);
+  }
+  return std::nullopt;
+}
+
 ::lsp::Range smRangeToLspRange(llvm::SourceMgr* srcMgr, unsigned bufferId, llvm::SMRange span) {
   if (!span.isValid()) {
     return ::lsp::Range{.start = {0U, 0U}, .end = {0U, 0U}};
@@ -721,6 +924,36 @@ std::optional<CursorIdentifier> findIdentifierAtCursor(const lesma::Compound* as
           visit(whileNode->getBlock());
         }
       }
+      if (!result) {
+        if (auto const* importNode = dynamic_cast<const lesma::Import*>(node)) {
+          llvm::SMRange aliasSpan = importNode->getAliasSpan();
+          if (aliasSpan.isValid()) {
+            unsigned startOff = getOffsetFromSMLoc(srcMgr, bufferId, aliasSpan.Start);
+            unsigned endOff = getOffsetFromSMLoc(srcMgr, bufferId, aliasSpan.End);
+            if (targetOffset >= startOff && targetOffset < endOff) {
+              result =
+                  CursorIdentifier{importNode->getAlias(), std::nullopt,
+                                   smRangeToLspRange(srcMgr, bufferId, aliasSpan)};
+              return;
+            }
+          }
+          for (const lesma::ImportedNameBinding& binding : importNode->getImportedNames()) {
+            llvm::SMRange span = binding.aliasSpan.isValid() ? binding.aliasSpan : binding.nameSpan;
+            if (!span.isValid()) {
+              continue;
+            }
+            unsigned startOff = getOffsetFromSMLoc(srcMgr, bufferId, span.Start);
+            unsigned endOff = getOffsetFromSMLoc(srcMgr, bufferId, span.End);
+            if (targetOffset >= startOff && targetOffset < endOff) {
+              std::string localName = binding.alias.empty() ? binding.name : binding.alias;
+              result =
+                  CursorIdentifier{localName, std::nullopt,
+                                   smRangeToLspRange(srcMgr, bufferId, span)};
+              return;
+            }
+          }
+        }
+      }
     }
   };
   for (lesma::Statement* stmt : ast->getChildren()) {
@@ -1143,6 +1376,7 @@ auto makeLspRangeFromStartAndName(llvm::SourceMgr* srcMgr, unsigned bufferId, ll
 
 struct SymbolOccurrence {
   std::string name;
+  std::optional<std::string> dotBase;
   ::lsp::Range range;
 };
 
@@ -1158,8 +1392,8 @@ struct ActiveCallSite {
   unsigned spanLength = 0U;
 };
 
-lesma::Value* resolveSymbolAtCursor(const AnalysisResult& result, unsigned line, unsigned character,
-                                    const std::string& name);
+auto resolveCanonicalSymbolAtCursor(const AnalysisResult& result, unsigned line, unsigned character,
+                                    const CursorIdentifier& id) -> std::optional<ResolvedSymbol>;
 auto findEnumMemberDeclarationAtCursor(const lesma::Compound* ast, llvm::SourceMgr* srcMgr,
                                        unsigned bufferId, unsigned line, unsigned character,
                                        const std::string& memberName)
@@ -1386,16 +1620,12 @@ void findActiveCallInStmt(const lesma::Statement* stmt, llvm::SourceMgr* srcMgr,
   }
 }
 
-auto findActiveCallSite(const AnalysisResult& result, unsigned line, unsigned character)
+auto findActiveCallSite(const AnalysisView& analysis, unsigned line, unsigned character)
     -> std::optional<ActiveCallSite> {
-  if (result.parser == nullptr || result.sourceMgr == nullptr) {
+  if (!isUsableAnalysis(analysis)) {
     return std::nullopt;
   }
-  lesma::Compound* ast = result.parser->getAst();
-  if (ast == nullptr) {
-    return std::nullopt;
-  }
-  auto const* buf = result.sourceMgr->getMemoryBuffer(result.mainBufferId);
+  auto const* buf = analysis.sourceMgr->getMemoryBuffer(analysis.bufferId);
   if (buf == nullptr) {
     return std::nullopt;
   }
@@ -1403,8 +1633,8 @@ auto findActiveCallSite(const AnalysisResult& result, unsigned line, unsigned ch
       lesma::lsp_srv::bufferByteOffsetFromLspPosition(buf->getBuffer(), line, character));
 
   ActiveCallSite best;
-  for (lesma::Statement* stmt : ast->getChildren()) {
-    findActiveCallInStmt(stmt, result.sourceMgr.get(), result.mainBufferId, targetOffset, best);
+  for (lesma::Statement* stmt : analysis.ast->getChildren()) {
+    findActiveCallInStmt(stmt, analysis.sourceMgr, analysis.bufferId, targetOffset, best);
   }
   if (best.call == nullptr) {
     return std::nullopt;
@@ -1413,8 +1643,8 @@ auto findActiveCallSite(const AnalysisResult& result, unsigned line, unsigned ch
   if (!span.isValid()) {
     return std::nullopt;
   }
-  unsigned const start = getOffsetFromSMLoc(result.sourceMgr.get(), result.mainBufferId, span.Start);
-  unsigned const end = getOffsetFromSMLoc(result.sourceMgr.get(), result.mainBufferId, span.End);
+  unsigned const start = getOffsetFromSMLoc(analysis.sourceMgr, analysis.bufferId, span.Start);
+  unsigned const end = getOffsetFromSMLoc(analysis.sourceMgr, analysis.bufferId, span.End);
   if (targetOffset < start || targetOffset > end) {
     return std::nullopt;
   }
@@ -1524,32 +1754,32 @@ auto collectCallableCandidates(lesma::SymbolTable* scope, const std::string& nam
 
 auto buildSignatureHelp(const AnalysisResult& result, unsigned line, unsigned character)
     -> std::optional<::lsp::SignatureHelp> {
-  if (result.rootScope == nullptr || result.sourceMgr == nullptr || result.parser == nullptr) {
+  AnalysisView analysis = makeAnalysisView(result);
+  if (!isUsableAnalysis(analysis)) {
     return std::nullopt;
   }
-  std::optional<ActiveCallSite> activeCall = findActiveCallSite(result, line, character);
+  std::optional<ActiveCallSite> activeCall = findActiveCallSite(analysis, line, character);
   if (!activeCall || activeCall->call == nullptr) {
     return std::nullopt;
   }
-  auto const* buf = result.sourceMgr->getMemoryBuffer(result.mainBufferId);
+  auto const* buf = analysis.sourceMgr->getMemoryBuffer(analysis.bufferId);
   if (buf == nullptr) {
     return std::nullopt;
   }
   llvm::StringRef text = buf->getBuffer();
   unsigned const targetOffset = static_cast<unsigned>(
       lesma::lsp_srv::bufferByteOffsetFromLspPosition(text, line, character));
-  lesma::Compound* ast = result.parser->getAst();
   lesma::SymbolTable* scope =
-      activeScopeForOffset(ast, result.rootScope.get(), result.sourceMgr.get(), result.mainBufferId,
+      activeScopeForOffset(analysis.ast, analysis.rootScope, analysis.sourceMgr, analysis.bufferId,
                            targetOffset);
   if (scope == nullptr) {
-    scope = result.rootScope.get();
+    scope = analysis.rootScope;
   }
 
   std::vector<lesma::Type*> argTypes;
   for (lesma::Expression* arg : activeCall->call->getArguments()) {
-    lesma::Type* argType = resolveExpressionTypeAtOffset(arg, ast, result.rootScope.get(),
-                                                         result.sourceMgr.get(), result.mainBufferId,
+    lesma::Type* argType = resolveExpressionTypeAtOffset(arg, analysis.ast, analysis.rootScope,
+                                                         analysis.sourceMgr, analysis.bufferId,
                                                          targetOffset);
     if (argType != nullptr) {
       argTypes.push_back(argType);
@@ -1557,8 +1787,8 @@ auto buildSignatureHelp(const AnalysisResult& result, unsigned line, unsigned ch
   }
   lesma::Type* receiverType = nullptr;
   if (activeCall->receiver != nullptr) {
-    receiverType = resolveExpressionTypeAtOffset(activeCall->receiver, ast, result.rootScope.get(),
-                                                 result.sourceMgr.get(), result.mainBufferId,
+    receiverType = resolveExpressionTypeAtOffset(activeCall->receiver, analysis.ast, analysis.rootScope,
+                                                 analysis.sourceMgr, analysis.bufferId,
                                                  targetOffset);
   }
 
@@ -1569,7 +1799,7 @@ auto buildSignatureHelp(const AnalysisResult& result, unsigned line, unsigned ch
   }
 
   unsigned const activeParam = activeParameterIndex(activeCall->call, text, targetOffset,
-                                                    result.sourceMgr.get(), result.mainBufferId);
+                                                    analysis.sourceMgr, analysis.bufferId);
   ::lsp::SignatureHelp help{
       .signatures = {},
       .activeSignature = ::lsp::Opt<unsigned>(0U),
@@ -1589,7 +1819,7 @@ auto buildSignatureHelp(const AnalysisResult& result, unsigned line, unsigned ch
       if (field == nullptr) {
         continue;
       }
-      std::string paramLabel = field->name + ": " + formatTypeName(field->type, result.rootScope.get());
+      std::string paramLabel = field->name + ": " + formatTypeName(field->type, analysis.rootScope);
       if (!first) {
         label += ", ";
       }
@@ -1602,7 +1832,7 @@ auto buildSignatureHelp(const AnalysisResult& result, unsigned line, unsigned ch
     label += ")";
     lesma::Type* returnType = candidate.value->getType()->getReturnType();
     if (returnType != nullptr && !returnType->is(lesma::BaseType::TY_VOID)) {
-      label += " -> " + formatTypeName(returnType, result.rootScope.get());
+      label += " -> " + formatTypeName(returnType, analysis.rootScope);
     }
     ::lsp::SignatureInformation sig;
     sig.label = label;
@@ -1614,6 +1844,134 @@ auto buildSignatureHelp(const AnalysisResult& result, unsigned line, unsigned ch
     return std::nullopt;
   }
   return help;
+}
+
+auto lookupFunctionOrSymbol(lesma::SymbolTable* scope, const std::string& name,
+                            const std::vector<lesma::Type*>& argTypes) -> lesma::Value* {
+  if (scope == nullptr) {
+    return nullptr;
+  }
+  if (lesma::Value* function = scope->lookupFunction(name, argTypes)) {
+    return function;
+  }
+  return scope->lookup(name);
+}
+
+auto resolveCallArgumentTypesAtCursor(const AnalysisView& analysis, unsigned line, unsigned character,
+                                      const CursorIdentifier& id)
+    -> std::optional<std::vector<lesma::Type*>> {
+  std::optional<ActiveCallSite> activeCall = findActiveCallSite(analysis, line, character);
+  if (!activeCall || activeCall->call == nullptr || activeCall->call->getName() != id.name) {
+    return std::nullopt;
+  }
+  if (id.dotBase.has_value()) {
+    auto const* receiverLit = dynamic_cast<const lesma::Literal*>(activeCall->receiver);
+    if (receiverLit == nullptr || receiverLit->getType() != lesma::TokenType::IDENTIFIER ||
+        receiverLit->getValue() != *id.dotBase) {
+      return std::nullopt;
+    }
+  } else if (activeCall->receiver != nullptr) {
+    return std::nullopt;
+  }
+
+  auto const* buf = analysis.sourceMgr->getMemoryBuffer(analysis.bufferId);
+  if (buf == nullptr) {
+    return std::nullopt;
+  }
+  unsigned const targetOffset = static_cast<unsigned>(
+      lesma::lsp_srv::bufferByteOffsetFromLspPosition(buf->getBuffer(), line, character));
+  std::vector<lesma::Type*> argTypes;
+  for (lesma::Expression* arg : activeCall->call->getArguments()) {
+    lesma::Type* argType = resolveExpressionTypeAtOffset(arg, analysis.ast, analysis.rootScope,
+                                                         analysis.sourceMgr, analysis.bufferId,
+                                                         targetOffset);
+    if (argType == nullptr) {
+      return std::nullopt;
+    }
+    argTypes.push_back(argType);
+  }
+  return argTypes;
+}
+
+auto resolveImportedSymbol(const AnalysisResult& result, const AnalysisView& analysis,
+                           const std::string& modulePath, const std::string& symbolName,
+                           unsigned line, unsigned character, const CursorIdentifier& id)
+    -> std::optional<ResolvedSymbol> {
+  std::optional<AnalysisView> targetAnalysis = findAnalysisViewForPath(result, modulePath);
+  if (!targetAnalysis || !isUsableAnalysis(*targetAnalysis)) {
+    return std::nullopt;
+  }
+  std::optional<std::vector<lesma::Type*>> argTypes =
+      resolveCallArgumentTypesAtCursor(analysis, line, character, id);
+  lesma::Value* resolved =
+      lookupFunctionOrSymbol(targetAnalysis->rootScope, symbolName, argTypes.value_or(std::vector<lesma::Type*>{}));
+  if (resolved == nullptr) {
+    return std::nullopt;
+  }
+  return ResolvedSymbol{.value = resolved, .owner = *targetAnalysis};
+}
+
+auto resolveCanonicalSymbolAtCursor(const AnalysisResult& result, const AnalysisView& analysis,
+                                    unsigned line, unsigned character, const CursorIdentifier& id)
+    -> std::optional<ResolvedSymbol> {
+  if (!isUsableAnalysis(analysis)) {
+    return std::nullopt;
+  }
+
+  if (id.dotBase.has_value()) {
+    if (std::optional<std::string> modulePath = findModuleImportPathByAlias(analysis, *id.dotBase)) {
+      if (std::optional<ResolvedSymbol> imported =
+              resolveImportedSymbol(result, analysis, *modulePath, id.name, line, character, id)) {
+        return imported;
+      }
+    }
+  }
+
+  lesma::Value* local = lookupValueForHover(analysis.ast, analysis.rootScope, analysis.sourceMgr,
+                                            analysis.bufferId, line, character, id.name);
+  if (local != nullptr && local->getType() != nullptr && !local->getType()->is(lesma::BaseType::TY_IMPORT)) {
+    return ResolvedSymbol{.value = local, .owner = analysis};
+  }
+
+  if (!id.dotBase.has_value() && analysis.importedNameToSource != nullptr) {
+    auto importedIt = analysis.importedNameToSource->find(id.name);
+    if (importedIt != analysis.importedNameToSource->end()) {
+      if (std::optional<ResolvedSymbol> imported =
+              resolveImportedSymbol(result, analysis, importedIt->second.first,
+                                    importedIt->second.second, line, character, id)) {
+        return imported;
+      }
+    }
+  }
+
+  if (local != nullptr) {
+    return ResolvedSymbol{.value = local, .owner = analysis};
+  }
+  return std::nullopt;
+}
+
+auto resolveCanonicalSymbolAtCursor(const AnalysisResult& result, unsigned line, unsigned character,
+                                    const CursorIdentifier& id) -> std::optional<ResolvedSymbol> {
+  return resolveCanonicalSymbolAtCursor(result, makeAnalysisView(result), line, character, id);
+}
+
+auto symbolIdentityForResolved(const ResolvedSymbol& resolved) -> std::optional<SymbolIdentity> {
+  if (resolved.value == nullptr || !isUsableAnalysis(resolved.owner)) {
+    return std::nullopt;
+  }
+  llvm::SMRange declSpan = resolved.value->getDeclarationSpan();
+  if (!declSpan.isValid()) {
+    return std::nullopt;
+  }
+  std::string path = resolved.value->getDeclarationFilePath();
+  if (path.empty() && resolved.owner.mainFilePath != nullptr) {
+    path = *resolved.owner.mainFilePath;
+  }
+  return SymbolIdentity{
+      .path = normalizePath(path),
+      .range = smRangeToLspRange(resolved.owner.sourceMgr, resolved.owner.bufferId, declSpan),
+      .name = resolved.value->getName(),
+  };
 }
 
 void collectSymbolOccurrencesFromExpr(const lesma::Expression* expr, llvm::SourceMgr* srcMgr,
@@ -1630,6 +1988,7 @@ void collectSymbolOccurrencesFromStmt(const lesma::Statement* stmt, llvm::Source
     if (varDecl->getIdentifier() != nullptr) {
       out.push_back(SymbolOccurrence{
           .name = varDecl->getIdentifier()->getValue(),
+          .dotBase = std::nullopt,
           .range = smRangeToLspRange(srcMgr, bufferId, varDecl->getIdentifier()->getSpan()),
       });
     }
@@ -1639,12 +1998,14 @@ void collectSymbolOccurrencesFromStmt(const lesma::Statement* stmt, llvm::Source
   if (auto const* func = dynamic_cast<const lesma::FuncDecl*>(stmt)) {
     out.push_back(SymbolOccurrence{
         .name = func->getName(),
+        .dotBase = std::nullopt,
         .range = smRangeToLspRange(srcMgr, bufferId, func->getNameSpan()),
     });
     for (lesma::Parameter* param : func->getParameters()) {
       if (param != nullptr && param->nameSpan.isValid()) {
         out.push_back(SymbolOccurrence{
             .name = param->name,
+            .dotBase = std::nullopt,
             .range = smRangeToLspRange(srcMgr, bufferId, param->nameSpan),
         });
       }
@@ -1655,6 +2016,7 @@ void collectSymbolOccurrencesFromStmt(const lesma::Statement* stmt, llvm::Source
   if (auto const* ext = dynamic_cast<const lesma::ExternFuncDecl*>(stmt)) {
     out.push_back(SymbolOccurrence{
         .name = ext->getName(),
+        .dotBase = std::nullopt,
         .range = smRangeToLspRange(srcMgr, bufferId, ext->getNameSpan()),
     });
     return;
@@ -1662,6 +2024,7 @@ void collectSymbolOccurrencesFromStmt(const lesma::Statement* stmt, llvm::Source
   if (auto const* klass = dynamic_cast<const lesma::Class*>(stmt)) {
     out.push_back(SymbolOccurrence{
         .name = klass->getIdentifier(),
+        .dotBase = std::nullopt,
         .range = smRangeToLspRange(srcMgr, bufferId, klass->getNameSpan()),
     });
     for (lesma::VarDecl* field : klass->getFields()) {
@@ -1675,6 +2038,7 @@ void collectSymbolOccurrencesFromStmt(const lesma::Statement* stmt, llvm::Source
   if (auto const* enumNode = dynamic_cast<const lesma::Enum*>(stmt)) {
     out.push_back(SymbolOccurrence{
         .name = enumNode->getIdentifier(),
+        .dotBase = std::nullopt,
         .range = smRangeToLspRange(srcMgr, bufferId, enumNode->getNameSpan()),
     });
     std::vector<std::string> const& values = enumNode->getValues();
@@ -1687,6 +2051,28 @@ void collectSymbolOccurrencesFromStmt(const lesma::Statement* stmt, llvm::Source
             .range = smRangeToLspRange(srcMgr, bufferId, spans[i]),
         });
       }
+    }
+    return;
+  }
+  if (auto const* importNode = dynamic_cast<const lesma::Import*>(stmt)) {
+    llvm::SMRange aliasSpan = importNode->getAliasSpan();
+    if (aliasSpan.isValid()) {
+      out.push_back(SymbolOccurrence{
+          .name = importNode->getAlias(),
+          .dotBase = std::nullopt,
+          .range = smRangeToLspRange(srcMgr, bufferId, aliasSpan),
+      });
+    }
+    for (const lesma::ImportedNameBinding& binding : importNode->getImportedNames()) {
+      llvm::SMRange span = binding.aliasSpan.isValid() ? binding.aliasSpan : binding.nameSpan;
+      if (!span.isValid()) {
+        continue;
+      }
+      out.push_back(SymbolOccurrence{
+          .name = binding.alias.empty() ? binding.name : binding.alias,
+          .dotBase = std::nullopt,
+          .range = smRangeToLspRange(srcMgr, bufferId, span),
+      });
     }
     return;
   }
@@ -1733,6 +2119,7 @@ void collectSymbolOccurrencesFromExpr(const lesma::Expression* expr, llvm::Sourc
     if (lit->getType() == lesma::TokenType::IDENTIFIER) {
       out.push_back(SymbolOccurrence{
           .name = lit->getValue(),
+          .dotBase = std::nullopt,
           .range = smRangeToLspRange(srcMgr, bufferId, lit->getSpan()),
       });
     }
@@ -1741,6 +2128,7 @@ void collectSymbolOccurrencesFromExpr(const lesma::Expression* expr, llvm::Sourc
   if (auto const* call = dynamic_cast<const lesma::FuncCall*>(expr)) {
     out.push_back(SymbolOccurrence{
         .name = call->getName(),
+        .dotBase = std::nullopt,
         .range = makeLspRangeFromStartAndName(srcMgr, bufferId, call->getSpan().Start, call->getName()),
     });
     for (lesma::Expression* arg : call->getArguments()) {
@@ -1752,7 +2140,8 @@ void collectSymbolOccurrencesFromExpr(const lesma::Expression* expr, llvm::Sourc
     collectSymbolOccurrencesFromExpr(dot->getLeft(), srcMgr, bufferId, out, enumOut);
     if (auto const* rightLit = dynamic_cast<const lesma::Literal*>(dot->getRight())) {
       if (rightLit->getType() == lesma::TokenType::IDENTIFIER) {
-        if (auto const* leftLit = dynamic_cast<const lesma::Literal*>(dot->getLeft())) {
+        auto const* leftLit = dynamic_cast<const lesma::Literal*>(dot->getLeft());
+        if (leftLit != nullptr) {
           if (leftLit->getType() == lesma::TokenType::IDENTIFIER) {
             enumOut.push_back(EnumMemberOccurrence{
                 .enumName = leftLit->getValue(),
@@ -1763,6 +2152,9 @@ void collectSymbolOccurrencesFromExpr(const lesma::Expression* expr, llvm::Sourc
         }
         out.push_back(SymbolOccurrence{
             .name = rightLit->getValue(),
+            .dotBase = leftLit != nullptr && leftLit->getType() == lesma::TokenType::IDENTIFIER
+                           ? std::optional<std::string>(leftLit->getValue())
+                           : std::nullopt,
             .range = smRangeToLspRange(srcMgr, bufferId, rightLit->getSpan()),
         });
       }
@@ -1797,54 +2189,71 @@ auto rangeEquals(const ::lsp::Range& lhs, const ::lsp::Range& rhs) -> bool {
 auto collectReferences(const AnalysisResult& result, unsigned line, unsigned character,
                        bool includeDeclaration) -> std::vector<::lsp::Location> {
   std::vector<::lsp::Location> locations;
-  if (result.parser == nullptr || result.sourceMgr == nullptr) {
-    return locations;
-  }
-  lesma::Compound* ast = result.parser->getAst();
-  if (ast == nullptr) {
+  AnalysisView mainAnalysis = makeAnalysisView(result);
+  if (!isUsableAnalysis(mainAnalysis)) {
     return locations;
   }
   std::optional<CursorIdentifier> id =
-      findIdentifierAtCursor(ast, result.sourceMgr.get(), result.mainBufferId, line, character);
+      findIdentifierAtCursor(mainAnalysis.ast, mainAnalysis.sourceMgr, mainAnalysis.bufferId, line,
+                             character);
   if (!id) {
     return locations;
   }
 
-  lesma::Value* target = resolveSymbolAtCursor(result, line, character, id->name);
-  std::vector<SymbolOccurrence> occurrences;
-  std::vector<EnumMemberOccurrence> enumOccurrences;
-  for (lesma::Statement* stmt : ast->getChildren()) {
-    collectSymbolOccurrencesFromStmt(stmt, result.sourceMgr.get(), result.mainBufferId, occurrences,
-                                     enumOccurrences);
-  }
-
-  std::filesystem::path const p(result.mainFilePath);
-  std::error_code ec;
-  std::filesystem::path absPath = std::filesystem::absolute(p, ec);
-  ::lsp::DocumentUri uri =
-      ::lsp::FileUri::fromPath(!ec ? absPath.string() : result.mainFilePath);
-
-  if (target != nullptr) {
-    ::lsp::Range declRange =
-        smRangeToLspRange(result.sourceMgr.get(), result.mainBufferId, target->getDeclarationSpan());
-    for (const SymbolOccurrence& occurrence : occurrences) {
-      unsigned occLine = occurrence.range.start.line;
-      unsigned occChar = occurrence.range.start.character;
-      lesma::Value* resolved =
-          resolveSymbolAtCursor(result, occLine, occChar, occurrence.name);
-      if (resolved != target) {
-        continue;
+  if (std::optional<ResolvedSymbol> target =
+          resolveCanonicalSymbolAtCursor(result, mainAnalysis, line, character, *id)) {
+    std::optional<SymbolIdentity> targetIdentity = symbolIdentityForResolved(*target);
+    if (!targetIdentity) {
+      return locations;
+    }
+    for (const AnalysisView& analysis : collectAnalysisViews(result)) {
+      std::vector<SymbolOccurrence> occurrences;
+      std::vector<EnumMemberOccurrence> enumOccurrences;
+      for (lesma::Statement* stmt : analysis.ast->getChildren()) {
+        collectSymbolOccurrencesFromStmt(stmt, analysis.sourceMgr, analysis.bufferId, occurrences,
+                                         enumOccurrences);
       }
-      if (!includeDeclaration && rangeEquals(occurrence.range, declRange)) {
-        continue;
+      ::lsp::DocumentUri uri =
+          uriFromPath(analysis.mainFilePath != nullptr ? *analysis.mainFilePath : std::string{});
+      for (const SymbolOccurrence& occurrence : occurrences) {
+        std::optional<ResolvedSymbol> resolved =
+            resolveCanonicalSymbolAtCursor(result, analysis, occurrence.range.start.line,
+                                           occurrence.range.start.character,
+                                           CursorIdentifier{occurrence.name, occurrence.dotBase,
+                                                            occurrence.range});
+        if (!resolved) {
+          resolved = resolveCanonicalSymbolAtCursor(
+              result, analysis, occurrence.range.end.line, occurrence.range.end.character,
+              CursorIdentifier{occurrence.name, occurrence.dotBase, occurrence.range});
+        }
+        if (!resolved) {
+          continue;
+        }
+        std::optional<SymbolIdentity> occurrenceIdentity = symbolIdentityForResolved(*resolved);
+        if (!occurrenceIdentity || occurrenceIdentity->path != targetIdentity->path ||
+            occurrenceIdentity->name != targetIdentity->name ||
+            !rangeEquals(occurrenceIdentity->range, targetIdentity->range)) {
+          continue;
+        }
+        if (!includeDeclaration && occurrenceIdentity->path == targetIdentity->path &&
+            rangeEquals(occurrence.range, targetIdentity->range)) {
+          continue;
+        }
+        locations.push_back(::lsp::Location{.uri = uri, .range = occurrence.range});
       }
-      locations.push_back(::lsp::Location{.uri = uri, .range = occurrence.range});
     }
     return locations;
   }
 
+  std::vector<SymbolOccurrence> occurrences;
+  std::vector<EnumMemberOccurrence> enumOccurrences;
+  for (lesma::Statement* stmt : mainAnalysis.ast->getChildren()) {
+    collectSymbolOccurrencesFromStmt(stmt, mainAnalysis.sourceMgr, mainAnalysis.bufferId, occurrences,
+                                     enumOccurrences);
+  }
+  ::lsp::DocumentUri uri = uriFromPath(result.mainFilePath);
   std::optional<std::string> enumName = findEnumMemberDeclarationAtCursor(
-      ast, result.sourceMgr.get(), result.mainBufferId, line, character, id->name);
+      mainAnalysis.ast, mainAnalysis.sourceMgr, mainAnalysis.bufferId, line, character, id->name);
   if (id->dotBase || enumName) {
     std::string targetEnum = enumName ? *enumName : *id->dotBase;
     for (const EnumMemberOccurrence& occurrence : enumOccurrences) {
@@ -1992,21 +2401,6 @@ auto collectDocumentSymbols(const AnalysisResult& result) -> std::vector<::lsp::
   return symbols;
 }
 
-/** Resolve symbol at cursor using compiler metadata. Returns the Value* if found. */
-lesma::Value* resolveSymbolAtCursor(const AnalysisResult& result, unsigned line, unsigned character,
-                                    const std::string& name) {
-  if (result.rootScope == nullptr || result.sourceMgr == nullptr) {
-    return nullptr;
-  }
-  lesma::Compound* ast = result.parser ? result.parser->getAst() : nullptr;
-  if (ast == nullptr) {
-    return nullptr;
-  }
-  // Use the improved lookup that considers function scopes
-  return lookupValueForHover(ast, result.rootScope.get(), result.sourceMgr.get(),
-                             result.mainBufferId, line, character, name);
-}
-
 /** If the cursor is on an enum member declaration (e.g. Red in "enum Color { Red, Green }"),
  * return the enum name. Otherwise return nullopt. */
 auto findEnumMemberDeclarationAtCursor(const lesma::Compound* ast, llvm::SourceMgr* srcMgr,
@@ -2052,37 +2446,55 @@ auto tryResolveEnumMemberDefinitionLocation(const AnalysisResult& result,
                                            const std::string& dotBase,
                                            const std::string& memberName)
     -> std::optional<::lsp::Location> {
-  lesma::Compound* ast = result.parser ? result.parser->getAst() : nullptr;
-  if (ast == nullptr || result.sourceMgr == nullptr || result.mainFilePath.empty()) {
-    return std::nullopt;
-  }
-  for (lesma::Statement* stmt : ast->getChildren()) {
-    auto const* e = dynamic_cast<const lesma::Enum*>(stmt);
-    if (e == nullptr || e->getIdentifier() != dotBase) {
-      continue;
+  auto searchAnalysis = [&](const AnalysisView& analysis, const std::string& enumName)
+      -> std::optional<::lsp::Location> {
+    if (!isUsableAnalysis(analysis) || analysis.mainFilePath == nullptr) {
+      return std::nullopt;
     }
-    std::vector<std::string> const& values = e->getValues();
-    std::vector<llvm::SMRange> const& valueSpans = e->getValueSpans();
-    for (size_t i = 0; i < values.size() && i < valueSpans.size(); ++i) {
-      if (values[i] == memberName) {
-        llvm::SMRange span = valueSpans[i];
-        if (!span.isValid()) {
-          return std::nullopt;
+    for (lesma::Statement* stmt : analysis.ast->getChildren()) {
+      auto const* e = dynamic_cast<const lesma::Enum*>(stmt);
+      if (e == nullptr || e->getIdentifier() != enumName) {
+        continue;
+      }
+      std::vector<std::string> const& values = e->getValues();
+      std::vector<llvm::SMRange> const& valueSpans = e->getValueSpans();
+      for (size_t i = 0; i < values.size() && i < valueSpans.size(); ++i) {
+        if (values[i] == memberName && valueSpans[i].isValid()) {
+          return ::lsp::Location{
+              .uri = uriFromPath(*analysis.mainFilePath),
+              .range = smRangeToLspRange(analysis.sourceMgr, analysis.bufferId, valueSpans[i]),
+          };
         }
-        ::lsp::Location loc;
-        std::filesystem::path const p(result.mainFilePath);
-        std::error_code ec;
-        std::filesystem::path absPath = std::filesystem::absolute(p, ec);
-        if (!ec) {
-          loc.uri = ::lsp::FileUri::fromPath(absPath.string());
-        } else {
-          loc.uri = ::lsp::FileUri::fromPath(result.mainFilePath);
-        }
-        loc.range = smRangeToLspRange(result.sourceMgr.get(), result.mainBufferId, span);
-        return loc;
       }
     }
     return std::nullopt;
+  };
+
+  AnalysisView mainAnalysis = makeAnalysisView(result);
+  if (!isUsableAnalysis(mainAnalysis)) {
+    return std::nullopt;
+  }
+  if (std::optional<::lsp::Location> local = searchAnalysis(mainAnalysis, dotBase)) {
+    return local;
+  }
+  auto importedIt = result.importedNameToSource.find(dotBase);
+  if (importedIt != result.importedNameToSource.end()) {
+    if (std::optional<AnalysisView> imported =
+            findAnalysisViewForPath(result, importedIt->second.first)) {
+      if (std::optional<::lsp::Location> importedLoc =
+              searchAnalysis(*imported, importedIt->second.second)) {
+        return importedLoc;
+      }
+    }
+  }
+  for (const AnalysisView& analysis : collectAnalysisViews(result)) {
+    if (analysis.mainFilePath != nullptr &&
+        normalizePath(*analysis.mainFilePath) == normalizePath(result.mainFilePath)) {
+      continue;
+    }
+    if (std::optional<::lsp::Location> importedLoc = searchAnalysis(analysis, dotBase)) {
+      return importedLoc;
+    }
   }
   return std::nullopt;
 }
@@ -2102,9 +2514,8 @@ auto tryResolveDefinitionLocation(const AnalysisResult& result, unsigned line, u
   if (!id) {
     return std::nullopt;
   }
-  // Resolve symbol using compiler metadata
-  lesma::Value* value = resolveSymbolAtCursor(result, line, character, id->name);
-  if (value == nullptr) {
+  std::optional<ResolvedSymbol> resolved = resolveCanonicalSymbolAtCursor(result, line, character, *id);
+  if (!resolved || resolved->value == nullptr) {
     // Enum member (e.g. MyEnum.OptionA): not a Value, resolve via AST
     if (id->dotBase) {
       auto enumMemberLoc =
@@ -2115,33 +2526,40 @@ auto tryResolveDefinitionLocation(const AnalysisResult& result, unsigned line, u
     }
     return std::nullopt;
   }
-  llvm::SMRange declSpan = value->getDeclarationSpan();
+  llvm::SMRange declSpan = resolved->value->getDeclarationSpan();
   if (!declSpan.isValid()) {
+    if (!id->dotBase) {
+      AnalysisView mainAnalysis = makeAnalysisView(result);
+      if (std::optional<std::string> modulePath = findModuleImportPathByAlias(mainAnalysis, id->name)) {
+        if (std::optional<AnalysisView> imported = findAnalysisViewForPath(result, *modulePath)) {
+          return ::lsp::Location{
+              .uri = uriFromPath(*imported->mainFilePath),
+              .range = ::lsp::Range{.start = {0U, 0U}, .end = {0U, 0U}},
+          };
+        }
+      }
+      if (result.importAliasToPath.contains(id->name)) {
+        if (std::optional<AnalysisView> imported =
+                findAnalysisViewForPath(result, result.importAliasToPath.at(id->name))) {
+          return ::lsp::Location{
+              .uri = uriFromPath(*imported->mainFilePath),
+              .range = ::lsp::Range{.start = {0U, 0U}, .end = {0U, 0U}},
+          };
+        }
+      }
+    }
     return std::nullopt;
   }
-  std::string declPath = value->getDeclarationFilePath();
-  if (declPath.empty()) {
-    declPath = result.mainFilePath;
+  std::string declPath = resolved->value->getDeclarationFilePath();
+  if (declPath.empty() && resolved->owner.mainFilePath != nullptr) {
+    declPath = *resolved->owner.mainFilePath;
   }
   if (declPath.empty()) {
     return std::nullopt;
   }
   ::lsp::Location loc;
-  std::filesystem::path const p(declPath);
-  std::error_code ec;
-  std::filesystem::path absPath = std::filesystem::absolute(p, ec);
-  if (!ec) {
-    loc.uri = ::lsp::FileUri::fromPath(absPath.string());
-  } else {
-    loc.uri = ::lsp::FileUri::fromPath(declPath);
-  }
-  // Determine buffer ID for the declaration file
-  unsigned declBufferId = result.mainBufferId;
-  if (declPath != result.mainFilePath && result.sourceMgr != nullptr) {
-    // For now, assume same buffer; cross-file support would need buffer tracking
-    declBufferId = result.mainBufferId;
-  }
-  loc.range = smRangeToLspRange(result.sourceMgr.get(), declBufferId, declSpan);
+  loc.uri = uriFromPath(declPath);
+  loc.range = smRangeToLspRange(resolved->owner.sourceMgr, resolved->owner.bufferId, declSpan);
   return loc;
 }
 
@@ -2284,10 +2702,11 @@ auto main() -> int {
           if (!id) {
             return ::lsp::TextDocument_HoverResult();
           }
-          // Resolve symbol using compiler metadata
-          lesma::Value* value = resolveSymbolAtCursor(result, line, character, id->name);
-          if (value != nullptr && value->getType() != nullptr) {
-            std::string hoverText = formatHoverContent(value, result.rootScope.get());
+          std::optional<ResolvedSymbol> resolved =
+              resolveCanonicalSymbolAtCursor(result, line, character, *id);
+          if (resolved && resolved->value != nullptr && resolved->value->getType() != nullptr) {
+            std::string hoverText =
+                formatHoverContent(resolved->value, resolved->owner.rootScope);
             ::lsp::Hover hover;
             hover.contents = ::lsp::MarkupContent{
                 .kind = ::lsp::MarkupKindEnum(::lsp::MarkupKind::Markdown),
@@ -2300,7 +2719,10 @@ auto main() -> int {
           }
           // Enum member hover (e.g. MyEnum.OptionA): not a Value, but a field on the enum type
           if (id->dotBase && result.rootScope != nullptr) {
-            lesma::Value* baseVal = result.rootScope->lookup(*id->dotBase);
+            std::optional<ResolvedSymbol> baseResolved = resolveCanonicalSymbolAtCursor(
+                result, line, character,
+                CursorIdentifier{*id->dotBase, std::nullopt, std::nullopt});
+            lesma::Value* baseVal = baseResolved ? baseResolved->value : result.rootScope->lookup(*id->dotBase);
             if (baseVal != nullptr && baseVal->getType() != nullptr &&
                 baseVal->getType()->is(lesma::BaseType::TY_ENUM)) {
               for (lesma::Field* field : baseVal->getType()->getFields()) {
