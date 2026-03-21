@@ -42,7 +42,7 @@ When reporting errors, the Driver and Codegen use `showInline()` in `Common/Util
 
 ## How to compile the project
 
-- **Prerequisites:** CMake 3.24+, Ninja, Clang, LLVM 17+, and vcpkg (with Lesma’s `vcpkg.json`). vcpkg is typically used as a submodule; bootstrap it and use the vcpkg toolchain when configuring.
+- **Prerequisites:** CMake 3.24+, Ninja, a C++ compiler (Clang recommended), and vcpkg (with Lesma’s `vcpkg.json`). **LLVM and LLD** are supplied by vcpkg per the manifest (no Clang libraries linked); the tree targets the LLVM version pinned by vcpkg (e.g. 18.x). CMake pins `LLVM_DIR` / `LLD_DIR` to `vcpkg_installed` so a system/Homebrew LLVM is not mixed in. vcpkg is typically used as a submodule; bootstrap it and use the vcpkg toolchain when configuring.
 - **Configure (example):** From the repo root, using the vcpkg toolchain and a build directory such as `build` or `build/Debug`:
   ```bash
   cmake -B build -S . \

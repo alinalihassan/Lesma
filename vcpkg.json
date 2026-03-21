@@ -22,6 +22,18 @@
     {
       "name": "plf-nanotimer",
       "version>=": "1.0.8"
+    },
+    {
+      "name": "llvm",
+      "default-features": false,
+      "features": [
+        "default-targets",
+        "enable-rtti",
+        "enable-zlib",
+        "enable-zstd",
+        "lld",
+        "tools"
+      ]
     }
   ],
   "features": {
@@ -49,24 +61,6 @@
         {
           "name": "benchmark",
           "version>=": "1.7.1"
-        }
-      ]
-    },
-    "build-llvm": {
-      "description": "Build LLVM",
-      "dependencies": [
-        {
-          "name": "llvm",
-          "default-features": false,
-          "features": [
-            "default-targets",
-            "clang",
-            "enable-rtti",
-            "enable-zlib",
-            "enable-zstd",
-            "lld",
-            "tools"
-          ]
         }
       ]
     },

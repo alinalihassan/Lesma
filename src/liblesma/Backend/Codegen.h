@@ -118,7 +118,6 @@ protected:
   auto initializeJit() -> std::unique_ptr<LLJIT>;
   auto initializeTopLevel() -> llvm::Function*;
 
-  auto linkObjectFileWithClang(const std::string& objFilename) -> void;
   auto linkObjectFileWithLld(const std::string& objFilename) -> void;
 
   auto compileModule(llvm::SMRange span, const std::string& filepath, bool isStd,

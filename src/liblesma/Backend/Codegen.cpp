@@ -12,12 +12,6 @@
 #include <utility>
 #include <vector>
 
-#include <clang/Basic/Diagnostic.h>
-#include <clang/Basic/DiagnosticIDs.h>
-#include <clang/Basic/DiagnosticOptions.h>
-#include <clang/Driver/Compilation.h>
-#include <clang/Driver/Driver.h>
-#include <clang/Frontend/TextDiagnosticPrinter.h>
 #include <llvm/ADT/APFloat.h>
 #include <llvm/ADT/IntrusiveRefCntPtr.h>
 #include <llvm/ADT/SmallVector.h>
@@ -45,10 +39,8 @@
 #include <llvm/Support/CodeGen.h>
 #include <llvm/Support/FileSystem.h>
 #include <llvm/Support/MemoryBuffer.h>
-#include <llvm/Support/Program.h>
 #include <llvm/Support/SourceMgr.h>
 #include <llvm/Support/TargetSelect.h>
-#include <llvm/Support/VirtualFileSystem.h>
 #include <llvm/Target/TargetMachine.h>
 #include <llvm/Target/TargetOptions.h>
 #include <llvm/TargetParser/Host.h>
@@ -139,9 +131,12 @@ Codegen::Codegen(std::shared_ptr<Parser> parser, std::shared_ptr<SourceMgr> srcM
 
 auto Codegen::initializeModule() -> std::unique_ptr<Module> {
   std::unique_ptr<Module> mod;
-  theContext->withContextDo(
-      [&](LLVMContext* ctx) -> void { mod = std::make_unique<Module>("Lesma", *ctx); });
-  mod->setTargetTriple(targetMachine->getTargetTriple());
+  {
+    auto lock = theContext->getLock();
+    LLVMContext* ctx = theContext->getContext();
+    mod = std::make_unique<Module>("Lesma", *ctx);
+  }
+  mod->setTargetTriple(targetMachine->getTargetTriple().str());
   mod->setDataLayout(targetMachine->createDataLayout());
   mod->setSourceFileName(filename);
 
@@ -163,7 +158,7 @@ auto Codegen::initializeTargetMachine() -> std::unique_ptr<llvm::TargetMachine> 
   llvm::TargetOptions const opt;
   llvm::Reloc::Model rm = llvm::Reloc::Model();
   std::unique_ptr<llvm::TargetMachine> targetMachine(
-      target->createTargetMachine(targetTriple, "generic", "", opt, rm));
+      target->createTargetMachine(targetTriple.str(), "generic", "", opt, rm));
   return targetMachine;
 }
 
@@ -708,63 +703,8 @@ void Codegen::linkObjectFileWithLld(const std::string& objFilename) {
   }
 }
 
-[[maybe_unused]] auto Codegen::linkObjectFileWithClang(const std::string& objFilename) -> void {
-  auto clangPath = llvm::sys::findProgramByName("clang");
-  if (clangPath.getError()) {
-    throw CodegenError({}, "Unable to find clang path");
-  }
-
-  std::string output = getBasename(objFilename);
-
-  llvm::SmallVector<const char*, 32> args;
-  args.push_back(clangPath.get().c_str());
-  args.push_back("-o");
-  args.push_back(output.c_str());
-  args.push_back(objFilename.c_str());
-  for (const auto& obj : objectFiles) {
-    args.push_back(obj.c_str());
-  }
-
-// Add the standard library path for Apple
-#ifdef __APPLE__
-  args.push_back("-L");
-  args.push_back("/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/lib");
-#endif
-
-  // Set up the diagnostic engine
-  llvm::IntrusiveRefCntPtr<clang::DiagnosticIDs> diagIDs(new clang::DiagnosticIDs());
-  clang::DiagnosticOptions diagOpts;
-  // NOLINTNEXTLINE(cppcoreguidelines-owning-memory) - DiagnosticsEngine owns it
-  auto* diagClient = new clang::TextDiagnosticPrinter(llvm::errs(), diagOpts);
-  clang::DiagnosticsEngine diags(diagIDs, diagOpts, diagClient);
-
-  // Create a compilation using Clang's driver
-  clang::driver::Driver theDriver(args[0], theModule->getTargetTriple().str(), diags,
-                                  "Lesma Compiler", llvm::vfs::getRealFileSystem());
-  std::unique_ptr<clang::driver::Compilation> c(theDriver.BuildCompilation(args));
-
-  if (!c) {
-    throw CodegenError({}, "Failed to create clang driver compilation");
-  }
-
-  // Run the driver
-  llvm::SmallVector<std::pair<int, const clang::driver::Command*>, 8> failingCommands;
-  int res = theDriver.ExecuteCompilation(*c, failingCommands);
-
-  if (res != 0) {
-    throw CodegenError({}, "Linking failed");
-  }
-
-  // Remove object files (ignore errors - cleanup is best-effort)
-  std::ignore = llvm::sys::fs::remove(objFilename);
-  for (const auto& obj : objectFiles) {
-    std::ignore = llvm::sys::fs::remove(obj);
-  }
-}
-
 auto Codegen::linkObjectFile(const std::string& objFilename) -> void {
   linkObjectFileWithLld(objFilename);
-  // linkObjectFileWithClang(objFilename);
 }
 
 auto Codegen::prepareJit() -> void {

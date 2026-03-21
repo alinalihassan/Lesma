@@ -32,14 +32,23 @@ jobs:
           HOMEBREW_NO_INSTALLED_DEPENDENTS_CHECK: 1
         run: |
           brew update
-          brew install llvm@21 lld@21 cmake ninja
-          echo "CMAKE_PREFIX_PATH=$(brew --prefix llvm@21);$(brew --prefix lld@21)" >> $GITHUB_ENV
+          brew install cmake ninja
+
+      - name: Cache vcpkg (LLVM build)
+        uses: actions/cache@v4
+        with:
+          path: |
+            ${{ github.workspace }}/vcpkg/downloads
+            ${{ github.workspace }}/build/Release/vcpkg_installed
+          key: ${{ runner.os }}-vcpkg-llvm-${{ hashFiles('vcpkg.json') }}
+          restore-keys: |
+            ${{ runner.os }}-vcpkg-llvm-
 
       - name: Bootstrap vcpkg
         run: ./vcpkg/bootstrap-vcpkg.sh
 
       - name: Configure
-        run: cmake --preset Release_Dist_CI -DCMAKE_PREFIX_PATH="$CMAKE_PREFIX_PATH"
+        run: cmake --preset Release_Dist_CI
 
       - name: Build
         run: cmake --build --preset Release_Dist_CI
