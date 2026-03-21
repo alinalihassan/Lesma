@@ -57,7 +57,11 @@
       {
         "language": "lesma",
         "scopeName": "source.lesma",
-        "path": "./syntaxes/lesma.tmLanguage.json"
+        "path": "./syntaxes/lesma.tmLanguage.json",
+        "unbalancedBracketScopes": [
+          "keyword.operator.relational",
+          "keyword.operator.arrow"
+        ]
       }
     ],
     "commands": [
