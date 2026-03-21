@@ -14,7 +14,7 @@ namespace {
     return std::nullopt;
   }
   std::string rawPath(uri.path().data(), uri.path().size());
-  std::string const decoded = ::lsp::Uri::decode(rawPath);
+  std::string decoded = ::lsp::Uri::decode(rawPath);
   std::filesystem::path const p(decoded);
   std::error_code ec;
   std::filesystem::path canon = std::filesystem::weakly_canonical(p, ec);
@@ -50,55 +50,55 @@ namespace {
 
 void DocumentStore::open(const ::lsp::DocumentUri& uri, std::int32_t version, std::string text) {
   std::string key = uriToKey(uri);
-  documents_[key] =
+  documents[key] =
       Document{.path = documentPathForUri(uri), .version = version, .text = std::move(text)};
 }
 
 void DocumentStore::change(const ::lsp::DocumentUri& uri, std::int32_t version, std::string text) {
   std::string key = uriToKey(uri);
-  auto it = documents_.find(key);
-  if (it != documents_.end()) {
+  auto it = documents.find(key);
+  if (it != documents.end()) {
     it->second.version = version;
     it->second.text = std::move(text);
   }
 }
 
-void DocumentStore::close(const ::lsp::DocumentUri& uri) { documents_.erase(uriToKey(uri)); }
+void DocumentStore::close(const ::lsp::DocumentUri& uri) { documents.erase(uriToKey(uri)); }
 
-std::optional<std::string> DocumentStore::getPath(const ::lsp::DocumentUri& uri) const {
-  auto it = documents_.find(uriToKey(uri));
-  if (it == documents_.end()) {
+auto DocumentStore::getPath(const ::lsp::DocumentUri& uri) const -> std::optional<std::string> {
+  auto it = documents.find(uriToKey(uri));
+  if (it == documents.end()) {
     return std::nullopt;
   }
   return it->second.path;
 }
 
-std::optional<std::string>
-DocumentStore::getAnalyzeMainFilePath(const ::lsp::DocumentUri& uri) const {
+auto DocumentStore::getAnalyzeMainFilePath(const ::lsp::DocumentUri& uri) const
+    -> std::optional<std::string> {
   if (!getDocument(uri)) {
     return std::nullopt;
   }
   return canonicalFilePath(uri);
 }
 
-std::optional<std::string> DocumentStore::getContent(const ::lsp::DocumentUri& uri) const {
-  auto it = documents_.find(uriToKey(uri));
-  if (it == documents_.end()) {
+auto DocumentStore::getContent(const ::lsp::DocumentUri& uri) const -> std::optional<std::string> {
+  auto it = documents.find(uriToKey(uri));
+  if (it == documents.end()) {
     return std::nullopt;
   }
   return it->second.text;
 }
 
-std::optional<DocumentStore::Document>
-DocumentStore::getDocument(const ::lsp::DocumentUri& uri) const {
-  auto it = documents_.find(uriToKey(uri));
-  if (it == documents_.end()) {
+auto DocumentStore::getDocument(const ::lsp::DocumentUri& uri) const
+    -> std::optional<DocumentStore::Document> {
+  auto it = documents.find(uriToKey(uri));
+  if (it == documents.end()) {
     return std::nullopt;
   }
   return it->second;
 }
 
-std::string DocumentStore::uriToKey(const ::lsp::DocumentUri& uri) const {
+auto DocumentStore::uriToKey(const ::lsp::DocumentUri& uri) const -> std::string {
   return stableFileUriKey(uri);
 }
 

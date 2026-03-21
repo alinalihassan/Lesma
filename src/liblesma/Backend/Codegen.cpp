@@ -369,9 +369,9 @@ auto Codegen::insertImportAlias(const std::string& moduleAlias, bool importToSco
   scope->insertType(moduleAlias, std::move(importTyp));
 }
 
-auto Codegen::exposeImportedSymbols(
-    llvm::SMRange /*span*/, SymbolTable* importedScope, bool importAll, bool importToScope,
-    const std::vector<ImportedNameBinding>& importedNames) -> void {
+auto Codegen::exposeImportedSymbols(llvm::SMRange /*span*/, SymbolTable* importedScope,
+                                    bool importAll, bool importToScope,
+                                    const std::vector<ImportedNameBinding>& importedNames) -> void {
   auto findImportedAlias = [&importedNames](const std::string& import) -> std::string {
     for (const ImportedNameBinding& binding : importedNames) {
       if (binding.name == import) {
@@ -466,10 +466,9 @@ auto Codegen::exposeImportedSymbols(
   }
 }
 
-auto Codegen::compileModule(
-    llvm::SMRange span, const std::string& filepath, bool isStd, const std::string& moduleAlias,
-    bool importAll, bool importToScope,
-    const std::vector<ImportedNameBinding>& importedNames) -> void {
+auto Codegen::compileModule(llvm::SMRange span, const std::string& filepath, bool isStd,
+                            const std::string& moduleAlias, bool importAll, bool importToScope,
+                            const std::vector<ImportedNameBinding>& importedNames) -> void {
   std::filesystem::path mainPath = filename;
   // Read source
   auto absolutePath =
@@ -1710,7 +1709,7 @@ auto Codegen::visit(const Class* node) -> void {
     genericClasses[node->getIdentifier()] = node;
     auto* genericSymbol = scope->lookupStruct(node->getIdentifier());
     if (genericSymbol != nullptr) {
-      genericSymbol->setGenericClassTemplate(const_cast<Class*>(node));
+      genericSymbol->setGenericClassTemplate(node);
     }
     return;
   }

@@ -9,8 +9,7 @@
 #include "liblesma/Backend/CodegenError.h"
 #include "liblesma/Symbol/Type.h"
 
-namespace lesma {
-namespace MangleUtils {
+namespace lesma::MangleUtils {
 auto getTypeMangledName(llvm::SMRange span, Type* type) -> std::string {
   auto* llvmTy = type->getLlvmType();
   if (llvmTy == nullptr) {
@@ -106,5 +105,4 @@ auto getDemangledName(const std::string& name) -> std::string {
 
   return demangledName;
 }
-} // namespace MangleUtils
-} // namespace lesma
+} // namespace lesma::MangleUtils

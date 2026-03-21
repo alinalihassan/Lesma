@@ -2,6 +2,7 @@
 
 #include "LspUtf16.h"
 
+#include <array>
 #include <algorithm>
 #include <cctype>
 #include <sstream>
@@ -234,7 +235,7 @@ auto extractCompletionContext(llvm::StringRef text, unsigned offset) -> Completi
   while (prefixStart > 0U && isIdentChar(text[prefixStart - 1U])) {
     --prefixStart;
   }
-  ctx.prefix = std::string(text.data() + prefixStart, cursor - prefixStart);
+  ctx.prefix = std::string(text.slice(prefixStart, cursor));
   if (prefixStart == 0U || text[prefixStart - 1U] != '.') {
     return ctx;
   }
@@ -245,7 +246,7 @@ auto extractCompletionContext(llvm::StringRef text, unsigned offset) -> Completi
   while (chainStart > 0U && (isIdentChar(text[chainStart - 1U]) || text[chainStart - 1U] == '.')) {
     --chainStart;
   }
-  ctx.memberChain = std::string(text.data() + chainStart, chainEnd - chainStart + 1U);
+  ctx.memberChain = std::string(text.slice(chainStart, chainEnd + 1U));
   return ctx;
 }
 
@@ -437,15 +438,13 @@ void appendScopeSymbols(SymbolTable* scope, SymbolTable* root, std::vector<Compl
 }
 
 void appendKeywords(std::vector<CompletionCandidate>& out, std::unordered_set<std::string>& seen) {
-  static constexpr std::string_view keywords[] = {"and",   "as",     "break",  "class",
-                                                  "continue", "def", "defer",  "else",
-                                                  "enum",  "export", "extern", "for",
-                                                  "from",  "if",     "import", "in",
-                                                  "is",    "let",    "not",    "or",
-                                                  "return","super",  "this",   "var",
-                                                  "while"};
-  static constexpr std::string_view literals[] = {"false", "null", "true"};
-  static constexpr std::string_view builtinTypes[] = {
+  static constexpr std::array<std::string_view, 25> keywords = {
+      "and",      "as",   "break",  "class", "continue", "def", "defer", "else",   "enum",
+      "export",   "extern", "for",  "from",  "if",       "import", "in", "is",     "let",
+      "not",      "or",   "return", "super", "this",     "var", "while",
+  };
+  static constexpr std::array<std::string_view, 3> literals = {"false", "null", "true"};
+  static constexpr std::array<std::string_view, 11> builtinTypes = {
       "bool", "float", "float32", "float64", "int", "int8",
       "int16", "int32", "int64", "str", "void",
   };
@@ -466,7 +465,7 @@ void appendKeywords(std::vector<CompletionCandidate>& out, std::unordered_set<st
   }
 }
 
-auto toCompletionItems(std::vector<CompletionCandidate> candidates, const std::string& prefix)
+auto toCompletionItems(const std::vector<CompletionCandidate>& candidates, const std::string& prefix)
     -> std::vector<::lsp::CompletionItem> {
   std::vector<::lsp::CompletionItem> items;
   for (const CompletionCandidate& candidate : candidates) {
@@ -482,7 +481,8 @@ auto toCompletionItems(std::vector<CompletionCandidate> candidates, const std::s
     items.push_back(std::move(item));
   }
   std::sort(items.begin(), items.end(),
-            [](const ::lsp::CompletionItem& lhs, const ::lsp::CompletionItem& rhs) {
+            [](const ::lsp::CompletionItem& lhs,
+               const ::lsp::CompletionItem& rhs) -> bool {
               return lhs.label < rhs.label;
             });
   return items;
@@ -545,7 +545,7 @@ auto completionItems(const AnalysisResult& result, unsigned line, unsigned chara
     appendKeywords(candidates, seen);
   }
 
-  return toCompletionItems(std::move(candidates), ctx.prefix);
+  return toCompletionItems(candidates, ctx.prefix);
 }
 
 } // namespace lesma::lsp_srv

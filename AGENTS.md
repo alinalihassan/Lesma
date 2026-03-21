@@ -119,6 +119,7 @@ CMake sets `CMAKE_EXPORT_COMPILE_COMMANDS ON`, but the database is written under
 
 The codebase follows consistent C++ style. Respect it when editing.
 
+- **Consult the source of truth first:** Before writing or editing any C++ code, read the repo-root **`.clang-format`** and **`.clang-tidy`** and follow those files as the authoritative style/lint configuration for the current change. Do not rely on memory or generic LLVM/C++ habits when the project config says otherwise.
 - **Formatting and lint:** `.clang-format` and `.clang-tidy` define formatting and many clang-tidy checks (e.g. `modernize-*`, `readability-*`, `cppcoreguidelines-*`). Naming: `camelBack` for variables/functions/parameters/members, `CamelCase` for classes/enums, `UPPER_CASE` for global constants. Integer literal suffixes are uppercase (e.g. `0U`).
 - **Helpers in classes:** Prefer **private methods** on the class over free functions in an anonymous namespace. When a helper is only used by one class, add it as a private member so the style stays consistent and the API is clearer.
 - **Includes:** Include order and grouping follow `.clang-format` (e.g. standard library, then LLVM, then project `liblesma/`).

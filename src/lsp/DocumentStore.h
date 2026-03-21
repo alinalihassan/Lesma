@@ -23,17 +23,18 @@ public:
   void close(const ::lsp::DocumentUri& uri);
 
   /** Returns path for use as mainFilePath in analysis (resolves relative imports). */
-  [[nodiscard]] std::optional<std::string> getPath(const ::lsp::DocumentUri& uri) const;
+  [[nodiscard]] auto getPath(const ::lsp::DocumentUri& uri) const -> std::optional<std::string>;
   /** Decoded, canonical filesystem path for STRING-source analyze() (imports); nullopt if not a
    *  file URI (e.g. untitled). */
-  [[nodiscard]] std::optional<std::string> getAnalyzeMainFilePath(const ::lsp::DocumentUri& uri) const;
-  [[nodiscard]] std::optional<std::string> getContent(const ::lsp::DocumentUri& uri) const;
-  [[nodiscard]] std::optional<Document> getDocument(const ::lsp::DocumentUri& uri) const;
+  [[nodiscard]] auto getAnalyzeMainFilePath(const ::lsp::DocumentUri& uri) const
+      -> std::optional<std::string>;
+  [[nodiscard]] auto getContent(const ::lsp::DocumentUri& uri) const -> std::optional<std::string>;
+  [[nodiscard]] auto getDocument(const ::lsp::DocumentUri& uri) const -> std::optional<Document>;
 
-  [[nodiscard]] std::string uriToKey(const ::lsp::DocumentUri& uri) const;
+  [[nodiscard]] auto uriToKey(const ::lsp::DocumentUri& uri) const -> std::string;
 
 private:
-  std::unordered_map<std::string, Document> documents_;
+  std::unordered_map<std::string, Document> documents;
 };
 
 } // namespace lesma::lsp_srv

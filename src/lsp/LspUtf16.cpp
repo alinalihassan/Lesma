@@ -1,7 +1,5 @@
 #include "LspUtf16.h"
 
-#include <cstdint>
-
 namespace lesma::lsp_srv {
 namespace {
 
@@ -33,7 +31,7 @@ void decodeUtf8AndAdvance(llvm::StringRef text, std::size_t& i, char32_t& outCp)
     outCp = 0;
     return;
   }
-  auto const lead = static_cast<unsigned char>(text[i]);
+  auto const lead = static_cast<unsigned char>(text.substr(i).front());
   std::size_t const len = utf8CodepointByteLength(lead);
   if (i + len > text.size()) {
     outCp = static_cast<char32_t>(lead);
@@ -46,22 +44,22 @@ void decodeUtf8AndAdvance(llvm::StringRef text, std::size_t& i, char32_t& outCp)
     return;
   }
   if (len == 2U) {
-    auto const c1 = static_cast<unsigned char>(text[i + 1]);
+    auto const c1 = static_cast<unsigned char>(text.substr(i + 1U).front());
     outCp = (static_cast<char32_t>(lead & 0x1FU) << 6) | static_cast<char32_t>(c1 & 0x3FU);
     i += 2;
     return;
   }
   if (len == 3U) {
-    auto const c1 = static_cast<unsigned char>(text[i + 1]);
-    auto const c2 = static_cast<unsigned char>(text[i + 2]);
+    auto const c1 = static_cast<unsigned char>(text.substr(i + 1U).front());
+    auto const c2 = static_cast<unsigned char>(text.substr(i + 2U).front());
     outCp = (static_cast<char32_t>(lead & 0x0FU) << 12) | (static_cast<char32_t>(c1 & 0x3FU) << 6) |
             static_cast<char32_t>(c2 & 0x3FU);
     i += 3;
     return;
   }
-  auto const c1 = static_cast<unsigned char>(text[i + 1]);
-  auto const c2 = static_cast<unsigned char>(text[i + 2]);
-  auto const c3 = static_cast<unsigned char>(text[i + 3]);
+  auto const c1 = static_cast<unsigned char>(text.substr(i + 1U).front());
+  auto const c2 = static_cast<unsigned char>(text.substr(i + 2U).front());
+  auto const c3 = static_cast<unsigned char>(text.substr(i + 3U).front());
   outCp = (static_cast<char32_t>(lead & 0x07U) << 18) | (static_cast<char32_t>(c1 & 0x3FU) << 12) |
           (static_cast<char32_t>(c2 & 0x3FU) << 6) | static_cast<char32_t>(c3 & 0x3FU);
   i += 4;
@@ -74,7 +72,7 @@ auto bufferByteOffsetFromLspPosition(llvm::StringRef utf8Text, unsigned line,
   std::size_t i = 0;
   unsigned currentLine = 0;
   while (i < utf8Text.size() && currentLine < line) {
-    if (utf8Text[i] == '\n') {
+    if (utf8Text.substr(i).front() == '\n') {
       ++currentLine;
     }
     ++i;
@@ -84,7 +82,7 @@ auto bufferByteOffsetFromLspPosition(llvm::StringRef utf8Text, unsigned line,
   }
   std::size_t const lineStart = i;
   std::size_t lineEnd = lineStart;
-  while (lineEnd < utf8Text.size() && utf8Text[lineEnd] != '\n') {
+  while (lineEnd < utf8Text.size() && utf8Text.substr(lineEnd).front() != '\n') {
     ++lineEnd;
   }
 

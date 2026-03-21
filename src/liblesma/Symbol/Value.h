@@ -108,7 +108,7 @@ public:
   /** Opaque pointer to the Class* AST for generic class templates (used when
    *  specializing imported generics). Codegen interprets this as const Class*.
    */
-  [[nodiscard]] auto getGenericClassTemplate() const -> void* { return genericClassTemplate; }
+  [[nodiscard]] auto getGenericClassTemplate() const -> const void* { return genericClassTemplate; }
   [[nodiscard]] auto isExported() const -> bool { return exported; }
   [[nodiscard]] auto isUsed() const -> bool { return used; }
   /** Declaration location for LSP go-to-definition. */
@@ -130,7 +130,7 @@ public:
   auto setCategory(ValueCategory value) -> void { category = value; }
   auto setExported(bool value) -> void { exported = value; }
   auto setConstructor(lesma::Value* value) -> void { constructor = value; }
-  auto setGenericClassTemplate(void* ptr) -> void { genericClassTemplate = ptr; }
+  auto setGenericClassTemplate(const void* ptr) -> void { genericClassTemplate = ptr; }
   auto setBodyScope(SymbolTable* value) -> void { bodyScope = value; }
   auto setDeclarationSpan(llvm::SMRange span) -> void { declarationSpan = span; }
   auto setDeclarationFilePath(std::string path) -> void { declarationFilePath = std::move(path); }
@@ -173,7 +173,7 @@ private:
   bool exported = false;
   // For classes
   lesma::Value* constructor = nullptr;
-  void* genericClassTemplate = nullptr;
+  const void* genericClassTemplate = nullptr;
   SymbolTable* bodyScope = nullptr;
   // For LSP: declaration location
   llvm::SMRange declarationSpan;
