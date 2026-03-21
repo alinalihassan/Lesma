@@ -71,6 +71,26 @@ auto makeSpecializedDisplayName(Type* classTemplate,
   return result;
 }
 
+void insertGenericParamSymbols(SymbolTable* genericsScope,
+                               const std::vector<lesma::GenericParamDecl>& genericParams,
+                               const std::unordered_map<std::string, Type*>& genericTypes,
+                               const std::string& mainFilePath) {
+  if (genericsScope == nullptr) {
+    return;
+  }
+  for (const auto& param : genericParams) {
+    auto it = genericTypes.find(param.name);
+    if (it == genericTypes.end() || it->second == nullptr) {
+      continue;
+    }
+    auto genericSymbol = std::make_unique<Value>(param.name, it->second);
+    genericSymbol->setCategory(ValueCategory::TYPE_SYMBOL);
+    genericSymbol->setDeclarationSpan(param.span);
+    genericSymbol->setDeclarationFilePath(mainFilePath);
+    genericsScope->insertSymbol(std::move(genericSymbol));
+  }
+}
+
 } // namespace
 
 auto Typechecker::pathLeadsToEndWithoutReturn(const std::vector<Statement*>& statements,
@@ -727,12 +747,18 @@ auto Typechecker::visit(const Enum* node) -> void {
 
 auto Typechecker::visit(const Class* node) -> void {
   auto savedGenerics = currentGenericTypes;
-  for (const auto& name : node->getGenericParams()) {
-    auto* genericType = cacheType(std::make_unique<Type>(name));
-    currentGenericTypes[name] = genericType;
+  SymbolTable* outerScope = scope;
+  SymbolTable* classGenericScope = outerScope->createChildBlock("class_generics");
+  scope = classGenericScope;
+  node->setGenericScope(classGenericScope);
+  for (const auto& param : node->getGenericParamDecls()) {
+    auto* genericType = cacheType(std::make_unique<Type>(param.name));
+    currentGenericTypes[param.name] = genericType;
   }
+  insertGenericParamSymbols(classGenericScope, node->getGenericParamDecls(), currentGenericTypes,
+                            mainFilePath);
 
-  Type* classTypePtr = scope->lookupType(node->getIdentifier());
+  Type* classTypePtr = outerScope->lookupType(node->getIdentifier());
   if (declarationPass) {
     std::vector<std::unique_ptr<Field>> fields;
     for (VarDecl* field : node->getFields()) {
@@ -763,19 +789,21 @@ auto Typechecker::visit(const Class* node) -> void {
     auto type = std::make_unique<Type>(BaseType::TY_CLASS, nullptr, std::move(fields));
     type->setDisplayName(node->getIdentifier() + makeGenericDisplaySuffix(node->getGenericParams()));
     classTypePtr = type.get();
-    scope->insertType(node->getIdentifier(), std::move(type));
+    outerScope->insertType(node->getIdentifier(), std::move(type));
     auto classSymbol = std::make_unique<Value>(node->getIdentifier(), classTypePtr);
     classSymbol->setCategory(ValueCategory::TYPE_SYMBOL);
     classSymbol->setExported(node->isExported());
     classSymbol->setDeclarationSpan(node->getNameSpan());
     classSymbol->setDeclarationFilePath(mainFilePath);
-    scope->insertSymbol(std::move(classSymbol));
+    outerScope->insertSymbol(std::move(classSymbol));
   }
 
   classTypePtr->setGenericParams(node->getGenericParams());
   auto* selfPtrType = cacheType(std::make_unique<Type>(BaseType::TY_PTR, nullptr, classTypePtr));
+  SymbolTable* savedMethodInsertScope = currentMethodInsertScope;
   for (FuncDecl* func : node->getMethods()) {
     currentClassType = classTypePtr;
+    currentMethodInsertScope = outerScope;
     SymbolTable* methodScope = scope->createChildBlock("method");
     scope = methodScope;
     auto selfSymbol = std::make_unique<Value>("self", selfPtrType);
@@ -785,7 +813,9 @@ auto Typechecker::visit(const Class* node) -> void {
     scope = scope->getParent();
     currentClassType = nullptr;
   }
+  currentMethodInsertScope = savedMethodInsertScope;
 
+  scope = outerScope;
   currentGenericTypes = std::move(savedGenerics);
 }
 
@@ -793,12 +823,13 @@ auto Typechecker::visit(const FuncDecl* node) -> void {
   auto savedGenerics = currentGenericTypes;
   SymbolTable* genericsScope = scope->createChildBlock("generics");
   scope = genericsScope;
-  for (const auto& name : node->getGenericParams()) {
-    auto* genericType = cacheType(std::make_unique<Type>(name));
-    currentGenericTypes[name] = genericType;
-    // Do not insert into scope: generic params are only visible via currentGenericTypes and must
-    // not leak to outer lookups.
+  node->setGenericScope(genericsScope);
+  for (const auto& param : node->getGenericParamDecls()) {
+    auto* genericType = cacheType(std::make_unique<Type>(param.name));
+    currentGenericTypes[param.name] = genericType;
   }
+  insertGenericParamSymbols(genericsScope, node->getGenericParamDecls(), currentGenericTypes,
+                            mainFilePath);
   node->getReturnType()->accept(*this);
   Type* returnType = result->getType();
   std::vector<std::unique_ptr<Field>> paramFields;
@@ -841,10 +872,8 @@ auto Typechecker::visit(const FuncDecl* node) -> void {
   funcType->setVarArgs(node->getVarArgs());
   Type* funcTypePtr = cacheType(std::move(funcType));
   funcTypePtr->setGenericParams(node->getGenericParams());
-  // Insert into enclosing scope so methods are visible from outer scopes (same as before generics
-  // scope).
   SymbolTable* insertScope =
-      (currentClassType != nullptr) ? scope->getParent()->getParent() : scope->getParent();
+      currentMethodInsertScope != nullptr ? currentMethodInsertScope : scope->getParent();
   Value* funcSymbol = insertScope->lookupFunction(node->getName(), paramTypes);
 
   if (declarationPass) {
@@ -917,12 +946,13 @@ auto Typechecker::visit(const ExternFuncDecl* node) -> void {
   auto savedGenerics = currentGenericTypes;
   SymbolTable* genericsScope = scope->createChildBlock("generics");
   scope = genericsScope;
-  for (const auto& name : node->getGenericParams()) {
-    auto* genericType = cacheType(std::make_unique<Type>(name));
-    currentGenericTypes[name] = genericType;
-    // Do not insert into scope: generic params are only visible via currentGenericTypes and must
-    // not leak to outer lookups.
+  node->setGenericScope(genericsScope);
+  for (const auto& param : node->getGenericParamDecls()) {
+    auto* genericType = cacheType(std::make_unique<Type>(param.name));
+    currentGenericTypes[param.name] = genericType;
   }
+  insertGenericParamSymbols(genericsScope, node->getGenericParamDecls(), currentGenericTypes,
+                            mainFilePath);
   node->getReturnType()->accept(*this);
   Type* returnType = result->getType();
   std::vector<std::unique_ptr<Field>> paramFields;

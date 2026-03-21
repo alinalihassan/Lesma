@@ -679,11 +679,15 @@ auto Parser::parseFunctionDeclaration() -> std::unique_ptr<Statement> {
   }
 
   auto* identifier = consume(TokenType::IDENTIFIER);
-  std::vector<std::string> genericParams;
+  std::vector<GenericParamDecl> genericParams;
   if (check(TokenType::LESS)) {
     consume(TokenType::LESS);
     while (!check(TokenType::GREATER)) {
-      genericParams.push_back(consume(TokenType::IDENTIFIER)->lexeme);
+      auto* genericParam = consume(TokenType::IDENTIFIER);
+      genericParams.push_back(GenericParamDecl{
+          .name = genericParam->lexeme,
+          .span = genericParam->span,
+      });
       if (!check(TokenType::GREATER)) {
         consume(TokenType::COMMA);
       }
@@ -876,11 +880,15 @@ auto Parser::parseClass() -> std::unique_ptr<Statement> {
   consume(TokenType::CLASS);
 
   auto* token = consume(TokenType::IDENTIFIER);
-  std::vector<std::string> genericParams;
+  std::vector<GenericParamDecl> genericParams;
   if (check(TokenType::LESS)) {
     consume(TokenType::LESS);
     while (!check(TokenType::GREATER)) {
-      genericParams.push_back(consume(TokenType::IDENTIFIER)->lexeme);
+      auto* genericParam = consume(TokenType::IDENTIFIER);
+      genericParams.push_back(GenericParamDecl{
+          .name = genericParam->lexeme,
+          .span = genericParam->span,
+      });
       if (!check(TokenType::GREATER)) {
         consume(TokenType::COMMA);
       }

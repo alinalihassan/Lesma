@@ -20,6 +20,7 @@
 
 namespace lesma {
 class Value;
+class SymbolTable;
 
 class AST {
   llvm::SMRange loc;
@@ -162,6 +163,11 @@ public:
       -> std::string override {
     return name;
   }
+};
+
+struct GenericParamDecl {
+  std::string name;
+  llvm::SMRange span;
 };
 
 class Enum : public Statement {
@@ -375,7 +381,7 @@ public:
 class FuncDecl : public Statement {
   std::string name;
   llvm::SMRange nameSpan;
-  std::vector<std::string> genericParams;
+  std::vector<GenericParamDecl> genericParams;
   std::unique_ptr<TypeExpr> returnType;
   std::vector<std::unique_ptr<Parameter>> parameters;
   std::unique_ptr<Compound> body;
@@ -383,10 +389,11 @@ class FuncDecl : public Statement {
   bool exported;
   /** Set by typechecker: the symbol for this overload (used by LSP for hover/definition). */
   mutable Value* resolvedSymbol = nullptr;
+  mutable SymbolTable* genericScope = nullptr;
 
 public:
   FuncDecl(llvm::SMRange loc, std::string name, llvm::SMRange nameSpan,
-           std::vector<std::string> genericParams, std::unique_ptr<TypeExpr> returnType,
+           std::vector<GenericParamDecl> genericParams, std::unique_ptr<TypeExpr> returnType,
            std::vector<std::unique_ptr<Parameter>> parameters, std::unique_ptr<Compound> body,
            bool varargs, bool exported)
       : Statement(loc), name(std::move(name)), nameSpan(nameSpan),
@@ -398,6 +405,15 @@ public:
   [[nodiscard]] [[maybe_unused]] auto getName() const -> std::string { return name; }
   [[nodiscard]] [[maybe_unused]] auto getNameSpan() const -> llvm::SMRange { return nameSpan; }
   [[nodiscard]] [[maybe_unused]] auto getGenericParams() const -> std::vector<std::string> {
+    std::vector<std::string> result;
+    result.reserve(genericParams.size());
+    for (const auto& param : genericParams) {
+      result.push_back(param.name);
+    }
+    return result;
+  }
+  [[nodiscard]] [[maybe_unused]] auto getGenericParamDecls() const
+      -> const std::vector<GenericParamDecl>& {
     return genericParams;
   }
   [[nodiscard]] [[maybe_unused]] auto getReturnType() const -> TypeExpr* {
@@ -417,6 +433,8 @@ public:
   /** Symbol for this declaration (set by typechecker; used by LSP for overload resolution). */
   [[nodiscard]] auto getResolvedSymbol() const -> Value* { return resolvedSymbol; }
   auto setResolvedSymbol(Value* v) const -> void { resolvedSymbol = v; }
+  [[nodiscard]] auto getGenericScope() const -> SymbolTable* { return genericScope; }
+  auto setGenericScope(SymbolTable* scopePtr) const -> void { genericScope = scopePtr; }
 
   auto toString(llvm::SourceMgr* srcMgr, const std::string& prefix, bool isTail) const
       -> std::string override {
@@ -437,9 +455,9 @@ public:
     }
     if (!genericParams.empty()) {
       ret += "[";
-      for (const auto& gp : genericParams) {
-        ret += gp;
-        if (&gp != &genericParams.back()) {
+      for (size_t i = 0; i < genericParams.size(); ++i) {
+        ret += genericParams[i].name;
+        if (i + 1U < genericParams.size()) {
           ret += ", ";
         }
       }
@@ -457,17 +475,18 @@ public:
 class ExternFuncDecl : public Statement {
   std::string name;
   llvm::SMRange nameSpan;
-  std::vector<std::string> genericParams;
+  std::vector<GenericParamDecl> genericParams;
   std::unique_ptr<TypeExpr> returnType;
   std::vector<std::unique_ptr<Parameter>> parameters;
   bool varargs;
   bool exported;
   /** Set by typechecker: resolved symbol for this declaration. */
   mutable Value* resolvedSymbol = nullptr;
+  mutable SymbolTable* genericScope = nullptr;
 
 public:
   ExternFuncDecl(llvm::SMRange loc, std::string name, llvm::SMRange nameSpan,
-                 std::vector<std::string> genericParams, std::unique_ptr<TypeExpr> returnType,
+                 std::vector<GenericParamDecl> genericParams, std::unique_ptr<TypeExpr> returnType,
                  std::vector<std::unique_ptr<Parameter>> parameters, bool varargs, bool exported)
       : Statement(loc), name(std::move(name)), nameSpan(nameSpan),
         genericParams(std::move(genericParams)), returnType(std::move(returnType)),
@@ -478,6 +497,15 @@ public:
   [[nodiscard]] [[maybe_unused]] auto getName() const -> std::string { return name; }
   [[nodiscard]] [[maybe_unused]] auto getNameSpan() const -> llvm::SMRange { return nameSpan; }
   [[nodiscard]] [[maybe_unused]] auto getGenericParams() const -> std::vector<std::string> {
+    std::vector<std::string> result;
+    result.reserve(genericParams.size());
+    for (const auto& param : genericParams) {
+      result.push_back(param.name);
+    }
+    return result;
+  }
+  [[nodiscard]] [[maybe_unused]] auto getGenericParamDecls() const
+      -> const std::vector<GenericParamDecl>& {
     return genericParams;
   }
   [[nodiscard]] [[maybe_unused]] auto getReturnType() const -> TypeExpr* {
@@ -495,6 +523,8 @@ public:
   [[nodiscard]] [[maybe_unused]] auto isExported() const -> bool { return exported; }
   [[nodiscard]] auto getResolvedSymbol() const -> Value* { return resolvedSymbol; }
   auto setResolvedSymbol(Value* v) const -> void { resolvedSymbol = v; }
+  [[nodiscard]] auto getGenericScope() const -> SymbolTable* { return genericScope; }
+  auto setGenericScope(SymbolTable* scopePtr) const -> void { genericScope = scopePtr; }
 
   auto toString(llvm::SourceMgr* srcMgr, const std::string& prefix, bool isTail) const
       -> std::string override {
@@ -815,14 +845,15 @@ public:
 class Class : public Statement {
   std::string identifier;
   llvm::SMRange nameSpan;
-  std::vector<std::string> genericParams;
+  std::vector<GenericParamDecl> genericParams;
   std::vector<std::unique_ptr<VarDecl>> fields;
   std::vector<std::unique_ptr<FuncDecl>> methods;
   bool exported;
+  mutable SymbolTable* genericScope = nullptr;
 
 public:
   Class(llvm::SMRange loc, std::string identifier, llvm::SMRange nameSpan,
-        std::vector<std::string> genericParams, std::vector<std::unique_ptr<VarDecl>> fields,
+        std::vector<GenericParamDecl> genericParams, std::vector<std::unique_ptr<VarDecl>> fields,
         std::vector<std::unique_ptr<FuncDecl>> methods, bool exported)
       : Statement(loc), identifier(std::move(identifier)), nameSpan(nameSpan),
         genericParams(std::move(genericParams)), fields(std::move(fields)),
@@ -832,6 +863,15 @@ public:
   [[nodiscard]] [[maybe_unused]] auto getIdentifier() const -> std::string { return identifier; }
   [[nodiscard]] [[maybe_unused]] auto getNameSpan() const -> llvm::SMRange { return nameSpan; }
   [[nodiscard]] [[maybe_unused]] auto getGenericParams() const -> std::vector<std::string> {
+    std::vector<std::string> result;
+    result.reserve(genericParams.size());
+    for (const auto& param : genericParams) {
+      result.push_back(param.name);
+    }
+    return result;
+  }
+  [[nodiscard]] [[maybe_unused]] auto getGenericParamDecls() const
+      -> const std::vector<GenericParamDecl>& {
     return genericParams;
   }
   [[nodiscard]] [[maybe_unused]] auto getFields() const -> std::vector<VarDecl*> {
@@ -851,6 +891,8 @@ public:
     return result;
   }
   [[nodiscard]] [[maybe_unused]] auto isExported() const -> bool { return exported; }
+  [[nodiscard]] auto getGenericScope() const -> SymbolTable* { return genericScope; }
+  auto setGenericScope(SymbolTable* scopePtr) const -> void { genericScope = scopePtr; }
 
   auto toString(llvm::SourceMgr* srcMgr, const std::string& prefix, bool isTail) const
       -> std::string override {

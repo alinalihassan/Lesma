@@ -6,9 +6,6 @@
       "include": "#keywords"
     },
     {
-      "include": "#operators"
-    },
-    {
       "include": "#comments"
     },
     {
@@ -27,6 +24,9 @@
       "include": "#functions"
     },
     {
+      "include": "#operators"
+    },
+    {
       "include": "#invalid"
     }
   ],
@@ -43,11 +43,11 @@
         },
         {
           "name": "keyword.module.lesma",
-          "match": "\\b(from|export|import)\\b"
+          "match": "\\b(from|import)\\b"
         },
         {
           "name": "keyword.other.lesma",
-          "match": "\\b(class|enum|type|def|extern|operator)\\b"
+          "match": "\\b(export|class|enum|type|def|extern|operator)\\b"
         },
         {
           "name": "keyword.implicit.lesma",
@@ -121,13 +121,38 @@
     "types": {
       "patterns": [
         {
+          "comment": "Generic parameter and argument lists",
+          "begin": "(?<=[a-zA-Z0-9_])<(?=[^\\n>]+>)",
+          "beginCaptures": {
+            "0": {
+              "name": "punctuation.definition.typeparameters.begin.lesma"
+            }
+          },
+          "end": ">",
+          "endCaptures": {
+            "0": {
+              "name": "punctuation.definition.typeparameters.end.lesma"
+            }
+          },
+          "patterns": [
+            {
+              "name": "punctuation.separator.type-parameters.lesma",
+              "match": ","
+            },
+            {
+              "name": "support.type.lesma",
+              "match": "\\b[a-zA-Z_][a-zA-Z0-9_]*\\b"
+            }
+          ]
+        },
+        {
           "comment": "Built-in Types",
           "name": "support.type.lesma",
           "match": "\\b(bool|str|int|float|void)\\b"
         },
         {
           "comment": "Type annotation",
-          "name": "support.function.lesma",
+          "name": "support.type.lesma",
           "match": "(?<=:\\s|->\\s)[a-zA-Z0-9_]+"
         }
       ]
@@ -137,11 +162,11 @@
         {
           "comment": "Catch the function call and function definition",
           "name": "support.function.lesma",
-          "match": "(?=[a-zA-Z0-9_]+\\()[a-zA-Z0-9_]+"
+          "match": "(?=[a-zA-Z0-9_]+(?:<[^>\\n]+>)?\\()[a-zA-Z0-9_]+"
         },
         {
           "comment": "Class/Enum declaration",
-          "name": "support.function.lesma",
+          "name": "entity.name.type.lesma",
           "match": "(?<=class\\s|enum\\s)[a-zA-Z0-9_]+"
         }
       ]

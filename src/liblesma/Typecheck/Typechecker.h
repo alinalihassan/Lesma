@@ -46,6 +46,7 @@ class Typechecker final : public ASTVisitor {
 
   Value* currentFunction = nullptr;
   Type* currentClassType = nullptr; // Set when visiting class methods, for self
+  SymbolTable* currentMethodInsertScope = nullptr;
   bool inTopLevel = true;
   bool declarationPass = false;
   std::unordered_map<std::string, Type*> currentGenericTypes;
