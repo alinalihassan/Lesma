@@ -1270,6 +1270,16 @@ std::optional<CursorIdentifier> findIdentifierAtCursor(const lesma::Compound* as
         }
       }
       if (!result) {
+        if (auto const* assign = dynamic_cast<const lesma::Assignment*>(node)) {
+          if (assign->getLeftHandSide() != nullptr) {
+            visitExpr(assign->getLeftHandSide());
+          }
+          if (!result && assign->getRightHandSide() != nullptr) {
+            visitExpr(assign->getRightHandSide());
+          }
+        }
+      }
+      if (!result) {
         if (auto const* importNode = dynamic_cast<const lesma::Import*>(node)) {
           llvm::SMRange aliasSpan = importNode->getAliasSpan();
           if (aliasSpan.isValid()) {
@@ -2341,6 +2351,11 @@ void collectSymbolOccurrencesFromStmt(const lesma::Statement* stmt, llvm::Source
     collectSymbolOccurrencesFromStmt(whileNode->getBlock(), srcMgr, bufferId, out, enumOut);
     return;
   }
+  if (auto const* assign = dynamic_cast<const lesma::Assignment*>(stmt)) {
+    collectSymbolOccurrencesFromExpr(assign->getLeftHandSide(), srcMgr, bufferId, out, enumOut);
+    collectSymbolOccurrencesFromExpr(assign->getRightHandSide(), srcMgr, bufferId, out, enumOut);
+    return;
+  }
   if (auto const* ret = dynamic_cast<const lesma::Return*>(stmt)) {
     collectSymbolOccurrencesFromExpr(ret->getValue(), srcMgr, bufferId, out, enumOut);
     return;
@@ -2907,6 +2922,11 @@ std::vector<std::uint32_t> collectSemanticTokens(const AnalysisResult& analysisR
           visitStmt(child, false);
         }
       }
+      return;
+    }
+    if (auto const* assign = dynamic_cast<const lesma::Assignment*>(stmt)) {
+      visitExpr(assign->getLeftHandSide());
+      visitExpr(assign->getRightHandSide());
       return;
     }
     if (auto const* ret = dynamic_cast<const lesma::Return*>(stmt)) {
