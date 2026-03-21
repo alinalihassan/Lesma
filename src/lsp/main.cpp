@@ -508,6 +508,12 @@ auto locationForIndexedDeclaration(const AnalysisResult& result,
   };
 }
 
+auto declarationBelongsToAnalysis(const AnalysisView& analysis,
+                                  const lesma::IndexedDeclarationIdentity& declaration) -> bool {
+  return analysis.mainFilePath != nullptr &&
+         normalizePath(*analysis.mainFilePath) == normalizePath(declaration.filePath);
+}
+
 auto runAnalyzeAndPublish(const ::lsp::DocumentUri& uri,
                          const lesma::lsp_srv::DocumentStore& docStore, const std::string& content,
                          int version, AnalysisCache& analysisCache,
@@ -1041,7 +1047,7 @@ auto findIndexedSymbolOccurrenceAtCursor(const AnalysisView& analysis, unsigned 
     unsigned const start = getOffsetFromSMLoc(analysis.sourceMgr, analysis.bufferId, occurrence.span.Start);
     unsigned const end = getOffsetFromSMLoc(analysis.sourceMgr, analysis.bufferId, occurrence.span.End);
     bool const contains = targetOffset >= start && targetOffset < end;
-    bool const justAfter = targetOffset >= end && targetOffset <= end + 2U;
+    bool const justAfter = targetOffset == end;
     if (!contains && !justAfter) {
       continue;
     }
@@ -1734,7 +1740,8 @@ auto resolveCanonicalSymbolAtCursor(const AnalysisResult& result, const Analysis
   }
   if (const lesma::IndexedSymbolOccurrence* occurrence =
           findIndexedSymbolOccurrenceAtCursor(analysis, line, character);
-      occurrence != nullptr && occurrence->declaration.has_value()) {
+      occurrence != nullptr && occurrence->declaration.has_value() &&
+      declarationBelongsToAnalysis(analysis, *occurrence->declaration)) {
     if (std::optional<ResolvedSymbol> resolved =
             resolveSymbolByDeclarationIdentity(result, *occurrence->declaration)) {
       return resolved;
@@ -2090,7 +2097,8 @@ auto collectReferences(const AnalysisResult& result, unsigned line, unsigned cha
   std::optional<SymbolIdentity> targetIdentity;
   if (const lesma::IndexedSymbolOccurrence* occurrence =
           findIndexedSymbolOccurrenceAtCursor(mainAnalysis, line, character);
-      occurrence != nullptr && occurrence->declaration.has_value()) {
+      occurrence != nullptr && occurrence->declaration.has_value() &&
+      declarationBelongsToAnalysis(mainAnalysis, *occurrence->declaration)) {
     targetIdentity = symbolIdentityForIndexedDeclaration(result, *occurrence->declaration, id->name);
   }
   if (!targetIdentity) {
@@ -2110,7 +2118,8 @@ auto collectReferences(const AnalysisResult& result, unsigned line, unsigned cha
         ::lsp::Range const occurrenceRange =
             smRangeToLspRange(analysis.sourceMgr, analysis.bufferId, occurrence.span);
         std::optional<SymbolIdentity> occurrenceIdentity;
-        if (occurrence.declaration.has_value()) {
+        if (occurrence.declaration.has_value() &&
+            declarationBelongsToAnalysis(analysis, *occurrence.declaration)) {
           occurrenceIdentity = symbolIdentityForIndexedDeclaration(result, *occurrence.declaration,
                                                                    occurrence.name);
         }
@@ -2436,7 +2445,8 @@ auto tryResolveDefinitionLocation(const AnalysisResult& result, unsigned line, u
   }
   if (const lesma::IndexedSymbolOccurrence* occurrence =
           findIndexedSymbolOccurrenceAtCursor(analysis, line, character);
-      occurrence != nullptr && occurrence->declaration.has_value()) {
+      occurrence != nullptr && occurrence->declaration.has_value() &&
+      declarationBelongsToAnalysis(analysis, *occurrence->declaration)) {
     if (std::optional<::lsp::Location> declarationLocation =
             locationForIndexedDeclaration(result, *occurrence->declaration)) {
       return declarationLocation;
