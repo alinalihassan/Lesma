@@ -672,7 +672,8 @@ auto findEnclosingClassContaining(const lesma::Compound* ast, unsigned targetOff
 
 lesma::Value* lookupValueForHover(lesma::Compound* ast, lesma::SymbolTable* root,
                                   llvm::SourceMgr* srcMgr, unsigned bufferId, unsigned line,
-                                  unsigned character, const std::string& name) {
+                                  unsigned character, const std::string& name,
+                                  bool isTypePosition) {
   auto const* buf = srcMgr->getMemoryBuffer(bufferId);
   if (buf == nullptr) {
     return nullptr;
@@ -692,6 +693,11 @@ lesma::Value* lookupValueForHover(lesma::Compound* ast, lesma::SymbolTable* root
     if (funcSym != nullptr && name == sigFunc.func->getName()) {
       return funcSym;
     }
+    if (isTypePosition && sigFunc.func->getGenericScope() != nullptr) {
+      if (lesma::Value* v = sigFunc.func->getGenericScope()->lookup(name)) {
+        return v;
+      }
+    }
     // Otherwise, look up in the function's body scope (for parameters, locals)
     if (funcSym != nullptr && funcSym->getBodyScope() != nullptr) {
       if (lesma::Value* v = funcSym->getBodyScope()->lookup(name)) {
@@ -708,6 +714,11 @@ lesma::Value* lookupValueForHover(lesma::Compound* ast, lesma::SymbolTable* root
     }
     if (funcSym != nullptr && name == sigExtern->getName()) {
       return funcSym;
+    }
+    if (isTypePosition && sigExtern->getGenericScope() != nullptr) {
+      if (lesma::Value* v = sigExtern->getGenericScope()->lookup(name)) {
+        return v;
+      }
     }
     if (funcSym != nullptr && funcSym->getBodyScope() != nullptr) {
       if (lesma::Value* v = funcSym->getBodyScope()->lookup(name)) {
@@ -727,6 +738,11 @@ lesma::Value* lookupValueForHover(lesma::Compound* ast, lesma::SymbolTable* root
     if (funcSym != nullptr && name == inner.func->getName()) {
       return funcSym;
     }
+    if (isTypePosition && inner.func->getGenericScope() != nullptr) {
+      if (lesma::Value* v = inner.func->getGenericScope()->lookup(name)) {
+        return v;
+      }
+    }
     // Otherwise, look up in the function's body scope (for locals)
     if (funcSym != nullptr && funcSym->getBodyScope() != nullptr) {
       if (lesma::Value* v = funcSym->getBodyScope()->lookup(name)) {
@@ -736,7 +752,7 @@ lesma::Value* lookupValueForHover(lesma::Compound* ast, lesma::SymbolTable* root
   }
   if (auto const* enclosingClass =
           findEnclosingClassContaining(ast, targetOffset, srcMgr, bufferId)) {
-    if (enclosingClass->getGenericScope() != nullptr) {
+    if (isTypePosition && enclosingClass->getGenericScope() != nullptr) {
       if (lesma::Value* v = enclosingClass->getGenericScope()->lookup(name)) {
         return v;
       }
@@ -996,6 +1012,12 @@ std::optional<CursorIdentifier> findIdentifierAtCursor(const lesma::Compound* as
         }
         // Check parameter names first so the first parameter shows param hover, not function
         for (lesma::Parameter* p : f->getParameters()) {
+          if (p != nullptr && p->type != nullptr) {
+            visitTypeExpr(p->type.get());
+            if (result) {
+              return;
+            }
+          }
           if (p != nullptr && p->nameSpan.isValid()) {
             unsigned a = getOffsetFromSMLoc(srcMgr, bufferId, p->nameSpan.Start);
             unsigned b = getOffsetFromSMLoc(srcMgr, bufferId, p->nameSpan.End);
@@ -1009,12 +1031,6 @@ std::optional<CursorIdentifier> findIdentifierAtCursor(const lesma::Compound* as
                             smRangeToLspRange(srcMgr, bufferId, p->nameSpan))
                       : std::nullopt};
               break;
-            }
-          }
-          if (!result && p != nullptr && p->type != nullptr) {
-            visitTypeExpr(p->type.get());
-            if (result) {
-              return;
             }
           }
         }
@@ -1066,6 +1082,12 @@ std::optional<CursorIdentifier> findIdentifierAtCursor(const lesma::Compound* as
           }
         }
         for (lesma::Parameter* p : f->getParameters()) {
+          if (p != nullptr && p->type != nullptr) {
+            visitTypeExpr(p->type.get());
+            if (result) {
+              return;
+            }
+          }
           if (p != nullptr && p->nameSpan.isValid()) {
             unsigned a = getOffsetFromSMLoc(srcMgr, bufferId, p->nameSpan.Start);
             unsigned b = getOffsetFromSMLoc(srcMgr, bufferId, p->nameSpan.End);
@@ -1079,12 +1101,6 @@ std::optional<CursorIdentifier> findIdentifierAtCursor(const lesma::Compound* as
                             smRangeToLspRange(srcMgr, bufferId, p->nameSpan))
                       : std::nullopt};
               break;
-            }
-          }
-          if (!result && p != nullptr && p->type != nullptr) {
-            visitTypeExpr(p->type.get());
-            if (result) {
-              return;
             }
           }
         }
@@ -2298,7 +2314,8 @@ auto resolveCanonicalSymbolAtCursor(const AnalysisResult& result, const Analysis
   }
 
   lesma::Value* local = lookupValueForHover(analysis.ast, analysis.rootScope, analysis.sourceMgr,
-                                            analysis.bufferId, line, character, id.name);
+                                            analysis.bufferId, line, character, id.name,
+                                            id.isTypePosition);
   if (local != nullptr && local->getType() != nullptr && !local->getType()->is(lesma::BaseType::TY_IMPORT)) {
     return ResolvedSymbol{.value = local, .owner = analysis};
   }
