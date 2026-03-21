@@ -964,11 +964,30 @@ auto Typechecker::visit(const ExternFuncDecl* node) -> void {
     funcSymbol->setDeclarationFilePath(mainFilePath);
     scope->getParent()->insertSymbol(
         std::move(funcSymbol)); // insert into enclosing scope, not generics
+    existingFunc = scope->getParent()->lookupFunction(node->getName(), paramTypes);
   } else {
     existingFunc->setType(funcTypePtr);
     existingFunc->setExported(node->isExported());
     existingFunc->setDeclarationSpan(node->getNameSpan());
     existingFunc->setDeclarationFilePath(mainFilePath);
+  }
+  if (existingFunc != nullptr) {
+    const_cast<ExternFuncDecl*>(node)->setResolvedSymbol(existingFunc);
+  }
+  if (existingFunc != nullptr && existingFunc->getBodyScope() == nullptr) {
+    SymbolTable* child = scope->createChildBlock("extern_function");
+    existingFunc->setBodyScope(child);
+    SymbolTable* savedScopePtr = scope;
+    scope = child;
+    for (size_t i = 0; i < node->getParameters().size(); ++i) {
+      Parameter* param = node->getParameters()[i];
+      auto paramSymbol = std::make_unique<Value>(param->name, paramTypes[i]);
+      paramSymbol->setCategory(ValueCategory::ADDRESSABLE_STORAGE);
+      paramSymbol->setDeclarationSpan(param->nameSpan);
+      paramSymbol->setDeclarationFilePath(mainFilePath);
+      scope->insertSymbol(std::move(paramSymbol));
+    }
+    scope = savedScopePtr;
   }
   scope = scope->getParent(); // pop generics scope
   currentGenericTypes = std::move(savedGenerics);

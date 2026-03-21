@@ -462,6 +462,8 @@ class ExternFuncDecl : public Statement {
   std::vector<std::unique_ptr<Parameter>> parameters;
   bool varargs;
   bool exported;
+  /** Set by typechecker: resolved symbol for this declaration. */
+  mutable Value* resolvedSymbol = nullptr;
 
 public:
   ExternFuncDecl(llvm::SMRange loc, std::string name, llvm::SMRange nameSpan,
@@ -491,6 +493,8 @@ public:
   }
   [[nodiscard]] [[maybe_unused]] auto getVarArgs() const -> bool { return varargs; }
   [[nodiscard]] [[maybe_unused]] auto isExported() const -> bool { return exported; }
+  [[nodiscard]] auto getResolvedSymbol() const -> Value* { return resolvedSymbol; }
+  auto setResolvedSymbol(Value* v) const -> void { resolvedSymbol = v; }
 
   auto toString(llvm::SourceMgr* srcMgr, const std::string& prefix, bool isTail) const
       -> std::string override {

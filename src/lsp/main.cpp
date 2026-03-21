@@ -570,6 +570,53 @@ InnermostFunc findFuncWithCursorInSignature(lesma::Compound* ast, unsigned targe
   return out;
 }
 
+auto findExternFuncWithCursorInSignature(const lesma::Compound* ast, unsigned targetOffset,
+                                         llvm::SourceMgr* sm, unsigned bid)
+    -> const lesma::ExternFuncDecl* {
+  const lesma::ExternFuncDecl* out = nullptr;
+  std::function<void(const lesma::Statement*)> scan = [&](const lesma::Statement* stmt) {
+    if (stmt == nullptr || out != nullptr) {
+      return;
+    }
+    auto const inSpan = [&](llvm::SMRange span) -> bool {
+      if (!span.isValid()) {
+        return false;
+      }
+      unsigned a = getOffsetFromSMLoc(sm, bid, span.Start);
+      unsigned b = getOffsetFromSMLoc(sm, bid, span.End);
+      return targetOffset >= a && targetOffset < b;
+    };
+    if (auto const* f = dynamic_cast<const lesma::ExternFuncDecl*>(stmt)) {
+      if (inSpan(f->getNameSpan())) {
+        out = f;
+        return;
+      }
+      for (lesma::Parameter* p : f->getParameters()) {
+        if (p != nullptr && inSpan(p->nameSpan)) {
+          out = f;
+          return;
+        }
+      }
+      return;
+    }
+    if (auto const* compound = dynamic_cast<const lesma::Compound*>(stmt)) {
+      for (lesma::Statement* child : compound->getChildren()) {
+        scan(child);
+        if (out != nullptr) {
+          return;
+        }
+      }
+    }
+  };
+  for (lesma::Statement* stmt : ast->getChildren()) {
+    scan(stmt);
+    if (out != nullptr) {
+      break;
+    }
+  }
+  return out;
+}
+
 lesma::Value* lookupValueForHover(lesma::Compound* ast, lesma::SymbolTable* root,
                                   llvm::SourceMgr* srcMgr, unsigned bufferId, unsigned line,
                                   unsigned character, const std::string& name) {
@@ -593,6 +640,22 @@ lesma::Value* lookupValueForHover(lesma::Compound* ast, lesma::SymbolTable* root
       return funcSym;
     }
     // Otherwise, look up in the function's body scope (for parameters, locals)
+    if (funcSym != nullptr && funcSym->getBodyScope() != nullptr) {
+      if (lesma::Value* v = funcSym->getBodyScope()->lookup(name)) {
+        return v;
+      }
+    }
+  }
+
+  if (auto const* sigExtern =
+          findExternFuncWithCursorInSignature(ast, targetOffset, srcMgr, bufferId)) {
+    lesma::Value* funcSym = sigExtern->getResolvedSymbol();
+    if (funcSym == nullptr) {
+      funcSym = root->lookup(sigExtern->getName());
+    }
+    if (funcSym != nullptr && name == sigExtern->getName()) {
+      return funcSym;
+    }
     if (funcSym != nullptr && funcSym->getBodyScope() != nullptr) {
       if (lesma::Value* v = funcSym->getBodyScope()->lookup(name)) {
         return v;
@@ -824,6 +887,42 @@ std::optional<CursorIdentifier> findIdentifierAtCursor(const lesma::Compound* as
             visit(s);
             if (result) {
               return;
+            }
+          }
+        }
+      }
+      if (auto const* f = dynamic_cast<const lesma::ExternFuncDecl*>(node)) {
+        for (lesma::Parameter* p : f->getParameters()) {
+          if (p != nullptr && p->nameSpan.isValid()) {
+            unsigned a = getOffsetFromSMLoc(srcMgr, bufferId, p->nameSpan.Start);
+            unsigned b = getOffsetFromSMLoc(srcMgr, bufferId, p->nameSpan.End);
+            bool in = targetOffset >= a && targetOffset < b;
+            bool justAfter = targetOffset >= b && targetOffset <= b + 2U;
+            if (in || justAfter) {
+              result = CursorIdentifier{
+                  p->name, std::nullopt,
+                  p->nameSpan.isValid()
+                      ? std::optional<::lsp::Range>(
+                            smRangeToLspRange(srcMgr, bufferId, p->nameSpan))
+                      : std::nullopt};
+              break;
+            }
+          }
+        }
+        if (!result) {
+          llvm::SMRange nameSpan = f->getNameSpan();
+          if (nameSpan.isValid()) {
+            unsigned nameStart = getOffsetFromSMLoc(srcMgr, bufferId, nameSpan.Start);
+            unsigned nameEnd = getOffsetFromSMLoc(srcMgr, bufferId, nameSpan.End);
+            bool isInName = targetOffset >= nameStart && targetOffset < nameEnd;
+            bool isJustAfterName = targetOffset >= nameEnd && targetOffset <= nameEnd + 2U;
+            if (isInName || isJustAfterName) {
+              result = CursorIdentifier{
+                  f->getName(), std::nullopt,
+                  nameSpan.isValid()
+                      ? std::optional<::lsp::Range>(
+                            smRangeToLspRange(srcMgr, bufferId, nameSpan))
+                      : std::nullopt};
             }
           }
         }
