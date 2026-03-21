@@ -22,6 +22,7 @@ Lesma is a compiled, statically typed, imperative, object-oriented language that
     - **`Symbol/`** — Symbol table, `Type`, `Value`, `TypeUtils`.
     - **`Backend/`** — Codegen (AST → LLVM IR), `MangleUtils`, `CodegenTypeUtils`, linking/JIT.
   - **`src/stdlib/`** — Lesma standard library (e.g. `base.les`, `math.les`, `time.les`).
+  - **`src/lsp/`** — `lesma-lsp` (when `LESMA_BUILD_LSP` is ON). Enables vcpkg feature **`lsp`** (**libgit2**, minimal: `pcre2` only, no HTTPS/SSH) for workspace-wide `.les` discovery in Git work trees without shelling out to `git`.
 - **`tests/lesma/success/`** — Programs that must compile and run (exit 0).
 - **`tests/lesma/failure/`** — Programs that must be rejected (expected to fail).
 - **`scripts/run_tests.sh`** — Runs the compiler on all success/failure cases (run + compile for each).

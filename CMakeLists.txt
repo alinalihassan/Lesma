@@ -17,7 +17,7 @@ add_feature_option(LESMA_BUILD_TESTS "tests" "Build Tests" OFF)
 add_feature_option(LESMA_BUILD_BENCHMARKS "benchmarks" "Build Benchmarks" OFF)
 add_feature_option(LESMA_BUILD_DIST "dist" "Build Dist" OFF)
 add_feature_option(LESMA_BUILD_LLVM "build-llvm" "Build LLVM 15 via vcpkg" OFF)
-option(LESMA_BUILD_LSP "Build Lesma LSP server (lesma-lsp)" OFF)
+add_feature_option(LESMA_BUILD_LSP "lsp" "Build Lesma LSP server (lesma-lsp)" OFF)
 option(LESMA_SANITIZE_ADDRESS "Build with AddressSanitizer and LeakSanitizer for memory error and leak detection (Debug builds, all platforms)" OFF)
 
 # Get version from vcpkg
@@ -203,10 +203,12 @@ if (LESMA_BUILD_LSP)
   )
   FetchContent_MakeAvailable(lsp_framework)
 
+  find_package(libgit2 CONFIG REQUIRED)
+
   set(LSP_SERVER_SOURCES src/lsp/main.cpp src/lsp/DocumentStore.cpp src/lsp/LspCompletion.cpp
-      src/lsp/LspUtf16.cpp)
+      src/lsp/LspUtf16.cpp src/lsp/WorkspaceLesFiles.cpp)
   add_executable(lesma-lsp ${LSP_SERVER_SOURCES})
-  target_link_libraries(lesma-lsp PRIVATE ${LIB_NAME} lsp)
+  target_link_libraries(lesma-lsp PRIVATE ${LIB_NAME} lsp libgit2::libgit2package)
   target_include_directories(lesma-lsp PRIVATE ${lsp_framework_SOURCE_DIR})
 endif ()
 

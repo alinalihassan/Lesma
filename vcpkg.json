@@ -72,6 +72,18 @@
     },
     "dist": {
       "description": "Build Distributable"
+    },
+    "lsp": {
+      "description": "Build LSP server (libgit2 for workspace file discovery respecting .gitignore)",
+      "dependencies": [
+        {
+          "name": "libgit2",
+          "default-features": false,
+          "features": [
+            "pcre2"
+          ]
+        }
+      ]
     }
   }
 }

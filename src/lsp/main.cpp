@@ -16,6 +16,7 @@
 #include "DocumentStore.h"
 #include "LspCompletion.h"
 #include "LspUtf16.h"
+#include "WorkspaceLesFiles.h"
 #include <lsp/connection.h>
 #include <lsp/io/standardio.h>
 #include <lsp/messagehandler.h>
@@ -275,6 +276,102 @@ auto collectAnalysisViews(const AnalysisResult& result) -> std::vector<AnalysisV
     visited.insert(mainPath);
   }
   collectAnalysisViewsRecursive(result.importedModules, visited, out);
+  return out;
+}
+
+auto findWorkspaceRoot(const std::string& mainFilePath) -> std::string {
+  if (mainFilePath.empty()) {
+    return {};
+  }
+  std::error_code ec;
+  std::filesystem::path current =
+      std::filesystem::absolute(std::filesystem::path(mainFilePath), ec).parent_path();
+  if (ec) {
+    return {};
+  }
+  while (!current.empty()) {
+    if (std::filesystem::exists(current / ".git", ec) ||
+        std::filesystem::exists(current / "CMakeLists.txt", ec)) {
+      return current.lexically_normal().string();
+    }
+    std::filesystem::path parent = current.parent_path();
+    if (parent == current) {
+      break;
+    }
+    current = parent;
+  }
+  return std::filesystem::path(mainFilePath).parent_path().lexically_normal().string();
+}
+
+/** All .les files to consider for workspace-wide references: Git rules when possible, else walk FS. */
+auto collectLesFilePathsInWorkspace(std::string const& workspaceRoot) -> std::vector<std::string> {
+  if (std::optional<std::vector<std::string>> viaGit = tryListLesFilesViaGitRepository(workspaceRoot)) {
+    std::vector<std::string> paths;
+    paths.reserve(viaGit->size());
+    for (std::string const& p : *viaGit) {
+      paths.push_back(normalizePath(p));
+    }
+    return paths;
+  }
+
+  std::vector<std::string> paths;
+  std::error_code ec;
+  std::filesystem::recursive_directory_iterator const end;
+  std::filesystem::recursive_directory_iterator it(
+      workspaceRoot, std::filesystem::directory_options::skip_permission_denied, ec);
+  if (ec) {
+    return paths;
+  }
+  while (it != end) {
+    std::filesystem::path const path = it->path();
+    if (it->is_directory(ec)) {
+      if (path.filename() == ".git") {
+        it.disable_recursion_pending();
+      }
+      it.increment(ec);
+      if (ec) {
+        break;
+      }
+      continue;
+    }
+    if (!ec && it->is_regular_file(ec) && path.extension() == ".les") {
+      paths.push_back(normalizePath(path.lexically_normal().string()));
+    }
+    it.increment(ec);
+    if (ec) {
+      break;
+    }
+  }
+  return paths;
+}
+
+auto collectReferenceAnalysisViews(const AnalysisResult& result, bool includeWorkspace)
+    -> std::vector<AnalysisView> {
+  std::vector<AnalysisView> out = collectAnalysisViews(result);
+  if (!includeWorkspace) {
+    return out;
+  }
+  std::unordered_set<std::string> visited;
+  for (const AnalysisView& analysis : out) {
+    if (analysis.mainFilePath != nullptr) {
+      visited.insert(normalizePath(*analysis.mainFilePath));
+    }
+  }
+  std::string const workspaceRoot = findWorkspaceRoot(result.mainFilePath);
+  if (workspaceRoot.empty()) {
+    return out;
+  }
+  for (std::string const& normalized : collectLesFilePathsInWorkspace(workspaceRoot)) {
+    if (!normalized.empty() && visited.insert(normalized).second) {
+      if (std::shared_ptr<lesma::ImportedModuleAnalysis> imported =
+              getLazyImportedAnalysis(normalized)) {
+        AnalysisView analysis = makeAnalysisView(*imported);
+        if (isUsableAnalysis(analysis)) {
+          out.push_back(analysis);
+        }
+      }
+    }
+  }
   return out;
 }
 
@@ -2094,6 +2191,8 @@ auto collectReferences(const AnalysisResult& result, unsigned line, unsigned cha
     return locations;
   }
 
+  std::optional<ResolvedSymbol> targetResolved =
+      resolveCanonicalSymbolAtCursor(result, mainAnalysis, line, character, *id);
   std::optional<SymbolIdentity> targetIdentity;
   if (const lesma::IndexedSymbolOccurrence* occurrence =
           findIndexedSymbolOccurrenceAtCursor(mainAnalysis, line, character);
@@ -2102,13 +2201,14 @@ auto collectReferences(const AnalysisResult& result, unsigned line, unsigned cha
     targetIdentity = symbolIdentityForIndexedDeclaration(result, *occurrence->declaration, id->name);
   }
   if (!targetIdentity) {
-    if (std::optional<ResolvedSymbol> target =
-            resolveCanonicalSymbolAtCursor(result, mainAnalysis, line, character, *id)) {
-      targetIdentity = symbolIdentityForResolved(*target);
+    if (targetResolved) {
+      targetIdentity = symbolIdentityForResolved(*targetResolved);
     }
   }
   if (targetIdentity) {
-    for (const AnalysisView& analysis : collectAnalysisViews(result)) {
+    bool const includeWorkspace =
+        targetResolved && targetResolved->value != nullptr && targetResolved->value->isExported();
+    for (const AnalysisView& analysis : collectReferenceAnalysisViews(result, includeWorkspace)) {
       if (analysis.index == nullptr) {
         continue;
       }
