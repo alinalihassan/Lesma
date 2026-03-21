@@ -163,6 +163,8 @@ auto resolveImportAbsolutePath(const AnalysisView& analysis, const lesma::Import
   return normalizePath((baseDir / importNode->getFilePath()).string());
 }
 
+::lsp::Range smRangeToLspRange(llvm::SourceMgr* srcMgr, unsigned bufferId, llvm::SMRange span);
+
 auto findModuleImportPathByAlias(const AnalysisView& analysis, const std::string& alias)
     -> std::optional<std::string> {
   if (!isUsableAnalysis(analysis)) {
@@ -183,6 +185,36 @@ auto findModuleImportPathByAlias(const AnalysisView& analysis, const std::string
       std::string path = resolveImportAbsolutePath(analysis, importNode);
       if (!path.empty()) {
         return path;
+      }
+    }
+  }
+  return std::nullopt;
+}
+
+auto findLocalImportBindingLocation(const AnalysisView& analysis, const std::string& name,
+                                    bool preferModuleAlias) -> std::optional<::lsp::Location> {
+  if (!isUsableAnalysis(analysis) || analysis.mainFilePath == nullptr) {
+    return std::nullopt;
+  }
+  for (lesma::Statement* stmt : analysis.ast->getChildren()) {
+    auto const* importNode = dynamic_cast<const lesma::Import*>(stmt);
+    if (importNode == nullptr) {
+      continue;
+    }
+    if (preferModuleAlias && importNode->getAlias() == name && importNode->getAliasSpan().isValid()) {
+      return ::lsp::Location{
+          .uri = uriFromPath(*analysis.mainFilePath),
+          .range = smRangeToLspRange(analysis.sourceMgr, analysis.bufferId, importNode->getAliasSpan()),
+      };
+    }
+    for (const lesma::ImportedNameBinding& binding : importNode->getImportedNames()) {
+      std::string const localName = binding.alias.empty() ? binding.name : binding.alias;
+      llvm::SMRange const span = binding.aliasSpan.isValid() ? binding.aliasSpan : binding.nameSpan;
+      if (!preferModuleAlias && localName == name && span.isValid()) {
+        return ::lsp::Location{
+            .uri = uriFromPath(*analysis.mainFilePath),
+            .range = smRangeToLspRange(analysis.sourceMgr, analysis.bufferId, span),
+        };
       }
     }
   }
@@ -1359,257 +1391,8 @@ std::optional<CursorIdentifier> findIdentifierAtCursor(const lesma::Compound* as
   return result;
 }
 
-/** Semantic token type indices (must match server legend). */
-enum class SemanticTokenType : unsigned {
-  Enum = 0,
-  EnumMember = 1,
-  Type = 2,
-};
-
-void appendSemanticToken(std::vector<std::tuple<unsigned, unsigned, unsigned, unsigned>>& rawTokens,
-                         llvm::SourceMgr* srcMgr, unsigned bufferId, llvm::SMRange span,
-                         SemanticTokenType type) {
-  if (!span.isValid()) {
-    return;
-  }
-  auto [line1, startCol1] = srcMgr->getLineAndColumn(span.Start, bufferId);
-  auto [endLine1, endCol1] = srcMgr->getLineAndColumn(span.End, bufferId);
-  unsigned line0 = line1 > 0U ? line1 - 1U : 0U;
-  unsigned startChar = startCol1 > 0U ? startCol1 - 1U : 0U;
-  unsigned length = (endLine1 == line1 && endCol1 >= startCol1) ? (endCol1 - startCol1) : 0U;
-  rawTokens.emplace_back(line0, startChar, length, static_cast<unsigned>(type));
-}
-
-void collectTypeSemanticTokens(
-    const lesma::TypeExpr* typeExpr, llvm::SourceMgr* srcMgr, unsigned bufferId,
-    std::vector<std::tuple<unsigned, unsigned, unsigned, unsigned>>& rawTokens) {
-  if (typeExpr == nullptr) {
-    return;
-  }
-  if (typeExpr->getType() != lesma::TokenType::PTR_TYPE &&
-      typeExpr->getType() != lesma::TokenType::FUNC_TYPE) {
-    appendSemanticToken(rawTokens, srcMgr, bufferId, typeExpr->getSpan(), SemanticTokenType::Type);
-  }
-  if (typeExpr->getElementType() != nullptr) {
-    collectTypeSemanticTokens(typeExpr->getElementType(), srcMgr, bufferId, rawTokens);
-  }
-  for (lesma::TypeExpr* param : typeExpr->getParams()) {
-    collectTypeSemanticTokens(param, srcMgr, bufferId, rawTokens);
-  }
-  if (typeExpr->getReturnType() != nullptr) {
-    collectTypeSemanticTokens(typeExpr->getReturnType(), srcMgr, bufferId, rawTokens);
-  }
-}
-
-/** Collect semantic tokens for enum member references (e.g. MyEnum.OptionA). */
 std::vector<std::uint32_t> collectSemanticTokens(const AnalysisResult& analysisResult,
-                                                  unsigned bufferId) {
-  std::vector<std::tuple<unsigned, unsigned, unsigned, unsigned>> rawTokens;
-  llvm::SourceMgr* srcMgr = analysisResult.sourceMgr.get();
-  lesma::SymbolTable* root = analysisResult.rootScope.get();
-  lesma::Compound* ast = analysisResult.parser ? analysisResult.parser->getAst() : nullptr;
-  if (srcMgr == nullptr || root == nullptr || ast == nullptr) {
-    return {};
-  }
-
-  std::function<void(const lesma::Expression*)> visitExpr = [&](const lesma::Expression* node) {
-    if (node == nullptr) {
-      return;
-    }
-    if (auto const* dot = dynamic_cast<const lesma::DotOp*>(node)) {
-      lesma::Value* baseVal = nullptr;
-      if (auto const* leftLit = dynamic_cast<const lesma::Literal*>(dot->getLeft())) {
-        if (leftLit->getType() == lesma::TokenType::IDENTIFIER) {
-          baseVal = root->lookup(leftLit->getValue());
-        }
-      }
-      if (baseVal != nullptr && baseVal->getType() != nullptr &&
-          baseVal->getType()->is(lesma::BaseType::TY_ENUM) && dot->getRight() != nullptr) {
-        if (auto const* rightLit = dynamic_cast<const lesma::Literal*>(dot->getRight())) {
-          if (rightLit->getType() == lesma::TokenType::IDENTIFIER) {
-            appendSemanticToken(rawTokens, srcMgr, bufferId, rightLit->getSpan(),
-                                SemanticTokenType::EnumMember);
-          }
-        }
-      }
-      if (dot->getLeft() != nullptr) {
-        visitExpr(dot->getLeft());
-      }
-      if (dot->getRight() != nullptr) {
-        visitExpr(dot->getRight());
-      }
-      return;
-    }
-    if (auto const* fc = dynamic_cast<const lesma::FuncCall*>(node)) {
-      for (lesma::TypeExpr* typeArg : fc->getExplicitTypeArgs()) {
-        collectTypeSemanticTokens(typeArg, srcMgr, bufferId, rawTokens);
-      }
-      for (lesma::Expression* arg : fc->getArguments()) {
-        if (arg != nullptr) {
-          visitExpr(arg);
-        }
-      }
-      return;
-    }
-    if (auto const* bin = dynamic_cast<const lesma::BinaryOp*>(node)) {
-      visitExpr(bin->getLeft());
-      visitExpr(bin->getRight());
-      return;
-    }
-    if (auto const* un = dynamic_cast<const lesma::UnaryOp*>(node)) {
-      visitExpr(un->getExpression());
-      return;
-    }
-    if (auto const* castOp = dynamic_cast<const lesma::CastOp*>(node)) {
-      visitExpr(castOp->getExpression());
-      collectTypeSemanticTokens(castOp->getType(), srcMgr, bufferId, rawTokens);
-      return;
-    }
-    if (auto const* isOp = dynamic_cast<const lesma::IsOp*>(node)) {
-      visitExpr(isOp->getLeft());
-      collectTypeSemanticTokens(isOp->getRight(), srcMgr, bufferId, rawTokens);
-      return;
-    }
-  };
-
-  std::function<void(const lesma::Statement*)> visitStmt = [&](const lesma::Statement* node) {
-    if (node == nullptr) {
-      return;
-    }
-    // Enum member declarations (e.g. OptionA, OptionB in "enum E { OptionA, OptionB }")
-    if (auto const* e = dynamic_cast<const lesma::Enum*>(node)) {
-      for (llvm::SMRange span : e->getValueSpans()) {
-        appendSemanticToken(rawTokens, srcMgr, bufferId, span, SemanticTokenType::EnumMember);
-      }
-    }
-    if (auto const* es = dynamic_cast<const lesma::ExpressionStatement*>(node)) {
-      if (es->getExpression() != nullptr) {
-        visitExpr(es->getExpression());
-      }
-      return;
-    }
-    if (auto const* v = dynamic_cast<const lesma::VarDecl*>(node)) {
-      collectTypeSemanticTokens(v->getType(), srcMgr, bufferId, rawTokens);
-      if (v->getValue() != nullptr) {
-        visitExpr(v->getValue());
-      }
-      return;
-    }
-    if (auto const* func = dynamic_cast<const lesma::FuncDecl*>(node)) {
-      for (const auto& genericParam : func->getGenericParamDecls()) {
-        appendSemanticToken(rawTokens, srcMgr, bufferId, genericParam.span, SemanticTokenType::Type);
-      }
-      for (lesma::Parameter* param : func->getParameters()) {
-        if (param != nullptr) {
-          collectTypeSemanticTokens(param->type.get(), srcMgr, bufferId, rawTokens);
-        }
-      }
-      collectTypeSemanticTokens(func->getReturnType(), srcMgr, bufferId, rawTokens);
-      if (func->getBody() != nullptr) {
-        visitStmt(func->getBody());
-      }
-      return;
-    }
-    if (auto const* ext = dynamic_cast<const lesma::ExternFuncDecl*>(node)) {
-      for (const auto& genericParam : ext->getGenericParamDecls()) {
-        appendSemanticToken(rawTokens, srcMgr, bufferId, genericParam.span, SemanticTokenType::Type);
-      }
-      for (lesma::Parameter* param : ext->getParameters()) {
-        if (param != nullptr) {
-          collectTypeSemanticTokens(param->type.get(), srcMgr, bufferId, rawTokens);
-        }
-      }
-      collectTypeSemanticTokens(ext->getReturnType(), srcMgr, bufferId, rawTokens);
-      return;
-    }
-    if (auto const* klass = dynamic_cast<const lesma::Class*>(node)) {
-      for (const auto& genericParam : klass->getGenericParamDecls()) {
-        appendSemanticToken(rawTokens, srcMgr, bufferId, genericParam.span, SemanticTokenType::Type);
-      }
-      for (lesma::VarDecl* field : klass->getFields()) {
-        if (field != nullptr) {
-          visitStmt(field);
-        }
-      }
-      for (lesma::FuncDecl* method : klass->getMethods()) {
-        if (method != nullptr) {
-          visitStmt(method);
-        }
-      }
-      return;
-    }
-    if (auto const* ifNode = dynamic_cast<const lesma::If*>(node)) {
-      for (lesma::Expression* cond : ifNode->getConds()) {
-        visitExpr(cond);
-      }
-      for (lesma::Compound* block : ifNode->getBlocks()) {
-        if (block != nullptr) {
-          for (lesma::Statement* s : block->getChildren()) {
-            visitStmt(s);
-          }
-        }
-      }
-      return;
-    }
-    if (auto const* whileNode = dynamic_cast<const lesma::While*>(node)) {
-      if (whileNode->getCond() != nullptr) {
-        visitExpr(whileNode->getCond());
-      }
-      if (whileNode->getBlock() != nullptr) {
-        for (lesma::Statement* s : whileNode->getBlock()->getChildren()) {
-          visitStmt(s);
-        }
-      }
-      return;
-    }
-    if (auto const* compound = dynamic_cast<const lesma::Compound*>(node)) {
-      for (lesma::Statement* s : compound->getChildren()) {
-        visitStmt(s);
-      }
-    }
-    if (auto const* f = dynamic_cast<const lesma::FuncDecl*>(node)) {
-      if (f->getBody() != nullptr) {
-        for (lesma::Statement* s : f->getBody()->getChildren()) {
-          visitStmt(s);
-        }
-      }
-    }
-    if (auto const* c = dynamic_cast<const lesma::Class*>(node)) {
-      for (lesma::FuncDecl* m : c->getMethods()) {
-        visitStmt(m);
-      }
-    }
-  };
-
-  for (lesma::Statement* stmt : ast->getChildren()) {
-    visitStmt(stmt);
-  }
-
-  std::sort(rawTokens.begin(), rawTokens.end(),
-            [](const auto& a, const auto& b) {
-              if (std::get<0>(a) != std::get<0>(b)) {
-                return std::get<0>(a) < std::get<0>(b);
-              }
-              return std::get<1>(a) < std::get<1>(b);
-            });
-
-  std::vector<std::uint32_t> data;
-  data.reserve(rawTokens.size() * 5U);
-  unsigned prevLine = 0U;
-  unsigned prevChar = 0U;
-  for (const auto& [line, startChar, length, typeIndex] : rawTokens) {
-    unsigned deltaLine = (line > prevLine) ? (line - prevLine) : 0U;
-    unsigned deltaStartChar = (line > prevLine) ? startChar : (startChar - prevChar);
-    data.push_back(deltaLine);
-    data.push_back(deltaStartChar);
-    data.push_back(length);
-    data.push_back(typeIndex);
-    data.push_back(0U); // no modifiers
-    prevLine = line;
-    prevChar = startChar;
-  }
-  return data;
-}
+                                                 unsigned bufferId);
 
 std::vector<::lsp::InlayHint> collectInlayHints(const AnalysisResult& analysisResult,
                                                 unsigned bufferId, const ::lsp::Range& range) {
@@ -1764,6 +1547,7 @@ struct SymbolOccurrence {
   std::string name;
   std::optional<std::string> dotBase;
   ::lsp::Range range;
+  bool isTypePosition = false;
 };
 
 struct EnumMemberOccurrence {
@@ -2372,6 +2156,7 @@ void collectSymbolOccurrencesFromTypeExpr(const lesma::TypeExpr* typeExpr, llvm:
         .name = typeExpr->getName(),
         .dotBase = std::nullopt,
         .range = smRangeToLspRange(srcMgr, bufferId, typeExpr->getSpan()),
+        .isTypePosition = true,
     });
   }
   if (typeExpr->getElementType() != nullptr) {
@@ -2401,6 +2186,7 @@ void collectSymbolOccurrencesFromStmt(const lesma::Statement* stmt, llvm::Source
           .name = varDecl->getIdentifier()->getValue(),
           .dotBase = std::nullopt,
           .range = smRangeToLspRange(srcMgr, bufferId, varDecl->getIdentifier()->getSpan()),
+          .isTypePosition = false,
       });
     }
     collectSymbolOccurrencesFromTypeExpr(varDecl->getType(), srcMgr, bufferId, out);
@@ -2412,12 +2198,14 @@ void collectSymbolOccurrencesFromStmt(const lesma::Statement* stmt, llvm::Source
         .name = func->getName(),
         .dotBase = std::nullopt,
         .range = smRangeToLspRange(srcMgr, bufferId, func->getNameSpan()),
+        .isTypePosition = false,
     });
     for (const auto& genericParam : func->getGenericParamDecls()) {
       out.push_back(SymbolOccurrence{
           .name = genericParam.name,
           .dotBase = std::nullopt,
           .range = smRangeToLspRange(srcMgr, bufferId, genericParam.span),
+          .isTypePosition = true,
       });
     }
     for (lesma::Parameter* param : func->getParameters()) {
@@ -2426,6 +2214,7 @@ void collectSymbolOccurrencesFromStmt(const lesma::Statement* stmt, llvm::Source
             .name = param->name,
             .dotBase = std::nullopt,
             .range = smRangeToLspRange(srcMgr, bufferId, param->nameSpan),
+            .isTypePosition = false,
         });
       }
       if (param != nullptr) {
@@ -2441,12 +2230,14 @@ void collectSymbolOccurrencesFromStmt(const lesma::Statement* stmt, llvm::Source
         .name = ext->getName(),
         .dotBase = std::nullopt,
         .range = smRangeToLspRange(srcMgr, bufferId, ext->getNameSpan()),
+        .isTypePosition = false,
     });
     for (const auto& genericParam : ext->getGenericParamDecls()) {
       out.push_back(SymbolOccurrence{
           .name = genericParam.name,
           .dotBase = std::nullopt,
           .range = smRangeToLspRange(srcMgr, bufferId, genericParam.span),
+          .isTypePosition = true,
       });
     }
     for (lesma::Parameter* param : ext->getParameters()) {
@@ -2455,6 +2246,7 @@ void collectSymbolOccurrencesFromStmt(const lesma::Statement* stmt, llvm::Source
             .name = param->name,
             .dotBase = std::nullopt,
             .range = smRangeToLspRange(srcMgr, bufferId, param->nameSpan),
+            .isTypePosition = false,
         });
       }
       if (param != nullptr) {
@@ -2469,12 +2261,14 @@ void collectSymbolOccurrencesFromStmt(const lesma::Statement* stmt, llvm::Source
         .name = klass->getIdentifier(),
         .dotBase = std::nullopt,
         .range = smRangeToLspRange(srcMgr, bufferId, klass->getNameSpan()),
+        .isTypePosition = true,
     });
     for (const auto& genericParam : klass->getGenericParamDecls()) {
       out.push_back(SymbolOccurrence{
           .name = genericParam.name,
           .dotBase = std::nullopt,
           .range = smRangeToLspRange(srcMgr, bufferId, genericParam.span),
+          .isTypePosition = true,
       });
     }
     for (lesma::VarDecl* field : klass->getFields()) {
@@ -2490,6 +2284,7 @@ void collectSymbolOccurrencesFromStmt(const lesma::Statement* stmt, llvm::Source
         .name = enumNode->getIdentifier(),
         .dotBase = std::nullopt,
         .range = smRangeToLspRange(srcMgr, bufferId, enumNode->getNameSpan()),
+        .isTypePosition = true,
     });
     std::vector<std::string> const& values = enumNode->getValues();
     std::vector<llvm::SMRange> const& spans = enumNode->getValueSpans();
@@ -2511,6 +2306,7 @@ void collectSymbolOccurrencesFromStmt(const lesma::Statement* stmt, llvm::Source
           .name = importNode->getAlias(),
           .dotBase = std::nullopt,
           .range = smRangeToLspRange(srcMgr, bufferId, aliasSpan),
+          .isTypePosition = false,
       });
     }
     for (const lesma::ImportedNameBinding& binding : importNode->getImportedNames()) {
@@ -2522,6 +2318,7 @@ void collectSymbolOccurrencesFromStmt(const lesma::Statement* stmt, llvm::Source
           .name = binding.alias.empty() ? binding.name : binding.alias,
           .dotBase = std::nullopt,
           .range = smRangeToLspRange(srcMgr, bufferId, span),
+          .isTypePosition = false,
       });
     }
     return;
@@ -2571,6 +2368,7 @@ void collectSymbolOccurrencesFromExpr(const lesma::Expression* expr, llvm::Sourc
           .name = lit->getValue(),
           .dotBase = std::nullopt,
           .range = smRangeToLspRange(srcMgr, bufferId, lit->getSpan()),
+          .isTypePosition = false,
       });
     }
     return;
@@ -2580,6 +2378,7 @@ void collectSymbolOccurrencesFromExpr(const lesma::Expression* expr, llvm::Sourc
         .name = call->getName(),
         .dotBase = std::nullopt,
         .range = makeLspRangeFromStartAndName(srcMgr, bufferId, call->getSpan().Start, call->getName()),
+        .isTypePosition = false,
     });
     for (lesma::TypeExpr* typeArg : call->getExplicitTypeArgs()) {
       collectSymbolOccurrencesFromTypeExpr(typeArg, srcMgr, bufferId, out);
@@ -2609,6 +2408,7 @@ void collectSymbolOccurrencesFromExpr(const lesma::Expression* expr, llvm::Sourc
                            ? std::optional<std::string>(leftLit->getValue())
                            : std::nullopt,
             .range = smRangeToLspRange(srcMgr, bufferId, rightLit->getSpan()),
+            .isTypePosition = false,
         });
       }
     } else {
@@ -2641,9 +2441,552 @@ auto rangeEquals(const ::lsp::Range& lhs, const ::lsp::Range& rhs) -> bool {
          lhs.end.line == rhs.end.line && lhs.end.character == rhs.end.character;
 }
 
+/** Semantic token type indices (must match the advertised legend). */
+enum class SemanticTokenType : unsigned {
+  Namespace = 0,
+  Class = 1,
+  Enum = 2,
+  EnumMember = 3,
+  Type = 4,
+  TypeParameter = 5,
+  Function = 6,
+  Method = 7,
+  Parameter = 8,
+  Variable = 9,
+  Property = 10,
+};
+
+namespace semantic_token_modifier {
+constexpr unsigned DECLARATION = 1U << 0U;
+constexpr unsigned DEFAULT_LIBRARY = 1U << 1U;
+} // namespace semantic_token_modifier
+
+struct RawSemanticToken {
+  unsigned line = 0U;
+  unsigned startChar = 0U;
+  unsigned length = 0U;
+  unsigned typeIndex = 0U;
+  unsigned modifiers = 0U;
+};
+
+std::vector<std::uint32_t> collectSemanticTokens(const AnalysisResult& analysisResult,
+                                                 unsigned bufferId) {
+  std::vector<RawSemanticToken> rawTokens;
+  llvm::SourceMgr* srcMgr = analysisResult.sourceMgr.get();
+  lesma::Compound* ast = analysisResult.parser ? analysisResult.parser->getAst() : nullptr;
+  if (srcMgr == nullptr || ast == nullptr) {
+    return {};
+  }
+  auto const* buf = srcMgr->getMemoryBuffer(bufferId);
+  if (buf == nullptr) {
+    return {};
+  }
+  std::string const currentPath = normalizePath(analysisResult.mainFilePath);
+
+  auto appendRawTokenFromRange = [&](const ::lsp::Range& range, SemanticTokenType type,
+                                     unsigned modifiers) {
+    if (range.end.line != range.start.line || range.end.character <= range.start.character) {
+      return;
+    }
+    rawTokens.push_back(RawSemanticToken{
+        .line = range.start.line,
+        .startChar = range.start.character,
+        .length = range.end.character - range.start.character,
+        .typeIndex = static_cast<unsigned>(type),
+        .modifiers = modifiers,
+    });
+  };
+
+  auto appendRawTokenFromSpan = [&](llvm::SMRange span, SemanticTokenType type, unsigned modifiers) {
+    if (!span.isValid()) {
+      return;
+    }
+    auto [line1, startCol1] = srcMgr->getLineAndColumn(span.Start, bufferId);
+    auto [endLine1, endCol1] = srcMgr->getLineAndColumn(span.End, bufferId);
+    unsigned const line0 = line1 > 0U ? line1 - 1U : 0U;
+    unsigned const startChar = startCol1 > 0U ? startCol1 - 1U : 0U;
+    unsigned length = 0U;
+    if (endLine1 == line1 && endCol1 >= startCol1) {
+      length = endCol1 - startCol1;
+    } else {
+      unsigned const startOffset = getOffsetFromSMLoc(srcMgr, bufferId, span.Start);
+      llvm::StringRef text = buf->getBuffer();
+      size_t const newlinePos = text.find('\n', static_cast<size_t>(startOffset));
+      size_t const lineEnd = newlinePos == llvm::StringRef::npos ? text.size() : newlinePos;
+      length = lineEnd > startOffset ? static_cast<unsigned>(lineEnd - startOffset) : 0U;
+    }
+    if (length == 0U) {
+      return;
+    }
+    rawTokens.push_back(RawSemanticToken{
+        .line = line0,
+        .startChar = startChar,
+        .length = length,
+        .typeIndex = static_cast<unsigned>(type),
+        .modifiers = modifiers,
+    });
+  };
+
+  auto isDefaultLibraryType = [](const lesma::Type* type) {
+    return type != nullptr &&
+           type->isOneOf({lesma::BaseType::TY_INT, lesma::BaseType::TY_FLOAT,
+                          lesma::BaseType::TY_STRING, lesma::BaseType::TY_BOOL,
+                          lesma::BaseType::TY_VOID});
+  };
+
+  auto semanticTokenTypeForResolved = [](const ResolvedSymbol& resolved, bool isTypePosition,
+                                         bool isMemberAccess) {
+    lesma::Value* value = resolved.value;
+    lesma::Type* type = value != nullptr ? value->getType() : nullptr;
+    if (value == nullptr) {
+      return SemanticTokenType::Variable;
+    }
+    if (isTypePosition) {
+      if (type != nullptr && type->is(lesma::BaseType::TY_GENERIC)) {
+        return SemanticTokenType::TypeParameter;
+      }
+      if (value->getCategory() == lesma::ValueCategory::TYPE_SYMBOL && type != nullptr) {
+        if (type->is(lesma::BaseType::TY_CLASS)) {
+          return SemanticTokenType::Class;
+        }
+        if (type->is(lesma::BaseType::TY_ENUM)) {
+          return SemanticTokenType::Enum;
+        }
+      }
+      return SemanticTokenType::Type;
+    }
+    switch (value->getCategory()) {
+    case lesma::ValueCategory::MODULE_SYMBOL:
+      return SemanticTokenType::Namespace;
+    case lesma::ValueCategory::TYPE_SYMBOL:
+      if (type != nullptr && type->is(lesma::BaseType::TY_GENERIC)) {
+        return SemanticTokenType::TypeParameter;
+      }
+      if (type != nullptr && type->is(lesma::BaseType::TY_CLASS)) {
+        return SemanticTokenType::Class;
+      }
+      if (type != nullptr && type->is(lesma::BaseType::TY_ENUM)) {
+        return SemanticTokenType::Enum;
+      }
+      return SemanticTokenType::Type;
+    case lesma::ValueCategory::CALLABLE_SYMBOL:
+      return isMemberAccess ? SemanticTokenType::Method : SemanticTokenType::Function;
+    case lesma::ValueCategory::ADDRESSABLE_STORAGE:
+    case lesma::ValueCategory::DIRECT_VALUE:
+      return isMemberAccess ? SemanticTokenType::Property : SemanticTokenType::Variable;
+    }
+    return SemanticTokenType::Variable;
+  };
+
+  auto semanticTokenModifiersForResolved = [&](const ResolvedSymbol& resolved,
+                                               const ::lsp::Range& occurrenceRange,
+                                               unsigned forcedModifiers) {
+    unsigned modifiers = forcedModifiers;
+    if (resolved.value == nullptr) {
+      return modifiers;
+    }
+    llvm::SMRange const declSpan = resolved.value->getDeclarationSpan();
+    std::string declPath = resolved.value->getDeclarationFilePath();
+    if (declPath.empty() && resolved.owner.mainFilePath != nullptr) {
+      declPath = *resolved.owner.mainFilePath;
+    }
+    if (declSpan.isValid() && !declPath.empty() && normalizePath(declPath) == currentPath &&
+        rangeEquals(smRangeToLspRange(resolved.owner.sourceMgr, resolved.owner.bufferId, declSpan),
+                    occurrenceRange)) {
+      modifiers |= semantic_token_modifier::DECLARATION;
+    }
+    if (isDefaultLibraryType(resolved.value->getType())) {
+      modifiers |= semantic_token_modifier::DEFAULT_LIBRARY;
+    }
+    return modifiers;
+  };
+
+  auto appendResolvedTokenFromSpan =
+      [&](llvm::SMRange span, const CursorIdentifier& id, bool isMemberAccess,
+          unsigned forcedModifiers, std::optional<SemanticTokenType> fallbackType) {
+        if (!span.isValid()) {
+          return;
+        }
+        ::lsp::Range const range = smRangeToLspRange(srcMgr, bufferId, span);
+        if (std::optional<ResolvedSymbol> resolved =
+                resolveCanonicalSymbolAtCursor(analysisResult, range.start.line,
+                                              range.start.character, id)) {
+          appendRawTokenFromSpan(span, semanticTokenTypeForResolved(*resolved, id.isTypePosition,
+                                                                    isMemberAccess),
+                                 semanticTokenModifiersForResolved(*resolved, range,
+                                                                   forcedModifiers));
+          return;
+        }
+        if (id.dotBase.has_value() && !id.isTypePosition) {
+          appendRawTokenFromSpan(span, SemanticTokenType::EnumMember, forcedModifiers);
+          return;
+        }
+        if (fallbackType.has_value()) {
+          appendRawTokenFromSpan(span, *fallbackType, forcedModifiers);
+        }
+      };
+
+  auto appendResolvedTokenFromRange =
+      [&](const ::lsp::Range& range, const CursorIdentifier& id, bool isMemberAccess,
+          unsigned forcedModifiers, std::optional<SemanticTokenType> fallbackType) {
+        if (std::optional<ResolvedSymbol> resolved =
+                resolveCanonicalSymbolAtCursor(analysisResult, range.start.line,
+                                              range.start.character, id)) {
+          appendRawTokenFromRange(
+              range, semanticTokenTypeForResolved(*resolved, id.isTypePosition, isMemberAccess),
+              semanticTokenModifiersForResolved(*resolved, range, forcedModifiers));
+          return;
+        }
+        if (id.dotBase.has_value() && !id.isTypePosition) {
+          appendRawTokenFromRange(range, SemanticTokenType::EnumMember, forcedModifiers);
+          return;
+        }
+        if (fallbackType.has_value()) {
+          appendRawTokenFromRange(range, *fallbackType, forcedModifiers);
+        }
+      };
+
+  auto makeCursorIdentifierFromSpan = [&](const std::string& name, llvm::SMRange span,
+                                          bool isTypePosition,
+                                          std::optional<std::string> dotBase = std::nullopt) {
+    return CursorIdentifier{
+        .name = name,
+        .dotBase = std::move(dotBase),
+        .range = span.isValid() ? std::optional<::lsp::Range>(smRangeToLspRange(srcMgr, bufferId, span))
+                                : std::nullopt,
+        .isTypePosition = isTypePosition,
+    };
+  };
+
+  auto memberBaseName = [](const lesma::Expression* expr) -> std::optional<std::string> {
+    auto const* lit = dynamic_cast<const lesma::Literal*>(expr);
+    if (lit == nullptr || lit->getType() != lesma::TokenType::IDENTIFIER) {
+      return std::nullopt;
+    }
+    return lit->getValue();
+  };
+
+  std::function<void(const lesma::TypeExpr*)> visitTypeExpr;
+  std::function<void(const lesma::Expression*)> visitExpr;
+  std::function<void(const lesma::Statement*, bool)> visitStmt;
+
+  visitTypeExpr = [&](const lesma::TypeExpr* typeExpr) {
+    if (typeExpr == nullptr) {
+      return;
+    }
+    if (typeExpr->getType() != lesma::TokenType::PTR_TYPE &&
+        typeExpr->getType() != lesma::TokenType::FUNC_TYPE) {
+      appendResolvedTokenFromSpan(typeExpr->getSpan(),
+                                  makeCursorIdentifierFromSpan(typeExpr->getName(),
+                                                               typeExpr->getSpan(), true),
+                                  false, 0U, SemanticTokenType::Type);
+    }
+    if (typeExpr->getElementType() != nullptr) {
+      visitTypeExpr(typeExpr->getElementType());
+    }
+    for (lesma::TypeExpr* param : typeExpr->getParams()) {
+      visitTypeExpr(param);
+    }
+    if (typeExpr->getReturnType() != nullptr) {
+      visitTypeExpr(typeExpr->getReturnType());
+    }
+  };
+
+  visitExpr = [&](const lesma::Expression* expr) {
+    if (expr == nullptr) {
+      return;
+    }
+    if (auto const* lit = dynamic_cast<const lesma::Literal*>(expr)) {
+      if (lit->getType() == lesma::TokenType::IDENTIFIER) {
+        appendResolvedTokenFromSpan(lit->getSpan(),
+                                    makeCursorIdentifierFromSpan(lit->getValue(), lit->getSpan(),
+                                                                 false),
+                                    false, 0U, SemanticTokenType::Variable);
+      }
+      return;
+    }
+    if (auto const* call = dynamic_cast<const lesma::FuncCall*>(expr)) {
+      ::lsp::Range const nameRange =
+          makeLspRangeFromStartAndName(srcMgr, bufferId, call->getSpan().Start, call->getName());
+      appendResolvedTokenFromRange(
+          nameRange,
+          CursorIdentifier{
+              .name = call->getName(),
+              .dotBase = std::nullopt,
+              .range = nameRange,
+              .isTypePosition = false,
+          },
+          false, 0U, SemanticTokenType::Function);
+      for (lesma::TypeExpr* typeArg : call->getExplicitTypeArgs()) {
+        visitTypeExpr(typeArg);
+      }
+      for (lesma::Expression* arg : call->getArguments()) {
+        visitExpr(arg);
+      }
+      return;
+    }
+    if (auto const* dot = dynamic_cast<const lesma::DotOp*>(expr)) {
+      visitExpr(dot->getLeft());
+      std::optional<std::string> const dotBase = memberBaseName(dot->getLeft());
+      if (auto const* rightLit = dynamic_cast<const lesma::Literal*>(dot->getRight())) {
+        if (rightLit->getType() == lesma::TokenType::IDENTIFIER) {
+          appendResolvedTokenFromSpan(
+              rightLit->getSpan(),
+              makeCursorIdentifierFromSpan(rightLit->getValue(), rightLit->getSpan(), false, dotBase),
+              true, 0U, dotBase.has_value() ? SemanticTokenType::EnumMember
+                                            : SemanticTokenType::Property);
+          return;
+        }
+      }
+      if (auto const* rightCall = dynamic_cast<const lesma::FuncCall*>(dot->getRight())) {
+        ::lsp::Range const nameRange = makeLspRangeFromStartAndName(
+            srcMgr, bufferId, rightCall->getSpan().Start, rightCall->getName());
+        appendResolvedTokenFromRange(
+            nameRange,
+            CursorIdentifier{
+                .name = rightCall->getName(),
+                .dotBase = dotBase,
+                .range = nameRange,
+                .isTypePosition = false,
+            },
+            true, 0U, SemanticTokenType::Method);
+        for (lesma::TypeExpr* typeArg : rightCall->getExplicitTypeArgs()) {
+          visitTypeExpr(typeArg);
+        }
+        for (lesma::Expression* arg : rightCall->getArguments()) {
+          visitExpr(arg);
+        }
+        return;
+      }
+      visitExpr(dot->getRight());
+      return;
+    }
+    if (auto const* binary = dynamic_cast<const lesma::BinaryOp*>(expr)) {
+      visitExpr(binary->getLeft());
+      visitExpr(binary->getRight());
+      return;
+    }
+    if (auto const* unary = dynamic_cast<const lesma::UnaryOp*>(expr)) {
+      visitExpr(unary->getExpression());
+      return;
+    }
+    if (auto const* castOp = dynamic_cast<const lesma::CastOp*>(expr)) {
+      visitExpr(castOp->getExpression());
+      visitTypeExpr(castOp->getType());
+      return;
+    }
+    if (auto const* isOp = dynamic_cast<const lesma::IsOp*>(expr)) {
+      visitExpr(isOp->getLeft());
+      visitTypeExpr(isOp->getRight());
+    }
+  };
+
+  visitStmt = [&](const lesma::Statement* stmt, bool inClass) {
+    if (stmt == nullptr) {
+      return;
+    }
+    if (auto const* varDecl = dynamic_cast<const lesma::VarDecl*>(stmt)) {
+      if (varDecl->getIdentifier() != nullptr) {
+        appendRawTokenFromSpan(varDecl->getIdentifier()->getSpan(),
+                               inClass ? SemanticTokenType::Property
+                                       : SemanticTokenType::Variable,
+                               semantic_token_modifier::DECLARATION);
+      }
+      visitTypeExpr(varDecl->getType());
+      visitExpr(varDecl->getValue());
+      return;
+    }
+    if (auto const* func = dynamic_cast<const lesma::FuncDecl*>(stmt)) {
+      appendRawTokenFromSpan(func->getNameSpan(),
+                             inClass ? SemanticTokenType::Method
+                                     : SemanticTokenType::Function,
+                             semantic_token_modifier::DECLARATION);
+      for (const auto& genericParam : func->getGenericParamDecls()) {
+        appendRawTokenFromSpan(genericParam.span, SemanticTokenType::TypeParameter,
+                               semantic_token_modifier::DECLARATION);
+      }
+      for (lesma::Parameter* param : func->getParameters()) {
+        if (param == nullptr) {
+          continue;
+        }
+        if (param->nameSpan.isValid()) {
+          appendRawTokenFromSpan(param->nameSpan, SemanticTokenType::Parameter,
+                                 semantic_token_modifier::DECLARATION);
+        }
+        visitTypeExpr(param->type.get());
+      }
+      visitTypeExpr(func->getReturnType());
+      if (func->getBody() != nullptr) {
+        for (lesma::Statement* child : func->getBody()->getChildren()) {
+          visitStmt(child, false);
+        }
+      }
+      return;
+    }
+    if (auto const* ext = dynamic_cast<const lesma::ExternFuncDecl*>(stmt)) {
+      appendRawTokenFromSpan(ext->getNameSpan(), SemanticTokenType::Function,
+                             semantic_token_modifier::DECLARATION);
+      for (const auto& genericParam : ext->getGenericParamDecls()) {
+        appendRawTokenFromSpan(genericParam.span, SemanticTokenType::TypeParameter,
+                               semantic_token_modifier::DECLARATION);
+      }
+      for (lesma::Parameter* param : ext->getParameters()) {
+        if (param == nullptr) {
+          continue;
+        }
+        if (param->nameSpan.isValid()) {
+          appendRawTokenFromSpan(param->nameSpan, SemanticTokenType::Parameter,
+                                 semantic_token_modifier::DECLARATION);
+        }
+        visitTypeExpr(param->type.get());
+      }
+      visitTypeExpr(ext->getReturnType());
+      return;
+    }
+    if (auto const* klass = dynamic_cast<const lesma::Class*>(stmt)) {
+      appendRawTokenFromSpan(klass->getNameSpan(), SemanticTokenType::Class,
+                             semantic_token_modifier::DECLARATION);
+      for (const auto& genericParam : klass->getGenericParamDecls()) {
+        appendRawTokenFromSpan(genericParam.span, SemanticTokenType::TypeParameter,
+                               semantic_token_modifier::DECLARATION);
+      }
+      for (lesma::VarDecl* field : klass->getFields()) {
+        visitStmt(field, true);
+      }
+      for (lesma::FuncDecl* method : klass->getMethods()) {
+        visitStmt(method, true);
+      }
+      return;
+    }
+    if (auto const* enumNode = dynamic_cast<const lesma::Enum*>(stmt)) {
+      appendRawTokenFromSpan(enumNode->getNameSpan(), SemanticTokenType::Enum,
+                             semantic_token_modifier::DECLARATION);
+      for (llvm::SMRange span : enumNode->getValueSpans()) {
+        appendRawTokenFromSpan(span, SemanticTokenType::EnumMember,
+                               semantic_token_modifier::DECLARATION);
+      }
+      return;
+    }
+    if (auto const* importNode = dynamic_cast<const lesma::Import*>(stmt)) {
+      if (importNode->getAliasSpan().isValid()) {
+        appendRawTokenFromSpan(importNode->getAliasSpan(), SemanticTokenType::Namespace,
+                               semantic_token_modifier::DECLARATION);
+      }
+      for (const lesma::ImportedNameBinding& binding : importNode->getImportedNames()) {
+        llvm::SMRange const span = binding.aliasSpan.isValid() ? binding.aliasSpan : binding.nameSpan;
+        if (!span.isValid()) {
+          continue;
+        }
+        std::string const localName = binding.alias.empty() ? binding.name : binding.alias;
+        appendResolvedTokenFromSpan(span, makeCursorIdentifierFromSpan(localName, span, false),
+                                    false, semantic_token_modifier::DECLARATION, std::nullopt);
+      }
+      return;
+    }
+    if (auto const* exprStmt = dynamic_cast<const lesma::ExpressionStatement*>(stmt)) {
+      visitExpr(exprStmt->getExpression());
+      return;
+    }
+    if (auto const* ifNode = dynamic_cast<const lesma::If*>(stmt)) {
+      for (lesma::Expression* cond : ifNode->getConds()) {
+        visitExpr(cond);
+      }
+      for (lesma::Compound* block : ifNode->getBlocks()) {
+        if (block != nullptr) {
+          for (lesma::Statement* child : block->getChildren()) {
+            visitStmt(child, false);
+          }
+        }
+      }
+      return;
+    }
+    if (auto const* whileNode = dynamic_cast<const lesma::While*>(stmt)) {
+      visitExpr(whileNode->getCond());
+      if (whileNode->getBlock() != nullptr) {
+        for (lesma::Statement* child : whileNode->getBlock()->getChildren()) {
+          visitStmt(child, false);
+        }
+      }
+      return;
+    }
+    if (auto const* ret = dynamic_cast<const lesma::Return*>(stmt)) {
+      visitExpr(ret->getValue());
+      return;
+    }
+    if (auto const* defer = dynamic_cast<const lesma::Defer*>(stmt)) {
+      visitStmt(defer->getStatement(), false);
+      return;
+    }
+    if (auto const* compound = dynamic_cast<const lesma::Compound*>(stmt)) {
+      for (lesma::Statement* child : compound->getChildren()) {
+        visitStmt(child, false);
+      }
+    }
+  };
+
+  for (lesma::Statement* stmt : ast->getChildren()) {
+    visitStmt(stmt, false);
+  }
+
+  std::sort(rawTokens.begin(), rawTokens.end(), [](const RawSemanticToken& lhs,
+                                                   const RawSemanticToken& rhs) {
+    if (lhs.line != rhs.line) {
+      return lhs.line < rhs.line;
+    }
+    if (lhs.startChar != rhs.startChar) {
+      return lhs.startChar < rhs.startChar;
+    }
+    if (lhs.length != rhs.length) {
+      return lhs.length < rhs.length;
+    }
+    if (lhs.typeIndex != rhs.typeIndex) {
+      return lhs.typeIndex < rhs.typeIndex;
+    }
+    return lhs.modifiers < rhs.modifiers;
+  });
+  rawTokens.erase(std::unique(rawTokens.begin(), rawTokens.end(),
+                              [](const RawSemanticToken& lhs, const RawSemanticToken& rhs) {
+                                return lhs.line == rhs.line &&
+                                       lhs.startChar == rhs.startChar &&
+                                       lhs.length == rhs.length &&
+                                       lhs.typeIndex == rhs.typeIndex &&
+                                       lhs.modifiers == rhs.modifiers;
+                              }),
+                  rawTokens.end());
+
+  std::vector<std::uint32_t> data;
+  data.reserve(rawTokens.size() * 5U);
+  unsigned prevLine = 0U;
+  unsigned prevChar = 0U;
+  for (const RawSemanticToken& token : rawTokens) {
+    unsigned const deltaLine = token.line > prevLine ? (token.line - prevLine) : 0U;
+    unsigned const deltaStartChar =
+        token.line > prevLine ? token.startChar : (token.startChar - prevChar);
+    data.push_back(deltaLine);
+    data.push_back(deltaStartChar);
+    data.push_back(token.length);
+    data.push_back(token.typeIndex);
+    data.push_back(token.modifiers);
+    prevLine = token.line;
+    prevChar = token.startChar;
+  }
+  return data;
+}
+
 auto collectReferences(const AnalysisResult& result, unsigned line, unsigned character,
                        bool includeDeclaration) -> std::vector<::lsp::Location> {
   std::vector<::lsp::Location> locations;
+  std::unordered_set<std::string> seen;
+  auto appendUniqueLocation = [&](::lsp::Location location) {
+    std::string const key = location.uri.toString() + ":" +
+                            std::to_string(location.range.start.line) + ":" +
+                            std::to_string(location.range.start.character) + ":" +
+                            std::to_string(location.range.end.line) + ":" +
+                            std::to_string(location.range.end.character);
+    if (seen.insert(key).second) {
+      locations.push_back(std::move(location));
+    }
+  };
   AnalysisView mainAnalysis = makeAnalysisView(result);
   if (!isUsableAnalysis(mainAnalysis)) {
     return locations;
@@ -2671,15 +3014,15 @@ auto collectReferences(const AnalysisResult& result, unsigned line, unsigned cha
       ::lsp::DocumentUri uri =
           uriFromPath(analysis.mainFilePath != nullptr ? *analysis.mainFilePath : std::string{});
       for (const SymbolOccurrence& occurrence : occurrences) {
-        std::optional<ResolvedSymbol> resolved =
-            resolveCanonicalSymbolAtCursor(result, analysis, occurrence.range.start.line,
-                                           occurrence.range.start.character,
-                                           CursorIdentifier{occurrence.name, occurrence.dotBase,
-                                                            occurrence.range});
+        std::optional<ResolvedSymbol> resolved = resolveCanonicalSymbolAtCursor(
+            result, analysis, occurrence.range.start.line, occurrence.range.start.character,
+            CursorIdentifier{occurrence.name, occurrence.dotBase, occurrence.range,
+                             occurrence.isTypePosition});
         if (!resolved) {
           resolved = resolveCanonicalSymbolAtCursor(
               result, analysis, occurrence.range.end.line, occurrence.range.end.character,
-              CursorIdentifier{occurrence.name, occurrence.dotBase, occurrence.range});
+              CursorIdentifier{occurrence.name, occurrence.dotBase, occurrence.range,
+                               occurrence.isTypePosition});
         }
         if (!resolved) {
           continue;
@@ -2694,29 +3037,32 @@ auto collectReferences(const AnalysisResult& result, unsigned line, unsigned cha
             rangeEquals(occurrence.range, targetIdentity->range)) {
           continue;
         }
-        locations.push_back(::lsp::Location{.uri = uri, .range = occurrence.range});
+        appendUniqueLocation(::lsp::Location{.uri = uri, .range = occurrence.range});
       }
     }
     return locations;
   }
 
-  std::vector<SymbolOccurrence> occurrences;
-  std::vector<EnumMemberOccurrence> enumOccurrences;
-  for (lesma::Statement* stmt : mainAnalysis.ast->getChildren()) {
-    collectSymbolOccurrencesFromStmt(stmt, mainAnalysis.sourceMgr, mainAnalysis.bufferId, occurrences,
-                                     enumOccurrences);
-  }
-  ::lsp::DocumentUri uri = uriFromPath(result.mainFilePath);
   std::optional<std::string> enumName = findEnumMemberDeclarationAtCursor(
       mainAnalysis.ast, mainAnalysis.sourceMgr, mainAnalysis.bufferId, line, character, id->name);
   if (id->dotBase || enumName) {
     std::string targetEnum = enumName ? *enumName : *id->dotBase;
-    for (const EnumMemberOccurrence& occurrence : enumOccurrences) {
-      if (occurrence.enumName == targetEnum && occurrence.memberName == id->name) {
-        if (!includeDeclaration && id->range && rangeEquals(occurrence.range, *id->range)) {
-          continue;
+    for (const AnalysisView& analysis : collectAnalysisViews(result)) {
+      std::vector<SymbolOccurrence> occurrences;
+      std::vector<EnumMemberOccurrence> enumOccurrences;
+      for (lesma::Statement* stmt : analysis.ast->getChildren()) {
+        collectSymbolOccurrencesFromStmt(stmt, analysis.sourceMgr, analysis.bufferId, occurrences,
+                                         enumOccurrences);
+      }
+      ::lsp::DocumentUri uri =
+          uriFromPath(analysis.mainFilePath != nullptr ? *analysis.mainFilePath : std::string{});
+      for (const EnumMemberOccurrence& occurrence : enumOccurrences) {
+        if (occurrence.enumName == targetEnum && occurrence.memberName == id->name) {
+          if (!includeDeclaration && id->range && rangeEquals(occurrence.range, *id->range)) {
+            continue;
+          }
+          appendUniqueLocation(::lsp::Location{.uri = uri, .range = occurrence.range});
         }
-        locations.push_back(::lsp::Location{.uri = uri, .range = occurrence.range});
       }
     }
   }
@@ -2794,6 +3140,19 @@ auto collectDocumentSymbols(const AnalysisResult& result) -> std::vector<::lsp::
           func->getName(), ::lsp::SymbolKind::Function,
           smRangeToLspRange(result.sourceMgr.get(), result.mainBufferId, funcDeclFullSpan(func)),
           smRangeToLspRange(result.sourceMgr.get(), result.mainBufferId, func->getNameSpan()),
+          value != nullptr && value->getType() != nullptr &&
+                  value->getType()->getReturnType() != nullptr
+              ? std::optional<std::string>(
+                    formatTypeName(value->getType()->getReturnType(), result.rootScope.get()))
+              : std::nullopt));
+      continue;
+    }
+    if (auto* ext = dynamic_cast<lesma::ExternFuncDecl*>(stmt)) {
+      lesma::Value* value = ext->getResolvedSymbol();
+      symbols.push_back(makeDocumentSymbol(
+          ext->getName(), ::lsp::SymbolKind::Function,
+          smRangeToLspRange(result.sourceMgr.get(), result.mainBufferId, ext->getSpan()),
+          smRangeToLspRange(result.sourceMgr.get(), result.mainBufferId, ext->getNameSpan()),
           value != nullptr && value->getType() != nullptr &&
                   value->getType()->getReturnType() != nullptr
               ? std::optional<std::string>(
@@ -3034,6 +3393,39 @@ auto tryResolveDefinitionLocation(const AnalysisResult& result, unsigned line, u
   return loc;
 }
 
+auto tryResolveDeclarationLocation(const AnalysisResult& result, unsigned line, unsigned character)
+    -> std::optional<::lsp::Location> {
+  if (result.parser == nullptr || result.sourceMgr == nullptr) {
+    return std::nullopt;
+  }
+  lesma::Compound* ast = result.parser->getAst();
+  if (ast == nullptr) {
+    return std::nullopt;
+  }
+  AnalysisView analysis = makeAnalysisView(result);
+  std::optional<CursorIdentifier> id =
+      findIdentifierAtCursor(ast, result.sourceMgr.get(), result.mainBufferId, line, character);
+  if (!id) {
+    return std::nullopt;
+  }
+  if (id->dotBase) {
+    if (std::optional<::lsp::Location> localImport =
+            findLocalImportBindingLocation(analysis, *id->dotBase, true)) {
+      return localImport;
+    }
+  } else {
+    if (std::optional<::lsp::Location> localImport =
+            findLocalImportBindingLocation(analysis, id->name, false)) {
+      return localImport;
+    }
+    if (std::optional<::lsp::Location> moduleAlias =
+            findLocalImportBindingLocation(analysis, id->name, true)) {
+      return moduleAlias;
+    }
+  }
+  return tryResolveDefinitionLocation(result, line, character);
+}
+
 } // namespace
 
 auto main() -> int {
@@ -3045,13 +3437,8 @@ auto main() -> int {
 
     std::atomic<bool> running{true};
 
-    messageHandler.add<::lsp::requests::Initialize>([&docStore](
-                                                        ::lsp::requests::Initialize::Params&&
-                                                            params) {
-      if (!params.rootUri.isNull()) {
-        std::string path(params.rootUri->path().data(), params.rootUri->path().size());
-        docStore.setWorkspaceRoot(std::move(path));
-      }
+    messageHandler.add<::lsp::requests::Initialize>(
+        [](::lsp::requests::Initialize::Params&&) {
       ::lsp::ServerCapabilities caps;
       caps.positionEncoding =
           ::lsp::Opt<::lsp::PositionEncodingKindEnum>(::lsp::PositionEncodingKind::UTF16);
@@ -3083,8 +3470,13 @@ auto main() -> int {
           ::lsp::SemanticTokensOptions{
               .legend =
                   ::lsp::SemanticTokensLegend{
-                      .tokenTypes = ::lsp::Array<::lsp::String>{"enum", "enumMember", "type"},
-                      .tokenModifiers = ::lsp::Array<::lsp::String>(),
+                      .tokenTypes = ::lsp::Array<::lsp::String>{"namespace", "class", "enum",
+                                                                "enumMember", "type",
+                                                                "typeParameter", "function",
+                                                                "method", "parameter", "variable",
+                                                                "property"},
+                      .tokenModifiers =
+                          ::lsp::Array<::lsp::String>{"declaration", "defaultLibrary"},
                   },
               .full = ::lsp::Opt<::lsp::OneOf<bool, ::lsp::SemanticTokensOptionsFull>>(true),
           });
@@ -3383,7 +3775,7 @@ auto main() -> int {
               params.textDocument.uri, docStore, doc->text, doc->version);
           AnalysisResult& result = snapshot.result;
           auto loc =
-              tryResolveDefinitionLocation(result, params.position.line, params.position.character);
+              tryResolveDeclarationLocation(result, params.position.line, params.position.character);
           if (!loc) {
             return ::lsp::TextDocument_DeclarationResult();
           }

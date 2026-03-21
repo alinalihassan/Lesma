@@ -18,8 +18,6 @@ public:
     std::string text;
   };
 
-  void setWorkspaceRoot(std::string rootPath) { workspaceRoot_ = std::move(rootPath); }
-
   void open(const ::lsp::DocumentUri& uri, std::int32_t version, std::string text);
   void change(const ::lsp::DocumentUri& uri, std::int32_t version, std::string text);
   void close(const ::lsp::DocumentUri& uri);
@@ -35,7 +33,6 @@ public:
   [[nodiscard]] std::string uriToKey(const ::lsp::DocumentUri& uri) const;
 
 private:
-  std::string workspaceRoot_;
   std::unordered_map<std::string, Document> documents_;
 };
 

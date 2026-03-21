@@ -59,7 +59,7 @@ export function activate(context: ExtensionContext) {
       "lesma-lsp connected. Language features (diagnostics, hover, go to definition, completion) apply to **.les** files only."
     );
     lspOutputChannel.appendLine(
-      "Use **Go to Definition** (F12) or **Go to Declaration** — both are supported. Set **lesma.compilerPath** to your `lesma` binary (same folder as `lesma-lsp`)."
+      "Use **Go to Definition** (F12) or **Go to Declaration** to jump to the local import binding when available. Set **lesma.compilerPath** to your `lesma` binary (same folder as `lesma-lsp`)."
     );
     // Notify the server about all Lesma documents already open (e.g. when the server
     // starts late after a rebuild). This ensures diagnostics, hover, etc. work in tabs

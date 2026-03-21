@@ -273,6 +273,20 @@ auto lookupName(SymbolTable* scope, SymbolTable* root, const std::string& name) 
   return root != nullptr ? root->lookup(name) : nullptr;
 }
 
+auto lookupImportedModuleSymbol(const AnalysisResult& result, const std::string& alias,
+                                const std::string& symbolName) -> Value* {
+  auto pathIt = result.importAliasToPath.find(alias);
+  if (pathIt == result.importAliasToPath.end()) {
+    return nullptr;
+  }
+  auto moduleIt = result.importedModules.find(pathIt->second);
+  if (moduleIt == result.importedModules.end() || moduleIt->second == nullptr ||
+      moduleIt->second->rootScope == nullptr) {
+    return nullptr;
+  }
+  return moduleIt->second->rootScope->lookup(symbolName);
+}
+
 auto resolveMemberFieldType(Type* baseType, const std::string& name) -> Type* {
   if (baseType == nullptr) {
     return nullptr;
@@ -286,23 +300,59 @@ auto resolveMemberFieldType(Type* baseType, const std::string& name) -> Type* {
   return TypeUtils::findTypeInFields(baseType, name);
 }
 
-auto resolveChainType(const std::string& chain, SymbolTable* scope, SymbolTable* root) -> Type* {
+auto resolveChainType(const AnalysisResult& result, const std::string& chain, SymbolTable* scope,
+                      SymbolTable* root) -> Type* {
   std::vector<std::string> parts = splitChain(chain);
   if (parts.empty()) {
     return nullptr;
   }
   Value* current = lookupName(scope, root, parts.front());
+  size_t nextPartIdx = 1U;
+  if (current == nullptr) {
+    current = lookupImportedModuleSymbol(result, parts.front(),
+                                         parts.size() > 1U ? parts[1U] : std::string{});
+    nextPartIdx = current != nullptr ? 2U : 1U;
+  }
   if (current == nullptr) {
     return nullptr;
   }
   Type* type = current->getType();
-  for (size_t i = 1; i < parts.size(); ++i) {
+  for (size_t i = nextPartIdx; i < parts.size(); ++i) {
     type = resolveMemberFieldType(type, parts[i]);
     if (type == nullptr) {
       return nullptr;
     }
   }
   return type;
+}
+
+void addCandidate(std::vector<CompletionCandidate>& out, std::unordered_set<std::string>& seen,
+                  CompletionCandidate candidate);
+
+void appendModuleMembersForAlias(const AnalysisResult& result, const std::string& alias,
+                                 std::vector<CompletionCandidate>& out,
+                                 std::unordered_set<std::string>& seen) {
+  auto pathIt = result.importAliasToPath.find(alias);
+  if (pathIt == result.importAliasToPath.end()) {
+    return;
+  }
+  auto moduleIt = result.importedModules.find(pathIt->second);
+  if (moduleIt == result.importedModules.end() || moduleIt->second == nullptr ||
+      moduleIt->second->rootScope == nullptr) {
+    return;
+  }
+  SymbolTable* moduleScope = moduleIt->second->rootScope.get();
+  for (Value* value : moduleScope->getSymbols()) {
+    if (value == nullptr) {
+      continue;
+    }
+    addCandidate(out, seen,
+                 CompletionCandidate{
+                     .label = value->getName(),
+                     .kind = candidateKindForValue(value),
+                     .detail = symbolDetail(value, moduleScope),
+                 });
+  }
 }
 
 void addCandidate(std::vector<CompletionCandidate>& out, std::unordered_set<std::string>& seen,
@@ -387,13 +437,32 @@ void appendScopeSymbols(SymbolTable* scope, SymbolTable* root, std::vector<Compl
 }
 
 void appendKeywords(std::vector<CompletionCandidate>& out, std::unordered_set<std::string>& seen) {
-  static constexpr std::string_view keywords[] = {"var",   "let",   "def",   "class", "enum",
-                                                  "if",    "else",  "while", "return", "import",
-                                                  "export","defer", "true",  "false", "nil"};
+  static constexpr std::string_view keywords[] = {"and",   "as",     "break",  "class",
+                                                  "continue", "def", "defer",  "else",
+                                                  "enum",  "export", "extern", "for",
+                                                  "from",  "if",     "import", "in",
+                                                  "is",    "let",    "not",    "or",
+                                                  "return","super",  "this",   "var",
+                                                  "while"};
+  static constexpr std::string_view literals[] = {"false", "null", "true"};
+  static constexpr std::string_view builtinTypes[] = {
+      "bool", "float", "float32", "float64", "int", "int8",
+      "int16", "int32", "int64", "str", "void",
+  };
   for (std::string_view keyword : keywords) {
     addCandidate(out, seen, CompletionCandidate{.label = std::string(keyword),
                                                 .kind = ::lsp::CompletionItemKind::Keyword,
                                                 .detail = {}});
+  }
+  for (std::string_view literal : literals) {
+    addCandidate(out, seen, CompletionCandidate{.label = std::string(literal),
+                                                .kind = ::lsp::CompletionItemKind::Value,
+                                                .detail = {}});
+  }
+  for (std::string_view builtinType : builtinTypes) {
+    addCandidate(out, seen, CompletionCandidate{.label = std::string(builtinType),
+                                                .kind = ::lsp::CompletionItemKind::Class,
+                                                .detail = "built-in type"});
   }
 }
 
@@ -462,8 +531,15 @@ auto completionItems(const AnalysisResult& result, unsigned line, unsigned chara
   std::unordered_set<std::string> seen;
 
   if (ctx.isMember) {
-    Type* baseType = resolveChainType(ctx.memberChain, activeScope, root);
+    std::vector<std::string> parts = splitChain(ctx.memberChain);
+    if (parts.size() == 1U) {
+      appendModuleMembersForAlias(*activeResult, parts.front(), candidates, seen);
+    }
+    Type* baseType = resolveChainType(*activeResult, ctx.memberChain, activeScope, root);
     appendMembersForType(baseType, ast, root, candidates, seen);
+    if (candidates.empty()) {
+      appendScopeSymbols(activeScope != nullptr ? activeScope : root, root, candidates, seen);
+    }
   } else {
     appendScopeSymbols(activeScope != nullptr ? activeScope : root, root, candidates, seen);
     appendKeywords(candidates, seen);
