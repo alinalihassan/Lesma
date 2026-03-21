@@ -19,10 +19,27 @@ auto makeNameSpan(llvm::SMLoc start, const std::string& name) -> llvm::SMRange {
   return llvm::SMRange{start, llvm::SMLoc::getFromPointer(text.end())};
 }
 
+auto declarationIdentityFromValue(const Value* resolvedSymbol)
+    -> std::optional<IndexedDeclarationIdentity> {
+  if (resolvedSymbol == nullptr) {
+    return std::nullopt;
+  }
+  llvm::SMRange const declarationSpan = resolvedSymbol->getDeclarationSpan();
+  std::string const& declarationFilePath = resolvedSymbol->getDeclarationFilePath();
+  if (!declarationSpan.isValid() || declarationFilePath.empty()) {
+    return std::nullopt;
+  }
+  return IndexedDeclarationIdentity{
+      .filePath = declarationFilePath,
+      .span = declarationSpan,
+  };
+}
+
 auto appendIndexedOccurrence(AnalysisIndex& index, const std::string& name,
                              std::optional<std::string> dotBase, llvm::SMRange span,
                              bool isTypePosition, bool isMemberAccess, unsigned modifiers,
-                             std::optional<IndexedTokenKind> fallbackTokenKind) -> void {
+                             std::optional<IndexedTokenKind> fallbackTokenKind,
+                             const Value* resolvedSymbol = nullptr) -> void {
   if (!span.isValid()) {
     return;
   }
@@ -30,6 +47,7 @@ auto appendIndexedOccurrence(AnalysisIndex& index, const std::string& name,
       .name = name,
       .dotBase = std::move(dotBase),
       .span = span,
+      .declaration = declarationIdentityFromValue(resolvedSymbol),
       .isTypePosition = isTypePosition,
       .isMemberAccess = isMemberAccess,
       .modifiers = modifiers,
@@ -57,18 +75,22 @@ auto collectIndexFromFuncLike(const FuncLike* node, AnalysisIndex& index, bool i
   FuncLikeDeclView const view = makeFuncLikeDeclView(node);
   appendIndexedOccurrence(index, view.name, std::nullopt, view.nameSpan, false, false,
                           analysis_index_modifier::DECLARATION,
-                          inClass ? IndexedTokenKind::Method : IndexedTokenKind::Function);
+                          inClass ? IndexedTokenKind::Method : IndexedTokenKind::Function,
+                          view.resolvedSymbol);
   if (view.genericParams != nullptr) {
     for (const GenericParamDecl& genericParam : *view.genericParams) {
       appendIndexedOccurrence(index, genericParam.name, std::nullopt, genericParam.span, true,
                               false, analysis_index_modifier::DECLARATION,
-                              IndexedTokenKind::TypeParameter);
+                              IndexedTokenKind::TypeParameter,
+                              view.genericScope != nullptr ? view.genericScope->lookup(genericParam.name)
+                                                           : nullptr);
     }
   }
   for (Parameter* param : view.parameters) {
     if (param != nullptr && param->nameSpan.isValid()) {
       appendIndexedOccurrence(index, param->name, std::nullopt, param->nameSpan, false, false,
-                              analysis_index_modifier::DECLARATION, IndexedTokenKind::Parameter);
+                              analysis_index_modifier::DECLARATION, IndexedTokenKind::Parameter,
+                              param->getResolvedSymbol());
     }
     if (param != nullptr) {
       collectIndexFromTypeExpr(param->type.get(), index);
@@ -86,7 +108,7 @@ auto collectIndexFromTypeExpr(const TypeExpr* typeExpr, AnalysisIndex& index) ->
   }
   if (typeExpr->getType() != TokenType::PTR_TYPE && typeExpr->getType() != TokenType::FUNC_TYPE) {
     appendIndexedOccurrence(index, typeExpr->getName(), std::nullopt, typeExpr->getSpan(), true,
-                            false, 0U, IndexedTokenKind::Type);
+                            false, 0U, IndexedTokenKind::Type, typeExpr->getResolvedSymbol());
   }
   collectIndexFromTypeExpr(typeExpr->getElementType(), index);
   for (TypeExpr* param : typeExpr->getParams()) {
@@ -102,14 +124,14 @@ auto collectIndexFromExpr(const Expression* expr, AnalysisIndex& index) -> void 
   if (auto const* lit = dynamic_cast<const Literal*>(expr)) {
     if (lit->getType() == TokenType::IDENTIFIER) {
       appendIndexedOccurrence(index, lit->getValue(), std::nullopt, lit->getSpan(), false, false,
-                              0U, IndexedTokenKind::Variable);
+                              0U, IndexedTokenKind::Variable, lit->getResolvedSymbol());
     }
     return;
   }
   if (auto const* call = dynamic_cast<const FuncCall*>(expr)) {
     appendIndexedOccurrence(index, call->getName(), std::nullopt,
                             makeNameSpan(call->getSpan().Start, call->getName()), false, false, 0U,
-                            IndexedTokenKind::Function);
+                            IndexedTokenKind::Function, call->getResolvedSymbol());
     for (TypeExpr* typeArg : call->getExplicitTypeArgs()) {
       collectIndexFromTypeExpr(typeArg, index);
     }
@@ -132,14 +154,16 @@ auto collectIndexFromExpr(const Expression* expr, AnalysisIndex& index) -> void 
         }
         appendIndexedOccurrence(index, rightLit->getValue(), dotBase, rightLit->getSpan(), false,
                                 true, 0U, dotBase.has_value() ? IndexedTokenKind::EnumMember
-                                                              : IndexedTokenKind::Property);
+                                                              : IndexedTokenKind::Property,
+                                rightLit->getResolvedSymbol());
         return;
       }
     }
     if (auto const* rightCall = dynamic_cast<const FuncCall*>(dot->getRight())) {
       appendIndexedOccurrence(index, rightCall->getName(), dotBase,
                               makeNameSpan(rightCall->getSpan().Start, rightCall->getName()), false,
-                              true, 0U, IndexedTokenKind::Method);
+                              true, 0U, IndexedTokenKind::Method,
+                              rightCall->getResolvedSymbol());
       for (TypeExpr* typeArg : rightCall->getExplicitTypeArgs()) {
         collectIndexFromTypeExpr(typeArg, index);
       }
@@ -180,7 +204,8 @@ auto collectIndexFromStmt(const Statement* stmt, AnalysisIndex& index, bool inCl
       appendIndexedOccurrence(index, varDecl->getIdentifier()->getValue(), std::nullopt,
                               varDecl->getIdentifier()->getSpan(), false, false,
                               analysis_index_modifier::DECLARATION,
-                              inClass ? IndexedTokenKind::Property : IndexedTokenKind::Variable);
+                              inClass ? IndexedTokenKind::Property : IndexedTokenKind::Variable,
+                              varDecl->getResolvedSymbol());
     }
     collectIndexFromTypeExpr(varDecl->getType(), index);
     collectIndexFromExpr(varDecl->getValue(), index);
@@ -196,11 +221,15 @@ auto collectIndexFromStmt(const Statement* stmt, AnalysisIndex& index, bool inCl
   }
   if (auto const* klass = dynamic_cast<const Class*>(stmt)) {
     appendIndexedOccurrence(index, klass->getIdentifier(), std::nullopt, klass->getNameSpan(), true,
-                            false, analysis_index_modifier::DECLARATION, IndexedTokenKind::Class);
+                            false, analysis_index_modifier::DECLARATION, IndexedTokenKind::Class,
+                            klass->getResolvedSymbol());
     for (const GenericParamDecl& genericParam : klass->getGenericParamDecls()) {
       appendIndexedOccurrence(index, genericParam.name, std::nullopt, genericParam.span, true, false,
                               analysis_index_modifier::DECLARATION,
-                              IndexedTokenKind::TypeParameter);
+                              IndexedTokenKind::TypeParameter,
+                              klass->getGenericScope() != nullptr
+                                  ? klass->getGenericScope()->lookup(genericParam.name)
+                                  : nullptr);
     }
     for (VarDecl* field : klass->getFields()) {
       collectIndexFromStmt(field, index, true);
@@ -213,7 +242,7 @@ auto collectIndexFromStmt(const Statement* stmt, AnalysisIndex& index, bool inCl
   if (auto const* enumNode = dynamic_cast<const Enum*>(stmt)) {
     appendIndexedOccurrence(index, enumNode->getIdentifier(), std::nullopt, enumNode->getNameSpan(),
                             true, false, analysis_index_modifier::DECLARATION,
-                            IndexedTokenKind::Enum);
+                            IndexedTokenKind::Enum, enumNode->getResolvedSymbol());
     for (const NamedSpan& valueDecl : getEnumValueDecls(enumNode)) {
       appendIndexedOccurrence(index, valueDecl.name, std::nullopt, valueDecl.span, false, false,
                               analysis_index_modifier::DECLARATION,

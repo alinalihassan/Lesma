@@ -62,6 +62,7 @@ public:
 class Literal : public Expression {
   std::string value;
   TokenType type;
+  mutable Value* resolvedSymbol = nullptr;
 
 public:
   Literal(llvm::SMRange loc, std::string value, TokenType type)
@@ -70,6 +71,8 @@ public:
 
   [[nodiscard]] [[maybe_unused]] auto getValue() const -> std::string { return value; }
   [[nodiscard]] [[maybe_unused]] auto getType() const -> TokenType { return type; }
+  [[nodiscard]] auto getResolvedSymbol() const -> Value* { return resolvedSymbol; }
+  auto setResolvedSymbol(Value* v) const -> void { resolvedSymbol = v; }
 
   auto toString(llvm::SourceMgr* /*srcMgr*/, const std::string& /*prefix*/, bool /*isTail*/) const
       -> std::string override {
@@ -123,6 +126,7 @@ public:
 class TypeExpr : public Expression {
   std::string name;
   TokenType type;
+  mutable Value* resolvedSymbol = nullptr;
 
   // Pointer fields
   std::unique_ptr<TypeExpr> elementType;
@@ -146,6 +150,8 @@ public:
 
   [[nodiscard]] [[maybe_unused]] auto getName() const -> std::string { return name; }
   [[nodiscard]] [[maybe_unused]] auto getType() const -> TokenType { return type; }
+  [[nodiscard]] auto getResolvedSymbol() const -> Value* { return resolvedSymbol; }
+  auto setResolvedSymbol(Value* v) const -> void { resolvedSymbol = v; }
   [[nodiscard]] [[maybe_unused]] auto getElementType() const -> TypeExpr* {
     return elementType.get();
   }
@@ -176,6 +182,7 @@ class Enum : public Statement {
   std::vector<std::string> values;
   std::vector<llvm::SMRange> valueSpans;
   bool exported;
+  mutable Value* resolvedSymbol = nullptr;
 
 public:
   Enum(llvm::SMRange loc, std::string identifier, llvm::SMRange nameSpan,
@@ -194,6 +201,8 @@ public:
     return valueSpans;
   }
   [[nodiscard]] [[maybe_unused]] auto isExported() const -> bool { return exported; }
+  [[nodiscard]] auto getResolvedSymbol() const -> Value* { return resolvedSymbol; }
+  auto setResolvedSymbol(Value* v) const -> void { resolvedSymbol = v; }
 
   auto toString(llvm::SourceMgr* srcMgr, const std::string& prefix, bool isTail) const
       -> std::string override {
@@ -365,6 +374,7 @@ public:
   std::unique_ptr<TypeExpr> type;
   bool optional;
   std::unique_ptr<Expression> defaultVal;
+  mutable Value* resolvedSymbol = nullptr;
 
   Parameter(std::string name, llvm::SMRange nameSpan, std::unique_ptr<TypeExpr> type = nullptr,
             bool optional = false, std::unique_ptr<Expression> defaultVal = nullptr)
@@ -376,6 +386,8 @@ public:
   Parameter(Parameter&&) = default;
   auto operator=(Parameter&&) -> Parameter& = default;
   ~Parameter() = default;
+  [[nodiscard]] auto getResolvedSymbol() const -> Value* { return resolvedSymbol; }
+  auto setResolvedSymbol(Value* v) const -> void { resolvedSymbol = v; }
 };
 
 class FuncDecl : public Statement {
@@ -555,6 +567,7 @@ class FuncCall : public Expression {
   std::string name;
   std::vector<std::unique_ptr<TypeExpr>> explicitTypeArgs;
   std::vector<std::unique_ptr<Expression>> arguments;
+  mutable Value* resolvedSymbol = nullptr;
 
 public:
   FuncCall(llvm::SMRange loc, std::string name,
@@ -565,6 +578,8 @@ public:
   void accept(ASTVisitor& visitor) const override { visitor.visit(this); }
 
   [[nodiscard]] [[maybe_unused]] auto getName() const -> std::string { return name; }
+  [[nodiscard]] auto getResolvedSymbol() const -> Value* { return resolvedSymbol; }
+  auto setResolvedSymbol(Value* v) const -> void { resolvedSymbol = v; }
   [[nodiscard]] [[maybe_unused]] auto getExplicitTypeArgs() const -> std::vector<TypeExpr*> {
     std::vector<TypeExpr*> result;
     result.reserve(explicitTypeArgs.size());
@@ -849,6 +864,7 @@ class Class : public Statement {
   std::vector<std::unique_ptr<VarDecl>> fields;
   std::vector<std::unique_ptr<FuncDecl>> methods;
   bool exported;
+  mutable Value* resolvedSymbol = nullptr;
   mutable SymbolTable* genericScope = nullptr;
 
 public:
@@ -891,6 +907,8 @@ public:
     return result;
   }
   [[nodiscard]] [[maybe_unused]] auto isExported() const -> bool { return exported; }
+  [[nodiscard]] auto getResolvedSymbol() const -> Value* { return resolvedSymbol; }
+  auto setResolvedSymbol(Value* v) const -> void { resolvedSymbol = v; }
   [[nodiscard]] auto getGenericScope() const -> SymbolTable* { return genericScope; }
   auto setGenericScope(SymbolTable* scopePtr) const -> void { genericScope = scopePtr; }
 

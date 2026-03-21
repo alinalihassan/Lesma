@@ -470,6 +470,7 @@ auto Typechecker::resolveType(const TypeExpr* node) -> Type* {
   if (node->getType() == TokenType::CUSTOM_TYPE) {
     auto genericIt = currentGenericTypes.find(node->getName());
     if (genericIt != currentGenericTypes.end()) {
+      node->setResolvedSymbol(scope->lookup(node->getName()));
       return genericIt->second;
     }
     Type* typ = scope->lookupType(node->getName());
@@ -493,6 +494,7 @@ auto Typechecker::resolveType(const TypeExpr* node) -> Type* {
                            "to the generic parameter list (e.g. def foo<T>(x: T) -> T).",
                            node->getName());
     }
+    node->setResolvedSymbol(sym);
     if (resolvedFromImport) {
       return sym != nullptr ? materializeImportedType(sym->getType())
                             : materializeImportedType(typ);
@@ -656,7 +658,7 @@ auto Typechecker::visit(const VarDecl* node) -> void {
   symbol->setMutable(node->getMutability());
   symbol->setDeclarationSpan(node->getIdentifier()->getSpan());
   symbol->setDeclarationFilePath(mainFilePath);
-  const_cast<VarDecl*>(node)->setResolvedSymbol(symbol.get());
+  node->setResolvedSymbol(symbol.get());
   scope->insertSymbol(std::move(symbol));
 }
 
@@ -743,6 +745,7 @@ auto Typechecker::visit(const Enum* node) -> void {
   enumSymbol->setDeclarationSpan(node->getNameSpan());
   enumSymbol->setDeclarationFilePath(mainFilePath);
   scope->insertSymbol(std::move(enumSymbol));
+  node->setResolvedSymbol(scope->lookupStruct(node->getIdentifier()));
 }
 
 auto Typechecker::visit(const Class* node) -> void {
@@ -797,6 +800,7 @@ auto Typechecker::visit(const Class* node) -> void {
     classSymbol->setDeclarationSpan(node->getNameSpan());
     classSymbol->setDeclarationFilePath(mainFilePath);
     outerScope->insertSymbol(std::move(classSymbol));
+    node->setResolvedSymbol(outerScope->lookupStruct(node->getIdentifier()));
   }
 
   classTypePtr->setGenericParams(node->getGenericParams());
@@ -888,7 +892,7 @@ auto Typechecker::visit(const FuncDecl* node) -> void {
       funcSymbol = insertScope->lookupFunction(node->getName(), paramTypes);
       // Set resolvedSymbol immediately after we get the symbol for this exact overload
       if (funcSymbol != nullptr) {
-        const_cast<FuncDecl*>(node)->setResolvedSymbol(funcSymbol);
+        node->setResolvedSymbol(funcSymbol);
       }
     } else {
       funcSymbol->setType(funcTypePtr);
@@ -896,7 +900,7 @@ auto Typechecker::visit(const FuncDecl* node) -> void {
       funcSymbol->setDeclarationSpan(node->getNameSpan());
       funcSymbol->setDeclarationFilePath(mainFilePath);
       // Set resolvedSymbol for existing symbol (this exact overload)
-      const_cast<FuncDecl*>(node)->setResolvedSymbol(funcSymbol);
+      node->setResolvedSymbol(funcSymbol);
     }
 
     if (funcSymbol != nullptr && funcSymbol->getBodyScope() == nullptr) {
@@ -911,6 +915,7 @@ auto Typechecker::visit(const FuncDecl* node) -> void {
         paramSymbol->setCategory(ValueCategory::ADDRESSABLE_STORAGE);
         paramSymbol->setDeclarationSpan(param->nameSpan);
         paramSymbol->setDeclarationFilePath(mainFilePath);
+        param->setResolvedSymbol(paramSymbol.get());
         scope->insertSymbol(std::move(paramSymbol));
       }
       scope = savedScopePtr;
@@ -923,7 +928,7 @@ auto Typechecker::visit(const FuncDecl* node) -> void {
     }
     // Set resolvedSymbol in definition pass (should already be set in declaration pass, but ensure
     // it)
-    const_cast<FuncDecl*>(node)->setResolvedSymbol(currentFunction);
+    node->setResolvedSymbol(currentFunction);
     scope = currentFunction->getBodyScope();
     inTopLevel = false;
     node->getBody()->accept(*this);
@@ -1004,7 +1009,7 @@ auto Typechecker::visit(const ExternFuncDecl* node) -> void {
     existingFunc->setDeclarationFilePath(mainFilePath);
   }
   if (existingFunc != nullptr) {
-    const_cast<ExternFuncDecl*>(node)->setResolvedSymbol(existingFunc);
+    node->setResolvedSymbol(existingFunc);
   }
   if (existingFunc != nullptr && existingFunc->getBodyScope() == nullptr) {
     SymbolTable* child = scope->createChildBlock("extern_function");
@@ -1017,6 +1022,7 @@ auto Typechecker::visit(const ExternFuncDecl* node) -> void {
       paramSymbol->setCategory(ValueCategory::ADDRESSABLE_STORAGE);
       paramSymbol->setDeclarationSpan(param->nameSpan);
       paramSymbol->setDeclarationFilePath(mainFilePath);
+      param->setResolvedSymbol(paramSymbol.get());
       scope->insertSymbol(std::move(paramSymbol));
     }
     scope = savedScopePtr;
@@ -1158,6 +1164,7 @@ auto Typechecker::visit(const FuncCall* node) -> void {
   if (!node->getExplicitTypeArgs().empty()) {
     Value* classSym = scope->lookup(node->getName());
     if (classSym != nullptr && classSym->getType()->is(BaseType::TY_CLASS)) {
+      node->setResolvedSymbol(classSym);
       Type* classType = classSym->getType();
       const std::vector<std::string>& genericParamNames = getDeclaredGenericParams(classType);
       std::vector<Type*> explicitTypes;
@@ -1218,12 +1225,14 @@ auto Typechecker::visit(const FuncCall* node) -> void {
       }
     }
     if (callee != nullptr) {
+      node->setResolvedSymbol(callee);
       auto* funcType = callee->getType();
       Type* retType = materializeImportedType(funcType->getReturnType());
       result = std::make_unique<Value>(retType);
       return;
     }
     if (sym != nullptr) {
+      node->setResolvedSymbol(sym);
       if (sym->getType()->is(BaseType::TY_CLASS)) {
         Type* classType =
             importedScope != nullptr ? materializeImportedType(sym->getType()) : sym->getType();
@@ -1269,6 +1278,7 @@ auto Typechecker::visit(const FuncCall* node) -> void {
   if (!callee->getType()->is(BaseType::TY_FUNCTION)) {
     throw TypeCheckError(node->getSpan(), "Not a function: {}", node->getName());
   }
+  node->setResolvedSymbol(callee);
 
   auto* funcType = callee->getType();
   auto fields = funcType->getFields();
@@ -1380,6 +1390,7 @@ auto Typechecker::visit(const DotOp* node) -> void {
             if (sym != nullptr && sym->getType()->is(BaseType::TY_FUNCTION)) {
               func = sym;
             } else if (sym != nullptr && sym->getType()->is(BaseType::TY_CLASS)) {
+              fc->setResolvedSymbol(sym);
               Type* classType = materializeImportedType(sym->getType());
               const std::vector<std::string>& genericParamNames =
                   getDeclaredGenericParams(classType);
@@ -1454,6 +1465,7 @@ auto Typechecker::visit(const DotOp* node) -> void {
             }
           }
           if (func != nullptr) {
+            fc->setResolvedSymbol(func);
             Type* retType = func->getType()->getReturnType();
             result = std::make_unique<Value>(
                 retType != nullptr ? materializeImportedType(retType)
@@ -1513,6 +1525,7 @@ auto Typechecker::visit(const DotOp* node) -> void {
     if (method == nullptr) {
       throw TypeCheckError(node->getSpan(), "Function not found: {}", fc->getName());
     }
+    fc->setResolvedSymbol(method);
     auto* methodType = method->getType();
     if (!fc->getExplicitTypeArgs().empty()) {
       std::vector<Type*> explicitTypes;
@@ -1648,6 +1661,7 @@ auto Typechecker::visit(const Literal* node) -> void {
     if (sym == nullptr) {
       throw TypeCheckError(node->getSpan(), "Unknown name: {}", node->getValue());
     }
+    node->setResolvedSymbol(sym);
     result = std::make_unique<Value>(*sym);
     break;
   }

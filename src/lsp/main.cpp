@@ -361,6 +361,153 @@ auto smRangeToLspRange(llvm::SourceMgr* srcMgr, unsigned bufferId, llvm::SMRange
   };
 }
 
+auto getOffsetFromSMLoc(llvm::SourceMgr* srcMgr, unsigned bufferId, llvm::SMLoc loc) -> unsigned;
+
+auto smRangesEqual(llvm::SourceMgr* srcMgr, unsigned bufferId, llvm::SMRange lhs,
+                   llvm::SMRange rhs) -> bool {
+  return lhs.isValid() && rhs.isValid() &&
+         getOffsetFromSMLoc(srcMgr, bufferId, lhs.Start) ==
+             getOffsetFromSMLoc(srcMgr, bufferId, rhs.Start) &&
+         getOffsetFromSMLoc(srcMgr, bufferId, lhs.End) == getOffsetFromSMLoc(srcMgr, bufferId, rhs.End);
+}
+
+template <typename FuncLike>
+auto resolveFuncLikeDeclarationSymbol(const FuncLike* node, llvm::SourceMgr* srcMgr, unsigned bufferId,
+                                      llvm::SMRange declarationSpan) -> lesma::Value* {
+  if (node == nullptr) {
+    return nullptr;
+  }
+  if (smRangesEqual(srcMgr, bufferId, node->getNameSpan(), declarationSpan)) {
+    return node->getResolvedSymbol();
+  }
+  if (node->getGenericScope() != nullptr) {
+    for (const lesma::GenericParamDecl& genericParam : node->getGenericParamDecls()) {
+      if (smRangesEqual(srcMgr, bufferId, genericParam.span, declarationSpan)) {
+        return node->getGenericScope()->lookup(genericParam.name);
+      }
+    }
+  }
+  for (lesma::Parameter* param : node->getParameters()) {
+    if (param != nullptr && smRangesEqual(srcMgr, bufferId, param->nameSpan, declarationSpan)) {
+      return param->getResolvedSymbol();
+    }
+  }
+  return nullptr;
+}
+
+auto resolveDeclarationSymbolInStmt(const lesma::Statement* stmt, llvm::SourceMgr* srcMgr,
+                                    unsigned bufferId, llvm::SMRange declarationSpan)
+    -> lesma::Value* {
+  if (stmt == nullptr) {
+    return nullptr;
+  }
+  if (auto const* varDecl = dynamic_cast<const lesma::VarDecl*>(stmt)) {
+    lesma::Literal* ident = varDecl->getIdentifier();
+    if (ident != nullptr && smRangesEqual(srcMgr, bufferId, ident->getSpan(), declarationSpan)) {
+      return varDecl->getResolvedSymbol();
+    }
+    return nullptr;
+  }
+  if (auto const* func = dynamic_cast<const lesma::FuncDecl*>(stmt)) {
+    if (lesma::Value* value =
+            resolveFuncLikeDeclarationSymbol(func, srcMgr, bufferId, declarationSpan)) {
+      return value;
+    }
+    if (func->getBody() != nullptr) {
+      return resolveDeclarationSymbolInStmt(func->getBody(), srcMgr, bufferId, declarationSpan);
+    }
+    return nullptr;
+  }
+  if (auto const* ext = dynamic_cast<const lesma::ExternFuncDecl*>(stmt)) {
+    return resolveFuncLikeDeclarationSymbol(ext, srcMgr, bufferId, declarationSpan);
+  }
+  if (auto const* klass = dynamic_cast<const lesma::Class*>(stmt)) {
+    if (smRangesEqual(srcMgr, bufferId, klass->getNameSpan(), declarationSpan)) {
+      return klass->getResolvedSymbol();
+    }
+    if (klass->getGenericScope() != nullptr) {
+      for (const lesma::GenericParamDecl& genericParam : klass->getGenericParamDecls()) {
+        if (smRangesEqual(srcMgr, bufferId, genericParam.span, declarationSpan)) {
+          return klass->getGenericScope()->lookup(genericParam.name);
+        }
+      }
+    }
+    for (lesma::VarDecl* field : klass->getFields()) {
+      if (lesma::Value* value =
+              resolveDeclarationSymbolInStmt(field, srcMgr, bufferId, declarationSpan)) {
+        return value;
+      }
+    }
+    for (lesma::FuncDecl* method : klass->getMethods()) {
+      if (lesma::Value* value =
+              resolveDeclarationSymbolInStmt(method, srcMgr, bufferId, declarationSpan)) {
+        return value;
+      }
+    }
+    return nullptr;
+  }
+  if (auto const* enumNode = dynamic_cast<const lesma::Enum*>(stmt)) {
+    if (smRangesEqual(srcMgr, bufferId, enumNode->getNameSpan(), declarationSpan)) {
+      return enumNode->getResolvedSymbol();
+    }
+    return nullptr;
+  }
+  if (auto const* ifNode = dynamic_cast<const lesma::If*>(stmt)) {
+    for (lesma::Compound* block : ifNode->getBlocks()) {
+      if (lesma::Value* value =
+              resolveDeclarationSymbolInStmt(block, srcMgr, bufferId, declarationSpan)) {
+        return value;
+      }
+    }
+    return nullptr;
+  }
+  if (auto const* whileNode = dynamic_cast<const lesma::While*>(stmt)) {
+    return resolveDeclarationSymbolInStmt(whileNode->getBlock(), srcMgr, bufferId, declarationSpan);
+  }
+  if (auto const* defer = dynamic_cast<const lesma::Defer*>(stmt)) {
+    return resolveDeclarationSymbolInStmt(defer->getStatement(), srcMgr, bufferId, declarationSpan);
+  }
+  if (auto const* compound = dynamic_cast<const lesma::Compound*>(stmt)) {
+    for (lesma::Statement* child : compound->getChildren()) {
+      if (lesma::Value* value =
+              resolveDeclarationSymbolInStmt(child, srcMgr, bufferId, declarationSpan)) {
+        return value;
+      }
+    }
+  }
+  return nullptr;
+}
+
+auto resolveSymbolByDeclarationIdentity(const AnalysisResult& result,
+                                        const lesma::IndexedDeclarationIdentity& declaration)
+    -> std::optional<ResolvedSymbol> {
+  std::optional<AnalysisView> analysis = findAnalysisViewForPath(result, declaration.filePath);
+  if (!analysis || !isUsableAnalysis(*analysis)) {
+    return std::nullopt;
+  }
+  for (lesma::Statement* stmt : analysis->ast->getChildren()) {
+    if (lesma::Value* value =
+            resolveDeclarationSymbolInStmt(stmt, analysis->sourceMgr, analysis->bufferId,
+                                           declaration.span)) {
+      return ResolvedSymbol{.value = value, .owner = *analysis};
+    }
+  }
+  return std::nullopt;
+}
+
+auto locationForIndexedDeclaration(const AnalysisResult& result,
+                                   const lesma::IndexedDeclarationIdentity& declaration)
+    -> std::optional<::lsp::Location> {
+  std::optional<AnalysisView> analysis = findAnalysisViewForPath(result, declaration.filePath);
+  if (!analysis || !isUsableAnalysis(*analysis)) {
+    return std::nullopt;
+  }
+  return ::lsp::Location{
+      .uri = uriFromPath(declaration.filePath),
+      .range = smRangeToLspRange(analysis->sourceMgr, analysis->bufferId, declaration.span),
+  };
+}
+
 auto runAnalyzeAndPublish(const ::lsp::DocumentUri& uri,
                          const lesma::lsp_srv::DocumentStore& docStore, const std::string& content,
                          int version, AnalysisCache& analysisCache,
@@ -840,15 +987,14 @@ auto makeCursorIdentifierFromSpan(const std::string& name, llvm::SMRange span,
                               isTypePosition);
 }
 
-/** Find identifier at cursor position by walking AST to find the identifier token. */
-auto findIdentifierAtCursor(const AnalysisView& analysis, unsigned line, unsigned character)
-    -> std::optional<CursorIdentifier> {
+auto findIndexedSymbolOccurrenceAtCursor(const AnalysisView& analysis, unsigned line,
+                                         unsigned character) -> const lesma::IndexedSymbolOccurrence* {
   if (!isUsableAnalysis(analysis) || analysis.index == nullptr) {
-    return std::nullopt;
+    return nullptr;
   }
   auto const* buf = analysis.sourceMgr->getMemoryBuffer(analysis.bufferId);
   if (buf == nullptr) {
-    return std::nullopt;
+    return nullptr;
   }
   unsigned const targetOffset = static_cast<unsigned>(
       lesma::lsp_srv::bufferByteOffsetFromLspPosition(buf->getBuffer(), line, character));
@@ -873,6 +1019,14 @@ auto findIdentifierAtCursor(const AnalysisView& analysis, unsigned line, unsigne
       bestContains = contains;
     }
   }
+  return best;
+}
+
+/** Find identifier at cursor position by walking AST to find the identifier token. */
+auto findIdentifierAtCursor(const AnalysisView& analysis, unsigned line, unsigned character)
+    -> std::optional<CursorIdentifier> {
+  const lesma::IndexedSymbolOccurrence* best =
+      findIndexedSymbolOccurrenceAtCursor(analysis, line, character);
   if (best == nullptr) {
     return std::nullopt;
   }
@@ -1545,6 +1699,14 @@ auto resolveCanonicalSymbolAtCursor(const AnalysisResult& result, const Analysis
   if (!isUsableAnalysis(analysis)) {
     return std::nullopt;
   }
+  if (const lesma::IndexedSymbolOccurrence* occurrence =
+          findIndexedSymbolOccurrenceAtCursor(analysis, line, character);
+      occurrence != nullptr && occurrence->declaration.has_value()) {
+    if (std::optional<ResolvedSymbol> resolved =
+            resolveSymbolByDeclarationIdentity(result, *occurrence->declaration)) {
+      return resolved;
+    }
+  }
 
   if (id.dotBase.has_value()) {
     if (std::optional<std::string> modulePath =
@@ -1602,6 +1764,20 @@ auto symbolIdentityForResolved(const ResolvedSymbol& resolved) -> std::optional<
       .path = normalizePath(path),
       .range = smRangeToLspRange(resolved.owner.sourceMgr, resolved.owner.bufferId, declSpan),
       .name = resolved.value->getName(),
+  };
+}
+
+auto symbolIdentityForIndexedDeclaration(const AnalysisResult& result,
+                                         const lesma::IndexedDeclarationIdentity& declaration,
+                                         const std::string& name) -> std::optional<SymbolIdentity> {
+  std::optional<::lsp::Location> location = locationForIndexedDeclaration(result, declaration);
+  if (!location) {
+    return std::nullopt;
+  }
+  return SymbolIdentity{
+      .path = normalizePath(declaration.filePath),
+      .range = location->range,
+      .name = name,
   };
 }
 
@@ -1878,12 +2054,19 @@ auto collectReferences(const AnalysisResult& result, unsigned line, unsigned cha
     return locations;
   }
 
-  if (std::optional<ResolvedSymbol> target =
-          resolveCanonicalSymbolAtCursor(result, mainAnalysis, line, character, *id)) {
-    std::optional<SymbolIdentity> targetIdentity = symbolIdentityForResolved(*target);
-    if (!targetIdentity) {
-      return locations;
+  std::optional<SymbolIdentity> targetIdentity;
+  if (const lesma::IndexedSymbolOccurrence* occurrence =
+          findIndexedSymbolOccurrenceAtCursor(mainAnalysis, line, character);
+      occurrence != nullptr && occurrence->declaration.has_value()) {
+    targetIdentity = symbolIdentityForIndexedDeclaration(result, *occurrence->declaration, id->name);
+  }
+  if (!targetIdentity) {
+    if (std::optional<ResolvedSymbol> target =
+            resolveCanonicalSymbolAtCursor(result, mainAnalysis, line, character, *id)) {
+      targetIdentity = symbolIdentityForResolved(*target);
     }
+  }
+  if (targetIdentity) {
     for (const AnalysisView& analysis : collectAnalysisViews(result)) {
       if (analysis.index == nullptr) {
         continue;
@@ -1893,20 +2076,27 @@ auto collectReferences(const AnalysisResult& result, unsigned line, unsigned cha
       for (const lesma::IndexedSymbolOccurrence& occurrence : analysis.index->symbolOccurrences) {
         ::lsp::Range const occurrenceRange =
             smRangeToLspRange(analysis.sourceMgr, analysis.bufferId, occurrence.span);
-        std::optional<ResolvedSymbol> resolved = resolveCanonicalSymbolAtCursor(
-            result, analysis, occurrenceRange.start.line, occurrenceRange.start.character,
-            makeCursorIdentifier(occurrence.name, occurrence.dotBase, occurrenceRange,
-                                 occurrence.isTypePosition));
-        if (!resolved) {
-          resolved = resolveCanonicalSymbolAtCursor(
-              result, analysis, occurrenceRange.end.line, occurrenceRange.end.character,
+        std::optional<SymbolIdentity> occurrenceIdentity;
+        if (occurrence.declaration.has_value()) {
+          occurrenceIdentity = symbolIdentityForIndexedDeclaration(result, *occurrence.declaration,
+                                                                   occurrence.name);
+        }
+        if (!occurrenceIdentity) {
+          std::optional<ResolvedSymbol> resolved = resolveCanonicalSymbolAtCursor(
+              result, analysis, occurrenceRange.start.line, occurrenceRange.start.character,
               makeCursorIdentifier(occurrence.name, occurrence.dotBase, occurrenceRange,
                                    occurrence.isTypePosition));
+          if (!resolved) {
+            resolved = resolveCanonicalSymbolAtCursor(
+                result, analysis, occurrenceRange.end.line, occurrenceRange.end.character,
+                makeCursorIdentifier(occurrence.name, occurrence.dotBase, occurrenceRange,
+                                     occurrence.isTypePosition));
+          }
+          if (!resolved) {
+            continue;
+          }
+          occurrenceIdentity = symbolIdentityForResolved(*resolved);
         }
-        if (!resolved) {
-          continue;
-        }
-        std::optional<SymbolIdentity> occurrenceIdentity = symbolIdentityForResolved(*resolved);
         if (!occurrenceIdentity || occurrenceIdentity->path != targetIdentity->path ||
             occurrenceIdentity->name != targetIdentity->name ||
             !rangeEquals(occurrenceIdentity->range, targetIdentity->range)) {
@@ -2210,6 +2400,14 @@ auto tryResolveDefinitionLocation(const AnalysisResult& result, unsigned line, u
   std::optional<CursorIdentifier> id = findIdentifierAtCursor(analysis, line, character);
   if (!id) {
     return std::nullopt;
+  }
+  if (const lesma::IndexedSymbolOccurrence* occurrence =
+          findIndexedSymbolOccurrenceAtCursor(analysis, line, character);
+      occurrence != nullptr && occurrence->declaration.has_value()) {
+    if (std::optional<::lsp::Location> declarationLocation =
+            locationForIndexedDeclaration(result, *occurrence->declaration)) {
+      return declarationLocation;
+    }
   }
   std::optional<ResolvedSymbol> resolved =
       resolveCanonicalSymbolAtCursor(result, line, character, *id);

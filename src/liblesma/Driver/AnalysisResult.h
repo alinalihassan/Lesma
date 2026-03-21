@@ -24,6 +24,11 @@ struct AnalysisDiagnostic {
   llvm::SMRange span;
 };
 
+struct IndexedDeclarationIdentity {
+  std::string filePath;
+  llvm::SMRange span;
+};
+
 enum class IndexedTokenKind : std::uint8_t {
   Namespace = 0,
   Class = 1,
@@ -46,6 +51,7 @@ struct IndexedSymbolOccurrence {
   std::string name;
   std::optional<std::string> dotBase;
   llvm::SMRange span;
+  std::optional<IndexedDeclarationIdentity> declaration;
   bool isTypePosition = false;
   bool isMemberAccess = false;
   unsigned modifiers = 0U;
