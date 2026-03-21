@@ -1,0 +1,19 @@
+{
+  "name": "lesma-ls-client",
+  "description": "Lesma Language Client",
+  "author": "Alin Ali Hassan",
+  "license": "MIT",
+  "version": "0.0.1",
+  "private": true,
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/alinalihassan/Lesma"
+  },
+  "dependencies": {
+    "vscode-languageclient": "^9.0.1"
+  },
+  "devDependencies": {
+    "@types/vscode": "^1.86.0",
+    "@vscode/test-electron": "^2.2.3"
+  }
+}

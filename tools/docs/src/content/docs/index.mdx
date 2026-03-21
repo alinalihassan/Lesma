@@ -1,0 +1,46 @@
+---
+title: Lesma Documentation
+description: Build, use, and explore the Lesma programming language and tooling.
+template: splash
+hero:
+  tagline: A compiled, statically typed language powered by LLVM.
+  image:
+    file: ../../assets/logo.svg
+  actions:
+    - text: Get Started
+      link: /getting-started/
+      icon: right-arrow
+    - text: Learn the Language
+      link: /language/literals/
+      icon: right-arrow
+    - text: View Compiler Source
+      link: https://github.com/alinalihassan/Lesma
+      icon: external
+      variant: minimal
+---
+
+import { Card, CardGrid } from '@astrojs/starlight/components';
+
+## Start here
+
+<CardGrid stagger>
+	<Card title="Install or build Lesma" icon="download">
+		Use the installer script for a quick setup, or build the compiler and `lesma-lsp`
+		from source with CMake.
+	</Card>
+	<Card title="Write your first program" icon="pencil">
+		Follow the Hello World and Guessing Game guides to try the language and run
+		code with the CLI.
+	</Card>
+	<Card title="Explore the language" icon="open-book">
+		Learn about literals, variables, types, functions, control flow, comments,
+		and modules.
+	</Card>
+	<Card title="Use editor tooling" icon="setting">
+		The VS Code extension uses the native `lesma-lsp` server for diagnostics,
+		hover, navigation, and completion in `.les` files.
+	</Card>
+	<Card title="Track project progress" icon="star">
+		Check the GitHub repository for compiler updates, tests, and release builds.
+	</Card>
+</CardGrid>

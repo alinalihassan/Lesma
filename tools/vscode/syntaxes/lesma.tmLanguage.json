@@ -1,0 +1,184 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "Lesma",
+  "patterns": [
+    {
+      "include": "#keywords"
+    },
+    {
+      "include": "#operators"
+    },
+    {
+      "include": "#comments"
+    },
+    {
+      "include": "#constants"
+    },
+    {
+      "include": "#strings"
+    },
+    {
+      "include": "#numbers"
+    },
+    {
+      "include": "#types"
+    },
+    {
+      "include": "#functions"
+    },
+    {
+      "include": "#invalid"
+    }
+  ],
+  "repository": {
+    "keywords": {
+      "patterns": [
+        {
+          "name": "keyword.vardecl.lesma",
+          "match": "\\b(let|var)\\b"
+        },
+        {
+          "name": "keyword.control.lesma",
+          "match": "\\b(if|else|while|for|in|break|continue|return|defer|let|var)\\b"
+        },
+        {
+          "name": "keyword.module.lesma",
+          "match": "\\b(from|export|import)\\b"
+        },
+        {
+          "name": "keyword.other.lesma",
+          "match": "\\b(class|enum|type|def|extern|operator)\\b"
+        },
+        {
+          "name": "keyword.implicit.lesma",
+          "match": "\\b(self|super)\\b"
+        }
+      ]
+    },
+    "operators": {
+      "patterns": [
+        {
+          "name": "keyword.operator.comparison.lesma",
+          "match": "==|!="
+        },
+        {
+          "name": "keyword.operator.range.lesma",
+          "match": "\\.\\."
+        },
+        {
+          "name": "keyword.operator.arrow.lesma",
+          "match": "->"
+        },
+        {
+          "name": "keyword.operator.assignment.lesma",
+          "match": "="
+        },
+        {
+          "name": "keyword.operator.expression.lesma",
+          "match": "\\b(and|or|not|is|as)\\b"
+        },
+        {
+          "name": "keyword.operator.arithmetic.lesma",
+          "match": "\\+|\\-|\\*|\\^|\\/|\\%"
+        },
+        {
+          "name": "keyword.operator.relational.lesma",
+          "match": ">=|<=|>|<"
+        }
+      ]
+    },
+    "strings": {
+      "patterns": [
+        {
+          "name": "string.quoted.double.lesma",
+          "begin": "\"",
+          "end": "\"",
+          "patterns": [
+            {
+              "name": "constant.character.escape.lesma",
+              "match": "\\\\."
+            }
+          ]
+        }
+      ]
+    },
+    "numbers": {
+      "patterns": [
+        {
+          "name": "constant.numeric.other.lesma",
+          "match": "[+-]?([0][obx])?[0-9]+"
+        },
+        {
+          "name": "constant.numeric.float.lesma",
+          "match": "[+-]?([0-9]*[.])?[0-9]+"
+        },
+        {
+          "name": "constant.numeric.dec.lesma",
+          "match": "[0-9]+"
+        }
+      ]
+    },
+    "types": {
+      "patterns": [
+        {
+          "comment": "Built-in Types",
+          "name": "support.type.lesma",
+          "match": "\\b(bool|str|int|float|void)\\b"
+        },
+        {
+          "comment": "Type annotation",
+          "name": "support.function.lesma",
+          "match": "(?<=:\\s|->\\s)[a-zA-Z0-9_]+"
+        }
+      ]
+    },
+    "functions": {
+      "patterns": [
+        {
+          "comment": "Catch the function call and function definition",
+          "name": "support.function.lesma",
+          "match": "(?=[a-zA-Z0-9_]+\\()[a-zA-Z0-9_]+"
+        },
+        {
+          "comment": "Class/Enum declaration",
+          "name": "support.function.lesma",
+          "match": "(?<=class\\s|enum\\s)[a-zA-Z0-9_]+"
+        }
+      ]
+    },
+    "comments": {
+      "patterns": [
+        {
+          "comment": "Single line comment",
+          "name": "comment.line.lesma",
+          "begin": "#",
+          "beginCaptures": {
+            "0": {
+              "name": "punctuation.definition.comment.lesma"
+            }
+          },
+          "end": "(?=$)"
+        }
+      ]
+    },
+    "constants": {
+      "patterns": [
+        {
+          "comment": "Boolean constants",
+          "name": "constant.language.boolean.lesma",
+          "match": "\\b(true|false)\\b"
+        }
+      ]
+    },
+    "invalid": {
+      "patterns": [
+        {
+          "comment": "Semicolons are invalid",
+          "name": "invalid.illegal.lesma",
+          "match": ";"
+        }
+      ]
+    }
+  },
+  "scopeName": "source.lesma"
+}

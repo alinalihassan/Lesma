@@ -1,5 +1,5 @@
 <h1 align="center">
-  <img src="docs/static/img/logo.svg" height="180px" style="height: 180px" alt="Lesma Programming Language" title="Lesma Programming Language">
+  <img src="tools/docs/src/assets/logo.svg" height="180px" style="height: 180px" alt="Lesma Programming Language" title="Lesma Programming Language">
   <br>
   Lesma
 </h1>
@@ -33,7 +33,7 @@ expressiveness, elegance, and simplicity without sacrificing performance.
 
 ## 📖 Documentation
 
-- [Official Documentation](https://lesma.org/)
+- [Official Documentation](https://lesma-lang.com/)
 - [Examples](https://github.com/alinalihassan/Lesma/blob/main/tests/lesma)
 
 ## Installation
@@ -52,7 +52,7 @@ bash -c "$(curl -fsSL https://raw.githubusercontent.com/alinalihassan/Lesma/main
 
 In order to build Lesma, you need Clang, LLVM (17+), and Ninja installed. It's currently only supported on Linux and macOS.
 For a more comprehensive guide, and more information on how to install the prerequisites,
-read the documentation on [Getting Started](https://lesma.org/docs/introduction/getting-started)
+read the documentation on [Getting Started](https://lesma-lang.com/getting-started/)
 
 ### Prerequisites
 
@@ -130,6 +130,11 @@ cmake --build build
 
 Pull requests are welcome. For major changes, please open an issue to discuss your proposal and what you'd like to
 change.
+
+Repository tooling lives under `tools/`:
+
+- `tools/docs` contains the Astro Starlight documentation site.
+- `tools/vscode` contains the VS Code extension that launches the native `lesma-lsp` server.
 
 - To keep updated with releases, consider starring the project.
 - Check the [code of conduct](CODE_OF_CONDUCT.md) and [contributing guidelines](CONTRIBUTING.md)
