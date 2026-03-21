@@ -605,6 +605,39 @@ auto formatTypeName(lesma::Type* type, lesma::SymbolTable* rootScope) -> std::st
   return type->toString();
 }
 
+auto formatCallableHoverType(lesma::Type* type, lesma::SymbolTable* rootScope) -> std::string {
+  if (type == nullptr || !type->is(lesma::BaseType::TY_FUNCTION)) {
+    return formatTypeName(type, rootScope);
+  }
+  std::string out = "Function(";
+  std::vector<lesma::Field*> fields = type->getFields();
+  bool first = true;
+  size_t paramOffset = (!fields.empty() && fields[0] != nullptr && fields[0]->name == "self") ? 1U : 0U;
+  for (size_t i = paramOffset; i < fields.size(); ++i) {
+    lesma::Field* field = fields[i];
+    if (field == nullptr) {
+      continue;
+    }
+    if (!first) {
+      out += ", ";
+    }
+    first = false;
+    out += field->name + ": " + formatTypeName(field->type, rootScope);
+  }
+  if (type->isVarArgs()) {
+    if (!first) {
+      out += ", ";
+    }
+    out += "...";
+  }
+  out += ")";
+  if (lesma::Type* returnType = type->getReturnType();
+      returnType != nullptr && !returnType->is(lesma::BaseType::TY_VOID)) {
+    out += " -> " + formatTypeName(returnType, rootScope);
+  }
+  return out;
+}
+
 /** Build hover text from a symbol: name, kind, and type in readable Markdown. */
 auto formatHoverContent(lesma::Value* value, lesma::SymbolTable* rootScope) -> std::string {
   if (value == nullptr) {
@@ -622,7 +655,7 @@ auto formatHoverContent(lesma::Value* value, lesma::SymbolTable* rootScope) -> s
 
   switch (value->getCategory()) {
   case lesma::ValueCategory::CALLABLE_SYMBOL:
-    return "**" + name + "**\n\nType: `" + typeStr + "`";
+    return "**" + name + "**\n\nType: `" + formatCallableHoverType(type, rootScope) + "`";
   case lesma::ValueCategory::TYPE_SYMBOL: {
     if (type != nullptr && type->is(lesma::BaseType::TY_GENERIC)) {
       return "type parameter `" + name + "`";
