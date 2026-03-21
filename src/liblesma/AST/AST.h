@@ -913,4 +913,95 @@ public:
         identifier, fieldsStr, methodsStr);
   }
 };
+
+struct NamedSpan {
+  std::string name;
+  llvm::SMRange span;
+};
+
+struct FuncLikeDeclView {
+  std::string name;
+  llvm::SMRange nameSpan;
+  const std::vector<GenericParamDecl>* genericParams = nullptr;
+  std::vector<Parameter*> parameters;
+  TypeExpr* returnType = nullptr;
+  Compound* body = nullptr;
+  Value* resolvedSymbol = nullptr;
+  SymbolTable* genericScope = nullptr;
+};
+
+[[nodiscard]] inline auto makeFuncLikeDeclView(const FuncDecl* node) -> FuncLikeDeclView {
+  if (node == nullptr) {
+    return {};
+  }
+  return FuncLikeDeclView{
+      .name = node->getName(),
+      .nameSpan = node->getNameSpan(),
+      .genericParams = &node->getGenericParamDecls(),
+      .parameters = node->getParameters(),
+      .returnType = node->getReturnType(),
+      .body = node->getBody(),
+      .resolvedSymbol = node->getResolvedSymbol(),
+      .genericScope = node->getGenericScope(),
+  };
+}
+
+[[nodiscard]] inline auto makeFuncLikeDeclView(const ExternFuncDecl* node) -> FuncLikeDeclView {
+  if (node == nullptr) {
+    return {};
+  }
+  return FuncLikeDeclView{
+      .name = node->getName(),
+      .nameSpan = node->getNameSpan(),
+      .genericParams = &node->getGenericParamDecls(),
+      .parameters = node->getParameters(),
+      .returnType = node->getReturnType(),
+      .body = nullptr,
+      .resolvedSymbol = node->getResolvedSymbol(),
+      .genericScope = node->getGenericScope(),
+  };
+}
+
+[[nodiscard]] inline auto getEnumValueDecls(const Enum* node) -> std::vector<NamedSpan> {
+  std::vector<NamedSpan> out;
+  if (node == nullptr) {
+    return out;
+  }
+  std::vector<std::string> const values = node->getValues();
+  std::vector<llvm::SMRange> const& valueSpans = node->getValueSpans();
+  out.reserve(std::min(values.size(), valueSpans.size()));
+  for (size_t i = 0; i < values.size() && i < valueSpans.size(); ++i) {
+    out.push_back(NamedSpan{
+        .name = values[i],
+        .span = valueSpans[i],
+    });
+  }
+  return out;
+}
+
+[[nodiscard]] inline auto getImportLocalBindings(const Import* node) -> std::vector<NamedSpan> {
+  std::vector<NamedSpan> out;
+  if (node == nullptr) {
+    return out;
+  }
+  if (!node->getAlias().empty() && node->getAliasSpan().isValid()) {
+    out.push_back(NamedSpan{
+        .name = node->getAlias(),
+        .span = node->getAliasSpan(),
+    });
+  }
+  out.reserve(out.size() + node->getImportedNames().size());
+  for (const ImportedNameBinding& binding : node->getImportedNames()) {
+    llvm::SMRange const span = binding.aliasSpan.isValid() ? binding.aliasSpan : binding.nameSpan;
+    if (!span.isValid()) {
+      continue;
+    }
+    out.push_back(NamedSpan{
+        .name = binding.alias.empty() ? binding.name : binding.alias,
+        .span = span,
+    });
+  }
+  return out;
+}
+
 } // namespace lesma

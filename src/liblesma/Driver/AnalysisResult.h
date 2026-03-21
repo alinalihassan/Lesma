@@ -1,6 +1,8 @@
 #pragma once
 
+#include <cstdint>
 #include <memory>
+#include <optional>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -14,11 +16,51 @@
 #include "liblesma/Symbol/Type.h"
 
 namespace lesma {
+class Compound;
 
 /** Single diagnostic (error/warning) with a source span. */
 struct AnalysisDiagnostic {
   std::string message;
   llvm::SMRange span;
+};
+
+enum class IndexedTokenKind : std::uint8_t {
+  Namespace = 0,
+  Class = 1,
+  Enum = 2,
+  EnumMember = 3,
+  Type = 4,
+  TypeParameter = 5,
+  Function = 6,
+  Method = 7,
+  Parameter = 8,
+  Variable = 9,
+  Property = 10,
+};
+
+namespace analysis_index_modifier {
+constexpr unsigned DECLARATION = 1U << 0U;
+}
+
+struct IndexedSymbolOccurrence {
+  std::string name;
+  std::optional<std::string> dotBase;
+  llvm::SMRange span;
+  bool isTypePosition = false;
+  bool isMemberAccess = false;
+  unsigned modifiers = 0U;
+  std::optional<IndexedTokenKind> fallbackTokenKind;
+};
+
+struct IndexedEnumMemberOccurrence {
+  std::string enumName;
+  std::string memberName;
+  llvm::SMRange span;
+};
+
+struct AnalysisIndex {
+  std::vector<IndexedSymbolOccurrence> symbolOccurrences;
+  std::vector<IndexedEnumMemberOccurrence> enumMemberOccurrences;
 };
 
 using ImportAliasMap = std::unordered_map<std::string, std::string>;
@@ -33,6 +75,7 @@ struct ImportedModuleAnalysis {
   std::unique_ptr<Parser> parser;
   std::unique_ptr<SymbolTable> rootScope;
   std::vector<std::unique_ptr<Type>> typeCache;
+  AnalysisIndex index;
 
   ImportAliasMap importAliasToPath;
   ImportedNameSourceMap importedNameToSource;
@@ -55,6 +98,7 @@ struct AnalysisResult {
   std::unique_ptr<Parser> parser;
   std::unique_ptr<SymbolTable> rootScope;
   std::vector<std::unique_ptr<Type>> typeCache;
+  AnalysisIndex index;
   ImportAliasMap importAliasToPath;
   ImportedNameSourceMap importedNameToSource;
   std::unordered_map<std::string, std::shared_ptr<ImportedModuleAnalysis>> importedModules;
@@ -64,5 +108,7 @@ struct AnalysisResult {
 
 /** Run lexer, parser, and typechecker. Does not run codegen. */
 auto analyze(std::unique_ptr<Options> options) -> AnalysisResult;
+auto buildAnalysisIndex(const Compound* ast, llvm::SourceMgr* srcMgr, unsigned bufferId)
+    -> AnalysisIndex;
 
 } // namespace lesma

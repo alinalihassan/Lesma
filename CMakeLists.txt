@@ -112,6 +112,7 @@ set(COMMON_SOURCES
   src/liblesma/Frontend/Lexer.cpp
   src/liblesma/Frontend/Parser.cpp
   src/liblesma/Token/Token.cpp
+  src/liblesma/Typecheck/AnalysisIndex.cpp
   src/liblesma/Typecheck/Typechecker.cpp
   src/liblesma/Backend/Codegen.cpp
   src/liblesma/Backend/CodegenTypeUtils.cpp

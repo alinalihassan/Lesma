@@ -65,7 +65,8 @@ auto makeSpecializedDisplayName(Type* classTemplate,
       result += ", ";
     }
     auto it = env.find(genericParamNames[i]);
-    result += it != env.end() && it->second != nullptr ? it->second->toString() : genericParamNames[i];
+    result +=
+        it != env.end() && it->second != nullptr ? it->second->toString() : genericParamNames[i];
   }
   result += ">";
   return result;
@@ -167,9 +168,8 @@ auto Typechecker::materializeImportedType(Type* type) -> Type* {
     if (auto tmplIt = specializedTypeToTemplate.find(type);
         tmplIt != specializedTypeToTemplate.end()) {
       specializedTypeToTemplate[copy] = materializeImportedType(tmplIt->second);
-      copy->setDisplayName(
-          makeSpecializedDisplayName(specializedTypeToTemplate[copy], copy->getGenericParams(),
-                                     specializedTypeEnv[copy]));
+      copy->setDisplayName(makeSpecializedDisplayName(
+          specializedTypeToTemplate[copy], copy->getGenericParams(), specializedTypeEnv[copy]));
     }
     return copy;
   }
@@ -787,7 +787,8 @@ auto Typechecker::visit(const Class* node) -> void {
       fields.push_back(std::make_unique<Field>(field->getIdentifier()->getValue(), fieldType));
     }
     auto type = std::make_unique<Type>(BaseType::TY_CLASS, nullptr, std::move(fields));
-    type->setDisplayName(node->getIdentifier() + makeGenericDisplaySuffix(node->getGenericParams()));
+    type->setDisplayName(node->getIdentifier() +
+                         makeGenericDisplaySuffix(node->getGenericParams()));
     classTypePtr = type.get();
     outerScope->insertType(node->getIdentifier(), std::move(type));
     auto classSymbol = std::make_unique<Value>(node->getIdentifier(), classTypePtr);
@@ -920,7 +921,8 @@ auto Typechecker::visit(const FuncDecl* node) -> void {
       throw TypeCheckError(node->getSpan(), "Function not found during definition pass: {}",
                            node->getName());
     }
-    // Set resolvedSymbol in definition pass (should already be set in declaration pass, but ensure it)
+    // Set resolvedSymbol in definition pass (should already be set in declaration pass, but ensure
+    // it)
     const_cast<FuncDecl*>(node)->setResolvedSymbol(currentFunction);
     scope = currentFunction->getBodyScope();
     inTopLevel = false;

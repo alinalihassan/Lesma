@@ -68,6 +68,7 @@ auto getExportsFromFile(const std::string& filepath, bool isStd, const std::stri
   }
   return out;
 }
+
 } // namespace
 
 auto lesma::analyze(std::unique_ptr<Options> options) -> AnalysisResult {
@@ -156,6 +157,8 @@ auto lesma::analyze(std::unique_ptr<Options> options) -> AnalysisResult {
     result.importAliasToPath = typechecker.takeImportAliasToPath();
     result.importedNameToSource = typechecker.takeImportedNameToSource();
     result.importedModules = typechecker.takeImportedModules();
+    result.index = buildAnalysisIndex(result.parser != nullptr ? result.parser->getAst() : nullptr,
+                                      result.sourceMgr.get(), result.mainBufferId);
     return result;
   } catch (const LesmaError& err) {
     result.diagnostics.push_back(
@@ -169,6 +172,8 @@ auto lesma::analyze(std::unique_ptr<Options> options) -> AnalysisResult {
     result.importAliasToPath = typechecker.takeImportAliasToPath();
     result.importedNameToSource = typechecker.takeImportedNameToSource();
     result.importedModules = typechecker.takeImportedModules();
+    result.index = buildAnalysisIndex(result.parser != nullptr ? result.parser->getAst() : nullptr,
+                                      result.sourceMgr.get(), result.mainBufferId);
     return result;
   }
 }
