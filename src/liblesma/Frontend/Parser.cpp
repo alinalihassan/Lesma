@@ -755,8 +755,9 @@ auto Parser::parseFunctionDeclaration() -> std::unique_ptr<Statement> {
   }
 
   auto body = parseBlock();
+  auto funcEnd = body ? body->getEnd() : returnType->getEnd();
 
-  return std::make_unique<FuncDecl>(llvm::SMRange{loc.Start, returnType->getEnd()},
+  return std::make_unique<FuncDecl>(llvm::SMRange{loc.Start, funcEnd},
                                     identifier->lexeme, identifier->span, std::move(genericParams),
                                     std::move(returnType), std::move(parameters), std::move(body),
                                     false, isExported);
