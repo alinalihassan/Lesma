@@ -127,12 +127,28 @@ auto Typechecker::pathLeadsToEndWithoutReturn(const std::vector<Statement*>& sta
     // Can skip loop (0 iterations) and reach next statement.
     return pathLeadsToEndWithoutReturn(statements, index + 1);
   }
+  if (dynamic_cast<ForIn*>(s) != nullptr) {
+    return pathLeadsToEndWithoutReturn(statements, index + 1);
+  }
   // VarDecl, Assignment, ExpressionStatement, Break, Continue, Defer, etc.: fall through
   return pathLeadsToEndWithoutReturn(statements, index + 1);
 }
 
 auto Typechecker::blockAlwaysReturns(const Compound* body) -> bool {
   return !pathLeadsToEndWithoutReturn(body->getChildren(), 0);
+}
+
+auto Typechecker::visitExprWithExpectedType(const Expression* node, Type* expected) -> void {
+  expectedTypes.push_back(expected);
+  node->accept(*this);
+  expectedTypes.pop_back();
+}
+
+auto Typechecker::currentExpectedType() const -> Type* {
+  if (expectedTypes.empty()) {
+    return nullptr;
+  }
+  return expectedTypes.back();
 }
 
 auto Typechecker::cacheType(std::unique_ptr<Type> type) -> Type* {
@@ -455,6 +471,13 @@ auto Typechecker::resolveType(const TypeExpr* node) -> Type* {
     }
     return cacheType(std::make_unique<Type>(BaseType::TY_PTR, nullptr, elem));
   }
+  if (node->getType() == TokenType::LIST_TYPE) {
+    node->getElementType()->accept(*this);
+    Type* elem = result->getType();
+    auto* listType = cacheType(std::make_unique<Type>(BaseType::TY_ARRAY, nullptr, elem));
+    listType->setDisplayName("list");
+    return listType;
+  }
   if (node->getType() == TokenType::FUNC_TYPE) {
     node->getReturnType()->accept(*this);
     Type* retType = result->getType();
@@ -504,16 +527,12 @@ auto Typechecker::resolveType(const TypeExpr* node) -> Type* {
   throw TypeCheckError(node->getSpan(), "Unimplemented type {}", NAMEOF_ENUM(node->getType()));
 }
 
-Typechecker::Typechecker() : mainFilePath(), getExports() {
-  rootScope = std::make_unique<SymbolTable>(nullptr);
-  scope = rootScope.get();
-}
+Typechecker::Typechecker()
+    : rootScope(std::make_unique<SymbolTable>(nullptr)), scope(rootScope.get()) {}
 
-Typechecker::Typechecker(std::string mainFilePath_, GetExportsFn getExports_)
-    : mainFilePath(std::move(mainFilePath_)), getExports(std::move(getExports_)) {
-  rootScope = std::make_unique<SymbolTable>(nullptr);
-  scope = rootScope.get();
-}
+Typechecker::Typechecker(std::string mainFilePath, GetExportsFn getExports)
+    : rootScope(std::make_unique<SymbolTable>(nullptr)), scope(rootScope.get()),
+      mainFilePath(std::move(mainFilePath)), getExports(std::move(getExports)) {}
 
 void Typechecker::loadImplicitBaseModule() {
   const auto basePath =
@@ -634,7 +653,7 @@ auto Typechecker::visit(const VarDecl* node) -> void {
     declType = result->getType();
   }
   if (node->getValue() != nullptr) {
-    node->getValue()->accept(*this);
+    visitExprWithExpectedType(node->getValue(), declType);
     Type* initType = result->getType();
     if (declType != nullptr) {
       if (!isAssignableTo(initType, declType)) {
@@ -686,11 +705,38 @@ auto Typechecker::visit(const While* node) -> void {
   node->getBlock()->accept(*this);
 }
 
+auto Typechecker::visit(const ForIn* node) -> void {
+  node->getIterable()->accept(*this);
+  Type* iterableType = result->getType();
+  if (iterableType == nullptr || !iterableType->is(BaseType::TY_ARRAY) ||
+      iterableType->getElementType() == nullptr) {
+    throw TypeCheckError(node->getIterable()->getSpan(), "For-in requires list<T>, got {}",
+                         iterableType != nullptr ? iterableType->toString() : "unknown");
+  }
+
+  SymbolTable* child = scope->createChildBlock("for");
+  node->setBodyScope(child);
+  SymbolTable* savedScope = scope;
+  scope = child;
+
+  auto symbol = std::make_unique<Value>(node->getIdentifier()->getValue(), iterableType->getElementType(),
+                                        SymbolState::INITIALIZED);
+  symbol->setCategory(ValueCategory::ADDRESSABLE_STORAGE);
+  symbol->setMutable(false);
+  symbol->setDeclarationSpan(node->getIdentifier()->getSpan());
+  symbol->setDeclarationFilePath(mainFilePath);
+  node->getIdentifier()->setResolvedSymbol(symbol.get());
+  scope->insertSymbol(std::move(symbol));
+
+  node->getBlock()->accept(*this);
+  scope = savedScope;
+}
+
 auto Typechecker::visit(const Import* node) -> void {
   if (!declarationPass) {
     return;
   }
-  auto importType = cacheType(std::make_unique<Type>(BaseType::TY_IMPORT));
+  auto* importType = cacheType(std::make_unique<Type>(BaseType::TY_IMPORT));
   const std::string resolvedPath = resolveImportPath(node->getFilePath(), node->isStd());
   auto addImportSymbol = [this, &importType](const std::string& name) {
     if (!name.empty()) {
@@ -1064,7 +1110,7 @@ auto Typechecker::visit(const Assignment* node) -> void {
                            lit->getValue());
     }
     Type* lhsType = sym->getType();
-    node->getRightHandSide()->accept(*this);
+    visitExprWithExpectedType(node->getRightHandSide(), lhsType);
     Type* rhsType = result->getType();
     if (binaryOp.has_value()) {
       Type* resultType = typecheckBinaryOpResult(*binaryOp, lhsType, rhsType, node->getSpan());
@@ -1090,7 +1136,7 @@ auto Typechecker::visit(const Assignment* node) -> void {
     node->getLeftHandSide()->accept(*this);
     Type* lhsType = result->getType();
     Type* targetType = lhsType;
-    node->getRightHandSide()->accept(*this);
+    visitExprWithExpectedType(node->getRightHandSide(), targetType);
     Type* rhsType = result->getType();
     if (binaryOp.has_value()) {
       Type* resultType = typecheckBinaryOpResult(*binaryOp, targetType, rhsType, node->getSpan());
@@ -1134,7 +1180,7 @@ auto Typechecker::visit(const Return* node) -> void {
     }
     return;
   }
-  node->getValue()->accept(*this);
+  visitExprWithExpectedType(node->getValue(), expected);
   if (!isAssignableTo(result->getType(), expected)) {
     throw TypeCheckError(node->getSpan(), "Return type does not match: expected {}, got {}",
                          expected->toString(), result->getType()->toString());
@@ -1634,6 +1680,61 @@ auto Typechecker::visit(const UnaryOp* node) -> void {
     throw TypeCheckError(node->getSpan(), "Unsupported unary operator: {}",
                          NAMEOF_ENUM(node->getOperator()));
   }
+}
+
+auto Typechecker::visit(const ListLiteral* node) -> void {
+  Type* expectedType = currentExpectedType();
+  Type* expectedElementType =
+      expectedType != nullptr && expectedType->is(BaseType::TY_ARRAY) ? expectedType->getElementType()
+                                                                      : nullptr;
+  std::vector<Expression*> elements = node->getElements();
+  if (elements.empty()) {
+    if (expectedType == nullptr || !expectedType->is(BaseType::TY_ARRAY) ||
+        expectedElementType == nullptr) {
+      throw TypeCheckError(node->getSpan(), "Empty list literal requires an explicit list<T> context");
+    }
+    node->setResolvedType(expectedType);
+    result = std::make_unique<Value>(expectedType);
+    return;
+  }
+
+  Type* elementType = expectedElementType;
+  for (Expression* element : elements) {
+    visitExprWithExpectedType(element, expectedElementType);
+    Type* current = result->getType();
+    if (current == nullptr) {
+      throw TypeCheckError(element->getSpan(), "List element has unknown type");
+    }
+    if (expectedElementType != nullptr) {
+      if (!isAssignableTo(current, expectedElementType)) {
+        throw TypeCheckError(element->getSpan(),
+                             "List element type {} is not assignable to expected type {}",
+                             current->toString(), expectedElementType->toString());
+      }
+      continue;
+    }
+    if (elementType == nullptr) {
+      elementType = current;
+      continue;
+    }
+    Type* unified = getExtendedType(elementType, current);
+    if (unified != nullptr) {
+      elementType = unified;
+      continue;
+    }
+    if (!current->isEqual(elementType)) {
+      throw TypeCheckError(element->getSpan(), "List elements must have a common type, got {} and {}",
+                           elementType->toString(), current->toString());
+    }
+  }
+
+  Type* listType = expectedType;
+  if (listType == nullptr) {
+    listType = cacheType(std::make_unique<Type>(BaseType::TY_ARRAY, nullptr, elementType));
+    listType->setDisplayName("list");
+  }
+  node->setResolvedType(listType);
+  result = std::make_unique<Value>(listType);
 }
 
 auto Typechecker::visit(const Literal* node) -> void {

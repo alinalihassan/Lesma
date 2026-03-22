@@ -561,6 +561,13 @@ auto resolveDeclarationSymbolInStmt(const lesma::Statement* stmt, llvm::SourceMg
   if (auto const* whileNode = dynamic_cast<const lesma::While*>(stmt)) {
     return resolveDeclarationSymbolInStmt(whileNode->getBlock(), srcMgr, bufferId, declarationSpan);
   }
+  if (auto const* forNode = dynamic_cast<const lesma::ForIn*>(stmt)) {
+    lesma::Literal* ident = forNode->getIdentifier();
+    if (ident != nullptr && smRangesEqual(srcMgr, bufferId, ident->getSpan(), declarationSpan)) {
+      return ident->getResolvedSymbol();
+    }
+    return resolveDeclarationSymbolInStmt(forNode->getBlock(), srcMgr, bufferId, declarationSpan);
+  }
   if (auto const* defer = dynamic_cast<const lesma::Defer*>(stmt)) {
     return resolveDeclarationSymbolInStmt(defer->getStatement(), srcMgr, bufferId, declarationSpan);
   }
@@ -915,6 +922,27 @@ InnermostFunc findFuncWithCursorInSignature(lesma::Compound* ast, unsigned targe
           return;
         }
       }
+      return;
+    }
+    if (auto const* ifNode = dynamic_cast<const lesma::If*>(stmt)) {
+      for (lesma::Compound* block : ifNode->getBlocks()) {
+        scan(block, cls);
+        if (out.func != nullptr) {
+          return;
+        }
+      }
+      return;
+    }
+    if (auto const* whileNode = dynamic_cast<const lesma::While*>(stmt)) {
+      scan(whileNode->getBlock(), cls);
+      return;
+    }
+    if (auto const* forNode = dynamic_cast<const lesma::ForIn*>(stmt)) {
+      scan(forNode->getBlock(), cls);
+      return;
+    }
+    if (auto const* defer = dynamic_cast<const lesma::Defer*>(stmt)) {
+      scan(defer->getStatement(), cls);
     }
   };
   for (lesma::Statement* s : ast->getChildren()) {
@@ -962,6 +990,27 @@ auto findExternFuncWithCursorInSignature(const lesma::Compound* ast, unsigned ta
           return;
         }
       }
+      return;
+    }
+    if (auto const* ifNode = dynamic_cast<const lesma::If*>(stmt)) {
+      for (lesma::Compound* block : ifNode->getBlocks()) {
+        scan(block);
+        if (out != nullptr) {
+          return;
+        }
+      }
+      return;
+    }
+    if (auto const* whileNode = dynamic_cast<const lesma::While*>(stmt)) {
+      scan(whileNode->getBlock());
+      return;
+    }
+    if (auto const* forNode = dynamic_cast<const lesma::ForIn*>(stmt)) {
+      scan(forNode->getBlock());
+      return;
+    }
+    if (auto const* defer = dynamic_cast<const lesma::Defer*>(stmt)) {
+      scan(defer->getStatement());
     }
   };
   for (lesma::Statement* stmt : ast->getChildren()) {
@@ -1007,6 +1056,24 @@ auto findEnclosingClassContaining(const lesma::Compound* ast, unsigned targetOff
       for (lesma::Statement* child : compound->getChildren()) {
         scan(child);
       }
+      return;
+    }
+    if (auto const* ifNode = dynamic_cast<const lesma::If*>(stmt)) {
+      for (lesma::Compound* block : ifNode->getBlocks()) {
+        scan(block);
+      }
+      return;
+    }
+    if (auto const* whileNode = dynamic_cast<const lesma::While*>(stmt)) {
+      scan(whileNode->getBlock());
+      return;
+    }
+    if (auto const* forNode = dynamic_cast<const lesma::ForIn*>(stmt)) {
+      scan(forNode->getBlock());
+      return;
+    }
+    if (auto const* defer = dynamic_cast<const lesma::Defer*>(stmt)) {
+      scan(defer->getStatement());
     }
   };
   for (lesma::Statement* stmt : ast->getChildren()) {

@@ -21,6 +21,7 @@
 namespace lesma {
 class Value;
 class SymbolTable;
+class Type;
 
 class AST {
   llvm::SMRange loc;
@@ -364,6 +365,35 @@ public:
         srcMgr->getLineAndColumn(getStart()).second, srcMgr->getLineAndColumn(getEnd()).second,
         prefix + (isTail ? "    " : "│   "), "└──", cond->toString(srcMgr, prefix, true),
         block->toString(srcMgr, prefix + (isTail ? "        " : "│       "), true));
+  }
+};
+
+class ForIn : public Statement {
+  std::unique_ptr<Literal> var;
+  std::unique_ptr<Expression> iterable;
+  std::unique_ptr<Compound> block;
+  mutable SymbolTable* bodyScope = nullptr;
+
+public:
+  ForIn(llvm::SMRange loc, std::unique_ptr<Literal> var, std::unique_ptr<Expression> iterable,
+        std::unique_ptr<Compound> block)
+      : Statement(loc), var(std::move(var)), iterable(std::move(iterable)), block(std::move(block)) {}
+  void accept(ASTVisitor& visitor) const override { visitor.visit(this); }
+
+  [[nodiscard]] auto getIdentifier() const -> Literal* { return var.get(); }
+  [[nodiscard]] auto getIterable() const -> Expression* { return iterable.get(); }
+  [[nodiscard]] auto getBlock() const -> Compound* { return block.get(); }
+  [[nodiscard]] auto getBodyScope() const -> SymbolTable* { return bodyScope; }
+  auto setBodyScope(SymbolTable* scope) const -> void { bodyScope = scope; }
+
+  auto toString(llvm::SourceMgr* srcMgr, const std::string& prefix, bool isTail) const
+      -> std::string override {
+    return fmt::format(
+        "{}{}ForIn[Line({}-{}):Col({}-{})]: {} in {}\n{}", prefix, isTail ? "└──" : "├──",
+        srcMgr->getLineAndColumn(getStart()).first, srcMgr->getLineAndColumn(getEnd()).first,
+        srcMgr->getLineAndColumn(getStart()).second, srcMgr->getLineAndColumn(getEnd()).second,
+        var->toString(srcMgr, prefix, true), iterable->toString(srcMgr, prefix, true),
+        block->toString(srcMgr, prefix + (isTail ? "    " : "│   "), true));
   }
 };
 
@@ -734,6 +764,40 @@ public:
   auto toString(llvm::SourceMgr* srcMgr, const std::string& prefix, bool isTail) const
       -> std::string override {
     return std::string{NAMEOF_ENUM(op)} + expr->toString(srcMgr, prefix, isTail);
+  }
+};
+
+class ListLiteral : public Expression {
+  std::vector<std::unique_ptr<Expression>> elements;
+  mutable Type* resolvedType = nullptr;
+
+public:
+  ListLiteral(llvm::SMRange loc, std::vector<std::unique_ptr<Expression>> elements)
+      : Expression(loc), elements(std::move(elements)) {}
+  void accept(ASTVisitor& visitor) const override { visitor.visit(this); }
+
+  [[nodiscard]] auto getElements() const -> std::vector<Expression*> {
+    std::vector<Expression*> result;
+    result.reserve(elements.size());
+    for (const auto& element : elements) {
+      result.push_back(element.get());
+    }
+    return result;
+  }
+  [[nodiscard]] auto getResolvedType() const -> Type* { return resolvedType; }
+  auto setResolvedType(Type* type) const -> void { resolvedType = type; }
+
+  auto toString(llvm::SourceMgr* srcMgr, const std::string& prefix, bool isTail) const
+      -> std::string override {
+    std::string result = "[";
+    for (const auto& element : elements) {
+      result += element->toString(srcMgr, prefix, isTail);
+      if (element.get() != elements.back().get()) {
+        result += ", ";
+      }
+    }
+    result += "]";
+    return result;
   }
 };
 

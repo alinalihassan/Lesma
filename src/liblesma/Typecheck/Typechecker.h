@@ -61,6 +61,7 @@ class Typechecker final : public ASTVisitor {
   std::unordered_map<Type*, Type*> specializedTypeToTemplate;
   /** Imported types materialized into this typechecker's cache so they outlive imported scopes. */
   std::unordered_map<Type*, Type*> importedTypeCopies;
+  std::vector<Type*> expectedTypes;
 
   /** Declared generic param list for a class or function type (resolves to template for specialized
    * classes). */
@@ -104,6 +105,8 @@ class Typechecker final : public ASTVisitor {
    */
   auto typecheckBinaryOpResult(TokenType op, Type* leftTy, Type* rightTy, llvm::SMRange span)
       -> Type*;
+  auto visitExprWithExpectedType(const Expression* node, Type* expected) -> void;
+  [[nodiscard]] auto currentExpectedType() const -> Type*;
   /** Map compound-assignment operator to the corresponding binary operator; nullopt if not
    * compound. */
   auto compoundToBinaryOp(TokenType op) -> std::optional<TokenType>;
@@ -123,6 +126,8 @@ public:
 
   Typechecker(const Typechecker&) = delete;
   auto operator=(const Typechecker&) -> Typechecker& = delete;
+  Typechecker(Typechecker&&) = delete;
+  auto operator=(Typechecker&&) -> Typechecker& = delete;
 
   /** Run typecheck on the given AST. Throws TypeCheckError on first error. */
   auto run(const Compound* ast) -> void;
@@ -142,6 +147,7 @@ public:
   auto visit(const VarDecl* node) -> void override;
   auto visit(const If* node) -> void override;
   auto visit(const While* node) -> void override;
+  auto visit(const ForIn* node) -> void override;
   auto visit(const Import* node) -> void override;
   auto visit(const Enum* node) -> void override;
   auto visit(const Class* node) -> void override;
@@ -163,6 +169,7 @@ public:
   auto visit(const IsOp* node) -> void override;
   auto visit(const UnaryOp* node) -> void override;
   auto visit(const Literal* node) -> void override;
+  auto visit(const ListLiteral* node) -> void override;
   auto visit(const Else* node) -> void override;
 
   auto visit(const TypeExpr* node) -> void override;

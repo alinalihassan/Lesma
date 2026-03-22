@@ -291,7 +291,7 @@ public:
       result = "Pointer";
       break;
     case BaseType::TY_ARRAY:
-      result = "Array";
+      result = displayName.empty() ? "list" : displayName;
       break;
     case BaseType::TY_VOID:
       result = "Void";

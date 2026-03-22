@@ -107,8 +107,15 @@ auto collectIndexFromTypeExpr(const TypeExpr* typeExpr, AnalysisIndex& index) ->
     return;
   }
   if (typeExpr->getType() != TokenType::PTR_TYPE && typeExpr->getType() != TokenType::FUNC_TYPE) {
-    appendIndexedOccurrence(index, typeExpr->getName(), std::nullopt, typeExpr->getSpan(), true,
-                            false, 0U, IndexedTokenKind::Type, typeExpr->getResolvedSymbol());
+    Value* const resolvedSymbol = typeExpr->getResolvedSymbol();
+    llvm::SMRange span = typeExpr->getSpan();
+    std::string name = typeExpr->getName();
+    if (typeExpr->getType() == TokenType::LIST_TYPE) {
+      name = "list";
+      span = makeNameSpan(typeExpr->getStart(), name);
+    }
+    appendIndexedOccurrence(index, name, std::nullopt, span, true, false, 0U,
+                            IndexedTokenKind::Type, resolvedSymbol);
   }
   collectIndexFromTypeExpr(typeExpr->getElementType(), index);
   for (TypeExpr* param : typeExpr->getParams()) {
@@ -182,6 +189,12 @@ auto collectIndexFromExpr(const Expression* expr, AnalysisIndex& index) -> void 
   }
   if (auto const* unary = dynamic_cast<const UnaryOp*>(expr)) {
     collectIndexFromExpr(unary->getExpression(), index);
+    return;
+  }
+  if (auto const* list = dynamic_cast<const ListLiteral*>(expr)) {
+    for (Expression* element : list->getElements()) {
+      collectIndexFromExpr(element, index);
+    }
     return;
   }
   if (auto const* castOp = dynamic_cast<const CastOp*>(expr)) {
@@ -285,6 +298,17 @@ auto collectIndexFromStmt(const Statement* stmt, AnalysisIndex& index, bool inCl
   if (auto const* whileNode = dynamic_cast<const While*>(stmt)) {
     collectIndexFromExpr(whileNode->getCond(), index);
     collectIndexFromStmt(whileNode->getBlock(), index, false);
+    return;
+  }
+  if (auto const* forNode = dynamic_cast<const ForIn*>(stmt)) {
+    if (forNode->getIdentifier() != nullptr) {
+      appendIndexedOccurrence(index, forNode->getIdentifier()->getValue(), std::nullopt,
+                              forNode->getIdentifier()->getSpan(), false, false,
+                              analysis_index_modifier::DECLARATION, IndexedTokenKind::Variable,
+                              forNode->getIdentifier()->getResolvedSymbol());
+    }
+    collectIndexFromExpr(forNode->getIterable(), index);
+    collectIndexFromStmt(forNode->getBlock(), index, false);
     return;
   }
   if (auto const* assign = dynamic_cast<const Assignment*>(stmt)) {

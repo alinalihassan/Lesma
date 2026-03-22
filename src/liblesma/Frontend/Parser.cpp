@@ -139,6 +139,14 @@ auto Parser::parseType() -> std::unique_ptr<TypeExpr> {
 
   if (check(TokenType::IDENTIFIER)) {
     advance();
+    if (type->lexeme == "list") {
+      consume(TokenType::LESS, "Expected '<' after list");
+      auto elementType = parseType();
+      auto* greater = consume(TokenType::GREATER, "Expected '>' after list element type");
+      return std::make_unique<TypeExpr>(
+          llvm::SMRange{type->getStart(), greater->getEnd()},
+          "list<" + elementType->getName() + ">", TokenType::LIST_TYPE, std::move(elementType));
+    }
     return std::make_unique<TypeExpr>(type->span, type->lexeme, TokenType::CUSTOM_TYPE);
   }
 
@@ -197,6 +205,21 @@ auto Parser::parseTypeAt(unsigned long& off) -> bool {
   }
 
   if (check(TokenType::IDENTIFIER, off)) {
+    if (peek(off)->lexeme == "list") {
+      off++;
+      if (index + off >= tokens.size() || peek(off)->type != TokenType::LESS) {
+        return false;
+      }
+      off++;
+      if (!parseTypeAt(off)) {
+        return false;
+      }
+      if (index + off >= tokens.size() || peek(off)->type != TokenType::GREATER) {
+        return false;
+      }
+      off++;
+      return true;
+    }
     off++;
     return true;
   }
@@ -267,6 +290,20 @@ auto Parser::parseFunctionCall() -> std::unique_ptr<Expression> {
                                     token->lexeme, std::move(explicitTypeArgs), std::move(params));
 }
 
+auto Parser::parseListLiteral() -> std::unique_ptr<Expression> {
+  auto* start = consume(TokenType::LEFT_SQUARE);
+  std::vector<std::unique_ptr<Expression>> elements;
+  while (!check(TokenType::RIGHT_SQUARE)) {
+    elements.push_back(parseExpression());
+    if (!check(TokenType::RIGHT_SQUARE)) {
+      consume(TokenType::COMMA);
+    }
+  }
+  auto* end = consume(TokenType::RIGHT_SQUARE);
+  return std::make_unique<ListLiteral>(llvm::SMRange{start->getStart(), end->getEnd()},
+                                       std::move(elements));
+}
+
 auto Parser::parseTerm() -> std::unique_ptr<Expression> {
   switch (peek()->type) {
   case TokenType::STRING:
@@ -292,6 +329,8 @@ auto Parser::parseTerm() -> std::unique_ptr<Expression> {
     consume(TokenType::RIGHT_PAREN);
     return expr;
   }
+  case TokenType::LEFT_SQUARE:
+    return parseListLiteral();
   case TokenType::TRUE_:
   case TokenType::FALSE_: {
     auto* token = peek();
@@ -506,12 +545,13 @@ auto Parser::parseWhile() -> std::unique_ptr<Statement> {
 auto Parser::parseFor() -> std::unique_ptr<Statement> {
   auto loc = peek()->span;
   consume(TokenType::FOR);
-  consume(TokenType::IDENTIFIER);
+  auto* identifier = consume(TokenType::IDENTIFIER);
   consume(TokenType::IN);
-  parseExpression();
+  auto iterable = parseExpression();
   auto block = parseBlock();
-  return std::make_unique<UnimplementedStatement>(llvm::SMRange{loc.Start, block->getEnd()},
-                                                  "for loop is not yet implemented");
+  auto var = std::make_unique<Literal>(identifier->span, identifier->lexeme, identifier->type);
+  return std::make_unique<ForIn>(llvm::SMRange{loc.Start, block->getEnd()}, std::move(var),
+                                 std::move(iterable), std::move(block));
 }
 
 auto Parser::parseAssignment() -> std::unique_ptr<Statement> {

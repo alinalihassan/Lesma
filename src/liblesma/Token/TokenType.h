@@ -64,6 +64,7 @@ enum class TokenType : std::uint8_t {
   VOID_TYPE,
   FUNC_TYPE,
   PTR_TYPE,
+  LIST_TYPE,
   CUSTOM_TYPE,
   INT8_TYPE,
   INT16_TYPE,
