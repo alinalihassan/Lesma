@@ -6,6 +6,7 @@
 #include "liblesma/Backend/Codegen.h"
 #include "liblesma/Frontend/Lexer.h"
 #include "liblesma/Frontend/Parser.h"
+#include "liblesma/Typecheck/Typechecker.h"
 
 using namespace lesma;
 
@@ -53,8 +54,11 @@ auto InitializeParser(const std::shared_ptr<Lexer>& lexer)
 
 auto InitializeCodegen(std::shared_ptr<Parser> parser,
                        const std::shared_ptr<SourceMgr>& srcMgr) -> Codegen* {
-  auto* codegen =
-      new Codegen(std::move(parser), srcMgr, __FILE__, {}, true, true);
+  Typechecker typechecker;
+  typechecker.run(parser->getAst());
+  auto* codegen = new Codegen(std::move(parser), srcMgr, __FILE__, {}, true, true, "", nullptr,
+                              nullptr, nullptr, typechecker.takeRootScope(),
+                              typechecker.takeTypeCache());
   codegen->run();
 
   return codegen;

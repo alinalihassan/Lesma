@@ -19,6 +19,7 @@
 #include "liblesma/Frontend/Parser.h"
 #include "liblesma/Token/Token.h"
 #include "liblesma/Token/TokenType.h"
+#include "liblesma/Typecheck/Typechecker.h"
 
 using namespace lesma;
 
@@ -51,9 +52,11 @@ auto initializeParser(std::unique_ptr<Lexer> lexer) -> std::unique_ptr<Parser> {
 auto initializeCodegen(std::unique_ptr<Parser> parser,
                        const std::shared_ptr<SourceMgr>& srcMgr)
     -> std::unique_ptr<Codegen> {
-  auto codegen =
-      std::make_unique<Codegen>(std::move(parser), srcMgr, __FILE__,
-                                std::vector<std::string>{}, true, true);
+  Typechecker typechecker;
+  typechecker.run(parser->getAst());
+  auto codegen = std::make_unique<Codegen>(
+      std::move(parser), srcMgr, __FILE__, std::vector<std::string>{}, true, true, "", nullptr,
+      nullptr, nullptr, typechecker.takeRootScope(), typechecker.takeTypeCache());
   codegen->run();
 
   return codegen;
