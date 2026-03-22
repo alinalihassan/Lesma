@@ -15,8 +15,7 @@ test_compiler() {
   else
     "${compiler_path}" "${mode}" "${file}"
   fi
-  local ret=$?
-  return $ret
+  return $?
 }
 
 test_case() {
