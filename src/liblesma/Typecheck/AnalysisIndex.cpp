@@ -118,6 +118,9 @@ auto resolvedTypeForExpr(const Expression* expr) -> Type* {
 }
 
 auto memberReceiverName(const Expression* expr) -> std::optional<std::string> {
+  if (auto const* dot = dynamic_cast<const DotOp*>(expr)) {
+    return memberReceiverName(dot->getLeft());
+  }
   auto const* lit = dynamic_cast<const Literal*>(expr);
   if (lit == nullptr || lit->getType() != TokenType::IDENTIFIER) {
     return std::nullopt;
@@ -126,11 +129,15 @@ auto memberReceiverName(const Expression* expr) -> std::optional<std::string> {
 }
 
 auto memberBaseName(const Expression* expr) -> std::optional<std::string> {
-  std::optional<std::string> receiverName = memberReceiverName(expr);
+  Expression const* baseExpr = expr;
+  if (auto const* dot = dynamic_cast<const DotOp*>(expr)) {
+    baseExpr = dot->getLeft();
+  }
+  std::optional<std::string> receiverName = memberReceiverName(baseExpr);
   if (!receiverName.has_value()) {
     return std::nullopt;
   }
-  Type* resolvedType = resolvedTypeForExpr(expr);
+  Type* resolvedType = resolvedTypeForExpr(baseExpr);
   if (resolvedType == nullptr) {
     return std::nullopt;
   }
