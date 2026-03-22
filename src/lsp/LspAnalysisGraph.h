@@ -31,6 +31,8 @@ auto makeAnalysisView(lesma::ImportedModuleAnalysis& result) -> AnalysisView;
 auto isUsableAnalysis(const AnalysisView& analysis) -> bool;
 
 auto normalizePath(const std::string& path) -> std::string;
+auto invalidateLazyImportedAnalysis(const std::string& path) -> void;
+auto invalidateAllLazyImportedAnalyses() -> void;
 auto uriFromPath(const std::string& path) -> ::lsp::DocumentUri;
 auto smRangeToLspRange(llvm::SourceMgr* srcMgr, unsigned bufferId, llvm::SMRange span)
     -> ::lsp::Range;

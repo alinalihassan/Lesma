@@ -13,6 +13,16 @@
 namespace lesma::lsp_srv {
 namespace {
 
+struct LazyImportedAnalysisCacheState {
+  std::unordered_map<std::string, std::shared_ptr<lesma::ImportedModuleAnalysis>> cache;
+  std::mutex cacheMutex;
+};
+
+auto lazyImportedAnalysisCacheState() -> LazyImportedAnalysisCacheState& {
+  static LazyImportedAnalysisCacheState state;
+  return state;
+}
+
 auto resolveImportAbsolutePath(const AnalysisView& analysis, const lesma::Import* importNode)
     -> std::string {
   if (importNode == nullptr) {
@@ -128,14 +138,16 @@ auto makeImportedModuleAnalysis(AnalysisResult analyzed)
 
 auto getLazyImportedAnalysis(const std::string& path)
     -> std::shared_ptr<lesma::ImportedModuleAnalysis> {
-  static std::unordered_map<std::string, std::shared_ptr<lesma::ImportedModuleAnalysis>> cache;
-  static std::mutex cacheMutex;
   std::string normalized = normalizePath(path);
+  if (normalized.empty()) {
+    return nullptr;
+  }
+  auto& cacheState = lazyImportedAnalysisCacheState();
 
   {
-    std::lock_guard<std::mutex> lock(cacheMutex);
-    auto existing = cache.find(normalized);
-    if (existing != cache.end()) {
+    std::lock_guard<std::mutex> lock(cacheState.cacheMutex);
+    auto existing = cacheState.cache.find(normalized);
+    if (existing != cacheState.cache.end()) {
       return existing->second;
     }
   }
@@ -151,24 +163,23 @@ auto getLazyImportedAnalysis(const std::string& path)
   AnalysisResult analyzed = lesma::analyze(std::move(options));
   AnalysisView view = makeAnalysisView(analyzed);
   if (!isUsableAnalysis(view)) {
-    std::lock_guard<std::mutex> lock(cacheMutex);
-    auto existing = cache.find(normalized);
-    if (existing != cache.end()) {
+    std::lock_guard<std::mutex> lock(cacheState.cacheMutex);
+    auto existing = cacheState.cache.find(normalized);
+    if (existing != cacheState.cache.end()) {
       return existing->second;
     }
-    cache[normalized] = nullptr;
-    return cache[normalized];
+    return nullptr;
   }
 
   std::shared_ptr<lesma::ImportedModuleAnalysis> imported =
       makeImportedModuleAnalysis(std::move(analyzed));
-  std::lock_guard<std::mutex> lock(cacheMutex);
-  auto existing = cache.find(normalized);
-  if (existing != cache.end()) {
+  std::lock_guard<std::mutex> lock(cacheState.cacheMutex);
+  auto existing = cacheState.cache.find(normalized);
+  if (existing != cacheState.cache.end()) {
     return existing->second;
   }
-  cache[normalized] = imported;
-  return cache[normalized];
+  cacheState.cache[normalized] = imported;
+  return cacheState.cache[normalized];
 }
 
 } // namespace
@@ -213,6 +224,22 @@ auto normalizePath(const std::string& path) -> std::string {
   std::error_code ec;
   std::filesystem::path const absolute = std::filesystem::absolute(std::filesystem::path(path), ec);
   return (!ec ? absolute : std::filesystem::path(path)).lexically_normal().string();
+}
+
+auto invalidateLazyImportedAnalysis(const std::string& path) -> void {
+  std::string normalized = normalizePath(path);
+  if (normalized.empty()) {
+    return;
+  }
+  auto& cacheState = lazyImportedAnalysisCacheState();
+  std::lock_guard<std::mutex> lock(cacheState.cacheMutex);
+  cacheState.cache.erase(normalized);
+}
+
+auto invalidateAllLazyImportedAnalyses() -> void {
+  auto& cacheState = lazyImportedAnalysisCacheState();
+  std::lock_guard<std::mutex> lock(cacheState.cacheMutex);
+  cacheState.cache.clear();
 }
 
 auto uriFromPath(const std::string& path) -> ::lsp::DocumentUri {
