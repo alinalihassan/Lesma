@@ -34,7 +34,7 @@ void decodeUtf8AndAdvance(llvm::StringRef text, std::size_t& i, char32_t& outCp)
   auto const lead = static_cast<unsigned char>(text.substr(i).front());
   std::size_t const len = utf8CodepointByteLength(lead);
   if (i + len > text.size()) {
-    outCp = static_cast<char32_t>(lead);
+    outCp = 0xFFFDU;
     i += 1;
     return;
   }
@@ -45,6 +45,11 @@ void decodeUtf8AndAdvance(llvm::StringRef text, std::size_t& i, char32_t& outCp)
   }
   if (len == 2U) {
     auto const c1 = static_cast<unsigned char>(text.substr(i + 1U).front());
+    if ((c1 & 0xC0U) != 0x80U) {
+      outCp = 0xFFFDU;
+      i += 1;
+      return;
+    }
     outCp = (static_cast<char32_t>(lead & 0x1FU) << 6) | static_cast<char32_t>(c1 & 0x3FU);
     i += 2;
     return;
@@ -52,6 +57,11 @@ void decodeUtf8AndAdvance(llvm::StringRef text, std::size_t& i, char32_t& outCp)
   if (len == 3U) {
     auto const c1 = static_cast<unsigned char>(text.substr(i + 1U).front());
     auto const c2 = static_cast<unsigned char>(text.substr(i + 2U).front());
+    if ((c1 & 0xC0U) != 0x80U || (c2 & 0xC0U) != 0x80U) {
+      outCp = 0xFFFDU;
+      i += 1;
+      return;
+    }
     outCp = (static_cast<char32_t>(lead & 0x0FU) << 12) | (static_cast<char32_t>(c1 & 0x3FU) << 6) |
             static_cast<char32_t>(c2 & 0x3FU);
     i += 3;
@@ -60,6 +70,11 @@ void decodeUtf8AndAdvance(llvm::StringRef text, std::size_t& i, char32_t& outCp)
   auto const c1 = static_cast<unsigned char>(text.substr(i + 1U).front());
   auto const c2 = static_cast<unsigned char>(text.substr(i + 2U).front());
   auto const c3 = static_cast<unsigned char>(text.substr(i + 3U).front());
+  if ((c1 & 0xC0U) != 0x80U || (c2 & 0xC0U) != 0x80U || (c3 & 0xC0U) != 0x80U) {
+    outCp = 0xFFFDU;
+    i += 1;
+    return;
+  }
   outCp = (static_cast<char32_t>(lead & 0x07U) << 18) | (static_cast<char32_t>(c1 & 0x3FU) << 12) |
           (static_cast<char32_t>(c2 & 0x3FU) << 6) | static_cast<char32_t>(c3 & 0x3FU);
   i += 4;
