@@ -121,6 +121,17 @@ struct EnumMemberIdentity {
   ::lsp::Range range;
 };
 
+struct FieldDeclarationMatch {
+  AnalysisView owner;
+  const lesma::Class* klass = nullptr;
+  lesma::VarDecl* field = nullptr;
+};
+
+struct MemberAccessSite {
+  const lesma::DotOp* dot = nullptr;
+  const lesma::Literal* member = nullptr;
+};
+
 auto makeAnalysisView(const AnalysisResult& result) -> AnalysisView {
   return AnalysisView{
       .sourceMgr = result.sourceMgr.get(),
@@ -1318,6 +1329,13 @@ auto resolveCanonicalSymbolAtCursor(const AnalysisResult& result, unsigned line,
 auto findEnumMemberDeclarationAtCursor(const AnalysisView& analysis, unsigned line,
                                        unsigned character,
                                        const std::string& memberName) -> std::optional<std::string>;
+auto findMemberAccessAtOffset(const AnalysisView& analysis, unsigned targetOffset) -> MemberAccessSite;
+auto resolveFieldDeclarationAtCursor(const AnalysisResult& result, const AnalysisView& analysis,
+                                     unsigned line, unsigned character, const CursorIdentifier& id)
+    -> std::optional<FieldDeclarationMatch>;
+auto symbolIdentityForFieldDeclaration(const FieldDeclarationMatch& match)
+    -> std::optional<SymbolIdentity>;
+auto locationForFieldDeclaration(const FieldDeclarationMatch& match) -> std::optional<::lsp::Location>;
 
 auto resolveExpressionTypeAtOffset(const lesma::Expression* expr, lesma::Compound* ast,
                                    lesma::SymbolTable* root, llvm::SourceMgr* srcMgr,
@@ -1444,6 +1462,215 @@ auto resolveExpressionTypeAtOffset(const lesma::Expression* expr, lesma::Compoun
     return nullptr;
   }
   return nullptr;
+}
+
+auto findMemberAccessInExpr(const lesma::Expression* expr, llvm::SourceMgr* srcMgr, unsigned bufferId,
+                            unsigned targetOffset, MemberAccessSite& best) -> void {
+  if (expr == nullptr) {
+    return;
+  }
+  if (auto const* dot = dynamic_cast<const lesma::DotOp*>(expr)) {
+    if (auto const* rightLit = dynamic_cast<const lesma::Literal*>(dot->getRight())) {
+      llvm::SMRange const memberSpan = rightLit->getSpan();
+      if (rightLit->getType() == lesma::TokenType::IDENTIFIER && memberSpan.isValid()) {
+        unsigned const start = getOffsetFromSMLoc(srcMgr, bufferId, memberSpan.Start);
+        unsigned const end = getOffsetFromSMLoc(srcMgr, bufferId, memberSpan.End);
+        if (targetOffset >= start && targetOffset < end) {
+          best = MemberAccessSite{.dot = dot, .member = rightLit};
+        }
+      }
+    }
+    findMemberAccessInExpr(dot->getLeft(), srcMgr, bufferId, targetOffset, best);
+    findMemberAccessInExpr(dot->getRight(), srcMgr, bufferId, targetOffset, best);
+    return;
+  }
+  if (auto const* call = dynamic_cast<const lesma::FuncCall*>(expr)) {
+    for (lesma::TypeExpr* typeArg : call->getExplicitTypeArgs()) {
+      findMemberAccessInExpr(typeArg, srcMgr, bufferId, targetOffset, best);
+    }
+    for (lesma::Expression* arg : call->getArguments()) {
+      findMemberAccessInExpr(arg, srcMgr, bufferId, targetOffset, best);
+    }
+    return;
+  }
+  if (auto const* binary = dynamic_cast<const lesma::BinaryOp*>(expr)) {
+    findMemberAccessInExpr(binary->getLeft(), srcMgr, bufferId, targetOffset, best);
+    findMemberAccessInExpr(binary->getRight(), srcMgr, bufferId, targetOffset, best);
+    return;
+  }
+  if (auto const* unary = dynamic_cast<const lesma::UnaryOp*>(expr)) {
+    findMemberAccessInExpr(unary->getExpression(), srcMgr, bufferId, targetOffset, best);
+    return;
+  }
+  if (auto const* castOp = dynamic_cast<const lesma::CastOp*>(expr)) {
+    findMemberAccessInExpr(castOp->getExpression(), srcMgr, bufferId, targetOffset, best);
+    return;
+  }
+  if (auto const* isOp = dynamic_cast<const lesma::IsOp*>(expr)) {
+    findMemberAccessInExpr(isOp->getLeft(), srcMgr, bufferId, targetOffset, best);
+  }
+}
+
+auto findMemberAccessInStmt(const lesma::Statement* stmt, llvm::SourceMgr* srcMgr, unsigned bufferId,
+                            unsigned targetOffset, MemberAccessSite& best) -> void {
+  if (stmt == nullptr) {
+    return;
+  }
+  if (auto const* varDecl = dynamic_cast<const lesma::VarDecl*>(stmt)) {
+    findMemberAccessInExpr(varDecl->getValue(), srcMgr, bufferId, targetOffset, best);
+    return;
+  }
+  if (auto const* func = dynamic_cast<const lesma::FuncDecl*>(stmt)) {
+    findMemberAccessInStmt(func->getBody(), srcMgr, bufferId, targetOffset, best);
+    return;
+  }
+  if (dynamic_cast<const lesma::ExternFuncDecl*>(stmt) != nullptr) {
+    return;
+  }
+  if (auto const* klass = dynamic_cast<const lesma::Class*>(stmt)) {
+    for (lesma::VarDecl* field : klass->getFields()) {
+      findMemberAccessInStmt(field, srcMgr, bufferId, targetOffset, best);
+    }
+    for (lesma::FuncDecl* method : klass->getMethods()) {
+      findMemberAccessInStmt(method, srcMgr, bufferId, targetOffset, best);
+    }
+    return;
+  }
+  if (auto const* exprStmt = dynamic_cast<const lesma::ExpressionStatement*>(stmt)) {
+    findMemberAccessInExpr(exprStmt->getExpression(), srcMgr, bufferId, targetOffset, best);
+    return;
+  }
+  if (auto const* ifNode = dynamic_cast<const lesma::If*>(stmt)) {
+    for (lesma::Expression* cond : ifNode->getConds()) {
+      findMemberAccessInExpr(cond, srcMgr, bufferId, targetOffset, best);
+    }
+    for (lesma::Compound* block : ifNode->getBlocks()) {
+      findMemberAccessInStmt(block, srcMgr, bufferId, targetOffset, best);
+    }
+    return;
+  }
+  if (auto const* whileNode = dynamic_cast<const lesma::While*>(stmt)) {
+    findMemberAccessInExpr(whileNode->getCond(), srcMgr, bufferId, targetOffset, best);
+    findMemberAccessInStmt(whileNode->getBlock(), srcMgr, bufferId, targetOffset, best);
+    return;
+  }
+  if (auto const* assign = dynamic_cast<const lesma::Assignment*>(stmt)) {
+    findMemberAccessInExpr(assign->getLeftHandSide(), srcMgr, bufferId, targetOffset, best);
+    findMemberAccessInExpr(assign->getRightHandSide(), srcMgr, bufferId, targetOffset, best);
+    return;
+  }
+  if (auto const* ret = dynamic_cast<const lesma::Return*>(stmt)) {
+    findMemberAccessInExpr(ret->getValue(), srcMgr, bufferId, targetOffset, best);
+    return;
+  }
+  if (auto const* defer = dynamic_cast<const lesma::Defer*>(stmt)) {
+    findMemberAccessInStmt(defer->getStatement(), srcMgr, bufferId, targetOffset, best);
+    return;
+  }
+  if (auto const* compound = dynamic_cast<const lesma::Compound*>(stmt)) {
+    for (lesma::Statement* child : compound->getChildren()) {
+      findMemberAccessInStmt(child, srcMgr, bufferId, targetOffset, best);
+    }
+  }
+}
+
+auto findMemberAccessAtOffset(const AnalysisView& analysis, unsigned targetOffset) -> MemberAccessSite {
+  MemberAccessSite best;
+  if (!isUsableAnalysis(analysis)) {
+    return best;
+  }
+  for (lesma::Statement* stmt : analysis.ast->getChildren()) {
+    findMemberAccessInStmt(stmt, analysis.sourceMgr, analysis.bufferId, targetOffset, best);
+  }
+  return best;
+}
+
+auto findClassFieldDeclaration(const AnalysisResult& result, lesma::Type* receiverType,
+                               const std::string& memberName)
+    -> std::optional<FieldDeclarationMatch> {
+  if (receiverType == nullptr) {
+    return std::nullopt;
+  }
+  if (receiverType->is(lesma::BaseType::TY_PTR) && receiverType->getElementType() != nullptr) {
+    receiverType = receiverType->getElementType();
+  }
+  if (!receiverType->is(lesma::BaseType::TY_CLASS)) {
+    return std::nullopt;
+  }
+  for (const AnalysisView& analysis : collectAnalysisViews(result)) {
+    if (!isUsableAnalysis(analysis)) {
+      continue;
+    }
+    for (lesma::Statement* stmt : analysis.ast->getChildren()) {
+      auto const* klass = dynamic_cast<const lesma::Class*>(stmt);
+      if (klass == nullptr || klass->getResolvedSymbol() == nullptr ||
+          klass->getResolvedSymbol()->getType() == nullptr ||
+          !klass->getResolvedSymbol()->getType()->isEqual(receiverType)) {
+        continue;
+      }
+      for (lesma::VarDecl* field : klass->getFields()) {
+        lesma::Literal* identifier = field != nullptr ? field->getIdentifier() : nullptr;
+        if (identifier != nullptr && identifier->getValue() == memberName) {
+          return FieldDeclarationMatch{
+              .owner = analysis,
+              .klass = klass,
+              .field = field,
+          };
+        }
+      }
+    }
+  }
+  return std::nullopt;
+}
+
+auto resolveFieldDeclarationAtCursor(const AnalysisResult& result, const AnalysisView& analysis,
+                                     unsigned line, unsigned character, const CursorIdentifier& id)
+    -> std::optional<FieldDeclarationMatch> {
+  if (!isUsableAnalysis(analysis) || analysis.rootScope == nullptr || analysis.sourceMgr == nullptr ||
+      !id.dotBase.has_value()) {
+    return std::nullopt;
+  }
+  auto const* buf = analysis.sourceMgr->getMemoryBuffer(analysis.bufferId);
+  if (buf == nullptr) {
+    return std::nullopt;
+  }
+  unsigned const targetOffset = static_cast<unsigned>(
+      lesma::lsp_srv::bufferByteOffsetFromLspPosition(buf->getBuffer(), line, character));
+  MemberAccessSite const memberAccess = findMemberAccessAtOffset(analysis, targetOffset);
+  if (memberAccess.dot == nullptr || memberAccess.member == nullptr) {
+    return std::nullopt;
+  }
+  lesma::Type* receiverType = resolveExpressionTypeAtOffset(memberAccess.dot->getLeft(), analysis.ast,
+                                                            analysis.rootScope, analysis.sourceMgr,
+                                                            analysis.bufferId, targetOffset);
+  return findClassFieldDeclaration(result, receiverType, id.name);
+}
+
+auto symbolIdentityForFieldDeclaration(const FieldDeclarationMatch& match)
+    -> std::optional<SymbolIdentity> {
+  if (!isUsableAnalysis(match.owner) || match.field == nullptr || match.owner.mainFilePath == nullptr) {
+    return std::nullopt;
+  }
+  lesma::Literal* identifier = match.field->getIdentifier();
+  if (identifier == nullptr || !identifier->getSpan().isValid()) {
+    return std::nullopt;
+  }
+  return SymbolIdentity{
+      .path = normalizePath(*match.owner.mainFilePath),
+      .range = smRangeToLspRange(match.owner.sourceMgr, match.owner.bufferId, identifier->getSpan()),
+      .name = identifier->getValue(),
+  };
+}
+
+auto locationForFieldDeclaration(const FieldDeclarationMatch& match) -> std::optional<::lsp::Location> {
+  std::optional<SymbolIdentity> identity = symbolIdentityForFieldDeclaration(match);
+  if (!identity) {
+    return std::nullopt;
+  }
+  return ::lsp::Location{
+      .uri = uriFromPath(identity->path),
+      .range = identity->range,
+  };
 }
 
 auto findActiveCallInExpr(const lesma::Expression* expr, llvm::SourceMgr* srcMgr,
@@ -1614,12 +1841,18 @@ auto receiverMatchesSelf(lesma::Type* receiverType, lesma::Type* selfType) -> bo
   if (receiverType == nullptr || selfType == nullptr) {
     return false;
   }
-  if (receiverType->is(lesma::BaseType::TY_CLASS)) {
-    return false;
+  if (receiverType->isEqual(selfType)) {
+    return true;
   }
-  return receiverType->isEqual(selfType) ||
-         (receiverType->is(lesma::BaseType::TY_PTR) && receiverType->getElementType() != nullptr &&
-          receiverType->isEqual(selfType));
+  if (receiverType->is(lesma::BaseType::TY_PTR) && receiverType->getElementType() != nullptr &&
+      receiverType->getElementType()->isEqual(selfType)) {
+    return true;
+  }
+  if (selfType->is(lesma::BaseType::TY_PTR) && selfType->getElementType() != nullptr &&
+      receiverType->isEqual(selfType->getElementType())) {
+    return true;
+  }
+  return false;
 }
 
 auto collectCallableCandidates(lesma::SymbolTable* scope, const std::string& name,
@@ -1829,6 +2062,59 @@ auto resolveImportedSymbol(const AnalysisResult& result, const AnalysisView& ana
   return ResolvedSymbol{.value = resolved, .owner = *targetAnalysis};
 }
 
+auto resolveMethodSymbolAtCursor(const AnalysisResult& result, const AnalysisView& analysis,
+                                 unsigned line, unsigned character, const CursorIdentifier& id)
+    -> std::optional<ResolvedSymbol> {
+  std::optional<ActiveCallSite> activeCall = findActiveCallSite(analysis, line, character);
+  if (!activeCall || activeCall->call == nullptr || activeCall->receiver == nullptr ||
+      activeCall->call->getName() != id.name || analysis.rootScope == nullptr ||
+      analysis.sourceMgr == nullptr) {
+    return std::nullopt;
+  }
+  if (id.dotBase.has_value()) {
+    auto const* receiverLit = dynamic_cast<const lesma::Literal*>(activeCall->receiver);
+    if (receiverLit != nullptr && receiverLit->getType() == lesma::TokenType::IDENTIFIER &&
+        receiverLit->getValue() != *id.dotBase) {
+      return std::nullopt;
+    }
+  }
+
+  auto const* buf = analysis.sourceMgr->getMemoryBuffer(analysis.bufferId);
+  if (buf == nullptr) {
+    return std::nullopt;
+  }
+  unsigned const targetOffset = static_cast<unsigned>(
+      lesma::lsp_srv::bufferByteOffsetFromLspPosition(buf->getBuffer(), line, character));
+  std::vector<lesma::Type*> argTypes;
+  for (lesma::Expression* arg : activeCall->call->getArguments()) {
+    lesma::Type* argType = resolveExpressionTypeAtOffset(
+        arg, analysis.ast, analysis.rootScope, analysis.sourceMgr, analysis.bufferId, targetOffset);
+    if (argType == nullptr) {
+      return std::nullopt;
+    }
+    argTypes.push_back(argType);
+  }
+
+  lesma::Type* receiverType =
+      resolveExpressionTypeAtOffset(activeCall->receiver, analysis.ast, analysis.rootScope,
+                                    analysis.sourceMgr, analysis.bufferId, targetOffset);
+  if (receiverType == nullptr) {
+    return std::nullopt;
+  }
+
+  for (const AnalysisView& candidateAnalysis : collectAnalysisViews(result)) {
+    if (!isUsableAnalysis(candidateAnalysis) || candidateAnalysis.rootScope == nullptr) {
+      continue;
+    }
+    std::vector<CallableCandidate> candidates =
+        collectCallableCandidates(candidateAnalysis.rootScope, id.name, receiverType, argTypes);
+    if (!candidates.empty() && candidates.front().value != nullptr) {
+      return ResolvedSymbol{.value = candidates.front().value, .owner = candidateAnalysis};
+    }
+  }
+  return std::nullopt;
+}
+
 auto resolveCanonicalSymbolAtCursor(const AnalysisResult& result, const AnalysisView& analysis,
                                     unsigned line, unsigned character, const CursorIdentifier& id)
     -> std::optional<ResolvedSymbol> {
@@ -1853,6 +2139,10 @@ auto resolveCanonicalSymbolAtCursor(const AnalysisResult& result, const Analysis
         return imported;
       }
     }
+  }
+  if (std::optional<ResolvedSymbol> method =
+          resolveMethodSymbolAtCursor(result, analysis, line, character, id)) {
+    return method;
   }
 
   lesma::Value* local =
@@ -2113,7 +2403,7 @@ auto collectSemanticTokens(const AnalysisResult& analysisResult, unsigned buffer
           semanticTokenModifiersForResolved(*resolved, range, occurrence.modifiers));
       continue;
     }
-    if (id.dotBase.has_value() && !id.isTypePosition) {
+    if (occurrence.fallbackTokenKind == lesma::IndexedTokenKind::EnumMember) {
       appendRawTokenFromSpan(occurrence.span, SemanticTokenType::EnumMember, occurrence.modifiers);
       continue;
     }
@@ -2190,19 +2480,28 @@ auto collectReferences(const AnalysisResult& result, unsigned line, unsigned cha
   if (!id) {
     return locations;
   }
+  const lesma::IndexedSymbolOccurrence* targetOccurrence =
+      findIndexedSymbolOccurrenceAtCursor(mainAnalysis, line, character);
 
   std::optional<ResolvedSymbol> targetResolved =
       resolveCanonicalSymbolAtCursor(result, mainAnalysis, line, character, *id);
   std::optional<SymbolIdentity> targetIdentity;
-  if (const lesma::IndexedSymbolOccurrence* occurrence =
-          findIndexedSymbolOccurrenceAtCursor(mainAnalysis, line, character);
-      occurrence != nullptr && occurrence->declaration.has_value() &&
-      declarationBelongsToAnalysis(mainAnalysis, *occurrence->declaration)) {
-    targetIdentity = symbolIdentityForIndexedDeclaration(result, *occurrence->declaration, id->name);
+  if (targetOccurrence != nullptr && targetOccurrence->declaration.has_value() &&
+      declarationBelongsToAnalysis(mainAnalysis, *targetOccurrence->declaration)) {
+    targetIdentity =
+        symbolIdentityForIndexedDeclaration(result, *targetOccurrence->declaration, id->name);
   }
   if (!targetIdentity) {
     if (targetResolved) {
       targetIdentity = symbolIdentityForResolved(*targetResolved);
+    }
+  }
+  if (!targetIdentity && targetOccurrence != nullptr &&
+      targetOccurrence->fallbackTokenKind == lesma::IndexedTokenKind::Property &&
+      targetOccurrence->isMemberAccess) {
+    if (std::optional<FieldDeclarationMatch> fieldDecl =
+            resolveFieldDeclarationAtCursor(result, mainAnalysis, line, character, *id)) {
+      targetIdentity = symbolIdentityForFieldDeclaration(*fieldDecl);
     }
   }
   if (targetIdentity) {
@@ -2222,6 +2521,17 @@ auto collectReferences(const AnalysisResult& result, unsigned line, unsigned cha
             declarationBelongsToAnalysis(analysis, *occurrence.declaration)) {
           occurrenceIdentity = symbolIdentityForIndexedDeclaration(result, *occurrence.declaration,
                                                                    occurrence.name);
+        }
+        if (!occurrenceIdentity) {
+          if (occurrence.fallbackTokenKind == lesma::IndexedTokenKind::Property &&
+              occurrence.isMemberAccess) {
+            if (std::optional<FieldDeclarationMatch> fieldDecl = resolveFieldDeclarationAtCursor(
+                    result, analysis, occurrenceRange.start.line, occurrenceRange.start.character,
+                    makeCursorIdentifier(occurrence.name, occurrence.dotBase, occurrenceRange,
+                                         occurrence.isTypePosition))) {
+              occurrenceIdentity = symbolIdentityForFieldDeclaration(*fieldDecl);
+            }
+          }
         }
         if (!occurrenceIdentity) {
           std::optional<ResolvedSymbol> resolved = resolveCanonicalSymbolAtCursor(
@@ -2541,6 +2851,15 @@ auto tryResolveDefinitionLocation(const AnalysisResult& result, unsigned line, u
   std::optional<ResolvedSymbol> resolved =
       resolveCanonicalSymbolAtCursor(result, line, character, *id);
   if (!resolved || resolved->value == nullptr) {
+    if (const lesma::IndexedSymbolOccurrence* occurrence =
+            findIndexedSymbolOccurrenceAtCursor(analysis, line, character);
+        occurrence != nullptr && occurrence->fallbackTokenKind == lesma::IndexedTokenKind::Property &&
+        occurrence->isMemberAccess) {
+      if (std::optional<FieldDeclarationMatch> fieldDecl =
+              resolveFieldDeclarationAtCursor(result, analysis, line, character, *id)) {
+        return locationForFieldDeclaration(*fieldDecl);
+      }
+    }
     // Enum member (e.g. MyEnum.OptionA): not a Value, resolve via AST
     if (id->dotBase) {
       auto enumMemberLoc = tryResolveEnumMemberDefinitionLocation(result, *id->dotBase, id->name);
@@ -2609,6 +2928,15 @@ auto tryResolveDeclarationLocation(const AnalysisResult& result, unsigned line, 
   std::optional<CursorIdentifier> id = findIdentifierAtCursor(analysis, line, character);
   if (!id) {
     return std::nullopt;
+  }
+  if (const lesma::IndexedSymbolOccurrence* occurrence =
+          findIndexedSymbolOccurrenceAtCursor(analysis, line, character);
+      occurrence != nullptr && occurrence->fallbackTokenKind == lesma::IndexedTokenKind::Property &&
+      occurrence->isMemberAccess) {
+    if (std::optional<FieldDeclarationMatch> fieldDecl =
+            resolveFieldDeclarationAtCursor(result, analysis, line, character, *id)) {
+      return locationForFieldDeclaration(*fieldDecl);
+    }
   }
   if (id->dotBase) {
     if (std::optional<::lsp::Location> localImport =
@@ -2774,6 +3102,31 @@ auto main() -> int {
                     hover.range = id->range;
                   }
                   return {std::move(hover)};
+                }
+                if (const lesma::IndexedSymbolOccurrence* occurrence =
+                        findIndexedSymbolOccurrenceAtCursor(analysis, line, character);
+                    occurrence != nullptr &&
+                    occurrence->fallbackTokenKind == lesma::IndexedTokenKind::Property &&
+                    occurrence->isMemberAccess) {
+                  if (std::optional<FieldDeclarationMatch> fieldDecl =
+                          resolveFieldDeclarationAtCursor(result, analysis, line, character, *id)) {
+                    ::lsp::Hover hover;
+                    std::string hoverText = "**" + id->name + "**\n\nfield of class `" +
+                                            fieldDecl->klass->getIdentifier() + "`";
+                    lesma::Literal* fieldIdentifier = fieldDecl->field->getIdentifier();
+                    if (fieldIdentifier != nullptr && fieldDecl->field->getType() != nullptr) {
+                      hoverText += "\n\n`" + id->name + ": " +
+                                   fieldDecl->field->getType()->getName() + "`";
+                    }
+                    hover.contents = ::lsp::MarkupContent{
+                        .kind = ::lsp::MarkupKindEnum(::lsp::MarkupKind::Markdown),
+                        .value = std::move(hoverText),
+                    };
+                    if (id->range) {
+                      hover.range = id->range;
+                    }
+                    return {std::move(hover)};
+                  }
                 }
                 // Enum member hover (e.g. MyEnum.OptionA): not a Value, but a field on the enum type
                 if (id->dotBase && result.rootScope != nullptr) {

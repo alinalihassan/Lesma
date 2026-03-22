@@ -13,6 +13,7 @@
 #include <gtest/gtest.h>
 
 #include "liblesma/Backend/Codegen.h"
+#include "liblesma/Driver/AnalysisResult.h"
 #include "liblesma/Frontend/Lexer.h"
 #include "liblesma/Frontend/Parser.h"
 #include "liblesma/Token/Token.h"
@@ -55,6 +56,14 @@ auto initializeCodegen(std::unique_ptr<Parser> parser,
   codegen->run();
 
   return codegen;
+}
+
+auto analyzeSource(const std::string& src) -> AnalysisResult {
+  auto options = std::make_unique<Options>();
+  options->sourceType = SourceType::STRING;
+  options->source = src;
+  options->implicitFilePath = "analysis_index_test.les";
+  return analyze(std::move(options));
 }
 
 auto getRange(const char* bufferStart, int x, int y) -> llvm::SMRange {
@@ -377,6 +386,51 @@ TEST(CodegenTests, Comparison) {
   codegen->prepareJit();
   int exitCode = codegen->executeJit();
   EXPECT_EQ(exitCode, 0);
+}
+
+TEST(AnalysisIndexTests, IndexesOnlyResolvedEnumMemberAccesses) {
+  constexpr auto source = R"(enum Status
+    READY
+
+class Holder
+    var ready: int
+
+    def new(value: int)
+        self.ready = value
+
+var holder = Holder(1)
+var propertyValue = holder.ready
+var status: Status = Status.READY
+)";
+
+  AnalysisResult const result = analyzeSource(source);
+  ASSERT_FALSE(result.hasErrors());
+
+  bool sawHolderPropertyAccess = false;
+  bool sawSelfPropertyAccess = false;
+  for (const IndexedSymbolOccurrence& occurrence : result.index.symbolOccurrences) {
+    if (occurrence.name != "ready" || !occurrence.isMemberAccess || occurrence.modifiers != 0U ||
+        occurrence.fallbackTokenKind != IndexedTokenKind::Property) {
+      continue;
+    }
+    if (occurrence.dotBase == std::optional<std::string>("holder")) {
+      sawHolderPropertyAccess = true;
+    }
+    if (occurrence.dotBase == std::optional<std::string>("self")) {
+      sawSelfPropertyAccess = true;
+    }
+  }
+  EXPECT_TRUE(sawHolderPropertyAccess);
+  EXPECT_TRUE(sawSelfPropertyAccess);
+
+  bool sawStatusReady = false;
+  for (const IndexedEnumMemberOccurrence& occurrence : result.index.enumMemberOccurrences) {
+    EXPECT_FALSE(occurrence.enumName == "holder" && occurrence.memberName == "ready");
+    if (occurrence.enumName == "Status" && occurrence.memberName == "READY") {
+      sawStatusReady = true;
+    }
+  }
+  EXPECT_TRUE(sawStatusReady);
 }
 } // namespace
 

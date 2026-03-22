@@ -7,6 +7,7 @@
 #include "llvm/Support/SMLoc.h"
 
 #include "liblesma/AST/AST.h"
+#include "liblesma/Symbol/TypeUtils.h"
 
 using namespace lesma;
 
@@ -55,12 +56,75 @@ auto appendIndexedOccurrence(AnalysisIndex& index, const std::string& name,
   });
 }
 
-auto memberBaseName(const Expression* expr) -> std::optional<std::string> {
+auto resolvedTypeForExpr(const Expression* expr) -> Type* {
+  if (expr == nullptr) {
+    return nullptr;
+  }
+  if (auto const* lit = dynamic_cast<const Literal*>(expr)) {
+    Value* const resolvedSymbol = lit->getResolvedSymbol();
+    return resolvedSymbol != nullptr ? resolvedSymbol->getType() : nullptr;
+  }
+  if (auto const* typeExpr = dynamic_cast<const TypeExpr*>(expr)) {
+    Value* const resolvedSymbol = typeExpr->getResolvedSymbol();
+    return resolvedSymbol != nullptr ? resolvedSymbol->getType() : nullptr;
+  }
+  if (auto const* call = dynamic_cast<const FuncCall*>(expr)) {
+    Value* const resolvedSymbol = call->getResolvedSymbol();
+    return resolvedSymbol != nullptr && resolvedSymbol->getType() != nullptr
+               ? resolvedSymbol->getType()->getReturnType()
+               : nullptr;
+  }
+  if (auto const* castOp = dynamic_cast<const CastOp*>(expr)) {
+    return resolvedTypeForExpr(castOp->getType());
+  }
+  if (auto const* dot = dynamic_cast<const DotOp*>(expr)) {
+    Type* baseType = resolvedTypeForExpr(dot->getLeft());
+    if (baseType == nullptr) {
+      return nullptr;
+    }
+    if (baseType->is(BaseType::TY_PTR) && baseType->getElementType() != nullptr) {
+      baseType = baseType->getElementType();
+    }
+    if (auto const* rightCall = dynamic_cast<const FuncCall*>(dot->getRight())) {
+      Value* const resolvedSymbol = rightCall->getResolvedSymbol();
+      return resolvedSymbol != nullptr && resolvedSymbol->getType() != nullptr
+                 ? resolvedSymbol->getType()->getReturnType()
+                 : nullptr;
+    }
+    auto const* rightLit = dynamic_cast<const Literal*>(dot->getRight());
+    if (rightLit == nullptr || rightLit->getType() != TokenType::IDENTIFIER ||
+        !baseType->isOneOf({BaseType::TY_CLASS, BaseType::TY_ENUM})) {
+      return nullptr;
+    }
+    return TypeUtils::findTypeInFields(baseType, rightLit->getValue());
+  }
+  return nullptr;
+}
+
+auto memberReceiverName(const Expression* expr) -> std::optional<std::string> {
   auto const* lit = dynamic_cast<const Literal*>(expr);
   if (lit == nullptr || lit->getType() != TokenType::IDENTIFIER) {
     return std::nullopt;
   }
   return lit->getValue();
+}
+
+auto memberBaseName(const Expression* expr) -> std::optional<std::string> {
+  std::optional<std::string> receiverName = memberReceiverName(expr);
+  if (!receiverName.has_value()) {
+    return std::nullopt;
+  }
+  Type* resolvedType = resolvedTypeForExpr(expr);
+  if (resolvedType == nullptr) {
+    return std::nullopt;
+  }
+  if (resolvedType->is(BaseType::TY_PTR) && resolvedType->getElementType() != nullptr) {
+    resolvedType = resolvedType->getElementType();
+  }
+  if (!resolvedType->is(BaseType::TY_ENUM)) {
+    return std::nullopt;
+  }
+  return receiverName;
 }
 
 auto collectIndexFromTypeExpr(const TypeExpr* typeExpr, AnalysisIndex& index) -> void;
@@ -142,19 +206,21 @@ auto collectIndexFromExpr(const Expression* expr, AnalysisIndex& index) -> void 
   }
   if (auto const* dot = dynamic_cast<const DotOp*>(expr)) {
     collectIndexFromExpr(dot->getLeft(), index);
-    std::optional<std::string> const dotBase = memberBaseName(dot->getLeft());
+    std::optional<std::string> const dotBase = memberReceiverName(dot->getLeft());
+    std::optional<std::string> const enumBase = memberBaseName(dot->getLeft());
+    bool const isEnumMemberAccess = enumBase.has_value();
     if (auto const* rightLit = dynamic_cast<const Literal*>(dot->getRight())) {
       if (rightLit->getType() == TokenType::IDENTIFIER) {
-        if (dotBase.has_value()) {
+        if (isEnumMemberAccess) {
           index.enumMemberOccurrences.push_back(IndexedEnumMemberOccurrence{
-              .enumName = *dotBase,
+              .enumName = *enumBase,
               .memberName = rightLit->getValue(),
               .span = rightLit->getSpan(),
           });
         }
         appendIndexedOccurrence(index, rightLit->getValue(), dotBase, rightLit->getSpan(), false,
-                                true, 0U, dotBase.has_value() ? IndexedTokenKind::EnumMember
-                                                              : IndexedTokenKind::Property,
+                                true, 0U, isEnumMemberAccess ? IndexedTokenKind::EnumMember
+                                                             : IndexedTokenKind::Property,
                                 rightLit->getResolvedSymbol());
         return;
       }
