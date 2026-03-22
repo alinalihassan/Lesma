@@ -2,9 +2,9 @@ name: Validate VS Code Extension
 
 on:
   pull_request:
-    branches: [main]
+    branches: [main, dev]
   push:
-    branches: [main]
+    branches: [main, dev]
 
 jobs:
   build-and-lint:
