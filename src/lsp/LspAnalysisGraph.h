@@ -1,0 +1,49 @@
+#pragma once
+
+#include <memory>
+#include <optional>
+#include <string>
+#include <unordered_map>
+#include <vector>
+
+#include <llvm/Support/SourceMgr.h>
+#include <lsp/types.h>
+
+#include "liblesma/Driver/AnalysisResult.h"
+
+namespace lesma::lsp_srv {
+
+struct AnalysisView {
+  llvm::SourceMgr* sourceMgr = nullptr;
+  unsigned bufferId = 0;
+  const std::string* mainFilePath = nullptr;
+  lesma::Compound* ast = nullptr;
+  const lesma::AnalysisIndex* index = nullptr;
+  lesma::SymbolTable* rootScope = nullptr;
+  const lesma::ImportAliasMap* importAliasToPath = nullptr;
+  const lesma::ImportedNameSourceMap* importedNameToSource = nullptr;
+  const std::unordered_map<std::string, std::shared_ptr<lesma::ImportedModuleAnalysis>>*
+      importedModules = nullptr;
+};
+
+auto makeAnalysisView(const AnalysisResult& result) -> AnalysisView;
+auto makeAnalysisView(const lesma::ImportedModuleAnalysis& result) -> AnalysisView;
+auto isUsableAnalysis(const AnalysisView& analysis) -> bool;
+
+auto normalizePath(const std::string& path) -> std::string;
+auto uriFromPath(const std::string& path) -> ::lsp::DocumentUri;
+auto smRangeToLspRange(llvm::SourceMgr* srcMgr, unsigned bufferId, llvm::SMRange span)
+    -> ::lsp::Range;
+
+auto findModuleImportPathByAlias(const AnalysisView& analysis, const std::string& alias)
+    -> std::optional<std::string>;
+auto findLocalImportBindingLocation(const AnalysisView& analysis, const std::string& name,
+                                    bool preferModuleAlias) -> std::optional<::lsp::Location>;
+
+auto collectAnalysisViews(const AnalysisResult& result) -> std::vector<AnalysisView>;
+auto collectReferenceAnalysisViews(const AnalysisResult& result, bool includeWorkspace)
+    -> std::vector<AnalysisView>;
+auto findAnalysisViewForPath(const AnalysisResult& result, const std::string& path)
+    -> std::optional<AnalysisView>;
+
+} // namespace lesma::lsp_srv

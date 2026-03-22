@@ -20,4 +20,13 @@ auto findTypeInFields(Type* structType, const std::string& field) -> Type* {
   }
   return nullptr;
 }
+
+auto findFieldInFields(Type* structType, const std::string& field) -> Field* {
+  for (Field* candidate : structType->getFields()) {
+    if (candidate != nullptr && candidate->name == field) {
+      return candidate;
+    }
+  }
+  return nullptr;
+}
 } // namespace lesma::TypeUtils

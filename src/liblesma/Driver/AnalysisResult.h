@@ -58,15 +58,8 @@ struct IndexedSymbolOccurrence {
   std::optional<IndexedTokenKind> fallbackTokenKind;
 };
 
-struct IndexedEnumMemberOccurrence {
-  std::string enumName;
-  std::string memberName;
-  llvm::SMRange span;
-};
-
 struct AnalysisIndex {
   std::vector<IndexedSymbolOccurrence> symbolOccurrences;
-  std::vector<IndexedEnumMemberOccurrence> enumMemberOccurrences;
 };
 
 using ImportAliasMap = std::unordered_map<std::string, std::string>;

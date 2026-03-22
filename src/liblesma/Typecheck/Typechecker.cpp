@@ -156,7 +156,19 @@ auto Typechecker::materializeImportedType(Type* type) -> Type* {
     copy->setDisplayName(type->getDisplayName());
     copy->setGenericParams(type->getGenericParams());
     for (Field* field : type->getFields()) {
-      copy->addField(std::make_unique<Field>(field->name, materializeImportedType(field->type)));
+      auto fieldCopy = std::make_unique<Field>(field->name, materializeImportedType(field->type));
+      fieldCopy->setDeclarationSpan(field->getDeclarationSpan());
+      fieldCopy->setDeclarationFilePath(field->getDeclarationFilePath());
+      if (Value* declarationSymbol = field->getDeclarationSymbol()) {
+        auto symbolCopy =
+            std::make_unique<Value>(declarationSymbol->getName(), materializeImportedType(field->type));
+        symbolCopy->setCategory(declarationSymbol->getCategory());
+        symbolCopy->setDeclarationSpan(declarationSymbol->getDeclarationSpan());
+        symbolCopy->setDeclarationFilePath(declarationSymbol->getDeclarationFilePath());
+        symbolCopy->setMutable(declarationSymbol->getMutability());
+        fieldCopy->setDeclarationSymbol(std::move(symbolCopy));
+      }
+      copy->addField(std::move(fieldCopy));
     }
     if (auto envIt = specializedTypeEnv.find(type); envIt != specializedTypeEnv.end()) {
       std::unordered_map<std::string, Type*> envCopy;
@@ -182,7 +194,19 @@ auto Typechecker::materializeImportedType(Type* type) -> Type* {
   if (type->is(BaseType::TY_FUNCTION)) {
     std::vector<std::unique_ptr<Field>> fields;
     for (Field* field : type->getFields()) {
-      fields.push_back(std::make_unique<Field>(field->name, materializeImportedType(field->type)));
+      auto fieldCopy = std::make_unique<Field>(field->name, materializeImportedType(field->type));
+      fieldCopy->setDeclarationSpan(field->getDeclarationSpan());
+      fieldCopy->setDeclarationFilePath(field->getDeclarationFilePath());
+      if (Value* declarationSymbol = field->getDeclarationSymbol()) {
+        auto symbolCopy =
+            std::make_unique<Value>(declarationSymbol->getName(), materializeImportedType(field->type));
+        symbolCopy->setCategory(declarationSymbol->getCategory());
+        symbolCopy->setDeclarationSpan(declarationSymbol->getDeclarationSpan());
+        symbolCopy->setDeclarationFilePath(declarationSymbol->getDeclarationFilePath());
+        symbolCopy->setMutable(declarationSymbol->getMutability());
+        fieldCopy->setDeclarationSymbol(std::move(symbolCopy));
+      }
+      fields.push_back(std::move(fieldCopy));
     }
     auto funcType = std::make_unique<Type>(BaseType::TY_FUNCTION, nullptr, std::move(fields));
     funcType->setReturnType(materializeImportedType(type->getReturnType()));
@@ -581,6 +605,8 @@ auto Typechecker::getOrTypecheckImport(const std::string& absolutePath) -> Symbo
   imported->parser = std::move(parser);
   imported->rootScope = sub.takeRootScope();
   imported->typeCache = sub.takeTypeCache();
+  imported->index = buildAnalysisIndex(imported->parser != nullptr ? imported->parser->getAst() : nullptr,
+                                       imported->sourceMgr.get(), imported->mainBufferId);
   imported->importAliasToPath = sub.takeImportAliasToPath();
   imported->importedNameToSource = sub.takeImportedNameToSource();
   imported->importedModules = sub.takeImportedModules();
@@ -735,8 +761,20 @@ auto Typechecker::visit(const Enum* node) -> void {
       std::make_unique<Type>(BaseType::TY_ENUM, nullptr, std::vector<std::unique_ptr<Field>>{});
   Type* typePtr = type.get();
   type->setDisplayName(node->getIdentifier());
-  for (const std::string& field : node->getValues()) {
-    type->addField(std::make_unique<Field>(field, typePtr));
+  std::vector<std::string> const values = node->getValues();
+  std::vector<llvm::SMRange> const& valueSpans = node->getValueSpans();
+  for (size_t i = 0; i < values.size(); ++i) {
+    auto field = std::make_unique<Field>(values[i], typePtr);
+    if (i < valueSpans.size()) {
+      field->setDeclarationSpan(valueSpans[i]);
+      field->setDeclarationFilePath(mainFilePath);
+      auto memberSymbol = std::make_unique<Value>(values[i], typePtr);
+      memberSymbol->setCategory(ValueCategory::DIRECT_VALUE);
+      memberSymbol->setDeclarationSpan(valueSpans[i]);
+      memberSymbol->setDeclarationFilePath(mainFilePath);
+      field->setDeclarationSymbol(std::move(memberSymbol));
+    }
+    type->addField(std::move(field));
   }
   scope->insertType(node->getIdentifier(), std::move(type));
   auto enumSymbol = std::make_unique<Value>(node->getIdentifier(), typePtr);
@@ -787,7 +825,18 @@ auto Typechecker::visit(const Class* node) -> void {
       if (fieldType == nullptr) {
         throw TypeCheckError(field->getSpan(), "Class field has no type");
       }
-      fields.push_back(std::make_unique<Field>(field->getIdentifier()->getValue(), fieldType));
+      auto fieldEntry = std::make_unique<Field>(field->getIdentifier()->getValue(), fieldType);
+      fieldEntry->setDeclarationSpan(field->getIdentifier()->getSpan());
+      fieldEntry->setDeclarationFilePath(mainFilePath);
+      auto fieldSymbol = std::make_unique<Value>(field->getIdentifier()->getValue(), fieldType,
+                                                 SymbolState::INITIALIZED);
+      fieldSymbol->setCategory(ValueCategory::ADDRESSABLE_STORAGE);
+      fieldSymbol->setMutable(field->getMutability());
+      fieldSymbol->setDeclarationSpan(field->getIdentifier()->getSpan());
+      fieldSymbol->setDeclarationFilePath(mainFilePath);
+      field->setResolvedSymbol(fieldSymbol.get());
+      fieldEntry->setDeclarationSymbol(std::move(fieldSymbol));
+      fields.push_back(std::move(fieldEntry));
     }
     auto type = std::make_unique<Type>(BaseType::TY_CLASS, nullptr, std::move(fields));
     type->setDisplayName(node->getIdentifier() +
@@ -1565,11 +1614,14 @@ auto Typechecker::visit(const DotOp* node) -> void {
     throw TypeCheckError(node->getSpan(), "Expected field name or method call after dot");
   }
   auto* rightLit = dynamic_cast<Literal*>(node->getRight());
-  Type* fieldType = TypeUtils::findTypeInFields(base, rightLit->getValue());
-  if (fieldType == nullptr) {
+  Field* field = TypeUtils::findFieldInFields(base, rightLit->getValue());
+  if (field == nullptr || field->type == nullptr) {
     throw TypeCheckError(node->getSpan(), "Unknown field: {}", rightLit->getValue());
   }
-  result = std::make_unique<Value>(fieldType);
+  if (field->getDeclarationSymbol() != nullptr) {
+    rightLit->setResolvedSymbol(field->getDeclarationSymbol());
+  }
+  result = std::make_unique<Value>(field->type);
 }
 
 auto Typechecker::visit(const CastOp* node) -> void {

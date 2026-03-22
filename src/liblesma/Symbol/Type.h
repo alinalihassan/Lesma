@@ -8,6 +8,7 @@
 #include <vector>
 
 #include <llvm/IR/Type.h>
+#include <llvm/Support/SMLoc.h>
 
 namespace lesma {
 class Value; // Forward declaration instead of include to break circular
@@ -34,6 +35,9 @@ struct Field {
   std::string name;
   Type* type;
   std::unique_ptr<Value> defaultValue;
+  std::unique_ptr<Value> declarationSymbol;
+  llvm::SMRange declarationSpan;
+  std::string declarationFilePath;
 
   // Constructor for fields without default value
   Field(std::string n, Type* t);
@@ -46,6 +50,15 @@ struct Field {
   auto operator=(Field&&) noexcept -> Field&;
   Field(const Field&) = delete;
   auto operator=(const Field&) -> Field& = delete;
+
+  [[nodiscard]] auto getDeclarationSpan() const -> llvm::SMRange { return declarationSpan; }
+  [[nodiscard]] auto getDeclarationFilePath() const -> const std::string& {
+    return declarationFilePath;
+  }
+  [[nodiscard]] auto getDeclarationSymbol() const -> Value* { return declarationSymbol.get(); }
+  auto setDeclarationSpan(llvm::SMRange span) -> void { declarationSpan = span; }
+  auto setDeclarationFilePath(std::string path) -> void { declarationFilePath = std::move(path); }
+  auto setDeclarationSymbol(std::unique_ptr<Value> value) -> void;
 };
 
 class Type {

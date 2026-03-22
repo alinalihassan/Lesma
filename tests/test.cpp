@@ -1,4 +1,5 @@
 #include <cstddef>
+#include <filesystem>
 #include <memory>
 #include <string>
 #include <utility>
@@ -63,6 +64,13 @@ auto analyzeSource(const std::string& src) -> AnalysisResult {
   options->sourceType = SourceType::STRING;
   options->source = src;
   options->implicitFilePath = "analysis_index_test.les";
+  return analyze(std::move(options));
+}
+
+auto analyzeFile(const std::filesystem::path& path) -> AnalysisResult {
+  auto options = std::make_unique<Options>();
+  options->sourceType = SourceType::FILE;
+  options->source = path.string();
   return analyze(std::move(options));
 }
 
@@ -424,13 +432,90 @@ var status: Status = Status.READY
   EXPECT_TRUE(sawSelfPropertyAccess);
 
   bool sawStatusReady = false;
-  for (const IndexedEnumMemberOccurrence& occurrence : result.index.enumMemberOccurrences) {
-    EXPECT_FALSE(occurrence.enumName == "holder" && occurrence.memberName == "ready");
-    if (occurrence.enumName == "Status" && occurrence.memberName == "READY") {
+  for (const IndexedSymbolOccurrence& occurrence : result.index.symbolOccurrences) {
+    if (occurrence.name == "ready" &&
+        occurrence.fallbackTokenKind == IndexedTokenKind::EnumMember) {
+      FAIL() << "property access was classified as enum member";
+    }
+    if (occurrence.name == "READY" &&
+        occurrence.fallbackTokenKind == IndexedTokenKind::EnumMember) {
       sawStatusReady = true;
     }
   }
   EXPECT_TRUE(sawStatusReady);
+}
+
+TEST(AnalysisIndexTests, MemberAccessesCarryDeclarationIdentity) {
+  constexpr auto source = R"(enum Status
+    READY
+
+class Holder
+    var ready: int
+
+    def new(value: int)
+        self.ready = value
+
+var holder = Holder(1)
+var propertyValue = holder.ready
+var status: Status = Status.READY
+)";
+
+  AnalysisResult const result = analyzeSource(source);
+  ASSERT_FALSE(result.hasErrors());
+
+  bool sawReadyDeclaration = false;
+  bool sawReadyUsageDeclaration = false;
+  bool sawEnumDeclaration = false;
+  bool sawEnumUsageDeclaration = false;
+
+  for (const IndexedSymbolOccurrence& occurrence : result.index.symbolOccurrences) {
+    if (occurrence.name == "ready" && occurrence.fallbackTokenKind == IndexedTokenKind::Property) {
+      ASSERT_TRUE(occurrence.declaration.has_value());
+      if ((occurrence.modifiers & analysis_index_modifier::DECLARATION) != 0U) {
+        sawReadyDeclaration = true;
+      } else {
+        sawReadyUsageDeclaration = true;
+      }
+    }
+    if (occurrence.name == "READY" && occurrence.fallbackTokenKind == IndexedTokenKind::EnumMember) {
+      ASSERT_TRUE(occurrence.declaration.has_value());
+      if ((occurrence.modifiers & analysis_index_modifier::DECLARATION) != 0U) {
+        sawEnumDeclaration = true;
+      } else {
+        sawEnumUsageDeclaration = true;
+      }
+    }
+  }
+
+  EXPECT_TRUE(sawReadyDeclaration);
+  EXPECT_TRUE(sawReadyUsageDeclaration);
+  EXPECT_TRUE(sawEnumDeclaration);
+  EXPECT_TRUE(sawEnumUsageDeclaration);
+}
+
+TEST(AnalysisIndexTests, ImportedModulesAreIndexedDuringTypecheck) {
+  std::filesystem::path const importClassMethodPath =
+      std::filesystem::path(__FILE__).parent_path() / "lesma" / "success" / "import_class_method.les";
+
+  AnalysisResult const result = analyzeFile(importClassMethodPath);
+  ASSERT_FALSE(result.hasErrors());
+
+  std::filesystem::path const importedModulePath =
+      std::filesystem::path(__FILE__).parent_path() / "lesma" / "success" / "class.les";
+  auto importedIt = result.importedModules.find(std::filesystem::weakly_canonical(importedModulePath).string());
+  ASSERT_NE(importedIt, result.importedModules.end());
+  ASSERT_NE(importedIt->second, nullptr);
+  EXPECT_FALSE(importedIt->second->index.symbolOccurrences.empty());
+
+  bool sawGetXDeclaration = false;
+  for (const IndexedSymbolOccurrence& occurrence : importedIt->second->index.symbolOccurrences) {
+    if (occurrence.name == "getX" &&
+        occurrence.fallbackTokenKind == IndexedTokenKind::Method &&
+        (occurrence.modifiers & analysis_index_modifier::DECLARATION) != 0U) {
+      sawGetXDeclaration = true;
+    }
+  }
+  EXPECT_TRUE(sawGetXDeclaration);
 }
 } // namespace
 
