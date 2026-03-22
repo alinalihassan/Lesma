@@ -75,7 +75,6 @@ export async function executeLesma(
   flags?: string
 ) {
   const lesmaPath = await SystemCommands.getLesmaCommandPath();
-  const lesmaCommand = `${lesmaPath} ${flags ?? ""} ${subcommand} ${filename}`;
 
   if (lesmaPath === null) {
     vscode.window.showErrorMessage(
@@ -83,6 +82,8 @@ export async function executeLesma(
     );
     return;
   }
+
+  const lesmaCommand = `${lesmaPath} ${flags ?? ""} ${subcommand} ${filename}`;
 
   OutputConsole.clear();
 
