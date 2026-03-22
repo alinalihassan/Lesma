@@ -50,7 +50,7 @@ bash -c "$(curl -fsSL https://raw.githubusercontent.com/alinalihassan/Lesma/main
 
 ## 🔧 Build
 
-In order to build Lesma, you need Clang, LLVM (17+), and Ninja installed. It's currently only supported on Linux and macOS.
+In order to build Lesma, you need a C++23 compiler, LLVM (17+), `lld`, and Ninja installed. We recommend using Clang as the host C++ compiler. It's currently only supported on Linux and macOS.
 For a more comprehensive guide, and more information on how to install the prerequisites,
 read the documentation on [Getting Started](https://lesma-lang.com/getting-started/)
 
@@ -59,8 +59,9 @@ read the documentation on [Getting Started](https://lesma-lang.com/getting-start
 **Required:**
 - CMake 3.24+
 - Ninja
-- Clang
-- LLVM 17+ (with Clang)
+- C++23 compiler (Clang recommended)
+- LLVM 17+
+- lld
 
 ### vcpkg (submodule)
 
@@ -77,18 +78,17 @@ cd ..
 
 #### Option 1: Homebrew (macOS)
 ```bash
-brew install llvm
+brew install llvm lld
 export LLVM_DIR=$(brew --prefix llvm)/lib/cmake/llvm
-export Clang_DIR=$(brew --prefix llvm)/lib/cmake/clang
 ```
 
 #### Option 2: Package Manager (Linux)
 ```bash
 # Ubuntu/Debian
-sudo apt-get install llvm-dev clang libclang-dev
+sudo apt-get install llvm-dev lld clang
 
 # Or for a specific version (e.g., LLVM 17)
-sudo apt-get install llvm-17-dev clang-17 libclang-17-dev
+sudo apt-get install llvm-17-dev lld-17 clang-17
 ```
 
 #### Option 3: Build LLVM via vcpkg (Any platform)

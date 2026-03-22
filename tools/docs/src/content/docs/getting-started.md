@@ -24,8 +24,9 @@ That installs the `lesma` binary and standard library for local use.
 
 - CMake 3.24+
 - Ninja
-- Clang
-- LLVM 17+ with Clang tooling
+- C++23 compiler (Clang recommended)
+- LLVM 17+
+- lld
 
 Lesma uses `vcpkg` as a submodule for dependency management.
 

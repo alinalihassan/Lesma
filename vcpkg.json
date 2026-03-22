@@ -60,7 +60,6 @@
           "default-features": false,
           "features": [
             "default-targets",
-            "clang",
             "enable-rtti",
             "enable-zlib",
             "enable-zstd",

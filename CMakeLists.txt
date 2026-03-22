@@ -76,9 +76,8 @@ include_directories(${LIB_DIR})
 
 # Look for local dependencies
 if (EXISTS "${LLVM_DIR}" AND IS_DIRECTORY "${LLVM_DIR}") # Prefer local LLVM installation
-  message(STATUS "Found local installation of LLVM and Clang")
+  message(STATUS "Found local installation of LLVM")
   set(LLVM_DIR ./llvm/build-release/lib/cmake/llvm)
-  set(Clang_DIR ./llvm/build-release/lib/cmake/clang)
 endif ()
 
 # LLVM configuration
@@ -89,6 +88,7 @@ message(STATUS "Using LLVMConfig.cmake from ${LLVM_DIR}")
 
 list(APPEND CMAKE_MODULE_PATH "${LLVM_CMAKE_DIR}")
 include(HandleLLVMOptions)
+include_directories(SYSTEM ${LLVM_INCLUDE_DIRS})
 add_definitions(${LLVM_DEFINITIONS})
 llvm_map_components_to_libnames(LLVM_LIBS core support demangle native orcjit)
 
@@ -98,12 +98,6 @@ message(STATUS "Found LLDConfig.cmake in ${LLD_CMAKE_DIR}")
 include_directories(SYSTEM ${LLD_INCLUDE_DIRS})
 set(LLD_LIBS lldCommon lldELF lldCOFF lldMachO)
 
-# Clang
-find_package(Clang CONFIG REQUIRED)
-
-include_directories(SYSTEM ${CLANG_INCLUDE_DIRS})
-add_definitions(${CLANG_DEFINITIONS})
-set(CLANG_LIBS clangTooling)
 # Executable configuration
 set(LIB_NAME lesma)
 
@@ -126,7 +120,7 @@ set(COMMON_SOURCES
 file(COPY ${STDLIB_DIR} DESTINATION $ENV{HOME}/.lesma/)
 
 # Libraries required for the compiler itself
-set(COMMON_LIBS ${LLVM_LIBS} ${LLD_LIBS} ${CLANG_LIBS} fmt::fmt nameof::nameof)
+set(COMMON_LIBS ${LLVM_LIBS} ${LLD_LIBS} fmt::fmt nameof::nameof)
 set(COMMON_INCLUDE ${PLF_NANOTIMER_INCLUDE_DIRS})
 
 # Lesma Library
@@ -139,7 +133,6 @@ target_include_directories(${LIB_NAME} PUBLIC
   "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/src>"
   ${COMMON_INCLUDE}
   ${LLD_INCLUDE_DIRS}
-  ${CLANG_INCLUDE_DIRS}
   "$<INSTALL_INTERFACE:$<INSTALL_PREFIX>/${CMAKE_INSTALL_INCLUDEDIR}>")
 
 # CLI
