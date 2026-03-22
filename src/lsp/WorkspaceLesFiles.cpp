@@ -84,6 +84,11 @@ auto tryListLesFilesViaGitRepository(std::string const& workspaceRoot)
       relPaths.emplace(rel);
     }
   };
+  auto removeRel = [&](char const* rel) {
+    if (isLesRelativePath(rel)) {
+      relPaths.erase(rel);
+    }
+  };
 
   git_index* idxRaw = nullptr;
   if (git_repository_index(&idxRaw, repo.get()) != 0) {
@@ -128,8 +133,22 @@ auto tryListLesFilesViaGitRepository(std::string const& workspaceRoot)
     if ((st & GIT_STATUS_IGNORED) != 0) {
       continue;
     }
-    if ((st & GIT_STATUS_WT_NEW) != 0) {
+    if ((st & (GIT_STATUS_INDEX_DELETED | GIT_STATUS_INDEX_RENAMED)) != 0U &&
+        entry->head_to_index != nullptr) {
+      removeRel(entry->head_to_index->old_file.path);
+    }
+    if ((st & (GIT_STATUS_WT_DELETED | GIT_STATUS_WT_RENAMED)) != 0U &&
+        entry->index_to_workdir != nullptr) {
+      removeRel(entry->index_to_workdir->old_file.path);
+    }
+    if ((st & GIT_STATUS_WT_NEW) != 0U) {
       addRel(pathFromStatusEntry(entry));
+    }
+    if ((st & GIT_STATUS_INDEX_RENAMED) != 0U && entry->head_to_index != nullptr) {
+      addRel(entry->head_to_index->new_file.path);
+    }
+    if ((st & GIT_STATUS_WT_RENAMED) != 0U && entry->index_to_workdir != nullptr) {
+      addRel(entry->index_to_workdir->new_file.path);
     }
   }
 
@@ -137,6 +156,10 @@ auto tryListLesFilesViaGitRepository(std::string const& workspaceRoot)
   out.reserve(relPaths.size());
   for (std::string const& rel : relPaths) {
     std::filesystem::path const full = std::filesystem::path(rootStr) / rel;
+    std::error_code existsEc;
+    if (!std::filesystem::exists(full, existsEc)) {
+      continue;
+    }
     out.push_back(normalizeAbsolutePathString(full));
   }
   return out;
