@@ -99,6 +99,7 @@ private:
   auto parseAnd() -> std::unique_ptr<Expression>;
   auto parseNot() -> std::unique_ptr<Expression>;
   auto parseDot() -> std::unique_ptr<Expression>;
+  auto parsePostfix() -> std::unique_ptr<Expression>;
   auto parseCompare() -> std::unique_ptr<Expression>;
   auto parseAdd() -> std::unique_ptr<Expression>;
   auto parseMult() -> std::unique_ptr<Expression>;

@@ -66,6 +66,7 @@ class Codegen final : public ASTVisitor {
   // deque so push_back never invalidates Type* pointers stored in scope (from
   // typecheck)
   std::deque<std::unique_ptr<lesma::Type>> typeCache;
+  std::unordered_map<std::string, llvm::StructType*> listStructTypes;
   std::vector<std::tuple<lesma::Value*, const FuncDecl*, Value*>> prototypes;
   std::unordered_map<std::string, const FuncDecl*> genericFunctions;
   std::unordered_map<std::string, std::unordered_map<std::string, const FuncDecl*>> genericMethods;
@@ -154,6 +155,7 @@ protected:
   auto visit(const Expression* node) -> void override;
   auto visit(const FuncCall* node) -> void override;
   auto visit(const BinaryOp* node) -> void override;
+  auto visit(const SubscriptOp* node) -> void override;
   auto visit(const DotOp* node) -> void override;
   auto visit(const CastOp* node) -> void override;
   auto visit(const IsOp* node) -> void override;
@@ -182,6 +184,30 @@ protected:
 
   auto emitCompoundAssign(llvm::SMRange span, TokenType op, lesma::Value* lhs, lesma::Value* value)
       -> void;
+  auto getOrCreateListStructType(lesma::Type* listType) -> llvm::StructType*;
+  auto emitCalloc(llvm::Value* count, llvm::Value* size, const llvm::Twine& name = "calloc.tmp")
+      -> llvm::Value*;
+  auto emitMalloc(llvm::Value* size, const llvm::Twine& name = "malloc.tmp") -> llvm::Value*;
+  auto emitRealloc(llvm::Value* ptr, llvm::Value* size, const llvm::Twine& name = "realloc.tmp")
+      -> llvm::Value*;
+  auto emitFree(llvm::Value* ptr) -> void;
+  auto emitExit(int code) -> void;
+  auto emitListLength(lesma::Type* listType, llvm::Value* listHandle) -> llvm::Value*;
+  auto emitListCapacity(lesma::Type* listType, llvm::Value* listHandle) -> llvm::Value*;
+  auto emitListDataPtr(lesma::Type* listType, llvm::Value* listHandle) -> llvm::Value*;
+  auto emitStoreListDataPtr(lesma::Type* listType, llvm::Value* listHandle, llvm::Value* dataValue)
+      -> void;
+  auto emitStoreListLength(lesma::Type* listType, llvm::Value* listHandle, llvm::Value* length)
+      -> void;
+  auto emitStoreListCapacity(lesma::Type* listType, llvm::Value* listHandle, llvm::Value* capacity)
+      -> void;
+  auto emitListBoundsCheck(llvm::SMRange span, lesma::Type* listType, llvm::Value* listHandle,
+                           llvm::Value* index) -> void;
+  auto emitListElementPointer(llvm::SMRange span, lesma::Type* listType, llvm::Value* listHandle,
+                              llvm::Value* index) -> llvm::Value*;
+  auto emitListEnsureCapacity(lesma::Type* listType, llvm::Value* listHandle, llvm::Value* minCapacity)
+      -> void;
+  auto emitListDeepCopy(lesma::Type* listType, llvm::Value* listHandle) -> llvm::Value*;
   auto symbolUsesDirectLlvmValue(const lesma::Value* symbol) const -> bool;
   auto materializeSymbolValue(lesma::Value* symbol) -> std::unique_ptr<lesma::Value>;
 

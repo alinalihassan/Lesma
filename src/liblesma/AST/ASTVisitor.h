@@ -23,6 +23,7 @@ class Expression;
 class Literal;
 class FuncCall;
 class BinaryOp;
+class SubscriptOp;
 class DotOp;
 class CastOp;
 class IsOp;
@@ -61,6 +62,7 @@ public:
   virtual auto visit(const Literal* node) -> void = 0;
   virtual auto visit(const FuncCall* node) -> void = 0;
   virtual auto visit(const BinaryOp* node) -> void = 0;
+  virtual auto visit(const SubscriptOp* node) -> void = 0;
   virtual auto visit(const DotOp* node) -> void = 0;
   virtual auto visit(const CastOp* node) -> void = 0;
   virtual auto visit(const IsOp* node) -> void = 0;

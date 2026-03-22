@@ -709,6 +709,25 @@ public:
   }
 };
 
+class SubscriptOp : public Expression {
+  std::unique_ptr<Expression> left;
+  std::unique_ptr<Expression> index;
+
+public:
+  SubscriptOp(llvm::SMRange loc, std::unique_ptr<Expression> left, std::unique_ptr<Expression> index)
+      : Expression(loc), left(std::move(left)), index(std::move(index)) {}
+  void accept(ASTVisitor& visitor) const override { visitor.visit(this); }
+
+  [[nodiscard]] auto getLeft() const -> Expression* { return left.get(); }
+  [[nodiscard]] auto getIndex() const -> Expression* { return index.get(); }
+
+  auto toString(llvm::SourceMgr* srcMgr, const std::string& prefix, bool isTail) const
+      -> std::string override {
+    return left->toString(srcMgr, prefix, isTail) + "[" +
+           index->toString(srcMgr, prefix, isTail) + "]";
+  }
+};
+
 class IsOp : public Expression {
   std::unique_ptr<Expression> left;
   TokenType op;

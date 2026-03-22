@@ -695,7 +695,7 @@ auto formatTypeName(lesma::Type* type, lesma::SymbolTable* rootScope) -> std::st
     return formatTypeName(type->getElementType(), rootScope) + "*";
   }
   if (type->is(lesma::BaseType::TY_ARRAY) && type->getElementType() != nullptr) {
-    return formatTypeName(type->getElementType(), rootScope) + "[]";
+    return "list<" + formatTypeName(type->getElementType(), rootScope) + ">";
   }
   if (type->is(lesma::BaseType::TY_INT)) {
     return type->isSigned() ? "int" : "uint";

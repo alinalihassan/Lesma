@@ -17,6 +17,7 @@
 #include <llvm/ADT/SmallVector.h>
 #include <llvm/Analysis/CGSCCPassManager.h>
 #include <llvm/Analysis/LoopAnalysisManager.h>
+#include <llvm/Config/llvm-config.h>
 #include <llvm/ExecutionEngine/Orc/ExecutionUtils.h>
 #include <llvm/ExecutionEngine/Orc/JITTargetMachineBuilder.h>
 #include <llvm/ExecutionEngine/Orc/LLJIT.h>
@@ -131,12 +132,20 @@ Codegen::Codegen(std::shared_ptr<Parser> parser, std::shared_ptr<SourceMgr> srcM
 
 auto Codegen::initializeModule() -> std::unique_ptr<Module> {
   std::unique_ptr<Module> mod;
+#if LLVM_VERSION_MAJOR >= 21
+  theContext->withContextDo([&mod](LLVMContext* ctx) { mod = std::make_unique<Module>("Lesma", *ctx); });
+#else
   {
     auto lock = theContext->getLock();
     LLVMContext* ctx = theContext->getContext();
     mod = std::make_unique<Module>("Lesma", *ctx);
   }
+#endif
+#if LLVM_VERSION_MAJOR >= 21
+  mod->setTargetTriple(targetMachine->getTargetTriple());
+#else
   mod->setTargetTriple(targetMachine->getTargetTriple().str());
+#endif
   mod->setDataLayout(targetMachine->createDataLayout());
   mod->setSourceFileName(filename);
 
@@ -158,7 +167,11 @@ auto Codegen::initializeTargetMachine() -> std::unique_ptr<llvm::TargetMachine> 
   llvm::TargetOptions const opt;
   llvm::Reloc::Model rm = llvm::Reloc::Model();
   std::unique_ptr<llvm::TargetMachine> targetMachine(
+#if LLVM_VERSION_MAJOR >= 21
+      target->createTargetMachine(targetTriple, "generic", "", opt, rm));
+#else
       target->createTargetMachine(targetTriple.str(), "generic", "", opt, rm));
+#endif
   return targetMachine;
 }
 
@@ -860,6 +873,249 @@ auto Codegen::visit(const TypeExpr* node) -> void {
   }
 }
 
+auto Codegen::getOrCreateListStructType(lesma::Type* listType) -> llvm::StructType* {
+  std::string typeName = "lesma.list";
+  if (listType != nullptr && listType->getElementType() != nullptr) {
+    getOrCreateLlvmType(listType->getElementType());
+    typeName += "." + MangleUtils::getTypeMangledName({}, listType->getElementType());
+  }
+  auto existing = listStructTypes.find(typeName);
+  if (existing != listStructTypes.end()) {
+    return existing->second;
+  }
+  auto* structType = llvm::StructType::create(
+      theModule->getContext(),
+      {builder->getPtrTy(), builder->getInt64Ty(), builder->getInt64Ty()},
+      typeName, false);
+  listStructTypes[typeName] = structType;
+  return structType;
+}
+
+auto Codegen::emitCalloc(llvm::Value* count, llvm::Value* size, const llvm::Twine& name)
+    -> llvm::Value* {
+  auto callocFn = theModule->getOrInsertFunction(
+      "calloc",
+      llvm::FunctionType::get(builder->getPtrTy(), {builder->getInt64Ty(), builder->getInt64Ty()},
+                              false));
+  return builder->CreateCall(callocFn, {count, size}, name);
+}
+
+auto Codegen::emitMalloc(llvm::Value* size, const llvm::Twine& name) -> llvm::Value* {
+  auto mallocFn = theModule->getOrInsertFunction(
+      "malloc", llvm::FunctionType::get(builder->getPtrTy(), {builder->getInt64Ty()}, false));
+  return builder->CreateCall(mallocFn, {size}, name);
+}
+
+auto Codegen::emitRealloc(llvm::Value* ptr, llvm::Value* size, const llvm::Twine& name)
+    -> llvm::Value* {
+  auto reallocFn = theModule->getOrInsertFunction(
+      "realloc",
+      llvm::FunctionType::get(builder->getPtrTy(), {builder->getPtrTy(), builder->getInt64Ty()},
+                              false));
+  return builder->CreateCall(reallocFn, {ptr, size}, name);
+}
+
+auto Codegen::emitFree(llvm::Value* ptr) -> void {
+  auto freeFn = theModule->getOrInsertFunction(
+      "free", llvm::FunctionType::get(builder->getVoidTy(), {builder->getPtrTy()}, false));
+  builder->CreateCall(freeFn, {ptr});
+}
+
+auto Codegen::emitExit(int code) -> void {
+  auto exitFn = theModule->getOrInsertFunction(
+      "exit", llvm::FunctionType::get(builder->getVoidTy(), {builder->getInt64Ty()}, false));
+  builder->CreateCall(exitFn, {builder->getInt64(code)});
+}
+
+auto Codegen::emitListLength(lesma::Type* listType, llvm::Value* listHandle) -> llvm::Value* {
+  auto* structType = getOrCreateListStructType(listType);
+  auto* lenPtr = builder->CreateStructGEP(structType, listHandle, 1, "list.len.ptr");
+  return builder->CreateLoad(builder->getInt64Ty(), lenPtr, "list.len");
+}
+
+auto Codegen::emitListCapacity(lesma::Type* listType, llvm::Value* listHandle) -> llvm::Value* {
+  auto* structType = getOrCreateListStructType(listType);
+  auto* capPtr = builder->CreateStructGEP(structType, listHandle, 2, "list.cap.ptr");
+  return builder->CreateLoad(builder->getInt64Ty(), capPtr, "list.cap");
+}
+
+auto Codegen::emitListDataPtr(lesma::Type* listType, llvm::Value* listHandle) -> llvm::Value* {
+  auto* structType = getOrCreateListStructType(listType);
+  auto* dataPtrPtr = builder->CreateStructGEP(structType, listHandle, 0, "list.data.ptr.ptr");
+  return builder->CreateLoad(builder->getPtrTy(), dataPtrPtr, "list.data.ptr");
+}
+
+auto Codegen::emitStoreListDataPtr(lesma::Type* listType, llvm::Value* listHandle,
+                                   llvm::Value* dataValue)
+    -> void {
+  auto* structType = getOrCreateListStructType(listType);
+  auto* slot = builder->CreateStructGEP(structType, listHandle, 0, "list.data.slot");
+  builder->CreateStore(dataValue, slot);
+}
+
+auto Codegen::emitStoreListLength(lesma::Type* listType, llvm::Value* listHandle, llvm::Value* length)
+    -> void {
+  auto* structType = getOrCreateListStructType(listType);
+  auto* slot = builder->CreateStructGEP(structType, listHandle, 1, "list.len.slot");
+  builder->CreateStore(length, slot);
+}
+
+auto Codegen::emitStoreListCapacity(lesma::Type* listType, llvm::Value* listHandle,
+                                    llvm::Value* capacity) -> void {
+  auto* structType = getOrCreateListStructType(listType);
+  auto* slot = builder->CreateStructGEP(structType, listHandle, 2, "list.cap.slot");
+  builder->CreateStore(capacity, slot);
+}
+
+auto Codegen::emitListBoundsCheck(llvm::SMRange span, lesma::Type* listType, llvm::Value* listHandle,
+                                  llvm::Value* index) -> void {
+  (void) span;
+  llvm::Function* parentFunction = builder->GetInsertBlock()->getParent();
+  auto* okBlock = llvm::BasicBlock::Create(theModule->getContext(), "list.bounds.ok", parentFunction);
+  auto* failBlock =
+      llvm::BasicBlock::Create(theModule->getContext(), "list.bounds.fail", parentFunction);
+  auto* length = emitListLength(listType, listHandle);
+  auto* nonNegative = builder->CreateICmpSGE(index, builder->getInt64(0));
+  auto* inRange = builder->CreateICmpSLT(index, length);
+  builder->CreateCondBr(builder->CreateLogicalAnd(nonNegative, inRange), okBlock, failBlock);
+
+  builder->SetInsertPoint(failBlock);
+  emitExit(1);
+  builder->CreateUnreachable();
+
+  builder->SetInsertPoint(okBlock);
+}
+
+auto Codegen::emitListElementPointer(llvm::SMRange span, lesma::Type* listType, llvm::Value* listHandle,
+                                     llvm::Value* index) -> llvm::Value* {
+  emitListBoundsCheck(span, listType, listHandle, index);
+  auto* elementType = listType->getElementType();
+  auto* dataPtr = emitListDataPtr(listType, listHandle);
+  return builder->CreateGEP(getOrCreateLlvmType(elementType), dataPtr, index, "list.elem.ptr");
+}
+
+auto Codegen::emitListEnsureCapacity(lesma::Type* listType, llvm::Value* listHandle,
+                                     llvm::Value* minCapacity) -> void {
+  llvm::Function* parentFunction = builder->GetInsertBlock()->getParent();
+  auto* currentBlock = builder->GetInsertBlock();
+  auto* growBlock = llvm::BasicBlock::Create(theModule->getContext(), "list.grow", parentFunction);
+  auto* doneBlock =
+      llvm::BasicBlock::Create(theModule->getContext(), "list.grow.done", parentFunction);
+  auto* capacity = emitListCapacity(listType, listHandle);
+  auto* currentData = emitListDataPtr(listType, listHandle);
+  builder->CreateCondBr(builder->CreateICmpSGE(capacity, minCapacity), doneBlock, growBlock);
+
+  builder->SetInsertPoint(growBlock);
+  auto* doubledCap = builder->CreateMul(capacity, builder->getInt64(2), "list.cap.doubled");
+  auto* baseCap = builder->CreateSelect(builder->CreateICmpEQ(capacity, builder->getInt64(0)),
+                                        builder->getInt64(1), doubledCap);
+  auto* newCap = builder->CreateSelect(builder->CreateICmpSGE(baseCap, minCapacity), baseCap,
+                                       minCapacity, "list.cap.new");
+  auto* elementSize =
+      builder->getInt64(theModule->getDataLayout()
+                            .getTypeAllocSize(getOrCreateLlvmType(listType->getElementType()))
+                            .getFixedValue());
+  auto* newBytes = builder->CreateMul(newCap, elementSize, "list.grow.bytes");
+  auto* allocBlock =
+      llvm::BasicBlock::Create(theModule->getContext(), "list.grow.alloc", parentFunction);
+  auto* reallocBlock =
+      llvm::BasicBlock::Create(theModule->getContext(), "list.grow.realloc", parentFunction);
+  builder->CreateCondBr(
+      builder->CreateICmpEQ(currentData, llvm::ConstantPointerNull::get(builder->getPtrTy())),
+      allocBlock, reallocBlock);
+
+  builder->SetInsertPoint(allocBlock);
+  auto* allocatedData = emitMalloc(newBytes, "list.grow.alloc");
+  builder->CreateBr(doneBlock);
+
+  builder->SetInsertPoint(reallocBlock);
+  auto* reallocatedData = emitRealloc(currentData, newBytes, "list.grow.realloc");
+  builder->CreateBr(doneBlock);
+
+  builder->SetInsertPoint(doneBlock);
+  auto* newData = builder->CreatePHI(builder->getPtrTy(), 3, "list.grow.result");
+  auto* finalCapacity = builder->CreatePHI(builder->getInt64Ty(), 3, "list.grow.capacity");
+  newData->addIncoming(currentData, currentBlock);
+  newData->addIncoming(allocatedData, allocBlock);
+  newData->addIncoming(reallocatedData, reallocBlock);
+  finalCapacity->addIncoming(capacity, currentBlock);
+  finalCapacity->addIncoming(newCap, allocBlock);
+  finalCapacity->addIncoming(newCap, reallocBlock);
+  emitStoreListDataPtr(listType, listHandle, newData);
+  emitStoreListCapacity(listType, listHandle, finalCapacity);
+}
+
+auto Codegen::emitListDeepCopy(lesma::Type* listType, llvm::Value* listHandle) -> llvm::Value* {
+  auto* structType = getOrCreateListStructType(listType);
+  auto* headerSize =
+      builder->getInt64(theModule->getDataLayout().getTypeAllocSize(structType).getFixedValue());
+  auto* newHandle = emitMalloc(headerSize, "list.copy.header");
+  auto* length = emitListLength(listType, listHandle);
+  auto* capacity = emitListCapacity(listType, listHandle);
+  emitStoreListLength(listType, newHandle, length);
+  emitStoreListCapacity(listType, newHandle, capacity);
+  auto* elementType = listType->getElementType();
+  auto* elementLlvmType = getOrCreateLlvmType(elementType);
+  auto* elementSize =
+      builder->getInt64(theModule->getDataLayout().getTypeAllocSize(elementLlvmType).getFixedValue());
+  auto* hasElements = builder->CreateICmpSGT(length, builder->getInt64(0));
+  auto* dataSlot = builder->CreateAlloca(builder->getPtrTy(), nullptr, "list.copy.data.slot");
+  builder->CreateStore(llvm::ConstantPointerNull::get(builder->getPtrTy()), dataSlot);
+
+  llvm::Function* parentFunction = builder->GetInsertBlock()->getParent();
+  auto* copyElementsBlock =
+      llvm::BasicBlock::Create(theModule->getContext(), "list.copy.elements", parentFunction);
+  auto* doneBlock =
+      llvm::BasicBlock::Create(theModule->getContext(), "list.copy.done", parentFunction);
+  builder->CreateCondBr(hasElements, copyElementsBlock, doneBlock);
+
+  builder->SetInsertPoint(copyElementsBlock);
+  auto* newBytes = builder->CreateMul(length, elementSize, "list.copy.bytes");
+  auto* newData = emitMalloc(newBytes, "list.copy.data");
+  builder->CreateStore(newData, dataSlot);
+  if (elementType->is(BaseType::TY_ARRAY)) {
+    auto* indexPtr = builder->CreateAlloca(builder->getInt64Ty(), nullptr, "list.copy.index");
+    builder->CreateStore(builder->getInt64(0), indexPtr);
+    auto* loopCond =
+        llvm::BasicBlock::Create(theModule->getContext(), "list.copy.loop.cond", parentFunction);
+    auto* loopBody =
+        llvm::BasicBlock::Create(theModule->getContext(), "list.copy.loop.body", parentFunction);
+    auto* loopInc =
+        llvm::BasicBlock::Create(theModule->getContext(), "list.copy.loop.inc", parentFunction);
+    builder->CreateBr(loopCond);
+
+    builder->SetInsertPoint(loopCond);
+    auto* index = builder->CreateLoad(builder->getInt64Ty(), indexPtr);
+    builder->CreateCondBr(builder->CreateICmpSLT(index, length), loopBody, doneBlock);
+
+    builder->SetInsertPoint(loopBody);
+    auto* oldElementPtr = emitListElementPointer({}, listType, listHandle, index);
+    auto* oldElement = builder->CreateLoad(elementLlvmType, oldElementPtr);
+    auto* copiedElement = emitListDeepCopy(elementType, oldElement);
+    auto* newElementPtr = builder->CreateGEP(elementLlvmType, newData, index, "list.copy.elem.ptr");
+    builder->CreateStore(copiedElement, newElementPtr);
+    builder->CreateBr(loopInc);
+
+    builder->SetInsertPoint(loopInc);
+    auto* nextIndex = builder->CreateAdd(builder->CreateLoad(builder->getInt64Ty(), indexPtr),
+                                         builder->getInt64(1));
+    builder->CreateStore(nextIndex, indexPtr);
+    builder->CreateBr(loopCond);
+  } else {
+    auto memcpyFn = theModule->getOrInsertFunction(
+        "memcpy",
+        llvm::FunctionType::get(builder->getPtrTy(),
+                                {builder->getPtrTy(), builder->getPtrTy(), builder->getInt64Ty()},
+                                false));
+    builder->CreateCall(memcpyFn, {newData, emitListDataPtr(listType, listHandle), newBytes});
+    builder->CreateBr(doneBlock);
+  }
+
+  builder->SetInsertPoint(doneBlock);
+  emitStoreListDataPtr(listType, newHandle, builder->CreateLoad(builder->getPtrTy(), dataSlot));
+  return newHandle;
+}
+
 auto Codegen::getOrCreateLlvmType(lesma::Type* type) -> llvm::Type* {
   if (type->getLlvmType() != nullptr) {
     return type->getLlvmType();
@@ -897,9 +1153,8 @@ auto Codegen::getOrCreateLlvmType(lesma::Type* type) -> llvm::Type* {
     if (type->getElementType() != nullptr) {
       getOrCreateLlvmType(type->getElementType());
     }
-    llvm::StructType* st = llvm::StructType::create(theModule->getContext());
-    type->setLlvmType(st);
-    st->setBody({builder->getPtrTy(), builder->getInt64Ty(), builder->getInt64Ty()});
+    getOrCreateListStructType(type);
+    type->setLlvmType(builder->getPtrTy());
     break;
   }
   case BaseType::TY_FUNCTION:
@@ -1352,9 +1607,7 @@ auto Codegen::visit(const ForIn* node) -> void {
   }
 
   getOrCreateLlvmType(listType);
-  auto* listStructTy = llvm::cast<llvm::StructType>(listType->getLlvmType());
-  auto* listPtr = builder->CreateAlloca(listStructTy, nullptr, "for.list");
-  builder->CreateStore(iterable->getLlvmValue(), listPtr);
+  auto* listHandle = iterable->getLlvmValue();
   auto* indexPtr = builder->CreateAlloca(builder->getInt64Ty(), nullptr, "for.index");
   builder->CreateStore(builder->getInt64(0), indexPtr);
 
@@ -1391,16 +1644,12 @@ auto Codegen::visit(const ForIn* node) -> void {
   bCond->insertInto(parentFct);
   builder->SetInsertPoint(bCond);
   auto* idxVal = builder->CreateLoad(builder->getInt64Ty(), indexPtr);
-  auto* lenPtr = builder->CreateStructGEP(listStructTy, listPtr, 1);
-  auto* lenVal = builder->CreateLoad(builder->getInt64Ty(), lenPtr);
+  auto* lenVal = emitListLength(listType, listHandle);
   builder->CreateCondBr(builder->CreateICmpSLT(idxVal, lenVal), bLoop, bEnd);
 
   bLoop->insertInto(parentFct);
   builder->SetInsertPoint(bLoop);
-  auto* dataPtrPtr = builder->CreateStructGEP(listStructTy, listPtr, 0);
-  auto* dataPtr = builder->CreateLoad(builder->getPtrTy(), dataPtrPtr);
-  auto* elemPtr =
-      builder->CreateGEP(listType->getElementType()->getLlvmType(), dataPtr, idxVal, "for.elem.ptr");
+  auto* elemPtr = emitListElementPointer(node->getSpan(), listType, listHandle, idxVal);
   auto* elemVal = builder->CreateLoad(listType->getElementType()->getLlvmType(), elemPtr);
   builder->CreateStore(elemVal, loopVar->getLlvmValue());
   scope = node->getBodyScope() != nullptr ? node->getBodyScope() : scope;
@@ -1639,12 +1888,11 @@ auto Codegen::visit(const Assignment* node) -> void {
     }
 
     lhs = symbol;
-  } else if (dynamic_cast<DotOp*>(node->getLeftHandSide()) != nullptr) {
+  } else if (dynamic_cast<DotOp*>(node->getLeftHandSide()) != nullptr ||
+             dynamic_cast<SubscriptOp*>(node->getLeftHandSide()) != nullptr) {
     node->getLeftHandSide()->accept(*this);
     lhsOwner = std::move(result);
     lhs = lhsOwner.get();
-    // DotOp on class field yields pointer (StructGEP); cast RHS to element
-    // type.
     isPtr = true;
   } else {
     throw CodegenError(node->getSpan(), "Unable to assign {} to {}",
@@ -2168,7 +2416,124 @@ auto Codegen::visit(const BinaryOp* node) -> void {
                      right->getType()->toString());
 }
 
+auto Codegen::visit(const SubscriptOp* node) -> void {
+  node->getLeft()->accept(*this);
+  auto listValue = std::move(result);
+  if (listValue == nullptr || listValue->getType() == nullptr || !listValue->getType()->is(BaseType::TY_ARRAY)) {
+    throw CodegenError(node->getSpan(), "Subscript requires list<T>");
+  }
+
+  node->getIndex()->accept(*this);
+  auto indexValue = cast(node->getIndex()->getSpan(), result.get(),
+                         cacheType(std::make_unique<Type>(BaseType::TY_INT, builder->getInt64Ty())));
+  auto* listType = listValue->getType();
+  auto* elementPtr =
+      emitListElementPointer(node->getSpan(), listType, listValue->getLlvmValue(), indexValue->getLlvmValue());
+  auto* elementType = listType->getElementType();
+  if (isAssignment) {
+    result = std::make_unique<Value>(
+        "", cacheType(std::make_unique<Type>(BaseType::TY_PTR, builder->getPtrTy(), elementType)),
+        elementPtr);
+    return;
+  }
+  result = std::make_unique<Value>("", elementType,
+                                   builder->CreateLoad(getOrCreateLlvmType(elementType), elementPtr));
+}
+
 auto Codegen::visit(const DotOp* node) -> void {
+  node->getLeft()->accept(*this);
+  auto leftValue = std::move(result);
+  if (leftValue != nullptr && leftValue->getType() != nullptr &&
+      leftValue->getType()->is(BaseType::TY_ARRAY)) {
+    auto* call = dynamic_cast<FuncCall*>(node->getRight());
+    if (call == nullptr) {
+      throw CodegenError(node->getSpan(), "Expected list method call after dot");
+    }
+    auto* listType = leftValue->getType();
+    const std::string methodName = call->getName();
+    if (methodName == "len") {
+      if (!call->getArguments().empty()) {
+        throw CodegenError(call->getSpan(), "list.len() does not take arguments");
+      }
+      result = std::make_unique<Value>(
+          "", cacheType(std::make_unique<Type>(BaseType::TY_INT, builder->getInt64Ty())),
+          emitListLength(listType, leftValue->getLlvmValue()));
+      return;
+    }
+    if (methodName == "copy") {
+      if (!call->getArguments().empty()) {
+        throw CodegenError(call->getSpan(), "list.copy() does not take arguments");
+      }
+      result = std::make_unique<Value>("", listType,
+                                       emitListDeepCopy(listType, leftValue->getLlvmValue()));
+      return;
+    }
+    if (methodName == "clear") {
+      if (!call->getArguments().empty()) {
+        throw CodegenError(call->getSpan(), "list.clear() does not take arguments");
+      }
+      auto* currentData = emitListDataPtr(listType, leftValue->getLlvmValue());
+      llvm::Function* parentFunction = builder->GetInsertBlock()->getParent();
+      auto* freeBlock =
+          llvm::BasicBlock::Create(theModule->getContext(), "list.clear.free", parentFunction);
+      auto* doneBlock =
+          llvm::BasicBlock::Create(theModule->getContext(), "list.clear.done", parentFunction);
+      builder->CreateCondBr(
+          builder->CreateICmpNE(currentData, llvm::ConstantPointerNull::get(builder->getPtrTy())),
+          freeBlock, doneBlock);
+      builder->SetInsertPoint(freeBlock);
+      emitFree(currentData);
+      builder->CreateBr(doneBlock);
+      builder->SetInsertPoint(doneBlock);
+      emitStoreListDataPtr(listType, leftValue->getLlvmValue(),
+                           llvm::ConstantPointerNull::get(builder->getPtrTy()));
+      emitStoreListLength(listType, leftValue->getLlvmValue(), builder->getInt64(0));
+      emitStoreListCapacity(listType, leftValue->getLlvmValue(), builder->getInt64(0));
+      result = std::make_unique<Value>(
+          "", cacheType(std::make_unique<Type>(BaseType::TY_VOID, builder->getVoidTy())),
+          nullptr);
+      return;
+    }
+    if (methodName == "push") {
+      if (call->getArguments().size() != 1U) {
+        throw CodegenError(call->getSpan(), "list.push() expects exactly one argument");
+      }
+      call->getArguments().front()->accept(*this);
+      auto castValue = cast(call->getArguments().front()->getSpan(), result.get(), listType->getElementType());
+      auto* length = emitListLength(listType, leftValue->getLlvmValue());
+      auto* nextLength = builder->CreateAdd(length, builder->getInt64(1));
+      emitListEnsureCapacity(listType, leftValue->getLlvmValue(), nextLength);
+      auto* elementPtr =
+          builder->CreateGEP(getOrCreateLlvmType(listType->getElementType()),
+                             emitListDataPtr(listType, leftValue->getLlvmValue()), length,
+                             "list.push.ptr");
+      builder->CreateStore(castValue->getLlvmValue(), elementPtr);
+      emitStoreListLength(listType, leftValue->getLlvmValue(), nextLength);
+      result = std::make_unique<Value>(
+          "", cacheType(std::make_unique<Type>(BaseType::TY_VOID, builder->getVoidTy())),
+          nullptr);
+      return;
+    }
+    if (methodName == "pop") {
+      if (!call->getArguments().empty()) {
+        throw CodegenError(call->getSpan(), "list.pop() does not take arguments");
+      }
+      auto* length = emitListLength(listType, leftValue->getLlvmValue());
+      emitListBoundsCheck(call->getSpan(), listType, leftValue->getLlvmValue(),
+                          builder->CreateSub(length, builder->getInt64(1)));
+      auto* newLength = builder->CreateSub(length, builder->getInt64(1), "list.pop.len");
+      auto* elementPtr = builder->CreateGEP(getOrCreateLlvmType(listType->getElementType()),
+                                            emitListDataPtr(listType, leftValue->getLlvmValue()),
+                                            newLength, "list.pop.ptr");
+      auto* poppedValue =
+          builder->CreateLoad(getOrCreateLlvmType(listType->getElementType()), elementPtr);
+      emitStoreListLength(listType, leftValue->getLlvmValue(), newLength);
+      result = std::make_unique<Value>("", listType->getElementType(), poppedValue);
+      return;
+    }
+    throw CodegenError(node->getSpan(), "Unknown list method {}", methodName);
+  }
+
   if (auto* left = dynamic_cast<Literal*>(node->getLeft())) {
     if (left->getType() != TokenType::IDENTIFIER) {
       throw CodegenError(node->getLeft()->getSpan(),
@@ -2402,23 +2767,26 @@ auto Codegen::visit(const UnaryOp* node) -> void {
 
 auto Codegen::visit(const ListLiteral* node) -> void {
   lesma::Type* listType = node->getResolvedType();
-  if (listType == nullptr || !listType->is(BaseType::TY_ARRAY) || listType->getElementType() == nullptr) {
+  if (listType == nullptr || !listType->is(BaseType::TY_ARRAY) ||
+      listType->getElementType() == nullptr) {
     throw CodegenError(node->getSpan(), "List literal has no resolved list<T> type");
   }
 
   lesma::Type* elementType = listType->getElementType();
   llvm::Type* elementLlvmType = getOrCreateLlvmType(elementType);
-  llvm::Type* listLlvmType = getOrCreateLlvmType(listType);
-  auto* listStructTy = llvm::cast<llvm::StructType>(listLlvmType);
+  getOrCreateLlvmType(listType);
+  auto* listStructTy = getOrCreateListStructType(listType);
   std::vector<Expression*> elements = node->getElements();
+  auto* headerSize =
+      builder->getInt64(theModule->getDataLayout().getTypeAllocSize(listStructTy).getFixedValue());
+  auto* listHandle = emitMalloc(headerSize, "list.header");
 
   llvm::Value* dataPtr = llvm::ConstantPointerNull::get(builder->getPtrTy());
   if (!elements.empty()) {
-    auto mallocFn = theModule->getOrInsertFunction(
-        "malloc", llvm::FunctionType::get(builder->getPtrTy(), {builder->getInt64Ty()}, false));
-    uint64_t elementSize = theModule->getDataLayout().getTypeAllocSize(elementLlvmType).getFixedValue();
+    uint64_t elementSize =
+        theModule->getDataLayout().getTypeAllocSize(elementLlvmType).getFixedValue();
     auto* byteSize = builder->getInt64(elementSize * elements.size());
-    dataPtr = builder->CreateCall(mallocFn, {byteSize}, "list.data");
+    dataPtr = emitMalloc(byteSize, "list.data");
 
     for (size_t i = 0; i < elements.size(); ++i) {
       elements[i]->accept(*this);
@@ -2429,12 +2797,11 @@ auto Codegen::visit(const ListLiteral* node) -> void {
     }
   }
 
-  llvm::Value* listValue = llvm::UndefValue::get(listStructTy);
   auto* count = builder->getInt64(elements.size());
-  listValue = builder->CreateInsertValue(listValue, dataPtr, {0});
-  listValue = builder->CreateInsertValue(listValue, count, {1});
-  listValue = builder->CreateInsertValue(listValue, count, {2});
-  result = std::make_unique<Value>("", listType, listValue);
+  emitStoreListDataPtr(listType, listHandle, dataPtr);
+  emitStoreListLength(listType, listHandle, count);
+  emitStoreListCapacity(listType, listHandle, count);
+  result = std::make_unique<Value>("", listType, listHandle);
 }
 
 auto Codegen::visit(const Literal* node) -> void {

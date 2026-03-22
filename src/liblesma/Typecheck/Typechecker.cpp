@@ -151,6 +151,71 @@ auto Typechecker::currentExpectedType() const -> Type* {
   return expectedTypes.back();
 }
 
+auto Typechecker::isMutableListReceiver(const Expression* expr) -> bool {
+  auto const* lit = dynamic_cast<const Literal*>(expr);
+  if (lit == nullptr || lit->getType() != TokenType::IDENTIFIER) {
+    return true;
+  }
+  Value* symbol = scope->lookup(lit->getValue());
+  return symbol == nullptr || symbol->getMutability();
+}
+
+auto Typechecker::visitListMethodCall(Type* listType, const DotOp* node, const FuncCall* call) -> bool {
+  if (listType == nullptr || !listType->is(BaseType::TY_ARRAY) || call == nullptr) {
+    return false;
+  }
+  if (call->getExplicitTypeArgs().empty()) {
+    const std::string methodName = call->getName();
+    const bool isMutating = methodName == "push" || methodName == "clear" || methodName == "pop";
+    if (isMutating && !isMutableListReceiver(node->getLeft())) {
+      throw TypeCheckError(node->getSpan(), "Cannot call mutating list method {} on immutable value",
+                           methodName);
+    }
+    if (methodName == "len") {
+      if (!call->getArguments().empty()) {
+        throw TypeCheckError(call->getSpan(), "list.len() does not take arguments");
+      }
+      result = std::make_unique<Value>(cacheType(std::make_unique<Type>(BaseType::TY_INT)));
+      return true;
+    }
+    if (methodName == "copy") {
+      if (!call->getArguments().empty()) {
+        throw TypeCheckError(call->getSpan(), "list.copy() does not take arguments");
+      }
+      result = std::make_unique<Value>(listType);
+      return true;
+    }
+    if (methodName == "clear") {
+      if (!call->getArguments().empty()) {
+        throw TypeCheckError(call->getSpan(), "list.clear() does not take arguments");
+      }
+      result = std::make_unique<Value>(cacheType(std::make_unique<Type>(BaseType::TY_VOID)));
+      return true;
+    }
+    if (methodName == "pop") {
+      if (!call->getArguments().empty()) {
+        throw TypeCheckError(call->getSpan(), "list.pop() does not take arguments");
+      }
+      result = std::make_unique<Value>(listType->getElementType());
+      return true;
+    }
+    if (methodName == "push") {
+      if (call->getArguments().size() != 1U) {
+        throw TypeCheckError(call->getSpan(), "list.push() expects exactly one argument");
+      }
+      visitExprWithExpectedType(call->getArguments().front(), listType->getElementType());
+      if (!isAssignableTo(result->getType(), listType->getElementType())) {
+        throw TypeCheckError(call->getArguments().front()->getSpan(),
+                             "Cannot push type {} into list element type {}",
+                             result->getType()->toString(), listType->getElementType()->toString());
+      }
+      result = std::make_unique<Value>(cacheType(std::make_unique<Type>(BaseType::TY_VOID)));
+      return true;
+    }
+  }
+  return false;
+}
+
 auto Typechecker::cacheType(std::unique_ptr<Type> type) -> Type* {
   typeCache.push_back(std::move(type));
   return typeCache.back().get();
@@ -1158,6 +1223,38 @@ auto Typechecker::visit(const Assignment* node) -> void {
     }
     return;
   }
+  if (auto* subscript = dynamic_cast<SubscriptOp*>(node->getLeftHandSide())) {
+    if (auto* baseLit = dynamic_cast<Literal*>(subscript->getLeft())) {
+      Value* sym = scope->lookup(baseLit->getValue());
+      if (sym != nullptr && !sym->getMutability()) {
+        throw TypeCheckError(node->getSpan(), "Cannot assign through immutable variable {}",
+                             baseLit->getValue());
+      }
+    }
+    node->getLeftHandSide()->accept(*this);
+    Type* lhsType = result->getType();
+    visitExprWithExpectedType(node->getRightHandSide(), lhsType);
+    Type* rhsType = result->getType();
+    if (binaryOp.has_value()) {
+      Type* resultType = typecheckBinaryOpResult(*binaryOp, lhsType, rhsType, node->getSpan());
+      if (lhsType != nullptr && !isAssignableTo(resultType, lhsType)) {
+        throw TypeCheckError(
+            node->getSpan(),
+            "Compound assignment result type {} is not assignable to list element type {}",
+            resultType->toString(), lhsType->toString());
+      }
+    } else {
+      if (assignOp != TokenType::EQUAL) {
+        throw TypeCheckError(node->getSpan(), "Unsupported assignment operator: {}",
+                             NAMEOF_ENUM(assignOp));
+      }
+      if (lhsType != nullptr && !isAssignableTo(rhsType, lhsType)) {
+        throw TypeCheckError(node->getSpan(), "Cannot assign type {} to list element of type {}",
+                             rhsType->toString(), lhsType->toString());
+      }
+    }
+    return;
+  }
   throw TypeCheckError(node->getSpan(), "Invalid assignment target");
 }
 
@@ -1399,6 +1496,22 @@ auto Typechecker::visit(const BinaryOp* node) -> void {
   result = std::make_unique<Value>(resultType);
 }
 
+auto Typechecker::visit(const SubscriptOp* node) -> void {
+  node->getLeft()->accept(*this);
+  Type* baseType = result->getType();
+  if (baseType == nullptr || !baseType->is(BaseType::TY_ARRAY) || baseType->getElementType() == nullptr) {
+    throw TypeCheckError(node->getSpan(), "Subscript requires list<T>, got {}",
+                         baseType != nullptr ? baseType->toString() : "unknown");
+  }
+  node->getIndex()->accept(*this);
+  Type* indexType = result->getType();
+  if (indexType == nullptr || !indexType->is(BaseType::TY_INT)) {
+    throw TypeCheckError(node->getIndex()->getSpan(), "List index must be int, got {}",
+                         indexType != nullptr ? indexType->toString() : "unknown");
+  }
+  result = std::make_unique<Value>(baseType->getElementType());
+}
+
 auto Typechecker::visit(const DotOp* node) -> void {
   node->getLeft()->accept(*this);
   Type* base = result->getType();
@@ -1529,6 +1642,14 @@ auto Typechecker::visit(const DotOp* node) -> void {
   }
   if (base->is(BaseType::TY_PTR) && base->getElementType() != nullptr) {
     base = base->getElementType();
+  }
+  if (base->is(BaseType::TY_ARRAY)) {
+    if (auto* call = dynamic_cast<FuncCall*>(node->getRight())) {
+      if (visitListMethodCall(base, node, call)) {
+        return;
+      }
+    }
+    throw TypeCheckError(node->getSpan(), "Expected supported list method after dot");
   }
   if (!base->is(BaseType::TY_CLASS) && !base->is(BaseType::TY_ENUM)) {
     throw TypeCheckError(node->getSpan(), "Dot operator requires class or enum type, got {}",

@@ -107,6 +107,8 @@ class Typechecker final : public ASTVisitor {
       -> Type*;
   auto visitExprWithExpectedType(const Expression* node, Type* expected) -> void;
   [[nodiscard]] auto currentExpectedType() const -> Type*;
+  auto isMutableListReceiver(const Expression* expr) -> bool;
+  auto visitListMethodCall(Type* listType, const DotOp* node, const FuncCall* call) -> bool;
   /** Map compound-assignment operator to the corresponding binary operator; nullopt if not
    * compound. */
   auto compoundToBinaryOp(TokenType op) -> std::optional<TokenType>;
@@ -164,6 +166,7 @@ public:
   auto visit(const Expression* node) -> void override;
   auto visit(const FuncCall* node) -> void override;
   auto visit(const BinaryOp* node) -> void override;
+  auto visit(const SubscriptOp* node) -> void override;
   auto visit(const DotOp* node) -> void override;
   auto visit(const CastOp* node) -> void override;
   auto visit(const IsOp* node) -> void override;

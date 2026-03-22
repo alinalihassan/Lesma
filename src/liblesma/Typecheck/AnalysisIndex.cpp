@@ -187,6 +187,11 @@ auto collectIndexFromExpr(const Expression* expr, AnalysisIndex& index) -> void 
     collectIndexFromExpr(binary->getRight(), index);
     return;
   }
+  if (auto const* subscript = dynamic_cast<const SubscriptOp*>(expr)) {
+    collectIndexFromExpr(subscript->getLeft(), index);
+    collectIndexFromExpr(subscript->getIndex(), index);
+    return;
+  }
   if (auto const* unary = dynamic_cast<const UnaryOp*>(expr)) {
     collectIndexFromExpr(unary->getExpression(), index);
     return;

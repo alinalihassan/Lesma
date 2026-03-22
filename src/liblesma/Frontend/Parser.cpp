@@ -344,18 +344,31 @@ auto Parser::parseTerm() -> std::unique_ptr<Expression> {
   return nullptr;
 }
 
-auto Parser::parseDot() -> std::unique_ptr<Expression> {
+auto Parser::parsePostfix() -> std::unique_ptr<Expression> {
   auto left = parseTerm();
 
-  while (advanceIfMatchAny<TokenType::DOT>()) {
-    auto* op = previous();
-    auto expr = parseTerm();
-    left = std::make_unique<DotOp>(llvm::SMRange{left->getStart(), expr->getEnd()}, std::move(left),
-                                   op->type, std::move(expr));
+  while (true) {
+    if (advanceIfMatchAny<TokenType::DOT>()) {
+      auto* op = previous();
+      auto expr = parseTerm();
+      left = std::make_unique<DotOp>(llvm::SMRange{left->getStart(), expr->getEnd()},
+                                     std::move(left), op->type, std::move(expr));
+      continue;
+    }
+    if (advanceIfMatchAny<TokenType::LEFT_SQUARE>()) {
+      auto index = parseExpression();
+      auto* end = consume(TokenType::RIGHT_SQUARE, "Expected ']' after subscript index");
+      left = std::make_unique<SubscriptOp>(llvm::SMRange{left->getStart(), end->getEnd()},
+                                           std::move(left), std::move(index));
+      continue;
+    }
+    break;
   }
 
   return left;
 }
+
+auto Parser::parseDot() -> std::unique_ptr<Expression> { return parsePostfix(); }
 
 auto Parser::parseUnary() -> std::unique_ptr<Expression> {
   // Handle unary operators recursively to allow chaining: - - x, * * ptr, etc.
@@ -555,15 +568,16 @@ auto Parser::parseFor() -> std::unique_ptr<Statement> {
 }
 
 auto Parser::parseAssignment() -> std::unique_ptr<Statement> {
-  auto identifier = parseDot();
+  auto identifier = parsePostfix();
 
   auto* literalPtr = dynamic_cast<Literal*>(identifier.get());
   auto* dotOpPtr = dynamic_cast<DotOp*>(identifier.get());
+  auto* subscriptPtr = dynamic_cast<SubscriptOp*>(identifier.get());
 
   if ((literalPtr == nullptr || literalPtr->getType() != TokenType::IDENTIFIER) &&
-      dotOpPtr == nullptr) {
+      dotOpPtr == nullptr && subscriptPtr == nullptr) {
     throw ParserError(identifier->getSpan(),
-                      "Expected either identifier or class field for assignment");
+                      "Expected identifier, field access, or subscript for assignment");
   }
 
   if (advanceIfMatchAny<TokenType::EQUAL, TokenType::PLUS_EQUAL, TokenType::MINUS_EQUAL,
