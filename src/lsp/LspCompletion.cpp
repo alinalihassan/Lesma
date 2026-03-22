@@ -646,10 +646,10 @@ auto completionItems(AnalysisResult& result, unsigned line, unsigned character)
 
   if (ctx.isMember) {
     std::vector<std::string> parts = splitChain(ctx.memberChain);
-    if (parts.size() == 1U) {
+    Type* baseType = resolveChainType(*activeResult, ctx.memberChain, activeScope, root);
+    if (parts.size() == 1U && lookupName(activeScope, root, parts.front()) == nullptr) {
       appendModuleMembersForAlias(*activeResult, parts.front(), candidates, seen);
     }
-    Type* baseType = resolveChainType(*activeResult, ctx.memberChain, activeScope, root);
     appendMembersForType(*activeResult, baseType, ast, root, candidates, seen);
     if (candidates.empty()) {
       appendScopeSymbols(activeScope != nullptr ? activeScope : root, root, candidates, seen);
