@@ -83,12 +83,17 @@ export async function executeLesma(
     return;
   }
 
-  const lesmaCommand = `${lesmaPath} ${flags ?? ""} ${subcommand} ${filename}`;
+  const args = [
+    ...(flags?.trim() ? flags.trim().split(/\s+/) : []),
+    subcommand,
+    filename,
+  ];
 
   OutputConsole.clear();
 
   const { error, stdout, stderr, exitCode } = await ProcessManager.startCommand(
-    lesmaCommand
+    lesmaPath,
+    args
   );
 
   if (error) {

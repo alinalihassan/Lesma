@@ -10,10 +10,11 @@ type CommandResult = {
 export default class ProcessManager {
   public static async startCommand(
     cmd: string,
-    options: child_process.ExecOptions = {}
+    args: string[] = [],
+    options: child_process.ExecFileOptions = {}
   ): Promise<CommandResult> {
     return new Promise((resolve) => {
-      child_process.exec(cmd, options, (error, stdout, stderr) => {
+      child_process.execFile(cmd, args, options, (error, stdout, stderr) => {
         resolve({
           error,
           stdout,
