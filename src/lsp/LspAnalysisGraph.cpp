@@ -451,6 +451,7 @@ auto findLocalImportBindingLocation(const AnalysisView& analysis, const std::str
   if (!isUsableAnalysis(analysis) || analysis.mainFilePath == nullptr) {
     return std::nullopt;
   }
+  std::optional<::lsp::Location> fallbackLocation;
   for (lesma::Statement* stmt : analysis.ast->getChildren()) {
     auto const* importNode = dynamic_cast<const lesma::Import*>(stmt);
     if (importNode == nullptr) {
@@ -461,16 +462,24 @@ auto findLocalImportBindingLocation(const AnalysisView& analysis, const std::str
       bool const isModuleAlias =
           aliasSpan.isValid() && binding.name == importNode->getAlias() && binding.span.isValid() &&
           binding.span.Start == aliasSpan.Start && binding.span.End == aliasSpan.End;
-      if (binding.name == name && binding.span.isValid() &&
-          ((preferModuleAlias && isModuleAlias) || (!preferModuleAlias && !isModuleAlias))) {
+      if (binding.name != name || !binding.span.isValid()) {
+        continue;
+      }
+      if (preferModuleAlias == isModuleAlias) {
         return ::lsp::Location{
+            .uri = uriFromPath(*analysis.mainFilePath),
+            .range = smRangeToLspRange(analysis.sourceMgr, analysis.bufferId, binding.span),
+        };
+      }
+      if (!fallbackLocation.has_value()) {
+        fallbackLocation = ::lsp::Location{
             .uri = uriFromPath(*analysis.mainFilePath),
             .range = smRangeToLspRange(analysis.sourceMgr, analysis.bufferId, binding.span),
         };
       }
     }
   }
-  return std::nullopt;
+  return fallbackLocation;
 }
 
 auto collectAnalysisViews(AnalysisResult& result) -> std::vector<AnalysisView> {
