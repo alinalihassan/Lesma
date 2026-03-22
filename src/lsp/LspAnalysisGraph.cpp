@@ -1,6 +1,7 @@
 #include "LspAnalysisGraph.h"
 
 #include <filesystem>
+#include <mutex>
 #include <unordered_set>
 #include <utility>
 
@@ -128,11 +129,17 @@ auto makeImportedModuleAnalysis(AnalysisResult analyzed)
 auto getLazyImportedAnalysis(const std::string& path)
     -> std::shared_ptr<lesma::ImportedModuleAnalysis> {
   static std::unordered_map<std::string, std::shared_ptr<lesma::ImportedModuleAnalysis>> cache;
+  static std::mutex cacheMutex;
   std::string normalized = normalizePath(path);
-  auto existing = cache.find(normalized);
-  if (existing != cache.end()) {
-    return existing->second;
+
+  {
+    std::lock_guard<std::mutex> lock(cacheMutex);
+    auto existing = cache.find(normalized);
+    if (existing != cache.end()) {
+      return existing->second;
+    }
   }
+
   auto options = std::make_unique<Options>(Options{
       SourceType::FILE,
       normalized,
@@ -144,13 +151,24 @@ auto getLazyImportedAnalysis(const std::string& path)
   AnalysisResult analyzed = lesma::analyze(std::move(options));
   AnalysisView view = makeAnalysisView(analyzed);
   if (!isUsableAnalysis(view)) {
+    std::lock_guard<std::mutex> lock(cacheMutex);
+    auto existing = cache.find(normalized);
+    if (existing != cache.end()) {
+      return existing->second;
+    }
     cache[normalized] = nullptr;
-    return nullptr;
+    return cache[normalized];
   }
+
   std::shared_ptr<lesma::ImportedModuleAnalysis> imported =
       makeImportedModuleAnalysis(std::move(analyzed));
+  std::lock_guard<std::mutex> lock(cacheMutex);
+  auto existing = cache.find(normalized);
+  if (existing != cache.end()) {
+    return existing->second;
+  }
   cache[normalized] = imported;
-  return imported;
+  return cache[normalized];
 }
 
 } // namespace
