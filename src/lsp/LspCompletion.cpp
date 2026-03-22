@@ -420,7 +420,7 @@ auto declarationIdentityForType(Type* classType, SymbolTable* root)
   return std::nullopt;
 }
 
-auto findClassDeclarationForType(const AnalysisResult& result, Type* classType, Compound* fallbackAst,
+auto findClassDeclarationForType(AnalysisResult& result, Type* classType, Compound* fallbackAst,
                                  SymbolTable* root) -> Class* {
   if (std::optional<IndexedDeclarationIdentity> declaration =
           declarationIdentityForType(classType, root)) {
@@ -500,7 +500,7 @@ void addCandidate(std::vector<CompletionCandidate>& out, std::unordered_set<std:
   out.push_back(std::move(candidate));
 }
 
-void appendMembersForType(const AnalysisResult& result, Type* baseType, Compound* ast,
+void appendMembersForType(AnalysisResult& result, Type* baseType, Compound* ast,
                           SymbolTable* root,
                           std::vector<CompletionCandidate>& out,
                           std::unordered_set<std::string>& seen) {
@@ -604,7 +604,7 @@ auto toCompletionItems(const std::vector<CompletionCandidate>& candidates, const
 
 } // namespace
 
-auto completionItems(const AnalysisResult& result, unsigned line, unsigned character)
+auto completionItems(AnalysisResult& result, unsigned line, unsigned character)
     -> std::vector<::lsp::CompletionItem> {
   std::vector<::lsp::CompletionItem> items;
   if (result.sourceMgr == nullptr) {
@@ -622,7 +622,7 @@ auto completionItems(const AnalysisResult& result, unsigned line, unsigned chara
   CompletionContext ctx = extractCompletionContext(text, offset);
 
   AnalysisResult patchedResult;
-  const AnalysisResult* activeResult = &result;
+  AnalysisResult* activeResult = &result;
   if (ctx.isMember && (result.parser == nullptr || result.rootScope == nullptr)) {
     // `holder.` is syntactically incomplete, so the normal analysis may fail to parse.
     // Re-analyze with a temporary identifier after the dot so we can still resolve members.

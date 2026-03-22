@@ -173,7 +173,7 @@ auto getLazyImportedAnalysis(const std::string& path)
 
 } // namespace
 
-auto makeAnalysisView(const AnalysisResult& result) -> AnalysisView {
+auto makeAnalysisView(AnalysisResult& result) -> AnalysisView {
   return AnalysisView{
       .sourceMgr = result.sourceMgr.get(),
       .bufferId = result.mainBufferId,
@@ -187,7 +187,7 @@ auto makeAnalysisView(const AnalysisResult& result) -> AnalysisView {
   };
 }
 
-auto makeAnalysisView(const lesma::ImportedModuleAnalysis& result) -> AnalysisView {
+auto makeAnalysisView(lesma::ImportedModuleAnalysis& result) -> AnalysisView {
   return AnalysisView{
       .sourceMgr = result.sourceMgr.get(),
       .bufferId = result.mainBufferId,
@@ -297,7 +297,7 @@ auto findLocalImportBindingLocation(const AnalysisView& analysis, const std::str
   return std::nullopt;
 }
 
-auto collectAnalysisViews(const AnalysisResult& result) -> std::vector<AnalysisView> {
+auto collectAnalysisViews(AnalysisResult& result) -> std::vector<AnalysisView> {
   std::vector<AnalysisView> out;
   AnalysisView mainView = makeAnalysisView(result);
   if (!isUsableAnalysis(mainView)) {
@@ -313,7 +313,7 @@ auto collectAnalysisViews(const AnalysisResult& result) -> std::vector<AnalysisV
   return out;
 }
 
-auto collectReferenceAnalysisViews(const AnalysisResult& result, bool includeWorkspace)
+auto collectReferenceAnalysisViews(AnalysisResult& result, bool includeWorkspace)
     -> std::vector<AnalysisView> {
   std::vector<AnalysisView> out = collectAnalysisViews(result);
   if (!includeWorkspace) {
@@ -343,7 +343,7 @@ auto collectReferenceAnalysisViews(const AnalysisResult& result, bool includeWor
   return out;
 }
 
-auto findAnalysisViewForPath(const AnalysisResult& result, const std::string& path)
+auto findAnalysisViewForPath(AnalysisResult& result, const std::string& path)
     -> std::optional<AnalysisView> {
   std::string target = normalizePath(path);
   for (const AnalysisView& view : collectAnalysisViews(result)) {

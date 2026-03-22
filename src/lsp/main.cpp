@@ -227,7 +227,7 @@ auto resolveDeclarationSymbolInStmt(const lesma::Statement* stmt, llvm::SourceMg
   return nullptr;
 }
 
-auto resolveSymbolByDeclarationIdentity(const AnalysisResult& result,
+auto resolveSymbolByDeclarationIdentity(AnalysisResult& result,
                                         const lesma::IndexedDeclarationIdentity& declaration)
     -> std::optional<ResolvedSymbol> {
   std::optional<AnalysisView> analysis = findAnalysisViewForPath(result, declaration.filePath);
@@ -244,7 +244,7 @@ auto resolveSymbolByDeclarationIdentity(const AnalysisResult& result,
   return std::nullopt;
 }
 
-auto locationForIndexedDeclaration(const AnalysisResult& result,
+auto locationForIndexedDeclaration(AnalysisResult& result,
                                    const lesma::IndexedDeclarationIdentity& declaration)
     -> std::optional<::lsp::Location> {
   std::optional<AnalysisView> analysis = findAnalysisViewForPath(result, declaration.filePath);
@@ -822,7 +822,7 @@ auto findIdentifierAtCursor(const AnalysisView& analysis, unsigned line, unsigne
                                       best->isTypePosition, best->dotBase);
 }
 
-auto collectSemanticTokens(const AnalysisResult& analysisResult, unsigned bufferId)
+auto collectSemanticTokens(AnalysisResult& analysisResult, unsigned bufferId)
     -> std::vector<std::uint32_t>;
 
 auto collectInlayHints(const AnalysisResult& analysisResult, unsigned bufferId,
@@ -965,7 +965,7 @@ struct ActiveCallSite {
   unsigned spanLength = 0U;
 };
 
-auto resolveCanonicalSymbolAtCursor(const AnalysisResult& result, unsigned line, unsigned character,
+auto resolveCanonicalSymbolAtCursor(AnalysisResult& result, unsigned line, unsigned character,
                                     const CursorIdentifier& id) -> std::optional<ResolvedSymbol>;
 
 auto resolveExpressionTypeAtOffset(const lesma::Expression* expr, lesma::Compound* ast,
@@ -1328,7 +1328,7 @@ auto collectCallableCandidates(lesma::SymbolTable* scope, const std::string& nam
   return candidates;
 }
 
-auto buildSignatureHelp(const AnalysisResult& result, unsigned line, unsigned character)
+auto buildSignatureHelp(AnalysisResult& result, unsigned line, unsigned character)
     -> std::optional<::lsp::SignatureHelp> {
   AnalysisView analysis = makeAnalysisView(result);
   if (!isUsableAnalysis(analysis)) {
@@ -1466,7 +1466,7 @@ auto resolveCallArgumentTypesAtCursor(const AnalysisView& analysis, unsigned lin
   return argTypes;
 }
 
-auto resolveImportedSymbol(const AnalysisResult& result, const AnalysisView& analysis,
+auto resolveImportedSymbol(AnalysisResult& result, const AnalysisView& analysis,
                            const std::string& modulePath, const std::string& symbolName,
                            unsigned line, unsigned character, const CursorIdentifier& id)
     -> std::optional<ResolvedSymbol> {
@@ -1484,7 +1484,7 @@ auto resolveImportedSymbol(const AnalysisResult& result, const AnalysisView& ana
   return ResolvedSymbol{.value = resolved, .owner = *targetAnalysis};
 }
 
-auto resolveMethodSymbolAtCursor(const AnalysisResult& result, const AnalysisView& analysis,
+auto resolveMethodSymbolAtCursor(AnalysisResult& result, const AnalysisView& analysis,
                                  unsigned line, unsigned character, const CursorIdentifier& id)
     -> std::optional<ResolvedSymbol> {
   std::optional<ActiveCallSite> activeCall = findActiveCallSite(analysis, line, character);
@@ -1537,7 +1537,7 @@ auto resolveMethodSymbolAtCursor(const AnalysisResult& result, const AnalysisVie
   return std::nullopt;
 }
 
-auto resolveCanonicalSymbolAtCursor(const AnalysisResult& result, const AnalysisView& analysis,
+auto resolveCanonicalSymbolAtCursor(AnalysisResult& result, const AnalysisView& analysis,
                                     unsigned line, unsigned character, const CursorIdentifier& id)
     -> std::optional<ResolvedSymbol> {
   if (!isUsableAnalysis(analysis)) {
@@ -1592,7 +1592,7 @@ auto resolveCanonicalSymbolAtCursor(const AnalysisResult& result, const Analysis
   return std::nullopt;
 }
 
-auto resolveCanonicalSymbolAtCursor(const AnalysisResult& result, unsigned line, unsigned character,
+auto resolveCanonicalSymbolAtCursor(AnalysisResult& result, unsigned line, unsigned character,
                                     const CursorIdentifier& id) -> std::optional<ResolvedSymbol> {
   return resolveCanonicalSymbolAtCursor(result, makeAnalysisView(result), line, character, id);
 }
@@ -1616,7 +1616,7 @@ auto symbolIdentityForResolved(const ResolvedSymbol& resolved) -> std::optional<
   };
 }
 
-auto symbolIdentityForIndexedDeclaration(const AnalysisResult& result,
+auto symbolIdentityForIndexedDeclaration(AnalysisResult& result,
                                          const lesma::IndexedDeclarationIdentity& declaration,
                                          const std::string& name) -> std::optional<SymbolIdentity> {
   std::optional<::lsp::Location> location = locationForIndexedDeclaration(result, declaration);
@@ -1691,7 +1691,7 @@ auto semanticTokenTypeFromIndexedKind(lesma::IndexedTokenKind kind) -> SemanticT
   return SemanticTokenType::Variable;
 }
 
-auto collectSemanticTokens(const AnalysisResult& analysisResult, unsigned bufferId)
+auto collectSemanticTokens(AnalysisResult& analysisResult, unsigned bufferId)
     -> std::vector<std::uint32_t> {
   std::vector<RawSemanticToken> rawTokens;
   AnalysisView analysis = makeAnalysisView(analysisResult);
@@ -1880,7 +1880,7 @@ auto collectSemanticTokens(const AnalysisResult& analysisResult, unsigned buffer
   return data;
 }
 
-auto collectReferences(const AnalysisResult& result, unsigned line, unsigned character,
+auto collectReferences(AnalysisResult& result, unsigned line, unsigned character,
                        bool includeDeclaration) -> std::vector<::lsp::Location> {
   std::vector<::lsp::Location> locations;
   std::unordered_set<std::string> seen;
@@ -2119,7 +2119,7 @@ auto collectDocumentSymbols(const AnalysisResult& result) -> std::vector<::lsp::
 }
 
 /** Resolve definition location using compiler metadata from Value. */
-auto tryResolveDefinitionLocation(const AnalysisResult& result, unsigned line, unsigned character)
+auto tryResolveDefinitionLocation(AnalysisResult& result, unsigned line, unsigned character)
     -> std::optional<::lsp::Location> {
   if (result.parser == nullptr || result.sourceMgr == nullptr) {
     return std::nullopt;
@@ -2193,7 +2193,7 @@ auto tryResolveDefinitionLocation(const AnalysisResult& result, unsigned line, u
   return loc;
 }
 
-auto tryResolveDeclarationLocation(const AnalysisResult& result, unsigned line, unsigned character)
+auto tryResolveDeclarationLocation(AnalysisResult& result, unsigned line, unsigned character)
     -> std::optional<::lsp::Location> {
   if (result.parser == nullptr || result.sourceMgr == nullptr) {
     return std::nullopt;

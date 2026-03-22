@@ -26,8 +26,8 @@ struct AnalysisView {
       importedModules = nullptr;
 };
 
-auto makeAnalysisView(const AnalysisResult& result) -> AnalysisView;
-auto makeAnalysisView(const lesma::ImportedModuleAnalysis& result) -> AnalysisView;
+auto makeAnalysisView(AnalysisResult& result) -> AnalysisView;
+auto makeAnalysisView(lesma::ImportedModuleAnalysis& result) -> AnalysisView;
 auto isUsableAnalysis(const AnalysisView& analysis) -> bool;
 
 auto normalizePath(const std::string& path) -> std::string;
@@ -40,10 +40,10 @@ auto findModuleImportPathByAlias(const AnalysisView& analysis, const std::string
 auto findLocalImportBindingLocation(const AnalysisView& analysis, const std::string& name,
                                     bool preferModuleAlias) -> std::optional<::lsp::Location>;
 
-auto collectAnalysisViews(const AnalysisResult& result) -> std::vector<AnalysisView>;
-auto collectReferenceAnalysisViews(const AnalysisResult& result, bool includeWorkspace)
+auto collectAnalysisViews(AnalysisResult& result) -> std::vector<AnalysisView>;
+auto collectReferenceAnalysisViews(AnalysisResult& result, bool includeWorkspace)
     -> std::vector<AnalysisView>;
-auto findAnalysisViewForPath(const AnalysisResult& result, const std::string& path)
+auto findAnalysisViewForPath(AnalysisResult& result, const std::string& path)
     -> std::optional<AnalysisView>;
 
 } // namespace lesma::lsp_srv
