@@ -836,9 +836,7 @@ auto Parser::parseImport() -> std::unique_ptr<Statement> {
   if (advanceIfMatchAny<TokenType::STAR>()) {
     consumeNewline();
     return std::make_unique<Import>(llvm::SMRange{loc.Start, token->getEnd()}, filepath,
-                                    getBasename(token->lexeme),
-                                    token->type == TokenType::IDENTIFIER ? token->span
-                                                                         : llvm::SMRange(),
+                                    std::string{}, llvm::SMRange(),
                                     token->type == TokenType::IDENTIFIER, true, true,
                                     std::vector<ImportedNameBinding>{});
   }
@@ -870,9 +868,7 @@ auto Parser::parseImport() -> std::unique_ptr<Statement> {
 
   consumeNewline();
   return std::make_unique<Import>(llvm::SMRange{loc.Start, token->getEnd()}, filepath,
-                                  getBasename(token->lexeme),
-                                  token->type == TokenType::IDENTIFIER ? token->span
-                                                                       : llvm::SMRange(),
+                                  std::string{}, llvm::SMRange(),
                                   token->type == TokenType::IDENTIFIER, false, true, importedNames);
 }
 
