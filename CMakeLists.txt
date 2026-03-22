@@ -192,7 +192,7 @@ if (LESMA_BUILD_LSP)
   FetchContent_Declare(
     lsp_framework
     GIT_REPOSITORY https://github.com/leon-bckl/lsp-framework.git
-    GIT_TAG master
+    GIT_TAG 1.3.1
   )
   FetchContent_MakeAvailable(lsp_framework)
 
