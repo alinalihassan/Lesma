@@ -175,6 +175,21 @@ protected:
 
   auto genFuncCall(const FuncCall* node, const std::vector<lesma::Value*>& extraParams)
       -> std::unique_ptr<lesma::Value>;
+  auto appendCallableArgument(lesma::Value* arg, std::vector<lesma::Type*>& paramTypes,
+                              std::vector<llvm::Value*>& paramsLLVM) -> void;
+  auto callNamedFunction(llvm::SMRange span, const std::string& functionName,
+                         const std::vector<lesma::Type*>& paramTypes,
+                         const std::vector<llvm::Value*>& paramsLLVM,
+                         const std::vector<lesma::Type*>& explicitTypeArgs = {})
+      -> std::unique_ptr<lesma::Value>;
+  auto callListMethodByName(llvm::SMRange span, lesma::Value* receiver, const std::string& methodName,
+                            const std::vector<lesma::Value*>& args = {},
+                            const std::vector<lesma::Type*>& explicitTypeArgs = {})
+      -> std::unique_ptr<lesma::Value>;
+  auto callMethodByName(llvm::SMRange span, lesma::Value* receiver, const std::string& methodName,
+                        const std::vector<lesma::Value*>& args = {},
+                        const std::vector<lesma::Type*>& explicitTypeArgs = {})
+      -> std::unique_ptr<lesma::Value>;
   auto defineFunction(lesma::Value* value, const FuncDecl* node, Value* clsSymbol) -> void;
   auto specializeFunction(const FuncDecl* node, const std::vector<lesma::Type*>& paramTypes,
                           const std::vector<std::string>& genericNames,
@@ -208,6 +223,10 @@ protected:
   auto emitListEnsureCapacity(lesma::Type* listType, llvm::Value* listHandle, llvm::Value* minCapacity)
       -> void;
   auto emitListDeepCopy(lesma::Type* listType, llvm::Value* listHandle) -> llvm::Value*;
+  [[nodiscard]] auto isListIntrinsicName(const std::string& functionName) const -> bool;
+  auto genListIntrinsicCall(const FuncCall* node, const std::vector<lesma::Type*>& paramTypes,
+                            const std::vector<llvm::Value*>& paramsLLVM)
+      -> std::unique_ptr<lesma::Value>;
   auto symbolUsesDirectLlvmValue(const lesma::Value* symbol) const -> bool;
   auto materializeSymbolValue(lesma::Value* symbol) -> std::unique_ptr<lesma::Value>;
 

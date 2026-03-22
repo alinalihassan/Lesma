@@ -213,10 +213,13 @@ auto Driver::baseCompile(std::unique_ptr<lesma::Options> options, bool jit) -> i
       codegen->dump();
     }
 
-    timer.measure("Optimizing", [&]() -> void { codegen->optimize(OptimizationLevel::O3); });
+    if (!jit) {
+      timer.measure("Optimizing", [&]() -> void { codegen->optimize(OptimizationLevel::O3); });
+    }
 
     int exitCode = 0;
     if (!jit) {
+      timer.measure("Optimizing", [&]() -> void { codegen->optimize(OptimizationLevel::O3); });
       timer.measure("Writing Object File",
                     [&]() -> void { codegen->writeToObjectFile(outputFilename); });
       timer.measure("Linking Object File", [&]() -> void {

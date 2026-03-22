@@ -76,12 +76,13 @@ class Typechecker final : public ASTVisitor {
   std::unordered_map<std::string, std::shared_ptr<ImportedModuleAnalysis>> importedModuleCache;
 
   /** Resolve absolute path for an import (same logic as Driver getExportsFromFile). */
-  auto resolveImportPath(const std::string& filepath, bool isStd) const -> std::string;
+  [[nodiscard]] auto resolveImportPath(const std::string& filepath, bool isStd) const
+      -> std::string;
   /** Typecheck an imported file and return its root scope (cached). Returns nullptr if path unknown
    * or typecheck fails. */
   auto getOrTypecheckImport(const std::string& absolutePath) -> SymbolTable*;
 
-  void loadImplicitBaseModule();
+  void loadImplicitStdModule(const std::string& moduleFilename);
   /** Get or create a specialized class type by substituting env into template's
    * fields. */
   auto getOrCreateSpecializedClassType(Type* classTemplate,
@@ -107,7 +108,12 @@ class Typechecker final : public ASTVisitor {
       -> Type*;
   auto visitExprWithExpectedType(const Expression* node, Type* expected) -> void;
   [[nodiscard]] auto currentExpectedType() const -> Type*;
+  auto resolveMethodReturnType(Type* baseType, const std::string& methodName,
+                               const std::vector<Type*>& argTypes, llvm::SMRange span) -> Type*;
   auto isMutableListReceiver(const Expression* expr) -> bool;
+  [[nodiscard]] auto isMutatingListFunction(const std::string& functionName) const -> bool;
+  [[nodiscard]] auto isListIntrinsicName(const std::string& functionName) const -> bool;
+  auto visitListIntrinsicCall(const FuncCall* node, const std::vector<Type*>& argTypes) -> bool;
   auto visitListMethodCall(Type* listType, const DotOp* node, const FuncCall* call) -> bool;
   /** Map compound-assignment operator to the corresponding binary operator; nullopt if not
    * compound. */
@@ -142,7 +148,8 @@ public:
   auto takeTypeCache() -> std::vector<std::unique_ptr<Type>>;
   auto takeImportAliasToPath() -> ImportAliasMap;
   auto takeImportedNameToSource() -> ImportedNameSourceMap;
-  auto takeImportedModules() -> std::unordered_map<std::string, std::shared_ptr<ImportedModuleAnalysis>>;
+  auto takeImportedModules()
+      -> std::unordered_map<std::string, std::shared_ptr<ImportedModuleAnalysis>>;
 
   auto visit(const Statement* node) -> void override;
   auto visit(const Compound* node) -> void override;

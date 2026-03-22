@@ -87,6 +87,7 @@ enum class TokenType : std::uint8_t {
   NOT,
   EXTERN,
   EXPORT,
+  OPERATOR,
   RETURN,
   SUPER,
   THIS,

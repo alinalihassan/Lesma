@@ -37,6 +37,7 @@ static const std::unordered_map<std::string_view, TokenType> KEYWORDS = {
     {"not", TokenType::NOT},
     {"null", TokenType::NIL},
     {"or", TokenType::OR},
+    {"operator", TokenType::OPERATOR},
     {"return", TokenType::RETURN},
     {"this", TokenType::THIS},
     {"true", TokenType::TRUE_},

@@ -1,0 +1,20 @@
+export def len<T>(xs: list<T>) -> int
+    return __list_len(xs)
+
+export def push<T>(xs: list<T>, value: T)
+    __list_push(xs, value)
+
+export def pop<T>(xs: list<T>) -> T
+    return __list_pop(xs)
+
+export def clear<T>(xs: list<T>)
+    __list_clear(xs)
+
+export def copy<T>(xs: list<T>) -> list<T>
+    return __list_copy(xs)
+
+export def __operator_subscript<T>(xs: list<T>, index: int) -> T
+    return __list_get(xs, index)
+
+export def __operator_subscript_set<T>(xs: list<T>, index: int, value: T)
+    __list_set(xs, index, value)

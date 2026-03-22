@@ -12,6 +12,7 @@
 #include <fmt/format.h>
 
 #include "liblesma/AST/AST.h"
+#include "liblesma/Common/OperatorUtils.h"
 #include "liblesma/Common/Utils.h"
 #include "liblesma/Token/Token.h"
 #include "liblesma/Token/TokenType.h"
@@ -732,7 +733,43 @@ auto Parser::parseFunctionDeclaration() -> std::unique_ptr<Statement> {
     return nullptr;
   }
 
-  auto* identifier = consume(TokenType::IDENTIFIER);
+  std::string functionName;
+  llvm::SMRange functionNameSpan;
+  if (advanceIfMatchAny<TokenType::OPERATOR>()) {
+    if (!inClass) {
+      error(previous(), "Operator declarations are only allowed in class definition.");
+      return nullptr;
+    }
+    llvm::SMLoc operatorStart = previous()->getStart();
+    llvm::SMLoc operatorEnd = previous()->getEnd();
+    if (advanceIfMatchAny<TokenType::LEFT_SQUARE>()) {
+      consume(TokenType::RIGHT_SQUARE, "Expected ']' after operator '['");
+      operatorEnd = previous()->getEnd();
+      functionName = std::string{OperatorUtils::SUBSCRIPT_GET_NAME};
+      if (advanceIfMatchAny<TokenType::EQUAL>()) {
+        operatorEnd = previous()->getEnd();
+        functionName = std::string{OperatorUtils::SUBSCRIPT_SET_NAME};
+      }
+    } else {
+      Token* opToken = advance();
+      if (!OperatorUtils::isOverloadableDeclarationToken(opToken->type)) {
+        error(opToken,
+              fmt::format("Unsupported operator declaration token {}", NAMEOF_ENUM(opToken->type)));
+        return nullptr;
+      }
+      operatorEnd = opToken->getEnd();
+      auto functionNameView = OperatorUtils::getBinaryOperatorName(opToken->type);
+      if (!functionNameView.has_value()) {
+        functionNameView = OperatorUtils::getUnaryOperatorName(opToken->type);
+      }
+      functionName = std::string{*functionNameView};
+    }
+    functionNameSpan = llvm::SMRange{operatorStart, operatorEnd};
+  } else {
+    auto* identifier = consume(TokenType::IDENTIFIER);
+    functionName = identifier->lexeme;
+    functionNameSpan = identifier->span;
+  }
   std::vector<GenericParamDecl> genericParams;
   if (check(TokenType::LESS)) {
     consume(TokenType::LESS);
@@ -803,17 +840,17 @@ auto Parser::parseFunctionDeclaration() -> std::unique_ptr<Statement> {
   if (externFunc) {
     consumeNewline();
     return std::make_unique<ExternFuncDecl>(llvm::SMRange{loc.Start, returnType->getEnd()},
-                                            identifier->lexeme, identifier->span,
+                                            functionName, functionNameSpan,
                                             std::move(genericParams), std::move(returnType),
                                             std::move(parameters), varargs, isExported);
   }
 
   auto body = parseBlock();
 
-  return std::make_unique<FuncDecl>(llvm::SMRange{loc.Start, returnType->getEnd()},
-                                    identifier->lexeme, identifier->span, std::move(genericParams),
-                                    std::move(returnType), std::move(parameters), std::move(body),
-                                    false, isExported);
+  return std::make_unique<FuncDecl>(
+      llvm::SMRange{loc.Start, returnType->getEnd()}, functionName, functionNameSpan,
+      std::move(genericParams), std::move(returnType), std::move(parameters), std::move(body), false,
+      isExported);
 }
 
 auto Parser::parseExport() -> std::unique_ptr<Statement> {
