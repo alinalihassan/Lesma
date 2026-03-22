@@ -2385,13 +2385,6 @@ auto collectDocumentSymbols(const AnalysisResult& result) -> std::vector<::lsp::
             smRangeToLspRange(result.sourceMgr.get(), result.mainBufferId, valueDecl.span),
             smRangeToLspRange(result.sourceMgr.get(), result.mainBufferId, valueDecl.span)));
       }
-      for (const ::lsp::DocumentSymbol& child : children) {
-        if (child.range.end.line > symbol.range.end.line ||
-            (child.range.end.line == symbol.range.end.line &&
-             child.range.end.character > symbol.range.end.character)) {
-          symbol.range.end = child.range.end;
-        }
-      }
       symbol.children = ::lsp::Opt<::lsp::Array<::lsp::DocumentSymbol>>(
           ::lsp::Array<::lsp::DocumentSymbol>(children.begin(), children.end()));
       symbols.push_back(std::move(symbol));
@@ -2426,13 +2419,6 @@ auto collectDocumentSymbols(const AnalysisResult& result) -> std::vector<::lsp::
                 ? std::optional<std::string>(
                       formatTypeName(value->getType()->getReturnType(), result.rootScope.get()))
                 : std::nullopt));
-      }
-      for (const ::lsp::DocumentSymbol& child : children) {
-        if (child.range.end.line > symbol.range.end.line ||
-            (child.range.end.line == symbol.range.end.line &&
-             child.range.end.character > symbol.range.end.character)) {
-          symbol.range.end = child.range.end;
-        }
       }
       symbol.children = ::lsp::Opt<::lsp::Array<::lsp::DocumentSymbol>>(
           ::lsp::Array<::lsp::DocumentSymbol>(children.begin(), children.end()));

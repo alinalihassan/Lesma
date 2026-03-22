@@ -896,6 +896,7 @@ auto Parser::parseClass() -> std::unique_ptr<Statement> {
 
   std::vector<std::unique_ptr<VarDecl>> fields;
   std::vector<std::unique_ptr<FuncDecl>> methods;
+  auto endLoc = token->getEnd();
   consume(TokenType::INDENT);
 
   inClass = true;
@@ -904,6 +905,7 @@ auto Parser::parseClass() -> std::unique_ptr<Statement> {
       auto stmt = parseVarDecl();
       auto* varDecl = dynamic_cast<VarDecl*>(stmt.get());
       if (varDecl != nullptr) {
+        endLoc = varDecl->getEnd();
         std::ignore = stmt.release();
         fields.push_back(std::unique_ptr<VarDecl>(varDecl));
       }
@@ -911,6 +913,7 @@ auto Parser::parseClass() -> std::unique_ptr<Statement> {
       auto stmt = parseFunctionDeclaration();
       auto* funcDecl = dynamic_cast<FuncDecl*>(stmt.get());
       if (funcDecl != nullptr) {
+        endLoc = funcDecl->getEnd();
         std::ignore = stmt.release();
         methods.push_back(std::unique_ptr<FuncDecl>(funcDecl));
       }
@@ -920,10 +923,13 @@ auto Parser::parseClass() -> std::unique_ptr<Statement> {
   }
   inClass = false;
 
-  advanceIfMatchAny<TokenType::DEDENT>();
+  if (advanceIfMatchAny<TokenType::DEDENT>()) {
+    endLoc = previous()->getEnd();
+  }
 
-  return std::make_unique<Class>(loc, token->lexeme, token->span, std::move(genericParams),
-                                 std::move(fields), std::move(methods), isExported);
+  return std::make_unique<Class>(llvm::SMRange{loc.Start, endLoc}, token->lexeme, token->span,
+                                 std::move(genericParams), std::move(fields), std::move(methods),
+                                 isExported);
 }
 
 auto Parser::parseEnum() -> std::unique_ptr<Statement> {
@@ -935,19 +941,23 @@ auto Parser::parseEnum() -> std::unique_ptr<Statement> {
 
   std::vector<std::string> values;
   std::vector<llvm::SMRange> valueSpans;
+  auto endLoc = token->getEnd();
   consume(TokenType::INDENT);
 
   while (!checkAny<TokenType::DEDENT, TokenType::EOF_TOKEN>()) {
     auto* valueToken = consume(TokenType::IDENTIFIER);
     values.push_back(valueToken->lexeme);
     valueSpans.push_back(valueToken->span);
+    endLoc = valueToken->getEnd();
     consume(TokenType::NEWLINE);
   }
 
-  advanceIfMatchAny<TokenType::DEDENT>();
+  if (advanceIfMatchAny<TokenType::DEDENT>()) {
+    endLoc = previous()->getEnd();
+  }
 
-  return std::make_unique<Enum>(loc, token->lexeme, token->span, values, std::move(valueSpans),
-                                isExported);
+  return std::make_unique<Enum>(llvm::SMRange{loc.Start, endLoc}, token->lexeme, token->span,
+                                values, std::move(valueSpans), isExported);
 }
 
 auto Parser::parseCompound() -> std::unique_ptr<Compound> {
