@@ -114,8 +114,8 @@ export async function executeLesma(
 export async function setLesmaCommands(context: vscode.ExtensionContext) {
   const installLesmaCmd = vscode.commands.registerCommand(
     "lesma.install",
-    () => {
-      installLesma();
+    async () => {
+      await installLesma();
     }
   );
 
@@ -134,7 +134,7 @@ export async function setLesmaCommands(context: vscode.ExtensionContext) {
 
   const runLesmaWithFlagsCommand = vscode.commands.registerCommand(
     "lesma.run-with-flags",
-    (file?: any) => {
+    async (file?: any) => {
       const filename = getFilename(file);
       if (!filename) {
         Message.error("No Lesma file open.");
@@ -144,9 +144,8 @@ export async function setLesmaCommands(context: vscode.ExtensionContext) {
         prompt: "Run Lesma with Flags",
         placeHolder: "flags (e.g. -d, -t)",
       };
-      vscode.window.showInputBox(options).then(async (value) => {
-        await executeLesma(filename, "run", value);
-      });
+      const value = await vscode.window.showInputBox(options);
+      await executeLesma(filename, "run", value);
     }
   );
 
@@ -156,11 +155,13 @@ export async function setLesmaCommands(context: vscode.ExtensionContext) {
 }
 
 function getFilename(file: any) {
-  return typeof file == "string"
-    ? file
-    : file instanceof vscode.Uri
-    ? file?.fsPath
-      ? file.fsPath
-      : getActiveFilename()
-    : getActiveFilename();
+  if (typeof file === "string") {
+    return file;
+  }
+
+  if (file instanceof vscode.Uri && file.fsPath) {
+    return file.fsPath;
+  }
+
+  return getActiveFilename();
 }
