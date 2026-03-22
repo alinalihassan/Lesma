@@ -268,7 +268,7 @@ auto runAnalyzeAndPublish(const ::lsp::DocumentUri& uri,
                          int version, AnalysisCache& analysisCache,
                          ::lsp::MessageHandler& messageHandler) -> void {
   if (std::optional<std::string> path = docStore.getPath(uri)) {
-    invalidateLazyImportedAnalysis(*path);
+    invalidateLazyImportedAnalysesAffectedBy(*path);
   }
   DocumentAnalysisSnapshot& snapshot = analysisCache.getOrAnalyze(uri, docStore, content, version);
   AnalysisResult& result = snapshot.result;
@@ -2335,7 +2335,7 @@ auto main() -> int {
         [&messageHandler, &docStore,
          &analysisCache](const ::lsp::notifications::TextDocument_DidClose::Params& params) {
           if (std::optional<std::string> path = docStore.getPath(params.textDocument.uri)) {
-            invalidateLazyImportedAnalysis(*path);
+            invalidateLazyImportedAnalysesAffectedBy(*path);
           }
           docStore.close(params.textDocument.uri);
           analysisCache.invalidate(params.textDocument.uri, docStore);

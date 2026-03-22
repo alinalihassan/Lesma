@@ -13,14 +13,125 @@
 namespace lesma::lsp_srv {
 namespace {
 
+using DependencySet = std::unordered_set<std::string>;
+
+struct DependencyNode {
+  DependencySet imports;
+  DependencySet importedBy;
+};
+
 struct LazyImportedAnalysisCacheState {
   std::unordered_map<std::string, std::shared_ptr<lesma::ImportedModuleAnalysis>> cache;
+  std::unordered_map<std::string, DependencyNode> graph;
   std::mutex cacheMutex;
 };
 
 auto lazyImportedAnalysisCacheState() -> LazyImportedAnalysisCacheState& {
   static LazyImportedAnalysisCacheState state;
   return state;
+}
+
+auto eraseDependencyNodeIfUnused(LazyImportedAnalysisCacheState& state, const std::string& path) -> void {
+  auto node = state.graph.find(path);
+  if (node == state.graph.end()) {
+    return;
+  }
+  if (state.cache.contains(path) || !node->second.imports.empty() || !node->second.importedBy.empty()) {
+    return;
+  }
+  state.graph.erase(node);
+}
+
+auto addDependencyEdge(LazyImportedAnalysisCacheState& state, const std::string& importer,
+                       const std::string& dependency) -> void {
+  if (importer.empty() || dependency.empty() || importer == dependency) {
+    return;
+  }
+  state.graph[importer].imports.insert(dependency);
+  state.graph[dependency].importedBy.insert(importer);
+}
+
+auto removeImportsForNode(LazyImportedAnalysisCacheState& state, const std::string& importer) -> void {
+  auto node = state.graph.find(importer);
+  if (node == state.graph.end()) {
+    return;
+  }
+  std::vector<std::string> dependencies(node->second.imports.begin(), node->second.imports.end());
+  for (std::string const& dependency : dependencies) {
+    auto dependencyNode = state.graph.find(dependency);
+    if (dependencyNode == state.graph.end()) {
+      continue;
+    }
+    dependencyNode->second.importedBy.erase(importer);
+    eraseDependencyNodeIfUnused(state, dependency);
+  }
+  node->second.imports.clear();
+  eraseDependencyNodeIfUnused(state, importer);
+}
+
+auto collectDirectDependencyPaths(const lesma::ImportedModuleAnalysis& imported) -> DependencySet {
+  DependencySet dependencies;
+  for (auto const& [path, module] : imported.importedModules) {
+    std::string normalized = normalizePath(path.empty() && module != nullptr ? module->mainFilePath : path);
+    if (!normalized.empty()) {
+      dependencies.insert(std::move(normalized));
+    }
+  }
+  for (auto const& [alias, path] : imported.importAliasToPath) {
+    (void)alias;
+    std::string normalized = normalizePath(path);
+    if (!normalized.empty()) {
+      dependencies.insert(std::move(normalized));
+    }
+  }
+  for (auto const& [localName, source] : imported.importedNameToSource) {
+    (void)localName;
+    std::string normalized = normalizePath(source.first);
+    if (!normalized.empty()) {
+      dependencies.insert(std::move(normalized));
+    }
+  }
+  return dependencies;
+}
+
+auto recordDependencyEdgesForImporter(LazyImportedAnalysisCacheState& state,
+                                     const std::string& importer,
+                                     const lesma::ImportedModuleAnalysis& imported) -> void {
+  removeImportsForNode(state, importer);
+  for (std::string const& dependency : collectDirectDependencyPaths(imported)) {
+    addDependencyEdge(state, importer, dependency);
+  }
+}
+
+auto removeDependencyNode(LazyImportedAnalysisCacheState& state, const std::string& path) -> void {
+  auto node = state.graph.find(path);
+  if (node == state.graph.end()) {
+    return;
+  }
+  std::vector<std::string> dependencies(node->second.imports.begin(), node->second.imports.end());
+  std::vector<std::string> importers(node->second.importedBy.begin(), node->second.importedBy.end());
+  for (std::string const& dependency : dependencies) {
+    auto dependencyNode = state.graph.find(dependency);
+    if (dependencyNode == state.graph.end()) {
+      continue;
+    }
+    dependencyNode->second.importedBy.erase(path);
+    eraseDependencyNodeIfUnused(state, dependency);
+  }
+  for (std::string const& importer : importers) {
+    auto importerNode = state.graph.find(importer);
+    if (importerNode == state.graph.end()) {
+      continue;
+    }
+    importerNode->second.imports.erase(path);
+    eraseDependencyNodeIfUnused(state, importer);
+  }
+  state.graph.erase(node);
+}
+
+auto eraseCachedAnalysisEntry(LazyImportedAnalysisCacheState& state, const std::string& path) -> void {
+  state.cache.erase(path);
+  removeDependencyNode(state, path);
 }
 
 auto resolveImportAbsolutePath(const AnalysisView& analysis, const lesma::Import* importNode)
@@ -179,6 +290,7 @@ auto getLazyImportedAnalysis(const std::string& path)
     return existing->second;
   }
   cacheState.cache[normalized] = imported;
+  recordDependencyEdgesForImporter(cacheState, normalized, *imported);
   return cacheState.cache[normalized];
 }
 
@@ -221,9 +333,19 @@ auto normalizePath(const std::string& path) -> std::string {
   if (path.empty()) {
     return {};
   }
+  std::filesystem::path fsPath(path);
   std::error_code ec;
-  std::filesystem::path const absolute = std::filesystem::absolute(std::filesystem::path(path), ec);
-  return (!ec ? absolute : std::filesystem::path(path)).lexically_normal().string();
+  std::filesystem::path normalized = std::filesystem::weakly_canonical(fsPath, ec);
+  if (!ec) {
+    return normalized.make_preferred().string();
+  }
+  normalized = std::filesystem::absolute(fsPath, ec);
+  if (!ec) {
+    normalized = normalized.lexically_normal();
+    return normalized.make_preferred().string();
+  }
+  normalized = fsPath.lexically_normal();
+  return normalized.make_preferred().string();
 }
 
 auto invalidateLazyImportedAnalysis(const std::string& path) -> void {
@@ -233,13 +355,40 @@ auto invalidateLazyImportedAnalysis(const std::string& path) -> void {
   }
   auto& cacheState = lazyImportedAnalysisCacheState();
   std::lock_guard<std::mutex> lock(cacheState.cacheMutex);
-  cacheState.cache.erase(normalized);
+  eraseCachedAnalysisEntry(cacheState, normalized);
+}
+
+auto invalidateLazyImportedAnalysesAffectedBy(const std::string& path) -> void {
+  std::string normalized = normalizePath(path);
+  if (normalized.empty()) {
+    return;
+  }
+  auto& cacheState = lazyImportedAnalysisCacheState();
+  std::lock_guard<std::mutex> lock(cacheState.cacheMutex);
+  DependencySet affected;
+  std::vector<std::string> pending{ normalized };
+  while (!pending.empty()) {
+    std::string current = std::move(pending.back());
+    pending.pop_back();
+    if (!affected.insert(current).second) {
+      continue;
+    }
+    auto node = cacheState.graph.find(current);
+    if (node == cacheState.graph.end()) {
+      continue;
+    }
+    pending.insert(pending.end(), node->second.importedBy.begin(), node->second.importedBy.end());
+  }
+  for (std::string const& affectedPath : affected) {
+    eraseCachedAnalysisEntry(cacheState, affectedPath);
+  }
 }
 
 auto invalidateAllLazyImportedAnalyses() -> void {
   auto& cacheState = lazyImportedAnalysisCacheState();
   std::lock_guard<std::mutex> lock(cacheState.cacheMutex);
   cacheState.cache.clear();
+  cacheState.graph.clear();
 }
 
 auto uriFromPath(const std::string& path) -> ::lsp::DocumentUri {
