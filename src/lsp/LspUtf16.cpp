@@ -92,14 +92,18 @@ auto bufferByteOffsetFromLspPosition(llvm::StringRef utf8Text, unsigned line,
     if (utf16Before == characterUtf16) {
       return j;
     }
+    std::size_t const prevJ = j;
     char32_t cp = 0;
     decodeUtf8AndAdvance(utf8Text, j, cp);
     utf16Before += utf16UnitsForCodepoint(cp);
+    if (utf16Before > characterUtf16) {
+      return prevJ;
+    }
   }
   if (utf16Before == characterUtf16) {
     return j;
   }
-  return lineStart;
+  return lineEnd;
 }
 
 } // namespace lesma::lsp_srv
