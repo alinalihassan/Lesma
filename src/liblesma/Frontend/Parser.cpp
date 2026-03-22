@@ -825,20 +825,21 @@ auto Parser::parseImport() -> std::unique_ptr<Statement> {
       aliasSpan = aliasToken->span;
     }
 
-    consumeNewline();
-    return std::make_unique<Import>(llvm::SMRange{loc.Start, token->getEnd()}, filepath, alias,
-                                    aliasSpan, token->type == TokenType::IDENTIFIER, true, false,
+    auto* endToken = consumeNewline();
+    auto endLoc = endToken->getEnd();
+    return std::make_unique<Import>(llvm::SMRange{loc.Start, endLoc}, filepath, alias, aliasSpan,
+                                    token->type == TokenType::IDENTIFIER, true, false,
                                     std::vector<ImportedNameBinding>{});
   }
 
   consume(TokenType::IMPORT);
 
   if (advanceIfMatchAny<TokenType::STAR>()) {
-    consumeNewline();
-    return std::make_unique<Import>(llvm::SMRange{loc.Start, token->getEnd()}, filepath,
-                                    std::string{}, llvm::SMRange(),
-                                    token->type == TokenType::IDENTIFIER, true, true,
-                                    std::vector<ImportedNameBinding>{});
+    auto* endToken = consumeNewline();
+    auto endLoc = endToken->getEnd();
+    return std::make_unique<Import>(llvm::SMRange{loc.Start, endLoc}, filepath, std::string{},
+                                    llvm::SMRange(), token->type == TokenType::IDENTIFIER, true,
+                                    true, std::vector<ImportedNameBinding>{});
   }
 
   std::vector<ImportedNameBinding> importedNames;
@@ -866,10 +867,11 @@ auto Parser::parseImport() -> std::unique_ptr<Statement> {
     }
   }
 
-  consumeNewline();
-  return std::make_unique<Import>(llvm::SMRange{loc.Start, token->getEnd()}, filepath,
-                                  std::string{}, llvm::SMRange(),
-                                  token->type == TokenType::IDENTIFIER, false, true, importedNames);
+  auto* endToken = consumeNewline();
+  auto endLoc = endToken->getEnd();
+  return std::make_unique<Import>(llvm::SMRange{loc.Start, endLoc}, filepath, std::string{},
+                                  llvm::SMRange(), token->type == TokenType::IDENTIFIER, false,
+                                  true, importedNames);
 }
 
 auto Parser::parseClass() -> std::unique_ptr<Statement> {
