@@ -74,6 +74,8 @@ class Type {
   std::vector<std::string> genericParams;
   // Owned collection of Fields
   std::vector<std::unique_ptr<Field>> fields;
+  llvm::SMRange declarationSpan;
+  std::string declarationFilePath;
   bool varArgs = false;
   bool signedInt = true;
 
@@ -115,6 +117,10 @@ public:
   [[nodiscard]] auto getGenericParams() const -> const std::vector<std::string>& {
     return genericParams;
   }
+  [[nodiscard]] auto getDeclarationSpan() const -> llvm::SMRange { return declarationSpan; }
+  [[nodiscard]] auto getDeclarationFilePath() const -> const std::string& {
+    return declarationFilePath;
+  }
   [[nodiscard]] auto isVarArgs() const -> bool { return varArgs; }
   [[nodiscard]] auto isSigned() const -> bool { return signedInt; }
 
@@ -137,6 +143,8 @@ public:
   auto setGenericParams(std::vector<std::string> params) -> void {
     genericParams = std::move(params);
   }
+  auto setDeclarationSpan(llvm::SMRange span) -> void { declarationSpan = span; }
+  auto setDeclarationFilePath(std::string path) -> void { declarationFilePath = std::move(path); }
   auto setVarArgs(bool value) -> void { varArgs = value; }
   auto addField(std::unique_ptr<Field> field) -> void { fields.push_back(std::move(field)); }
 

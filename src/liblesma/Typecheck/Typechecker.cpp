@@ -155,6 +155,8 @@ auto Typechecker::materializeImportedType(Type* type) -> Type* {
     importedTypeCopies[type] = copy;
     copy->setDisplayName(type->getDisplayName());
     copy->setGenericParams(type->getGenericParams());
+    copy->setDeclarationSpan(type->getDeclarationSpan());
+    copy->setDeclarationFilePath(type->getDeclarationFilePath());
     for (Field* field : type->getFields()) {
       auto fieldCopy = std::make_unique<Field>(field->name, materializeImportedType(field->type));
       fieldCopy->setDeclarationSpan(field->getDeclarationSpan());
@@ -341,6 +343,8 @@ auto Typechecker::getOrCreateSpecializedClassType(Type* classTemplate,
   specializedTypeEnv[ptr] = env;
   specializedTypeToTemplate[ptr] = classTemplate;
   ptr->setGenericParams(genericParamNames);
+  ptr->setDeclarationSpan(classTemplate->getDeclarationSpan());
+  ptr->setDeclarationFilePath(classTemplate->getDeclarationFilePath());
   ptr->setDisplayName(makeSpecializedDisplayName(classTemplate, genericParamNames, env));
   return ptr;
 }
@@ -843,6 +847,8 @@ auto Typechecker::visit(const Class* node) -> void {
     auto type = std::make_unique<Type>(BaseType::TY_CLASS, nullptr, std::move(fields));
     type->setDisplayName(node->getIdentifier() +
                          makeGenericDisplaySuffix(node->getGenericParams()));
+    type->setDeclarationSpan(node->getNameSpan());
+    type->setDeclarationFilePath(mainFilePath);
     classTypePtr = type.get();
     outerScope->insertType(node->getIdentifier(), std::move(type));
     auto classSymbol = std::make_unique<Value>(node->getIdentifier(), classTypePtr);
