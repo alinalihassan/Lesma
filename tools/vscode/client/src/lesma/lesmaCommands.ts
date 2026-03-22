@@ -33,21 +33,10 @@ export async function checkForLesma() {
 
   switch (result) {
     case installLesmaChoice:
-      // Add your code to install Lesma here.
-      vscode.window.withProgress(
-        {
-          location: vscode.ProgressLocation.Notification,
-          cancellable: false,
-          title: "Installing Lesma...",
-        },
-        async (progress) => {
-          progress.report({ increment: 0 });
-
-          installLesma();
-
-          progress.report({ increment: 100 });
-        }
+      vscode.window.showInformationMessage(
+        "Starting Lesma installation in a terminal."
       );
+      await installLesma();
       break;
     case dontInstallChoice:
     default:
@@ -66,6 +55,7 @@ export async function installLesma() {
   );
 
   const terminal = vscode.window.createTerminal(`Install Lesma`);
+  terminal.show();
   terminal.sendText(INSTALL_LESMA_CMD);
 }
 
