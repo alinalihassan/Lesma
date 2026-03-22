@@ -47,6 +47,85 @@ auto declarationIdentityFromField(const Field* field) -> std::optional<IndexedDe
   };
 }
 
+auto indexedTokenKindFromDeclarationKind(ValueDeclarationKind declarationKind)
+    -> std::optional<IndexedTokenKind> {
+  switch (declarationKind) {
+  case ValueDeclarationKind::UNKNOWN:
+    return std::nullopt;
+  case ValueDeclarationKind::NAMESPACE:
+    return IndexedTokenKind::Namespace;
+  case ValueDeclarationKind::CLASS:
+    return IndexedTokenKind::Class;
+  case ValueDeclarationKind::ENUM:
+    return IndexedTokenKind::Enum;
+  case ValueDeclarationKind::ENUM_MEMBER:
+    return IndexedTokenKind::EnumMember;
+  case ValueDeclarationKind::TYPE:
+    return IndexedTokenKind::Type;
+  case ValueDeclarationKind::TYPE_PARAMETER:
+    return IndexedTokenKind::TypeParameter;
+  case ValueDeclarationKind::FUNCTION:
+    return IndexedTokenKind::Function;
+  case ValueDeclarationKind::METHOD:
+    return IndexedTokenKind::Method;
+  case ValueDeclarationKind::PARAMETER:
+    return IndexedTokenKind::Parameter;
+  case ValueDeclarationKind::VARIABLE:
+    return IndexedTokenKind::Variable;
+  case ValueDeclarationKind::PROPERTY:
+    return IndexedTokenKind::Property;
+  }
+}
+
+auto indexedTokenKindFromResolvedSymbol(const Value* resolvedSymbol, bool isTypePosition,
+                                        bool isMemberAccess,
+                                        IndexedTokenKind fallbackKind)
+    -> IndexedTokenKind {
+  if (resolvedSymbol == nullptr) {
+    return fallbackKind;
+  }
+  if (std::optional<IndexedTokenKind> declarationKind =
+          indexedTokenKindFromDeclarationKind(resolvedSymbol->getDeclarationKind())) {
+    return *declarationKind;
+  }
+  Type* const resolvedType = resolvedSymbol->getType();
+  if (isTypePosition) {
+    if (resolvedType != nullptr && resolvedType->is(BaseType::TY_GENERIC)) {
+      return IndexedTokenKind::TypeParameter;
+    }
+    if (resolvedSymbol->getCategory() == ValueCategory::TYPE_SYMBOL && resolvedType != nullptr) {
+      if (resolvedType->is(BaseType::TY_CLASS)) {
+        return IndexedTokenKind::Class;
+      }
+      if (resolvedType->is(BaseType::TY_ENUM)) {
+        return IndexedTokenKind::Enum;
+      }
+    }
+    return IndexedTokenKind::Type;
+  }
+  switch (resolvedSymbol->getCategory()) {
+  case ValueCategory::MODULE_SYMBOL:
+    return IndexedTokenKind::Namespace;
+  case ValueCategory::TYPE_SYMBOL:
+    if (resolvedType != nullptr && resolvedType->is(BaseType::TY_GENERIC)) {
+      return IndexedTokenKind::TypeParameter;
+    }
+    if (resolvedType != nullptr && resolvedType->is(BaseType::TY_CLASS)) {
+      return IndexedTokenKind::Class;
+    }
+    if (resolvedType != nullptr && resolvedType->is(BaseType::TY_ENUM)) {
+      return IndexedTokenKind::Enum;
+    }
+    return IndexedTokenKind::Type;
+  case ValueCategory::CALLABLE_SYMBOL:
+    return isMemberAccess ? IndexedTokenKind::Method : IndexedTokenKind::Function;
+  case ValueCategory::ADDRESSABLE_STORAGE:
+  case ValueCategory::DIRECT_VALUE:
+    return isMemberAccess ? IndexedTokenKind::Property : fallbackKind;
+  }
+  return fallbackKind;
+}
+
 auto appendIndexedOccurrence(AnalysisIndex& index, const std::string& name,
                              std::optional<std::string> dotBase, llvm::SMRange span,
                              bool isTypePosition, bool isMemberAccess, unsigned modifiers,
@@ -206,8 +285,12 @@ auto collectIndexFromTypeExpr(const TypeExpr* typeExpr, AnalysisIndex& index) ->
     return;
   }
   if (typeExpr->getType() != TokenType::PTR_TYPE && typeExpr->getType() != TokenType::FUNC_TYPE) {
+    Value* const resolvedSymbol = typeExpr->getResolvedSymbol();
     appendIndexedOccurrence(index, typeExpr->getName(), std::nullopt, typeExpr->getSpan(), true,
-                            false, 0U, IndexedTokenKind::Type, typeExpr->getResolvedSymbol());
+                            false, 0U, indexedTokenKindFromResolvedSymbol(resolvedSymbol, true,
+                                                                          false,
+                                                                          IndexedTokenKind::Type),
+                            resolvedSymbol);
   }
   collectIndexFromTypeExpr(typeExpr->getElementType(), index);
   for (TypeExpr* param : typeExpr->getParams()) {
@@ -222,8 +305,11 @@ auto collectIndexFromExpr(const Expression* expr, AnalysisIndex& index) -> void 
   }
   if (auto const* lit = dynamic_cast<const Literal*>(expr)) {
     if (lit->getType() == TokenType::IDENTIFIER) {
+      Value* const resolvedSymbol = lit->getResolvedSymbol();
       appendIndexedOccurrence(index, lit->getValue(), std::nullopt, lit->getSpan(), false, false,
-                              0U, IndexedTokenKind::Variable, lit->getResolvedSymbol());
+                              0U, indexedTokenKindFromResolvedSymbol(
+                                      resolvedSymbol, false, false, IndexedTokenKind::Variable),
+                              resolvedSymbol);
     }
     return;
   }
