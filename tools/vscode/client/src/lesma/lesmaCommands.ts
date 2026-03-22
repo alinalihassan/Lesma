@@ -7,7 +7,7 @@ import Message from "../utils/Message";
 
 /**
  * This will run the Lesma installation script.
- * If Lesma was already instead in the extension's directory
+ * If Lesma was already installed in the extension's directory
  */
 export async function checkForLesma() {
   const installLesmaChoice = "Install Lesma";
