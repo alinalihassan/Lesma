@@ -10,6 +10,7 @@
 #include "llvm/Support/SMLoc.h"
 
 #include "liblesma/AST/ASTVisitor.h"
+#include "liblesma/Driver/AnalysisResult.h"
 #include "liblesma/Symbol/SymbolTable.h"
 #include "liblesma/Symbol/Type.h"
 #include "liblesma/Symbol/Value.h"
@@ -45,6 +46,7 @@ class Typechecker final : public ASTVisitor {
 
   Value* currentFunction = nullptr;
   Type* currentClassType = nullptr; // Set when visiting class methods, for self
+  SymbolTable* currentMethodInsertScope = nullptr;
   bool inTopLevel = true;
   bool declarationPass = false;
   std::unordered_map<std::string, Type*> currentGenericTypes;
@@ -66,14 +68,11 @@ class Typechecker final : public ASTVisitor {
 
   /** Import alias (e.g. "import_math") -> absolute path, for resolving return types of
    * import_math.func(). */
-  std::unordered_map<std::string, std::string> importAliasToPath;
+  ImportAliasMap importAliasToPath;
   /** Named import/local binding -> (absolute path, exported name). */
-  std::unordered_map<std::string, std::pair<std::string, std::string>> importedNameToSource;
-  /** Cache of typechecked imported modules: path -> (root scope, type cache) so we can
-   * lookupFunction. */
-  std::unordered_map<std::string,
-                     std::pair<std::unique_ptr<SymbolTable>, std::vector<std::unique_ptr<Type>>>>
-      importedModuleCache;
+  ImportedNameSourceMap importedNameToSource;
+  /** Cache of fully analyzed imported modules for import-aware symbol resolution. */
+  std::unordered_map<std::string, std::shared_ptr<ImportedModuleAnalysis>> importedModuleCache;
 
   /** Resolve absolute path for an import (same logic as Driver getExportsFromFile). */
   auto resolveImportPath(const std::string& filepath, bool isStd) const -> std::string;
@@ -91,8 +90,8 @@ class Typechecker final : public ASTVisitor {
   auto substituteInType(Type* t, const std::unordered_map<std::string, Type*>& env) -> Type*;
   /** Infer generic bindings from a parameter/argument type pair. */
   auto inferGenericBindings(Type* pattern, Type* actual,
-                            std::unordered_map<std::string, Type*>& bindings,
-                            llvm::SMRange span) -> void;
+                            std::unordered_map<std::string, Type*>& bindings, llvm::SMRange span)
+      -> void;
 
   auto cacheType(std::unique_ptr<Type> type) -> Type*;
   auto materializeImportedType(Type* type) -> Type*;
@@ -134,6 +133,9 @@ public:
   /** Take ownership of the type cache built during typecheck (call after
    * run()). */
   auto takeTypeCache() -> std::vector<std::unique_ptr<Type>>;
+  auto takeImportAliasToPath() -> ImportAliasMap;
+  auto takeImportedNameToSource() -> ImportedNameSourceMap;
+  auto takeImportedModules() -> std::unordered_map<std::string, std::shared_ptr<ImportedModuleAnalysis>>;
 
   auto visit(const Statement* node) -> void override;
   auto visit(const Compound* node) -> void override;

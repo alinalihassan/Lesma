@@ -8,6 +8,7 @@
 #include <vector>
 
 #include <llvm/IR/Type.h>
+#include <llvm/Support/SMLoc.h>
 
 namespace lesma {
 class Value; // Forward declaration instead of include to break circular
@@ -34,6 +35,9 @@ struct Field {
   std::string name;
   Type* type;
   std::unique_ptr<Value> defaultValue;
+  std::unique_ptr<Value> declarationSymbol;
+  llvm::SMRange declarationSpan;
+  std::string declarationFilePath;
 
   // Constructor for fields without default value
   Field(std::string n, Type* t);
@@ -46,6 +50,15 @@ struct Field {
   auto operator=(Field&&) noexcept -> Field&;
   Field(const Field&) = delete;
   auto operator=(const Field&) -> Field& = delete;
+
+  [[nodiscard]] auto getDeclarationSpan() const -> llvm::SMRange { return declarationSpan; }
+  [[nodiscard]] auto getDeclarationFilePath() const -> const std::string& {
+    return declarationFilePath;
+  }
+  [[nodiscard]] auto getDeclarationSymbol() const -> Value* { return declarationSymbol.get(); }
+  auto setDeclarationSpan(llvm::SMRange span) -> void { declarationSpan = span; }
+  auto setDeclarationFilePath(std::string path) -> void { declarationFilePath = std::move(path); }
+  auto setDeclarationSymbol(std::unique_ptr<Value> value) -> void;
 };
 
 class Type {
@@ -56,10 +69,13 @@ class Type {
   Type* elementType;
   Type* returnType;
   std::string genericName;
+  std::string displayName;
   /** Declared generic parameter names in order (for TY_CLASS and TY_FUNCTION). */
   std::vector<std::string> genericParams;
   // Owned collection of Fields
   std::vector<std::unique_ptr<Field>> fields;
+  llvm::SMRange declarationSpan;
+  std::string declarationFilePath;
   bool varArgs = false;
   bool signedInt = true;
 
@@ -96,9 +112,14 @@ public:
   [[nodiscard]] auto getReturnType() const -> Type* { return returnType; }
   [[nodiscard]] auto getLlvmType() const -> llvm::Type* { return llvmType; }
   [[nodiscard]] auto getGenericName() const -> std::string { return genericName; }
+  [[nodiscard]] auto getDisplayName() const -> const std::string& { return displayName; }
   /** Declared generic parameter names in order (for class/function types). */
   [[nodiscard]] auto getGenericParams() const -> const std::vector<std::string>& {
     return genericParams;
+  }
+  [[nodiscard]] auto getDeclarationSpan() const -> llvm::SMRange { return declarationSpan; }
+  [[nodiscard]] auto getDeclarationFilePath() const -> const std::string& {
+    return declarationFilePath;
   }
   [[nodiscard]] auto isVarArgs() const -> bool { return varArgs; }
   [[nodiscard]] auto isSigned() const -> bool { return signedInt; }
@@ -118,9 +139,12 @@ public:
   auto setElementType(Type* type) -> void { elementType = type; }
   auto setReturnType(Type* type) -> void { returnType = type; }
   auto setGenericName(std::string name) -> void { genericName = std::move(name); }
+  auto setDisplayName(std::string name) -> void { displayName = std::move(name); }
   auto setGenericParams(std::vector<std::string> params) -> void {
     genericParams = std::move(params);
   }
+  auto setDeclarationSpan(llvm::SMRange span) -> void { declarationSpan = span; }
+  auto setDeclarationFilePath(std::string path) -> void { declarationFilePath = std::move(path); }
   auto setVarArgs(bool value) -> void { varArgs = value; }
   auto addField(std::unique_ptr<Field> field) -> void { fields.push_back(std::move(field)); }
 
@@ -300,10 +324,10 @@ public:
       result = genericName;
       break;
     case BaseType::TY_CLASS:
-      result = "Class";
+      result = displayName.empty() ? "Class" : displayName;
       break;
     case BaseType::TY_ENUM:
-      result = "Enum";
+      result = displayName.empty() ? "Enum" : displayName;
       break;
     case BaseType::TY_IMPORT:
       result = "Import";

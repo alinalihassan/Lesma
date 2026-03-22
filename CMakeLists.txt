@@ -17,6 +17,7 @@ add_feature_option(LESMA_BUILD_TESTS "tests" "Build Tests" OFF)
 add_feature_option(LESMA_BUILD_BENCHMARKS "benchmarks" "Build Benchmarks" OFF)
 add_feature_option(LESMA_BUILD_DIST "dist" "Build Dist" OFF)
 add_feature_option(LESMA_BUILD_LLVM "build-llvm" "Build LLVM 15 via vcpkg" OFF)
+add_feature_option(LESMA_BUILD_LSP "lsp" "Build Lesma LSP server (lesma-lsp)" OFF)
 option(LESMA_SANITIZE_ADDRESS "Build with AddressSanitizer and LeakSanitizer for memory error and leak detection (Debug builds, all platforms)" OFF)
 
 # Get version from vcpkg
@@ -75,9 +76,8 @@ include_directories(${LIB_DIR})
 
 # Look for local dependencies
 if (EXISTS "${LLVM_DIR}" AND IS_DIRECTORY "${LLVM_DIR}") # Prefer local LLVM installation
-  message(STATUS "Found local installation of LLVM and Clang")
+  message(STATUS "Found local installation of LLVM")
   set(LLVM_DIR ./llvm/build-release/lib/cmake/llvm)
-  set(Clang_DIR ./llvm/build-release/lib/cmake/clang)
 endif ()
 
 # LLVM configuration
@@ -88,6 +88,7 @@ message(STATUS "Using LLVMConfig.cmake from ${LLVM_DIR}")
 
 list(APPEND CMAKE_MODULE_PATH "${LLVM_CMAKE_DIR}")
 include(HandleLLVMOptions)
+include_directories(SYSTEM ${LLVM_INCLUDE_DIRS})
 add_definitions(${LLVM_DEFINITIONS})
 llvm_map_components_to_libnames(LLVM_LIBS core support demangle native orcjit)
 
@@ -97,12 +98,6 @@ message(STATUS "Found LLDConfig.cmake in ${LLD_CMAKE_DIR}")
 include_directories(SYSTEM ${LLD_INCLUDE_DIRS})
 set(LLD_LIBS lldCommon lldELF lldCOFF lldMachO)
 
-# Clang
-find_package(Clang CONFIG REQUIRED)
-
-include_directories(SYSTEM ${CLANG_INCLUDE_DIRS})
-add_definitions(${CLANG_DEFINITIONS})
-set(CLANG_LIBS clangTooling)
 # Executable configuration
 set(LIB_NAME lesma)
 
@@ -111,6 +106,7 @@ set(COMMON_SOURCES
   src/liblesma/Frontend/Lexer.cpp
   src/liblesma/Frontend/Parser.cpp
   src/liblesma/Token/Token.cpp
+  src/liblesma/Typecheck/AnalysisIndex.cpp
   src/liblesma/Typecheck/Typechecker.cpp
   src/liblesma/Backend/Codegen.cpp
   src/liblesma/Backend/CodegenTypeUtils.cpp
@@ -124,7 +120,7 @@ set(COMMON_SOURCES
 file(COPY ${STDLIB_DIR} DESTINATION $ENV{HOME}/.lesma/)
 
 # Libraries required for the compiler itself
-set(COMMON_LIBS ${LLVM_LIBS} ${LLD_LIBS} ${CLANG_LIBS} fmt::fmt nameof::nameof)
+set(COMMON_LIBS ${LLVM_LIBS} ${LLD_LIBS} fmt::fmt nameof::nameof)
 set(COMMON_INCLUDE ${PLF_NANOTIMER_INCLUDE_DIRS})
 
 # Lesma Library
@@ -137,7 +133,6 @@ target_include_directories(${LIB_NAME} PUBLIC
   "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/src>"
   ${COMMON_INCLUDE}
   ${LLD_INCLUDE_DIRS}
-  ${CLANG_INCLUDE_DIRS}
   "$<INSTALL_INTERFACE:$<INSTALL_PREFIX>/${CMAKE_INSTALL_INCLUDEDIR}>")
 
 # CLI
@@ -188,6 +183,28 @@ if (LESMA_BUILD_BENCHMARKS)
   target_link_libraries(${BENCHMARKS_NAME} PRIVATE ${LIB_NAME} benchmark::benchmark_main)
 endif ()
 
+# LSP server (lesma-lsp)
+if (LESMA_BUILD_LSP)
+  message(STATUS "Building Lesma LSP server")
+  set(LSP_INSTALL OFF CACHE BOOL "Skip install for LSP when used as subproject")
+  set(LSP_BUILD_EXAMPLES OFF CACHE BOOL "Skip LSP examples")
+  include(FetchContent)
+  FetchContent_Declare(
+    lsp_framework
+    GIT_REPOSITORY https://github.com/leon-bckl/lsp-framework.git
+    GIT_TAG 1.3.1
+  )
+  FetchContent_MakeAvailable(lsp_framework)
+
+  find_package(libgit2 CONFIG REQUIRED)
+
+  set(LSP_SERVER_SOURCES src/lsp/main.cpp src/lsp/DocumentStore.cpp src/lsp/LspAnalysisGraph.cpp
+      src/lsp/LspCompletion.cpp src/lsp/LspUtf16.cpp src/lsp/WorkspaceLesFiles.cpp)
+  add_executable(lesma-lsp ${LSP_SERVER_SOURCES})
+  target_link_libraries(lesma-lsp PRIVATE ${LIB_NAME} lsp libgit2::libgit2package)
+  target_include_directories(lesma-lsp PRIVATE ${lsp_framework_SOURCE_DIR})
+endif ()
+
 # CPack
 if (LESMA_BUILD_DIST)
   include(InstallRequiredSystemLibraries)
@@ -201,8 +218,8 @@ if (LESMA_BUILD_DIST)
   set(CPACK_PACKAGE_VERSION_MINOR ${VERSION_MINOR})
   set(CPACK_PACKAGE_VERSION_PATCH ${VERSION_PATCH})
   set(CPACK_PACKAGE_FILE_NAME "${PROJECT_NAME}-${CMAKE_SYSTEM_NAME}-${CMAKE_SYSTEM_PROCESSOR}")
-  set(CPACK_PACKAGE_HOMEPAGE_URL "https://lesma.org/")
-  set(CPACK_PACKAGE_ICON "${CMAKE_CURRENT_SOURCE_DIR}/docs/static/img/logo.svg")
+  set(CPACK_PACKAGE_HOMEPAGE_URL "https://lesma-lang.com/")
+  set(CPACK_PACKAGE_ICON "${CMAKE_CURRENT_SOURCE_DIR}/tools/docs/src/assets/logo.svg")
   set(CPACK_RESOURCE_FILE_LICENSE "${CMAKE_CURRENT_SOURCE_DIR}/LICENSE.txt")
   include(CPack)
 endif ()

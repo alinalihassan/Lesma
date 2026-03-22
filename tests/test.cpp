@@ -1,4 +1,5 @@
 #include <cstddef>
+#include <filesystem>
 #include <memory>
 #include <string>
 #include <utility>
@@ -13,10 +14,12 @@
 #include <gtest/gtest.h>
 
 #include "liblesma/Backend/Codegen.h"
+#include "liblesma/Driver/AnalysisResult.h"
 #include "liblesma/Frontend/Lexer.h"
 #include "liblesma/Frontend/Parser.h"
 #include "liblesma/Token/Token.h"
 #include "liblesma/Token/TokenType.h"
+#include "liblesma/Typecheck/Typechecker.h"
 
 using namespace lesma;
 
@@ -49,12 +52,29 @@ auto initializeParser(std::unique_ptr<Lexer> lexer) -> std::unique_ptr<Parser> {
 auto initializeCodegen(std::unique_ptr<Parser> parser,
                        const std::shared_ptr<SourceMgr>& srcMgr)
     -> std::unique_ptr<Codegen> {
-  auto codegen =
-      std::make_unique<Codegen>(std::move(parser), srcMgr, __FILE__,
-                                std::vector<std::string>{}, true, true);
+  Typechecker typechecker;
+  typechecker.run(parser->getAst());
+  auto codegen = std::make_unique<Codegen>(
+      std::move(parser), srcMgr, __FILE__, std::vector<std::string>{}, true, true, "", nullptr,
+      nullptr, nullptr, typechecker.takeRootScope(), typechecker.takeTypeCache());
   codegen->run();
 
   return codegen;
+}
+
+auto analyzeSource(const std::string& src) -> AnalysisResult {
+  auto options = std::make_unique<Options>();
+  options->sourceType = SourceType::STRING;
+  options->source = src;
+  options->implicitFilePath = "analysis_index_test.les";
+  return analyze(std::move(options));
+}
+
+auto analyzeFile(const std::filesystem::path& path) -> AnalysisResult {
+  auto options = std::make_unique<Options>();
+  options->sourceType = SourceType::FILE;
+  options->source = path.string();
+  return analyze(std::move(options));
 }
 
 auto getRange(const char* bufferStart, int x, int y) -> llvm::SMRange {
@@ -377,6 +397,166 @@ TEST(CodegenTests, Comparison) {
   codegen->prepareJit();
   int exitCode = codegen->executeJit();
   EXPECT_EQ(exitCode, 0);
+}
+
+TEST(AnalysisIndexTests, IndexesOnlyResolvedEnumMemberAccesses) {
+  constexpr auto source = R"(enum Status
+    READY
+
+class Holder
+    var ready: int
+
+    def new(value: int)
+        self.ready = value
+
+var holder = Holder(1)
+var propertyValue = holder.ready
+var status: Status = Status.READY
+)";
+
+  AnalysisResult const result = analyzeSource(source);
+  ASSERT_FALSE(result.hasErrors())
+      << (result.diagnostics.empty() ? std::string("unknown analysis error")
+                                     : result.diagnostics.front().message);
+
+  bool sawHolderPropertyAccess = false;
+  bool sawSelfPropertyAccess = false;
+  for (const IndexedSymbolOccurrence& occurrence : result.index.symbolOccurrences) {
+    if (occurrence.name != "ready" || !occurrence.isMemberAccess || occurrence.modifiers != 0U ||
+        occurrence.fallbackTokenKind != IndexedTokenKind::Property) {
+      continue;
+    }
+    if (occurrence.dotBase == std::optional<std::string>("holder")) {
+      sawHolderPropertyAccess = true;
+    }
+    if (occurrence.dotBase == std::optional<std::string>("self")) {
+      sawSelfPropertyAccess = true;
+    }
+  }
+  EXPECT_TRUE(sawHolderPropertyAccess);
+  EXPECT_TRUE(sawSelfPropertyAccess);
+
+  bool sawStatusReady = false;
+  for (const IndexedSymbolOccurrence& occurrence : result.index.symbolOccurrences) {
+    if (occurrence.name == "ready" &&
+        occurrence.fallbackTokenKind == IndexedTokenKind::EnumMember) {
+      FAIL() << "property access was classified as enum member";
+    }
+    if (occurrence.name == "READY" &&
+        occurrence.fallbackTokenKind == IndexedTokenKind::EnumMember) {
+      sawStatusReady = true;
+    }
+  }
+  EXPECT_TRUE(sawStatusReady);
+}
+
+TEST(AnalysisIndexTests, MemberAccessesCarryDeclarationIdentity) {
+  constexpr auto source = R"(enum Status
+    READY
+
+class Holder
+    var ready: int
+
+    def new(value: int)
+        self.ready = value
+
+var holder = Holder(1)
+var propertyValue = holder.ready
+var status: Status = Status.READY
+)";
+
+  AnalysisResult const result = analyzeSource(source);
+  ASSERT_FALSE(result.hasErrors());
+
+  bool sawReadyDeclaration = false;
+  bool sawReadyUsageDeclaration = false;
+  bool sawEnumDeclaration = false;
+  bool sawEnumUsageDeclaration = false;
+
+  for (const IndexedSymbolOccurrence& occurrence : result.index.symbolOccurrences) {
+    if (occurrence.name == "ready" && occurrence.fallbackTokenKind == IndexedTokenKind::Property) {
+      ASSERT_TRUE(occurrence.declaration.has_value());
+      if ((occurrence.modifiers & analysis_index_modifier::DECLARATION) != 0U) {
+        sawReadyDeclaration = true;
+      } else {
+        sawReadyUsageDeclaration = true;
+      }
+    }
+    if (occurrence.name == "READY" && occurrence.fallbackTokenKind == IndexedTokenKind::EnumMember) {
+      ASSERT_TRUE(occurrence.declaration.has_value());
+      if ((occurrence.modifiers & analysis_index_modifier::DECLARATION) != 0U) {
+        sawEnumDeclaration = true;
+      } else {
+        sawEnumUsageDeclaration = true;
+      }
+    }
+  }
+
+  EXPECT_TRUE(sawReadyDeclaration);
+  EXPECT_TRUE(sawReadyUsageDeclaration);
+  EXPECT_TRUE(sawEnumDeclaration);
+  EXPECT_TRUE(sawEnumUsageDeclaration);
+}
+
+TEST(AnalysisIndexTests, NestedMemberAccessPreservesOuterReceiverName) {
+  constexpr auto source = R"(class Payload
+    var value: int
+
+    def new(value: int)
+        self.value = value
+
+class Holder
+    var payload: Payload
+
+    def new(value: int)
+        self.payload = Payload(value)
+
+var holder = Holder(101)
+var nestedValue = holder.payload.value
+)";
+
+  AnalysisResult const result = analyzeSource(source);
+  ASSERT_FALSE(result.hasErrors())
+      << (result.diagnostics.empty() ? std::string("unknown analysis error")
+                                     : result.diagnostics.front().message);
+
+  bool sawNestedValueAccess = false;
+  for (const IndexedSymbolOccurrence& occurrence : result.index.symbolOccurrences) {
+    if (occurrence.name != "value" || !occurrence.isMemberAccess ||
+        occurrence.fallbackTokenKind != IndexedTokenKind::Property) {
+      continue;
+    }
+    if (occurrence.dotBase == std::optional<std::string>("holder")) {
+      sawNestedValueAccess = true;
+    }
+  }
+
+  EXPECT_TRUE(sawNestedValueAccess);
+}
+
+TEST(AnalysisIndexTests, ImportedModulesAreIndexedDuringTypecheck) {
+  std::filesystem::path const importClassMethodPath =
+      std::filesystem::path(__FILE__).parent_path() / "lesma" / "success" / "import_class_method.les";
+
+  AnalysisResult const result = analyzeFile(importClassMethodPath);
+  ASSERT_FALSE(result.hasErrors());
+
+  std::filesystem::path const importedModulePath =
+      std::filesystem::path(__FILE__).parent_path() / "lesma" / "success" / "class.les";
+  auto importedIt = result.importedModules.find(std::filesystem::weakly_canonical(importedModulePath).string());
+  ASSERT_NE(importedIt, result.importedModules.end());
+  ASSERT_NE(importedIt->second, nullptr);
+  EXPECT_FALSE(importedIt->second->index.symbolOccurrences.empty());
+
+  bool sawGetXDeclaration = false;
+  for (const IndexedSymbolOccurrence& occurrence : importedIt->second->index.symbolOccurrences) {
+    if (occurrence.name == "getX" &&
+        occurrence.fallbackTokenKind == IndexedTokenKind::Method &&
+        (occurrence.modifiers & analysis_index_modifier::DECLARATION) != 0U) {
+      sawGetXDeclaration = true;
+    }
+  }
+  EXPECT_TRUE(sawGetXDeclaration);
 }
 } // namespace
 

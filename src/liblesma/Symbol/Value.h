@@ -9,6 +9,7 @@
 
 #include <llvm/IR/Type.h>
 #include <llvm/IR/Value.h>
+#include <llvm/Support/SMLoc.h>
 #include <llvm/Support/raw_ostream.h>
 
 #include "Type.h"
@@ -24,6 +25,20 @@ enum class ValueCategory : std::uint8_t {
   TYPE_SYMBOL,
   MODULE_SYMBOL,
 };
+enum class ValueDeclarationKind : std::uint8_t {
+  UNKNOWN,
+  NAMESPACE,
+  CLASS,
+  ENUM,
+  ENUM_MEMBER,
+  TYPE,
+  TYPE_PARAMETER,
+  FUNCTION,
+  METHOD,
+  PARAMETER,
+  VARIABLE,
+  PROPERTY,
+};
 
 /**
  * Entry of a symbol table, representing an individual symbol with all its
@@ -32,7 +47,8 @@ enum class ValueCategory : std::uint8_t {
 class Value {
 public:
   // Constructors that take ownership of Type
-  explicit Value(std::unique_ptr<Type> type) : ownedType(std::move(type)), state(SymbolState::INITIALIZED) {}
+  explicit Value(std::unique_ptr<Type> type)
+      : ownedType(std::move(type)), state(SymbolState::INITIALIZED) {}
 
   Value(std::string name, std::unique_ptr<Type> type)
       : name(std::move(name)), mangledName(name), ownedType(std::move(type)),
@@ -65,7 +81,9 @@ public:
         llvmValue(other.llvmValue), category(other.category), used(other.used),
         mutableVar(other.mutableVar), signedVar(other.signedVar), exported(other.exported),
         constructor(other.constructor), genericClassTemplate(other.genericClassTemplate),
-        bodyScope(other.bodyScope) {}
+        bodyScope(other.bodyScope), declarationKind(other.declarationKind),
+        declarationSpan(other.declarationSpan),
+        declarationFilePath(other.declarationFilePath) {}
 
   ~Value() = default;
   auto operator=(const Value& other) -> Value& {
@@ -84,6 +102,9 @@ public:
       constructor = other.constructor;
       genericClassTemplate = other.genericClassTemplate;
       bodyScope = other.bodyScope;
+      declarationKind = other.declarationKind;
+      declarationSpan = other.declarationSpan;
+      declarationFilePath = other.declarationFilePath;
     }
     return *this;
   }
@@ -100,12 +121,18 @@ public:
   [[nodiscard]] auto getCategory() const -> ValueCategory { return category; }
   [[nodiscard]] auto getConstructor() const -> lesma::Value* { return constructor; }
   [[nodiscard]] auto getBodyScope() const -> SymbolTable* { return bodyScope; }
+  [[nodiscard]] auto getDeclarationKind() const -> ValueDeclarationKind { return declarationKind; }
   /** Opaque pointer to the Class* AST for generic class templates (used when
    *  specializing imported generics). Codegen interprets this as const Class*.
    */
-  [[nodiscard]] auto getGenericClassTemplate() const -> void* { return genericClassTemplate; }
+  [[nodiscard]] auto getGenericClassTemplate() const -> const void* { return genericClassTemplate; }
   [[nodiscard]] auto isExported() const -> bool { return exported; }
   [[nodiscard]] auto isUsed() const -> bool { return used; }
+  /** Declaration location for LSP go-to-definition. */
+  [[nodiscard]] auto getDeclarationSpan() const -> llvm::SMRange { return declarationSpan; }
+  [[nodiscard]] auto getDeclarationFilePath() const -> const std::string& {
+    return declarationFilePath;
+  }
 
   auto setLlvmValue(llvm::Value* value) -> void { llvmValue = value; }
   auto setName(const std::string& value) -> void { name = value; }
@@ -120,14 +147,15 @@ public:
   auto setCategory(ValueCategory value) -> void { category = value; }
   auto setExported(bool value) -> void { exported = value; }
   auto setConstructor(lesma::Value* value) -> void { constructor = value; }
-  auto setGenericClassTemplate(void* ptr) -> void { genericClassTemplate = ptr; }
+  auto setGenericClassTemplate(const void* ptr) -> void { genericClassTemplate = ptr; }
   auto setBodyScope(SymbolTable* value) -> void { bodyScope = value; }
+  auto setDeclarationKind(ValueDeclarationKind value) -> void { declarationKind = value; }
+  auto setDeclarationSpan(llvm::SMRange span) -> void { declarationSpan = span; }
+  auto setDeclarationFilePath(std::string path) -> void { declarationFilePath = std::move(path); }
   [[nodiscard]] auto usesAddressableStorage() const -> bool {
     return category == ValueCategory::ADDRESSABLE_STORAGE;
   }
-  [[nodiscard]] auto usesDirectLlvmValue() const -> bool {
-    return !usesAddressableStorage();
-  }
+  [[nodiscard]] auto usesDirectLlvmValue() const -> bool { return !usesAddressableStorage(); }
 
   auto toString() const -> std::string {
     std::string typeStr;
@@ -163,7 +191,11 @@ private:
   bool exported = false;
   // For classes
   lesma::Value* constructor = nullptr;
-  void* genericClassTemplate = nullptr;
+  const void* genericClassTemplate = nullptr;
   SymbolTable* bodyScope = nullptr;
+  ValueDeclarationKind declarationKind = ValueDeclarationKind::UNKNOWN;
+  // For LSP: declaration location
+  llvm::SMRange declarationSpan;
+  std::string declarationFilePath;
 };
 } // namespace lesma

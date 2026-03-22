@@ -20,6 +20,16 @@
 - [ ] Add multithreading using pthread for now (async/await? ala Spice)
 - [ ] Add multiple value return without having to make structs
 
+## LSP
+- [ ] rename + prepareRename
+- [ ] workspace/symbol
+- [ ] documentHighlight
+- [ ] codeAction for obvious fixes
+- [ ]documentLink for import targets
+- [ ]richer semantic tokens
+- [ ]folding/selection ranges
+- [ ]formatting
+
 ## Bugs
 
 - [ ] Nested dot access is not implemented yet (for example `holder.payload.value`)

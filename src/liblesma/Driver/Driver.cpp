@@ -17,6 +17,7 @@
 #include "liblesma/Backend/Codegen.h"
 #include "liblesma/Common/LesmaError.h"
 #include "liblesma/Common/Utils.h"
+#include "liblesma/Driver/AnalysisResult.h"
 #include "liblesma/Frontend/Lexer.h"
 #include "liblesma/Frontend/Parser.h"
 #include "liblesma/Typecheck/Typechecker.h"
@@ -67,115 +68,174 @@ auto getExportsFromFile(const std::string& filepath, bool isStd, const std::stri
   }
   return out;
 }
+
 } // namespace
 
-auto Driver::baseCompile(std::unique_ptr<lesma::Options> options, bool jit) -> int {
-  Timer timer(options->timer);
+auto lesma::analyze(std::unique_ptr<Options> options) -> AnalysisResult {
+  AnalysisResult result;
+  if (options->sourceType == SourceType::FILE) {
+    result.mainFilePath = options->source;
+  } else {
+    result.mainFilePath = options->implicitFilePath;
+  }
 
-  // Configure Source Manager
   auto srcMgr = std::make_shared<llvm::SourceMgr>();
   unsigned mainBufferId = 0;
 
   try {
-    // Read Source
-    timer.measure("File read", [&]() -> void {
-      if (options->sourceType == SourceType::FILE) {
-        auto buffer = llvm::MemoryBuffer::getFileAsStream(options->source);
-        if (!buffer) {
-          throw LesmaError(llvm::SMRange(), "Could not read file: {}", options->source);
-        }
-        mainBufferId = srcMgr->AddNewSourceBuffer(std::move(*buffer), llvm::SMLoc());
-      } else {
-        auto buffer = llvm::MemoryBuffer::getMemBuffer(options->source);
-        mainBufferId = srcMgr->AddNewSourceBuffer(std::move(buffer), llvm::SMLoc());
+    if (options->sourceType == SourceType::FILE) {
+      auto buffer = llvm::MemoryBuffer::getFileAsStream(options->source);
+      if (!buffer) {
+        result.diagnostics.push_back(
+            AnalysisDiagnostic{"Could not read file: " + options->source, llvm::SMRange()});
+        result.sourceMgr = std::move(srcMgr);
+        result.mainBufferId = mainBufferId;
+        return result;
       }
-    });
+      mainBufferId = srcMgr->AddNewSourceBuffer(std::move(*buffer), llvm::SMLoc());
+    } else {
+      auto buffer = llvm::MemoryBuffer::getMemBuffer(options->source);
+      mainBufferId = srcMgr->AddNewSourceBuffer(std::move(buffer), llvm::SMLoc());
+    }
+  } catch (const LesmaError& err) {
+    result.diagnostics.push_back(
+        AnalysisDiagnostic{err.what(), err.getSpan().isValid() ? err.getSpan() : llvm::SMRange()});
+    result.sourceMgr = std::move(srcMgr);
+    result.mainBufferId = mainBufferId;
+    return result;
+  }
 
-    // Lexer
-    auto lexer = timer.measure("Lexer scan", [&]() -> std::unique_ptr<lesma::Lexer> {
-      auto lex = std::make_unique<Lexer>(srcMgr);
-      lex->scanAll();
-      return lex;
-    });
-
+  std::unique_ptr<Lexer> lexer;
+  try {
+    lexer = std::make_unique<Lexer>(srcMgr);
+    lexer->scanAll();
     if ((options->debug & Debug::LEXER) != Debug::NONE) {
-      lesma::print(LogType::DEBUG, "TOKENS: \n");
-      for (const auto& tok : lexer->getTokens()) {
-        lesma::print("Token: {}\n", tok->dump(srcMgr));
+      lesma::print(LogType::DEBUG, "Lexer tokens:\n");
+      for (Token* tok : lexer->getTokens()) {
+        if (tok != nullptr) {
+          lesma::print(LogType::DEBUG, "{}\n", tok->dump(srcMgr));
+        }
       }
     }
+  } catch (const LesmaError& err) {
+    result.diagnostics.push_back(
+        AnalysisDiagnostic{err.what(), err.getSpan().isValid() ? err.getSpan() : llvm::SMRange()});
+    result.sourceMgr = std::move(srcMgr);
+    result.mainBufferId = mainBufferId;
+    return result;
+  }
 
-    // Parser
-    auto parser = timer.measure("Parsing", [&]() -> std::unique_ptr<lesma::Parser> {
-      auto pars = std::make_unique<Parser>(lexer->getTokens());
-      pars->parse();
-      return pars;
-    });
-
+  std::unique_ptr<Parser> parser;
+  try {
+    parser = std::make_unique<Parser>(lexer->getTokens());
+    parser->parse();
     if ((options->debug & Debug::AST) != Debug::NONE) {
-      lesma::print(LogType::DEBUG, "AST:\n{}", parser->getAst()->toString(srcMgr.get(), "", true));
+      Compound* ast = parser->getAst();
+      if (ast != nullptr) {
+        lesma::print(LogType::DEBUG, "AST:\n{}\n", ast->toString(srcMgr.get(), "", true));
+      }
     }
+  } catch (const LesmaError& err) {
+    result.diagnostics.push_back(
+        AnalysisDiagnostic{err.what(), err.getSpan().isValid() ? err.getSpan() : llvm::SMRange()});
+    result.sourceMgr = std::move(srcMgr);
+    result.mainBufferId = mainBufferId;
+    return result;
+  }
 
-    // Typecheck (required); scope and type cache are passed to Codegen
-    std::string mainFilePath = options->sourceType == SourceType::FILE ? options->source : "";
-    std::unique_ptr<lesma::SymbolTable> preScope;
-    std::vector<std::unique_ptr<lesma::Type>> preTypeCache;
-    timer.measure("Typecheck", [&]() -> void {
-      Typechecker typechecker(mainFilePath,
-                              [&](const std::string& path, bool isStd, const std::string& main) {
-                                return getExportsFromFile(path, isStd, main);
-                              });
-      typechecker.run(parser->getAst());
-      preScope = typechecker.takeRootScope();
-      preTypeCache = typechecker.takeTypeCache();
-    });
+  Typechecker typechecker(result.mainFilePath,
+                          [&](const std::string& path, bool isStd, const std::string& main) {
+                            return getExportsFromFile(path, isStd, main);
+                          });
+  try {
+    typechecker.run(parser->getAst());
+    result.sourceMgr = std::move(srcMgr);
+    result.mainBufferId = mainBufferId;
+    result.parser = std::move(parser);
+    result.rootScope = typechecker.takeRootScope();
+    result.typeCache = typechecker.takeTypeCache();
+    result.importAliasToPath = typechecker.takeImportAliasToPath();
+    result.importedNameToSource = typechecker.takeImportedNameToSource();
+    result.importedModules = typechecker.takeImportedModules();
+    result.index = buildAnalysisIndex(result.parser != nullptr ? result.parser->getAst() : nullptr,
+                                      result.sourceMgr.get(), result.mainBufferId);
+    return result;
+  } catch (const LesmaError& err) {
+    result.diagnostics.push_back(
+        AnalysisDiagnostic{err.what(), err.getSpan().isValid() ? err.getSpan() : llvm::SMRange()});
+    result.sourceMgr = std::move(srcMgr);
+    result.mainBufferId = mainBufferId;
+    result.parser = std::move(parser);
+    // Capture partial rootScope even if typecheck failed partway through
+    result.rootScope = typechecker.takeRootScope();
+    result.typeCache = typechecker.takeTypeCache();
+    result.importAliasToPath = typechecker.takeImportAliasToPath();
+    result.importedNameToSource = typechecker.takeImportedNameToSource();
+    result.importedModules = typechecker.takeImportedModules();
+    result.index = buildAnalysisIndex(result.parser != nullptr ? result.parser->getAst() : nullptr,
+                                      result.sourceMgr.get(), result.mainBufferId);
+    return result;
+  }
+}
 
+auto Driver::baseCompile(std::unique_ptr<lesma::Options> options, bool jit) -> int {
+  Timer timer(options->timer);
+  std::string outputFilename = options->outputFilename;
+  Debug debugFlags = options->debug;
+
+  auto result = analyze(std::move(options));
+
+  if (result.hasErrors()) {
+    for (const auto& d : result.diagnostics) {
+      if (d.span.isValid()) {
+        showInline(result.sourceMgr.get(), result.mainBufferId, d.span, result.mainFilePath, true,
+                   d.message);
+      } else {
+        lesma::print(LogType::ERROR, "{}", d.message);
+      }
+    }
+    return 1;
+  }
+
+  try {
     auto codegen = timer.measure("Compiling", [&]() -> std::unique_ptr<lesma::Codegen> {
       std::vector<std::string> const modules;
-      auto cg = std::make_unique<Codegen>(
-          std::move(parser), srcMgr, options->sourceType == SourceType::FILE ? options->source : "",
-          modules, jit, true, "", nullptr, nullptr, nullptr, std::move(preScope),
-          std::move(preTypeCache));
+      auto cg = std::make_unique<Codegen>(std::move(result.parser), result.sourceMgr,
+                                          result.mainFilePath.empty() ? "" : result.mainFilePath,
+                                          modules, jit, true, "", nullptr, nullptr, nullptr,
+                                          std::move(result.rootScope), std::move(result.typeCache));
       cg->run();
       return cg;
     });
 
-    if ((options->debug & Debug::IR) != Debug::NONE) {
+    if ((debugFlags & Debug::IR) != Debug::NONE) {
       lesma::print(LogType::DEBUG, "LLVM IR: \n");
       codegen->dump();
     }
 
-    // Optimization
     timer.measure("Optimizing", [&]() -> void { codegen->optimize(OptimizationLevel::O3); });
 
     int exitCode = 0;
     if (!jit) {
-      // Compile to Object File
       timer.measure("Writing Object File",
-                    [&]() -> void { codegen->writeToObjectFile(options->outputFilename); });
-
-      // Link Object File
+                    [&]() -> void { codegen->writeToObjectFile(outputFilename); });
       timer.measure("Linking Object File", [&]() -> void {
-        codegen->linkObjectFile(fmt::format("{}.o", options->outputFilename));
+        codegen->linkObjectFile(fmt::format("{}.o", outputFilename));
       });
     } else {
-      // Executing
       timer.measure("JIT", [&]() -> void { codegen->prepareJit(); });
-
       exitCode = timer.measure("Execution", [&]() -> int { return codegen->executeJit(); });
     }
 
     timer.printTotal();
-
     return exitCode;
   } catch (const LesmaError& err) {
     if (!err.getSpan().isValid()) {
       lesma::print(LogType::ERROR, err.what());
     } else {
-      showInline(srcMgr.get(), mainBufferId, err.getSpan(),
-                 options->sourceType == SourceType::FILE ? options->source : "", true, err.what());
+      showInline(result.sourceMgr.get(), result.mainBufferId, err.getSpan(), result.mainFilePath,
+                 true, err.what());
     }
-
     return err.getExitCode();
   }
 }

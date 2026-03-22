@@ -5,21 +5,13 @@
 #include <filesystem>
 #include <memory>
 #include <optional>
-#include <regex>
 #include <string>
 #include <system_error>
 #include <unordered_set>
 #include <utility>
 #include <vector>
 
-#include <clang/Basic/Diagnostic.h>
-#include <clang/Basic/DiagnosticIDs.h>
-#include <clang/Basic/DiagnosticOptions.h>
-#include <clang/Driver/Compilation.h>
-#include <clang/Driver/Driver.h>
-#include <clang/Frontend/TextDiagnosticPrinter.h>
 #include <llvm/ADT/APFloat.h>
-#include <llvm/ADT/IntrusiveRefCntPtr.h>
 #include <llvm/ADT/SmallVector.h>
 #include <llvm/Analysis/CGSCCPassManager.h>
 #include <llvm/Analysis/LoopAnalysisManager.h>
@@ -356,6 +348,23 @@ auto Codegen::typecheckModule(const Compound* ast, const std::string& modulePath
   return {typechecker.takeRootScope(), typechecker.takeTypeCache()};
 }
 
+auto Codegen::isImported(const std::vector<ImportedNameBinding>& importedNames,
+                         const std::string& importName) const -> bool {
+  return std::ranges::any_of(importedNames, [&importName](const ImportedNameBinding& binding) {
+    return binding.name == importName;
+  });
+}
+
+auto Codegen::getImportedLocalName(const std::vector<ImportedNameBinding>& importedNames,
+                                   const std::string& importName) const -> std::string {
+  for (const ImportedNameBinding& binding : importedNames) {
+    if (binding.name == importName) {
+      return binding.alias.empty() ? importName : binding.alias;
+    }
+  }
+  return "";
+}
+
 auto Codegen::insertImportAlias(const std::string& moduleAlias, bool importToScope) -> void {
   if (importToScope) {
     return;
@@ -369,28 +378,20 @@ auto Codegen::insertImportAlias(const std::string& moduleAlias, bool importToSco
   scope->insertType(moduleAlias, std::move(importTyp));
 }
 
-auto Codegen::exposeImportedSymbols(
-    llvm::SMRange /*span*/, SymbolTable* importedScope, bool importAll, bool importToScope,
-    const std::vector<std::pair<std::string, std::string>>& importedNames) -> void {
-  auto findImportedAlias = [&importedNames](const std::string& import) -> std::string {
-    for (const auto& impPair : importedNames) {
-      if (impPair.first == import) {
-        return impPair.second;
-      }
-    }
-    return "";
-  };
-
+auto Codegen::exposeImportedSymbols(llvm::SMRange /*span*/, SymbolTable* importedScope,
+                                    bool importAll, bool importToScope,
+                                    const std::vector<ImportedNameBinding>& importedNames) -> void {
   for (auto* sym : importedScope->getSymbols()) {
-    auto impAlias = findImportedAlias(sym->getName());
+    const bool importedByName = isImported(importedNames, sym->getName());
+    const std::string importedLocalName = getImportedLocalName(importedNames, sym->getName());
     const bool exposeClassForModuleImport =
         !importToScope && sym->getType()->is(BaseType::TY_CLASS);
     if (sym->getType()->isOneOf({BaseType::TY_ENUM, BaseType::TY_CLASS}) && sym->isExported() &&
-        (importAll || !impAlias.empty() || exposeClassForModuleImport)) {
+        (importAll || importedByName || exposeClassForModuleImport)) {
       llvm::StructType* structType =
           StructType::getTypeByName(theModule->getContext(), sym->getName());
-      auto structSymbol =
-          std::make_unique<Value>(impAlias.empty() ? sym->getName() : impAlias, sym->getType());
+      const std::string localName = importedLocalName.empty() ? sym->getName() : importedLocalName;
+      auto structSymbol = std::make_unique<Value>(localName, sym->getType());
       structSymbol->setCategory(ValueCategory::TYPE_SYMBOL);
       structSymbol->getType()->setLlvmType(structType);
       structSymbol->setGenericClassTemplate(sym->getGenericClassTemplate());
@@ -415,7 +416,6 @@ auto Codegen::exposeImportedSymbols(
     }
 
     Value* funcSymbol = importedScope->lookupFunction(name, paramTypes);
-    impAlias = findImportedAlias(name);
     const bool isMethodSym = MangleUtils::isMethod(sym->getMangledName());
     bool methodClassImported = true;
     if (isMethodSym && !importAll && importToScope) {
@@ -427,17 +427,16 @@ auto Codegen::exposeImportedSymbols(
         if (arrow != std::string::npos) {
           classPart = classPart.substr(arrow + 2);
         }
-        methodClassImported = !findImportedAlias(classPart).empty();
+        methodClassImported = isImported(importedNames, classPart);
       }
     }
     if (funcSymbol == nullptr || !funcSymbol->isExported() ||
-        (!importAll && impAlias.empty() &&
+        (!importAll && !importedByName &&
          (!isMethodSym || (importToScope && !methodClassImported)))) {
       continue;
     }
 
-    const std::string localName =
-        impAlias.empty() ? name : std::regex_replace(name, std::regex(name), impAlias);
+    const std::string localName = importedLocalName.empty() ? name : importedLocalName;
     Value* localSymbol = scope->lookupFunction(localName, paramTypes);
     const bool reuseExistingLocal =
         localSymbol != nullptr && localSymbol->getLlvmValue() == nullptr;
@@ -466,10 +465,9 @@ auto Codegen::exposeImportedSymbols(
   }
 }
 
-auto Codegen::compileModule(
-    llvm::SMRange span, const std::string& filepath, bool isStd, const std::string& moduleAlias,
-    bool importAll, bool importToScope,
-    const std::vector<std::pair<std::string, std::string> /*unused*/>& importedNames) -> void {
+auto Codegen::compileModule(llvm::SMRange span, const std::string& filepath, bool isStd,
+                            const std::string& moduleAlias, bool importAll, bool importToScope,
+                            const std::vector<ImportedNameBinding>& importedNames) -> void {
   std::filesystem::path mainPath = filename;
   // Read source
   auto absolutePath =
@@ -709,63 +707,8 @@ void Codegen::linkObjectFileWithLld(const std::string& objFilename) {
   }
 }
 
-[[maybe_unused]] auto Codegen::linkObjectFileWithClang(const std::string& objFilename) -> void {
-  auto clangPath = llvm::sys::findProgramByName("clang");
-  if (clangPath.getError()) {
-    throw CodegenError({}, "Unable to find clang path");
-  }
-
-  std::string output = getBasename(objFilename);
-
-  llvm::SmallVector<const char*, 32> args;
-  args.push_back(clangPath.get().c_str());
-  args.push_back("-o");
-  args.push_back(output.c_str());
-  args.push_back(objFilename.c_str());
-  for (const auto& obj : objectFiles) {
-    args.push_back(obj.c_str());
-  }
-
-// Add the standard library path for Apple
-#ifdef __APPLE__
-  args.push_back("-L");
-  args.push_back("/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/lib");
-#endif
-
-  // Set up the diagnostic engine
-  llvm::IntrusiveRefCntPtr<clang::DiagnosticIDs> diagIDs(new clang::DiagnosticIDs());
-  clang::DiagnosticOptions diagOpts;
-  // NOLINTNEXTLINE(cppcoreguidelines-owning-memory) - DiagnosticsEngine owns it
-  auto* diagClient = new clang::TextDiagnosticPrinter(llvm::errs(), diagOpts);
-  clang::DiagnosticsEngine diags(diagIDs, diagOpts, diagClient);
-
-  // Create a compilation using Clang's driver
-  clang::driver::Driver theDriver(args[0], theModule->getTargetTriple().str(), diags,
-                                  "Lesma Compiler", llvm::vfs::getRealFileSystem());
-  std::unique_ptr<clang::driver::Compilation> c(theDriver.BuildCompilation(args));
-
-  if (!c) {
-    throw CodegenError({}, "Failed to create clang driver compilation");
-  }
-
-  // Run the driver
-  llvm::SmallVector<std::pair<int, const clang::driver::Command*>, 8> failingCommands;
-  int res = theDriver.ExecuteCompilation(*c, failingCommands);
-
-  if (res != 0) {
-    throw CodegenError({}, "Linking failed");
-  }
-
-  // Remove object files (ignore errors - cleanup is best-effort)
-  std::ignore = llvm::sys::fs::remove(objFilename);
-  for (const auto& obj : objectFiles) {
-    std::ignore = llvm::sys::fs::remove(obj);
-  }
-}
-
 auto Codegen::linkObjectFile(const std::string& objFilename) -> void {
   linkObjectFileWithLld(objFilename);
-  // linkObjectFileWithClang(objFilename);
 }
 
 auto Codegen::prepareJit() -> void {
@@ -1023,9 +966,10 @@ auto Codegen::specializeFunction(const FuncDecl* node, const std::vector<lesma::
   std::unordered_map<std::string, lesma::Type*> env;
   if (!explicitTypeArgs.empty()) {
     if (explicitTypeArgs.size() != genericNames.size()) {
-      throw CodegenError(node->getSpan(),
-                         "Explicit type argument count {} does not match generic parameter count {}",
-                         explicitTypeArgs.size(), genericNames.size());
+      throw CodegenError(
+          node->getSpan(),
+          "Explicit type argument count {} does not match generic parameter count {}",
+          explicitTypeArgs.size(), genericNames.size());
     }
     for (size_t i = 0; i < genericNames.size(); ++i) {
       env[genericNames[i]] = explicitTypeArgs[i];
@@ -1090,8 +1034,7 @@ auto Codegen::specializeFunction(const FuncDecl* node, const std::vector<lesma::
 
 auto Codegen::specializeClass(const Class* node,
                               const std::vector<lesma::Type*>& constructorArgTypes,
-                              const std::vector<lesma::Type*>& explicitTypeArgs)
-    -> lesma::Value* {
+                              const std::vector<lesma::Type*>& explicitTypeArgs) -> lesma::Value* {
   auto genericNames = node->getGenericParams();
 
   const FuncDecl* constructorDecl = nullptr;
@@ -1710,7 +1653,7 @@ auto Codegen::visit(const Class* node) -> void {
     genericClasses[node->getIdentifier()] = node;
     auto* genericSymbol = scope->lookupStruct(node->getIdentifier());
     if (genericSymbol != nullptr) {
-      genericSymbol->setGenericClassTemplate(const_cast<Class*>(node));
+      genericSymbol->setGenericClassTemplate(node);
     }
     return;
   }

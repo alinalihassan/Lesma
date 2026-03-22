@@ -22,6 +22,7 @@ Lesma is a compiled, statically typed, imperative, object-oriented language that
     - **`Symbol/`** — Symbol table, `Type`, `Value`, `TypeUtils`.
     - **`Backend/`** — Codegen (AST → LLVM IR), `MangleUtils`, `CodegenTypeUtils`, linking/JIT.
   - **`src/stdlib/`** — Lesma standard library (e.g. `base.les`, `math.les`, `time.les`).
+  - **`src/lsp/`** — `lesma-lsp` (when `LESMA_BUILD_LSP` is ON). Enables vcpkg feature **`lsp`** (**libgit2**, minimal: `pcre2` only, no HTTPS/SSH) for workspace-wide `.les` discovery in Git work trees without shelling out to `git`.
 - **`tests/lesma/success/`** — Programs that must compile and run (exit 0).
 - **`tests/lesma/failure/`** — Programs that must be rejected (expected to fail).
 - **`scripts/run_tests.sh`** — Runs the compiler on all success/failure cases (run + compile for each).
@@ -102,10 +103,24 @@ The project uses **AddressSanitizer (ASan)** and **LeakSanitizer (LSan)** for me
 
 ---
 
+## IDE / clangd (VS Code, Cursor, etc.)
+
+CMake sets `CMAKE_EXPORT_COMPILE_COMMANDS ON`, but the database is written under your **build directory** (e.g. `build/Debug/compile_commands.json`), not the repo root. **clangd** only auto-discovers it if you symlink it to the root or configure a path.
+
+- The repo includes **`.clangd`** pointing at `build/Debug` for the default CMake preset. After `cmake --preset Debug` (and at least one build so targets exist), **reload the window** or restart clangd so it picks up flags (LLVM, vcpkg, lsp-framework includes).
+- If you use another build folder, edit `.clangd`’s `CompilationDatabase` or run:  
+  `ln -sf build/Debug/compile_commands.json compile_commands.json`  
+  (root `compile_commands.json` is gitignored.)
+- Spurious **`module_odr_violation_*`** diagnostics in system headers on macOS are suppressed in `.clangd`; they are a known libc++/clangd interaction, not Lesma bugs.
+- **Namespace note:** Lesma’s document store lives in `lesma::lsp_srv` so it does not nest a `lsp` namespace beside the global **`::lsp`** types from lsp-framework.
+
+---
+
 ## C++ style
 
 The codebase follows consistent C++ style. Respect it when editing.
 
+- **Consult the source of truth first:** Before writing or editing any C++ code, read the repo-root **`.clang-format`** and **`.clang-tidy`** and follow those files as the authoritative style/lint configuration for the current change. Do not rely on memory or generic LLVM/C++ habits when the project config says otherwise.
 - **Formatting and lint:** `.clang-format` and `.clang-tidy` define formatting and many clang-tidy checks (e.g. `modernize-*`, `readability-*`, `cppcoreguidelines-*`). Naming: `camelBack` for variables/functions/parameters/members, `CamelCase` for classes/enums, `UPPER_CASE` for global constants. Integer literal suffixes are uppercase (e.g. `0U`).
 - **Helpers in classes:** Prefer **private methods** on the class over free functions in an anonymous namespace. When a helper is only used by one class, add it as a private member so the style stays consistent and the API is clearer.
 - **Includes:** Include order and grouping follow `.clang-format` (e.g. standard library, then LLVM, then project `liblesma/`).

@@ -136,8 +136,18 @@ auto Lexer::scanOne(bool continuation) -> std::unique_ptr<Token> {
   }
   case '#': {
     // A comment goes until the end of the line.
+    bool const commentOnlyLine =
+        tokens.empty() || tokens.back()->type == TokenType::NEWLINE ||
+        tokens.back()->type == TokenType::INDENT || tokens.back()->type == TokenType::DEDENT;
     while (peek() != '\n' && !isAtEnd()) {
       advance();
+    }
+    if (commentOnlyLine && !isAtEnd() && peek() == '\n') {
+      advance();
+      line++;
+      col = 1;
+      handleIndentation(continuation);
+      return scanOne(false);
     }
     return scanOne(continuation);
   }

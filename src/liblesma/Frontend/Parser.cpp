@@ -204,9 +204,7 @@ auto Parser::parseTypeAt(unsigned long& off) -> bool {
   return false;
 }
 
-auto Parser::skipOneTypeAt(unsigned long& off) -> bool {
-  return parseTypeAt(off);
-}
+auto Parser::skipOneTypeAt(unsigned long& off) -> bool { return parseTypeAt(off); }
 
 auto Parser::hasExplicitTypeArgsAndParen() -> bool {
   if (!check(TokenType::IDENTIFIER) || !check(TokenType::LESS, 1)) {
@@ -681,11 +679,15 @@ auto Parser::parseFunctionDeclaration() -> std::unique_ptr<Statement> {
   }
 
   auto* identifier = consume(TokenType::IDENTIFIER);
-  std::vector<std::string> genericParams;
+  std::vector<GenericParamDecl> genericParams;
   if (check(TokenType::LESS)) {
     consume(TokenType::LESS);
     while (!check(TokenType::GREATER)) {
-      genericParams.push_back(consume(TokenType::IDENTIFIER)->lexeme);
+      auto* genericParam = consume(TokenType::IDENTIFIER);
+      genericParams.push_back(GenericParamDecl{
+          .name = genericParam->lexeme,
+          .span = genericParam->span,
+      });
       if (!check(TokenType::GREATER)) {
         consume(TokenType::COMMA);
       }
@@ -725,7 +727,8 @@ auto Parser::parseFunctionDeclaration() -> std::unique_ptr<Statement> {
                           paramIdent->lexeme);
       }
 
-      parameters.push_back(std::make_unique<Parameter>(paramIdent->lexeme, std::move(type), false,
+      parameters.push_back(std::make_unique<Parameter>(paramIdent->lexeme, paramIdent->span,
+                                                       std::move(type), false,
                                                        std::move(defaultVal)));
     }
 
@@ -746,16 +749,18 @@ auto Parser::parseFunctionDeclaration() -> std::unique_ptr<Statement> {
   if (externFunc) {
     consumeNewline();
     return std::make_unique<ExternFuncDecl>(llvm::SMRange{loc.Start, returnType->getEnd()},
-                                            identifier->lexeme, std::move(genericParams),
-                                            std::move(returnType), std::move(parameters), varargs,
-                                            isExported);
+                                            identifier->lexeme, identifier->span,
+                                            std::move(genericParams), std::move(returnType),
+                                            std::move(parameters), varargs, isExported);
   }
 
   auto body = parseBlock();
+  auto funcEnd = body ? body->getEnd() : returnType->getEnd();
 
-  return std::make_unique<FuncDecl>(
-      llvm::SMRange{loc.Start, returnType->getEnd()}, identifier->lexeme, std::move(genericParams),
-      std::move(returnType), std::move(parameters), std::move(body), false, isExported);
+  return std::make_unique<FuncDecl>(llvm::SMRange{loc.Start, funcEnd},
+                                    identifier->lexeme, identifier->span, std::move(genericParams),
+                                    std::move(returnType), std::move(parameters), std::move(body),
+                                    false, isExported);
 }
 
 auto Parser::parseExport() -> std::unique_ptr<Statement> {
@@ -813,46 +818,60 @@ auto Parser::parseImport() -> std::unique_ptr<Statement> {
 
   if (!selectiveImport) {
     std::string alias = getBasename(token->lexeme);
+    llvm::SMRange aliasSpan = token->type == TokenType::IDENTIFIER ? token->span : llvm::SMRange();
     if (advanceIfMatchAny<TokenType::AS>()) {
-      alias = consume(TokenType::IDENTIFIER)->lexeme;
+      Token const* aliasToken = consume(TokenType::IDENTIFIER);
+      alias = aliasToken->lexeme;
+      aliasSpan = aliasToken->span;
     }
 
-    consumeNewline();
-    return std::make_unique<Import>(llvm::SMRange{loc.Start, token->getEnd()}, filepath, alias,
+    auto* endToken = consumeNewline();
+    auto endLoc = endToken->getEnd();
+    return std::make_unique<Import>(llvm::SMRange{loc.Start, endLoc}, filepath, alias, aliasSpan,
                                     token->type == TokenType::IDENTIFIER, true, false,
-                                    std::vector<std::pair<std::string, std::string>>{});
+                                    std::vector<ImportedNameBinding>{});
   }
 
   consume(TokenType::IMPORT);
 
   if (advanceIfMatchAny<TokenType::STAR>()) {
-    consumeNewline();
-    return std::make_unique<Import>(llvm::SMRange{loc.Start, token->getEnd()}, filepath,
-                                    getBasename(token->lexeme),
-                                    token->type == TokenType::IDENTIFIER, true, true,
-                                    std::vector<std::pair<std::string, std::string>>{});
+    auto* endToken = consumeNewline();
+    auto endLoc = endToken->getEnd();
+    return std::make_unique<Import>(llvm::SMRange{loc.Start, endLoc}, filepath, std::string{},
+                                    llvm::SMRange(), token->type == TokenType::IDENTIFIER, true,
+                                    true, std::vector<ImportedNameBinding>{});
   }
 
-  std::vector<std::pair<std::string, std::string>> importedNames;
+  std::vector<ImportedNameBinding> importedNames;
 
   while (true) {
-    auto ident = consume(TokenType::IDENTIFIER)->lexeme;
+    Token const* identToken = consume(TokenType::IDENTIFIER);
+    auto ident = identToken->lexeme;
     auto alias = ident;
+    llvm::SMRange aliasSpan = identToken->span;
     if (advanceIfMatchAny<TokenType::AS>()) {
-      alias = consume(TokenType::IDENTIFIER)->lexeme;
+      Token const* aliasToken = consume(TokenType::IDENTIFIER);
+      alias = aliasToken->lexeme;
+      aliasSpan = aliasToken->span;
     }
 
-    importedNames.emplace_back(ident, alias);
+    importedNames.push_back(ImportedNameBinding{
+        .name = ident,
+        .alias = alias,
+        .nameSpan = identToken->span,
+        .aliasSpan = aliasSpan,
+    });
 
     if (!advanceIfMatchAny<TokenType::COMMA>()) {
       break;
     }
   }
 
-  consumeNewline();
-  return std::make_unique<Import>(llvm::SMRange{loc.Start, token->getEnd()}, filepath,
-                                  getBasename(token->lexeme), token->type == TokenType::IDENTIFIER,
-                                  false, true, importedNames);
+  auto* endToken = consumeNewline();
+  auto endLoc = endToken->getEnd();
+  return std::make_unique<Import>(llvm::SMRange{loc.Start, endLoc}, filepath, std::string{},
+                                  llvm::SMRange(), token->type == TokenType::IDENTIFIER, false,
+                                  true, importedNames);
 }
 
 auto Parser::parseClass() -> std::unique_ptr<Statement> {
@@ -860,11 +879,15 @@ auto Parser::parseClass() -> std::unique_ptr<Statement> {
   consume(TokenType::CLASS);
 
   auto* token = consume(TokenType::IDENTIFIER);
-  std::vector<std::string> genericParams;
+  std::vector<GenericParamDecl> genericParams;
   if (check(TokenType::LESS)) {
     consume(TokenType::LESS);
     while (!check(TokenType::GREATER)) {
-      genericParams.push_back(consume(TokenType::IDENTIFIER)->lexeme);
+      auto* genericParam = consume(TokenType::IDENTIFIER);
+      genericParams.push_back(GenericParamDecl{
+          .name = genericParam->lexeme,
+          .span = genericParam->span,
+      });
       if (!check(TokenType::GREATER)) {
         consume(TokenType::COMMA);
       }
@@ -875,6 +898,7 @@ auto Parser::parseClass() -> std::unique_ptr<Statement> {
 
   std::vector<std::unique_ptr<VarDecl>> fields;
   std::vector<std::unique_ptr<FuncDecl>> methods;
+  auto endLoc = token->getEnd();
   consume(TokenType::INDENT);
 
   inClass = true;
@@ -883,6 +907,7 @@ auto Parser::parseClass() -> std::unique_ptr<Statement> {
       auto stmt = parseVarDecl();
       auto* varDecl = dynamic_cast<VarDecl*>(stmt.get());
       if (varDecl != nullptr) {
+        endLoc = varDecl->getEnd();
         std::ignore = stmt.release();
         fields.push_back(std::unique_ptr<VarDecl>(varDecl));
       }
@@ -890,6 +915,7 @@ auto Parser::parseClass() -> std::unique_ptr<Statement> {
       auto stmt = parseFunctionDeclaration();
       auto* funcDecl = dynamic_cast<FuncDecl*>(stmt.get());
       if (funcDecl != nullptr) {
+        endLoc = funcDecl->getEnd();
         std::ignore = stmt.release();
         methods.push_back(std::unique_ptr<FuncDecl>(funcDecl));
       }
@@ -899,10 +925,13 @@ auto Parser::parseClass() -> std::unique_ptr<Statement> {
   }
   inClass = false;
 
-  advanceIfMatchAny<TokenType::DEDENT>();
+  if (advanceIfMatchAny<TokenType::DEDENT>()) {
+    endLoc = previous()->getEnd();
+  }
 
-  return std::make_unique<Class>(loc, token->lexeme, std::move(genericParams), std::move(fields),
-                                 std::move(methods), isExported);
+  return std::make_unique<Class>(llvm::SMRange{loc.Start, endLoc}, token->lexeme, token->span,
+                                 std::move(genericParams), std::move(fields), std::move(methods),
+                                 isExported);
 }
 
 auto Parser::parseEnum() -> std::unique_ptr<Statement> {
@@ -913,16 +942,24 @@ auto Parser::parseEnum() -> std::unique_ptr<Statement> {
   consume(TokenType::NEWLINE);
 
   std::vector<std::string> values;
+  std::vector<llvm::SMRange> valueSpans;
+  auto endLoc = token->getEnd();
   consume(TokenType::INDENT);
 
   while (!checkAny<TokenType::DEDENT, TokenType::EOF_TOKEN>()) {
-    values.push_back(consume(TokenType::IDENTIFIER)->lexeme);
+    auto* valueToken = consume(TokenType::IDENTIFIER);
+    values.push_back(valueToken->lexeme);
+    valueSpans.push_back(valueToken->span);
+    endLoc = valueToken->getEnd();
     consume(TokenType::NEWLINE);
   }
 
-  advanceIfMatchAny<TokenType::DEDENT>();
+  if (advanceIfMatchAny<TokenType::DEDENT>()) {
+    endLoc = previous()->getEnd();
+  }
 
-  return std::make_unique<Enum>(loc, token->lexeme, values, isExported);
+  return std::make_unique<Enum>(llvm::SMRange{loc.Start, endLoc}, token->lexeme, token->span,
+                                values, std::move(valueSpans), isExported);
 }
 
 auto Parser::parseCompound() -> std::unique_ptr<Compound> {

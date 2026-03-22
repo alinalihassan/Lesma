@@ -118,21 +118,23 @@ protected:
   auto initializeJit() -> std::unique_ptr<LLJIT>;
   auto initializeTopLevel() -> llvm::Function*;
 
-  auto linkObjectFileWithClang(const std::string& objFilename) -> void;
   auto linkObjectFileWithLld(const std::string& objFilename) -> void;
 
   auto compileModule(llvm::SMRange span, const std::string& filepath, bool isStd,
                      const std::string& alias, bool importAll, bool importToScope,
-                     const std::vector<std::pair<std::string, std::string>>& importedNames) -> void;
+                     const std::vector<ImportedNameBinding>& importedNames) -> void;
   auto getExportsFromFile(const std::string& filepath, bool isStd, const std::string& mainFilePath)
       -> std::vector<std::string>;
   auto typecheckModule(const Compound* ast, const std::string& modulePath)
       -> std::pair<std::unique_ptr<SymbolTable>, std::vector<std::unique_ptr<lesma::Type>>>;
+  [[nodiscard]] auto isImported(const std::vector<ImportedNameBinding>& importedNames,
+                                const std::string& importName) const -> bool;
+  [[nodiscard]] auto getImportedLocalName(const std::vector<ImportedNameBinding>& importedNames,
+                                          const std::string& importName) const -> std::string;
   auto insertImportAlias(const std::string& moduleAlias, bool importToScope) -> void;
   auto exposeImportedSymbols(llvm::SMRange span, SymbolTable* importedScope, bool importAll,
                              bool importToScope,
-                             const std::vector<std::pair<std::string, std::string>>& importedNames)
-      -> void;
+                             const std::vector<ImportedNameBinding>& importedNames) -> void;
 
   auto visit(const Statement* node) -> void override;
   auto visit(const Compound* node) -> void override;
@@ -176,11 +178,9 @@ protected:
   auto defineFunction(lesma::Value* value, const FuncDecl* node, Value* clsSymbol) -> void;
   auto specializeFunction(const FuncDecl* node, const std::vector<lesma::Type*>& paramTypes,
                           const std::vector<std::string>& genericNames,
-                          const std::vector<lesma::Type*>& explicitTypeArgs = {})
-      -> lesma::Value*;
+                          const std::vector<lesma::Type*>& explicitTypeArgs = {}) -> lesma::Value*;
   auto specializeClass(const Class* node, const std::vector<lesma::Type*>& constructorArgTypes,
-                       const std::vector<lesma::Type*>& explicitTypeArgs = {})
-      -> lesma::Value*;
+                       const std::vector<lesma::Type*>& explicitTypeArgs = {}) -> lesma::Value*;
 
   auto emitCompoundAssign(llvm::SMRange span, TokenType op, lesma::Value* lhs, lesma::Value* value)
       -> void;

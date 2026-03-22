@@ -23,6 +23,7 @@
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Debug",
         "LESMA_BUILD_CLI": "ON",
+        "LESMA_BUILD_LSP": "ON",
         "LESMA_BUILD_TESTS": "ON",
         "LESMA_BUILD_BENCHMARKS": "ON"
       }

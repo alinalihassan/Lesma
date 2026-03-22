@@ -1,4 +1,5 @@
 #include <iterator>
+#include <memory>
 #include <utility>
 
 #include <benchmark/benchmark.h>
@@ -6,6 +7,7 @@
 #include "liblesma/Backend/Codegen.h"
 #include "liblesma/Frontend/Lexer.h"
 #include "liblesma/Frontend/Parser.h"
+#include "liblesma/Typecheck/Typechecker.h"
 
 using namespace lesma;
 
@@ -52,9 +54,15 @@ auto InitializeParser(const std::shared_ptr<Lexer>& lexer)
 }
 
 auto InitializeCodegen(std::shared_ptr<Parser> parser,
-                       const std::shared_ptr<SourceMgr>& srcMgr) -> Codegen* {
-  auto* codegen =
-      new Codegen(std::move(parser), srcMgr, __FILE__, {}, true, true);
+                       const std::shared_ptr<SourceMgr>& srcMgr)
+    -> std::unique_ptr<Codegen> {
+  Typechecker typechecker;
+  typechecker.run(parser->getAst());
+  auto codegen = std::make_unique<Codegen>(std::move(parser), srcMgr, __FILE__,
+                                           std::vector<std::string>{}, true, true, "", nullptr,
+                                           nullptr, nullptr,
+                                           typechecker.takeRootScope(),
+                                           typechecker.takeTypeCache());
   codegen->run();
 
   return codegen;
@@ -136,7 +144,7 @@ BENCHMARK_F(CodegenBenchmark, Initialize)
 BENCHMARK_F(CodegenBenchmark, Optimize)
 (benchmark::State& state) {
   for ([[maybe_unused]] auto _ : state) {
-    auto* cg = InitializeCodegen(parser, srcMgr);
+    auto cg = InitializeCodegen(parser, srcMgr);
     cg->optimize(OptimizationLevel::O3);
   }
 }
@@ -144,7 +152,7 @@ BENCHMARK_F(CodegenBenchmark, Optimize)
 BENCHMARK_F(CodegenBenchmark, JIT)
 (benchmark::State& state) {
   for ([[maybe_unused]] auto _ : state) {
-    auto* cg = InitializeCodegen(parser, srcMgr);
+    auto cg = InitializeCodegen(parser, srcMgr);
     cg->prepareJit();
     cg->executeJit();
   }
@@ -153,7 +161,7 @@ BENCHMARK_F(CodegenBenchmark, JIT)
 BENCHMARK_F(CodegenBenchmark, All)
 (benchmark::State& state) {
   for ([[maybe_unused]] auto _ : state) {
-    auto* cg = InitializeCodegen(parser, srcMgr);
+    auto cg = InitializeCodegen(parser, srcMgr);
     cg->optimize(OptimizationLevel::O3);
     cg->prepareJit();
     cg->executeJit();

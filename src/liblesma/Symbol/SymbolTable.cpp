@@ -25,6 +25,9 @@ Field::~Field() = default;
 
 Field::Field(Field&&) noexcept = default;
 auto Field::operator=(Field&&) noexcept -> Field& = default;
+auto Field::setDeclarationSymbol(std::unique_ptr<Value> value) -> void {
+  declarationSymbol = std::move(value);
+}
 
 /**
  * Insert a new symbol into the current symbol table. If it is a parameter,

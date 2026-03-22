@@ -1,0 +1,14 @@
+# clangd reads compile flags from CMake's compile_commands.json. With CMake presets,
+# that file is generated under build/Debug (not the repo root), so point clangd at it.
+# Configure first: cmake --preset Debug && cmake --build --preset Debug
+#
+# If you use a different build directory, change CompilationDatabase below or symlink:
+#   ln -sf build/Debug/compile_commands.json compile_commands.json
+CompileFlags:
+  CompilationDatabase: build/Debug
+
+Diagnostics:
+  # macOS libc++ + clangd often spuriously reports module ODR mismatches in std headers.
+  Suppress:
+    - module_odr_violation_function
+    - module_odr_violation_template

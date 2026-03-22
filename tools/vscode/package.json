@@ -1,0 +1,118 @@
+{
+  "name": "lesma",
+  "displayName": "Lesma",
+  "description": "Lesma language support: syntax highlighting, native LSP (lesma-lsp) for .les files — diagnostics, hover, go to definition/declaration, completion. C/C++ files use other extensions (e.g. clangd).",
+  "author": "Alin Ali Hassan",
+  "publisher": "hassanalinali",
+  "license": "MIT",
+  "version": "1.0.7",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/alinalihassan/Lesma"
+  },
+  "icon": "assets/logo.png",
+  "categories": [
+    "Programming Languages"
+  ],
+  "keywords": [
+    "lesma"
+  ],
+  "engines": {
+    "vscode": "^1.86.0"
+  },
+  "main": "./client/out/extension",
+  "contributes": {
+    "configuration": {
+      "title": "Lesma",
+      "properties": {
+        "lesma.compilerPath": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "scope": "machine-overridable",
+          "default": null,
+          "description": "Path to the Lesma compiler (lesma). The language server (lesma-lsp) is launched from the same directory. If unset, both are resolved from PATH."
+        }
+      }
+    },
+    "languages": [
+      {
+        "id": "lesma",
+        "aliases": [
+          "Lesma",
+          "lesma"
+        ],
+        "icon": {
+          "light": "./assets/logo.svg",
+          "dark": "./assets/logo.svg"
+        },
+        "extensions": [
+          ".les"
+        ],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "lesma",
+        "scopeName": "source.lesma",
+        "path": "./syntaxes/lesma.tmLanguage.json",
+        "unbalancedBracketScopes": [
+          "keyword.operator.relational",
+          "keyword.operator.arrow"
+        ]
+      }
+    ],
+    "commands": [
+      {
+        "command": "lesma.run",
+        "title": "Lesma: Run"
+      },
+      {
+        "command": "lesma.install",
+        "title": "Lesma: Install"
+      },
+      {
+        "command": "lesma.run-with-flags",
+        "title": "Lesma: Run with Flags"
+      }
+    ]
+  },
+  "release": {
+    "branches": [
+      "main"
+    ],
+    "plugins": [
+      "@semantic-release/commit-analyzer",
+      "@semantic-release/release-notes-generator",
+      [
+        "@semantic-release/npm",
+        {
+          "npmPublish": false
+        }
+      ],
+      "@semantic-release/github",
+      "@semantic-release/changelog",
+      "@semantic-release/git"
+    ]
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -b",
+    "watch": "tsc -b -w",
+    "lint": "eslint ./client/src --ext .ts,.tsx",
+    "postinstall": "npm install --prefix client"
+  },
+  "dependencies": {
+    "which": "^3.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^16.11.7",
+    "@typescript-eslint/eslint-plugin": "^5.54.0",
+    "@typescript-eslint/parser": "^5.54.0",
+    "eslint": "^8.35.0",
+    "typescript": "^5.0.2",
+    "@types/which": "^3.0.0"
+  }
+}
