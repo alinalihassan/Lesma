@@ -103,17 +103,19 @@ struct SymbolIdentity {
 
 auto getOffsetFromSMLoc(llvm::SourceMgr* srcMgr, unsigned bufferId, llvm::SMLoc loc) -> unsigned;
 
-auto smRangesEqual(llvm::SourceMgr* srcMgr, unsigned bufferId, llvm::SMRange lhs,
-                   llvm::SMRange rhs) -> bool {
+auto smRangesEqual(llvm::SourceMgr* srcMgr, unsigned bufferId, llvm::SMRange lhs, llvm::SMRange rhs)
+    -> bool {
   return lhs.isValid() && rhs.isValid() &&
          getOffsetFromSMLoc(srcMgr, bufferId, lhs.Start) ==
              getOffsetFromSMLoc(srcMgr, bufferId, rhs.Start) &&
-         getOffsetFromSMLoc(srcMgr, bufferId, lhs.End) == getOffsetFromSMLoc(srcMgr, bufferId, rhs.End);
+         getOffsetFromSMLoc(srcMgr, bufferId, lhs.End) ==
+             getOffsetFromSMLoc(srcMgr, bufferId, rhs.End);
 }
 
 template <typename FuncLike>
-auto resolveFuncLikeDeclarationSymbol(const FuncLike* node, llvm::SourceMgr* srcMgr, unsigned bufferId,
-                                      llvm::SMRange declarationSpan) -> lesma::Value* {
+auto resolveFuncLikeDeclarationSymbol(const FuncLike* node, llvm::SourceMgr* srcMgr,
+                                      unsigned bufferId, llvm::SMRange declarationSpan)
+    -> lesma::Value* {
   if (node == nullptr) {
     return nullptr;
   }
@@ -190,8 +192,10 @@ auto resolveDeclarationSymbolInStmt(const lesma::Statement* stmt, llvm::SourceMg
     if (smRangesEqual(srcMgr, bufferId, enumNode->getNameSpan(), declarationSpan)) {
       return enumNode->getResolvedSymbol();
     }
-    if (enumNode->getResolvedSymbol() != nullptr && enumNode->getResolvedSymbol()->getType() != nullptr) {
-      std::vector<lesma::Field*> const fields = enumNode->getResolvedSymbol()->getType()->getFields();
+    if (enumNode->getResolvedSymbol() != nullptr &&
+        enumNode->getResolvedSymbol()->getType() != nullptr) {
+      std::vector<lesma::Field*> const fields =
+          enumNode->getResolvedSymbol()->getType()->getFields();
       std::vector<lesma::NamedSpan> const valueDecls = lesma::getEnumValueDecls(enumNode);
       for (size_t i = 0; i < valueDecls.size() && i < fields.size(); ++i) {
         if (smRangesEqual(srcMgr, bufferId, valueDecls[i].span, declarationSpan)) {
@@ -235,9 +239,8 @@ auto resolveSymbolByDeclarationIdentity(AnalysisResult& result,
     return std::nullopt;
   }
   for (lesma::Statement* stmt : analysis->ast->getChildren()) {
-    if (lesma::Value* value =
-            resolveDeclarationSymbolInStmt(stmt, analysis->sourceMgr, analysis->bufferId,
-                                           declaration.span)) {
+    if (lesma::Value* value = resolveDeclarationSymbolInStmt(
+            stmt, analysis->sourceMgr, analysis->bufferId, declaration.span)) {
       return ResolvedSymbol{.value = value, .owner = *analysis};
     }
   }
@@ -264,9 +267,9 @@ auto declarationBelongsToAnalysis(const AnalysisView& analysis,
 }
 
 auto runAnalyzeAndPublish(const ::lsp::DocumentUri& uri,
-                         const lesma::lsp_srv::DocumentStore& docStore, const std::string& content,
-                         int version, AnalysisCache& analysisCache,
-                         ::lsp::MessageHandler& messageHandler) -> void {
+                          const lesma::lsp_srv::DocumentStore& docStore, const std::string& content,
+                          int version, AnalysisCache& analysisCache,
+                          ::lsp::MessageHandler& messageHandler) -> void {
   if (std::optional<std::string> path = docStore.getPath(uri)) {
     invalidateLazyImportedAnalysesAffectedBy(*path);
   }
@@ -370,7 +373,8 @@ auto formatCallableHoverType(lesma::Type* type, lesma::SymbolTable* rootScope) -
   std::string out = "Function(";
   std::vector<lesma::Field*> fields = type->getFields();
   bool first = true;
-  size_t paramOffset = (!fields.empty() && fields[0] != nullptr && fields[0]->name == "self") ? 1U : 0U;
+  size_t paramOffset =
+      (!fields.empty() && fields[0] != nullptr && fields[0]->name == "self") ? 1U : 0U;
   for (size_t i = paramOffset; i < fields.size(); ++i) {
     lesma::Field* field = fields[i];
     if (field == nullptr) {
@@ -479,8 +483,8 @@ auto considerFunc(const lesma::FuncDecl* f, const lesma::Class* cls, unsigned ta
 }
 
 auto scanCompoundForFuncs(lesma::Compound* c, lesma::Class* cls, unsigned targetOffset,
-                          llvm::SourceMgr* sm, unsigned bid, InnermostFunc& best,
-                          unsigned& bestLen) -> void {
+                          llvm::SourceMgr* sm, unsigned bid, InnermostFunc& best, unsigned& bestLen)
+    -> void {
   if (c == nullptr) {
     return;
   }
@@ -692,10 +696,9 @@ auto lookupNameInCallableContext(const lesma::FuncLikeDeclView& view, lesma::Sym
   return nullptr;
 }
 
-auto lookupValueForHover(lesma::Compound* ast, lesma::SymbolTable* root,
-                         llvm::SourceMgr* srcMgr, unsigned bufferId, unsigned line,
-                         unsigned character, const std::string& name, bool isTypePosition)
-    -> lesma::Value* {
+auto lookupValueForHover(lesma::Compound* ast, lesma::SymbolTable* root, llvm::SourceMgr* srcMgr,
+                         unsigned bufferId, unsigned line, unsigned character,
+                         const std::string& name, bool isTypePosition) -> lesma::Value* {
   auto const* buf = srcMgr->getMemoryBuffer(bufferId);
   if (buf == nullptr) {
     return nullptr;
@@ -707,18 +710,16 @@ auto lookupValueForHover(lesma::Compound* ast, lesma::SymbolTable* root,
   // symbol. Use the symbol the typechecker resolved for this exact overload (getResolvedSymbol).
   InnermostFunc const sigFunc = findFuncWithCursorInSignature(ast, targetOffset, srcMgr, bufferId);
   if (sigFunc.func != nullptr) {
-    if (lesma::Value* value =
-            lookupNameInCallableContext(lesma::makeFuncLikeDeclView(sigFunc.func), root, name,
-                                        isTypePosition)) {
+    if (lesma::Value* value = lookupNameInCallableContext(lesma::makeFuncLikeDeclView(sigFunc.func),
+                                                          root, name, isTypePosition)) {
       return value;
     }
   }
 
   if (auto const* sigExtern =
           findExternFuncWithCursorInSignature(ast, targetOffset, srcMgr, bufferId)) {
-    if (lesma::Value* value =
-            lookupNameInCallableContext(lesma::makeFuncLikeDeclView(sigExtern), root, name,
-                                        isTypePosition)) {
+    if (lesma::Value* value = lookupNameInCallableContext(lesma::makeFuncLikeDeclView(sigExtern),
+                                                          root, name, isTypePosition)) {
       return value;
     }
   }
@@ -726,9 +727,8 @@ auto lookupValueForHover(lesma::Compound* ast, lesma::SymbolTable* root,
   // Cursor in a function body: use the innermost function's resolved symbol (correct overload).
   InnermostFunc const inner = findInnermostFuncContaining(ast, targetOffset, srcMgr, bufferId);
   if (inner.func != nullptr) {
-    if (lesma::Value* value =
-            lookupNameInCallableContext(lesma::makeFuncLikeDeclView(inner.func), root, name,
-                                        isTypePosition)) {
+    if (lesma::Value* value = lookupNameInCallableContext(lesma::makeFuncLikeDeclView(inner.func),
+                                                          root, name, isTypePosition)) {
       return value;
     }
   }
@@ -779,7 +779,8 @@ auto makeCursorIdentifierFromSpan(const std::string& name, llvm::SMRange span,
 }
 
 auto findIndexedSymbolOccurrenceAtCursor(const AnalysisView& analysis, unsigned line,
-                                         unsigned character) -> const lesma::IndexedSymbolOccurrence* {
+                                         unsigned character)
+    -> const lesma::IndexedSymbolOccurrence* {
   if (!isUsableAnalysis(analysis) || analysis.index == nullptr) {
     return nullptr;
   }
@@ -796,15 +797,18 @@ auto findIndexedSymbolOccurrenceAtCursor(const AnalysisView& analysis, unsigned 
     if (!occurrence.span.isValid()) {
       continue;
     }
-    unsigned const start = getOffsetFromSMLoc(analysis.sourceMgr, analysis.bufferId, occurrence.span.Start);
-    unsigned const end = getOffsetFromSMLoc(analysis.sourceMgr, analysis.bufferId, occurrence.span.End);
+    unsigned const start =
+        getOffsetFromSMLoc(analysis.sourceMgr, analysis.bufferId, occurrence.span.Start);
+    unsigned const end =
+        getOffsetFromSMLoc(analysis.sourceMgr, analysis.bufferId, occurrence.span.End);
     bool const contains = targetOffset >= start && targetOffset < end;
     bool const justAfter = targetOffset == end;
     if (!contains && !justAfter) {
       continue;
     }
     unsigned const len = end > start ? end - start : 0U;
-    if (best == nullptr || (contains && !bestContains) || (contains == bestContains && len < bestLen)) {
+    if (best == nullptr || (contains && !bestContains) ||
+        (contains == bestContains && len < bestLen)) {
       best = &occurrence;
       bestLen = len;
       bestContains = contains;
@@ -1098,9 +1102,9 @@ auto resolveExpressionTypeAtOffset(const lesma::Expression* expr, lesma::Compoun
   return nullptr;
 }
 
-auto findActiveCallInExpr(const lesma::Expression* expr, llvm::SourceMgr* srcMgr,
-                          unsigned bufferId, unsigned targetOffset,
-                          const lesma::Expression* receiver, ActiveCallSite& best) -> void {
+auto findActiveCallInExpr(const lesma::Expression* expr, llvm::SourceMgr* srcMgr, unsigned bufferId,
+                          unsigned targetOffset, const lesma::Expression* receiver,
+                          ActiveCallSite& best) -> void {
   if (expr == nullptr) {
     return;
   }
@@ -1153,9 +1157,8 @@ auto findActiveCallInExpr(const lesma::Expression* expr, llvm::SourceMgr* srcMgr
   }
 }
 
-auto findActiveCallInStmt(const lesma::Statement* stmt, llvm::SourceMgr* srcMgr,
-                          unsigned bufferId, unsigned targetOffset, ActiveCallSite& best)
-    -> void {
+auto findActiveCallInStmt(const lesma::Statement* stmt, llvm::SourceMgr* srcMgr, unsigned bufferId,
+                          unsigned targetOffset, ActiveCallSite& best) -> void {
   if (stmt == nullptr) {
     return;
   }
@@ -1817,9 +1820,9 @@ auto collectSemanticTokens(AnalysisResult& analysisResult, unsigned bufferId)
       continue;
     }
     ::lsp::Range const range = smRangeToLspRange(srcMgr, bufferId, occurrence.span);
-    CursorIdentifier const id = makeCursorIdentifierFromSpan(
-        occurrence.name, occurrence.span, srcMgr, bufferId, occurrence.isTypePosition,
-        occurrence.dotBase);
+    CursorIdentifier const id =
+        makeCursorIdentifierFromSpan(occurrence.name, occurrence.span, srcMgr, bufferId,
+                                     occurrence.isTypePosition, occurrence.dotBase);
     if (std::optional<ResolvedSymbol> resolved = resolveCanonicalSymbolAtCursor(
             analysisResult, range.start.line, range.start.character, id)) {
       appendRawTokenFromSpan(
@@ -1839,25 +1842,24 @@ auto collectSemanticTokens(AnalysisResult& analysisResult, unsigned bufferId)
     }
   }
 
-  std::ranges::sort(rawTokens, [](const RawSemanticToken& lhs,
-                                  const RawSemanticToken& rhs) -> bool {
-    if (lhs.line != rhs.line) {
-      return lhs.line < rhs.line;
-    }
-    if (lhs.startChar != rhs.startChar) {
-      return lhs.startChar < rhs.startChar;
-    }
-    if (lhs.length != rhs.length) {
-      return lhs.length < rhs.length;
-    }
-    if (lhs.typeIndex != rhs.typeIndex) {
-      return lhs.typeIndex < rhs.typeIndex;
-    }
-    return lhs.modifiers < rhs.modifiers;
-  });
+  std::ranges::sort(rawTokens,
+                    [](const RawSemanticToken& lhs, const RawSemanticToken& rhs) -> bool {
+                      if (lhs.line != rhs.line) {
+                        return lhs.line < rhs.line;
+                      }
+                      if (lhs.startChar != rhs.startChar) {
+                        return lhs.startChar < rhs.startChar;
+                      }
+                      if (lhs.length != rhs.length) {
+                        return lhs.length < rhs.length;
+                      }
+                      if (lhs.typeIndex != rhs.typeIndex) {
+                        return lhs.typeIndex < rhs.typeIndex;
+                      }
+                      return lhs.modifiers < rhs.modifiers;
+                    });
   rawTokens.erase(std::unique(rawTokens.begin(), rawTokens.end(),
-                              [](const RawSemanticToken& lhs,
-                                 const RawSemanticToken& rhs) -> bool {
+                              [](const RawSemanticToken& lhs, const RawSemanticToken& rhs) -> bool {
                                 return lhs.line == rhs.line && lhs.startChar == rhs.startChar &&
                                        lhs.length == rhs.length && lhs.typeIndex == rhs.typeIndex &&
                                        lhs.modifiers == rhs.modifiers;
@@ -1936,8 +1938,8 @@ auto collectReferences(AnalysisResult& result, unsigned line, unsigned character
         std::optional<SymbolIdentity> occurrenceIdentity;
         if (occurrence.declaration.has_value() &&
             declarationBelongsToAnalysis(analysis, *occurrence.declaration)) {
-          occurrenceIdentity = symbolIdentityForIndexedDeclaration(result, *occurrence.declaration,
-                                                                   occurrence.name);
+          occurrenceIdentity =
+              symbolIdentityForIndexedDeclaration(result, *occurrence.declaration, occurrence.name);
         }
         if (!occurrenceIdentity) {
           std::optional<ResolvedSymbol> resolved = resolveCanonicalSymbolAtCursor(
@@ -2272,9 +2274,9 @@ auto main() -> int {
               .legend =
                   ::lsp::SemanticTokensLegend{
                       .tokenTypes =
-                          ::lsp::Array<::lsp::String>{"namespace", "class", "enum", "enumMember",
-                                                      "type", "typeParameter", "function", "method",
-                                                      "parameter", "variable", "property"},
+                          ::lsp::Array<::lsp::String>{
+                              "namespace", "class", "enum", "enumMember", "type", "typeParameter",
+                              "function", "method", "parameter", "variable", "property"},
                       .tokenModifiers =
                           ::lsp::Array<::lsp::String>{"declaration", "defaultLibrary"},
                   },
@@ -2359,13 +2361,15 @@ auto main() -> int {
                 }
                 unsigned line = params.position.line;
                 unsigned character = params.position.character;
-                std::optional<CursorIdentifier> id = findIdentifierAtCursor(analysis, line, character);
+                std::optional<CursorIdentifier> id =
+                    findIdentifierAtCursor(analysis, line, character);
                 if (!id) {
                   return {};
                 }
                 std::optional<ResolvedSymbol> resolved =
                     resolveCanonicalSymbolAtCursor(result, line, character, *id);
-                if (resolved && resolved->value != nullptr && resolved->value->getType() != nullptr) {
+                if (resolved && resolved->value != nullptr &&
+                    resolved->value->getType() != nullptr) {
                   std::string hoverText =
                       formatHoverContent(resolved->value, resolved->owner.rootScope);
                   ::lsp::Hover hover;
@@ -2404,7 +2408,8 @@ auto main() -> int {
                         (sigFunc.func != nullptr &&
                          containsGenericParam(sigFunc.func->getGenericParams(), id->name)) ||
                         (sigFunc.enclosingClass != nullptr &&
-                         containsGenericParam(sigFunc.enclosingClass->getGenericParams(), id->name)) ||
+                         containsGenericParam(sigFunc.enclosingClass->getGenericParams(),
+                                              id->name)) ||
                         (inner.func != nullptr &&
                          containsGenericParam(inner.func->getGenericParams(), id->name)) ||
                         (inner.enclosingClass != nullptr &&
@@ -2507,7 +2512,7 @@ auto main() -> int {
               params.textDocument.uri, docStore, analysisCache,
               [&](AnalysisResult& result) -> ::lsp::TextDocument_DefinitionResult {
                 auto loc = tryResolveDefinitionLocation(result, params.position.line,
-                                                       params.position.character);
+                                                        params.position.character);
                 if (!loc) {
                   return {};
                 }
