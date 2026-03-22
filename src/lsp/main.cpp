@@ -1819,6 +1819,10 @@ auto collectSemanticTokens(AnalysisResult& analysisResult, unsigned bufferId)
     if (!occurrence.span.isValid()) {
       continue;
     }
+    if (!occurrence.isTypePosition && !occurrence.isMemberAccess && !occurrence.dotBase.has_value() &&
+        occurrence.name == "self") {
+      continue;
+    }
     ::lsp::Range const range = smRangeToLspRange(srcMgr, bufferId, occurrence.span);
     CursorIdentifier const id =
         makeCursorIdentifierFromSpan(occurrence.name, occurrence.span, srcMgr, bufferId,
