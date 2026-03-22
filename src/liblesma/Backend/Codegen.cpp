@@ -5,7 +5,6 @@
 #include <filesystem>
 #include <memory>
 #include <optional>
-#include <regex>
 #include <string>
 #include <system_error>
 #include <unordered_set>
@@ -349,6 +348,23 @@ auto Codegen::typecheckModule(const Compound* ast, const std::string& modulePath
   return {typechecker.takeRootScope(), typechecker.takeTypeCache()};
 }
 
+auto Codegen::isImported(const std::vector<ImportedNameBinding>& importedNames,
+                         const std::string& importName) const -> bool {
+  return std::ranges::any_of(importedNames, [&importName](const ImportedNameBinding& binding) {
+    return binding.name == importName;
+  });
+}
+
+auto Codegen::getImportedLocalName(const std::vector<ImportedNameBinding>& importedNames,
+                                   const std::string& importName) const -> std::string {
+  for (const ImportedNameBinding& binding : importedNames) {
+    if (binding.name == importName) {
+      return binding.alias.empty() ? importName : binding.alias;
+    }
+  }
+  return "";
+}
+
 auto Codegen::insertImportAlias(const std::string& moduleAlias, bool importToScope) -> void {
   if (importToScope) {
     return;
@@ -365,25 +381,17 @@ auto Codegen::insertImportAlias(const std::string& moduleAlias, bool importToSco
 auto Codegen::exposeImportedSymbols(llvm::SMRange /*span*/, SymbolTable* importedScope,
                                     bool importAll, bool importToScope,
                                     const std::vector<ImportedNameBinding>& importedNames) -> void {
-  auto findImportedAlias = [&importedNames](const std::string& import) -> std::string {
-    for (const ImportedNameBinding& binding : importedNames) {
-      if (binding.name == import) {
-        return binding.alias;
-      }
-    }
-    return "";
-  };
-
   for (auto* sym : importedScope->getSymbols()) {
-    auto impAlias = findImportedAlias(sym->getName());
+    const bool importedByName = isImported(importedNames, sym->getName());
+    const std::string importedLocalName = getImportedLocalName(importedNames, sym->getName());
     const bool exposeClassForModuleImport =
         !importToScope && sym->getType()->is(BaseType::TY_CLASS);
     if (sym->getType()->isOneOf({BaseType::TY_ENUM, BaseType::TY_CLASS}) && sym->isExported() &&
-        (importAll || !impAlias.empty() || exposeClassForModuleImport)) {
+        (importAll || importedByName || exposeClassForModuleImport)) {
       llvm::StructType* structType =
           StructType::getTypeByName(theModule->getContext(), sym->getName());
-      auto structSymbol =
-          std::make_unique<Value>(impAlias.empty() ? sym->getName() : impAlias, sym->getType());
+      const std::string localName = importedLocalName.empty() ? sym->getName() : importedLocalName;
+      auto structSymbol = std::make_unique<Value>(localName, sym->getType());
       structSymbol->setCategory(ValueCategory::TYPE_SYMBOL);
       structSymbol->getType()->setLlvmType(structType);
       structSymbol->setGenericClassTemplate(sym->getGenericClassTemplate());
@@ -408,7 +416,6 @@ auto Codegen::exposeImportedSymbols(llvm::SMRange /*span*/, SymbolTable* importe
     }
 
     Value* funcSymbol = importedScope->lookupFunction(name, paramTypes);
-    impAlias = findImportedAlias(name);
     const bool isMethodSym = MangleUtils::isMethod(sym->getMangledName());
     bool methodClassImported = true;
     if (isMethodSym && !importAll && importToScope) {
@@ -420,17 +427,16 @@ auto Codegen::exposeImportedSymbols(llvm::SMRange /*span*/, SymbolTable* importe
         if (arrow != std::string::npos) {
           classPart = classPart.substr(arrow + 2);
         }
-        methodClassImported = !findImportedAlias(classPart).empty();
+        methodClassImported = isImported(importedNames, classPart);
       }
     }
     if (funcSymbol == nullptr || !funcSymbol->isExported() ||
-        (!importAll && impAlias.empty() &&
+        (!importAll && !importedByName &&
          (!isMethodSym || (importToScope && !methodClassImported)))) {
       continue;
     }
 
-    const std::string localName =
-        impAlias.empty() ? name : std::regex_replace(name, std::regex(name), impAlias);
+    const std::string localName = importedLocalName.empty() ? name : importedLocalName;
     Value* localSymbol = scope->lookupFunction(localName, paramTypes);
     const bool reuseExistingLocal =
         localSymbol != nullptr && localSymbol->getLlvmValue() == nullptr;

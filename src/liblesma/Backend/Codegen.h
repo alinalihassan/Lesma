@@ -127,10 +127,14 @@ protected:
       -> std::vector<std::string>;
   auto typecheckModule(const Compound* ast, const std::string& modulePath)
       -> std::pair<std::unique_ptr<SymbolTable>, std::vector<std::unique_ptr<lesma::Type>>>;
+  [[nodiscard]] auto isImported(const std::vector<ImportedNameBinding>& importedNames,
+                                const std::string& importName) const -> bool;
+  [[nodiscard]] auto getImportedLocalName(const std::vector<ImportedNameBinding>& importedNames,
+                                          const std::string& importName) const -> std::string;
   auto insertImportAlias(const std::string& moduleAlias, bool importToScope) -> void;
   auto exposeImportedSymbols(llvm::SMRange span, SymbolTable* importedScope, bool importAll,
-                             bool importToScope, const std::vector<ImportedNameBinding>& importedNames)
-      -> void;
+                             bool importToScope,
+                             const std::vector<ImportedNameBinding>& importedNames) -> void;
 
   auto visit(const Statement* node) -> void override;
   auto visit(const Compound* node) -> void override;
