@@ -415,7 +415,9 @@ var status: Status = Status.READY
 )";
 
   AnalysisResult const result = analyzeSource(source);
-  ASSERT_FALSE(result.hasErrors());
+  ASSERT_FALSE(result.hasErrors())
+      << (result.diagnostics.empty() ? std::string("unknown analysis error")
+                                     : result.diagnostics.front().message);
 
   bool sawHolderPropertyAccess = false;
   bool sawSelfPropertyAccess = false;
@@ -494,6 +496,42 @@ var status: Status = Status.READY
   EXPECT_TRUE(sawReadyUsageDeclaration);
   EXPECT_TRUE(sawEnumDeclaration);
   EXPECT_TRUE(sawEnumUsageDeclaration);
+}
+
+TEST(AnalysisIndexTests, NestedMemberAccessPreservesOuterReceiverName) {
+  constexpr auto source = R"(class Payload
+    var value: int
+
+    def new(value: int)
+        self.value = value
+
+class Holder
+    var payload: Payload
+
+    def new(value: int)
+        self.payload = Payload(value)
+
+var holder = Holder(101)
+var nestedValue = holder.payload.value
+)";
+
+  AnalysisResult const result = analyzeSource(source);
+  ASSERT_FALSE(result.hasErrors())
+      << (result.diagnostics.empty() ? std::string("unknown analysis error")
+                                     : result.diagnostics.front().message);
+
+  bool sawNestedValueAccess = false;
+  for (const IndexedSymbolOccurrence& occurrence : result.index.symbolOccurrences) {
+    if (occurrence.name != "value" || !occurrence.isMemberAccess ||
+        occurrence.fallbackTokenKind != IndexedTokenKind::Property) {
+      continue;
+    }
+    if (occurrence.dotBase == std::optional<std::string>("holder")) {
+      sawNestedValueAccess = true;
+    }
+  }
+
+  EXPECT_TRUE(sawNestedValueAccess);
 }
 
 TEST(AnalysisIndexTests, ImportedModulesAreIndexedDuringTypecheck) {
