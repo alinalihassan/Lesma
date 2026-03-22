@@ -285,7 +285,11 @@ auto lookupImportedModuleSymbol(const AnalysisResult& result, const std::string&
       moduleIt->second->rootScope == nullptr) {
     return nullptr;
   }
-  return moduleIt->second->rootScope->lookup(symbolName);
+  Value* value = moduleIt->second->rootScope->lookup(symbolName);
+  if (value == nullptr || !value->isExported()) {
+    return nullptr;
+  }
+  return value;
 }
 
 auto resolveMemberFieldType(Type* baseType, const std::string& name) -> Type* {
@@ -344,7 +348,7 @@ void appendModuleMembersForAlias(const AnalysisResult& result, const std::string
   }
   SymbolTable* moduleScope = moduleIt->second->rootScope.get();
   for (Value* value : moduleScope->getSymbols()) {
-    if (value == nullptr) {
+    if (value == nullptr || !value->isExported()) {
       continue;
     }
     addCandidate(out, seen,

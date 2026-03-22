@@ -494,7 +494,9 @@ auto Typechecker::resolveType(const TypeExpr* node) -> Type* {
   if (node->getType() == TokenType::CUSTOM_TYPE) {
     auto genericIt = currentGenericTypes.find(node->getName());
     if (genericIt != currentGenericTypes.end()) {
-      node->setResolvedSymbol(scope->lookup(node->getName()));
+      if (Value* genericSymbol = scope->lookup(node->getName())) {
+        node->setResolvedSymbol(genericSymbol);
+      }
       return genericIt->second;
     }
     Type* typ = scope->lookupType(node->getName());
