@@ -4,10 +4,10 @@
 - [x] Migrate to LLVM 16 with custom Value and Type classes
 - [x] Fix multiple imports not working (import each file once)
 - [x] Add default values in function declarations
-- [ ] Add operator overloading
+- [x] Add operator overloading
 - [ ] Add global variables (like 'export let pi = 3.14')
-- [ ] Add generics
-- [ ] Add lists
+- [x] Add generics
+- [x] Add lists
 - [ ] Add optional types
 - [ ] Add optional parameters in function declarations
 - [ ] Add tuples
