@@ -64,6 +64,9 @@ auto getTypeMangledName(llvm::SMRange span, Type* type) -> std::string {
     }
     throw CodegenError(span, "Class/Enum type does not have LLVM struct type");
   }
+  if (type->is(BaseType::TY_TRAIT_EXISTENTIAL)) {
+    return "(exist_" + type->getDisplayName() + ")";
+  }
 
   throw CodegenError(span, "Unknown type found during mangling");
 }

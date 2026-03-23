@@ -62,6 +62,8 @@ auto indexedTokenKindFromDeclarationKind(ValueDeclarationKind declarationKind)
     return IndexedTokenKind::EnumMember;
   case ValueDeclarationKind::TYPE:
     return IndexedTokenKind::Type;
+  case ValueDeclarationKind::TRAIT:
+    return IndexedTokenKind::Type;
   case ValueDeclarationKind::TYPE_PARAMETER:
     return IndexedTokenKind::TypeParameter;
   case ValueDeclarationKind::FUNCTION:
@@ -418,6 +420,15 @@ auto collectIndexFromStmt(const Statement* stmt, AnalysisIndex& index, bool inCl
   }
   if (auto const* ext = dynamic_cast<const ExternFuncDecl*>(stmt)) {
     collectIndexFromFuncLike(ext, index, false);
+    return;
+  }
+  if (auto const* traitNode = dynamic_cast<const TraitDecl*>(stmt)) {
+    appendIndexedOccurrence(index, traitNode->getIdentifier(), std::nullopt, traitNode->getNameSpan(),
+                            true, false, analysis_index_modifier::DECLARATION, IndexedTokenKind::Type,
+                            traitNode->getResolvedSymbol());
+    for (FuncDecl* req : traitNode->getRequirements()) {
+      collectIndexFromFuncLike(req, index, false);
+    }
     return;
   }
   if (auto const* klass = dynamic_cast<const Class*>(stmt)) {

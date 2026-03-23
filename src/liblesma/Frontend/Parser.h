@@ -82,6 +82,9 @@ private:
   auto parseExport() -> std::unique_ptr<Statement>;
   auto parseImport() -> std::unique_ptr<Statement>;
   auto parseClass() -> std::unique_ptr<Statement>;
+  auto parseTrait() -> std::unique_ptr<Statement>;
+  auto parseGenericParamList() -> std::vector<GenericParamDecl>;
+  auto parseTraitMethodDeclaration() -> std::unique_ptr<FuncDecl>;
   auto parseEnum() -> std::unique_ptr<Statement>;
   auto parseStatement(bool isTopLevel) -> std::unique_ptr<Statement>;
   auto parseIf() -> std::unique_ptr<Statement>;

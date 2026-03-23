@@ -104,6 +104,26 @@ auto matchGenericParameter(Type* formalTy, Type* argTy,
   if (formalTy == nullptr || argTy == nullptr) {
     return formalTy == argTy;
   }
+  if (formalTy->is(BaseType::TY_TRAIT_EXISTENTIAL)) {
+    const std::string& want = formalTy->getDisplayName();
+    Type* cls = argTy;
+    if (argTy->is(BaseType::TY_PTR) && argTy->getElementType() != nullptr &&
+        argTy->getElementType()->is(BaseType::TY_CLASS)) {
+      cls = argTy->getElementType();
+    }
+    if (cls->is(BaseType::TY_CLASS)) {
+      for (const auto& n : cls->getImplTraitNames()) {
+        if (n == want) {
+          return true;
+        }
+      }
+      return false;
+    }
+    if (argTy->is(BaseType::TY_TRAIT_EXISTENTIAL)) {
+      return formalTy->getDisplayName() == argTy->getDisplayName();
+    }
+    return false;
+  }
   if (formalTy->is(BaseType::TY_GENERIC)) {
     std::string const& genericName = formalTy->getGenericName();
     auto bindingIt = genericBindings.find(genericName);

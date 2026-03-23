@@ -34,6 +34,7 @@ enum class ValueDeclarationKind : std::uint8_t {
   TYPE,
   TYPE_PARAMETER,
   FUNCTION,
+  TRAIT,
   METHOD,
   PARAMETER,
   VARIABLE,

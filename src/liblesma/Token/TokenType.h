@@ -104,6 +104,8 @@ enum class TokenType : std::uint8_t {
   IN,
   IMPORT,
   FROM,
+  TRAIT,
+  IMPL,
 
   // Special tokens
   EOF_TOKEN,

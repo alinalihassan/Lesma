@@ -6,6 +6,7 @@ class Compound;
 class Import;
 class Enum;
 class Class;
+class TraitDecl;
 class VarDecl;
 class If;
 class While;
@@ -44,6 +45,7 @@ public:
   virtual auto visit(const Import* node) -> void = 0;
   virtual auto visit(const Enum* node) -> void = 0;
   virtual auto visit(const Class* node) -> void = 0;
+  virtual auto visit(const TraitDecl* node) -> void = 0;
   virtual auto visit(const VarDecl* node) -> void = 0;
   virtual auto visit(const If* node) -> void = 0;
   virtual auto visit(const While* node) -> void = 0;

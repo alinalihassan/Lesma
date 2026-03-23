@@ -10,6 +10,10 @@
 #include <utility>
 #include <vector>
 
+namespace llvm {
+class GlobalVariable;
+} // namespace llvm
+
 #include <llvm/ExecutionEngine/Orc/LLJIT.h>
 #include <llvm/ExecutionEngine/Orc/ThreadSafeModule.h>
 #include <llvm/IR/BasicBlock.h>
@@ -35,6 +39,9 @@ using namespace llvm::orc;
 
 namespace lesma {
 using MainFnTy = int();
+
+class TraitDecl;
+class FuncDecl;
 
 class Codegen final : public ASTVisitor {
   std::shared_ptr<ThreadSafeContext> theContext;
@@ -78,6 +85,10 @@ class Codegen final : public ASTVisitor {
   std::unordered_map<lesma::Value*, std::unordered_map<std::string, lesma::Type*>>
       specializationEnvs;
   std::unordered_map<lesma::Type*, std::unordered_map<std::string, lesma::Type*>> specializedClassTypeEnvs;
+  std::unordered_map<std::string, std::vector<std::string>> traitRequirementMethodOrder;
+  std::unordered_map<std::string, const TraitDecl*> traitDeclByName;
+  std::unordered_map<std::string, llvm::GlobalVariable*> witnessGlobalCache;
+  std::unordered_map<std::string, llvm::Function*> traitThunkCache;
   // deque so push_back never invalidates pointers to existing elements (used in
   // prototypes)
   std::deque<std::unique_ptr<lesma::Value>> methodSelfSymbols;
@@ -148,6 +159,7 @@ protected:
   auto visit(const Import* node) -> void override;
   auto visit(const Enum* node) -> void override;
   auto visit(const Class* node) -> void override;
+  auto visit(const TraitDecl* node) -> void override;
   auto visit(const FuncDecl* node) -> void override;
   auto visit(const ExternFuncDecl* node) -> void override;
   auto visit(const Assignment* node) -> void override;
@@ -251,6 +263,20 @@ protected:
 
   /** Ensure \p type has an LLVM type (fill in when from typechecker). */
   auto getOrCreateLlvmType(lesma::Type* type) -> llvm::Type*;
+
+  auto collectTraitMetadataFromAst() -> void;
+  auto emitErasedThunkForTraitMethod(lesma::Type* classType, const std::string& traitName,
+                                     const FuncDecl* req) -> llvm::Function*;
+  auto getOrEmitWitnessTable(lesma::Type* classType, const std::string& traitName)
+      -> llvm::GlobalVariable*;
+  auto emitBoxClassToExistential(lesma::Type* existentialType, lesma::Type* classPtrLesmaType,
+                                 llvm::Value* classPtrVal) -> llvm::Value*;
+  auto callExistentialMethod(llvm::SMRange span, lesma::Value* receiver, const std::string& methodName,
+                             const std::vector<lesma::Value*>& args,
+                             const std::vector<lesma::Type*>& explicitTypeArgs)
+      -> std::unique_ptr<lesma::Value>;
+  [[nodiscard]] auto findTraitRequirement(const TraitDecl* trait, const std::string& methodName) const
+      -> const FuncDecl*;
 
   /** Populate \p env by structurally matching declared (TypeExpr) vs actual
    * (lesma::Type), binding generic names from \p genericNameSet. */

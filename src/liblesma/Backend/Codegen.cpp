@@ -1,6 +1,7 @@
 #include "Codegen.h"
 
 #include <algorithm>
+#include <cctype>
 #include <cstddef>
 #include <filesystem>
 #include <memory>
@@ -21,9 +22,11 @@
 #include <llvm/ExecutionEngine/Orc/LLJIT.h>
 #include <llvm/ExecutionEngine/Orc/ThreadSafeModule.h>
 #include <llvm/IR/BasicBlock.h>
+#include <llvm/IR/Constants.h>
 #include <llvm/IR/DerivedTypes.h>
 #include <llvm/IR/Function.h>
 #include <llvm/IR/GlobalValue.h>
+#include <llvm/IR/GlobalVariable.h>
 #include <llvm/IR/IRBuilder.h>
 #include <llvm/IR/LLVMContext.h>
 #include <llvm/IR/LegacyPassManager.h>
@@ -766,6 +769,7 @@ auto Codegen::executeJit() -> int {
 }
 
 auto Codegen::run() -> void {
+  collectTraitMetadataFromAst();
   // Load implicit stdlib modules once so every module has base functions and
   // list helpers. Done here (not in constructor) to avoid re-entrancy when
   // creating Codegens for imported modules.
@@ -928,6 +932,19 @@ auto Codegen::visit(const TypeExpr* node) -> void {
     auto* typ = scope->lookupType(lookupName);
     auto* sym = scope->lookupStruct(lookupName);
     if (typ == nullptr && sym == nullptr) {
+      throw CodegenError(node->getSpan(), "Type not found: {}", node->getName());
+    }
+    if (typ != nullptr && typ->is(BaseType::TY_TRAIT_EXISTENTIAL)) {
+      getOrCreateLlvmType(typ);
+      Value* traitSym = scope->lookup(lookupName);
+      if (traitSym != nullptr) {
+        result = std::make_unique<Value>(*traitSym);
+      } else {
+        result = std::make_unique<Value>(typ);
+      }
+      return;
+    }
+    if (sym == nullptr) {
       throw CodegenError(node->getSpan(), "Type not found: {}", node->getName());
     }
     if (!explicitTypeArgs.empty()) {
@@ -1402,6 +1419,12 @@ auto Codegen::getOrCreateLlvmType(lesma::Type* type) -> llvm::Type* {
     }
     type->setLlvmType(builder->getPtrTy());
     break;
+  case BaseType::TY_TRAIT_EXISTENTIAL: {
+    llvm::Type* st =
+        llvm::StructType::get(theModule->getContext(), {builder->getPtrTy(), builder->getPtrTy()});
+    type->setLlvmType(st);
+    break;
+  }
   case BaseType::TY_CLASS:
   case BaseType::TY_ENUM: {
     // Create opaque struct first to break recursion (e.g. class with field
@@ -1423,6 +1446,244 @@ auto Codegen::getOrCreateLlvmType(lesma::Type* type) -> llvm::Type* {
     break;
   }
   return type->getLlvmType();
+}
+
+auto Codegen::collectTraitMetadataFromAst() -> void {
+  Compound* ast = parser->getAst();
+  if (ast == nullptr) {
+    return;
+  }
+  for (Statement* stmt : ast->getChildren()) {
+    if (auto* tr = dynamic_cast<TraitDecl*>(stmt)) {
+      std::vector<std::string> order;
+      for (FuncDecl* req : tr->getRequirements()) {
+        order.push_back(req->getName());
+      }
+      traitRequirementMethodOrder[tr->getIdentifier()] = std::move(order);
+      traitDeclByName[tr->getIdentifier()] = tr;
+    }
+  }
+}
+
+auto Codegen::findTraitRequirement(const TraitDecl* trait, const std::string& methodName) const
+    -> const FuncDecl* {
+  if (trait == nullptr) {
+    return nullptr;
+  }
+  for (FuncDecl* req : trait->getRequirements()) {
+    if (req->getName() == methodName) {
+      return req;
+    }
+  }
+  return nullptr;
+}
+
+auto Codegen::emitErasedThunkForTraitMethod(lesma::Type* classType, const std::string& traitName,
+                                            const FuncDecl* req) -> llvm::Function* {
+  std::string cacheKey = traitName + "|" + classType->getDisplayName() + "|" + req->getName();
+  if (auto it = traitThunkCache.find(cacheKey); it != traitThunkCache.end()) {
+    return it->second;
+  }
+
+  lesma::Type* selfPtr = cacheType(std::make_unique<Type>(BaseType::TY_PTR, nullptr, classType));
+  std::vector<lesma::Type*> lookupArgs = {selfPtr};
+  for (Parameter* p : req->getParameters()) {
+    if (p->type != nullptr) {
+      p->type->accept(*this);
+      lesma::Type* pt = result->getType();
+      if (pt->is(BaseType::TY_CLASS)) {
+        pt = cacheType(std::make_unique<Type>(BaseType::TY_PTR, nullptr, pt));
+      }
+      lookupArgs.push_back(pt);
+    }
+  }
+  Value* methodSym = scope->lookupFunction(req->getName(), lookupArgs);
+  if (methodSym == nullptr) {
+    for (const auto& importedScope : *importedScopes) {
+      if (importedScope == nullptr) {
+        continue;
+      }
+      methodSym = importedScope->lookupFunction(req->getName(), lookupArgs);
+      if (methodSym != nullptr) {
+        break;
+      }
+    }
+  }
+  if (methodSym == nullptr || methodSym->getLlvmValue() == nullptr) {
+    throw CodegenError(req->getSpan(), "Trait thunk: method {} not found for class {}", req->getName(),
+                       classType->getDisplayName());
+  }
+  auto* realFn = llvm::cast<llvm::Function>(methodSym->getLlvmValue());
+  llvm::FunctionType* rft = realFn->getFunctionType();
+
+  llvm::SmallVector<llvm::Type*, 8> tparams;
+  tparams.push_back(builder->getPtrTy());
+  for (unsigned i = 1; i < rft->getNumParams(); ++i) {
+    tparams.push_back(rft->getParamType(i));
+  }
+  llvm::FunctionType* tft = llvm::FunctionType::get(rft->getReturnType(), tparams, false);
+
+  std::string thunkName = "lesma.trait.thunk." + cacheKey;
+  for (char& c : thunkName) {
+    if (!(std::isalnum(static_cast<unsigned char>(c)) != 0 || c == '.' || c == '_')) {
+      c = '_';
+    }
+  }
+  llvm::Function* thunk = theModule->getFunction(thunkName);
+  if (thunk == nullptr) {
+    thunk = llvm::Function::Create(tft, llvm::Function::InternalLinkage, thunkName, *theModule);
+    llvm::BasicBlock* bb = llvm::BasicBlock::Create(theModule->getContext(), "entry", thunk);
+    llvm::IRBuilder<> tmpBuilder(bb);
+    llvm::Argument* rawArg = thunk->getArg(0);
+    llvm::Value* castSelf = tmpBuilder.CreateBitCast(rawArg, rft->getParamType(0));
+    llvm::SmallVector<llvm::Value*, 8> callArgs;
+    callArgs.push_back(castSelf);
+    for (unsigned i = 1; i < rft->getNumParams(); ++i) {
+      callArgs.push_back(thunk->getArg(i));
+    }
+    if (rft->getReturnType()->isVoidTy()) {
+      tmpBuilder.CreateCall(rft, realFn, callArgs);
+      tmpBuilder.CreateRetVoid();
+    } else {
+      llvm::Value* r = tmpBuilder.CreateCall(rft, realFn, callArgs);
+      tmpBuilder.CreateRet(r);
+    }
+  }
+  traitThunkCache[cacheKey] = thunk;
+  return thunk;
+}
+
+auto Codegen::getOrEmitWitnessTable(lesma::Type* classType, const std::string& traitName)
+    -> llvm::GlobalVariable* {
+  std::string cacheKey = traitName + "|" + classType->getDisplayName();
+  if (auto it = witnessGlobalCache.find(cacheKey); it != witnessGlobalCache.end()) {
+    return it->second;
+  }
+  const TraitDecl* tr = traitDeclByName[traitName];
+  if (tr == nullptr) {
+    throw CodegenError({}, "Codegen: unknown trait {}", traitName);
+  }
+  auto ordIt = traitRequirementMethodOrder.find(traitName);
+  if (ordIt == traitRequirementMethodOrder.end()) {
+    throw CodegenError({}, "Codegen: trait {} has no requirement order", traitName);
+  }
+  std::vector<llvm::Constant*> constants;
+  constants.reserve(ordIt->second.size());
+  for (const std::string& mn : ordIt->second) {
+    const FuncDecl* req = findTraitRequirement(tr, mn);
+    if (req == nullptr) {
+      throw CodegenError({}, "Codegen: trait {} missing requirement {}", traitName, mn);
+    }
+    llvm::Function* thunk = emitErasedThunkForTraitMethod(classType, traitName, req);
+    constants.push_back(llvm::ConstantExpr::getBitCast(thunk, builder->getPtrTy()));
+  }
+  llvm::ArrayType* at = llvm::ArrayType::get(builder->getPtrTy(), constants.size());
+  llvm::Constant* init = llvm::ConstantArray::get(at, constants);
+  std::string gname = "lesma.witness." + cacheKey;
+  for (char& c : gname) {
+    if (!(std::isalnum(static_cast<unsigned char>(c)) != 0 || c == '.' || c == '_')) {
+      c = '_';
+    }
+  }
+  auto* gv = new llvm::GlobalVariable(*theModule, at, true, llvm::GlobalValue::PrivateLinkage, init,
+                                      gname);
+  witnessGlobalCache[cacheKey] = gv;
+  return gv;
+}
+
+auto Codegen::emitBoxClassToExistential(lesma::Type* existentialType, lesma::Type* classPtrLesmaType,
+                                        llvm::Value* classPtrVal) -> llvm::Value* {
+  lesma::Type* cls = classPtrLesmaType;
+  if (cls->is(BaseType::TY_PTR) && cls->getElementType() != nullptr &&
+      cls->getElementType()->is(BaseType::TY_CLASS)) {
+    cls = cls->getElementType();
+  }
+  if (!cls->is(BaseType::TY_CLASS)) {
+    throw CodegenError({}, "Box to existential requires class pointer");
+  }
+  const std::string traitName = existentialType->getDisplayName();
+  llvm::GlobalVariable* wit = getOrEmitWitnessTable(cls, traitName);
+  getOrCreateLlvmType(existentialType);
+  llvm::StructType* st = llvm::cast<llvm::StructType>(existentialType->getLlvmType());
+  llvm::Value* payload = builder->CreateBitCast(classPtrVal, builder->getPtrTy());
+  llvm::Value* wptr = builder->CreateBitCast(wit, builder->getPtrTy());
+  llvm::Value* u = llvm::UndefValue::get(st);
+  llvm::Value* s0 = builder->CreateInsertValue(u, payload, 0U);
+  return builder->CreateInsertValue(s0, wptr, 1U);
+}
+
+auto Codegen::callExistentialMethod(llvm::SMRange span, lesma::Value* receiver,
+                                    const std::string& methodName,
+                                    const std::vector<lesma::Value*>& args,
+                                    const std::vector<lesma::Type*>& explicitTypeArgs)
+    -> std::unique_ptr<lesma::Value> {
+  (void)explicitTypeArgs;
+  lesma::Type* receiverType = receiver->getType();
+  llvm::Value* fatVal = receiver->getLlvmValue();
+  if (receiverType->is(BaseType::TY_PTR) && receiverType->getElementType() != nullptr &&
+      receiverType->getElementType()->is(BaseType::TY_TRAIT_EXISTENTIAL)) {
+    fatVal = builder->CreateLoad(receiverType->getElementType()->getLlvmType(), fatVal);
+    receiverType = receiverType->getElementType();
+  }
+  if (!receiverType->is(BaseType::TY_TRAIT_EXISTENTIAL)) {
+    throw CodegenError(span, "Expected trait existential receiver for dynamic dispatch");
+  }
+  const std::string& traitName = receiverType->getDisplayName();
+  auto ordIt = traitRequirementMethodOrder.find(traitName);
+  if (ordIt == traitRequirementMethodOrder.end()) {
+    throw CodegenError(span, "Trait {} has no codegen metadata", traitName);
+  }
+  const auto& order = ordIt->second;
+  size_t idx = static_cast<size_t>(-1);
+  for (size_t i = 0; i < order.size(); ++i) {
+    if (order[i] == methodName) {
+      idx = i;
+      break;
+    }
+  }
+  if (idx == static_cast<size_t>(-1)) {
+    throw CodegenError(span, "Method {} not in trait {}", methodName, traitName);
+  }
+  const TraitDecl* tr = traitDeclByName[traitName];
+  const FuncDecl* req = findTraitRequirement(tr, methodName);
+  if (req == nullptr) {
+    throw CodegenError(span, "Trait {} missing requirement {}", traitName, methodName);
+  }
+
+  llvm::Value* payload = builder->CreateExtractValue(fatVal, 0U);
+  llvm::Value* tablePtr = builder->CreateExtractValue(fatVal, 1U);
+  llvm::Type* ptrTy = builder->getPtrTy();
+  llvm::ArrayType* arrTy = llvm::ArrayType::get(ptrTy, order.size());
+  llvm::Value* slot = builder->CreateInBoundsGEP(arrTy, tablePtr, {builder->getInt32(0), builder->getInt32(static_cast<unsigned>(idx))});
+  llvm::Value* fnPtr = builder->CreateLoad(ptrTy, slot);
+
+  llvm::SmallVector<llvm::Type*, 8> tparams;
+  tparams.push_back(ptrTy);
+  for (Parameter* p : req->getParameters()) {
+    if (p->type != nullptr) {
+      p->type->accept(*this);
+      lesma::Type* pt = result->getType();
+      getOrCreateLlvmType(pt);
+      tparams.push_back(pt->getLlvmType());
+    }
+  }
+  req->getReturnType()->accept(*this);
+  lesma::Type* retLesma = result->getType();
+  getOrCreateLlvmType(retLesma);
+  llvm::Type* llvmRet = retLesma->getLlvmType();
+  llvm::FunctionType* callTy = llvm::FunctionType::get(llvmRet, tparams, false);
+  llvm::SmallVector<llvm::Value*, 8> callArgs;
+  callArgs.push_back(payload);
+  for (lesma::Value* a : args) {
+    callArgs.push_back(a->getLlvmValue());
+  }
+  if (llvmRet->isVoidTy()) {
+    builder->CreateCall(callTy, fnPtr, callArgs);
+    return std::make_unique<Value>("", cacheType(std::make_unique<Type>(BaseType::TY_VOID, builder->getVoidTy())),
+                                   nullptr);
+  }
+  llvm::Value* ret = builder->CreateCall(callTy, fnPtr, callArgs);
+  return std::make_unique<Value>("", retLesma, ret);
 }
 
 auto Codegen::bindGenericsFromTypePair(const TypeExpr* declared, lesma::Type* actual,
@@ -2065,6 +2326,9 @@ auto Codegen::visit(const FuncDecl* node) -> void {
     throw CodegenError(node->getSpan(), "Cannot create class method new with return type {}",
                        node->getReturnType()->getName());
   }
+  if (node->getBody() == nullptr) {
+    return;
+  }
 
   std::vector<std::unique_ptr<Field>> fields;
   std::vector<lesma::Type*> paramTypes;
@@ -2475,6 +2739,10 @@ auto Codegen::visit(const ExpressionStatement* node) -> void {
 auto Codegen::visit(const Import* node) -> void {
   compileModule(node->getSpan(), node->getFilePath(), node->isStd(), node->getAlias(),
                 node->getImportAll(), node->getImportScope(), node->getImportedNames());
+}
+
+auto Codegen::visit(const TraitDecl* /*node*/) -> void {
+  // Trait declarations are typechecking-only; witnesses are emitted per impl site when used.
 }
 
 auto Codegen::visit(const Class* node) -> void {
@@ -2947,6 +3215,33 @@ auto Codegen::visit(const DotOp* node) -> void {
     }
     result = callMethodByName(node->getSpan(), leftValue.get(), call->getName(), args, explicitTypeArgs);
     return;
+  }
+
+  if (leftValue != nullptr && leftValue->getType() != nullptr) {
+    lesma::Type* forTrait = leftValue->getType();
+    if (forTrait->is(BaseType::TY_PTR) && forTrait->getElementType() != nullptr) {
+      forTrait = forTrait->getElementType();
+    }
+    if (forTrait->is(BaseType::TY_TRAIT_EXISTENTIAL)) {
+      auto* call = dynamic_cast<FuncCall*>(node->getRight());
+      if (call == nullptr) {
+        throw CodegenError(node->getSpan(), "Expected method call after dot on trait value");
+      }
+      std::vector<std::unique_ptr<lesma::Value>> argStorage;
+      std::vector<lesma::Value*> args;
+      for (auto* arg : call->getArguments()) {
+        arg->accept(*this);
+        argStorage.push_back(std::move(result));
+        args.push_back(argStorage.back().get());
+      }
+      std::vector<lesma::Type*> explicitTypeArgs;
+      for (auto* explicitTypeArg : call->getExplicitTypeArgs()) {
+        explicitTypeArg->accept(*this);
+        explicitTypeArgs.push_back(result->getType());
+      }
+      result = callMethodByName(node->getSpan(), leftValue.get(), call->getName(), args, explicitTypeArgs);
+      return;
+    }
   }
 
   if (leftValue != nullptr && leftValue->getType() != nullptr) {
@@ -3699,6 +3994,26 @@ auto Codegen::callNamedFunction(llvm::SMRange span, const std::string& functionN
     }
   }
 
+  if (symbol != nullptr && symbol->getType() != nullptr && symbol->getType()->is(BaseType::TY_FUNCTION)) {
+    auto ff = symbol->getType()->getFields();
+    for (size_t i = 0; i < localParamsLLVM.size() && i < ff.size(); ++i) {
+      lesma::Type* formal = ff[i]->type;
+      if (formal != nullptr && formal->is(BaseType::TY_TRAIT_EXISTENTIAL)) {
+        lesma::Type* actual = localParamTypes[i];
+        lesma::Type* cls = actual;
+        if (actual->is(BaseType::TY_PTR) && actual->getElementType() != nullptr &&
+            actual->getElementType()->is(BaseType::TY_CLASS)) {
+          cls = actual->getElementType();
+        }
+        if (cls->is(BaseType::TY_CLASS)) {
+          getOrCreateLlvmType(formal);
+          localParamsLLVM[i] = emitBoxClassToExistential(formal, actual, localParamsLLVM[i]);
+          localParamTypes[i] = formal;
+        }
+      }
+    }
+  }
+
   if (!symbol->getType()->isOneOf({BaseType::TY_CLASS, BaseType::TY_FUNCTION})) {
     throw CodegenError(span, "Symbol {} is not a function or constructor.", functionName);
   }
@@ -3870,6 +4185,9 @@ auto Codegen::callMethodByName(llvm::SMRange span, lesma::Value* receiver, const
   lesma::Type* receiverType = receiver->getType();
   if (receiverType->is(BaseType::TY_PTR) && receiverType->getElementType() != nullptr) {
     receiverType = receiverType->getElementType();
+  }
+  if (receiverType->is(BaseType::TY_TRAIT_EXISTENTIAL)) {
+    return callExistentialMethod(span, receiver, methodName, args, explicitTypeArgs);
   }
   if (receiverType->is(BaseType::TY_CLASS)) {
     auto fields = receiverType->getFields();

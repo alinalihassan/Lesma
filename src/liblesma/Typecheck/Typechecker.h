@@ -18,6 +18,8 @@
 
 namespace lesma {
 
+class TraitDecl;
+
 /** Callback to resolve import *: (filepath, isStd, mainFilePath) -> exported
  * names. */
 using GetExportsFn =
@@ -62,6 +64,13 @@ class Typechecker final : public ASTVisitor {
   /** Imported types materialized into this typechecker's cache so they outlive imported scopes. */
   std::unordered_map<Type*, Type*> importedTypeCopies;
   std::vector<Type*> expectedTypes;
+
+  /** Registered traits (name → AST) for impl checks and existential method lookup. */
+  std::unordered_map<std::string, const TraitDecl*> traitRegistry;
+  /** traitName -> methodName -> return type (resolved during visit(TraitDecl)). */
+  std::unordered_map<std::string, std::unordered_map<std::string, Type*>> traitMethodReturnTypes;
+  /** While typechecking a generic function body: generic param name -> trait bound names. */
+  std::unordered_map<std::string, std::vector<std::string>> currentGenericParamTraitBounds;
 
   /** Declared generic param list for a class or function type (resolves to template for specialized
    * classes). */
@@ -124,6 +133,12 @@ class Typechecker final : public ASTVisitor {
   /** Returns true if the block always returns on every path. */
   auto blockAlwaysReturns(const Compound* body) -> bool;
 
+  auto buildMethodFunctionType(FuncDecl* decl, Type* classType) -> Type*;
+  auto checkTraitImplementation(const Class* classNode, Type* classType) -> void;
+  auto verifyGenericTraitBounds(Value* callee, const std::unordered_map<std::string, Type*>& subs,
+                                llvm::SMRange span) -> void;
+  auto classDeclaresTrait(Type* classTy, const std::string& traitName) -> bool;
+
 public:
   /** Typecheck with no import * resolution. */
   explicit Typechecker();
@@ -160,6 +175,7 @@ public:
   auto visit(const Import* node) -> void override;
   auto visit(const Enum* node) -> void override;
   auto visit(const Class* node) -> void override;
+  auto visit(const TraitDecl* node) -> void override;
   auto visit(const FuncDecl* node) -> void override;
   auto visit(const ExternFuncDecl* node) -> void override;
   auto visit(const Assignment* node) -> void override;

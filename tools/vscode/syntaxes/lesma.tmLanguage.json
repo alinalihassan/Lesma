@@ -47,7 +47,7 @@
         },
         {
           "name": "keyword.other.lesma",
-          "match": "\\b(export|class|enum|type|def|extern|operator)\\b"
+          "match": "\\b(export|class|enum|type|def|extern|operator|trait|impl)\\b"
         },
         {
           "name": "keyword.implicit.lesma",
@@ -176,9 +176,9 @@
           "match": "(?=[a-zA-Z0-9_]+(?:<[^>\\n]+>)?\\()[a-zA-Z0-9_]+"
         },
         {
-          "comment": "Class/Enum declaration",
+          "comment": "Class/Enum/Trait declaration",
           "name": "entity.name.type.lesma",
-          "match": "(?<=class\\s|enum\\s)[a-zA-Z0-9_]+"
+          "match": "(?<=class\\s|enum\\s|trait\\s)[a-zA-Z0-9_]+"
         }
       ]
     },

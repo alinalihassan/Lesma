@@ -28,6 +28,8 @@ enum class BaseType : std::uint8_t {
   TY_CLASS,
   TY_ENUM,
   TY_IMPORT,
+  /** Existential trait type (e.g. `Drawable` as a value type): layout { ptr payload, ptr witness }. */
+  TY_TRAIT_EXISTENTIAL,
 };
 
 class Type;
@@ -73,6 +75,10 @@ class Type {
   std::string displayName;
   /** Declared generic parameter names in order (for TY_CLASS and TY_FUNCTION). */
   std::vector<std::string> genericParams;
+  /** Parallel to genericParams: trait intersection bounds per generic parameter (TY_FUNCTION). */
+  std::vector<std::vector<std::string>> genericParamTraitBounds;
+  /** For TY_CLASS: explicit `impl Trait` names from the declaration. */
+  std::vector<std::string> implTraitNames;
   // Owned collection of Fields
   std::vector<std::unique_ptr<Field>> fields;
   llvm::SMRange declarationSpan;
@@ -159,6 +165,19 @@ public:
   auto setDisplayName(std::string name) -> void { displayName = std::move(name); }
   auto setGenericParams(std::vector<std::string> params) -> void {
     genericParams = std::move(params);
+  }
+  [[nodiscard]] auto getGenericParamTraitBounds() const
+      -> const std::vector<std::vector<std::string>>& {
+    return genericParamTraitBounds;
+  }
+  auto setGenericParamTraitBounds(std::vector<std::vector<std::string>> bounds) -> void {
+    genericParamTraitBounds = std::move(bounds);
+  }
+  [[nodiscard]] auto getImplTraitNames() const -> const std::vector<std::string>& {
+    return implTraitNames;
+  }
+  auto setImplTraitNames(std::vector<std::string> names) -> void {
+    implTraitNames = std::move(names);
   }
   auto setDeclarationSpan(llvm::SMRange span) -> void { declarationSpan = span; }
   auto setDeclarationFilePath(std::string path) -> void { declarationFilePath = std::move(path); }
@@ -323,6 +342,8 @@ private:
     }
     case BaseType::TY_GENERIC:
       return genericName == rhs->getGenericName();
+    case BaseType::TY_TRAIT_EXISTENTIAL:
+      return displayName == rhs->getDisplayName() && !displayName.empty();
     case BaseType::TY_CLASS:
     case BaseType::TY_ENUM:
       // Handled above; unreachable but required for switch completeness.
@@ -380,6 +401,9 @@ public:
       break;
     case BaseType::TY_IMPORT:
       result = "Import";
+      break;
+    case BaseType::TY_TRAIT_EXISTENTIAL:
+      result = displayName.empty() ? "trait" : displayName;
       break;
     }
 

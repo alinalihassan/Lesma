@@ -163,6 +163,18 @@ auto Typechecker::resolveMethodReturnType(Type* baseType, const std::string& met
   if (base->is(BaseType::TY_PTR) && base->getElementType() != nullptr) {
     base = base->getElementType();
   }
+  if (base->is(BaseType::TY_TRAIT_EXISTENTIAL)) {
+    const std::string& traitName = base->getDisplayName();
+    auto trIt = traitMethodReturnTypes.find(traitName);
+    if (trIt == traitMethodReturnTypes.end()) {
+      return nullptr;
+    }
+    auto methIt = trIt->second.find(methodName);
+    if (methIt == trIt->second.end()) {
+      return nullptr;
+    }
+    return methIt->second;
+  }
   if (!base->is(BaseType::TY_CLASS) && !base->is(BaseType::TY_ENUM)) {
     return nullptr;
   }
@@ -700,6 +712,7 @@ auto Typechecker::getOrCreateSpecializedClassType(Type* classTemplate,
   specializedTypeEnv[ptr] = env;
   specializedTypeToTemplate[ptr] = classTemplate;
   ptr->setGenericParams(genericParamNames);
+  ptr->setImplTraitNames(classTemplate->getImplTraitNames());
   ptr->setDeclarationSpan(classTemplate->getDeclarationSpan());
   ptr->setDeclarationFilePath(classTemplate->getDeclarationFilePath());
   ptr->setDisplayName(makeSpecializedDisplayName(classTemplate, genericParamNames, env));
@@ -836,6 +849,21 @@ auto Typechecker::isAssignableTo(Type* from, Type* to) -> bool {
             (from->getElementType()->is(BaseType::TY_INT) ||
              from->getElementType()->is(BaseType::TY_VOID)));
   }
+  if (to->is(BaseType::TY_TRAIT_EXISTENTIAL)) {
+    const std::string& want = to->getDisplayName();
+    Type* cls = from;
+    if (from->is(BaseType::TY_PTR) && from->getElementType() != nullptr &&
+        from->getElementType()->is(BaseType::TY_CLASS)) {
+      cls = from->getElementType();
+    }
+    if (cls->is(BaseType::TY_CLASS)) {
+      return classDeclaresTrait(cls, want);
+    }
+    if (from->is(BaseType::TY_TRAIT_EXISTENTIAL)) {
+      return from->getDisplayName() == want;
+    }
+    return false;
+  }
   return false;
 }
 
@@ -935,6 +963,9 @@ auto Typechecker::resolveType(const TypeExpr* node) -> Type* {
                            "Type '{}' not found. If you meant a generic type parameter, add it "
                            "to the generic parameter list (e.g. def foo<T>(x: T) -> T).",
                            node->getName());
+    }
+    if (sym == nullptr) {
+      sym = scope->lookup(lookupName);
     }
     node->setResolvedSymbol(sym);
     Type* resolvedType = sym != nullptr ? sym->getType() : typ;
@@ -1400,6 +1431,7 @@ auto Typechecker::visit(const Class* node) -> void {
   }
 
   classTypePtr->setGenericParams(node->getGenericParams());
+  classTypePtr->setImplTraitNames(node->getImplTraitNames());
   auto* selfPtrType = cacheType(std::make_unique<Type>(BaseType::TY_PTR, nullptr, classTypePtr));
   SymbolTable* savedMethodInsertScope = currentMethodInsertScope;
   for (FuncDecl* func : node->getMethods()) {
@@ -1415,6 +1447,10 @@ auto Typechecker::visit(const Class* node) -> void {
     currentClassType = nullptr;
   }
   currentMethodInsertScope = savedMethodInsertScope;
+
+  if (declarationPass) {
+    checkTraitImplementation(node, classTypePtr);
+  }
 
   scope = outerScope;
   currentGenericTypes = std::move(savedGenerics);
@@ -1473,6 +1509,14 @@ auto Typechecker::visit(const FuncDecl* node) -> void {
   funcType->setVarArgs(node->getVarArgs());
   Type* funcTypePtr = cacheType(std::move(funcType));
   funcTypePtr->setGenericParams(node->getGenericParams());
+  {
+    std::vector<std::vector<std::string>> tb;
+    tb.reserve(node->getGenericParamDecls().size());
+    for (const auto& p : node->getGenericParamDecls()) {
+      tb.push_back(p.traitBounds);
+    }
+    funcTypePtr->setGenericParamTraitBounds(std::move(tb));
+  }
   SymbolTable* insertScope =
       currentMethodInsertScope != nullptr ? currentMethodInsertScope : scope->getParent();
   Value* funcSymbol = insertScope->lookupFunction(node->getName(), paramTypes);
@@ -1532,9 +1576,17 @@ auto Typechecker::visit(const FuncDecl* node) -> void {
     node->setResolvedSymbol(currentFunction);
     scope = currentFunction->getBodyScope();
     inTopLevel = false;
-    node->getBody()->accept(*this);
+    auto savedTraitBounds = currentGenericParamTraitBounds;
+    currentGenericParamTraitBounds.clear();
+    for (const auto& p : node->getGenericParamDecls()) {
+      currentGenericParamTraitBounds[p.name] = p.traitBounds;
+    }
+    if (node->getBody() != nullptr) {
+      node->getBody()->accept(*this);
+    }
+    currentGenericParamTraitBounds = std::move(savedTraitBounds);
     Type* funcReturnType = currentFunction->getType()->getReturnType();
-    if (funcReturnType != nullptr && !funcReturnType->is(BaseType::TY_VOID) &&
+    if (node->getBody() != nullptr && funcReturnType != nullptr && !funcReturnType->is(BaseType::TY_VOID) &&
         !blockAlwaysReturns(node->getBody())) {
       throw TypeCheckError(node->getSpan(), "Non-void function may reach end without returning");
     }
@@ -1593,6 +1645,14 @@ auto Typechecker::visit(const ExternFuncDecl* node) -> void {
   funcType->setVarArgs(node->getVarArgs());
   Type* funcTypePtr = cacheType(std::move(funcType));
   funcTypePtr->setGenericParams(node->getGenericParams());
+  {
+    std::vector<std::vector<std::string>> tb;
+    tb.reserve(node->getGenericParamDecls().size());
+    for (const auto& p : node->getGenericParamDecls()) {
+      tb.push_back(p.traitBounds);
+    }
+    funcTypePtr->setGenericParamTraitBounds(std::move(tb));
+  }
   Value* existingFunc = scope->getParent()->lookupFunction(node->getName(), paramTypes);
   if (existingFunc == nullptr) {
     auto funcSymbol = std::make_unique<Value>(node->getName(), funcTypePtr);
@@ -1984,6 +2044,7 @@ auto Typechecker::visit(const FuncCall* node) -> void {
       result = std::make_unique<Value>(importedScope != nullptr ? materializeImportedType(retType)
                                                                 : retType);
     }
+    verifyGenericTraitBounds(callee, explicitSubst, node->getSpan());
     return;
   }
 
@@ -2007,6 +2068,7 @@ auto Typechecker::visit(const FuncCall* node) -> void {
     result = std::make_unique<Value>(importedScope != nullptr ? materializeImportedType(retType)
                                                               : retType);
   }
+  verifyGenericTraitBounds(callee, localGenericTypes, node->getSpan());
 }
 
 auto Typechecker::visit(const BinaryOp* node) -> void {
@@ -2190,6 +2252,28 @@ auto Typechecker::visit(const DotOp* node) -> void {
   if (base->is(BaseType::TY_PTR) && base->getElementType() != nullptr) {
     base = base->getElementType();
   }
+  if (base->is(BaseType::TY_TRAIT_EXISTENTIAL)) {
+    if (auto* fc = dynamic_cast<FuncCall*>(node->getRight())) {
+      std::vector<Type*> argTypes;
+      for (Expression* arg : fc->getArguments()) {
+        arg->accept(*this);
+        Type* t = result->getType();
+        if (t != nullptr && t->is(BaseType::TY_CLASS)) {
+          t = cacheType(std::make_unique<Type>(BaseType::TY_PTR, nullptr, t));
+        }
+        argTypes.push_back(t);
+      }
+      Type* retType = resolveMethodReturnType(base, fc->getName(), argTypes, node->getSpan());
+      if (retType == nullptr) {
+        throw TypeCheckError(node->getSpan(), "Method '{}' not found on trait '{}'", fc->getName(),
+                             base->getDisplayName());
+      }
+      fc->setResolvedSymbol(nullptr);
+      result = std::make_unique<Value>(retType);
+      return;
+    }
+    throw TypeCheckError(node->getSpan(), "Expected method call after dot on trait value");
+  }
   if (base->is(BaseType::TY_ARRAY)) {
     if (auto* call = dynamic_cast<FuncCall*>(node->getRight())) {
       if (visitListMethodCall(base, node, call)) {
@@ -2197,6 +2281,30 @@ auto Typechecker::visit(const DotOp* node) -> void {
       }
     }
     throw TypeCheckError(node->getSpan(), "Expected supported list method after dot");
+  }
+  if (base->is(BaseType::TY_GENERIC)) {
+    if (auto* fc = dynamic_cast<FuncCall*>(node->getRight())) {
+      const std::string& gname = base->getGenericName();
+      auto bit = currentGenericParamTraitBounds.find(gname);
+      if (bit != currentGenericParamTraitBounds.end()) {
+        for (const std::string& traitName : bit->second) {
+          auto trIt = traitMethodReturnTypes.find(traitName);
+          if (trIt == traitMethodReturnTypes.end()) {
+            continue;
+          }
+          auto mIt = trIt->second.find(fc->getName());
+          if (mIt != trIt->second.end()) {
+            fc->setResolvedSymbol(nullptr);
+            result = std::make_unique<Value>(mIt->second);
+            return;
+          }
+        }
+        throw TypeCheckError(node->getSpan(), "Method '{}' not found on generic parameter '{}' via trait bounds",
+                             fc->getName(), gname);
+      }
+    }
+    throw TypeCheckError(node->getSpan(), "Dot operator requires class or enum type, got {}",
+                         base->toString());
   }
   if (!base->is(BaseType::TY_CLASS) && !base->is(BaseType::TY_ENUM)) {
     throw TypeCheckError(node->getSpan(), "Dot operator requires class or enum type, got {}",
@@ -2523,6 +2631,146 @@ auto Typechecker::visit(const Literal* node) -> void {
 auto Typechecker::visit(const TypeExpr* node) -> void {
   Type* type = resolveType(node);
   result = std::make_unique<Value>(type);
+}
+
+auto Typechecker::visit(const TraitDecl* node) -> void {
+  if (!declarationPass) {
+    return;
+  }
+  if (traitRegistry.contains(node->getIdentifier())) {
+    throw TypeCheckError(node->getNameSpan(), "Duplicate trait '{}'", node->getIdentifier());
+  }
+  traitRegistry[node->getIdentifier()] = node;
+
+  {
+    auto traitType = std::make_unique<Type>(BaseType::TY_TRAIT_EXISTENTIAL, nullptr);
+    traitType->setDisplayName(node->getIdentifier());
+    scope->insertType(node->getIdentifier(), std::move(traitType));
+  }
+  Type* traitTypePtr = scope->lookupType(node->getIdentifier());
+  auto traitSym = std::make_unique<Value>(node->getIdentifier(), traitTypePtr);
+  traitSym->setCategory(ValueCategory::TYPE_SYMBOL);
+  traitSym->setDeclarationKind(ValueDeclarationKind::TRAIT);
+  traitSym->setDeclarationSpan(node->getNameSpan());
+  traitSym->setDeclarationFilePath(mainFilePath);
+  scope->insertSymbol(std::move(traitSym));
+
+  traitMethodReturnTypes[node->getIdentifier()].clear();
+  for (FuncDecl* req : node->getRequirements()) {
+    req->getReturnType()->accept(*this);
+    traitMethodReturnTypes[node->getIdentifier()][req->getName()] = result->getType();
+  }
+}
+
+auto Typechecker::buildMethodFunctionType(FuncDecl* decl, Type* classType) -> Type* {
+  Type* selfPtr = cacheType(std::make_unique<Type>(BaseType::TY_PTR, nullptr, classType));
+  std::vector<std::unique_ptr<Field>> paramFields;
+  paramFields.push_back(std::make_unique<Field>("self", selfPtr));
+  for (Parameter* param : decl->getParameters()) {
+    if (param->type != nullptr) {
+      param->type->accept(*this);
+    } else {
+      throw TypeCheckError(decl->getSpan(), "Parameter {} has no type", param->name);
+    }
+    Type* paramType = result->getType();
+    if (paramType->is(BaseType::TY_CLASS)) {
+      paramType = cacheType(std::make_unique<Type>(BaseType::TY_PTR, nullptr, paramType));
+    }
+    paramFields.push_back(std::make_unique<Field>(param->name, paramType));
+  }
+  decl->getReturnType()->accept(*this);
+  Type* returnType = result->getType();
+  auto funcType = std::make_unique<Type>(BaseType::TY_FUNCTION, nullptr, std::move(paramFields));
+  funcType->setReturnType(returnType);
+  return cacheType(std::move(funcType));
+}
+
+auto Typechecker::checkTraitImplementation(const Class* classNode, Type* classType) -> void {
+  for (const auto& traitName : classNode->getImplTraitNames()) {
+    auto trIt = traitRegistry.find(traitName);
+    if (trIt == traitRegistry.end()) {
+      throw TypeCheckError(classNode->getNameSpan(), "Unknown trait '{}'", traitName);
+    }
+    const TraitDecl* trait = trIt->second;
+    for (FuncDecl* req : trait->getRequirements()) {
+      Type* expected = buildMethodFunctionType(req, classType);
+      Type* selfPtr = cacheType(std::make_unique<Type>(BaseType::TY_PTR, nullptr, classType));
+      std::vector<Type*> lookupArgs = {selfPtr};
+      for (Parameter* p : req->getParameters()) {
+        if (p->type != nullptr) {
+          p->type->accept(*this);
+          Type* pt = result->getType();
+          if (pt->is(BaseType::TY_CLASS)) {
+            pt = cacheType(std::make_unique<Type>(BaseType::TY_PTR, nullptr, pt));
+          }
+          lookupArgs.push_back(pt);
+        }
+      }
+      Value* methodSym = scope->lookupFunction(req->getName(), lookupArgs);
+      if (methodSym == nullptr) {
+        throw TypeCheckError(classNode->getNameSpan(),
+                             "Class {} does not implement trait method '{}' required by {}",
+                             classNode->getIdentifier(), req->getName(), traitName);
+      }
+      if (!methodSym->getType()->isEqual(expected)) {
+        throw TypeCheckError(
+            req->getNameSpan(),
+            "Method '{}' has incompatible type for trait {}: expected {}, found {}", req->getName(),
+            traitName, expected->toString(), methodSym->getType()->toString());
+      }
+    }
+  }
+}
+
+auto Typechecker::verifyGenericTraitBounds(Value* callee,
+                                           const std::unordered_map<std::string, Type*>& subs,
+                                           llvm::SMRange span) -> void {
+  if (callee == nullptr || callee->getType() == nullptr ||
+      !callee->getType()->is(BaseType::TY_FUNCTION)) {
+    return;
+  }
+  Type* ft = callee->getType();
+  const auto& names = ft->getGenericParams();
+  const auto& boundsList = ft->getGenericParamTraitBounds();
+  if (boundsList.empty()) {
+    return;
+  }
+  for (size_t i = 0; i < names.size() && i < boundsList.size(); ++i) {
+    for (const std::string& traitName : boundsList[i]) {
+      auto it = subs.find(names[i]);
+      if (it == subs.end() || it->second == nullptr) {
+        continue;
+      }
+      Type* concrete = it->second;
+      if (concrete->is(BaseType::TY_PTR) && concrete->getElementType() != nullptr &&
+          concrete->getElementType()->is(BaseType::TY_CLASS)) {
+        concrete = concrete->getElementType();
+      }
+      if (!concrete->is(BaseType::TY_CLASS)) {
+        throw TypeCheckError(span, "Generic parameter {} must be a class type to satisfy trait {}",
+                             names[i], traitName);
+      }
+      if (!classDeclaresTrait(concrete, traitName)) {
+        throw TypeCheckError(span, "Type {} does not declare impl {}", concrete->toString(),
+                             traitName);
+      }
+    }
+  }
+}
+
+auto Typechecker::classDeclaresTrait(Type* classTy, const std::string& traitName) -> bool {
+  if (classTy == nullptr) {
+    return false;
+  }
+  if (auto sp = specializedTypeToTemplate.find(classTy); sp != specializedTypeToTemplate.end()) {
+    classTy = sp->second;
+  }
+  for (const auto& n : classTy->getImplTraitNames()) {
+    if (n == traitName) {
+      return true;
+    }
+  }
+  return false;
 }
 
 } // namespace lesma
