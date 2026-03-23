@@ -1,6 +1,7 @@
 #include "Parser.h"
 
 #include <memory>
+#include <optional>
 #include <string>
 #include <tuple>
 #include <utility>
@@ -749,6 +750,7 @@ auto Parser::parseFunctionDeclaration() -> std::unique_ptr<Statement> {
 
   std::string functionName;
   llvm::SMRange functionNameSpan;
+  std::optional<TokenType> pendingOverloadOperatorToken;
   if (advanceIfMatchAny<TokenType::OPERATOR>()) {
     if (!inClass) {
       error(previous(), "Operator declarations are only allowed in class definition.");
@@ -772,11 +774,7 @@ auto Parser::parseFunctionDeclaration() -> std::unique_ptr<Statement> {
         return nullptr;
       }
       operatorEnd = opToken->getEnd();
-      auto functionNameView = OperatorUtils::getBinaryOperatorName(opToken->type);
-      if (!functionNameView.has_value()) {
-        functionNameView = OperatorUtils::getUnaryOperatorName(opToken->type);
-      }
-      functionName = std::string{*functionNameView};
+      pendingOverloadOperatorToken = opToken->type;
     }
     functionNameSpan = llvm::SMRange{operatorStart, operatorEnd};
   } else {
@@ -843,6 +841,29 @@ auto Parser::parseFunctionDeclaration() -> std::unique_ptr<Statement> {
   }
 
   consume(TokenType::RIGHT_PAREN);
+
+  if (pendingOverloadOperatorToken.has_value()) {
+    const TokenType opKind = *pendingOverloadOperatorToken;
+    if (parameters.empty()) {
+      auto unaryName = OperatorUtils::getUnaryOperatorName(opKind);
+      if (!unaryName.has_value()) {
+        error(previous(),
+              fmt::format("Operator {} is not overloadable as a unary operator (no parameters)",
+                          NAMEOF_ENUM(opKind)));
+        return nullptr;
+      }
+      functionName = std::string{*unaryName};
+    } else {
+      auto binaryName = OperatorUtils::getBinaryOperatorName(opKind);
+      if (!binaryName.has_value()) {
+        error(previous(),
+              fmt::format("Operator {} is not overloadable as a binary operator (with parameters)",
+                          NAMEOF_ENUM(opKind)));
+        return nullptr;
+      }
+      functionName = std::string{*binaryName};
+    }
+  }
 
   std::unique_ptr<TypeExpr> returnType;
   if (advanceIfMatchAny<TokenType::ARROW>()) {
