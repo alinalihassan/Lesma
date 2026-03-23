@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cstdint>
 #include <memory>
+#include <set>
 #include <string>
 #include <utility>
 #include <vector>
@@ -149,16 +150,39 @@ public:
   auto addField(std::unique_ptr<Field> field) -> void { fields.push_back(std::move(field)); }
 
   auto isEqual(Type* rhs) const -> bool {
+    std::set<std::pair<Type const*, Type const*>> active;
+    return isEqualImpl(rhs, active);
+  }
+
+private:
+  auto isEqualImpl(Type const* rhs,
+                   std::set<std::pair<Type const*, Type const*>>& active) const -> bool {
     if (rhs == nullptr) {
       return false;
     }
     if (this == rhs) {
       return true;
     }
-
     if (this->getBaseType() != rhs->getBaseType()) {
       return false;
     }
+
+    const auto pairKey = std::pair<Type const*, Type const*>(this, rhs);
+    if (!active.insert(pairKey).second) {
+      return true;
+    }
+    struct ActiveGuard {
+      std::set<std::pair<Type const*, Type const*>>* const s;
+      std::pair<Type const*, Type const*> key;
+      ActiveGuard(std::set<std::pair<Type const*, Type const*>>* setPtr,
+                  std::pair<Type const*, Type const*> k)
+          : s(setPtr), key(std::move(k)) {}
+      ActiveGuard(const ActiveGuard&) = delete;
+      auto operator=(const ActiveGuard&) -> ActiveGuard& = delete;
+      ActiveGuard(ActiveGuard&&) = delete;
+      auto operator=(ActiveGuard&&) -> ActiveGuard& = delete;
+      ~ActiveGuard() { s->erase(key); }
+    } guard{&active, pairKey};
 
     // Class/enum types: when both have LLVM types, compare by pointer identity;
     // otherwise compare by structure (genericParams + fields) so that types are
@@ -203,11 +227,7 @@ public:
           }
           continue;
         }
-        // Cycle check: same (this, rhs) pair avoids infinite recursion (e.g. class with *Self).
-        if ((lt == this && rt == rhs) || (lt == rhs && rt == this)) {
-          continue;
-        }
-        if (!lt->isEqual(rt)) {
+        if (!lt->isEqualImpl(rt, active)) {
           return false;
         }
       }
@@ -261,7 +281,7 @@ public:
       if (thisElementType == nullptr || rhsElementType == nullptr) {
         return false;
       }
-      return thisElementType->isEqual(rhsElementType);
+      return thisElementType->isEqualImpl(rhsElementType, active);
     }
     case BaseType::TY_FUNCTION: {
       if (varArgs != rhs->isVarArgs()) {
@@ -273,7 +293,7 @@ public:
         return false;
       }
       for (size_t i = 0; i < lf.size(); ++i) {
-        if (!lf[i]->type->isEqual(rf[i]->type)) {
+        if (!lf[i]->type->isEqualImpl(rf[i]->type, active)) {
           return false;
         }
       }
@@ -285,7 +305,7 @@ public:
       if (lret == nullptr || rret == nullptr) {
         return false;
       }
-      return lret->isEqual(rret);
+      return lret->isEqualImpl(rret, active);
     }
     case BaseType::TY_GENERIC:
       return genericName == rhs->getGenericName();
@@ -297,6 +317,7 @@ public:
     return false;
   }
 
+public:
   [[nodiscard]] auto toString() const -> std::string {
     std::string result;
 
