@@ -1246,6 +1246,9 @@ auto findActiveCallInStmt(const lesma::Statement* stmt, llvm::SourceMgr* srcMgr,
   } else if (auto const* whileNode = dynamic_cast<const lesma::While*>(stmt)) {
     findActiveCallInExpr(whileNode->getCond(), srcMgr, bufferId, targetOffset, nullptr, best);
     findActiveCallInStmt(whileNode->getBlock(), srcMgr, bufferId, targetOffset, best);
+  } else if (auto const* forIn = dynamic_cast<const lesma::ForIn*>(stmt)) {
+    findActiveCallInExpr(forIn->getIterable(), srcMgr, bufferId, targetOffset, nullptr, best);
+    findActiveCallInStmt(forIn->getBlock(), srcMgr, bufferId, targetOffset, best);
   } else if (auto const* ret = dynamic_cast<const lesma::Return*>(stmt)) {
     findActiveCallInExpr(ret->getValue(), srcMgr, bufferId, targetOffset, nullptr, best);
   } else if (auto const* defer = dynamic_cast<const lesma::Defer*>(stmt)) {
