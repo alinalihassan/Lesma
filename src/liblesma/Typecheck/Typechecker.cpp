@@ -1962,30 +1962,6 @@ auto Typechecker::visit(const SubscriptOp* node) -> void {
   Type* baseType = result->getType();
   node->getIndex()->accept(*this);
   Type* indexType = result->getType();
-  auto getStdListBufferType = [this](Type* type) -> Type* {
-    if (type == nullptr) {
-      return nullptr;
-    }
-    if (type->is(BaseType::TY_PTR) && type->getElementType() != nullptr) {
-      type = type->getElementType();
-    }
-    if (!type->is(BaseType::TY_CLASS)) {
-      return nullptr;
-    }
-    Type* baseClass = type;
-    if (auto it = specializedTypeToTemplate.find(type); it != specializedTypeToTemplate.end()) {
-      baseClass = it->second;
-    }
-    const std::string& displayName = baseClass->getDisplayName();
-    if (displayName != "list<T>" && displayName != "list") {
-      return nullptr;
-    }
-    auto fields = type->getFields();
-    if (fields.empty() || fields.front()->type == nullptr || !fields.front()->type->is(BaseType::TY_ARRAY)) {
-      return nullptr;
-    }
-    return fields.front()->type;
-  };
   if (baseType != nullptr && baseType->is(BaseType::TY_ARRAY) && baseType->getElementType() != nullptr) {
     if (indexType == nullptr || !indexType->is(BaseType::TY_INT)) {
       throw TypeCheckError(node->getIndex()->getSpan(), "List index must be int, got {}",
@@ -1994,20 +1970,11 @@ auto Typechecker::visit(const SubscriptOp* node) -> void {
     result = std::make_unique<Value>(baseType->getElementType());
     return;
   }
-  if (Type* bufferType = getStdListBufferType(baseType);
-      bufferType != nullptr && bufferType->getElementType() != nullptr) {
-    if (indexType == nullptr || !indexType->is(BaseType::TY_INT)) {
-      throw TypeCheckError(node->getIndex()->getSpan(), "List index must be int, got {}",
-                           indexType != nullptr ? indexType->toString() : "unknown");
-    }
-    result = std::make_unique<Value>(bufferType->getElementType());
-    return;
-  }
   Type* overloadType =
       resolveMethodReturnType(baseType, std::string{OperatorUtils::SUBSCRIPT_GET_NAME}, {indexType},
                               node->getSpan());
   if (overloadType == nullptr) {
-    throw TypeCheckError(node->getSpan(), "Subscript requires list<T> or operator [], got {}",
+    throw TypeCheckError(node->getSpan(), "Subscript requires an array type or operator [], got {}",
                          baseType != nullptr ? baseType->toString() : "unknown");
   }
   result = std::make_unique<Value>(overloadType);

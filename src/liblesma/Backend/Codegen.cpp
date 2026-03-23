@@ -2865,29 +2865,6 @@ auto Codegen::visit(const SubscriptOp* node) -> void {
   auto listValue = std::move(result);
   node->getIndex()->accept(*this);
   auto indexValue = std::move(result);
-  auto getStdListBuffer = [this](lesma::Value* value) -> std::pair<lesma::Type*, llvm::Value*> {
-    if (value == nullptr || value->getType() == nullptr) {
-      return {nullptr, nullptr};
-    }
-    lesma::Type* type = value->getType();
-    llvm::Value* handle = value->getLlvmValue();
-    if (type->is(BaseType::TY_PTR) && type->getElementType() != nullptr &&
-        type->getElementType()->is(BaseType::TY_CLASS)) {
-      type = type->getElementType();
-    }
-    if (!type->is(BaseType::TY_CLASS)) {
-      return {nullptr, nullptr};
-    }
-    auto fields = type->getFields();
-    if (fields.empty() || fields.front()->type == nullptr || !fields.front()->type->is(BaseType::TY_ARRAY)) {
-      return {nullptr, nullptr};
-    }
-    auto* storagePtr =
-        builder->CreateStructGEP(cast<llvm::StructType>(getOrCreateLlvmType(type)), value->getLlvmValue(), 0,
-                                 "list.storage.ptr");
-    handle = builder->CreateLoad(getOrCreateLlvmType(fields.front()->type), storagePtr, "list.storage");
-    return {fields.front()->type, handle};
-  };
   if (listValue != nullptr && listValue->getType() != nullptr && listValue->getType()->is(BaseType::TY_ARRAY)) {
     if (isAssignment) {
       throw CodegenError(node->getSpan(), "Operator [] assignment requires operator []=");
@@ -2895,18 +2872,6 @@ auto Codegen::visit(const SubscriptOp* node) -> void {
     result =
         callMethodByName(node->getSpan(), listValue.get(), std::string{OperatorUtils::SUBSCRIPT_GET_NAME},
                          {indexValue.get()});
-    return;
-  }
-  if (auto [bufferType, bufferHandle] = getStdListBuffer(listValue.get());
-      bufferType != nullptr && bufferType->getElementType() != nullptr) {
-    if (isAssignment) {
-      throw CodegenError(node->getSpan(), "Operator [] assignment requires operator []=");
-    }
-    auto* elemPtr = emitListElementPointer(node->getSpan(), bufferType, bufferHandle,
-                                           indexValue->getLlvmValue());
-    result = std::make_unique<Value>(
-        "", bufferType->getElementType(),
-        builder->CreateLoad(getListStoredElementType(bufferType), elemPtr));
     return;
   }
   if (isAssignment) {
