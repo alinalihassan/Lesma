@@ -1425,22 +1425,61 @@ auto Codegen::getOrCreateLlvmType(lesma::Type* type) -> llvm::Type* {
   return type->getLlvmType();
 }
 
-void Codegen::bindGenericsFromTypePair(const TypeExpr* declared, lesma::Type* actual,
+auto Codegen::bindGenericsFromTypePair(const TypeExpr* declared, lesma::Type* actual,
                                        const std::unordered_set<std::string>& genericNameSet,
-                                       std::unordered_map<std::string, lesma::Type*>& env) {
+                                       std::unordered_map<std::string, lesma::Type*>& env) -> void {
   if (declared == nullptr || actual == nullptr) {
     return;
   }
   if (declared->getType() == TokenType::CUSTOM_TYPE) {
     const std::string name = declared->getLookupName();
+    const auto declTypeArgs = declared->getTypeArgs();
+    lesma::Type* classActual = actual;
+    if (classActual->is(BaseType::TY_PTR) && classActual->getElementType() != nullptr &&
+        classActual->getElementType()->is(BaseType::TY_CLASS)) {
+      classActual = classActual->getElementType();
+    }
+    if (!declTypeArgs.empty() && classActual != nullptr && classActual->is(BaseType::TY_CLASS)) {
+      const std::string& display = classActual->getDisplayName();
+      std::string actualBase = display;
+      const auto anglePos = display.find('<');
+      if (anglePos != std::string::npos) {
+        actualBase = display.substr(0, anglePos);
+      }
+      if (name == actualBase) {
+        if (auto envIt = specializedClassTypeEnvs.find(classActual);
+            envIt != specializedClassTypeEnvs.end()) {
+          const Class* templateClass = nullptr;
+          if (auto git = genericClasses.find(name); git != genericClasses.end()) {
+            templateClass = git->second;
+          } else if (scope != nullptr) {
+            if (auto* sym = scope->lookupStruct(name);
+                sym != nullptr && sym->getGenericClassTemplate() != nullptr) {
+              templateClass = static_cast<const Class*>(sym->getGenericClassTemplate());
+            }
+          }
+          if (templateClass != nullptr) {
+            const std::vector<std::string> templateGenericParams = templateClass->getGenericParams();
+            if (templateGenericParams.size() == declTypeArgs.size()) {
+              for (size_t i = 0; i < declTypeArgs.size(); ++i) {
+                if (auto concreteIt = envIt->second.find(templateGenericParams[i]);
+                    concreteIt != envIt->second.end() && concreteIt->second != nullptr) {
+                  bindGenericsFromTypePair(declTypeArgs[i], concreteIt->second, genericNameSet, env);
+                }
+              }
+              return;
+            }
+          }
+        }
+      }
+    }
     if (genericNameSet.contains(name) && !env.contains(name)) {
       env[name] = actual;
       return;
     }
     if (name == "__buffer" && actual->is(BaseType::TY_ARRAY) && actual->getElementType() != nullptr) {
-      auto typeArgs = declared->getTypeArgs();
-      if (typeArgs.size() == 1U) {
-        bindGenericsFromTypePair(typeArgs.front(), actual->getElementType(), genericNameSet, env);
+      if (declTypeArgs.size() == 1U) {
+        bindGenericsFromTypePair(declTypeArgs.front(), actual->getElementType(), genericNameSet, env);
       }
     }
     return;
