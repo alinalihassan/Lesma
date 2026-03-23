@@ -207,7 +207,8 @@ auto Codegen::initializeTopLevel() -> llvm::Function* {
 }
 
 auto Codegen::defineFunction(lesma::Value* value, const FuncDecl* node, Value* clsSymbol) -> void {
-  if (clsSymbol == nullptr) {
+  bool const isMethod = value->getDeclarationKind() == ValueDeclarationKind::METHOD;
+  if (clsSymbol == nullptr && isMethod) {
     auto fields = value->getType()->getFields();
     if (!fields.empty() && fields.front()->type != nullptr && fields.front()->type->is(BaseType::TY_PTR) &&
         fields.front()->type->getElementType() != nullptr) {
@@ -251,7 +252,7 @@ auto Codegen::defineFunction(lesma::Value* value, const FuncDecl* node, Value* c
     if (field->name == "self") {
       paramName = "self";
     } else {
-      size_t const paramIndex = param->getArgNo() - (clsSymbol != nullptr ? 1U : 0U);
+      size_t const paramIndex = param->getArgNo() - (isMethod ? 1U : 0U);
       if (paramIndex < node->getParameters().size()) {
         paramName = node->getParameters()[paramIndex]->name;
       } else {
