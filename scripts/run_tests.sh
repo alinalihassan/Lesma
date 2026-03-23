@@ -173,4 +173,7 @@ print_suite_results_in_order "${TMPDIR_RESULTS}" "${failure_files[@]}"
 printf 'Tests:\n'
 printf '  fail:    %d\n' "${fail_count}"
 printf '  success: %d\n' "${success_count}"
-exit "${fail_count}"
+if [ "${fail_count}" -gt 0 ]; then
+  exit 1
+fi
+exit 0
