@@ -118,6 +118,9 @@ auto collectIndexFromTypeExpr(const TypeExpr* typeExpr, AnalysisIndex& index) ->
                             IndexedTokenKind::Type, resolvedSymbol);
   }
   collectIndexFromTypeExpr(typeExpr->getElementType(), index);
+  for (TypeExpr* typeArg : typeExpr->getTypeArgs()) {
+    collectIndexFromTypeExpr(typeArg, index);
+  }
   for (TypeExpr* param : typeExpr->getParams()) {
     collectIndexFromTypeExpr(param, index);
   }

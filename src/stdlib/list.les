@@ -1,20 +1,41 @@
-export def len<T>(xs: list<T>) -> int
-    return __list_len(xs)
+export class list<T>
+    var storage: __buffer<T>
+    var __iter_index: int = 0
 
-export def push<T>(xs: list<T>, value: T)
-    __list_push(xs, value)
+    def new()
+        self.storage = __buffer_new<T>()
 
-export def pop<T>(xs: list<T>) -> T
-    return __list_pop(xs)
+    def len() -> int
+        return __buffer_len(self.storage)
 
-export def clear<T>(xs: list<T>)
-    __list_clear(xs)
+    def push(value: T)
+        __buffer_push(self.storage, value)
 
-export def copy<T>(xs: list<T>) -> list<T>
-    return __list_copy(xs)
+    def pop() -> T
+        return __buffer_pop(self.storage)
 
-export def __operator_subscript<T>(xs: list<T>, index: int) -> T
-    return __list_get(xs, index)
+    def clear()
+        __buffer_clear(self.storage)
 
-export def __operator_subscript_set<T>(xs: list<T>, index: int, value: T)
-    __list_set(xs, index, value)
+    def copy() -> list<T>
+        var result: list<T> = list<T>()
+        result.storage = __buffer_copy(self.storage)
+        return result
+
+    def __iter() -> *list<T>
+        self.__iter_index = 0
+        return self
+
+    def __has_next() -> bool
+        return self.__iter_index < __buffer_len(self.storage)
+
+    def __next() -> T
+        var value = __buffer_get(self.storage, self.__iter_index)
+        self.__iter_index += 1
+        return value
+
+    def operator [](index: int) -> T
+        return __buffer_get(self.storage, index)
+
+    def operator []=(index: int, value: T)
+        __buffer_set(self.storage, index, value)

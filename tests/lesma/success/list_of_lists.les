@@ -1,0 +1,21 @@
+var xs = [[1, 2], [3]]
+
+if xs.len() != 2
+    exit(1)
+
+if xs[0].len() != 2
+    exit(1)
+
+xs[1].push(4)
+
+if xs[1][1] != 4
+    exit(1)
+
+var ys = xs.copy()
+ys[0].push(9)
+
+if xs[0].len() != 2
+    exit(1)
+
+if ys[0].len() != 3
+    exit(1)

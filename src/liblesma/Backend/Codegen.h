@@ -74,8 +74,10 @@ class Codegen final : public ASTVisitor {
   std::unordered_map<std::string, lesma::Type*> currentGenericTypes;
   std::unordered_map<std::string, lesma::Value*> specializedFunctions;
   std::unordered_map<std::string, lesma::Value*> specializedClasses;
+  std::unordered_map<lesma::Type*, lesma::Value*> specializedClassSymbolsByType;
   std::unordered_map<lesma::Value*, std::unordered_map<std::string, lesma::Type*>>
       specializationEnvs;
+  std::unordered_map<lesma::Type*, std::unordered_map<std::string, lesma::Type*>> specializedClassTypeEnvs;
   // deque so push_back never invalidates pointers to existing elements (used in
   // prototypes)
   std::deque<std::unique_ptr<lesma::Value>> methodSelfSymbols;
@@ -200,6 +202,9 @@ protected:
   auto emitCompoundAssign(llvm::SMRange span, TokenType op, lesma::Value* lhs, lesma::Value* value)
       -> void;
   auto getOrCreateListStructType(lesma::Type* listType) -> llvm::StructType*;
+  auto getListStoredElementType(lesma::Type* listType) -> llvm::Type*;
+  auto getListStoredElementValue(llvm::SMRange span, lesma::Value* value, lesma::Type* elementType)
+      -> llvm::Value*;
   auto emitCalloc(llvm::Value* count, llvm::Value* size, const llvm::Twine& name = "calloc.tmp")
       -> llvm::Value*;
   auto emitMalloc(llvm::Value* size, const llvm::Twine& name = "malloc.tmp") -> llvm::Value*;

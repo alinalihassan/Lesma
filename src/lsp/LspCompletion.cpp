@@ -364,6 +364,8 @@ void addCandidate(std::vector<CompletionCandidate>& out, std::unordered_set<std:
   out.push_back(std::move(candidate));
 }
 
+auto isHiddenClassMemberName(std::string_view name) -> bool { return name.starts_with("__"); }
+
 void appendMembersForType(Type* baseType, Compound* ast, SymbolTable* root,
                           std::vector<CompletionCandidate>& out,
                           std::unordered_set<std::string>& seen) {
@@ -378,7 +380,7 @@ void appendMembersForType(Type* baseType, Compound* ast, SymbolTable* root,
   }
 
   for (Field* field : baseType->getFields()) {
-    if (field == nullptr) {
+    if (field == nullptr || isHiddenClassMemberName(field->name)) {
       continue;
     }
     addCandidate(out, seen,
@@ -405,7 +407,7 @@ void appendMembersForType(Type* baseType, Compound* ast, SymbolTable* root,
       if (method == nullptr) {
         continue;
       }
-      if (method->getName() == "new") {
+      if (method->getName() == "new" || isHiddenClassMemberName(method->getName())) {
         continue;
       }
       Value* methodValue = method->getResolvedSymbol();

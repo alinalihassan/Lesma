@@ -6,15 +6,15 @@ class Range
         self.current = start
         self.last = last
 
-    def has_next() -> bool
+    def __has_next() -> bool
         return self.current < self.last
 
-    def next() -> int
+    def __next() -> int
         let value = self.current
         self.current = self.current + 1
         return value
 
-    def iter() -> *Range
+    def __iter() -> *Range
         return self
 
 var total = 0

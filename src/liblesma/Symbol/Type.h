@@ -144,7 +144,15 @@ public:
     // equal before LLVM lowering.
     if (isOneOf({BaseType::TY_CLASS, BaseType::TY_ENUM})) {
       if (llvmType != nullptr && rhs->llvmType != nullptr) {
-        return llvmType == rhs->llvmType;
+        if (llvmType == rhs->llvmType) {
+          return true;
+        }
+        if (displayName == rhs->displayName && !displayName.empty()) {
+          // Fall through to structural comparison for semantically identical
+          // specializations materialized through different codegen/import paths.
+        } else {
+          return false;
+        }
       }
       // Semantic identity when llvmType not yet set: same generic params and fields.
       const std::vector<std::string>& lp = getGenericParams();

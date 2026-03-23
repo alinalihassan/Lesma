@@ -140,13 +140,26 @@ auto Parser::parseType() -> std::unique_ptr<TypeExpr> {
 
   if (check(TokenType::IDENTIFIER)) {
     advance();
-    if (type->lexeme == "list") {
-      consume(TokenType::LESS, "Expected '<' after list");
-      auto elementType = parseType();
-      auto* greater = consume(TokenType::GREATER, "Expected '>' after list element type");
-      return std::make_unique<TypeExpr>(
-          llvm::SMRange{type->getStart(), greater->getEnd()},
-          "list<" + elementType->getName() + ">", TokenType::LIST_TYPE, std::move(elementType));
+    if (check(TokenType::LESS)) {
+      consume(TokenType::LESS);
+      std::vector<std::unique_ptr<TypeExpr>> typeArgs;
+      while (true) {
+        typeArgs.push_back(parseType());
+        if (!advanceIfMatchAny<TokenType::COMMA>()) {
+          break;
+        }
+      }
+      auto* greater = consume(TokenType::GREATER, "Expected '>' after generic type arguments");
+      std::string lexeme = type->lexeme + "<";
+      for (size_t i = 0; i < typeArgs.size(); ++i) {
+        lexeme += typeArgs[i]->getName();
+        if (i + 1U < typeArgs.size()) {
+          lexeme += ", ";
+        }
+      }
+      lexeme += ">";
+      return std::make_unique<TypeExpr>(llvm::SMRange{type->getStart(), greater->getEnd()},
+                                        type->lexeme, TokenType::CUSTOM_TYPE, std::move(typeArgs));
     }
     return std::make_unique<TypeExpr>(type->span, type->lexeme, TokenType::CUSTOM_TYPE);
   }
@@ -206,22 +219,23 @@ auto Parser::parseTypeAt(unsigned long& off) -> bool {
   }
 
   if (check(TokenType::IDENTIFIER, off)) {
-    if (peek(off)->lexeme == "list") {
-      off++;
-      if (index + off >= tokens.size() || peek(off)->type != TokenType::LESS) {
-        return false;
-      }
+    off++;
+    if (index + off < tokens.size() && peek(off)->type == TokenType::LESS) {
       off++;
       if (!parseTypeAt(off)) {
         return false;
+      }
+      while (index + off < tokens.size() && peek(off)->type == TokenType::COMMA) {
+        off++;
+        if (!parseTypeAt(off)) {
+          return false;
+        }
       }
       if (index + off >= tokens.size() || peek(off)->type != TokenType::GREATER) {
         return false;
       }
       off++;
-      return true;
     }
-    off++;
     return true;
   }
 

@@ -131,6 +131,7 @@ class TypeExpr : public Expression {
 
   // Pointer fields
   std::unique_ptr<TypeExpr> elementType;
+  std::vector<std::unique_ptr<TypeExpr>> typeArgs;
 
   // Function fields
   std::vector<std::unique_ptr<TypeExpr>> params;
@@ -144,6 +145,10 @@ public:
       : Expression(loc), name(std::move(name)), type(type), elementType(std::move(elementType)),
         ret(nullptr) {}
   TypeExpr(llvm::SMRange loc, std::string name, TokenType type,
+           std::vector<std::unique_ptr<TypeExpr>> typeArgs)
+      : Expression(loc), name(std::move(name)), type(type), elementType(nullptr),
+        typeArgs(std::move(typeArgs)), ret(nullptr) {}
+  TypeExpr(llvm::SMRange loc, std::string name, TokenType type,
            std::vector<std::unique_ptr<TypeExpr>> params, std::unique_ptr<TypeExpr> ret)
       : Expression(loc), name(std::move(name)), type(type), elementType(nullptr),
         params(std::move(params)), ret(std::move(ret)) {}
@@ -155,6 +160,14 @@ public:
   auto setResolvedSymbol(Value* v) const -> void { resolvedSymbol = v; }
   [[nodiscard]] [[maybe_unused]] auto getElementType() const -> TypeExpr* {
     return elementType.get();
+  }
+  [[nodiscard]] auto getTypeArgs() const -> std::vector<TypeExpr*> {
+    std::vector<TypeExpr*> result;
+    result.reserve(typeArgs.size());
+    for (const auto& typeArg : typeArgs) {
+      result.push_back(typeArg.get());
+    }
+    return result;
   }
   [[nodiscard]] [[maybe_unused]] auto getParams() const -> std::vector<TypeExpr*> {
     std::vector<TypeExpr*> result;
