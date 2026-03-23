@@ -1890,9 +1890,22 @@ auto Codegen::visit(const ForIn* node) -> void {
   if (loopVar == nullptr) {
     throw CodegenError(node->getSpan(), "Missing loop variable symbol for for-in");
   }
-  getOrCreateLlvmType(loopVar->getType());
+  lesma::Type* loopVarType = loopVar->getType();
+  getOrCreateLlvmType(loopVarType);
   if (loopVar->getLlvmValue() == nullptr) {
-    auto* elemPtr = builder->CreateAlloca(loopVar->getType()->getLlvmType(), nullptr, loopVar->getName());
+    if (loopVarType->is(BaseType::TY_CLASS)) {
+      lesma::Type* ptrType =
+          cacheType(std::make_unique<Type>(BaseType::TY_PTR, builder->getPtrTy(), loopVarType));
+      loopVar->setType(ptrType);
+    }
+    lesma::Type* storedType = loopVar->getType();
+    const bool isPtrToClass = storedType->is(BaseType::TY_PTR) &&
+                              storedType->getElementType() != nullptr &&
+                              storedType->getElementType()->is(BaseType::TY_CLASS);
+    llvm::Type* allocaTy = (storedType->is(BaseType::TY_CLASS) || isPtrToClass)
+                               ? builder->getPtrTy()
+                               : storedType->getLlvmType();
+    auto* elemPtr = builder->CreateAlloca(allocaTy, nullptr, loopVar->getName());
     loopVar->setLlvmValue(elemPtr);
     loopVar->setCategory(ValueCategory::ADDRESSABLE_STORAGE);
   }
