@@ -79,6 +79,8 @@ class Type {
   std::string declarationFilePath;
   bool varArgs = false;
   bool signedInt = true;
+  /** For TY_INT when LLVM type is not yet set: 0 means default width (64). */
+  std::uint16_t intWidth = 0;
 
 public:
   explicit Type(BaseType baseType)
@@ -124,6 +126,20 @@ public:
   }
   [[nodiscard]] auto isVarArgs() const -> bool { return varArgs; }
   [[nodiscard]] auto isSigned() const -> bool { return signedInt; }
+  /** Resolved integer width for TY_INT (defaults to 64 for plain `int`). */
+  [[nodiscard]] auto getIntWidth() const -> unsigned {
+    if (baseType != BaseType::TY_INT) {
+      return 0U;
+    }
+    if (llvmType != nullptr && llvmType->isIntegerTy()) {
+      return llvmType->getIntegerBitWidth();
+    }
+    if (intWidth != 0) {
+      return intWidth;
+    }
+    return 64U;
+  }
+  auto setIntWidth(std::uint16_t width) -> void { intWidth = width; }
 
   // Returns raw pointers for non-owning access
   [[nodiscard]] auto getFields() const -> std::vector<Field*> {
@@ -236,19 +252,10 @@ private:
 
     switch (baseType) {
     case BaseType::TY_INT: {
-      llvm::Type* l = getLlvmType();
-      llvm::Type* r = rhs->getLlvmType();
-      if (l == nullptr && r == nullptr) {
-        return isSigned() == rhs->isSigned();
-      }
-      if (l == nullptr || r == nullptr) {
-        llvm::Type* concrete = (l != nullptr) ? l : r;
-        return concrete != nullptr && concrete->isIntegerTy() && isSigned() == rhs->isSigned();
-      }
-      if (!l->isIntegerTy() || !r->isIntegerTy()) {
+      if (isSigned() != rhs->isSigned()) {
         return false;
       }
-      return isSigned() == rhs->isSigned() && l->getIntegerBitWidth() == r->getIntegerBitWidth();
+      return getIntWidth() == rhs->getIntWidth();
     }
     case BaseType::TY_FLOAT: {
       llvm::Type* l = getLlvmType();
@@ -325,9 +332,15 @@ public:
     case BaseType::TY_INVALID:
       result = "Invalid";
       break;
-    case BaseType::TY_INT:
-      result = signedInt ? "int" : "uint";
+    case BaseType::TY_INT: {
+      const unsigned w = getIntWidth();
+      if (w == 64U) {
+        result = signedInt ? "int" : "uint";
+      } else {
+        result = signedInt ? ("int" + std::to_string(w)) : ("uint" + std::to_string(w));
+      }
       break;
+    }
     case BaseType::TY_FLOAT:
       result = "float";
       break;

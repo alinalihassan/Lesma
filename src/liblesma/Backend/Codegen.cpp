@@ -841,15 +841,19 @@ auto Codegen::visit(const TypeExpr* node) -> void {
   // This is needed because setReturnType and similar store raw Type* pointers
   if (node->getType() == TokenType::INT_TYPE) {
     auto* type = cacheType(std::make_unique<Type>(BaseType::TY_INT, builder->getInt64Ty()));
+    type->setIntWidth(64);
     result = std::make_unique<Value>(type);
   } else if (node->getType() == TokenType::INT8_TYPE) {
     auto* type = cacheType(std::make_unique<Type>(BaseType::TY_INT, builder->getInt8Ty()));
+    type->setIntWidth(8);
     result = std::make_unique<Value>(type);
   } else if (node->getType() == TokenType::INT16_TYPE) {
     auto* type = cacheType(std::make_unique<Type>(BaseType::TY_INT, builder->getInt16Ty()));
+    type->setIntWidth(16);
     result = std::make_unique<Value>(type);
   } else if (node->getType() == TokenType::INT32_TYPE) {
     auto* type = cacheType(std::make_unique<Type>(BaseType::TY_INT, builder->getInt32Ty()));
+    type->setIntWidth(32);
     result = std::make_unique<Value>(type);
   } else if (node->getType() == TokenType::FLOAT_TYPE) {
     auto* type = cacheType(std::make_unique<Type>(BaseType::TY_FLOAT, builder->getDoubleTy()));
@@ -1261,9 +1265,9 @@ auto Codegen::genListIntrinsicCall(const FuncCall* node, const std::vector<lesma
   }
 
   if (node->getName() == "__list_len" || node->getName() == "__buffer_len") {
-    return std::make_unique<Value>(
-        "", cacheType(std::make_unique<Type>(BaseType::TY_INT, builder->getInt64Ty())),
-        emitListLength(listType, listHandle));
+    auto* lenTy = cacheType(std::make_unique<Type>(BaseType::TY_INT, builder->getInt64Ty()));
+    lenTy->setIntWidth(64);
+    return std::make_unique<Value>("", lenTy, emitListLength(listType, listHandle));
   }
   if (node->getName() == "__list_copy" || node->getName() == "__buffer_copy") {
     return std::make_unique<Value>("", listType, emitListDeepCopy(listType, listHandle));
@@ -1349,9 +1353,19 @@ auto Codegen::getOrCreateLlvmType(lesma::Type* type) -> llvm::Type* {
     }
     return getOrCreateLlvmType(it->second);
   }
-  case BaseType::TY_INT:
-    type->setLlvmType(builder->getInt64Ty());
+  case BaseType::TY_INT: {
+    const unsigned w = type->getIntWidth();
+    llvm::Type* mapped = builder->getInt64Ty();
+    if (w == 8) {
+      mapped = builder->getInt8Ty();
+    } else if (w == 16) {
+      mapped = builder->getInt16Ty();
+    } else if (w == 32) {
+      mapped = builder->getInt32Ty();
+    }
+    type->setLlvmType(mapped);
     break;
+  }
   case BaseType::TY_FLOAT:
     type->setLlvmType(builder->getDoubleTy());
     break;
@@ -3347,6 +3361,7 @@ auto Codegen::visit(const Literal* node) -> void {
         "", type, ConstantFP::get(theModule->getContext(), APFloat(std::stod(node->getValue()))));
   } else if (node->getType() == TokenType::INTEGER) {
     auto* type = cacheType(std::make_unique<Type>(BaseType::TY_INT, builder->getInt64Ty()));
+    type->setIntWidth(64);
     result = std::make_unique<Value>(
         "", type, ConstantInt::getSigned(builder->getInt64Ty(), std::stoi(node->getValue())));
   } else if (node->getType() == TokenType::BOOL) {
@@ -3752,6 +3767,7 @@ auto Codegen::callListMethodByName(llvm::SMRange span, lesma::Value* receiver,
 
   if (methodName == "len") {
     auto* type = cacheType(std::make_unique<Type>(BaseType::TY_INT, builder->getInt64Ty()));
+    type->setIntWidth(64);
     return std::make_unique<Value>("", type, emitListLength(bufferType, bufferHandle));
   }
   if (methodName == "clear") {

@@ -277,7 +277,9 @@ auto Typechecker::visitListIntrinsicCall(const FuncCall* node, const std::vector
     if (argTypes.size() != 1U) {
       throw TypeCheckError(node->getSpan(), "{} expects exactly one argument", node->getName());
     }
-    result = std::make_unique<Value>(cacheType(std::make_unique<Type>(BaseType::TY_INT)));
+    auto intLen = std::make_unique<Type>(BaseType::TY_INT);
+    intLen->setIntWidth(64);
+    result = std::make_unique<Value>(cacheType(std::move(intLen)));
     return true;
   }
   if (node->getName() == "__list_copy" || node->getName() == "__buffer_copy") {
@@ -510,6 +512,13 @@ auto Typechecker::materializeImportedType(Type* type) -> Type* {
   }
   if (type->is(BaseType::TY_GENERIC)) {
     Type* copy = cacheType(std::make_unique<Type>(type->getGenericName()));
+    importedTypeCopies[type] = copy;
+    return copy;
+  }
+  if (type->is(BaseType::TY_INT)) {
+    auto u = std::make_unique<Type>(BaseType::TY_INT);
+    u->setIntWidth(static_cast<std::uint16_t>(type->getIntWidth()));
+    Type* copy = cacheType(std::move(u));
     importedTypeCopies[type] = copy;
     return copy;
   }
@@ -793,9 +802,25 @@ auto Typechecker::isAssignableTo(Type* from, Type* to) -> bool {
 }
 
 auto Typechecker::resolveType(const TypeExpr* node) -> Type* {
-  if (node->getType() == TokenType::INT_TYPE || node->getType() == TokenType::INT8_TYPE ||
-      node->getType() == TokenType::INT16_TYPE || node->getType() == TokenType::INT32_TYPE) {
-    return cacheType(std::make_unique<Type>(BaseType::TY_INT));
+  if (node->getType() == TokenType::INT_TYPE) {
+    auto u = std::make_unique<Type>(BaseType::TY_INT);
+    u->setIntWidth(64);
+    return cacheType(std::move(u));
+  }
+  if (node->getType() == TokenType::INT8_TYPE) {
+    auto u = std::make_unique<Type>(BaseType::TY_INT);
+    u->setIntWidth(8);
+    return cacheType(std::move(u));
+  }
+  if (node->getType() == TokenType::INT16_TYPE) {
+    auto u = std::make_unique<Type>(BaseType::TY_INT);
+    u->setIntWidth(16);
+    return cacheType(std::move(u));
+  }
+  if (node->getType() == TokenType::INT32_TYPE) {
+    auto u = std::make_unique<Type>(BaseType::TY_INT);
+    u->setIntWidth(32);
+    return cacheType(std::move(u));
   }
   if (node->getType() == TokenType::FLOAT_TYPE || node->getType() == TokenType::FLOAT32_TYPE) {
     return cacheType(std::make_unique<Type>(BaseType::TY_FLOAT));
@@ -2309,9 +2334,14 @@ auto Typechecker::visit(const UnaryOp* node) -> void {
     if (operand == nullptr || !operand->is(BaseType::TY_PTR)) {
       throw TypeCheckError(node->getSpan(), "Dereference requires pointer type");
     }
-    result = std::make_unique<Value>(operand->getElementType() != nullptr
-                                         ? operand->getElementType()
-                                         : cacheType(std::make_unique<Type>(BaseType::TY_INT)));
+    result = std::make_unique<Value>(
+        operand->getElementType() != nullptr
+            ? operand->getElementType()
+            : [&]() -> Type* {
+                auto u = std::make_unique<Type>(BaseType::TY_INT);
+                u->setIntWidth(64);
+                return cacheType(std::move(u));
+              }());
     break;
   default:
     throw TypeCheckError(node->getSpan(), "Unsupported unary operator: {}",
@@ -2418,9 +2448,12 @@ auto Typechecker::visit(const ListLiteral* node) -> void {
 
 auto Typechecker::visit(const Literal* node) -> void {
   switch (node->getType()) {
-  case TokenType::INTEGER:
-    result = std::make_unique<Value>(cacheType(std::make_unique<Type>(BaseType::TY_INT)));
+  case TokenType::INTEGER: {
+    auto u = std::make_unique<Type>(BaseType::TY_INT);
+    u->setIntWidth(64);
+    result = std::make_unique<Value>(cacheType(std::move(u)));
     break;
+  }
   case TokenType::DOUBLE:
     result = std::make_unique<Value>(cacheType(std::make_unique<Type>(BaseType::TY_FLOAT)));
     break;

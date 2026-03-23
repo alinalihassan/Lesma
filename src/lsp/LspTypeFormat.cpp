@@ -58,7 +58,11 @@ auto formatTypeName(Type* type, SymbolTable* rootScope) -> std::string {
     return "list<" + formatTypeName(type->getElementType(), rootScope) + ">";
   }
   if (type->is(BaseType::TY_INT)) {
-    return type->isSigned() ? "int" : "uint";
+    const unsigned w = type->getIntWidth();
+    if (w == 64U) {
+      return type->isSigned() ? "int" : "uint";
+    }
+    return (type->isSigned() ? "int" : "uint") + std::to_string(w);
   }
   if (type->is(BaseType::TY_FLOAT)) {
     return "float";
