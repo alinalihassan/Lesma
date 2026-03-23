@@ -6,13 +6,16 @@ var sum: int = 0
 for v in inferred
     sum = sum + v
 
+for v in typed
+    sum = sum + v
+
 for v in [4, 5]
     sum = sum + v
 
 for v in empty
     exit(1)
 
-if sum != 15
+if sum != 21
     exit(1)
 
 if inferred is not list<int>
