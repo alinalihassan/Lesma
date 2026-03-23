@@ -896,7 +896,8 @@ auto Codegen::visit(const TypeExpr* node) -> void {
     funcType->setReturnType(retType->getType());
     result = std::make_unique<Value>(cacheType(std::move(funcType)));
   } else if (node->getType() == TokenType::CUSTOM_TYPE) {
-    auto git = currentGenericTypes.find(node->getName());
+    const std::string lookupName = node->getLookupName();
+    auto git = currentGenericTypes.find(lookupName);
     if (git != currentGenericTypes.end()) {
       result = std::make_unique<Value>(git->second);
       return;
@@ -906,7 +907,7 @@ auto Codegen::visit(const TypeExpr* node) -> void {
       typeArg->accept(*this);
       explicitTypeArgs.push_back(result->getType());
     }
-    if (node->getName() == "__buffer") {
+    if (lookupName == "__buffer") {
       if (explicitTypeArgs.size() != 1U) {
         throw CodegenError(node->getSpan(), "__buffer<T> expects exactly one type argument");
       }
@@ -917,14 +918,14 @@ auto Codegen::visit(const TypeExpr* node) -> void {
       result = std::make_unique<Value>(type);
       return;
     }
-    auto* typ = scope->lookupType(node->getName());
-    auto* sym = scope->lookupStruct(node->getName());
+    auto* typ = scope->lookupType(lookupName);
+    auto* sym = scope->lookupStruct(lookupName);
     if (typ == nullptr && sym == nullptr) {
       throw CodegenError(node->getSpan(), "Type not found: {}", node->getName());
     }
     if (!explicitTypeArgs.empty()) {
       const Class* templateClass = nullptr;
-      if (auto gitClass = genericClasses.find(node->getName()); gitClass != genericClasses.end()) {
+      if (auto gitClass = genericClasses.find(lookupName); gitClass != genericClasses.end()) {
         templateClass = gitClass->second;
       } else if (sym != nullptr && sym->getGenericClassTemplate() != nullptr) {
         templateClass = static_cast<const Class*>(sym->getGenericClassTemplate());
@@ -1414,7 +1415,7 @@ void Codegen::bindGenericsFromTypePair(const TypeExpr* declared, lesma::Type* ac
     return;
   }
   if (declared->getType() == TokenType::CUSTOM_TYPE) {
-    const std::string& name = declared->getName();
+    const std::string name = declared->getLookupName();
     if (genericNameSet.contains(name) && !env.contains(name)) {
       env[name] = actual;
       return;

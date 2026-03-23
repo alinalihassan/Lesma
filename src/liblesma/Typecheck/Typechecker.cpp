@@ -830,9 +830,10 @@ auto Typechecker::resolveType(const TypeExpr* node) -> Type* {
     return cacheType(std::move(funcType));
   }
   if (node->getType() == TokenType::CUSTOM_TYPE) {
-    auto genericIt = currentGenericTypes.find(node->getName());
+    const std::string lookupName = node->getLookupName();
+    auto genericIt = currentGenericTypes.find(lookupName);
     if (genericIt != currentGenericTypes.end()) {
-      if (Value* genericSymbol = scope->lookup(node->getName())) {
+      if (Value* genericSymbol = scope->lookup(lookupName)) {
         node->setResolvedSymbol(genericSymbol);
       }
       return genericIt->second;
@@ -842,7 +843,7 @@ auto Typechecker::resolveType(const TypeExpr* node) -> Type* {
       typeArg->accept(*this);
       explicitTypeArgs.push_back(result->getType());
     }
-    if (node->getName() == "__buffer") {
+    if (lookupName == "__buffer") {
       if (explicitTypeArgs.size() != 1U) {
         throw TypeCheckError(node->getSpan(), "__buffer<T> expects exactly one type argument");
       }
@@ -851,12 +852,12 @@ auto Typechecker::resolveType(const TypeExpr* node) -> Type* {
       bufferType->setDisplayName(node->getName());
       return bufferType;
     }
-    Type* typ = scope->lookupType(node->getName());
-    Value* sym = scope->lookupStruct(node->getName());
+    Type* typ = scope->lookupType(lookupName);
+    Value* sym = scope->lookupStruct(lookupName);
     bool resolvedFromImport = false;
     if ((typ == nullptr && sym == nullptr) ||
         (sym != nullptr && sym->getType()->is(BaseType::TY_IMPORT))) {
-      auto importedIt = importedNameToSource.find(node->getName());
+      auto importedIt = importedNameToSource.find(lookupName);
       if (importedIt != importedNameToSource.end()) {
         SymbolTable* importScope = getOrTypecheckImport(importedIt->second.first);
         if (importScope != nullptr) {

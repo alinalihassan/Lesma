@@ -155,6 +155,18 @@ public:
   void accept(ASTVisitor& visitor) const override { visitor.visit(this); }
 
   [[nodiscard]] [[maybe_unused]] auto getName() const -> std::string { return name; }
+  /// Base identifier for symbol lookup (e.g. `Pair` for `Pair<int>`). Plain `getName()` keeps the
+  /// full generic spelling for display and diagnostics.
+  [[nodiscard]] auto getLookupName() const -> std::string {
+    if (typeArgs.empty()) {
+      return name;
+    }
+    const auto angle = name.find('<');
+    if (angle == std::string::npos) {
+      return name;
+    }
+    return name.substr(0, angle);
+  }
   [[nodiscard]] [[maybe_unused]] auto getType() const -> TokenType { return type; }
   [[nodiscard]] auto getResolvedSymbol() const -> Value* { return resolvedSymbol; }
   auto setResolvedSymbol(Value* v) const -> void { resolvedSymbol = v; }

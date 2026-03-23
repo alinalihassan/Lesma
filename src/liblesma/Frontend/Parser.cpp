@@ -159,7 +159,7 @@ auto Parser::parseType() -> std::unique_ptr<TypeExpr> {
       }
       lexeme += ">";
       return std::make_unique<TypeExpr>(llvm::SMRange{type->getStart(), greater->getEnd()},
-                                        type->lexeme, TokenType::CUSTOM_TYPE, std::move(typeArgs));
+                                        lexeme, TokenType::CUSTOM_TYPE, std::move(typeArgs));
     }
     return std::make_unique<TypeExpr>(type->span, type->lexeme, TokenType::CUSTOM_TYPE);
   }
