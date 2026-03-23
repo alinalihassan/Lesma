@@ -22,18 +22,6 @@
     {
       "name": "plf-nanotimer",
       "version>=": "1.0.8"
-    },
-    {
-      "name": "llvm",
-      "default-features": false,
-      "features": [
-        "default-targets",
-        "enable-rtti",
-        "enable-zlib",
-        "enable-zstd",
-        "lld",
-        "tools"
-      ]
     }
   ],
   "features": {

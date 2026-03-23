@@ -16,6 +16,7 @@ add_feature_option(LESMA_BUILD_CLI "cli" "Build CLI" ON)
 add_feature_option(LESMA_BUILD_TESTS "tests" "Build Tests" OFF)
 add_feature_option(LESMA_BUILD_BENCHMARKS "benchmarks" "Build Benchmarks" OFF)
 add_feature_option(LESMA_BUILD_DIST "dist" "Build Dist" OFF)
+add_feature_option(LESMA_BUILD_LLVM "build-llvm" "Build LLVM 15 via vcpkg" OFF)
 add_feature_option(LESMA_BUILD_LSP "lsp" "Build Lesma LSP server (lesma-lsp)" OFF)
 option(LESMA_SANITIZE_ADDRESS "Build with AddressSanitizer and LeakSanitizer for memory error and leak detection (Debug builds, all platforms)" OFF)
 
@@ -23,54 +24,6 @@ option(LESMA_SANITIZE_ADDRESS "Build with AddressSanitizer and LeakSanitizer for
 file(READ ${CMAKE_CURRENT_SOURCE_DIR}/vcpkg.json VCPKG_MANIFEST)
 string(JSON LESMA_VERSION GET ${VCPKG_MANIFEST} version)
 set(VERSION ${LESMA_VERSION})
-
-# Prefer vcpkg's built-in release-only triplets so ports like LLVM are not
-# built twice (debug + release). This must happen before project().
-if(DEFINED CMAKE_TOOLCHAIN_FILE AND CMAKE_TOOLCHAIN_FILE MATCHES [[vcpkg\.cmake]])
-  if(CMAKE_SYSTEM_NAME STREQUAL "Darwin" OR CMAKE_HOST_SYSTEM_NAME STREQUAL "Darwin")
-    set(_lesma_triplet_arch "${CMAKE_OSX_ARCHITECTURES}")
-    if(NOT _lesma_triplet_arch)
-      set(_lesma_triplet_arch "${CMAKE_SYSTEM_PROCESSOR}")
-    endif()
-    if(NOT _lesma_triplet_arch)
-      set(_lesma_triplet_arch "${CMAKE_HOST_SYSTEM_PROCESSOR}")
-    endif()
-    if(NOT _lesma_triplet_arch)
-      execute_process(COMMAND /usr/bin/uname -m OUTPUT_VARIABLE _lesma_triplet_arch
-                      OUTPUT_STRIP_TRAILING_WHITESPACE)
-    endif()
-    if(_lesma_triplet_arch MATCHES "^(arm64|aarch64)$")
-      set(_lesma_default_triplet "arm64-osx-release")
-    else()
-      set(_lesma_default_triplet "x64-osx-release")
-    endif()
-  elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux" OR CMAKE_HOST_SYSTEM_NAME STREQUAL "Linux")
-    set(_lesma_triplet_arch "${CMAKE_SYSTEM_PROCESSOR}")
-    if(NOT _lesma_triplet_arch)
-      set(_lesma_triplet_arch "${CMAKE_HOST_SYSTEM_PROCESSOR}")
-    endif()
-    if(NOT _lesma_triplet_arch)
-      execute_process(COMMAND /usr/bin/uname -m OUTPUT_VARIABLE _lesma_triplet_arch
-                      OUTPUT_STRIP_TRAILING_WHITESPACE)
-    endif()
-    if(_lesma_triplet_arch MATCHES "^(arm64|aarch64)$")
-      set(_lesma_default_triplet "arm64-linux-release")
-    else()
-      set(_lesma_default_triplet "x64-linux-release")
-    endif()
-  endif()
-
-  if(DEFINED _lesma_default_triplet AND
-     (NOT DEFINED CACHE{VCPKG_TARGET_TRIPLET} OR
-      VCPKG_TARGET_TRIPLET STREQUAL "" OR
-      VCPKG_TARGET_TRIPLET STREQUAL "arm64-osx" OR
-      VCPKG_TARGET_TRIPLET STREQUAL "x64-osx" OR
-      VCPKG_TARGET_TRIPLET STREQUAL "arm64-linux" OR
-      VCPKG_TARGET_TRIPLET STREQUAL "x64-linux"))
-    set(VCPKG_TARGET_TRIPLET "${_lesma_default_triplet}" CACHE STRING
-        "vcpkg triplet" FORCE)
-  endif()
-endif()
 
 # Project
 project(Lesma VERSION ${VERSION} DESCRIPTION "Lesma Compiler")
@@ -121,31 +74,13 @@ configure_file(
 include_directories(${SRC_DIR})
 include_directories(${LIB_DIR})
 
-# LLVM + LLD from vcpkg manifest (see vcpkg.json). Pin CMake to vcpkg's install so Homebrew LLVM
-# is not picked up when CMAKE_PREFIX_PATH / LLVM_DIR point at /opt/homebrew.
-if(DEFINED VCPKG_INSTALLED_DIR AND DEFINED VCPKG_TARGET_TRIPLET)
-  set(_LESMA_VCPKG_ROOT "${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET}")
-  if(EXISTS "${_LESMA_VCPKG_ROOT}/share/llvm/cmake/LLVMConfig.cmake")
-    unset(LLVM_DIR CACHE)
-    set(LLVM_DIR "${_LESMA_VCPKG_ROOT}/share/llvm/cmake" CACHE PATH "LLVMConfig.cmake from vcpkg"
-        FORCE)
-  elseif(EXISTS "${_LESMA_VCPKG_ROOT}/lib/cmake/llvm/LLVMConfig.cmake")
-    unset(LLVM_DIR CACHE)
-    set(LLVM_DIR "${_LESMA_VCPKG_ROOT}/lib/cmake/llvm" CACHE PATH "LLVMConfig.cmake from vcpkg"
-        FORCE)
-  endif()
-  foreach(_LESMA_LLD_CAND
-          "${_LESMA_VCPKG_ROOT}/share/lld/cmake/LLDConfig.cmake"
-          "${_LESMA_VCPKG_ROOT}/lib/cmake/lld/LLDConfig.cmake")
-    if(EXISTS "${_LESMA_LLD_CAND}")
-      unset(LLD_DIR CACHE)
-      get_filename_component(_LESMA_LLD_DIR "${_LESMA_LLD_CAND}" DIRECTORY)
-      set(LLD_DIR "${_LESMA_LLD_DIR}" CACHE PATH "LLDConfig.cmake from vcpkg" FORCE)
-      break()
-    endif()
-  endforeach()
-endif()
+# Look for local dependencies
+if (EXISTS "${LLVM_DIR}" AND IS_DIRECTORY "${LLVM_DIR}") # Prefer local LLVM installation
+  message(STATUS "Found local installation of LLVM")
+  set(LLVM_DIR ./llvm/build-release/lib/cmake/llvm)
+endif ()
 
+# LLVM configuration
 find_package(LLVM CONFIG REQUIRED)
 
 message(STATUS "Found LLVM ${LLVM_PACKAGE_VERSION}")
@@ -156,7 +91,6 @@ include(HandleLLVMOptions)
 include_directories(SYSTEM ${LLVM_INCLUDE_DIRS})
 add_definitions(${LLVM_DEFINITIONS})
 llvm_map_components_to_libnames(LLVM_LIBS core support demangle native orcjit)
-include_directories(SYSTEM ${LLVM_INCLUDE_DIRS})
 
 # LLD configuration
 find_package(LLD CONFIG REQUIRED)
@@ -198,7 +132,6 @@ target_link_libraries(${LIB_NAME} ${COMMON_LIBS})
 target_include_directories(${LIB_NAME} PUBLIC
   "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/src>"
   ${COMMON_INCLUDE}
-  ${LLVM_INCLUDE_DIRS}
   ${LLD_INCLUDE_DIRS}
   "$<INSTALL_INTERFACE:$<INSTALL_PREFIX>/${CMAKE_INSTALL_INCLUDEDIR}>")
 
