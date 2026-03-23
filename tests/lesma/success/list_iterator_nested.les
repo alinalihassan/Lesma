@@ -1,0 +1,23 @@
+# Nested for-in over the same list (direct `for x in xs`, not xs.iter()).
+# Also ensures non-exported list_iterator<T> in list.iter()'s signature resolves.
+
+let xs = [1, 2, 3]
+
+var count: int = 0
+var sum_outer: int = 0
+var sum_inner: int = 0
+
+for a in xs
+    sum_outer = sum_outer + a
+    for b in xs
+        count = count + 1
+        sum_inner = sum_inner + b
+
+if count != 9
+    exit(1)
+
+if sum_outer != 6
+    exit(1)
+
+if sum_inner != 18
+    exit(1)

@@ -1,6 +1,24 @@
+class list_iterator<T>
+    var storage: __buffer<T>
+    var index: int = 0
+
+    def new(buf: __buffer<T>)
+        self.storage = buf
+        self.index = 0
+
+    def iter() -> *list_iterator<T>
+        return self
+
+    def has_next() -> bool
+        return self.index < __buffer_len(self.storage)
+
+    def next() -> T
+        var value = __buffer_get(self.storage, self.index)
+        self.index += 1
+        return value
+
 export class list<T>
     var storage: __buffer<T>
-    var __iter_index: int = 0
 
     def new()
         self.storage = __buffer_new<T>()
@@ -23,17 +41,8 @@ export class list<T>
     def copy() -> list<T>
         return list<T>(__buffer_copy(self.storage))
 
-    def iter() -> *list<T>
-        self.__iter_index = 0
-        return self
-
-    def has_next() -> bool
-        return self.__iter_index < __buffer_len(self.storage)
-
-    def next() -> T
-        var value = __buffer_get(self.storage, self.__iter_index)
-        self.__iter_index += 1
-        return value
+    def iter() -> *list_iterator<T>
+        return list_iterator<T>(self.storage)
 
     def operator [](index: int) -> T
         return __buffer_get(self.storage, index)

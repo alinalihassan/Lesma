@@ -964,6 +964,21 @@ void Typechecker::loadImplicitStdModule(const std::string& moduleFilename) {
     scope->insertSymbol(std::move(symbol));
     importedNameToSource[name] = std::make_pair(basePath.string(), name);
   }
+  // Non-exported classes/enums may appear in exported members' signatures; resolve them
+  // via the same module path as for exported types (not added as top-level module names).
+  for (auto* sym : baseScope->getSymbols()) {
+    if (sym->isExported()) {
+      continue;
+    }
+    if (!sym->getType()->isOneOf({BaseType::TY_ENUM, BaseType::TY_CLASS})) {
+      continue;
+    }
+    const std::string& name = sym->getName();
+    if (importedNameToSource.contains(name)) {
+      continue;
+    }
+    importedNameToSource[name] = std::make_pair(basePath.string(), name);
+  }
 }
 
 auto Typechecker::resolveImportPath(const std::string& filepath, bool isStd) const -> std::string {

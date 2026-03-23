@@ -417,7 +417,9 @@ auto Codegen::exposeImportedSymbols(llvm::SMRange /*span*/, SymbolTable* importe
     const std::string importedLocalName = getImportedLocalName(importedNames, sym->getName());
     const bool exposeClassForModuleImport =
         !importToScope && sym->getType()->is(BaseType::TY_CLASS);
-    if (sym->getType()->isOneOf({BaseType::TY_ENUM, BaseType::TY_CLASS}) && sym->isExported() &&
+    // Class/enum types from the module are always merged for lookup: exported APIs
+    // may name non-exported helpers in signatures (e.g. list.iter() -> *list_iterator<T>).
+    if (sym->getType()->isOneOf({BaseType::TY_ENUM, BaseType::TY_CLASS}) &&
         (importAll || importedByName || exposeClassForModuleImport)) {
       llvm::StructType* structType =
           StructType::getTypeByName(theModule->getContext(), sym->getName());
