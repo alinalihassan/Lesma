@@ -1,8 +1,5 @@
 #include "LspCompletion.h"
 
-#include "LspAnalysisGraph.h"
-#include "LspUtf16.h"
-
 #include <algorithm>
 #include <array>
 #include <cctype>
@@ -14,6 +11,10 @@
 #include "llvm/ADT/StringRef.h"
 #include "llvm/Support/SourceMgr.h"
 
+#include "LspAnalysisGraph.h"
+#include "LspTypeFormat.h"
+#include "LspUtf16.h"
+
 #include "liblesma/AST/AST.h"
 #include "liblesma/Driver/Driver.h"
 #include "liblesma/Symbol/TypeUtils.h"
@@ -23,6 +24,7 @@ namespace lesma::lsp_srv {
 namespace {
 
 using namespace lesma;
+using lesma::lsp_srv::formatTypeName;
 
 struct CompletionContext {
   bool isMember = false;
@@ -80,42 +82,6 @@ auto splitChain(const std::string& chain) -> std::vector<std::string> {
   return parts;
 }
 
-auto typeDisplayName(Type* type, SymbolTable* root) -> std::string {
-  if (type == nullptr) {
-    return "?";
-  }
-  if (type->is(BaseType::TY_PTR) && type->getElementType() != nullptr) {
-    return "*" + typeDisplayName(type->getElementType(), root);
-  }
-  if (type->is(BaseType::TY_ARRAY) && type->getElementType() != nullptr) {
-    return typeDisplayName(type->getElementType(), root) + "[]";
-  }
-  if (type->is(BaseType::TY_INT)) {
-    return type->isSigned() ? "int" : "uint";
-  }
-  if (type->is(BaseType::TY_FLOAT)) {
-    return "float";
-  }
-  if (type->is(BaseType::TY_STRING)) {
-    return "str";
-  }
-  if (type->is(BaseType::TY_BOOL)) {
-    return "bool";
-  }
-  if (type->is(BaseType::TY_VOID)) {
-    return "void";
-  }
-  if ((type->is(BaseType::TY_CLASS) || type->is(BaseType::TY_ENUM)) && root != nullptr) {
-    for (Value* sym : root->getSymbols()) {
-      if (sym != nullptr && sym->getCategory() == ValueCategory::TYPE_SYMBOL &&
-          sym->getType() == type) {
-        return sym->getName();
-      }
-    }
-  }
-  return type->toString();
-}
-
 auto symbolDetail(Value* value, SymbolTable* root) -> std::string {
   if (value == nullptr || value->getType() == nullptr) {
     return {};
@@ -129,15 +95,15 @@ auto symbolDetail(Value* value, SymbolTable* root) -> std::string {
       if (i > 0U) {
         oss << ", ";
       }
-      oss << fields[i]->name << ": " << typeDisplayName(fields[i]->type, root);
+      oss << fields[i]->name << ": " << formatTypeName(fields[i]->type, root);
     }
     oss << ")";
     if (type->getReturnType() != nullptr && !type->getReturnType()->is(BaseType::TY_VOID)) {
-      oss << " -> " << typeDisplayName(type->getReturnType(), root);
+      oss << " -> " << formatTypeName(type->getReturnType(), root);
     }
     return oss.str();
   }
-  return typeDisplayName(type, root);
+  return formatTypeName(type, root);
 }
 
 auto candidateKindForValue(Value* value) -> ::lsp::CompletionItemKind {
@@ -545,8 +511,7 @@ void addCandidate(std::vector<CompletionCandidate>& out, std::unordered_set<std:
   out.push_back(std::move(candidate));
 }
 
-void appendMembersForType(AnalysisResult& result, Type* baseType, Compound* ast,
-                          SymbolTable* root,
+void appendMembersForType(AnalysisResult& result, Type* baseType, Compound* ast, SymbolTable* root,
                           std::vector<CompletionCandidate>& out,
                           std::unordered_set<std::string>& seen) {
   if (baseType == nullptr) {
@@ -568,7 +533,7 @@ void appendMembersForType(AnalysisResult& result, Type* baseType, Compound* ast,
                                      .kind = baseType->is(BaseType::TY_ENUM)
                                                  ? ::lsp::CompletionItemKind::EnumMember
                                                  : ::lsp::CompletionItemKind::Field,
-                                     .detail = typeDisplayName(field->type, root)});
+                                     .detail = formatTypeName(field->type, root)});
   }
 
   if (!baseType->is(BaseType::TY_CLASS) || root == nullptr) {
@@ -579,7 +544,8 @@ void appendMembersForType(AnalysisResult& result, Type* baseType, Compound* ast,
   }
 }
 
-void appendScopeSymbols(SymbolTable* scope, SymbolTable* root, std::vector<CompletionCandidate>& out,
+void appendScopeSymbols(SymbolTable* scope, SymbolTable* root,
+                        std::vector<CompletionCandidate>& out,
                         std::unordered_set<std::string>& seen) {
   for (SymbolTable* current = scope; current != nullptr; current = current->getParent()) {
     for (Value* value : current->getSymbols()) {
@@ -598,34 +564,37 @@ void appendScopeSymbols(SymbolTable* scope, SymbolTable* root, std::vector<Compl
 
 void appendKeywords(std::vector<CompletionCandidate>& out, std::unordered_set<std::string>& seen) {
   static constexpr std::array<std::string_view, 25> keywords = {
-      "and",      "as",   "break",  "class", "continue", "def", "defer", "else",   "enum",
-      "export",   "extern", "for",  "from",  "if",       "import", "in", "is",     "let",
-      "not",      "or",   "return", "super", "this",     "var", "while",
+      "and",    "as",     "break",  "class", "continue", "def",    "defer", "else", "enum",
+      "export", "extern", "for",    "from",  "if",       "import", "in",    "is",   "let",
+      "not",    "or",     "return", "super", "this",     "var",    "while",
   };
   static constexpr std::array<std::string_view, 3> literals = {"false", "null", "true"};
   static constexpr std::array<std::string_view, 11> builtinTypes = {
-      "bool", "float", "float32", "float64", "int", "int8",
-      "int16", "int32", "int64", "str", "void",
+      "bool",  "float", "float32", "float64", "int",  "int8",
+      "int16", "int32", "int64",   "str",     "void",
   };
   for (std::string_view keyword : keywords) {
-    addCandidate(out, seen, CompletionCandidate{.label = std::string(keyword),
-                                                .kind = ::lsp::CompletionItemKind::Keyword,
-                                                .detail = {}});
+    addCandidate(out, seen,
+                 CompletionCandidate{.label = std::string(keyword),
+                                     .kind = ::lsp::CompletionItemKind::Keyword,
+                                     .detail = {}});
   }
   for (std::string_view literal : literals) {
-    addCandidate(out, seen, CompletionCandidate{.label = std::string(literal),
-                                                .kind = ::lsp::CompletionItemKind::Value,
-                                                .detail = {}});
+    addCandidate(out, seen,
+                 CompletionCandidate{.label = std::string(literal),
+                                     .kind = ::lsp::CompletionItemKind::Value,
+                                     .detail = {}});
   }
   for (std::string_view builtinType : builtinTypes) {
-    addCandidate(out, seen, CompletionCandidate{.label = std::string(builtinType),
-                                                .kind = ::lsp::CompletionItemKind::Class,
-                                                .detail = "built-in type"});
+    addCandidate(out, seen,
+                 CompletionCandidate{.label = std::string(builtinType),
+                                     .kind = ::lsp::CompletionItemKind::Class,
+                                     .detail = "built-in type"});
   }
 }
 
-auto toCompletionItems(const std::vector<CompletionCandidate>& candidates, const std::string& prefix)
-    -> std::vector<::lsp::CompletionItem> {
+auto toCompletionItems(const std::vector<CompletionCandidate>& candidates,
+                       const std::string& prefix) -> std::vector<::lsp::CompletionItem> {
   std::vector<::lsp::CompletionItem> items;
   for (const CompletionCandidate& candidate : candidates) {
     if (!startsWith(candidate.label, prefix)) {
@@ -640,8 +609,7 @@ auto toCompletionItems(const std::vector<CompletionCandidate>& candidates, const
     items.push_back(std::move(item));
   }
   std::sort(items.begin(), items.end(),
-            [](const ::lsp::CompletionItem& lhs,
-               const ::lsp::CompletionItem& rhs) -> bool {
+            [](const ::lsp::CompletionItem& lhs, const ::lsp::CompletionItem& rhs) -> bool {
               return lhs.label < rhs.label;
             });
   return items;

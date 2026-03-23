@@ -15,6 +15,7 @@
 #include "DocumentStore.h"
 #include "LspAnalysisGraph.h"
 #include "LspCompletion.h"
+#include "LspTypeFormat.h"
 #include "LspUtf16.h"
 #include <lsp/connection.h>
 #include <lsp/io/standardio.h>
@@ -298,79 +299,6 @@ auto runAnalyzeAndPublish(const ::lsp::DocumentUri& uri,
           .uri = uri,
           .diagnostics = std::move(lspDiagnostics),
       });
-}
-
-/** Get the class or enum name for a type by looking it up in the symbol table. */
-auto getTypeName(lesma::Type* type, lesma::SymbolTable* rootScope) -> std::string {
-  if (type == nullptr || rootScope == nullptr) {
-    return "";
-  }
-  // For class and enum types, look up the name by finding the TYPE_SYMBOL Value
-  // that has this type (classes/enums are stored as TYPE_SYMBOL values)
-  if (type->is(lesma::BaseType::TY_CLASS) || type->is(lesma::BaseType::TY_ENUM)) {
-    // Search through all symbols to find the TYPE_SYMBOL with this type
-    std::function<lesma::Value*(lesma::SymbolTable*)> findTypeSymbol =
-        [&](lesma::SymbolTable* scope) -> lesma::Value* {
-      if (scope == nullptr) {
-        return nullptr;
-      }
-      // Check symbols in this scope
-      for (lesma::Value* sym : scope->getSymbols()) {
-        if (sym->getCategory() == lesma::ValueCategory::TYPE_SYMBOL && sym->getType() == type) {
-          return sym;
-        }
-      }
-      // Recursively check parent scopes
-      return findTypeSymbol(scope->getParent());
-    };
-    lesma::Value* typeSymbol = findTypeSymbol(rootScope);
-    if (typeSymbol != nullptr) {
-      return typeSymbol->getName();
-    }
-  }
-  // Handle pointer types - get the element type name
-  if (type->is(lesma::BaseType::TY_PTR) && type->getElementType() != nullptr) {
-    lesma::Type* elementType = type->getElementType();
-    if (elementType->is(lesma::BaseType::TY_CLASS) || elementType->is(lesma::BaseType::TY_ENUM)) {
-      std::string elementName = getTypeName(elementType, rootScope);
-      if (!elementName.empty()) {
-        return "*" + elementName;
-      }
-    }
-  }
-  return "";
-}
-
-auto formatTypeName(lesma::Type* type, lesma::SymbolTable* rootScope) -> std::string {
-  if (type == nullptr) {
-    return "?";
-  }
-  std::string namedType = getTypeName(type, rootScope);
-  if (!namedType.empty()) {
-    return namedType;
-  }
-  if (type->is(lesma::BaseType::TY_PTR) && type->getElementType() != nullptr) {
-    return "*" + formatTypeName(type->getElementType(), rootScope);
-  }
-  if (type->is(lesma::BaseType::TY_ARRAY) && type->getElementType() != nullptr) {
-    return "list<" + formatTypeName(type->getElementType(), rootScope) + ">";
-  }
-  if (type->is(lesma::BaseType::TY_INT)) {
-    return type->isSigned() ? "int" : "uint";
-  }
-  if (type->is(lesma::BaseType::TY_FLOAT)) {
-    return "float";
-  }
-  if (type->is(lesma::BaseType::TY_STRING)) {
-    return "str";
-  }
-  if (type->is(lesma::BaseType::TY_BOOL)) {
-    return "bool";
-  }
-  if (type->is(lesma::BaseType::TY_VOID)) {
-    return "void";
-  }
-  return type->toString();
 }
 
 auto formatCallableHoverType(lesma::Type* type, lesma::SymbolTable* rootScope) -> std::string {
