@@ -7,6 +7,7 @@
 #include "llvm/Support/SMLoc.h"
 
 #include "liblesma/AST/AST.h"
+#include "liblesma/Symbol/TypeUtils.h"
 
 using namespace lesma;
 
@@ -35,19 +36,114 @@ auto declarationIdentityFromValue(const Value* resolvedSymbol)
   };
 }
 
+auto declarationIdentityFromField(const Field* field) -> std::optional<IndexedDeclarationIdentity> {
+  if (field == nullptr || !field->getDeclarationSpan().isValid() ||
+      field->getDeclarationFilePath().empty()) {
+    return std::nullopt;
+  }
+  return IndexedDeclarationIdentity{
+      .filePath = field->getDeclarationFilePath(),
+      .span = field->getDeclarationSpan(),
+  };
+}
+
+auto indexedTokenKindFromDeclarationKind(ValueDeclarationKind declarationKind)
+    -> std::optional<IndexedTokenKind> {
+  switch (declarationKind) {
+  case ValueDeclarationKind::UNKNOWN:
+    return std::nullopt;
+  case ValueDeclarationKind::NAMESPACE:
+    return IndexedTokenKind::Namespace;
+  case ValueDeclarationKind::CLASS:
+    return IndexedTokenKind::Class;
+  case ValueDeclarationKind::ENUM:
+    return IndexedTokenKind::Enum;
+  case ValueDeclarationKind::ENUM_MEMBER:
+    return IndexedTokenKind::EnumMember;
+  case ValueDeclarationKind::TYPE:
+    return IndexedTokenKind::Type;
+  case ValueDeclarationKind::TYPE_PARAMETER:
+    return IndexedTokenKind::TypeParameter;
+  case ValueDeclarationKind::FUNCTION:
+    return IndexedTokenKind::Function;
+  case ValueDeclarationKind::METHOD:
+    return IndexedTokenKind::Method;
+  case ValueDeclarationKind::PARAMETER:
+    return IndexedTokenKind::Parameter;
+  case ValueDeclarationKind::VARIABLE:
+    return IndexedTokenKind::Variable;
+  case ValueDeclarationKind::PROPERTY:
+    return IndexedTokenKind::Property;
+  }
+}
+
+auto indexedTokenKindFromResolvedSymbol(const Value* resolvedSymbol, bool isTypePosition,
+                                        bool isMemberAccess,
+                                        IndexedTokenKind fallbackKind)
+    -> IndexedTokenKind {
+  if (resolvedSymbol == nullptr) {
+    return fallbackKind;
+  }
+  if (std::optional<IndexedTokenKind> declarationKind =
+          indexedTokenKindFromDeclarationKind(resolvedSymbol->getDeclarationKind())) {
+    return *declarationKind;
+  }
+  Type* const resolvedType = resolvedSymbol->getType();
+  if (isTypePosition) {
+    if (resolvedType != nullptr && resolvedType->is(BaseType::TY_GENERIC)) {
+      return IndexedTokenKind::TypeParameter;
+    }
+    if (resolvedSymbol->getCategory() == ValueCategory::TYPE_SYMBOL && resolvedType != nullptr) {
+      if (resolvedType->is(BaseType::TY_CLASS)) {
+        return IndexedTokenKind::Class;
+      }
+      if (resolvedType->is(BaseType::TY_ENUM)) {
+        return IndexedTokenKind::Enum;
+      }
+    }
+    return IndexedTokenKind::Type;
+  }
+  switch (resolvedSymbol->getCategory()) {
+  case ValueCategory::MODULE_SYMBOL:
+    return IndexedTokenKind::Namespace;
+  case ValueCategory::TYPE_SYMBOL:
+    if (resolvedType != nullptr && resolvedType->is(BaseType::TY_GENERIC)) {
+      return IndexedTokenKind::TypeParameter;
+    }
+    if (resolvedType != nullptr && resolvedType->is(BaseType::TY_CLASS)) {
+      return IndexedTokenKind::Class;
+    }
+    if (resolvedType != nullptr && resolvedType->is(BaseType::TY_ENUM)) {
+      return IndexedTokenKind::Enum;
+    }
+    return IndexedTokenKind::Type;
+  case ValueCategory::CALLABLE_SYMBOL:
+    return isMemberAccess ? IndexedTokenKind::Method : IndexedTokenKind::Function;
+  case ValueCategory::ADDRESSABLE_STORAGE:
+  case ValueCategory::DIRECT_VALUE:
+    return isMemberAccess ? IndexedTokenKind::Property : fallbackKind;
+  }
+  return fallbackKind;
+}
+
 auto appendIndexedOccurrence(AnalysisIndex& index, const std::string& name,
                              std::optional<std::string> dotBase, llvm::SMRange span,
                              bool isTypePosition, bool isMemberAccess, unsigned modifiers,
                              std::optional<IndexedTokenKind> fallbackTokenKind,
-                             const Value* resolvedSymbol = nullptr) -> void {
+                             const Value* resolvedSymbol = nullptr,
+                             std::optional<IndexedDeclarationIdentity> declaration = std::nullopt)
+    -> void {
   if (!span.isValid()) {
     return;
+  }
+  if (!declaration.has_value()) {
+    declaration = declarationIdentityFromValue(resolvedSymbol);
   }
   index.symbolOccurrences.push_back(IndexedSymbolOccurrence{
       .name = name,
       .dotBase = std::move(dotBase),
       .span = span,
-      .declaration = declarationIdentityFromValue(resolvedSymbol),
+      .declaration = std::move(declaration),
       .isTypePosition = isTypePosition,
       .isMemberAccess = isMemberAccess,
       .modifiers = modifiers,
@@ -55,12 +151,94 @@ auto appendIndexedOccurrence(AnalysisIndex& index, const std::string& name,
   });
 }
 
-auto memberBaseName(const Expression* expr) -> std::optional<std::string> {
+auto resolvedTypeForExpr(const Expression* expr) -> Type* {
+  if (expr == nullptr) {
+    return nullptr;
+  }
+  if (auto const* lit = dynamic_cast<const Literal*>(expr)) {
+    Value* const resolvedSymbol = lit->getResolvedSymbol();
+    return resolvedSymbol != nullptr ? resolvedSymbol->getType() : nullptr;
+  }
+  if (auto const* typeExpr = dynamic_cast<const TypeExpr*>(expr)) {
+    Value* const resolvedSymbol = typeExpr->getResolvedSymbol();
+    return resolvedSymbol != nullptr ? resolvedSymbol->getType() : nullptr;
+  }
+  if (auto const* call = dynamic_cast<const FuncCall*>(expr)) {
+    Value* const resolvedSymbol = call->getResolvedSymbol();
+    return resolvedSymbol != nullptr && resolvedSymbol->getType() != nullptr
+               ? resolvedSymbol->getType()->getReturnType()
+               : nullptr;
+  }
+  if (auto const* castOp = dynamic_cast<const CastOp*>(expr)) {
+    return resolvedTypeForExpr(castOp->getType());
+  }
+  if (auto const* dot = dynamic_cast<const DotOp*>(expr)) {
+    Type* baseType = resolvedTypeForExpr(dot->getLeft());
+    if (baseType == nullptr) {
+      return nullptr;
+    }
+    if (baseType->is(BaseType::TY_PTR) && baseType->getElementType() != nullptr) {
+      baseType = baseType->getElementType();
+    }
+    if (auto const* rightCall = dynamic_cast<const FuncCall*>(dot->getRight())) {
+      Value* const resolvedSymbol = rightCall->getResolvedSymbol();
+      return resolvedSymbol != nullptr && resolvedSymbol->getType() != nullptr
+                 ? resolvedSymbol->getType()->getReturnType()
+                 : nullptr;
+    }
+    auto const* rightLit = dynamic_cast<const Literal*>(dot->getRight());
+    if (rightLit == nullptr || rightLit->getType() != TokenType::IDENTIFIER ||
+        !baseType->isOneOf({BaseType::TY_CLASS, BaseType::TY_ENUM})) {
+      return nullptr;
+    }
+    return TypeUtils::findTypeInFields(baseType, rightLit->getValue());
+  }
+  return nullptr;
+}
+
+auto memberReceiverName(const Expression* expr) -> std::optional<std::string> {
+  if (auto const* dot = dynamic_cast<const DotOp*>(expr)) {
+    return memberReceiverName(dot->getLeft());
+  }
   auto const* lit = dynamic_cast<const Literal*>(expr);
   if (lit == nullptr || lit->getType() != TokenType::IDENTIFIER) {
     return std::nullopt;
   }
   return lit->getValue();
+}
+
+auto memberBaseName(const Expression* expr) -> std::optional<std::string> {
+  Expression const* baseExpr = expr;
+  if (auto const* dot = dynamic_cast<const DotOp*>(expr)) {
+    baseExpr = dot->getLeft();
+  }
+  std::optional<std::string> receiverName = memberReceiverName(baseExpr);
+  if (!receiverName.has_value()) {
+    return std::nullopt;
+  }
+  Type* resolvedType = resolvedTypeForExpr(baseExpr);
+  if (resolvedType == nullptr) {
+    return std::nullopt;
+  }
+  if (resolvedType->is(BaseType::TY_PTR) && resolvedType->getElementType() != nullptr) {
+    resolvedType = resolvedType->getElementType();
+  }
+  if (!resolvedType->is(BaseType::TY_ENUM)) {
+    return std::nullopt;
+  }
+  return receiverName;
+}
+
+auto fieldDeclarationFromMemberAccess(const Expression* expr, const std::string& memberName)
+    -> std::optional<IndexedDeclarationIdentity> {
+  Type* resolvedType = resolvedTypeForExpr(expr);
+  if (resolvedType == nullptr) {
+    return std::nullopt;
+  }
+  if (resolvedType->is(BaseType::TY_PTR) && resolvedType->getElementType() != nullptr) {
+    resolvedType = resolvedType->getElementType();
+  }
+  return declarationIdentityFromField(TypeUtils::findFieldInFields(resolvedType, memberName));
 }
 
 auto collectIndexFromTypeExpr(const TypeExpr* typeExpr, AnalysisIndex& index) -> void;
@@ -115,7 +293,9 @@ auto collectIndexFromTypeExpr(const TypeExpr* typeExpr, AnalysisIndex& index) ->
       span = makeNameSpan(typeExpr->getStart(), name);
     }
     appendIndexedOccurrence(index, name, std::nullopt, span, true, false, 0U,
-                            IndexedTokenKind::Type, resolvedSymbol);
+                            indexedTokenKindFromResolvedSymbol(resolvedSymbol, true, false,
+                                                                 IndexedTokenKind::Type),
+                            resolvedSymbol);
   }
   collectIndexFromTypeExpr(typeExpr->getElementType(), index);
   for (TypeExpr* typeArg : typeExpr->getTypeArgs()) {
@@ -133,8 +313,11 @@ auto collectIndexFromExpr(const Expression* expr, AnalysisIndex& index) -> void 
   }
   if (auto const* lit = dynamic_cast<const Literal*>(expr)) {
     if (lit->getType() == TokenType::IDENTIFIER) {
+      Value* const resolvedSymbol = lit->getResolvedSymbol();
       appendIndexedOccurrence(index, lit->getValue(), std::nullopt, lit->getSpan(), false, false,
-                              0U, IndexedTokenKind::Variable, lit->getResolvedSymbol());
+                              0U, indexedTokenKindFromResolvedSymbol(
+                                      resolvedSymbol, false, false, IndexedTokenKind::Variable),
+                              resolvedSymbol);
     }
     return;
   }
@@ -152,20 +335,17 @@ auto collectIndexFromExpr(const Expression* expr, AnalysisIndex& index) -> void 
   }
   if (auto const* dot = dynamic_cast<const DotOp*>(expr)) {
     collectIndexFromExpr(dot->getLeft(), index);
-    std::optional<std::string> const dotBase = memberBaseName(dot->getLeft());
+    std::optional<std::string> const dotBase = memberReceiverName(dot->getLeft());
+    std::optional<std::string> const enumBase = memberBaseName(dot->getLeft());
+    bool const isEnumMemberAccess = enumBase.has_value();
     if (auto const* rightLit = dynamic_cast<const Literal*>(dot->getRight())) {
       if (rightLit->getType() == TokenType::IDENTIFIER) {
-        if (dotBase.has_value()) {
-          index.enumMemberOccurrences.push_back(IndexedEnumMemberOccurrence{
-              .enumName = *dotBase,
-              .memberName = rightLit->getValue(),
-              .span = rightLit->getSpan(),
-          });
-        }
+        std::optional<IndexedDeclarationIdentity> const fieldDeclaration =
+            fieldDeclarationFromMemberAccess(dot->getLeft(), rightLit->getValue());
         appendIndexedOccurrence(index, rightLit->getValue(), dotBase, rightLit->getSpan(), false,
-                                true, 0U, dotBase.has_value() ? IndexedTokenKind::EnumMember
-                                                              : IndexedTokenKind::Property,
-                                rightLit->getResolvedSymbol());
+                                true, 0U, isEnumMemberAccess ? IndexedTokenKind::EnumMember
+                                                             : IndexedTokenKind::Property,
+                                rightLit->getResolvedSymbol(), fieldDeclaration);
         return;
       }
     }
@@ -264,15 +444,18 @@ auto collectIndexFromStmt(const Statement* stmt, AnalysisIndex& index, bool inCl
     appendIndexedOccurrence(index, enumNode->getIdentifier(), std::nullopt, enumNode->getNameSpan(),
                             true, false, analysis_index_modifier::DECLARATION,
                             IndexedTokenKind::Enum, enumNode->getResolvedSymbol());
-    for (const NamedSpan& valueDecl : getEnumValueDecls(enumNode)) {
+    std::vector<Field*> const fields =
+        enumNode->getResolvedSymbol() != nullptr && enumNode->getResolvedSymbol()->getType() != nullptr
+            ? enumNode->getResolvedSymbol()->getType()->getFields()
+            : std::vector<Field*>{};
+    std::vector<NamedSpan> const valueDecls = getEnumValueDecls(enumNode);
+    for (size_t i = 0; i < valueDecls.size(); ++i) {
+      const NamedSpan& valueDecl = valueDecls[i];
       appendIndexedOccurrence(index, valueDecl.name, std::nullopt, valueDecl.span, false, false,
                               analysis_index_modifier::DECLARATION,
-                              IndexedTokenKind::EnumMember);
-      index.enumMemberOccurrences.push_back(IndexedEnumMemberOccurrence{
-          .enumName = enumNode->getIdentifier(),
-          .memberName = valueDecl.name,
-          .span = valueDecl.span,
-      });
+                              IndexedTokenKind::EnumMember, nullptr,
+                              i < fields.size() ? declarationIdentityFromField(fields[i])
+                                                : std::nullopt);
     }
     return;
   }

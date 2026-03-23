@@ -87,6 +87,7 @@ void insertGenericParamSymbols(SymbolTable* genericsScope,
     }
     auto genericSymbol = std::make_unique<Value>(param.name, it->second);
     genericSymbol->setCategory(ValueCategory::TYPE_SYMBOL);
+    genericSymbol->setDeclarationKind(ValueDeclarationKind::TYPE_PARAMETER);
     genericSymbol->setDeclarationSpan(param.span);
     genericSymbol->setDeclarationFilePath(mainFilePath);
     genericsScope->insertSymbol(std::move(genericSymbol));
@@ -435,8 +436,23 @@ auto Typechecker::materializeImportedType(Type* type) -> Type* {
     importedTypeCopies[type] = copy;
     copy->setDisplayName(type->getDisplayName());
     copy->setGenericParams(type->getGenericParams());
+    copy->setDeclarationSpan(type->getDeclarationSpan());
+    copy->setDeclarationFilePath(type->getDeclarationFilePath());
     for (Field* field : type->getFields()) {
-      copy->addField(std::make_unique<Field>(field->name, materializeImportedType(field->type)));
+      auto fieldCopy = std::make_unique<Field>(field->name, materializeImportedType(field->type));
+      fieldCopy->setDeclarationSpan(field->getDeclarationSpan());
+      fieldCopy->setDeclarationFilePath(field->getDeclarationFilePath());
+      if (Value* declarationSymbol = field->getDeclarationSymbol()) {
+        auto symbolCopy = std::make_unique<Value>(declarationSymbol->getName(),
+                                                  materializeImportedType(field->type));
+        symbolCopy->setCategory(declarationSymbol->getCategory());
+        symbolCopy->setDeclarationKind(declarationSymbol->getDeclarationKind());
+        symbolCopy->setDeclarationSpan(declarationSymbol->getDeclarationSpan());
+        symbolCopy->setDeclarationFilePath(declarationSymbol->getDeclarationFilePath());
+        symbolCopy->setMutable(declarationSymbol->getMutability());
+        fieldCopy->setDeclarationSymbol(std::move(symbolCopy));
+      }
+      copy->addField(std::move(fieldCopy));
     }
     if (auto envIt = specializedTypeEnv.find(type); envIt != specializedTypeEnv.end()) {
       std::unordered_map<std::string, Type*> envCopy;
@@ -469,7 +485,20 @@ auto Typechecker::materializeImportedType(Type* type) -> Type* {
   if (type->is(BaseType::TY_FUNCTION)) {
     std::vector<std::unique_ptr<Field>> fields;
     for (Field* field : type->getFields()) {
-      fields.push_back(std::make_unique<Field>(field->name, materializeImportedType(field->type)));
+      auto fieldCopy = std::make_unique<Field>(field->name, materializeImportedType(field->type));
+      fieldCopy->setDeclarationSpan(field->getDeclarationSpan());
+      fieldCopy->setDeclarationFilePath(field->getDeclarationFilePath());
+      if (Value* declarationSymbol = field->getDeclarationSymbol()) {
+        auto symbolCopy = std::make_unique<Value>(declarationSymbol->getName(),
+                                                  materializeImportedType(field->type));
+        symbolCopy->setCategory(declarationSymbol->getCategory());
+        symbolCopy->setDeclarationKind(declarationSymbol->getDeclarationKind());
+        symbolCopy->setDeclarationSpan(declarationSymbol->getDeclarationSpan());
+        symbolCopy->setDeclarationFilePath(declarationSymbol->getDeclarationFilePath());
+        symbolCopy->setMutable(declarationSymbol->getMutability());
+        fieldCopy->setDeclarationSymbol(std::move(symbolCopy));
+      }
+      fields.push_back(std::move(fieldCopy));
     }
     auto funcType = std::make_unique<Type>(BaseType::TY_FUNCTION, nullptr, std::move(fields));
     funcType->setReturnType(materializeImportedType(type->getReturnType()));
@@ -624,6 +653,8 @@ auto Typechecker::getOrCreateSpecializedClassType(Type* classTemplate,
   specializedTypeEnv[ptr] = env;
   specializedTypeToTemplate[ptr] = classTemplate;
   ptr->setGenericParams(genericParamNames);
+  ptr->setDeclarationSpan(classTemplate->getDeclarationSpan());
+  ptr->setDeclarationFilePath(classTemplate->getDeclarationFilePath());
   ptr->setDisplayName(makeSpecializedDisplayName(classTemplate, genericParamNames, env));
   return ptr;
 }
@@ -801,7 +832,9 @@ auto Typechecker::resolveType(const TypeExpr* node) -> Type* {
   if (node->getType() == TokenType::CUSTOM_TYPE) {
     auto genericIt = currentGenericTypes.find(node->getName());
     if (genericIt != currentGenericTypes.end()) {
-      node->setResolvedSymbol(scope->lookup(node->getName()));
+      if (Value* genericSymbol = scope->lookup(node->getName())) {
+        node->setResolvedSymbol(genericSymbol);
+      }
       return genericIt->second;
     }
     std::vector<Type*> explicitTypeArgs;
@@ -943,6 +976,9 @@ auto Typechecker::getOrTypecheckImport(const std::string& absolutePath) -> Symbo
   imported->parser = std::move(parser);
   imported->rootScope = sub.takeRootScope();
   imported->typeCache = sub.takeTypeCache();
+  imported->index =
+      buildAnalysisIndex(imported->parser != nullptr ? imported->parser->getAst() : nullptr,
+                         imported->sourceMgr.get(), imported->mainBufferId);
   imported->importAliasToPath = sub.takeImportAliasToPath();
   imported->importedNameToSource = sub.takeImportedNameToSource();
   imported->importedModules = sub.takeImportedModules();
@@ -1028,6 +1064,7 @@ auto Typechecker::visit(const VarDecl* node) -> void {
   auto symbol = std::make_unique<Value>(node->getIdentifier()->getValue(), declType,
                                         SymbolState::INITIALIZED);
   symbol->setCategory(ValueCategory::ADDRESSABLE_STORAGE);
+  symbol->setDeclarationKind(ValueDeclarationKind::VARIABLE);
   symbol->setMutable(node->getMutability());
   symbol->setDeclarationSpan(node->getIdentifier()->getSpan());
   symbol->setDeclarationFilePath(mainFilePath);
@@ -1146,6 +1183,7 @@ auto Typechecker::visit(const Import* node) -> void {
     if (!name.empty()) {
       auto symbol = std::make_unique<Value>(name, importType);
       symbol->setCategory(ValueCategory::MODULE_SYMBOL);
+      symbol->setDeclarationKind(ValueDeclarationKind::NAMESPACE);
       scope->insertSymbol(std::move(symbol));
     }
   };
@@ -1185,12 +1223,26 @@ auto Typechecker::visit(const Enum* node) -> void {
       std::make_unique<Type>(BaseType::TY_ENUM, nullptr, std::vector<std::unique_ptr<Field>>{});
   Type* typePtr = type.get();
   type->setDisplayName(node->getIdentifier());
-  for (const std::string& field : node->getValues()) {
-    type->addField(std::make_unique<Field>(field, typePtr));
+  std::vector<std::string> const values = node->getValues();
+  std::vector<llvm::SMRange> const& valueSpans = node->getValueSpans();
+  for (size_t i = 0; i < values.size(); ++i) {
+    auto field = std::make_unique<Field>(values[i], typePtr);
+    if (i < valueSpans.size()) {
+      field->setDeclarationSpan(valueSpans[i]);
+      field->setDeclarationFilePath(mainFilePath);
+      auto memberSymbol = std::make_unique<Value>(values[i], typePtr);
+      memberSymbol->setCategory(ValueCategory::DIRECT_VALUE);
+      memberSymbol->setDeclarationKind(ValueDeclarationKind::ENUM_MEMBER);
+      memberSymbol->setDeclarationSpan(valueSpans[i]);
+      memberSymbol->setDeclarationFilePath(mainFilePath);
+      field->setDeclarationSymbol(std::move(memberSymbol));
+    }
+    type->addField(std::move(field));
   }
   scope->insertType(node->getIdentifier(), std::move(type));
   auto enumSymbol = std::make_unique<Value>(node->getIdentifier(), typePtr);
   enumSymbol->setCategory(ValueCategory::TYPE_SYMBOL);
+  enumSymbol->setDeclarationKind(ValueDeclarationKind::ENUM);
   enumSymbol->setExported(node->isExported());
   enumSymbol->setDeclarationSpan(node->getNameSpan());
   enumSymbol->setDeclarationFilePath(mainFilePath);
@@ -1237,15 +1289,30 @@ auto Typechecker::visit(const Class* node) -> void {
       if (fieldType == nullptr) {
         throw TypeCheckError(field->getSpan(), "Class field has no type");
       }
-      fields.push_back(std::make_unique<Field>(field->getIdentifier()->getValue(), fieldType));
+      auto fieldEntry = std::make_unique<Field>(field->getIdentifier()->getValue(), fieldType);
+      fieldEntry->setDeclarationSpan(field->getIdentifier()->getSpan());
+      fieldEntry->setDeclarationFilePath(mainFilePath);
+      auto fieldSymbol = std::make_unique<Value>(field->getIdentifier()->getValue(), fieldType,
+                                                 SymbolState::INITIALIZED);
+      fieldSymbol->setCategory(ValueCategory::ADDRESSABLE_STORAGE);
+      fieldSymbol->setDeclarationKind(ValueDeclarationKind::PROPERTY);
+      fieldSymbol->setMutable(field->getMutability());
+      fieldSymbol->setDeclarationSpan(field->getIdentifier()->getSpan());
+      fieldSymbol->setDeclarationFilePath(mainFilePath);
+      field->setResolvedSymbol(fieldSymbol.get());
+      fieldEntry->setDeclarationSymbol(std::move(fieldSymbol));
+      fields.push_back(std::move(fieldEntry));
     }
     auto type = std::make_unique<Type>(BaseType::TY_CLASS, nullptr, std::move(fields));
     type->setDisplayName(node->getIdentifier() +
                          makeGenericDisplaySuffix(node->getGenericParams()));
+    type->setDeclarationSpan(node->getNameSpan());
+    type->setDeclarationFilePath(mainFilePath);
     classTypePtr = type.get();
     outerScope->insertType(node->getIdentifier(), std::move(type));
     auto classSymbol = std::make_unique<Value>(node->getIdentifier(), classTypePtr);
     classSymbol->setCategory(ValueCategory::TYPE_SYMBOL);
+    classSymbol->setDeclarationKind(ValueDeclarationKind::CLASS);
     classSymbol->setExported(node->isExported());
     classSymbol->setDeclarationSpan(node->getNameSpan());
     classSymbol->setDeclarationFilePath(mainFilePath);
@@ -1335,6 +1402,8 @@ auto Typechecker::visit(const FuncDecl* node) -> void {
     if (funcSymbol == nullptr) {
       auto declaredFunc = std::make_unique<Value>(node->getName(), funcTypePtr);
       declaredFunc->setCategory(ValueCategory::CALLABLE_SYMBOL);
+      declaredFunc->setDeclarationKind(currentClassType != nullptr ? ValueDeclarationKind::METHOD
+                                                                   : ValueDeclarationKind::FUNCTION);
       declaredFunc->setExported(node->isExported());
       declaredFunc->setDeclarationSpan(node->getNameSpan());
       declaredFunc->setDeclarationFilePath(mainFilePath);
@@ -1346,6 +1415,8 @@ auto Typechecker::visit(const FuncDecl* node) -> void {
       }
     } else {
       funcSymbol->setType(funcTypePtr);
+      funcSymbol->setDeclarationKind(currentClassType != nullptr ? ValueDeclarationKind::METHOD
+                                                                 : ValueDeclarationKind::FUNCTION);
       funcSymbol->setExported(node->isExported());
       funcSymbol->setDeclarationSpan(node->getNameSpan());
       funcSymbol->setDeclarationFilePath(mainFilePath);
@@ -1363,6 +1434,7 @@ auto Typechecker::visit(const FuncDecl* node) -> void {
         Parameter* param = node->getParameters()[i];
         auto paramSymbol = std::make_unique<Value>(param->name, paramTypes[paramOffset + i]);
         paramSymbol->setCategory(ValueCategory::ADDRESSABLE_STORAGE);
+        paramSymbol->setDeclarationKind(ValueDeclarationKind::PARAMETER);
         paramSymbol->setDeclarationSpan(param->nameSpan);
         paramSymbol->setDeclarationFilePath(mainFilePath);
         param->setResolvedSymbol(paramSymbol.get());
@@ -1446,6 +1518,7 @@ auto Typechecker::visit(const ExternFuncDecl* node) -> void {
   if (existingFunc == nullptr) {
     auto funcSymbol = std::make_unique<Value>(node->getName(), funcTypePtr);
     funcSymbol->setCategory(ValueCategory::CALLABLE_SYMBOL);
+    funcSymbol->setDeclarationKind(ValueDeclarationKind::FUNCTION);
     funcSymbol->setExported(node->isExported());
     funcSymbol->setDeclarationSpan(node->getNameSpan());
     funcSymbol->setDeclarationFilePath(mainFilePath);
@@ -1454,6 +1527,7 @@ auto Typechecker::visit(const ExternFuncDecl* node) -> void {
     existingFunc = scope->getParent()->lookupFunction(node->getName(), paramTypes);
   } else {
     existingFunc->setType(funcTypePtr);
+    existingFunc->setDeclarationKind(ValueDeclarationKind::FUNCTION);
     existingFunc->setExported(node->isExported());
     existingFunc->setDeclarationSpan(node->getNameSpan());
     existingFunc->setDeclarationFilePath(mainFilePath);
@@ -1470,6 +1544,7 @@ auto Typechecker::visit(const ExternFuncDecl* node) -> void {
       Parameter* param = node->getParameters()[i];
       auto paramSymbol = std::make_unique<Value>(param->name, paramTypes[i]);
       paramSymbol->setCategory(ValueCategory::ADDRESSABLE_STORAGE);
+      paramSymbol->setDeclarationKind(ValueDeclarationKind::PARAMETER);
       paramSymbol->setDeclarationSpan(param->nameSpan);
       paramSymbol->setDeclarationFilePath(mainFilePath);
       param->setResolvedSymbol(paramSymbol.get());
@@ -2163,11 +2238,14 @@ auto Typechecker::visit(const DotOp* node) -> void {
     throw TypeCheckError(node->getSpan(), "Expected field name or method call after dot");
   }
   auto* rightLit = dynamic_cast<Literal*>(node->getRight());
-  Type* fieldType = TypeUtils::findTypeInFields(base, rightLit->getValue());
-  if (fieldType == nullptr) {
+  Field* field = TypeUtils::findFieldInFields(base, rightLit->getValue());
+  if (field == nullptr || field->type == nullptr) {
     throw TypeCheckError(node->getSpan(), "Unknown field: {}", rightLit->getValue());
   }
-  result = std::make_unique<Value>(fieldType);
+  if (field->getDeclarationSymbol() != nullptr) {
+    rightLit->setResolvedSymbol(field->getDeclarationSymbol());
+  }
+  result = std::make_unique<Value>(field->type);
 }
 
 auto Typechecker::visit(const CastOp* node) -> void {

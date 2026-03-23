@@ -153,6 +153,7 @@ message(STATUS "Using LLVMConfig.cmake from ${LLVM_DIR}")
 
 list(APPEND CMAKE_MODULE_PATH "${LLVM_CMAKE_DIR}")
 include(HandleLLVMOptions)
+include_directories(SYSTEM ${LLVM_INCLUDE_DIRS})
 add_definitions(${LLVM_DEFINITIONS})
 llvm_map_components_to_libnames(LLVM_LIBS core support demangle native orcjit)
 include_directories(SYSTEM ${LLVM_INCLUDE_DIRS})
@@ -258,14 +259,14 @@ if (LESMA_BUILD_LSP)
   FetchContent_Declare(
     lsp_framework
     GIT_REPOSITORY https://github.com/leon-bckl/lsp-framework.git
-    GIT_TAG master
+    GIT_TAG 1.3.1
   )
   FetchContent_MakeAvailable(lsp_framework)
 
   find_package(libgit2 CONFIG REQUIRED)
 
-  set(LSP_SERVER_SOURCES src/lsp/main.cpp src/lsp/DocumentStore.cpp src/lsp/LspCompletion.cpp
-      src/lsp/LspUtf16.cpp src/lsp/WorkspaceLesFiles.cpp)
+  set(LSP_SERVER_SOURCES src/lsp/main.cpp src/lsp/DocumentStore.cpp src/lsp/LspAnalysisGraph.cpp
+      src/lsp/LspCompletion.cpp src/lsp/LspUtf16.cpp src/lsp/WorkspaceLesFiles.cpp)
   add_executable(lesma-lsp ${LSP_SERVER_SOURCES})
   target_link_libraries(lesma-lsp PRIVATE ${LIB_NAME} lsp libgit2::libgit2package)
   target_include_directories(lesma-lsp PRIVATE ${lsp_framework_SOURCE_DIR})

@@ -64,6 +64,23 @@
         }
       ]
     },
+    "build-llvm": {
+      "description": "Build LLVM",
+      "dependencies": [
+        {
+          "name": "llvm",
+          "default-features": false,
+          "features": [
+            "default-targets",
+            "enable-rtti",
+            "enable-zlib",
+            "enable-zstd",
+            "lld",
+            "tools"
+          ]
+        }
+      ]
+    },
     "dist": {
       "description": "Build Distributable"
     },

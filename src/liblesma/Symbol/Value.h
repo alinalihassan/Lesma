@@ -25,6 +25,20 @@ enum class ValueCategory : std::uint8_t {
   TYPE_SYMBOL,
   MODULE_SYMBOL,
 };
+enum class ValueDeclarationKind : std::uint8_t {
+  UNKNOWN,
+  NAMESPACE,
+  CLASS,
+  ENUM,
+  ENUM_MEMBER,
+  TYPE,
+  TYPE_PARAMETER,
+  FUNCTION,
+  METHOD,
+  PARAMETER,
+  VARIABLE,
+  PROPERTY,
+};
 
 /**
  * Entry of a symbol table, representing an individual symbol with all its
@@ -67,7 +81,8 @@ public:
         llvmValue(other.llvmValue), category(other.category), used(other.used),
         mutableVar(other.mutableVar), signedVar(other.signedVar), exported(other.exported),
         constructor(other.constructor), genericClassTemplate(other.genericClassTemplate),
-        bodyScope(other.bodyScope), declarationSpan(other.declarationSpan),
+        bodyScope(other.bodyScope), declarationKind(other.declarationKind),
+        declarationSpan(other.declarationSpan),
         declarationFilePath(other.declarationFilePath) {}
 
   ~Value() = default;
@@ -87,6 +102,7 @@ public:
       constructor = other.constructor;
       genericClassTemplate = other.genericClassTemplate;
       bodyScope = other.bodyScope;
+      declarationKind = other.declarationKind;
       declarationSpan = other.declarationSpan;
       declarationFilePath = other.declarationFilePath;
     }
@@ -105,6 +121,7 @@ public:
   [[nodiscard]] auto getCategory() const -> ValueCategory { return category; }
   [[nodiscard]] auto getConstructor() const -> lesma::Value* { return constructor; }
   [[nodiscard]] auto getBodyScope() const -> SymbolTable* { return bodyScope; }
+  [[nodiscard]] auto getDeclarationKind() const -> ValueDeclarationKind { return declarationKind; }
   /** Opaque pointer to the Class* AST for generic class templates (used when
    *  specializing imported generics). Codegen interprets this as const Class*.
    */
@@ -132,6 +149,7 @@ public:
   auto setConstructor(lesma::Value* value) -> void { constructor = value; }
   auto setGenericClassTemplate(const void* ptr) -> void { genericClassTemplate = ptr; }
   auto setBodyScope(SymbolTable* value) -> void { bodyScope = value; }
+  auto setDeclarationKind(ValueDeclarationKind value) -> void { declarationKind = value; }
   auto setDeclarationSpan(llvm::SMRange span) -> void { declarationSpan = span; }
   auto setDeclarationFilePath(std::string path) -> void { declarationFilePath = std::move(path); }
   [[nodiscard]] auto usesAddressableStorage() const -> bool {
@@ -175,6 +193,7 @@ private:
   lesma::Value* constructor = nullptr;
   const void* genericClassTemplate = nullptr;
   SymbolTable* bodyScope = nullptr;
+  ValueDeclarationKind declarationKind = ValueDeclarationKind::UNKNOWN;
   // For LSP: declaration location
   llvm::SMRange declarationSpan;
   std::string declarationFilePath;
