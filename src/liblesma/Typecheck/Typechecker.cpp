@@ -222,12 +222,50 @@ auto Typechecker::resolveMethodReturnType(Type* baseType, const std::string& met
 }
 
 auto Typechecker::isMutableListReceiver(const Expression* expr) -> bool {
-  auto const* lit = dynamic_cast<const Literal*>(expr);
-  if (lit == nullptr || lit->getType() != TokenType::IDENTIFIER) {
+  if (expr == nullptr) {
     return true;
   }
-  Value* symbol = scope->lookup(lit->getValue());
-  return symbol == nullptr || symbol->getMutability();
+  if (auto const* lit = dynamic_cast<const Literal*>(expr)) {
+    if (lit->getType() != TokenType::IDENTIFIER) {
+      return true;
+    }
+    Value* symbol = scope->lookup(lit->getValue());
+    return symbol == nullptr || symbol->getMutability();
+  }
+  if (auto const* sub = dynamic_cast<const SubscriptOp*>(expr)) {
+    return isMutableListReceiver(sub->getLeft());
+  }
+  if (auto const* dot = dynamic_cast<const DotOp*>(expr)) {
+    auto const* rightLit = dynamic_cast<const Literal*>(dot->getRight());
+    if (rightLit == nullptr || rightLit->getType() != TokenType::IDENTIFIER) {
+      return true;
+    }
+    std::unique_ptr<Value> savedResult = std::move(result);
+    try {
+      dot->getLeft()->accept(*this);
+    } catch (...) {
+      result = std::move(savedResult);
+      throw;
+    }
+    Type* base = result != nullptr ? result->getType() : nullptr;
+    result = std::move(savedResult);
+    if (base == nullptr) {
+      return true;
+    }
+    if (base->is(BaseType::TY_PTR) && base->getElementType() != nullptr) {
+      base = base->getElementType();
+    }
+    Field* field = TypeUtils::findFieldInFields(base, rightLit->getValue());
+    if (field == nullptr) {
+      return true;
+    }
+    Value* decl = field->getDeclarationSymbol();
+    if (decl == nullptr) {
+      return true;
+    }
+    return decl->getMutability();
+  }
+  return true;
 }
 
 auto Typechecker::isMutatingListFunction(const std::string& functionName) const -> bool {
