@@ -358,9 +358,15 @@ auto formatHoverContent(lesma::Value* value, lesma::SymbolTable* rootScope) -> s
     if (type != nullptr && type->is(lesma::BaseType::TY_GENERIC)) {
       return "type parameter `" + name + "`";
     }
-    // For TYPE_SYMBOL (classes/enums), show as "enum `Name`" or "class `Name`"
+    // For TYPE_SYMBOL: enum, trait, or class
     if (type != nullptr && type->is(lesma::BaseType::TY_ENUM)) {
       return "enum `" + name + "`";
+    }
+    if (type != nullptr && type->is(lesma::BaseType::TY_TRAIT_EXISTENTIAL)) {
+      return "trait `" + name + "`";
+    }
+    if (value->getDeclarationKind() == lesma::ValueDeclarationKind::TRAIT) {
+      return "trait `" + name + "`";
     }
     return "class `" + name + "`";
   }
