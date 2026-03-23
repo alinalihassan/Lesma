@@ -83,7 +83,7 @@ auto typeDisplayName(Type* type, SymbolTable* root) -> std::string {
     return "?";
   }
   if (type->is(BaseType::TY_PTR) && type->getElementType() != nullptr) {
-    return typeDisplayName(type->getElementType(), root) + "*";
+    return "*" + typeDisplayName(type->getElementType(), root);
   }
   if (type->is(BaseType::TY_ARRAY) && type->getElementType() != nullptr) {
     return typeDisplayName(type->getElementType(), root) + "[]";
@@ -95,7 +95,7 @@ auto typeDisplayName(Type* type, SymbolTable* root) -> std::string {
     return "float";
   }
   if (type->is(BaseType::TY_STRING)) {
-    return "string";
+    return "str";
   }
   if (type->is(BaseType::TY_BOOL)) {
     return "bool";

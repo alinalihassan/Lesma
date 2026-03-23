@@ -676,7 +676,7 @@ auto getTypeName(lesma::Type* type, lesma::SymbolTable* rootScope) -> std::strin
     if (elementType->is(lesma::BaseType::TY_CLASS) || elementType->is(lesma::BaseType::TY_ENUM)) {
       std::string elementName = getTypeName(elementType, rootScope);
       if (!elementName.empty()) {
-        return elementName + "*";
+        return "*" + elementName;
       }
     }
   }
@@ -692,7 +692,7 @@ auto formatTypeName(lesma::Type* type, lesma::SymbolTable* rootScope) -> std::st
     return namedType;
   }
   if (type->is(lesma::BaseType::TY_PTR) && type->getElementType() != nullptr) {
-    return formatTypeName(type->getElementType(), rootScope) + "*";
+    return "*" + formatTypeName(type->getElementType(), rootScope);
   }
   if (type->is(lesma::BaseType::TY_ARRAY) && type->getElementType() != nullptr) {
     return "list<" + formatTypeName(type->getElementType(), rootScope) + ">";
@@ -704,7 +704,7 @@ auto formatTypeName(lesma::Type* type, lesma::SymbolTable* rootScope) -> std::st
     return "float";
   }
   if (type->is(lesma::BaseType::TY_STRING)) {
-    return "string";
+    return "str";
   }
   if (type->is(lesma::BaseType::TY_BOOL)) {
     return "bool";

@@ -284,25 +284,25 @@ public:
       result = "Invalid";
       break;
     case BaseType::TY_INT:
-      result = "Int";
+      result = signedInt ? "int" : "uint";
       break;
     case BaseType::TY_FLOAT:
-      result = "Float";
+      result = "float";
       break;
     case BaseType::TY_STRING:
-      result = "String";
+      result = "str";
       break;
     case BaseType::TY_BOOL:
-      result = "Bool";
+      result = "bool";
       break;
     case BaseType::TY_PTR:
-      result = "Pointer";
+      result = elementType != nullptr ? "*" + elementType->toString() : "*";
       break;
     case BaseType::TY_ARRAY:
       result = displayName.empty() ? "list" : displayName;
       break;
     case BaseType::TY_VOID:
-      result = "Void";
+      result = "void";
       break;
     case BaseType::TY_FUNCTION:
       result = "Function";
@@ -321,7 +321,7 @@ public:
       break;
     }
 
-    if (elementType != nullptr) {
+    if (elementType != nullptr && baseType != BaseType::TY_PTR) {
       result += "<" + elementType->toString() + ">";
     }
 
