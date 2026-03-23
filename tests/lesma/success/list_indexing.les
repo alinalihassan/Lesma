@@ -8,6 +8,14 @@ xs[1] = 8
 if xs[1] != 8
     exit(1)
 
+xs[0] += 10
+if xs[0] != 14
+    exit(1)
+
+xs[2] -= 2
+if xs[2] != 4
+    exit(1)
+
 var empty: list<int> = []
 empty.push(1)
 

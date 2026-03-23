@@ -205,6 +205,10 @@ protected:
 
   auto emitCompoundAssign(llvm::SMRange span, TokenType op, lesma::Value* lhs, lesma::Value* value)
       -> void;
+  auto emitCompoundAssignArithmetic(llvm::SMRange span, TokenType compoundOp, lesma::Value* loaded,
+                                    lesma::Value* rhs) -> std::unique_ptr<lesma::Value>;
+  auto emitCompoundSubscriptNewValue(llvm::SMRange span, TokenType compoundOp, lesma::Value* currentElem,
+                                     lesma::Value* rhs) -> std::unique_ptr<lesma::Value>;
   auto getOrCreateListStructType(lesma::Type* listType) -> llvm::StructType*;
   auto getListStoredElementType(lesma::Type* listType) -> llvm::Type*;
   auto getListStoredElementValue(llvm::SMRange span, lesma::Value* value, lesma::Type* elementType)

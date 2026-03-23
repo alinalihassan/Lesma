@@ -2247,15 +2247,39 @@ auto Codegen::visit(const Assignment* node) -> void {
   if (auto* subscript = dynamic_cast<SubscriptOp*>(node->getLeftHandSide())) {
     subscript->getLeft()->accept(*this);
     auto baseValue = std::move(result);
-    if (baseValue != nullptr && baseValue->getType() != nullptr && node->getOperator() == TokenType::EQUAL) {
-      subscript->getIndex()->accept(*this);
-      auto indexValue = std::move(result);
-      node->getRightHandSide()->accept(*this);
-      auto rhsValue = std::move(result);
-      result = callMethodByName(node->getSpan(), baseValue.get(),
-                                std::string{OperatorUtils::SUBSCRIPT_SET_NAME},
-                                {indexValue.get(), rhsValue.get()});
-      return;
+    if (baseValue != nullptr && baseValue->getType() != nullptr) {
+      const TokenType assignOp = node->getOperator();
+      if (assignOp == TokenType::EQUAL) {
+        subscript->getIndex()->accept(*this);
+        auto indexValue = std::move(result);
+        node->getRightHandSide()->accept(*this);
+        auto rhsValue = std::move(result);
+        result = callMethodByName(node->getSpan(), baseValue.get(),
+                                  std::string{OperatorUtils::SUBSCRIPT_SET_NAME},
+                                  {indexValue.get(), rhsValue.get()});
+        return;
+      }
+      if (assignOp == TokenType::PLUS_EQUAL || assignOp == TokenType::MINUS_EQUAL ||
+          assignOp == TokenType::SLASH_EQUAL || assignOp == TokenType::STAR_EQUAL ||
+          assignOp == TokenType::MOD_EQUAL) {
+        subscript->getIndex()->accept(*this);
+        auto indexValue = std::move(result);
+        result = callMethodByName(node->getSpan(), baseValue.get(),
+                                  std::string{OperatorUtils::SUBSCRIPT_GET_NAME},
+                                  {indexValue.get()});
+        auto currentElem = std::move(result);
+        node->getRightHandSide()->accept(*this);
+        auto rhsValue = std::move(result);
+        auto newValue =
+            emitCompoundSubscriptNewValue(node->getSpan(), assignOp, currentElem.get(), rhsValue.get());
+        result = callMethodByName(node->getSpan(), baseValue.get(),
+                                  std::string{OperatorUtils::SUBSCRIPT_SET_NAME},
+                                  {indexValue.get(), newValue.get()});
+        return;
+      }
+      if (assignOp == TokenType::POWER_EQUAL) {
+        throw CodegenError(node->getSpan(), "Power operator not implemented yet.");
+      }
     }
   }
 
@@ -3398,6 +3422,87 @@ auto Codegen::getMangledName(llvm::SMRange span, std::string funcName,
   return name;
 }
 
+auto Codegen::emitCompoundAssignArithmetic(llvm::SMRange span, TokenType compoundOp,
+                                            lesma::Value* loaded, lesma::Value* rhs)
+    -> std::unique_ptr<lesma::Value> {
+  lesma::Type* targetType = loaded->getType();
+  if (targetType == nullptr || (!targetType->is(BaseType::TY_FLOAT) && !targetType->is(BaseType::TY_INT))) {
+    throw CodegenError(span, "Invalid operator: {}", NAMEOF_ENUM(compoundOp));
+  }
+  const bool isFloat = targetType->is(BaseType::TY_FLOAT);
+  auto* varVal = loaded->getLlvmValue();
+  llvm::Value* newVal = nullptr;
+
+  switch (compoundOp) {
+  case TokenType::PLUS_EQUAL:
+    newVal = isFloat ? builder->CreateFAdd(rhs->getLlvmValue(), varVal)
+                     : builder->CreateAdd(rhs->getLlvmValue(), varVal);
+    break;
+  case TokenType::MINUS_EQUAL:
+    newVal = isFloat ? builder->CreateFSub(varVal, rhs->getLlvmValue())
+                     : builder->CreateSub(varVal, rhs->getLlvmValue());
+    break;
+  case TokenType::SLASH_EQUAL:
+    newVal = isFloat ? builder->CreateFDiv(varVal, rhs->getLlvmValue())
+                     : builder->CreateSDiv(varVal, rhs->getLlvmValue());
+    break;
+  case TokenType::STAR_EQUAL:
+    newVal = isFloat ? builder->CreateFMul(rhs->getLlvmValue(), varVal)
+                     : builder->CreateMul(rhs->getLlvmValue(), varVal);
+    break;
+  case TokenType::MOD_EQUAL:
+    newVal = isFloat ? builder->CreateFRem(varVal, rhs->getLlvmValue())
+                     : builder->CreateSRem(varVal, rhs->getLlvmValue());
+    break;
+  default:
+    throw CodegenError(span, "Invalid compound operator: {}", NAMEOF_ENUM(compoundOp));
+  }
+  return std::make_unique<Value>("", targetType, newVal);
+}
+
+auto Codegen::emitCompoundSubscriptNewValue(llvm::SMRange span, TokenType compoundOp,
+                                            lesma::Value* currentElem, lesma::Value* rhs)
+    -> std::unique_ptr<lesma::Value> {
+  TokenType binOp = TokenType::PLUS;
+  switch (compoundOp) {
+  case TokenType::PLUS_EQUAL:
+    binOp = TokenType::PLUS;
+    break;
+  case TokenType::MINUS_EQUAL:
+    binOp = TokenType::MINUS;
+    break;
+  case TokenType::STAR_EQUAL:
+    binOp = TokenType::STAR;
+    break;
+  case TokenType::SLASH_EQUAL:
+    binOp = TokenType::SLASH;
+    break;
+  case TokenType::MOD_EQUAL:
+    binOp = TokenType::MOD;
+    break;
+  default:
+    throw CodegenError(span, "Invalid compound operator: {}", NAMEOF_ENUM(compoundOp));
+  }
+
+  lesma::Type* lhsTy = currentElem->getType();
+  lesma::Type* rhsTy = rhs->getType();
+  lesma::Type* finalType = CodegenTypeUtils::getExtendedType(lhsTy, rhsTy);
+  if (finalType == nullptr && lhsTy->is(BaseType::TY_ENUM) && rhsTy->is(BaseType::TY_ENUM) &&
+      lhsTy->isEqual(rhsTy)) {
+    finalType = lhsTy;
+  }
+  auto left = cast(span, currentElem, finalType);
+  auto right = cast(span, rhs, finalType);
+  if (finalType != nullptr && finalType->isOneOf({BaseType::TY_INT, BaseType::TY_FLOAT})) {
+    return emitCompoundAssignArithmetic(span, compoundOp, left.get(), right.get());
+  }
+  if (auto operatorName = OperatorUtils::getBinaryOperatorName(binOp); operatorName.has_value()) {
+    return callMethodByName(span, left.get(), std::string{*operatorName}, {right.get()});
+  }
+  throw CodegenError(span, "Operator {} is not supported for compound subscript assignment",
+                     NAMEOF_ENUM(compoundOp));
+}
+
 auto Codegen::emitCompoundAssign(llvm::SMRange span, TokenType op, lesma::Value* lhs,
                                  lesma::Value* value) -> void {
   lesma::Type* targetType = lhs->getType();
@@ -3408,35 +3513,10 @@ auto Codegen::emitCompoundAssign(llvm::SMRange span, TokenType op, lesma::Value*
   if (targetType == nullptr || (!targetType->is(BaseType::TY_FLOAT) && !targetType->is(BaseType::TY_INT))) {
     throw CodegenError(span, "Invalid operator: {}", NAMEOF_ENUM(op));
   }
-  const bool isFloat = targetType->is(BaseType::TY_FLOAT);
   auto* varVal = builder->CreateLoad(targetType->getLlvmType(), lhs->getLlvmValue());
-  llvm::Value* newVal = nullptr;
-
-  switch (op) {
-  case TokenType::PLUS_EQUAL:
-    newVal = isFloat ? builder->CreateFAdd(value->getLlvmValue(), varVal)
-                     : builder->CreateAdd(value->getLlvmValue(), varVal);
-    break;
-  case TokenType::MINUS_EQUAL:
-    newVal = isFloat ? builder->CreateFSub(varVal, value->getLlvmValue())
-                     : builder->CreateSub(varVal, value->getLlvmValue());
-    break;
-  case TokenType::SLASH_EQUAL:
-    newVal = isFloat ? builder->CreateFDiv(varVal, value->getLlvmValue())
-                     : builder->CreateSDiv(varVal, value->getLlvmValue());
-    break;
-  case TokenType::STAR_EQUAL:
-    newVal = isFloat ? builder->CreateFMul(value->getLlvmValue(), varVal)
-                     : builder->CreateMul(value->getLlvmValue(), varVal);
-    break;
-  case TokenType::MOD_EQUAL:
-    newVal = isFloat ? builder->CreateFRem(varVal, value->getLlvmValue())
-                     : builder->CreateSRem(varVal, value->getLlvmValue());
-    break;
-  default:
-    throw CodegenError(span, "Invalid compound operator: {}", NAMEOF_ENUM(op));
-  }
-  builder->CreateStore(newVal, lhs->getLlvmValue());
+  auto loaded = std::make_unique<Value>("", targetType, varVal);
+  auto newVal = emitCompoundAssignArithmetic(span, op, loaded.get(), value);
+  builder->CreateStore(newVal->getLlvmValue(), lhs->getLlvmValue());
 }
 
 auto Codegen::appendCallableArgument(lesma::Value* arg, std::vector<lesma::Type*>& paramTypes,
