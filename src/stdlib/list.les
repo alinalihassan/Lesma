@@ -5,6 +5,9 @@ export class list<T>
     def new()
         self.storage = __buffer_new<T>()
 
+    def new(initial: __buffer<T>)
+        self.storage = initial
+
     def len() -> int
         return __buffer_len(self.storage)
 
@@ -18,9 +21,7 @@ export class list<T>
         __buffer_clear(self.storage)
 
     def copy() -> list<T>
-        var result: list<T> = list<T>()
-        result.storage = __buffer_copy(self.storage)
-        return result
+        return list<T>(__buffer_copy(self.storage))
 
     def iter() -> *list<T>
         self.__iter_index = 0
