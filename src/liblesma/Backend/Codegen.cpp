@@ -1158,6 +1158,7 @@ auto Codegen::emitListDeepCopy(lesma::Type* listType, llvm::Value* listHandle) -
 
   builder->SetInsertPoint(copyElementsBlock);
   auto* newBytes = builder->CreateMul(capacity, elementSize, "list.copy.bytes");
+  auto* initBytes = builder->CreateMul(length, elementSize, "list.copy.initbytes");
   auto* newData = emitMalloc(newBytes, "list.copy.data");
   builder->CreateStore(newData, dataSlot);
   auto isNestedListLike = [elementType]() -> bool {
@@ -1208,7 +1209,7 @@ auto Codegen::emitListDeepCopy(lesma::Type* listType, llvm::Value* listHandle) -
         llvm::FunctionType::get(builder->getPtrTy(),
                                 {builder->getPtrTy(), builder->getPtrTy(), builder->getInt64Ty()},
                                 false));
-    builder->CreateCall(memcpyFn, {newData, emitListDataPtr(listType, listHandle), newBytes});
+    builder->CreateCall(memcpyFn, {newData, emitListDataPtr(listType, listHandle), initBytes});
     builder->CreateBr(doneBlock);
   }
 
