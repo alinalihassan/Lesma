@@ -2429,6 +2429,13 @@ auto Typechecker::visit(const ListLiteral* node) -> void {
     }
   }
 
+  if (expectedType != nullptr && !expectedType->is(BaseType::TY_ARRAY) &&
+      getStdListElementType(expectedType) == nullptr) {
+    throw TypeCheckError(node->getSpan(),
+                         "List literal is not compatible with expected type {}",
+                         expectedType->toString());
+  }
+
   Type* listType = expectedType;
   if (listType == nullptr) {
     listType = getStdListType(elementType);
