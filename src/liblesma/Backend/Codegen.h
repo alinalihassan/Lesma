@@ -66,6 +66,7 @@ class Codegen final : public ASTVisitor {
   // deque so push_back never invalidates Type* pointers stored in scope (from
   // typecheck)
   std::deque<std::unique_ptr<lesma::Type>> typeCache;
+  std::unordered_map<std::string, llvm::StructType*> listStructTypes;
   std::vector<std::tuple<lesma::Value*, const FuncDecl*, Value*>> prototypes;
   std::unordered_map<std::string, const FuncDecl*> genericFunctions;
   std::unordered_map<std::string, std::unordered_map<std::string, const FuncDecl*>> genericMethods;
@@ -73,8 +74,10 @@ class Codegen final : public ASTVisitor {
   std::unordered_map<std::string, lesma::Type*> currentGenericTypes;
   std::unordered_map<std::string, lesma::Value*> specializedFunctions;
   std::unordered_map<std::string, lesma::Value*> specializedClasses;
+  std::unordered_map<lesma::Type*, lesma::Value*> specializedClassSymbolsByType;
   std::unordered_map<lesma::Value*, std::unordered_map<std::string, lesma::Type*>>
       specializationEnvs;
+  std::unordered_map<lesma::Type*, std::unordered_map<std::string, lesma::Type*>> specializedClassTypeEnvs;
   // deque so push_back never invalidates pointers to existing elements (used in
   // prototypes)
   std::deque<std::unique_ptr<lesma::Value>> methodSelfSymbols;
@@ -141,6 +144,7 @@ protected:
   auto visit(const VarDecl* node) -> void override;
   auto visit(const If* node) -> void override;
   auto visit(const While* node) -> void override;
+  auto visit(const ForIn* node) -> void override;
   auto visit(const Import* node) -> void override;
   auto visit(const Enum* node) -> void override;
   auto visit(const Class* node) -> void override;
@@ -157,11 +161,13 @@ protected:
   auto visit(const Expression* node) -> void override;
   auto visit(const FuncCall* node) -> void override;
   auto visit(const BinaryOp* node) -> void override;
+  auto visit(const SubscriptOp* node) -> void override;
   auto visit(const DotOp* node) -> void override;
   auto visit(const CastOp* node) -> void override;
   auto visit(const IsOp* node) -> void override;
   auto visit(const UnaryOp* node) -> void override;
   auto visit(const Literal* node) -> void override;
+  auto visit(const ListLiteral* node) -> void override;
   auto visit(const Else* node) -> void override;
 
   auto visit(const TypeExpr* node) -> void override;
@@ -175,6 +181,21 @@ protected:
 
   auto genFuncCall(const FuncCall* node, const std::vector<lesma::Value*>& extraParams)
       -> std::unique_ptr<lesma::Value>;
+  auto appendCallableArgument(lesma::Value* arg, std::vector<lesma::Type*>& paramTypes,
+                              std::vector<llvm::Value*>& paramsLLVM) -> void;
+  auto callNamedFunction(llvm::SMRange span, const std::string& functionName,
+                         const std::vector<lesma::Type*>& paramTypes,
+                         const std::vector<llvm::Value*>& paramsLLVM,
+                         const std::vector<lesma::Type*>& explicitTypeArgs = {})
+      -> std::unique_ptr<lesma::Value>;
+  auto callListMethodByName(llvm::SMRange span, lesma::Value* receiver, const std::string& methodName,
+                            const std::vector<lesma::Value*>& args = {},
+                            const std::vector<lesma::Type*>& explicitTypeArgs = {})
+      -> std::unique_ptr<lesma::Value>;
+  auto callMethodByName(llvm::SMRange span, lesma::Value* receiver, const std::string& methodName,
+                        const std::vector<lesma::Value*>& args = {},
+                        const std::vector<lesma::Type*>& explicitTypeArgs = {})
+      -> std::unique_ptr<lesma::Value>;
   auto defineFunction(lesma::Value* value, const FuncDecl* node, Value* clsSymbol) -> void;
   auto specializeFunction(const FuncDecl* node, const std::vector<lesma::Type*>& paramTypes,
                           const std::vector<std::string>& genericNames,
@@ -184,6 +205,41 @@ protected:
 
   auto emitCompoundAssign(llvm::SMRange span, TokenType op, lesma::Value* lhs, lesma::Value* value)
       -> void;
+  auto emitCompoundAssignArithmetic(llvm::SMRange span, TokenType compoundOp, lesma::Value* loaded,
+                                    lesma::Value* rhs) -> std::unique_ptr<lesma::Value>;
+  auto emitCompoundSubscriptNewValue(llvm::SMRange span, TokenType compoundOp, lesma::Value* currentElem,
+                                     lesma::Value* rhs) -> std::unique_ptr<lesma::Value>;
+  auto getOrCreateListStructType(lesma::Type* listType) -> llvm::StructType*;
+  auto getListStoredElementType(lesma::Type* listType) -> llvm::Type*;
+  auto getListStoredElementValue(llvm::SMRange span, lesma::Value* value, lesma::Type* elementType)
+      -> llvm::Value*;
+  auto emitCalloc(llvm::Value* count, llvm::Value* size, const llvm::Twine& name = "calloc.tmp")
+      -> llvm::Value*;
+  auto emitMalloc(llvm::Value* size, const llvm::Twine& name = "malloc.tmp") -> llvm::Value*;
+  auto emitRealloc(llvm::Value* ptr, llvm::Value* size, const llvm::Twine& name = "realloc.tmp")
+      -> llvm::Value*;
+  auto emitFree(llvm::Value* ptr) -> void;
+  auto emitExit(int code) -> void;
+  auto emitListLength(lesma::Type* listType, llvm::Value* listHandle) -> llvm::Value*;
+  auto emitListCapacity(lesma::Type* listType, llvm::Value* listHandle) -> llvm::Value*;
+  auto emitListDataPtr(lesma::Type* listType, llvm::Value* listHandle) -> llvm::Value*;
+  auto emitStoreListDataPtr(lesma::Type* listType, llvm::Value* listHandle, llvm::Value* dataValue)
+      -> void;
+  auto emitStoreListLength(lesma::Type* listType, llvm::Value* listHandle, llvm::Value* length)
+      -> void;
+  auto emitStoreListCapacity(lesma::Type* listType, llvm::Value* listHandle, llvm::Value* capacity)
+      -> void;
+  auto emitListBoundsCheck(llvm::SMRange span, lesma::Type* listType, llvm::Value* listHandle,
+                           llvm::Value* index) -> void;
+  auto emitListElementPointer(llvm::SMRange span, lesma::Type* listType, llvm::Value* listHandle,
+                              llvm::Value* index) -> llvm::Value*;
+  auto emitListEnsureCapacity(lesma::Type* listType, llvm::Value* listHandle, llvm::Value* minCapacity)
+      -> void;
+  auto emitListDeepCopy(lesma::Type* listType, llvm::Value* listHandle) -> llvm::Value*;
+  [[nodiscard]] auto isListIntrinsicName(const std::string& functionName) const -> bool;
+  auto genListIntrinsicCall(const FuncCall* node, const std::vector<lesma::Type*>& paramTypes,
+                            const std::vector<llvm::Value*>& paramsLLVM)
+      -> std::unique_ptr<lesma::Value>;
   auto symbolUsesDirectLlvmValue(const lesma::Value* symbol) const -> bool;
   auto materializeSymbolValue(lesma::Value* symbol) -> std::unique_ptr<lesma::Value>;
 
@@ -198,8 +254,8 @@ protected:
 
   /** Populate \p env by structurally matching declared (TypeExpr) vs actual
    * (lesma::Type), binding generic names from \p genericNameSet. */
-  static void bindGenericsFromTypePair(const TypeExpr* declared, lesma::Type* actual,
-                                       const std::unordered_set<std::string>& genericNameSet,
-                                       std::unordered_map<std::string, lesma::Type*>& env);
+  auto bindGenericsFromTypePair(const TypeExpr* declared, lesma::Type* actual,
+                                const std::unordered_set<std::string>& genericNameSet,
+                                std::unordered_map<std::string, lesma::Type*>& env) -> void;
 };
 } // namespace lesma

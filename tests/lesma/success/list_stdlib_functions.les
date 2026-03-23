@@ -1,0 +1,26 @@
+var xs = [1, 2]
+
+if xs.len() != 2
+    exit(1)
+
+xs.push(3)
+
+if xs.len() != 3
+    exit(1)
+
+if xs.pop() != 3
+    exit(1)
+
+var ys = xs.copy()
+ys.push(9)
+
+if xs.len() != 2
+    exit(1)
+
+if ys.len() != 3
+    exit(1)
+
+xs.clear()
+
+if xs.len() != 0
+    exit(1)

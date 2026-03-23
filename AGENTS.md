@@ -42,7 +42,7 @@ When reporting errors, the Driver and Codegen use `showInline()` in `Common/Util
 
 ## How to compile the project
 
-- **Prerequisites:** CMake 3.24+, Ninja, Clang, LLVM 17+, and vcpkg (with Lesma’s `vcpkg.json`). vcpkg is typically used as a submodule; bootstrap it and use the vcpkg toolchain when configuring.
+- **Prerequisites:** CMake 3.24+, Ninja, a C++ compiler (Clang recommended), and vcpkg (with Lesma’s `vcpkg.json`). **LLVM and LLD** are supplied by vcpkg per the manifest (no Clang libraries linked); the tree targets the LLVM version pinned by vcpkg (e.g. 18.x). CMake pins `LLVM_DIR` / `LLD_DIR` to `vcpkg_installed` so a system/Homebrew LLVM is not mixed in. vcpkg is typically used as a submodule; bootstrap it and use the vcpkg toolchain when configuring.
 - **Configure (example):** From the repo root, using the vcpkg toolchain and a build directory such as `build` or `build/Debug`:
   ```bash
   cmake -B build -S . \
@@ -87,6 +87,12 @@ The project uses **AddressSanitizer (ASan)** and **LeakSanitizer (LSan)** for me
   ASAN_OPTIONS=detect_container_overflow=0 ./scripts/run_tests.sh build/Debug_Asan/lesma
   ```
   (On macOS with system LLVM, `ASAN_OPTIONS=detect_container_overflow=0` avoids a false positive in LLVM’s static initializers. CI sets this automatically.) Or with ctest (when `LESMA_BUILD_TESTS` is ON): `ctest --test-dir build/Debug_Asan --output-on-failure`.
+
+- **When ASan points at a crash or bad stack frame:** Use **`lldb`** to get a precise backtrace, inspect the crashing instruction, and check the live values/types that reached codegen or runtime. A typical flow is:
+  ```bash
+  lldb -- build/Debug_Asan/lesma run tests/lesma/success/list_methods_alias_copy.les
+  ```
+  Then use `run`, `bt`, `frame variable`, and `up` / `down`. This is usually worth doing after sanitizer output narrows the failing path, especially for recursive specialization bugs, invalid LLVM values, or crashes that happen before ASan can explain ownership clearly.
 
 - **Option without presets:** Configure with `-DLESMA_SANITIZE_ADDRESS=ON` and `-DCMAKE_BUILD_TYPE=Debug`, then build and run the same tests.
 

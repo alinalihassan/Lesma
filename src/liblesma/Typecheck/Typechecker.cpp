@@ -16,6 +16,7 @@
 #include "nameof.hpp"
 
 #include "liblesma/AST/AST.h"
+#include "liblesma/Common/OperatorUtils.h"
 #include "liblesma/Common/TypeCheckError.h"
 #include "liblesma/Common/Utils.h"
 #include "liblesma/Frontend/Lexer.h"
@@ -128,12 +129,331 @@ auto Typechecker::pathLeadsToEndWithoutReturn(const std::vector<Statement*>& sta
     // Can skip loop (0 iterations) and reach next statement.
     return pathLeadsToEndWithoutReturn(statements, index + 1);
   }
+  if (dynamic_cast<ForIn*>(s) != nullptr) {
+    return pathLeadsToEndWithoutReturn(statements, index + 1);
+  }
   // VarDecl, Assignment, ExpressionStatement, Break, Continue, Defer, etc.: fall through
   return pathLeadsToEndWithoutReturn(statements, index + 1);
 }
 
 auto Typechecker::blockAlwaysReturns(const Compound* body) -> bool {
   return !pathLeadsToEndWithoutReturn(body->getChildren(), 0);
+}
+
+auto Typechecker::visitExprWithExpectedType(const Expression* node, Type* expected) -> void {
+  expectedTypes.push_back(expected);
+  node->accept(*this);
+  expectedTypes.pop_back();
+}
+
+auto Typechecker::currentExpectedType() const -> Type* {
+  if (expectedTypes.empty()) {
+    return nullptr;
+  }
+  return expectedTypes.back();
+}
+
+auto Typechecker::resolveMethodReturnType(Type* baseType, const std::string& methodName,
+                                          const std::vector<Type*>& argTypes, llvm::SMRange span)
+    -> Type* {
+  if (baseType == nullptr) {
+    return nullptr;
+  }
+  Type* base = baseType;
+  if (base->is(BaseType::TY_PTR) && base->getElementType() != nullptr) {
+    base = base->getElementType();
+  }
+  if (!base->is(BaseType::TY_CLASS) && !base->is(BaseType::TY_ENUM)) {
+    return nullptr;
+  }
+
+  Type* receiverForLookup = base;
+  if (auto templateIt = specializedTypeToTemplate.find(base); templateIt != specializedTypeToTemplate.end()) {
+    receiverForLookup = templateIt->second;
+  }
+  Type* selfType =
+      receiverForLookup->is(BaseType::TY_PTR)
+          ? receiverForLookup
+          : cacheType(std::make_unique<Type>(BaseType::TY_PTR, nullptr, receiverForLookup));
+  std::vector<Type*> methodArgTypes = {selfType};
+  for (Type* argType : argTypes) {
+    if (argType != nullptr && argType->is(BaseType::TY_CLASS)) {
+      methodArgTypes.push_back(cacheType(std::make_unique<Type>(BaseType::TY_PTR, nullptr, argType)));
+    } else {
+      methodArgTypes.push_back(argType);
+    }
+  }
+
+  std::unordered_map<std::string, Type*> methodTypeEnv;
+  if (auto specializedIt = specializedTypeEnv.find(base); specializedIt != specializedTypeEnv.end()) {
+    methodTypeEnv = specializedIt->second;
+  }
+
+  bool importedMethod = false;
+  Value* method = scope->lookupFunction(methodName, methodArgTypes);
+  if (method == nullptr) {
+    for (auto& [_, cachedModule] : importedModuleCache) {
+      if (cachedModule == nullptr || cachedModule->rootScope == nullptr) {
+        continue;
+      }
+      method = cachedModule->rootScope->lookupFunction(methodName, methodArgTypes);
+      if (method != nullptr) {
+        importedMethod = true;
+        break;
+      }
+    }
+  }
+  if (method == nullptr || !method->getType()->is(BaseType::TY_FUNCTION)) {
+    return nullptr;
+  }
+
+  auto fields = method->getType()->getFields();
+  for (size_t i = 0; i < fields.size() && i < methodArgTypes.size(); ++i) {
+    inferGenericBindings(fields[i]->type, methodArgTypes[i], methodTypeEnv, span);
+  }
+  Type* retType = method->getType()->getReturnType();
+  if (!methodTypeEnv.empty() && retType != nullptr) {
+    retType = substituteInType(retType, methodTypeEnv);
+  }
+  if (importedMethod && retType != nullptr) {
+    return materializeImportedType(retType);
+  }
+  return retType;
+}
+
+auto Typechecker::isMutableListReceiver(const Expression* expr) -> bool {
+  if (expr == nullptr) {
+    return true;
+  }
+  if (auto const* lit = dynamic_cast<const Literal*>(expr)) {
+    if (lit->getType() != TokenType::IDENTIFIER) {
+      return true;
+    }
+    Value* symbol = scope->lookup(lit->getValue());
+    return symbol == nullptr || symbol->getMutability();
+  }
+  if (auto const* sub = dynamic_cast<const SubscriptOp*>(expr)) {
+    return isMutableListReceiver(sub->getLeft());
+  }
+  if (auto const* dot = dynamic_cast<const DotOp*>(expr)) {
+    auto const* rightLit = dynamic_cast<const Literal*>(dot->getRight());
+    if (rightLit == nullptr || rightLit->getType() != TokenType::IDENTIFIER) {
+      return true;
+    }
+    std::unique_ptr<Value> savedResult = std::move(result);
+    try {
+      dot->getLeft()->accept(*this);
+    } catch (...) {
+      result = std::move(savedResult);
+      throw;
+    }
+    Type* base = result != nullptr ? result->getType() : nullptr;
+    result = std::move(savedResult);
+    if (base == nullptr) {
+      return true;
+    }
+    if (base->is(BaseType::TY_PTR) && base->getElementType() != nullptr) {
+      base = base->getElementType();
+    }
+    Field* field = TypeUtils::findFieldInFields(base, rightLit->getValue());
+    if (field == nullptr) {
+      return true;
+    }
+    Value* decl = field->getDeclarationSymbol();
+    if (decl == nullptr) {
+      return true;
+    }
+    return decl->getMutability();
+  }
+  return true;
+}
+
+auto Typechecker::isMutatingListFunction(const std::string& functionName) const -> bool {
+  return functionName == "push" || functionName == "clear" || functionName == "pop";
+}
+
+auto Typechecker::isListIntrinsicName(const std::string& functionName) const -> bool {
+  return functionName == "__list_len" || functionName == "__list_push" ||
+         functionName == "__list_pop" || functionName == "__list_clear" ||
+         functionName == "__list_copy" || functionName == "__list_get" ||
+         functionName == "__list_set" || functionName == "__buffer_new" ||
+         functionName == "__buffer_len" || functionName == "__buffer_push" ||
+         functionName == "__buffer_pop" || functionName == "__buffer_clear" ||
+         functionName == "__buffer_copy" || functionName == "__buffer_get" ||
+         functionName == "__buffer_set";
+}
+
+auto Typechecker::visitListIntrinsicCall(const FuncCall* node, const std::vector<Type*>& argTypes)
+    -> bool {
+  if (!isListIntrinsicName(node->getName())) {
+    return false;
+  }
+  if (node->getName() == "__buffer_new") {
+    Type* elementType = nullptr;
+    auto explicitTypeArgs = node->getExplicitTypeArgs();
+    if (explicitTypeArgs.size() == 1U) {
+      explicitTypeArgs.front()->accept(*this);
+      elementType = result->getType();
+    } else if (!argTypes.empty() && argTypes.front() != nullptr) {
+      elementType = argTypes.front();
+    }
+    if (elementType == nullptr) {
+      throw TypeCheckError(node->getSpan(), "__buffer_new<T> requires an explicit element type");
+    }
+    auto* bufferType = cacheType(std::make_unique<Type>(BaseType::TY_ARRAY, nullptr, elementType));
+    bufferType->setDisplayName("__buffer");
+    result = std::make_unique<Value>(bufferType);
+    return true;
+  }
+  if (argTypes.empty() || argTypes.front() == nullptr || !argTypes.front()->is(BaseType::TY_ARRAY) ||
+      argTypes.front()->getElementType() == nullptr) {
+    throw TypeCheckError(node->getSpan(), "{} requires __buffer<T> as first argument",
+                         node->getName());
+  }
+  Type* listType = argTypes.front();
+  if (node->getName() == "__list_len" || node->getName() == "__buffer_len") {
+    if (argTypes.size() != 1U) {
+      throw TypeCheckError(node->getSpan(), "{} expects exactly one argument", node->getName());
+    }
+    auto intLen = std::make_unique<Type>(BaseType::TY_INT);
+    intLen->setIntWidth(64);
+    result = std::make_unique<Value>(cacheType(std::move(intLen)));
+    return true;
+  }
+  if (node->getName() == "__list_copy" || node->getName() == "__buffer_copy") {
+    if (argTypes.size() != 1U) {
+      throw TypeCheckError(node->getSpan(), "{} expects exactly one argument", node->getName());
+    }
+    result = std::make_unique<Value>(listType);
+    return true;
+  }
+  if (node->getName() == "__list_clear" || node->getName() == "__buffer_clear") {
+    if (argTypes.size() != 1U) {
+      throw TypeCheckError(node->getSpan(), "{} expects exactly one argument", node->getName());
+    }
+    result = std::make_unique<Value>(cacheType(std::make_unique<Type>(BaseType::TY_VOID)));
+    return true;
+  }
+  if (node->getName() == "__list_pop" || node->getName() == "__buffer_pop") {
+    if (argTypes.size() != 1U) {
+      throw TypeCheckError(node->getSpan(), "{} expects exactly one argument", node->getName());
+    }
+    result = std::make_unique<Value>(listType->getElementType());
+    return true;
+  }
+  if (node->getName() == "__list_push" || node->getName() == "__buffer_push") {
+    if (argTypes.size() != 2U) {
+      throw TypeCheckError(node->getSpan(), "{} expects buffer and value", node->getName());
+    }
+    if (!isAssignableTo(argTypes[1], listType->getElementType())) {
+      throw TypeCheckError(node->getSpan(), "Cannot push type {} into buffer element type {}",
+                           argTypes[1]->toString(), listType->getElementType()->toString());
+    }
+    result = std::make_unique<Value>(cacheType(std::make_unique<Type>(BaseType::TY_VOID)));
+    return true;
+  }
+  if (node->getName() == "__list_get" || node->getName() == "__buffer_get") {
+    if (argTypes.size() != 2U) {
+      throw TypeCheckError(node->getSpan(), "{} expects buffer and index", node->getName());
+    }
+    if (argTypes[1] == nullptr || !argTypes[1]->is(BaseType::TY_INT)) {
+      throw TypeCheckError(node->getSpan(), "{} index must be int", node->getName());
+    }
+    result = std::make_unique<Value>(listType->getElementType());
+    return true;
+  }
+  if (node->getName() == "__list_set" || node->getName() == "__buffer_set") {
+    if (argTypes.size() != 3U) {
+      throw TypeCheckError(node->getSpan(), "{} expects buffer, index, and value", node->getName());
+    }
+    if (argTypes[1] == nullptr || !argTypes[1]->is(BaseType::TY_INT)) {
+      throw TypeCheckError(node->getSpan(), "{} index must be int", node->getName());
+    }
+    if (!isAssignableTo(argTypes[2], listType->getElementType())) {
+      throw TypeCheckError(node->getSpan(), "Cannot assign type {} into buffer element type {}",
+                           argTypes[2]->toString(), listType->getElementType()->toString());
+    }
+    result = std::make_unique<Value>(cacheType(std::make_unique<Type>(BaseType::TY_VOID)));
+    return true;
+  }
+  return false;
+}
+
+auto Typechecker::visitListMethodCall(Type* listType, const DotOp* node, const FuncCall* call) -> bool {
+  if (listType == nullptr || !listType->is(BaseType::TY_ARRAY) || call == nullptr) {
+    return false;
+  }
+  std::vector<Type*> argTypes = {listType};
+  for (Expression* arg : call->getArguments()) {
+    arg->accept(*this);
+    Type* argType = result->getType();
+    if (argType != nullptr && argType->is(BaseType::TY_CLASS)) {
+      argType = cacheType(std::make_unique<Type>(BaseType::TY_PTR, nullptr, argType));
+    }
+    argTypes.push_back(argType);
+  }
+  if (isMutatingListFunction(call->getName()) && !isMutableListReceiver(node->getLeft())) {
+    throw TypeCheckError(node->getSpan(), "Cannot call mutating list method {} on immutable value",
+                         call->getName());
+  }
+
+  const auto listModulePath =
+      std::filesystem::absolute(std::filesystem::path(getStdDir()) / "list.les").lexically_normal();
+  SymbolTable* importedScope = getOrTypecheckImport(listModulePath.string());
+  Value* callee = importedScope != nullptr ? importedScope->lookupFunction(call->getName(), argTypes)
+                                           : nullptr;
+  if (callee == nullptr || !callee->getType()->is(BaseType::TY_FUNCTION)) {
+    return false;
+  }
+
+  call->setResolvedSymbol(callee);
+  auto* funcType = callee->getType();
+  auto fields = funcType->getFields();
+  if (!call->getExplicitTypeArgs().empty()) {
+    std::vector<Type*> explicitTypes;
+    for (TypeExpr* texpr : call->getExplicitTypeArgs()) {
+      texpr->accept(*this);
+      explicitTypes.push_back(result->getType());
+    }
+    const std::vector<std::string>& genericParamNames = getDeclaredGenericParams(funcType);
+    if (explicitTypes.size() != genericParamNames.size()) {
+      throw TypeCheckError(call->getSpan(),
+                           "Explicit type argument count {} does not match generic parameter count {}",
+                           explicitTypes.size(), genericParamNames.size());
+    }
+    std::unordered_map<std::string, Type*> explicitSubst;
+    for (size_t i = 0; i < genericParamNames.size(); ++i) {
+      explicitSubst[genericParamNames[i]] = explicitTypes[i];
+    }
+    for (size_t i = 0; i < fields.size() && i < argTypes.size(); ++i) {
+      Type* expected = substituteInType(fields[i]->type, explicitSubst);
+      if (expected != nullptr && !argTypes[i]->isEqual(expected)) {
+        throw TypeCheckError(call->getSpan(),
+                             "Argument type {} does not match explicit parameter type {}",
+                             argTypes[i]->toString(), expected->toString());
+      }
+    }
+    Type* retType = substituteInType(funcType->getReturnType(), explicitSubst);
+    Type* finalType = retType != nullptr ? retType
+                                         : cacheType(std::make_unique<Type>(BaseType::TY_VOID));
+    result = std::make_unique<Value>(importedScope != nullptr ? materializeImportedType(finalType)
+                                                              : finalType);
+    return true;
+  }
+
+  std::unordered_map<std::string, Type*> localGenericTypes;
+  for (size_t i = 0; i < fields.size() && i < argTypes.size(); ++i) {
+    inferGenericBindings(fields[i]->type, argTypes[i], localGenericTypes, call->getSpan());
+  }
+  Type* retType = substituteInType(funcType->getReturnType(), localGenericTypes);
+  if (retType == nullptr) {
+    retType = funcType->getReturnType();
+  }
+  Type* finalType =
+      retType != nullptr ? retType : cacheType(std::make_unique<Type>(BaseType::TY_VOID));
+  result = std::make_unique<Value>(importedScope != nullptr ? materializeImportedType(finalType)
+                                                            : finalType);
+  return true;
 }
 
 auto Typechecker::cacheType(std::unique_ptr<Type> type) -> Type* {
@@ -195,6 +515,13 @@ auto Typechecker::materializeImportedType(Type* type) -> Type* {
     importedTypeCopies[type] = copy;
     return copy;
   }
+  if (type->is(BaseType::TY_ARRAY)) {
+    auto* copy = cacheType(std::make_unique<Type>(BaseType::TY_ARRAY, nullptr,
+                                                  materializeImportedType(type->getElementType())));
+    copy->setDisplayName(type->getDisplayName());
+    importedTypeCopies[type] = copy;
+    return copy;
+  }
   if (type->is(BaseType::TY_FUNCTION)) {
     std::vector<std::unique_ptr<Field>> fields;
     for (Field* field : type->getFields()) {
@@ -223,6 +550,13 @@ auto Typechecker::materializeImportedType(Type* type) -> Type* {
   }
   if (type->is(BaseType::TY_GENERIC)) {
     Type* copy = cacheType(std::make_unique<Type>(type->getGenericName()));
+    importedTypeCopies[type] = copy;
+    return copy;
+  }
+  if (type->is(BaseType::TY_INT)) {
+    auto u = std::make_unique<Type>(BaseType::TY_INT);
+    u->setIntWidth(static_cast<std::uint16_t>(type->getIntWidth()));
+    Type* copy = cacheType(std::move(u));
     importedTypeCopies[type] = copy;
     return copy;
   }
@@ -261,6 +595,26 @@ auto Typechecker::substituteInType(Type* t, const std::unordered_map<std::string
     funcType->setGenericParams(t->getGenericParams());
     funcType->setVarArgs(t->isVarArgs());
     return cacheType(std::move(funcType));
+  }
+  if (t->is(BaseType::TY_CLASS)) {
+    Type* classTemplate = t;
+    if (auto tmplIt = specializedTypeToTemplate.find(t); tmplIt != specializedTypeToTemplate.end()) {
+      classTemplate = tmplIt->second;
+    }
+    const auto& genericParamNames = classTemplate->getGenericParams();
+    if (!genericParamNames.empty()) {
+      std::unordered_map<std::string, Type*> classEnv;
+      bool changed = false;
+      for (const auto& name : genericParamNames) {
+        if (auto it = env.find(name); it != env.end()) {
+          classEnv[name] = it->second;
+          changed = true;
+        }
+      }
+      if (changed) {
+        return getOrCreateSpecializedClassType(classTemplate, genericParamNames, classEnv);
+      }
+    }
   }
   return t;
 }
@@ -381,6 +735,13 @@ auto Typechecker::typecheckBinaryOpResult(TokenType op, Type* leftTy, Type* righ
                                           llvm::SMRange span) -> Type* {
   bool hasGeneric = leftTy->is(BaseType::TY_GENERIC) || rightTy->is(BaseType::TY_GENERIC);
   Type* unified = getExtendedType(leftTy, rightTy);
+  auto tryOverload = [this, op, leftTy, rightTy, span]() -> Type* {
+    auto operatorName = OperatorUtils::getBinaryOperatorName(op);
+    if (!operatorName.has_value()) {
+      return nullptr;
+    }
+    return resolveMethodReturnType(leftTy, std::string{*operatorName}, {rightTy}, span);
+  };
 
   switch (op) {
   case TokenType::PLUS:
@@ -393,10 +754,16 @@ auto Typechecker::typecheckBinaryOpResult(TokenType op, Type* leftTy, Type* righ
       return leftTy->is(BaseType::TY_GENERIC) ? leftTy : rightTy;
     }
     if (unified == nullptr) {
+      if (Type* overloadedType = tryOverload(); overloadedType != nullptr) {
+        return overloadedType;
+      }
       throw TypeCheckError(span, "Operator {} not applicable to {} and {}", NAMEOF_ENUM(op),
                            leftTy->toString(), rightTy->toString());
     }
     if (!unified->isOneOf({BaseType::TY_INT, BaseType::TY_FLOAT})) {
+      if (Type* overloadedType = tryOverload(); overloadedType != nullptr) {
+        return overloadedType;
+      }
       throw TypeCheckError(span, "Arithmetic operator requires numeric types");
     }
     return unified;
@@ -406,6 +773,9 @@ auto Typechecker::typecheckBinaryOpResult(TokenType op, Type* leftTy, Type* righ
   case TokenType::GREATER_EQUAL:
   case TokenType::LESS:
   case TokenType::LESS_EQUAL:
+    if (Type* overloadedType = tryOverload(); overloadedType != nullptr) {
+      return overloadedType;
+    }
     if (leftTy->isOneOf({BaseType::TY_ENUM, BaseType::TY_CLASS}) ||
         rightTy->isOneOf({BaseType::TY_ENUM, BaseType::TY_CLASS})) {
       if (leftTy != rightTy) {
@@ -442,6 +812,14 @@ auto Typechecker::isAssignableTo(Type* from, Type* to) -> bool {
   if (from->isEqual(to)) {
     return true;
   }
+  if (from->is(BaseType::TY_PTR) && from->getElementType() != nullptr &&
+      from->getElementType()->is(BaseType::TY_CLASS) && to->is(BaseType::TY_CLASS)) {
+    return from->getElementType()->isEqual(to);
+  }
+  if (to->is(BaseType::TY_PTR) && to->getElementType() != nullptr &&
+      to->getElementType()->is(BaseType::TY_CLASS) && from->is(BaseType::TY_CLASS)) {
+    return from->isEqual(to->getElementType());
+  }
   // Void is only assignable to Void
   if (from->is(BaseType::TY_VOID)) {
     return to->is(BaseType::TY_VOID);
@@ -462,9 +840,25 @@ auto Typechecker::isAssignableTo(Type* from, Type* to) -> bool {
 }
 
 auto Typechecker::resolveType(const TypeExpr* node) -> Type* {
-  if (node->getType() == TokenType::INT_TYPE || node->getType() == TokenType::INT8_TYPE ||
-      node->getType() == TokenType::INT16_TYPE || node->getType() == TokenType::INT32_TYPE) {
-    return cacheType(std::make_unique<Type>(BaseType::TY_INT));
+  if (node->getType() == TokenType::INT_TYPE) {
+    auto u = std::make_unique<Type>(BaseType::TY_INT);
+    u->setIntWidth(64);
+    return cacheType(std::move(u));
+  }
+  if (node->getType() == TokenType::INT8_TYPE) {
+    auto u = std::make_unique<Type>(BaseType::TY_INT);
+    u->setIntWidth(8);
+    return cacheType(std::move(u));
+  }
+  if (node->getType() == TokenType::INT16_TYPE) {
+    auto u = std::make_unique<Type>(BaseType::TY_INT);
+    u->setIntWidth(16);
+    return cacheType(std::move(u));
+  }
+  if (node->getType() == TokenType::INT32_TYPE) {
+    auto u = std::make_unique<Type>(BaseType::TY_INT);
+    u->setIntWidth(32);
+    return cacheType(std::move(u));
   }
   if (node->getType() == TokenType::FLOAT_TYPE || node->getType() == TokenType::FLOAT32_TYPE) {
     return cacheType(std::make_unique<Type>(BaseType::TY_FLOAT));
@@ -499,19 +893,34 @@ auto Typechecker::resolveType(const TypeExpr* node) -> Type* {
     return cacheType(std::move(funcType));
   }
   if (node->getType() == TokenType::CUSTOM_TYPE) {
-    auto genericIt = currentGenericTypes.find(node->getName());
+    const std::string lookupName = node->getLookupName();
+    auto genericIt = currentGenericTypes.find(lookupName);
     if (genericIt != currentGenericTypes.end()) {
-      if (Value* genericSymbol = scope->lookup(node->getName())) {
+      if (Value* genericSymbol = scope->lookup(lookupName)) {
         node->setResolvedSymbol(genericSymbol);
       }
       return genericIt->second;
     }
-    Type* typ = scope->lookupType(node->getName());
-    Value* sym = scope->lookupStruct(node->getName());
+    std::vector<Type*> explicitTypeArgs;
+    for (TypeExpr* typeArg : node->getTypeArgs()) {
+      typeArg->accept(*this);
+      explicitTypeArgs.push_back(result->getType());
+    }
+    if (lookupName == "__buffer") {
+      if (explicitTypeArgs.size() != 1U) {
+        throw TypeCheckError(node->getSpan(), "__buffer<T> expects exactly one type argument");
+      }
+      auto* bufferType =
+          cacheType(std::make_unique<Type>(BaseType::TY_ARRAY, nullptr, explicitTypeArgs.front()));
+      bufferType->setDisplayName(node->getName());
+      return bufferType;
+    }
+    Type* typ = scope->lookupType(lookupName);
+    Value* sym = scope->lookupStruct(lookupName);
     bool resolvedFromImport = false;
     if ((typ == nullptr && sym == nullptr) ||
         (sym != nullptr && sym->getType()->is(BaseType::TY_IMPORT))) {
-      auto importedIt = importedNameToSource.find(node->getName());
+      auto importedIt = importedNameToSource.find(lookupName);
       if (importedIt != importedNameToSource.end()) {
         SymbolTable* importScope = getOrTypecheckImport(importedIt->second.first);
         if (importScope != nullptr) {
@@ -528,29 +937,46 @@ auto Typechecker::resolveType(const TypeExpr* node) -> Type* {
                            node->getName());
     }
     node->setResolvedSymbol(sym);
+    Type* resolvedType = sym != nullptr ? sym->getType() : typ;
     if (resolvedFromImport) {
-      return sym != nullptr ? materializeImportedType(sym->getType())
-                            : materializeImportedType(typ);
+      resolvedType = materializeImportedType(resolvedType);
     }
-    return sym != nullptr ? sym->getType() : typ;
+    if (explicitTypeArgs.empty()) {
+      return resolvedType;
+    }
+    if (resolvedType == nullptr || !resolvedType->is(BaseType::TY_CLASS)) {
+      throw TypeCheckError(node->getSpan(), "Type {} is not a generic class", node->getName());
+    }
+    Type* classTemplate = resolvedType;
+    auto templateIt = specializedTypeToTemplate.find(classTemplate);
+    if (templateIt != specializedTypeToTemplate.end()) {
+      classTemplate = templateIt->second;
+    }
+    const auto& genericParamNames = classTemplate->getGenericParams();
+    if (genericParamNames.size() != explicitTypeArgs.size()) {
+      throw TypeCheckError(node->getSpan(),
+                           "Generic class {} expects {} type arguments, got {}", node->getName(),
+                           genericParamNames.size(), explicitTypeArgs.size());
+    }
+    std::unordered_map<std::string, Type*> env;
+    for (size_t i = 0; i < genericParamNames.size(); ++i) {
+      env[genericParamNames[i]] = explicitTypeArgs[i];
+    }
+    return getOrCreateSpecializedClassType(classTemplate, genericParamNames, env);
   }
   throw TypeCheckError(node->getSpan(), "Unimplemented type {}", NAMEOF_ENUM(node->getType()));
 }
 
-Typechecker::Typechecker() : mainFilePath(), getExports() {
-  rootScope = std::make_unique<SymbolTable>(nullptr);
-  scope = rootScope.get();
-}
+Typechecker::Typechecker()
+    : rootScope(std::make_unique<SymbolTable>(nullptr)), scope(rootScope.get()) {}
 
-Typechecker::Typechecker(std::string mainFilePath_, GetExportsFn getExports_)
-    : mainFilePath(std::move(mainFilePath_)), getExports(std::move(getExports_)) {
-  rootScope = std::make_unique<SymbolTable>(nullptr);
-  scope = rootScope.get();
-}
+Typechecker::Typechecker(std::string mainFilePath, GetExportsFn getExports)
+    : rootScope(std::make_unique<SymbolTable>(nullptr)), scope(rootScope.get()),
+      mainFilePath(std::move(mainFilePath)), getExports(std::move(getExports)) {}
 
-void Typechecker::loadImplicitBaseModule() {
-  const auto basePath =
-      std::filesystem::absolute(std::filesystem::path(getStdDir()) / "base.les").lexically_normal();
+void Typechecker::loadImplicitStdModule(const std::string& moduleFilename) {
+  const auto basePath = std::filesystem::absolute(std::filesystem::path(getStdDir()) / moduleFilename)
+                            .lexically_normal();
   if (!mainFilePath.empty() &&
       std::filesystem::absolute(std::filesystem::path(mainFilePath)).lexically_normal() ==
           basePath) {
@@ -574,6 +1000,21 @@ void Typechecker::loadImplicitBaseModule() {
     auto symbol = std::make_unique<Value>(name, importType);
     symbol->setCategory(ValueCategory::MODULE_SYMBOL);
     scope->insertSymbol(std::move(symbol));
+    importedNameToSource[name] = std::make_pair(basePath.string(), name);
+  }
+  // Non-exported classes/enums may appear in exported members' signatures; resolve them
+  // via the same module path as for exported types (not added as top-level module names).
+  for (auto* sym : baseScope->getSymbols()) {
+    if (sym->isExported()) {
+      continue;
+    }
+    if (!sym->getType()->isOneOf({BaseType::TY_ENUM, BaseType::TY_CLASS})) {
+      continue;
+    }
+    const std::string& name = sym->getName();
+    if (importedNameToSource.contains(name)) {
+      continue;
+    }
     importedNameToSource[name] = std::make_pair(basePath.string(), name);
   }
 }
@@ -626,7 +1067,18 @@ auto Typechecker::getOrTypecheckImport(const std::string& absolutePath) -> Symbo
 }
 
 auto Typechecker::run(const Compound* ast) -> void {
-  loadImplicitBaseModule();
+  const auto currentPath = mainFilePath.empty()
+                               ? std::filesystem::path()
+                               : std::filesystem::absolute(std::filesystem::path(mainFilePath))
+                                     .lexically_normal();
+  const auto basePath =
+      std::filesystem::absolute(std::filesystem::path(getStdDir()) / "base.les").lexically_normal();
+  const auto listPath =
+      std::filesystem::absolute(std::filesystem::path(getStdDir()) / "list.les").lexically_normal();
+  if (currentPath != basePath && currentPath != listPath) {
+    loadImplicitStdModule("base.les");
+    loadImplicitStdModule("list.les");
+  }
   declarationPass = true;
   ast->accept(*this);
   declarationPass = false;
@@ -670,7 +1122,7 @@ auto Typechecker::visit(const VarDecl* node) -> void {
     declType = result->getType();
   }
   if (node->getValue() != nullptr) {
-    node->getValue()->accept(*this);
+    visitExprWithExpectedType(node->getValue(), declType);
     Type* initType = result->getType();
     if (declType != nullptr) {
       if (!isAssignableTo(initType, declType)) {
@@ -723,11 +1175,88 @@ auto Typechecker::visit(const While* node) -> void {
   node->getBlock()->accept(*this);
 }
 
+auto Typechecker::visit(const ForIn* node) -> void {
+  node->getIterable()->accept(*this);
+  Type* iterableType = result->getType();
+  Type* loopVarType = nullptr;
+  auto peelPtr = [](Type* type) -> Type* {
+    Type* t = type;
+    while (t != nullptr && t->is(BaseType::TY_PTR) && t->getElementType() != nullptr) {
+      t = t->getElementType();
+    }
+    return t;
+  };
+  auto isStdListClassType = [this, peelPtr](Type* type) -> bool {
+    Type* t = peelPtr(type);
+    if (t == nullptr || !t->is(BaseType::TY_CLASS)) {
+      return false;
+    }
+    Type* baseType = t;
+    if (auto it = specializedTypeToTemplate.find(t); it != specializedTypeToTemplate.end()) {
+      baseType = it->second;
+    }
+    const std::string& displayName = baseType->getDisplayName();
+    return displayName == "list<T>" || displayName == "list";
+  };
+  auto getStdListBufferType = [peelPtr, &isStdListClassType](Type* type) -> Type* {
+    if (!isStdListClassType(type)) {
+      return nullptr;
+    }
+    Type* t = peelPtr(type);
+    auto fields = t->getFields();
+    if (fields.empty() || fields.front()->type == nullptr || !fields.front()->type->is(BaseType::TY_ARRAY)) {
+      return nullptr;
+    }
+    return fields.front()->type;
+  };
+  if (iterableType != nullptr && iterableType->is(BaseType::TY_ARRAY) &&
+      iterableType->getElementType() != nullptr) {
+    loopVarType = iterableType->getElementType();
+  } else if (Type* bufferType = getStdListBufferType(iterableType);
+             bufferType != nullptr && bufferType->getElementType() != nullptr) {
+    loopVarType = bufferType->getElementType();
+  } else {
+    Type* iteratorType = resolveMethodReturnType(iterableType, "iter", {}, node->getSpan());
+    if (iteratorType == nullptr) {
+      throw TypeCheckError(node->getIterable()->getSpan(),
+                          "For-in requires list<T> or iter()/has_next()/next() protocol, got {}",
+                           iterableType != nullptr ? iterableType->toString() : "unknown");
+    }
+    Type* hasNextType = resolveMethodReturnType(iteratorType, "has_next", {}, node->getSpan());
+    if (hasNextType == nullptr || !hasNextType->is(BaseType::TY_BOOL)) {
+      throw TypeCheckError(node->getIterable()->getSpan(),
+                          "For-in iterator has_next() must return bool");
+    }
+    loopVarType = resolveMethodReturnType(iteratorType, "next", {}, node->getSpan());
+    if (loopVarType == nullptr) {
+      throw TypeCheckError(node->getIterable()->getSpan(),
+                          "For-in iterator must define next()");
+    }
+  }
+
+  SymbolTable* child = scope->createChildBlock("for");
+  node->setBodyScope(child);
+  SymbolTable* savedScope = scope;
+  scope = child;
+
+  auto symbol =
+      std::make_unique<Value>(node->getIdentifier()->getValue(), loopVarType, SymbolState::INITIALIZED);
+  symbol->setCategory(ValueCategory::ADDRESSABLE_STORAGE);
+  symbol->setMutable(false);
+  symbol->setDeclarationSpan(node->getIdentifier()->getSpan());
+  symbol->setDeclarationFilePath(mainFilePath);
+  node->getIdentifier()->setResolvedSymbol(symbol.get());
+  scope->insertSymbol(std::move(symbol));
+
+  node->getBlock()->accept(*this);
+  scope = savedScope;
+}
+
 auto Typechecker::visit(const Import* node) -> void {
   if (!declarationPass) {
     return;
   }
-  auto importType = cacheType(std::make_unique<Type>(BaseType::TY_IMPORT));
+  auto* importType = cacheType(std::make_unique<Type>(BaseType::TY_IMPORT));
   const std::string resolvedPath = resolveImportPath(node->getFilePath(), node->isStd());
   auto addImportSymbol = [this, &importType](const std::string& name) {
     if (!name.empty()) {
@@ -1139,7 +1668,7 @@ auto Typechecker::visit(const Assignment* node) -> void {
                            lit->getValue());
     }
     Type* lhsType = sym->getType();
-    node->getRightHandSide()->accept(*this);
+    visitExprWithExpectedType(node->getRightHandSide(), lhsType);
     Type* rhsType = result->getType();
     if (binaryOp.has_value()) {
       Type* resultType = typecheckBinaryOpResult(*binaryOp, lhsType, rhsType, node->getSpan());
@@ -1165,7 +1694,7 @@ auto Typechecker::visit(const Assignment* node) -> void {
     node->getLeftHandSide()->accept(*this);
     Type* lhsType = result->getType();
     Type* targetType = lhsType;
-    node->getRightHandSide()->accept(*this);
+    visitExprWithExpectedType(node->getRightHandSide(), targetType);
     Type* rhsType = result->getType();
     if (binaryOp.has_value()) {
       Type* resultType = typecheckBinaryOpResult(*binaryOp, targetType, rhsType, node->getSpan());
@@ -1183,6 +1712,71 @@ auto Typechecker::visit(const Assignment* node) -> void {
       if (targetType != nullptr && !isAssignableTo(rhsType, targetType)) {
         throw TypeCheckError(node->getSpan(), "Cannot assign type {} to field of type {}",
                              rhsType->toString(), targetType->toString());
+      }
+    }
+    return;
+  }
+  if (auto* subscript = dynamic_cast<SubscriptOp*>(node->getLeftHandSide())) {
+    if (auto* baseLit = dynamic_cast<Literal*>(subscript->getLeft())) {
+      Value* sym = scope->lookup(baseLit->getValue());
+      if (sym != nullptr && !sym->getMutability()) {
+        throw TypeCheckError(node->getSpan(), "Cannot assign through immutable variable {}",
+                             baseLit->getValue());
+      }
+    }
+    subscript->getLeft()->accept(*this);
+    Type* baseType = result->getType();
+    subscript->getIndex()->accept(*this);
+    Type* indexType = result->getType();
+    if (baseType != nullptr && baseType->is(BaseType::TY_ARRAY) && baseType->getElementType() != nullptr) {
+      node->getLeftHandSide()->accept(*this);
+      Type* lhsType = result->getType();
+      visitExprWithExpectedType(node->getRightHandSide(), lhsType);
+      Type* rhsType = result->getType();
+      if (binaryOp.has_value()) {
+        Type* resultType = typecheckBinaryOpResult(*binaryOp, lhsType, rhsType, node->getSpan());
+        if (lhsType != nullptr && !isAssignableTo(resultType, lhsType)) {
+          throw TypeCheckError(
+              node->getSpan(),
+              "Compound assignment result type {} is not assignable to list element type {}",
+              resultType->toString(), lhsType->toString());
+        }
+      } else {
+        if (assignOp != TokenType::EQUAL) {
+          throw TypeCheckError(node->getSpan(), "Unsupported assignment operator: {}",
+                               NAMEOF_ENUM(assignOp));
+        }
+        if (lhsType != nullptr && !isAssignableTo(rhsType, lhsType)) {
+          throw TypeCheckError(node->getSpan(), "Cannot assign type {} to list element of type {}",
+                               rhsType->toString(), lhsType->toString());
+        }
+      }
+      return;
+    }
+
+    if (binaryOp.has_value()) {
+      Type* lhsType = resolveMethodReturnType(
+          baseType, std::string{OperatorUtils::SUBSCRIPT_GET_NAME}, {indexType}, node->getSpan());
+      if (lhsType == nullptr) {
+        throw TypeCheckError(node->getSpan(), "Operator [] not found for assignment target");
+      }
+      visitExprWithExpectedType(node->getRightHandSide(), lhsType);
+      Type* rhsType = result->getType();
+      Type* resultType = typecheckBinaryOpResult(*binaryOp, lhsType, rhsType, node->getSpan());
+      if (resolveMethodReturnType(baseType, std::string{OperatorUtils::SUBSCRIPT_SET_NAME},
+                                  {indexType, resultType}, node->getSpan()) == nullptr) {
+        throw TypeCheckError(node->getSpan(), "Operator []= not found for assignment target");
+      }
+    } else {
+      if (assignOp != TokenType::EQUAL) {
+        throw TypeCheckError(node->getSpan(), "Unsupported assignment operator: {}",
+                             NAMEOF_ENUM(assignOp));
+      }
+      node->getRightHandSide()->accept(*this);
+      Type* rhsType = result->getType();
+      if (resolveMethodReturnType(baseType, std::string{OperatorUtils::SUBSCRIPT_SET_NAME},
+                                  {indexType, rhsType}, node->getSpan()) == nullptr) {
+        throw TypeCheckError(node->getSpan(), "Operator []= not found for assignment target");
       }
     }
     return;
@@ -1209,7 +1803,7 @@ auto Typechecker::visit(const Return* node) -> void {
     }
     return;
   }
-  node->getValue()->accept(*this);
+  visitExprWithExpectedType(node->getValue(), expected);
   if (!isAssignableTo(result->getType(), expected)) {
     throw TypeCheckError(node->getSpan(), "Return type does not match: expected {}, got {}",
                          expected->toString(), result->getType()->toString());
@@ -1235,6 +1829,9 @@ auto Typechecker::visit(const FuncCall* node) -> void {
       t = cacheType(std::make_unique<Type>(BaseType::TY_PTR, nullptr, t));
     }
     argTypes.push_back(t);
+  }
+  if (visitListIntrinsicCall(node, argTypes)) {
+    return;
   }
   if (!node->getExplicitTypeArgs().empty()) {
     Value* classSym = scope->lookup(node->getName());
@@ -1283,10 +1880,10 @@ auto Typechecker::visit(const FuncCall* node) -> void {
     }
   }
 
+  SymbolTable* importedScope = nullptr;
   Value* callee = scope->lookupFunction(node->getName(), argTypes);
   if (callee == nullptr) {
     Value* sym = scope->lookup(node->getName());
-    SymbolTable* importedScope = nullptr;
     std::string importedName;
     if (sym == nullptr || sym->getType()->is(BaseType::TY_IMPORT)) {
       auto importedIt = importedNameToSource.find(node->getName());
@@ -1299,14 +1896,7 @@ auto Typechecker::visit(const FuncCall* node) -> void {
         }
       }
     }
-    if (callee != nullptr) {
-      node->setResolvedSymbol(callee);
-      auto* funcType = callee->getType();
-      Type* retType = materializeImportedType(funcType->getReturnType());
-      result = std::make_unique<Value>(retType);
-      return;
-    }
-    if (sym != nullptr) {
+    if (callee == nullptr && sym != nullptr) {
       node->setResolvedSymbol(sym);
       if (sym->getType()->is(BaseType::TY_CLASS)) {
         Type* classType =
@@ -1348,7 +1938,9 @@ auto Typechecker::visit(const FuncCall* node) -> void {
         return;
       }
     }
-    throw TypeCheckError(node->getSpan(), "Function not found: {}", node->getName());
+    if (callee == nullptr) {
+      throw TypeCheckError(node->getSpan(), "Function not found: {}", node->getName());
+    }
   }
   if (!callee->getType()->is(BaseType::TY_FUNCTION)) {
     throw TypeCheckError(node->getSpan(), "Not a function: {}", node->getName());
@@ -1389,7 +1981,8 @@ auto Typechecker::visit(const FuncCall* node) -> void {
           substituteInType(fields[0]->type->getElementType(), explicitSubst));
     } else {
       Type* retType = substituteInType(funcType->getReturnType(), explicitSubst);
-      result = std::make_unique<Value>(retType);
+      result = std::make_unique<Value>(importedScope != nullptr ? materializeImportedType(retType)
+                                                                : retType);
     }
     return;
   }
@@ -1407,14 +2000,12 @@ auto Typechecker::visit(const FuncCall* node) -> void {
         getOrCreateSpecializedClassType(classType, genericParamNames, localGenericTypes);
     result = std::make_unique<Value>(specialized);
   } else {
-    Type* retType = funcType->getReturnType();
-    if (retType != nullptr && retType->is(BaseType::TY_GENERIC)) {
-      auto it = localGenericTypes.find(retType->getGenericName());
-      if (it != localGenericTypes.end()) {
-        retType = it->second;
-      }
+    Type* retType = substituteInType(funcType->getReturnType(), localGenericTypes);
+    if (retType == nullptr) {
+      retType = funcType->getReturnType();
     }
-    result = std::make_unique<Value>(retType);
+    result = std::make_unique<Value>(importedScope != nullptr ? materializeImportedType(retType)
+                                                              : retType);
   }
 }
 
@@ -1428,9 +2019,49 @@ auto Typechecker::visit(const BinaryOp* node) -> void {
   result = std::make_unique<Value>(resultType);
 }
 
+auto Typechecker::visit(const SubscriptOp* node) -> void {
+  node->getLeft()->accept(*this);
+  Type* baseType = result->getType();
+  node->getIndex()->accept(*this);
+  Type* indexType = result->getType();
+  if (baseType != nullptr && baseType->is(BaseType::TY_ARRAY) && baseType->getElementType() != nullptr) {
+    if (indexType == nullptr || !indexType->is(BaseType::TY_INT)) {
+      throw TypeCheckError(node->getIndex()->getSpan(), "List index must be int, got {}",
+                           indexType != nullptr ? indexType->toString() : "unknown");
+    }
+    result = std::make_unique<Value>(baseType->getElementType());
+    return;
+  }
+  Type* overloadType =
+      resolveMethodReturnType(baseType, std::string{OperatorUtils::SUBSCRIPT_GET_NAME}, {indexType},
+                              node->getSpan());
+  if (overloadType == nullptr) {
+    throw TypeCheckError(node->getSpan(), "Subscript requires an array type or operator [], got {}",
+                         baseType != nullptr ? baseType->toString() : "unknown");
+  }
+  result = std::make_unique<Value>(overloadType);
+}
+
 auto Typechecker::visit(const DotOp* node) -> void {
   node->getLeft()->accept(*this);
   Type* base = result->getType();
+  auto isStdListClassType = [this](Type* type) -> bool {
+    if (type == nullptr) {
+      return false;
+    }
+    if (type->is(BaseType::TY_PTR) && type->getElementType() != nullptr) {
+      type = type->getElementType();
+    }
+    if (!type->is(BaseType::TY_CLASS)) {
+      return false;
+    }
+    Type* baseType = type;
+    if (auto it = specializedTypeToTemplate.find(type); it != specializedTypeToTemplate.end()) {
+      baseType = it->second;
+    }
+    const std::string& displayName = baseType->getDisplayName();
+    return displayName == "list<T>" || displayName == "list";
+  };
   if (base == nullptr) {
     throw TypeCheckError(node->getSpan(), "Dot operator on unknown type");
   }
@@ -1559,11 +2190,24 @@ auto Typechecker::visit(const DotOp* node) -> void {
   if (base->is(BaseType::TY_PTR) && base->getElementType() != nullptr) {
     base = base->getElementType();
   }
+  if (base->is(BaseType::TY_ARRAY)) {
+    if (auto* call = dynamic_cast<FuncCall*>(node->getRight())) {
+      if (visitListMethodCall(base, node, call)) {
+        return;
+      }
+    }
+    throw TypeCheckError(node->getSpan(), "Expected supported list method after dot");
+  }
   if (!base->is(BaseType::TY_CLASS) && !base->is(BaseType::TY_ENUM)) {
     throw TypeCheckError(node->getSpan(), "Dot operator requires class or enum type, got {}",
                          base->toString());
   }
   if (auto* fc = dynamic_cast<FuncCall*>(node->getRight())) {
+    if (isStdListClassType(base) && isMutatingListFunction(fc->getName()) &&
+        !isMutableListReceiver(node->getLeft())) {
+      throw TypeCheckError(node->getSpan(), "Cannot call mutating list method {} on immutable value",
+                           fc->getName());
+    }
     std::vector<Type*> argTypes;
     for (Expression* arg : fc->getArguments()) {
       arg->accept(*this);
@@ -1671,6 +2315,13 @@ auto Typechecker::visit(const IsOp* node) -> void {
 auto Typechecker::visit(const UnaryOp* node) -> void {
   node->getExpression()->accept(*this);
   Type* operand = result->getType();
+  auto tryOverload = [this, node, operand]() -> Type* {
+    auto operatorName = OperatorUtils::getUnaryOperatorName(node->getOperator());
+    if (!operatorName.has_value()) {
+      return nullptr;
+    }
+    return resolveMethodReturnType(operand, std::string{*operatorName}, {}, node->getSpan());
+  };
   switch (node->getOperator()) {
   case TokenType::MINUS:
     if (operand != nullptr && operand->is(BaseType::TY_GENERIC)) {
@@ -1678,6 +2329,10 @@ auto Typechecker::visit(const UnaryOp* node) -> void {
       break;
     }
     if (operand == nullptr || !operand->isOneOf({BaseType::TY_INT, BaseType::TY_FLOAT})) {
+      if (Type* overloadedType = tryOverload(); overloadedType != nullptr) {
+        result = std::make_unique<Value>(overloadedType);
+        break;
+      }
       throw TypeCheckError(node->getSpan(), "Unary minus requires numeric type");
     }
     result = std::make_unique<Value>(operand);
@@ -1689,6 +2344,10 @@ auto Typechecker::visit(const UnaryOp* node) -> void {
       break;
     }
     if (operand == nullptr || !operand->is(BaseType::TY_BOOL)) {
+      if (Type* overloadedType = tryOverload(); overloadedType != nullptr) {
+        result = std::make_unique<Value>(overloadedType);
+        break;
+      }
       throw TypeCheckError(node->getSpan(), "Unary not requires Bool type");
     }
     result = std::make_unique<Value>(cacheType(std::make_unique<Type>(BaseType::TY_BOOL)));
@@ -1704,9 +2363,14 @@ auto Typechecker::visit(const UnaryOp* node) -> void {
     if (operand == nullptr || !operand->is(BaseType::TY_PTR)) {
       throw TypeCheckError(node->getSpan(), "Dereference requires pointer type");
     }
-    result = std::make_unique<Value>(operand->getElementType() != nullptr
-                                         ? operand->getElementType()
-                                         : cacheType(std::make_unique<Type>(BaseType::TY_INT)));
+    result = std::make_unique<Value>(
+        operand->getElementType() != nullptr
+            ? operand->getElementType()
+            : [&]() -> Type* {
+                auto u = std::make_unique<Type>(BaseType::TY_INT);
+                u->setIntWidth(64);
+                return cacheType(std::move(u));
+              }());
     break;
   default:
     throw TypeCheckError(node->getSpan(), "Unsupported unary operator: {}",
@@ -1714,11 +2378,118 @@ auto Typechecker::visit(const UnaryOp* node) -> void {
   }
 }
 
+auto Typechecker::visit(const ListLiteral* node) -> void {
+  Type* expectedType = currentExpectedType();
+  auto isStdListClassType = [this](Type* type) -> bool {
+    if (type == nullptr || !type->is(BaseType::TY_CLASS)) {
+      return false;
+    }
+    Type* baseType = type;
+    if (auto it = specializedTypeToTemplate.find(type); it != specializedTypeToTemplate.end()) {
+      baseType = it->second;
+    }
+    const std::string& displayName = baseType->getDisplayName();
+    return displayName == "list<T>" || displayName == "list";
+  };
+  auto getStdListElementType = [this, &isStdListClassType](Type* type) -> Type* {
+    if (!isStdListClassType(type)) {
+      return nullptr;
+    }
+    if (auto it = specializedTypeEnv.find(type); it != specializedTypeEnv.end()) {
+      auto envIt = it->second.find("T");
+      if (envIt != it->second.end()) {
+        return envIt->second;
+      }
+    }
+    return nullptr;
+  };
+  auto getStdListType = [this, node](Type* elementType) -> Type* {
+    const auto listPath =
+        std::filesystem::absolute(std::filesystem::path(getStdDir()) / "list.les").lexically_normal();
+    SymbolTable* listScope = getOrTypecheckImport(listPath.string());
+    if (listScope == nullptr) {
+      throw TypeCheckError(node->getSpan(), "Unable to load stdlib list class");
+    }
+    Value* listSymbol = listScope->lookupStruct("list");
+    Type* listTemplate = listSymbol != nullptr ? materializeImportedType(listSymbol->getType())
+                                               : materializeImportedType(listScope->lookupType("list"));
+    if (listTemplate == nullptr || !listTemplate->is(BaseType::TY_CLASS)) {
+      throw TypeCheckError(node->getSpan(), "Stdlib list class not found");
+    }
+    std::unordered_map<std::string, Type*> env = {{"T", elementType}};
+    return getOrCreateSpecializedClassType(listTemplate, listTemplate->getGenericParams(), env);
+  };
+  Type* expectedElementType = nullptr;
+  if (expectedType != nullptr) {
+    if (expectedType->is(BaseType::TY_ARRAY)) {
+      expectedElementType = expectedType->getElementType();
+    } else {
+      expectedElementType = getStdListElementType(expectedType);
+    }
+  }
+  std::vector<Expression*> elements = node->getElements();
+  if (elements.empty()) {
+    if (expectedType == nullptr || expectedElementType == nullptr) {
+      throw TypeCheckError(node->getSpan(), "Empty list literal requires an explicit list<T> context");
+    }
+    node->setResolvedType(expectedType);
+    result = std::make_unique<Value>(expectedType);
+    return;
+  }
+
+  Type* elementType = expectedElementType;
+  for (Expression* element : elements) {
+    visitExprWithExpectedType(element, expectedElementType);
+    Type* current = result->getType();
+    if (current == nullptr) {
+      throw TypeCheckError(element->getSpan(), "List element has unknown type");
+    }
+    if (expectedElementType != nullptr) {
+      if (!isAssignableTo(current, expectedElementType)) {
+        throw TypeCheckError(element->getSpan(),
+                             "List element type {} is not assignable to expected type {}",
+                             current->toString(), expectedElementType->toString());
+      }
+      continue;
+    }
+    if (elementType == nullptr) {
+      elementType = current;
+      continue;
+    }
+    Type* unified = getExtendedType(elementType, current);
+    if (unified != nullptr) {
+      elementType = unified;
+      continue;
+    }
+    if (!current->isEqual(elementType)) {
+      throw TypeCheckError(element->getSpan(), "List elements must have a common type, got {} and {}",
+                           elementType->toString(), current->toString());
+    }
+  }
+
+  if (expectedType != nullptr && !expectedType->is(BaseType::TY_ARRAY) &&
+      getStdListElementType(expectedType) == nullptr) {
+    throw TypeCheckError(node->getSpan(),
+                         "List literal is not compatible with expected type {}",
+                         expectedType->toString());
+  }
+
+  Type* listType = expectedType;
+  if (listType == nullptr) {
+    listType = getStdListType(elementType);
+  }
+  node->setResolvedType(listType);
+  result = std::make_unique<Value>(listType);
+}
+
 auto Typechecker::visit(const Literal* node) -> void {
   switch (node->getType()) {
-  case TokenType::INTEGER:
-    result = std::make_unique<Value>(cacheType(std::make_unique<Type>(BaseType::TY_INT)));
+  case TokenType::INTEGER: {
+    auto u = std::make_unique<Type>(BaseType::TY_INT);
+    u->setIntWidth(64);
+    result = std::make_unique<Value>(cacheType(std::move(u)));
     break;
+  }
   case TokenType::DOUBLE:
     result = std::make_unique<Value>(cacheType(std::make_unique<Type>(BaseType::TY_FLOAT)));
     break;

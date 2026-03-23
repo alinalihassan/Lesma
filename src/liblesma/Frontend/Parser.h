@@ -99,6 +99,7 @@ private:
   auto parseAnd() -> std::unique_ptr<Expression>;
   auto parseNot() -> std::unique_ptr<Expression>;
   auto parseDot() -> std::unique_ptr<Expression>;
+  auto parsePostfix() -> std::unique_ptr<Expression>;
   auto parseCompare() -> std::unique_ptr<Expression>;
   auto parseAdd() -> std::unique_ptr<Expression>;
   auto parseMult() -> std::unique_ptr<Expression>;
@@ -107,6 +108,7 @@ private:
   auto parseUnary() -> std::unique_ptr<Expression>;
   auto parseTerm() -> std::unique_ptr<Expression>;
   auto parseFunctionCall() -> std::unique_ptr<Expression>;
+  auto parseListLiteral() -> std::unique_ptr<Expression>;
 
   // Lookahead: true if from current position we have IDENTIFIER LESS type-list
   // GREATER LEFT_PAREN (so parsing as call with explicit type args is valid).

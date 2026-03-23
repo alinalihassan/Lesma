@@ -15,6 +15,7 @@
 #include "DocumentStore.h"
 #include "LspAnalysisGraph.h"
 #include "LspCompletion.h"
+#include "LspTypeFormat.h"
 #include "LspUtf16.h"
 #include <lsp/connection.h>
 #include <lsp/io/standardio.h>
@@ -23,6 +24,7 @@
 #include <lsp/types.h>
 
 #include "liblesma/AST/AST.h"
+#include "liblesma/Common/OperatorUtils.h"
 #include "liblesma/Driver/AnalysisResult.h"
 #include "liblesma/Driver/Driver.h"
 #include "liblesma/Symbol/SymbolTable.h"
@@ -217,6 +219,13 @@ auto resolveDeclarationSymbolInStmt(const lesma::Statement* stmt, llvm::SourceMg
   if (auto const* whileNode = dynamic_cast<const lesma::While*>(stmt)) {
     return resolveDeclarationSymbolInStmt(whileNode->getBlock(), srcMgr, bufferId, declarationSpan);
   }
+  if (auto const* forNode = dynamic_cast<const lesma::ForIn*>(stmt)) {
+    lesma::Literal* ident = forNode->getIdentifier();
+    if (ident != nullptr && smRangesEqual(srcMgr, bufferId, ident->getSpan(), declarationSpan)) {
+      return ident->getResolvedSymbol();
+    }
+    return resolveDeclarationSymbolInStmt(forNode->getBlock(), srcMgr, bufferId, declarationSpan);
+  }
   if (auto const* defer = dynamic_cast<const lesma::Defer*>(stmt)) {
     return resolveDeclarationSymbolInStmt(defer->getStatement(), srcMgr, bufferId, declarationSpan);
   }
@@ -291,79 +300,6 @@ auto runAnalyzeAndPublish(const ::lsp::DocumentUri& uri,
           .uri = uri,
           .diagnostics = std::move(lspDiagnostics),
       });
-}
-
-/** Get the class or enum name for a type by looking it up in the symbol table. */
-auto getTypeName(lesma::Type* type, lesma::SymbolTable* rootScope) -> std::string {
-  if (type == nullptr || rootScope == nullptr) {
-    return "";
-  }
-  // For class and enum types, look up the name by finding the TYPE_SYMBOL Value
-  // that has this type (classes/enums are stored as TYPE_SYMBOL values)
-  if (type->is(lesma::BaseType::TY_CLASS) || type->is(lesma::BaseType::TY_ENUM)) {
-    // Search through all symbols to find the TYPE_SYMBOL with this type
-    std::function<lesma::Value*(lesma::SymbolTable*)> findTypeSymbol =
-        [&](lesma::SymbolTable* scope) -> lesma::Value* {
-      if (scope == nullptr) {
-        return nullptr;
-      }
-      // Check symbols in this scope
-      for (lesma::Value* sym : scope->getSymbols()) {
-        if (sym->getCategory() == lesma::ValueCategory::TYPE_SYMBOL && sym->getType() == type) {
-          return sym;
-        }
-      }
-      // Recursively check parent scopes
-      return findTypeSymbol(scope->getParent());
-    };
-    lesma::Value* typeSymbol = findTypeSymbol(rootScope);
-    if (typeSymbol != nullptr) {
-      return typeSymbol->getName();
-    }
-  }
-  // Handle pointer types - get the element type name
-  if (type->is(lesma::BaseType::TY_PTR) && type->getElementType() != nullptr) {
-    lesma::Type* elementType = type->getElementType();
-    if (elementType->is(lesma::BaseType::TY_CLASS) || elementType->is(lesma::BaseType::TY_ENUM)) {
-      std::string elementName = getTypeName(elementType, rootScope);
-      if (!elementName.empty()) {
-        return elementName + "*";
-      }
-    }
-  }
-  return "";
-}
-
-auto formatTypeName(lesma::Type* type, lesma::SymbolTable* rootScope) -> std::string {
-  if (type == nullptr) {
-    return "?";
-  }
-  std::string namedType = getTypeName(type, rootScope);
-  if (!namedType.empty()) {
-    return namedType;
-  }
-  if (type->is(lesma::BaseType::TY_PTR) && type->getElementType() != nullptr) {
-    return formatTypeName(type->getElementType(), rootScope) + "*";
-  }
-  if (type->is(lesma::BaseType::TY_ARRAY) && type->getElementType() != nullptr) {
-    return formatTypeName(type->getElementType(), rootScope) + "[]";
-  }
-  if (type->is(lesma::BaseType::TY_INT)) {
-    return type->isSigned() ? "int" : "uint";
-  }
-  if (type->is(lesma::BaseType::TY_FLOAT)) {
-    return "float";
-  }
-  if (type->is(lesma::BaseType::TY_STRING)) {
-    return "string";
-  }
-  if (type->is(lesma::BaseType::TY_BOOL)) {
-    return "bool";
-  }
-  if (type->is(lesma::BaseType::TY_VOID)) {
-    return "void";
-  }
-  return type->toString();
 }
 
 auto formatCallableHoverType(lesma::Type* type, lesma::SymbolTable* rootScope) -> std::string {
@@ -574,6 +510,27 @@ InnermostFunc findFuncWithCursorInSignature(lesma::Compound* ast, unsigned targe
           return;
         }
       }
+      return;
+    }
+    if (auto const* ifNode = dynamic_cast<const lesma::If*>(stmt)) {
+      for (lesma::Compound* block : ifNode->getBlocks()) {
+        scan(block, cls);
+        if (out.func != nullptr) {
+          return;
+        }
+      }
+      return;
+    }
+    if (auto const* whileNode = dynamic_cast<const lesma::While*>(stmt)) {
+      scan(whileNode->getBlock(), cls);
+      return;
+    }
+    if (auto const* forNode = dynamic_cast<const lesma::ForIn*>(stmt)) {
+      scan(forNode->getBlock(), cls);
+      return;
+    }
+    if (auto const* defer = dynamic_cast<const lesma::Defer*>(stmt)) {
+      scan(defer->getStatement(), cls);
     }
   };
   for (lesma::Statement* s : ast->getChildren()) {
@@ -621,6 +578,27 @@ auto findExternFuncWithCursorInSignature(const lesma::Compound* ast, unsigned ta
           return;
         }
       }
+      return;
+    }
+    if (auto const* ifNode = dynamic_cast<const lesma::If*>(stmt)) {
+      for (lesma::Compound* block : ifNode->getBlocks()) {
+        scan(block);
+        if (out != nullptr) {
+          return;
+        }
+      }
+      return;
+    }
+    if (auto const* whileNode = dynamic_cast<const lesma::While*>(stmt)) {
+      scan(whileNode->getBlock());
+      return;
+    }
+    if (auto const* forNode = dynamic_cast<const lesma::ForIn*>(stmt)) {
+      scan(forNode->getBlock());
+      return;
+    }
+    if (auto const* defer = dynamic_cast<const lesma::Defer*>(stmt)) {
+      scan(defer->getStatement());
     }
   };
   for (lesma::Statement* stmt : ast->getChildren()) {
@@ -666,6 +644,24 @@ auto findEnclosingClassContaining(const lesma::Compound* ast, unsigned targetOff
       for (lesma::Statement* child : compound->getChildren()) {
         scan(child);
       }
+      return;
+    }
+    if (auto const* ifNode = dynamic_cast<const lesma::If*>(stmt)) {
+      for (lesma::Compound* block : ifNode->getBlocks()) {
+        scan(block);
+      }
+      return;
+    }
+    if (auto const* whileNode = dynamic_cast<const lesma::While*>(stmt)) {
+      scan(whileNode->getBlock());
+      return;
+    }
+    if (auto const* forNode = dynamic_cast<const lesma::ForIn*>(stmt)) {
+      scan(forNode->getBlock());
+      return;
+    }
+    if (auto const* defer = dynamic_cast<const lesma::Defer*>(stmt)) {
+      scan(defer->getStatement());
     }
   };
   for (lesma::Statement* stmt : ast->getChildren()) {
@@ -979,6 +975,11 @@ auto resolveExpressionTypeAtOffset(const lesma::Expression* expr, lesma::Compoun
                                    lesma::SymbolTable* root, llvm::SourceMgr* srcMgr,
                                    unsigned bufferId, unsigned targetOffset) -> lesma::Type*;
 
+auto resolveSubscriptResultType(lesma::Type* baseType, lesma::Type* indexType,
+                                lesma::Compound* ast, lesma::SymbolTable* root,
+                                llvm::SourceMgr* srcMgr, unsigned bufferId, unsigned targetOffset)
+    -> lesma::Type*;
+
 auto resolveMethodReturnType(const lesma::FuncCall* call, const lesma::Expression* receiver,
                              lesma::Compound* ast, lesma::SymbolTable* root,
                              llvm::SourceMgr* srcMgr, unsigned bufferId, unsigned targetOffset)
@@ -1099,6 +1100,72 @@ auto resolveExpressionTypeAtOffset(const lesma::Expression* expr, lesma::Compoun
     }
     return nullptr;
   }
+  if (auto const* subscript = dynamic_cast<const lesma::SubscriptOp*>(expr)) {
+    lesma::Type* leftType =
+        resolveExpressionTypeAtOffset(subscript->getLeft(), ast, root, srcMgr, bufferId, targetOffset);
+    lesma::Type* indexType =
+        resolveExpressionTypeAtOffset(subscript->getIndex(), ast, root, srcMgr, bufferId, targetOffset);
+    if (leftType == nullptr) {
+      return nullptr;
+    }
+    lesma::Type* baseType = leftType;
+    if (baseType->is(lesma::BaseType::TY_PTR) && baseType->getElementType() != nullptr) {
+      baseType = baseType->getElementType();
+    }
+    if (baseType->is(lesma::BaseType::TY_ARRAY) && baseType->getElementType() != nullptr) {
+      (void)indexType;
+      return baseType->getElementType();
+    }
+    return resolveSubscriptResultType(baseType, indexType, ast, root, srcMgr, bufferId, targetOffset);
+  }
+  if (auto const* unary = dynamic_cast<const lesma::UnaryOp*>(expr)) {
+    lesma::Type* operand =
+        resolveExpressionTypeAtOffset(unary->getExpression(), ast, root, srcMgr, bufferId, targetOffset);
+    if (operand == nullptr) {
+      return nullptr;
+    }
+    switch (unary->getOperator()) {
+    case lesma::TokenType::MINUS:
+      if (operand->isOneOf({lesma::BaseType::TY_INT, lesma::BaseType::TY_FLOAT}) ||
+          operand->is(lesma::BaseType::TY_GENERIC)) {
+        return operand;
+      }
+      return nullptr;
+    case lesma::TokenType::BANG:
+    case lesma::TokenType::NOT:
+      return root->lookupType("bool");
+    case lesma::TokenType::STAR:
+      if (operand->is(lesma::BaseType::TY_PTR) && operand->getElementType() != nullptr) {
+        return operand->getElementType();
+      }
+      return nullptr;
+    case lesma::TokenType::AMPERSAND:
+    default:
+      return nullptr;
+    }
+  }
+  if (auto const* list = dynamic_cast<const lesma::ListLiteral*>(expr)) {
+    if (list->getResolvedType() != nullptr) {
+      return list->getResolvedType();
+    }
+    lesma::Type* elementType = nullptr;
+    for (lesma::Expression* element : list->getElements()) {
+      lesma::Type* t =
+          resolveExpressionTypeAtOffset(element, ast, root, srcMgr, bufferId, targetOffset);
+      if (t == nullptr) {
+        return nullptr;
+      }
+      if (t->is(lesma::BaseType::TY_CLASS)) {
+        return nullptr;
+      }
+      if (elementType == nullptr) {
+        elementType = t;
+      } else if (!elementType->isEqual(t)) {
+        return nullptr;
+      }
+    }
+    return nullptr;
+  }
   return nullptr;
 }
 
@@ -1179,6 +1246,9 @@ auto findActiveCallInStmt(const lesma::Statement* stmt, llvm::SourceMgr* srcMgr,
   } else if (auto const* whileNode = dynamic_cast<const lesma::While*>(stmt)) {
     findActiveCallInExpr(whileNode->getCond(), srcMgr, bufferId, targetOffset, nullptr, best);
     findActiveCallInStmt(whileNode->getBlock(), srcMgr, bufferId, targetOffset, best);
+  } else if (auto const* forIn = dynamic_cast<const lesma::ForIn*>(stmt)) {
+    findActiveCallInExpr(forIn->getIterable(), srcMgr, bufferId, targetOffset, nullptr, best);
+    findActiveCallInStmt(forIn->getBlock(), srcMgr, bufferId, targetOffset, best);
   } else if (auto const* ret = dynamic_cast<const lesma::Return*>(stmt)) {
     findActiveCallInExpr(ret->getValue(), srcMgr, bufferId, targetOffset, nullptr, best);
   } else if (auto const* defer = dynamic_cast<const lesma::Defer*>(stmt)) {
@@ -1332,6 +1402,31 @@ auto collectCallableCandidates(lesma::SymbolTable* scope, const std::string& nam
     }
   }
   return candidates;
+}
+
+auto resolveSubscriptResultType(lesma::Type* baseType, lesma::Type* indexType,
+                                lesma::Compound* ast, lesma::SymbolTable* root,
+                                llvm::SourceMgr* srcMgr, unsigned bufferId, unsigned targetOffset)
+    -> lesma::Type* {
+  if (baseType == nullptr || root == nullptr) {
+    return nullptr;
+  }
+  lesma::SymbolTable* scope = activeScopeForOffset(ast, root, srcMgr, bufferId, targetOffset);
+  if (scope == nullptr) {
+    scope = root;
+  }
+  std::vector<lesma::Type*> indexArgs;
+  if (indexType != nullptr) {
+    indexArgs.push_back(indexType);
+  }
+  std::vector<CallableCandidate> candidates =
+      collectCallableCandidates(scope, std::string{lesma::OperatorUtils::SUBSCRIPT_GET_NAME}, baseType,
+                                indexArgs);
+  if (candidates.empty()) {
+    return nullptr;
+  }
+  lesma::Type* fnType = candidates.front().value->getType();
+  return fnType != nullptr ? fnType->getReturnType() : nullptr;
 }
 
 auto buildSignatureHelp(AnalysisResult& result, unsigned line, unsigned character)

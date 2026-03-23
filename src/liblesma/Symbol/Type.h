@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cstdint>
 #include <memory>
+#include <set>
 #include <string>
 #include <utility>
 #include <vector>
@@ -78,6 +79,8 @@ class Type {
   std::string declarationFilePath;
   bool varArgs = false;
   bool signedInt = true;
+  /** For TY_INT when LLVM type is not yet set: 0 means default width (64). */
+  std::uint16_t intWidth = 0;
 
 public:
   explicit Type(BaseType baseType)
@@ -123,6 +126,20 @@ public:
   }
   [[nodiscard]] auto isVarArgs() const -> bool { return varArgs; }
   [[nodiscard]] auto isSigned() const -> bool { return signedInt; }
+  /** Resolved integer width for TY_INT (defaults to 64 for plain `int`). */
+  [[nodiscard]] auto getIntWidth() const -> unsigned {
+    if (baseType != BaseType::TY_INT) {
+      return 0U;
+    }
+    if (llvmType != nullptr && llvmType->isIntegerTy()) {
+      return llvmType->getIntegerBitWidth();
+    }
+    if (intWidth != 0) {
+      return intWidth;
+    }
+    return 64U;
+  }
+  auto setIntWidth(std::uint16_t width) -> void { intWidth = width; }
 
   // Returns raw pointers for non-owning access
   [[nodiscard]] auto getFields() const -> std::vector<Field*> {
@@ -149,25 +166,63 @@ public:
   auto addField(std::unique_ptr<Field> field) -> void { fields.push_back(std::move(field)); }
 
   auto isEqual(Type* rhs) const -> bool {
+    std::set<std::pair<Type const*, Type const*>> active;
+    return isEqualImpl(rhs, active);
+  }
+
+private:
+  auto isEqualImpl(Type const* rhs,
+                   std::set<std::pair<Type const*, Type const*>>& active) const -> bool {
     if (rhs == nullptr) {
       return false;
     }
     if (this == rhs) {
       return true;
     }
-
     if (this->getBaseType() != rhs->getBaseType()) {
       return false;
     }
 
-    // Class/enum types: when both have LLVM types, compare by pointer identity;
-    // otherwise compare by structure (genericParams + fields) so that types are
-    // equal before LLVM lowering.
+    const auto pairKey = std::pair<Type const*, Type const*>(this, rhs);
+    if (!active.insert(pairKey).second) {
+      return true;
+    }
+    struct ActiveGuard {
+      std::set<std::pair<Type const*, Type const*>>* const s;
+      std::pair<Type const*, Type const*> key;
+      ActiveGuard(std::set<std::pair<Type const*, Type const*>>* setPtr,
+                  std::pair<Type const*, Type const*> k)
+          : s(setPtr), key(std::move(k)) {}
+      ActiveGuard(const ActiveGuard&) = delete;
+      auto operator=(const ActiveGuard&) -> ActiveGuard& = delete;
+      ActiveGuard(ActiveGuard&&) = delete;
+      auto operator=(ActiveGuard&&) -> ActiveGuard& = delete;
+      ~ActiveGuard() { s->erase(key); }
+    } guard{&active, pairKey};
+
+    // Class/enum types: when both have LLVM types, compare by pointer identity
+    // (or same non-empty displayName, then structure) for lowered/import
+    // variants. When neither is lowered yet, require matching non-empty
+    // displayName before structural comparison so distinct nominal types are
+    // not equated by shape alone.
     if (isOneOf({BaseType::TY_CLASS, BaseType::TY_ENUM})) {
       if (llvmType != nullptr && rhs->llvmType != nullptr) {
-        return llvmType == rhs->llvmType;
+        if (llvmType == rhs->llvmType) {
+          return true;
+        }
+        if (displayName == rhs->displayName && !displayName.empty()) {
+          // Fall through to structural comparison for semantically identical
+          // specializations materialized through different codegen/import paths.
+        } else {
+          return false;
+        }
+      } else if (llvmType == nullptr && rhs->llvmType == nullptr) {
+        if (displayName != rhs->displayName || displayName.empty()) {
+          return false;
+        }
       }
-      // Semantic identity when llvmType not yet set: same generic params and fields.
+      // Semantic identity: same nominal name (when pre-LLVM), same generic
+      // params and fields.
       const std::vector<std::string>& lp = getGenericParams();
       const std::vector<std::string>& rp = rhs->getGenericParams();
       if (lp.size() != rp.size()) {
@@ -195,11 +250,7 @@ public:
           }
           continue;
         }
-        // Cycle check: same (this, rhs) pair avoids infinite recursion (e.g. class with *Self).
-        if ((lt == this && rt == rhs) || (lt == rhs && rt == this)) {
-          continue;
-        }
-        if (!lt->isEqual(rt)) {
+        if (!lt->isEqualImpl(rt, active)) {
           return false;
         }
       }
@@ -208,19 +259,10 @@ public:
 
     switch (baseType) {
     case BaseType::TY_INT: {
-      llvm::Type* l = getLlvmType();
-      llvm::Type* r = rhs->getLlvmType();
-      if (l == nullptr && r == nullptr) {
-        return isSigned() == rhs->isSigned();
-      }
-      if (l == nullptr || r == nullptr) {
-        llvm::Type* concrete = (l != nullptr) ? l : r;
-        return concrete != nullptr && concrete->isIntegerTy() && isSigned() == rhs->isSigned();
-      }
-      if (!l->isIntegerTy() || !r->isIntegerTy()) {
+      if (isSigned() != rhs->isSigned()) {
         return false;
       }
-      return isSigned() == rhs->isSigned() && l->getIntegerBitWidth() == r->getIntegerBitWidth();
+      return getIntWidth() == rhs->getIntWidth();
     }
     case BaseType::TY_FLOAT: {
       llvm::Type* l = getLlvmType();
@@ -253,7 +295,7 @@ public:
       if (thisElementType == nullptr || rhsElementType == nullptr) {
         return false;
       }
-      return thisElementType->isEqual(rhsElementType);
+      return thisElementType->isEqualImpl(rhsElementType, active);
     }
     case BaseType::TY_FUNCTION: {
       if (varArgs != rhs->isVarArgs()) {
@@ -265,7 +307,7 @@ public:
         return false;
       }
       for (size_t i = 0; i < lf.size(); ++i) {
-        if (!lf[i]->type->isEqual(rf[i]->type)) {
+        if (!lf[i]->type->isEqualImpl(rf[i]->type, active)) {
           return false;
         }
       }
@@ -277,7 +319,7 @@ public:
       if (lret == nullptr || rret == nullptr) {
         return false;
       }
-      return lret->isEqual(rret);
+      return lret->isEqualImpl(rret, active);
     }
     case BaseType::TY_GENERIC:
       return genericName == rhs->getGenericName();
@@ -289,6 +331,7 @@ public:
     return false;
   }
 
+public:
   [[nodiscard]] auto toString() const -> std::string {
     std::string result;
 
@@ -296,26 +339,32 @@ public:
     case BaseType::TY_INVALID:
       result = "Invalid";
       break;
-    case BaseType::TY_INT:
-      result = "Int";
+    case BaseType::TY_INT: {
+      const unsigned w = getIntWidth();
+      if (w == 64U) {
+        result = signedInt ? "int" : "uint";
+      } else {
+        result = signedInt ? ("int" + std::to_string(w)) : ("uint" + std::to_string(w));
+      }
       break;
+    }
     case BaseType::TY_FLOAT:
-      result = "Float";
+      result = "float";
       break;
     case BaseType::TY_STRING:
-      result = "String";
+      result = "str";
       break;
     case BaseType::TY_BOOL:
-      result = "Bool";
+      result = "bool";
       break;
     case BaseType::TY_PTR:
-      result = "Pointer";
+      result = elementType != nullptr ? "*" + elementType->toString() : "*";
       break;
     case BaseType::TY_ARRAY:
-      result = "Array";
+      result = displayName.empty() ? "list" : displayName;
       break;
     case BaseType::TY_VOID:
-      result = "Void";
+      result = "void";
       break;
     case BaseType::TY_FUNCTION:
       result = "Function";
@@ -334,7 +383,7 @@ public:
       break;
     }
 
-    if (elementType != nullptr) {
+    if (elementType != nullptr && baseType != BaseType::TY_PTR) {
       result += "<" + elementType->toString() + ">";
     }
 

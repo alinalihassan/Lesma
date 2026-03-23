@@ -21,6 +21,7 @@
 namespace lesma {
 class Value;
 class SymbolTable;
+class Type;
 
 class AST {
   llvm::SMRange loc;
@@ -130,6 +131,7 @@ class TypeExpr : public Expression {
 
   // Pointer fields
   std::unique_ptr<TypeExpr> elementType;
+  std::vector<std::unique_ptr<TypeExpr>> typeArgs;
 
   // Function fields
   std::vector<std::unique_ptr<TypeExpr>> params;
@@ -143,17 +145,41 @@ public:
       : Expression(loc), name(std::move(name)), type(type), elementType(std::move(elementType)),
         ret(nullptr) {}
   TypeExpr(llvm::SMRange loc, std::string name, TokenType type,
+           std::vector<std::unique_ptr<TypeExpr>> typeArgs)
+      : Expression(loc), name(std::move(name)), type(type), elementType(nullptr),
+        typeArgs(std::move(typeArgs)), ret(nullptr) {}
+  TypeExpr(llvm::SMRange loc, std::string name, TokenType type,
            std::vector<std::unique_ptr<TypeExpr>> params, std::unique_ptr<TypeExpr> ret)
       : Expression(loc), name(std::move(name)), type(type), elementType(nullptr),
         params(std::move(params)), ret(std::move(ret)) {}
   void accept(ASTVisitor& visitor) const override { visitor.visit(this); }
 
   [[nodiscard]] [[maybe_unused]] auto getName() const -> std::string { return name; }
+  /// Base identifier for symbol lookup (e.g. `Pair` for `Pair<int>`). Plain `getName()` keeps the
+  /// full generic spelling for display and diagnostics.
+  [[nodiscard]] auto getLookupName() const -> std::string {
+    if (typeArgs.empty()) {
+      return name;
+    }
+    const auto angle = name.find('<');
+    if (angle == std::string::npos) {
+      return name;
+    }
+    return name.substr(0, angle);
+  }
   [[nodiscard]] [[maybe_unused]] auto getType() const -> TokenType { return type; }
   [[nodiscard]] auto getResolvedSymbol() const -> Value* { return resolvedSymbol; }
   auto setResolvedSymbol(Value* v) const -> void { resolvedSymbol = v; }
   [[nodiscard]] [[maybe_unused]] auto getElementType() const -> TypeExpr* {
     return elementType.get();
+  }
+  [[nodiscard]] auto getTypeArgs() const -> std::vector<TypeExpr*> {
+    std::vector<TypeExpr*> result;
+    result.reserve(typeArgs.size());
+    for (const auto& typeArg : typeArgs) {
+      result.push_back(typeArg.get());
+    }
+    return result;
   }
   [[nodiscard]] [[maybe_unused]] auto getParams() const -> std::vector<TypeExpr*> {
     std::vector<TypeExpr*> result;
@@ -364,6 +390,35 @@ public:
         srcMgr->getLineAndColumn(getStart()).second, srcMgr->getLineAndColumn(getEnd()).second,
         prefix + (isTail ? "    " : "│   "), "└──", cond->toString(srcMgr, prefix, true),
         block->toString(srcMgr, prefix + (isTail ? "        " : "│       "), true));
+  }
+};
+
+class ForIn : public Statement {
+  std::unique_ptr<Literal> var;
+  std::unique_ptr<Expression> iterable;
+  std::unique_ptr<Compound> block;
+  mutable SymbolTable* bodyScope = nullptr;
+
+public:
+  ForIn(llvm::SMRange loc, std::unique_ptr<Literal> var, std::unique_ptr<Expression> iterable,
+        std::unique_ptr<Compound> block)
+      : Statement(loc), var(std::move(var)), iterable(std::move(iterable)), block(std::move(block)) {}
+  void accept(ASTVisitor& visitor) const override { visitor.visit(this); }
+
+  [[nodiscard]] auto getIdentifier() const -> Literal* { return var.get(); }
+  [[nodiscard]] auto getIterable() const -> Expression* { return iterable.get(); }
+  [[nodiscard]] auto getBlock() const -> Compound* { return block.get(); }
+  [[nodiscard]] auto getBodyScope() const -> SymbolTable* { return bodyScope; }
+  auto setBodyScope(SymbolTable* scope) const -> void { bodyScope = scope; }
+
+  auto toString(llvm::SourceMgr* srcMgr, const std::string& prefix, bool isTail) const
+      -> std::string override {
+    return fmt::format(
+        "{}{}ForIn[Line({}-{}):Col({}-{})]: {} in {}\n{}", prefix, isTail ? "└──" : "├──",
+        srcMgr->getLineAndColumn(getStart()).first, srcMgr->getLineAndColumn(getEnd()).first,
+        srcMgr->getLineAndColumn(getStart()).second, srcMgr->getLineAndColumn(getEnd()).second,
+        var->toString(srcMgr, prefix, true), iterable->toString(srcMgr, prefix, true),
+        block->toString(srcMgr, prefix + (isTail ? "    " : "│   "), true));
   }
 };
 
@@ -679,6 +734,25 @@ public:
   }
 };
 
+class SubscriptOp : public Expression {
+  std::unique_ptr<Expression> left;
+  std::unique_ptr<Expression> index;
+
+public:
+  SubscriptOp(llvm::SMRange loc, std::unique_ptr<Expression> left, std::unique_ptr<Expression> index)
+      : Expression(loc), left(std::move(left)), index(std::move(index)) {}
+  void accept(ASTVisitor& visitor) const override { visitor.visit(this); }
+
+  [[nodiscard]] auto getLeft() const -> Expression* { return left.get(); }
+  [[nodiscard]] auto getIndex() const -> Expression* { return index.get(); }
+
+  auto toString(llvm::SourceMgr* srcMgr, const std::string& prefix, bool isTail) const
+      -> std::string override {
+    return left->toString(srcMgr, prefix, isTail) + "[" +
+           index->toString(srcMgr, prefix, isTail) + "]";
+  }
+};
+
 class IsOp : public Expression {
   std::unique_ptr<Expression> left;
   TokenType op;
@@ -734,6 +808,40 @@ public:
   auto toString(llvm::SourceMgr* srcMgr, const std::string& prefix, bool isTail) const
       -> std::string override {
     return std::string{NAMEOF_ENUM(op)} + expr->toString(srcMgr, prefix, isTail);
+  }
+};
+
+class ListLiteral : public Expression {
+  std::vector<std::unique_ptr<Expression>> elements;
+  mutable Type* resolvedType = nullptr;
+
+public:
+  ListLiteral(llvm::SMRange loc, std::vector<std::unique_ptr<Expression>> elements)
+      : Expression(loc), elements(std::move(elements)) {}
+  void accept(ASTVisitor& visitor) const override { visitor.visit(this); }
+
+  [[nodiscard]] auto getElements() const -> std::vector<Expression*> {
+    std::vector<Expression*> result;
+    result.reserve(elements.size());
+    for (const auto& element : elements) {
+      result.push_back(element.get());
+    }
+    return result;
+  }
+  [[nodiscard]] auto getResolvedType() const -> Type* { return resolvedType; }
+  auto setResolvedType(Type* type) const -> void { resolvedType = type; }
+
+  auto toString(llvm::SourceMgr* srcMgr, const std::string& prefix, bool isTail) const
+      -> std::string override {
+    std::string result = "[";
+    for (const auto& element : elements) {
+      result += element->toString(srcMgr, prefix, isTail);
+      if (element.get() != elements.back().get()) {
+        result += ", ";
+      }
+    }
+    result += "]";
+    return result;
   }
 };
 

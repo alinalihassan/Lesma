@@ -9,6 +9,7 @@ class Class;
 class VarDecl;
 class If;
 class While;
+class ForIn;
 class FuncDecl;
 class ExternFuncDecl;
 class Assignment;
@@ -22,10 +23,12 @@ class Expression;
 class Literal;
 class FuncCall;
 class BinaryOp;
+class SubscriptOp;
 class DotOp;
 class CastOp;
 class IsOp;
 class UnaryOp;
+class ListLiteral;
 class Else;
 class TypeExpr;
 class ASTVisitor {
@@ -44,6 +47,7 @@ public:
   virtual auto visit(const VarDecl* node) -> void = 0;
   virtual auto visit(const If* node) -> void = 0;
   virtual auto visit(const While* node) -> void = 0;
+  virtual auto visit(const ForIn* node) -> void = 0;
   virtual auto visit(const FuncDecl* node) -> void = 0;
   virtual auto visit(const ExternFuncDecl* node) -> void = 0;
   virtual auto visit(const Assignment* node) -> void = 0;
@@ -58,10 +62,12 @@ public:
   virtual auto visit(const Literal* node) -> void = 0;
   virtual auto visit(const FuncCall* node) -> void = 0;
   virtual auto visit(const BinaryOp* node) -> void = 0;
+  virtual auto visit(const SubscriptOp* node) -> void = 0;
   virtual auto visit(const DotOp* node) -> void = 0;
   virtual auto visit(const CastOp* node) -> void = 0;
   virtual auto visit(const IsOp* node) -> void = 0;
   virtual auto visit(const UnaryOp* node) -> void = 0;
+  virtual auto visit(const ListLiteral* node) -> void = 0;
   virtual auto visit(const Else* node) -> void = 0;
 
   virtual auto visit(const TypeExpr* node) -> void = 0;

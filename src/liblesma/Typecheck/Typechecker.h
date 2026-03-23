@@ -61,6 +61,7 @@ class Typechecker final : public ASTVisitor {
   std::unordered_map<Type*, Type*> specializedTypeToTemplate;
   /** Imported types materialized into this typechecker's cache so they outlive imported scopes. */
   std::unordered_map<Type*, Type*> importedTypeCopies;
+  std::vector<Type*> expectedTypes;
 
   /** Declared generic param list for a class or function type (resolves to template for specialized
    * classes). */
@@ -75,12 +76,13 @@ class Typechecker final : public ASTVisitor {
   std::unordered_map<std::string, std::shared_ptr<ImportedModuleAnalysis>> importedModuleCache;
 
   /** Resolve absolute path for an import (same logic as Driver getExportsFromFile). */
-  auto resolveImportPath(const std::string& filepath, bool isStd) const -> std::string;
+  [[nodiscard]] auto resolveImportPath(const std::string& filepath, bool isStd) const
+      -> std::string;
   /** Typecheck an imported file and return its root scope (cached). Returns nullptr if path unknown
    * or typecheck fails. */
   auto getOrTypecheckImport(const std::string& absolutePath) -> SymbolTable*;
 
-  void loadImplicitBaseModule();
+  void loadImplicitStdModule(const std::string& moduleFilename);
   /** Get or create a specialized class type by substituting env into template's
    * fields. */
   auto getOrCreateSpecializedClassType(Type* classTemplate,
@@ -104,6 +106,15 @@ class Typechecker final : public ASTVisitor {
    */
   auto typecheckBinaryOpResult(TokenType op, Type* leftTy, Type* rightTy, llvm::SMRange span)
       -> Type*;
+  auto visitExprWithExpectedType(const Expression* node, Type* expected) -> void;
+  [[nodiscard]] auto currentExpectedType() const -> Type*;
+  auto resolveMethodReturnType(Type* baseType, const std::string& methodName,
+                               const std::vector<Type*>& argTypes, llvm::SMRange span) -> Type*;
+  auto isMutableListReceiver(const Expression* expr) -> bool;
+  [[nodiscard]] auto isMutatingListFunction(const std::string& functionName) const -> bool;
+  [[nodiscard]] auto isListIntrinsicName(const std::string& functionName) const -> bool;
+  auto visitListIntrinsicCall(const FuncCall* node, const std::vector<Type*>& argTypes) -> bool;
+  auto visitListMethodCall(Type* listType, const DotOp* node, const FuncCall* call) -> bool;
   /** Map compound-assignment operator to the corresponding binary operator; nullopt if not
    * compound. */
   auto compoundToBinaryOp(TokenType op) -> std::optional<TokenType>;
@@ -123,6 +134,8 @@ public:
 
   Typechecker(const Typechecker&) = delete;
   auto operator=(const Typechecker&) -> Typechecker& = delete;
+  Typechecker(Typechecker&&) = delete;
+  auto operator=(Typechecker&&) -> Typechecker& = delete;
 
   /** Run typecheck on the given AST. Throws TypeCheckError on first error. */
   auto run(const Compound* ast) -> void;
@@ -135,13 +148,15 @@ public:
   auto takeTypeCache() -> std::vector<std::unique_ptr<Type>>;
   auto takeImportAliasToPath() -> ImportAliasMap;
   auto takeImportedNameToSource() -> ImportedNameSourceMap;
-  auto takeImportedModules() -> std::unordered_map<std::string, std::shared_ptr<ImportedModuleAnalysis>>;
+  auto takeImportedModules()
+      -> std::unordered_map<std::string, std::shared_ptr<ImportedModuleAnalysis>>;
 
   auto visit(const Statement* node) -> void override;
   auto visit(const Compound* node) -> void override;
   auto visit(const VarDecl* node) -> void override;
   auto visit(const If* node) -> void override;
   auto visit(const While* node) -> void override;
+  auto visit(const ForIn* node) -> void override;
   auto visit(const Import* node) -> void override;
   auto visit(const Enum* node) -> void override;
   auto visit(const Class* node) -> void override;
@@ -158,11 +173,13 @@ public:
   auto visit(const Expression* node) -> void override;
   auto visit(const FuncCall* node) -> void override;
   auto visit(const BinaryOp* node) -> void override;
+  auto visit(const SubscriptOp* node) -> void override;
   auto visit(const DotOp* node) -> void override;
   auto visit(const CastOp* node) -> void override;
   auto visit(const IsOp* node) -> void override;
   auto visit(const UnaryOp* node) -> void override;
   auto visit(const Literal* node) -> void override;
+  auto visit(const ListLiteral* node) -> void override;
   auto visit(const Else* node) -> void override;
 
   auto visit(const TypeExpr* node) -> void override;

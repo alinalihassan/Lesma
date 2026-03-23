@@ -1,0 +1,25 @@
+class Range
+    var current: int
+    var last: int
+
+    def new(start: int, last: int)
+        self.current = start
+        self.last = last
+
+    def has_next() -> bool
+        return self.current < self.last
+
+    def next() -> int
+        let value = self.current
+        self.current = self.current + 1
+        return value
+
+    def iter() -> *Range
+        return self
+
+var total = 0
+for value in Range(1, 4)
+    total += value
+
+if total != 6
+    exit(1)
