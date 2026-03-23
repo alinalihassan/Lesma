@@ -3682,7 +3682,8 @@ auto Codegen::callNamedFunction(llvm::SMRange span, const std::string& functionN
 
   if (symbol->getType()->getFields().size() > localParamsLLVM.size()) {
     auto fields = symbol->getType()->getFields();
-    for (auto* field : fields) {
+    for (size_t i = localParamsLLVM.size(); i < fields.size(); ++i) {
+      auto* field = fields[i];
       if (field->defaultValue == nullptr) {
         throw CodegenError(span,
                            "Something bad happened, lookup found a function with incorrect defaults",
