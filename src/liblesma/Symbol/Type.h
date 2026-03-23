@@ -200,9 +200,11 @@ private:
       ~ActiveGuard() { s->erase(key); }
     } guard{&active, pairKey};
 
-    // Class/enum types: when both have LLVM types, compare by pointer identity;
-    // otherwise compare by structure (genericParams + fields) so that types are
-    // equal before LLVM lowering.
+    // Class/enum types: when both have LLVM types, compare by pointer identity
+    // (or same non-empty displayName, then structure) for lowered/import
+    // variants. When neither is lowered yet, require matching non-empty
+    // displayName before structural comparison so distinct nominal types are
+    // not equated by shape alone.
     if (isOneOf({BaseType::TY_CLASS, BaseType::TY_ENUM})) {
       if (llvmType != nullptr && rhs->llvmType != nullptr) {
         if (llvmType == rhs->llvmType) {
@@ -214,8 +216,13 @@ private:
         } else {
           return false;
         }
+      } else if (llvmType == nullptr && rhs->llvmType == nullptr) {
+        if (displayName != rhs->displayName || displayName.empty()) {
+          return false;
+        }
       }
-      // Semantic identity when llvmType not yet set: same generic params and fields.
+      // Semantic identity: same nominal name (when pre-LLVM), same generic
+      // params and fields.
       const std::vector<std::string>& lp = getGenericParams();
       const std::vector<std::string>& rp = rhs->getGenericParams();
       if (lp.size() != rp.size()) {
