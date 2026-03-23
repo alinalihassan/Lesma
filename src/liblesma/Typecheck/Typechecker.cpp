@@ -1126,22 +1126,31 @@ auto Typechecker::visit(const ForIn* node) -> void {
   node->getIterable()->accept(*this);
   Type* iterableType = result->getType();
   Type* loopVarType = nullptr;
-  auto isStdListClassType = [this](Type* type) -> bool {
-    if (type == nullptr || !type->is(BaseType::TY_CLASS)) {
+  auto peelPtr = [](Type* type) -> Type* {
+    Type* t = type;
+    while (t != nullptr && t->is(BaseType::TY_PTR) && t->getElementType() != nullptr) {
+      t = t->getElementType();
+    }
+    return t;
+  };
+  auto isStdListClassType = [this, peelPtr](Type* type) -> bool {
+    Type* t = peelPtr(type);
+    if (t == nullptr || !t->is(BaseType::TY_CLASS)) {
       return false;
     }
-    Type* baseType = type;
-    if (auto it = specializedTypeToTemplate.find(type); it != specializedTypeToTemplate.end()) {
+    Type* baseType = t;
+    if (auto it = specializedTypeToTemplate.find(t); it != specializedTypeToTemplate.end()) {
       baseType = it->second;
     }
     const std::string& displayName = baseType->getDisplayName();
     return displayName == "list<T>" || displayName == "list";
   };
-  auto getStdListBufferType = [&isStdListClassType](Type* type) -> Type* {
+  auto getStdListBufferType = [peelPtr, &isStdListClassType](Type* type) -> Type* {
     if (!isStdListClassType(type)) {
       return nullptr;
     }
-    auto fields = type->getFields();
+    Type* t = peelPtr(type);
+    auto fields = t->getFields();
     if (fields.empty() || fields.front()->type == nullptr || !fields.front()->type->is(BaseType::TY_ARRAY)) {
       return nullptr;
     }
