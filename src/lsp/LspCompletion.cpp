@@ -420,6 +420,36 @@ auto declarationIdentityForType(Type* classType, SymbolTable* root)
   return std::nullopt;
 }
 
+/** For types like list<int> or Box<int>, returns the template name before '<' (list, Box). */
+auto genericSpecializationBaseName(Type* classType) -> std::optional<std::string> {
+  if (classType == nullptr || !classType->is(BaseType::TY_CLASS)) {
+    return std::nullopt;
+  }
+  std::string const& dn = classType->getDisplayName();
+  if (dn.empty()) {
+    return std::nullopt;
+  }
+  size_t const angle = dn.find('<');
+  if (angle == std::string::npos) {
+    return std::nullopt;
+  }
+  return std::string(dn.substr(0U, angle));
+}
+
+auto findTopLevelClassByName(Compound* compound, std::string_view name) -> Class* {
+  if (compound == nullptr) {
+    return nullptr;
+  }
+  for (Statement* stmt : compound->getChildren()) {
+    if (auto* klass = dynamic_cast<Class*>(stmt)) {
+      if (klass->getIdentifier() == name) {
+        return klass;
+      }
+    }
+  }
+  return nullptr;
+}
+
 auto findClassDeclarationForType(AnalysisResult& result, Type* classType, Compound* fallbackAst,
                                  SymbolTable* root) -> Class* {
   if (std::optional<IndexedDeclarationIdentity> declaration =
@@ -428,6 +458,11 @@ auto findClassDeclarationForType(AnalysisResult& result, Type* classType, Compou
             findAnalysisViewForPath(result, declaration->filePath)) {
       if (Class* klass = findClassDeclarationInCompound(analysis->ast, declaration->span)) {
         return klass;
+      }
+      if (std::optional<std::string> baseName = genericSpecializationBaseName(classType)) {
+        if (Class* klass = findTopLevelClassByName(analysis->ast, *baseName)) {
+          return klass;
+        }
       }
     }
   }
@@ -442,6 +477,13 @@ auto findClassDeclarationForType(AnalysisResult& result, Type* classType, Compou
     Type* fallbackType = root->lookupType(klass->getIdentifier());
     if (fallbackType != nullptr && fallbackType->isEqual(classType)) {
       return klass;
+    }
+    if (fallbackType != nullptr && fallbackType->is(BaseType::TY_CLASS) &&
+        !klass->getGenericParams().empty()) {
+      if (std::optional<std::string> baseName = genericSpecializationBaseName(classType);
+          baseName.has_value() && *baseName == klass->getIdentifier()) {
+        return klass;
+      }
     }
   }
   return nullptr;
