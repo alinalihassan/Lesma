@@ -1,2 +1,2 @@
-var xs = [1, 2]
-push(xs, 3)
+let xs = [1, 2]
+xs.push(3)
