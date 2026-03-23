@@ -121,6 +121,9 @@
     "types": {
       "patterns": [
         {
+          "include": "#functionGenericTypeList"
+        },
+        {
           "include": "#genericTypeList"
         },
         {
@@ -132,6 +135,47 @@
           "comment": "Type annotation",
           "name": "support.type.lesma",
           "match": "(?<=:\\s|->\\s)[a-zA-Z0-9_]+"
+        }
+      ]
+    },
+    "functionGenericTypeList": {
+      "patterns": [
+        {
+          "name": "meta.type.parameters.lesma",
+          "comment": "Generic parameters on def (e.g. def f<T: A & B>)",
+          "begin": "(?<=\\bdef\\s+[a-zA-Z_][a-zA-Z0-9_]*\\s)<",
+          "beginCaptures": {
+            "0": {
+              "name": "punctuation.definition.typeparameters.begin.lesma"
+            }
+          },
+          "end": ">",
+          "endCaptures": {
+            "0": {
+              "name": "punctuation.definition.typeparameters.end.lesma"
+            }
+          },
+          "patterns": [
+            {
+              "include": "#functionGenericTypeList"
+            },
+            {
+              "name": "keyword.operator.intersection.lesma",
+              "match": "&"
+            },
+            {
+              "name": "keyword.operator.typing.lesma",
+              "match": ":"
+            },
+            {
+              "name": "punctuation.separator.type-parameters.lesma",
+              "match": ","
+            },
+            {
+              "name": "support.type.lesma",
+              "match": "\\b(bool|str|int|float|void|[a-zA-Z_][a-zA-Z0-9_]*)\\b"
+            }
+          ]
         }
       ]
     },
@@ -157,6 +201,10 @@
               "include": "#genericTypeList"
             },
             {
+              "name": "keyword.operator.intersection.lesma",
+              "match": "&"
+            },
+            {
               "name": "punctuation.separator.type-parameters.lesma",
               "match": ","
             },
@@ -171,6 +219,9 @@
     "functions": {
       "patterns": [
         {
+          "include": "#implTraitList"
+        },
+        {
           "comment": "Catch the function call and function definition",
           "name": "support.function.lesma",
           "match": "(?=[a-zA-Z0-9_]+(?:<[^>\\n]+>)?\\()[a-zA-Z0-9_]+"
@@ -179,6 +230,15 @@
           "comment": "Class/Enum/Trait declaration",
           "name": "entity.name.type.lesma",
           "match": "(?<=class\\s|enum\\s|trait\\s)[a-zA-Z0-9_]+"
+        }
+      ]
+    },
+    "implTraitList": {
+      "patterns": [
+        {
+          "comment": "Trait names after class ... impl (comma-separated)",
+          "name": "entity.name.type.lesma",
+          "match": "(?<=\\bimpl\\s)[a-zA-Z_][a-zA-Z0-9_]*(?:\\s*,\\s*[a-zA-Z_][a-zA-Z0-9_]*)*"
         }
       ]
     },

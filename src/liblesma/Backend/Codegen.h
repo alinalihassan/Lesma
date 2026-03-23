@@ -265,6 +265,7 @@ protected:
   auto getOrCreateLlvmType(lesma::Type* type) -> llvm::Type*;
 
   auto collectTraitMetadataFromAst() -> void;
+  auto mergeImportedTraitMetadata(Codegen const& imported) -> void;
   auto emitErasedThunkForTraitMethod(lesma::Type* classType, const std::string& traitName,
                                      const FuncDecl* req) -> llvm::Function*;
   auto getOrEmitWitnessTable(lesma::Type* classType, const std::string& traitName)

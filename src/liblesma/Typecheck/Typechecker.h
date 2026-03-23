@@ -134,10 +134,18 @@ class Typechecker final : public ASTVisitor {
   auto blockAlwaysReturns(const Compound* body) -> bool;
 
   auto buildMethodFunctionType(FuncDecl* decl, Type* classType) -> Type*;
-  auto checkTraitImplementation(const Class* classNode, Type* classType) -> void;
+  auto registerTraitDefaultMethodSymbol(SymbolTable* insertScope, Type* classType, FuncDecl* req)
+      -> void;
+  auto typecheckTraitDefaultBodies(const Class* classNode, Type* classType,
+                                   SymbolTable* methodInsertScope) -> void;
+  auto checkTraitImplementation(const Class* classNode, Type* classType,
+                                SymbolTable* methodInsertScope) -> void;
   auto verifyGenericTraitBounds(Value* callee, const std::unordered_map<std::string, Type*>& subs,
                                 llvm::SMRange span) -> void;
   auto classDeclaresTrait(Type* classTy, const std::string& traitName) -> bool;
+
+  /** Register trait AST nodes from an imported file so `impl Trait` resolves in the importer. */
+  auto registerTraitsFromImportedModule(const std::string& absolutePath) -> void;
 
 public:
   /** Typecheck with no import * resolution. */

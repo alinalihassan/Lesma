@@ -94,16 +94,22 @@ auto Parser::parseGenericParamList() -> std::vector<GenericParamDecl> {
   while (!check(TokenType::GREATER)) {
     auto* genericParam = consume(TokenType::IDENTIFIER);
     std::vector<std::string> bounds;
+    std::vector<llvm::SMRange> boundSpans;
     if (advanceIfMatchAny<TokenType::COLON>()) {
-      bounds.push_back(consume(TokenType::IDENTIFIER)->lexeme);
+      auto* boundId = consume(TokenType::IDENTIFIER);
+      bounds.push_back(boundId->lexeme);
+      boundSpans.push_back(boundId->span);
       while (advanceIfMatchAny<TokenType::AMPERSAND>()) {
-        bounds.push_back(consume(TokenType::IDENTIFIER)->lexeme);
+        boundId = consume(TokenType::IDENTIFIER);
+        bounds.push_back(boundId->lexeme);
+        boundSpans.push_back(boundId->span);
       }
     }
     genericParams.push_back(GenericParamDecl{
         .name = genericParam->lexeme,
         .span = genericParam->span,
         .traitBounds = std::move(bounds),
+        .traitBoundSpans = std::move(boundSpans),
     });
     if (!check(TokenType::GREATER)) {
       consume(TokenType::COMMA);
@@ -1026,10 +1032,12 @@ auto Parser::parseClass() -> std::unique_ptr<Statement> {
   auto* token = consume(TokenType::IDENTIFIER);
   std::vector<GenericParamDecl> genericParams = parseGenericParamList();
   std::vector<std::string> implTraitNames;
+  std::vector<llvm::SMRange> implTraitSpans;
   if (advanceIfMatchAny<TokenType::IMPL>()) {
     while (true) {
       auto* traitName = consume(TokenType::IDENTIFIER);
       implTraitNames.push_back(traitName->lexeme);
+      implTraitSpans.push_back(traitName->span);
       if (!advanceIfMatchAny<TokenType::COMMA>()) {
         break;
       }
@@ -1072,7 +1080,8 @@ auto Parser::parseClass() -> std::unique_ptr<Statement> {
 
   return std::make_unique<Class>(llvm::SMRange{loc.Start, endLoc}, token->lexeme, token->span,
                                  std::move(genericParams), std::move(implTraitNames),
-                                 std::move(fields), std::move(methods), isExported);
+                                 std::move(implTraitSpans), std::move(fields), std::move(methods),
+                                 isExported);
 }
 
 auto Parser::parseTraitMethodDeclaration() -> std::unique_ptr<FuncDecl> {

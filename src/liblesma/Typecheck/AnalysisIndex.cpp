@@ -264,6 +264,22 @@ auto collectIndexFromFuncLike(const FuncLike* node, AnalysisIndex& index, bool i
                               IndexedTokenKind::TypeParameter,
                               view.genericScope != nullptr ? view.genericScope->lookup(genericParam.name)
                                                            : nullptr);
+      for (size_t bi = 0; bi < genericParam.traitBounds.size(); ++bi) {
+        if (bi >= genericParam.traitBoundSpans.size()) {
+          break;
+        }
+        llvm::SMRange const boundSpan = genericParam.traitBoundSpans[bi];
+        if (!boundSpan.isValid()) {
+          continue;
+        }
+        Value* boundSym =
+            view.genericScope != nullptr ? view.genericScope->lookup(genericParam.traitBounds[bi])
+                                         : nullptr;
+        appendIndexedOccurrence(
+            index, genericParam.traitBounds[bi], std::nullopt, boundSpan, true, false, 0U,
+            indexedTokenKindFromResolvedSymbol(boundSym, true, false, IndexedTokenKind::Type),
+            boundSym);
+      }
     }
   }
   for (Parameter* param : view.parameters) {
@@ -442,6 +458,40 @@ auto collectIndexFromStmt(const Statement* stmt, AnalysisIndex& index, bool inCl
                               klass->getGenericScope() != nullptr
                                   ? klass->getGenericScope()->lookup(genericParam.name)
                                   : nullptr);
+      for (size_t bi = 0; bi < genericParam.traitBounds.size(); ++bi) {
+        if (bi >= genericParam.traitBoundSpans.size()) {
+          break;
+        }
+        llvm::SMRange const boundSpan = genericParam.traitBoundSpans[bi];
+        if (!boundSpan.isValid()) {
+          continue;
+        }
+        Value* boundSym =
+            klass->getGenericScope() != nullptr
+                ? klass->getGenericScope()->lookup(genericParam.traitBounds[bi])
+                : nullptr;
+        appendIndexedOccurrence(
+            index, genericParam.traitBounds[bi], std::nullopt, boundSpan, true, false, 0U,
+            indexedTokenKindFromResolvedSymbol(boundSym, true, false, IndexedTokenKind::Type),
+            boundSym);
+      }
+    }
+    {
+      std::vector<std::string> const& implNames = klass->getImplTraitNames();
+      std::vector<llvm::SMRange> const& implSpans = klass->getImplTraitSpans();
+      for (size_t ti = 0; ti < implNames.size(); ++ti) {
+        if (ti >= implSpans.size()) {
+          break;
+        }
+        llvm::SMRange const traitSpan = implSpans[ti];
+        if (!traitSpan.isValid()) {
+          continue;
+        }
+        appendIndexedOccurrence(
+            index, implNames[ti], std::nullopt, traitSpan, true, false, 0U,
+            indexedTokenKindFromResolvedSymbol(nullptr, true, false, IndexedTokenKind::Type),
+            nullptr);
+      }
     }
     for (VarDecl* field : klass->getFields()) {
       collectIndexFromStmt(field, index, true);

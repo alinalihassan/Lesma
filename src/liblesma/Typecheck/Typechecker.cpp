@@ -5,6 +5,7 @@
 #include <memory>
 #include <optional>
 #include <sstream>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -1283,12 +1284,46 @@ auto Typechecker::visit(const ForIn* node) -> void {
   scope = savedScope;
 }
 
+auto Typechecker::registerTraitsFromImportedModule(const std::string& absolutePath) -> void {
+  if (absolutePath.empty()) {
+    return;
+  }
+  (void)getOrTypecheckImport(absolutePath);
+  auto it = importedModuleCache.find(absolutePath);
+  if (it == importedModuleCache.end() || it->second == nullptr ||
+      it->second->parser == nullptr) {
+    return;
+  }
+  Compound* ast = it->second->parser->getAst();
+  if (ast == nullptr || it->second->rootScope == nullptr) {
+    return;
+  }
+  SymbolTable* savedScope = scope;
+  scope = it->second->rootScope.get();
+  for (Statement* stmt : ast->getChildren()) {
+    if (auto* tr = dynamic_cast<TraitDecl*>(stmt)) {
+      if (!traitRegistry.contains(tr->getIdentifier())) {
+        traitRegistry[tr->getIdentifier()] = tr;
+        traitMethodReturnTypes[tr->getIdentifier()].clear();
+        for (FuncDecl* req : tr->getRequirements()) {
+          req->getReturnType()->accept(*this);
+          traitMethodReturnTypes[tr->getIdentifier()][req->getName()] = result->getType();
+        }
+      }
+    }
+  }
+  scope = savedScope;
+}
+
 auto Typechecker::visit(const Import* node) -> void {
   if (!declarationPass) {
     return;
   }
   auto* importType = cacheType(std::make_unique<Type>(BaseType::TY_IMPORT));
   const std::string resolvedPath = resolveImportPath(node->getFilePath(), node->isStd());
+  if (!node->isStd()) {
+    registerTraitsFromImportedModule(resolvedPath);
+  }
   auto addImportSymbol = [this, &importType](const std::string& name) {
     if (!name.empty()) {
       auto symbol = std::make_unique<Value>(name, importType);
@@ -1449,7 +1484,9 @@ auto Typechecker::visit(const Class* node) -> void {
   currentMethodInsertScope = savedMethodInsertScope;
 
   if (declarationPass) {
-    checkTraitImplementation(node, classTypePtr);
+    checkTraitImplementation(node, classTypePtr, outerScope);
+  } else {
+    typecheckTraitDefaultBodies(node, classTypePtr, outerScope);
   }
 
   scope = outerScope;
@@ -2685,7 +2722,117 @@ auto Typechecker::buildMethodFunctionType(FuncDecl* decl, Type* classType) -> Ty
   return cacheType(std::move(funcType));
 }
 
-auto Typechecker::checkTraitImplementation(const Class* classNode, Type* classType) -> void {
+auto Typechecker::registerTraitDefaultMethodSymbol(SymbolTable* insertScope, Type* classType,
+                                                  FuncDecl* req) -> void {
+  Type* selfPtr = cacheType(std::make_unique<Type>(BaseType::TY_PTR, nullptr, classType));
+  std::vector<Type*> lookupArgs = {selfPtr};
+  for (Parameter* p : req->getParameters()) {
+    if (p->type != nullptr) {
+      p->type->accept(*this);
+      Type* pt = result->getType();
+      if (pt->is(BaseType::TY_CLASS)) {
+        pt = cacheType(std::make_unique<Type>(BaseType::TY_PTR, nullptr, pt));
+      }
+      lookupArgs.push_back(pt);
+    }
+  }
+  if (insertScope->lookupFunction(req->getName(), lookupArgs) != nullptr) {
+    return;
+  }
+  Type* funcTypePtr = buildMethodFunctionType(req, classType);
+  auto declaredFunc = std::make_unique<Value>(req->getName(), funcTypePtr);
+  declaredFunc->setCategory(ValueCategory::CALLABLE_SYMBOL);
+  declaredFunc->setDeclarationKind(ValueDeclarationKind::METHOD);
+  declaredFunc->setExported(false);
+  declaredFunc->setDeclarationSpan(req->getNameSpan());
+  declaredFunc->setDeclarationFilePath(mainFilePath);
+  insertScope->insertSymbol(std::move(declaredFunc));
+  Value* funcSymbol = insertScope->lookupFunction(req->getName(), lookupArgs);
+  if (funcSymbol == nullptr) {
+    return;
+  }
+  req->setResolvedSymbol(funcSymbol);
+  SymbolTable* child = insertScope->createChildBlock("trait_default");
+  funcSymbol->setBodyScope(child);
+  SymbolTable* savedScope = scope;
+  scope = child;
+  auto selfSymbol = std::make_unique<Value>("self", selfPtr);
+  selfSymbol->setCategory(ValueCategory::ADDRESSABLE_STORAGE);
+  scope->insertSymbol(std::move(selfSymbol));
+  const size_t paramOffset = 1U;
+  for (size_t i = 0; i < req->getParameters().size(); ++i) {
+    Parameter* param = req->getParameters()[i];
+    auto paramSymbol = std::make_unique<Value>(param->name, lookupArgs[paramOffset + i]);
+    paramSymbol->setCategory(ValueCategory::ADDRESSABLE_STORAGE);
+    paramSymbol->setDeclarationKind(ValueDeclarationKind::PARAMETER);
+    paramSymbol->setDeclarationSpan(param->nameSpan);
+    paramSymbol->setDeclarationFilePath(mainFilePath);
+    param->setResolvedSymbol(paramSymbol.get());
+    scope->insertSymbol(std::move(paramSymbol));
+  }
+  scope = savedScope;
+}
+
+auto Typechecker::typecheckTraitDefaultBodies(const Class* classNode, Type* classType,
+                                              SymbolTable* methodInsertScope) -> void {
+  std::unordered_set<std::string> explicitNames;
+  for (FuncDecl* f : classNode->getMethods()) {
+    explicitNames.insert(f->getName());
+  }
+  SymbolTable* savedListScope = scope;
+  Type* savedClass = currentClassType;
+  currentClassType = classType;
+  for (const auto& traitName : classNode->getImplTraitNames()) {
+    auto trIt = traitRegistry.find(traitName);
+    if (trIt == traitRegistry.end()) {
+      continue;
+    }
+    const TraitDecl* trait = trIt->second;
+    for (FuncDecl* req : trait->getRequirements()) {
+      if (req->getBody() == nullptr) {
+        continue;
+      }
+      if (explicitNames.contains(req->getName())) {
+        continue;
+      }
+      Type* selfPtr = cacheType(std::make_unique<Type>(BaseType::TY_PTR, nullptr, classType));
+      std::vector<Type*> lookupArgs = {selfPtr};
+      for (Parameter* p : req->getParameters()) {
+        if (p->type != nullptr) {
+          p->type->accept(*this);
+          Type* pt = result->getType();
+          if (pt->is(BaseType::TY_CLASS)) {
+            pt = cacheType(std::make_unique<Type>(BaseType::TY_PTR, nullptr, pt));
+          }
+          lookupArgs.push_back(pt);
+        }
+      }
+      Value* funcSym = methodInsertScope->lookupFunction(req->getName(), lookupArgs);
+      if (funcSym == nullptr || funcSym->getBodyScope() == nullptr) {
+        continue;
+      }
+      currentFunction = funcSym;
+      scope = funcSym->getBodyScope();
+      inTopLevel = false;
+      auto savedTraitBounds = currentGenericParamTraitBounds;
+      currentGenericParamTraitBounds.clear();
+      req->getBody()->accept(*this);
+      currentGenericParamTraitBounds = std::move(savedTraitBounds);
+      Type* funcReturnType = funcSym->getType()->getReturnType();
+      if (funcReturnType != nullptr && !funcReturnType->is(BaseType::TY_VOID) &&
+          !blockAlwaysReturns(req->getBody())) {
+        throw TypeCheckError(req->getSpan(), "Non-void trait default may reach end without returning");
+      }
+      scope = savedListScope;
+      currentFunction = nullptr;
+      inTopLevel = true;
+    }
+  }
+  currentClassType = savedClass;
+}
+
+auto Typechecker::checkTraitImplementation(const Class* classNode, Type* classType,
+                                           SymbolTable* methodInsertScope) -> void {
   for (const auto& traitName : classNode->getImplTraitNames()) {
     auto trIt = traitRegistry.find(traitName);
     if (trIt == traitRegistry.end()) {
@@ -2706,7 +2853,11 @@ auto Typechecker::checkTraitImplementation(const Class* classNode, Type* classTy
           lookupArgs.push_back(pt);
         }
       }
-      Value* methodSym = scope->lookupFunction(req->getName(), lookupArgs);
+      Value* methodSym = methodInsertScope->lookupFunction(req->getName(), lookupArgs);
+      if (methodSym == nullptr && req->getBody() != nullptr) {
+        registerTraitDefaultMethodSymbol(methodInsertScope, classType, req);
+        methodSym = methodInsertScope->lookupFunction(req->getName(), lookupArgs);
+      }
       if (methodSym == nullptr) {
         throw TypeCheckError(classNode->getNameSpan(),
                              "Class {} does not implement trait method '{}' required by {}",

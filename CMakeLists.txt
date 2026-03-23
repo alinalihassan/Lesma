@@ -103,6 +103,7 @@ set(LIB_NAME lesma)
 
 set(COMMON_SOURCES
   src/liblesma/Common/Utils.cpp
+  src/liblesma/Common/ExportDiscovery.cpp
   src/liblesma/Frontend/Lexer.cpp
   src/liblesma/Frontend/Parser.cpp
   src/liblesma/Token/Token.cpp

@@ -71,6 +71,7 @@ LLD_HAS_DRIVER(elf)
 #include "liblesma/Backend/CodegenError.h"
 #include "liblesma/Backend/CodegenTypeUtils.h"
 #include "liblesma/Backend/MangleUtils.h"
+#include "liblesma/Common/ExportDiscovery.h"
 #include "liblesma/Common/OperatorUtils.h"
 #include "liblesma/Common/Utils.h"
 #include "liblesma/Frontend/Lexer.h"
@@ -329,48 +330,7 @@ auto Codegen::defineFunction(lesma::Value* value, const FuncDecl* node, Value* c
 
 auto Codegen::getExportsFromFile(const std::string& filepath, bool isStd,
                                  const std::string& mainFilePath) -> std::vector<std::string> {
-  std::string absolutePath =
-      isStd ? filepath
-            : fmt::format("{}/{}", std::filesystem::absolute(mainFilePath).parent_path().string(),
-                          filepath);
-  auto buffer = llvm::MemoryBuffer::getFile(absolutePath);
-  if (!buffer) {
-    return {};
-  }
-
-  auto srcMgr = std::make_shared<llvm::SourceMgr>();
-  srcMgr->AddNewSourceBuffer(std::move(*buffer), llvm::SMLoc());
-  auto lexer = std::make_unique<Lexer>(srcMgr);
-  lexer->scanAll();
-  auto pars = std::make_unique<Parser>(lexer->getTokens());
-  pars->parse();
-  Compound* ast = pars->getAst();
-  if (ast == nullptr) {
-    return {};
-  }
-
-  std::vector<std::string> out;
-  for (Statement* stmt : ast->getChildren()) {
-    if (auto* f = dynamic_cast<FuncDecl*>(stmt)) {
-      if (f->isExported()) {
-        out.push_back(f->getName());
-      }
-    } else if (auto* c = dynamic_cast<Class*>(stmt)) {
-      if (c->isExported()) {
-        out.push_back(c->getIdentifier());
-      }
-    } else if (auto* e = dynamic_cast<Enum*>(stmt)) {
-      if (e->isExported()) {
-        out.push_back(e->getIdentifier());
-      }
-    } else if (auto* ef = dynamic_cast<ExternFuncDecl*>(stmt)) {
-      if (ef->isExported()) {
-        out.push_back(ef->getName());
-      }
-    }
-  }
-
-  return out;
+  return getExportedTopLevelNamesFromFile(filepath, isStd, mainFilePath);
 }
 
 auto Codegen::typecheckModule(const Compound* ast, const std::string& modulePath)
@@ -530,6 +490,9 @@ auto Codegen::compileModule(llvm::SMRange span, const std::string& filepath, boo
   if (it != importedModules->end()) {
     auto existingIdx = static_cast<size_t>(it - importedModules->begin());
     SymbolTable* existingScope = importedScopes->at(existingIdx).get();
+    if (existingIdx < importedCodegens.size() && importedCodegens[existingIdx] != nullptr) {
+      mergeImportedTraitMetadata(*importedCodegens[existingIdx]);
+    }
     insertImportAlias(moduleAlias, importToScope);
     exposeImportedSymbols(span, existingScope, importAll, importToScope, importedNames);
     return;
@@ -577,6 +540,7 @@ auto Codegen::compileModule(llvm::SMRange span, const std::string& filepath, boo
         !importToScope ? moduleAlias : "", theContext, importedModules, importedScopes,
         std::move(preScope), std::move(preTypeCache));
     codegen->run();
+    mergeImportedTraitMetadata(*codegen);
 
     // Optimize
     codegen->optimize(OptimizationLevel::O3);
@@ -1461,6 +1425,19 @@ auto Codegen::collectTraitMetadataFromAst() -> void {
       }
       traitRequirementMethodOrder[tr->getIdentifier()] = std::move(order);
       traitDeclByName[tr->getIdentifier()] = tr;
+    }
+  }
+}
+
+auto Codegen::mergeImportedTraitMetadata(Codegen const& imported) -> void {
+  for (const auto& entry : imported.traitDeclByName) {
+    if (traitDeclByName.contains(entry.first)) {
+      continue;
+    }
+    traitDeclByName[entry.first] = entry.second;
+    auto ordIt = imported.traitRequirementMethodOrder.find(entry.first);
+    if (ordIt != imported.traitRequirementMethodOrder.end()) {
+      traitRequirementMethodOrder[entry.first] = ordIt->second;
     }
   }
 }
@@ -2784,6 +2761,28 @@ auto Codegen::visit(const Class* node) -> void {
       std::vector<lesma::Type*> constructorParams = {selfSymbol->getType()};
       auto* constructor = scope->lookupFunction("new", constructorParams);
       existingStruct->setConstructor(constructor);
+    }
+  }
+
+  {
+    std::unordered_set<std::string> explicitMethodNames;
+    for (FuncDecl* func : node->getMethods()) {
+      explicitMethodNames.insert(func->getName());
+    }
+    for (const std::string& traitName : node->getImplTraitNames()) {
+      auto trIt = traitDeclByName.find(traitName);
+      if (trIt == traitDeclByName.end()) {
+        continue;
+      }
+      for (FuncDecl* req : trIt->second->getRequirements()) {
+        if (req->getBody() == nullptr) {
+          continue;
+        }
+        if (explicitMethodNames.contains(req->getName())) {
+          continue;
+        }
+        req->accept(*this);
+      }
     }
   }
 

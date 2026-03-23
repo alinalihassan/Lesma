@@ -1,0 +1,3 @@
+# Exported trait for import * tests
+export trait ExportedTrait
+    def foo() -> int

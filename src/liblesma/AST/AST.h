@@ -202,6 +202,8 @@ struct GenericParamDecl {
   llvm::SMRange span;
   /** Intersection bounds: `T: A & B` → {"A","B"}. Empty means no trait bound. */
   std::vector<std::string> traitBounds;
+  /** Spans for each name in `traitBounds` (same order). */
+  std::vector<llvm::SMRange> traitBoundSpans;
 };
 
 class Enum : public Statement {
@@ -1023,6 +1025,8 @@ class Class : public Statement {
   std::vector<GenericParamDecl> genericParams;
   /** Explicit `impl Trait1, Trait2` names (must match declared traits). */
   std::vector<std::string> implTraitNames;
+  /** Source span for each name in `implTraitNames` (same order). */
+  std::vector<llvm::SMRange> implTraitSpans;
   std::vector<std::unique_ptr<VarDecl>> fields;
   std::vector<std::unique_ptr<FuncDecl>> methods;
   bool exported;
@@ -1032,11 +1036,13 @@ class Class : public Statement {
 public:
   Class(llvm::SMRange loc, std::string identifier, llvm::SMRange nameSpan,
         std::vector<GenericParamDecl> genericParams, std::vector<std::string> implTraitNames,
+        std::vector<llvm::SMRange> implTraitSpans,
         std::vector<std::unique_ptr<VarDecl>> fields, std::vector<std::unique_ptr<FuncDecl>> methods,
         bool exported)
       : Statement(loc), identifier(std::move(identifier)), nameSpan(nameSpan),
         genericParams(std::move(genericParams)), implTraitNames(std::move(implTraitNames)),
-        fields(std::move(fields)), methods(std::move(methods)), exported(exported) {};
+        implTraitSpans(std::move(implTraitSpans)), fields(std::move(fields)),
+        methods(std::move(methods)), exported(exported) {};
   void accept(ASTVisitor& visitor) const override { visitor.visit(this); }
 
   [[nodiscard]] [[maybe_unused]] auto getIdentifier() const -> std::string { return identifier; }
@@ -1055,6 +1061,9 @@ public:
   }
   [[nodiscard]] auto getImplTraitNames() const -> const std::vector<std::string>& {
     return implTraitNames;
+  }
+  [[nodiscard]] auto getImplTraitSpans() const -> const std::vector<llvm::SMRange>& {
+    return implTraitSpans;
   }
   [[nodiscard]] [[maybe_unused]] auto getFields() const -> std::vector<VarDecl*> {
     std::vector<VarDecl*> result;
