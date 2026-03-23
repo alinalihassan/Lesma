@@ -553,19 +553,33 @@ public:
 class TraitDecl : public Statement {
   std::string identifier;
   llvm::SMRange nameSpan;
+  std::vector<GenericParamDecl> genericParams;
   std::vector<std::unique_ptr<FuncDecl>> requirements;
   bool exported;
   mutable Value* resolvedSymbol = nullptr;
 
 public:
   TraitDecl(llvm::SMRange loc, std::string identifier, llvm::SMRange nameSpan,
+            std::vector<GenericParamDecl> genericParams,
             std::vector<std::unique_ptr<FuncDecl>> requirements, bool exported)
       : Statement(loc), identifier(std::move(identifier)), nameSpan(nameSpan),
-        requirements(std::move(requirements)), exported(exported) {}
+        genericParams(std::move(genericParams)), requirements(std::move(requirements)),
+        exported(exported) {}
   void accept(ASTVisitor& visitor) const override { visitor.visit(this); }
 
   [[nodiscard]] auto getIdentifier() const -> std::string { return identifier; }
   [[nodiscard]] auto getNameSpan() const -> llvm::SMRange { return nameSpan; }
+  [[nodiscard]] auto getGenericParamDecls() const -> const std::vector<GenericParamDecl>& {
+    return genericParams;
+  }
+  [[nodiscard]] auto getGenericParams() const -> std::vector<std::string> {
+    std::vector<std::string> result;
+    result.reserve(genericParams.size());
+    for (const auto& param : genericParams) {
+      result.push_back(param.name);
+    }
+    return result;
+  }
   [[nodiscard]] auto getRequirements() const -> std::vector<FuncDecl*> {
     std::vector<FuncDecl*> out;
     out.reserve(requirements.size());

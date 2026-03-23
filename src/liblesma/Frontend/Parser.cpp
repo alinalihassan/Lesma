@@ -1151,6 +1151,7 @@ auto Parser::parseTrait() -> std::unique_ptr<Statement> {
   auto loc = peek()->span;
   consume(TokenType::TRAIT);
   auto* nameTok = consume(TokenType::IDENTIFIER);
+  std::vector<GenericParamDecl> genericParams = parseGenericParamList();
   consume(TokenType::NEWLINE);
   consume(TokenType::INDENT);
   std::vector<std::unique_ptr<FuncDecl>> requirements;
@@ -1174,7 +1175,8 @@ auto Parser::parseTrait() -> std::unique_ptr<Statement> {
     endLoc = previous()->getEnd();
   }
   return std::make_unique<TraitDecl>(llvm::SMRange{loc.Start, endLoc}, nameTok->lexeme,
-                                       nameTok->span, std::move(requirements), isExported);
+                                       nameTok->span, std::move(genericParams),
+                                       std::move(requirements), isExported);
 }
 
 auto Parser::parseEnum() -> std::unique_ptr<Statement> {

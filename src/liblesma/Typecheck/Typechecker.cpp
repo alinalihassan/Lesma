@@ -1305,10 +1305,15 @@ auto Typechecker::registerTraitsFromImportedModule(const std::string& absolutePa
       if (!traitRegistry.contains(tr->getIdentifier())) {
         traitRegistry[tr->getIdentifier()] = tr;
         traitMethodReturnTypes[tr->getIdentifier()].clear();
+        auto savedImpTraitG = currentGenericTypes;
+        for (const auto& p : tr->getGenericParamDecls()) {
+          currentGenericTypes[p.name] = cacheType(std::make_unique<Type>(p.name));
+        }
         for (FuncDecl* req : tr->getRequirements()) {
           req->getReturnType()->accept(*this);
           traitMethodReturnTypes[tr->getIdentifier()][req->getName()] = result->getType();
         }
+        currentGenericTypes = std::move(savedImpTraitG);
       }
     }
   }
@@ -1484,6 +1489,9 @@ auto Typechecker::visit(const Class* node) -> void {
   currentMethodInsertScope = savedMethodInsertScope;
 
   if (declarationPass) {
+    // Impl check runs in the declaration pass so default trait methods are registered before user
+    // code in the second pass. Trait requirement *signatures* may reference classes declared later
+    // in the file (resolved when checking each class after that class's type exists).
     checkTraitImplementation(node, classTypePtr, outerScope);
   } else {
     typecheckTraitDefaultBodies(node, classTypePtr, outerScope);
@@ -2671,32 +2679,39 @@ auto Typechecker::visit(const TypeExpr* node) -> void {
 }
 
 auto Typechecker::visit(const TraitDecl* node) -> void {
-  if (!declarationPass) {
+  if (declarationPass) {
+    if (traitRegistry.contains(node->getIdentifier())) {
+      throw TypeCheckError(node->getNameSpan(), "Duplicate trait '{}'", node->getIdentifier());
+    }
+    traitRegistry[node->getIdentifier()] = node;
+
+    {
+      auto traitType = std::make_unique<Type>(BaseType::TY_TRAIT_EXISTENTIAL, nullptr);
+      traitType->setDisplayName(node->getIdentifier());
+      scope->insertType(node->getIdentifier(), std::move(traitType));
+    }
+    Type* traitTypePtr = scope->lookupType(node->getIdentifier());
+    auto traitSym = std::make_unique<Value>(node->getIdentifier(), traitTypePtr);
+    traitSym->setCategory(ValueCategory::TYPE_SYMBOL);
+    traitSym->setDeclarationKind(ValueDeclarationKind::TRAIT);
+    traitSym->setDeclarationSpan(node->getNameSpan());
+    traitSym->setDeclarationFilePath(mainFilePath);
+    scope->insertSymbol(std::move(traitSym));
     return;
   }
-  if (traitRegistry.contains(node->getIdentifier())) {
-    throw TypeCheckError(node->getNameSpan(), "Duplicate trait '{}'", node->getIdentifier());
-  }
-  traitRegistry[node->getIdentifier()] = node;
 
-  {
-    auto traitType = std::make_unique<Type>(BaseType::TY_TRAIT_EXISTENTIAL, nullptr);
-    traitType->setDisplayName(node->getIdentifier());
-    scope->insertType(node->getIdentifier(), std::move(traitType));
+  // Second pass: resolve requirement signatures (may reference classes declared later in the file).
+  auto savedTraitGenerics = currentGenericTypes;
+  for (const auto& p : node->getGenericParamDecls()) {
+    currentGenericTypes[p.name] = cacheType(std::make_unique<Type>(p.name));
   }
-  Type* traitTypePtr = scope->lookupType(node->getIdentifier());
-  auto traitSym = std::make_unique<Value>(node->getIdentifier(), traitTypePtr);
-  traitSym->setCategory(ValueCategory::TYPE_SYMBOL);
-  traitSym->setDeclarationKind(ValueDeclarationKind::TRAIT);
-  traitSym->setDeclarationSpan(node->getNameSpan());
-  traitSym->setDeclarationFilePath(mainFilePath);
-  scope->insertSymbol(std::move(traitSym));
 
   traitMethodReturnTypes[node->getIdentifier()].clear();
   for (FuncDecl* req : node->getRequirements()) {
     req->getReturnType()->accept(*this);
     traitMethodReturnTypes[node->getIdentifier()][req->getName()] = result->getType();
   }
+  currentGenericTypes = std::move(savedTraitGenerics);
 }
 
 auto Typechecker::buildMethodFunctionType(FuncDecl* decl, Type* classType) -> Type* {
@@ -2839,6 +2854,13 @@ auto Typechecker::checkTraitImplementation(const Class* classNode, Type* classTy
       throw TypeCheckError(classNode->getNameSpan(), "Unknown trait '{}'", traitName);
     }
     const TraitDecl* trait = trIt->second;
+    if (trait->getGenericParamDecls().size() != classNode->getGenericParamDecls().size()) {
+      throw TypeCheckError(
+          classNode->getNameSpan(),
+          "Trait {} generic parameter count ({}) does not match class {} generic parameter count ({})",
+          traitName, trait->getGenericParamDecls().size(), classNode->getIdentifier(),
+          classNode->getGenericParamDecls().size());
+    }
     for (FuncDecl* req : trait->getRequirements()) {
       Type* expected = buildMethodFunctionType(req, classType);
       Type* selfPtr = cacheType(std::make_unique<Type>(BaseType::TY_PTR, nullptr, classType));

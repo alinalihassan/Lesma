@@ -84,7 +84,8 @@ class Codegen final : public ASTVisitor {
   std::unordered_map<lesma::Type*, lesma::Value*> specializedClassSymbolsByType;
   std::unordered_map<lesma::Value*, std::unordered_map<std::string, lesma::Type*>>
       specializationEnvs;
-  std::unordered_map<lesma::Type*, std::unordered_map<std::string, lesma::Type*>> specializedClassTypeEnvs;
+  std::unordered_map<lesma::Type*, std::unordered_map<std::string, lesma::Type*>>
+      specializedClassTypeEnvs;
   std::unordered_map<std::string, std::vector<std::string>> traitRequirementMethodOrder;
   std::unordered_map<std::string, const TraitDecl*> traitDeclByName;
   std::unordered_map<std::string, llvm::GlobalVariable*> witnessGlobalCache;
@@ -200,7 +201,8 @@ protected:
                          const std::vector<llvm::Value*>& paramsLLVM,
                          const std::vector<lesma::Type*>& explicitTypeArgs = {})
       -> std::unique_ptr<lesma::Value>;
-  auto callListMethodByName(llvm::SMRange span, lesma::Value* receiver, const std::string& methodName,
+  auto callListMethodByName(llvm::SMRange span, lesma::Value* receiver,
+                            const std::string& methodName,
                             const std::vector<lesma::Value*>& args = {},
                             const std::vector<lesma::Type*>& explicitTypeArgs = {})
       -> std::unique_ptr<lesma::Value>;
@@ -219,8 +221,9 @@ protected:
       -> void;
   auto emitCompoundAssignArithmetic(llvm::SMRange span, TokenType compoundOp, lesma::Value* loaded,
                                     lesma::Value* rhs) -> std::unique_ptr<lesma::Value>;
-  auto emitCompoundSubscriptNewValue(llvm::SMRange span, TokenType compoundOp, lesma::Value* currentElem,
-                                     lesma::Value* rhs) -> std::unique_ptr<lesma::Value>;
+  auto emitCompoundSubscriptNewValue(llvm::SMRange span, TokenType compoundOp,
+                                     lesma::Value* currentElem, lesma::Value* rhs)
+      -> std::unique_ptr<lesma::Value>;
   auto getOrCreateListStructType(lesma::Type* listType) -> llvm::StructType*;
   auto getListStoredElementType(lesma::Type* listType) -> llvm::Type*;
   auto getListStoredElementValue(llvm::SMRange span, lesma::Value* value, lesma::Type* elementType)
@@ -245,10 +248,13 @@ protected:
                            llvm::Value* index) -> void;
   auto emitListElementPointer(llvm::SMRange span, lesma::Type* listType, llvm::Value* listHandle,
                               llvm::Value* index) -> llvm::Value*;
-  auto emitListEnsureCapacity(lesma::Type* listType, llvm::Value* listHandle, llvm::Value* minCapacity)
-      -> void;
+  auto emitListEnsureCapacity(lesma::Type* listType, llvm::Value* listHandle,
+                              llvm::Value* minCapacity) -> void;
   auto emitListDeepCopy(lesma::Type* listType, llvm::Value* listHandle) -> llvm::Value*;
   [[nodiscard]] auto isListIntrinsicName(const std::string& functionName) const -> bool;
+  /// Methods implemented by callListMethodByName (buffer intrinsics). Other methods on list-shaped
+  /// classes (e.g. stdlib list.iter()) use normal class codegen.
+  [[nodiscard]] auto isBuiltinListBuiltinMethodName(const std::string& methodName) const -> bool;
   auto genListIntrinsicCall(const FuncCall* node, const std::vector<lesma::Type*>& paramTypes,
                             const std::vector<llvm::Value*>& paramsLLVM)
       -> std::unique_ptr<lesma::Value>;
@@ -266,18 +272,21 @@ protected:
 
   auto collectTraitMetadataFromAst() -> void;
   auto mergeImportedTraitMetadata(Codegen const& imported) -> void;
+  /// Copy specialization env maps from an imported module codegen so call sites in this module
+  /// can resolve TY_GENERIC when invoking methods on specialized types from the import.
+  auto mergeImportedSpecializationState(Codegen const& imported) -> void;
   auto emitErasedThunkForTraitMethod(lesma::Type* classType, const std::string& traitName,
                                      const FuncDecl* req) -> llvm::Function*;
   auto getOrEmitWitnessTable(lesma::Type* classType, const std::string& traitName)
       -> llvm::GlobalVariable*;
   auto emitBoxClassToExistential(lesma::Type* existentialType, lesma::Type* classPtrLesmaType,
                                  llvm::Value* classPtrVal) -> llvm::Value*;
-  auto callExistentialMethod(llvm::SMRange span, lesma::Value* receiver, const std::string& methodName,
-                             const std::vector<lesma::Value*>& args,
+  auto callExistentialMethod(llvm::SMRange span, lesma::Value* receiver,
+                             const std::string& methodName, const std::vector<lesma::Value*>& args,
                              const std::vector<lesma::Type*>& explicitTypeArgs)
       -> std::unique_ptr<lesma::Value>;
-  [[nodiscard]] auto findTraitRequirement(const TraitDecl* trait, const std::string& methodName) const
-      -> const FuncDecl*;
+  [[nodiscard]] auto findTraitRequirement(const TraitDecl* trait,
+                                          const std::string& methodName) const -> const FuncDecl*;
 
   /** Populate \p env by structurally matching declared (TypeExpr) vs actual
    * (lesma::Type), binding generic names from \p genericNameSet. */

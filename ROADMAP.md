@@ -13,7 +13,7 @@
 - [ ] Add tuples
 - [ ] Add ranges (1..4 style)
 - [ ] Add dictionaries
-- [ ] Add foreach loops
+- [x] Add foreach loops
 - [ ] Add lambda functions
 - [ ] Add inheritance (or traits)
 - [ ] Add string interpolation

@@ -1,4 +1,11 @@
-class list_iterator<T>
+# Iterator protocol: call `iter()` on a list to get a cursor; use `has_next()` / `next()` on that cursor.
+# `Iterable<T>` describes that cursor type (`list_iterator<T>` implements it).
+export trait Iterable<T>
+    def iter() -> *list_iterator<T>
+    def has_next() -> bool
+    def next() -> T
+
+class list_iterator<T> impl Iterable
     var storage: __buffer<T>
     var index: int = 0
 

@@ -136,7 +136,8 @@ Codegen::Codegen(std::shared_ptr<Parser> parser, std::shared_ptr<SourceMgr> srcM
 auto Codegen::initializeModule() -> std::unique_ptr<Module> {
   std::unique_ptr<Module> mod;
 #if LLVM_VERSION_MAJOR >= 21
-  theContext->withContextDo([&mod](LLVMContext* ctx) { mod = std::make_unique<Module>("Lesma", *ctx); });
+  theContext->withContextDo(
+      [&mod](LLVMContext* ctx) { mod = std::make_unique<Module>("Lesma", *ctx); });
 #else
   {
     auto lock = theContext->getLock();
@@ -214,7 +215,8 @@ auto Codegen::defineFunction(lesma::Value* value, const FuncDecl* node, Value* c
   bool const isMethod = value->getDeclarationKind() == ValueDeclarationKind::METHOD;
   if (clsSymbol == nullptr && isMethod) {
     auto fields = value->getType()->getFields();
-    if (!fields.empty() && fields.front()->type != nullptr && fields.front()->type->is(BaseType::TY_PTR) &&
+    if (!fields.empty() && fields.front()->type != nullptr &&
+        fields.front()->type->is(BaseType::TY_PTR) &&
         fields.front()->type->getElementType() != nullptr) {
       auto* selfClassType = fields.front()->type->getElementType();
       if (auto it = specializedClassSymbolsByType.find(selfClassType);
@@ -492,6 +494,7 @@ auto Codegen::compileModule(llvm::SMRange span, const std::string& filepath, boo
     SymbolTable* existingScope = importedScopes->at(existingIdx).get();
     if (existingIdx < importedCodegens.size() && importedCodegens[existingIdx] != nullptr) {
       mergeImportedTraitMetadata(*importedCodegens[existingIdx]);
+      mergeImportedSpecializationState(*importedCodegens[existingIdx]);
     }
     insertImportAlias(moduleAlias, importToScope);
     exposeImportedSymbols(span, existingScope, importAll, importToScope, importedNames);
@@ -555,6 +558,7 @@ auto Codegen::compileModule(llvm::SMRange span, const std::string& filepath, boo
     for (auto& type : codegen->typeCache) {
       typeCache.push_back(std::move(type));
     }
+    mergeImportedSpecializationState(*codegen);
 
     if (isJit) {
       // Add the module to JIT (after importing symbols; theModule still valid)
@@ -738,7 +742,8 @@ auto Codegen::run() -> void {
   // list helpers. Done here (not in constructor) to avoid re-entrancy when
   // creating Codegens for imported modules.
   std::vector<std::string> const implicitStdlibModules = {"base.les", "list.les"};
-  auto const currentPath = std::filesystem::absolute(std::filesystem::path(filename)).lexically_normal();
+  auto const currentPath =
+      std::filesystem::absolute(std::filesystem::path(filename)).lexically_normal();
   auto const basePath =
       std::filesystem::absolute(std::filesystem::path(getStdDir()) / "base.les").lexically_normal();
   auto const listPath =
@@ -746,7 +751,8 @@ auto Codegen::run() -> void {
   if (currentPath != basePath && currentPath != listPath) {
     for (const auto& moduleName : implicitStdlibModules) {
       auto const modulePath =
-          std::filesystem::absolute(std::filesystem::path(getStdDir()) / moduleName).lexically_normal();
+          std::filesystem::absolute(std::filesystem::path(getStdDir()) / moduleName)
+              .lexically_normal();
       if (currentPath == modulePath) {
         continue;
       }
@@ -772,8 +778,9 @@ auto Codegen::run() -> void {
     auto savedGenerics = currentGenericTypes;
     if (auto env = specializationEnvs.find(fn); env != specializationEnvs.end()) {
       currentGenericTypes = env->second;
-    } else if (auto* cls = std::get<2>(prototypes[pi]); cls != nullptr &&
-               cls->getType() != nullptr && cls->getType()->is(BaseType::TY_PTR) &&
+    } else if (auto* cls = std::get<2>(prototypes[pi]);
+               cls != nullptr && cls->getType() != nullptr &&
+               cls->getType()->is(BaseType::TY_PTR) &&
                cls->getType()->getElementType() != nullptr) {
       if (auto clsEnv = specializedClassTypeEnvs.find(cls->getType()->getElementType());
           clsEnv != specializedClassTypeEnvs.end()) {
@@ -781,7 +788,8 @@ auto Codegen::run() -> void {
       }
     } else {
       auto fields = fn->getType()->getFields();
-      if (!fields.empty() && fields.front()->type != nullptr && fields.front()->type->is(BaseType::TY_PTR) &&
+      if (!fields.empty() && fields.front()->type != nullptr &&
+          fields.front()->type->is(BaseType::TY_PTR) &&
           fields.front()->type->getElementType() != nullptr) {
         if (auto clsEnv = specializedClassTypeEnvs.find(fields.front()->type->getElementType());
             clsEnv != specializedClassTypeEnvs.end()) {
@@ -945,8 +953,7 @@ auto Codegen::getOrCreateListStructType(lesma::Type* listType) -> llvm::StructTy
     return existing->second;
   }
   auto* structType = llvm::StructType::create(
-      theModule->getContext(),
-      {builder->getPtrTy(), builder->getInt64Ty(), builder->getInt64Ty()},
+      theModule->getContext(), {builder->getPtrTy(), builder->getInt64Ty(), builder->getInt64Ty()},
       typeName, false);
   listStructTypes[typeName] = structType;
   return structType;
@@ -972,9 +979,8 @@ auto Codegen::getListStoredElementValue(llvm::SMRange span, lesma::Value* value,
 auto Codegen::emitCalloc(llvm::Value* count, llvm::Value* size, const llvm::Twine& name)
     -> llvm::Value* {
   auto callocFn = theModule->getOrInsertFunction(
-      "calloc",
-      llvm::FunctionType::get(builder->getPtrTy(), {builder->getInt64Ty(), builder->getInt64Ty()},
-                              false));
+      "calloc", llvm::FunctionType::get(builder->getPtrTy(),
+                                        {builder->getInt64Ty(), builder->getInt64Ty()}, false));
   return builder->CreateCall(callocFn, {count, size}, name);
 }
 
@@ -987,9 +993,8 @@ auto Codegen::emitMalloc(llvm::Value* size, const llvm::Twine& name) -> llvm::Va
 auto Codegen::emitRealloc(llvm::Value* ptr, llvm::Value* size, const llvm::Twine& name)
     -> llvm::Value* {
   auto reallocFn = theModule->getOrInsertFunction(
-      "realloc",
-      llvm::FunctionType::get(builder->getPtrTy(), {builder->getPtrTy(), builder->getInt64Ty()},
-                              false));
+      "realloc", llvm::FunctionType::get(builder->getPtrTy(),
+                                         {builder->getPtrTy(), builder->getInt64Ty()}, false));
   return builder->CreateCall(reallocFn, {ptr, size}, name);
 }
 
@@ -1024,15 +1029,14 @@ auto Codegen::emitListDataPtr(lesma::Type* listType, llvm::Value* listHandle) ->
 }
 
 auto Codegen::emitStoreListDataPtr(lesma::Type* listType, llvm::Value* listHandle,
-                                   llvm::Value* dataValue)
-    -> void {
+                                   llvm::Value* dataValue) -> void {
   auto* structType = getOrCreateListStructType(listType);
   auto* slot = builder->CreateStructGEP(structType, listHandle, 0, "list.data.slot");
   builder->CreateStore(dataValue, slot);
 }
 
-auto Codegen::emitStoreListLength(lesma::Type* listType, llvm::Value* listHandle, llvm::Value* length)
-    -> void {
+auto Codegen::emitStoreListLength(lesma::Type* listType, llvm::Value* listHandle,
+                                  llvm::Value* length) -> void {
   auto* structType = getOrCreateListStructType(listType);
   auto* slot = builder->CreateStructGEP(structType, listHandle, 1, "list.len.slot");
   builder->CreateStore(length, slot);
@@ -1045,11 +1049,12 @@ auto Codegen::emitStoreListCapacity(lesma::Type* listType, llvm::Value* listHand
   builder->CreateStore(capacity, slot);
 }
 
-auto Codegen::emitListBoundsCheck(llvm::SMRange span, lesma::Type* listType, llvm::Value* listHandle,
-                                  llvm::Value* index) -> void {
+auto Codegen::emitListBoundsCheck(llvm::SMRange span, lesma::Type* listType,
+                                  llvm::Value* listHandle, llvm::Value* index) -> void {
   (void) span;
   llvm::Function* parentFunction = builder->GetInsertBlock()->getParent();
-  auto* okBlock = llvm::BasicBlock::Create(theModule->getContext(), "list.bounds.ok", parentFunction);
+  auto* okBlock =
+      llvm::BasicBlock::Create(theModule->getContext(), "list.bounds.ok", parentFunction);
   auto* failBlock =
       llvm::BasicBlock::Create(theModule->getContext(), "list.bounds.fail", parentFunction);
   auto* length = emitListLength(listType, listHandle);
@@ -1064,8 +1069,8 @@ auto Codegen::emitListBoundsCheck(llvm::SMRange span, lesma::Type* listType, llv
   builder->SetInsertPoint(okBlock);
 }
 
-auto Codegen::emitListElementPointer(llvm::SMRange span, lesma::Type* listType, llvm::Value* listHandle,
-                                     llvm::Value* index) -> llvm::Value* {
+auto Codegen::emitListElementPointer(llvm::SMRange span, lesma::Type* listType,
+                                     llvm::Value* listHandle, llvm::Value* index) -> llvm::Value* {
   emitListBoundsCheck(span, listType, listHandle, index);
   auto* dataPtr = emitListDataPtr(listType, listHandle);
   return builder->CreateGEP(getListStoredElementType(listType), dataPtr, index, "list.elem.ptr");
@@ -1088,9 +1093,9 @@ auto Codegen::emitListEnsureCapacity(lesma::Type* listType, llvm::Value* listHan
                                         builder->getInt64(1), doubledCap);
   auto* newCap = builder->CreateSelect(builder->CreateICmpSGE(baseCap, minCapacity), baseCap,
                                        minCapacity, "list.cap.new");
-  auto* elementSize =
-      builder->getInt64(theModule->getDataLayout().getTypeAllocSize(getListStoredElementType(listType))
-                            .getFixedValue());
+  auto* elementSize = builder->getInt64(theModule->getDataLayout()
+                                            .getTypeAllocSize(getListStoredElementType(listType))
+                                            .getFixedValue());
   auto* newBytes = builder->CreateMul(newCap, elementSize, "list.grow.bytes");
   auto* allocBlock =
       llvm::BasicBlock::Create(theModule->getContext(), "list.grow.alloc", parentFunction);
@@ -1132,8 +1137,8 @@ auto Codegen::emitListDeepCopy(lesma::Type* listType, llvm::Value* listHandle) -
   emitStoreListCapacity(listType, newHandle, capacity);
   auto* elementType = listType->getElementType();
   auto* elementLlvmType = getListStoredElementType(listType);
-  auto* elementSize =
-      builder->getInt64(theModule->getDataLayout().getTypeAllocSize(elementLlvmType).getFixedValue());
+  auto* elementSize = builder->getInt64(
+      theModule->getDataLayout().getTypeAllocSize(elementLlvmType).getFixedValue());
   auto* hasCapacity = builder->CreateICmpSGT(capacity, builder->getInt64(0));
   auto* dataSlot = builder->CreateAlloca(builder->getPtrTy(), nullptr, "list.copy.data.slot");
   builder->CreateStore(llvm::ConstantPointerNull::get(builder->getPtrTy()), dataSlot);
@@ -1155,7 +1160,8 @@ auto Codegen::emitListDeepCopy(lesma::Type* listType, llvm::Value* listHandle) -
       return false;
     }
     auto fields = elementType->getFields();
-    return !fields.empty() && fields.front()->type != nullptr && fields.front()->type->is(BaseType::TY_ARRAY);
+    return !fields.empty() && fields.front()->type != nullptr &&
+           fields.front()->type->is(BaseType::TY_ARRAY);
   };
   if (elementType->is(BaseType::TY_ARRAY) || isNestedListLike()) {
     auto* indexPtr = builder->CreateAlloca(builder->getInt64Ty(), nullptr, "list.copy.index");
@@ -1194,10 +1200,9 @@ auto Codegen::emitListDeepCopy(lesma::Type* listType, llvm::Value* listHandle) -
     builder->CreateBr(loopCond);
   } else {
     auto memcpyFn = theModule->getOrInsertFunction(
-        "memcpy",
-        llvm::FunctionType::get(builder->getPtrTy(),
-                                {builder->getPtrTy(), builder->getPtrTy(), builder->getInt64Ty()},
-                                false));
+        "memcpy", llvm::FunctionType::get(
+                      builder->getPtrTy(),
+                      {builder->getPtrTy(), builder->getPtrTy(), builder->getInt64Ty()}, false));
     builder->CreateCall(memcpyFn, {newData, emitListDataPtr(listType, listHandle), initBytes});
     builder->CreateBr(doneBlock);
   }
@@ -1218,7 +1223,15 @@ auto Codegen::isListIntrinsicName(const std::string& functionName) const -> bool
          functionName == "__buffer_set";
 }
 
-auto Codegen::genListIntrinsicCall(const FuncCall* node, const std::vector<lesma::Type*>& paramTypes,
+auto Codegen::isBuiltinListBuiltinMethodName(const std::string& methodName) const -> bool {
+  return methodName == "len" || methodName == "clear" || methodName == "push" ||
+         methodName == "pop" || methodName == "copy" ||
+         methodName == std::string{OperatorUtils::SUBSCRIPT_GET_NAME} ||
+         methodName == std::string{OperatorUtils::SUBSCRIPT_SET_NAME};
+}
+
+auto Codegen::genListIntrinsicCall(const FuncCall* node,
+                                   const std::vector<lesma::Type*>& paramTypes,
                                    const std::vector<llvm::Value*>& paramsLLVM)
     -> std::unique_ptr<lesma::Value> {
   if (node->getName() == "__buffer_new") {
@@ -1227,12 +1240,13 @@ auto Codegen::genListIntrinsicCall(const FuncCall* node, const std::vector<lesma
       throw CodegenError(node->getSpan(), "__buffer_new<T>() expects exactly one type argument");
     }
     explicitTypeArgs.front()->accept(*this);
-    auto* listType = cacheType(std::make_unique<Type>(BaseType::TY_ARRAY, nullptr, result->getType()));
+    auto* listType =
+        cacheType(std::make_unique<Type>(BaseType::TY_ARRAY, nullptr, result->getType()));
     listType->setDisplayName("__buffer");
     getOrCreateLlvmType(listType);
     auto* listStructTy = getOrCreateListStructType(listType);
-    auto* headerSize =
-        builder->getInt64(theModule->getDataLayout().getTypeAllocSize(listStructTy).getFixedValue());
+    auto* headerSize = builder->getInt64(
+        theModule->getDataLayout().getTypeAllocSize(listStructTy).getFixedValue());
     auto* listHandle = emitMalloc(headerSize, "buffer.header");
     emitStoreListDataPtr(listType, listHandle, llvm::ConstantPointerNull::get(builder->getPtrTy()));
     emitStoreListLength(listType, listHandle, builder->getInt64(0));
@@ -1240,11 +1254,13 @@ auto Codegen::genListIntrinsicCall(const FuncCall* node, const std::vector<lesma
     return std::make_unique<Value>("", listType, listHandle);
   }
   if (paramTypes.empty() || paramsLLVM.empty()) {
-    throw CodegenError(node->getSpan(), "List intrinsic {} requires a list argument", node->getName());
+    throw CodegenError(node->getSpan(), "List intrinsic {} requires a list argument",
+                       node->getName());
   }
   auto* listType = paramTypes.front();
   auto* listHandle = paramsLLVM.front();
-  if (listType == nullptr || !listType->is(BaseType::TY_ARRAY) || listType->getElementType() == nullptr) {
+  if (listType == nullptr || !listType->is(BaseType::TY_ARRAY) ||
+      listType->getElementType() == nullptr) {
     throw CodegenError(node->getSpan(), "List intrinsic {} requires list<T>", node->getName());
   }
 
@@ -1259,8 +1275,10 @@ auto Codegen::genListIntrinsicCall(const FuncCall* node, const std::vector<lesma
   if (node->getName() == "__list_clear" || node->getName() == "__buffer_clear") {
     auto* currentData = emitListDataPtr(listType, listHandle);
     llvm::Function* parentFunction = builder->GetInsertBlock()->getParent();
-    auto* freeBlock = llvm::BasicBlock::Create(theModule->getContext(), "list.clear.free", parentFunction);
-    auto* doneBlock = llvm::BasicBlock::Create(theModule->getContext(), "list.clear.done", parentFunction);
+    auto* freeBlock =
+        llvm::BasicBlock::Create(theModule->getContext(), "list.clear.free", parentFunction);
+    auto* doneBlock =
+        llvm::BasicBlock::Create(theModule->getContext(), "list.clear.done", parentFunction);
     builder->CreateCondBr(
         builder->CreateICmpNE(currentData, llvm::ConstantPointerNull::get(builder->getPtrTy())),
         freeBlock, doneBlock);
@@ -1271,9 +1289,8 @@ auto Codegen::genListIntrinsicCall(const FuncCall* node, const std::vector<lesma
     emitStoreListDataPtr(listType, listHandle, llvm::ConstantPointerNull::get(builder->getPtrTy()));
     emitStoreListLength(listType, listHandle, builder->getInt64(0));
     emitStoreListCapacity(listType, listHandle, builder->getInt64(0));
-    return std::make_unique<Value>("",
-                                   cacheType(std::make_unique<Type>(BaseType::TY_VOID, builder->getVoidTy())),
-                                   nullptr);
+    return std::make_unique<Value>(
+        "", cacheType(std::make_unique<Type>(BaseType::TY_VOID, builder->getVoidTy())), nullptr);
   }
   if (node->getName() == "__list_push" || node->getName() == "__buffer_push") {
     if (paramTypes.size() != 2U || paramsLLVM.size() != 2U) {
@@ -1282,22 +1299,22 @@ auto Codegen::genListIntrinsicCall(const FuncCall* node, const std::vector<lesma
     auto* length = emitListLength(listType, listHandle);
     auto* nextLength = builder->CreateAdd(length, builder->getInt64(1));
     emitListEnsureCapacity(listType, listHandle, nextLength);
-    auto* elementPtr = builder->CreateGEP(getListStoredElementType(listType),
-                                          emitListDataPtr(listType, listHandle), length,
-                                          "list.push.ptr");
+    auto* elementPtr =
+        builder->CreateGEP(getListStoredElementType(listType),
+                           emitListDataPtr(listType, listHandle), length, "list.push.ptr");
     builder->CreateStore(paramsLLVM[1], elementPtr);
     emitStoreListLength(listType, listHandle, nextLength);
-    return std::make_unique<Value>("",
-                                   cacheType(std::make_unique<Type>(BaseType::TY_VOID, builder->getVoidTy())),
-                                   nullptr);
+    return std::make_unique<Value>(
+        "", cacheType(std::make_unique<Type>(BaseType::TY_VOID, builder->getVoidTy())), nullptr);
   }
   if (node->getName() == "__list_get" || node->getName() == "__buffer_get") {
     if (paramTypes.size() != 2U || paramsLLVM.size() != 2U) {
       throw CodegenError(node->getSpan(), "__list_get expects list and index");
     }
     auto* elementPtr = emitListElementPointer(node->getSpan(), listType, listHandle, paramsLLVM[1]);
-    return std::make_unique<Value>("", listType->getElementType(),
-                                   builder->CreateLoad(getListStoredElementType(listType), elementPtr));
+    return std::make_unique<Value>(
+        "", listType->getElementType(),
+        builder->CreateLoad(getListStoredElementType(listType), elementPtr));
   }
   if (node->getName() == "__list_set" || node->getName() == "__buffer_set") {
     if (paramTypes.size() != 3U || paramsLLVM.size() != 3U) {
@@ -1305,18 +1322,17 @@ auto Codegen::genListIntrinsicCall(const FuncCall* node, const std::vector<lesma
     }
     auto* elementPtr = emitListElementPointer(node->getSpan(), listType, listHandle, paramsLLVM[1]);
     builder->CreateStore(paramsLLVM[2], elementPtr);
-    return std::make_unique<Value>("",
-                                   cacheType(std::make_unique<Type>(BaseType::TY_VOID, builder->getVoidTy())),
-                                   nullptr);
+    return std::make_unique<Value>(
+        "", cacheType(std::make_unique<Type>(BaseType::TY_VOID, builder->getVoidTy())), nullptr);
   }
   if (node->getName() == "__list_pop" || node->getName() == "__buffer_pop") {
     auto* length = emitListLength(listType, listHandle);
     emitListBoundsCheck(node->getSpan(), listType, listHandle,
                         builder->CreateSub(length, builder->getInt64(1)));
     auto* newLength = builder->CreateSub(length, builder->getInt64(1), "list.pop.len");
-    auto* elementPtr = builder->CreateGEP(getListStoredElementType(listType),
-                                          emitListDataPtr(listType, listHandle), newLength,
-                                          "list.pop.ptr");
+    auto* elementPtr =
+        builder->CreateGEP(getListStoredElementType(listType),
+                           emitListDataPtr(listType, listHandle), newLength, "list.pop.ptr");
     auto* poppedValue = builder->CreateLoad(getListStoredElementType(listType), elementPtr);
     emitStoreListLength(listType, listHandle, newLength);
     return std::make_unique<Value>("", listType->getElementType(), poppedValue);
@@ -1442,6 +1458,15 @@ auto Codegen::mergeImportedTraitMetadata(Codegen const& imported) -> void {
   }
 }
 
+auto Codegen::mergeImportedSpecializationState(Codegen const& imported) -> void {
+  for (const auto& entry : imported.specializedClassTypeEnvs) {
+    specializedClassTypeEnvs.insert(entry);
+  }
+  for (const auto& entry : imported.specializationEnvs) {
+    specializationEnvs.insert(entry);
+  }
+}
+
 auto Codegen::findTraitRequirement(const TraitDecl* trait, const std::string& methodName) const
     -> const FuncDecl* {
   if (trait == nullptr) {
@@ -1487,8 +1512,8 @@ auto Codegen::emitErasedThunkForTraitMethod(lesma::Type* classType, const std::s
     }
   }
   if (methodSym == nullptr || methodSym->getLlvmValue() == nullptr) {
-    throw CodegenError(req->getSpan(), "Trait thunk: method {} not found for class {}", req->getName(),
-                       classType->getDisplayName());
+    throw CodegenError(req->getSpan(), "Trait thunk: method {} not found for class {}",
+                       req->getName(), classType->getDisplayName());
   }
   auto* realFn = llvm::cast<llvm::Function>(methodSym->getLlvmValue());
   llvm::FunctionType* rft = realFn->getFunctionType();
@@ -1568,8 +1593,9 @@ auto Codegen::getOrEmitWitnessTable(lesma::Type* classType, const std::string& t
   return gv;
 }
 
-auto Codegen::emitBoxClassToExistential(lesma::Type* existentialType, lesma::Type* classPtrLesmaType,
-                                        llvm::Value* classPtrVal) -> llvm::Value* {
+auto Codegen::emitBoxClassToExistential(lesma::Type* existentialType,
+                                        lesma::Type* classPtrLesmaType, llvm::Value* classPtrVal)
+    -> llvm::Value* {
   lesma::Type* cls = classPtrLesmaType;
   if (cls->is(BaseType::TY_PTR) && cls->getElementType() != nullptr &&
       cls->getElementType()->is(BaseType::TY_CLASS)) {
@@ -1594,7 +1620,7 @@ auto Codegen::callExistentialMethod(llvm::SMRange span, lesma::Value* receiver,
                                     const std::vector<lesma::Value*>& args,
                                     const std::vector<lesma::Type*>& explicitTypeArgs)
     -> std::unique_ptr<lesma::Value> {
-  (void)explicitTypeArgs;
+  (void) explicitTypeArgs;
   lesma::Type* receiverType = receiver->getType();
   llvm::Value* fatVal = receiver->getLlvmValue();
   if (receiverType->is(BaseType::TY_PTR) && receiverType->getElementType() != nullptr &&
@@ -1631,7 +1657,8 @@ auto Codegen::callExistentialMethod(llvm::SMRange span, lesma::Value* receiver,
   llvm::Value* tablePtr = builder->CreateExtractValue(fatVal, 1U);
   llvm::Type* ptrTy = builder->getPtrTy();
   llvm::ArrayType* arrTy = llvm::ArrayType::get(ptrTy, order.size());
-  llvm::Value* slot = builder->CreateInBoundsGEP(arrTy, tablePtr, {builder->getInt32(0), builder->getInt32(static_cast<unsigned>(idx))});
+  llvm::Value* slot = builder->CreateInBoundsGEP(
+      arrTy, tablePtr, {builder->getInt32(0), builder->getInt32(static_cast<unsigned>(idx))});
   llvm::Value* fnPtr = builder->CreateLoad(ptrTy, slot);
 
   llvm::SmallVector<llvm::Type*, 8> tparams;
@@ -1656,8 +1683,8 @@ auto Codegen::callExistentialMethod(llvm::SMRange span, lesma::Value* receiver,
   }
   if (llvmRet->isVoidTy()) {
     builder->CreateCall(callTy, fnPtr, callArgs);
-    return std::make_unique<Value>("", cacheType(std::make_unique<Type>(BaseType::TY_VOID, builder->getVoidTy())),
-                                   nullptr);
+    return std::make_unique<Value>(
+        "", cacheType(std::make_unique<Type>(BaseType::TY_VOID, builder->getVoidTy())), nullptr);
   }
   llvm::Value* ret = builder->CreateCall(callTy, fnPtr, callArgs);
   return std::make_unique<Value>("", retLesma, ret);
@@ -1697,12 +1724,14 @@ auto Codegen::bindGenericsFromTypePair(const TypeExpr* declared, lesma::Type* ac
             }
           }
           if (templateClass != nullptr) {
-            const std::vector<std::string> templateGenericParams = templateClass->getGenericParams();
+            const std::vector<std::string> templateGenericParams =
+                templateClass->getGenericParams();
             if (templateGenericParams.size() == declTypeArgs.size()) {
               for (size_t i = 0; i < declTypeArgs.size(); ++i) {
                 if (auto concreteIt = envIt->second.find(templateGenericParams[i]);
                     concreteIt != envIt->second.end() && concreteIt->second != nullptr) {
-                  bindGenericsFromTypePair(declTypeArgs[i], concreteIt->second, genericNameSet, env);
+                  bindGenericsFromTypePair(declTypeArgs[i], concreteIt->second, genericNameSet,
+                                           env);
                 }
               }
               return;
@@ -1715,9 +1744,11 @@ auto Codegen::bindGenericsFromTypePair(const TypeExpr* declared, lesma::Type* ac
       env[name] = actual;
       return;
     }
-    if (name == "__buffer" && actual->is(BaseType::TY_ARRAY) && actual->getElementType() != nullptr) {
+    if (name == "__buffer" && actual->is(BaseType::TY_ARRAY) &&
+        actual->getElementType() != nullptr) {
       if (declTypeArgs.size() == 1U) {
-        bindGenericsFromTypePair(declTypeArgs.front(), actual->getElementType(), genericNameSet, env);
+        bindGenericsFromTypePair(declTypeArgs.front(), actual->getElementType(), genericNameSet,
+                                 env);
       }
     }
     return;
@@ -1745,22 +1776,6 @@ auto Codegen::specializeFunction(const FuncDecl* node, const std::vector<lesma::
                                  const std::vector<std::string>& genericNames,
                                  const std::vector<lesma::Type*>& explicitTypeArgs)
     -> lesma::Value* {
-  for (auto* paramType : paramTypes) {
-    if (paramType != nullptr) {
-      getOrCreateLlvmType(paramType);
-    }
-  }
-  for (auto* explicitTypeArg : explicitTypeArgs) {
-    if (explicitTypeArg != nullptr) {
-      getOrCreateLlvmType(explicitTypeArg);
-    }
-  }
-  std::string key =
-      getMangledName(node->getSpan(), node->getName(), paramTypes, selfSymbol != nullptr);
-  if (auto it = specializedFunctions.find(key); it != specializedFunctions.end()) {
-    return it->second;
-  }
-
   auto saved = currentGenericTypes;
   std::unordered_map<std::string, lesma::Type*> env = saved;
   if (!explicitTypeArgs.empty()) {
@@ -1784,6 +1799,23 @@ auto Codegen::specializeFunction(const FuncDecl* node, const std::vector<lesma::
     }
   }
   currentGenericTypes = env;
+
+  for (auto* paramType : paramTypes) {
+    if (paramType != nullptr) {
+      getOrCreateLlvmType(paramType);
+    }
+  }
+  for (auto* explicitTypeArg : explicitTypeArgs) {
+    if (explicitTypeArg != nullptr) {
+      getOrCreateLlvmType(explicitTypeArg);
+    }
+  }
+  std::string key =
+      getMangledName(node->getSpan(), node->getName(), paramTypes, selfSymbol != nullptr);
+  if (auto it = specializedFunctions.find(key); it != specializedFunctions.end()) {
+    currentGenericTypes = std::move(saved);
+    return it->second;
+  }
 
   std::vector<std::unique_ptr<Field>> fields;
   std::vector<lesma::Type*> concreteParamTypes;
@@ -1835,16 +1867,6 @@ auto Codegen::specializeClass(const Class* node,
                               const std::vector<lesma::Type*>& constructorArgTypes,
                               const std::vector<lesma::Type*>& explicitTypeArgs) -> lesma::Value* {
   auto genericNames = node->getGenericParams();
-  for (auto* constructorArgType : constructorArgTypes) {
-    if (constructorArgType != nullptr) {
-      getOrCreateLlvmType(constructorArgType);
-    }
-  }
-  for (auto* explicitTypeArg : explicitTypeArgs) {
-    if (explicitTypeArg != nullptr) {
-      getOrCreateLlvmType(explicitTypeArg);
-    }
-  }
 
   const FuncDecl* constructorDecl = nullptr;
   for (auto* method : node->getMethods()) {
@@ -1897,6 +1919,17 @@ auto Codegen::specializeClass(const Class* node,
   auto saved = currentGenericTypes;
   auto* savedSelfSymbol = selfSymbol;
   currentGenericTypes = env;
+
+  for (auto* constructorArgType : constructorArgTypes) {
+    if (constructorArgType != nullptr) {
+      getOrCreateLlvmType(constructorArgType);
+    }
+  }
+  for (auto* explicitTypeArg : explicitTypeArgs) {
+    if (explicitTypeArg != nullptr) {
+      getOrCreateLlvmType(explicitTypeArg);
+    }
+  }
 
   std::string concreteName = (alias.empty() ? "" : alias + "_") + node->getIdentifier();
   for (const auto& gn : genericNames) {
@@ -1983,6 +2016,36 @@ auto Codegen::visit(const Compound* node) -> void {
   }
 }
 
+namespace {
+[[nodiscard]] auto typeContainsUnboundGeneric(lesma::Type* type) -> bool {
+  if (type == nullptr) {
+    return false;
+  }
+  if (type->is(BaseType::TY_GENERIC)) {
+    return true;
+  }
+  if (type->isOneOf({BaseType::TY_PTR, BaseType::TY_ARRAY})) {
+    return typeContainsUnboundGeneric(type->getElementType());
+  }
+  if (type->is(BaseType::TY_CLASS)) {
+    for (Field* f : type->getFields()) {
+      if (typeContainsUnboundGeneric(f->type)) {
+        return true;
+      }
+    }
+  }
+  if (type->is(BaseType::TY_FUNCTION)) {
+    for (Field* f : type->getFields()) {
+      if (typeContainsUnboundGeneric(f->type)) {
+        return true;
+      }
+    }
+    return typeContainsUnboundGeneric(type->getReturnType());
+  }
+  return false;
+}
+} // namespace
+
 auto Codegen::visit(const VarDecl* node) -> void {
   const std::string name = node->getIdentifier()->getValue();
   auto* existing = [&]() -> Value* {
@@ -2011,11 +2074,19 @@ auto Codegen::visit(const VarDecl* node) -> void {
         type = valueResult->getType()->getElementType();
       }
     }
+    if (valueResult != nullptr && valueResult->getType() != nullptr &&
+        typeContainsUnboundGeneric(type) && !typeContainsUnboundGeneric(valueResult->getType())) {
+      type = valueResult->getType();
+    }
     getOrCreateLlvmType(type);
     if (type->is(BaseType::TY_CLASS)) {
       lesma::Type* ptrType =
           cacheType(std::make_unique<Type>(BaseType::TY_PTR, builder->getPtrTy(), type));
       existing->setType(ptrType);
+    } else if (type->is(BaseType::TY_PTR) && type->getElementType() != nullptr &&
+               type->getElementType()->is(BaseType::TY_CLASS)) {
+      // Value was e.g. *list_iterator<int> while typecheck left *list_iterator<T> on the symbol.
+      existing->setType(type);
     }
     lesma::Type* storedType = existing->getType();
     const bool isPtrToClass = storedType->is(BaseType::TY_PTR) &&
@@ -2029,7 +2100,8 @@ auto Codegen::visit(const VarDecl* node) -> void {
     existing->setCategory(ValueCategory::ADDRESSABLE_STORAGE);
     existing->setMutable(node->getMutability());
     if (valueResult != nullptr) {
-      if (isPtrToClass && valueResult->getType() != nullptr && valueResult->getType()->is(BaseType::TY_PTR)) {
+      if (isPtrToClass && valueResult->getType() != nullptr &&
+          valueResult->getType()->is(BaseType::TY_PTR)) {
         builder->CreateStore(valueResult->getLlvmValue(), ptr);
       } else {
         lesma::Type* castTarget = isPtrToClass ? storedType->getElementType() : storedType;
@@ -2164,13 +2236,14 @@ auto Codegen::visit(const ForIn* node) -> void {
   std::unique_ptr<lesma::Value> iterable = std::move(result);
   lesma::Type* listType = iterable->getType();
   llvm::Value* listHandle = iterable->getLlvmValue();
-  if (listType != nullptr && listType->is(BaseType::TY_PTR) && listType->getElementType() != nullptr &&
-      listType->getElementType()->is(BaseType::TY_CLASS)) {
+  if (listType != nullptr && listType->is(BaseType::TY_PTR) &&
+      listType->getElementType() != nullptr && listType->getElementType()->is(BaseType::TY_CLASS)) {
     listType = listType->getElementType();
   }
   if (listType != nullptr && listType->is(BaseType::TY_CLASS)) {
     auto fields = listType->getFields();
-    if (!fields.empty() && fields.front()->type != nullptr && fields.front()->type->is(BaseType::TY_ARRAY)) {
+    if (!fields.empty() && fields.front()->type != nullptr &&
+        fields.front()->type->is(BaseType::TY_ARRAY)) {
       auto* storagePtr =
           builder->CreateStructGEP(cast<llvm::StructType>(getOrCreateLlvmType(listType)),
                                    iterable->getLlvmValue(), 0, "list.storage.ptr");
@@ -2180,7 +2253,8 @@ auto Codegen::visit(const ForIn* node) -> void {
     }
   }
   SymbolTable* savedScope = scope;
-  scope = node->getBodyScope() != nullptr ? node->getBodyScope() : savedScope->createChildBlock("for");
+  scope =
+      node->getBodyScope() != nullptr ? node->getBodyScope() : savedScope->createChildBlock("for");
   Value* loopVar = scope->lookup(node->getIdentifier()->getValue());
   if (loopVar == nullptr) {
     throw CodegenError(node->getSpan(), "Missing loop variable symbol for for-in");
@@ -2213,7 +2287,8 @@ auto Codegen::visit(const ForIn* node) -> void {
   llvm::BasicBlock* bEnd = llvm::BasicBlock::Create(theModule->getContext(), "for.end");
   std::unique_ptr<lesma::Value> iteratorValue;
   llvm::AllocaInst* indexPtr = nullptr;
-  if (listType == nullptr || !listType->is(BaseType::TY_ARRAY) || listType->getElementType() == nullptr) {
+  if (listType == nullptr || !listType->is(BaseType::TY_ARRAY) ||
+      listType->getElementType() == nullptr) {
     iteratorValue = callMethodByName(node->getSpan(), iterable.get(), "iter");
   } else {
     getOrCreateLlvmType(listType);
@@ -2225,7 +2300,8 @@ auto Codegen::visit(const ForIn* node) -> void {
   continueBlocks.push(bInc);
   builder->CreateBr(bCond);
 
-  if (listType != nullptr && listType->is(BaseType::TY_ARRAY) && listType->getElementType() != nullptr) {
+  if (listType != nullptr && listType->is(BaseType::TY_ARRAY) &&
+      listType->getElementType() != nullptr) {
     bCond->insertInto(parentFct);
     builder->SetInsertPoint(bCond);
     auto* idxVal = builder->CreateLoad(builder->getInt64Ty(), indexPtr);
@@ -2373,7 +2449,8 @@ auto Codegen::visit(const FuncDecl* node) -> void {
     };
     for (auto* candidate : scope->getSymbols()) {
       if (candidate == nullptr || candidate->getName() != node->getName() ||
-          !candidate->getType()->is(BaseType::TY_FUNCTION) || candidate->getLlvmValue() != nullptr) {
+          !candidate->getType()->is(BaseType::TY_FUNCTION) ||
+          candidate->getLlvmValue() != nullptr) {
         continue;
       }
       auto candidateFields = candidate->getType()->getFields();
@@ -2396,7 +2473,8 @@ auto Codegen::visit(const FuncDecl* node) -> void {
       }
     }
   }
-  if (!currentGenericTypes.empty() && (existingFunc == nullptr || existingFunc->getLlvmValue() == nullptr)) {
+  if (!currentGenericTypes.empty() &&
+      (existingFunc == nullptr || existingFunc->getLlvmValue() == nullptr)) {
     existingFunc = nullptr;
   }
   if (existingFunc != nullptr && existingFunc->getLlvmValue() != nullptr) {
@@ -2419,7 +2497,8 @@ auto Codegen::visit(const FuncDecl* node) -> void {
 
   llvm::Type* llvmReturnType =
       returnType->is(BaseType::TY_CLASS) ? builder->getPtrTy() : returnType->getLlvmType();
-  llvm::FunctionType* funcType = FunctionType::get(llvmReturnType, paramLLVMTypes, node->getVarArgs());
+  llvm::FunctionType* funcType =
+      FunctionType::get(llvmReturnType, paramLLVMTypes, node->getVarArgs());
   Function* f = Function::Create(funcType, linkage, mangledName, *theModule);
   auto loweredType = std::make_unique<Type>(BaseType::TY_FUNCTION, funcType, std::move(fields));
   loweredType->setReturnType(returnType);
@@ -2562,14 +2641,14 @@ auto Codegen::visit(const Assignment* node) -> void {
           assignOp == TokenType::MOD_EQUAL) {
         subscript->getIndex()->accept(*this);
         auto indexValue = std::move(result);
-        result = callMethodByName(node->getSpan(), baseValue.get(),
-                                  std::string{OperatorUtils::SUBSCRIPT_GET_NAME},
-                                  {indexValue.get()});
+        result =
+            callMethodByName(node->getSpan(), baseValue.get(),
+                             std::string{OperatorUtils::SUBSCRIPT_GET_NAME}, {indexValue.get()});
         auto currentElem = std::move(result);
         node->getRightHandSide()->accept(*this);
         auto rhsValue = std::move(result);
-        auto newValue =
-            emitCompoundSubscriptNewValue(node->getSpan(), assignOp, currentElem.get(), rhsValue.get());
+        auto newValue = emitCompoundSubscriptNewValue(node->getSpan(), assignOp, currentElem.get(),
+                                                      rhsValue.get());
         result = callMethodByName(node->getSpan(), baseValue.get(),
                                   std::string{OperatorUtils::SUBSCRIPT_SET_NAME},
                                   {indexValue.get(), newValue.get()});
@@ -2680,13 +2759,14 @@ auto Codegen::visit(const Return* node) -> void {
     getOrCreateLlvmType(result->getType());
     lesma::Type* actualType = result->getType();
     lesma::Type* declaredReturnType = currentFunction->getType()->getReturnType();
-    if (actualType != nullptr && actualType->is(BaseType::TY_PTR) && actualType->getElementType() != nullptr &&
+    if (actualType != nullptr && actualType->is(BaseType::TY_PTR) &&
+        actualType->getElementType() != nullptr &&
         actualType->getElementType()->is(BaseType::TY_CLASS)) {
       actualType = actualType->getElementType();
     }
-    llvm::Type* actualReturnType =
-        actualType != nullptr && actualType->is(BaseType::TY_CLASS) ? builder->getPtrTy()
-                                                                    : result->getType()->getLlvmType();
+    llvm::Type* actualReturnType = actualType != nullptr && actualType->is(BaseType::TY_CLASS)
+                                       ? builder->getPtrTy()
+                                       : result->getType()->getLlvmType();
     llvm::Type* expectedReturnType =
         declaredReturnType != nullptr && declaredReturnType->is(BaseType::TY_CLASS)
             ? builder->getPtrTy()
@@ -3160,7 +3240,8 @@ auto Codegen::visit(const BinaryOp* node) -> void {
 
   if (auto operatorName = OperatorUtils::getBinaryOperatorName(node->getOperator());
       operatorName.has_value()) {
-    result = callMethodByName(node->getSpan(), left.get(), std::string{*operatorName}, {right.get()});
+    result =
+        callMethodByName(node->getSpan(), left.get(), std::string{*operatorName}, {right.get()});
     return;
   }
 
@@ -3174,21 +3255,20 @@ auto Codegen::visit(const SubscriptOp* node) -> void {
   auto listValue = std::move(result);
   node->getIndex()->accept(*this);
   auto indexValue = std::move(result);
-  if (listValue != nullptr && listValue->getType() != nullptr && listValue->getType()->is(BaseType::TY_ARRAY)) {
+  if (listValue != nullptr && listValue->getType() != nullptr &&
+      listValue->getType()->is(BaseType::TY_ARRAY)) {
     if (isAssignment) {
       throw CodegenError(node->getSpan(), "Operator [] assignment requires operator []=");
     }
-    result =
-        callMethodByName(node->getSpan(), listValue.get(), std::string{OperatorUtils::SUBSCRIPT_GET_NAME},
-                         {indexValue.get()});
+    result = callMethodByName(node->getSpan(), listValue.get(),
+                              std::string{OperatorUtils::SUBSCRIPT_GET_NAME}, {indexValue.get()});
     return;
   }
   if (isAssignment) {
     throw CodegenError(node->getSpan(), "Operator [] assignment requires operator []=");
   }
-  result =
-      callMethodByName(node->getSpan(), listValue.get(), std::string{OperatorUtils::SUBSCRIPT_GET_NAME},
-                       {indexValue.get()});
+  result = callMethodByName(node->getSpan(), listValue.get(),
+                            std::string{OperatorUtils::SUBSCRIPT_GET_NAME}, {indexValue.get()});
 }
 
 auto Codegen::visit(const DotOp* node) -> void {
@@ -3212,7 +3292,8 @@ auto Codegen::visit(const DotOp* node) -> void {
       explicitTypeArg->accept(*this);
       explicitTypeArgs.push_back(result->getType());
     }
-    result = callMethodByName(node->getSpan(), leftValue.get(), call->getName(), args, explicitTypeArgs);
+    result =
+        callMethodByName(node->getSpan(), leftValue.get(), call->getName(), args, explicitTypeArgs);
     return;
   }
 
@@ -3238,7 +3319,8 @@ auto Codegen::visit(const DotOp* node) -> void {
         explicitTypeArg->accept(*this);
         explicitTypeArgs.push_back(result->getType());
       }
-      result = callMethodByName(node->getSpan(), leftValue.get(), call->getName(), args, explicitTypeArgs);
+      result = callMethodByName(node->getSpan(), leftValue.get(), call->getName(), args,
+                                explicitTypeArgs);
       return;
     }
   }
@@ -3283,11 +3365,12 @@ auto Codegen::visit(const DotOp* node) -> void {
                              receiverType->getLlvmType()->getStructName().str());
         }
 
-        auto* ptr =
-            builder->CreateStructGEP(cls->getType()->getLlvmType(), leftValue->getLlvmValue(), index);
+        auto* ptr = builder->CreateStructGEP(cls->getType()->getLlvmType(),
+                                             leftValue->getLlvmValue(), index);
         if (isAssignment) {
           result = std::make_unique<Value>(
-              "", cacheType(std::make_unique<Type>(BaseType::TY_PTR, builder->getPtrTy(), type)), ptr);
+              "", cacheType(std::make_unique<Type>(BaseType::TY_PTR, builder->getPtrTy(), type)),
+              ptr);
           return;
         }
         result = std::make_unique<Value>("", type, builder->CreateLoad(type->getLlvmType(), ptr));
@@ -3463,8 +3546,8 @@ auto Codegen::visit(const DotOp* node) -> void {
             explicitTypeArg->accept(*this);
             explicitTypeArgs.push_back(result->getType());
           }
-          result =
-              callMethodByName(node->getSpan(), receiverValue.get(), method->getName(), args, explicitTypeArgs);
+          result = callMethodByName(node->getSpan(), receiverValue.get(), method->getName(), args,
+                                    explicitTypeArgs);
           return;
         }
       } else {
@@ -3490,11 +3573,12 @@ auto Codegen::visit(const IsOp* node) -> void {
   auto* leftType = result->getType();
   node->getRight()->accept(*this);
   auto* rightType = result->getType();
-  if (leftType != nullptr && leftType->is(BaseType::TY_PTR) && leftType->getElementType() != nullptr &&
-      leftType->getElementType()->is(BaseType::TY_CLASS)) {
+  if (leftType != nullptr && leftType->is(BaseType::TY_PTR) &&
+      leftType->getElementType() != nullptr && leftType->getElementType()->is(BaseType::TY_CLASS)) {
     leftType = leftType->getElementType();
   }
-  if (rightType != nullptr && rightType->is(BaseType::TY_PTR) && rightType->getElementType() != nullptr &&
+  if (rightType != nullptr && rightType->is(BaseType::TY_PTR) &&
+      rightType->getElementType() != nullptr &&
       rightType->getElementType()->is(BaseType::TY_CLASS)) {
     rightType = rightType->getElementType();
   }
@@ -3531,16 +3615,18 @@ auto Codegen::visit(const UnaryOp* node) -> void {
     } else if (operand->getType()->is(BaseType::TY_FLOAT)) {
       val = builder->CreateFNeg(operand->getLlvmValue());
     } else {
-      result = callMethodByName(node->getSpan(), operand.get(),
-                                std::string{*OperatorUtils::getUnaryOperatorName(node->getOperator())});
+      result =
+          callMethodByName(node->getSpan(), operand.get(),
+                           std::string{*OperatorUtils::getUnaryOperatorName(node->getOperator())});
       return;
     }
   } else if (node->getOperator() == TokenType::NOT || node->getOperator() == TokenType::BANG) {
     if (operand->getType()->is(BaseType::TY_BOOL)) {
       val = builder->CreateNot(operand->getLlvmValue());
     } else {
-      result = callMethodByName(node->getSpan(), operand.get(),
-                                std::string{*OperatorUtils::getUnaryOperatorName(node->getOperator())});
+      result =
+          callMethodByName(node->getSpan(), operand.get(),
+                           std::string{*OperatorUtils::getUnaryOperatorName(node->getOperator())});
       return;
     }
   } else if (node->getOperator() == TokenType::STAR) {
@@ -3578,7 +3664,8 @@ auto Codegen::visit(const ListLiteral* node) -> void {
   lesma::Type* listType = node->getResolvedType();
   if (listType != nullptr && listType->is(BaseType::TY_CLASS)) {
     auto fields = listType->getFields();
-    if (fields.empty() || fields.front()->type == nullptr || !fields.front()->type->is(BaseType::TY_ARRAY) ||
+    if (fields.empty() || fields.front()->type == nullptr ||
+        !fields.front()->type->is(BaseType::TY_ARRAY) ||
         fields.front()->type->getElementType() == nullptr) {
       throw CodegenError(node->getSpan(), "List literal resolved to invalid stdlib list class");
     }
@@ -3590,23 +3677,24 @@ auto Codegen::visit(const ListLiteral* node) -> void {
     auto* storagePtr = builder->CreateStructGEP(structType, classHandle, 0, "list.storage.ptr");
 
     auto* listStructTy = getOrCreateListStructType(bufferType);
-    auto* headerSize =
-        builder->getInt64(theModule->getDataLayout().getTypeAllocSize(listStructTy).getFixedValue());
+    auto* headerSize = builder->getInt64(
+        theModule->getDataLayout().getTypeAllocSize(listStructTy).getFixedValue());
     auto* bufferHandle = emitMalloc(headerSize, "list.header");
     llvm::Value* dataPtr = llvm::ConstantPointerNull::get(builder->getPtrTy());
     auto elements = node->getElements();
     if (!elements.empty()) {
       auto* elementLlvmType = getListStoredElementType(bufferType);
       auto* byteSize = builder->getInt64(
-          theModule->getDataLayout().getTypeAllocSize(elementLlvmType).getFixedValue() * elements.size());
+          theModule->getDataLayout().getTypeAllocSize(elementLlvmType).getFixedValue() *
+          elements.size());
       dataPtr = emitMalloc(byteSize, "list.data");
       for (size_t i = 0; i < elements.size(); ++i) {
         elements[i]->accept(*this);
         auto* elementPtr =
             builder->CreateGEP(elementLlvmType, dataPtr, builder->getInt64(i), "list.elem.ptr");
-        builder->CreateStore(getListStoredElementValue(node->getSpan(), result.get(),
-                                                       bufferType->getElementType()),
-                             elementPtr);
+        builder->CreateStore(
+            getListStoredElementValue(node->getSpan(), result.get(), bufferType->getElementType()),
+            elementPtr);
       }
     }
     auto* count = builder->getInt64(elements.size());
@@ -3642,8 +3730,8 @@ auto Codegen::visit(const ListLiteral* node) -> void {
       elements[i]->accept(*this);
       auto* elementPtr =
           builder->CreateGEP(elementLlvmType, dataPtr, builder->getInt64(i), "list.elem.ptr");
-      builder->CreateStore(getListStoredElementValue(elements[i]->getSpan(), result.get(), elementType),
-                           elementPtr);
+      builder->CreateStore(
+          getListStoredElementValue(elements[i]->getSpan(), result.get(), elementType), elementPtr);
     }
   }
 
@@ -3740,10 +3828,11 @@ auto Codegen::getMangledName(llvm::SMRange span, std::string funcName,
 }
 
 auto Codegen::emitCompoundAssignArithmetic(llvm::SMRange span, TokenType compoundOp,
-                                            lesma::Value* loaded, lesma::Value* rhs)
+                                           lesma::Value* loaded, lesma::Value* rhs)
     -> std::unique_ptr<lesma::Value> {
   lesma::Type* targetType = loaded->getType();
-  if (targetType == nullptr || (!targetType->is(BaseType::TY_FLOAT) && !targetType->is(BaseType::TY_INT))) {
+  if (targetType == nullptr ||
+      (!targetType->is(BaseType::TY_FLOAT) && !targetType->is(BaseType::TY_INT))) {
     throw CodegenError(span, "Invalid operator: {}", NAMEOF_ENUM(compoundOp));
   }
   const bool isFloat = targetType->is(BaseType::TY_FLOAT);
@@ -3827,7 +3916,8 @@ auto Codegen::emitCompoundAssign(llvm::SMRange span, TokenType op, lesma::Value*
       targetType->getElementType() != nullptr) {
     targetType = targetType->getElementType();
   }
-  if (targetType == nullptr || (!targetType->is(BaseType::TY_FLOAT) && !targetType->is(BaseType::TY_INT))) {
+  if (targetType == nullptr ||
+      (!targetType->is(BaseType::TY_FLOAT) && !targetType->is(BaseType::TY_INT))) {
     throw CodegenError(span, "Invalid operator: {}", NAMEOF_ENUM(op));
   }
   auto* varVal = builder->CreateLoad(targetType->getLlvmType(), lhs->getLlvmValue());
@@ -3898,11 +3988,12 @@ auto Codegen::callNamedFunction(llvm::SMRange span, const std::string& functionN
 
   if (classSym != nullptr && classSym->getType()->is(BaseType::TY_CLASS)) {
     auto* classLlvmType = getOrCreateLlvmType(classSym->getType());
-    auto* classSize =
-        builder->getInt64(theModule->getDataLayout().getTypeAllocSize(classLlvmType).getFixedValue());
+    auto* classSize = builder->getInt64(
+        theModule->getDataLayout().getTypeAllocSize(classLlvmType).getFixedValue());
     classPtr = emitMalloc(classSize, functionName + ".obj");
     localParamsLLVM.insert(localParamsLLVM.begin(), classPtr);
-    selfParamType = std::make_unique<Type>(BaseType::TY_PTR, builder->getPtrTy(), classSym->getType());
+    selfParamType =
+        std::make_unique<Type>(BaseType::TY_PTR, builder->getPtrTy(), classSym->getType());
     localParamTypes.insert(localParamTypes.begin(), selfParamType.get());
 
     selfSymbol = classSym;
@@ -3925,7 +4016,8 @@ auto Codegen::callNamedFunction(llvm::SMRange span, const std::string& functionN
         break;
       }
       if (candidate == nullptr || candidate->getName() != functionName ||
-          !candidate->getType()->is(BaseType::TY_FUNCTION) || candidate->getLlvmValue() == nullptr) {
+          !candidate->getType()->is(BaseType::TY_FUNCTION) ||
+          candidate->getLlvmValue() == nullptr) {
         continue;
       }
       auto candidateFields = candidate->getType()->getFields();
@@ -3963,8 +4055,10 @@ auto Codegen::callNamedFunction(llvm::SMRange span, const std::string& functionN
                        classSym != nullptr ? "Constructor for" : "Function", functionName);
   }
   if (symbol->getLlvmValue() == nullptr) {
-    auto directMangledName = getMangledName(span, functionName, localParamTypes, selfSymbol != nullptr);
-    if (auto* directFunction = theModule->getFunction(directMangledName); directFunction != nullptr) {
+    auto directMangledName =
+        getMangledName(span, functionName, localParamTypes, selfSymbol != nullptr);
+    if (auto* directFunction = theModule->getFunction(directMangledName);
+        directFunction != nullptr) {
       symbol->setLlvmValue(directFunction);
     }
   }
@@ -3993,7 +4087,8 @@ auto Codegen::callNamedFunction(llvm::SMRange span, const std::string& functionN
     }
   }
 
-  if (symbol != nullptr && symbol->getType() != nullptr && symbol->getType()->is(BaseType::TY_FUNCTION)) {
+  if (symbol != nullptr && symbol->getType() != nullptr &&
+      symbol->getType()->is(BaseType::TY_FUNCTION)) {
     auto ff = symbol->getType()->getFields();
     for (size_t i = 0; i < localParamsLLVM.size() && i < ff.size(); ++i) {
       lesma::Type* formal = ff[i]->type;
@@ -4022,9 +4117,9 @@ auto Codegen::callNamedFunction(llvm::SMRange span, const std::string& functionN
     for (size_t i = localParamsLLVM.size(); i < fields.size(); ++i) {
       auto* field = fields[i];
       if (field->defaultValue == nullptr) {
-        throw CodegenError(span,
-                           "Something bad happened, lookup found a function with incorrect defaults",
-                           functionName);
+        throw CodegenError(
+            span, "Something bad happened, lookup found a function with incorrect defaults",
+            functionName);
       }
       localParamsLLVM.push_back(field->defaultValue->getLlvmValue());
     }
@@ -4032,7 +4127,8 @@ auto Codegen::callNamedFunction(llvm::SMRange span, const std::string& functionN
 
   llvm::Value* callableValue = nullptr;
   if (symbol->getType()->is(BaseType::TY_CLASS)) {
-    if (symbol->getConstructor() == nullptr || symbol->getConstructor()->getLlvmValue() == nullptr) {
+    if (symbol->getConstructor() == nullptr ||
+        symbol->getConstructor()->getLlvmValue() == nullptr) {
       throw CodegenError(span, "Constructor for {} is declared but not defined", functionName);
     }
     callableValue = symbol->getConstructor()->getLlvmValue();
@@ -4073,12 +4169,15 @@ auto Codegen::callListMethodByName(llvm::SMRange span, lesma::Value* receiver,
     }
     if (receiverType->is(BaseType::TY_CLASS)) {
       auto fields = receiverType->getFields();
-      if (!fields.empty() && fields.front()->type != nullptr && fields.front()->type->is(BaseType::TY_ARRAY)) {
+      if (!fields.empty() && fields.front()->type != nullptr &&
+          fields.front()->type->is(BaseType::TY_ARRAY)) {
         listClassType = receiverType;
         bufferType = fields.front()->type;
-        auto* storagePtr = builder->CreateStructGEP(cast<llvm::StructType>(getOrCreateLlvmType(listClassType)),
-                                                    receiver->getLlvmValue(), 0, "list.storage.ptr");
-        bufferHandle = builder->CreateLoad(getOrCreateLlvmType(bufferType), storagePtr, "list.storage");
+        auto* storagePtr =
+            builder->CreateStructGEP(cast<llvm::StructType>(getOrCreateLlvmType(listClassType)),
+                                     receiver->getLlvmValue(), 0, "list.storage.ptr");
+        bufferHandle =
+            builder->CreateLoad(getOrCreateLlvmType(bufferType), storagePtr, "list.storage");
       }
     }
   }
@@ -4094,21 +4193,23 @@ auto Codegen::callListMethodByName(llvm::SMRange span, lesma::Value* receiver,
   if (methodName == "clear") {
     auto* currentData = emitListDataPtr(bufferType, bufferHandle);
     llvm::Function* parentFunction = builder->GetInsertBlock()->getParent();
-    auto* freeBlock = llvm::BasicBlock::Create(theModule->getContext(), "list.clear.free", parentFunction);
-    auto* doneBlock = llvm::BasicBlock::Create(theModule->getContext(), "list.clear.done", parentFunction);
+    auto* freeBlock =
+        llvm::BasicBlock::Create(theModule->getContext(), "list.clear.free", parentFunction);
+    auto* doneBlock =
+        llvm::BasicBlock::Create(theModule->getContext(), "list.clear.done", parentFunction);
     builder->CreateCondBr(
-        builder->CreateICmpNE(currentData, llvm::ConstantPointerNull::get(builder->getPtrTy())), freeBlock,
-        doneBlock);
+        builder->CreateICmpNE(currentData, llvm::ConstantPointerNull::get(builder->getPtrTy())),
+        freeBlock, doneBlock);
     builder->SetInsertPoint(freeBlock);
     emitFree(currentData);
     builder->CreateBr(doneBlock);
     builder->SetInsertPoint(doneBlock);
-    emitStoreListDataPtr(bufferType, bufferHandle, llvm::ConstantPointerNull::get(builder->getPtrTy()));
+    emitStoreListDataPtr(bufferType, bufferHandle,
+                         llvm::ConstantPointerNull::get(builder->getPtrTy()));
     emitStoreListLength(bufferType, bufferHandle, builder->getInt64(0));
     emitStoreListCapacity(bufferType, bufferHandle, builder->getInt64(0));
-    return std::make_unique<Value>("",
-                                   cacheType(std::make_unique<Type>(BaseType::TY_VOID, builder->getVoidTy())),
-                                   nullptr);
+    return std::make_unique<Value>(
+        "", cacheType(std::make_unique<Type>(BaseType::TY_VOID, builder->getVoidTy())), nullptr);
   }
   if (methodName == "push") {
     if (args.size() != 1U) {
@@ -4118,21 +4219,22 @@ auto Codegen::callListMethodByName(llvm::SMRange span, lesma::Value* receiver,
     auto* nextLength = builder->CreateAdd(length, builder->getInt64(1));
     emitListEnsureCapacity(bufferType, bufferHandle, nextLength);
     auto* elementPtr =
-        builder->CreateGEP(getListStoredElementType(bufferType), emitListDataPtr(bufferType, bufferHandle),
-                           length, "list.push.ptr");
-    builder->CreateStore(getListStoredElementValue(span, args[0], bufferType->getElementType()), elementPtr);
+        builder->CreateGEP(getListStoredElementType(bufferType),
+                           emitListDataPtr(bufferType, bufferHandle), length, "list.push.ptr");
+    builder->CreateStore(getListStoredElementValue(span, args[0], bufferType->getElementType()),
+                         elementPtr);
     emitStoreListLength(bufferType, bufferHandle, nextLength);
-    return std::make_unique<Value>("",
-                                   cacheType(std::make_unique<Type>(BaseType::TY_VOID, builder->getVoidTy())),
-                                   nullptr);
+    return std::make_unique<Value>(
+        "", cacheType(std::make_unique<Type>(BaseType::TY_VOID, builder->getVoidTy())), nullptr);
   }
   if (methodName == "pop") {
     auto* length = emitListLength(bufferType, bufferHandle);
-    emitListBoundsCheck(span, bufferType, bufferHandle, builder->CreateSub(length, builder->getInt64(1)));
+    emitListBoundsCheck(span, bufferType, bufferHandle,
+                        builder->CreateSub(length, builder->getInt64(1)));
     auto* newLength = builder->CreateSub(length, builder->getInt64(1), "list.pop.len");
-    auto* elementPtr = builder->CreateGEP(getListStoredElementType(bufferType),
-                                          emitListDataPtr(bufferType, bufferHandle), newLength,
-                                          "list.pop.ptr");
+    auto* elementPtr =
+        builder->CreateGEP(getListStoredElementType(bufferType),
+                           emitListDataPtr(bufferType, bufferHandle), newLength, "list.pop.ptr");
     auto* poppedValue = builder->CreateLoad(getListStoredElementType(bufferType), elementPtr);
     emitStoreListLength(bufferType, bufferHandle, newLength);
     return std::make_unique<Value>("", bufferType->getElementType(), poppedValue);
@@ -4143,11 +4245,11 @@ auto Codegen::callListMethodByName(llvm::SMRange span, lesma::Value* receiver,
       return std::make_unique<Value>("", bufferType, copiedBuffer);
     }
     auto* classLlvmType = getOrCreateLlvmType(listClassType);
-    auto* classSize =
-        builder->getInt64(theModule->getDataLayout().getTypeAllocSize(classLlvmType).getFixedValue());
+    auto* classSize = builder->getInt64(
+        theModule->getDataLayout().getTypeAllocSize(classLlvmType).getFixedValue());
     auto* classHandle = emitMalloc(classSize, "list.copy.obj");
-    auto* storagePtr =
-        builder->CreateStructGEP(cast<llvm::StructType>(classLlvmType), classHandle, 0, "list.copy.storage.ptr");
+    auto* storagePtr = builder->CreateStructGEP(cast<llvm::StructType>(classLlvmType), classHandle,
+                                                0, "list.copy.storage.ptr");
     builder->CreateStore(copiedBuffer, storagePtr);
     return std::make_unique<Value>("", listClassType, classHandle);
   }
@@ -4155,25 +4257,29 @@ auto Codegen::callListMethodByName(llvm::SMRange span, lesma::Value* receiver,
     if (args.size() != 1U) {
       throw CodegenError(span, "operator [] expects one argument");
     }
-    auto* elementPtr = emitListElementPointer(span, bufferType, bufferHandle, args[0]->getLlvmValue());
-    return std::make_unique<Value>("", bufferType->getElementType(),
-                                   builder->CreateLoad(getListStoredElementType(bufferType), elementPtr));
+    auto* elementPtr =
+        emitListElementPointer(span, bufferType, bufferHandle, args[0]->getLlvmValue());
+    return std::make_unique<Value>(
+        "", bufferType->getElementType(),
+        builder->CreateLoad(getListStoredElementType(bufferType), elementPtr));
   }
   if (methodName == std::string{OperatorUtils::SUBSCRIPT_SET_NAME}) {
     if (args.size() != 2U) {
       throw CodegenError(span, "operator []= expects two arguments");
     }
-    auto* elementPtr = emitListElementPointer(span, bufferType, bufferHandle, args[0]->getLlvmValue());
-    builder->CreateStore(getListStoredElementValue(span, args[1], bufferType->getElementType()), elementPtr);
-    return std::make_unique<Value>("",
-                                   cacheType(std::make_unique<Type>(BaseType::TY_VOID, builder->getVoidTy())),
-                                   nullptr);
+    auto* elementPtr =
+        emitListElementPointer(span, bufferType, bufferHandle, args[0]->getLlvmValue());
+    builder->CreateStore(getListStoredElementValue(span, args[1], bufferType->getElementType()),
+                         elementPtr);
+    return std::make_unique<Value>(
+        "", cacheType(std::make_unique<Type>(BaseType::TY_VOID, builder->getVoidTy())), nullptr);
   }
 
   throw CodegenError(span, "Function {} not in current scope.", methodName);
 }
 
-auto Codegen::callMethodByName(llvm::SMRange span, lesma::Value* receiver, const std::string& methodName,
+auto Codegen::callMethodByName(llvm::SMRange span, lesma::Value* receiver,
+                               const std::string& methodName,
                                const std::vector<lesma::Value*>& args,
                                const std::vector<lesma::Type*>& explicitTypeArgs)
     -> std::unique_ptr<lesma::Value> {
@@ -4190,8 +4296,11 @@ auto Codegen::callMethodByName(llvm::SMRange span, lesma::Value* receiver, const
   }
   if (receiverType->is(BaseType::TY_CLASS)) {
     auto fields = receiverType->getFields();
-    if (!fields.empty() && fields.front()->type != nullptr && fields.front()->type->is(BaseType::TY_ARRAY)) {
-      return callListMethodByName(span, receiver, methodName, args, explicitTypeArgs);
+    if (!fields.empty() && fields.front()->type != nullptr &&
+        fields.front()->type->is(BaseType::TY_ARRAY)) {
+      if (isBuiltinListBuiltinMethodName(methodName)) {
+        return callListMethodByName(span, receiver, methodName, args, explicitTypeArgs);
+      }
     }
   }
   if (!receiverType->is(BaseType::TY_CLASS)) {
@@ -4225,18 +4334,47 @@ auto Codegen::callMethodByName(llvm::SMRange span, lesma::Value* receiver, const
     }
   }
   if (directMethod != nullptr && directMethod->getLlvmValue() != nullptr) {
-    std::vector<llvm::Value*> finalParams;
-    auto fields = directMethod->getType()->getFields();
-    finalParams.reserve(paramsLLVM.size());
-    for (size_t i = 0; i < paramsLLVM.size(); ++i) {
-      auto paramVal = std::make_unique<Value>("", paramTypes[i], paramsLLVM[i]);
-      auto castVal = cast(span, paramVal.get(), fields[i]->type);
-      finalParams.push_back(castVal->getLlvmValue());
+    // Method symbols may retain template types with TY_GENERIC; call sites are not inside
+    // defineFunction(), so currentGenericTypes is empty. Restore the specialization env so
+    // getOrCreateLlvmType (e.g. on return types) can resolve T.
+    auto savedGenerics = currentGenericTypes;
+    if (auto genIt = specializationEnvs.find(directMethod); genIt != specializationEnvs.end()) {
+      currentGenericTypes = genIt->second;
+    } else if (auto clsEnvIt = specializedClassTypeEnvs.find(receiverType);
+               clsEnvIt != specializedClassTypeEnvs.end()) {
+      currentGenericTypes = clsEnvIt->second;
+    } else {
+      // Keys are Type* from specializeClass; the receiver may reference a distinct but equal Type
+      // from the type cache (same class, different pointer).
+      for (const auto& entry : specializedClassTypeEnvs) {
+        if (entry.first != nullptr && entry.first->isEqual(receiverType)) {
+          currentGenericTypes = entry.second;
+          break;
+        }
+      }
     }
-    selfSymbol = savedSelfSymbol;
-    return std::make_unique<Value>("", directMethod->getType()->getReturnType(),
-                                   builder->CreateCall(llvm::cast<Function>(directMethod->getLlvmValue()),
-                                                       finalParams));
+    try {
+      std::vector<llvm::Value*> finalParams;
+      auto fields = directMethod->getType()->getFields();
+      finalParams.reserve(paramsLLVM.size());
+      for (size_t i = 0; i < paramsLLVM.size(); ++i) {
+        auto paramVal = std::make_unique<Value>("", paramTypes[i], paramsLLVM[i]);
+        auto castVal = cast(span, paramVal.get(), fields[i]->type);
+        finalParams.push_back(castVal->getLlvmValue());
+      }
+      lesma::Type* returnTy = directMethod->getType()->getReturnType();
+      if (returnTy != nullptr) {
+        getOrCreateLlvmType(returnTy);
+      }
+      selfSymbol = savedSelfSymbol;
+      auto* callResult =
+          builder->CreateCall(llvm::cast<Function>(directMethod->getLlvmValue()), finalParams);
+      currentGenericTypes = std::move(savedGenerics);
+      return std::make_unique<Value>("", returnTy, callResult);
+    } catch (...) {
+      currentGenericTypes = std::move(savedGenerics);
+      throw;
+    }
   }
   selfSymbol = cls;
   auto resultValue = callNamedFunction(span, methodName, paramTypes, paramsLLVM, explicitTypeArgs);
@@ -4267,5 +4405,6 @@ auto Codegen::genFuncCall(const FuncCall* node, const std::vector<lesma::Value*>
   if (isListIntrinsicName(node->getName())) {
     return genListIntrinsicCall(node, paramTypes, paramsLLVM);
   }
-  return callNamedFunction(node->getSpan(), node->getName(), paramTypes, paramsLLVM, explicitTypeArgs);
+  return callNamedFunction(node->getSpan(), node->getName(), paramTypes, paramsLLVM,
+                           explicitTypeArgs);
 }

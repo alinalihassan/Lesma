@@ -1,0 +1,8 @@
+# std list: iter() returns list_iterator<T> which implements Iterable<T> (implicit std)
+var xs = list<int>()
+xs.push(3)
+var it = xs.iter()
+if not it.has_next()
+    exit(1)
+if it.next() != 3
+    exit(1)
