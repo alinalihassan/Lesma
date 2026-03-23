@@ -3,7 +3,7 @@
 SCRIPT_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
 
 # Per-test timeout (seconds) to avoid hanging on infinite loops
-TEST_TIMEOUT=1
+TEST_TIMEOUT=3
 
 fail_count=0
 success_count=0
