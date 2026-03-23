@@ -181,7 +181,8 @@ auto Typechecker::resolveMethodReturnType(Type* baseType, const std::string& met
   }
 
   Type* receiverForLookup = base;
-  if (auto templateIt = specializedTypeToTemplate.find(base); templateIt != specializedTypeToTemplate.end()) {
+  if (auto templateIt = specializedTypeToTemplate.find(base);
+      templateIt != specializedTypeToTemplate.end()) {
     receiverForLookup = templateIt->second;
   }
   Type* selfType =
@@ -191,14 +192,16 @@ auto Typechecker::resolveMethodReturnType(Type* baseType, const std::string& met
   std::vector<Type*> methodArgTypes = {selfType};
   for (Type* argType : argTypes) {
     if (argType != nullptr && argType->is(BaseType::TY_CLASS)) {
-      methodArgTypes.push_back(cacheType(std::make_unique<Type>(BaseType::TY_PTR, nullptr, argType)));
+      methodArgTypes.push_back(
+          cacheType(std::make_unique<Type>(BaseType::TY_PTR, nullptr, argType)));
     } else {
       methodArgTypes.push_back(argType);
     }
   }
 
   std::unordered_map<std::string, Type*> methodTypeEnv;
-  if (auto specializedIt = specializedTypeEnv.find(base); specializedIt != specializedTypeEnv.end()) {
+  if (auto specializedIt = specializedTypeEnv.find(base);
+      specializedIt != specializedTypeEnv.end()) {
     methodTypeEnv = specializedIt->second;
   }
 
@@ -318,8 +321,8 @@ auto Typechecker::visitListIntrinsicCall(const FuncCall* node, const std::vector
     result = std::make_unique<Value>(bufferType);
     return true;
   }
-  if (argTypes.empty() || argTypes.front() == nullptr || !argTypes.front()->is(BaseType::TY_ARRAY) ||
-      argTypes.front()->getElementType() == nullptr) {
+  if (argTypes.empty() || argTypes.front() == nullptr ||
+      !argTypes.front()->is(BaseType::TY_ARRAY) || argTypes.front()->getElementType() == nullptr) {
     throw TypeCheckError(node->getSpan(), "{} requires __buffer<T> as first argument",
                          node->getName());
   }
@@ -392,7 +395,8 @@ auto Typechecker::visitListIntrinsicCall(const FuncCall* node, const std::vector
   return false;
 }
 
-auto Typechecker::visitListMethodCall(Type* listType, const DotOp* node, const FuncCall* call) -> bool {
+auto Typechecker::visitListMethodCall(Type* listType, const DotOp* node, const FuncCall* call)
+    -> bool {
   if (listType == nullptr || !listType->is(BaseType::TY_ARRAY) || call == nullptr) {
     return false;
   }
@@ -413,8 +417,8 @@ auto Typechecker::visitListMethodCall(Type* listType, const DotOp* node, const F
   const auto listModulePath =
       std::filesystem::absolute(std::filesystem::path(getStdDir()) / "list.les").lexically_normal();
   SymbolTable* importedScope = getOrTypecheckImport(listModulePath.string());
-  Value* callee = importedScope != nullptr ? importedScope->lookupFunction(call->getName(), argTypes)
-                                           : nullptr;
+  Value* callee =
+      importedScope != nullptr ? importedScope->lookupFunction(call->getName(), argTypes) : nullptr;
   if (callee == nullptr || !callee->getType()->is(BaseType::TY_FUNCTION)) {
     return false;
   }
@@ -430,9 +434,10 @@ auto Typechecker::visitListMethodCall(Type* listType, const DotOp* node, const F
     }
     const std::vector<std::string>& genericParamNames = getDeclaredGenericParams(funcType);
     if (explicitTypes.size() != genericParamNames.size()) {
-      throw TypeCheckError(call->getSpan(),
-                           "Explicit type argument count {} does not match generic parameter count {}",
-                           explicitTypes.size(), genericParamNames.size());
+      throw TypeCheckError(
+          call->getSpan(),
+          "Explicit type argument count {} does not match generic parameter count {}",
+          explicitTypes.size(), genericParamNames.size());
     }
     std::unordered_map<std::string, Type*> explicitSubst;
     for (size_t i = 0; i < genericParamNames.size(); ++i) {
@@ -447,8 +452,8 @@ auto Typechecker::visitListMethodCall(Type* listType, const DotOp* node, const F
       }
     }
     Type* retType = substituteInType(funcType->getReturnType(), explicitSubst);
-    Type* finalType = retType != nullptr ? retType
-                                         : cacheType(std::make_unique<Type>(BaseType::TY_VOID));
+    Type* finalType =
+        retType != nullptr ? retType : cacheType(std::make_unique<Type>(BaseType::TY_VOID));
     result = std::make_unique<Value>(importedScope != nullptr ? materializeImportedType(finalType)
                                                               : finalType);
     return true;
@@ -611,7 +616,8 @@ auto Typechecker::substituteInType(Type* t, const std::unordered_map<std::string
   }
   if (t->is(BaseType::TY_CLASS)) {
     Type* classTemplate = t;
-    if (auto tmplIt = specializedTypeToTemplate.find(t); tmplIt != specializedTypeToTemplate.end()) {
+    if (auto tmplIt = specializedTypeToTemplate.find(t);
+        tmplIt != specializedTypeToTemplate.end()) {
       classTemplate = tmplIt->second;
     }
     const auto& genericParamNames = classTemplate->getGenericParams();
@@ -986,9 +992,8 @@ auto Typechecker::resolveType(const TypeExpr* node) -> Type* {
     }
     const auto& genericParamNames = classTemplate->getGenericParams();
     if (genericParamNames.size() != explicitTypeArgs.size()) {
-      throw TypeCheckError(node->getSpan(),
-                           "Generic class {} expects {} type arguments, got {}", node->getName(),
-                           genericParamNames.size(), explicitTypeArgs.size());
+      throw TypeCheckError(node->getSpan(), "Generic class {} expects {} type arguments, got {}",
+                           node->getName(), genericParamNames.size(), explicitTypeArgs.size());
     }
     std::unordered_map<std::string, Type*> env;
     for (size_t i = 0; i < genericParamNames.size(); ++i) {
@@ -1007,8 +1012,9 @@ Typechecker::Typechecker(std::string mainFilePath, GetExportsFn getExports)
       mainFilePath(std::move(mainFilePath)), getExports(std::move(getExports)) {}
 
 void Typechecker::loadImplicitStdModule(const std::string& moduleFilename) {
-  const auto basePath = std::filesystem::absolute(std::filesystem::path(getStdDir()) / moduleFilename)
-                            .lexically_normal();
+  const auto basePath =
+      std::filesystem::absolute(std::filesystem::path(getStdDir()) / moduleFilename)
+          .lexically_normal();
   if (!mainFilePath.empty() &&
       std::filesystem::absolute(std::filesystem::path(mainFilePath)).lexically_normal() ==
           basePath) {
@@ -1099,10 +1105,10 @@ auto Typechecker::getOrTypecheckImport(const std::string& absolutePath) -> Symbo
 }
 
 auto Typechecker::run(const Compound* ast) -> void {
-  const auto currentPath = mainFilePath.empty()
-                               ? std::filesystem::path()
-                               : std::filesystem::absolute(std::filesystem::path(mainFilePath))
-                                     .lexically_normal();
+  const auto currentPath =
+      mainFilePath.empty()
+          ? std::filesystem::path()
+          : std::filesystem::absolute(std::filesystem::path(mainFilePath)).lexically_normal();
   const auto basePath =
       std::filesystem::absolute(std::filesystem::path(getStdDir()) / "base.les").lexically_normal();
   const auto listPath =
@@ -1236,7 +1242,8 @@ auto Typechecker::visit(const ForIn* node) -> void {
     }
     Type* t = peelPtr(type);
     auto fields = t->getFields();
-    if (fields.empty() || fields.front()->type == nullptr || !fields.front()->type->is(BaseType::TY_ARRAY)) {
+    if (fields.empty() || fields.front()->type == nullptr ||
+        !fields.front()->type->is(BaseType::TY_ARRAY)) {
       return nullptr;
     }
     return fields.front()->type;
@@ -1251,18 +1258,17 @@ auto Typechecker::visit(const ForIn* node) -> void {
     Type* iteratorType = resolveMethodReturnType(iterableType, "iter", {}, node->getSpan());
     if (iteratorType == nullptr) {
       throw TypeCheckError(node->getIterable()->getSpan(),
-                          "For-in requires list<T> or iter()/has_next()/next() protocol, got {}",
+                           "For-in requires list<T> or iter()/has_next()/next() protocol, got {}",
                            iterableType != nullptr ? iterableType->toString() : "unknown");
     }
     Type* hasNextType = resolveMethodReturnType(iteratorType, "has_next", {}, node->getSpan());
     if (hasNextType == nullptr || !hasNextType->is(BaseType::TY_BOOL)) {
       throw TypeCheckError(node->getIterable()->getSpan(),
-                          "For-in iterator has_next() must return bool");
+                           "For-in iterator has_next() must return bool");
     }
     loopVarType = resolveMethodReturnType(iteratorType, "next", {}, node->getSpan());
     if (loopVarType == nullptr) {
-      throw TypeCheckError(node->getIterable()->getSpan(),
-                          "For-in iterator must define next()");
+      throw TypeCheckError(node->getIterable()->getSpan(), "For-in iterator must define next()");
     }
   }
 
@@ -1271,8 +1277,8 @@ auto Typechecker::visit(const ForIn* node) -> void {
   SymbolTable* savedScope = scope;
   scope = child;
 
-  auto symbol =
-      std::make_unique<Value>(node->getIdentifier()->getValue(), loopVarType, SymbolState::INITIALIZED);
+  auto symbol = std::make_unique<Value>(node->getIdentifier()->getValue(), loopVarType,
+                                        SymbolState::INITIALIZED);
   symbol->setCategory(ValueCategory::ADDRESSABLE_STORAGE);
   symbol->setMutable(false);
   symbol->setDeclarationSpan(node->getIdentifier()->getSpan());
@@ -1288,10 +1294,9 @@ auto Typechecker::registerTraitsFromImportedModule(const std::string& absolutePa
   if (absolutePath.empty()) {
     return;
   }
-  (void)getOrTypecheckImport(absolutePath);
+  (void) getOrTypecheckImport(absolutePath);
   auto it = importedModuleCache.find(absolutePath);
-  if (it == importedModuleCache.end() || it->second == nullptr ||
-      it->second->parser == nullptr) {
+  if (it == importedModuleCache.end() || it->second == nullptr || it->second->parser == nullptr) {
     return;
   }
   Compound* ast = it->second->parser->getAst();
@@ -1570,8 +1575,9 @@ auto Typechecker::visit(const FuncDecl* node) -> void {
     if (funcSymbol == nullptr) {
       auto declaredFunc = std::make_unique<Value>(node->getName(), funcTypePtr);
       declaredFunc->setCategory(ValueCategory::CALLABLE_SYMBOL);
-      declaredFunc->setDeclarationKind(currentClassType != nullptr ? ValueDeclarationKind::METHOD
-                                                                   : ValueDeclarationKind::FUNCTION);
+      declaredFunc->setDeclarationKind(currentClassType != nullptr
+                                           ? ValueDeclarationKind::METHOD
+                                           : ValueDeclarationKind::FUNCTION);
       declaredFunc->setExported(node->isExported());
       declaredFunc->setDeclarationSpan(node->getNameSpan());
       declaredFunc->setDeclarationFilePath(mainFilePath);
@@ -1631,8 +1637,8 @@ auto Typechecker::visit(const FuncDecl* node) -> void {
     }
     currentGenericParamTraitBounds = std::move(savedTraitBounds);
     Type* funcReturnType = currentFunction->getType()->getReturnType();
-    if (node->getBody() != nullptr && funcReturnType != nullptr && !funcReturnType->is(BaseType::TY_VOID) &&
-        !blockAlwaysReturns(node->getBody())) {
+    if (node->getBody() != nullptr && funcReturnType != nullptr &&
+        !funcReturnType->is(BaseType::TY_VOID) && !blockAlwaysReturns(node->getBody())) {
       throw TypeCheckError(node->getSpan(), "Non-void function may reach end without returning");
     }
     scope = scope->getParent();
@@ -1833,7 +1839,8 @@ auto Typechecker::visit(const Assignment* node) -> void {
     Type* baseType = result->getType();
     subscript->getIndex()->accept(*this);
     Type* indexType = result->getType();
-    if (baseType != nullptr && baseType->is(BaseType::TY_ARRAY) && baseType->getElementType() != nullptr) {
+    if (baseType != nullptr && baseType->is(BaseType::TY_ARRAY) &&
+        baseType->getElementType() != nullptr) {
       node->getLeftHandSide()->accept(*this);
       Type* lhsType = result->getType();
       visitExprWithExpectedType(node->getRightHandSide(), lhsType);
@@ -2131,7 +2138,8 @@ auto Typechecker::visit(const SubscriptOp* node) -> void {
   Type* baseType = result->getType();
   node->getIndex()->accept(*this);
   Type* indexType = result->getType();
-  if (baseType != nullptr && baseType->is(BaseType::TY_ARRAY) && baseType->getElementType() != nullptr) {
+  if (baseType != nullptr && baseType->is(BaseType::TY_ARRAY) &&
+      baseType->getElementType() != nullptr) {
     if (indexType == nullptr || !indexType->is(BaseType::TY_INT)) {
       throw TypeCheckError(node->getIndex()->getSpan(), "List index must be int, got {}",
                            indexType != nullptr ? indexType->toString() : "unknown");
@@ -2139,9 +2147,8 @@ auto Typechecker::visit(const SubscriptOp* node) -> void {
     result = std::make_unique<Value>(baseType->getElementType());
     return;
   }
-  Type* overloadType =
-      resolveMethodReturnType(baseType, std::string{OperatorUtils::SUBSCRIPT_GET_NAME}, {indexType},
-                              node->getSpan());
+  Type* overloadType = resolveMethodReturnType(
+      baseType, std::string{OperatorUtils::SUBSCRIPT_GET_NAME}, {indexType}, node->getSpan());
   if (overloadType == nullptr) {
     throw TypeCheckError(node->getSpan(), "Subscript requires an array type or operator [], got {}",
                          baseType != nullptr ? baseType->toString() : "unknown");
@@ -2344,7 +2351,8 @@ auto Typechecker::visit(const DotOp* node) -> void {
             return;
           }
         }
-        throw TypeCheckError(node->getSpan(), "Method '{}' not found on generic parameter '{}' via trait bounds",
+        throw TypeCheckError(node->getSpan(),
+                             "Method '{}' not found on generic parameter '{}' via trait bounds",
                              fc->getName(), gname);
       }
     }
@@ -2358,8 +2366,8 @@ auto Typechecker::visit(const DotOp* node) -> void {
   if (auto* fc = dynamic_cast<FuncCall*>(node->getRight())) {
     if (isStdListClassType(base) && isMutatingListFunction(fc->getName()) &&
         !isMutableListReceiver(node->getLeft())) {
-      throw TypeCheckError(node->getSpan(), "Cannot call mutating list method {} on immutable value",
-                           fc->getName());
+      throw TypeCheckError(node->getSpan(),
+                           "Cannot call mutating list method {} on immutable value", fc->getName());
     }
     std::vector<Type*> argTypes;
     for (Expression* arg : fc->getArguments()) {
@@ -2517,13 +2525,11 @@ auto Typechecker::visit(const UnaryOp* node) -> void {
       throw TypeCheckError(node->getSpan(), "Dereference requires pointer type");
     }
     result = std::make_unique<Value>(
-        operand->getElementType() != nullptr
-            ? operand->getElementType()
-            : [&]() -> Type* {
-                auto u = std::make_unique<Type>(BaseType::TY_INT);
-                u->setIntWidth(64);
-                return cacheType(std::move(u));
-              }());
+        operand->getElementType() != nullptr ? operand->getElementType() : [&]() -> Type* {
+          auto u = std::make_unique<Type>(BaseType::TY_INT);
+          u->setIntWidth(64);
+          return cacheType(std::move(u));
+        }());
     break;
   default:
     throw TypeCheckError(node->getSpan(), "Unsupported unary operator: {}",
@@ -2557,15 +2563,16 @@ auto Typechecker::visit(const ListLiteral* node) -> void {
     return nullptr;
   };
   auto getStdListType = [this, node](Type* elementType) -> Type* {
-    const auto listPath =
-        std::filesystem::absolute(std::filesystem::path(getStdDir()) / "list.les").lexically_normal();
+    const auto listPath = std::filesystem::absolute(std::filesystem::path(getStdDir()) / "list.les")
+                              .lexically_normal();
     SymbolTable* listScope = getOrTypecheckImport(listPath.string());
     if (listScope == nullptr) {
       throw TypeCheckError(node->getSpan(), "Unable to load stdlib list class");
     }
     Value* listSymbol = listScope->lookupStruct("list");
-    Type* listTemplate = listSymbol != nullptr ? materializeImportedType(listSymbol->getType())
-                                               : materializeImportedType(listScope->lookupType("list"));
+    Type* listTemplate = listSymbol != nullptr
+                             ? materializeImportedType(listSymbol->getType())
+                             : materializeImportedType(listScope->lookupType("list"));
     if (listTemplate == nullptr || !listTemplate->is(BaseType::TY_CLASS)) {
       throw TypeCheckError(node->getSpan(), "Stdlib list class not found");
     }
@@ -2583,7 +2590,8 @@ auto Typechecker::visit(const ListLiteral* node) -> void {
   std::vector<Expression*> elements = node->getElements();
   if (elements.empty()) {
     if (expectedType == nullptr || expectedElementType == nullptr) {
-      throw TypeCheckError(node->getSpan(), "Empty list literal requires an explicit list<T> context");
+      throw TypeCheckError(node->getSpan(),
+                           "Empty list literal requires an explicit list<T> context");
     }
     node->setResolvedType(expectedType);
     result = std::make_unique<Value>(expectedType);
@@ -2615,15 +2623,15 @@ auto Typechecker::visit(const ListLiteral* node) -> void {
       continue;
     }
     if (!current->isEqual(elementType)) {
-      throw TypeCheckError(element->getSpan(), "List elements must have a common type, got {} and {}",
+      throw TypeCheckError(element->getSpan(),
+                           "List elements must have a common type, got {} and {}",
                            elementType->toString(), current->toString());
     }
   }
 
   if (expectedType != nullptr && !expectedType->is(BaseType::TY_ARRAY) &&
       getStdListElementType(expectedType) == nullptr) {
-    throw TypeCheckError(node->getSpan(),
-                         "List literal is not compatible with expected type {}",
+    throw TypeCheckError(node->getSpan(), "List literal is not compatible with expected type {}",
                          expectedType->toString());
   }
 
@@ -2738,7 +2746,7 @@ auto Typechecker::buildMethodFunctionType(FuncDecl* decl, Type* classType) -> Ty
 }
 
 auto Typechecker::registerTraitDefaultMethodSymbol(SymbolTable* insertScope, Type* classType,
-                                                  FuncDecl* req) -> void {
+                                                   FuncDecl* req) -> void {
   Type* selfPtr = cacheType(std::make_unique<Type>(BaseType::TY_PTR, nullptr, classType));
   std::vector<Type*> lookupArgs = {selfPtr};
   for (Parameter* p : req->getParameters()) {
@@ -2788,6 +2796,36 @@ auto Typechecker::registerTraitDefaultMethodSymbol(SymbolTable* insertScope, Typ
   scope = savedScope;
 }
 
+auto Typechecker::mergeTraitImplTypeArgsIntoCurrentGenericEnv(const Class* classNode,
+                                                              size_t traitClauseIndex,
+                                                              const TraitDecl* trait) -> void {
+  const auto& argLists = classNode->getImplTraitTypeArgs();
+  if (traitClauseIndex >= argLists.size()) {
+    throw TypeCheckError(classNode->getNameSpan(), "Internal: impl trait clause index");
+  }
+  const auto& typeArgExprs = argLists[traitClauseIndex];
+  llvm::SMRange errSpan = classNode->getImplTraitSpans()[traitClauseIndex];
+  const auto& traitGenParams = trait->getGenericParamDecls();
+  if (traitGenParams.size() != typeArgExprs.size()) {
+    if (!traitGenParams.empty() && typeArgExprs.empty()) {
+      throw TypeCheckError(errSpan, "Trait {} requires {} type argument(s), e.g. `impl {}<...>`",
+                           trait->getIdentifier(), traitGenParams.size(), trait->getIdentifier());
+    }
+    if (traitGenParams.empty() && !typeArgExprs.empty()) {
+      throw TypeCheckError(errSpan, "Trait {} is not generic; remove type arguments in `impl`",
+                           trait->getIdentifier());
+    }
+    throw TypeCheckError(errSpan, "Trait {} requires {} type argument(s), got {}",
+                         trait->getIdentifier(), traitGenParams.size(), typeArgExprs.size());
+  }
+  std::unordered_map<std::string, Type*> merged = currentGenericTypes;
+  for (size_t j = 0; j < traitGenParams.size(); ++j) {
+    typeArgExprs[j]->accept(*this);
+    merged[traitGenParams[j].name] = result->getType();
+  }
+  currentGenericTypes = std::move(merged);
+}
+
 auto Typechecker::typecheckTraitDefaultBodies(const Class* classNode, Type* classType,
                                               SymbolTable* methodInsertScope) -> void {
   std::unordered_set<std::string> explicitNames;
@@ -2797,12 +2835,19 @@ auto Typechecker::typecheckTraitDefaultBodies(const Class* classNode, Type* clas
   SymbolTable* savedListScope = scope;
   Type* savedClass = currentClassType;
   currentClassType = classType;
-  for (const auto& traitName : classNode->getImplTraitNames()) {
+  const auto& implNames = classNode->getImplTraitNames();
+  if (implNames.size() != classNode->getImplTraitTypeArgs().size()) {
+    throw TypeCheckError(classNode->getNameSpan(), "Internal: impl trait metadata mismatch");
+  }
+  for (size_t ti = 0; ti < implNames.size(); ++ti) {
+    const std::string& traitName = implNames[ti];
     auto trIt = traitRegistry.find(traitName);
     if (trIt == traitRegistry.end()) {
       continue;
     }
     const TraitDecl* trait = trIt->second;
+    auto savedTraitGenerics = currentGenericTypes;
+    mergeTraitImplTypeArgsIntoCurrentGenericEnv(classNode, ti, trait);
     for (FuncDecl* req : trait->getRequirements()) {
       if (req->getBody() == nullptr) {
         continue;
@@ -2836,31 +2881,33 @@ auto Typechecker::typecheckTraitDefaultBodies(const Class* classNode, Type* clas
       Type* funcReturnType = funcSym->getType()->getReturnType();
       if (funcReturnType != nullptr && !funcReturnType->is(BaseType::TY_VOID) &&
           !blockAlwaysReturns(req->getBody())) {
-        throw TypeCheckError(req->getSpan(), "Non-void trait default may reach end without returning");
+        throw TypeCheckError(req->getSpan(),
+                             "Non-void trait default may reach end without returning");
       }
       scope = savedListScope;
       currentFunction = nullptr;
       inTopLevel = true;
     }
+    currentGenericTypes = std::move(savedTraitGenerics);
   }
   currentClassType = savedClass;
 }
 
 auto Typechecker::checkTraitImplementation(const Class* classNode, Type* classType,
                                            SymbolTable* methodInsertScope) -> void {
-  for (const auto& traitName : classNode->getImplTraitNames()) {
+  const auto& implNames = classNode->getImplTraitNames();
+  if (implNames.size() != classNode->getImplTraitTypeArgs().size()) {
+    throw TypeCheckError(classNode->getNameSpan(), "Internal: impl trait metadata mismatch");
+  }
+  for (size_t ti = 0; ti < implNames.size(); ++ti) {
+    const std::string& traitName = implNames[ti];
     auto trIt = traitRegistry.find(traitName);
     if (trIt == traitRegistry.end()) {
       throw TypeCheckError(classNode->getNameSpan(), "Unknown trait '{}'", traitName);
     }
     const TraitDecl* trait = trIt->second;
-    if (trait->getGenericParamDecls().size() != classNode->getGenericParamDecls().size()) {
-      throw TypeCheckError(
-          classNode->getNameSpan(),
-          "Trait {} generic parameter count ({}) does not match class {} generic parameter count ({})",
-          traitName, trait->getGenericParamDecls().size(), classNode->getIdentifier(),
-          classNode->getGenericParamDecls().size());
-    }
+    auto savedTraitGenerics = currentGenericTypes;
+    mergeTraitImplTypeArgsIntoCurrentGenericEnv(classNode, ti, trait);
     for (FuncDecl* req : trait->getRequirements()) {
       Type* expected = buildMethodFunctionType(req, classType);
       Type* selfPtr = cacheType(std::make_unique<Type>(BaseType::TY_PTR, nullptr, classType));
@@ -2892,6 +2939,7 @@ auto Typechecker::checkTraitImplementation(const Class* classNode, Type* classTy
             traitName, expected->toString(), methodSym->getType()->toString());
       }
     }
+    currentGenericTypes = std::move(savedTraitGenerics);
   }
 }
 

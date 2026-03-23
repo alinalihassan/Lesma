@@ -1,4 +1,4 @@
-# std list: iter() returns list_iterator<T> which implements Iterable<T> (implicit std)
+# std list: list.iter() returns a cursor; list_iterator<T> implements Iterable<T> (implicit std)
 var xs = list<int>()
 xs.push(3)
 var it = xs.iter()

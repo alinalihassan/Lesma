@@ -140,6 +140,10 @@ class Typechecker final : public ASTVisitor {
                                    SymbolTable* methodInsertScope) -> void;
   auto checkTraitImplementation(const Class* classNode, Type* classType,
                                 SymbolTable* methodInsertScope) -> void;
+  /** Replace `currentGenericTypes` with a copy that includes bindings for the trait's generic
+   * parameters from `impl Trait<...>` (e.g. `Iterable<T>` or `Iterable<int>`). */
+  auto mergeTraitImplTypeArgsIntoCurrentGenericEnv(const Class* classNode, size_t traitClauseIndex,
+                                                   const TraitDecl* trait) -> void;
   auto verifyGenericTraitBounds(Value* callee, const std::unordered_map<std::string, Type*>& subs,
                                 llvm::SMRange span) -> void;
   auto classDeclaresTrait(Type* classTy, const std::string& traitName) -> bool;

@@ -1,20 +1,16 @@
 # Iterator protocol: call `iter()` on a list to get a cursor; use `has_next()` / `next()` on that cursor.
-# `Iterable<T>` describes that cursor type (`list_iterator<T>` implements it).
+# `Iterable<T>` describes forward iteration over element type `T` (no concrete iterator class in the trait).
 export trait Iterable<T>
-    def iter() -> *list_iterator<T>
     def has_next() -> bool
     def next() -> T
 
-class list_iterator<T> impl Iterable
+class list_iterator<T> impl Iterable<T>
     var storage: __buffer<T>
     var index: int = 0
 
     def new(buf: __buffer<T>)
         self.storage = buf
         self.index = 0
-
-    def iter() -> *list_iterator<T>
-        return self
 
     def has_next() -> bool
         return self.index < __buffer_len(self.storage)
