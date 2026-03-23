@@ -22,14 +22,14 @@ export class list<T>
         result.storage = __buffer_copy(self.storage)
         return result
 
-    def __iter() -> *list<T>
+    def iter() -> *list<T>
         self.__iter_index = 0
         return self
 
-    def __has_next() -> bool
+    def has_next() -> bool
         return self.__iter_index < __buffer_len(self.storage)
 
-    def __next() -> T
+    def next() -> T
         var value = __buffer_get(self.storage, self.__iter_index)
         self.__iter_index += 1
         return value

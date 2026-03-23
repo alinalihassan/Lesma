@@ -1906,7 +1906,7 @@ auto Codegen::visit(const ForIn* node) -> void {
   std::unique_ptr<lesma::Value> iteratorValue;
   llvm::AllocaInst* indexPtr = nullptr;
   if (listType == nullptr || !listType->is(BaseType::TY_ARRAY) || listType->getElementType() == nullptr) {
-    iteratorValue = callMethodByName(node->getSpan(), iterable.get(), "__iter");
+    iteratorValue = callMethodByName(node->getSpan(), iterable.get(), "iter");
   } else {
     getOrCreateLlvmType(listType);
     indexPtr = builder->CreateAlloca(builder->getInt64Ty(), nullptr, "for.index");
@@ -1948,12 +1948,12 @@ auto Codegen::visit(const ForIn* node) -> void {
   } else {
     bCond->insertInto(parentFct);
     builder->SetInsertPoint(bCond);
-    auto hasNextValue = callMethodByName(node->getSpan(), iteratorValue.get(), "__has_next");
+    auto hasNextValue = callMethodByName(node->getSpan(), iteratorValue.get(), "has_next");
     builder->CreateCondBr(hasNextValue->getLlvmValue(), bLoop, bEnd);
 
     bLoop->insertInto(parentFct);
     builder->SetInsertPoint(bLoop);
-    auto nextValue = callMethodByName(node->getSpan(), iteratorValue.get(), "__next");
+    auto nextValue = callMethodByName(node->getSpan(), iteratorValue.get(), "next");
     builder->CreateStore(nextValue->getLlvmValue(), loopVar->getLlvmValue());
     scope = node->getBodyScope() != nullptr ? node->getBodyScope() : scope;
     node->getBlock()->accept(*this);

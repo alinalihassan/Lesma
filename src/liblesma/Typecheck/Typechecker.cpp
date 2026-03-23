@@ -1128,30 +1128,21 @@ auto Typechecker::visit(const ForIn* node) -> void {
              bufferType != nullptr && bufferType->getElementType() != nullptr) {
     loopVarType = bufferType->getElementType();
   } else {
-    Type* iteratorType = resolveMethodReturnType(iterableType, "__iter", {}, node->getSpan());
-    if (iteratorType == nullptr) {
-      iteratorType = resolveMethodReturnType(iterableType, "iter", {}, node->getSpan());
-    }
+    Type* iteratorType = resolveMethodReturnType(iterableType, "iter", {}, node->getSpan());
     if (iteratorType == nullptr) {
       throw TypeCheckError(node->getIterable()->getSpan(),
-                          "For-in requires list<T> or __iter()/__has_next()/__next() protocol, got {}",
+                          "For-in requires list<T> or iter()/has_next()/next() protocol, got {}",
                            iterableType != nullptr ? iterableType->toString() : "unknown");
     }
-    Type* hasNextType = resolveMethodReturnType(iteratorType, "__has_next", {}, node->getSpan());
-    if (hasNextType == nullptr) {
-      hasNextType = resolveMethodReturnType(iteratorType, "has_next", {}, node->getSpan());
-    }
+    Type* hasNextType = resolveMethodReturnType(iteratorType, "has_next", {}, node->getSpan());
     if (hasNextType == nullptr || !hasNextType->is(BaseType::TY_BOOL)) {
       throw TypeCheckError(node->getIterable()->getSpan(),
-                          "For-in iterator __has_next() must return bool");
+                          "For-in iterator has_next() must return bool");
     }
-    loopVarType = resolveMethodReturnType(iteratorType, "__next", {}, node->getSpan());
-    if (loopVarType == nullptr) {
-      loopVarType = resolveMethodReturnType(iteratorType, "next", {}, node->getSpan());
-    }
+    loopVarType = resolveMethodReturnType(iteratorType, "next", {}, node->getSpan());
     if (loopVarType == nullptr) {
       throw TypeCheckError(node->getIterable()->getSpan(),
-                          "For-in iterator must define __next()");
+                          "For-in iterator must define next()");
     }
   }
 
