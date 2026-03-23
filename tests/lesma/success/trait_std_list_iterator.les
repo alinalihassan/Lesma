@@ -1,8 +1,8 @@
-# std list: list.iter() returns a cursor; list_iterator<T> implements Iterable<T> (implicit std)
+# std list: for-in over list<int> (implicit std); no iter() in user code
 var xs = list<int>()
 xs.push(3)
-var it = xs.iter()
-if not it.has_next()
-    exit(1)
-if it.next() != 3
+var sum = 0
+for v in xs
+    sum = sum + v
+if sum != 3
     exit(1)

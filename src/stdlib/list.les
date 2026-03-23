@@ -1,26 +1,26 @@
-# Iterator protocol: call `iter()` on a list to get a cursor; use `has_next()` / `next()` on that cursor.
-# `Iterable<T>` describes forward iteration over element type `T` (no concrete iterator class in the trait).
-export trait Iterable<T>
+export trait Iterator<T>
     def has_next() -> bool
     def next() -> T
 
-class list_iterator<T> impl Iterable<T>
+export trait Iterable<T>
+    def iter() -> Iterator<T>
+
+export class list_iter<T> impl Iterator<T>
     var storage: __buffer<T>
-    var index: int = 0
+    var __scan: int = 0
 
     def new(buf: __buffer<T>)
         self.storage = buf
-        self.index = 0
 
     def has_next() -> bool
-        return self.index < __buffer_len(self.storage)
+        return self.__scan < __buffer_len(self.storage)
 
     def next() -> T
-        var value = __buffer_get(self.storage, self.index)
-        self.index += 1
-        return value
+        var v = __buffer_get(self.storage, self.__scan)
+        self.__scan += 1
+        return v
 
-export class list<T>
+export class list<T> impl Iterable<T>
     var storage: __buffer<T>
 
     def new()
@@ -28,6 +28,9 @@ export class list<T>
 
     def new(initial: __buffer<T>)
         self.storage = initial
+
+    def iter() -> list_iter<T>
+        return list_iter<T>(self.storage)
 
     def len() -> int
         return __buffer_len(self.storage)
@@ -43,9 +46,6 @@ export class list<T>
 
     def copy() -> list<T>
         return list<T>(__buffer_copy(self.storage))
-
-    def iter() -> *list_iterator<T>
-        return list_iterator<T>(self.storage)
 
     def operator [](index: int) -> T
         return __buffer_get(self.storage, index)

@@ -384,7 +384,7 @@ auto Codegen::exposeImportedSymbols(llvm::SMRange /*span*/, SymbolTable* importe
     const bool exposeClassForModuleImport =
         !importToScope && sym->getType()->is(BaseType::TY_CLASS);
     // Class/enum types from the module are always merged for lookup: exported APIs
-    // may name non-exported helpers in signatures (e.g. list.iter() -> *list_iterator<T>).
+    // may reference non-exported helper types in signatures.
     if (sym->getType()->isOneOf({BaseType::TY_ENUM, BaseType::TY_CLASS}) &&
         (importAll || importedByName || exposeClassForModuleImport)) {
       llvm::StructType* structType =
@@ -1772,6 +1772,19 @@ auto Codegen::bindGenericsFromTypePair(const TypeExpr* declared, lesma::Type* ac
   }
 }
 
+auto Codegen::wrapNominalReturnAsPointer(Type* t) -> Type* {
+  if (t == nullptr) {
+    return nullptr;
+  }
+  if (t->is(BaseType::TY_PTR)) {
+    return t;
+  }
+  if (t->is(BaseType::TY_CLASS) || t->is(BaseType::TY_TRAIT_EXISTENTIAL)) {
+    return cacheType(std::make_unique<Type>(BaseType::TY_PTR, nullptr, t));
+  }
+  return t;
+}
+
 auto Codegen::specializeFunction(const FuncDecl* node, const std::vector<lesma::Type*>& paramTypes,
                                  const std::vector<std::string>& genericNames,
                                  const std::vector<lesma::Type*>& explicitTypeArgs)
@@ -1825,11 +1838,15 @@ auto Codegen::specializeFunction(const FuncDecl* node, const std::vector<lesma::
   }
   for (auto* param : node->getParameters()) {
     param->type->accept(*this);
-    fields.push_back(std::make_unique<Field>(param->name, result->getType()));
-    concreteParamTypes.push_back(result->getType());
+    Type* paramT = result->getType();
+    if (paramT != nullptr && paramT->is(BaseType::TY_CLASS)) {
+      paramT = cacheType(std::make_unique<Type>(BaseType::TY_PTR, nullptr, paramT));
+    }
+    fields.push_back(std::make_unique<Field>(param->name, paramT));
+    concreteParamTypes.push_back(paramT);
   }
   node->getReturnType()->accept(*this);
-  auto* returnType = result->getType();
+  Type* returnType = wrapNominalReturnAsPointer(result->getType());
   std::vector<llvm::Type*> paramLLVMTypes;
   for (auto* t : concreteParamTypes) {
     getOrCreateLlvmType(t);
@@ -1848,8 +1865,12 @@ auto Codegen::specializeFunction(const FuncDecl* node, const std::vector<lesma::
   func->setMangledName(mangledName);
   func->setExported(node->isExported());
   auto linkage = node->isExported() ? Function::ExternalLinkage : Function::PrivateLinkage;
-  llvm::Type* llvmReturnType =
-      returnType->is(BaseType::TY_CLASS) ? builder->getPtrTy() : returnType->getLlvmType();
+  llvm::Type* llvmReturnType = nullptr;
+  if (returnType->is(BaseType::TY_PTR) || returnType->is(BaseType::TY_CLASS)) {
+    llvmReturnType = builder->getPtrTy();
+  } else {
+    llvmReturnType = returnType->getLlvmType();
+  }
   auto* llvmFuncType = FunctionType::get(llvmReturnType, paramLLVMTypes, node->getVarArgs());
   auto* llvmFunc = Function::Create(llvmFuncType, linkage, mangledName, *theModule);
   typePtr->setLlvmType(llvmFuncType);
@@ -1971,6 +1992,7 @@ auto Codegen::specializeClass(const Class* node,
   }
   displayName += ">";
   type->setDisplayName(displayName);
+  type->setImplTraitNames(std::vector<std::string>(node->getImplTraitNames()));
   auto* typePtr = type.get();
   scope->insertType(concreteName, std::move(type));
 
@@ -2085,7 +2107,7 @@ auto Codegen::visit(const VarDecl* node) -> void {
       existing->setType(ptrType);
     } else if (type->is(BaseType::TY_PTR) && type->getElementType() != nullptr &&
                type->getElementType()->is(BaseType::TY_CLASS)) {
-      // Value was e.g. *list_iterator<int> while typecheck left *list_iterator<T> on the symbol.
+      // Value was e.g. *Foo<int> while typecheck left *Foo<T> on the symbol.
       existing->setType(type);
     }
     lesma::Type* storedType = existing->getType();
@@ -2231,6 +2253,18 @@ auto Codegen::visit(const While* node) -> void {
   continueBlocks.pop();
 }
 
+auto Codegen::classTypeDeclaresIterable(lesma::Type* classTy) const -> bool {
+  if (classTy == nullptr || !classTy->is(BaseType::TY_CLASS)) {
+    return false;
+  }
+  for (const auto& n : classTy->getImplTraitNames()) {
+    if (n == "Iterable") {
+      return true;
+    }
+  }
+  return false;
+}
+
 auto Codegen::visit(const ForIn* node) -> void {
   node->getIterable()->accept(*this);
   std::unique_ptr<lesma::Value> iterable = std::move(result);
@@ -2240,7 +2274,8 @@ auto Codegen::visit(const ForIn* node) -> void {
       listType->getElementType() != nullptr && listType->getElementType()->is(BaseType::TY_CLASS)) {
     listType = listType->getElementType();
   }
-  if (listType != nullptr && listType->is(BaseType::TY_CLASS)) {
+  if (listType != nullptr && listType->is(BaseType::TY_CLASS) &&
+      classTypeDeclaresIterable(listType)) {
     auto fields = listType->getFields();
     if (!fields.empty() && fields.front()->type != nullptr &&
         fields.front()->type->is(BaseType::TY_ARRAY)) {
@@ -2435,7 +2470,7 @@ auto Codegen::visit(const FuncDecl* node) -> void {
   }
 
   node->getReturnType()->accept(*this);
-  lesma::Type* returnType = result->getType();
+  lesma::Type* returnType = wrapNominalReturnAsPointer(result->getType());
   getOrCreateLlvmType(returnType);
 
   lesma::Value* existingFunc = scope->lookupFunction(node->getName(), paramTypes);
@@ -2495,8 +2530,12 @@ auto Codegen::visit(const FuncDecl* node) -> void {
   std::string const signatureKey = makeCallableSignatureKey(node->getName(), paramTypes);
   auto linkage = shouldExport ? Function::ExternalLinkage : Function::PrivateLinkage;
 
-  llvm::Type* llvmReturnType =
-      returnType->is(BaseType::TY_CLASS) ? builder->getPtrTy() : returnType->getLlvmType();
+  llvm::Type* llvmReturnType = nullptr;
+  if (returnType->is(BaseType::TY_PTR) || returnType->is(BaseType::TY_CLASS)) {
+    llvmReturnType = builder->getPtrTy();
+  } else {
+    llvmReturnType = returnType->getLlvmType();
+  }
   llvm::FunctionType* funcType =
       FunctionType::get(llvmReturnType, paramLLVMTypes, node->getVarArgs());
   Function* f = Function::Create(funcType, linkage, mangledName, *theModule);
@@ -2767,10 +2806,17 @@ auto Codegen::visit(const Return* node) -> void {
     llvm::Type* actualReturnType = actualType != nullptr && actualType->is(BaseType::TY_CLASS)
                                        ? builder->getPtrTy()
                                        : result->getType()->getLlvmType();
-    llvm::Type* expectedReturnType =
-        declaredReturnType != nullptr && declaredReturnType->is(BaseType::TY_CLASS)
-            ? builder->getPtrTy()
-            : builder->getCurrentFunctionReturnType();
+    lesma::Type* declaredClass = nullptr;
+    if (declaredReturnType != nullptr && declaredReturnType->is(BaseType::TY_PTR) &&
+        declaredReturnType->getElementType() != nullptr &&
+        declaredReturnType->getElementType()->is(BaseType::TY_CLASS)) {
+      declaredClass = declaredReturnType->getElementType();
+    } else if (declaredReturnType != nullptr && declaredReturnType->is(BaseType::TY_CLASS)) {
+      declaredClass = declaredReturnType;
+    }
+    llvm::Type* expectedReturnType = declaredClass != nullptr
+                                         ? builder->getPtrTy()
+                                         : builder->getCurrentFunctionReturnType();
     if (actualReturnType == expectedReturnType) {
       builder->CreateRet(result->getLlvmValue());
     } else {

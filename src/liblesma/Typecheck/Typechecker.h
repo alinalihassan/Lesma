@@ -111,6 +111,8 @@ class Typechecker final : public ASTVisitor {
   auto getExtendedType(Type* left, Type* right) -> Type*;
   /** Whether a value of type 'from' can be assigned/cast to type 'to'. */
   auto isAssignableTo(Type* from, Type* to) -> bool;
+  [[nodiscard]] auto functionTypesMatchForTraitImpl(Type* actualFn, Type* expectedFn) -> bool;
+  [[nodiscard]] auto wrapReturnTypeIfNominal(Type* returnType) -> Type*;
   /** Result type of a binary operator (arithmetic, comparison, logical). Throws on unsupported op.
    */
   auto typecheckBinaryOpResult(TokenType op, Type* leftTy, Type* rightTy, llvm::SMRange span)

@@ -474,11 +474,15 @@ var status: Status = Status.READY
   bool sawEnumUsageDeclaration = false;
 
   for (const IndexedSymbolOccurrence& occurrence : result.index.symbolOccurrences) {
-    if (occurrence.name == "ready" && occurrence.fallbackTokenKind == IndexedTokenKind::Property) {
+    if (occurrence.name == "ready" && occurrence.fallbackTokenKind == IndexedTokenKind::Variable) {
       ASSERT_TRUE(occurrence.declaration.has_value());
       if ((occurrence.modifiers & analysis_index_modifier::DECLARATION) != 0U) {
         sawReadyDeclaration = true;
-      } else {
+      }
+    }
+    if (occurrence.name == "ready" && occurrence.fallbackTokenKind == IndexedTokenKind::Property) {
+      ASSERT_TRUE(occurrence.declaration.has_value());
+      if ((occurrence.modifiers & analysis_index_modifier::DECLARATION) == 0U) {
         sawReadyUsageDeclaration = true;
       }
     }

@@ -422,8 +422,7 @@ auto collectIndexFromStmt(const Statement* stmt, AnalysisIndex& index, bool inCl
     if (varDecl->getIdentifier() != nullptr) {
       appendIndexedOccurrence(index, varDecl->getIdentifier()->getValue(), std::nullopt,
                               varDecl->getIdentifier()->getSpan(), false, false,
-                              analysis_index_modifier::DECLARATION,
-                              inClass ? IndexedTokenKind::Property : IndexedTokenKind::Variable,
+                              analysis_index_modifier::DECLARATION, IndexedTokenKind::Variable,
                               varDecl->getResolvedSymbol());
     }
     collectIndexFromTypeExpr(varDecl->getType(), index);

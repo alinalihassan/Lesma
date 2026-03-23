@@ -216,6 +216,7 @@ protected:
                           const std::vector<lesma::Type*>& explicitTypeArgs = {}) -> lesma::Value*;
   auto specializeClass(const Class* node, const std::vector<lesma::Type*>& constructorArgTypes,
                        const std::vector<lesma::Type*>& explicitTypeArgs = {}) -> lesma::Value*;
+  [[nodiscard]] auto wrapNominalReturnAsPointer(Type* t) -> Type*;
 
   auto emitCompoundAssign(llvm::SMRange span, TokenType op, lesma::Value* lhs, lesma::Value* value)
       -> void;
@@ -253,13 +254,15 @@ protected:
   auto emitListDeepCopy(lesma::Type* listType, llvm::Value* listHandle) -> llvm::Value*;
   [[nodiscard]] auto isListIntrinsicName(const std::string& functionName) const -> bool;
   /// Methods implemented by callListMethodByName (buffer intrinsics). Other methods on list-shaped
-  /// classes (e.g. stdlib list.iter()) use normal class codegen.
+  /// classes use normal class codegen.
   [[nodiscard]] auto isBuiltinListBuiltinMethodName(const std::string& methodName) const -> bool;
   auto genListIntrinsicCall(const FuncCall* node, const std::vector<lesma::Type*>& paramTypes,
                             const std::vector<llvm::Value*>& paramsLLVM)
       -> std::unique_ptr<lesma::Value>;
   auto symbolUsesDirectLlvmValue(const lesma::Value* symbol) const -> bool;
   auto materializeSymbolValue(lesma::Value* symbol) -> std::unique_ptr<lesma::Value>;
+  /** True if class type lists `impl Iterable` (used for buffer-backed for-in lowering). */
+  [[nodiscard]] auto classTypeDeclaresIterable(lesma::Type* classTy) const -> bool;
 
   // Cache a type to keep it alive - returns raw pointer to the cached type
   auto cacheType(std::unique_ptr<lesma::Type> type) -> lesma::Type* {

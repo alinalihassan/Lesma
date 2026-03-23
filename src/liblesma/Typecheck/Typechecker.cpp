@@ -494,6 +494,7 @@ auto Typechecker::materializeImportedType(Type* type) -> Type* {
     importedTypeCopies[type] = copy;
     copy->setDisplayName(type->getDisplayName());
     copy->setGenericParams(type->getGenericParams());
+    copy->setImplTraitNames(std::vector<std::string>(type->getImplTraitNames()));
     copy->setDeclarationSpan(type->getDeclarationSpan());
     copy->setDeclarationFilePath(type->getDeclarationFilePath());
     for (Field* field : type->getFields()) {
@@ -574,6 +575,13 @@ auto Typechecker::materializeImportedType(Type* type) -> Type* {
   if (type->is(BaseType::TY_INT)) {
     auto u = std::make_unique<Type>(BaseType::TY_INT);
     u->setIntWidth(static_cast<std::uint16_t>(type->getIntWidth()));
+    Type* copy = cacheType(std::move(u));
+    importedTypeCopies[type] = copy;
+    return copy;
+  }
+  if (type->is(BaseType::TY_TRAIT_EXISTENTIAL)) {
+    auto u = std::make_unique<Type>(BaseType::TY_TRAIT_EXISTENTIAL, nullptr);
+    u->setDisplayName(type->getDisplayName());
     Type* copy = cacheType(std::move(u));
     importedTypeCopies[type] = copy;
     return copy;
@@ -840,6 +848,11 @@ auto Typechecker::isAssignableTo(Type* from, Type* to) -> bool {
       to->getElementType()->is(BaseType::TY_CLASS) && from->is(BaseType::TY_CLASS)) {
     return from->isEqual(to->getElementType());
   }
+  if (to->is(BaseType::TY_PTR) && to->getElementType() != nullptr &&
+      to->getElementType()->is(BaseType::TY_TRAIT_EXISTENTIAL) && from->is(BaseType::TY_PTR) &&
+      from->getElementType() != nullptr && from->getElementType()->is(BaseType::TY_CLASS)) {
+    return classDeclaresTrait(from->getElementType(), to->getElementType()->getDisplayName());
+  }
   // Void is only assignable to Void
   if (from->is(BaseType::TY_VOID)) {
     return to->is(BaseType::TY_VOID);
@@ -872,6 +885,49 @@ auto Typechecker::isAssignableTo(Type* from, Type* to) -> bool {
     return false;
   }
   return false;
+}
+
+auto Typechecker::functionTypesMatchForTraitImpl(Type* actualFn, Type* expectedFn) -> bool {
+  if (actualFn == nullptr || expectedFn == nullptr || !actualFn->is(BaseType::TY_FUNCTION) ||
+      !expectedFn->is(BaseType::TY_FUNCTION)) {
+    return false;
+  }
+  auto af = actualFn->getFields();
+  auto ef = expectedFn->getFields();
+  if (af.size() != ef.size()) {
+    return false;
+  }
+  for (size_t i = 0; i < af.size(); ++i) {
+    if (af[i]->type == nullptr || ef[i]->type == nullptr || !af[i]->type->isEqual(ef[i]->type)) {
+      return false;
+    }
+  }
+  Type* ar = actualFn->getReturnType();
+  Type* er = expectedFn->getReturnType();
+  if (ar == nullptr && er == nullptr) {
+    return true;
+  }
+  if (ar == nullptr || er == nullptr) {
+    return false;
+  }
+  if (er->is(BaseType::TY_PTR) && er->getElementType() != nullptr &&
+      er->getElementType()->is(BaseType::TY_TRAIT_EXISTENTIAL)) {
+    return isAssignableTo(ar, er);
+  }
+  return ar->isEqual(er);
+}
+
+auto Typechecker::wrapReturnTypeIfNominal(Type* returnType) -> Type* {
+  if (returnType == nullptr) {
+    return nullptr;
+  }
+  if (returnType->is(BaseType::TY_PTR)) {
+    return returnType;
+  }
+  if (returnType->is(BaseType::TY_CLASS) || returnType->is(BaseType::TY_TRAIT_EXISTENTIAL)) {
+    return cacheType(std::make_unique<Type>(BaseType::TY_PTR, nullptr, returnType));
+  }
+  return returnType;
 }
 
 auto Typechecker::resolveType(const TypeExpr* node) -> Type* {
@@ -917,7 +973,7 @@ auto Typechecker::resolveType(const TypeExpr* node) -> Type* {
   }
   if (node->getType() == TokenType::FUNC_TYPE) {
     node->getReturnType()->accept(*this);
-    Type* retType = result->getType();
+    Type* retType = wrapReturnTypeIfNominal(result->getType());
     std::vector<std::unique_ptr<Field>> fields;
     for (TypeExpr* param : node->getParams()) {
       param->accept(*this);
@@ -975,11 +1031,28 @@ auto Typechecker::resolveType(const TypeExpr* node) -> Type* {
       sym = scope->lookup(lookupName);
     }
     node->setResolvedSymbol(sym);
-    Type* resolvedType = sym != nullptr ? sym->getType() : typ;
+    Type* resolvedType = nullptr;
+    if (typ != nullptr) {
+      resolvedType = typ;
+    } else if (sym != nullptr) {
+      resolvedType = sym->getType();
+    }
     if (resolvedFromImport) {
       resolvedType = materializeImportedType(resolvedType);
     }
     if (explicitTypeArgs.empty()) {
+      return resolvedType;
+    }
+    if (resolvedType != nullptr && resolvedType->is(BaseType::TY_TRAIT_EXISTENTIAL)) {
+      auto trIt = traitRegistry.find(lookupName);
+      if (trIt == traitRegistry.end()) {
+        throw TypeCheckError(node->getSpan(), "Unknown trait '{}'", lookupName);
+      }
+      const auto& traitGen = trIt->second->getGenericParamDecls();
+      if (traitGen.size() != explicitTypeArgs.size()) {
+        throw TypeCheckError(node->getSpan(), "Trait {} expects {} type argument(s), got {}",
+                             lookupName, traitGen.size(), explicitTypeArgs.size());
+      }
       return resolvedType;
     }
     if (resolvedType == nullptr || !resolvedType->is(BaseType::TY_CLASS)) {
@@ -1113,9 +1186,21 @@ auto Typechecker::run(const Compound* ast) -> void {
       std::filesystem::absolute(std::filesystem::path(getStdDir()) / "base.les").lexically_normal();
   const auto listPath =
       std::filesystem::absolute(std::filesystem::path(getStdDir()) / "list.les").lexically_normal();
-  if (currentPath != basePath && currentPath != listPath) {
+  // Use equivalent() so different spellings of the same file (symlinks, CWD) still skip implicit
+  // std when compiling base.les / list.les as the main file — avoids pre-registering traits then
+  // re-declaring them from a second parse ("Duplicate trait").
+  bool loadImplicitStd = true;
+  if (!mainFilePath.empty()) {
+    std::error_code ec;
+    if (std::filesystem::equivalent(currentPath, basePath, ec) ||
+        std::filesystem::equivalent(currentPath, listPath, ec)) {
+      loadImplicitStd = false;
+    }
+  }
+  if (loadImplicitStd) {
     loadImplicitStdModule("base.les");
     loadImplicitStdModule("list.les");
+    registerTraitsFromImportedModule(listPath.string());
   }
   declarationPass = true;
   ast->accept(*this);
@@ -1224,23 +1309,11 @@ auto Typechecker::visit(const ForIn* node) -> void {
     }
     return t;
   };
-  auto isStdListClassType = [this, peelPtr](Type* type) -> bool {
+  auto getBufferIterableArrayFieldType = [this, peelPtr](Type* type) -> Type* {
     Type* t = peelPtr(type);
-    if (t == nullptr || !t->is(BaseType::TY_CLASS)) {
-      return false;
-    }
-    Type* baseType = t;
-    if (auto it = specializedTypeToTemplate.find(t); it != specializedTypeToTemplate.end()) {
-      baseType = it->second;
-    }
-    const std::string& displayName = baseType->getDisplayName();
-    return displayName == "list<T>" || displayName == "list";
-  };
-  auto getStdListBufferType = [peelPtr, &isStdListClassType](Type* type) -> Type* {
-    if (!isStdListClassType(type)) {
+    if (t == nullptr || !t->is(BaseType::TY_CLASS) || !classDeclaresTrait(t, "Iterable")) {
       return nullptr;
     }
-    Type* t = peelPtr(type);
     auto fields = t->getFields();
     if (fields.empty() || fields.front()->type == nullptr ||
         !fields.front()->type->is(BaseType::TY_ARRAY)) {
@@ -1251,14 +1324,15 @@ auto Typechecker::visit(const ForIn* node) -> void {
   if (iterableType != nullptr && iterableType->is(BaseType::TY_ARRAY) &&
       iterableType->getElementType() != nullptr) {
     loopVarType = iterableType->getElementType();
-  } else if (Type* bufferType = getStdListBufferType(iterableType);
+  } else if (Type* bufferType = getBufferIterableArrayFieldType(iterableType);
              bufferType != nullptr && bufferType->getElementType() != nullptr) {
     loopVarType = bufferType->getElementType();
   } else {
     Type* iteratorType = resolveMethodReturnType(iterableType, "iter", {}, node->getSpan());
     if (iteratorType == nullptr) {
       throw TypeCheckError(node->getIterable()->getSpan(),
-                           "For-in requires list<T> or iter()/has_next()/next() protocol, got {}",
+                           "For-in requires an array type, Iterable with __buffer-backed first field, "
+                           "or iter() returning Iterator (has_next/next), got {}",
                            iterableType != nullptr ? iterableType->toString() : "unknown");
     }
     Type* hasNextType = resolveMethodReturnType(iteratorType, "has_next", {}, node->getSpan());
@@ -1316,7 +1390,8 @@ auto Typechecker::registerTraitsFromImportedModule(const std::string& absolutePa
         }
         for (FuncDecl* req : tr->getRequirements()) {
           req->getReturnType()->accept(*this);
-          traitMethodReturnTypes[tr->getIdentifier()][req->getName()] = result->getType();
+          traitMethodReturnTypes[tr->getIdentifier()][req->getName()] =
+              wrapReturnTypeIfNominal(result->getType());
         }
         currentGenericTypes = std::move(savedImpTraitG);
       }
@@ -1518,7 +1593,7 @@ auto Typechecker::visit(const FuncDecl* node) -> void {
   insertGenericParamSymbols(genericsScope, node->getGenericParamDecls(), currentGenericTypes,
                             mainFilePath);
   node->getReturnType()->accept(*this);
-  Type* returnType = result->getType();
+  Type* returnType = wrapReturnTypeIfNominal(result->getType());
   std::vector<std::unique_ptr<Field>> paramFields;
   std::vector<Type*> paramTypes;
   if (currentClassType != nullptr) {
@@ -1665,7 +1740,7 @@ auto Typechecker::visit(const ExternFuncDecl* node) -> void {
   insertGenericParamSymbols(genericsScope, node->getGenericParamDecls(), currentGenericTypes,
                             mainFilePath);
   node->getReturnType()->accept(*this);
-  Type* returnType = result->getType();
+  Type* returnType = wrapReturnTypeIfNominal(result->getType());
   std::vector<std::unique_ptr<Field>> paramFields;
   std::vector<Type*> paramTypes;
   for (Parameter* param : node->getParameters()) {
@@ -2013,6 +2088,54 @@ auto Typechecker::visit(const FuncCall* node) -> void {
       if (sym->getType()->is(BaseType::TY_CLASS)) {
         Type* classType =
             importedScope != nullptr ? materializeImportedType(sym->getType()) : sym->getType();
+        // Imported generic classes (e.g. std list) are looked up here; explicit type args like
+        // list<int>() must specialize even when the constructor has no value arguments.
+        if (!node->getExplicitTypeArgs().empty()) {
+          const std::vector<std::string>& genericParamNames = getDeclaredGenericParams(classType);
+          std::vector<Type*> explicitTypes;
+          for (TypeExpr* texpr : node->getExplicitTypeArgs()) {
+            texpr->accept(*this);
+            explicitTypes.push_back(result->getType());
+          }
+          if (explicitTypes.size() != genericParamNames.size()) {
+            throw TypeCheckError(node->getSpan(),
+                                 "Explicit type argument count {} does not match "
+                                 "generic class parameter count {}",
+                                 explicitTypes.size(), genericParamNames.size());
+          }
+          std::unordered_map<std::string, Type*> env;
+          for (size_t i = 0; i < genericParamNames.size(); ++i) {
+            env[genericParamNames[i]] = explicitTypes[i];
+          }
+          if (!argTypes.empty()) {
+            Type* ptrToClass =
+                cacheType(std::make_unique<Type>(BaseType::TY_PTR, nullptr, classType));
+            std::vector<Type*> constructorParamTypes = {ptrToClass};
+            constructorParamTypes.insert(constructorParamTypes.end(), argTypes.begin(),
+                                         argTypes.end());
+            Value* constructor = importedScope != nullptr
+                                     ? importedScope->lookupFunction("new", constructorParamTypes)
+                                     : scope->lookupFunction("new", constructorParamTypes);
+            if (constructor == nullptr) {
+              throw TypeCheckError(node->getSpan(),
+                                   "Constructor not found for {} with given type arguments",
+                                   node->getName());
+            }
+            auto ctorParams = constructor->getType()->getFields();
+            for (size_t i = 1; i < ctorParams.size() && i - 1 < argTypes.size(); ++i) {
+              Type* expected = substituteInType(ctorParams[i]->type, env);
+              if (expected != nullptr && !argTypes[i - 1]->isEqual(expected)) {
+                throw TypeCheckError(node->getSpan(),
+                                     "Argument type {} does not match explicit parameter type {}",
+                                     argTypes[i - 1]->toString(), expected->toString());
+              }
+            }
+          }
+          Type* specialized = getOrCreateSpecializedClassType(classType, genericParamNames, env);
+          result = std::make_unique<Value>(
+              importedScope != nullptr ? materializeImportedType(specialized) : specialized);
+          return;
+        }
         if (!node->getArguments().empty()) {
           const std::vector<std::string>& genericParamNames = getDeclaredGenericParams(classType);
           Type* ptrToClass =
@@ -2688,20 +2811,29 @@ auto Typechecker::visit(const TypeExpr* node) -> void {
 
 auto Typechecker::visit(const TraitDecl* node) -> void {
   if (declarationPass) {
-    if (traitRegistry.contains(node->getIdentifier())) {
-      throw TypeCheckError(node->getNameSpan(), "Duplicate trait '{}'", node->getIdentifier());
+    const std::string& traitName = node->getIdentifier();
+    if (traitRegistry.contains(traitName)) {
+      // registerTraitsFromImportedModule may have pre-registered stdlib traits from a cached parse;
+      // compiling that module as main uses a fresh parse — same name, not a user duplicate.
+      if (scope->lookupType(traitName) != nullptr) {
+        throw TypeCheckError(node->getNameSpan(), "Duplicate trait '{}'", traitName);
+      }
     }
-    traitRegistry[node->getIdentifier()] = node;
+    traitRegistry[traitName] = node;
 
+    if (scope->lookupType(traitName) != nullptr) {
+      return;
+    }
     {
       auto traitType = std::make_unique<Type>(BaseType::TY_TRAIT_EXISTENTIAL, nullptr);
-      traitType->setDisplayName(node->getIdentifier());
-      scope->insertType(node->getIdentifier(), std::move(traitType));
+      traitType->setDisplayName(traitName);
+      scope->insertType(traitName, std::move(traitType));
     }
-    Type* traitTypePtr = scope->lookupType(node->getIdentifier());
-    auto traitSym = std::make_unique<Value>(node->getIdentifier(), traitTypePtr);
+    Type* traitTypePtr = scope->lookupType(traitName);
+    auto traitSym = std::make_unique<Value>(traitName, traitTypePtr);
     traitSym->setCategory(ValueCategory::TYPE_SYMBOL);
     traitSym->setDeclarationKind(ValueDeclarationKind::TRAIT);
+    traitSym->setExported(node->isExported());
     traitSym->setDeclarationSpan(node->getNameSpan());
     traitSym->setDeclarationFilePath(mainFilePath);
     scope->insertSymbol(std::move(traitSym));
@@ -2717,7 +2849,8 @@ auto Typechecker::visit(const TraitDecl* node) -> void {
   traitMethodReturnTypes[node->getIdentifier()].clear();
   for (FuncDecl* req : node->getRequirements()) {
     req->getReturnType()->accept(*this);
-    traitMethodReturnTypes[node->getIdentifier()][req->getName()] = result->getType();
+    traitMethodReturnTypes[node->getIdentifier()][req->getName()] =
+        wrapReturnTypeIfNominal(result->getType());
   }
   currentGenericTypes = std::move(savedTraitGenerics);
 }
@@ -2739,7 +2872,7 @@ auto Typechecker::buildMethodFunctionType(FuncDecl* decl, Type* classType) -> Ty
     paramFields.push_back(std::make_unique<Field>(param->name, paramType));
   }
   decl->getReturnType()->accept(*this);
-  Type* returnType = result->getType();
+  Type* returnType = wrapReturnTypeIfNominal(result->getType());
   auto funcType = std::make_unique<Type>(BaseType::TY_FUNCTION, nullptr, std::move(paramFields));
   funcType->setReturnType(returnType);
   return cacheType(std::move(funcType));
@@ -2932,7 +3065,33 @@ auto Typechecker::checkTraitImplementation(const Class* classNode, Type* classTy
                              "Class {} does not implement trait method '{}' required by {}",
                              classNode->getIdentifier(), req->getName(), traitName);
       }
-      if (!methodSym->getType()->isEqual(expected)) {
+      if (traitName == "Iterable" && req->getName() == "iter") {
+        const auto& traitGenParams = trait->getGenericParamDecls();
+        if (!traitGenParams.empty()) {
+          Type* elemTy = nullptr;
+          if (auto it = currentGenericTypes.find(traitGenParams[0].name);
+              it != currentGenericTypes.end()) {
+            elemTy = it->second;
+          }
+          Type* retTy = methodSym->getType()->getReturnType();
+          Type* iterClass = retTy;
+          if (iterClass != nullptr && iterClass->is(BaseType::TY_PTR)) {
+            iterClass = iterClass->getElementType();
+          }
+          if (elemTy != nullptr && iterClass != nullptr && iterClass->is(BaseType::TY_CLASS)) {
+            Type* iterPtr = cacheType(std::make_unique<Type>(BaseType::TY_PTR, nullptr, iterClass));
+            Type* nextT =
+                resolveMethodReturnType(iterPtr, "next", {}, classNode->getNameSpan());
+            if (nextT != nullptr && !nextT->isEqual(elemTy)) {
+              throw TypeCheckError(classNode->getNameSpan(),
+                                   "Iterable: iter() must return a type whose next() matches the "
+                                   "Iterable type parameter (expected {}, got {})",
+                                   elemTy->toString(), nextT->toString());
+            }
+          }
+        }
+      }
+      if (!functionTypesMatchForTraitImpl(methodSym->getType(), expected)) {
         throw TypeCheckError(
             req->getNameSpan(),
             "Method '{}' has incompatible type for trait {}: expected {}, found {}", req->getName(),
