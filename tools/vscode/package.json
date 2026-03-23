@@ -64,6 +64,12 @@
         ]
       }
     ],
+    "configurationDefaults": {
+      "[lesma]": {
+        "editor.semanticHighlighting.enabled": false,
+        "editor.bracketPairColorization.independentColorPoolPerBracketType": true
+      }
+    },
     "commands": [
       {
         "command": "lesma.run",
