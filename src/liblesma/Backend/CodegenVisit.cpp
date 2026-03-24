@@ -2575,12 +2575,8 @@ auto Codegen::callNamedFunction(llvm::SMRange span, const std::string& functionN
       lesma::Type* formal = ff[i]->type;
       if (formal != nullptr && formal->is(BaseType::TY_TRAIT_EXISTENTIAL)) {
         lesma::Type* actual = localParamTypes[i];
-        lesma::Type* cls = actual;
         if (actual->is(BaseType::TY_PTR) && actual->getElementType() != nullptr &&
             actual->getElementType()->is(BaseType::TY_CLASS)) {
-          cls = actual->getElementType();
-        }
-        if (cls->is(BaseType::TY_CLASS)) {
           getOrCreateLlvmType(formal);
           localParamsLLVM[i] = emitBoxClassToExistential(formal, actual, localParamsLLVM[i]);
           localParamTypes[i] = formal;

@@ -439,14 +439,11 @@ auto Codegen::getOrEmitWitnessTable(lesma::Type* classType, const std::string& t
 auto Codegen::emitBoxClassToExistential(lesma::Type* existentialType,
                                         lesma::Type* classPtrLesmaType, llvm::Value* classPtrVal)
     -> llvm::Value* {
-  lesma::Type* cls = classPtrLesmaType;
-  if (cls->is(BaseType::TY_PTR) && cls->getElementType() != nullptr &&
-      cls->getElementType()->is(BaseType::TY_CLASS)) {
-    cls = cls->getElementType();
-  }
-  if (!cls->is(BaseType::TY_CLASS)) {
+  if (!classPtrLesmaType->is(BaseType::TY_PTR) || classPtrLesmaType->getElementType() == nullptr ||
+      !classPtrLesmaType->getElementType()->is(BaseType::TY_CLASS)) {
     throw CodegenError({}, "Box to existential requires class pointer");
   }
+  lesma::Type* cls = classPtrLesmaType->getElementType();
   const std::string traitName = existentialType->getDisplayName();
   llvm::GlobalVariable* wit = getOrEmitWitnessTable(cls, traitName);
   getOrCreateLlvmType(existentialType);
