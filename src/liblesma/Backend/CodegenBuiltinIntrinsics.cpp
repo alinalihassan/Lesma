@@ -290,7 +290,10 @@ auto Codegen::genListIntrinsicCall(const FuncCall* node, const std::vector<lesma
     auto* elementPtr =
         builder->CreateGEP(getListStoredElementType(listType),
                            emitListDataPtr(listType, listHandle), length, "list.push.ptr");
-    builder->CreateStore(paramsLLVM[1], elementPtr);
+    Value pushedArg("", paramTypes[1], paramsLLVM[1]);
+    builder->CreateStore(
+        getListStoredElementValue(node->getSpan(), &pushedArg, listType->getElementType()),
+        elementPtr);
     emitStoreListLength(listType, listHandle, nextLength);
     return std::make_unique<Value>(
         "", cacheType(std::make_unique<Type>(BaseType::TY_VOID, builder->getVoidTy())), nullptr);
@@ -309,7 +312,10 @@ auto Codegen::genListIntrinsicCall(const FuncCall* node, const std::vector<lesma
       throw CodegenError(node->getSpan(), "__buffer_set expects buffer, index, and value");
     }
     auto* elementPtr = emitListElementPointer(node->getSpan(), listType, listHandle, paramsLLVM[1]);
-    builder->CreateStore(paramsLLVM[2], elementPtr);
+    Value setArg("", paramTypes[2], paramsLLVM[2]);
+    builder->CreateStore(
+        getListStoredElementValue(node->getSpan(), &setArg, listType->getElementType()),
+        elementPtr);
     return std::make_unique<Value>(
         "", cacheType(std::make_unique<Type>(BaseType::TY_VOID, builder->getVoidTy())), nullptr);
   }
