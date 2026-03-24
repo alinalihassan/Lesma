@@ -280,7 +280,7 @@ auto Codegen::linkObjectFile(const std::string& objFilename) -> void {
 auto Codegen::prepareJit() -> void {
   auto jitError = theJit->addIRModule(ThreadSafeModule(std::move(theModule), *theContext));
   if (jitError) {
-    throw CodegenError({}, "JIT Error:\n{}");
+    throw CodegenError({}, "JIT Error:\n{}", llvm::toString(std::move(jitError)));
   }
   auto mainFunc = theJit->lookup(topLevelFunc->getName());
   if (!mainFunc) {

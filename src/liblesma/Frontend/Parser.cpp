@@ -669,6 +669,12 @@ auto Parser::parseContinue() -> std::unique_ptr<Statement> {
   return std::make_unique<Continue>(span);
 }
 
+auto Parser::parsePass() -> std::unique_ptr<Statement> {
+  auto span = consume(TokenType::PASS)->span;
+  consumeNewline();
+  return std::make_unique<Pass>(span);
+}
+
 auto Parser::parseReturn() -> std::unique_ptr<Statement> {
   auto loc = peek()->span;
   consume(TokenType::RETURN);
@@ -732,6 +738,9 @@ auto Parser::parseStatement(bool isTopLevel) -> std::unique_ptr<Statement> {
   }
   if (check(TokenType::CONTINUE)) {
     return parseContinue();
+  }
+  if (check(TokenType::PASS)) {
+    return parsePass();
   }
   if (check(TokenType::RETURN)) {
     return parseReturn();

@@ -1,0 +1,19 @@
+# `pass` is a no-op statement (Python-style); valid as sole body in class, if, def, etc.
+pass
+
+class C
+    def new()
+        pass
+    def noop()
+        pass
+
+def noop_fn()
+    pass
+
+if true
+    pass
+else
+    pass
+
+var c = C()
+noop_fn()

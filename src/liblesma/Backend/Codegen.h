@@ -170,6 +170,7 @@ protected:
   auto visit(const Assignment* node) -> void override;
   auto visit(const Break* node) -> void override;
   auto visit(const Continue* node) -> void override;
+  auto visit(const Pass* node) -> void override;
   auto visit(const Return* node) -> void override;
   auto visit(const Defer* node) -> void override;
   auto visit(const UnimplementedStatement* node) -> void override;

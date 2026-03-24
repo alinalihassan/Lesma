@@ -2381,6 +2381,8 @@ auto Typechecker::visit(const Break* node) -> void {
 
 auto Typechecker::visit(const Continue* node) -> void { (void) node; }
 
+auto Typechecker::visit(const Pass* node) -> void { (void) node; }
+
 auto Typechecker::visit(const Return* node) -> void {
   if (currentFunction == nullptr) {
     throw TypeCheckError(node->getSpan(), "Return not allowed outside function");
@@ -3065,9 +3067,28 @@ auto Typechecker::visit(const DotOp* node) -> void {
         }
       }
     }
+    std::unordered_map<std::string, Type*> traitBoundSubs = methodTypeEnv;
+    if (fc->getExplicitTypeArgs().empty()) {
+      const auto& methodGenericNames = methodType->getGenericParams();
+      if (!methodGenericNames.empty()) {
+        std::unordered_map<std::string, Type*> extraInferred;
+        auto fields = methodType->getFields();
+        for (size_t i = 0; i < fields.size() && i < methodArgTypes.size(); ++i) {
+          inferGenericBindings(fields[i]->type, methodArgTypes[i], extraInferred, node->getSpan());
+        }
+        for (const auto& kv : extraInferred) {
+          if (std::find(methodGenericNames.begin(), methodGenericNames.end(), kv.first) ==
+              methodGenericNames.end()) {
+            continue;
+          }
+          traitBoundSubs[kv.first] = kv.second;
+        }
+      }
+    }
+    verifyGenericTraitBounds(method, traitBoundSubs, node->getSpan());
     Type* retType = methodType->getReturnType();
-    if (!methodTypeEnv.empty() && retType != nullptr) {
-      retType = substituteInType(retType, methodTypeEnv);
+    if (!traitBoundSubs.empty() && retType != nullptr) {
+      retType = substituteInType(retType, traitBoundSubs);
     }
     result = std::make_unique<Value>(retType);
     return;

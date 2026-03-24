@@ -978,6 +978,21 @@ public:
   }
 };
 
+/** No-op statement (Python-style); valid wherever a statement is allowed. */
+class Pass : public Statement {
+public:
+  explicit Pass(llvm::SMRange loc) : Statement(loc) {}
+  void accept(ASTVisitor& visitor) const override { visitor.visit(this); }
+
+  auto toString(llvm::SourceMgr* srcMgr, const std::string& prefix, bool isTail) const
+      -> std::string override {
+    return fmt::format(
+        "{}{}Pass[Line({}-{}):Col({}-{})]:\n", prefix, isTail ? "└──" : "├──",
+        srcMgr->getLineAndColumn(getStart()).first, srcMgr->getLineAndColumn(getEnd()).first,
+        srcMgr->getLineAndColumn(getStart()).second, srcMgr->getLineAndColumn(getEnd()).second);
+  }
+};
+
 class Return : public Statement {
   std::unique_ptr<Expression> value;
 

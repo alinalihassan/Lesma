@@ -101,6 +101,7 @@ enum class TokenType : std::uint8_t {
   WHILE,
   BREAK,
   CONTINUE,
+  PASS,
   DEFER,
   AS,
   IS,

@@ -643,10 +643,10 @@ void appendScopeSymbols(SymbolTable* scope, SymbolTable* root,
 }
 
 void appendKeywords(std::vector<CompletionCandidate>& out, std::unordered_set<std::string>& seen) {
-  static constexpr std::array<std::string_view, 25> keywords = {
+  static constexpr std::array<std::string_view, 26> keywords = {
       "and",    "as",     "break",  "class", "continue", "def",    "defer", "else", "enum",
       "export", "extern", "for",    "from",  "if",       "import", "in",    "is",   "let",
-      "not",    "or",     "return", "super", "this",     "var",    "while",
+      "not",    "or",     "pass",   "return", "super",   "this",   "var",   "while",
   };
   static constexpr std::array<std::string_view, 3> literals = {"false", "null", "true"};
   static constexpr std::array<std::string_view, 11> builtinTypes = {

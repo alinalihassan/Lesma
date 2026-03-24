@@ -46,6 +46,7 @@ static const std::unordered_map<std::string_view, TokenType> KEYWORDS = {
     {"while", TokenType::WHILE},
     {"break", TokenType::BREAK},
     {"continue", TokenType::CONTINUE},
+    {"pass", TokenType::PASS},
     {"super", TokenType::SUPER},
     {"extern", TokenType::EXTERN},
     {"export", TokenType::EXPORT},

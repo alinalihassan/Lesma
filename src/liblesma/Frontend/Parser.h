@@ -94,6 +94,7 @@ private:
   auto parseAssignment() -> std::unique_ptr<Statement>;
   auto parseBreak() -> std::unique_ptr<Statement>;
   auto parseContinue() -> std::unique_ptr<Statement>;
+  auto parsePass() -> std::unique_ptr<Statement>;
   auto parseReturn() -> std::unique_ptr<Statement>;
   auto parseDefer() -> std::unique_ptr<Statement>;
   auto parseType() -> std::unique_ptr<TypeExpr>;

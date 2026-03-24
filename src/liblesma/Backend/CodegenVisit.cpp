@@ -1090,6 +1090,8 @@ auto Codegen::visit(const Continue* node) -> void {
   builder->CreateBr(block);
 }
 
+auto Codegen::visit(const Pass* node) -> void { (void) node; }
+
 auto Codegen::visit(const Return* node) -> void {
   // Check if it's top-level
   if (builder->GetInsertBlock()->getParent() == topLevelFunc) {

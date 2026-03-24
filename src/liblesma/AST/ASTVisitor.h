@@ -17,6 +17,7 @@ class Assignment;
 class ExpressionStatement;
 class Break;
 class Continue;
+class Pass;
 class Return;
 class Defer;
 class UnimplementedStatement;
@@ -56,6 +57,7 @@ public:
   virtual auto visit(const ExpressionStatement* node) -> void = 0;
   virtual auto visit(const Break* node) -> void = 0;
   virtual auto visit(const Continue* node) -> void = 0;
+  virtual auto visit(const Pass* node) -> void = 0;
   virtual auto visit(const Return* node) -> void = 0;
   virtual auto visit(const Defer* node) -> void = 0;
   virtual auto visit(const UnimplementedStatement* node) -> void = 0;
