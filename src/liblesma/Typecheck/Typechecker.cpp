@@ -1214,6 +1214,22 @@ auto Typechecker::isAssignableTo(Type* from, Type* to) -> bool {
     }
     return false;
   }
+  if (from->is(BaseType::TY_TUPLE) && to->is(BaseType::TY_TUPLE)) {
+    std::vector<Field*> const fromFields = from->getFields();
+    std::vector<Field*> const toFields = to->getFields();
+    if (fromFields.size() != toFields.size()) {
+      return false;
+    }
+    for (size_t i = 0; i < fromFields.size(); ++i) {
+      if (toFields[i]->type == nullptr) {
+        continue;
+      }
+      if (fromFields[i]->type == nullptr || !isAssignableTo(fromFields[i]->type, toFields[i]->type)) {
+        return false;
+      }
+    }
+    return true;
+  }
   return false;
 }
 
@@ -3457,9 +3473,27 @@ auto Typechecker::visit(const TupleLiteral* node) -> void {
   auto tup = std::make_unique<Type>(BaseType::TY_TUPLE, nullptr, std::move(fields));
   tup->setDisplayName(displayName);
   Type* cached = cacheType(std::move(tup));
-  if (expectedType != nullptr && !cached->isEqual(expectedType)) {
-    throw TypeCheckError(node->getSpan(), "Tuple literal type {} is not compatible with expected {}",
-                         cached->toString(), expectedType->toString());
+  if (expectedType != nullptr) {
+    if (expectedType->is(BaseType::TY_TUPLE)) {
+      std::vector<Field*> const expFields = expectedType->getFields();
+      if (expFields.size() != elemTypes.size()) {
+        throw TypeCheckError(node->getSpan(), "Tuple literal type {} is not compatible with expected {}",
+                             cached->toString(), expectedType->toString());
+      }
+      for (size_t i = 0; i < elemTypes.size(); ++i) {
+        Type* toElem = expFields[i]->type;
+        if (toElem == nullptr) {
+          continue;
+        }
+        if (!isAssignableTo(elemTypes[i], toElem)) {
+          throw TypeCheckError(els[i]->getSpan(), "Tuple element type {} is not assignable to {}",
+                               elemTypes[i]->toString(), toElem->toString());
+        }
+      }
+    } else if (!isAssignableTo(cached, expectedType)) {
+      throw TypeCheckError(node->getSpan(), "Tuple literal type {} is not compatible with expected {}",
+                           cached->toString(), expectedType->toString());
+    }
   }
   node->setResolvedType(cached);
   result = std::make_unique<Value>(cached);

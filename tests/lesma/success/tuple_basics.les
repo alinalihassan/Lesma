@@ -9,6 +9,9 @@ print(sumRes)
 print(mulRes)
 
 let one: (int,) = (1,)
+let floatTest: (float,) = (1,)
+if floatTest[0] < 0.99 or floatTest[0] > 1.01
+    exit(1)
 print(one[0])
 
 def local_pair(a: int, b: int) -> (int, int)
