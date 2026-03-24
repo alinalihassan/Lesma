@@ -22,7 +22,8 @@ using namespace llvm;
 
 auto Codegen::bindGenericsFromTypePair(const TypeExpr* declared, lesma::Type* actual,
                                        const std::unordered_set<std::string>& genericNameSet,
-                                       std::unordered_map<std::string, lesma::Type*>& env) -> void {
+                                       std::unordered_map<std::string, lesma::Type*>& env,
+                                       bool* bindingConflict) -> void {
   if (declared == nullptr || actual == nullptr) {
     return;
   }
@@ -61,7 +62,7 @@ auto Codegen::bindGenericsFromTypePair(const TypeExpr* declared, lesma::Type* ac
                 if (auto concreteIt = envIt->second.find(templateGenericParams[i]);
                     concreteIt != envIt->second.end() && concreteIt->second != nullptr) {
                   bindGenericsFromTypePair(declTypeArgs[i], concreteIt->second, genericNameSet,
-                                           env);
+                                           env, bindingConflict);
                 }
               }
               return;
@@ -70,7 +71,13 @@ auto Codegen::bindGenericsFromTypePair(const TypeExpr* declared, lesma::Type* ac
         }
       }
     }
-    if (genericNameSet.contains(name) && !env.contains(name)) {
+    if (genericNameSet.contains(name)) {
+      if (env.contains(name)) {
+        if (bindingConflict != nullptr && actual != nullptr && !env[name]->isEqual(actual)) {
+          *bindingConflict = true;
+        }
+        return;
+      }
       env[name] = actual;
       return;
     }
@@ -78,7 +85,7 @@ auto Codegen::bindGenericsFromTypePair(const TypeExpr* declared, lesma::Type* ac
         actual->getElementType() != nullptr) {
       if (declTypeArgs.size() == 1U) {
         bindGenericsFromTypePair(declTypeArgs.front(), actual->getElementType(), genericNameSet,
-                                 env);
+                                 env, bindingConflict);
       }
     }
     return;
@@ -86,18 +93,19 @@ auto Codegen::bindGenericsFromTypePair(const TypeExpr* declared, lesma::Type* ac
   if (declared->getType() == TokenType::PTR_TYPE && actual->is(BaseType::TY_PTR) &&
       declared->getElementType() != nullptr && actual->getElementType() != nullptr) {
     bindGenericsFromTypePair(declared->getElementType(), actual->getElementType(), genericNameSet,
-                             env);
+                             env, bindingConflict);
     return;
   }
   if (declared->getType() == TokenType::FUNC_TYPE && actual->is(BaseType::TY_FUNCTION)) {
     if (declared->getReturnType() != nullptr && actual->getReturnType() != nullptr) {
       bindGenericsFromTypePair(declared->getReturnType(), actual->getReturnType(), genericNameSet,
-                               env);
+                               env, bindingConflict);
     }
     auto declParams = declared->getParams();
     auto actualFields = actual->getFields();
     for (size_t i = 0; i < declParams.size() && i < actualFields.size(); ++i) {
-      bindGenericsFromTypePair(declParams[i], actualFields[i]->type, genericNameSet, env);
+      bindGenericsFromTypePair(declParams[i], actualFields[i]->type, genericNameSet, env,
+                               bindingConflict);
     }
   }
 }
@@ -269,7 +277,45 @@ auto Codegen::specializeClass(const Class* node,
     }
   }
   std::unordered_set<std::string> genericNameSet(genericNames.begin(), genericNames.end());
-  if (constructorDecl != nullptr) {
+  const bool needsConstructorInference = explicitTypeArgs.empty();
+  bool constructorEnvResolved = false;
+  if (needsConstructorInference && constructorDecl != nullptr) {
+    for (auto* method : node->getMethods()) {
+      if (method->getName() != "new") {
+        continue;
+      }
+      const auto& params = method->getParameters();
+      if (params.size() != constructorArgTypes.size()) {
+        continue;
+      }
+      std::unordered_map<std::string, lesma::Type*> trialEnv = env;
+      bool bindingConflict = false;
+      for (size_t i = 0; i < params.size(); ++i) {
+        TypeExpr* declType = params[i]->type.get();
+        if (declType != nullptr) {
+          bindGenericsFromTypePair(declType, constructorArgTypes[i], genericNameSet, trialEnv,
+                                   &bindingConflict);
+        }
+      }
+      if (bindingConflict) {
+        continue;
+      }
+      bool allGenericsBound = true;
+      for (const auto& gn : genericNames) {
+        if (!trialEnv.contains(gn)) {
+          allGenericsBound = false;
+          break;
+        }
+      }
+      if (allGenericsBound) {
+        env = std::move(trialEnv);
+        constructorDecl = method;
+        constructorEnvResolved = true;
+        break;
+      }
+    }
+  }
+  if (!constructorEnvResolved && needsConstructorInference && constructorDecl != nullptr) {
     auto params = constructorDecl->getParameters();
     for (size_t i = 0; i < params.size() && i < constructorArgTypes.size(); ++i) {
       TypeExpr* declType = params[i]->type.get();
