@@ -1,5 +1,3 @@
-#include "Codegen.h"
-
 #include <string>
 #include <vector>
 
@@ -8,6 +6,7 @@
 #include <llvm/IR/GlobalValue.h>
 #include <llvm/Support/Casting.h>
 
+#include "Codegen.h"
 #include <nameof.hpp>
 
 #include "liblesma/AST/AST.h"
@@ -17,6 +16,18 @@
 #include "liblesma/Symbol/TypeUtils.h"
 #include "liblesma/Symbol/Value.h"
 #include "liblesma/Token/TokenType.h"
+
+namespace {
+
+// `Iterator<int>` -> `Iterator` for trait registry / witness metadata keyed by trait identifier.
+auto traitExistentialBaseName(const std::string& displayName) -> std::string {
+  if (const auto pos = displayName.find('<'); pos != std::string::npos) {
+    return displayName.substr(0U, pos);
+  }
+  return displayName;
+}
+
+} // namespace
 
 using namespace lesma;
 using namespace llvm;
@@ -404,11 +415,12 @@ auto Codegen::getOrEmitWitnessTable(lesma::Type* classType, const std::string& t
   if (auto it = witnessGlobalCache.find(cacheKey); it != witnessGlobalCache.end()) {
     return it->second;
   }
-  const TraitDecl* tr = traitDeclByName[traitName];
+  const std::string baseTraitName = traitExistentialBaseName(traitName);
+  const TraitDecl* tr = traitDeclByName[baseTraitName];
   if (tr == nullptr) {
     throw CodegenError({}, "Codegen: unknown trait {}", traitName);
   }
-  auto ordIt = traitRequirementMethodOrder.find(traitName);
+  auto ordIt = traitRequirementMethodOrder.find(baseTraitName);
   if (ordIt == traitRequirementMethodOrder.end()) {
     throw CodegenError({}, "Codegen: trait {} has no requirement order", traitName);
   }
@@ -471,10 +483,11 @@ auto Codegen::callExistentialMethod(llvm::SMRange span, lesma::Value* receiver,
   if (!receiverType->is(BaseType::TY_TRAIT_EXISTENTIAL)) {
     throw CodegenError(span, "Expected trait existential receiver for dynamic dispatch");
   }
-  const std::string& traitName = receiverType->getDisplayName();
-  auto ordIt = traitRequirementMethodOrder.find(traitName);
+  const std::string receiverDisplay = receiverType->getDisplayName();
+  const std::string baseTraitName = traitExistentialBaseName(receiverDisplay);
+  auto ordIt = traitRequirementMethodOrder.find(baseTraitName);
   if (ordIt == traitRequirementMethodOrder.end()) {
-    throw CodegenError(span, "Trait {} has no codegen metadata", traitName);
+    throw CodegenError(span, "Trait {} has no codegen metadata", receiverDisplay);
   }
   const auto& order = ordIt->second;
   size_t idx = static_cast<size_t>(-1);
@@ -485,12 +498,12 @@ auto Codegen::callExistentialMethod(llvm::SMRange span, lesma::Value* receiver,
     }
   }
   if (idx == static_cast<size_t>(-1)) {
-    throw CodegenError(span, "Method {} not in trait {}", methodName, traitName);
+    throw CodegenError(span, "Method {} not in trait {}", methodName, receiverDisplay);
   }
-  const TraitDecl* tr = traitDeclByName[traitName];
+  const TraitDecl* tr = traitDeclByName[baseTraitName];
   const FuncDecl* req = findTraitRequirement(tr, methodName);
   if (req == nullptr) {
-    throw CodegenError(span, "Trait {} missing requirement {}", traitName, methodName);
+    throw CodegenError(span, "Trait {} missing requirement {}", receiverDisplay, methodName);
   }
 
   llvm::Value* payload = builder->CreateExtractValue(fatVal, 0U);
@@ -503,17 +516,36 @@ auto Codegen::callExistentialMethod(llvm::SMRange span, lesma::Value* receiver,
 
   llvm::SmallVector<llvm::Type*, 8> tparams;
   tparams.push_back(ptrTy);
-  for (Parameter* p : req->getParameters()) {
-    if (p->type != nullptr) {
-      p->type->accept(*this);
-      lesma::Type* pt = result->getType();
-      getOrCreateLlvmType(pt);
-      tparams.push_back(pt->getLlvmType());
+  auto savedGenerics = currentGenericTypes;
+  if (auto clsEnvIt = specializedClassTypeEnvs.find(receiverType);
+      clsEnvIt != specializedClassTypeEnvs.end()) {
+    currentGenericTypes = clsEnvIt->second;
+  } else {
+    for (const auto& entry : specializedClassTypeEnvs) {
+      if (entry.first != nullptr && entry.first->isEqual(receiverType)) {
+        currentGenericTypes = entry.second;
+        break;
+      }
     }
   }
-  req->getReturnType()->accept(*this);
-  lesma::Type* retLesma = result->getType();
-  getOrCreateLlvmType(retLesma);
+  lesma::Type* retLesma = nullptr;
+  try {
+    for (Parameter* p : req->getParameters()) {
+      if (p->type != nullptr) {
+        p->type->accept(*this);
+        lesma::Type* pt = result->getType();
+        getOrCreateLlvmType(pt);
+        tparams.push_back(pt->getLlvmType());
+      }
+    }
+    req->getReturnType()->accept(*this);
+    retLesma = result->getType();
+    getOrCreateLlvmType(retLesma);
+  } catch (...) {
+    currentGenericTypes = std::move(savedGenerics);
+    throw;
+  }
+  currentGenericTypes = std::move(savedGenerics);
   llvm::Type* llvmRet = retLesma->getLlvmType();
   llvm::FunctionType* callTy = llvm::FunctionType::get(llvmRet, tparams, false);
   llvm::SmallVector<llvm::Value*, 8> callArgs;

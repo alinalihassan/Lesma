@@ -52,7 +52,8 @@ auto traitExistentialBaseName(const std::string& displayName) -> std::string {
   return displayName;
 }
 
-/** Same argument list identity as `SymbolTable::lookupFunction(name, paramTypes)` (self + params). */
+/** Same argument list identity as `SymbolTable::lookupFunction(name, paramTypes)` (self + params).
+ */
 auto methodLookupSignatureKey(const std::string& name, const std::vector<Type*>& lookupArgs)
     -> std::string {
   std::string key;
@@ -891,12 +892,12 @@ auto Typechecker::getOrCreateSpecializedClassType(Type* classTemplate,
   if (it != specializedClassTypes.end()) {
     return it->second;
   }
-  const bool templateIncomplete =
-      classTemplateBeingDeclared != nullptr && classTemplate == classTemplateBeingDeclared &&
-      classTemplate->getFields().size() < classFieldCountExpected;
+  const bool templateIncomplete = classTemplateBeingDeclared != nullptr &&
+                                  classTemplate == classTemplateBeingDeclared &&
+                                  classTemplate->getFields().size() < classFieldCountExpected;
   if (templateIncomplete) {
-    auto specialized = std::make_unique<Type>(BaseType::TY_CLASS, nullptr,
-                                              std::vector<std::unique_ptr<Field>>{});
+    auto specialized =
+        std::make_unique<Type>(BaseType::TY_CLASS, nullptr, std::vector<std::unique_ptr<Field>>{});
     Type* ptr = cacheType(std::move(specialized));
     specializedClassTypes[keyStr] = ptr;
     specializedTypeEnv[ptr] = env;
@@ -910,8 +911,8 @@ auto Typechecker::getOrCreateSpecializedClassType(Type* classTemplate,
   }
   // Cache an empty specialization before substituting fields so recursive references (e.g. *Node<T>
   // to Node<T>) hit specializedClassTypes and do not recurse infinitely in substituteInType.
-  auto specializedShell = std::make_unique<Type>(BaseType::TY_CLASS, nullptr,
-                                                 std::vector<std::unique_ptr<Field>>{});
+  auto specializedShell =
+      std::make_unique<Type>(BaseType::TY_CLASS, nullptr, std::vector<std::unique_ptr<Field>>{});
   Type* ptr = cacheType(std::move(specializedShell));
   specializedClassTypes[keyStr] = ptr;
   specializedTypeEnv[ptr] = env;
@@ -1569,7 +1570,12 @@ auto Typechecker::takeTypeCache() -> std::vector<std::unique_ptr<Type>> {
 
 auto Typechecker::takeSpecializedTypeEnv()
     -> std::unordered_map<Type*, std::unordered_map<std::string, Type*>> {
-  return std::move(specializedTypeEnv);
+  auto result = std::move(specializedTypeEnv);
+  for (auto& [ty, env] : specializedTraitExistentialEnv) {
+    result.insert_or_assign(ty, std::move(env));
+  }
+  specializedTraitExistentialEnv.clear();
+  return result;
 }
 
 auto Typechecker::takeImportAliasToPath() -> ImportAliasMap { return std::move(importAliasToPath); }
@@ -1857,9 +1863,10 @@ auto Typechecker::visit(const Class* node) -> void {
       throw TypeCheckError(node->getNameSpan(), "Duplicate class definition: {}",
                            node->getIdentifier());
     }
-    auto stub = std::make_unique<Type>(BaseType::TY_CLASS, nullptr,
-                                         std::vector<std::unique_ptr<Field>>{});
-    stub->setDisplayName(node->getIdentifier() + makeGenericDisplaySuffix(node->getGenericParams()));
+    auto stub =
+        std::make_unique<Type>(BaseType::TY_CLASS, nullptr, std::vector<std::unique_ptr<Field>>{});
+    stub->setDisplayName(node->getIdentifier() +
+                         makeGenericDisplaySuffix(node->getGenericParams()));
     stub->setDeclarationSpan(node->getNameSpan());
     stub->setDeclarationFilePath(mainFilePath);
     stub->setGenericParams(node->getGenericParams());
@@ -3092,8 +3099,7 @@ auto Typechecker::visit(const UnaryOp* node) -> void {
       result = std::make_unique<Value>(operand);
       break;
     }
-    if (operand == nullptr ||
-        (!operand->is(BaseType::TY_INT) && !operand->isFloatingPoint())) {
+    if (operand == nullptr || (!operand->is(BaseType::TY_INT) && !operand->isFloatingPoint())) {
       if (Type* overloadedType = tryOverload(); overloadedType != nullptr) {
         result = std::make_unique<Value>(overloadedType);
         break;

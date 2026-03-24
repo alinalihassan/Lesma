@@ -61,9 +61,11 @@ class Typechecker final : public ASTVisitor {
   /** For each specialized class type, the template class type it was created
    * from. */
   std::unordered_map<Type*, Type*> specializedTypeToTemplate;
-  /** While visiting a class declaration: template Type* being built (fields added incrementally). */
+  /** While visiting a class declaration: template Type* being built (fields added incrementally).
+   */
   Type* classTemplateBeingDeclared = nullptr;
-  /** Expected field count for `classTemplateBeingDeclared` (for incomplete specialization stubs). */
+  /** Expected field count for `classTemplateBeingDeclared` (for incomplete specialization stubs).
+   */
   size_t classFieldCountExpected = 0;
   /** Specialized trait existentials: key = trait name + concrete type strings (see
    * getOrCreateSpecializedTraitExistentialType). */
@@ -108,7 +110,8 @@ class Typechecker final : public ASTVisitor {
   auto getOrCreateSpecializedClassType(Type* classTemplate,
                                        const std::vector<std::string>& genericParamNames,
                                        const std::unordered_map<std::string, Type*>& env) -> Type*;
-  /** After all template fields exist, fill in placeholder specialized types created mid-declaration. */
+  /** After all template fields exist, fill in placeholder specialized types created
+   * mid-declaration. */
   void finalizeSpecializedTypesForTemplate(Type* classTemplate);
   /** Existential trait type with explicit type args (e.g. Iterator<int>). */
   auto getOrCreateSpecializedTraitExistentialType(Type* traitTemplate,
@@ -194,7 +197,7 @@ public:
   /** Take ownership of the type cache built during typecheck (call after
    * run()). */
   auto takeTypeCache() -> std::vector<std::unique_ptr<Type>>;
-  /** Per-specialized-class generic bindings (e.g. T -> int for list<int>), for codegen. */
+  /** Per-specialized-class and trait-existential generic bindings (e.g. T -> int), for codegen. */
   auto takeSpecializedTypeEnv()
       -> std::unordered_map<Type*, std::unordered_map<std::string, Type*>>;
   auto takeImportAliasToPath() -> ImportAliasMap;
