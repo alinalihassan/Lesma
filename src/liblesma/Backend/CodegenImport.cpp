@@ -190,9 +190,14 @@ auto Codegen::compileModule(llvm::SMRange span, const std::string& filepath, boo
   if (it != importedModules->end()) {
     auto existingIdx = static_cast<size_t>(it - importedModules->begin());
     SymbolTable* existingScope = importedScopes->at(existingIdx).get();
-    if (existingIdx < importedCodegens.size() && importedCodegens[existingIdx] != nullptr) {
-      mergeImportedTraitMetadata(*importedCodegens[existingIdx]);
-      mergeImportedSpecializationState(*importedCodegens[existingIdx]);
+    // importedCodegens is per-Codegen; shared importedModules may list paths compiled by an
+    // ancestor, so index must not be used to pick the matching Codegen.
+    for (const auto& cg : importedCodegens) {
+      if (cg != nullptr && cg->filename == absolutePath) {
+        mergeImportedTraitMetadata(*cg);
+        mergeImportedSpecializationState(*cg);
+        break;
+      }
     }
     insertImportAlias(moduleAlias, importToScope);
     exposeImportedSymbols(span, existingScope, importAll, importToScope, importedNames);
