@@ -167,7 +167,6 @@ auto selectBestFunctionTypeMatchImpl(const std::vector<Type*>& candidateFunction
                                      const std::vector<Type*>& paramTypes) -> Type* {
   Type* bestCandidate = nullptr;
   std::vector<int> bestRanks;
-  bool bestHasValue = false;
 
   for (Type* funcTy : candidateFunctionTypes) {
     if (funcTy == nullptr || !funcTy->is(BaseType::TY_FUNCTION)) {
@@ -212,14 +211,10 @@ auto selectBestFunctionTypeMatchImpl(const std::vector<Type*>& candidateFunction
       continue;
     }
 
-    bool hasValue = false;
-    bool candidateWins =
-        bestCandidate == nullptr || rankVectorBetter(candidateRanks, bestRanks) ||
-        (!rankVectorBetter(bestRanks, candidateRanks) && hasValue && !bestHasValue);
+    bool candidateWins = bestCandidate == nullptr || rankVectorBetter(candidateRanks, bestRanks);
     if (candidateWins) {
       bestRanks = std::move(candidateRanks);
       bestCandidate = funcTy;
-      bestHasValue = hasValue;
     }
   }
 
@@ -230,7 +225,6 @@ auto selectBestFunctionTypeMatchTailImpl(const std::vector<Type*>& candidateFunc
                                          const std::vector<Type*>& paramTypesAfterSelf) -> Type* {
   Type* bestCandidate = nullptr;
   std::vector<int> bestRanks;
-  bool bestHasValue = false;
 
   for (Type* funcTy : candidateFunctionTypes) {
     if (funcTy == nullptr || !funcTy->is(BaseType::TY_FUNCTION)) {
@@ -281,14 +275,10 @@ auto selectBestFunctionTypeMatchTailImpl(const std::vector<Type*>& candidateFunc
       continue;
     }
 
-    bool hasValue = false;
-    bool candidateWins =
-        bestCandidate == nullptr || rankVectorBetter(candidateRanks, bestRanks) ||
-        (!rankVectorBetter(bestRanks, candidateRanks) && hasValue && !bestHasValue);
+    bool candidateWins = bestCandidate == nullptr || rankVectorBetter(candidateRanks, bestRanks);
     if (candidateWins) {
       bestRanks = std::move(candidateRanks);
       bestCandidate = funcTy;
-      bestHasValue = hasValue;
     }
   }
 
@@ -315,7 +305,6 @@ auto SymbolTable::lookupFunction(const std::string& name, std::vector<lesma::Typ
   auto range = symbols.equal_range(name);
   Value* bestCandidate = nullptr;
   std::vector<int> bestRanks;
-  bool bestHasValue = false;
 
   for (auto it = range.first; it != range.second; ++it) {
     if (!it->second->getType()->is(BaseType::TY_FUNCTION)) {
@@ -360,14 +349,10 @@ auto SymbolTable::lookupFunction(const std::string& name, std::vector<lesma::Typ
       continue;
     }
 
-    bool hasValue = (it->second->getLlvmValue() != nullptr);
-    bool candidateWins =
-        bestCandidate == nullptr || rankVectorBetter(candidateRanks, bestRanks) ||
-        (!rankVectorBetter(bestRanks, candidateRanks) && hasValue && !bestHasValue);
+    bool candidateWins = bestCandidate == nullptr || rankVectorBetter(candidateRanks, bestRanks);
     if (candidateWins) {
       bestRanks = std::move(candidateRanks);
       bestCandidate = it->second.get();
-      bestHasValue = hasValue;
     }
   }
 
