@@ -441,8 +441,26 @@ auto collectIndexFromStmt(const Statement* stmt, AnalysisIndex& index, bool inCl
     appendIndexedOccurrence(index, traitNode->getIdentifier(), std::nullopt, traitNode->getNameSpan(),
                             true, false, analysis_index_modifier::DECLARATION, IndexedTokenKind::Type,
                             traitNode->getResolvedSymbol());
+    for (const GenericParamDecl& genericParam : traitNode->getGenericParamDecls()) {
+      appendIndexedOccurrence(index, genericParam.name, std::nullopt, genericParam.span, true, false,
+                              analysis_index_modifier::DECLARATION, IndexedTokenKind::TypeParameter,
+                              nullptr);
+      for (size_t bi = 0; bi < genericParam.traitBounds.size(); ++bi) {
+        if (bi >= genericParam.traitBoundSpans.size()) {
+          break;
+        }
+        llvm::SMRange const boundSpan = genericParam.traitBoundSpans[bi];
+        if (!boundSpan.isValid()) {
+          continue;
+        }
+        appendIndexedOccurrence(
+            index, genericParam.traitBounds[bi], std::nullopt, boundSpan, true, false, 0U,
+            indexedTokenKindFromResolvedSymbol(nullptr, true, false, IndexedTokenKind::Type),
+            nullptr);
+      }
+    }
     for (FuncDecl* req : traitNode->getRequirements()) {
-      collectIndexFromFuncLike(req, index, false);
+      collectIndexFromFuncLike(req, index, true);
     }
     return;
   }
