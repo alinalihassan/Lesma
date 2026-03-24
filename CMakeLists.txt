@@ -109,7 +109,13 @@ set(COMMON_SOURCES
   src/liblesma/Token/Token.cpp
   src/liblesma/Typecheck/AnalysisIndex.cpp
   src/liblesma/Typecheck/Typechecker.cpp
-  src/liblesma/Backend/Codegen.cpp
+  src/liblesma/Backend/CodegenVisit.cpp
+  src/liblesma/Backend/CodegenImport.cpp
+  src/liblesma/Backend/CodegenPipeline.cpp
+  src/liblesma/Backend/CodegenBufferHelpers.cpp
+  src/liblesma/Backend/CodegenTypesTraits.cpp
+  src/liblesma/Backend/CodegenSpecialize.cpp
+  src/liblesma/Backend/CodegenBuiltinIntrinsics.cpp
   src/liblesma/Backend/CodegenTypeUtils.cpp
   src/liblesma/Backend/MangleUtils.cpp
   src/liblesma/Symbol/SymbolTable.cpp

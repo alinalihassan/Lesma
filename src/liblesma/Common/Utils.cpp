@@ -2,6 +2,7 @@
 
 #include <cmath>
 #include <cstdlib>
+#include <filesystem>
 #include <sstream>
 #include <string>
 
@@ -104,5 +105,31 @@ auto getStdDir() -> std::string {
   }
   return fmt::format("{}/.lesma/stdlib/", homedir);
 #endif
+}
+
+auto isStdlibSourcePath(const std::string& path) -> bool {
+  if (path.empty()) {
+    return false;
+  }
+  std::error_code ec;
+  const std::filesystem::path absPath =
+      std::filesystem::weakly_canonical(std::filesystem::absolute(path), ec);
+  if (ec) {
+    return false;
+  }
+  const std::filesystem::path stdRoot =
+      std::filesystem::weakly_canonical(std::filesystem::absolute(getStdDir()), ec);
+  if (ec) {
+    return false;
+  }
+  if (absPath == stdRoot) {
+    return true;
+  }
+  std::filesystem::path rel = std::filesystem::relative(absPath, stdRoot, ec);
+  if (ec || rel.empty()) {
+    return false;
+  }
+  const std::string relStr = rel.generic_string();
+  return relStr.rfind("..", 0) != 0;
 }
 } // namespace lesma

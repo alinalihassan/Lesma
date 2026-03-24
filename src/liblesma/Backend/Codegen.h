@@ -209,6 +209,8 @@ protected:
                             const std::vector<lesma::Value*>& args = {},
                             const std::vector<lesma::Type*>& explicitTypeArgs = {})
       -> std::unique_ptr<lesma::Value>;
+  /** True for methods lowered via buffer unwrapping (list-like class layout). */
+  [[nodiscard]] auto isBuiltinListBuiltinMethodName(const std::string& methodName) const -> bool;
   auto callMethodByName(llvm::SMRange span, lesma::Value* receiver, const std::string& methodName,
                         const std::vector<lesma::Value*>& args = {},
                         const std::vector<lesma::Type*>& explicitTypeArgs = {})
@@ -256,9 +258,6 @@ protected:
                               llvm::Value* minCapacity) -> void;
   auto emitListDeepCopy(lesma::Type* listType, llvm::Value* listHandle) -> llvm::Value*;
   [[nodiscard]] auto isListIntrinsicName(const std::string& functionName) const -> bool;
-  /// Methods implemented by callListMethodByName (buffer intrinsics). Other methods on list-shaped
-  /// classes use normal class codegen.
-  [[nodiscard]] auto isBuiltinListBuiltinMethodName(const std::string& methodName) const -> bool;
   auto genListIntrinsicCall(const FuncCall* node, const std::vector<lesma::Type*>& paramTypes,
                             const std::vector<llvm::Value*>& paramsLLVM)
       -> std::unique_ptr<lesma::Value>;
@@ -279,8 +278,7 @@ protected:
   /** Resolve the class template symbol for codegen; prefers Type display name (imported classes may
    * not have a named LLVM struct yet). */
   auto lookupClassStructSymbol(lesma::Type* classTy) -> Value*;
-  /** If \p classTy is a typechecker-only specialization of stdlib \c list (e.g. from literals),
-   * run \c specializeClass so struct/method symbols exist for lookup. */
+  /** Ensure stdlib \c list<T> is specialized when the typechecker only has a structural match. */
   auto tryEnsureStdlibListClassSpecialized(lesma::Type* classTy) -> void;
 
   auto collectTraitMetadataFromAst() -> void;

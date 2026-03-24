@@ -289,23 +289,24 @@ auto Typechecker::isMutatingListFunction(const std::string& functionName) const 
 }
 
 auto Typechecker::isListIntrinsicName(const std::string& functionName) const -> bool {
-  return functionName == "__list_len" || functionName == "__list_push" ||
-         functionName == "__list_pop" || functionName == "__list_clear" ||
-         functionName == "__list_copy" || functionName == "__list_get" ||
-         functionName == "__list_set" || functionName == "__buffer_new" ||
-         functionName == "__buffer_len" || functionName == "__buffer_push" ||
-         functionName == "__buffer_pop" || functionName == "__buffer_clear" ||
-         functionName == "__buffer_copy" || functionName == "__buffer_get" ||
-         functionName == "__buffer_set" || functionName == "__cstr_byte_at" ||
-         functionName == "__cstr_byte_set" || functionName == "__str_concat" ||
-         functionName == "__str_slice" || functionName == "__cstr_index_of" ||
-         functionName == "__cstr_offset";
+  return functionName == "__buffer_new" || functionName == "__buffer_len" ||
+         functionName == "__buffer_push" || functionName == "__buffer_pop" ||
+         functionName == "__buffer_clear" || functionName == "__buffer_copy" ||
+         functionName == "__buffer_get" || functionName == "__buffer_set" ||
+         functionName == "__cstr_byte_at" || functionName == "__cstr_byte_set" ||
+         functionName == "__str_concat" || functionName == "__str_slice" ||
+         functionName == "__cstr_index_of" || functionName == "__cstr_offset";
 }
 
 auto Typechecker::visitListIntrinsicCall(const FuncCall* node, const std::vector<Type*>& argTypes)
     -> bool {
   if (!isListIntrinsicName(node->getName())) {
     return false;
+  }
+  if (!isStdlibSourcePath(mainFilePath)) {
+    throw TypeCheckError(node->getSpan(),
+                         "Compiler intrinsic `{}` is only available in the standard library",
+                         node->getName());
   }
   if (node->getName() == "__cstr_byte_at") {
     if (argTypes.size() != 2U) {
@@ -409,7 +410,7 @@ auto Typechecker::visitListIntrinsicCall(const FuncCall* node, const std::vector
                          node->getName());
   }
   Type* listType = argTypes.front();
-  if (node->getName() == "__list_len" || node->getName() == "__buffer_len") {
+  if (node->getName() == "__buffer_len") {
     if (argTypes.size() != 1U) {
       throw TypeCheckError(node->getSpan(), "{} expects exactly one argument", node->getName());
     }
@@ -418,28 +419,28 @@ auto Typechecker::visitListIntrinsicCall(const FuncCall* node, const std::vector
     result = std::make_unique<Value>(cacheType(std::move(intLen)));
     return true;
   }
-  if (node->getName() == "__list_copy" || node->getName() == "__buffer_copy") {
+  if (node->getName() == "__buffer_copy") {
     if (argTypes.size() != 1U) {
       throw TypeCheckError(node->getSpan(), "{} expects exactly one argument", node->getName());
     }
     result = std::make_unique<Value>(listType);
     return true;
   }
-  if (node->getName() == "__list_clear" || node->getName() == "__buffer_clear") {
+  if (node->getName() == "__buffer_clear") {
     if (argTypes.size() != 1U) {
       throw TypeCheckError(node->getSpan(), "{} expects exactly one argument", node->getName());
     }
     result = std::make_unique<Value>(cacheType(std::make_unique<Type>(BaseType::TY_VOID)));
     return true;
   }
-  if (node->getName() == "__list_pop" || node->getName() == "__buffer_pop") {
+  if (node->getName() == "__buffer_pop") {
     if (argTypes.size() != 1U) {
       throw TypeCheckError(node->getSpan(), "{} expects exactly one argument", node->getName());
     }
     result = std::make_unique<Value>(listType->getElementType());
     return true;
   }
-  if (node->getName() == "__list_push" || node->getName() == "__buffer_push") {
+  if (node->getName() == "__buffer_push") {
     if (argTypes.size() != 2U) {
       throw TypeCheckError(node->getSpan(), "{} expects buffer and value", node->getName());
     }
@@ -450,7 +451,7 @@ auto Typechecker::visitListIntrinsicCall(const FuncCall* node, const std::vector
     result = std::make_unique<Value>(cacheType(std::make_unique<Type>(BaseType::TY_VOID)));
     return true;
   }
-  if (node->getName() == "__list_get" || node->getName() == "__buffer_get") {
+  if (node->getName() == "__buffer_get") {
     if (argTypes.size() != 2U) {
       throw TypeCheckError(node->getSpan(), "{} expects buffer and index", node->getName());
     }
@@ -460,7 +461,7 @@ auto Typechecker::visitListIntrinsicCall(const FuncCall* node, const std::vector
     result = std::make_unique<Value>(listType->getElementType());
     return true;
   }
-  if (node->getName() == "__list_set" || node->getName() == "__buffer_set") {
+  if (node->getName() == "__buffer_set") {
     if (argTypes.size() != 3U) {
       throw TypeCheckError(node->getSpan(), "{} expects buffer, index, and value", node->getName());
     }
@@ -1012,7 +1013,7 @@ auto Typechecker::wrapReturnTypeIfNominal(Type* returnType) -> Type* {
   if (returnType->is(BaseType::TY_PTR)) {
     return returnType;
   }
-  if (returnType->is(BaseType::TY_CLASS) || returnType->is(BaseType::TY_TRAIT_EXISTENTIAL)) {
+  if (TypeUtils::passesByPointerInAbi(returnType)) {
     return cacheType(std::make_unique<Type>(BaseType::TY_PTR, nullptr, returnType));
   }
   return returnType;

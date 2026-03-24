@@ -97,4 +97,6 @@ auto showInline(llvm::SourceMgr* srcMgr, unsigned int bufferId, llvm::SMRange sp
                 const std::string& file, bool isError, const std::string& reason) -> void;
 auto getBasename(const std::string& filePath) -> std::string;
 auto getStdDir() -> std::string;
+/** True if \p path resolves under the stdlib root directory ([getStdDir]()). */
+[[nodiscard]] auto isStdlibSourcePath(const std::string& path) -> bool;
 } // namespace lesma
