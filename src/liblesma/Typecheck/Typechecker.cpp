@@ -115,6 +115,15 @@ auto mergeImportedAnalysisTypeCachesInto(std::vector<std::unique_ptr<Type>>& des
   }
 }
 
+/** True when \p sym is the nominal type name binding (not a value, function,
+ *  or enum member), for CUSTOM_TYPE resolution after lookupStruct / lookup. */
+[[nodiscard]] auto isTypeSymbolForCustomTypeName(Value const* sym) -> bool {
+  if (sym == nullptr) {
+    return false;
+  }
+  return sym->getCategory() == ValueCategory::TYPE_SYMBOL;
+}
+
 } // namespace
 
 auto Typechecker::pathLeadsToEndWithoutReturn(const std::vector<Statement*>& statements,
@@ -1148,6 +1157,15 @@ auto Typechecker::resolveType(const TypeExpr* node) -> Type* {
     }
     if (sym == nullptr) {
       sym = scope->lookup(lookupName);
+    }
+    if (sym != nullptr && !isTypeSymbolForCustomTypeName(sym)) {
+      sym = nullptr;
+    }
+    if (typ == nullptr && sym == nullptr) {
+      throw TypeCheckError(node->getSpan(),
+                           "Type '{}' not found. If you meant a generic type parameter, add it "
+                           "to the generic parameter list (e.g. def foo<T>(x: T) -> T).",
+                           node->getName());
     }
     node->setResolvedSymbol(sym);
     Type* resolvedType = nullptr;
