@@ -68,7 +68,7 @@ auto Codegen::visit(const TypeExpr* node) -> void {
     auto* type = cacheType(std::make_unique<Type>(BaseType::TY_FLOAT, builder->getDoubleTy()));
     result = std::make_unique<Value>(type);
   } else if (node->getType() == TokenType::FLOAT32_TYPE) {
-    auto* type = cacheType(std::make_unique<Type>(BaseType::TY_FLOAT, builder->getFloatTy()));
+    auto* type = cacheType(std::make_unique<Type>(BaseType::TY_FLOAT32, builder->getFloatTy()));
     result = std::make_unique<Value>(type);
   } else if (node->getType() == TokenType::BOOL_TYPE) {
     auto* type = cacheType(std::make_unique<Type>(BaseType::TY_BOOL, builder->getInt1Ty()));
@@ -199,6 +199,9 @@ auto Codegen::getOrCreateLlvmType(lesma::Type* type) -> llvm::Type* {
   }
   case BaseType::TY_FLOAT:
     type->setLlvmType(builder->getDoubleTy());
+    break;
+  case BaseType::TY_FLOAT32:
+    type->setLlvmType(builder->getFloatTy());
     break;
   case BaseType::TY_BOOL:
     type->setLlvmType(builder->getInt1Ty());

@@ -44,6 +44,21 @@ auto getExtendedType(Type* left, Type* right) -> Type* {
   if (left->is(BaseType::TY_FLOAT) && right->is(BaseType::TY_INT)) {
     return left;
   }
+  if (left->is(BaseType::TY_INT) && right->is(BaseType::TY_FLOAT32)) {
+    return right;
+  }
+  if (left->is(BaseType::TY_FLOAT32) && right->is(BaseType::TY_INT)) {
+    return left;
+  }
+  if (left->is(BaseType::TY_FLOAT) && right->is(BaseType::TY_FLOAT32)) {
+    return left;
+  }
+  if (left->is(BaseType::TY_FLOAT32) && right->is(BaseType::TY_FLOAT)) {
+    return right;
+  }
+  if (left->is(BaseType::TY_FLOAT32) && right->is(BaseType::TY_FLOAT32)) {
+    return left;
+  }
   if (left->is(BaseType::TY_FLOAT) && right->is(BaseType::TY_FLOAT)) {
     if (left->getLlvmType()->isFP128Ty() || right->getLlvmType()->isFP128Ty()) {
       return left->getLlvmType()->isFP128Ty() ? left : right;
@@ -72,7 +87,7 @@ auto cast(llvm::SMRange span, Value* val, Type* type, llvm::IRBuilder<>* builder
   }
 
   if (type->is(BaseType::TY_INT)) {
-    if (val->getType()->is(BaseType::TY_FLOAT)) {
+    if (val->getType()->isFloatingPoint()) {
       auto* casted = type->isSigned()
                          ? builder->CreateFPToSI(val->getLlvmValue(), type->getLlvmType())
                          : builder->CreateFPToUI(val->getLlvmValue(), type->getLlvmType());
@@ -84,14 +99,14 @@ auto cast(llvm::SMRange span, Value* val, Type* type, llvm::IRBuilder<>* builder
                                                             type->getLlvmType(),
                                                             val->getType()->isSigned()));
     }
-  } else if (type->is(BaseType::TY_FLOAT)) {
+  } else if (type->isFloatingPoint()) {
     if (val->getType()->is(BaseType::TY_INT)) {
       auto* casted = val->getType()->isSigned()
                          ? builder->CreateSIToFP(val->getLlvmValue(), type->getLlvmType())
                          : builder->CreateUIToFP(val->getLlvmValue(), type->getLlvmType());
       return std::make_unique<Value>("", type, casted);
     }
-    if (val->getType()->is(BaseType::TY_FLOAT)) {
+    if (val->getType()->isFloatingPoint()) {
       return std::make_unique<Value>(
           "", type, builder->CreateFPCast(val->getLlvmValue(), type->getLlvmType()));
     }

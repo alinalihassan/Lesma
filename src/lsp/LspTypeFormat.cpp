@@ -72,6 +72,9 @@ auto formatTypeName(Type* type, SymbolTable* rootScope) -> std::string {
   if (type->is(BaseType::TY_FLOAT)) {
     return "float";
   }
+  if (type->is(BaseType::TY_FLOAT32)) {
+    return "float32";
+  }
   if (type->is(BaseType::TY_STRING)) {
     return "cstr";
   }

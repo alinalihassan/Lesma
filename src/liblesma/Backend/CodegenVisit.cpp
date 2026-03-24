@@ -1260,7 +1260,7 @@ auto Codegen::visit(const BinaryOp* node) -> void {
       break;
     }
 
-    if (finalType->is(BaseType::TY_FLOAT)) {
+    if (finalType->isFloatingPoint()) {
       result = std::make_unique<Value>(
           "", finalType, builder->CreateFSub(left->getLlvmValue(), right->getLlvmValue()));
       return;
@@ -1281,7 +1281,7 @@ auto Codegen::visit(const BinaryOp* node) -> void {
       break;
     }
 
-    if (finalType->is(BaseType::TY_FLOAT)) {
+    if (finalType->isFloatingPoint()) {
       result = std::make_unique<Value>(
           "", finalType, builder->CreateFAdd(left->getLlvmValue(), right->getLlvmValue()));
       return;
@@ -1302,7 +1302,7 @@ auto Codegen::visit(const BinaryOp* node) -> void {
       break;
     }
 
-    if (finalType->is(BaseType::TY_FLOAT)) {
+    if (finalType->isFloatingPoint()) {
       result = std::make_unique<Value>(
           "", finalType, builder->CreateFMul(left->getLlvmValue(), right->getLlvmValue()));
       return;
@@ -1323,7 +1323,7 @@ auto Codegen::visit(const BinaryOp* node) -> void {
       break;
     }
 
-    if (finalType->is(BaseType::TY_FLOAT)) {
+    if (finalType->isFloatingPoint()) {
       result = std::make_unique<Value>(
           "", finalType, builder->CreateFDiv(left->getLlvmValue(), right->getLlvmValue()));
       return;
@@ -1346,7 +1346,7 @@ auto Codegen::visit(const BinaryOp* node) -> void {
       break;
     }
 
-    if (finalType->is(BaseType::TY_FLOAT)) {
+    if (finalType->isFloatingPoint()) {
       result = std::make_unique<Value>(
           "", finalType, builder->CreateFRem(left->getLlvmValue(), right->getLlvmValue()));
       return;
@@ -1366,7 +1366,7 @@ auto Codegen::visit(const BinaryOp* node) -> void {
       break;
     }
 
-    if (!right->getType()->isOneOf({BaseType::TY_INT, BaseType::TY_FLOAT})) {
+    if (!right->getType()->is(BaseType::TY_INT) && !right->getType()->isFloatingPoint()) {
       throw CodegenError(node->getSpan(), "Cannot use non-numbers for power coefficient: {}",
                          node->getRight()->toString(sourceManager.get(), "", true));
     }
@@ -1426,7 +1426,7 @@ auto Codegen::visit(const BinaryOp* node) -> void {
       return;
     }
 
-    if (finalType->is(BaseType::TY_FLOAT)) {
+    if (finalType->isFloatingPoint()) {
       result = std::make_unique<Value>(
           "", cacheType(std::make_unique<Type>(BaseType::TY_BOOL, builder->getInt1Ty())),
           builder->CreateFCmpOEQ(left->getLlvmValue(), right->getLlvmValue()));
@@ -1503,7 +1503,7 @@ auto Codegen::visit(const BinaryOp* node) -> void {
       return;
     }
 
-    if (finalType->is(BaseType::TY_FLOAT)) {
+    if (finalType->isFloatingPoint()) {
       result = std::make_unique<Value>(
           "", cacheType(std::make_unique<Type>(BaseType::TY_BOOL, builder->getInt1Ty())),
           builder->CreateFCmpONE(left->getLlvmValue(), right->getLlvmValue()));
@@ -1533,7 +1533,7 @@ auto Codegen::visit(const BinaryOp* node) -> void {
       break;
     }
 
-    if (finalType->is(BaseType::TY_FLOAT)) {
+    if (finalType->isFloatingPoint()) {
       result = std::make_unique<Value>(
           "", cacheType(std::make_unique<Type>(BaseType::TY_BOOL, builder->getInt1Ty())),
           builder->CreateFCmpOGT(left->getLlvmValue(), right->getLlvmValue()));
@@ -1558,7 +1558,7 @@ auto Codegen::visit(const BinaryOp* node) -> void {
       break;
     }
 
-    if (finalType->is(BaseType::TY_FLOAT)) {
+    if (finalType->isFloatingPoint()) {
       result = std::make_unique<Value>(
           "", cacheType(std::make_unique<Type>(BaseType::TY_BOOL, builder->getInt1Ty())),
           builder->CreateFCmpOGE(left->getLlvmValue(), right->getLlvmValue()));
@@ -1583,7 +1583,7 @@ auto Codegen::visit(const BinaryOp* node) -> void {
       break;
     }
 
-    if (finalType->is(BaseType::TY_FLOAT)) {
+    if (finalType->isFloatingPoint()) {
       result = std::make_unique<Value>(
           "", cacheType(std::make_unique<Type>(BaseType::TY_BOOL, builder->getInt1Ty())),
           builder->CreateFCmpOLT(left->getLlvmValue(), right->getLlvmValue()));
@@ -1608,7 +1608,7 @@ auto Codegen::visit(const BinaryOp* node) -> void {
       break;
     }
 
-    if (finalType->is(BaseType::TY_FLOAT)) {
+    if (finalType->isFloatingPoint()) {
       result = std::make_unique<Value>(
           "", cacheType(std::make_unique<Type>(BaseType::TY_BOOL, builder->getInt1Ty())),
           builder->CreateFCmpOLE(left->getLlvmValue(), right->getLlvmValue()));
@@ -2032,7 +2032,7 @@ auto Codegen::visit(const UnaryOp* node) -> void {
   if (node->getOperator() == TokenType::MINUS) {
     if (operand->getType()->is(BaseType::TY_INT)) {
       val = builder->CreateNeg(operand->getLlvmValue());
-    } else if (operand->getType()->is(BaseType::TY_FLOAT)) {
+    } else if (operand->getType()->isFloatingPoint()) {
       val = builder->CreateFNeg(operand->getLlvmValue());
     } else {
       result =
@@ -2270,10 +2270,10 @@ auto Codegen::emitCompoundAssignArithmetic(llvm::SMRange span, TokenType compoun
     -> std::unique_ptr<lesma::Value> {
   lesma::Type* targetType = loaded->getType();
   if (targetType == nullptr ||
-      (!targetType->is(BaseType::TY_FLOAT) && !targetType->is(BaseType::TY_INT))) {
+      (!targetType->isFloatingPoint() && !targetType->is(BaseType::TY_INT))) {
     throw CodegenError(span, "Invalid operator: {}", NAMEOF_ENUM(compoundOp));
   }
-  const bool isFloat = targetType->is(BaseType::TY_FLOAT);
+  const bool isFloat = targetType->isFloatingPoint();
   auto* varVal = loaded->getLlvmValue();
   llvm::Value* newVal = nullptr;
 
@@ -2337,7 +2337,8 @@ auto Codegen::emitCompoundSubscriptNewValue(llvm::SMRange span, TokenType compou
   }
   auto left = cast(span, currentElem, finalType);
   auto right = cast(span, rhs, finalType);
-  if (finalType != nullptr && finalType->isOneOf({BaseType::TY_INT, BaseType::TY_FLOAT})) {
+  if (finalType != nullptr &&
+      (finalType->is(BaseType::TY_INT) || finalType->isFloatingPoint())) {
     return emitCompoundAssignArithmetic(span, compoundOp, left.get(), right.get());
   }
   if (auto operatorName = OperatorUtils::getBinaryOperatorName(binOp); operatorName.has_value()) {
@@ -2355,7 +2356,7 @@ auto Codegen::emitCompoundAssign(llvm::SMRange span, TokenType op, lesma::Value*
     targetType = targetType->getElementType();
   }
   if (targetType == nullptr ||
-      (!targetType->is(BaseType::TY_FLOAT) && !targetType->is(BaseType::TY_INT))) {
+      (!targetType->isFloatingPoint() && !targetType->is(BaseType::TY_INT))) {
     throw CodegenError(span, "Invalid operator: {}", NAMEOF_ENUM(op));
   }
   auto* varVal = builder->CreateLoad(targetType->getLlvmType(), lhs->getLlvmValue());

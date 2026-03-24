@@ -30,10 +30,10 @@ auto getTypeMangledName(llvm::SMRange span, Type* type) -> std::string {
   if (type->is(BaseType::TY_INT)) {
     return "i";
   }
-  if (type->is(BaseType::TY_FLOAT) && llvmTy->isFloatTy()) {
+  if (type->is(BaseType::TY_FLOAT32)) {
     return "f32";
   }
-  if (type->is(BaseType::TY_FLOAT) && llvmTy->isFloatingPointTy()) {
+  if (type->is(BaseType::TY_FLOAT)) {
     return "f";
   }
   if (type->is(BaseType::TY_STRING)) {

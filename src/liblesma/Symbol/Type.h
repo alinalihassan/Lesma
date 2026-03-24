@@ -18,6 +18,8 @@ enum class BaseType : std::uint8_t {
   TY_INVALID,
   TY_INT,
   TY_FLOAT,
+  /** IEEE binary32 (`float` in LLVM); distinct from `TY_FLOAT` (typically f64). */
+  TY_FLOAT32,
   TY_STRING,
   TY_BOOL,
   TY_PTR,
@@ -110,7 +112,11 @@ public:
 
   [[nodiscard]] auto is(BaseType type) const -> bool { return baseType == type; }
   [[nodiscard]] auto isPrimitive() const -> bool {
-    return isOneOf({BaseType::TY_INT, BaseType::TY_FLOAT, BaseType::TY_STRING, BaseType::TY_BOOL});
+    return isOneOf({BaseType::TY_INT, BaseType::TY_FLOAT, BaseType::TY_FLOAT32, BaseType::TY_STRING,
+                    BaseType::TY_BOOL});
+  }
+  [[nodiscard]] auto isFloatingPoint() const -> bool {
+    return baseType == BaseType::TY_FLOAT || baseType == BaseType::TY_FLOAT32;
   }
   [[nodiscard]] auto isOneOf(const std::vector<BaseType>& baseTypes) const -> bool {
     return std::any_of(baseTypes.begin(), baseTypes.end(),
@@ -316,7 +322,8 @@ private:
       }
       return getIntWidth() == rhs->getIntWidth();
     }
-    case BaseType::TY_FLOAT: {
+    case BaseType::TY_FLOAT:
+    case BaseType::TY_FLOAT32: {
       llvm::Type* l = getLlvmType();
       llvm::Type* r = rhs->getLlvmType();
       if (l == nullptr && r == nullptr) {
@@ -404,6 +411,9 @@ public:
     }
     case BaseType::TY_FLOAT:
       result = "float";
+      break;
+    case BaseType::TY_FLOAT32:
+      result = "float32";
       break;
     case BaseType::TY_STRING:
       result = "cstr";

@@ -1133,7 +1133,8 @@ auto resolveExpressionTypeAtOffset(const lesma::Expression* expr, lesma::Compoun
     }
     switch (unary->getOperator()) {
     case lesma::TokenType::MINUS:
-      if (operand->isOneOf({lesma::BaseType::TY_INT, lesma::BaseType::TY_FLOAT}) ||
+      if (operand->isOneOf({lesma::BaseType::TY_INT, lesma::BaseType::TY_FLOAT,
+                            lesma::BaseType::TY_FLOAT32}) ||
           operand->is(lesma::BaseType::TY_GENERIC)) {
         return operand;
       }
@@ -1845,9 +1846,10 @@ auto collectSemanticTokens(AnalysisResult& analysisResult, unsigned bufferId)
   };
 
   auto isDefaultLibraryType = [](const lesma::Type* type) -> bool {
-    return type != nullptr && type->isOneOf({lesma::BaseType::TY_INT, lesma::BaseType::TY_FLOAT,
-                                             lesma::BaseType::TY_STRING, lesma::BaseType::TY_BOOL,
-                                             lesma::BaseType::TY_VOID});
+    return type != nullptr &&
+           type->isOneOf({lesma::BaseType::TY_INT, lesma::BaseType::TY_FLOAT,
+                          lesma::BaseType::TY_FLOAT32, lesma::BaseType::TY_STRING,
+                          lesma::BaseType::TY_BOOL, lesma::BaseType::TY_VOID});
   };
 
   auto semanticTokenTypeForResolved = [](const ResolvedSymbol& resolved, bool isTypePosition,

@@ -746,6 +746,16 @@ auto Typechecker::materializeImportedType(Type* type) -> Type* {
     importedTypeCopies[type] = copy;
     return copy;
   }
+  if (type->is(BaseType::TY_FLOAT)) {
+    Type* copy = cacheType(std::make_unique<Type>(BaseType::TY_FLOAT));
+    importedTypeCopies[type] = copy;
+    return copy;
+  }
+  if (type->is(BaseType::TY_FLOAT32)) {
+    Type* copy = cacheType(std::make_unique<Type>(BaseType::TY_FLOAT32));
+    importedTypeCopies[type] = copy;
+    return copy;
+  }
   Type* copy = cacheType(std::make_unique<Type>(type->getBaseType()));
   importedTypeCopies[type] = copy;
   return copy;
@@ -959,7 +969,22 @@ auto Typechecker::getExtendedType(Type* left, Type* right) -> Type* {
   if (left->is(BaseType::TY_FLOAT) && right->is(BaseType::TY_INT)) {
     return left;
   }
+  if (left->is(BaseType::TY_INT) && right->is(BaseType::TY_FLOAT32)) {
+    return right;
+  }
+  if (left->is(BaseType::TY_FLOAT32) && right->is(BaseType::TY_INT)) {
+    return left;
+  }
+  if (left->is(BaseType::TY_FLOAT) && right->is(BaseType::TY_FLOAT32)) {
+    return left;
+  }
+  if (left->is(BaseType::TY_FLOAT32) && right->is(BaseType::TY_FLOAT)) {
+    return right;
+  }
   if (left->is(BaseType::TY_FLOAT) && right->is(BaseType::TY_FLOAT)) {
+    return left;
+  }
+  if (left->is(BaseType::TY_FLOAT32) && right->is(BaseType::TY_FLOAT32)) {
     return left;
   }
   return nullptr;
@@ -994,7 +1019,7 @@ auto Typechecker::typecheckBinaryOpResult(TokenType op, Type* leftTy, Type* righ
       throw TypeCheckError(span, "Operator {} not applicable to {} and {}", NAMEOF_ENUM(op),
                            leftTy->toString(), rightTy->toString());
     }
-    if (!unified->isOneOf({BaseType::TY_INT, BaseType::TY_FLOAT})) {
+    if (!unified->is(BaseType::TY_INT) && !unified->isFloatingPoint()) {
       if (Type* overloadedType = tryOverload(); overloadedType != nullptr) {
         return overloadedType;
       }
@@ -1071,10 +1096,13 @@ auto Typechecker::isAssignableTo(Type* from, Type* to) -> bool {
     return to->is(BaseType::TY_VOID);
   }
   if (to->is(BaseType::TY_INT)) {
-    return from->is(BaseType::TY_INT) || from->is(BaseType::TY_FLOAT);
+    return from->is(BaseType::TY_INT) || from->isFloatingPoint();
   }
   if (to->is(BaseType::TY_FLOAT)) {
-    return from->is(BaseType::TY_INT) || from->is(BaseType::TY_FLOAT);
+    return from->is(BaseType::TY_INT) || from->isFloatingPoint();
+  }
+  if (to->is(BaseType::TY_FLOAT32)) {
+    return from->is(BaseType::TY_INT) || from->is(BaseType::TY_FLOAT32);
   }
   if (to->is(BaseType::TY_STRING)) {
     return from->is(BaseType::TY_STRING) ||
@@ -1195,8 +1223,11 @@ auto Typechecker::resolveType(const TypeExpr* node) -> Type* {
     u->setSigned(false);
     return cacheType(std::move(u));
   }
-  if (node->getType() == TokenType::FLOAT_TYPE || node->getType() == TokenType::FLOAT32_TYPE) {
+  if (node->getType() == TokenType::FLOAT_TYPE) {
     return cacheType(std::make_unique<Type>(BaseType::TY_FLOAT));
+  }
+  if (node->getType() == TokenType::FLOAT32_TYPE) {
+    return cacheType(std::make_unique<Type>(BaseType::TY_FLOAT32));
   }
   if (node->getType() == TokenType::BOOL_TYPE) {
     return cacheType(std::make_unique<Type>(BaseType::TY_BOOL));
@@ -2998,7 +3029,8 @@ auto Typechecker::visit(const UnaryOp* node) -> void {
       result = std::make_unique<Value>(operand);
       break;
     }
-    if (operand == nullptr || !operand->isOneOf({BaseType::TY_INT, BaseType::TY_FLOAT})) {
+    if (operand == nullptr ||
+        (!operand->is(BaseType::TY_INT) && !operand->isFloatingPoint())) {
       if (Type* overloadedType = tryOverload(); overloadedType != nullptr) {
         result = std::make_unique<Value>(overloadedType);
         break;
