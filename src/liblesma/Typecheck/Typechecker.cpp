@@ -1196,6 +1196,20 @@ void Typechecker::loadImplicitStdModule(const std::string& moduleFilename) {
     if (importedNameToSource.contains(name)) {
       continue;
     }
+    // Nominal types need a TYPE_SYMBOL so `file.write` and `str` resolve as types; keep the
+    // TY_IMPORT stub too so importedNameToSource / FuncCall logic still opens the defining scope.
+    if (sym->getType()->isOneOf(
+            {BaseType::TY_CLASS, BaseType::TY_ENUM, BaseType::TY_TRAIT_EXISTENTIAL})) {
+      auto typeSym = std::make_unique<Value>(name, sym->getType());
+      typeSym->setCategory(ValueCategory::TYPE_SYMBOL);
+      typeSym->setDeclarationKind(sym->getDeclarationKind());
+      typeSym->setExported(sym->isExported());
+      typeSym->setGenericClassTemplate(sym->getGenericClassTemplate());
+      typeSym->setDeclarationSpan(sym->getDeclarationSpan());
+      typeSym->setDeclarationFilePath(sym->getDeclarationFilePath());
+      scope->insertTypeRef(name, sym->getType());
+      scope->insertSymbol(std::move(typeSym));
+    }
     auto symbol = std::make_unique<Value>(name, importType);
     symbol->setCategory(ValueCategory::MODULE_SYMBOL);
     scope->insertSymbol(std::move(symbol));
@@ -2158,15 +2172,15 @@ auto Typechecker::visit(const FuncCall* node) -> void {
   if (callee == nullptr) {
     Value* sym = scope->lookup(node->getName());
     std::string importedName;
+    if (auto importedIt = importedNameToSource.find(node->getName());
+        importedIt != importedNameToSource.end()) {
+      importedScope = getOrTypecheckImport(importedIt->second.first);
+      importedName = importedIt->second.second;
+    }
     if (sym == nullptr || sym->getType()->is(BaseType::TY_IMPORT)) {
-      auto importedIt = importedNameToSource.find(node->getName());
-      if (importedIt != importedNameToSource.end()) {
-        importedScope = getOrTypecheckImport(importedIt->second.first);
-        importedName = importedIt->second.second;
-        if (importedScope != nullptr) {
-          sym = importedScope->lookup(importedName);
-          callee = importedScope->lookupFunction(importedName, argTypes);
-        }
+      if (importedScope != nullptr) {
+        sym = importedScope->lookup(importedName);
+        callee = importedScope->lookupFunction(importedName, argTypes);
       }
     }
     if (callee == nullptr && sym != nullptr) {
@@ -2688,6 +2702,17 @@ auto Typechecker::visit(const DotOp* node) -> void {
         method = cachedModule->rootScope->lookupFunction(fc->getName(), methodArgTypes);
         if (method != nullptr) {
           break;
+        }
+      }
+    }
+    if (method == nullptr) {
+      if (auto* leftLit = dynamic_cast<Literal*>(node->getLeft());
+          leftLit != nullptr && leftLit->getType() == TokenType::IDENTIFIER) {
+        if (auto srcIt = importedNameToSource.find(leftLit->getValue());
+            srcIt != importedNameToSource.end()) {
+          if (SymbolTable* imp = getOrTypecheckImport(srcIt->second.first)) {
+            method = imp->lookupFunction(fc->getName(), methodArgTypes);
+          }
         }
       }
     }

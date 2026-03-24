@@ -4324,7 +4324,16 @@ auto Codegen::appendCallableArgument(lesma::Value* arg, std::vector<lesma::Type*
     }
   }
   paramTypes.push_back(argType);
-  paramsLLVM.push_back(arg->getLlvmValue());
+  llvm::Value* llvmArg = arg->getLlvmValue();
+  // Static class methods use a null `self` at the call site; materialize as a typed null pointer so
+  // LLVM does not get an untyped null operand (breaks the optimizer on invalid IR).
+  if (llvmArg == nullptr && argType->is(BaseType::TY_PTR)) {
+    llvm::Type* lt = getOrCreateLlvmType(argType);
+    if (lt != nullptr && lt->isPointerTy()) {
+      llvmArg = llvm::ConstantPointerNull::get(llvm::cast<llvm::PointerType>(lt));
+    }
+  }
+  paramsLLVM.push_back(llvmArg);
 }
 
 auto Codegen::callNamedFunction(llvm::SMRange span, const std::string& functionName,

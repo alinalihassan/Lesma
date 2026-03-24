@@ -17,6 +17,8 @@ def extern fclose(stream: *int8) -> int
 def extern fread(ptr: cstr, size: int, nmemb: int, stream: *int8) -> int
 def extern fseek(stream: *int8, offset: int, whence: int) -> int
 def extern ftell(stream: *int8) -> int
+def extern fwrite(ptr: cstr, size: int, nmemb: int, stream: *int8) -> int
+def extern remove(path: cstr) -> int
 
 export trait Iterator<T>
     def has_next() -> bool
@@ -331,6 +333,22 @@ export class file
         if got != n
             return str(__str_slice(self.storage, 0, 0))
         return str(buf)
+
+    # Static-style: file.write(path, data). self is unused (null this at call site).
+    def write(path: cstr, data: str)
+        var fp: *int8 = fopen(path, "wb")
+        if fp == 0
+            return
+        let n: int = data.len()
+        if n > 0
+            fwrite(data.cstr(), 1, n, fp)
+        fclose(fp)
+
+    def write(path: cstr, src: file)
+        self.write(path, src.text())
+
+    def delete()
+        remove(self.storage)
 
 export def extern exit(x: int)
 

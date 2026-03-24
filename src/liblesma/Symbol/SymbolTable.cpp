@@ -248,18 +248,37 @@ auto SymbolTable::lookupFunction(const std::string& name, std::vector<lesma::Typ
  */
 auto SymbolTable::lookup(const std::string& name) -> Value* {
   auto [it, end] = symbols.equal_range(name);
-  Value* withValue = nullptr;
+  Value* typeNominal = nullptr;
+  Value* importStub = nullptr;
+  Value* fallback = nullptr;
   for (auto i = it; i != end; ++i) {
     Value* v = i->second.get();
     if (v->getLlvmValue() != nullptr) {
       return v; // Prefer symbol that has LLVM value (from codegen)
     }
-    if (withValue == nullptr) {
-      withValue = v;
+    if (v->getCategory() == ValueCategory::TYPE_SYMBOL && v->getType() != nullptr &&
+        v->getType()->isOneOf(
+            {BaseType::TY_CLASS, BaseType::TY_ENUM, BaseType::TY_TRAIT_EXISTENTIAL})) {
+      typeNominal = v;
+      continue;
+    }
+    if (v->getCategory() == ValueCategory::MODULE_SYMBOL && v->getType() != nullptr &&
+        v->getType()->is(BaseType::TY_IMPORT)) {
+      importStub = v;
+      continue;
+    }
+    if (fallback == nullptr) {
+      fallback = v;
     }
   }
-  if (withValue != nullptr) {
-    return withValue;
+  if (typeNominal != nullptr) {
+    return typeNominal;
+  }
+  if (importStub != nullptr) {
+    return importStub;
+  }
+  if (fallback != nullptr) {
+    return fallback;
   }
 
   if (parent == nullptr) {
