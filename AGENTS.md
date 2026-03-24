@@ -36,6 +36,20 @@ Lesma is a compiled, statically typed, imperative, object-oriented language that
 3. **Parser** — Builds an AST from tokens (visitor-style).
 4. **Codegen** — Walks the AST and emits LLVM IR; handles imports by compiling other modules and merging symbols. Can output object files or run via JIT.
 
+### Class ARC (reference counting)
+
+Heap-allocated **`class`** instances use a small C runtime (`src/runtime/lesma_arc.c`): `lesma_arc_alloc`, `lesma_arc_retain`, `lesma_arc_release`. The LLVM layout is `{ i64 strong_count, …user fields }`; user field *N* is lowered at GEP index *N+1* (`Codegen::classUserFieldLlvmIndex`). Raw `*T`, `cstr`, `__buffer`, and list backing storage are **not** ARC-managed.
+
+**Release / finalize:** `lesma_arc_release(p, finalize)` decrements the strong count; when it reaches zero it calls `finalize(p)` (never null for heap classes). The compiler emits one `__lesma_finalize.<mangled-class>` per class: it runs the user **`drop`** hook if present (`def drop()` — void, no user parameters, only implicit `self`), then releases `*Class` fields, tears down `__buffer`/`__buffer<T>` fields (release class elements, free backing storage and header), and `free`s the object. **Do not call `drop` manually** — the typechecker rejects `x.drop()`.
+
+**Call ABI (simplified):** before each call, the compiler emits `lesma_arc_retain` for every argument whose formal type is `*SomeClass` (except the hidden `this` argument for `new`, which already has refcount 1 from `lesma_arc_alloc`). Callees release `*Class` parameters and locals (including `this` on ordinary methods) at return or scope exit via `lesma_arc_release` with the callee’s class finalize function. Constructor bodies do **not** release `this` (the call site owns the object).
+
+The `lesma` executable links the ARC symbols for JIT (`-u` on macOS / `--undefined=` on ELF so the linker retains them). `lesma compile` links `liblesma_arc_static.a` (path from generated `LesmaArcStaticLibPath.h`).
+
+**Weak references / cycle breaking (planned, not implemented):** strong-only ARC cannot reclaim mutually referencing objects. A plausible path is (1) a **nullable weak pointer** type (or `weak` field storage) backed by a **side table** (object id → weak slot / nullable strong pointer), with loads zeroing when the referent is dead; (2) codegen that **does not** retain on weak store, and optional **upgrade** (`strong = weak` with retain when non-null); (3) optional best-effort **static diagnostics** for obvious parent/child cycles. Full **cycle collector** or **union-find** style breaking is a later milestone.
+
+If parallel `scripts/run_tests.sh` flakes on JIT-heavy cases, run with `LESMA_TEST_JOBS=1`.
+
 When reporting errors, the Driver and Codegen use `showInline()` in `Common/Utils.cpp` with a **buffer ID**: the main file’s ID is the value returned by `AddNewSourceBuffer()` (stored in Driver as `mainBufferId`). For imported modules, Codegen uses the `fileId` returned when that module’s buffer was added. Using the wrong ID (e.g. 0 when IDs are 1-based) triggers LLVM’s `isValidBufferID` assertion in `getMemoryBuffer()`.
 
 ---

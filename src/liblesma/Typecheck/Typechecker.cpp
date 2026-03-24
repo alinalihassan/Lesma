@@ -95,6 +95,26 @@ void insertGenericParamSymbols(SymbolTable* genericsScope,
   }
 }
 
+/** Move all owning Type nodes from an import analysis tree into \p dest so \c
+ * SymbolTable typeRefs remain valid after \c importedModuleCache is cleared. */
+auto mergeImportedAnalysisTypeCachesInto(std::vector<std::unique_ptr<Type>>& dest,
+                                         const std::shared_ptr<ImportedModuleAnalysis>& mod) -> void {
+  if (mod == nullptr) {
+    return;
+  }
+  for (auto& t : mod->typeCache) {
+    dest.push_back(std::move(t));
+  }
+  mod->typeCache.clear();
+  if (mod->rootScope != nullptr) {
+    mod->rootScope->releaseOwnedTypesInto(dest);
+  }
+  for (auto& [path, nested] : mod->importedModules) {
+    (void)path;
+    mergeImportedAnalysisTypeCachesInto(dest, nested);
+  }
+}
+
 } // namespace
 
 auto Typechecker::pathLeadsToEndWithoutReturn(const std::vector<Statement*>& statements,
@@ -1267,8 +1287,8 @@ auto Typechecker::getOrTypecheckImport(const std::string& absolutePath) -> Symbo
   imported->mainBufferId = bufferId;
   imported->mainFilePath = absolutePath;
   imported->parser = std::move(parser);
-  imported->rootScope = sub.takeRootScope();
   imported->typeCache = sub.takeTypeCache();
+  imported->rootScope = sub.takeRootScope();
   imported->index =
       buildAnalysisIndex(imported->parser != nullptr ? imported->parser->getAst() : nullptr,
                          imported->sourceMgr.get(), imported->mainBufferId);
@@ -1310,6 +1330,13 @@ auto Typechecker::takeRootScope() -> std::unique_ptr<SymbolTable> {
 }
 
 auto Typechecker::takeTypeCache() -> std::vector<std::unique_ptr<Type>> {
+  for (auto& [path, mod] : importedModuleCache) {
+    (void)path;
+    mergeImportedAnalysisTypeCachesInto(typeCache, mod);
+  }
+  if (rootScope != nullptr) {
+    rootScope->releaseOwnedTypesInto(typeCache);
+  }
   return std::move(typeCache);
 }
 
@@ -1729,6 +1756,15 @@ auto Typechecker::visit(const FuncDecl* node) -> void {
       field = std::make_unique<Field>(param->name, paramType);
     }
     paramFields.push_back(std::move(field));
+  }
+  if (currentClassType != nullptr && node->getName() == "drop") {
+    if (returnType == nullptr || !returnType->is(BaseType::TY_VOID)) {
+      throw TypeCheckError(node->getSpan(), "drop must return void");
+    }
+    if (!node->getParameters().empty()) {
+      throw TypeCheckError(node->getSpan(),
+                           "drop must not declare parameters (only implicit self is allowed)");
+    }
   }
   auto funcType = std::make_unique<Type>(BaseType::TY_FUNCTION, nullptr, std::move(paramFields));
   funcType->setReturnType(returnType);
@@ -2663,6 +2699,12 @@ auto Typechecker::visit(const DotOp* node) -> void {
                          base->toString());
   }
   if (auto* fc = dynamic_cast<FuncCall*>(node->getRight())) {
+    if (fc->getName() == "drop") {
+      throw TypeCheckError(
+          fc->getSpan(),
+          "drop cannot be called directly; it runs automatically when the last strong reference is "
+          "released");
+    }
     if (isStdListClassType(base) && isMutatingListFunction(fc->getName()) &&
         !isMutableListReceiver(node->getLeft())) {
       throw TypeCheckError(node->getSpan(),

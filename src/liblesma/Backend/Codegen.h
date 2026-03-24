@@ -7,10 +7,12 @@
 #include <tuple>
 #include <unordered_map>
 #include <unordered_set>
+
 #include <utility>
 #include <vector>
 
 namespace llvm {
+class Function;
 class GlobalVariable;
 } // namespace llvm
 
@@ -101,6 +103,9 @@ class Codegen final : public ASTVisitor {
   bool isAssignment = false;
   bool isJit = false;
   bool isMain = true;
+
+  /** Class slots (alloca) holding *Class; release on function exit. */
+  std::vector<lesma::Value*> arcTrackedLocals;
 
 public:
   /** Codegen lowers a module using the semantic scope and type cache produced
@@ -237,6 +242,21 @@ protected:
   auto emitCalloc(llvm::Value* count, llvm::Value* size, const llvm::Twine& name = "calloc.tmp")
       -> llvm::Value*;
   auto emitMalloc(llvm::Value* size, const llvm::Twine& name = "malloc.tmp") -> llvm::Value*;
+  /** Heap-allocate a class object (refcount header + user fields); refcount starts at 1. */
+  auto emitArcAllocClass(llvm::Value* totalSize, const llvm::Twine& name = "arc.obj") -> llvm::Value*;
+  void emitArcRetain(llvm::Value* classPtr);
+  /** \p classHeapType is the pointee class type (not \c *Class). */
+  void emitArcRelease(llvm::Value* classPtr, lesma::Type* classHeapType);
+  void emitArcReleaseAllTrackedLocals();
+  void emitArcReleaseAllTrackedLocalsExcept(lesma::Value* exceptSym);
+  /** Callee-owned convention: retain each \*Class argument before the call (skip leading indices,
+   *  e.g. constructor \c this already has refcount 1 from \c lesma_arc_alloc). */
+  void emitArcRetainOutgoingCallArgs(const std::vector<Field*>& fields,
+                                     const std::vector<llvm::Value*>& llvmVals, size_t skipFirst);
+  void clearArcTracking();
+  /** LLVM struct index for a class user field (index 0 is ARC strong count). */
+  [[nodiscard]] static auto classUserFieldLlvmIndex(unsigned userFieldIndex) -> unsigned;
+
   auto emitRealloc(llvm::Value* ptr, llvm::Value* size, const llvm::Twine& name = "realloc.tmp")
       -> llvm::Value*;
   auto emitFree(llvm::Value* ptr) -> void;
@@ -257,6 +277,8 @@ protected:
   auto emitListEnsureCapacity(lesma::Type* listType, llvm::Value* listHandle,
                               llvm::Value* minCapacity) -> void;
   auto emitListDeepCopy(lesma::Type* listType, llvm::Value* listHandle) -> llvm::Value*;
+  /** Release each stored \*Class element (no-op if element type is not a class). */
+  void emitListReleaseClassElementsIfNeeded(lesma::Type* listType, llvm::Value* listHandle);
   [[nodiscard]] auto isListIntrinsicName(const std::string& functionName) const -> bool;
   auto genListIntrinsicCall(const FuncCall* node, const std::vector<lesma::Type*>& paramTypes,
                             const std::vector<llvm::Value*>& paramsLLVM)
@@ -304,5 +326,10 @@ protected:
   auto bindGenericsFromTypePair(const TypeExpr* declared, lesma::Type* actual,
                                 const std::unordered_set<std::string>& genericNameSet,
                                 std::unordered_map<std::string, lesma::Type*>& env) -> void;
+
+  llvm::Function* getOrEmitClassFinalize(lesma::Type* classType);
+  void emitListFieldDestroyOnFinalize(lesma::Type* listType, llvm::Value* listHandle);
+
+  std::unordered_map<lesma::Type*, llvm::Function*> classFinalizeFnCache;
 };
 } // namespace lesma

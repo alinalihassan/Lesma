@@ -1,0 +1,18 @@
+# User `drop` is invoked on the last strong release (after refcount hits zero).
+# Smoke: destructor path runs without crashing when `drop` mutates `self`.
+
+class Box
+    var n: int
+
+    def new()
+        self.n = 0
+
+    def drop()
+        self.n = 1
+
+def run() -> int
+    var b = Box()
+    return 0
+
+if run() != 0
+    exit(1)

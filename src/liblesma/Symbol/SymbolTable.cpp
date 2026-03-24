@@ -370,6 +370,20 @@ auto SymbolTable::insertTypeRef(const std::string& name, Type* type) -> void {
   typeRefs.insert_or_assign(name, type);
 }
 
+auto SymbolTable::releaseOwnedTypesInto(std::vector<std::unique_ptr<Type>>& dest) -> void {
+  for (auto it = types.begin(); it != types.end();) {
+    const std::string& name = it->first;
+    Type* raw = it->second.get();
+    typeRefs.insert_or_assign(name, raw);
+    dest.push_back(std::move(it->second));
+    it = types.erase(it);
+  }
+  for (auto& [childName, child] : children) {
+    (void)childName;
+    child->releaseOwnedTypesInto(dest);
+  }
+}
+
 /**
  * Create a child leaf for the tree of symbol tables and return it
  *

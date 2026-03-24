@@ -73,8 +73,9 @@ struct ImportedModuleAnalysis {
   std::string mainFilePath;
 
   std::unique_ptr<Parser> parser;
-  std::unique_ptr<SymbolTable> rootScope;
+  /** Types must outlive \c rootScope: symbols hold raw \c Type* into this cache. */
   std::vector<std::unique_ptr<Type>> typeCache;
+  std::unique_ptr<SymbolTable> rootScope;
   AnalysisIndex index;
 
   ImportAliasMap importAliasToPath;
@@ -96,8 +97,9 @@ struct AnalysisResult {
 
   /** Set when parse succeeded (and possibly typecheck). */
   std::unique_ptr<Parser> parser;
-  std::unique_ptr<SymbolTable> rootScope;
+  /** Types must outlive \c rootScope: symbols hold raw \c Type* into this cache. */
   std::vector<std::unique_ptr<Type>> typeCache;
+  std::unique_ptr<SymbolTable> rootScope;
   /** Generic bindings for specialized classes (e.g. list<int>); keys align with \p typeCache. */
   std::unordered_map<Type*, std::unordered_map<std::string, Type*>> specializedTypeEnv;
   AnalysisIndex index;

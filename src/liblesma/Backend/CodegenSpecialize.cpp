@@ -289,6 +289,7 @@ auto Codegen::specializeClass(const Class* node,
 
   std::vector<std::unique_ptr<Field>> fields;
   std::vector<llvm::Type*> elementLLVMTypes;
+  elementLLVMTypes.push_back(builder->getInt64Ty());
   for (auto* field : node->getFields()) {
     if (field->getType() != nullptr) {
       field->getType()->accept(*this);
@@ -308,6 +309,10 @@ auto Codegen::specializeClass(const Class* node,
     }
     fields.push_back(std::make_unique<Field>(field->getIdentifier()->getValue(), result->getType(),
                                              std::move(defaultVal)));
+  }
+
+  if (elementLLVMTypes.size() == 1U) {
+    elementLLVMTypes.push_back(builder->getInt8Ty());
   }
 
   auto* structType =

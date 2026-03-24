@@ -1,0 +1,13 @@
+class Box
+    var slot: int
+
+    def new()
+        self.slot = 0
+
+    def drop()
+        self.slot = 0
+
+def main() -> int
+    var b = Box()
+    b.drop()
+    return 0

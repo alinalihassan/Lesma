@@ -12,6 +12,7 @@ def extern strcmp(a: cstr, b: cstr) -> int
 def extern strncmp(a: cstr, b: cstr, n: int) -> int
 def extern isspace(c: int) -> int
 def extern strdup(s: cstr) -> cstr
+def extern free(p: cstr)
 def extern fopen(path: cstr, mode: cstr) -> *int8
 def extern fclose(stream: *int8) -> int
 def extern fread(ptr: cstr, size: int, nmemb: int, stream: *int8) -> int
@@ -312,6 +313,10 @@ export class file
 
     def new(p: cstr)
         self.storage = strdup(p)
+
+    # Path buffer from new(); release when the last strong ref to this file goes away.
+    def drop()
+        free(self.storage)
 
     def text() -> str
         var fp: *int8 = fopen(self.storage, "rb")

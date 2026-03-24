@@ -1,5 +1,7 @@
 #include "Codegen.h"
 
+#include "LesmaArcStaticLibPath.h"
+
 #include <filesystem>
 #include <memory>
 #include <utility>
@@ -228,6 +230,7 @@ void Codegen::linkObjectFileWithLld(const std::string& objFilename) {
   for (const auto& obj : objectFiles) {
     args.push_back(obj.c_str());
   }
+  args.push_back(kLesmaArcStaticLibPath);
 
 #ifdef __APPLE__
   // Add macOS-specific linker arguments

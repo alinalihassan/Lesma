@@ -167,6 +167,7 @@ auto Codegen::defineFunction(lesma::Value* value, const FuncDecl* node, Value* c
   };
   currentFunction = value;
   deferStack.emplace();
+  clearArcTracking();
 
   if (value->getLlvmValue() == nullptr) {
     throw CodegenError(node->getSpan(), "Function {} is declared but has no LLVM body",
@@ -197,14 +198,29 @@ auto Codegen::defineFunction(lesma::Value* value, const FuncDecl* node, Value* c
     llvm::Value* ptr = builder->CreateAlloca(param->getType(), nullptr, param->getName() + "_ptr");
     builder->CreateStore(param, ptr);
 
+    Value* paramSym = nullptr;
     if (auto* existingParam = lookupInCurrentScope(paramName);
         existingParam != nullptr && existingParam->getLlvmValue() == nullptr) {
       existingParam->setLlvmValue(ptr);
       existingParam->setCategory(ValueCategory::ADDRESSABLE_STORAGE);
+      paramSym = existingParam;
     } else {
       auto symbol = std::make_unique<Value>(field->name, field->type, ptr);
       symbol->setCategory(ValueCategory::ADDRESSABLE_STORAGE);
       scope->insertSymbol(std::move(symbol));
+      paramSym = lookupInCurrentScope(paramName);
+    }
+    if (paramSym != nullptr && field->type != nullptr && field->type->is(BaseType::TY_PTR) &&
+        field->type->getElementType() != nullptr &&
+        field->type->getElementType()->is(BaseType::TY_CLASS)) {
+      // `this` for `new` is not ARC-managed at method exit: the call site owns the +1 from
+      // lesma_arc_alloc. Third arg is non-null for class methods (self/this context). Prefer
+      // value->getName() — must match the callable symbol name ("new"), not only the AST node.
+      const bool isCtorThis =
+          clsSymbol != nullptr && fieldIndex == 0 && value->getName() == "new";
+      if (!isCtorThis) {
+        arcTrackedLocals.push_back(paramSym);
+      }
     }
 
     fieldIndex++;
@@ -232,6 +248,7 @@ auto Codegen::defineFunction(lesma::Value* value, const FuncDecl* node, Value* c
     if (value->getType()->getReturnType()->is(BaseType::TY_VOID)) {
       // Make implicit return of void Function explicit.
       builder->SetInsertPoint(&bb);
+      emitArcReleaseAllTrackedLocals();
       builder->CreateRetVoid();
     } else {
       throw CodegenError(node->getSpan(), "Function {} does not always return a result",
@@ -302,6 +319,27 @@ namespace {
 }
 } // namespace
 
+namespace {
+/** True when the expression already produces a +1 owned class pointer (constructor/new, boxed str). */
+bool exprIsFreshClassOwner(Expression* expr) {
+  if (expr == nullptr) {
+    return false;
+  }
+  if (dynamic_cast<FuncCall*>(expr) != nullptr) {
+    return true;
+  }
+  if (auto* lit = dynamic_cast<Literal*>(expr)) {
+    if (lit->getType() == TokenType::STRING) {
+      lesma::Type* strClass = lit->getResolvedStrClassType();
+      if (strClass != nullptr && strClass->is(BaseType::TY_CLASS)) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+} // namespace
+
 auto Codegen::visit(const VarDecl* node) -> void {
   const std::string name = node->getIdentifier()->getValue();
   auto* existing = [&]() -> Value* {
@@ -365,6 +403,9 @@ auto Codegen::visit(const VarDecl* node) -> void {
         builder->CreateStore(castVal->getLlvmValue(), ptr);
       }
     }
+    if (isPtrToClass) {
+      arcTrackedLocals.push_back(existing);
+    }
     return;
   }
 
@@ -396,6 +437,12 @@ auto Codegen::visit(const VarDecl* node) -> void {
   symbol->setCategory(ValueCategory::ADDRESSABLE_STORAGE);
   symbol->setMutable(node->getMutability());
   scope->insertSymbol(std::move(symbol));
+
+  if (isPtrToClass) {
+    if (auto* tracked = scope->lookup(name)) {
+      arcTrackedLocals.push_back(tracked);
+    }
+  }
 
   if (node->getValue() != nullptr) {
     if (isPtrToClass && val->getType() != nullptr && val->getType()->is(BaseType::TY_PTR)) {
@@ -513,9 +560,9 @@ auto Codegen::visit(const ForIn* node) -> void {
     auto fields = listType->getFields();
     if (!fields.empty() && fields.front()->type != nullptr &&
         fields.front()->type->is(BaseType::TY_ARRAY)) {
-      auto* storagePtr =
-          builder->CreateStructGEP(cast<llvm::StructType>(getOrCreateLlvmType(listType)),
-                                   iterable->getLlvmValue(), 0, "list.storage.ptr");
+      auto* storagePtr = builder->CreateStructGEP(
+          cast<llvm::StructType>(getOrCreateLlvmType(listType)), iterable->getLlvmValue(),
+          classUserFieldLlvmIndex(0), "list.storage.ptr");
       listHandle = builder->CreateLoad(getOrCreateLlvmType(fields.front()->type), storagePtr,
                                        "list.storage");
       listType = fields.front()->type;
@@ -966,9 +1013,23 @@ auto Codegen::visit(const Assignment* node) -> void {
                     isPtr ? lhs->getType()->getElementType() : lhs->getType());
 
   switch (node->getOperator()) {
-  case TokenType::EQUAL:
-    builder->CreateStore(value->getLlvmValue(), lhs->getLlvmValue());
+  case TokenType::EQUAL: {
+    lesma::Type* slotTy = lhs->getType();
+    const bool arcSlot = slotTy != nullptr && slotTy->is(BaseType::TY_PTR) &&
+                         slotTy->getElementType() != nullptr &&
+                         slotTy->getElementType()->is(BaseType::TY_CLASS);
+    if (arcSlot) {
+      llvm::Value* slot = lhs->getLlvmValue();
+      llvm::Value* oldPtr = builder->CreateLoad(builder->getPtrTy(), slot, "arc.assign.old");
+      llvm::Value* newPtr = value->getLlvmValue();
+      emitArcRetain(newPtr);
+      emitArcRelease(oldPtr, slotTy->getElementType());
+      builder->CreateStore(newPtr, slot);
+    } else {
+      builder->CreateStore(value->getLlvmValue(), lhs->getLlvmValue());
+    }
     break;
+  }
   case TokenType::PLUS_EQUAL:
   case TokenType::MINUS_EQUAL:
   case TokenType::SLASH_EQUAL:
@@ -1020,6 +1081,7 @@ auto Codegen::visit(const Return* node) -> void {
 
   if (node->getValue() == nullptr) {
     if (currentFunction->getType()->getReturnType()->is(BaseType::TY_VOID)) {
+      emitArcReleaseAllTrackedLocals();
       builder->CreateRetVoid();
     } else {
       throw CodegenError(node->getSpan(),
@@ -1051,7 +1113,13 @@ auto Codegen::visit(const Return* node) -> void {
     llvm::Type* expectedReturnType =
         declaredClass != nullptr ? builder->getPtrTy() : builder->getCurrentFunctionReturnType();
     if (actualReturnType == expectedReturnType) {
-      builder->CreateRet(result->getLlvmValue());
+      const bool returnClassPtr = declaredClass != nullptr;
+      llvm::Value* retVal = result->getLlvmValue();
+      if (returnClassPtr && !exprIsFreshClassOwner(node->getValue())) {
+        emitArcRetain(retVal);
+      }
+      emitArcReleaseAllTrackedLocals();
+      builder->CreateRet(retVal);
     } else {
       throw CodegenError(node->getSpan(),
                          "Return type does not match the function return type, expected {}, "
@@ -1100,8 +1168,12 @@ auto Codegen::visit(const Class* node) -> void {
   lesma::Type* type = existingStruct->getType();
   if (type->getLlvmType() == nullptr) {
     std::vector<llvm::Type*> elementLLVMTypes;
+    elementLLVMTypes.push_back(builder->getInt64Ty());
     for (auto* f : type->getFields()) {
       elementLLVMTypes.push_back(getOrCreateLlvmType(f->type));
+    }
+    if (elementLLVMTypes.size() == 1U) {
+      elementLLVMTypes.push_back(builder->getInt8Ty());
     }
     auto* structType =
         llvm::StructType::create(theModule->getContext(), elementLLVMTypes, node->getIdentifier());
@@ -1699,8 +1771,11 @@ auto Codegen::visit(const DotOp* node) -> void {
                              receiverType->getLlvmType()->getStructName().str());
         }
 
+        const unsigned llvmIdx = cls->getType()->is(BaseType::TY_CLASS)
+                                     ? classUserFieldLlvmIndex(static_cast<unsigned>(index))
+                                     : static_cast<unsigned>(index);
         auto* ptr = builder->CreateStructGEP(cls->getType()->getLlvmType(),
-                                             leftValue->getLlvmValue(), index);
+                                             leftValue->getLlvmValue(), llvmIdx);
         if (isAssignment) {
           result = std::make_unique<Value>(
               "", cacheType(std::make_unique<Type>(BaseType::TY_PTR, builder->getPtrTy(), type)),
@@ -1860,8 +1935,11 @@ auto Codegen::visit(const DotOp* node) -> void {
                 result->getType()->getElementType()->getLlvmType()->getStructName().str());
           }
 
+          const unsigned llvmIdx = cls->getType()->is(BaseType::TY_CLASS)
+                                       ? classUserFieldLlvmIndex(static_cast<unsigned>(index))
+                                       : static_cast<unsigned>(index);
           auto* ptr = builder->CreateStructGEP(cls->getType()->getLlvmType(),
-                                               result->getLlvmValue(), index);
+                                             result->getLlvmValue(), llvmIdx);
           if (isAssignment) {
             result = std::make_unique<Value>(
                 "", cacheType(std::make_unique<Type>(BaseType::TY_PTR, builder->getPtrTy(), type)),
@@ -2011,8 +2089,9 @@ auto Codegen::visit(const ListLiteral* node) -> void {
     auto* structType = cast<llvm::StructType>(getOrCreateLlvmType(listType));
     auto* classSize =
         builder->getInt64(theModule->getDataLayout().getTypeAllocSize(structType).getFixedValue());
-    auto* classHandle = emitMalloc(classSize, "list.obj");
-    auto* storagePtr = builder->CreateStructGEP(structType, classHandle, 0, "list.storage.ptr");
+    auto* classHandle = emitArcAllocClass(classSize, "list.obj");
+    auto* storagePtr = builder->CreateStructGEP(structType, classHandle, classUserFieldLlvmIndex(0),
+                                                "list.storage.ptr");
 
     auto* listStructTy = getOrCreateListStructType(bufferType);
     auto* headerSize = builder->getInt64(
@@ -2106,8 +2185,9 @@ auto Codegen::visit(const Literal* node) -> void {
       auto* structType = cast<llvm::StructType>(getOrCreateLlvmType(strClass));
       auto* classSize = builder->getInt64(
           theModule->getDataLayout().getTypeAllocSize(structType).getFixedValue());
-      auto* classHandle = emitMalloc(classSize, "str.obj");
-      auto* storagePtr = builder->CreateStructGEP(structType, classHandle, 0, "str.storage.ptr");
+      auto* classHandle = emitArcAllocClass(classSize, "str.obj");
+      auto* storagePtr =
+          builder->CreateStructGEP(structType, classHandle, classUserFieldLlvmIndex(0), "str.storage.ptr");
       llvm::Value* globalStr = builder->CreateGlobalString(node->getValue());
       builder->CreateStore(globalStr, storagePtr);
       result = std::make_unique<Value>("", strClass, classHandle);
@@ -2354,7 +2434,7 @@ auto Codegen::callNamedFunction(llvm::SMRange span, const std::string& functionN
     auto* classLlvmType = getOrCreateLlvmType(classSym->getType());
     auto* classSize = builder->getInt64(
         theModule->getDataLayout().getTypeAllocSize(classLlvmType).getFixedValue());
-    classPtr = emitMalloc(classSize, functionName + ".obj");
+    classPtr = emitArcAllocClass(classSize, functionName + ".obj");
     localParamsLLVM.insert(localParamsLLVM.begin(), classPtr);
     selfParamType =
         std::make_unique<Type>(BaseType::TY_PTR, builder->getPtrTy(), classSym->getType());
@@ -2503,6 +2583,10 @@ auto Codegen::callNamedFunction(llvm::SMRange span, const std::string& functionN
     callableValue = symbol->getLlvmValue();
   }
   auto* func = llvm::cast<Function>(callableValue);
+  auto fieldsForArc = symbol->getType()->getFields();
+  const size_t skipArcRetain =
+      (classSym != nullptr && classSym->getType()->is(BaseType::TY_CLASS)) ? 1U : 0U;
+  emitArcRetainOutgoingCallArgs(fieldsForArc, localParamsLLVM, skipArcRetain);
   if (classSym != nullptr && classSym->getType()->is(BaseType::TY_CLASS)) {
     builder->CreateCall(func, localParamsLLVM);
     selfSymbol = selfSymbolTmp;
@@ -2544,9 +2628,9 @@ auto Codegen::callListMethodByName(llvm::SMRange span, lesma::Value* receiver,
           fields.front()->type->is(BaseType::TY_ARRAY)) {
         listClassType = receiverType;
         bufferType = fields.front()->type;
-        auto* storagePtr =
-            builder->CreateStructGEP(cast<llvm::StructType>(getOrCreateLlvmType(listClassType)),
-                                     receiver->getLlvmValue(), 0, "list.storage.ptr");
+        auto* storagePtr = builder->CreateStructGEP(
+            cast<llvm::StructType>(getOrCreateLlvmType(listClassType)), receiver->getLlvmValue(),
+            classUserFieldLlvmIndex(0), "list.storage.ptr");
         bufferHandle =
             builder->CreateLoad(getOrCreateLlvmType(bufferType), storagePtr, "list.storage");
       }
@@ -2572,6 +2656,7 @@ auto Codegen::callListMethodByName(llvm::SMRange span, lesma::Value* receiver,
         builder->CreateICmpNE(currentData, llvm::ConstantPointerNull::get(builder->getPtrTy())),
         freeBlock, doneBlock);
     builder->SetInsertPoint(freeBlock);
+    emitListReleaseClassElementsIfNeeded(bufferType, bufferHandle);
     emitFree(currentData);
     builder->CreateBr(doneBlock);
     builder->SetInsertPoint(doneBlock);
@@ -2592,8 +2677,13 @@ auto Codegen::callListMethodByName(llvm::SMRange span, lesma::Value* receiver,
     auto* elementPtr =
         builder->CreateGEP(getListStoredElementType(bufferType),
                            emitListDataPtr(bufferType, bufferHandle), length, "list.push.ptr");
-    builder->CreateStore(getListStoredElementValue(span, args[0], bufferType->getElementType()),
-                         elementPtr);
+    llvm::Value* elemVal =
+        getListStoredElementValue(span, args[0], bufferType->getElementType());
+    if (bufferType->getElementType() != nullptr &&
+        bufferType->getElementType()->is(BaseType::TY_CLASS)) {
+      emitArcRetain(elemVal);
+    }
+    builder->CreateStore(elemVal, elementPtr);
     emitStoreListLength(bufferType, bufferHandle, nextLength);
     return std::make_unique<Value>(
         "", cacheType(std::make_unique<Type>(BaseType::TY_VOID, builder->getVoidTy())), nullptr);
@@ -2618,9 +2708,9 @@ auto Codegen::callListMethodByName(llvm::SMRange span, lesma::Value* receiver,
     auto* classLlvmType = getOrCreateLlvmType(listClassType);
     auto* classSize = builder->getInt64(
         theModule->getDataLayout().getTypeAllocSize(classLlvmType).getFixedValue());
-    auto* classHandle = emitMalloc(classSize, "list.copy.obj");
+    auto* classHandle = emitArcAllocClass(classSize, "list.copy.obj");
     auto* storagePtr = builder->CreateStructGEP(cast<llvm::StructType>(classLlvmType), classHandle,
-                                                0, "list.copy.storage.ptr");
+                                                classUserFieldLlvmIndex(0), "list.copy.storage.ptr");
     builder->CreateStore(copiedBuffer, storagePtr);
     return std::make_unique<Value>("", listClassType, classHandle);
   }
@@ -2640,8 +2730,16 @@ auto Codegen::callListMethodByName(llvm::SMRange span, lesma::Value* receiver,
     }
     auto* elementPtr =
         emitListElementPointer(span, bufferType, bufferHandle, args[0]->getLlvmValue());
-    builder->CreateStore(getListStoredElementValue(span, args[1], bufferType->getElementType()),
-                         elementPtr);
+    llvm::Value* newVal =
+        getListStoredElementValue(span, args[1], bufferType->getElementType());
+    if (bufferType->getElementType() != nullptr &&
+        bufferType->getElementType()->is(BaseType::TY_CLASS)) {
+      llvm::Value* oldVal =
+          builder->CreateLoad(getListStoredElementType(bufferType), elementPtr, "list.sub.old");
+      emitArcRetain(newVal);
+      emitArcRelease(oldVal, bufferType->getElementType());
+    }
+    builder->CreateStore(newVal, elementPtr);
     return std::make_unique<Value>(
         "", cacheType(std::make_unique<Type>(BaseType::TY_VOID, builder->getVoidTy())), nullptr);
   }
@@ -2741,6 +2839,7 @@ auto Codegen::callMethodByName(llvm::SMRange span, lesma::Value* receiver,
         getOrCreateLlvmType(returnTy);
       }
       selfSymbol = savedSelfSymbol;
+      emitArcRetainOutgoingCallArgs(fields, finalParams, 0U);
       auto* callResult =
           builder->CreateCall(llvm::cast<Function>(directMethod->getLlvmValue()), finalParams);
       currentGenericTypes = std::move(savedGenerics);

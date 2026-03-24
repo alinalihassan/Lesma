@@ -8,6 +8,7 @@
 #include <llvm/IR/Function.h>
 #include <llvm/IR/Instructions.h>
 
+#include "liblesma/Backend/CodegenError.h"
 #include "liblesma/Backend/CodegenRuntimeNames.h"
 #include "liblesma/Backend/MangleUtils.h"
 #include "liblesma/Symbol/Type.h"
@@ -87,6 +88,87 @@ auto Codegen::emitExit(int code) -> void {
       std::string{codegen::runtime::kExit},
       llvm::FunctionType::get(builder->getVoidTy(), {builder->getInt64Ty()}, false));
   builder->CreateCall(exitFn, {builder->getInt64(code)});
+}
+
+auto Codegen::emitArcAllocClass(llvm::Value* totalSize, const llvm::Twine& name) -> llvm::Value* {
+  llvm::FunctionCallee fn = theModule->getOrInsertFunction(
+      std::string{codegen::runtime::kLesmaArcAlloc},
+      llvm::FunctionType::get(builder->getPtrTy(), {builder->getInt64Ty()}, false));
+  return builder->CreateCall(fn, {totalSize}, name);
+}
+
+void Codegen::emitArcRetain(llvm::Value* classPtr) {
+  llvm::FunctionCallee fn = theModule->getOrInsertFunction(
+      std::string{codegen::runtime::kLesmaArcRetain},
+      llvm::FunctionType::get(builder->getVoidTy(), {builder->getPtrTy()}, false));
+  builder->CreateCall(fn, {classPtr});
+}
+
+void Codegen::emitArcRelease(llvm::Value* classPtr, lesma::Type* classHeapType) {
+  if (classPtr == nullptr || classHeapType == nullptr || !classHeapType->is(BaseType::TY_CLASS)) {
+    return;
+  }
+  llvm::Function* fin = getOrEmitClassFinalize(classHeapType);
+  llvm::FunctionCallee callee = theModule->getOrInsertFunction(
+      std::string{codegen::runtime::kLesmaArcRelease},
+      llvm::FunctionType::get(builder->getVoidTy(), {builder->getPtrTy(), builder->getPtrTy()},
+                              false));
+  llvm::Value* finPtr = builder->CreateBitCast(fin, builder->getPtrTy());
+  builder->CreateCall(callee, {classPtr, finPtr});
+}
+
+void Codegen::clearArcTracking() { arcTrackedLocals.clear(); }
+
+void Codegen::emitArcReleaseAllTrackedLocals() {
+  for (lesma::Value* sym : arcTrackedLocals) {
+    if (sym == nullptr || sym->getLlvmValue() == nullptr) {
+      continue;
+    }
+    lesma::Type* t = sym->getType();
+    if (t == nullptr || !t->is(BaseType::TY_PTR) || t->getElementType() == nullptr ||
+        !t->getElementType()->is(BaseType::TY_CLASS)) {
+      continue;
+    }
+    llvm::Value* slot = sym->getLlvmValue();
+    llvm::Value* p = builder->CreateLoad(builder->getPtrTy(), slot, "arc.leave");
+    emitArcRelease(p, t->getElementType());
+  }
+}
+
+void Codegen::emitArcReleaseAllTrackedLocalsExcept(lesma::Value* exceptSym) {
+  for (lesma::Value* sym : arcTrackedLocals) {
+    if (sym == nullptr || sym == exceptSym || sym->getLlvmValue() == nullptr) {
+      continue;
+    }
+    lesma::Type* t = sym->getType();
+    if (t == nullptr || !t->is(BaseType::TY_PTR) || t->getElementType() == nullptr ||
+        !t->getElementType()->is(BaseType::TY_CLASS)) {
+      continue;
+    }
+    llvm::Value* slot = sym->getLlvmValue();
+    llvm::Value* p = builder->CreateLoad(builder->getPtrTy(), slot, "arc.leave");
+    emitArcRelease(p, t->getElementType());
+  }
+}
+
+auto Codegen::classUserFieldLlvmIndex(unsigned userFieldIndex) -> unsigned {
+  return userFieldIndex + 1U;
+}
+
+void Codegen::emitArcRetainOutgoingCallArgs(const std::vector<Field*>& fields,
+                                            const std::vector<llvm::Value*>& llvmVals,
+                                            size_t skipFirst) {
+  for (size_t i = skipFirst; i < llvmVals.size() && i < fields.size(); ++i) {
+    Field* f = fields[i];
+    if (f == nullptr) {
+      continue;
+    }
+    lesma::Type* ft = f->type;
+    if (ft != nullptr && ft->is(BaseType::TY_PTR) && ft->getElementType() != nullptr &&
+        ft->getElementType()->is(BaseType::TY_CLASS)) {
+      emitArcRetain(llvmVals[i]);
+    }
+  }
 }
 
 auto Codegen::emitListLength(lesma::Type* listType, llvm::Value* listHandle) -> llvm::Value* {
@@ -205,6 +287,45 @@ auto Codegen::emitListEnsureCapacity(lesma::Type* listType, llvm::Value* listHan
   emitStoreListCapacity(listType, listHandle, finalCapacity);
 }
 
+void Codegen::emitListReleaseClassElementsIfNeeded(lesma::Type* listType,
+                                                   llvm::Value* listHandle) {
+  lesma::Type* el = listType != nullptr ? listType->getElementType() : nullptr;
+  if (el == nullptr || !el->is(BaseType::TY_CLASS)) {
+    return;
+  }
+  llvm::Function* parentFunction = builder->GetInsertBlock()->getParent();
+  auto* length = emitListLength(listType, listHandle);
+  auto* dataPtr = emitListDataPtr(listType, listHandle);
+  auto* idxPtr = builder->CreateAlloca(builder->getInt64Ty(), nullptr, "list.rel.i");
+  builder->CreateStore(builder->getInt64(0), idxPtr);
+  auto* loopCond =
+      llvm::BasicBlock::Create(theModule->getContext(), "list.rel.cond", parentFunction);
+  auto* loopBody =
+      llvm::BasicBlock::Create(theModule->getContext(), "list.rel.body", parentFunction);
+  auto* loopInc = llvm::BasicBlock::Create(theModule->getContext(), "list.rel.inc", parentFunction);
+  auto* loopEnd = llvm::BasicBlock::Create(theModule->getContext(), "list.rel.end", parentFunction);
+  builder->CreateBr(loopCond);
+
+  builder->SetInsertPoint(loopCond);
+  auto* idx = builder->CreateLoad(builder->getInt64Ty(), idxPtr);
+  builder->CreateCondBr(builder->CreateICmpSLT(idx, length), loopBody, loopEnd);
+
+  builder->SetInsertPoint(loopBody);
+  auto* elemTy = getListStoredElementType(listType);
+  auto* elemPtr = builder->CreateGEP(elemTy, dataPtr, idx, "list.rel.elem");
+  auto* p = builder->CreateLoad(elemTy, elemPtr);
+  emitArcRelease(p, el);
+  builder->CreateBr(loopInc);
+
+  builder->SetInsertPoint(loopInc);
+  auto* next = builder->CreateAdd(builder->CreateLoad(builder->getInt64Ty(), idxPtr),
+                                  builder->getInt64(1));
+  builder->CreateStore(next, idxPtr);
+  builder->CreateBr(loopCond);
+
+  builder->SetInsertPoint(loopEnd);
+}
+
 auto Codegen::emitListDeepCopy(lesma::Type* listType, llvm::Value* listHandle) -> llvm::Value* {
   auto* structType = getOrCreateListStructType(listType);
   auto* headerSize =
@@ -270,6 +391,34 @@ auto Codegen::emitListDeepCopy(lesma::Type* listType, llvm::Value* listHandle) -
     }
     auto* newElementPtr = builder->CreateGEP(elementLlvmType, newData, index, "list.copy.elem.ptr");
     builder->CreateStore(copiedElement, newElementPtr);
+    builder->CreateBr(loopInc);
+
+    builder->SetInsertPoint(loopInc);
+    auto* nextIndex = builder->CreateAdd(builder->CreateLoad(builder->getInt64Ty(), indexPtr),
+                                         builder->getInt64(1));
+    builder->CreateStore(nextIndex, indexPtr);
+    builder->CreateBr(loopCond);
+  } else if (elementType != nullptr && elementType->is(BaseType::TY_CLASS)) {
+    auto* indexPtr = builder->CreateAlloca(builder->getInt64Ty(), nullptr, "list.copy.class.index");
+    builder->CreateStore(builder->getInt64(0), indexPtr);
+    auto* loopCond =
+        llvm::BasicBlock::Create(theModule->getContext(), "list.copy.class.cond", parentFunction);
+    auto* loopBody =
+        llvm::BasicBlock::Create(theModule->getContext(), "list.copy.class.body", parentFunction);
+    auto* loopInc =
+        llvm::BasicBlock::Create(theModule->getContext(), "list.copy.class.inc", parentFunction);
+    builder->CreateBr(loopCond);
+
+    builder->SetInsertPoint(loopCond);
+    auto* index = builder->CreateLoad(builder->getInt64Ty(), indexPtr);
+    builder->CreateCondBr(builder->CreateICmpSLT(index, length), loopBody, doneBlock);
+
+    builder->SetInsertPoint(loopBody);
+    auto* oldElementPtr = emitListElementPointer({}, listType, listHandle, index);
+    auto* oldPtr = builder->CreateLoad(elementLlvmType, oldElementPtr);
+    emitArcRetain(oldPtr);
+    auto* newElementPtr = builder->CreateGEP(elementLlvmType, newData, index, "list.copy.class.ptr");
+    builder->CreateStore(oldPtr, newElementPtr);
     builder->CreateBr(loopInc);
 
     builder->SetInsertPoint(loopInc);
@@ -397,4 +546,105 @@ auto Codegen::lookupClassStructSymbol(lesma::Type* classTy) -> Value* {
     }
   }
   return nullptr;
+}
+
+void Codegen::emitListFieldDestroyOnFinalize(lesma::Type* listType, llvm::Value* listHandle) {
+  if (listType == nullptr || !listType->is(BaseType::TY_ARRAY) || listType->getElementType() == nullptr) {
+    return;
+  }
+  llvm::Function* parentFunction = builder->GetInsertBlock()->getParent();
+  auto* skipBlock =
+      llvm::BasicBlock::Create(theModule->getContext(), "list.fin.skip", parentFunction);
+  auto* runBlock =
+      llvm::BasicBlock::Create(theModule->getContext(), "list.fin.run", parentFunction);
+  auto* joinBlock =
+      llvm::BasicBlock::Create(theModule->getContext(), "list.fin.join", parentFunction);
+  builder->CreateCondBr(
+      builder->CreateICmpEQ(listHandle, llvm::ConstantPointerNull::get(builder->getPtrTy())),
+      skipBlock, runBlock);
+  builder->SetInsertPoint(skipBlock);
+  builder->CreateBr(joinBlock);
+  builder->SetInsertPoint(runBlock);
+  auto* currentData = emitListDataPtr(listType, listHandle);
+  auto* freeDataBlock =
+      llvm::BasicBlock::Create(theModule->getContext(), "list.fin.freedata", parentFunction);
+  auto* afterData =
+      llvm::BasicBlock::Create(theModule->getContext(), "list.fin.afterdata", parentFunction);
+  builder->CreateCondBr(
+      builder->CreateICmpNE(currentData, llvm::ConstantPointerNull::get(builder->getPtrTy())),
+      freeDataBlock, afterData);
+  builder->SetInsertPoint(freeDataBlock);
+  emitListReleaseClassElementsIfNeeded(listType, listHandle);
+  emitFree(currentData);
+  builder->CreateBr(afterData);
+  builder->SetInsertPoint(afterData);
+  emitFree(listHandle);
+  builder->CreateBr(joinBlock);
+  builder->SetInsertPoint(joinBlock);
+}
+
+auto Codegen::getOrEmitClassFinalize(lesma::Type* classType) -> llvm::Function* {
+  if (classType == nullptr || !classType->is(BaseType::TY_CLASS)) {
+    throw CodegenError(llvm::SMRange{}, "Internal: finalize requires a class type");
+  }
+  if (auto it = classFinalizeFnCache.find(classType); it != classFinalizeFnCache.end()) {
+    return it->second;
+  }
+  getOrCreateLlvmType(classType);
+  std::string finName =
+      std::string{"__lesma_finalize."} + MangleUtils::getTypeMangledName({}, classType);
+  llvm::Function* fn = theModule->getFunction(finName);
+  if (fn != nullptr && !fn->empty()) {
+    classFinalizeFnCache[classType] = fn;
+    return fn;
+  }
+  if (fn == nullptr) {
+    llvm::FunctionType* ft =
+        llvm::FunctionType::get(builder->getVoidTy(), {builder->getPtrTy()}, false);
+    fn = llvm::Function::Create(ft, llvm::Function::PrivateLinkage, finName, *theModule);
+  }
+  classFinalizeFnCache[classType] = fn;
+
+  llvm::IRBuilderBase::InsertPoint ip = builder->saveIP();
+  llvm::BasicBlock* entry = llvm::BasicBlock::Create(theModule->getContext(), "fin.entry", fn);
+  builder->SetInsertPoint(entry);
+
+  llvm::Argument* rawArg = fn->getArg(0);
+  rawArg->setName("p");
+  lesma::Type* selfPtrLesma =
+      cacheType(std::make_unique<Type>(BaseType::TY_PTR, nullptr, classType));
+  getOrCreateLlvmType(selfPtrLesma);
+  llvm::Value* self = builder->CreateBitCast(rawArg, selfPtrLesma->getLlvmType());
+
+  std::vector<lesma::Type*> dropParams = {selfPtrLesma};
+  Value* dropSym = rootScope->lookupFunction("drop", dropParams);
+  if (dropSym != nullptr && dropSym->getLlvmValue() != nullptr) {
+    auto* dropFn = llvm::cast<llvm::Function>(dropSym->getLlvmValue());
+    builder->CreateCall(dropFn, {self});
+  }
+
+  auto* st = llvm::cast<llvm::StructType>(getOrCreateLlvmType(classType));
+  const auto& fields = classType->getFields();
+  for (unsigned i = 0; i < fields.size(); ++i) {
+    Field* f = fields[i];
+    if (f == nullptr || f->type == nullptr) {
+      continue;
+    }
+    lesma::Type* ft = f->type;
+    unsigned idx = classUserFieldLlvmIndex(i);
+    llvm::Value* fieldPtr = builder->CreateStructGEP(st, self, idx, "field.ptr");
+    if (ft->is(BaseType::TY_PTR) && ft->getElementType() != nullptr &&
+        ft->getElementType()->is(BaseType::TY_CLASS)) {
+      llvm::Value* child = builder->CreateLoad(builder->getPtrTy(), fieldPtr, "field.class");
+      emitArcRelease(child, ft->getElementType());
+    } else if (ft->is(BaseType::TY_ARRAY) && ft->getElementType() != nullptr) {
+      llvm::Value* buf = builder->CreateLoad(ft->getLlvmType(), fieldPtr, "field.buf");
+      emitListFieldDestroyOnFinalize(ft, buf);
+    }
+  }
+
+  emitFree(rawArg);
+  builder->CreateRetVoid();
+  builder->restoreIP(ip);
+  return fn;
 }

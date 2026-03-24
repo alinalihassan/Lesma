@@ -16,4 +16,8 @@ inline constexpr std::string_view kStrlen = "strlen";
 inline constexpr std::string_view kStrstr = "strstr";
 inline constexpr std::string_view kExit = "exit";
 
+inline constexpr std::string_view kLesmaArcAlloc = "lesma_arc_alloc";
+inline constexpr std::string_view kLesmaArcRetain = "lesma_arc_retain";
+inline constexpr std::string_view kLesmaArcRelease = "lesma_arc_release";
+
 } // namespace lesma::codegen::runtime
