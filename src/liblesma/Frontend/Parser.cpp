@@ -791,6 +791,46 @@ auto Parser::parseBlock() -> std::unique_ptr<Compound> {
       std::move(statements));
 }
 
+auto Parser::parseParameterList(bool allowVarargsEllipsis) -> ParameterListParseResult {
+  ParameterListParseResult result;
+  while (!check(TokenType::RIGHT_PAREN)) {
+    if (result.varargs) {
+      error(peek(), "Varargs should be the last parameter");
+    }
+
+    if (allowVarargsEllipsis && check(TokenType::ELLIPSIS)) {
+      consume(TokenType::ELLIPSIS);
+      result.varargs = true;
+    } else {
+      std::unique_ptr<Expression> defaultVal;
+      std::unique_ptr<TypeExpr> type;
+      auto* paramIdent = consume(TokenType::IDENTIFIER);
+
+      if (advanceIfMatchAny<TokenType::COLON>()) {
+        type = parseType();
+      }
+
+      if (advanceIfMatchAny<TokenType::EQUAL>()) {
+        defaultVal = parseExpression();
+      }
+
+      if (!defaultVal && !type) {
+        throw ParserError(paramIdent->span,
+                          "{} should have either a type, a value or both specified",
+                          paramIdent->lexeme);
+      }
+
+      result.parameters.push_back(std::make_unique<Parameter>(
+          paramIdent->lexeme, paramIdent->span, std::move(type), false, std::move(defaultVal)));
+    }
+
+    if (!check(TokenType::RIGHT_PAREN) && !check(TokenType::RIGHT_PAREN, 1)) {
+      consume(TokenType::COMMA);
+    }
+  }
+  return result;
+}
+
 auto Parser::parseFunctionDeclaration() -> std::unique_ptr<Statement> {
   auto loc = isExported ? previous()->span : peek()->span;
   consume(TokenType::DEF);
@@ -849,47 +889,10 @@ auto Parser::parseFunctionDeclaration() -> std::unique_ptr<Statement> {
   }
   std::vector<GenericParamDecl> genericParams = parseGenericParamList();
 
-  // Parse parameters
   consume(TokenType::LEFT_PAREN);
-  std::vector<std::unique_ptr<Parameter>> parameters;
-
-  bool varargs = false;
-  while (!check(TokenType::RIGHT_PAREN)) {
-    if (varargs) {
-      error(peek(), "Varargs should be the last parameter");
-    }
-
-    if (check(TokenType::ELLIPSIS) && externFunc) {
-      consume(TokenType::ELLIPSIS);
-      varargs = true;
-    } else {
-      std::unique_ptr<Expression> defaultVal;
-      std::unique_ptr<TypeExpr> type;
-      auto* paramIdent = consume(TokenType::IDENTIFIER);
-
-      if (advanceIfMatchAny<TokenType::COLON>()) {
-        type = parseType();
-      }
-
-      if (advanceIfMatchAny<TokenType::EQUAL>()) {
-        defaultVal = parseExpression();
-      }
-
-      if (!defaultVal && !type) {
-        throw ParserError(paramIdent->span,
-                          "{} should have either a type, a value or both specified",
-                          paramIdent->lexeme);
-      }
-
-      parameters.push_back(std::make_unique<Parameter>(
-          paramIdent->lexeme, paramIdent->span, std::move(type), false, std::move(defaultVal)));
-    }
-
-    if (!check(TokenType::RIGHT_PAREN) && !check(TokenType::RIGHT_PAREN, 1)) {
-      consume(TokenType::COMMA);
-    }
-  }
-
+  auto paramList = parseParameterList(externFunc);
+  std::vector<std::unique_ptr<Parameter>> parameters = std::move(paramList.parameters);
+  bool varargs = paramList.varargs;
   consume(TokenType::RIGHT_PAREN);
 
   if (pendingOverloadOperatorToken.has_value()) {
@@ -1135,27 +1138,8 @@ auto Parser::parseTraitMethodDeclaration() -> std::unique_ptr<FuncDecl> {
     error(peek(), "Generic parameters are not allowed on trait requirement methods");
   }
   consume(TokenType::LEFT_PAREN);
-  std::vector<std::unique_ptr<Parameter>> parameters;
-  while (!check(TokenType::RIGHT_PAREN)) {
-    std::unique_ptr<Expression> defaultVal;
-    std::unique_ptr<TypeExpr> type;
-    auto* paramIdent = consume(TokenType::IDENTIFIER);
-    if (advanceIfMatchAny<TokenType::COLON>()) {
-      type = parseType();
-    }
-    if (advanceIfMatchAny<TokenType::EQUAL>()) {
-      defaultVal = parseExpression();
-    }
-    if (!defaultVal && !type) {
-      throw ParserError(paramIdent->span, "{} should have either a type, a value or both specified",
-                        paramIdent->lexeme);
-    }
-    parameters.push_back(std::make_unique<Parameter>(
-        paramIdent->lexeme, paramIdent->span, std::move(type), false, std::move(defaultVal)));
-    if (!check(TokenType::RIGHT_PAREN) && !check(TokenType::RIGHT_PAREN, 1)) {
-      consume(TokenType::COMMA);
-    }
-  }
+  auto traitParamList = parseParameterList(false);
+  std::vector<std::unique_ptr<Parameter>> parameters = std::move(traitParamList.parameters);
   consume(TokenType::RIGHT_PAREN);
   std::unique_ptr<TypeExpr> returnType;
   if (advanceIfMatchAny<TokenType::ARROW>()) {
