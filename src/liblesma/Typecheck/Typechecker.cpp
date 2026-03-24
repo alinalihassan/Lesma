@@ -719,6 +719,30 @@ auto Typechecker::materializeImportedType(Type* type) -> Type* {
     importedTypeCopies[type] = copy;
     return copy;
   }
+  if (type->is(BaseType::TY_TUPLE)) {
+    std::vector<std::unique_ptr<Field>> fields;
+    for (Field* field : type->getFields()) {
+      auto fieldCopy = std::make_unique<Field>(field->name, materializeImportedType(field->type));
+      fieldCopy->setDeclarationSpan(field->getDeclarationSpan());
+      fieldCopy->setDeclarationFilePath(field->getDeclarationFilePath());
+      if (Value* declarationSymbol = field->getDeclarationSymbol()) {
+        auto symbolCopy = std::make_unique<Value>(declarationSymbol->getName(),
+                                                  materializeImportedType(field->type));
+        symbolCopy->setCategory(declarationSymbol->getCategory());
+        symbolCopy->setDeclarationKind(declarationSymbol->getDeclarationKind());
+        symbolCopy->setDeclarationSpan(declarationSymbol->getDeclarationSpan());
+        symbolCopy->setDeclarationFilePath(declarationSymbol->getDeclarationFilePath());
+        symbolCopy->setMutable(declarationSymbol->getMutability());
+        fieldCopy->setDeclarationSymbol(std::move(symbolCopy));
+      }
+      fields.push_back(std::move(fieldCopy));
+    }
+    auto tupleType = std::make_unique<Type>(BaseType::TY_TUPLE, nullptr, std::move(fields));
+    tupleType->setDisplayName(type->getDisplayName());
+    Type* copy = cacheType(std::move(tupleType));
+    importedTypeCopies[type] = copy;
+    return copy;
+  }
   if (type->is(BaseType::TY_GENERIC)) {
     Type* copy = cacheType(std::make_unique<Type>(type->getGenericName()));
     importedTypeCopies[type] = copy;
@@ -795,6 +819,16 @@ auto Typechecker::substituteInType(Type* t, const std::unordered_map<std::string
     funcType->setVarArgs(t->isVarArgs());
     return cacheType(std::move(funcType));
   }
+  if (t->is(BaseType::TY_TUPLE)) {
+    std::vector<std::unique_ptr<Field>> fields;
+    for (Field* field : t->getFields()) {
+      fields.push_back(
+          std::make_unique<Field>(field->name, substituteInType(field->type, env)));
+    }
+    auto tupleType = std::make_unique<Type>(BaseType::TY_TUPLE, nullptr, std::move(fields));
+    tupleType->setDisplayName(t->getDisplayName());
+    return cacheType(std::move(tupleType));
+  }
   if (t->is(BaseType::TY_CLASS)) {
     Type* classTemplate = t;
     if (auto tmplIt = specializedTypeToTemplate.find(t);
@@ -855,6 +889,14 @@ auto Typechecker::inferGenericBindings(Type* pattern, Type* actual,
       inferGenericBindings(patternFields[i]->type, actualFields[i]->type, bindings, span);
     }
     inferGenericBindings(pattern->getReturnType(), actual->getReturnType(), bindings, span);
+    return;
+  }
+  if (pattern->is(BaseType::TY_TUPLE)) {
+    auto patternFields = pattern->getFields();
+    auto actualFields = actual->getFields();
+    for (size_t i = 0; i < patternFields.size() && i < actualFields.size(); ++i) {
+      inferGenericBindings(patternFields[i]->type, actualFields[i]->type, bindings, span);
+    }
   }
 }
 
