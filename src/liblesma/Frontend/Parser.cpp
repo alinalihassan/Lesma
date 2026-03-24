@@ -624,6 +624,11 @@ auto Parser::parseVarDecl() -> std::unique_ptr<Statement> {
     vars.push_back(
         std::make_unique<Literal>(nextId->span, nextId->lexeme, nextId->type));
   }
+  if (inClass && vars.size() > 1U) {
+    throw ParserError(llvm::SMRange{vars[1]->getStart(), vars.back()->getEnd()},
+                      "Class fields must declare a single identifier per field (comma-separated "
+                      "bindings are not supported)");
+  }
 
   std::unique_ptr<TypeExpr> type;
   if (advanceIfMatchAny<TokenType::COLON>()) {
