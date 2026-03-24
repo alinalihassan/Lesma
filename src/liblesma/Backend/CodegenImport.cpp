@@ -1,18 +1,19 @@
-#include "Codegen.h"
-
 #include <algorithm>
 #include <memory>
 #include <string>
 #include <unordered_set>
 #include <vector>
 
-#include <fmt/format.h>
 #include <llvm/ExecutionEngine/Orc/ExecutionUtils.h>
 #include <llvm/IR/DerivedTypes.h>
 #include <llvm/IR/Function.h>
 #include <llvm/IR/GlobalValue.h>
+#include <llvm/Support/Error.h>
 #include <llvm/Support/MemoryBuffer.h>
 #include <llvm/Support/SourceMgr.h>
+
+#include "Codegen.h"
+#include <fmt/format.h>
 
 #include "liblesma/AST/AST.h"
 #include "liblesma/Backend/CodegenError.h"
@@ -48,10 +49,9 @@ auto Codegen::typecheckModule(const Compound* ast, const std::string& modulePath
 
 auto Codegen::isImported(const std::vector<ImportedNameBinding>& importedNames,
                          const std::string& importName) const -> bool {
-  return std::any_of(importedNames.begin(), importedNames.end(),
-                     [&importName](const ImportedNameBinding& binding) {
-                       return binding.name == importName;
-                     });
+  return std::ranges::any_of(importedNames, [&importName](const ImportedNameBinding& binding) {
+    return binding.name == importName;
+  });
 }
 
 auto Codegen::getImportedLocalName(const std::vector<ImportedNameBinding>& importedNames,
@@ -169,7 +169,7 @@ auto Codegen::exposeImportedSymbols(llvm::SMRange /*span*/, SymbolTable* importe
 auto Codegen::compileModule(llvm::SMRange span, const std::string& filepath, bool isStd,
                             const std::string& moduleAlias, bool importAll, bool importToScope,
                             const std::vector<ImportedNameBinding>& importedNames) -> void {
-  (void)isStd;
+  (void) isStd;
   const std::string absolutePath = normalizeModuleImportPath(filename, filepath);
 
   static thread_local std::unordered_set<std::string> compiling;
@@ -264,8 +264,14 @@ auto Codegen::compileModule(llvm::SMRange span, const std::string& filepath, boo
 
     if (isJit) {
       // Add the module to the JIT (after importing symbols; theModule still valid)
-      cantFail(theJit->addIRModule(ThreadSafeModule(std::move(codegen->theModule), *theContext)),
-               fmt::format("Failed adding import {} to JIT", filename).c_str());
+      llvm::Error jitErr =
+          theJit->addIRModule(ThreadSafeModule(std::move(codegen->theModule), *theContext));
+      if (jitErr) {
+        std::string errMsg;
+        llvm::handleAllErrors(std::move(jitErr),
+                              [&](const llvm::ErrorInfoBase& ei) { errMsg = ei.message(); });
+        throw CodegenError(span, "Failed adding import {} to JIT: {}", filepath, errMsg);
+      }
     } else {
       // Create object file to be linked
       std::string objFile = fmt::format("tmp{}", objectFiles.size());
