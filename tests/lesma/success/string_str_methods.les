@@ -52,3 +52,61 @@ if str("a") == str("a") != true
     exit(19)
 if str("a") != str("b") != true
     exit(20)
+
+# split / join
+var csv: list<str> = str("a,b,c").split(str(","))
+if csv.len() != 3
+    exit(21)
+if csv[0] != "a"
+    exit(22)
+if csv[1] != "b"
+    exit(23)
+if csv[2] != "c"
+    exit(24)
+var empty_parts: list<str> = list<str>()
+if str(",").join(empty_parts) != ""
+    exit(25)
+var three: list<str> = list<str>()
+three.push("x")
+three.push("y")
+if str("|").join(three) != "x|y"
+    exit(26)
+var empty_csv: list<str> = str("").split(str(","))
+if empty_csv.len() != 1
+    exit(27)
+if empty_csv[0] != ""
+    exit(28)
+
+# substring
+if str("abcdef").substring(2, 3) != "cde"
+    exit(29)
+if str("ab").substring(10, 1) != ""
+    exit(30)
+if str("ab").substring(0, 0) != ""
+    exit(31)
+if str("ab").substring(-5, 1) != "a"
+    exit(32)
+
+# replace / repeat
+if str("a.a.a").replace(str("."), str("_")) != "a_a_a"
+    exit(33)
+if str("hi").replace(str(""), str("x")) != "hi"
+    exit(34)
+if str("z").repeat(4) != "zzzz"
+    exit(35)
+if str("x").repeat(0) != ""
+    exit(36)
+
+# ASCII case
+if str("AbC").toLower() != "abc"
+    exit(37)
+if str("aBc").toUpper() != "ABC"
+    exit(38)
+
+# pad / charAt
+if str("7").padStart(4, str("0")) != "0007"
+    exit(39)
+if str("7").padEnd(4, str("0")) != "7000"
+    exit(40)
+if str("ab").charAt(1) != "b"
+    exit(41)

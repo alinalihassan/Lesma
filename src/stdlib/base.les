@@ -152,6 +152,138 @@ export class str impl Iterable<int8>
     def trim() -> str
         return self.trimStart().trimEnd()
 
+    # One code unit at i (same as self[i]; slice form matches operator []).
+    def charAt(i: int) -> str
+        return str(__str_slice(self.storage, i, 1))
+
+    # start is clamped (negative -> 0); len <= 0 yields "". If start >= len(), yields "".
+    def substring(start: int, len: int) -> str
+        let n: int = self.len()
+        var s: int = start
+        if s < 0
+            s = 0
+        if s >= n
+            return str(__str_slice(self.storage, 0, 0))
+        if len <= 0
+            return str(__str_slice(self.storage, 0, 0))
+        var take: int = len
+        if s + take > n
+            take = n - s
+        return str(__str_slice(self.storage, s, take))
+
+    # Empty separator: one str per code unit. Otherwise splits on each non-overlapping occurrence.
+    def split(sep: str) -> list<str>
+        var parts: list<str> = list<str>()
+        let n: int = self.len()
+        let m: int = sep.len()
+        if m == 0
+            var k: int = 0
+            while k < n
+                parts.push(str(__str_slice(self.storage, k, 1)))
+                k += 1
+            return parts
+        var start: int = 0
+        while start <= n
+            let rel: int = __cstr_index_of(__cstr_offset(self.storage, start), sep.storage)
+            if rel < 0
+                parts.push(str(__str_slice(self.storage, start, n - start)))
+                break
+            let hit: int = start + rel
+            parts.push(str(__str_slice(self.storage, start, hit - start)))
+            start = hit + m
+        return parts
+
+    # Separator is self (e.g. ",".join(parts)). Empty list -> "".
+    def join(parts: list<str>) -> str
+        let pl: int = parts.len()
+        if pl == 0
+            return str(__str_slice(self.storage, 0, 0))
+        var out: str = parts[0]
+        var j: int = 1
+        while j < pl
+            out = out + self + parts[j]
+            j += 1
+        return out
+
+    # n <= 0 -> "". Concatenates n copies of self.
+    def repeat(n: int) -> str
+        if n <= 0
+            return str(__str_slice(self.storage, 0, 0))
+        var out: str = str(__str_slice(self.storage, 0, 0))
+        var i: int = 0
+        while i < n
+            out = out + self
+            i += 1
+        return out
+
+    # Empty needle: unchanged self. Otherwise replaces every non-overlapping occurrence.
+    def replace(needle: str, with: str) -> str
+        let m: int = needle.len()
+        if m == 0
+            return self
+        var out: str = str(__str_slice(self.storage, 0, 0))
+        var start: int = 0
+        let n: int = self.len()
+        while start <= n
+            let rel: int = __cstr_index_of(__cstr_offset(self.storage, start), needle.storage)
+            if rel < 0
+                out = out + str(__str_slice(self.storage, start, n - start))
+                break
+            let hit: int = start + rel
+            out = out + str(__str_slice(self.storage, start, hit - start)) + with
+            start = hit + m
+        return out
+
+    # ASCII A–Z / a–z only; other bytes unchanged (not full Unicode case mapping).
+    def toLower() -> str
+        let n: int = self.len()
+        if n == 0
+            return str(__str_slice(self.storage, 0, 0))
+        var buf: cstr = calloc(n + 1, 1) as cstr
+        var i: int = 0
+        while i < n
+            var b: int8 = __cstr_byte_at(self.storage, i)
+            if b >= 65 as int8 and b <= 90 as int8
+                b = b + 32 as int8
+            __cstr_byte_set(buf, i, b)
+            i += 1
+        return str(buf)
+
+    def toUpper() -> str
+        let n: int = self.len()
+        if n == 0
+            return str(__str_slice(self.storage, 0, 0))
+        var buf: cstr = calloc(n + 1, 1) as cstr
+        var i: int = 0
+        while i < n
+            var b: int8 = __cstr_byte_at(self.storage, i)
+            if b >= 97 as int8 and b <= 122 as int8
+                b = b - 32 as int8
+            __cstr_byte_set(buf, i, b)
+            i += 1
+        return str(buf)
+
+    # pad must be non-empty; uses its first code unit repeated. width is target byte length.
+    def padStart(width: int, pad: str) -> str
+        if pad.len() == 0
+            return self
+        let n: int = self.len()
+        if width <= n
+            return self
+        let unit: str = str(__str_slice(pad.storage, 0, 1))
+        let need: int = width - n
+        return unit.repeat(need) + self
+
+    def padEnd(width: int, pad: str) -> str
+        if pad.len() == 0
+            return self
+        let n: int = self.len()
+        if width <= n
+            return self
+        let unit: str = str(__str_slice(pad.storage, 0, 1))
+        let need: int = width - n
+        return self + unit.repeat(need)
+
     def operator ==(rhs: str) -> bool
         return strcmp(self.storage, rhs.storage) == 0
 
