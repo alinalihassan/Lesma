@@ -1199,7 +1199,7 @@ auto Parser::parseTrait() -> std::unique_ptr<Statement> {
       error(peek(), "Expected 'def' in trait body");
     }
   }
-  while (advanceIfMatchAny<TokenType::DEDENT>()) {
+  if (advanceIfMatchAny<TokenType::DEDENT>()) {
     endLoc = previous()->getEnd();
   }
   return std::make_unique<TraitDecl>(llvm::SMRange{loc.Start, endLoc}, nameTok->lexeme,
