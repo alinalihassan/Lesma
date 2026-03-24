@@ -106,7 +106,8 @@ void insertGenericParamSymbols(SymbolTable* genericsScope,
 /** Move all owning Type nodes from an import analysis tree into \p dest so \c
  * SymbolTable typeRefs remain valid after \c importedModuleCache is cleared. */
 auto mergeImportedAnalysisTypeCachesInto(std::vector<std::unique_ptr<Type>>& dest,
-                                         const std::shared_ptr<ImportedModuleAnalysis>& mod) -> void {
+                                         const std::shared_ptr<ImportedModuleAnalysis>& mod)
+    -> void {
   if (mod == nullptr) {
     return;
   }
@@ -118,7 +119,7 @@ auto mergeImportedAnalysisTypeCachesInto(std::vector<std::unique_ptr<Type>>& des
     mod->rootScope->releaseOwnedTypesInto(dest);
   }
   for (auto& [path, nested] : mod->importedModules) {
-    (void)path;
+    (void) path;
     mergeImportedAnalysisTypeCachesInto(dest, nested);
   }
 }
@@ -203,15 +204,31 @@ auto Typechecker::resolveMethodReturnType(Type* baseType, const std::string& met
   }
   if (base->is(BaseType::TY_TRAIT_EXISTENTIAL)) {
     const std::string traitKey = traitExistentialBaseName(base->getDisplayName());
-    auto trIt = traitMethodReturnTypes.find(traitKey);
-    if (trIt == traitMethodReturnTypes.end()) {
+    auto trIt = traitMethodSignatures.find(traitKey);
+    if (trIt == traitMethodSignatures.end()) {
       return nullptr;
     }
     auto methIt = trIt->second.find(methodName);
-    if (methIt == trIt->second.end()) {
+    if (methIt == trIt->second.end() || methIt->second.empty()) {
       return nullptr;
     }
-    Type* ret = methIt->second;
+    Type* selfType = base->is(BaseType::TY_PTR)
+                         ? base
+                         : cacheType(std::make_unique<Type>(BaseType::TY_PTR, nullptr, base));
+    std::vector<Type*> methodArgTypes = {selfType};
+    for (Type* argType : argTypes) {
+      if (argType != nullptr && argType->is(BaseType::TY_CLASS)) {
+        methodArgTypes.push_back(
+            cacheType(std::make_unique<Type>(BaseType::TY_PTR, nullptr, argType)));
+      } else {
+        methodArgTypes.push_back(argType);
+      }
+    }
+    Type* matched = selectBestFunctionTypeMatch(methIt->second, methodArgTypes);
+    if (matched == nullptr) {
+      return nullptr;
+    }
+    Type* ret = matched->getReturnType();
     if (auto envIt = specializedTraitExistentialEnv.find(base);
         envIt != specializedTraitExistentialEnv.end() && ret != nullptr) {
       ret = substituteInType(ret, envIt->second);
@@ -397,8 +414,8 @@ auto Typechecker::visitListIntrinsicCall(const FuncCall* node, const std::vector
     if (argTypes.size() != 3U) {
       throw TypeCheckError(node->getSpan(), "__str_slice expects cstr, start, and length");
     }
-    if (argTypes[0] == nullptr || !argTypes[0]->is(BaseType::TY_STRING) ||
-        argTypes[1] == nullptr || !argTypes[1]->is(BaseType::TY_INT) || argTypes[2] == nullptr ||
+    if (argTypes[0] == nullptr || !argTypes[0]->is(BaseType::TY_STRING) || argTypes[1] == nullptr ||
+        !argTypes[1]->is(BaseType::TY_INT) || argTypes[2] == nullptr ||
         !argTypes[2]->is(BaseType::TY_INT)) {
       throw TypeCheckError(node->getSpan(), "__str_slice requires (cstr, int, int)");
     }
@@ -1408,7 +1425,7 @@ auto Typechecker::takeRootScope() -> std::unique_ptr<SymbolTable> {
 
 auto Typechecker::takeTypeCache() -> std::vector<std::unique_ptr<Type>> {
   for (auto& [path, mod] : importedModuleCache) {
-    (void)path;
+    (void) path;
     mergeImportedAnalysisTypeCachesInto(typeCache, mod);
   }
   if (rootScope != nullptr) {
@@ -1535,10 +1552,11 @@ auto Typechecker::visit(const ForIn* node) -> void {
   } else {
     Type* iteratorType = resolveMethodReturnType(iterableType, "iter", {}, node->getSpan());
     if (iteratorType == nullptr) {
-      throw TypeCheckError(node->getIterable()->getSpan(),
-                           "For-in requires an array type, Iterable with __buffer-backed first field, "
-                           "or iter() returning Iterator (has_next/next), got {}",
-                           iterableType != nullptr ? iterableType->toString() : "unknown");
+      throw TypeCheckError(
+          node->getIterable()->getSpan(),
+          "For-in requires an array type, Iterable with __buffer-backed first field, "
+          "or iter() returning Iterator (has_next/next), got {}",
+          iterableType != nullptr ? iterableType->toString() : "unknown");
     }
     Type* hasNextType = resolveMethodReturnType(iteratorType, "has_next", {}, node->getSpan());
     if (hasNextType == nullptr || !hasNextType->is(BaseType::TY_BOOL)) {
@@ -1588,15 +1606,17 @@ auto Typechecker::registerTraitsFromImportedModule(const std::string& absolutePa
     if (auto* tr = dynamic_cast<TraitDecl*>(stmt)) {
       if (!traitRegistry.contains(tr->getIdentifier())) {
         traitRegistry[tr->getIdentifier()] = tr;
-        traitMethodReturnTypes[tr->getIdentifier()].clear();
+        traitMethodSignatures[tr->getIdentifier()].clear();
         auto savedImpTraitG = currentGenericTypes;
         for (const auto& p : tr->getGenericParamDecls()) {
           currentGenericTypes[p.name] = cacheType(std::make_unique<Type>(p.name));
         }
+        Type* traitTy = scope->lookupType(tr->getIdentifier());
         for (FuncDecl* req : tr->getRequirements()) {
-          req->getReturnType()->accept(*this);
-          traitMethodReturnTypes[tr->getIdentifier()][req->getName()] =
-              wrapReturnTypeIfNominal(result->getType());
+          if (traitTy != nullptr) {
+            traitMethodSignatures[tr->getIdentifier()][req->getName()].push_back(
+                buildMethodFunctionType(req, traitTy));
+          }
         }
         currentGenericTypes = std::move(savedImpTraitG);
       }
@@ -2423,8 +2443,8 @@ auto Typechecker::visit(const FuncCall* node) -> void {
           }
           if (classSym != nullptr && classSym->getType()->is(BaseType::TY_CLASS)) {
             Type* classType = importedScope != nullptr
-                                   ? materializeImportedType(classSym->getType())
-                                   : classSym->getType();
+                                  ? materializeImportedType(classSym->getType())
+                                  : classSym->getType();
             Type* ptrToClass =
                 cacheType(std::make_unique<Type>(BaseType::TY_PTR, nullptr, classType));
             std::vector<Type*> constructorParamTypes = {ptrToClass};
@@ -2742,15 +2762,29 @@ auto Typechecker::visit(const DotOp* node) -> void {
       const std::string& gname = base->getGenericName();
       auto bit = currentGenericParamTraitBounds.find(gname);
       if (bit != currentGenericParamTraitBounds.end()) {
+        std::vector<Type*> argTypes;
+        for (Expression* arg : fc->getArguments()) {
+          arg->accept(*this);
+          Type* t = result->getType();
+          if (t != nullptr && t->is(BaseType::TY_CLASS)) {
+            t = cacheType(std::make_unique<Type>(BaseType::TY_PTR, nullptr, t));
+          }
+          argTypes.push_back(t);
+        }
         for (const std::string& traitName : bit->second) {
-          auto trIt = traitMethodReturnTypes.find(traitName);
-          if (trIt == traitMethodReturnTypes.end()) {
+          auto trIt = traitMethodSignatures.find(traitName);
+          if (trIt == traitMethodSignatures.end()) {
             continue;
           }
           auto mIt = trIt->second.find(fc->getName());
-          if (mIt != trIt->second.end()) {
+          if (mIt == trIt->second.end() || mIt->second.empty()) {
+            continue;
+          }
+          // Receiver is generic `T`; formal self is ptr(trait). Match overloads on args only.
+          if (Type* matched = selectBestFunctionTypeMatchTail(mIt->second, argTypes);
+              matched != nullptr) {
             fc->setResolvedSymbol(nullptr);
-            result = std::make_unique<Value>(mIt->second);
+            result = std::make_unique<Value>(matched->getReturnType());
             return;
           }
         }
@@ -3096,9 +3130,8 @@ auto Typechecker::getStdStrType(llvm::SMRange span) -> Type* {
     throw TypeCheckError(span, "Unable to load stdlib str class");
   }
   Value* strSymbol = baseScope->lookupStruct("str");
-  Type* strTemplate = strSymbol != nullptr
-                          ? materializeImportedType(strSymbol->getType())
-                          : materializeImportedType(baseScope->lookupType("str"));
+  Type* strTemplate = strSymbol != nullptr ? materializeImportedType(strSymbol->getType())
+                                           : materializeImportedType(baseScope->lookupType("str"));
   if (strTemplate == nullptr || !strTemplate->is(BaseType::TY_CLASS)) {
     throw TypeCheckError(span, "Stdlib str class not found");
   }
@@ -3208,11 +3241,13 @@ auto Typechecker::visit(const TraitDecl* node) -> void {
     currentGenericTypes[p.name] = cacheType(std::make_unique<Type>(p.name));
   }
 
-  traitMethodReturnTypes[node->getIdentifier()].clear();
+  traitMethodSignatures[node->getIdentifier()].clear();
+  Type* traitTy = scope->lookupType(node->getIdentifier());
   for (FuncDecl* req : node->getRequirements()) {
-    req->getReturnType()->accept(*this);
-    traitMethodReturnTypes[node->getIdentifier()][req->getName()] =
-        wrapReturnTypeIfNominal(result->getType());
+    if (traitTy != nullptr) {
+      traitMethodSignatures[node->getIdentifier()][req->getName()].push_back(
+          buildMethodFunctionType(req, traitTy));
+    }
   }
   currentGenericTypes = std::move(savedTraitGenerics);
 }
@@ -3442,8 +3477,7 @@ auto Typechecker::checkTraitImplementation(const Class* classNode, Type* classTy
           }
           if (elemTy != nullptr && iterClass != nullptr && iterClass->is(BaseType::TY_CLASS)) {
             Type* iterPtr = cacheType(std::make_unique<Type>(BaseType::TY_PTR, nullptr, iterClass));
-            Type* nextT =
-                resolveMethodReturnType(iterPtr, "next", {}, classNode->getNameSpan());
+            Type* nextT = resolveMethodReturnType(iterPtr, "next", {}, classNode->getNameSpan());
             if (nextT != nullptr && !nextT->isEqual(elemTy)) {
               throw TypeCheckError(classNode->getNameSpan(),
                                    "Iterable: iter() must return a type whose next() matches the "

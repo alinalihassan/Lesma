@@ -72,8 +72,10 @@ class Typechecker final : public ASTVisitor {
 
   /** Registered traits (name → AST) for impl checks and existential method lookup. */
   std::unordered_map<std::string, const TraitDecl*> traitRegistry;
-  /** traitName -> methodName -> return type (resolved during visit(TraitDecl)). */
-  std::unordered_map<std::string, std::unordered_map<std::string, Type*>> traitMethodReturnTypes;
+  /** traitName -> methodName -> overload signatures (TY_FUNCTION: self + params, return type;
+   *  multiple entries per name preserve overloads; resolved during visit(TraitDecl)). */
+  std::unordered_map<std::string, std::unordered_map<std::string, std::vector<Type*>>>
+      traitMethodSignatures;
   /** While typechecking a generic function body: generic param name -> trait bound names. */
   std::unordered_map<std::string, std::vector<std::string>> currentGenericParamTraitBounds;
 
@@ -103,7 +105,8 @@ class Typechecker final : public ASTVisitor {
                                        const std::vector<std::string>& genericParamNames,
                                        const std::unordered_map<std::string, Type*>& env) -> Type*;
   /** Existential trait type with explicit type args (e.g. Iterator<int>). */
-  auto getOrCreateSpecializedTraitExistentialType(Type* traitTemplate, const std::string& lookupName,
+  auto getOrCreateSpecializedTraitExistentialType(Type* traitTemplate,
+                                                  const std::string& lookupName,
                                                   const std::vector<std::string>& genericParamNames,
                                                   const std::vector<Type*>& explicitTypeArgs)
       -> Type*;

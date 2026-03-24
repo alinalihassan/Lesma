@@ -10,6 +10,18 @@
 #include "liblesma/Symbol/Type.h"
 
 namespace lesma {
+
+/** Pick the best-matching overload from candidate function types (same rules as
+ * SymbolTable::lookupFunction). Returns nullptr if none match. */
+[[nodiscard]] auto selectBestFunctionTypeMatch(const std::vector<Type*>& candidateFunctionTypes,
+                                               const std::vector<Type*>& paramTypes) -> Type*;
+
+/** Like selectBestFunctionTypeMatch, but ignores the first formal parameter (implicit self).
+ * Used when the receiver is a generic type parameter with trait bounds. */
+[[nodiscard]] auto selectBestFunctionTypeMatchTail(const std::vector<Type*>& candidateFunctionTypes,
+                                                   const std::vector<Type*>& paramTypesAfterSelf)
+    -> Type*;
+
 class SymbolTable {
 public:
   explicit SymbolTable(SymbolTable* parent) : parent(parent) {};
