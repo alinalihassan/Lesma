@@ -10,8 +10,8 @@
 - [x] Add lists
 - [ ] Add optional types
 - [ ] Add optional parameters in function declarations
-- [ ] Add tuples
-- [ ] Add ranges (1..4 style)
+- [x] Add tuples
+- [x] Add ranges (1..4 style)
 - [ ] Add dictionaries
 - [x] Add foreach loops
 - [ ] Add lambda functions
