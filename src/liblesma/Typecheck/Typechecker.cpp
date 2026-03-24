@@ -745,6 +745,14 @@ auto Typechecker::materializeImportedType(Type* type) -> Type* {
     u->setDisplayName(type->getDisplayName());
     Type* copy = cacheType(std::move(u));
     importedTypeCopies[type] = copy;
+    if (auto envIt = specializedTraitExistentialEnv.find(type);
+        envIt != specializedTraitExistentialEnv.end()) {
+      std::unordered_map<std::string, Type*> envCopy;
+      for (const auto& [name, envType] : envIt->second) {
+        envCopy[name] = materializeImportedType(envType);
+      }
+      specializedTraitExistentialEnv[copy] = std::move(envCopy);
+    }
     return copy;
   }
   if (type->is(BaseType::TY_FLOAT)) {
@@ -1517,6 +1525,19 @@ auto Typechecker::getOrTypecheckImport(const std::string& absolutePath) -> Symbo
   imported->parser = std::move(parser);
   imported->typeCache = sub.takeTypeCache();
   imported->rootScope = sub.takeRootScope();
+  {
+    auto subEnv = sub.takeSpecializedTypeEnv();
+    for (auto& [ty, env] : subEnv) {
+      if (ty->is(BaseType::TY_TRAIT_EXISTENTIAL)) {
+        specializedTraitExistentialEnv[ty] = std::move(env);
+      } else {
+        specializedTypeEnv[ty] = std::move(env);
+      }
+    }
+    for (const auto& [specPtr, tmplPtr] : sub.specializedTypeToTemplate) {
+      specializedTypeToTemplate[specPtr] = tmplPtr;
+    }
+  }
   imported->index =
       buildAnalysisIndex(imported->parser != nullptr ? imported->parser->getAst() : nullptr,
                          imported->sourceMgr.get(), imported->mainBufferId);
