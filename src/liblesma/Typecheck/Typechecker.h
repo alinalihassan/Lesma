@@ -61,6 +61,11 @@ class Typechecker final : public ASTVisitor {
   /** For each specialized class type, the template class type it was created
    * from. */
   std::unordered_map<Type*, Type*> specializedTypeToTemplate;
+  /** Specialized trait existentials: key = trait name + concrete type strings (see
+   * getOrCreateSpecializedTraitExistentialType). */
+  std::unordered_map<std::string, Type*> specializedTraitExistentialTypes;
+  /** Substitution env for each specialized trait existential (trait generic name -> type). */
+  std::unordered_map<Type*, std::unordered_map<std::string, Type*>> specializedTraitExistentialEnv;
   /** Imported types materialized into this typechecker's cache so they outlive imported scopes. */
   std::unordered_map<Type*, Type*> importedTypeCopies;
   std::vector<Type*> expectedTypes;
@@ -97,6 +102,11 @@ class Typechecker final : public ASTVisitor {
   auto getOrCreateSpecializedClassType(Type* classTemplate,
                                        const std::vector<std::string>& genericParamNames,
                                        const std::unordered_map<std::string, Type*>& env) -> Type*;
+  /** Existential trait type with explicit type args (e.g. Iterator<int>). */
+  auto getOrCreateSpecializedTraitExistentialType(Type* traitTemplate, const std::string& lookupName,
+                                                  const std::vector<std::string>& genericParamNames,
+                                                  const std::vector<Type*>& explicitTypeArgs)
+      -> Type*;
   /** Substitute env into type (for fields); returns cached type. */
   auto substituteInType(Type* t, const std::unordered_map<std::string, Type*>& env) -> Type*;
   /** Infer generic bindings from a parameter/argument type pair. */

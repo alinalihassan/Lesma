@@ -44,6 +44,14 @@ auto makeGenericDisplaySuffix(const std::vector<std::string>& genericParamNames)
   return suffix;
 }
 
+/** `Iterator<int>` -> `Iterator` for trait registry / implTraitNames lookup. */
+auto traitExistentialBaseName(const std::string& displayName) -> std::string {
+  if (const auto pos = displayName.find('<'); pos != std::string::npos) {
+    return displayName.substr(0U, pos);
+  }
+  return displayName;
+}
+
 auto makeSpecializedDisplayName(Type* classTemplate,
                                 const std::vector<std::string>& genericParamNames,
                                 const std::unordered_map<std::string, Type*>& env) -> std::string {
@@ -194,8 +202,8 @@ auto Typechecker::resolveMethodReturnType(Type* baseType, const std::string& met
     base = base->getElementType();
   }
   if (base->is(BaseType::TY_TRAIT_EXISTENTIAL)) {
-    const std::string& traitName = base->getDisplayName();
-    auto trIt = traitMethodReturnTypes.find(traitName);
+    const std::string traitKey = traitExistentialBaseName(base->getDisplayName());
+    auto trIt = traitMethodReturnTypes.find(traitKey);
     if (trIt == traitMethodReturnTypes.end()) {
       return nullptr;
     }
@@ -203,7 +211,12 @@ auto Typechecker::resolveMethodReturnType(Type* baseType, const std::string& met
     if (methIt == trIt->second.end()) {
       return nullptr;
     }
-    return methIt->second;
+    Type* ret = methIt->second;
+    if (auto envIt = specializedTraitExistentialEnv.find(base);
+        envIt != specializedTraitExistentialEnv.end() && ret != nullptr) {
+      ret = substituteInType(ret, envIt->second);
+    }
+    return ret;
   }
   if (!base->is(BaseType::TY_CLASS) && !base->is(BaseType::TY_ENUM)) {
     return nullptr;
@@ -853,6 +866,35 @@ auto Typechecker::getOrCreateSpecializedClassType(Type* classTemplate,
   return ptr;
 }
 
+auto Typechecker::getOrCreateSpecializedTraitExistentialType(
+    Type* traitTemplate, const std::string& lookupName,
+    const std::vector<std::string>& genericParamNames, const std::vector<Type*>& explicitTypeArgs)
+    -> Type* {
+  if (traitTemplate == nullptr || genericParamNames.size() != explicitTypeArgs.size()) {
+    return traitTemplate;
+  }
+  std::ostringstream key;
+  key << lookupName;
+  for (Type* t : explicitTypeArgs) {
+    key << "|" << (t != nullptr ? t->toString() : "?");
+  }
+  const std::string keyStr = key.str();
+  if (auto it = specializedTraitExistentialTypes.find(keyStr);
+      it != specializedTraitExistentialTypes.end()) {
+    return it->second;
+  }
+  std::unordered_map<std::string, Type*> env;
+  for (size_t i = 0; i < genericParamNames.size(); ++i) {
+    env[genericParamNames[i]] = explicitTypeArgs[i];
+  }
+  auto u = std::make_unique<Type>(BaseType::TY_TRAIT_EXISTENTIAL, nullptr);
+  u->setDisplayName(makeSpecializedDisplayName(traitTemplate, genericParamNames, env));
+  Type* ptr = cacheType(std::move(u));
+  specializedTraitExistentialTypes[keyStr] = ptr;
+  specializedTraitExistentialEnv[ptr] = std::move(env);
+  return ptr;
+}
+
 auto Typechecker::getExtendedType(Type* left, Type* right) -> Type* {
   if (left->isEqual(right)) {
     return left;
@@ -976,7 +1018,8 @@ auto Typechecker::isAssignableTo(Type* from, Type* to) -> bool {
   if (to->is(BaseType::TY_PTR) && to->getElementType() != nullptr &&
       to->getElementType()->is(BaseType::TY_TRAIT_EXISTENTIAL) && from->is(BaseType::TY_PTR) &&
       from->getElementType() != nullptr && from->getElementType()->is(BaseType::TY_CLASS)) {
-    return classDeclaresTrait(from->getElementType(), to->getElementType()->getDisplayName());
+    return classDeclaresTrait(from->getElementType(),
+                              traitExistentialBaseName(to->getElementType()->getDisplayName()));
   }
   // Void is only assignable to Void
   if (from->is(BaseType::TY_VOID)) {
@@ -1002,7 +1045,7 @@ auto Typechecker::isAssignableTo(Type* from, Type* to) -> bool {
       cls = from->getElementType();
     }
     if (cls->is(BaseType::TY_CLASS)) {
-      return classDeclaresTrait(cls, want);
+      return classDeclaresTrait(cls, traitExistentialBaseName(want));
     }
     if (from->is(BaseType::TY_TRAIT_EXISTENTIAL)) {
       return from->getDisplayName() == want;
@@ -1190,7 +1233,13 @@ auto Typechecker::resolveType(const TypeExpr* node) -> Type* {
         throw TypeCheckError(node->getSpan(), "Trait {} expects {} type argument(s), got {}",
                              lookupName, traitGen.size(), explicitTypeArgs.size());
       }
-      return resolvedType;
+      std::vector<std::string> genericParamNames;
+      genericParamNames.reserve(traitGen.size());
+      for (const auto& p : traitGen) {
+        genericParamNames.push_back(p.name);
+      }
+      return getOrCreateSpecializedTraitExistentialType(resolvedType, lookupName, genericParamNames,
+                                                        explicitTypeArgs);
     }
     if (resolvedType == nullptr || !resolvedType->is(BaseType::TY_CLASS)) {
       throw TypeCheckError(node->getSpan(), "Type {} is not a generic class", node->getName());
