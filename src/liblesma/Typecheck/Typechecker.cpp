@@ -44,29 +44,6 @@ auto makeGenericDisplaySuffix(const std::vector<std::string>& genericParamNames)
   return suffix;
 }
 
-/** `Iterator<int>` -> `Iterator` for trait registry / implTraitNames lookup. */
-auto traitExistentialBaseName(const std::string& displayName) -> std::string {
-  if (const auto pos = displayName.find('<'); pos != std::string::npos) {
-    return displayName.substr(0U, pos);
-  }
-  return displayName;
-}
-
-/** Same argument list identity as `SymbolTable::lookupFunction(name, paramTypes)` (self + params).
- */
-auto methodLookupSignatureKey(const std::string& name, const std::vector<Type*>& lookupArgs)
-    -> std::string {
-  std::string key;
-  key.reserve(name.size() + (lookupArgs.size() * 24U));
-  key.append(name);
-  key.push_back('\0');
-  for (Type* t : lookupArgs) {
-    key.append(t != nullptr ? t->toString() : std::string("null"));
-    key.push_back('\0');
-  }
-  return key;
-}
-
 auto makeSpecializedDisplayName(Type* classTemplate,
                                 const std::vector<std::string>& genericParamNames,
                                 const std::unordered_map<std::string, Type*>& env) -> std::string {
@@ -118,11 +95,30 @@ void insertGenericParamSymbols(SymbolTable* genericsScope,
   }
 }
 
-/** Move all owning Type nodes from an import analysis tree into \p dest so \c
- * SymbolTable typeRefs remain valid after \c importedModuleCache is cleared. */
-auto mergeImportedAnalysisTypeCachesInto(std::vector<std::unique_ptr<Type>>& dest,
-                                         const std::shared_ptr<ImportedModuleAnalysis>& mod)
-    -> void {
+} // namespace
+
+auto Typechecker::traitExistentialBaseName(const std::string& displayName) -> std::string {
+  if (const auto pos = displayName.find('<'); pos != std::string::npos) {
+    return displayName.substr(0U, pos);
+  }
+  return displayName;
+}
+
+auto Typechecker::methodLookupSignatureKey(const std::string& name,
+                                           const std::vector<Type*>& lookupArgs) -> std::string {
+  std::string key;
+  key.reserve(name.size() + (lookupArgs.size() * 24U));
+  key.append(name);
+  key.push_back('\0');
+  for (Type* t : lookupArgs) {
+    key.append(t != nullptr ? t->toString() : std::string("null"));
+    key.push_back('\0');
+  }
+  return key;
+}
+
+void Typechecker::mergeImportedAnalysisTypeCachesInto(
+    std::vector<std::unique_ptr<Type>>& dest, const std::shared_ptr<ImportedModuleAnalysis>& mod) {
   if (mod == nullptr) {
     return;
   }
@@ -139,16 +135,12 @@ auto mergeImportedAnalysisTypeCachesInto(std::vector<std::unique_ptr<Type>>& des
   }
 }
 
-/** True when \p sym is the nominal type name binding (not a value, function,
- *  or enum member), for CUSTOM_TYPE resolution after lookupStruct / lookup. */
-[[nodiscard]] auto isTypeSymbolForCustomTypeName(Value const* sym) -> bool {
+auto Typechecker::isTypeSymbolForCustomTypeName(Value const* sym) -> bool {
   if (sym == nullptr) {
     return false;
   }
   return sym->getCategory() == ValueCategory::TYPE_SYMBOL;
 }
-
-} // namespace
 
 auto Typechecker::pathLeadsToEndWithoutReturn(const std::vector<Statement*>& statements,
                                               size_t index) -> bool {

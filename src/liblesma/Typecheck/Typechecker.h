@@ -175,6 +175,20 @@ class Typechecker final : public ASTVisitor {
   /** Register trait AST nodes from an imported file so `impl Trait` resolves in the importer. */
   auto registerTraitsFromImportedModule(const std::string& absolutePath) -> void;
 
+  /** `Iterator<int>` -> `Iterator` for trait registry / implTraitNames lookup. */
+  [[nodiscard]] auto traitExistentialBaseName(const std::string& displayName) -> std::string;
+  /** Same argument list identity as `SymbolTable::lookupFunction(name, paramTypes)` (self + params).
+   */
+  [[nodiscard]] auto methodLookupSignatureKey(const std::string& name,
+                                              const std::vector<Type*>& lookupArgs) -> std::string;
+  /** Move all owning Type nodes from an import analysis tree into \p dest so \c
+   * SymbolTable typeRefs remain valid after \c importedModuleCache is cleared. */
+  void mergeImportedAnalysisTypeCachesInto(std::vector<std::unique_ptr<Type>>& dest,
+                                           const std::shared_ptr<ImportedModuleAnalysis>& mod);
+  /** True when \p sym is the nominal type name binding (not a value, function,
+   *  or enum member), for CUSTOM_TYPE resolution after lookupStruct / lookup. */
+  [[nodiscard]] auto isTypeSymbolForCustomTypeName(Value const* sym) -> bool;
+
 public:
   /** Typecheck with no import * resolution. */
   explicit Typechecker();
