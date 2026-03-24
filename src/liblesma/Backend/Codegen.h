@@ -111,7 +111,9 @@ public:
           std::shared_ptr<std::vector<std::string>> sharedModules = nullptr,
           std::shared_ptr<std::vector<std::unique_ptr<SymbolTable>>> sharedScopes = nullptr,
           std::unique_ptr<SymbolTable> preScope = nullptr,
-          std::vector<std::unique_ptr<lesma::Type>> preTypeCache = {});
+          std::vector<std::unique_ptr<lesma::Type>> preTypeCache = {},
+          std::unordered_map<lesma::Type*, std::unordered_map<std::string, lesma::Type*>>
+              preSpecializedClassTypeEnvs = {});
   ~Codegen() override = default;
 
   Codegen(const Codegen&) = delete;
@@ -141,7 +143,8 @@ protected:
   auto getExportsFromFile(const std::string& filepath, bool isStd, const std::string& mainFilePath)
       -> std::vector<std::string>;
   auto typecheckModule(const Compound* ast, const std::string& modulePath)
-      -> std::pair<std::unique_ptr<SymbolTable>, std::vector<std::unique_ptr<lesma::Type>>>;
+      -> std::tuple<std::unique_ptr<SymbolTable>, std::vector<std::unique_ptr<lesma::Type>>,
+                    std::unordered_map<lesma::Type*, std::unordered_map<std::string, lesma::Type*>>>;
   [[nodiscard]] auto isImported(const std::vector<ImportedNameBinding>& importedNames,
                                 const std::string& importName) const -> bool;
   [[nodiscard]] auto getImportedLocalName(const std::vector<ImportedNameBinding>& importedNames,

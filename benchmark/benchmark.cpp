@@ -62,7 +62,8 @@ auto InitializeCodegen(std::shared_ptr<Parser> parser,
                                            std::vector<std::string>{}, true, true, "", nullptr,
                                            nullptr, nullptr,
                                            typechecker.takeRootScope(),
-                                           typechecker.takeTypeCache());
+                                           typechecker.takeTypeCache(),
+                                           typechecker.takeSpecializedTypeEnv());
   codegen->run();
 
   return codegen;

@@ -175,6 +175,9 @@ public:
   /** Take ownership of the type cache built during typecheck (call after
    * run()). */
   auto takeTypeCache() -> std::vector<std::unique_ptr<Type>>;
+  /** Per-specialized-class generic bindings (e.g. T -> int for list<int>), for codegen. */
+  auto takeSpecializedTypeEnv()
+      -> std::unordered_map<Type*, std::unordered_map<std::string, Type*>>;
   auto takeImportAliasToPath() -> ImportAliasMap;
   auto takeImportedNameToSource() -> ImportedNameSourceMap;
   auto takeImportedModules()

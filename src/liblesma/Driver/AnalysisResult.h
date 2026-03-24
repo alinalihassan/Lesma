@@ -5,6 +5,7 @@
 #include <optional>
 #include <string>
 #include <unordered_map>
+#include <utility>
 #include <vector>
 
 #include "llvm/Support/SMLoc.h"
@@ -97,6 +98,8 @@ struct AnalysisResult {
   std::unique_ptr<Parser> parser;
   std::unique_ptr<SymbolTable> rootScope;
   std::vector<std::unique_ptr<Type>> typeCache;
+  /** Generic bindings for specialized classes (e.g. list<int>); keys align with \p typeCache. */
+  std::unordered_map<Type*, std::unordered_map<std::string, Type*>> specializedTypeEnv;
   AnalysisIndex index;
   ImportAliasMap importAliasToPath;
   ImportedNameSourceMap importedNameToSource;

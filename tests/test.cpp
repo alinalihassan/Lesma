@@ -56,7 +56,8 @@ auto initializeCodegen(std::unique_ptr<Parser> parser,
   typechecker.run(parser->getAst());
   auto codegen = std::make_unique<Codegen>(
       std::move(parser), srcMgr, __FILE__, std::vector<std::string>{}, true, true, "", nullptr,
-      nullptr, nullptr, typechecker.takeRootScope(), typechecker.takeTypeCache());
+      nullptr, nullptr, typechecker.takeRootScope(), typechecker.takeTypeCache(),
+      typechecker.takeSpecializedTypeEnv());
   codegen->run();
 
   return codegen;

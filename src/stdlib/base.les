@@ -1,6 +1,6 @@
 def extern printf(fmt: cstr, ...)
 def extern scanf(fmt: cstr, ...) -> int
-def extern calloc(count: int, size: int) -> *int8
+export def extern calloc(count: int, size: int) -> *int8
 def extern malloc(size: int) -> *int8
 def extern strlen(x: cstr) -> int
 def extern atoll(x: cstr) -> int
@@ -8,8 +8,82 @@ def extern strtod(x: cstr) -> float
 def extern rand() -> int
 def extern srand(x: int)
 def extern time(x: int) -> int
+def extern strcmp(a: cstr, b: cstr) -> int
+def extern strncmp(a: cstr, b: cstr, n: int) -> int
+def extern isspace(c: int) -> int
+def extern strdup(s: cstr) -> cstr
 
-export class str
+export trait Iterator<T>
+    def has_next() -> bool
+    def next() -> T
+
+export trait Iterable<T>
+    def iter() -> Iterator<T>
+
+export class list_iter<T> impl Iterator<T>
+    var storage: __buffer<T>
+    var __scan: int = 0
+
+    def new(buf: __buffer<T>)
+        self.storage = buf
+
+    def has_next() -> bool
+        return self.__scan < __buffer_len(self.storage)
+
+    def next() -> T
+        var v = __buffer_get(self.storage, self.__scan)
+        self.__scan += 1
+        return v
+
+export class list<T> impl Iterable<T>
+    var storage: __buffer<T>
+
+    def new()
+        self.storage = __buffer_new<T>()
+
+    def new(initial: __buffer<T>)
+        self.storage = initial
+
+    def iter() -> list_iter<T>
+        return list_iter<T>(self.storage)
+
+    def len() -> int
+        return __buffer_len(self.storage)
+
+    def push(value: T)
+        __buffer_push(self.storage, value)
+
+    def pop() -> T
+        return __buffer_pop(self.storage)
+
+    def clear()
+        __buffer_clear(self.storage)
+
+    def copy() -> list<T>
+        return list<T>(__buffer_copy(self.storage))
+
+    def operator [](index: int) -> T
+        return __buffer_get(self.storage, index)
+
+    def operator []=(index: int, value: T)
+        __buffer_set(self.storage, index, value)
+
+export class str_iter impl Iterator<int8>
+    var storage: cstr
+    var __scan: int = 0
+
+    def new(s: cstr)
+        self.storage = s
+
+    def has_next() -> bool
+        return self.__scan < strlen(self.storage)
+
+    def next() -> int8
+        var v = __cstr_byte_at(self.storage, self.__scan)
+        self.__scan += 1
+        return v
+
+export class str impl Iterable<int8>
     var storage: cstr
 
     def new(s: cstr)
@@ -20,6 +94,78 @@ export class str
 
     def len() -> int
         return strlen(self.storage)
+
+    def isEmpty() -> bool
+        return self.len() == 0
+
+    def operator [](index: int) -> str
+        return str(__str_slice(self.storage, index, 1))
+
+    def operator []=(index: int, value: str)
+        if value.len() == 0
+            return
+        __cstr_byte_set(self.storage, index, __cstr_byte_at(value.storage, 0))
+
+    def operator +(rhs: str) -> str
+        return str(__str_concat(self.storage, rhs.storage))
+
+    def startsWith(prefix: str) -> bool
+        let n = self.len()
+        let m = prefix.len()
+        if m > n
+            return false
+        return strncmp(self.storage, prefix.storage, m) == 0
+
+    def endsWith(suffix: str) -> bool
+        let n = self.len()
+        let m = suffix.len()
+        if m > n
+            return false
+        return strcmp(__cstr_offset(self.storage, n - m), suffix.storage) == 0
+
+    def contains(sub: str) -> bool
+        return self.indexOf(sub) >= 0
+
+    def indexOf(needle: str) -> int
+        return __cstr_index_of(self.storage, needle.storage)
+
+    def trimStart() -> str
+        var i: int = 0
+        let n: int = self.len()
+        while i < n
+            if isspace(__cstr_byte_at(self.storage, i) as int) == 0
+                break
+            i += 1
+        return str(__str_slice(self.storage, i, n - i))
+
+    def trimEnd() -> str
+        let n: int = self.len()
+        if n == 0
+            return str(__str_slice(self.storage, 0, 0))
+        var j: int = n - 1
+        while j >= 0
+            if isspace(__cstr_byte_at(self.storage, j) as int) == 0
+                break
+            j -= 1
+        return str(__str_slice(self.storage, 0, j + 1))
+
+    def trim() -> str
+        return self.trimStart().trimEnd()
+
+    def operator ==(rhs: str) -> bool
+        return strcmp(self.storage, rhs.storage) == 0
+
+    def operator !=(rhs: str) -> bool
+        return strcmp(self.storage, rhs.storage) != 0
+
+    def toInt() -> int
+        return atoll(self.storage)
+
+    def toFloat() -> float
+        return strtod(self.storage)
+
+    def iter() -> str_iter
+        return str_iter(self.storage)
 
 export def extern exit(x: int)
 
@@ -43,12 +189,6 @@ export def input(prompt: str) -> str
 
     return str(line)
 
-export def strToInt(x: str) -> int
-    return atoll(x.cstr())
-
-export def strToFloat(x: str) -> float
-    return strtod(x.cstr())
-
 export def random(x: int, y: int) -> int
     srand(time(0))
     if x < y
@@ -61,6 +201,9 @@ export def print(x: str)
 
 export def print(x: int)
     printf("%lld\n", x)
+
+export def print(x: int8)
+    printf("%c\n", x)
 
 export def print(x: float)
     printf("%g\n", x)

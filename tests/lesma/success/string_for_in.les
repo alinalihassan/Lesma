@@ -1,0 +1,7 @@
+# str implements Iterable<int8> (byte / UTF-8 code unit); use int8 where you would use char.
+var sum: int = 0
+for c in "ab"
+    sum = sum + c
+
+if sum != 195
+    exit(1)

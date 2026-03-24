@@ -7,6 +7,7 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <tuple>
 #include <system_error>
 #include <unordered_set>
 #include <utility>
@@ -90,7 +91,9 @@ Codegen::Codegen(std::shared_ptr<Parser> parser, std::shared_ptr<SourceMgr> srcM
                  std::shared_ptr<std::vector<std::string>> sharedModules,
                  std::shared_ptr<std::vector<std::unique_ptr<SymbolTable>>> sharedScopes,
                  std::unique_ptr<SymbolTable> preScope,
-                 std::vector<std::unique_ptr<lesma::Type>> preTypeCache) {
+                 std::vector<std::unique_ptr<lesma::Type>> preTypeCache,
+                 std::unordered_map<lesma::Type*, std::unordered_map<std::string, lesma::Type*>>
+                     preSpecializedClassTypeEnvs) {
   InitializeNativeTarget();
   InitializeNativeTargetAsmPrinter();
   InitializeNativeTargetAsmParser();
@@ -115,6 +118,7 @@ Codegen::Codegen(std::shared_ptr<Parser> parser, std::shared_ptr<SourceMgr> srcM
   for (auto& t : preTypeCache) {
     typeCache.push_back(std::move(t));
   }
+  specializedClassTypeEnvs.merge(std::move(preSpecializedClassTypeEnvs));
 
   this->alias = std::move(alias);
   this->filename = filename;
@@ -336,13 +340,15 @@ auto Codegen::getExportsFromFile(const std::string& filepath, bool isStd,
 }
 
 auto Codegen::typecheckModule(const Compound* ast, const std::string& modulePath)
-    -> std::pair<std::unique_ptr<SymbolTable>, std::vector<std::unique_ptr<lesma::Type>>> {
+    -> std::tuple<std::unique_ptr<SymbolTable>, std::vector<std::unique_ptr<lesma::Type>>,
+                  std::unordered_map<lesma::Type*, std::unordered_map<std::string, lesma::Type*>>> {
   Typechecker typechecker(
       modulePath, [this](const std::string& path, bool isStd, const std::string& mainFilePath) {
         return getExportsFromFile(path, isStd, mainFilePath);
       });
   typechecker.run(ast);
-  return {typechecker.takeRootScope(), typechecker.takeTypeCache()};
+  return {typechecker.takeRootScope(), typechecker.takeTypeCache(),
+          typechecker.takeSpecializedTypeEnv()};
 }
 
 auto Codegen::isImported(const std::vector<ImportedNameBinding>& importedNames,
@@ -536,12 +542,12 @@ auto Codegen::compileModule(llvm::SMRange span, const std::string& filepath, boo
       throw CodegenError(span, "Unable to parse imported module {}", filepath);
     }
 
-    auto [preScope, preTypeCache] = typecheckModule(ast, absolutePath);
+    auto [preScope, preTypeCache, preSpecEnv] = typecheckModule(ast, absolutePath);
 
     auto codegen = std::make_unique<Codegen>(
         std::move(parser), sourceManager, absolutePath, std::vector<std::string>{}, isJit, false,
         !importToScope ? moduleAlias : "", theContext, importedModules, importedScopes,
-        std::move(preScope), std::move(preTypeCache));
+        std::move(preScope), std::move(preTypeCache), std::move(preSpecEnv));
     codegen->run();
     mergeImportedTraitMetadata(*codegen);
 
@@ -739,18 +745,15 @@ auto Codegen::executeJit() -> int {
 
 auto Codegen::run() -> void {
   collectTraitMetadataFromAst();
-  // Load implicit stdlib modules once so every module has base functions and
-  // list helpers. Done here (not in constructor) to avoid re-entrancy when
-  // creating Codegens for imported modules.
-  std::vector<std::string> const implicitStdlibModules = {"base.les", "list.les"};
+  // Load implicit stdlib modules once so every module has base (including list) helpers.
+  // Done here (not in constructor) to avoid re-entrancy when creating Codegens for imported
+  // modules.
+  std::vector<std::string> const implicitStdlibModules = {"base.les"};
   auto const currentPath =
       std::filesystem::absolute(std::filesystem::path(filename)).lexically_normal();
   auto const basePath =
       std::filesystem::absolute(std::filesystem::path(getStdDir()) / "base.les").lexically_normal();
-  auto const listPath =
-      std::filesystem::absolute(std::filesystem::path(getStdDir()) / "list.les").lexically_normal();
-  const bool mainIsStdlibEntry =
-      !filename.empty() && (currentPath == basePath || currentPath == listPath);
+  const bool mainIsStdlibEntry = !filename.empty() && currentPath == basePath;
   if (!mainIsStdlibEntry || filename.empty()) {
     for (const auto& moduleName : implicitStdlibModules) {
       auto const modulePath =
@@ -1223,7 +1226,10 @@ auto Codegen::isListIntrinsicName(const std::string& functionName) const -> bool
          functionName == "__buffer_len" || functionName == "__buffer_push" ||
          functionName == "__buffer_pop" || functionName == "__buffer_clear" ||
          functionName == "__buffer_copy" || functionName == "__buffer_get" ||
-         functionName == "__buffer_set";
+         functionName == "__buffer_set" || functionName == "__cstr_byte_at" ||
+         functionName == "__cstr_byte_set" || functionName == "__str_concat" ||
+         functionName == "__str_slice" || functionName == "__cstr_index_of" ||
+         functionName == "__cstr_offset";
 }
 
 auto Codegen::isBuiltinListBuiltinMethodName(const std::string& methodName) const -> bool {
@@ -1237,6 +1243,141 @@ auto Codegen::genListIntrinsicCall(const FuncCall* node,
                                    const std::vector<lesma::Type*>& paramTypes,
                                    const std::vector<llvm::Value*>& paramsLLVM)
     -> std::unique_ptr<lesma::Value> {
+  if (node->getName() == "__cstr_byte_at") {
+    if (paramTypes.size() != 2U || paramsLLVM.size() != 2U) {
+      throw CodegenError(node->getSpan(), "__cstr_byte_at expects cstr and index");
+    }
+    llvm::Type* i8 = llvm::Type::getInt8Ty(theModule->getContext());
+    auto* gep = builder->CreateInBoundsGEP(i8, paramsLLVM[0], paramsLLVM[1], "cstr.byte.ptr");
+    auto* byteVal = builder->CreateLoad(i8, gep);
+    auto* int8Ty = cacheType(std::make_unique<Type>(BaseType::TY_INT, i8));
+    int8Ty->setIntWidth(8);
+    return std::make_unique<Value>("", int8Ty, byteVal);
+  }
+  if (node->getName() == "__cstr_byte_set") {
+    if (paramTypes.size() != 3U || paramsLLVM.size() != 3U) {
+      throw CodegenError(node->getSpan(), "__cstr_byte_set expects cstr, index, and int8");
+    }
+    llvm::Type* i8 = llvm::Type::getInt8Ty(theModule->getContext());
+    auto* gep = builder->CreateInBoundsGEP(i8, paramsLLVM[0], paramsLLVM[1], "cstr.set.ptr");
+    llvm::Value* v = paramsLLVM[2];
+    if (!v->getType()->isIntegerTy(8)) {
+      v = builder->CreateTrunc(v, i8);
+    }
+    builder->CreateStore(v, gep);
+    return std::make_unique<Value>(
+        "", cacheType(std::make_unique<Type>(BaseType::TY_VOID, builder->getVoidTy())), nullptr);
+  }
+  if (node->getName() == "__str_concat") {
+    if (paramTypes.size() != 2U || paramsLLVM.size() != 2U) {
+      throw CodegenError(node->getSpan(), "__str_concat expects two cstr arguments");
+    }
+    llvm::Type* i8 = llvm::Type::getInt8Ty(theModule->getContext());
+    auto strlenFn = theModule->getOrInsertFunction(
+        "strlen", llvm::FunctionType::get(builder->getInt64Ty(), {builder->getPtrTy()}, false));
+    auto memcpyFn = theModule->getOrInsertFunction(
+        "memcpy", llvm::FunctionType::get(
+                      builder->getPtrTy(),
+                      {builder->getPtrTy(), builder->getPtrTy(), builder->getInt64Ty()}, false));
+    llvm::Value* la = paramsLLVM[0];
+    llvm::Value* lb = paramsLLVM[1];
+    auto* lenA = builder->CreateCall(strlenFn, {la}, "strcat.lenA");
+    auto* lenB = builder->CreateCall(strlenFn, {lb}, "strcat.lenB");
+    auto* total = builder->CreateAdd(
+        builder->CreateAdd(lenA, lenB), builder->getInt64(1), "strcat.total");
+    llvm::Value* buf = emitMalloc(total, "strcat.buf");
+    builder->CreateCall(memcpyFn, {buf, la, lenA});
+    auto* tail = builder->CreateInBoundsGEP(i8, buf, lenA, "strcat.tail");
+    builder->CreateCall(memcpyFn, {tail, lb, lenB});
+    auto* endPtr = builder->CreateInBoundsGEP(
+        i8, buf, builder->CreateSub(total, builder->getInt64(1)), "strcat.nul");
+    builder->CreateStore(llvm::ConstantInt::get(i8, 0), endPtr);
+    auto* cstrTy = cacheType(std::make_unique<Type>(BaseType::TY_STRING, builder->getPtrTy()));
+    return std::make_unique<Value>("", cstrTy, buf);
+  }
+  if (node->getName() == "__str_slice") {
+    if (paramTypes.size() != 3U || paramsLLVM.size() != 3U) {
+      throw CodegenError(node->getSpan(), "__str_slice expects cstr, start, and length");
+    }
+    llvm::Type* i8 = llvm::Type::getInt8Ty(theModule->getContext());
+    auto memcpyFn = theModule->getOrInsertFunction(
+        "memcpy", llvm::FunctionType::get(
+                      builder->getPtrTy(),
+                      {builder->getPtrTy(), builder->getPtrTy(), builder->getInt64Ty()}, false));
+    llvm::Value* s = paramsLLVM[0];
+    llvm::Value* start = paramsLLVM[1];
+    llvm::Value* len = paramsLLVM[2];
+    llvm::Function* parentFunction = builder->GetInsertBlock()->getParent();
+    auto* emptyBlock = llvm::BasicBlock::Create(theModule->getContext(), "slice.empty", parentFunction);
+    auto* copyBlock = llvm::BasicBlock::Create(theModule->getContext(), "slice.copy", parentFunction);
+    auto* mergeBlock = llvm::BasicBlock::Create(theModule->getContext(), "slice.merge", parentFunction);
+    auto* lenPos = builder->CreateICmpSGT(len, builder->getInt64(0));
+    builder->CreateCondBr(lenPos, copyBlock, emptyBlock);
+
+    builder->SetInsertPoint(emptyBlock);
+    llvm::Value* emptyBuf = emitMalloc(builder->getInt64(1), "slice.empty.buf");
+    builder->CreateStore(llvm::ConstantInt::get(i8, 0), emptyBuf);
+    builder->CreateBr(mergeBlock);
+
+    builder->SetInsertPoint(copyBlock);
+    auto* total = builder->CreateAdd(len, builder->getInt64(1), "slice.total");
+    llvm::Value* buf = emitMalloc(total, "slice.buf");
+    auto* src = builder->CreateInBoundsGEP(i8, s, start, "slice.src");
+    builder->CreateCall(memcpyFn, {buf, src, len});
+    auto* nulPtr = builder->CreateInBoundsGEP(i8, buf, len, "slice.nul");
+    builder->CreateStore(llvm::ConstantInt::get(i8, 0), nulPtr);
+    builder->CreateBr(mergeBlock);
+
+    builder->SetInsertPoint(mergeBlock);
+    auto* phi = builder->CreatePHI(builder->getPtrTy(), 2, "slice.result");
+    phi->addIncoming(emptyBuf, emptyBlock);
+    phi->addIncoming(buf, copyBlock);
+    auto* cstrTy = cacheType(std::make_unique<Type>(BaseType::TY_STRING, builder->getPtrTy()));
+    return std::make_unique<Value>("", cstrTy, phi);
+  }
+  if (node->getName() == "__cstr_index_of") {
+    if (paramTypes.size() != 2U || paramsLLVM.size() != 2U) {
+      throw CodegenError(node->getSpan(), "__cstr_index_of expects haystack and needle");
+    }
+    auto strstrFn = theModule->getOrInsertFunction(
+        "strstr", llvm::FunctionType::get(builder->getPtrTy(),
+                                          {builder->getPtrTy(), builder->getPtrTy()}, false));
+    llvm::Value* hay = paramsLLVM[0];
+    llvm::Value* needle = paramsLLVM[1];
+    llvm::Value* found = builder->CreateCall(strstrFn, {hay, needle}, "idx.found");
+    llvm::Function* parentFunction = builder->GetInsertBlock()->getParent();
+    auto* okBlock = llvm::BasicBlock::Create(theModule->getContext(), "idx.ok", parentFunction);
+    auto* failBlock = llvm::BasicBlock::Create(theModule->getContext(), "idx.fail", parentFunction);
+    auto* mergeBlock = llvm::BasicBlock::Create(theModule->getContext(), "idx.merge", parentFunction);
+    builder->CreateCondBr(
+        builder->CreateICmpEQ(found, llvm::ConstantPointerNull::get(builder->getPtrTy())), failBlock,
+        okBlock);
+
+    builder->SetInsertPoint(failBlock);
+    builder->CreateBr(mergeBlock);
+
+    builder->SetInsertPoint(okBlock);
+    auto* diff = builder->CreateSub(builder->CreatePtrToInt(found, builder->getInt64Ty()),
+                                    builder->CreatePtrToInt(hay, builder->getInt64Ty()), "idx.diff");
+    builder->CreateBr(mergeBlock);
+
+    builder->SetInsertPoint(mergeBlock);
+    auto* phi = builder->CreatePHI(builder->getInt64Ty(), 2, "idx.result");
+    phi->addIncoming(builder->getInt64(-1), failBlock);
+    phi->addIncoming(diff, okBlock);
+    auto* intTy = cacheType(std::make_unique<Type>(BaseType::TY_INT, builder->getInt64Ty()));
+    intTy->setIntWidth(64);
+    return std::make_unique<Value>("", intTy, phi);
+  }
+  if (node->getName() == "__cstr_offset") {
+    if (paramTypes.size() != 2U || paramsLLVM.size() != 2U) {
+      throw CodegenError(node->getSpan(), "__cstr_offset expects cstr and offset");
+    }
+    llvm::Type* i8 = llvm::Type::getInt8Ty(theModule->getContext());
+    auto* out = builder->CreateInBoundsGEP(i8, paramsLLVM[0], paramsLLVM[1], "cstr.off");
+    auto* cstrTy = cacheType(std::make_unique<Type>(BaseType::TY_STRING, builder->getPtrTy()));
+    return std::make_unique<Value>("", cstrTy, out);
+  }
   if (node->getName() == "__buffer_new") {
     auto explicitTypeArgs = node->getExplicitTypeArgs();
     if (explicitTypeArgs.size() != 1U) {
@@ -1344,6 +1485,22 @@ auto Codegen::genListIntrinsicCall(const FuncCall* node,
   throw CodegenError(node->getSpan(), "Unknown list intrinsic {}", node->getName());
 }
 
+namespace {
+[[nodiscard]] auto stripSpacesCopy(std::string s) -> std::string {
+  s.erase(std::remove(s.begin(), s.end(), ' '), s.end());
+  return s;
+}
+[[nodiscard]] auto classDisplayNamesMatch(const std::string& a, const std::string& b) -> bool {
+  if (a == b) {
+    return true;
+  }
+  if (a.size() < 6 || b.size() < 6 || a.compare(0, 5, "list<") != 0 || b.compare(0, 5, "list<") != 0) {
+    return false;
+  }
+  return stripSpacesCopy(a) == stripSpacesCopy(b);
+}
+} // namespace
+
 auto Codegen::tryEnsureStdlibListClassSpecialized(lesma::Type* classTy) -> void {
   if (classTy == nullptr || !classTy->is(BaseType::TY_CLASS)) {
     return;
@@ -1356,12 +1513,32 @@ auto Codegen::tryEnsureStdlibListClassSpecialized(lesma::Type* classTy) -> void 
   if (git == genericClasses.end() || git->second == nullptr) {
     return;
   }
-  auto fields = classTy->getFields();
-  if (fields.empty() || fields[0]->type == nullptr || !fields[0]->type->is(BaseType::TY_ARRAY) ||
-      fields[0]->type->getElementType() == nullptr) {
+  lesma::Type* typeArg = nullptr;
+  if (auto envIt = specializedClassTypeEnvs.find(classTy); envIt != specializedClassTypeEnvs.end()) {
+    if (auto tIt = envIt->second.find("T"); tIt != envIt->second.end()) {
+      typeArg = tIt->second;
+    }
+  }
+  if (typeArg == nullptr) {
+    for (const auto& [ty, env] : specializedClassTypeEnvs) {
+      if (ty != nullptr && classDisplayNamesMatch(ty->getDisplayName(), dn)) {
+        if (auto tIt = env.find("T"); tIt != env.end()) {
+          typeArg = tIt->second;
+          break;
+        }
+      }
+    }
+  }
+  if (typeArg == nullptr) {
+    auto fields = classTy->getFields();
+    if (!fields.empty() && fields[0]->type != nullptr && fields[0]->type->is(BaseType::TY_ARRAY) &&
+        fields[0]->type->getElementType() != nullptr) {
+      typeArg = fields[0]->type->getElementType();
+    }
+  }
+  if (typeArg == nullptr) {
     return;
   }
-  lesma::Type* typeArg = fields[0]->type->getElementType();
   specializeClass(git->second, {}, {typeArg});
 }
 
@@ -1383,11 +1560,23 @@ auto Codegen::lookupClassStructSymbol(lesma::Type* classTy) -> Value* {
     if (Value* v = scope->lookupStruct(classTy->getDisplayName())) {
       return v;
     }
+    // Typechecker may use a different Type* than the one codegen registered when specializing
+    // generics; match the struct symbol by display name.
+    for (const auto& [ty, sym] : specializedClassSymbolsByType) {
+      if (ty != nullptr && classDisplayNamesMatch(ty->getDisplayName(), classTy->getDisplayName())) {
+        return sym;
+      }
+    }
   }
   tryEnsureStdlibListClassSpecialized(classTy);
   if (!classTy->getDisplayName().empty()) {
     if (Value* v = scope->lookupStruct(classTy->getDisplayName())) {
       return v;
+    }
+    for (const auto& [ty, sym] : specializedClassSymbolsByType) {
+      if (ty != nullptr && classDisplayNamesMatch(ty->getDisplayName(), classTy->getDisplayName())) {
+        return sym;
+      }
     }
   }
   lt = classTy->getLlvmType();
@@ -1527,6 +1716,9 @@ auto Codegen::mergeImportedTraitMetadata(Codegen const& imported) -> void {
 }
 
 auto Codegen::mergeImportedSpecializationState(Codegen const& imported) -> void {
+  for (const auto& entry : imported.genericClasses) {
+    genericClasses.insert(entry);
+  }
   for (const auto& entry : imported.specializedClassTypeEnvs) {
     specializedClassTypeEnvs.insert(entry);
   }
@@ -3136,9 +3328,7 @@ auto Codegen::visit(const BinaryOp* node) -> void {
     right = cast(node->getSpan(), right.get(), finalType);
 
     if (finalType == nullptr) {
-      throw CodegenError(node->getSpan(), "Operator {} is not supported for types {} and {}",
-                         NAMEOF_ENUM(node->getOperator()), left->getType()->toString(),
-                         right->getType()->toString());
+      break;
     }
 
     // Enum comparison
@@ -3181,15 +3371,20 @@ auto Codegen::visit(const BinaryOp* node) -> void {
       return;
     }
 
+    if (finalType->is(BaseType::TY_BOOL)) {
+      result = std::make_unique<Value>(
+          "", cacheType(std::make_unique<Type>(BaseType::TY_BOOL, builder->getInt1Ty())),
+          builder->CreateICmpEQ(left->getLlvmValue(), right->getLlvmValue()));
+      return;
+    }
+
     break;
   case TokenType::BANG_EQUAL:
     left = cast(node->getSpan(), left.get(), finalType);
     right = cast(node->getSpan(), right.get(), finalType);
 
     if (finalType == nullptr) {
-      throw CodegenError(node->getSpan(), "Operator {} is not supported for types {} and {}",
-                         NAMEOF_ENUM(node->getOperator()), left->getType()->toString(),
-                         right->getType()->toString());
+      break;
     }
 
     // Enum comparison
@@ -3226,6 +3421,13 @@ auto Codegen::visit(const BinaryOp* node) -> void {
     }
 
     if (finalType->is(BaseType::TY_INT)) {
+      result = std::make_unique<Value>(
+          "", cacheType(std::make_unique<Type>(BaseType::TY_BOOL, builder->getInt1Ty())),
+          builder->CreateICmpNE(left->getLlvmValue(), right->getLlvmValue()));
+      return;
+    }
+
+    if (finalType->is(BaseType::TY_BOOL)) {
       result = std::make_unique<Value>(
           "", cacheType(std::make_unique<Type>(BaseType::TY_BOOL, builder->getInt1Ty())),
           builder->CreateICmpNE(left->getLlvmValue(), right->getLlvmValue()));

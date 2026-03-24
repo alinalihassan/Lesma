@@ -1,0 +1,54 @@
+# str: comparison, concat, search, trim, subscript (mutable copy via strdup).
+
+if str("a") + str("b") != "ab"
+    exit(1)
+
+if not str("hello").startsWith("hel")
+    exit(2)
+if str("hello").startsWith("helloo")
+    exit(3)
+if not str("hello").endsWith("llo")
+    exit(4)
+if str("hi").endsWith("hello")
+    exit(5)
+
+if not str("banana").contains("nan")
+    exit(6)
+if str("abc").contains("zzz")
+    exit(7)
+
+if str("foo bar").indexOf("bar") != 4
+    exit(8)
+if str("solo").indexOf("zzz") != -1
+    exit(9)
+
+if str("  x  ").trim() != "x"
+    exit(10)
+if str("  yz").trimStart() != "yz"
+    exit(11)
+if str("ab  ").trimEnd() != "ab"
+    exit(12)
+
+if str("").isEmpty() != true
+    exit(13)
+if str("x").isEmpty() != false
+    exit(14)
+
+if str("ab")[0] != "a"
+    exit(15)
+if str("ab")[1] != "b"
+    exit(16)
+var buf: cstr = calloc(4, 1) as cstr
+var mut = str(buf)
+mut[0] = "a"
+mut[1] = "b"
+mut[0] = "c"
+if mut != "cb"
+    exit(17)
+if mut[1] != "b"
+    exit(18)
+
+if str("a") == str("a") != true
+    exit(19)
+if str("a") != str("b") != true
+    exit(20)

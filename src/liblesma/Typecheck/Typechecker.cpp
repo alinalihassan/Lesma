@@ -296,13 +296,95 @@ auto Typechecker::isListIntrinsicName(const std::string& functionName) const -> 
          functionName == "__buffer_len" || functionName == "__buffer_push" ||
          functionName == "__buffer_pop" || functionName == "__buffer_clear" ||
          functionName == "__buffer_copy" || functionName == "__buffer_get" ||
-         functionName == "__buffer_set";
+         functionName == "__buffer_set" || functionName == "__cstr_byte_at" ||
+         functionName == "__cstr_byte_set" || functionName == "__str_concat" ||
+         functionName == "__str_slice" || functionName == "__cstr_index_of" ||
+         functionName == "__cstr_offset";
 }
 
 auto Typechecker::visitListIntrinsicCall(const FuncCall* node, const std::vector<Type*>& argTypes)
     -> bool {
   if (!isListIntrinsicName(node->getName())) {
     return false;
+  }
+  if (node->getName() == "__cstr_byte_at") {
+    if (argTypes.size() != 2U) {
+      throw TypeCheckError(node->getSpan(), "__cstr_byte_at expects exactly two arguments");
+    }
+    if (argTypes[0] == nullptr || !argTypes[0]->is(BaseType::TY_STRING)) {
+      throw TypeCheckError(node->getSpan(), "__cstr_byte_at first argument must be cstr");
+    }
+    if (argTypes[1] == nullptr || !argTypes[1]->is(BaseType::TY_INT)) {
+      throw TypeCheckError(node->getSpan(), "__cstr_byte_at second argument must be int");
+    }
+    auto intRet = std::make_unique<Type>(BaseType::TY_INT);
+    intRet->setIntWidth(8);
+    result = std::make_unique<Value>(cacheType(std::move(intRet)));
+    return true;
+  }
+  if (node->getName() == "__cstr_byte_set") {
+    if (argTypes.size() != 3U) {
+      throw TypeCheckError(node->getSpan(), "__cstr_byte_set expects cstr, index, and value");
+    }
+    if (argTypes[0] == nullptr || !argTypes[0]->is(BaseType::TY_STRING)) {
+      throw TypeCheckError(node->getSpan(), "__cstr_byte_set first argument must be cstr");
+    }
+    if (argTypes[1] == nullptr || !argTypes[1]->is(BaseType::TY_INT)) {
+      throw TypeCheckError(node->getSpan(), "__cstr_byte_set index must be int");
+    }
+    if (argTypes[2] == nullptr || !argTypes[2]->is(BaseType::TY_INT) ||
+        argTypes[2]->getIntWidth() != 8) {
+      throw TypeCheckError(node->getSpan(), "__cstr_byte_set value must be int8");
+    }
+    result = std::make_unique<Value>(cacheType(std::make_unique<Type>(BaseType::TY_VOID)));
+    return true;
+  }
+  if (node->getName() == "__str_concat") {
+    if (argTypes.size() != 2U) {
+      throw TypeCheckError(node->getSpan(), "__str_concat expects two cstr arguments");
+    }
+    if (argTypes[0] == nullptr || !argTypes[0]->is(BaseType::TY_STRING) || argTypes[1] == nullptr ||
+        !argTypes[1]->is(BaseType::TY_STRING)) {
+      throw TypeCheckError(node->getSpan(), "__str_concat requires cstr arguments");
+    }
+    result = std::make_unique<Value>(cacheType(std::make_unique<Type>(BaseType::TY_STRING)));
+    return true;
+  }
+  if (node->getName() == "__str_slice") {
+    if (argTypes.size() != 3U) {
+      throw TypeCheckError(node->getSpan(), "__str_slice expects cstr, start, and length");
+    }
+    if (argTypes[0] == nullptr || !argTypes[0]->is(BaseType::TY_STRING) ||
+        argTypes[1] == nullptr || !argTypes[1]->is(BaseType::TY_INT) || argTypes[2] == nullptr ||
+        !argTypes[2]->is(BaseType::TY_INT)) {
+      throw TypeCheckError(node->getSpan(), "__str_slice requires (cstr, int, int)");
+    }
+    result = std::make_unique<Value>(cacheType(std::make_unique<Type>(BaseType::TY_STRING)));
+    return true;
+  }
+  if (node->getName() == "__cstr_index_of") {
+    if (argTypes.size() != 2U) {
+      throw TypeCheckError(node->getSpan(), "__cstr_index_of expects haystack and needle cstr");
+    }
+    if (argTypes[0] == nullptr || !argTypes[0]->is(BaseType::TY_STRING) || argTypes[1] == nullptr ||
+        !argTypes[1]->is(BaseType::TY_STRING)) {
+      throw TypeCheckError(node->getSpan(), "__cstr_index_of requires cstr arguments");
+    }
+    auto intRet = std::make_unique<Type>(BaseType::TY_INT);
+    intRet->setIntWidth(64);
+    result = std::make_unique<Value>(cacheType(std::move(intRet)));
+    return true;
+  }
+  if (node->getName() == "__cstr_offset") {
+    if (argTypes.size() != 2U) {
+      throw TypeCheckError(node->getSpan(), "__cstr_offset expects cstr and byte offset");
+    }
+    if (argTypes[0] == nullptr || !argTypes[0]->is(BaseType::TY_STRING) || argTypes[1] == nullptr ||
+        !argTypes[1]->is(BaseType::TY_INT)) {
+      throw TypeCheckError(node->getSpan(), "__cstr_offset requires (cstr, int)");
+    }
+    result = std::make_unique<Value>(cacheType(std::make_unique<Type>(BaseType::TY_STRING)));
+    return true;
   }
   if (node->getName() == "__buffer_new") {
     Type* elementType = nullptr;
@@ -415,7 +497,7 @@ auto Typechecker::visitListMethodCall(Type* listType, const DotOp* node, const F
   }
 
   const auto listModulePath =
-      std::filesystem::absolute(std::filesystem::path(getStdDir()) / "list.les").lexically_normal();
+      std::filesystem::absolute(std::filesystem::path(getStdDir()) / "base.les").lexically_normal();
   SymbolTable* importedScope = getOrTypecheckImport(listModulePath.string());
   Value* callee =
       importedScope != nullptr ? importedScope->lookupFunction(call->getName(), argTypes) : nullptr;
@@ -1184,22 +1266,15 @@ auto Typechecker::run(const Compound* ast) -> void {
           : std::filesystem::absolute(std::filesystem::path(mainFilePath)).lexically_normal();
   const auto basePath =
       std::filesystem::absolute(std::filesystem::path(getStdDir()) / "base.les").lexically_normal();
-  const auto listPath =
-      std::filesystem::absolute(std::filesystem::path(getStdDir()) / "list.les").lexically_normal();
   std::error_code ec;
   const bool mainIsStdlibEntry =
-      !mainFilePath.empty() &&
-      (std::filesystem::equivalent(currentPath, basePath, ec) ||
-       std::filesystem::equivalent(currentPath, listPath, ec));
+      !mainFilePath.empty() && std::filesystem::equivalent(currentPath, basePath, ec);
   if (!mainIsStdlibEntry || mainFilePath.empty()) {
     if (mainFilePath.empty() || !std::filesystem::equivalent(currentPath, basePath, ec)) {
       loadImplicitStdModule("base.les");
     }
-    if (mainFilePath.empty() || !std::filesystem::equivalent(currentPath, listPath, ec)) {
-      loadImplicitStdModule("list.les");
-    }
-    if (mainFilePath.empty() || !std::filesystem::equivalent(currentPath, listPath, ec)) {
-      registerTraitsFromImportedModule(listPath.string());
+    if (mainFilePath.empty() || !std::filesystem::equivalent(currentPath, basePath, ec)) {
+      registerTraitsFromImportedModule(basePath.string());
     }
   }
   declarationPass = true;
@@ -1215,6 +1290,11 @@ auto Typechecker::takeRootScope() -> std::unique_ptr<SymbolTable> {
 
 auto Typechecker::takeTypeCache() -> std::vector<std::unique_ptr<Type>> {
   return std::move(typeCache);
+}
+
+auto Typechecker::takeSpecializedTypeEnv()
+    -> std::unordered_map<Type*, std::unordered_map<std::string, Type*>> {
+  return std::move(specializedTypeEnv);
 }
 
 auto Typechecker::takeImportAliasToPath() -> ImportAliasMap { return std::move(importAliasToPath); }
@@ -2160,8 +2240,13 @@ auto Typechecker::visit(const FuncCall* node) -> void {
             return;
           }
         }
-        result = std::make_unique<Value>(classType);
-        return;
+        // Bare class name as a value only when there are no call arguments; if we have args but
+        // constructor lookup failed (e.g. str("x") with a string literal typed as str first), fall
+        // through so the string-literal repair below can re-type literals as cstr and find new().
+        if (node->getArguments().empty()) {
+          result = std::make_unique<Value>(classType);
+          return;
+        }
       }
       if (sym->getType()->is(BaseType::TY_ENUM)) {
         result = std::make_unique<Value>(
@@ -2200,6 +2285,38 @@ auto Typechecker::visit(const FuncCall* node) -> void {
           argTypes.push_back(t);
         }
         callee = scope->lookupFunction(node->getName(), argTypes);
+        if (callee == nullptr) {
+          Value* classSym = scope->lookupStruct(node->getName());
+          if (classSym == nullptr) {
+            auto classImportedIt = importedNameToSource.find(node->getName());
+            if (classImportedIt != importedNameToSource.end()) {
+              SymbolTable* imp = getOrTypecheckImport(classImportedIt->second.first);
+              if (imp != nullptr) {
+                classSym = imp->lookupStruct(classImportedIt->second.second);
+              }
+            }
+          }
+          if (classSym != nullptr && classSym->getType()->is(BaseType::TY_CLASS)) {
+            Type* classType = importedScope != nullptr
+                                   ? materializeImportedType(classSym->getType())
+                                   : classSym->getType();
+            Type* ptrToClass =
+                cacheType(std::make_unique<Type>(BaseType::TY_PTR, nullptr, classType));
+            std::vector<Type*> constructorParamTypes = {ptrToClass};
+            constructorParamTypes.insert(constructorParamTypes.end(), argTypes.begin(),
+                                         argTypes.end());
+            callee = scope->lookupFunction("new", constructorParamTypes);
+            if (callee == nullptr) {
+              auto ctorImportedIt = importedNameToSource.find(node->getName());
+              if (ctorImportedIt != importedNameToSource.end()) {
+                SymbolTable* imp = getOrTypecheckImport(ctorImportedIt->second.first);
+                if (imp != nullptr) {
+                  callee = imp->lookupFunction("new", constructorParamTypes);
+                }
+              }
+            }
+          }
+        }
         if (callee == nullptr) {
           auto importedIt = importedNameToSource.find(node->getName());
           if (importedIt != importedNameToSource.end()) {
@@ -2249,7 +2366,7 @@ auto Typechecker::visit(const FuncCall* node) -> void {
                              argTypes[i]->toString(), expected->toString());
       }
     }
-    if (node->getName() == "new" && !fields.empty() && fields[0]->type->is(BaseType::TY_PTR)) {
+    if (callee->getName() == "new" && !fields.empty() && fields[0]->type->is(BaseType::TY_PTR)) {
       result = std::make_unique<Value>(
           substituteInType(fields[0]->type->getElementType(), explicitSubst));
     } else {
@@ -2266,7 +2383,7 @@ auto Typechecker::visit(const FuncCall* node) -> void {
     inferGenericBindings(fields[i]->type, argTypes[i], localGenericTypes, node->getSpan());
   }
   // Constructor call: result type is the specialized class type (receiver)
-  if (node->getName() == "new" && !funcType->getFields().empty() &&
+  if (callee->getName() == "new" && !funcType->getFields().empty() &&
       funcType->getFields()[0]->type->is(BaseType::TY_PTR)) {
     Type* classType = funcType->getFields()[0]->type->getElementType();
     const std::vector<std::string>& genericParamNames = getDeclaredGenericParams(classType);
@@ -2533,7 +2650,12 @@ auto Typechecker::visit(const DotOp* node) -> void {
     std::vector<Type*> argTypes;
     for (Expression* arg : fc->getArguments()) {
       arg->accept(*this);
-      argTypes.push_back(result->getType());
+      Type* t = result->getType();
+      // Match FuncCall + FuncDecl: class-typed arguments use pointer-to-class for overload lookup.
+      if (t != nullptr && t->is(BaseType::TY_CLASS)) {
+        t = cacheType(std::make_unique<Type>(BaseType::TY_PTR, nullptr, t));
+      }
+      argTypes.push_back(t);
     }
     Type* receiverForLookup = base;
     auto templateIt = specializedTypeToTemplate.find(base);
@@ -2724,7 +2846,7 @@ auto Typechecker::visit(const ListLiteral* node) -> void {
     return nullptr;
   };
   auto getStdListType = [this, node](Type* elementType) -> Type* {
-    const auto listPath = std::filesystem::absolute(std::filesystem::path(getStdDir()) / "list.les")
+    const auto listPath = std::filesystem::absolute(std::filesystem::path(getStdDir()) / "base.les")
                               .lexically_normal();
     SymbolTable* listScope = getOrTypecheckImport(listPath.string());
     if (listScope == nullptr) {

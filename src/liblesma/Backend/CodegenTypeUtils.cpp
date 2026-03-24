@@ -17,6 +17,10 @@ auto getExtendedType(Type* left, Type* right) -> Type* {
     return left;
   }
 
+  if (left->is(BaseType::TY_BOOL) && right->is(BaseType::TY_BOOL)) {
+    return left;
+  }
+
   if (left->is(BaseType::TY_INT) && right->is(BaseType::TY_INT)) {
     // Multiple int widths (i32, i64, etc.) are intentional for FFI; we pick
     // the wider type when unifying.

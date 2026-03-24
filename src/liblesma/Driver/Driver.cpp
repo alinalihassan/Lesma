@@ -108,6 +108,7 @@ auto lesma::analyze(std::unique_ptr<Options> options) -> AnalysisResult {
     result.parser = std::move(parser);
     result.rootScope = typechecker.takeRootScope();
     result.typeCache = typechecker.takeTypeCache();
+    result.specializedTypeEnv = typechecker.takeSpecializedTypeEnv();
     result.importAliasToPath = typechecker.takeImportAliasToPath();
     result.importedNameToSource = typechecker.takeImportedNameToSource();
     result.importedModules = typechecker.takeImportedModules();
@@ -123,6 +124,7 @@ auto lesma::analyze(std::unique_ptr<Options> options) -> AnalysisResult {
     // Capture partial rootScope even if typecheck failed partway through
     result.rootScope = typechecker.takeRootScope();
     result.typeCache = typechecker.takeTypeCache();
+    result.specializedTypeEnv = typechecker.takeSpecializedTypeEnv();
     result.importAliasToPath = typechecker.takeImportAliasToPath();
     result.importedNameToSource = typechecker.takeImportedNameToSource();
     result.importedModules = typechecker.takeImportedModules();
@@ -157,7 +159,8 @@ auto Driver::baseCompile(std::unique_ptr<lesma::Options> options, bool jit) -> i
       auto cg = std::make_unique<Codegen>(std::move(result.parser), result.sourceMgr,
                                           result.mainFilePath.empty() ? "" : result.mainFilePath,
                                           modules, jit, true, "", nullptr, nullptr, nullptr,
-                                          std::move(result.rootScope), std::move(result.typeCache));
+                                          std::move(result.rootScope), std::move(result.typeCache),
+                                          std::move(result.specializedTypeEnv));
       cg->run();
       return cg;
     });
