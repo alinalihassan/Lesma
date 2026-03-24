@@ -28,6 +28,7 @@
 #include <llvm/Passes/PassBuilder.h>
 #include <llvm/Support/Casting.h>
 #include <llvm/Support/CodeGen.h>
+#include <llvm/Support/Error.h>
 #include <llvm/Support/FileSystem.h>
 #include <llvm/Support/TargetSelect.h>
 #include <llvm/Target/TargetMachine.h>
@@ -112,15 +113,22 @@ auto Codegen::initializeJit() -> std::unique_ptr<LLJIT> {
   jitBuilder.setDataLayout(theModule->getDataLayout());
   jitBuilder.setJITTargetMachineBuilder(
       llvm::orc::JITTargetMachineBuilder(targetMachine->getTargetTriple()));
-  auto jit = llvm::cantFail(jitBuilder.create());
-  if (!jit) {
-    throw CodegenError({}, "Couldn't initialize JIT\n");
+  auto jitOrErr = jitBuilder.create();
+  if (!jitOrErr) {
+    throw CodegenError({}, "Couldn't initialize JIT:\n{}", llvm::toString(jitOrErr.takeError()));
   }
+  auto jit = std::move(*jitOrErr);
 
   // Add support for C native functions
   auto& mainJd = jit->getMainJITDylib();
-  auto generator = cantFail(
-      DynamicLibrarySearchGenerator::GetForCurrentProcess(jit->getDataLayout().getGlobalPrefix()));
+  auto generatorOrErr = DynamicLibrarySearchGenerator::GetForCurrentProcess(
+      jit->getDataLayout().getGlobalPrefix());
+  if (!generatorOrErr) {
+    throw CodegenError(
+        {}, "Couldn't create dynamic library search generator:\n{}",
+        llvm::toString(generatorOrErr.takeError()));
+  }
+  auto generator = std::move(*generatorOrErr);
   mainJd.addGenerator(std::move(generator));
 
   return jit;
