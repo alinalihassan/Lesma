@@ -93,8 +93,9 @@ export class str_iter impl Iterator<int8>
 export class str impl Iterable<int8>
     var storage: cstr
 
+    # Own a writable NUL-terminated copy; never retain arbitrary cstr (literals, borrowed buffers).
     def new(s: cstr)
-        self.storage = s
+        self.storage = strdup(s)
 
     def cstr() -> cstr
         return self.storage

@@ -38,10 +38,8 @@ if str("ab")[0] != "a"
     exit(15)
 if str("ab")[1] != "b"
     exit(16)
-var buf: cstr = calloc(4, 1) as cstr
-var mut = str(buf)
-mut[0] = "a"
-mut[1] = "b"
+# Mutable subscript: str owns a strdup buffer (safe for in-place byte writes).
+var mut = str("ab")
 mut[0] = "c"
 if mut != "cb"
     exit(17)
