@@ -10,7 +10,6 @@ def extern srand(x: int)
 def extern time(x: int) -> int
 def extern strcmp(a: cstr, b: cstr) -> int
 def extern strncmp(a: cstr, b: cstr, n: int) -> int
-def extern isspace(c: int) -> int
 def extern strdup(s: cstr) -> cstr
 def extern fopen(path: cstr, mode: cstr) -> *int8
 def extern fclose(stream: *int8) -> int
@@ -19,6 +18,10 @@ def extern fseek(stream: *int8, offset: int, whence: int) -> int
 def extern ftell(stream: *int8) -> int
 def extern fwrite(ptr: cstr, size: int, nmemb: int, stream: *int8) -> int
 def extern remove(path: cstr) -> int
+
+# ASCII whitespace only (TAB, LF, VT, FF, CR, SPACE). uint8 avoids signed-byte pitfalls with UTF-8.
+def __str_byte_is_ascii_whitespace(b: uint8) -> bool
+    return b == 9 as uint8 or b == 10 as uint8 or b == 11 as uint8 or b == 12 as uint8 or b == 13 as uint8 or b == 32 as uint8
 
 export trait Iterator<T>
     def has_next() -> bool
@@ -75,7 +78,7 @@ export class list<T> impl Iterable<T>
     def operator []=(index: int, value: T)
         __buffer_set(self.storage, index, value)
 
-export class str_iter impl Iterator<int8>
+export class str_iter impl Iterator<uint8>
     var storage: cstr
     var __scan: int = 0
 
@@ -85,12 +88,12 @@ export class str_iter impl Iterator<int8>
     def has_next() -> bool
         return self.__scan < strlen(self.storage)
 
-    def next() -> int8
+    def next() -> uint8
         var v = __cstr_byte_at(self.storage, self.__scan)
         self.__scan += 1
         return v
 
-export class str impl Iterable<int8>
+export class str impl Iterable<uint8>
     var storage: cstr
 
     # Own a writable NUL-terminated copy; never retain arbitrary cstr (literals, borrowed buffers).
@@ -141,7 +144,7 @@ export class str impl Iterable<int8>
         var i: int = 0
         let n: int = self.len()
         while i < n
-            if isspace(__cstr_byte_at(self.storage, i) as int) == 0
+            if not __str_byte_is_ascii_whitespace(__cstr_byte_at(self.storage, i))
                 break
             i += 1
         return str(__str_slice(self.storage, i, n - i))
@@ -152,7 +155,7 @@ export class str impl Iterable<int8>
             return str(__str_slice(self.storage, 0, 0))
         var j: int = n - 1
         while j >= 0
-            if isspace(__cstr_byte_at(self.storage, j) as int) == 0
+            if not __str_byte_is_ascii_whitespace(__cstr_byte_at(self.storage, j))
                 break
             j -= 1
         return str(__str_slice(self.storage, 0, j + 1))
@@ -250,9 +253,9 @@ export class str impl Iterable<int8>
         var buf: cstr = calloc(n + 1, 1) as cstr
         var i: int = 0
         while i < n
-            var b: int8 = __cstr_byte_at(self.storage, i)
-            if b >= 65 as int8 and b <= 90 as int8
-                b = b + 32 as int8
+            var b: uint8 = __cstr_byte_at(self.storage, i)
+            if b >= 65 as uint8 and b <= 90 as uint8
+                b = b + 32 as uint8
             __cstr_byte_set(buf, i, b)
             i += 1
         return str(buf)
@@ -264,9 +267,9 @@ export class str impl Iterable<int8>
         var buf: cstr = calloc(n + 1, 1) as cstr
         var i: int = 0
         while i < n
-            var b: int8 = __cstr_byte_at(self.storage, i)
-            if b >= 97 as int8 and b <= 122 as int8
-                b = b - 32 as int8
+            var b: uint8 = __cstr_byte_at(self.storage, i)
+            if b >= 97 as uint8 and b <= 122 as uint8
+                b = b - 32 as uint8
             __cstr_byte_set(buf, i, b)
             i += 1
         return str(buf)
@@ -387,6 +390,9 @@ export def print(x: int)
     printf("%lld\n", x)
 
 export def print(x: int8)
+    printf("%c\n", x)
+
+export def print(x: uint8)
     printf("%c\n", x)
 
 export def print(x: float)

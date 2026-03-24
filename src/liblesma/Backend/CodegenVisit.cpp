@@ -1275,8 +1275,10 @@ auto Codegen::visit(const BinaryOp* node) -> void {
     }
 
     if (finalType->is(BaseType::TY_INT)) {
-      result = std::make_unique<Value>(
-          "", finalType, builder->CreateSDiv(left->getLlvmValue(), right->getLlvmValue()));
+      llvm::Value* div = finalType->isSigned()
+                            ? builder->CreateSDiv(left->getLlvmValue(), right->getLlvmValue())
+                            : builder->CreateUDiv(left->getLlvmValue(), right->getLlvmValue());
+      result = std::make_unique<Value>("", finalType, div);
       return;
     }
 
@@ -1296,8 +1298,10 @@ auto Codegen::visit(const BinaryOp* node) -> void {
     }
 
     if (finalType->is(BaseType::TY_INT)) {
-      result = std::make_unique<Value>(
-          "", finalType, builder->CreateSRem(left->getLlvmValue(), right->getLlvmValue()));
+      llvm::Value* rem = finalType->isSigned()
+                             ? builder->CreateSRem(left->getLlvmValue(), right->getLlvmValue())
+                             : builder->CreateURem(left->getLlvmValue(), right->getLlvmValue());
+      result = std::make_unique<Value>("", finalType, rem);
       return;
     }
 
@@ -1482,9 +1486,11 @@ auto Codegen::visit(const BinaryOp* node) -> void {
     }
 
     if (finalType->is(BaseType::TY_INT)) {
+      llvm::Value* cmp = finalType->isSigned()
+                             ? builder->CreateICmpSGT(left->getLlvmValue(), right->getLlvmValue())
+                             : builder->CreateICmpUGT(left->getLlvmValue(), right->getLlvmValue());
       result = std::make_unique<Value>(
-          "", cacheType(std::make_unique<Type>(BaseType::TY_BOOL, builder->getInt1Ty())),
-          builder->CreateICmpSGT(left->getLlvmValue(), right->getLlvmValue()));
+          "", cacheType(std::make_unique<Type>(BaseType::TY_BOOL, builder->getInt1Ty())), cmp);
       return;
     }
 
@@ -1505,9 +1511,11 @@ auto Codegen::visit(const BinaryOp* node) -> void {
     }
 
     if (finalType->is(BaseType::TY_INT)) {
+      llvm::Value* cmp = finalType->isSigned()
+                             ? builder->CreateICmpSGE(left->getLlvmValue(), right->getLlvmValue())
+                             : builder->CreateICmpUGE(left->getLlvmValue(), right->getLlvmValue());
       result = std::make_unique<Value>(
-          "", cacheType(std::make_unique<Type>(BaseType::TY_BOOL, builder->getInt1Ty())),
-          builder->CreateICmpSGE(left->getLlvmValue(), right->getLlvmValue()));
+          "", cacheType(std::make_unique<Type>(BaseType::TY_BOOL, builder->getInt1Ty())), cmp);
       return;
     }
 
@@ -1528,9 +1536,11 @@ auto Codegen::visit(const BinaryOp* node) -> void {
     }
 
     if (finalType->is(BaseType::TY_INT)) {
+      llvm::Value* cmp = finalType->isSigned()
+                             ? builder->CreateICmpSLT(left->getLlvmValue(), right->getLlvmValue())
+                             : builder->CreateICmpULT(left->getLlvmValue(), right->getLlvmValue());
       result = std::make_unique<Value>(
-          "", cacheType(std::make_unique<Type>(BaseType::TY_BOOL, builder->getInt1Ty())),
-          builder->CreateICmpSLT(left->getLlvmValue(), right->getLlvmValue()));
+          "", cacheType(std::make_unique<Type>(BaseType::TY_BOOL, builder->getInt1Ty())), cmp);
       return;
     }
 
@@ -1551,9 +1561,11 @@ auto Codegen::visit(const BinaryOp* node) -> void {
     }
 
     if (finalType->is(BaseType::TY_INT)) {
+      llvm::Value* cmp = finalType->isSigned()
+                             ? builder->CreateICmpSLE(left->getLlvmValue(), right->getLlvmValue())
+                             : builder->CreateICmpULE(left->getLlvmValue(), right->getLlvmValue());
       result = std::make_unique<Value>(
-          "", cacheType(std::make_unique<Type>(BaseType::TY_BOOL, builder->getInt1Ty())),
-          builder->CreateICmpSLE(left->getLlvmValue(), right->getLlvmValue()));
+          "", cacheType(std::make_unique<Type>(BaseType::TY_BOOL, builder->getInt1Ty())), cmp);
       return;
     }
 

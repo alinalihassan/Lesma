@@ -27,18 +27,42 @@ auto Codegen::visit(const TypeExpr* node) -> void {
   if (node->getType() == TokenType::INT_TYPE) {
     auto* type = cacheType(std::make_unique<Type>(BaseType::TY_INT, builder->getInt64Ty()));
     type->setIntWidth(64);
+    type->setSigned(true);
     result = std::make_unique<Value>(type);
   } else if (node->getType() == TokenType::INT8_TYPE) {
     auto* type = cacheType(std::make_unique<Type>(BaseType::TY_INT, builder->getInt8Ty()));
     type->setIntWidth(8);
+    type->setSigned(true);
     result = std::make_unique<Value>(type);
   } else if (node->getType() == TokenType::INT16_TYPE) {
     auto* type = cacheType(std::make_unique<Type>(BaseType::TY_INT, builder->getInt16Ty()));
     type->setIntWidth(16);
+    type->setSigned(true);
     result = std::make_unique<Value>(type);
   } else if (node->getType() == TokenType::INT32_TYPE) {
     auto* type = cacheType(std::make_unique<Type>(BaseType::TY_INT, builder->getInt32Ty()));
     type->setIntWidth(32);
+    type->setSigned(true);
+    result = std::make_unique<Value>(type);
+  } else if (node->getType() == TokenType::UINT_TYPE) {
+    auto* type = cacheType(std::make_unique<Type>(BaseType::TY_INT, builder->getInt64Ty()));
+    type->setIntWidth(64);
+    type->setSigned(false);
+    result = std::make_unique<Value>(type);
+  } else if (node->getType() == TokenType::UINT8_TYPE) {
+    auto* type = cacheType(std::make_unique<Type>(BaseType::TY_INT, builder->getInt8Ty()));
+    type->setIntWidth(8);
+    type->setSigned(false);
+    result = std::make_unique<Value>(type);
+  } else if (node->getType() == TokenType::UINT16_TYPE) {
+    auto* type = cacheType(std::make_unique<Type>(BaseType::TY_INT, builder->getInt16Ty()));
+    type->setIntWidth(16);
+    type->setSigned(false);
+    result = std::make_unique<Value>(type);
+  } else if (node->getType() == TokenType::UINT32_TYPE) {
+    auto* type = cacheType(std::make_unique<Type>(BaseType::TY_INT, builder->getInt32Ty()));
+    type->setIntWidth(32);
+    type->setSigned(false);
     result = std::make_unique<Value>(type);
   } else if (node->getType() == TokenType::FLOAT_TYPE) {
     auto* type = cacheType(std::make_unique<Type>(BaseType::TY_FLOAT, builder->getDoubleTy()));

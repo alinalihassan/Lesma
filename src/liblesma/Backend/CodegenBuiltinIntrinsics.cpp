@@ -81,6 +81,7 @@ auto Codegen::genListIntrinsicCall(const FuncCall* node, const std::vector<lesma
     auto* byteVal = builder->CreateLoad(i8, gep);
     auto* int8Ty = cacheType(std::make_unique<Type>(BaseType::TY_INT, i8));
     int8Ty->setIntWidth(8);
+    int8Ty->setSigned(false);
     return std::make_unique<Value>("", int8Ty, byteVal);
   }
   case BuiltinIntrinsicKind::CstrByteSet: {

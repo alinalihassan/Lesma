@@ -69,6 +69,10 @@ enum class TokenType : std::uint8_t {
   INT8_TYPE,
   INT16_TYPE,
   INT32_TYPE,
+  UINT_TYPE,
+  UINT8_TYPE,
+  UINT16_TYPE,
+  UINT32_TYPE,
   FLOAT32_TYPE,
 
   // Keywords.

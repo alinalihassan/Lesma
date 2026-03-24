@@ -393,6 +393,7 @@ auto Typechecker::visitListIntrinsicCall(const FuncCall* node, const std::vector
     }
     auto intRet = std::make_unique<Type>(BaseType::TY_INT);
     intRet->setIntWidth(8);
+    intRet->setSigned(false);
     result = std::make_unique<Value>(cacheType(std::move(intRet)));
     return true;
   }
@@ -408,7 +409,7 @@ auto Typechecker::visitListIntrinsicCall(const FuncCall* node, const std::vector
     }
     if (argTypes[2] == nullptr || !argTypes[2]->is(BaseType::TY_INT) ||
         argTypes[2]->getIntWidth() != 8) {
-      throw TypeCheckError(node->getSpan(), "__cstr_byte_set value must be int8");
+      throw TypeCheckError(node->getSpan(), "__cstr_byte_set value must be int8 or uint8");
     }
     result = std::make_unique<Value>(cacheType(std::make_unique<Type>(BaseType::TY_VOID)));
     return true;
@@ -733,6 +734,7 @@ auto Typechecker::materializeImportedType(Type* type) -> Type* {
   if (type->is(BaseType::TY_INT)) {
     auto u = std::make_unique<Type>(BaseType::TY_INT);
     u->setIntWidth(static_cast<std::uint16_t>(type->getIntWidth()));
+    u->setSigned(type->isSigned());
     Type* copy = cacheType(std::move(u));
     importedTypeCopies[type] = copy;
     return copy;
@@ -937,6 +939,18 @@ auto Typechecker::getExtendedType(Type* left, Type* right) -> Type* {
     return left;
   }
   if (left->is(BaseType::TY_INT) && right->is(BaseType::TY_INT)) {
+    if (left->getIntWidth() > right->getIntWidth()) {
+      return left;
+    }
+    if (right->getIntWidth() > left->getIntWidth()) {
+      return right;
+    }
+    if (!left->isSigned()) {
+      return left;
+    }
+    if (!right->isSigned()) {
+      return right;
+    }
     return left;
   }
   if (left->is(BaseType::TY_INT) && right->is(BaseType::TY_FLOAT)) {
@@ -1136,21 +1150,49 @@ auto Typechecker::resolveType(const TypeExpr* node) -> Type* {
   if (node->getType() == TokenType::INT_TYPE) {
     auto u = std::make_unique<Type>(BaseType::TY_INT);
     u->setIntWidth(64);
+    u->setSigned(true);
     return cacheType(std::move(u));
   }
   if (node->getType() == TokenType::INT8_TYPE) {
     auto u = std::make_unique<Type>(BaseType::TY_INT);
     u->setIntWidth(8);
+    u->setSigned(true);
     return cacheType(std::move(u));
   }
   if (node->getType() == TokenType::INT16_TYPE) {
     auto u = std::make_unique<Type>(BaseType::TY_INT);
     u->setIntWidth(16);
+    u->setSigned(true);
     return cacheType(std::move(u));
   }
   if (node->getType() == TokenType::INT32_TYPE) {
     auto u = std::make_unique<Type>(BaseType::TY_INT);
     u->setIntWidth(32);
+    u->setSigned(true);
+    return cacheType(std::move(u));
+  }
+  if (node->getType() == TokenType::UINT_TYPE) {
+    auto u = std::make_unique<Type>(BaseType::TY_INT);
+    u->setIntWidth(64);
+    u->setSigned(false);
+    return cacheType(std::move(u));
+  }
+  if (node->getType() == TokenType::UINT8_TYPE) {
+    auto u = std::make_unique<Type>(BaseType::TY_INT);
+    u->setIntWidth(8);
+    u->setSigned(false);
+    return cacheType(std::move(u));
+  }
+  if (node->getType() == TokenType::UINT16_TYPE) {
+    auto u = std::make_unique<Type>(BaseType::TY_INT);
+    u->setIntWidth(16);
+    u->setSigned(false);
+    return cacheType(std::move(u));
+  }
+  if (node->getType() == TokenType::UINT32_TYPE) {
+    auto u = std::make_unique<Type>(BaseType::TY_INT);
+    u->setIntWidth(32);
+    u->setSigned(false);
     return cacheType(std::move(u));
   }
   if (node->getType() == TokenType::FLOAT_TYPE || node->getType() == TokenType::FLOAT32_TYPE) {

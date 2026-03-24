@@ -27,7 +27,16 @@ auto getExtendedType(Type* left, Type* right) -> Type* {
     if (left->getLlvmType()->getIntegerBitWidth() > right->getLlvmType()->getIntegerBitWidth()) {
       return left;
     }
-    return right;
+    if (left->getLlvmType()->getIntegerBitWidth() < right->getLlvmType()->getIntegerBitWidth()) {
+      return right;
+    }
+    if (!left->isSigned()) {
+      return left;
+    }
+    if (!right->isSigned()) {
+      return right;
+    }
+    return left;
   }
   if (left->is(BaseType::TY_INT) && right->is(BaseType::TY_FLOAT)) {
     return right;

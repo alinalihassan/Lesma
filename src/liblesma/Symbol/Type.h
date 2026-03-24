@@ -146,6 +146,7 @@ public:
     return 64U;
   }
   auto setIntWidth(std::uint16_t width) -> void { intWidth = width; }
+  auto setSigned(bool value) -> void { signedInt = value; }
 
   // Returns raw pointers for non-owning access
   [[nodiscard]] auto getFields() const -> std::vector<Field*> {
