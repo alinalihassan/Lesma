@@ -201,6 +201,7 @@ auto Codegen::genListIntrinsicCall(const FuncCall* node, const std::vector<lesma
     phi->addIncoming(diff, okBlock);
     auto* intTy = cacheType(std::make_unique<Type>(BaseType::TY_INT, builder->getInt64Ty()));
     intTy->setIntWidth(64);
+    intTy->setSigned(true);
     return std::make_unique<Value>("", intTy, phi);
   }
   case BuiltinIntrinsicKind::CstrOffset: {
