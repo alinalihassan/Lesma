@@ -132,4 +132,30 @@ auto isStdlibSourcePath(const std::string& path) -> bool {
   const std::string relStr = rel.generic_string();
   return relStr.rfind("..", 0) != 0;
 }
+
+auto normalizeResolvedFilesystemPath(const std::string& path) -> std::string {
+  const std::filesystem::path abs = std::filesystem::absolute(std::filesystem::path(path));
+  std::error_code ec;
+  std::filesystem::path norm = std::filesystem::weakly_canonical(abs, ec);
+  if (ec) {
+    norm = abs.lexically_normal();
+  }
+  return norm.string();
+}
+
+auto normalizeModuleImportPath(const std::string& mainModulePath, const std::string& importPath)
+    -> std::string {
+  std::filesystem::path filePath(importPath);
+  const std::filesystem::path resolved =
+      filePath.is_absolute()
+          ? filePath
+          : (std::filesystem::absolute(std::filesystem::path(mainModulePath)).parent_path() /
+             filePath);
+  std::error_code ec;
+  std::filesystem::path norm = std::filesystem::weakly_canonical(resolved, ec);
+  if (ec) {
+    norm = std::filesystem::absolute(resolved).lexically_normal();
+  }
+  return norm.string();
+}
 } // namespace lesma

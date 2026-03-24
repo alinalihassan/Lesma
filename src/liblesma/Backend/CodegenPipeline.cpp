@@ -295,16 +295,14 @@ auto Codegen::run() -> void {
   // Done here (not in constructor) to avoid re-entrancy when creating Codegens for imported
   // modules.
   std::vector<std::string> const implicitStdlibModules = {std::string{codegen::runtime::kImplicitStdlibModule}};
-  auto const currentPath =
-      std::filesystem::absolute(std::filesystem::path(filename)).lexically_normal();
+  auto const currentPath = normalizeResolvedFilesystemPath(filename);
   auto const basePath =
-      std::filesystem::absolute(std::filesystem::path(getStdDir()) / "base.les").lexically_normal();
+      normalizeResolvedFilesystemPath((std::filesystem::path(getStdDir()) / "base.les").string());
   const bool mainIsStdlibEntry = !filename.empty() && currentPath == basePath;
   if (!mainIsStdlibEntry || filename.empty()) {
     for (const auto& moduleName : implicitStdlibModules) {
       auto const modulePath =
-          std::filesystem::absolute(std::filesystem::path(getStdDir()) / moduleName)
-              .lexically_normal();
+          normalizeResolvedFilesystemPath((std::filesystem::path(getStdDir()) / moduleName).string());
       if (currentPath == modulePath) {
         continue;
       }

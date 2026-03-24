@@ -99,4 +99,9 @@ auto getBasename(const std::string& filePath) -> std::string;
 auto getStdDir() -> std::string;
 /** True if \p path resolves under the stdlib root directory ([getStdDir]()). */
 [[nodiscard]] auto isStdlibSourcePath(const std::string& path) -> bool;
+/** Canonical absolute path for identity (matches import cache / weakly_canonical). */
+[[nodiscard]] auto normalizeResolvedFilesystemPath(const std::string& path) -> std::string;
+/** Resolved absolute path for an import relative to \p mainModulePath's directory. */
+[[nodiscard]] auto normalizeModuleImportPath(const std::string& mainModulePath,
+                                               const std::string& importPath) -> std::string;
 } // namespace lesma

@@ -1,9 +1,7 @@
 #include "Codegen.h"
 
 #include <algorithm>
-#include <filesystem>
 #include <memory>
-#include <algorithm>
 #include <string>
 #include <unordered_set>
 #include <vector>
@@ -171,12 +169,8 @@ auto Codegen::exposeImportedSymbols(llvm::SMRange /*span*/, SymbolTable* importe
 auto Codegen::compileModule(llvm::SMRange span, const std::string& filepath, bool isStd,
                             const std::string& moduleAlias, bool importAll, bool importToScope,
                             const std::vector<ImportedNameBinding>& importedNames) -> void {
-  std::filesystem::path mainPath = filename;
-  // Read source
-  auto absolutePath =
-      isStd ? filepath
-            : fmt::format("{}/{}", std::filesystem::absolute(mainPath).parent_path().c_str(),
-                          filepath);
+  (void)isStd;
+  const std::string absolutePath = normalizeModuleImportPath(filename, filepath);
 
   static thread_local std::unordered_set<std::string> compiling;
   if (compiling.contains(absolutePath)) {
