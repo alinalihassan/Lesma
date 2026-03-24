@@ -362,7 +362,34 @@ auto Codegen::specializeClass(const Class* node,
     concreteName += "_" + MangleUtils::getTypeMangledName(node->getSpan(), env[gn]);
   }
 
-  std::vector<std::unique_ptr<Field>> fields;
+  std::string displayName = node->getIdentifier() + "<";
+  for (size_t i = 0; i < genericNames.size(); ++i) {
+    if (i > 0U) {
+      displayName += ", ";
+    }
+    displayName += env[genericNames[i]]->toString();
+  }
+  displayName += ">";
+
+  // Opaque shell first so recursive fields (e.g. Node<T> next) hit specializedClasses and a
+  // concrete Type with LLVM type before we finish lowering field types / struct body.
+  auto* structType = llvm::StructType::create(theModule->getContext(), concreteName);
+  auto shellType = std::make_unique<Type>(BaseType::TY_CLASS, structType,
+                                          std::vector<std::unique_ptr<Field>>{});
+  shellType->setDisplayName(displayName);
+  shellType->setImplTraitNames(std::vector<std::string>(node->getImplTraitNames()));
+  auto* typePtr = shellType.get();
+  scope->insertType(concreteName, std::move(shellType));
+
+  auto structSymbol = std::make_unique<Value>(concreteName, typePtr);
+  structSymbol->setCategory(ValueCategory::TYPE_SYMBOL);
+  structSymbol->setExported(node->isExported());
+  auto* structSymbolPtr = structSymbol.get();
+  scope->insertSymbol(std::move(structSymbol));
+  specializedClasses.emplace(key, structSymbolPtr);
+  specializedClassSymbolsByType[typePtr] = structSymbolPtr;
+  specializedClassTypeEnvs[typePtr] = env;
+
   std::vector<llvm::Type*> elementLLVMTypes;
   for (auto* field : node->getFields()) {
     if (field->getType() != nullptr) {
@@ -381,34 +408,16 @@ auto Codegen::specializeClass(const Class* node,
         result = std::make_unique<Value>(*defaultVal);
       }
     }
-    fields.push_back(std::make_unique<Field>(field->getIdentifier()->getValue(), result->getType(),
-                                             std::move(defaultVal)));
+    typePtr->addField(std::make_unique<Field>(field->getIdentifier()->getValue(), result->getType(),
+                                                std::move(defaultVal)));
   }
 
-  auto* structType =
-      llvm::StructType::create(theModule->getContext(), elementLLVMTypes, concreteName);
-  auto type = std::make_unique<Type>(BaseType::TY_CLASS, structType, std::move(fields));
-  std::string displayName = node->getIdentifier() + "<";
-  for (size_t i = 0; i < genericNames.size(); ++i) {
-    if (i > 0U) {
-      displayName += ", ";
-    }
-    displayName += env[genericNames[i]]->toString();
+  if (elementLLVMTypes.empty()) {
+    elementLLVMTypes.push_back(builder->getInt8Ty());
   }
-  displayName += ">";
-  type->setDisplayName(displayName);
-  type->setImplTraitNames(std::vector<std::string>(node->getImplTraitNames()));
-  auto* typePtr = type.get();
-  scope->insertType(concreteName, std::move(type));
-
-  auto structSymbol = std::make_unique<Value>(concreteName, typePtr);
-  structSymbol->setCategory(ValueCategory::TYPE_SYMBOL);
-  structSymbol->setExported(node->isExported());
-  auto* structSymbolPtr = structSymbol.get();
-  scope->insertSymbol(std::move(structSymbol));
-  specializedClasses.emplace(key, structSymbolPtr);
-  specializedClassSymbolsByType[typePtr] = structSymbolPtr;
-  specializedClassTypeEnvs[typePtr] = env;
+  structType->setBody(elementLLVMTypes, /*isPacked=*/false);
+  typePtr->setDisplayName(std::move(displayName));
+  typePtr->setImplTraitNames(std::vector<std::string>(node->getImplTraitNames()));
 
   auto* selfType =
       cacheType(std::make_unique<Type>(BaseType::TY_PTR, builder->getPtrTy(), typePtr));

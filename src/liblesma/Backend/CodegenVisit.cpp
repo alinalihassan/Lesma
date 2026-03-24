@@ -271,7 +271,8 @@ auto Codegen::visit(const Compound* node) -> void {
 }
 
 namespace {
-[[nodiscard]] auto typeContainsUnboundGeneric(lesma::Type* type) -> bool {
+[[nodiscard]] auto typeContainsUnboundGenericImpl(lesma::Type* type,
+                                                std::unordered_set<lesma::Type*>& active) -> bool {
   if (type == nullptr) {
     return false;
   }
@@ -279,24 +280,37 @@ namespace {
     return true;
   }
   if (type->isOneOf({BaseType::TY_PTR, BaseType::TY_ARRAY})) {
-    return typeContainsUnboundGeneric(type->getElementType());
+    return typeContainsUnboundGenericImpl(type->getElementType(), active);
   }
   if (type->is(BaseType::TY_CLASS)) {
+    if (active.contains(type)) {
+      return false;
+    }
+    active.insert(type);
+    bool any = false;
     for (Field* f : type->getFields()) {
-      if (typeContainsUnboundGeneric(f->type)) {
-        return true;
+      if (typeContainsUnboundGenericImpl(f->type, active)) {
+        any = true;
+        break;
       }
     }
+    active.erase(type);
+    return any;
   }
   if (type->is(BaseType::TY_FUNCTION)) {
     for (Field* f : type->getFields()) {
-      if (typeContainsUnboundGeneric(f->type)) {
+      if (typeContainsUnboundGenericImpl(f->type, active)) {
         return true;
       }
     }
-    return typeContainsUnboundGeneric(type->getReturnType());
+    return typeContainsUnboundGenericImpl(type->getReturnType(), active);
   }
   return false;
+}
+
+[[nodiscard]] auto typeContainsUnboundGeneric(lesma::Type* type) -> bool {
+  std::unordered_set<lesma::Type*> active;
+  return typeContainsUnboundGenericImpl(type, active);
 }
 } // namespace
 

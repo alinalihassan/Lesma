@@ -190,6 +190,10 @@ public:
   auto setDeclarationFilePath(std::string path) -> void { declarationFilePath = std::move(path); }
   auto setVarArgs(bool value) -> void { varArgs = value; }
   auto addField(std::unique_ptr<Field> field) -> void { fields.push_back(std::move(field)); }
+  /** Replace all fields (e.g. refresh a placeholder specialization after the template is complete). */
+  auto replaceFields(std::vector<std::unique_ptr<Field>> newFields) -> void {
+    fields = std::move(newFields);
+  }
 
   auto isEqual(Type* rhs) const -> bool {
     std::set<std::pair<Type const*, Type const*>> active;

@@ -891,13 +891,28 @@ auto Typechecker::getOrCreateSpecializedClassType(Type* classTemplate,
   if (it != specializedClassTypes.end()) {
     return it->second;
   }
-  std::vector<std::unique_ptr<Field>> newFields;
-  for (Field* f : classTemplate->getFields()) {
-    Type* subst = substituteInType(f->type, env);
-    newFields.push_back(std::make_unique<Field>(f->name, subst));
+  const bool templateIncomplete =
+      classTemplateBeingDeclared != nullptr && classTemplate == classTemplateBeingDeclared &&
+      classTemplate->getFields().size() < classFieldCountExpected;
+  if (templateIncomplete) {
+    auto specialized = std::make_unique<Type>(BaseType::TY_CLASS, nullptr,
+                                              std::vector<std::unique_ptr<Field>>{});
+    Type* ptr = cacheType(std::move(specialized));
+    specializedClassTypes[keyStr] = ptr;
+    specializedTypeEnv[ptr] = env;
+    specializedTypeToTemplate[ptr] = classTemplate;
+    ptr->setGenericParams(genericParamNames);
+    ptr->setImplTraitNames(classTemplate->getImplTraitNames());
+    ptr->setDeclarationSpan(classTemplate->getDeclarationSpan());
+    ptr->setDeclarationFilePath(classTemplate->getDeclarationFilePath());
+    ptr->setDisplayName(makeSpecializedDisplayName(classTemplate, genericParamNames, env));
+    return ptr;
   }
-  auto specialized = std::make_unique<Type>(BaseType::TY_CLASS, nullptr, std::move(newFields));
-  Type* ptr = cacheType(std::move(specialized));
+  // Cache an empty specialization before substituting fields so recursive references (e.g. *Node<T>
+  // to Node<T>) hit specializedClassTypes and do not recurse infinitely in substituteInType.
+  auto specializedShell = std::make_unique<Type>(BaseType::TY_CLASS, nullptr,
+                                                 std::vector<std::unique_ptr<Field>>{});
+  Type* ptr = cacheType(std::move(specializedShell));
   specializedClassTypes[keyStr] = ptr;
   specializedTypeEnv[ptr] = env;
   specializedTypeToTemplate[ptr] = classTemplate;
@@ -906,7 +921,38 @@ auto Typechecker::getOrCreateSpecializedClassType(Type* classTemplate,
   ptr->setDeclarationSpan(classTemplate->getDeclarationSpan());
   ptr->setDeclarationFilePath(classTemplate->getDeclarationFilePath());
   ptr->setDisplayName(makeSpecializedDisplayName(classTemplate, genericParamNames, env));
+
+  std::vector<std::unique_ptr<Field>> newFields;
+  for (Field* f : classTemplate->getFields()) {
+    Type* subst = substituteInType(f->type, env);
+    newFields.push_back(std::make_unique<Field>(f->name, subst));
+  }
+  ptr->replaceFields(std::move(newFields));
   return ptr;
+}
+
+void Typechecker::finalizeSpecializedTypesForTemplate(Type* classTemplate) {
+  if (classTemplate == nullptr || classTemplate->getGenericParams().empty()) {
+    return;
+  }
+  const auto& genericParamNames = classTemplate->getGenericParams();
+  for (const auto& [specPtr, tmplPtr] : specializedTypeToTemplate) {
+    if (tmplPtr != classTemplate) {
+      continue;
+    }
+    auto envIt = specializedTypeEnv.find(specPtr);
+    if (envIt == specializedTypeEnv.end()) {
+      continue;
+    }
+    const auto& env = envIt->second;
+    std::vector<std::unique_ptr<Field>> newFields;
+    for (Field* f : classTemplate->getFields()) {
+      Type* subst = substituteInType(f->type, env);
+      newFields.push_back(std::make_unique<Field>(f->name, subst));
+    }
+    specPtr->replaceFields(std::move(newFields));
+    specPtr->setDisplayName(makeSpecializedDisplayName(classTemplate, genericParamNames, env));
+  }
 }
 
 auto Typechecker::getOrCreateSpecializedTraitExistentialType(
@@ -1807,7 +1853,31 @@ auto Typechecker::visit(const Class* node) -> void {
 
   Type* classTypePtr = outerScope->lookupType(node->getIdentifier());
   if (declarationPass) {
-    std::vector<std::unique_ptr<Field>> fields;
+    if (classTypePtr != nullptr) {
+      throw TypeCheckError(node->getNameSpan(), "Duplicate class definition: {}",
+                           node->getIdentifier());
+    }
+    auto stub = std::make_unique<Type>(BaseType::TY_CLASS, nullptr,
+                                         std::vector<std::unique_ptr<Field>>{});
+    stub->setDisplayName(node->getIdentifier() + makeGenericDisplaySuffix(node->getGenericParams()));
+    stub->setDeclarationSpan(node->getNameSpan());
+    stub->setDeclarationFilePath(mainFilePath);
+    stub->setGenericParams(node->getGenericParams());
+    stub->setImplTraitNames(node->getImplTraitNames());
+    classTypePtr = stub.get();
+    outerScope->insertType(node->getIdentifier(), std::move(stub));
+    auto classSymbol = std::make_unique<Value>(node->getIdentifier(), classTypePtr);
+    classSymbol->setCategory(ValueCategory::TYPE_SYMBOL);
+    classSymbol->setDeclarationKind(ValueDeclarationKind::CLASS);
+    classSymbol->setExported(node->isExported());
+    classSymbol->setDeclarationSpan(node->getNameSpan());
+    classSymbol->setDeclarationFilePath(mainFilePath);
+    outerScope->insertSymbol(std::move(classSymbol));
+    node->setResolvedSymbol(outerScope->lookupStruct(node->getIdentifier()));
+
+    classTemplateBeingDeclared = classTypePtr;
+    classFieldCountExpected = node->getFields().size();
+
     for (VarDecl* field : node->getFields()) {
       Type* fieldType = nullptr;
       if (field->getType() != nullptr) {
@@ -1843,23 +1913,16 @@ auto Typechecker::visit(const Class* node) -> void {
       fieldSymbol->setDeclarationFilePath(mainFilePath);
       field->setResolvedSymbol(fieldSymbol.get());
       fieldEntry->setDeclarationSymbol(std::move(fieldSymbol));
-      fields.push_back(std::move(fieldEntry));
+      classTypePtr->addField(std::move(fieldEntry));
     }
-    auto type = std::make_unique<Type>(BaseType::TY_CLASS, nullptr, std::move(fields));
-    type->setDisplayName(node->getIdentifier() +
-                         makeGenericDisplaySuffix(node->getGenericParams()));
-    type->setDeclarationSpan(node->getNameSpan());
-    type->setDeclarationFilePath(mainFilePath);
-    classTypePtr = type.get();
-    outerScope->insertType(node->getIdentifier(), std::move(type));
-    auto classSymbol = std::make_unique<Value>(node->getIdentifier(), classTypePtr);
-    classSymbol->setCategory(ValueCategory::TYPE_SYMBOL);
-    classSymbol->setDeclarationKind(ValueDeclarationKind::CLASS);
-    classSymbol->setExported(node->isExported());
-    classSymbol->setDeclarationSpan(node->getNameSpan());
-    classSymbol->setDeclarationFilePath(mainFilePath);
-    outerScope->insertSymbol(std::move(classSymbol));
-    node->setResolvedSymbol(outerScope->lookupStruct(node->getIdentifier()));
+
+    finalizeSpecializedTypesForTemplate(classTypePtr);
+    classTemplateBeingDeclared = nullptr;
+    classFieldCountExpected = 0;
+  } else {
+    if (classTypePtr == nullptr) {
+      throw TypeCheckError(node->getNameSpan(), "Class not found: {}", node->getIdentifier());
+    }
   }
 
   classTypePtr->setGenericParams(node->getGenericParams());
