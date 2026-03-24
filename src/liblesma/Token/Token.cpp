@@ -65,7 +65,7 @@ static const std::unordered_map<std::string_view, TokenType> KEYWORDS = {
     {"float", TokenType::FLOAT_TYPE},
     {"float64", TokenType::FLOAT_TYPE},
     {"float32", TokenType::FLOAT32_TYPE},
-    {"str", TokenType::STRING_TYPE},
+    {"cstr", TokenType::STRING_TYPE},
     {"bool", TokenType::BOOL_TYPE},
     {"void", TokenType::VOID_TYPE},
 };

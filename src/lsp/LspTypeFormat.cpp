@@ -33,10 +33,11 @@ auto getTypeName(Type* type, SymbolTable* rootScope) -> std::string {
   }
   if (type->is(BaseType::TY_PTR) && type->getElementType() != nullptr) {
     Type* elementType = type->getElementType();
+    // Values are often *T at the type level; source syntax uses T for class/enum (no leading *).
     if (elementType->is(BaseType::TY_CLASS) || elementType->is(BaseType::TY_ENUM)) {
       std::string elementName = getTypeName(elementType, rootScope);
       if (!elementName.empty()) {
-        return "*" + elementName;
+        return elementName;
       }
     }
   }
@@ -52,7 +53,11 @@ auto formatTypeName(Type* type, SymbolTable* rootScope) -> std::string {
     return namedType;
   }
   if (type->is(BaseType::TY_PTR) && type->getElementType() != nullptr) {
-    return "*" + formatTypeName(type->getElementType(), rootScope);
+    Type* elem = type->getElementType();
+    if (elem->is(BaseType::TY_CLASS) || elem->is(BaseType::TY_ENUM)) {
+      return formatTypeName(elem, rootScope);
+    }
+    return "*" + formatTypeName(elem, rootScope);
   }
   if (type->is(BaseType::TY_ARRAY) && type->getElementType() != nullptr) {
     return "list<" + formatTypeName(type->getElementType(), rootScope) + ">";
@@ -68,7 +73,7 @@ auto formatTypeName(Type* type, SymbolTable* rootScope) -> std::string {
     return "float";
   }
   if (type->is(BaseType::TY_STRING)) {
-    return "str";
+    return "cstr";
   }
   if (type->is(BaseType::TY_BOOL)) {
     return "bool";

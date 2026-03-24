@@ -380,7 +380,7 @@ auto formatHoverContent(lesma::Value* value, lesma::SymbolTable* rootScope) -> s
 }
 
 auto isBuiltinTypeName(const std::string& name) -> bool {
-  return name == "int" || name == "float" || name == "bool" || name == "str" || name == "void";
+  return name == "int" || name == "float" || name == "bool" || name == "cstr" || name == "void";
 }
 
 auto containsGenericParam(const std::vector<std::string>& genericParams, const std::string& name)
@@ -1048,8 +1048,9 @@ auto resolveExpressionTypeAtOffset(const lesma::Expression* expr, lesma::Compoun
     case lesma::TokenType::DOUBLE:
     case lesma::TokenType::FLOAT_TYPE:
       return root->lookupType("float");
-    case lesma::TokenType::STRING:
     case lesma::TokenType::STRING_TYPE:
+      return root->lookupType("cstr");
+    case lesma::TokenType::STRING:
       return root->lookupType("str");
     case lesma::TokenType::IDENTIFIER: {
       lesma::SymbolTable* scope = activeScopeForOffset(ast, root, srcMgr, bufferId, targetOffset);

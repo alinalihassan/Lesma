@@ -273,6 +273,13 @@ protected:
   /** Ensure \p type has an LLVM type (fill in when from typechecker). */
   auto getOrCreateLlvmType(lesma::Type* type) -> llvm::Type*;
 
+  /** Resolve the class template symbol for codegen; prefers Type display name (imported classes may
+   * not have a named LLVM struct yet). */
+  auto lookupClassStructSymbol(lesma::Type* classTy) -> Value*;
+  /** If \p classTy is a typechecker-only specialization of stdlib \c list (e.g. from literals),
+   * run \c specializeClass so struct/method symbols exist for lookup. */
+  auto tryEnsureStdlibListClassSpecialized(lesma::Type* classTy) -> void;
+
   auto collectTraitMetadataFromAst() -> void;
   auto mergeImportedTraitMetadata(Codegen const& imported) -> void;
   /// Copy specialization env maps from an imported module codegen so call sites in this module

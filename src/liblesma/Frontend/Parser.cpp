@@ -253,7 +253,7 @@ auto Parser::parseTypeAt(unsigned long& off) -> bool {
     return true;
   }
 
-  if (check(TokenType::IDENTIFIER, off)) {
+  if (check(TokenType::IDENTIFIER, off) || check(TokenType::STRING_TYPE, off)) {
     off++;
     if (index + off < tokens.size() && peek(off)->type == TokenType::LESS) {
       off++;
@@ -280,7 +280,8 @@ auto Parser::parseTypeAt(unsigned long& off) -> bool {
 auto Parser::skipOneTypeAt(unsigned long& off) -> bool { return parseTypeAt(off); }
 
 auto Parser::hasExplicitTypeArgsAndParen() -> bool {
-  if (!check(TokenType::IDENTIFIER) || !check(TokenType::LESS, 1)) {
+  if (!(check(TokenType::IDENTIFIER) || check(TokenType::STRING_TYPE)) ||
+      !check(TokenType::LESS, 1)) {
     return false;
   }
   unsigned long off = 2;
@@ -306,7 +307,10 @@ auto Parser::hasExplicitTypeArgsAndParen() -> bool {
 // Expression
 auto Parser::parseFunctionCall() -> std::unique_ptr<Expression> {
   auto* token = peek();
-  consume(TokenType::IDENTIFIER);
+  if (token->type != TokenType::IDENTIFIER && token->type != TokenType::STRING_TYPE) {
+    error(token, "Expected function or type name");
+  }
+  advance();
 
   std::vector<std::unique_ptr<TypeExpr>> explicitTypeArgs;
   if (check(TokenType::LESS)) {
@@ -364,6 +368,7 @@ auto Parser::parseTerm() -> std::unique_ptr<Expression> {
     consume(token->type);
     return std::make_unique<Literal>(token->span, token->lexeme, token->type);
   }
+  case TokenType::STRING_TYPE:
   case TokenType::IDENTIFIER: {
     if (check(TokenType::LEFT_PAREN, 1) || hasExplicitTypeArgsAndParen()) {
       return parseFunctionCall();
@@ -371,7 +376,9 @@ auto Parser::parseTerm() -> std::unique_ptr<Expression> {
 
     auto* token = peek();
     consume(token->type);
-    return std::make_unique<Literal>(token->span, token->lexeme, token->type);
+    TokenType const litType =
+        token->type == TokenType::STRING_TYPE ? TokenType::IDENTIFIER : token->type;
+    return std::make_unique<Literal>(token->span, token->lexeme, litType);
   }
   case TokenType::LEFT_PAREN: {
     consume(TokenType::LEFT_PAREN);
@@ -815,9 +822,17 @@ auto Parser::parseFunctionDeclaration() -> std::unique_ptr<Statement> {
     }
     functionNameSpan = llvm::SMRange{operatorStart, operatorEnd};
   } else {
-    auto* identifier = consume(TokenType::IDENTIFIER);
-    functionName = identifier->lexeme;
-    functionNameSpan = identifier->span;
+    Token* nameTok = nullptr;
+    if (check(TokenType::IDENTIFIER)) {
+      nameTok = consume(TokenType::IDENTIFIER);
+    } else if (check(TokenType::STRING_TYPE)) {
+      nameTok = consume(TokenType::STRING_TYPE);
+    } else {
+      error(peek(), "Expected function name");
+      return nullptr;
+    }
+    functionName = nameTok->lexeme;
+    functionNameSpan = nameTok->span;
   }
   std::vector<GenericParamDecl> genericParams = parseGenericParamList();
 

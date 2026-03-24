@@ -545,8 +545,9 @@ auto Codegen::compileModule(llvm::SMRange span, const std::string& filepath, boo
     codegen->run();
     mergeImportedTraitMetadata(*codegen);
 
-    // Optimize
-    codegen->optimize(OptimizationLevel::O3);
+    // O0: imported modules are separate LLVM modules; O3+ADCE can drop defs only referenced
+    // from another module (e.g. list methods). The main module is optimized in Driver.
+    codegen->optimize(OptimizationLevel::O0);
     codegen->theModule->setModuleIdentifier(filepath);
 
     insertImportAlias(moduleAlias, importToScope);
@@ -748,7 +749,9 @@ auto Codegen::run() -> void {
       std::filesystem::absolute(std::filesystem::path(getStdDir()) / "base.les").lexically_normal();
   auto const listPath =
       std::filesystem::absolute(std::filesystem::path(getStdDir()) / "list.les").lexically_normal();
-  if (currentPath != basePath && currentPath != listPath) {
+  const bool mainIsStdlibEntry =
+      !filename.empty() && (currentPath == basePath || currentPath == listPath);
+  if (!mainIsStdlibEntry || filename.empty()) {
     for (const auto& moduleName : implicitStdlibModules) {
       auto const modulePath =
           std::filesystem::absolute(std::filesystem::path(getStdDir()) / moduleName)
@@ -1341,6 +1344,65 @@ auto Codegen::genListIntrinsicCall(const FuncCall* node,
   throw CodegenError(node->getSpan(), "Unknown list intrinsic {}", node->getName());
 }
 
+auto Codegen::tryEnsureStdlibListClassSpecialized(lesma::Type* classTy) -> void {
+  if (classTy == nullptr || !classTy->is(BaseType::TY_CLASS)) {
+    return;
+  }
+  const std::string& dn = classTy->getDisplayName();
+  if (dn.size() < 6 || dn.compare(0, 5, "list<") != 0 || dn.back() != '>') {
+    return;
+  }
+  auto git = genericClasses.find("list");
+  if (git == genericClasses.end() || git->second == nullptr) {
+    return;
+  }
+  auto fields = classTy->getFields();
+  if (fields.empty() || fields[0]->type == nullptr || !fields[0]->type->is(BaseType::TY_ARRAY) ||
+      fields[0]->type->getElementType() == nullptr) {
+    return;
+  }
+  lesma::Type* typeArg = fields[0]->type->getElementType();
+  specializeClass(git->second, {}, {typeArg});
+}
+
+auto Codegen::lookupClassStructSymbol(lesma::Type* classTy) -> Value* {
+  if (classTy == nullptr || !classTy->is(BaseType::TY_CLASS)) {
+    return nullptr;
+  }
+  llvm::Type* lt = classTy->getLlvmType();
+  if (lt != nullptr) {
+    if (auto* st = llvm::dyn_cast<llvm::StructType>(lt)) {
+      if (st->hasName()) {
+        if (Value* v = scope->lookupStruct(st->getName().str())) {
+          return v;
+        }
+      }
+    }
+  }
+  if (!classTy->getDisplayName().empty()) {
+    if (Value* v = scope->lookupStruct(classTy->getDisplayName())) {
+      return v;
+    }
+  }
+  tryEnsureStdlibListClassSpecialized(classTy);
+  if (!classTy->getDisplayName().empty()) {
+    if (Value* v = scope->lookupStruct(classTy->getDisplayName())) {
+      return v;
+    }
+  }
+  lt = classTy->getLlvmType();
+  if (lt != nullptr) {
+    if (auto* st = llvm::dyn_cast<llvm::StructType>(lt)) {
+      if (st->hasName()) {
+        if (Value* v = scope->lookupStruct(st->getName().str())) {
+          return v;
+        }
+      }
+    }
+  }
+  return nullptr;
+}
+
 auto Codegen::getOrCreateLlvmType(lesma::Type* type) -> llvm::Type* {
   if (type->getLlvmType() != nullptr) {
     return type->getLlvmType();
@@ -1408,8 +1470,14 @@ auto Codegen::getOrCreateLlvmType(lesma::Type* type) -> llvm::Type* {
   case BaseType::TY_CLASS:
   case BaseType::TY_ENUM: {
     // Create opaque struct first to break recursion (e.g. class with field
-    // *Self)
-    llvm::StructType* st = llvm::StructType::create(theModule->getContext());
+    // *Self). Use the Lesma display name so imported class types (e.g. stdlib
+    // str) get a stable LLVM struct name when this module never visits Class*.
+    llvm::StructType* st = nullptr;
+    if (!type->getDisplayName().empty()) {
+      st = llvm::StructType::create(theModule->getContext(), type->getDisplayName());
+    } else {
+      st = llvm::StructType::create(theModule->getContext());
+    }
     type->setLlvmType(st);
     std::vector<llvm::Type*> elementTypes;
     for (auto* f : type->getFields()) {
@@ -2814,9 +2882,8 @@ auto Codegen::visit(const Return* node) -> void {
     } else if (declaredReturnType != nullptr && declaredReturnType->is(BaseType::TY_CLASS)) {
       declaredClass = declaredReturnType;
     }
-    llvm::Type* expectedReturnType = declaredClass != nullptr
-                                         ? builder->getPtrTy()
-                                         : builder->getCurrentFunctionReturnType();
+    llvm::Type* expectedReturnType =
+        declaredClass != nullptr ? builder->getPtrTy() : builder->getCurrentFunctionReturnType();
     if (actualReturnType == expectedReturnType) {
       builder->CreateRet(result->getLlvmValue());
     } else {
@@ -3396,12 +3463,15 @@ auto Codegen::visit(const DotOp* node) -> void {
         method = dynamic_cast<FuncCall*>(node->getRight());
       }
 
-      auto* cls = scope->lookupStruct(receiverType->getLlvmType()->getStructName().str());
+      auto* cls = lookupClassStructSymbol(receiverType);
       if (cls == nullptr) {
         throw CodegenError(node->getLeft()->getSpan(), "Cannot find related class {}",
-                           receiverType->getLlvmType()->getStructName().str());
+                           receiverType->getDisplayName().empty() ? "(unknown)"
+                                                                  : receiverType->getDisplayName());
       }
-      cls->setName(receiverType->getLlvmType()->getStructName().str());
+      cls->setName(receiverType->getDisplayName().empty()
+                       ? receiverType->getLlvmType()->getStructName().str()
+                       : receiverType->getDisplayName());
 
       if (!field.empty()) {
         auto index = TypeUtils::findIndexInFields(cls->getType(), field);
@@ -3552,9 +3622,15 @@ auto Codegen::visit(const DotOp* node) -> void {
         method = dynamic_cast<FuncCall*>(node->getRight());
       }
 
-      // lookupStruct returns by LLVM struct name; ensure display name matches.
-      auto* cls = scope->lookupStruct(lesmaType->getLlvmType()->getStructName().str());
-      cls->setName(lesmaType->getLlvmType()->getStructName().str());
+      auto* cls = lookupClassStructSymbol(lesmaType);
+      if (cls == nullptr) {
+        throw CodegenError(node->getLeft()->getSpan(), "Cannot find related class {}",
+                           lesmaType->getDisplayName().empty() ? "(unknown)"
+                                                               : lesmaType->getDisplayName());
+      }
+      cls->setName(lesmaType->getDisplayName().empty()
+                       ? lesmaType->getLlvmType()->getStructName().str()
+                       : lesmaType->getDisplayName());
 
       if (cls->getType()->is(BaseType::TY_CLASS)) {
         if (!field.empty()) {
@@ -3596,9 +3672,6 @@ auto Codegen::visit(const DotOp* node) -> void {
                                     explicitTypeArgs);
           return;
         }
-      } else {
-        throw CodegenError(node->getLeft()->getSpan(), "Cannot find related class {}",
-                           lesmaType->getLlvmType()->getStructName().str());
       }
     }
   }
@@ -3804,8 +3877,25 @@ auto Codegen::visit(const Literal* node) -> void {
     result = std::make_unique<Value>(
         "", type, node->getValue() == "true" ? builder->getTrue() : builder->getFalse());
   } else if (node->getType() == TokenType::STRING) {
-    auto* type = cacheType(std::make_unique<Type>(BaseType::TY_STRING, builder->getPtrTy()));
-    result = std::make_unique<Value>("", type, builder->CreateGlobalString(node->getValue()));
+    lesma::Type* strClass = node->getResolvedStrClassType();
+    if (strClass != nullptr && strClass->is(BaseType::TY_CLASS)) {
+      auto fields = strClass->getFields();
+      if (fields.empty() || fields.front()->type == nullptr ||
+          !fields.front()->type->is(BaseType::TY_STRING)) {
+        throw CodegenError(node->getSpan(), "String literal resolved to invalid stdlib str class");
+      }
+      auto* structType = cast<llvm::StructType>(getOrCreateLlvmType(strClass));
+      auto* classSize = builder->getInt64(
+          theModule->getDataLayout().getTypeAllocSize(structType).getFixedValue());
+      auto* classHandle = emitMalloc(classSize, "str.obj");
+      auto* storagePtr = builder->CreateStructGEP(structType, classHandle, 0, "str.storage.ptr");
+      llvm::Value* globalStr = builder->CreateGlobalString(node->getValue());
+      builder->CreateStore(globalStr, storagePtr);
+      result = std::make_unique<Value>("", strClass, classHandle);
+    } else {
+      auto* type = cacheType(std::make_unique<Type>(BaseType::TY_STRING, builder->getPtrTy()));
+      result = std::make_unique<Value>("", type, builder->CreateGlobalString(node->getValue()));
+    }
   } else if (node->getType() == TokenType::NIL) {
     auto* type = cacheType(std::make_unique<Type>(BaseType::TY_VOID, builder->getVoidTy()));
     result =
@@ -4353,12 +4443,15 @@ auto Codegen::callMethodByName(llvm::SMRange span, lesma::Value* receiver,
     throw CodegenError(span, "Method {} requires class receiver", methodName);
   }
 
-  auto* cls = scope->lookupStruct(receiverType->getLlvmType()->getStructName().str());
+  auto* cls = lookupClassStructSymbol(receiverType);
   if (cls == nullptr) {
     throw CodegenError(span, "Cannot find related class {}",
-                       receiverType->getLlvmType()->getStructName().str());
+                       receiverType->getDisplayName().empty() ? "(unknown)"
+                                                              : receiverType->getDisplayName());
   }
-  cls->setName(receiverType->getLlvmType()->getStructName().str());
+  cls->setName(receiverType->getDisplayName().empty()
+                   ? receiverType->getLlvmType()->getStructName().str()
+                   : receiverType->getDisplayName());
 
   auto* savedSelfSymbol = selfSymbol;
   std::vector<lesma::Type*> paramTypes;

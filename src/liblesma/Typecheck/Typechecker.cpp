@@ -1186,21 +1186,21 @@ auto Typechecker::run(const Compound* ast) -> void {
       std::filesystem::absolute(std::filesystem::path(getStdDir()) / "base.les").lexically_normal();
   const auto listPath =
       std::filesystem::absolute(std::filesystem::path(getStdDir()) / "list.les").lexically_normal();
-  // Use equivalent() so different spellings of the same file (symlinks, CWD) still skip implicit
-  // std when compiling base.les / list.les as the main file — avoids pre-registering traits then
-  // re-declaring them from a second parse ("Duplicate trait").
-  bool loadImplicitStd = true;
-  if (!mainFilePath.empty()) {
-    std::error_code ec;
-    if (std::filesystem::equivalent(currentPath, basePath, ec) ||
-        std::filesystem::equivalent(currentPath, listPath, ec)) {
-      loadImplicitStd = false;
+  std::error_code ec;
+  const bool mainIsStdlibEntry =
+      !mainFilePath.empty() &&
+      (std::filesystem::equivalent(currentPath, basePath, ec) ||
+       std::filesystem::equivalent(currentPath, listPath, ec));
+  if (!mainIsStdlibEntry || mainFilePath.empty()) {
+    if (mainFilePath.empty() || !std::filesystem::equivalent(currentPath, basePath, ec)) {
+      loadImplicitStdModule("base.les");
     }
-  }
-  if (loadImplicitStd) {
-    loadImplicitStdModule("base.les");
-    loadImplicitStdModule("list.les");
-    registerTraitsFromImportedModule(listPath.string());
+    if (mainFilePath.empty() || !std::filesystem::equivalent(currentPath, listPath, ec)) {
+      loadImplicitStdModule("list.les");
+    }
+    if (mainFilePath.empty() || !std::filesystem::equivalent(currentPath, listPath, ec)) {
+      registerTraitsFromImportedModule(listPath.string());
+    }
   }
   declarationPass = true;
   ast->accept(*this);
@@ -2174,7 +2174,45 @@ auto Typechecker::visit(const FuncCall* node) -> void {
       }
     }
     if (callee == nullptr) {
-      throw TypeCheckError(node->getSpan(), "Function not found: {}", node->getName());
+      bool hasStringLit = false;
+      for (Expression* arg : node->getArguments()) {
+        if (auto* lit = dynamic_cast<Literal*>(arg);
+            lit != nullptr && lit->getType() == TokenType::STRING) {
+          hasStringLit = true;
+          break;
+        }
+      }
+      if (hasStringLit) {
+        argTypes.clear();
+        for (Expression* arg : node->getArguments()) {
+          if (auto* lit = dynamic_cast<Literal*>(arg);
+              lit != nullptr && lit->getType() == TokenType::STRING) {
+            Type* cstrT = cacheType(std::make_unique<Type>(BaseType::TY_STRING));
+            visitExprWithExpectedType(lit, cstrT);
+            lit->setResolvedStrClassType(nullptr);
+          } else {
+            arg->accept(*this);
+          }
+          Type* t = result->getType();
+          if (t->is(BaseType::TY_CLASS)) {
+            t = cacheType(std::make_unique<Type>(BaseType::TY_PTR, nullptr, t));
+          }
+          argTypes.push_back(t);
+        }
+        callee = scope->lookupFunction(node->getName(), argTypes);
+        if (callee == nullptr) {
+          auto importedIt = importedNameToSource.find(node->getName());
+          if (importedIt != importedNameToSource.end()) {
+            importedScope = getOrTypecheckImport(importedIt->second.first);
+            if (importedScope != nullptr) {
+              callee = importedScope->lookupFunction(importedIt->second.second, argTypes);
+            }
+          }
+        }
+      }
+      if (callee == nullptr) {
+        throw TypeCheckError(node->getSpan(), "Function not found: {}", node->getName());
+      }
     }
   }
   if (!callee->getType()->is(BaseType::TY_FUNCTION)) {
@@ -2766,6 +2804,49 @@ auto Typechecker::visit(const ListLiteral* node) -> void {
   result = std::make_unique<Value>(listType);
 }
 
+auto Typechecker::isStdStrClassType(Type* type) const -> bool {
+  if (type == nullptr) {
+    return false;
+  }
+  Type* baseType = type;
+  if (type->is(BaseType::TY_PTR) && type->getElementType() != nullptr) {
+    baseType = type->getElementType();
+  }
+  if (auto it = specializedTypeToTemplate.find(baseType); it != specializedTypeToTemplate.end()) {
+    baseType = it->second;
+  }
+  return baseType->getDisplayName() == "str";
+}
+
+auto Typechecker::getStdStrType(llvm::SMRange span) -> Type* {
+  const auto basePath =
+      std::filesystem::absolute(std::filesystem::path(getStdDir()) / "base.les").lexically_normal();
+  auto const mainNorm =
+      mainFilePath.empty()
+          ? std::filesystem::path()
+          : std::filesystem::absolute(std::filesystem::path(mainFilePath)).lexically_normal();
+  std::error_code ec;
+  if (!mainFilePath.empty() && std::filesystem::equivalent(mainNorm, basePath, ec)) {
+    Value* strSym = scope->lookupStruct("str");
+    if (strSym != nullptr && strSym->getType()->is(BaseType::TY_CLASS)) {
+      return strSym->getType();
+    }
+    throw TypeCheckError(span, "Stdlib str class not found");
+  }
+  SymbolTable* baseScope = getOrTypecheckImport(basePath.string());
+  if (baseScope == nullptr) {
+    throw TypeCheckError(span, "Unable to load stdlib str class");
+  }
+  Value* strSymbol = baseScope->lookupStruct("str");
+  Type* strTemplate = strSymbol != nullptr
+                          ? materializeImportedType(strSymbol->getType())
+                          : materializeImportedType(baseScope->lookupType("str"));
+  if (strTemplate == nullptr || !strTemplate->is(BaseType::TY_CLASS)) {
+    throw TypeCheckError(span, "Stdlib str class not found");
+  }
+  return strTemplate;
+}
+
 auto Typechecker::visit(const Literal* node) -> void {
   switch (node->getType()) {
   case TokenType::INTEGER: {
@@ -2777,9 +2858,32 @@ auto Typechecker::visit(const Literal* node) -> void {
   case TokenType::DOUBLE:
     result = std::make_unique<Value>(cacheType(std::make_unique<Type>(BaseType::TY_FLOAT)));
     break;
-  case TokenType::STRING:
-    result = std::make_unique<Value>(cacheType(std::make_unique<Type>(BaseType::TY_STRING)));
+  case TokenType::STRING: {
+    Type* expected = currentExpectedType();
+    if (expected != nullptr && expected->is(BaseType::TY_STRING)) {
+      node->setResolvedStrClassType(nullptr);
+      result = std::make_unique<Value>(cacheType(std::make_unique<Type>(BaseType::TY_STRING)));
+      break;
+    }
+    Type* strClassFromExpected = nullptr;
+    if (expected != nullptr) {
+      if (isStdStrClassType(expected)) {
+        strClassFromExpected =
+            expected->is(BaseType::TY_PTR) && expected->getElementType() != nullptr
+                ? expected->getElementType()
+                : expected;
+      }
+    }
+    if (strClassFromExpected != nullptr) {
+      node->setResolvedStrClassType(strClassFromExpected);
+      result = std::make_unique<Value>(strClassFromExpected);
+      break;
+    }
+    Type* strClass = getStdStrType(node->getSpan());
+    node->setResolvedStrClassType(strClass);
+    result = std::make_unique<Value>(strClass);
     break;
+  }
   case TokenType::BOOL:
   case TokenType::TRUE_:
   case TokenType::FALSE_:

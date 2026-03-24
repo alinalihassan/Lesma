@@ -64,6 +64,8 @@ class Literal : public Expression {
   std::string value;
   TokenType type;
   mutable Value* resolvedSymbol = nullptr;
+  /** If non-null for STRING literals, codegen emits a boxed stdlib str instance. */
+  mutable Type* resolvedStrClassType = nullptr;
 
 public:
   Literal(llvm::SMRange loc, std::string value, TokenType type)
@@ -74,6 +76,8 @@ public:
   [[nodiscard]] [[maybe_unused]] auto getType() const -> TokenType { return type; }
   [[nodiscard]] auto getResolvedSymbol() const -> Value* { return resolvedSymbol; }
   auto setResolvedSymbol(Value* v) const -> void { resolvedSymbol = v; }
+  [[nodiscard]] auto getResolvedStrClassType() const -> Type* { return resolvedStrClassType; }
+  auto setResolvedStrClassType(Type* t) const -> void { resolvedStrClassType = t; }
 
   auto toString(llvm::SourceMgr* /*srcMgr*/, const std::string& /*prefix*/, bool /*isTail*/) const
       -> std::string override {

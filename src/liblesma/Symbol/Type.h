@@ -373,7 +373,7 @@ public:
       result = "float";
       break;
     case BaseType::TY_STRING:
-      result = "str";
+      result = "cstr";
       break;
     case BaseType::TY_BOOL:
       result = "bool";

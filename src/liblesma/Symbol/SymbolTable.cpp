@@ -285,7 +285,15 @@ auto SymbolTable::lookupStruct(const std::string& name) -> Value* {
     auto* llvmTy = sym->getType()->getLlvmType();
     if (llvmTy != nullptr) {
       if (auto* st = llvm::dyn_cast<llvm::StructType>(llvmTy);
-          st != nullptr && st->getName() == name) {
+          st != nullptr && st->hasName() && st->getName() == name) {
+        return sym.get();
+      }
+      // Specialized generics and imports: LLVM struct name may not match Lesma display spelling.
+      Type* stTy = sym->getType();
+      if (!stTy->getDisplayName().empty() && stTy->getDisplayName() == name) {
+        return sym.get();
+      }
+      if (key == name) {
         return sym.get();
       }
     } else if (key == name) {

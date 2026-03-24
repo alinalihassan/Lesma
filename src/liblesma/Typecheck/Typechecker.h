@@ -213,6 +213,9 @@ public:
   auto visit(const Else* node) -> void override;
 
   auto visit(const TypeExpr* node) -> void override;
+
+  auto getStdStrType(llvm::SMRange span) -> Type*;
+  auto isStdStrClassType(Type* type) const -> bool;
 };
 
 } // namespace lesma

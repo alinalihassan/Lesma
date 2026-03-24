@@ -1,13 +1,25 @@
-def extern printf(fmt: str, ...)
-def extern scanf(fmt: str, ...) -> int
+def extern printf(fmt: cstr, ...)
+def extern scanf(fmt: cstr, ...) -> int
 def extern calloc(count: int, size: int) -> *int8
 def extern malloc(size: int) -> *int8
-def extern strlen(x: str) -> int
-def extern atoll(x: str) -> int
-def extern strtod(x: str) -> float
+def extern strlen(x: cstr) -> int
+def extern atoll(x: cstr) -> int
+def extern strtod(x: cstr) -> float
 def extern rand() -> int
 def extern srand(x: int)
 def extern time(x: int) -> int
+
+export class str
+    var storage: cstr
+
+    def new(s: cstr)
+        self.storage = s
+
+    def cstr() -> cstr
+        return self.storage
+
+    def len() -> int
+        return strlen(self.storage)
 
 export def extern exit(x: int)
 
@@ -15,27 +27,27 @@ export def input() -> str
     return input("")
 
 export def input(prompt: str) -> str
-    if strlen(prompt) > 0
-        printf("%s", prompt)
+    if strlen(prompt.cstr()) > 0
+        printf("%s", prompt.cstr())
 
-    var line: str = calloc(4096, 1) as str
-    var ignored: str = calloc(2, 1) as str
+    var line: cstr = calloc(4096, 1) as cstr
+    var ignored: cstr = calloc(2, 1) as cstr
     let read: int = scanf("%4095[^\n]", line)
 
     if read == 0
         scanf("%1c", ignored)
-        return line
+        return str(line)
 
     if read > 0
         scanf("%1c", ignored)
 
-    return line
+    return str(line)
 
 export def strToInt(x: str) -> int
-    return atoll(x)
+    return atoll(x.cstr())
 
 export def strToFloat(x: str) -> float
-    return strtod(x)
+    return strtod(x.cstr())
 
 export def random(x: int, y: int) -> int
     srand(time(0))
@@ -45,7 +57,7 @@ export def random(x: int, y: int) -> int
     return y + rand() % (x - y)
 
 export def print(x: str)
-    printf("%s\n", x)
+    printf("%s\n", x.cstr())
 
 export def print(x: int)
     printf("%lld\n", x)
