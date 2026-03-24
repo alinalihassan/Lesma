@@ -236,9 +236,22 @@
     "implTraitList": {
       "patterns": [
         {
-          "comment": "Trait names after class ... impl (comma-separated)",
-          "name": "entity.name.type.lesma",
-          "match": "(?<=\\bimpl\\s)[a-zA-Z_][a-zA-Z0-9_]*(?:\\s*,\\s*[a-zA-Z_][a-zA-Z0-9_]*)*"
+          "comment": "First trait after impl (identifier + optional nested <...> via \\g<1> recursion)",
+          "match": "(?<=\\bimpl\\s)([a-zA-Z_][a-zA-Z0-9_]*(?:<(?:[^<>]|\\g<1>)*>)?)",
+          "captures": {
+            "1": {
+              "name": "entity.name.type.lesma"
+            }
+          }
+        },
+        {
+          "comment": "Further traits after comma (same shape as first trait)",
+          "match": ",\\s*([a-zA-Z_][a-zA-Z0-9_]*(?:<(?:[^<>]|\\g<1>)*>)?)",
+          "captures": {
+            "1": {
+              "name": "entity.name.type.lesma"
+            }
+          }
         }
       ]
     },
