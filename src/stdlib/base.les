@@ -81,12 +81,14 @@ export class list<T> impl Iterable<T>
 export class str_iter impl Iterator<uint8>
     var storage: cstr
     var __scan: int = 0
+    var __len: int = 0
 
     def new(s: cstr)
         self.storage = s
+        self.__len = strlen(self.storage)
 
     def has_next() -> bool
-        return self.__scan < strlen(self.storage)
+        return self.__scan < self.__len
 
     def next() -> uint8
         var v = __cstr_byte_at(self.storage, self.__scan)
