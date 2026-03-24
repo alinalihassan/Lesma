@@ -1,5 +1,3 @@
-#include "Codegen.h"
-
 #include <filesystem>
 #include <memory>
 #include <utility>
@@ -7,7 +5,6 @@
 
 #include <llvm/Analysis/CGSCCPassManager.h>
 #include <llvm/Analysis/LoopAnalysisManager.h>
-
 #include <llvm/Config/llvm-config.h>
 #include <llvm/ExecutionEngine/Orc/ExecutionUtils.h>
 #include <llvm/ExecutionEngine/Orc/JITTargetMachineBuilder.h>
@@ -43,6 +40,7 @@
 #include <llvm/Transforms/Scalar/LoopUnrollPass.h>
 #include <llvm/Transforms/Vectorize/LoopVectorize.h>
 
+#include "Codegen.h"
 #include <lld/Common/Driver.h>
 
 #ifdef __APPLE__
@@ -121,12 +119,11 @@ auto Codegen::initializeJit() -> std::unique_ptr<LLJIT> {
 
   // Add support for C native functions
   auto& mainJd = jit->getMainJITDylib();
-  auto generatorOrErr = DynamicLibrarySearchGenerator::GetForCurrentProcess(
-      jit->getDataLayout().getGlobalPrefix());
+  auto generatorOrErr =
+      DynamicLibrarySearchGenerator::GetForCurrentProcess(jit->getDataLayout().getGlobalPrefix());
   if (!generatorOrErr) {
-    throw CodegenError(
-        {}, "Couldn't create dynamic library search generator:\n{}",
-        llvm::toString(generatorOrErr.takeError()));
+    throw CodegenError({}, "Couldn't create dynamic library search generator:\n{}",
+                       llvm::toString(generatorOrErr.takeError()));
   }
   auto generator = std::move(*generatorOrErr);
   mainJd.addGenerator(std::move(generator));
@@ -302,15 +299,16 @@ auto Codegen::run() -> void {
   // Load implicit stdlib modules once so every module has base (including list) helpers.
   // Done here (not in constructor) to avoid re-entrancy when creating Codegens for imported
   // modules.
-  std::vector<std::string> const implicitStdlibModules = {std::string{codegen::runtime::kImplicitStdlibModule}};
+  std::vector<std::string> const implicitStdlibModules = {
+      std::string{codegen::runtime::kImplicitStdlibModule}};
   auto const currentPath = normalizeResolvedFilesystemPath(filename);
   auto const basePath =
       normalizeResolvedFilesystemPath((std::filesystem::path(getStdDir()) / "base.les").string());
   const bool mainIsStdlibEntry = !filename.empty() && currentPath == basePath;
   if (!mainIsStdlibEntry || filename.empty()) {
     for (const auto& moduleName : implicitStdlibModules) {
-      auto const modulePath =
-          normalizeResolvedFilesystemPath((std::filesystem::path(getStdDir()) / moduleName).string());
+      auto const modulePath = normalizeResolvedFilesystemPath(
+          (std::filesystem::path(getStdDir()) / moduleName).string());
       if (currentPath == modulePath) {
         continue;
       }

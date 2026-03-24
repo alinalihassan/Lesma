@@ -67,6 +67,21 @@ auto getTypeMangledName(llvm::SMRange span, Type* type) -> std::string {
   if (type->is(BaseType::TY_TRAIT_EXISTENTIAL)) {
     return "(exist_" + type->getDisplayName() + ")";
   }
+  if (type->is(BaseType::TY_TUPLE)) {
+    std::string s = "tup_";
+    for (auto* f : type->getFields()) {
+      if (f == nullptr) {
+        throw CodegenError(span, "unresolved tuple field: null Field* in tuple type {}",
+                           type->toString());
+      }
+      if (f->type == nullptr) {
+        throw CodegenError(span, "unresolved tuple field type: field '{}' in tuple {}", f->name,
+                           type->toString());
+      }
+      s += getTypeMangledName(span, f->type) + "_";
+    }
+    return "(" + s + ")";
+  }
 
   throw CodegenError(span, "Unknown type found during mangling");
 }

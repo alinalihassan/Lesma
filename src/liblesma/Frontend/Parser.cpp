@@ -121,6 +121,33 @@ auto Parser::parseGenericParamList() -> std::vector<GenericParamDecl> {
 
 auto Parser::parseType() -> std::unique_ptr<TypeExpr> {
   auto* type = peek();
+  if (check(TokenType::LEFT_PAREN)) {
+    auto* left = consume(TokenType::LEFT_PAREN);
+    std::unique_ptr<TypeExpr> innerFirst = parseType();
+    if (advanceIfMatchAny<TokenType::COMMA>()) {
+      std::vector<std::unique_ptr<TypeExpr>> elems;
+      elems.push_back(std::move(innerFirst));
+      while (!check(TokenType::RIGHT_PAREN)) {
+        elems.push_back(parseType());
+        if (!check(TokenType::RIGHT_PAREN)) {
+          consume(TokenType::COMMA);
+        }
+      }
+      auto* right = consume(TokenType::RIGHT_PAREN);
+      std::string lexeme = "(";
+      for (size_t i = 0; i < elems.size(); ++i) {
+        if (i > 0) {
+          lexeme += ", ";
+        }
+        lexeme += elems[i]->getName();
+      }
+      lexeme += ")";
+      return TypeExpr::makeTupleType(llvm::SMRange{left->getStart(), right->getEnd()},
+                                     std::move(lexeme), std::move(elems));
+    }
+    std::ignore = consume(TokenType::RIGHT_PAREN);
+    return innerFirst;
+  }
   if (check(TokenType::STAR)) {
     advance();
     auto elementType = parseType();
@@ -214,6 +241,29 @@ auto Parser::parseTypeAt(unsigned long& off) -> bool {
   if (check(TokenType::STAR, off)) {
     off++;
     return parseTypeAt(off);
+  }
+
+  if (check(TokenType::LEFT_PAREN, off)) {
+    off++;
+    if (!parseTypeAt(off)) {
+      return false;
+    }
+    if (index + off < tokens.size() && peek(off)->type == TokenType::COMMA) {
+      off++;
+      while (index + off < tokens.size() && peek(off)->type != TokenType::RIGHT_PAREN) {
+        if (!parseTypeAt(off)) {
+          return false;
+        }
+        if (index + off < tokens.size() && peek(off)->type == TokenType::COMMA) {
+          off++;
+        }
+      }
+    }
+    if (index + off >= tokens.size() || peek(off)->type != TokenType::RIGHT_PAREN) {
+      return false;
+    }
+    off++;
+    return true;
   }
 
   if (checkAny<TokenType::INT_TYPE, TokenType::FLOAT_TYPE, TokenType::STRING_TYPE,
@@ -385,10 +435,23 @@ auto Parser::parseTerm() -> std::unique_ptr<Expression> {
     return std::make_unique<Literal>(token->span, token->lexeme, litType);
   }
   case TokenType::LEFT_PAREN: {
-    consume(TokenType::LEFT_PAREN);
-    auto expr = parseExpression();
-    consume(TokenType::RIGHT_PAREN);
-    return expr;
+    auto* left = consume(TokenType::LEFT_PAREN);
+    auto first = parseExpression();
+    if (advanceIfMatchAny<TokenType::COMMA>()) {
+      std::vector<std::unique_ptr<Expression>> elems;
+      elems.push_back(std::move(first));
+      while (!check(TokenType::RIGHT_PAREN)) {
+        elems.push_back(parseExpression());
+        if (!check(TokenType::RIGHT_PAREN)) {
+          consume(TokenType::COMMA);
+        }
+      }
+      auto* right = consume(TokenType::RIGHT_PAREN);
+      return std::make_unique<TupleLiteral>(llvm::SMRange{left->getStart(), right->getEnd()},
+                                            std::move(elems));
+    }
+    std::ignore = consume(TokenType::RIGHT_PAREN);
+    return first;
   }
   case TokenType::LEFT_SQUARE:
     return parseListLiteral();
@@ -552,8 +615,18 @@ auto Parser::parseVarDecl() -> std::unique_ptr<Statement> {
     startTok = consume(TokenType::VAR);
     isMutable = true;
   }
-  auto* identifier = consume(TokenType::IDENTIFIER);
-  auto var = std::make_unique<Literal>(identifier->span, identifier->lexeme, identifier->type);
+  std::vector<std::unique_ptr<Literal>> vars;
+  auto* firstId = consume(TokenType::IDENTIFIER);
+  vars.push_back(std::make_unique<Literal>(firstId->span, firstId->lexeme, firstId->type));
+  while (advanceIfMatchAny<TokenType::COMMA>()) {
+    auto* nextId = consume(TokenType::IDENTIFIER);
+    vars.push_back(std::make_unique<Literal>(nextId->span, nextId->lexeme, nextId->type));
+  }
+  if (inClass && vars.size() > 1U) {
+    throw ParserError(llvm::SMRange{vars[1]->getStart(), vars.back()->getEnd()},
+                      "Class fields must declare a single identifier per field (comma-separated "
+                      "bindings are not supported)");
+  }
 
   std::unique_ptr<TypeExpr> type;
   if (advanceIfMatchAny<TokenType::COLON>()) {
@@ -565,19 +638,26 @@ auto Parser::parseVarDecl() -> std::unique_ptr<Statement> {
     expr = parseExpression();
   }
 
+  Literal* nameEnd = vars.back().get();
   if (!type && !expr) {
-    throw ParserError(llvm::SMRange{startTok->getStart(), var->getEnd()},
+    throw ParserError(llvm::SMRange{startTok->getStart(), nameEnd->getEnd()},
                       "Expected either a type or a value");
   }
 
   if (!expr && !isMutable) {
-    throw ParserError(llvm::SMRange{startTok->getStart(), type->getEnd()},
-                      "Cannot declare an immutable variable without an initial expression");
+    throw ParserError(
+        llvm::SMRange{startTok->getStart(), type != nullptr ? type->getEnd() : nameEnd->getEnd()},
+        "Cannot declare an immutable variable without an initial expression");
   }
 
   consumeNewline();
-  llvm::SMLoc const endLoc = expr ? expr->getEnd() : type->getEnd();
-  return std::make_unique<VarDecl>(llvm::SMRange{startTok->getStart(), endLoc}, std::move(var),
+  llvm::SMLoc endLoc = nameEnd->getEnd();
+  if (expr != nullptr) {
+    endLoc = expr->getEnd();
+  } else if (type != nullptr) {
+    endLoc = type->getEnd();
+  }
+  return std::make_unique<VarDecl>(llvm::SMRange{startTok->getStart(), endLoc}, std::move(vars),
                                    std::move(type), std::move(expr), isMutable);
 }
 

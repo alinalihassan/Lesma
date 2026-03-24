@@ -103,5 +103,5 @@ auto getStdDir() -> std::string;
 [[nodiscard]] auto normalizeResolvedFilesystemPath(const std::string& path) -> std::string;
 /** Resolved absolute path for an import relative to \p mainModulePath's directory. */
 [[nodiscard]] auto normalizeModuleImportPath(const std::string& mainModulePath,
-                                               const std::string& importPath) -> std::string;
+                                             const std::string& importPath) -> std::string;
 } // namespace lesma

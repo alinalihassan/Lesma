@@ -31,6 +31,52 @@ export trait Iterator<T>
 export trait Iterable<T>
     def iter() -> Iterator<T>
 
+# Integer sequence for `for i in range(...)`. Stop is exclusive. `range(n)` is `range(1, n)`.
+# Step may be negative; step 0 yields no values (Python raises on zero step).
+class range_iter impl Iterator<int>
+    var current: int
+    var stop: int
+    var step: int
+
+    def new(start: int, stop: int, step: int)
+        self.current = start
+        self.stop = stop
+        self.step = step
+
+    def has_next() -> bool
+        if self.step > 0
+            return self.current < self.stop
+        if self.step < 0
+            return self.current > self.stop
+        return false
+
+    def next() -> int
+        let v = self.current
+        self.current = self.current + self.step
+        return v
+
+class range_values impl Iterable<int>
+    var start: int
+    var stop: int
+    var step: int
+
+    def new(start: int, stop: int, step: int)
+        self.start = start
+        self.stop = stop
+        self.step = step
+
+    def iter() -> range_iter
+        return range_iter(self.start, self.stop, self.step)
+
+export def range(stop: int) -> range_values
+    return range_values(1, stop, 1)
+
+export def range(start: int, stop: int) -> range_values
+    return range_values(start, stop, 1)
+
+export def range(start: int, stop: int, step: int) -> range_values
+    return range_values(start, stop, step)
+
 export class list_iter<T> impl Iterator<T>
     var storage: __buffer<T>
     var __scan: int = 0

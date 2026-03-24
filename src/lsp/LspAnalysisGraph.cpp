@@ -31,12 +31,14 @@ auto lazyImportedAnalysisCacheState() -> LazyImportedAnalysisCacheState& {
   return state;
 }
 
-auto eraseDependencyNodeIfUnused(LazyImportedAnalysisCacheState& state, const std::string& path) -> void {
+auto eraseDependencyNodeIfUnused(LazyImportedAnalysisCacheState& state, const std::string& path)
+    -> void {
   auto node = state.graph.find(path);
   if (node == state.graph.end()) {
     return;
   }
-  if (state.cache.contains(path) || !node->second.imports.empty() || !node->second.importedBy.empty()) {
+  if (state.cache.contains(path) || !node->second.imports.empty() ||
+      !node->second.importedBy.empty()) {
     return;
   }
   state.graph.erase(node);
@@ -51,7 +53,8 @@ auto addDependencyEdge(LazyImportedAnalysisCacheState& state, const std::string&
   state.graph[dependency].importedBy.insert(importer);
 }
 
-auto removeImportsForNode(LazyImportedAnalysisCacheState& state, const std::string& importer) -> void {
+auto removeImportsForNode(LazyImportedAnalysisCacheState& state, const std::string& importer)
+    -> void {
   auto node = state.graph.find(importer);
   if (node == state.graph.end()) {
     return;
@@ -72,20 +75,21 @@ auto removeImportsForNode(LazyImportedAnalysisCacheState& state, const std::stri
 auto collectDirectDependencyPaths(const lesma::ImportedModuleAnalysis& imported) -> DependencySet {
   DependencySet dependencies;
   for (auto const& [path, module] : imported.importedModules) {
-    std::string normalized = normalizePath(path.empty() && module != nullptr ? module->mainFilePath : path);
+    std::string normalized =
+        normalizePath(path.empty() && module != nullptr ? module->mainFilePath : path);
     if (!normalized.empty()) {
       dependencies.insert(std::move(normalized));
     }
   }
   for (auto const& [alias, path] : imported.importAliasToPath) {
-    (void)alias;
+    (void) alias;
     std::string normalized = normalizePath(path);
     if (!normalized.empty()) {
       dependencies.insert(std::move(normalized));
     }
   }
   for (auto const& [localName, source] : imported.importedNameToSource) {
-    (void)localName;
+    (void) localName;
     std::string normalized = normalizePath(source.first);
     if (!normalized.empty()) {
       dependencies.insert(std::move(normalized));
@@ -95,8 +99,8 @@ auto collectDirectDependencyPaths(const lesma::ImportedModuleAnalysis& imported)
 }
 
 auto recordDependencyEdgesForImporter(LazyImportedAnalysisCacheState& state,
-                                     const std::string& importer,
-                                     const lesma::ImportedModuleAnalysis& imported) -> void {
+                                      const std::string& importer,
+                                      const lesma::ImportedModuleAnalysis& imported) -> void {
   removeImportsForNode(state, importer);
   for (std::string const& dependency : collectDirectDependencyPaths(imported)) {
     addDependencyEdge(state, importer, dependency);
@@ -109,7 +113,8 @@ auto removeDependencyNode(LazyImportedAnalysisCacheState& state, const std::stri
     return;
   }
   std::vector<std::string> dependencies(node->second.imports.begin(), node->second.imports.end());
-  std::vector<std::string> importers(node->second.importedBy.begin(), node->second.importedBy.end());
+  std::vector<std::string> importers(node->second.importedBy.begin(),
+                                     node->second.importedBy.end());
   for (std::string const& dependency : dependencies) {
     auto dependencyNode = state.graph.find(dependency);
     if (dependencyNode == state.graph.end()) {
@@ -129,7 +134,8 @@ auto removeDependencyNode(LazyImportedAnalysisCacheState& state, const std::stri
   state.graph.erase(node);
 }
 
-auto eraseCachedAnalysisEntry(LazyImportedAnalysisCacheState& state, const std::string& path) -> void {
+auto eraseCachedAnalysisEntry(LazyImportedAnalysisCacheState& state, const std::string& path)
+    -> void {
   state.cache.erase(path);
   removeDependencyNode(state, path);
 }
@@ -191,7 +197,8 @@ auto findWorkspaceRoot(const std::string& mainFilePath) -> std::string {
 }
 
 auto collectLesFilePathsInWorkspace(std::string const& workspaceRoot) -> std::vector<std::string> {
-  if (std::optional<std::vector<std::string>> viaGit = tryListLesFilesViaGitRepository(workspaceRoot)) {
+  if (std::optional<std::vector<std::string>> viaGit =
+          tryListLesFilesViaGitRepository(workspaceRoot)) {
     std::vector<std::string> paths;
     paths.reserve(viaGit->size());
     for (std::string const& p : *viaGit) {
@@ -366,7 +373,7 @@ auto invalidateLazyImportedAnalysesAffectedBy(const std::string& path) -> void {
   auto& cacheState = lazyImportedAnalysisCacheState();
   std::lock_guard<std::mutex> lock(cacheState.cacheMutex);
   DependencySet affected;
-  std::vector<std::string> pending{ normalized };
+  std::vector<std::string> pending{normalized};
   while (!pending.empty()) {
     std::string current = std::move(pending.back());
     pending.pop_back();
@@ -459,9 +466,9 @@ auto findLocalImportBindingLocation(const AnalysisView& analysis, const std::str
     }
     for (const lesma::NamedSpan& binding : lesma::getImportLocalBindings(importNode)) {
       llvm::SMRange const aliasSpan = importNode->getAliasSpan();
-      bool const isModuleAlias =
-          aliasSpan.isValid() && binding.name == importNode->getAlias() && binding.span.isValid() &&
-          binding.span.Start == aliasSpan.Start && binding.span.End == aliasSpan.End;
+      bool const isModuleAlias = aliasSpan.isValid() && binding.name == importNode->getAlias() &&
+                                 binding.span.isValid() && binding.span.Start == aliasSpan.Start &&
+                                 binding.span.End == aliasSpan.End;
       if (binding.name != name || !binding.span.isValid()) {
         continue;
       }

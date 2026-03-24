@@ -146,9 +146,19 @@ auto resolveDeclarationSymbolInStmt(const lesma::Statement* stmt, llvm::SourceMg
     return nullptr;
   }
   if (auto const* varDecl = dynamic_cast<const lesma::VarDecl*>(stmt)) {
-    lesma::Literal* ident = varDecl->getIdentifier();
-    if (ident != nullptr && smRangesEqual(srcMgr, bufferId, ident->getSpan(), declarationSpan)) {
-      return varDecl->getResolvedSymbol();
+    std::vector<lesma::Literal*> const names = varDecl->getVarLiterals();
+    std::vector<lesma::Value*> const& rs = varDecl->getResolvedSymbols();
+    for (size_t i = 0; i < names.size(); ++i) {
+      lesma::Literal* ident = names[i];
+      if (ident != nullptr && smRangesEqual(srcMgr, bufferId, ident->getSpan(), declarationSpan)) {
+        if (i < rs.size()) {
+          return rs[i];
+        }
+        if (names.size() == 1U) {
+          return varDecl->getResolvedSymbol();
+        }
+        return nullptr;
+      }
     }
     return nullptr;
   }
@@ -867,31 +877,40 @@ auto collectInlayHints(const AnalysisResult& analysisResult, unsigned bufferId,
     if (varDecl == nullptr || varDecl->getType() != nullptr) {
       return;
     }
-    lesma::Literal* ident = varDecl->getIdentifier();
-    lesma::Value* symbol = varDecl->getResolvedSymbol();
-    if (ident == nullptr || symbol == nullptr || symbol->getType() == nullptr) {
-      return;
-    }
-    llvm::SMRange span = ident->getSpan();
-    if (!span.isValid() || !isInRequestedRange(span)) {
-      return;
-    }
+    std::vector<lesma::Literal*> const names = varDecl->getVarLiterals();
+    std::vector<lesma::Value*> const& rs = varDecl->getResolvedSymbols();
+    for (size_t i = 0; i < names.size(); ++i) {
+      lesma::Literal* ident = names[i];
+      lesma::Value* symbol = nullptr;
+      if (i < rs.size()) {
+        symbol = rs[i];
+      } else if (names.size() == 1U) {
+        symbol = varDecl->getResolvedSymbol();
+      }
+      if (ident == nullptr || symbol == nullptr || symbol->getType() == nullptr) {
+        continue;
+      }
+      llvm::SMRange span = ident->getSpan();
+      if (!span.isValid() || !isInRequestedRange(span)) {
+        continue;
+      }
 
-    ::lsp::Range identRange = smRangeToLspRange(srcMgr, bufferId, span);
-    ::lsp::Position insertPos = identRange.end;
-    std::string typeText = ": " + formatTypeName(symbol->getType(), root);
+      ::lsp::Range identRange = smRangeToLspRange(srcMgr, bufferId, span);
+      ::lsp::Position insertPos = identRange.end;
+      std::string typeText = ": " + formatTypeName(symbol->getType(), root);
 
-    ::lsp::InlayHint hint;
-    hint.position = insertPos;
-    hint.label = ::lsp::String(typeText);
-    hint.kind = ::lsp::Opt<::lsp::InlayHintKindEnum>(::lsp::InlayHintKind::Type);
-    hint.textEdits = ::lsp::Opt<::lsp::Array<::lsp::TextEdit>>({::lsp::TextEdit{
-        .range = ::lsp::Range{.start = insertPos, .end = insertPos},
-        .newText = typeText,
-    }});
-    hint.tooltip = ::lsp::Opt<::lsp::OneOf<::lsp::String, ::lsp::MarkupContent>>(
-        ::lsp::String("Insert inferred type annotation"));
-    hints.push_back(std::move(hint));
+      ::lsp::InlayHint hint;
+      hint.position = insertPos;
+      hint.label = ::lsp::String(typeText);
+      hint.kind = ::lsp::Opt<::lsp::InlayHintKindEnum>(::lsp::InlayHintKind::Type);
+      hint.textEdits = ::lsp::Opt<::lsp::Array<::lsp::TextEdit>>({::lsp::TextEdit{
+          .range = ::lsp::Range{.start = insertPos, .end = insertPos},
+          .newText = typeText,
+      }});
+      hint.tooltip = ::lsp::Opt<::lsp::OneOf<::lsp::String, ::lsp::MarkupContent>>(
+          ::lsp::String("Insert inferred type annotation"));
+      hints.push_back(std::move(hint));
+    }
   };
 
   std::function<void(const lesma::Statement*)> visitStmt =
@@ -981,10 +1000,9 @@ auto resolveExpressionTypeAtOffset(const lesma::Expression* expr, lesma::Compoun
                                    lesma::SymbolTable* root, llvm::SourceMgr* srcMgr,
                                    unsigned bufferId, unsigned targetOffset) -> lesma::Type*;
 
-auto resolveSubscriptResultType(lesma::Type* baseType, lesma::Type* indexType,
-                                lesma::Compound* ast, lesma::SymbolTable* root,
-                                llvm::SourceMgr* srcMgr, unsigned bufferId, unsigned targetOffset)
-    -> lesma::Type*;
+auto resolveSubscriptResultType(lesma::Type* baseType, lesma::Type* indexType, lesma::Compound* ast,
+                                lesma::SymbolTable* root, llvm::SourceMgr* srcMgr,
+                                unsigned bufferId, unsigned targetOffset) -> lesma::Type*;
 
 auto resolveMethodReturnType(const lesma::FuncCall* call, const lesma::Expression* receiver,
                              lesma::Compound* ast, lesma::SymbolTable* root,
@@ -1108,10 +1126,10 @@ auto resolveExpressionTypeAtOffset(const lesma::Expression* expr, lesma::Compoun
     return nullptr;
   }
   if (auto const* subscript = dynamic_cast<const lesma::SubscriptOp*>(expr)) {
-    lesma::Type* leftType =
-        resolveExpressionTypeAtOffset(subscript->getLeft(), ast, root, srcMgr, bufferId, targetOffset);
-    lesma::Type* indexType =
-        resolveExpressionTypeAtOffset(subscript->getIndex(), ast, root, srcMgr, bufferId, targetOffset);
+    lesma::Type* leftType = resolveExpressionTypeAtOffset(subscript->getLeft(), ast, root, srcMgr,
+                                                          bufferId, targetOffset);
+    lesma::Type* indexType = resolveExpressionTypeAtOffset(subscript->getIndex(), ast, root, srcMgr,
+                                                           bufferId, targetOffset);
     if (leftType == nullptr) {
       return nullptr;
     }
@@ -1120,21 +1138,22 @@ auto resolveExpressionTypeAtOffset(const lesma::Expression* expr, lesma::Compoun
       baseType = baseType->getElementType();
     }
     if (baseType->is(lesma::BaseType::TY_ARRAY) && baseType->getElementType() != nullptr) {
-      (void)indexType;
+      (void) indexType;
       return baseType->getElementType();
     }
-    return resolveSubscriptResultType(baseType, indexType, ast, root, srcMgr, bufferId, targetOffset);
+    return resolveSubscriptResultType(baseType, indexType, ast, root, srcMgr, bufferId,
+                                      targetOffset);
   }
   if (auto const* unary = dynamic_cast<const lesma::UnaryOp*>(expr)) {
-    lesma::Type* operand =
-        resolveExpressionTypeAtOffset(unary->getExpression(), ast, root, srcMgr, bufferId, targetOffset);
+    lesma::Type* operand = resolveExpressionTypeAtOffset(unary->getExpression(), ast, root, srcMgr,
+                                                         bufferId, targetOffset);
     if (operand == nullptr) {
       return nullptr;
     }
     switch (unary->getOperator()) {
     case lesma::TokenType::MINUS:
-      if (operand->isOneOf({lesma::BaseType::TY_INT, lesma::BaseType::TY_FLOAT,
-                            lesma::BaseType::TY_FLOAT32}) ||
+      if (operand->isOneOf(
+              {lesma::BaseType::TY_INT, lesma::BaseType::TY_FLOAT, lesma::BaseType::TY_FLOAT32}) ||
           operand->is(lesma::BaseType::TY_GENERIC)) {
         return operand;
       }
@@ -1171,6 +1190,12 @@ auto resolveExpressionTypeAtOffset(const lesma::Expression* expr, lesma::Compoun
       } else if (!elementType->isEqual(t)) {
         return nullptr;
       }
+    }
+    return nullptr;
+  }
+  if (auto const* tup = dynamic_cast<const lesma::TupleLiteral*>(expr)) {
+    if (tup->getResolvedType() != nullptr) {
+      return tup->getResolvedType();
     }
     return nullptr;
   }
@@ -1412,10 +1437,9 @@ auto collectCallableCandidates(lesma::SymbolTable* scope, const std::string& nam
   return candidates;
 }
 
-auto resolveSubscriptResultType(lesma::Type* baseType, lesma::Type* indexType,
-                                lesma::Compound* ast, lesma::SymbolTable* root,
-                                llvm::SourceMgr* srcMgr, unsigned bufferId, unsigned targetOffset)
-    -> lesma::Type* {
+auto resolveSubscriptResultType(lesma::Type* baseType, lesma::Type* indexType, lesma::Compound* ast,
+                                lesma::SymbolTable* root, llvm::SourceMgr* srcMgr,
+                                unsigned bufferId, unsigned targetOffset) -> lesma::Type* {
   if (baseType == nullptr || root == nullptr) {
     return nullptr;
   }
@@ -1427,9 +1451,8 @@ auto resolveSubscriptResultType(lesma::Type* baseType, lesma::Type* indexType,
   if (indexType != nullptr) {
     indexArgs.push_back(indexType);
   }
-  std::vector<CallableCandidate> candidates =
-      collectCallableCandidates(scope, std::string{lesma::OperatorUtils::SUBSCRIPT_GET_NAME}, baseType,
-                                indexArgs);
+  std::vector<CallableCandidate> candidates = collectCallableCandidates(
+      scope, std::string{lesma::OperatorUtils::SUBSCRIPT_GET_NAME}, baseType, indexArgs);
   if (candidates.empty()) {
     return nullptr;
   }
@@ -1923,8 +1946,8 @@ auto collectSemanticTokens(AnalysisResult& analysisResult, unsigned bufferId)
     if (!occurrence.span.isValid()) {
       continue;
     }
-    if (!occurrence.isTypePosition && !occurrence.isMemberAccess && !occurrence.dotBase.has_value() &&
-        occurrence.name == "self") {
+    if (!occurrence.isTypePosition && !occurrence.isMemberAccess &&
+        !occurrence.dotBase.has_value() && occurrence.name == "self") {
       continue;
     }
     ::lsp::Range const range = smRangeToLspRange(srcMgr, bufferId, occurrence.span);
@@ -2138,15 +2161,29 @@ auto collectDocumentSymbols(const AnalysisResult& result) -> std::vector<::lsp::
 
   for (lesma::Statement* stmt : ast->getChildren()) {
     if (auto* varDecl = dynamic_cast<lesma::VarDecl*>(stmt)) {
-      lesma::Value* value = varDecl->getResolvedSymbol();
-      symbols.push_back(makeDocumentSymbol(
-          varDecl->getIdentifier()->getValue(), ::lsp::SymbolKind::Variable,
-          smRangeToLspRange(result.sourceMgr.get(), result.mainBufferId, varDecl->getSpan()),
-          smRangeToLspRange(result.sourceMgr.get(), result.mainBufferId,
-                            varDecl->getIdentifier()->getSpan()),
-          value != nullptr
-              ? std::optional<std::string>(formatTypeName(value->getType(), result.rootScope.get()))
-              : std::nullopt));
+      std::vector<lesma::Literal*> const names = varDecl->getVarLiterals();
+      std::vector<lesma::Value*> const& rs = varDecl->getResolvedSymbols();
+      for (size_t i = 0; i < names.size(); ++i) {
+        lesma::Literal* lit = names[i];
+        if (lit == nullptr) {
+          continue;
+        }
+        lesma::Value* value = nullptr;
+        if (i < rs.size()) {
+          value = rs[i];
+        } else if (names.size() == 1U) {
+          value = varDecl->getResolvedSymbol();
+        }
+        std::optional<std::string> typeDetail = std::nullopt;
+        if (value != nullptr) {
+          typeDetail = formatTypeName(value->getType(), result.rootScope.get());
+        }
+        symbols.push_back(makeDocumentSymbol(
+            lit->getValue(), ::lsp::SymbolKind::Variable,
+            smRangeToLspRange(result.sourceMgr.get(), result.mainBufferId, varDecl->getSpan()),
+            smRangeToLspRange(result.sourceMgr.get(), result.mainBufferId, lit->getSpan()),
+            typeDetail));
+      }
       continue;
     }
     if (auto* func = dynamic_cast<lesma::FuncDecl*>(stmt)) {
@@ -2382,9 +2419,9 @@ auto main() -> int {
               .legend =
                   ::lsp::SemanticTokensLegend{
                       .tokenTypes =
-                          ::lsp::Array<::lsp::String>{
-                              "namespace", "class", "enum", "enumMember", "type", "typeParameter",
-                              "function", "method", "parameter", "variable", "property"},
+                          ::lsp::Array<::lsp::String>{"namespace", "class", "enum", "enumMember",
+                                                      "type", "typeParameter", "function", "method",
+                                                      "parameter", "variable", "property"},
                       .tokenModifiers =
                           ::lsp::Array<::lsp::String>{"declaration", "defaultLibrary"},
                   },

@@ -30,8 +30,11 @@ enum class BaseType : std::uint8_t {
   TY_CLASS,
   TY_ENUM,
   TY_IMPORT,
-  /** Existential trait type (e.g. `Drawable` as a value type): layout { ptr payload, ptr witness }. */
+  /** Existential trait type (e.g. `Drawable` as a value type): layout { ptr payload, ptr witness }.
+   */
   TY_TRAIT_EXISTENTIAL,
+  /** Structural product type `(T1, T2, ...)` lowered to LLVM struct. */
+  TY_TUPLE,
 };
 
 class Type;
@@ -190,7 +193,8 @@ public:
   auto setDeclarationFilePath(std::string path) -> void { declarationFilePath = std::move(path); }
   auto setVarArgs(bool value) -> void { varArgs = value; }
   auto addField(std::unique_ptr<Field> field) -> void { fields.push_back(std::move(field)); }
-  /** Replace all fields (e.g. refresh a placeholder specialization after the template is complete). */
+  /** Replace all fields (e.g. refresh a placeholder specialization after the template is complete).
+   */
   auto replaceFields(std::vector<std::unique_ptr<Field>> newFields) -> void {
     fields = std::move(newFields);
   }
@@ -200,7 +204,8 @@ public:
     return isEqualImpl(rhs, active);
   }
 
-  /** When both sides are TY_FUNCTION: compares varargs, generic parameter names, and trait bounds. */
+  /** When both sides are TY_FUNCTION: compares varargs, generic parameter names, and trait bounds.
+   */
   [[nodiscard]] auto functionGenericSignatureEqual(Type const* rhs) const -> bool {
     if (rhs == nullptr || baseType != BaseType::TY_FUNCTION ||
         rhs->getBaseType() != BaseType::TY_FUNCTION) {
@@ -233,8 +238,8 @@ public:
   }
 
 private:
-  auto isEqualImpl(Type const* rhs,
-                   std::set<std::pair<Type const*, Type const*>>& active) const -> bool {
+  auto isEqualImpl(Type const* rhs, std::set<std::pair<Type const*, Type const*>>& active) const
+      -> bool {
     if (rhs == nullptr) {
       return false;
     }
@@ -388,6 +393,27 @@ private:
       return genericName == rhs->getGenericName();
     case BaseType::TY_TRAIT_EXISTENTIAL:
       return displayName == rhs->getDisplayName() && !displayName.empty();
+    case BaseType::TY_TUPLE: {
+      auto lf = getFields();
+      auto rf = rhs->getFields();
+      if (lf.size() != rf.size()) {
+        return false;
+      }
+      for (size_t i = 0; i < lf.size(); ++i) {
+        Type* lt = lf[i]->type;
+        Type* rt = rf[i]->type;
+        if (lt == nullptr || rt == nullptr) {
+          if (lt != rt) {
+            return false;
+          }
+          continue;
+        }
+        if (!lt->isEqualImpl(rt, active)) {
+          return false;
+        }
+      }
+      return true;
+    }
     case BaseType::TY_CLASS:
     case BaseType::TY_ENUM:
       // Handled above; unreachable but required for switch completeness.
@@ -452,13 +478,29 @@ public:
     case BaseType::TY_TRAIT_EXISTENTIAL:
       result = displayName.empty() ? "trait" : displayName;
       break;
+    case BaseType::TY_TUPLE: {
+      if (!displayName.empty()) {
+        result = displayName;
+        break;
+      }
+      result = "tuple<";
+      auto fs = getFields();
+      for (size_t i = 0; i < fs.size(); ++i) {
+        if (i > 0) {
+          result += ", ";
+        }
+        result += fs[i]->type != nullptr ? fs[i]->type->toString() : "?";
+      }
+      result += ">";
+      break;
+    }
     }
 
     if (elementType != nullptr && baseType != BaseType::TY_PTR) {
       result += "<" + elementType->toString() + ">";
     }
 
-    if (!fields.empty() && !isOneOf({BaseType::TY_CLASS, BaseType::TY_ENUM})) {
+    if (!fields.empty() && !isOneOf({BaseType::TY_CLASS, BaseType::TY_ENUM, BaseType::TY_TUPLE})) {
       result += baseType == BaseType::TY_FUNCTION ? " ( " : " { ";
       for (const auto& field : fields) {
         result += field->name + ": " + field->type->toString() + "; ";

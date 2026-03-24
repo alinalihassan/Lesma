@@ -64,8 +64,7 @@ struct AnalysisIndex {
 };
 
 using ImportAliasMap = std::unordered_map<std::string, std::string>;
-using ImportedNameSourceMap =
-    std::unordered_map<std::string, std::pair<std::string, std::string>>;
+using ImportedNameSourceMap = std::unordered_map<std::string, std::pair<std::string, std::string>>;
 
 struct ImportedModuleAnalysis {
   std::shared_ptr<llvm::SourceMgr> sourceMgr;

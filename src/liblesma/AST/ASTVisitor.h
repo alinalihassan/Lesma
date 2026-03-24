@@ -31,6 +31,7 @@ class CastOp;
 class IsOp;
 class UnaryOp;
 class ListLiteral;
+class TupleLiteral;
 class Else;
 class TypeExpr;
 class ASTVisitor {
@@ -72,6 +73,7 @@ public:
   virtual auto visit(const IsOp* node) -> void = 0;
   virtual auto visit(const UnaryOp* node) -> void = 0;
   virtual auto visit(const ListLiteral* node) -> void = 0;
+  virtual auto visit(const TupleLiteral* node) -> void = 0;
   virtual auto visit(const Else* node) -> void = 0;
 
   virtual auto visit(const TypeExpr* node) -> void = 0;

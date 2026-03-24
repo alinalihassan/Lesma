@@ -124,6 +124,37 @@ auto cast(llvm::SMRange span, Value* val, Type* type, llvm::IRBuilder<>* builder
     }
   }
 
+  if (val->getType()->is(BaseType::TY_TUPLE) && type->is(BaseType::TY_TUPLE)) {
+    std::vector<Field*> const fromFields = val->getType()->getFields();
+    std::vector<Field*> const toFields = type->getFields();
+    if (fromFields.size() != toFields.size()) {
+      throw CodegenError(span, "Tuple cast arity mismatch: {} vs {}",
+                         MangleUtils::getTypeMangledName(span, val->getType()),
+                         MangleUtils::getTypeMangledName(span, type));
+    }
+    llvm::Type* outStructTy = type->getLlvmType();
+    if (outStructTy == nullptr) {
+      throw CodegenError(span, "Tuple cast target has no LLVM type");
+    }
+    llvm::Value* srcAgg = val->getLlvmValue();
+    if (srcAgg == nullptr) {
+      throw CodegenError(span, "Tuple cast source has no LLVM value");
+    }
+    llvm::Value* agg = llvm::UndefValue::get(outStructTy);
+    for (size_t i = 0; i < fromFields.size(); ++i) {
+      if (toFields[i]->type == nullptr) {
+        throw CodegenError(span, "Tuple cast target field {} has no type", i);
+      }
+      llvm::Value* ev =
+          builder->CreateExtractValue(srcAgg, static_cast<unsigned>(i), "tup.cast.elem");
+      auto elem = std::make_unique<Value>("", fromFields[i]->type, ev);
+      auto casted = CodegenTypeUtils::cast(span, elem.get(), toFields[i]->type, builder);
+      agg = builder->CreateInsertValue(agg, casted->getLlvmValue(), static_cast<unsigned>(i),
+                                       "tup.cast");
+    }
+    return std::make_unique<Value>("", type, agg);
+  }
+
   throw CodegenError(span, "Unsupported Cast between {} and {}",
                      MangleUtils::getTypeMangledName(span, val->getType()),
                      MangleUtils::getTypeMangledName(span, type));

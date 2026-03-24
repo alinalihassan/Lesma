@@ -299,7 +299,8 @@ auto resolveChainType(const AnalysisResult& result, const std::string& chain, Sy
   return type;
 }
 
-/** When the receiver is `self`, resolve the class instance type from the innermost enclosing method. */
+/** When the receiver is `self`, resolve the class instance type from the innermost enclosing
+ * method. */
 auto resolveSelfReceiverType(Compound* ast, unsigned offset, llvm::SourceMgr* srcMgr,
                              unsigned bufferId, SymbolTable* root) -> Type* {
   if (ast == nullptr || root == nullptr) {
@@ -564,7 +565,8 @@ void appendTraitRequirementMethods(AnalysisResult& result, Type* classType, Comp
   if (classType == nullptr || root == nullptr) {
     return;
   }
-  // Match appendMembersForType: receivers like `self` are ptr-to-class; impl lists live on the class.
+  // Match appendMembersForType: receivers like `self` are ptr-to-class; impl lists live on the
+  // class.
   if (classType->is(BaseType::TY_PTR) && classType->getElementType() != nullptr) {
     classType = classType->getElementType();
   }
@@ -644,9 +646,9 @@ void appendScopeSymbols(SymbolTable* scope, SymbolTable* root,
 
 void appendKeywords(std::vector<CompletionCandidate>& out, std::unordered_set<std::string>& seen) {
   static constexpr std::array<std::string_view, 26> keywords = {
-      "and",    "as",     "break",  "class", "continue", "def",    "defer", "else", "enum",
-      "export", "extern", "for",    "from",  "if",       "import", "in",    "is",   "let",
-      "not",    "or",     "pass",   "return", "super",   "this",   "var",   "while",
+      "and",    "as",     "break", "class",  "continue", "def",    "defer", "else",  "enum",
+      "export", "extern", "for",   "from",   "if",       "import", "in",    "is",    "let",
+      "not",    "or",     "pass",  "return", "super",    "this",   "var",   "while",
   };
   static constexpr std::array<std::string_view, 3> literals = {"false", "null", "true"};
   static constexpr std::array<std::string_view, 11> builtinTypes = {
@@ -744,7 +746,7 @@ auto completionItems(AnalysisResult& result, unsigned line, unsigned character)
       baseType = resolveSelfReceiverType(ast, offset, srcMgr, bufferId, root);
     }
     if (parts.size() == 1U && activeResult->importAliasToPath.find(parts.front()) !=
-                                   activeResult->importAliasToPath.end()) {
+                                  activeResult->importAliasToPath.end()) {
       appendModuleMembersForAlias(*activeResult, parts.front(), candidates, seen);
     }
     appendMembersForType(*activeResult, baseType, ast, root, candidates, seen);

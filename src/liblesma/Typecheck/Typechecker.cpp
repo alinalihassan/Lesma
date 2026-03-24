@@ -719,6 +719,30 @@ auto Typechecker::materializeImportedType(Type* type) -> Type* {
     importedTypeCopies[type] = copy;
     return copy;
   }
+  if (type->is(BaseType::TY_TUPLE)) {
+    std::vector<std::unique_ptr<Field>> fields;
+    for (Field* field : type->getFields()) {
+      auto fieldCopy = std::make_unique<Field>(field->name, materializeImportedType(field->type));
+      fieldCopy->setDeclarationSpan(field->getDeclarationSpan());
+      fieldCopy->setDeclarationFilePath(field->getDeclarationFilePath());
+      if (Value* declarationSymbol = field->getDeclarationSymbol()) {
+        auto symbolCopy = std::make_unique<Value>(declarationSymbol->getName(),
+                                                  materializeImportedType(field->type));
+        symbolCopy->setCategory(declarationSymbol->getCategory());
+        symbolCopy->setDeclarationKind(declarationSymbol->getDeclarationKind());
+        symbolCopy->setDeclarationSpan(declarationSymbol->getDeclarationSpan());
+        symbolCopy->setDeclarationFilePath(declarationSymbol->getDeclarationFilePath());
+        symbolCopy->setMutable(declarationSymbol->getMutability());
+        fieldCopy->setDeclarationSymbol(std::move(symbolCopy));
+      }
+      fields.push_back(std::move(fieldCopy));
+    }
+    auto tupleType = std::make_unique<Type>(BaseType::TY_TUPLE, nullptr, std::move(fields));
+    tupleType->setDisplayName(type->getDisplayName());
+    Type* copy = cacheType(std::move(tupleType));
+    importedTypeCopies[type] = copy;
+    return copy;
+  }
   if (type->is(BaseType::TY_GENERIC)) {
     Type* copy = cacheType(std::make_unique<Type>(type->getGenericName()));
     importedTypeCopies[type] = copy;
@@ -795,6 +819,15 @@ auto Typechecker::substituteInType(Type* t, const std::unordered_map<std::string
     funcType->setVarArgs(t->isVarArgs());
     return cacheType(std::move(funcType));
   }
+  if (t->is(BaseType::TY_TUPLE)) {
+    std::vector<std::unique_ptr<Field>> fields;
+    for (Field* field : t->getFields()) {
+      fields.push_back(std::make_unique<Field>(field->name, substituteInType(field->type, env)));
+    }
+    auto tupleType = std::make_unique<Type>(BaseType::TY_TUPLE, nullptr, std::move(fields));
+    tupleType->setDisplayName(t->getDisplayName());
+    return cacheType(std::move(tupleType));
+  }
   if (t->is(BaseType::TY_CLASS)) {
     Type* classTemplate = t;
     if (auto tmplIt = specializedTypeToTemplate.find(t);
@@ -855,6 +888,14 @@ auto Typechecker::inferGenericBindings(Type* pattern, Type* actual,
       inferGenericBindings(patternFields[i]->type, actualFields[i]->type, bindings, span);
     }
     inferGenericBindings(pattern->getReturnType(), actual->getReturnType(), bindings, span);
+    return;
+  }
+  if (pattern->is(BaseType::TY_TUPLE)) {
+    auto patternFields = pattern->getFields();
+    auto actualFields = actual->getFields();
+    for (size_t i = 0; i < patternFields.size() && i < actualFields.size(); ++i) {
+      inferGenericBindings(patternFields[i]->type, actualFields[i]->type, bindings, span);
+    }
   }
 }
 
@@ -1172,6 +1213,23 @@ auto Typechecker::isAssignableTo(Type* from, Type* to) -> bool {
     }
     return false;
   }
+  if (from->is(BaseType::TY_TUPLE) && to->is(BaseType::TY_TUPLE)) {
+    std::vector<Field*> const fromFields = from->getFields();
+    std::vector<Field*> const toFields = to->getFields();
+    if (fromFields.size() != toFields.size()) {
+      return false;
+    }
+    for (size_t i = 0; i < fromFields.size(); ++i) {
+      if (toFields[i]->type == nullptr) {
+        continue;
+      }
+      if (fromFields[i]->type == nullptr ||
+          !isAssignableTo(fromFields[i]->type, toFields[i]->type)) {
+        return false;
+      }
+    }
+    return true;
+  }
   return false;
 }
 
@@ -1304,6 +1362,24 @@ auto Typechecker::resolveType(const TypeExpr* node) -> Type* {
     auto funcType = std::make_unique<Type>(BaseType::TY_FUNCTION, nullptr, std::move(fields));
     funcType->setReturnType(retType);
     return cacheType(std::move(funcType));
+  }
+  if (node->getType() == TokenType::TUPLE_TYPE) {
+    std::vector<std::unique_ptr<Field>> fields;
+    std::string displayName = "tuple<";
+    for (size_t i = 0; i < node->getParams().size(); ++i) {
+      TypeExpr* param = node->getParams()[i];
+      param->accept(*this);
+      Type* elemTy = result->getType();
+      if (i > 0) {
+        displayName += ", ";
+      }
+      displayName += elemTy->toString();
+      fields.push_back(std::make_unique<Field>("_" + std::to_string(i), elemTy));
+    }
+    displayName += ">";
+    auto tup = std::make_unique<Type>(BaseType::TY_TUPLE, nullptr, std::move(fields));
+    tup->setDisplayName(displayName);
+    return cacheType(std::move(tup));
   }
   if (node->getType() == TokenType::CUSTOM_TYPE) {
     const std::string lookupName = node->getLookupName();
@@ -1613,6 +1689,60 @@ auto Typechecker::visit(const Compound* node) -> void {
 }
 
 auto Typechecker::visit(const VarDecl* node) -> void {
+  std::vector<Literal*> const names = node->getVarLiterals();
+  if (names.size() > 1U) {
+    Type* declTupleType = nullptr;
+    if (node->getType() != nullptr) {
+      node->getType()->accept(*this);
+      declTupleType = result->getType();
+      if (declTupleType == nullptr || !declTupleType->is(BaseType::TY_TUPLE)) {
+        throw TypeCheckError(
+            node->getSpan(),
+            "Destructuring declaration requires a tuple type or tuple initializer");
+      }
+      std::vector<Field*> const fields = declTupleType->getFields();
+      if (fields.size() != names.size()) {
+        throw TypeCheckError(node->getSpan(), "Tuple type has {} elements but {} names were given",
+                             fields.size(), names.size());
+      }
+    }
+    if (node->getValue() == nullptr) {
+      throw TypeCheckError(node->getSpan(), "Destructuring declaration requires an initializer");
+    }
+    visitExprWithExpectedType(node->getValue(), declTupleType);
+    Type* initType = result->getType();
+    if (initType == nullptr || !initType->is(BaseType::TY_TUPLE)) {
+      throw TypeCheckError(node->getSpan(),
+                           "Destructuring requires a tuple on the right-hand side, got {}",
+                           initType != nullptr ? initType->toString() : "unknown");
+    }
+    if (declTupleType != nullptr && !initType->isEqual(declTupleType)) {
+      throw TypeCheckError(node->getSpan(),
+                           "Initializer type {} does not match declared tuple type {}",
+                           initType->toString(), declTupleType->toString());
+    }
+    std::vector<Field*> const rhsFields = initType->getFields();
+    if (rhsFields.size() != names.size()) {
+      throw TypeCheckError(node->getSpan(), "Tuple has {} elements but {} names were given",
+                           rhsFields.size(), names.size());
+    }
+    std::vector<Value*> resolved;
+    resolved.reserve(names.size());
+    for (size_t i = 0; i < names.size(); ++i) {
+      Type* elemTy = rhsFields[i]->type;
+      auto symbol = std::make_unique<Value>(names[i]->getValue(), elemTy, SymbolState::INITIALIZED);
+      symbol->setCategory(ValueCategory::ADDRESSABLE_STORAGE);
+      symbol->setDeclarationKind(ValueDeclarationKind::VARIABLE);
+      symbol->setMutable(node->getMutability());
+      symbol->setDeclarationSpan(names[i]->getSpan());
+      symbol->setDeclarationFilePath(mainFilePath);
+      resolved.push_back(symbol.get());
+      scope->insertSymbol(std::move(symbol));
+    }
+    node->setResolvedSymbols(std::move(resolved));
+    return;
+  }
+
   Type* declType = nullptr;
   if (node->getType() != nullptr) {
     node->getType()->accept(*this);
@@ -2733,6 +2863,33 @@ auto Typechecker::visit(const SubscriptOp* node) -> void {
   Type* baseType = result->getType();
   node->getIndex()->accept(*this);
   Type* indexType = result->getType();
+  if (baseType != nullptr && baseType->is(BaseType::TY_TUPLE)) {
+    auto* idxLit = dynamic_cast<Literal*>(node->getIndex());
+    if (idxLit == nullptr || idxLit->getType() != TokenType::INTEGER) {
+      throw TypeCheckError(node->getIndex()->getSpan(),
+                           "Tuple index must be a non-negative integer literal");
+    }
+    long long idxVal = 0;
+    try {
+      idxVal = std::stoll(idxLit->getValue());
+    } catch (...) {
+      throw TypeCheckError(node->getIndex()->getSpan(), "Invalid tuple index literal");
+    }
+    if (idxVal < 0) {
+      throw TypeCheckError(node->getIndex()->getSpan(), "Tuple index must be non-negative");
+    }
+    std::vector<Field*> const fields = baseType->getFields();
+    auto const idx = static_cast<size_t>(idxVal);
+    if (idx >= fields.size()) {
+      throw TypeCheckError(node->getSpan(), "Invalid index on type {}", baseType->toString());
+    }
+    if (indexType == nullptr || !indexType->is(BaseType::TY_INT)) {
+      throw TypeCheckError(node->getIndex()->getSpan(), "Tuple index must be int, got {}",
+                           indexType != nullptr ? indexType->toString() : "unknown");
+    }
+    result = std::make_unique<Value>(fields[idx]->type);
+    return;
+  }
   if (baseType != nullptr && baseType->is(BaseType::TY_ARRAY) &&
       baseType->getElementType() != nullptr) {
     if (indexType == nullptr || !indexType->is(BaseType::TY_INT)) {
@@ -3284,6 +3441,67 @@ auto Typechecker::visit(const ListLiteral* node) -> void {
   }
   node->setResolvedType(listType);
   result = std::make_unique<Value>(listType);
+}
+
+auto Typechecker::visit(const TupleLiteral* node) -> void {
+  Type* expectedType = currentExpectedType();
+  std::vector<Expression*> const els = node->getElements();
+  std::vector<Type*> elemTypes;
+  elemTypes.reserve(els.size());
+  for (size_t i = 0; i < els.size(); ++i) {
+    Type* expectedElem = nullptr;
+    if (expectedType != nullptr && expectedType->is(BaseType::TY_TUPLE)) {
+      std::vector<Field*> const fs = expectedType->getFields();
+      if (i < fs.size()) {
+        expectedElem = fs[i]->type;
+      }
+    }
+    visitExprWithExpectedType(els[i], expectedElem);
+    Type* t = result->getType();
+    if (t == nullptr) {
+      throw TypeCheckError(els[i]->getSpan(), "Tuple element has unknown type");
+    }
+    elemTypes.push_back(t);
+  }
+  std::vector<std::unique_ptr<Field>> fields;
+  std::string displayName = "tuple<";
+  for (size_t i = 0; i < elemTypes.size(); ++i) {
+    if (i > 0) {
+      displayName += ", ";
+    }
+    displayName += elemTypes[i]->toString();
+    fields.push_back(std::make_unique<Field>("_" + std::to_string(i), elemTypes[i]));
+  }
+  displayName += ">";
+  auto tup = std::make_unique<Type>(BaseType::TY_TUPLE, nullptr, std::move(fields));
+  tup->setDisplayName(displayName);
+  Type* cached = cacheType(std::move(tup));
+  if (expectedType != nullptr) {
+    if (expectedType->is(BaseType::TY_TUPLE)) {
+      std::vector<Field*> const expFields = expectedType->getFields();
+      if (expFields.size() != elemTypes.size()) {
+        throw TypeCheckError(node->getSpan(),
+                             "Tuple literal type {} is not compatible with expected {}",
+                             cached->toString(), expectedType->toString());
+      }
+      for (size_t i = 0; i < elemTypes.size(); ++i) {
+        Type* toElem = expFields[i]->type;
+        if (toElem == nullptr) {
+          continue;
+        }
+        if (!isAssignableTo(elemTypes[i], toElem)) {
+          throw TypeCheckError(els[i]->getSpan(), "Tuple element type {} is not assignable to {}",
+                               elemTypes[i]->toString(), toElem->toString());
+        }
+      }
+    } else if (!isAssignableTo(cached, expectedType)) {
+      throw TypeCheckError(node->getSpan(),
+                           "Tuple literal type {} is not compatible with expected {}",
+                           cached->toString(), expectedType->toString());
+    }
+  }
+  node->setResolvedType(cached);
+  result = std::make_unique<Value>(cached);
 }
 
 auto Typechecker::isStdStrClassType(Type* type) const -> bool {

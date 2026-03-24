@@ -83,7 +83,7 @@ void decodeUtf8AndAdvance(llvm::StringRef text, std::size_t& i, char32_t& outCp)
 } // namespace
 
 auto bufferByteOffsetFromLspPosition(llvm::StringRef utf8Text, unsigned line,
-                                   unsigned characterUtf16) -> std::size_t {
+                                     unsigned characterUtf16) -> std::size_t {
   std::size_t i = 0;
   unsigned currentLine = 0;
   while (i < utf8Text.size() && currentLine < line) {

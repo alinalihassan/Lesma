@@ -1,0 +1,5 @@
+def f() -> (int, int)
+    return (1, 2)
+
+let t = f()
+print(t[2])

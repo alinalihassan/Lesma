@@ -83,8 +83,7 @@ public:
         mutableVar(other.mutableVar), signedVar(other.signedVar), exported(other.exported),
         constructor(other.constructor), genericClassTemplate(other.genericClassTemplate),
         bodyScope(other.bodyScope), declarationKind(other.declarationKind),
-        declarationSpan(other.declarationSpan),
-        declarationFilePath(other.declarationFilePath) {}
+        declarationSpan(other.declarationSpan), declarationFilePath(other.declarationFilePath) {}
 
   ~Value() = default;
   auto operator=(const Value& other) -> Value& {

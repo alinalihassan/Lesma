@@ -31,8 +31,7 @@ auto findFieldInFields(Type* structType, const std::string& field) -> Field* {
 }
 
 auto isNominalTypeForIdentity(Type const* t) -> bool {
-  return t != nullptr &&
-         t->isOneOf({BaseType::TY_CLASS, BaseType::TY_ARRAY, BaseType::TY_ENUM});
+  return t != nullptr && t->isOneOf({BaseType::TY_CLASS, BaseType::TY_ARRAY, BaseType::TY_ENUM});
 }
 
 auto passesByPointerInAbi(Type const* t) -> bool {
