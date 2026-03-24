@@ -30,7 +30,8 @@ enum class BaseType : std::uint8_t {
   TY_CLASS,
   TY_ENUM,
   TY_IMPORT,
-  /** Existential trait type (e.g. `Drawable` as a value type): layout { ptr payload, ptr witness }. */
+  /** Existential trait type (e.g. `Drawable` as a value type): layout { ptr payload, ptr witness }.
+   */
   TY_TRAIT_EXISTENTIAL,
   /** Structural product type `(T1, T2, ...)` lowered to LLVM struct. */
   TY_TUPLE,
@@ -192,7 +193,8 @@ public:
   auto setDeclarationFilePath(std::string path) -> void { declarationFilePath = std::move(path); }
   auto setVarArgs(bool value) -> void { varArgs = value; }
   auto addField(std::unique_ptr<Field> field) -> void { fields.push_back(std::move(field)); }
-  /** Replace all fields (e.g. refresh a placeholder specialization after the template is complete). */
+  /** Replace all fields (e.g. refresh a placeholder specialization after the template is complete).
+   */
   auto replaceFields(std::vector<std::unique_ptr<Field>> newFields) -> void {
     fields = std::move(newFields);
   }
@@ -202,7 +204,8 @@ public:
     return isEqualImpl(rhs, active);
   }
 
-  /** When both sides are TY_FUNCTION: compares varargs, generic parameter names, and trait bounds. */
+  /** When both sides are TY_FUNCTION: compares varargs, generic parameter names, and trait bounds.
+   */
   [[nodiscard]] auto functionGenericSignatureEqual(Type const* rhs) const -> bool {
     if (rhs == nullptr || baseType != BaseType::TY_FUNCTION ||
         rhs->getBaseType() != BaseType::TY_FUNCTION) {
@@ -235,8 +238,8 @@ public:
   }
 
 private:
-  auto isEqualImpl(Type const* rhs,
-                   std::set<std::pair<Type const*, Type const*>>& active) const -> bool {
+  auto isEqualImpl(Type const* rhs, std::set<std::pair<Type const*, Type const*>>& active) const
+      -> bool {
     if (rhs == nullptr) {
       return false;
     }

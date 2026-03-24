@@ -1,5 +1,3 @@
-#include "Codegen.h"
-
 #include <algorithm>
 #include <string>
 
@@ -7,6 +5,8 @@
 #include <llvm/IR/DerivedTypes.h>
 #include <llvm/IR/Function.h>
 #include <llvm/IR/Instructions.h>
+
+#include "Codegen.h"
 
 #include "liblesma/Backend/CodegenRuntimeNames.h"
 #include "liblesma/Backend/MangleUtils.h"
@@ -54,8 +54,8 @@ auto Codegen::emitCalloc(llvm::Value* count, llvm::Value* size, const llvm::Twin
     -> llvm::Value* {
   auto callocFn = theModule->getOrInsertFunction(
       std::string{codegen::runtime::kCalloc},
-      llvm::FunctionType::get(builder->getPtrTy(),
-                              {builder->getInt64Ty(), builder->getInt64Ty()}, false));
+      llvm::FunctionType::get(builder->getPtrTy(), {builder->getInt64Ty(), builder->getInt64Ty()},
+                              false));
   return builder->CreateCall(callocFn, {count, size}, name);
 }
 
@@ -70,8 +70,8 @@ auto Codegen::emitRealloc(llvm::Value* ptr, llvm::Value* size, const llvm::Twine
     -> llvm::Value* {
   auto reallocFn = theModule->getOrInsertFunction(
       std::string{codegen::runtime::kRealloc},
-      llvm::FunctionType::get(builder->getPtrTy(),
-                              {builder->getPtrTy(), builder->getInt64Ty()}, false));
+      llvm::FunctionType::get(builder->getPtrTy(), {builder->getPtrTy(), builder->getInt64Ty()},
+                              false));
   return builder->CreateCall(reallocFn, {ptr, size}, name);
 }
 
@@ -280,9 +280,9 @@ auto Codegen::emitListDeepCopy(lesma::Type* listType, llvm::Value* listHandle) -
   } else {
     auto memcpyFn = theModule->getOrInsertFunction(
         std::string{codegen::runtime::kMemcpy},
-        llvm::FunctionType::get(
-            builder->getPtrTy(),
-            {builder->getPtrTy(), builder->getPtrTy(), builder->getInt64Ty()}, false));
+        llvm::FunctionType::get(builder->getPtrTy(),
+                                {builder->getPtrTy(), builder->getPtrTy(), builder->getInt64Ty()},
+                                false));
     builder->CreateCall(memcpyFn, {newData, emitListDataPtr(listType, listHandle), initBytes});
     builder->CreateBr(doneBlock);
   }
@@ -301,7 +301,8 @@ namespace {
   if (a == b) {
     return true;
   }
-  if (a.size() < 6 || b.size() < 6 || a.compare(0, 5, "list<") != 0 || b.compare(0, 5, "list<") != 0) {
+  if (a.size() < 6 || b.size() < 6 || a.compare(0, 5, "list<") != 0 ||
+      b.compare(0, 5, "list<") != 0) {
     return false;
   }
   return stripSpacesCopy(a) == stripSpacesCopy(b);
@@ -321,7 +322,8 @@ auto Codegen::tryEnsureStdlibListClassSpecialized(lesma::Type* classTy) -> void 
     return;
   }
   lesma::Type* typeArg = nullptr;
-  if (auto envIt = specializedClassTypeEnvs.find(classTy); envIt != specializedClassTypeEnvs.end()) {
+  if (auto envIt = specializedClassTypeEnvs.find(classTy);
+      envIt != specializedClassTypeEnvs.end()) {
     if (auto tIt = envIt->second.find("T"); tIt != envIt->second.end()) {
       typeArg = tIt->second;
     }
@@ -370,7 +372,8 @@ auto Codegen::lookupClassStructSymbol(lesma::Type* classTy) -> Value* {
     // Typechecker may use a different Type* than the one codegen registered when specializing
     // generics; match the struct symbol by display name.
     for (const auto& [ty, sym] : specializedClassSymbolsByType) {
-      if (ty != nullptr && classDisplayNamesMatch(ty->getDisplayName(), classTy->getDisplayName())) {
+      if (ty != nullptr &&
+          classDisplayNamesMatch(ty->getDisplayName(), classTy->getDisplayName())) {
         return sym;
       }
     }
@@ -381,7 +384,8 @@ auto Codegen::lookupClassStructSymbol(lesma::Type* classTy) -> Value* {
       return v;
     }
     for (const auto& [ty, sym] : specializedClassSymbolsByType) {
-      if (ty != nullptr && classDisplayNamesMatch(ty->getDisplayName(), classTy->getDisplayName())) {
+      if (ty != nullptr &&
+          classDisplayNamesMatch(ty->getDisplayName(), classTy->getDisplayName())) {
         return sym;
       }
     }

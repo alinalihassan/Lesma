@@ -71,7 +71,8 @@ auto getTypeMangledName(llvm::SMRange span, Type* type) -> std::string {
     std::string s = "tup_";
     for (auto* f : type->getFields()) {
       if (f == nullptr) {
-        throw CodegenError(span, "unresolved tuple field: null Field* in tuple type {}", type->toString());
+        throw CodegenError(span, "unresolved tuple field: null Field* in tuple type {}",
+                           type->toString());
       }
       if (f->type == nullptr) {
         throw CodegenError(span, "unresolved tuple field type: field '{}' in tuple {}", f->name,

@@ -142,8 +142,8 @@ auto Parser::parseType() -> std::unique_ptr<TypeExpr> {
         lexeme += elems[i]->getName();
       }
       lexeme += ")";
-      return TypeExpr::makeTupleType(llvm::SMRange{left->getStart(), right->getEnd()}, std::move(lexeme),
-                                     std::move(elems));
+      return TypeExpr::makeTupleType(llvm::SMRange{left->getStart(), right->getEnd()},
+                                     std::move(lexeme), std::move(elems));
     }
     std::ignore = consume(TokenType::RIGHT_PAREN);
     return innerFirst;
@@ -617,12 +617,10 @@ auto Parser::parseVarDecl() -> std::unique_ptr<Statement> {
   }
   std::vector<std::unique_ptr<Literal>> vars;
   auto* firstId = consume(TokenType::IDENTIFIER);
-  vars.push_back(
-      std::make_unique<Literal>(firstId->span, firstId->lexeme, firstId->type));
+  vars.push_back(std::make_unique<Literal>(firstId->span, firstId->lexeme, firstId->type));
   while (advanceIfMatchAny<TokenType::COMMA>()) {
     auto* nextId = consume(TokenType::IDENTIFIER);
-    vars.push_back(
-        std::make_unique<Literal>(nextId->span, nextId->lexeme, nextId->type));
+    vars.push_back(std::make_unique<Literal>(nextId->span, nextId->lexeme, nextId->type));
   }
   if (inClass && vars.size() > 1U) {
     throw ParserError(llvm::SMRange{vars[1]->getStart(), vars.back()->getEnd()},
@@ -647,8 +645,9 @@ auto Parser::parseVarDecl() -> std::unique_ptr<Statement> {
   }
 
   if (!expr && !isMutable) {
-    throw ParserError(llvm::SMRange{startTok->getStart(), type != nullptr ? type->getEnd() : nameEnd->getEnd()},
-                      "Cannot declare an immutable variable without an initial expression");
+    throw ParserError(
+        llvm::SMRange{startTok->getStart(), type != nullptr ? type->getEnd() : nameEnd->getEnd()},
+        "Cannot declare an immutable variable without an initial expression");
   }
 
   consumeNewline();

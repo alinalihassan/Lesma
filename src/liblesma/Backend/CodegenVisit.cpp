@@ -272,7 +272,8 @@ auto Codegen::visit(const Compound* node) -> void {
 
 namespace {
 [[nodiscard]] auto typeContainsUnboundGenericImpl(lesma::Type* type,
-                                                std::unordered_set<lesma::Type*>& active) -> bool {
+                                                  std::unordered_set<lesma::Type*>& active)
+    -> bool {
   if (type == nullptr) {
     return false;
   }
@@ -1744,8 +1745,7 @@ auto Codegen::visit(const SubscriptOp* node) -> void {
       throw CodegenError(node->getSpan(), "Invalid index on tuple");
     }
     llvm::Value* agg = listValue->getLlvmValue();
-    llvm::Value* ev =
-        builder->CreateExtractValue(agg, static_cast<unsigned>(idx), "tuple.sub");
+    llvm::Value* ev = builder->CreateExtractValue(agg, static_cast<unsigned>(idx), "tuple.sub");
     result = std::make_unique<Value>("", tf[idx]->type, ev);
     return;
   }
@@ -2439,8 +2439,7 @@ auto Codegen::emitCompoundSubscriptNewValue(llvm::SMRange span, TokenType compou
   }
   auto left = cast(span, currentElem, finalType);
   auto right = cast(span, rhs, finalType);
-  if (finalType != nullptr &&
-      (finalType->is(BaseType::TY_INT) || finalType->isFloatingPoint())) {
+  if (finalType != nullptr && (finalType->is(BaseType::TY_INT) || finalType->isFloatingPoint())) {
     return emitCompoundAssignArithmetic(span, compoundOp, left.get(), right.get());
   }
   if (auto operatorName = OperatorUtils::getBinaryOperatorName(binOp); operatorName.has_value()) {

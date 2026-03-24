@@ -6,10 +6,11 @@
 
 #include "llvm/Support/MemoryBuffer.h"
 
+#include "fmt/format.h"
+
 #include "liblesma/AST/AST.h"
 #include "liblesma/Frontend/Lexer.h"
 #include "liblesma/Frontend/Parser.h"
-#include "fmt/format.h"
 
 namespace lesma {
 

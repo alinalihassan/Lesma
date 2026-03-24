@@ -822,8 +822,7 @@ auto Typechecker::substituteInType(Type* t, const std::unordered_map<std::string
   if (t->is(BaseType::TY_TUPLE)) {
     std::vector<std::unique_ptr<Field>> fields;
     for (Field* field : t->getFields()) {
-      fields.push_back(
-          std::make_unique<Field>(field->name, substituteInType(field->type, env)));
+      fields.push_back(std::make_unique<Field>(field->name, substituteInType(field->type, env)));
     }
     auto tupleType = std::make_unique<Type>(BaseType::TY_TUPLE, nullptr, std::move(fields));
     tupleType->setDisplayName(t->getDisplayName());
@@ -1224,7 +1223,8 @@ auto Typechecker::isAssignableTo(Type* from, Type* to) -> bool {
       if (toFields[i]->type == nullptr) {
         continue;
       }
-      if (fromFields[i]->type == nullptr || !isAssignableTo(fromFields[i]->type, toFields[i]->type)) {
+      if (fromFields[i]->type == nullptr ||
+          !isAssignableTo(fromFields[i]->type, toFields[i]->type)) {
         return false;
       }
     }
@@ -1696,8 +1696,9 @@ auto Typechecker::visit(const VarDecl* node) -> void {
       node->getType()->accept(*this);
       declTupleType = result->getType();
       if (declTupleType == nullptr || !declTupleType->is(BaseType::TY_TUPLE)) {
-        throw TypeCheckError(node->getSpan(),
-                             "Destructuring declaration requires a tuple type or tuple initializer");
+        throw TypeCheckError(
+            node->getSpan(),
+            "Destructuring declaration requires a tuple type or tuple initializer");
       }
       std::vector<Field*> const fields = declTupleType->getFields();
       if (fields.size() != names.size()) {
@@ -1711,11 +1712,13 @@ auto Typechecker::visit(const VarDecl* node) -> void {
     visitExprWithExpectedType(node->getValue(), declTupleType);
     Type* initType = result->getType();
     if (initType == nullptr || !initType->is(BaseType::TY_TUPLE)) {
-      throw TypeCheckError(node->getSpan(), "Destructuring requires a tuple on the right-hand side, got {}",
+      throw TypeCheckError(node->getSpan(),
+                           "Destructuring requires a tuple on the right-hand side, got {}",
                            initType != nullptr ? initType->toString() : "unknown");
     }
     if (declTupleType != nullptr && !initType->isEqual(declTupleType)) {
-      throw TypeCheckError(node->getSpan(), "Initializer type {} does not match declared tuple type {}",
+      throw TypeCheckError(node->getSpan(),
+                           "Initializer type {} does not match declared tuple type {}",
                            initType->toString(), declTupleType->toString());
     }
     std::vector<Field*> const rhsFields = initType->getFields();
@@ -3477,7 +3480,8 @@ auto Typechecker::visit(const TupleLiteral* node) -> void {
     if (expectedType->is(BaseType::TY_TUPLE)) {
       std::vector<Field*> const expFields = expectedType->getFields();
       if (expFields.size() != elemTypes.size()) {
-        throw TypeCheckError(node->getSpan(), "Tuple literal type {} is not compatible with expected {}",
+        throw TypeCheckError(node->getSpan(),
+                             "Tuple literal type {} is not compatible with expected {}",
                              cached->toString(), expectedType->toString());
       }
       for (size_t i = 0; i < elemTypes.size(); ++i) {
@@ -3491,7 +3495,8 @@ auto Typechecker::visit(const TupleLiteral* node) -> void {
         }
       }
     } else if (!isAssignableTo(cached, expectedType)) {
-      throw TypeCheckError(node->getSpan(), "Tuple literal type {} is not compatible with expected {}",
+      throw TypeCheckError(node->getSpan(),
+                           "Tuple literal type {} is not compatible with expected {}",
                            cached->toString(), expectedType->toString());
     }
   }

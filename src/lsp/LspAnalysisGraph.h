@@ -7,6 +7,7 @@
 #include <vector>
 
 #include <llvm/Support/SourceMgr.h>
+
 #include <lsp/types.h>
 
 #include "liblesma/Driver/AnalysisResult.h"

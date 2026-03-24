@@ -177,7 +177,8 @@ class Typechecker final : public ASTVisitor {
 
   /** `Iterator<int>` -> `Iterator` for trait registry / implTraitNames lookup. */
   [[nodiscard]] auto traitExistentialBaseName(const std::string& displayName) -> std::string;
-  /** Same argument list identity as `SymbolTable::lookupFunction(name, paramTypes)` (self + params).
+  /** Same argument list identity as `SymbolTable::lookupFunction(name, paramTypes)` (self +
+   * params).
    */
   [[nodiscard]] auto methodLookupSignatureKey(const std::string& name,
                                               const std::vector<Type*>& lookupArgs) -> std::string;

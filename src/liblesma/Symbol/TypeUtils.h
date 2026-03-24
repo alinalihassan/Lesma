@@ -13,7 +13,8 @@ auto findFieldInFields(Type* structType, const std::string& field) -> Field*;
 /** Class, enum, or array (buffer): types compared by `is` using display-name fallback when
  * `isEqual` is false. */
 [[nodiscard]] auto isNominalTypeForIdentity(Type const* t) -> bool;
-/** Return value is passed as a pointer (class instance, trait existential, or already a pointer). */
+/** Return value is passed as a pointer (class instance, trait existential, or already a pointer).
+ */
 [[nodiscard]] auto passesByPointerInAbi(Type const* t) -> bool;
 } // namespace TypeUtils
 } // namespace lesma

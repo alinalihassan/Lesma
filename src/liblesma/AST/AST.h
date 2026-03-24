@@ -1,6 +1,7 @@
 #pragma once
 
 #include <algorithm>
+#include <cassert>
 #include <iterator>
 #include <memory>
 #include <sstream>
@@ -158,7 +159,8 @@ public:
         params(std::move(params)), ret(std::move(ret)) {}
   /** Tuple type `(T1, T2, ...)` / `(T,)`: same `params` as function types, `ret` is null. */
   static auto makeTupleType(llvm::SMRange loc, std::string displayName,
-                            std::vector<std::unique_ptr<TypeExpr>> elements) -> std::unique_ptr<TypeExpr> {
+                            std::vector<std::unique_ptr<TypeExpr>> elements)
+      -> std::unique_ptr<TypeExpr> {
     return std::make_unique<TypeExpr>(loc, std::move(displayName), TokenType::TUPLE_TYPE,
                                       std::move(elements), std::unique_ptr<TypeExpr>(nullptr));
   }
@@ -310,14 +312,18 @@ class VarDecl : public Statement {
   mutable std::vector<Value*> resolvedSymbols;
 
 public:
-  VarDecl(llvm::SMRange loc, std::vector<std::unique_ptr<Literal>> vars, std::unique_ptr<TypeExpr> type,
-          std::unique_ptr<Expression> expr, bool isMutable)
+  VarDecl(llvm::SMRange loc, std::vector<std::unique_ptr<Literal>> vars,
+          std::unique_ptr<TypeExpr> type, std::unique_ptr<Expression> expr, bool isMutable)
       : Statement(loc), vars(std::move(vars)), type(std::move(type)), expr(std::move(expr)),
         isMutable(isMutable) {}
   void accept(ASTVisitor& visitor) const override { visitor.visit(this); }
 
   [[nodiscard]] [[maybe_unused]] auto getIdentifier() const -> Literal* {
-    return vars.empty() ? nullptr : vars.front().get();
+    if (vars.empty()) {
+      return nullptr;
+    }
+    assert(vars.size() == 1U && "getIdentifier() is only valid for a single-name VarDecl");
+    return vars.front().get();
   }
   [[nodiscard]] auto getVarLiterals() const -> std::vector<Literal*> {
     std::vector<Literal*> out;
@@ -331,7 +337,12 @@ public:
   [[nodiscard]] [[maybe_unused]] auto getValue() const -> Expression* { return expr.get(); }
   [[nodiscard]] [[maybe_unused]] auto getMutability() const -> bool { return isMutable; }
   [[nodiscard]] auto getResolvedSymbol() const -> Value* {
-    return resolvedSymbols.empty() ? nullptr : resolvedSymbols.front();
+    if (resolvedSymbols.empty()) {
+      return nullptr;
+    }
+    assert(resolvedSymbols.size() == 1U &&
+           "getResolvedSymbol() is only valid when VarDecl has a single resolved symbol");
+    return resolvedSymbols.front();
   }
   [[nodiscard]] auto getResolvedSymbols() const -> const std::vector<Value*>& {
     return resolvedSymbols;

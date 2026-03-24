@@ -61,8 +61,8 @@ auto Codegen::bindGenericsFromTypePair(const TypeExpr* declared, lesma::Type* ac
               for (size_t i = 0; i < declTypeArgs.size(); ++i) {
                 if (auto concreteIt = envIt->second.find(templateGenericParams[i]);
                     concreteIt != envIt->second.end() && concreteIt->second != nullptr) {
-                  bindGenericsFromTypePair(declTypeArgs[i], concreteIt->second, genericNameSet,
-                                           env, bindingConflict);
+                  bindGenericsFromTypePair(declTypeArgs[i], concreteIt->second, genericNameSet, env,
+                                           bindingConflict);
                 }
               }
               return;
@@ -374,8 +374,8 @@ auto Codegen::specializeClass(const Class* node,
   // Opaque shell first so recursive fields (e.g. Node<T> next) hit specializedClasses and a
   // concrete Type with LLVM type before we finish lowering field types / struct body.
   auto* structType = llvm::StructType::create(theModule->getContext(), concreteName);
-  auto shellType = std::make_unique<Type>(BaseType::TY_CLASS, structType,
-                                          std::vector<std::unique_ptr<Field>>{});
+  auto shellType =
+      std::make_unique<Type>(BaseType::TY_CLASS, structType, std::vector<std::unique_ptr<Field>>{});
   shellType->setDisplayName(displayName);
   shellType->setImplTraitNames(std::vector<std::string>(node->getImplTraitNames()));
   auto* typePtr = shellType.get();
@@ -409,7 +409,7 @@ auto Codegen::specializeClass(const Class* node,
       }
     }
     typePtr->addField(std::make_unique<Field>(field->getIdentifier()->getValue(), result->getType(),
-                                                std::move(defaultVal)));
+                                              std::move(defaultVal)));
   }
 
   if (elementLLVMTypes.empty()) {

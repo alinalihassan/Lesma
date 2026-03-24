@@ -1,10 +1,10 @@
-#include "Codegen.h"
-
 #include <cstdint>
 #include <optional>
 #include <string>
 #include <string_view>
 #include <unordered_map>
+
+#include "Codegen.h"
 
 #include "liblesma/Backend/CodegenError.h"
 #include "liblesma/Backend/CodegenRuntimeNames.h"
@@ -62,7 +62,8 @@ auto Codegen::isListIntrinsicName(const std::string& functionName) const -> bool
   return classifyBuiltinIntrinsic(functionName).has_value();
 }
 
-auto Codegen::genListIntrinsicCall(const FuncCall* node, const std::vector<lesma::Type*>& paramTypes,
+auto Codegen::genListIntrinsicCall(const FuncCall* node,
+                                   const std::vector<lesma::Type*>& paramTypes,
                                    const std::vector<llvm::Value*>& paramsLLVM)
     -> std::unique_ptr<lesma::Value> {
   auto const kindOpt = classifyBuiltinIntrinsic(node->getName());
@@ -108,15 +109,15 @@ auto Codegen::genListIntrinsicCall(const FuncCall* node, const std::vector<lesma
         llvm::FunctionType::get(builder->getInt64Ty(), {builder->getPtrTy()}, false));
     auto memcpyFn = theModule->getOrInsertFunction(
         std::string{codegen::runtime::kMemcpy}.c_str(),
-        llvm::FunctionType::get(
-            builder->getPtrTy(),
-            {builder->getPtrTy(), builder->getPtrTy(), builder->getInt64Ty()}, false));
+        llvm::FunctionType::get(builder->getPtrTy(),
+                                {builder->getPtrTy(), builder->getPtrTy(), builder->getInt64Ty()},
+                                false));
     llvm::Value* la = paramsLLVM[0];
     llvm::Value* lb = paramsLLVM[1];
     auto* lenA = builder->CreateCall(strlenFn, {la}, "strcat.lenA");
     auto* lenB = builder->CreateCall(strlenFn, {lb}, "strcat.lenB");
-    auto* total = builder->CreateAdd(
-        builder->CreateAdd(lenA, lenB), builder->getInt64(1), "strcat.total");
+    auto* total =
+        builder->CreateAdd(builder->CreateAdd(lenA, lenB), builder->getInt64(1), "strcat.total");
     llvm::Value* buf = emitMalloc(total, "strcat.buf");
     builder->CreateCall(memcpyFn, {buf, la, lenA});
     auto* tail = builder->CreateInBoundsGEP(i8, buf, lenA, "strcat.tail");
@@ -134,16 +135,19 @@ auto Codegen::genListIntrinsicCall(const FuncCall* node, const std::vector<lesma
     llvm::Type* i8 = llvm::Type::getInt8Ty(theModule->getContext());
     auto memcpyFn = theModule->getOrInsertFunction(
         std::string{codegen::runtime::kMemcpy}.c_str(),
-        llvm::FunctionType::get(
-            builder->getPtrTy(),
-            {builder->getPtrTy(), builder->getPtrTy(), builder->getInt64Ty()}, false));
+        llvm::FunctionType::get(builder->getPtrTy(),
+                                {builder->getPtrTy(), builder->getPtrTy(), builder->getInt64Ty()},
+                                false));
     llvm::Value* s = paramsLLVM[0];
     llvm::Value* start = paramsLLVM[1];
     llvm::Value* len = paramsLLVM[2];
     llvm::Function* parentFunction = builder->GetInsertBlock()->getParent();
-    auto* emptyBlock = llvm::BasicBlock::Create(theModule->getContext(), "slice.empty", parentFunction);
-    auto* copyBlock = llvm::BasicBlock::Create(theModule->getContext(), "slice.copy", parentFunction);
-    auto* mergeBlock = llvm::BasicBlock::Create(theModule->getContext(), "slice.merge", parentFunction);
+    auto* emptyBlock =
+        llvm::BasicBlock::Create(theModule->getContext(), "slice.empty", parentFunction);
+    auto* copyBlock =
+        llvm::BasicBlock::Create(theModule->getContext(), "slice.copy", parentFunction);
+    auto* mergeBlock =
+        llvm::BasicBlock::Create(theModule->getContext(), "slice.merge", parentFunction);
     auto* lenPos = builder->CreateICmpSGT(len, builder->getInt64(0));
     builder->CreateCondBr(lenPos, copyBlock, emptyBlock);
 
@@ -174,25 +178,27 @@ auto Codegen::genListIntrinsicCall(const FuncCall* node, const std::vector<lesma
     }
     auto strstrFn = theModule->getOrInsertFunction(
         std::string{codegen::runtime::kStrstr}.c_str(),
-        llvm::FunctionType::get(builder->getPtrTy(),
-                                {builder->getPtrTy(), builder->getPtrTy()}, false));
+        llvm::FunctionType::get(builder->getPtrTy(), {builder->getPtrTy(), builder->getPtrTy()},
+                                false));
     llvm::Value* hay = paramsLLVM[0];
     llvm::Value* needle = paramsLLVM[1];
     llvm::Value* found = builder->CreateCall(strstrFn, {hay, needle}, "idx.found");
     llvm::Function* parentFunction = builder->GetInsertBlock()->getParent();
     auto* okBlock = llvm::BasicBlock::Create(theModule->getContext(), "idx.ok", parentFunction);
     auto* failBlock = llvm::BasicBlock::Create(theModule->getContext(), "idx.fail", parentFunction);
-    auto* mergeBlock = llvm::BasicBlock::Create(theModule->getContext(), "idx.merge", parentFunction);
+    auto* mergeBlock =
+        llvm::BasicBlock::Create(theModule->getContext(), "idx.merge", parentFunction);
     builder->CreateCondBr(
-        builder->CreateICmpEQ(found, llvm::ConstantPointerNull::get(builder->getPtrTy())), failBlock,
-        okBlock);
+        builder->CreateICmpEQ(found, llvm::ConstantPointerNull::get(builder->getPtrTy())),
+        failBlock, okBlock);
 
     builder->SetInsertPoint(failBlock);
     builder->CreateBr(mergeBlock);
 
     builder->SetInsertPoint(okBlock);
-    auto* diff = builder->CreateSub(builder->CreatePtrToInt(found, builder->getInt64Ty()),
-                                    builder->CreatePtrToInt(hay, builder->getInt64Ty()), "idx.diff");
+    auto* diff =
+        builder->CreateSub(builder->CreatePtrToInt(found, builder->getInt64Ty()),
+                           builder->CreatePtrToInt(hay, builder->getInt64Ty()), "idx.diff");
     builder->CreateBr(mergeBlock);
 
     builder->SetInsertPoint(mergeBlock);
@@ -250,7 +256,8 @@ auto Codegen::genListIntrinsicCall(const FuncCall* node, const std::vector<lesma
   auto* listHandle = paramsLLVM.front();
   if (listType == nullptr || !listType->is(BaseType::TY_ARRAY) ||
       listType->getElementType() == nullptr) {
-    throw CodegenError(node->getSpan(), "Buffer intrinsic {} requires __buffer<T>", node->getName());
+    throw CodegenError(node->getSpan(), "Buffer intrinsic {} requires __buffer<T>",
+                       node->getName());
   }
 
   switch (kind) {
