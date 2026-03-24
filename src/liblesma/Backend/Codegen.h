@@ -143,9 +143,9 @@ protected:
                      const std::vector<ImportedNameBinding>& importedNames) -> void;
   auto getExportsFromFile(const std::string& filepath, bool isStd, const std::string& mainFilePath)
       -> std::vector<std::string>;
-  auto typecheckModule(const Compound* ast, const std::string& modulePath)
-      -> std::tuple<std::unique_ptr<SymbolTable>, std::vector<std::unique_ptr<lesma::Type>>,
-                    std::unordered_map<lesma::Type*, std::unordered_map<std::string, lesma::Type*>>>;
+  auto typecheckModule(const Compound* ast, const std::string& modulePath) -> std::tuple<
+      std::unique_ptr<SymbolTable>, std::vector<std::unique_ptr<lesma::Type>>,
+      std::unordered_map<lesma::Type*, std::unordered_map<std::string, lesma::Type*>>>;
   [[nodiscard]] auto isImported(const std::vector<ImportedNameBinding>& importedNames,
                                 const std::string& importName) const -> bool;
   [[nodiscard]] auto getImportedLocalName(const std::vector<ImportedNameBinding>& importedNames,
@@ -217,6 +217,14 @@ protected:
                         const std::vector<lesma::Type*>& explicitTypeArgs = {})
       -> std::unique_ptr<lesma::Value>;
   auto defineFunction(lesma::Value* value, const FuncDecl* node, Value* clsSymbol) -> void;
+  auto computeGenericFunctionBindingEnv(const FuncDecl* node,
+                                        const std::vector<lesma::Type*>& paramTypes,
+                                        const std::vector<std::string>& genericNames,
+                                        const std::vector<lesma::Type*>& explicitTypeArgs)
+      -> std::unordered_map<std::string, lesma::Type*>;
+  auto appendGenericBindingSuffix(llvm::SMRange span, std::string& base,
+                                  const std::vector<std::string>& genericNames,
+                                  const std::unordered_map<std::string, lesma::Type*>& env) -> void;
   auto specializeFunction(const FuncDecl* node, const std::vector<lesma::Type*>& paramTypes,
                           const std::vector<std::string>& genericNames,
                           const std::vector<lesma::Type*>& explicitTypeArgs = {}) -> lesma::Value*;

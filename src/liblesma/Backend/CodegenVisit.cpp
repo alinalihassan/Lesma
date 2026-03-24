@@ -1,5 +1,3 @@
-#include "Codegen.h"
-
 #include <algorithm>
 #include <cctype>
 #include <cstddef>
@@ -7,8 +5,8 @@
 #include <memory>
 #include <optional>
 #include <string>
-#include <tuple>
 #include <system_error>
+#include <tuple>
 #include <unordered_set>
 #include <utility>
 #include <vector>
@@ -56,6 +54,7 @@
 #include <llvm/Transforms/Scalar/LoopUnrollPass.h>
 #include <llvm/Transforms/Vectorize/LoopVectorize.h>
 
+#include "Codegen.h"
 #include <lld/Common/Driver.h>
 
 // Declare LLD driver functions using the macro from Driver.h
@@ -264,7 +263,6 @@ auto Codegen::visit(const Statement* node) -> void {
 auto Codegen::visit(const Expression* node) -> void {
   lesma::print("Visited a blank expression\n{}", node->toString(sourceManager.get(), "", true));
 }
-
 
 auto Codegen::visit(const Compound* node) -> void {
   for (auto* elem : node->getChildren()) {
@@ -761,7 +759,23 @@ auto Codegen::visit(const FuncDecl* node) -> void {
     }
     return key;
   };
-  std::string const signatureKey = makeCallableSignatureKey(node->getName(), paramTypes);
+  std::string signatureKey = makeCallableSignatureKey(node->getName(), paramTypes);
+  if (!currentGenericTypes.empty()) {
+    std::vector<std::string> bindingOrder;
+    if (selfSymbol != nullptr && selfSymbol->getType() != nullptr &&
+        selfSymbol->getType()->getElementType() != nullptr) {
+      bindingOrder = selfSymbol->getType()->getElementType()->getGenericParams();
+    }
+    if (bindingOrder.empty()) {
+      bindingOrder.reserve(currentGenericTypes.size());
+      for (const auto& kv : currentGenericTypes) {
+        bindingOrder.push_back(kv.first);
+      }
+      std::sort(bindingOrder.begin(), bindingOrder.end());
+    }
+    appendGenericBindingSuffix(node->getSpan(), mangledName, bindingOrder, currentGenericTypes);
+    appendGenericBindingSuffix(node->getSpan(), signatureKey, bindingOrder, currentGenericTypes);
+  }
   auto linkage = shouldExport ? Function::ExternalLinkage : Function::PrivateLinkage;
 
   llvm::Type* llvmReturnType = nullptr;
@@ -1276,8 +1290,8 @@ auto Codegen::visit(const BinaryOp* node) -> void {
 
     if (finalType->is(BaseType::TY_INT)) {
       llvm::Value* div = finalType->isSigned()
-                            ? builder->CreateSDiv(left->getLlvmValue(), right->getLlvmValue())
-                            : builder->CreateUDiv(left->getLlvmValue(), right->getLlvmValue());
+                             ? builder->CreateSDiv(left->getLlvmValue(), right->getLlvmValue())
+                             : builder->CreateUDiv(left->getLlvmValue(), right->getLlvmValue());
       result = std::make_unique<Value>("", finalType, div);
       return;
     }
@@ -2359,6 +2373,35 @@ auto Codegen::callNamedFunction(llvm::SMRange span, const std::string& functionN
       getOrCreateLlvmType(explicitTypeArg);
     }
   }
+  for (auto* pt : localParamTypes) {
+    if (pt != nullptr) {
+      getOrCreateLlvmType(pt);
+    }
+  }
+  const FuncDecl* genericFuncTemplateForLookup = nullptr;
+  if (selfSymbol != nullptr) {
+    if (auto cit = genericMethods.find(selfSymbol->getName()); cit != genericMethods.end()) {
+      if (auto mit = cit->second.find(functionName); mit != cit->second.end()) {
+        genericFuncTemplateForLookup = mit->second;
+      }
+    }
+  } else {
+    if (auto git = genericFunctions.find(functionName); git != genericFunctions.end()) {
+      genericFuncTemplateForLookup = git->second;
+    }
+  }
+  auto appendGenericBindingsForTemplate = [&](std::string& out) -> void {
+    if (genericFuncTemplateForLookup == nullptr) {
+      return;
+    }
+    const auto& genericNames = genericFuncTemplateForLookup->getGenericParams();
+    if (genericNames.empty()) {
+      return;
+    }
+    auto env = computeGenericFunctionBindingEnv(genericFuncTemplateForLookup, localParamTypes,
+                                                genericNames, explicitTypeArgs);
+    appendGenericBindingSuffix(span, out, genericNames, env);
+  };
   Value* symbol = nullptr;
   auto* selfSymbolTmp = selfSymbol;
   auto* classSym = scope->lookupStruct(functionName);
@@ -2392,6 +2435,10 @@ auto Codegen::callNamedFunction(llvm::SMRange span, const std::string& functionN
     symbol = scope->lookupFunction("new", localParamTypes);
   } else {
     auto directSignatureKey = makeCallableSignatureKey(functionName, localParamTypes);
+    std::string directMangledLookup =
+        getMangledName(span, functionName, localParamTypes, selfSymbol != nullptr);
+    appendGenericBindingsForTemplate(directSignatureKey);
+    appendGenericBindingsForTemplate(directMangledLookup);
     if (auto directIt = specializedFunctions.find(directSignatureKey);
         directIt != specializedFunctions.end()) {
       symbol = directIt->second;
@@ -2432,8 +2479,7 @@ auto Codegen::callNamedFunction(llvm::SMRange span, const std::string& functionN
       }
     }
     if (symbol == nullptr) {
-      auto directMangledName = getMangledName(span, functionName, localParamTypes, false);
-      if (auto directIt = specializedFunctions.find(directMangledName);
+      if (auto directIt = specializedFunctions.find(directMangledLookup);
           directIt != specializedFunctions.end()) {
         symbol = directIt->second;
       } else {
@@ -2447,9 +2493,10 @@ auto Codegen::callNamedFunction(llvm::SMRange span, const std::string& functionN
                        classSym != nullptr ? "Constructor for" : "Function", functionName);
   }
   if (symbol->getLlvmValue() == nullptr) {
-    auto directMangledName =
+    std::string moduleLookupName =
         getMangledName(span, functionName, localParamTypes, selfSymbol != nullptr);
-    if (auto* directFunction = theModule->getFunction(directMangledName);
+    appendGenericBindingsForTemplate(moduleLookupName);
+    if (auto* directFunction = theModule->getFunction(moduleLookupName);
         directFunction != nullptr) {
       symbol->setLlvmValue(directFunction);
     }

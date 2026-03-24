@@ -1,5 +1,3 @@
-#include "Codegen.h"
-
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
@@ -8,6 +6,8 @@
 #include <llvm/IR/DerivedTypes.h>
 #include <llvm/IR/Function.h>
 #include <llvm/IR/GlobalValue.h>
+
+#include "Codegen.h"
 
 #include "liblesma/AST/AST.h"
 #include "liblesma/Backend/CodegenError.h"
@@ -115,12 +115,12 @@ auto Codegen::wrapNominalReturnAsPointer(Type* t) -> Type* {
   return t;
 }
 
-auto Codegen::specializeFunction(const FuncDecl* node, const std::vector<lesma::Type*>& paramTypes,
-                                 const std::vector<std::string>& genericNames,
-                                 const std::vector<lesma::Type*>& explicitTypeArgs)
-    -> lesma::Value* {
-  auto saved = currentGenericTypes;
-  std::unordered_map<std::string, lesma::Type*> env = saved;
+auto Codegen::computeGenericFunctionBindingEnv(const FuncDecl* node,
+                                               const std::vector<lesma::Type*>& paramTypes,
+                                               const std::vector<std::string>& genericNames,
+                                               const std::vector<lesma::Type*>& explicitTypeArgs)
+    -> std::unordered_map<std::string, lesma::Type*> {
+  std::unordered_map<std::string, lesma::Type*> env = currentGenericTypes;
   if (!explicitTypeArgs.empty()) {
     if (explicitTypeArgs.size() != genericNames.size()) {
       throw CodegenError(
@@ -141,6 +141,29 @@ auto Codegen::specializeFunction(const FuncDecl* node, const std::vector<lesma::
       bindGenericsFromTypePair(declType, paramTypes[i + offset], genericNameSet, env);
     }
   }
+  return env;
+}
+
+auto Codegen::appendGenericBindingSuffix(llvm::SMRange span, std::string& base,
+                                         const std::vector<std::string>& genericNames,
+                                         const std::unordered_map<std::string, lesma::Type*>& env)
+    -> void {
+  for (const auto& gn : genericNames) {
+    auto it = env.find(gn);
+    if (it == env.end() || it->second == nullptr) {
+      continue;
+    }
+    getOrCreateLlvmType(it->second);
+    base += "|" + MangleUtils::getTypeMangledName(span, it->second);
+  }
+}
+
+auto Codegen::specializeFunction(const FuncDecl* node, const std::vector<lesma::Type*>& paramTypes,
+                                 const std::vector<std::string>& genericNames,
+                                 const std::vector<lesma::Type*>& explicitTypeArgs)
+    -> lesma::Value* {
+  auto saved = currentGenericTypes;
+  auto env = computeGenericFunctionBindingEnv(node, paramTypes, genericNames, explicitTypeArgs);
   currentGenericTypes = env;
 
   for (auto* paramType : paramTypes) {
@@ -155,6 +178,7 @@ auto Codegen::specializeFunction(const FuncDecl* node, const std::vector<lesma::
   }
   std::string key =
       getMangledName(node->getSpan(), node->getName(), paramTypes, selfSymbol != nullptr);
+  appendGenericBindingSuffix(node->getSpan(), key, genericNames, env);
   if (auto it = specializedFunctions.find(key); it != specializedFunctions.end()) {
     currentGenericTypes = std::move(saved);
     return it->second;
@@ -190,6 +214,8 @@ auto Codegen::specializeFunction(const FuncDecl* node, const std::vector<lesma::
   auto* typePtr = cacheType(std::move(funcType));
   auto mangledName =
       getMangledName(node->getSpan(), node->getName(), concreteParamTypes, selfSymbol != nullptr);
+  appendGenericBindingSuffix(node->getSpan(), mangledName, genericNames, env);
+  const bool specializationKeysMatch = (mangledName == key);
   auto func = std::make_unique<Value>(node->getName(), typePtr);
   func->setCategory(ValueCategory::CALLABLE_SYMBOL);
   func->setMangledName(mangledName);
@@ -209,6 +235,9 @@ auto Codegen::specializeFunction(const FuncDecl* node, const std::vector<lesma::
   scope->insertSymbol(std::move(func));
   prototypes.emplace_back(funcPtr, node, selfSymbol);
   specializedFunctions.emplace(std::move(key), funcPtr);
+  if (!specializationKeysMatch) {
+    specializedFunctions[mangledName] = funcPtr;
+  }
   specializationEnvs.emplace(funcPtr, currentGenericTypes);
   currentGenericTypes = std::move(saved);
   return funcPtr;
