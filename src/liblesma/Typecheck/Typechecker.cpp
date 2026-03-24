@@ -2977,12 +2977,11 @@ auto Typechecker::visit(const UnaryOp* node) -> void {
     if (operand == nullptr || !operand->is(BaseType::TY_PTR)) {
       throw TypeCheckError(node->getSpan(), "Dereference requires pointer type");
     }
-    result = std::make_unique<Value>(
-        operand->getElementType() != nullptr ? operand->getElementType() : [&]() -> Type* {
-          auto u = std::make_unique<Type>(BaseType::TY_INT);
-          u->setIntWidth(64);
-          return cacheType(std::move(u));
-        }());
+    if (operand->getElementType() == nullptr) {
+      throw TypeCheckError(node->getSpan(),
+                           "Cannot dereference pointer without a known pointee type");
+    }
+    result = std::make_unique<Value>(operand->getElementType());
     break;
   default:
     throw TypeCheckError(node->getSpan(), "Unsupported unary operator: {}",
