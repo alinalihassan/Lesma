@@ -886,6 +886,12 @@ auto Typechecker::typecheckBinaryOpResult(TokenType op, Type* leftTy, Type* righ
     if (Type* overloadedType = tryOverload(); overloadedType != nullptr) {
       return overloadedType;
     }
+    if ((op == TokenType::EQUAL_EQUAL || op == TokenType::BANG_EQUAL) && leftTy != nullptr &&
+        rightTy != nullptr &&
+        ((leftTy->is(BaseType::TY_PTR) && rightTy->is(BaseType::TY_INT)) ||
+         (leftTy->is(BaseType::TY_INT) && rightTy->is(BaseType::TY_PTR)))) {
+      return cacheType(std::make_unique<Type>(BaseType::TY_BOOL));
+    }
     if (leftTy->isOneOf({BaseType::TY_ENUM, BaseType::TY_CLASS}) ||
         rightTy->isOneOf({BaseType::TY_ENUM, BaseType::TY_CLASS})) {
       if (leftTy != rightTy) {

@@ -3323,7 +3323,27 @@ auto Codegen::visit(const BinaryOp* node) -> void {
     }
 
     throw CodegenError(node->getSpan(), "Power operator not implemented yet.");
-  case TokenType::EQUAL_EQUAL:
+  case TokenType::EQUAL_EQUAL: {
+    Type* ltyEq = left->getType();
+    Type* rtyEq = right->getType();
+    if (ltyEq != nullptr && rtyEq != nullptr) {
+      if (ltyEq->is(BaseType::TY_PTR) && rtyEq->is(BaseType::TY_INT)) {
+        llvm::Value* lv = builder->CreatePtrToInt(left->getLlvmValue(), builder->getInt64Ty());
+        llvm::Value* rv = right->getLlvmValue();
+        result = std::make_unique<Value>(
+            "", cacheType(std::make_unique<Type>(BaseType::TY_BOOL, builder->getInt1Ty())),
+            builder->CreateICmpEQ(lv, rv));
+        return;
+      }
+      if (rtyEq->is(BaseType::TY_PTR) && ltyEq->is(BaseType::TY_INT)) {
+        llvm::Value* rv = builder->CreatePtrToInt(right->getLlvmValue(), builder->getInt64Ty());
+        llvm::Value* lv = left->getLlvmValue();
+        result = std::make_unique<Value>(
+            "", cacheType(std::make_unique<Type>(BaseType::TY_BOOL, builder->getInt1Ty())),
+            builder->CreateICmpEQ(lv, rv));
+        return;
+      }
+    }
     left = cast(node->getSpan(), left.get(), finalType);
     right = cast(node->getSpan(), right.get(), finalType);
 
@@ -3379,7 +3399,28 @@ auto Codegen::visit(const BinaryOp* node) -> void {
     }
 
     break;
-  case TokenType::BANG_EQUAL:
+  }
+  case TokenType::BANG_EQUAL: {
+    Type* ltyNe = left->getType();
+    Type* rtyNe = right->getType();
+    if (ltyNe != nullptr && rtyNe != nullptr) {
+      if (ltyNe->is(BaseType::TY_PTR) && rtyNe->is(BaseType::TY_INT)) {
+        llvm::Value* lv = builder->CreatePtrToInt(left->getLlvmValue(), builder->getInt64Ty());
+        llvm::Value* rv = right->getLlvmValue();
+        result = std::make_unique<Value>(
+            "", cacheType(std::make_unique<Type>(BaseType::TY_BOOL, builder->getInt1Ty())),
+            builder->CreateICmpNE(lv, rv));
+        return;
+      }
+      if (rtyNe->is(BaseType::TY_PTR) && ltyNe->is(BaseType::TY_INT)) {
+        llvm::Value* rv = builder->CreatePtrToInt(right->getLlvmValue(), builder->getInt64Ty());
+        llvm::Value* lv = left->getLlvmValue();
+        result = std::make_unique<Value>(
+            "", cacheType(std::make_unique<Type>(BaseType::TY_BOOL, builder->getInt1Ty())),
+            builder->CreateICmpNE(lv, rv));
+        return;
+      }
+    }
     left = cast(node->getSpan(), left.get(), finalType);
     right = cast(node->getSpan(), right.get(), finalType);
 
@@ -3434,6 +3475,7 @@ auto Codegen::visit(const BinaryOp* node) -> void {
       return;
     }
     break;
+  }
   case TokenType::GREATER:
     left = cast(node->getSpan(), left.get(), finalType);
     right = cast(node->getSpan(), right.get(), finalType);
