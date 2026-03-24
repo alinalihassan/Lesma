@@ -496,6 +496,8 @@ auto collectIndexFromStmt(const Statement* stmt, AnalysisIndex& index, bool inCl
     {
       std::vector<std::string> const& implNames = klass->getImplTraitNames();
       std::vector<llvm::SMRange> const& implSpans = klass->getImplTraitSpans();
+      std::vector<std::vector<std::unique_ptr<TypeExpr>>> const& implTypeArgLists =
+          klass->getImplTraitTypeArgs();
       for (size_t ti = 0; ti < implNames.size(); ++ti) {
         if (ti >= implSpans.size()) {
           break;
@@ -504,10 +506,19 @@ auto collectIndexFromStmt(const Statement* stmt, AnalysisIndex& index, bool inCl
         if (!traitSpan.isValid()) {
           continue;
         }
+        Value* traitSym =
+            klass->getGenericScope() != nullptr
+                ? klass->getGenericScope()->lookup(implNames[ti])
+                : nullptr;
         appendIndexedOccurrence(
             index, implNames[ti], std::nullopt, traitSpan, true, false, 0U,
-            indexedTokenKindFromResolvedSymbol(nullptr, true, false, IndexedTokenKind::Type),
-            nullptr);
+            indexedTokenKindFromResolvedSymbol(traitSym, true, false, IndexedTokenKind::Type),
+            traitSym);
+        if (ti < implTypeArgLists.size()) {
+          for (std::unique_ptr<TypeExpr> const& typeArg : implTypeArgLists[ti]) {
+            collectIndexFromTypeExpr(typeArg.get(), index);
+          }
+        }
       }
     }
     for (VarDecl* field : klass->getFields()) {
