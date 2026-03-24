@@ -5,6 +5,7 @@
 #include <optional>
 #include <string>
 #include <unordered_map>
+#include <utility>
 #include <vector>
 
 #include "llvm/Support/SMLoc.h"
@@ -58,20 +59,12 @@ struct IndexedSymbolOccurrence {
   std::optional<IndexedTokenKind> fallbackTokenKind;
 };
 
-struct IndexedEnumMemberOccurrence {
-  std::string enumName;
-  std::string memberName;
-  llvm::SMRange span;
-};
-
 struct AnalysisIndex {
   std::vector<IndexedSymbolOccurrence> symbolOccurrences;
-  std::vector<IndexedEnumMemberOccurrence> enumMemberOccurrences;
 };
 
 using ImportAliasMap = std::unordered_map<std::string, std::string>;
-using ImportedNameSourceMap =
-    std::unordered_map<std::string, std::pair<std::string, std::string>>;
+using ImportedNameSourceMap = std::unordered_map<std::string, std::pair<std::string, std::string>>;
 
 struct ImportedModuleAnalysis {
   std::shared_ptr<llvm::SourceMgr> sourceMgr;
@@ -79,8 +72,9 @@ struct ImportedModuleAnalysis {
   std::string mainFilePath;
 
   std::unique_ptr<Parser> parser;
-  std::unique_ptr<SymbolTable> rootScope;
+  /** Types must outlive \c rootScope: symbols hold raw \c Type* into this cache. */
   std::vector<std::unique_ptr<Type>> typeCache;
+  std::unique_ptr<SymbolTable> rootScope;
   AnalysisIndex index;
 
   ImportAliasMap importAliasToPath;
@@ -102,8 +96,11 @@ struct AnalysisResult {
 
   /** Set when parse succeeded (and possibly typecheck). */
   std::unique_ptr<Parser> parser;
-  std::unique_ptr<SymbolTable> rootScope;
+  /** Types must outlive \c rootScope: symbols hold raw \c Type* into this cache. */
   std::vector<std::unique_ptr<Type>> typeCache;
+  std::unique_ptr<SymbolTable> rootScope;
+  /** Generic bindings for specialized classes (e.g. list<int>); keys align with \p typeCache. */
+  std::unordered_map<Type*, std::unordered_map<std::string, Type*>> specializedTypeEnv;
   AnalysisIndex index;
   ImportAliasMap importAliasToPath;
   ImportedNameSourceMap importedNameToSource;

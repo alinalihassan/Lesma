@@ -1,0 +1,67 @@
+#include "liblesma/Common/ExportDiscovery.h"
+
+#include <filesystem>
+#include <memory>
+#include <utility>
+
+#include "llvm/Support/MemoryBuffer.h"
+
+#include "fmt/format.h"
+
+#include "liblesma/AST/AST.h"
+#include "liblesma/Frontend/Lexer.h"
+#include "liblesma/Frontend/Parser.h"
+
+namespace lesma {
+
+auto getExportedTopLevelNamesFromFile(const std::string& filepath, bool isStd,
+                                      const std::string& mainFilePath) -> std::vector<std::string> {
+  std::string const absolutePath =
+      isStd ? filepath
+            : fmt::format("{}/{}", std::filesystem::absolute(mainFilePath).parent_path().string(),
+                          filepath);
+  auto buffer = llvm::MemoryBuffer::getFile(absolutePath);
+  if (!buffer) {
+    return {};
+  }
+
+  auto srcMgr = std::make_shared<llvm::SourceMgr>();
+  srcMgr->AddNewSourceBuffer(std::move(*buffer), llvm::SMLoc());
+  auto lexer = std::make_unique<Lexer>(srcMgr);
+  lexer->scanAll();
+  auto pars = std::make_unique<Parser>(lexer->getTokens());
+  pars->parse();
+  Compound* ast = pars->getAst();
+  if (ast == nullptr) {
+    return {};
+  }
+
+  std::vector<std::string> out;
+  for (Statement* stmt : ast->getChildren()) {
+    if (auto* f = dynamic_cast<FuncDecl*>(stmt)) {
+      if (f->isExported()) {
+        out.push_back(f->getName());
+      }
+    } else if (auto* c = dynamic_cast<Class*>(stmt)) {
+      if (c->isExported()) {
+        out.push_back(c->getIdentifier());
+      }
+    } else if (auto* e = dynamic_cast<Enum*>(stmt)) {
+      if (e->isExported()) {
+        out.push_back(e->getIdentifier());
+      }
+    } else if (auto* ef = dynamic_cast<ExternFuncDecl*>(stmt)) {
+      if (ef->isExported()) {
+        out.push_back(ef->getName());
+      }
+    } else if (auto* tr = dynamic_cast<TraitDecl*>(stmt)) {
+      if (tr->isExported()) {
+        out.push_back(tr->getIdentifier());
+      }
+    }
+  }
+
+  return out;
+}
+
+} // namespace lesma

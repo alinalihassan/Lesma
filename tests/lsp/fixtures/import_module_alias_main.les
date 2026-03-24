@@ -1,3 +1,0 @@
-import math as m
-
-let value = m.abs(1)

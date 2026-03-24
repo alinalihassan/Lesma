@@ -25,54 +25,6 @@ file(READ ${CMAKE_CURRENT_SOURCE_DIR}/vcpkg.json VCPKG_MANIFEST)
 string(JSON LESMA_VERSION GET ${VCPKG_MANIFEST} version)
 set(VERSION ${LESMA_VERSION})
 
-# Prefer vcpkg's built-in release-only triplets so ports like LLVM are not
-# built twice (debug + release). This must happen before project().
-if(DEFINED CMAKE_TOOLCHAIN_FILE AND CMAKE_TOOLCHAIN_FILE MATCHES [[vcpkg\.cmake]])
-  if(CMAKE_SYSTEM_NAME STREQUAL "Darwin" OR CMAKE_HOST_SYSTEM_NAME STREQUAL "Darwin")
-    set(_lesma_triplet_arch "${CMAKE_OSX_ARCHITECTURES}")
-    if(NOT _lesma_triplet_arch)
-      set(_lesma_triplet_arch "${CMAKE_SYSTEM_PROCESSOR}")
-    endif()
-    if(NOT _lesma_triplet_arch)
-      set(_lesma_triplet_arch "${CMAKE_HOST_SYSTEM_PROCESSOR}")
-    endif()
-    if(NOT _lesma_triplet_arch)
-      execute_process(COMMAND /usr/bin/uname -m OUTPUT_VARIABLE _lesma_triplet_arch
-                      OUTPUT_STRIP_TRAILING_WHITESPACE)
-    endif()
-    if(_lesma_triplet_arch MATCHES "^(arm64|aarch64)$")
-      set(_lesma_default_triplet "arm64-osx-release")
-    else()
-      set(_lesma_default_triplet "x64-osx-release")
-    endif()
-  elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux" OR CMAKE_HOST_SYSTEM_NAME STREQUAL "Linux")
-    set(_lesma_triplet_arch "${CMAKE_SYSTEM_PROCESSOR}")
-    if(NOT _lesma_triplet_arch)
-      set(_lesma_triplet_arch "${CMAKE_HOST_SYSTEM_PROCESSOR}")
-    endif()
-    if(NOT _lesma_triplet_arch)
-      execute_process(COMMAND /usr/bin/uname -m OUTPUT_VARIABLE _lesma_triplet_arch
-                      OUTPUT_STRIP_TRAILING_WHITESPACE)
-    endif()
-    if(_lesma_triplet_arch MATCHES "^(arm64|aarch64)$")
-      set(_lesma_default_triplet "arm64-linux-release")
-    else()
-      set(_lesma_default_triplet "x64-linux-release")
-    endif()
-  endif()
-
-  if(DEFINED _lesma_default_triplet AND
-     (NOT DEFINED CACHE{VCPKG_TARGET_TRIPLET} OR
-      VCPKG_TARGET_TRIPLET STREQUAL "" OR
-      VCPKG_TARGET_TRIPLET STREQUAL "arm64-osx" OR
-      VCPKG_TARGET_TRIPLET STREQUAL "x64-osx" OR
-      VCPKG_TARGET_TRIPLET STREQUAL "arm64-linux" OR
-      VCPKG_TARGET_TRIPLET STREQUAL "x64-linux"))
-    set(VCPKG_TARGET_TRIPLET "${_lesma_default_triplet}" CACHE STRING
-        "vcpkg triplet" FORCE)
-  endif()
-endif()
-
 # Project
 project(Lesma VERSION ${VERSION} DESCRIPTION "Lesma Compiler")
 
@@ -122,30 +74,11 @@ configure_file(
 include_directories(${SRC_DIR})
 include_directories(${LIB_DIR})
 
-# LLVM + LLD from vcpkg manifest (see vcpkg.json). Pin CMake to vcpkg's install so Homebrew LLVM
-# is not picked up when CMAKE_PREFIX_PATH / LLVM_DIR point at /opt/homebrew.
-if(DEFINED VCPKG_INSTALLED_DIR AND DEFINED VCPKG_TARGET_TRIPLET)
-  set(_LESMA_VCPKG_ROOT "${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET}")
-  if(EXISTS "${_LESMA_VCPKG_ROOT}/share/llvm/cmake/LLVMConfig.cmake")
-    unset(LLVM_DIR CACHE)
-    set(LLVM_DIR "${_LESMA_VCPKG_ROOT}/share/llvm/cmake" CACHE PATH "LLVMConfig.cmake from vcpkg"
-        FORCE)
-  elseif(EXISTS "${_LESMA_VCPKG_ROOT}/lib/cmake/llvm/LLVMConfig.cmake")
-    unset(LLVM_DIR CACHE)
-    set(LLVM_DIR "${_LESMA_VCPKG_ROOT}/lib/cmake/llvm" CACHE PATH "LLVMConfig.cmake from vcpkg"
-        FORCE)
-  endif()
-  foreach(_LESMA_LLD_CAND
-          "${_LESMA_VCPKG_ROOT}/share/lld/cmake/LLDConfig.cmake"
-          "${_LESMA_VCPKG_ROOT}/lib/cmake/lld/LLDConfig.cmake")
-    if(EXISTS "${_LESMA_LLD_CAND}")
-      unset(LLD_DIR CACHE)
-      get_filename_component(_LESMA_LLD_DIR "${_LESMA_LLD_CAND}" DIRECTORY)
-      set(LLD_DIR "${_LESMA_LLD_DIR}" CACHE PATH "LLDConfig.cmake from vcpkg" FORCE)
-      break()
-    endif()
-  endforeach()
-endif()
+# Look for local dependencies
+if (EXISTS "${LLVM_DIR}" AND IS_DIRECTORY "${LLVM_DIR}") # Prefer local LLVM installation
+  message(STATUS "Found local installation of LLVM")
+  set(LLVM_DIR ./llvm/build-release/lib/cmake/llvm)
+endif ()
 
 # Optional in-tree LLVM (e.g. llvm/build-release from a local LLVM build) when vcpkg did not set LLVM_DIR
 set(LESMA_IN_TREE_LLVM_CMAKE "${ROOT_DIR}/llvm/build-release/lib/cmake/llvm")
@@ -154,6 +87,7 @@ if(EXISTS "${LESMA_IN_TREE_LLVM_CMAKE}/LLVMConfig.cmake" AND NOT LLVM_DIR)
   message(STATUS "Using in-tree LLVM at ${LLVM_DIR}")
 endif()
 
+# LLVM configuration
 find_package(LLVM CONFIG REQUIRED)
 
 message(STATUS "Found LLVM ${LLVM_PACKAGE_VERSION}")
@@ -161,6 +95,7 @@ message(STATUS "Using LLVMConfig.cmake from ${LLVM_DIR}")
 
 list(APPEND CMAKE_MODULE_PATH "${LLVM_CMAKE_DIR}")
 include(HandleLLVMOptions)
+include_directories(SYSTEM ${LLVM_INCLUDE_DIRS})
 add_definitions(${LLVM_DEFINITIONS})
 llvm_map_components_to_libnames(LLVM_LIBS core support demangle native orcjit)
 
@@ -175,12 +110,19 @@ set(LIB_NAME lesma)
 
 set(COMMON_SOURCES
   src/liblesma/Common/Utils.cpp
+  src/liblesma/Common/ExportDiscovery.cpp
   src/liblesma/Frontend/Lexer.cpp
   src/liblesma/Frontend/Parser.cpp
   src/liblesma/Token/Token.cpp
   src/liblesma/Typecheck/AnalysisIndex.cpp
   src/liblesma/Typecheck/Typechecker.cpp
-  src/liblesma/Backend/Codegen.cpp
+  src/liblesma/Backend/CodegenVisit.cpp
+  src/liblesma/Backend/CodegenImport.cpp
+  src/liblesma/Backend/CodegenPipeline.cpp
+  src/liblesma/Backend/CodegenBufferHelpers.cpp
+  src/liblesma/Backend/CodegenTypesTraits.cpp
+  src/liblesma/Backend/CodegenSpecialize.cpp
+  src/liblesma/Backend/CodegenBuiltinIntrinsics.cpp
   src/liblesma/Backend/CodegenTypeUtils.cpp
   src/liblesma/Backend/MangleUtils.cpp
   src/liblesma/Symbol/SymbolTable.cpp
@@ -237,6 +179,9 @@ if (LESMA_BUILD_TESTS)
   find_program(BASH_PROGRAM bash)
   if (BASH_PROGRAM)
     add_test(test_lesma_sources ${BASH_PROGRAM} ${CMAKE_CURRENT_SOURCE_DIR}/scripts/run_tests.sh ${CMAKE_CURRENT_BINARY_DIR}/lesma)
+    # Lesma integration tests use paths relative to the repo root (e.g. tests/lesma/success/...).
+    # ctest defaults the working directory to the build dir; run_tests must start from the source tree.
+    set_tests_properties(test_lesma_sources PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
   endif (BASH_PROGRAM)
 
   add_test(AllTestsInMain ${TESTS_NAME})
@@ -264,14 +209,15 @@ if (LESMA_BUILD_LSP)
   FetchContent_Declare(
     lsp_framework
     GIT_REPOSITORY https://github.com/leon-bckl/lsp-framework.git
-    GIT_TAG master
+    GIT_TAG 1.3.1
   )
   FetchContent_MakeAvailable(lsp_framework)
 
   find_package(libgit2 CONFIG REQUIRED)
 
-  set(LSP_SERVER_SOURCES src/lsp/main.cpp src/lsp/DocumentStore.cpp src/lsp/LspCompletion.cpp
-      src/lsp/LspUtf16.cpp src/lsp/WorkspaceLesFiles.cpp)
+  set(LSP_SERVER_SOURCES src/lsp/main.cpp src/lsp/DocumentStore.cpp src/lsp/LspAnalysisGraph.cpp
+      src/lsp/LspCompletion.cpp src/lsp/LspTypeFormat.cpp src/lsp/LspUtf16.cpp
+      src/lsp/WorkspaceLesFiles.cpp)
   add_executable(lesma-lsp ${LSP_SERVER_SOURCES})
   target_link_libraries(lesma-lsp PRIVATE ${LIB_NAME} lsp libgit2::libgit2package)
   target_include_directories(lesma-lsp PRIVATE ${lsp_framework_SOURCE_DIR})

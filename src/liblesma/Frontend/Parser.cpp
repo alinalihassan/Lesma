@@ -1,6 +1,7 @@
 #include "Parser.h"
 
 #include <memory>
+#include <optional>
 #include <string>
 #include <tuple>
 #include <utility>
@@ -12,6 +13,7 @@
 #include <fmt/format.h>
 
 #include "liblesma/AST/AST.h"
+#include "liblesma/Common/OperatorUtils.h"
 #include "liblesma/Common/Utils.h"
 #include "liblesma/Token/Token.h"
 #include "liblesma/Token/TokenType.h"
@@ -83,8 +85,69 @@ auto Parser::error(Token* token, const std::string& errorMessage) -> void {
   throw ParserError(token->span, "{}", errorMessage);
 }
 
+auto Parser::parseGenericParamList() -> std::vector<GenericParamDecl> {
+  std::vector<GenericParamDecl> genericParams;
+  if (!check(TokenType::LESS)) {
+    return genericParams;
+  }
+  consume(TokenType::LESS);
+  while (!check(TokenType::GREATER)) {
+    auto* genericParam = consume(TokenType::IDENTIFIER);
+    std::vector<std::string> bounds;
+    std::vector<llvm::SMRange> boundSpans;
+    if (advanceIfMatchAny<TokenType::COLON>()) {
+      auto* boundId = consume(TokenType::IDENTIFIER);
+      bounds.push_back(boundId->lexeme);
+      boundSpans.push_back(boundId->span);
+      while (advanceIfMatchAny<TokenType::AMPERSAND>()) {
+        boundId = consume(TokenType::IDENTIFIER);
+        bounds.push_back(boundId->lexeme);
+        boundSpans.push_back(boundId->span);
+      }
+    }
+    genericParams.push_back(GenericParamDecl{
+        .name = genericParam->lexeme,
+        .span = genericParam->span,
+        .traitBounds = std::move(bounds),
+        .traitBoundSpans = std::move(boundSpans),
+    });
+    if (!check(TokenType::GREATER)) {
+      consume(TokenType::COMMA);
+    }
+  }
+  consume(TokenType::GREATER);
+  return genericParams;
+}
+
 auto Parser::parseType() -> std::unique_ptr<TypeExpr> {
   auto* type = peek();
+  if (check(TokenType::LEFT_PAREN)) {
+    auto* left = consume(TokenType::LEFT_PAREN);
+    std::unique_ptr<TypeExpr> innerFirst = parseType();
+    if (advanceIfMatchAny<TokenType::COMMA>()) {
+      std::vector<std::unique_ptr<TypeExpr>> elems;
+      elems.push_back(std::move(innerFirst));
+      while (!check(TokenType::RIGHT_PAREN)) {
+        elems.push_back(parseType());
+        if (!check(TokenType::RIGHT_PAREN)) {
+          consume(TokenType::COMMA);
+        }
+      }
+      auto* right = consume(TokenType::RIGHT_PAREN);
+      std::string lexeme = "(";
+      for (size_t i = 0; i < elems.size(); ++i) {
+        if (i > 0) {
+          lexeme += ", ";
+        }
+        lexeme += elems[i]->getName();
+      }
+      lexeme += ")";
+      return TypeExpr::makeTupleType(llvm::SMRange{left->getStart(), right->getEnd()},
+                                     std::move(lexeme), std::move(elems));
+    }
+    std::ignore = consume(TokenType::RIGHT_PAREN);
+    return innerFirst;
+  }
   if (check(TokenType::STAR)) {
     advance();
     auto elementType = parseType();
@@ -94,7 +157,9 @@ auto Parser::parseType() -> std::unique_ptr<TypeExpr> {
   }
   if (checkAny<TokenType::INT_TYPE, TokenType::FLOAT_TYPE, TokenType::STRING_TYPE,
                TokenType::BOOL_TYPE, TokenType::INT8_TYPE, TokenType::INT16_TYPE,
-               TokenType::INT32_TYPE, TokenType::FLOAT32_TYPE, TokenType::VOID_TYPE>()) {
+               TokenType::INT32_TYPE, TokenType::UINT_TYPE, TokenType::UINT8_TYPE,
+               TokenType::UINT16_TYPE, TokenType::UINT32_TYPE, TokenType::FLOAT32_TYPE,
+               TokenType::VOID_TYPE>()) {
     advance();
     return std::make_unique<TypeExpr>(type->span, type->lexeme, type->type);
   }
@@ -139,6 +204,27 @@ auto Parser::parseType() -> std::unique_ptr<TypeExpr> {
 
   if (check(TokenType::IDENTIFIER)) {
     advance();
+    if (check(TokenType::LESS)) {
+      consume(TokenType::LESS);
+      std::vector<std::unique_ptr<TypeExpr>> typeArgs;
+      while (true) {
+        typeArgs.push_back(parseType());
+        if (!advanceIfMatchAny<TokenType::COMMA>()) {
+          break;
+        }
+      }
+      auto* greater = consume(TokenType::GREATER, "Expected '>' after generic type arguments");
+      std::string lexeme = type->lexeme + "<";
+      for (size_t i = 0; i < typeArgs.size(); ++i) {
+        lexeme += typeArgs[i]->getName();
+        if (i + 1U < typeArgs.size()) {
+          lexeme += ", ";
+        }
+      }
+      lexeme += ">";
+      return std::make_unique<TypeExpr>(llvm::SMRange{type->getStart(), greater->getEnd()}, lexeme,
+                                        TokenType::CUSTOM_TYPE, std::move(typeArgs));
+    }
     return std::make_unique<TypeExpr>(type->span, type->lexeme, TokenType::CUSTOM_TYPE);
   }
 
@@ -157,9 +243,34 @@ auto Parser::parseTypeAt(unsigned long& off) -> bool {
     return parseTypeAt(off);
   }
 
+  if (check(TokenType::LEFT_PAREN, off)) {
+    off++;
+    if (!parseTypeAt(off)) {
+      return false;
+    }
+    if (index + off < tokens.size() && peek(off)->type == TokenType::COMMA) {
+      off++;
+      while (index + off < tokens.size() && peek(off)->type != TokenType::RIGHT_PAREN) {
+        if (!parseTypeAt(off)) {
+          return false;
+        }
+        if (index + off < tokens.size() && peek(off)->type == TokenType::COMMA) {
+          off++;
+        }
+      }
+    }
+    if (index + off >= tokens.size() || peek(off)->type != TokenType::RIGHT_PAREN) {
+      return false;
+    }
+    off++;
+    return true;
+  }
+
   if (checkAny<TokenType::INT_TYPE, TokenType::FLOAT_TYPE, TokenType::STRING_TYPE,
                TokenType::BOOL_TYPE, TokenType::INT8_TYPE, TokenType::INT16_TYPE,
-               TokenType::INT32_TYPE, TokenType::FLOAT32_TYPE, TokenType::VOID_TYPE>(off)) {
+               TokenType::INT32_TYPE, TokenType::UINT_TYPE, TokenType::UINT8_TYPE,
+               TokenType::UINT16_TYPE, TokenType::UINT32_TYPE, TokenType::FLOAT32_TYPE,
+               TokenType::VOID_TYPE>(off)) {
     off++;
     return true;
   }
@@ -196,8 +307,24 @@ auto Parser::parseTypeAt(unsigned long& off) -> bool {
     return true;
   }
 
-  if (check(TokenType::IDENTIFIER, off)) {
+  if (check(TokenType::IDENTIFIER, off) || check(TokenType::STRING_TYPE, off)) {
     off++;
+    if (index + off < tokens.size() && peek(off)->type == TokenType::LESS) {
+      off++;
+      if (!parseTypeAt(off)) {
+        return false;
+      }
+      while (index + off < tokens.size() && peek(off)->type == TokenType::COMMA) {
+        off++;
+        if (!parseTypeAt(off)) {
+          return false;
+        }
+      }
+      if (index + off >= tokens.size() || peek(off)->type != TokenType::GREATER) {
+        return false;
+      }
+      off++;
+    }
     return true;
   }
 
@@ -207,7 +334,8 @@ auto Parser::parseTypeAt(unsigned long& off) -> bool {
 auto Parser::skipOneTypeAt(unsigned long& off) -> bool { return parseTypeAt(off); }
 
 auto Parser::hasExplicitTypeArgsAndParen() -> bool {
-  if (!check(TokenType::IDENTIFIER) || !check(TokenType::LESS, 1)) {
+  if (!(check(TokenType::IDENTIFIER) || check(TokenType::STRING_TYPE)) ||
+      !check(TokenType::LESS, 1)) {
     return false;
   }
   unsigned long off = 2;
@@ -233,7 +361,10 @@ auto Parser::hasExplicitTypeArgsAndParen() -> bool {
 // Expression
 auto Parser::parseFunctionCall() -> std::unique_ptr<Expression> {
   auto* token = peek();
-  consume(TokenType::IDENTIFIER);
+  if (token->type != TokenType::IDENTIFIER && token->type != TokenType::STRING_TYPE) {
+    error(token, "Expected function or type name");
+  }
+  advance();
 
   std::vector<std::unique_ptr<TypeExpr>> explicitTypeArgs;
   if (check(TokenType::LESS)) {
@@ -267,6 +398,20 @@ auto Parser::parseFunctionCall() -> std::unique_ptr<Expression> {
                                     token->lexeme, std::move(explicitTypeArgs), std::move(params));
 }
 
+auto Parser::parseListLiteral() -> std::unique_ptr<Expression> {
+  auto* start = consume(TokenType::LEFT_SQUARE);
+  std::vector<std::unique_ptr<Expression>> elements;
+  while (!check(TokenType::RIGHT_SQUARE)) {
+    elements.push_back(parseExpression());
+    if (!check(TokenType::RIGHT_SQUARE)) {
+      consume(TokenType::COMMA);
+    }
+  }
+  auto* end = consume(TokenType::RIGHT_SQUARE);
+  return std::make_unique<ListLiteral>(llvm::SMRange{start->getStart(), end->getEnd()},
+                                       std::move(elements));
+}
+
 auto Parser::parseTerm() -> std::unique_ptr<Expression> {
   switch (peek()->type) {
   case TokenType::STRING:
@@ -277,6 +422,7 @@ auto Parser::parseTerm() -> std::unique_ptr<Expression> {
     consume(token->type);
     return std::make_unique<Literal>(token->span, token->lexeme, token->type);
   }
+  case TokenType::STRING_TYPE:
   case TokenType::IDENTIFIER: {
     if (check(TokenType::LEFT_PAREN, 1) || hasExplicitTypeArgsAndParen()) {
       return parseFunctionCall();
@@ -284,14 +430,31 @@ auto Parser::parseTerm() -> std::unique_ptr<Expression> {
 
     auto* token = peek();
     consume(token->type);
-    return std::make_unique<Literal>(token->span, token->lexeme, token->type);
+    TokenType const litType =
+        token->type == TokenType::STRING_TYPE ? TokenType::IDENTIFIER : token->type;
+    return std::make_unique<Literal>(token->span, token->lexeme, litType);
   }
   case TokenType::LEFT_PAREN: {
-    consume(TokenType::LEFT_PAREN);
-    auto expr = parseExpression();
-    consume(TokenType::RIGHT_PAREN);
-    return expr;
+    auto* left = consume(TokenType::LEFT_PAREN);
+    auto first = parseExpression();
+    if (advanceIfMatchAny<TokenType::COMMA>()) {
+      std::vector<std::unique_ptr<Expression>> elems;
+      elems.push_back(std::move(first));
+      while (!check(TokenType::RIGHT_PAREN)) {
+        elems.push_back(parseExpression());
+        if (!check(TokenType::RIGHT_PAREN)) {
+          consume(TokenType::COMMA);
+        }
+      }
+      auto* right = consume(TokenType::RIGHT_PAREN);
+      return std::make_unique<TupleLiteral>(llvm::SMRange{left->getStart(), right->getEnd()},
+                                            std::move(elems));
+    }
+    std::ignore = consume(TokenType::RIGHT_PAREN);
+    return first;
   }
+  case TokenType::LEFT_SQUARE:
+    return parseListLiteral();
   case TokenType::TRUE_:
   case TokenType::FALSE_: {
     auto* token = peek();
@@ -305,18 +468,31 @@ auto Parser::parseTerm() -> std::unique_ptr<Expression> {
   return nullptr;
 }
 
-auto Parser::parseDot() -> std::unique_ptr<Expression> {
+auto Parser::parsePostfix() -> std::unique_ptr<Expression> {
   auto left = parseTerm();
 
-  while (advanceIfMatchAny<TokenType::DOT>()) {
-    auto* op = previous();
-    auto expr = parseTerm();
-    left = std::make_unique<DotOp>(llvm::SMRange{left->getStart(), expr->getEnd()}, std::move(left),
-                                   op->type, std::move(expr));
+  while (true) {
+    if (advanceIfMatchAny<TokenType::DOT>()) {
+      auto* op = previous();
+      auto expr = parseTerm();
+      left = std::make_unique<DotOp>(llvm::SMRange{left->getStart(), expr->getEnd()},
+                                     std::move(left), op->type, std::move(expr));
+      continue;
+    }
+    if (advanceIfMatchAny<TokenType::LEFT_SQUARE>()) {
+      auto index = parseExpression();
+      auto* end = consume(TokenType::RIGHT_SQUARE, "Expected ']' after subscript index");
+      left = std::make_unique<SubscriptOp>(llvm::SMRange{left->getStart(), end->getEnd()},
+                                           std::move(left), std::move(index));
+      continue;
+    }
+    break;
   }
 
   return left;
 }
+
+auto Parser::parseDot() -> std::unique_ptr<Expression> { return parsePostfix(); }
 
 auto Parser::parseUnary() -> std::unique_ptr<Expression> {
   // Handle unary operators recursively to allow chaining: - - x, * * ptr, etc.
@@ -439,8 +615,18 @@ auto Parser::parseVarDecl() -> std::unique_ptr<Statement> {
     startTok = consume(TokenType::VAR);
     isMutable = true;
   }
-  auto* identifier = consume(TokenType::IDENTIFIER);
-  auto var = std::make_unique<Literal>(identifier->span, identifier->lexeme, identifier->type);
+  std::vector<std::unique_ptr<Literal>> vars;
+  auto* firstId = consume(TokenType::IDENTIFIER);
+  vars.push_back(std::make_unique<Literal>(firstId->span, firstId->lexeme, firstId->type));
+  while (advanceIfMatchAny<TokenType::COMMA>()) {
+    auto* nextId = consume(TokenType::IDENTIFIER);
+    vars.push_back(std::make_unique<Literal>(nextId->span, nextId->lexeme, nextId->type));
+  }
+  if (inClass && vars.size() > 1U) {
+    throw ParserError(llvm::SMRange{vars[1]->getStart(), vars.back()->getEnd()},
+                      "Class fields must declare a single identifier per field (comma-separated "
+                      "bindings are not supported)");
+  }
 
   std::unique_ptr<TypeExpr> type;
   if (advanceIfMatchAny<TokenType::COLON>()) {
@@ -452,19 +638,26 @@ auto Parser::parseVarDecl() -> std::unique_ptr<Statement> {
     expr = parseExpression();
   }
 
+  Literal* nameEnd = vars.back().get();
   if (!type && !expr) {
-    throw ParserError(llvm::SMRange{startTok->getStart(), var->getEnd()},
+    throw ParserError(llvm::SMRange{startTok->getStart(), nameEnd->getEnd()},
                       "Expected either a type or a value");
   }
 
   if (!expr && !isMutable) {
-    throw ParserError(llvm::SMRange{startTok->getStart(), type->getEnd()},
-                      "Cannot declare an immutable variable without an initial expression");
+    throw ParserError(
+        llvm::SMRange{startTok->getStart(), type != nullptr ? type->getEnd() : nameEnd->getEnd()},
+        "Cannot declare an immutable variable without an initial expression");
   }
 
   consumeNewline();
-  llvm::SMLoc const endLoc = expr ? expr->getEnd() : type->getEnd();
-  return std::make_unique<VarDecl>(llvm::SMRange{startTok->getStart(), endLoc}, std::move(var),
+  llvm::SMLoc endLoc = nameEnd->getEnd();
+  if (expr != nullptr) {
+    endLoc = expr->getEnd();
+  } else if (type != nullptr) {
+    endLoc = type->getEnd();
+  }
+  return std::make_unique<VarDecl>(llvm::SMRange{startTok->getStart(), endLoc}, std::move(vars),
                                    std::move(type), std::move(expr), isMutable);
 }
 
@@ -506,24 +699,26 @@ auto Parser::parseWhile() -> std::unique_ptr<Statement> {
 auto Parser::parseFor() -> std::unique_ptr<Statement> {
   auto loc = peek()->span;
   consume(TokenType::FOR);
-  consume(TokenType::IDENTIFIER);
+  auto* identifier = consume(TokenType::IDENTIFIER);
   consume(TokenType::IN);
-  parseExpression();
+  auto iterable = parseExpression();
   auto block = parseBlock();
-  return std::make_unique<UnimplementedStatement>(llvm::SMRange{loc.Start, block->getEnd()},
-                                                  "for loop is not yet implemented");
+  auto var = std::make_unique<Literal>(identifier->span, identifier->lexeme, identifier->type);
+  return std::make_unique<ForIn>(llvm::SMRange{loc.Start, block->getEnd()}, std::move(var),
+                                 std::move(iterable), std::move(block));
 }
 
 auto Parser::parseAssignment() -> std::unique_ptr<Statement> {
-  auto identifier = parseDot();
+  auto identifier = parsePostfix();
 
   auto* literalPtr = dynamic_cast<Literal*>(identifier.get());
   auto* dotOpPtr = dynamic_cast<DotOp*>(identifier.get());
+  auto* subscriptPtr = dynamic_cast<SubscriptOp*>(identifier.get());
 
   if ((literalPtr == nullptr || literalPtr->getType() != TokenType::IDENTIFIER) &&
-      dotOpPtr == nullptr) {
+      dotOpPtr == nullptr && subscriptPtr == nullptr) {
     throw ParserError(identifier->getSpan(),
-                      "Expected either identifier or class field for assignment");
+                      "Expected identifier, field access, or subscript for assignment");
   }
 
   if (advanceIfMatchAny<TokenType::EQUAL, TokenType::PLUS_EQUAL, TokenType::MINUS_EQUAL,
@@ -554,6 +749,12 @@ auto Parser::parseContinue() -> std::unique_ptr<Statement> {
   return std::make_unique<Continue>(span);
 }
 
+auto Parser::parsePass() -> std::unique_ptr<Statement> {
+  auto span = consume(TokenType::PASS)->span;
+  consumeNewline();
+  return std::make_unique<Pass>(span);
+}
+
 auto Parser::parseReturn() -> std::unique_ptr<Statement> {
   auto loc = peek()->span;
   consume(TokenType::RETURN);
@@ -577,13 +778,16 @@ auto Parser::parseDefer() -> std::unique_ptr<Statement> {
 
 auto Parser::parseStatement(bool isTopLevel) -> std::unique_ptr<Statement> {
   if (checkAny<TokenType::DEF, TokenType::IMPORT, TokenType::CLASS, TokenType::ENUM,
-               TokenType::EXPORT>() &&
+               TokenType::TRAIT, TokenType::EXPORT>() &&
       !isTopLevel) {
     error(peek(), "Statement not allowed inside a block");
   }
 
   if (check(TokenType::DEF)) {
     return parseFunctionDeclaration();
+  }
+  if (check(TokenType::TRAIT)) {
+    return parseTrait();
   }
   if (checkAny<TokenType::IMPORT, TokenType::FROM>()) {
     return parseImport();
@@ -614,6 +818,9 @@ auto Parser::parseStatement(bool isTopLevel) -> std::unique_ptr<Statement> {
   }
   if (check(TokenType::CONTINUE)) {
     return parseContinue();
+  }
+  if (check(TokenType::PASS)) {
+    return parsePass();
   }
   if (check(TokenType::RETURN)) {
     return parseReturn();
@@ -664,50 +871,16 @@ auto Parser::parseBlock() -> std::unique_ptr<Compound> {
       std::move(statements));
 }
 
-auto Parser::parseFunctionDeclaration() -> std::unique_ptr<Statement> {
-  auto loc = isExported ? previous()->span : peek()->span;
-  consume(TokenType::DEF);
-  bool externFunc = false;
-
-  if (advanceIfMatchAny<TokenType::EXTERN>()) {
-    externFunc = true;
-  }
-
-  if (externFunc && inClass) {
-    error(previous(), "Extern functions are not allowed in class definition.");
-    return nullptr;
-  }
-
-  auto* identifier = consume(TokenType::IDENTIFIER);
-  std::vector<GenericParamDecl> genericParams;
-  if (check(TokenType::LESS)) {
-    consume(TokenType::LESS);
-    while (!check(TokenType::GREATER)) {
-      auto* genericParam = consume(TokenType::IDENTIFIER);
-      genericParams.push_back(GenericParamDecl{
-          .name = genericParam->lexeme,
-          .span = genericParam->span,
-      });
-      if (!check(TokenType::GREATER)) {
-        consume(TokenType::COMMA);
-      }
-    }
-    consume(TokenType::GREATER);
-  }
-
-  // Parse parameters
-  consume(TokenType::LEFT_PAREN);
-  std::vector<std::unique_ptr<Parameter>> parameters;
-
-  bool varargs = false;
+auto Parser::parseParameterList(bool allowVarargsEllipsis) -> ParameterListParseResult {
+  ParameterListParseResult result;
   while (!check(TokenType::RIGHT_PAREN)) {
-    if (varargs) {
+    if (result.varargs) {
       error(peek(), "Varargs should be the last parameter");
     }
 
-    if (check(TokenType::ELLIPSIS) && externFunc) {
+    if (allowVarargsEllipsis && check(TokenType::ELLIPSIS)) {
       consume(TokenType::ELLIPSIS);
-      varargs = true;
+      result.varargs = true;
     } else {
       std::unique_ptr<Expression> defaultVal;
       std::unique_ptr<TypeExpr> type;
@@ -727,17 +900,103 @@ auto Parser::parseFunctionDeclaration() -> std::unique_ptr<Statement> {
                           paramIdent->lexeme);
       }
 
-      parameters.push_back(std::make_unique<Parameter>(paramIdent->lexeme, paramIdent->span,
-                                                       std::move(type), false,
-                                                       std::move(defaultVal)));
+      result.parameters.push_back(std::make_unique<Parameter>(
+          paramIdent->lexeme, paramIdent->span, std::move(type), false, std::move(defaultVal)));
     }
 
     if (!check(TokenType::RIGHT_PAREN) && !check(TokenType::RIGHT_PAREN, 1)) {
       consume(TokenType::COMMA);
     }
   }
+  return result;
+}
 
+auto Parser::parseFunctionDeclaration() -> std::unique_ptr<Statement> {
+  auto loc = isExported ? previous()->span : peek()->span;
+  consume(TokenType::DEF);
+  bool externFunc = false;
+
+  if (advanceIfMatchAny<TokenType::EXTERN>()) {
+    externFunc = true;
+  }
+
+  if (externFunc && inClass) {
+    error(previous(), "Extern functions are not allowed in class definition.");
+    return nullptr;
+  }
+
+  std::string functionName;
+  llvm::SMRange functionNameSpan;
+  std::optional<TokenType> pendingOverloadOperatorToken;
+  if (advanceIfMatchAny<TokenType::OPERATOR>()) {
+    if (!inClass) {
+      error(previous(), "Operator declarations are only allowed in class definition.");
+      return nullptr;
+    }
+    llvm::SMLoc operatorStart = previous()->getStart();
+    llvm::SMLoc operatorEnd = previous()->getEnd();
+    if (advanceIfMatchAny<TokenType::LEFT_SQUARE>()) {
+      consume(TokenType::RIGHT_SQUARE, "Expected ']' after operator '['");
+      operatorEnd = previous()->getEnd();
+      functionName = std::string{OperatorUtils::SUBSCRIPT_GET_NAME};
+      if (advanceIfMatchAny<TokenType::EQUAL>()) {
+        operatorEnd = previous()->getEnd();
+        functionName = std::string{OperatorUtils::SUBSCRIPT_SET_NAME};
+      }
+    } else {
+      Token* opToken = advance();
+      if (!OperatorUtils::isOverloadableDeclarationToken(opToken->type)) {
+        error(opToken,
+              fmt::format("Unsupported operator declaration token {}", NAMEOF_ENUM(opToken->type)));
+        return nullptr;
+      }
+      operatorEnd = opToken->getEnd();
+      pendingOverloadOperatorToken = opToken->type;
+    }
+    functionNameSpan = llvm::SMRange{operatorStart, operatorEnd};
+  } else {
+    Token* nameTok = nullptr;
+    if (check(TokenType::IDENTIFIER)) {
+      nameTok = consume(TokenType::IDENTIFIER);
+    } else if (check(TokenType::STRING_TYPE)) {
+      nameTok = consume(TokenType::STRING_TYPE);
+    } else {
+      error(peek(), "Expected function name");
+      return nullptr;
+    }
+    functionName = nameTok->lexeme;
+    functionNameSpan = nameTok->span;
+  }
+  std::vector<GenericParamDecl> genericParams = parseGenericParamList();
+
+  consume(TokenType::LEFT_PAREN);
+  auto paramList = parseParameterList(externFunc);
+  std::vector<std::unique_ptr<Parameter>> parameters = std::move(paramList.parameters);
+  bool varargs = paramList.varargs;
   consume(TokenType::RIGHT_PAREN);
+
+  if (pendingOverloadOperatorToken.has_value()) {
+    const TokenType opKind = *pendingOverloadOperatorToken;
+    if (parameters.empty()) {
+      auto unaryName = OperatorUtils::getUnaryOperatorName(opKind);
+      if (!unaryName.has_value()) {
+        error(previous(),
+              fmt::format("Operator {} is not overloadable as a unary operator (no parameters)",
+                          NAMEOF_ENUM(opKind)));
+        return nullptr;
+      }
+      functionName = std::string{*unaryName};
+    } else {
+      auto binaryName = OperatorUtils::getBinaryOperatorName(opKind);
+      if (!binaryName.has_value()) {
+        error(previous(),
+              fmt::format("Operator {} is not overloadable as a binary operator (with parameters)",
+                          NAMEOF_ENUM(opKind)));
+        return nullptr;
+      }
+      functionName = std::string{*binaryName};
+    }
+  }
 
   std::unique_ptr<TypeExpr> returnType;
   if (advanceIfMatchAny<TokenType::ARROW>()) {
@@ -749,17 +1008,17 @@ auto Parser::parseFunctionDeclaration() -> std::unique_ptr<Statement> {
   if (externFunc) {
     consumeNewline();
     return std::make_unique<ExternFuncDecl>(llvm::SMRange{loc.Start, returnType->getEnd()},
-                                            identifier->lexeme, identifier->span,
+                                            functionName, functionNameSpan,
                                             std::move(genericParams), std::move(returnType),
                                             std::move(parameters), varargs, isExported);
   }
 
   auto body = parseBlock();
+  auto funcEnd = body ? body->getEnd() : returnType->getEnd();
 
-  return std::make_unique<FuncDecl>(llvm::SMRange{loc.Start, returnType->getEnd()},
-                                    identifier->lexeme, identifier->span, std::move(genericParams),
-                                    std::move(returnType), std::move(parameters), std::move(body),
-                                    false, isExported);
+  return std::make_unique<FuncDecl>(
+      llvm::SMRange{loc.Start, funcEnd}, functionName, functionNameSpan, std::move(genericParams),
+      std::move(returnType), std::move(parameters), std::move(body), false, isExported);
 }
 
 auto Parser::parseExport() -> std::unique_ptr<Statement> {
@@ -769,8 +1028,8 @@ auto Parser::parseExport() -> std::unique_ptr<Statement> {
     error(peek(), "Cannot export class members");
   }
 
-  if (!checkAny<TokenType::DEF, TokenType::CLASS, TokenType::ENUM>()) {
-    error(peek(), "Can only export functions, classes and enums");
+  if (!checkAny<TokenType::DEF, TokenType::CLASS, TokenType::ENUM, TokenType::TRAIT>()) {
+    error(peek(), "Can only export functions, classes, enums, and traits");
   }
 
   isExported = true;
@@ -781,6 +1040,8 @@ auto Parser::parseExport() -> std::unique_ptr<Statement> {
     statement = parseImport();
   } else if (check(TokenType::CLASS)) {
     statement = parseClass();
+  } else if (check(TokenType::TRAIT)) {
+    statement = parseTrait();
   } else if (check(TokenType::ENUM)) {
     statement = parseEnum();
   } else {
@@ -824,22 +1085,21 @@ auto Parser::parseImport() -> std::unique_ptr<Statement> {
       aliasSpan = aliasToken->span;
     }
 
-    consumeNewline();
-    return std::make_unique<Import>(llvm::SMRange{loc.Start, token->getEnd()}, filepath, alias,
-                                    aliasSpan, token->type == TokenType::IDENTIFIER, true, false,
+    auto* endToken = consumeNewline();
+    auto endLoc = endToken->getEnd();
+    return std::make_unique<Import>(llvm::SMRange{loc.Start, endLoc}, filepath, alias, aliasSpan,
+                                    token->type == TokenType::IDENTIFIER, true, false,
                                     std::vector<ImportedNameBinding>{});
   }
 
   consume(TokenType::IMPORT);
 
   if (advanceIfMatchAny<TokenType::STAR>()) {
-    consumeNewline();
-    return std::make_unique<Import>(llvm::SMRange{loc.Start, token->getEnd()}, filepath,
-                                    getBasename(token->lexeme),
-                                    token->type == TokenType::IDENTIFIER ? token->span
-                                                                         : llvm::SMRange(),
-                                    token->type == TokenType::IDENTIFIER, true, true,
-                                    std::vector<ImportedNameBinding>{});
+    auto* endToken = consumeNewline();
+    auto endLoc = endToken->getEnd();
+    return std::make_unique<Import>(llvm::SMRange{loc.Start, endLoc}, filepath, std::string{},
+                                    llvm::SMRange(), token->type == TokenType::IDENTIFIER, true,
+                                    true, std::vector<ImportedNameBinding>{});
   }
 
   std::vector<ImportedNameBinding> importedNames;
@@ -867,12 +1127,11 @@ auto Parser::parseImport() -> std::unique_ptr<Statement> {
     }
   }
 
-  consumeNewline();
-  return std::make_unique<Import>(llvm::SMRange{loc.Start, token->getEnd()}, filepath,
-                                  getBasename(token->lexeme),
-                                  token->type == TokenType::IDENTIFIER ? token->span
-                                                                       : llvm::SMRange(),
-                                  token->type == TokenType::IDENTIFIER, false, true, importedNames);
+  auto* endToken = consumeNewline();
+  auto endLoc = endToken->getEnd();
+  return std::make_unique<Import>(llvm::SMRange{loc.Start, endLoc}, filepath, std::string{},
+                                  llvm::SMRange(), token->type == TokenType::IDENTIFIER, false,
+                                  true, importedNames);
 }
 
 auto Parser::parseClass() -> std::unique_ptr<Statement> {
@@ -880,25 +1139,36 @@ auto Parser::parseClass() -> std::unique_ptr<Statement> {
   consume(TokenType::CLASS);
 
   auto* token = consume(TokenType::IDENTIFIER);
-  std::vector<GenericParamDecl> genericParams;
-  if (check(TokenType::LESS)) {
-    consume(TokenType::LESS);
-    while (!check(TokenType::GREATER)) {
-      auto* genericParam = consume(TokenType::IDENTIFIER);
-      genericParams.push_back(GenericParamDecl{
-          .name = genericParam->lexeme,
-          .span = genericParam->span,
-      });
-      if (!check(TokenType::GREATER)) {
-        consume(TokenType::COMMA);
+  std::vector<GenericParamDecl> genericParams = parseGenericParamList();
+  std::vector<std::string> implTraitNames;
+  std::vector<llvm::SMRange> implTraitSpans;
+  std::vector<std::vector<std::unique_ptr<TypeExpr>>> implTraitTypeArgs;
+  if (advanceIfMatchAny<TokenType::IMPL>()) {
+    while (true) {
+      auto* traitName = consume(TokenType::IDENTIFIER);
+      std::vector<std::unique_ptr<TypeExpr>> traitArgs;
+      if (advanceIfMatchAny<TokenType::LESS>()) {
+        while (true) {
+          traitArgs.push_back(parseType());
+          if (!advanceIfMatchAny<TokenType::COMMA>()) {
+            break;
+          }
+        }
+        consume(TokenType::GREATER, "Expected '>' after trait type arguments");
+      }
+      implTraitNames.push_back(traitName->lexeme);
+      implTraitSpans.push_back(traitName->span);
+      implTraitTypeArgs.push_back(std::move(traitArgs));
+      if (!advanceIfMatchAny<TokenType::COMMA>()) {
+        break;
       }
     }
-    consume(TokenType::GREATER);
   }
   consume(TokenType::NEWLINE);
 
   std::vector<std::unique_ptr<VarDecl>> fields;
   std::vector<std::unique_ptr<FuncDecl>> methods;
+  auto endLoc = token->getEnd();
   consume(TokenType::INDENT);
 
   inClass = true;
@@ -907,6 +1177,7 @@ auto Parser::parseClass() -> std::unique_ptr<Statement> {
       auto stmt = parseVarDecl();
       auto* varDecl = dynamic_cast<VarDecl*>(stmt.get());
       if (varDecl != nullptr) {
+        endLoc = varDecl->getEnd();
         std::ignore = stmt.release();
         fields.push_back(std::unique_ptr<VarDecl>(varDecl));
       }
@@ -914,6 +1185,7 @@ auto Parser::parseClass() -> std::unique_ptr<Statement> {
       auto stmt = parseFunctionDeclaration();
       auto* funcDecl = dynamic_cast<FuncDecl*>(stmt.get());
       if (funcDecl != nullptr) {
+        endLoc = funcDecl->getEnd();
         std::ignore = stmt.release();
         methods.push_back(std::unique_ptr<FuncDecl>(funcDecl));
       }
@@ -923,10 +1195,89 @@ auto Parser::parseClass() -> std::unique_ptr<Statement> {
   }
   inClass = false;
 
-  advanceIfMatchAny<TokenType::DEDENT>();
+  if (advanceIfMatchAny<TokenType::DEDENT>()) {
+    endLoc = previous()->getEnd();
+  }
 
-  return std::make_unique<Class>(loc, token->lexeme, token->span, std::move(genericParams),
+  return std::make_unique<Class>(llvm::SMRange{loc.Start, endLoc}, token->lexeme, token->span,
+                                 std::move(genericParams), std::move(implTraitNames),
+                                 std::move(implTraitSpans), std::move(implTraitTypeArgs),
                                  std::move(fields), std::move(methods), isExported);
+}
+
+auto Parser::parseTraitMethodDeclaration() -> std::unique_ptr<FuncDecl> {
+  auto loc = peek()->span;
+  consume(TokenType::DEF);
+  if (inClass) {
+    error(previous(), "Trait requirements cannot be declared inside a class");
+  }
+  auto* identifier = consume(TokenType::IDENTIFIER);
+  std::string functionName = identifier->lexeme;
+  llvm::SMRange functionNameSpan = identifier->span;
+  if (check(TokenType::LESS)) {
+    error(peek(), "Generic parameters are not allowed on trait requirement methods");
+  }
+  consume(TokenType::LEFT_PAREN);
+  auto traitParamList = parseParameterList(false);
+  std::vector<std::unique_ptr<Parameter>> parameters = std::move(traitParamList.parameters);
+  consume(TokenType::RIGHT_PAREN);
+  std::unique_ptr<TypeExpr> returnType;
+  if (advanceIfMatchAny<TokenType::ARROW>()) {
+    returnType = parseType();
+  } else {
+    returnType = std::make_unique<TypeExpr>(previous()->span, "void", TokenType::VOID_TYPE);
+  }
+  // Requirement: same as `def extern` — signature and newline only. Default implementation: an
+  // indented block (same as a normal `def` body).
+  std::unique_ptr<Compound> body;
+  llvm::SMLoc funcEndLoc = returnType->getEnd();
+  const bool hasIndentedBody = peek()->type == TokenType::NEWLINE && index + 1 < tokens.size() &&
+                               peek(1)->type == TokenType::INDENT;
+  if (hasIndentedBody) {
+    body = parseBlock();
+    funcEndLoc = body->getEnd();
+  } else {
+    while (peek()->type == TokenType::NEWLINE) {
+      consume(TokenType::NEWLINE);
+    }
+    funcEndLoc = returnType->getEnd();
+  }
+  return std::make_unique<FuncDecl>(llvm::SMRange{loc.Start, funcEndLoc}, functionName,
+                                    functionNameSpan, std::vector<GenericParamDecl>{},
+                                    std::move(returnType), std::move(parameters), std::move(body),
+                                    false, false);
+}
+
+auto Parser::parseTrait() -> std::unique_ptr<Statement> {
+  auto loc = peek()->span;
+  consume(TokenType::TRAIT);
+  auto* nameTok = consume(TokenType::IDENTIFIER);
+  std::vector<GenericParamDecl> genericParams = parseGenericParamList();
+  consume(TokenType::NEWLINE);
+  consume(TokenType::INDENT);
+  std::vector<std::unique_ptr<FuncDecl>> requirements;
+  auto endLoc = nameTok->getEnd();
+  while (!checkAny<TokenType::DEDENT, TokenType::EOF_TOKEN>()) {
+    while (peek()->type == TokenType::NEWLINE) {
+      consume(TokenType::NEWLINE);
+    }
+    if (checkAny<TokenType::DEDENT, TokenType::EOF_TOKEN>()) {
+      break;
+    }
+    if (check(TokenType::DEF)) {
+      auto req = parseTraitMethodDeclaration();
+      endLoc = req->getEnd();
+      requirements.push_back(std::move(req));
+    } else {
+      error(peek(), "Expected 'def' in trait body");
+    }
+  }
+  if (advanceIfMatchAny<TokenType::DEDENT>()) {
+    endLoc = previous()->getEnd();
+  }
+  return std::make_unique<TraitDecl>(llvm::SMRange{loc.Start, endLoc}, nameTok->lexeme,
+                                     nameTok->span, std::move(genericParams),
+                                     std::move(requirements), isExported);
 }
 
 auto Parser::parseEnum() -> std::unique_ptr<Statement> {
@@ -938,19 +1289,23 @@ auto Parser::parseEnum() -> std::unique_ptr<Statement> {
 
   std::vector<std::string> values;
   std::vector<llvm::SMRange> valueSpans;
+  auto endLoc = token->getEnd();
   consume(TokenType::INDENT);
 
   while (!checkAny<TokenType::DEDENT, TokenType::EOF_TOKEN>()) {
     auto* valueToken = consume(TokenType::IDENTIFIER);
     values.push_back(valueToken->lexeme);
     valueSpans.push_back(valueToken->span);
+    endLoc = valueToken->getEnd();
     consume(TokenType::NEWLINE);
   }
 
-  advanceIfMatchAny<TokenType::DEDENT>();
+  if (advanceIfMatchAny<TokenType::DEDENT>()) {
+    endLoc = previous()->getEnd();
+  }
 
-  return std::make_unique<Enum>(loc, token->lexeme, token->span, values, std::move(valueSpans),
-                                isExported);
+  return std::make_unique<Enum>(llvm::SMRange{loc.Start, endLoc}, token->lexeme, token->span,
+                                values, std::move(valueSpans), isExported);
 }
 
 auto Parser::parseCompound() -> std::unique_ptr<Compound> {

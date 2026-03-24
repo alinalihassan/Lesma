@@ -64,6 +64,11 @@
         ]
       }
     ],
+    "configurationDefaults": {
+      "[lesma]": {
+        "editor.bracketPairColorization.independentColorPoolPerBracketType": true
+      }
+    },
     "commands": [
       {
         "command": "lesma.run",

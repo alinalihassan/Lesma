@@ -1,0 +1,12 @@
+class Holder<T>
+    var value: T
+
+    def new(value: T)
+        self.value = value
+
+    def operator [](index: int) -> T
+        return self.value
+
+var h = Holder(7)
+if h[0] != 7
+    exit(1)

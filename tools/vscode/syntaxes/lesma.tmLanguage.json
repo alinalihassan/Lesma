@@ -39,7 +39,7 @@
         },
         {
           "name": "keyword.control.lesma",
-          "match": "\\b(if|else|while|for|in|break|continue|return|defer|let|var)\\b"
+          "match": "\\b(if|else|while|for|in|break|continue|pass|return|defer|let|var)\\b"
         },
         {
           "name": "keyword.module.lesma",
@@ -47,7 +47,7 @@
         },
         {
           "name": "keyword.other.lesma",
-          "match": "\\b(export|class|enum|type|def|extern|operator)\\b"
+          "match": "\\b(export|class|enum|type|def|extern|operator|trait|impl)\\b"
         },
         {
           "name": "keyword.implicit.lesma",
@@ -121,12 +121,15 @@
     "types": {
       "patterns": [
         {
+          "include": "#functionGenericTypeList"
+        },
+        {
           "include": "#genericTypeList"
         },
         {
           "comment": "Built-in Types",
           "name": "support.type.lesma",
-          "match": "\\b(bool|str|int|float|void)\\b"
+          "match": "\\b(bool|cstr|int|float|void)\\b"
         },
         {
           "comment": "Type annotation",
@@ -135,12 +138,53 @@
         }
       ]
     },
+    "functionGenericTypeList": {
+      "patterns": [
+        {
+          "name": "meta.type.parameters.lesma",
+          "comment": "Generic parameters on def (e.g. def f<T: A & B>)",
+          "begin": "(?<=\\bdef\\s+[a-zA-Z_][a-zA-Z0-9_]*\\s)<",
+          "beginCaptures": {
+            "0": {
+              "name": "punctuation.definition.typeparameters.begin.lesma"
+            }
+          },
+          "end": ">",
+          "endCaptures": {
+            "0": {
+              "name": "punctuation.definition.typeparameters.end.lesma"
+            }
+          },
+          "patterns": [
+            {
+              "include": "#functionGenericTypeList"
+            },
+            {
+              "name": "keyword.operator.intersection.lesma",
+              "match": "&"
+            },
+            {
+              "name": "keyword.operator.typing.lesma",
+              "match": ":"
+            },
+            {
+              "name": "punctuation.separator.type-parameters.lesma",
+              "match": ","
+            },
+            {
+              "name": "support.type.lesma",
+              "match": "\\b(bool|cstr|int|float|void|[a-zA-Z_][a-zA-Z0-9_]*)\\b"
+            }
+          ]
+        }
+      ]
+    },
     "genericTypeList": {
       "patterns": [
         {
           "name": "meta.type.parameters.lesma",
           "comment": "Generic parameter and argument lists",
-          "begin": "(?<=[a-zA-Z0-9_])<(?=\\s*[a-zA-Z_][a-zA-Z0-9_]*(?:\\s*<[^\\n>]+>)?(?:\\s*,\\s*[a-zA-Z_][a-zA-Z0-9_]*(?:\\s*<[^\\n>]+>)?)*\\s*>\\s*(?:\\(|\\)|\\]|\\}|,|:|\\.|$|->|>))",
+          "begin": "(?<=[a-zA-Z0-9_])<(?=\\s*[a-zA-Z_][a-zA-Z0-9_]*(?:\\s*<[^\\n>]+>)?(?:\\s*,\\s*[a-zA-Z_][a-zA-Z0-9_]*(?:\\s*<[^\\n>]+>)?)*\\s*>\\s*(?:\\(|\\)|\\]|\\{|\\}|,|:|\\.|=|$|->|>|\\bimpl\\b))",
           "beginCaptures": {
             "0": {
               "name": "punctuation.definition.typeparameters.begin.lesma"
@@ -157,12 +201,16 @@
               "include": "#genericTypeList"
             },
             {
+              "name": "keyword.operator.intersection.lesma",
+              "match": "&"
+            },
+            {
               "name": "punctuation.separator.type-parameters.lesma",
               "match": ","
             },
             {
               "name": "support.type.lesma",
-              "match": "\\b(bool|str|int|float|void|[a-zA-Z_][a-zA-Z0-9_]*)\\b"
+              "match": "\\b(bool|cstr|int|float|void|[a-zA-Z_][a-zA-Z0-9_]*)\\b"
             }
           ]
         }
@@ -171,14 +219,39 @@
     "functions": {
       "patterns": [
         {
+          "include": "#implTraitList"
+        },
+        {
           "comment": "Catch the function call and function definition",
           "name": "support.function.lesma",
           "match": "(?=[a-zA-Z0-9_]+(?:<[^>\\n]+>)?\\()[a-zA-Z0-9_]+"
         },
         {
-          "comment": "Class/Enum declaration",
+          "comment": "Class/Enum/Trait declaration",
           "name": "entity.name.type.lesma",
-          "match": "(?<=class\\s|enum\\s)[a-zA-Z0-9_]+"
+          "match": "(?<=class\\s|enum\\s|trait\\s)[a-zA-Z0-9_]+"
+        }
+      ]
+    },
+    "implTraitList": {
+      "patterns": [
+        {
+          "comment": "First trait after impl (identifier + optional nested <...> via \\g<1> recursion)",
+          "match": "(?<=\\bimpl\\s)([a-zA-Z_][a-zA-Z0-9_]*(?:<(?:[^<>]|\\g<1>)*>)?)",
+          "captures": {
+            "1": {
+              "name": "entity.name.type.lesma"
+            }
+          }
+        },
+        {
+          "comment": "Further traits after comma (same shape as first trait)",
+          "match": ",\\s*([a-zA-Z_][a-zA-Z0-9_]*(?:<(?:[^<>]|\\g<1>)*>)?)",
+          "captures": {
+            "1": {
+              "name": "entity.name.type.lesma"
+            }
+          }
         }
       ]
     },

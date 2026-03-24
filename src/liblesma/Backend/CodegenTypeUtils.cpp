@@ -17,18 +17,46 @@ auto getExtendedType(Type* left, Type* right) -> Type* {
     return left;
   }
 
+  if (left->is(BaseType::TY_BOOL) && right->is(BaseType::TY_BOOL)) {
+    return left;
+  }
+
   if (left->is(BaseType::TY_INT) && right->is(BaseType::TY_INT)) {
     // Multiple int widths (i32, i64, etc.) are intentional for FFI; we pick
     // the wider type when unifying.
     if (left->getLlvmType()->getIntegerBitWidth() > right->getLlvmType()->getIntegerBitWidth()) {
       return left;
     }
-    return right;
+    if (left->getLlvmType()->getIntegerBitWidth() < right->getLlvmType()->getIntegerBitWidth()) {
+      return right;
+    }
+    if (!left->isSigned()) {
+      return left;
+    }
+    if (!right->isSigned()) {
+      return right;
+    }
+    return left;
   }
   if (left->is(BaseType::TY_INT) && right->is(BaseType::TY_FLOAT)) {
     return right;
   }
   if (left->is(BaseType::TY_FLOAT) && right->is(BaseType::TY_INT)) {
+    return left;
+  }
+  if (left->is(BaseType::TY_INT) && right->is(BaseType::TY_FLOAT32)) {
+    return right;
+  }
+  if (left->is(BaseType::TY_FLOAT32) && right->is(BaseType::TY_INT)) {
+    return left;
+  }
+  if (left->is(BaseType::TY_FLOAT) && right->is(BaseType::TY_FLOAT32)) {
+    return left;
+  }
+  if (left->is(BaseType::TY_FLOAT32) && right->is(BaseType::TY_FLOAT)) {
+    return right;
+  }
+  if (left->is(BaseType::TY_FLOAT32) && right->is(BaseType::TY_FLOAT32)) {
     return left;
   }
   if (left->is(BaseType::TY_FLOAT) && right->is(BaseType::TY_FLOAT)) {
@@ -59,7 +87,7 @@ auto cast(llvm::SMRange span, Value* val, Type* type, llvm::IRBuilder<>* builder
   }
 
   if (type->is(BaseType::TY_INT)) {
-    if (val->getType()->is(BaseType::TY_FLOAT)) {
+    if (val->getType()->isFloatingPoint()) {
       auto* casted = type->isSigned()
                          ? builder->CreateFPToSI(val->getLlvmValue(), type->getLlvmType())
                          : builder->CreateFPToUI(val->getLlvmValue(), type->getLlvmType());
@@ -71,14 +99,14 @@ auto cast(llvm::SMRange span, Value* val, Type* type, llvm::IRBuilder<>* builder
                                                             type->getLlvmType(),
                                                             val->getType()->isSigned()));
     }
-  } else if (type->is(BaseType::TY_FLOAT)) {
+  } else if (type->isFloatingPoint()) {
     if (val->getType()->is(BaseType::TY_INT)) {
       auto* casted = val->getType()->isSigned()
                          ? builder->CreateSIToFP(val->getLlvmValue(), type->getLlvmType())
                          : builder->CreateUIToFP(val->getLlvmValue(), type->getLlvmType());
       return std::make_unique<Value>("", type, casted);
     }
-    if (val->getType()->is(BaseType::TY_FLOAT)) {
+    if (val->getType()->isFloatingPoint()) {
       return std::make_unique<Value>(
           "", type, builder->CreateFPCast(val->getLlvmValue(), type->getLlvmType()));
     }
@@ -94,6 +122,37 @@ auto cast(llvm::SMRange span, Value* val, Type* type, llvm::IRBuilder<>* builder
             "", type, builder->CreateBitCast(val->getLlvmValue(), type->getLlvmType()));
       }
     }
+  }
+
+  if (val->getType()->is(BaseType::TY_TUPLE) && type->is(BaseType::TY_TUPLE)) {
+    std::vector<Field*> const fromFields = val->getType()->getFields();
+    std::vector<Field*> const toFields = type->getFields();
+    if (fromFields.size() != toFields.size()) {
+      throw CodegenError(span, "Tuple cast arity mismatch: {} vs {}",
+                         MangleUtils::getTypeMangledName(span, val->getType()),
+                         MangleUtils::getTypeMangledName(span, type));
+    }
+    llvm::Type* outStructTy = type->getLlvmType();
+    if (outStructTy == nullptr) {
+      throw CodegenError(span, "Tuple cast target has no LLVM type");
+    }
+    llvm::Value* srcAgg = val->getLlvmValue();
+    if (srcAgg == nullptr) {
+      throw CodegenError(span, "Tuple cast source has no LLVM value");
+    }
+    llvm::Value* agg = llvm::UndefValue::get(outStructTy);
+    for (size_t i = 0; i < fromFields.size(); ++i) {
+      if (toFields[i]->type == nullptr) {
+        throw CodegenError(span, "Tuple cast target field {} has no type", i);
+      }
+      llvm::Value* ev =
+          builder->CreateExtractValue(srcAgg, static_cast<unsigned>(i), "tup.cast.elem");
+      auto elem = std::make_unique<Value>("", fromFields[i]->type, ev);
+      auto casted = CodegenTypeUtils::cast(span, elem.get(), toFields[i]->type, builder);
+      agg = builder->CreateInsertValue(agg, casted->getLlvmValue(), static_cast<unsigned>(i),
+                                       "tup.cast");
+    }
+    return std::make_unique<Value>("", type, agg);
   }
 
   throw CodegenError(span, "Unsupported Cast between {} and {}",

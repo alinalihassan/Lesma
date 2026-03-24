@@ -1,6 +1,7 @@
 #pragma once
 
 #include <algorithm>
+#include <cassert>
 #include <iterator>
 #include <memory>
 #include <sstream>
@@ -21,6 +22,7 @@
 namespace lesma {
 class Value;
 class SymbolTable;
+class Type;
 
 class AST {
   llvm::SMRange loc;
@@ -63,6 +65,8 @@ class Literal : public Expression {
   std::string value;
   TokenType type;
   mutable Value* resolvedSymbol = nullptr;
+  /** If non-null for STRING literals, codegen emits a boxed stdlib str instance. */
+  mutable Type* resolvedStrClassType = nullptr;
 
 public:
   Literal(llvm::SMRange loc, std::string value, TokenType type)
@@ -73,6 +77,8 @@ public:
   [[nodiscard]] [[maybe_unused]] auto getType() const -> TokenType { return type; }
   [[nodiscard]] auto getResolvedSymbol() const -> Value* { return resolvedSymbol; }
   auto setResolvedSymbol(Value* v) const -> void { resolvedSymbol = v; }
+  [[nodiscard]] auto getResolvedStrClassType() const -> Type* { return resolvedStrClassType; }
+  auto setResolvedStrClassType(Type* t) const -> void { resolvedStrClassType = t; }
 
   auto toString(llvm::SourceMgr* /*srcMgr*/, const std::string& /*prefix*/, bool /*isTail*/) const
       -> std::string override {
@@ -130,6 +136,7 @@ class TypeExpr : public Expression {
 
   // Pointer fields
   std::unique_ptr<TypeExpr> elementType;
+  std::vector<std::unique_ptr<TypeExpr>> typeArgs;
 
   // Function fields
   std::vector<std::unique_ptr<TypeExpr>> params;
@@ -143,17 +150,48 @@ public:
       : Expression(loc), name(std::move(name)), type(type), elementType(std::move(elementType)),
         ret(nullptr) {}
   TypeExpr(llvm::SMRange loc, std::string name, TokenType type,
+           std::vector<std::unique_ptr<TypeExpr>> typeArgs)
+      : Expression(loc), name(std::move(name)), type(type), elementType(nullptr),
+        typeArgs(std::move(typeArgs)), ret(nullptr) {}
+  TypeExpr(llvm::SMRange loc, std::string name, TokenType type,
            std::vector<std::unique_ptr<TypeExpr>> params, std::unique_ptr<TypeExpr> ret)
       : Expression(loc), name(std::move(name)), type(type), elementType(nullptr),
         params(std::move(params)), ret(std::move(ret)) {}
+  /** Tuple type `(T1, T2, ...)` / `(T,)`: same `params` as function types, `ret` is null. */
+  static auto makeTupleType(llvm::SMRange loc, std::string displayName,
+                            std::vector<std::unique_ptr<TypeExpr>> elements)
+      -> std::unique_ptr<TypeExpr> {
+    return std::make_unique<TypeExpr>(loc, std::move(displayName), TokenType::TUPLE_TYPE,
+                                      std::move(elements), std::unique_ptr<TypeExpr>(nullptr));
+  }
   void accept(ASTVisitor& visitor) const override { visitor.visit(this); }
 
   [[nodiscard]] [[maybe_unused]] auto getName() const -> std::string { return name; }
+  /// Base identifier for symbol lookup (e.g. `Pair` for `Pair<int>`). Plain `getName()` keeps the
+  /// full generic spelling for display and diagnostics.
+  [[nodiscard]] auto getLookupName() const -> std::string {
+    if (typeArgs.empty()) {
+      return name;
+    }
+    const auto angle = name.find('<');
+    if (angle == std::string::npos) {
+      return name;
+    }
+    return name.substr(0, angle);
+  }
   [[nodiscard]] [[maybe_unused]] auto getType() const -> TokenType { return type; }
   [[nodiscard]] auto getResolvedSymbol() const -> Value* { return resolvedSymbol; }
   auto setResolvedSymbol(Value* v) const -> void { resolvedSymbol = v; }
   [[nodiscard]] [[maybe_unused]] auto getElementType() const -> TypeExpr* {
     return elementType.get();
+  }
+  [[nodiscard]] auto getTypeArgs() const -> std::vector<TypeExpr*> {
+    std::vector<TypeExpr*> result;
+    result.reserve(typeArgs.size());
+    for (const auto& typeArg : typeArgs) {
+      result.push_back(typeArg.get());
+    }
+    return result;
   }
   [[nodiscard]] [[maybe_unused]] auto getParams() const -> std::vector<TypeExpr*> {
     std::vector<TypeExpr*> result;
@@ -174,6 +212,10 @@ public:
 struct GenericParamDecl {
   std::string name;
   llvm::SMRange span;
+  /** Intersection bounds: `T: A & B` → {"A","B"}. Empty means no trait bound. */
+  std::vector<std::string> traitBounds;
+  /** Spans for each name in `traitBounds` (same order). */
+  std::vector<llvm::SMRange> traitBoundSpans;
 };
 
 class Enum : public Statement {
@@ -196,8 +238,7 @@ public:
   [[nodiscard]] [[maybe_unused]] auto getValues() const -> std::vector<std::string> {
     return values;
   }
-  [[nodiscard]] [[maybe_unused]] auto getValueSpans() const
-      -> const std::vector<llvm::SMRange>& {
+  [[nodiscard]] [[maybe_unused]] auto getValueSpans() const -> const std::vector<llvm::SMRange>& {
     return valueSpans;
   }
   [[nodiscard]] [[maybe_unused]] auto isExported() const -> bool { return exported; }
@@ -236,9 +277,9 @@ public:
   Import(llvm::SMRange loc, std::string filePath, std::string alias, llvm::SMRange aliasSpan,
          bool std, bool importAll, bool importToScope,
          std::vector<ImportedNameBinding> importedNames)
-      : Statement(loc), filePath(std::move(filePath)), alias(std::move(alias)), aliasSpan(aliasSpan),
-        importedNames(std::move(importedNames)), std(std), importAll(importAll),
-        importToScope(importToScope) {};
+      : Statement(loc), filePath(std::move(filePath)), alias(std::move(alias)),
+        aliasSpan(aliasSpan), importedNames(std::move(importedNames)), std(std),
+        importAll(importAll), importToScope(importToScope) {};
   void accept(ASTVisitor& visitor) const override { visitor.visit(this); }
 
   [[nodiscard]] [[maybe_unused]] auto getFilePath() const -> std::string { return filePath; }
@@ -263,26 +304,53 @@ public:
 };
 
 class VarDecl : public Statement {
-  std::unique_ptr<Literal> var;
+  std::vector<std::unique_ptr<Literal>> vars;
   std::unique_ptr<TypeExpr> type;
   std::unique_ptr<Expression> expr;
   bool isMutable;
-  /** Set by typechecker: resolved symbol for this declaration. */
-  mutable Value* resolvedSymbol = nullptr;
+  /** Set by typechecker: one entry per `vars` (unpack) or one for a simple `let`. */
+  mutable std::vector<Value*> resolvedSymbols;
 
 public:
-  VarDecl(llvm::SMRange loc, std::unique_ptr<Literal> var, std::unique_ptr<TypeExpr> type,
-          std::unique_ptr<Expression> expr, bool isMutable)
-      : Statement(loc), var(std::move(var)), type(std::move(type)), expr(std::move(expr)),
+  VarDecl(llvm::SMRange loc, std::vector<std::unique_ptr<Literal>> vars,
+          std::unique_ptr<TypeExpr> type, std::unique_ptr<Expression> expr, bool isMutable)
+      : Statement(loc), vars(std::move(vars)), type(std::move(type)), expr(std::move(expr)),
         isMutable(isMutable) {}
   void accept(ASTVisitor& visitor) const override { visitor.visit(this); }
 
-  [[nodiscard]] [[maybe_unused]] auto getIdentifier() const -> Literal* { return var.get(); }
+  [[nodiscard]] [[maybe_unused]] auto getIdentifier() const -> Literal* {
+    if (vars.empty()) {
+      return nullptr;
+    }
+    assert(vars.size() == 1U && "getIdentifier() is only valid for a single-name VarDecl");
+    return vars.front().get();
+  }
+  [[nodiscard]] auto getVarLiterals() const -> std::vector<Literal*> {
+    std::vector<Literal*> out;
+    out.reserve(vars.size());
+    for (const auto& v : vars) {
+      out.push_back(v.get());
+    }
+    return out;
+  }
   [[nodiscard]] [[maybe_unused]] auto getType() const -> TypeExpr* { return type.get(); }
   [[nodiscard]] [[maybe_unused]] auto getValue() const -> Expression* { return expr.get(); }
   [[nodiscard]] [[maybe_unused]] auto getMutability() const -> bool { return isMutable; }
-  [[nodiscard]] auto getResolvedSymbol() const -> Value* { return resolvedSymbol; }
-  auto setResolvedSymbol(Value* v) const -> void { resolvedSymbol = v; }
+  [[nodiscard]] auto getResolvedSymbol() const -> Value* {
+    if (resolvedSymbols.empty()) {
+      return nullptr;
+    }
+    assert(resolvedSymbols.size() == 1U &&
+           "getResolvedSymbol() is only valid when VarDecl has a single resolved symbol");
+    return resolvedSymbols.front();
+  }
+  [[nodiscard]] auto getResolvedSymbols() const -> const std::vector<Value*>& {
+    return resolvedSymbols;
+  }
+  auto setResolvedSymbol(Value* v) const -> void { resolvedSymbols = {v}; }
+  auto setResolvedSymbols(std::vector<Value*> syms) const -> void {
+    resolvedSymbols = std::move(syms);
+  }
 
   auto toString(llvm::SourceMgr* srcMgr, const std::string& prefix, bool isTail) const
       -> std::string override {
@@ -290,7 +358,16 @@ public:
         "{}{}VarDecl[Line({}-{}):Col({}-{})]: {}{}{}\n", prefix, isTail ? "└──" : "├──",
         srcMgr->getLineAndColumn(getStart()).first, srcMgr->getLineAndColumn(getEnd()).first,
         srcMgr->getLineAndColumn(getStart()).second, srcMgr->getLineAndColumn(getEnd()).second,
-        var->toString(srcMgr, prefix, isTail),
+        [&]() -> std::string {
+          std::string names;
+          for (size_t i = 0; i < vars.size(); ++i) {
+            if (i > 0) {
+              names += ", ";
+            }
+            names += vars[i]->toString(srcMgr, prefix, isTail);
+          }
+          return names;
+        }(),
         (type ? ": " + type->toString(srcMgr, prefix, isTail) : ""),
         (expr ? " = " + expr->toString(srcMgr, prefix, isTail) : ""));
   }
@@ -364,6 +441,36 @@ public:
         srcMgr->getLineAndColumn(getStart()).second, srcMgr->getLineAndColumn(getEnd()).second,
         prefix + (isTail ? "    " : "│   "), "└──", cond->toString(srcMgr, prefix, true),
         block->toString(srcMgr, prefix + (isTail ? "        " : "│       "), true));
+  }
+};
+
+class ForIn : public Statement {
+  std::unique_ptr<Literal> var;
+  std::unique_ptr<Expression> iterable;
+  std::unique_ptr<Compound> block;
+  mutable SymbolTable* bodyScope = nullptr;
+
+public:
+  ForIn(llvm::SMRange loc, std::unique_ptr<Literal> var, std::unique_ptr<Expression> iterable,
+        std::unique_ptr<Compound> block)
+      : Statement(loc), var(std::move(var)), iterable(std::move(iterable)),
+        block(std::move(block)) {}
+  void accept(ASTVisitor& visitor) const override { visitor.visit(this); }
+
+  [[nodiscard]] auto getIdentifier() const -> Literal* { return var.get(); }
+  [[nodiscard]] auto getIterable() const -> Expression* { return iterable.get(); }
+  [[nodiscard]] auto getBlock() const -> Compound* { return block.get(); }
+  [[nodiscard]] auto getBodyScope() const -> SymbolTable* { return bodyScope; }
+  auto setBodyScope(SymbolTable* scope) const -> void { bodyScope = scope; }
+
+  auto toString(llvm::SourceMgr* srcMgr, const std::string& prefix, bool isTail) const
+      -> std::string override {
+    return fmt::format(
+        "{}{}ForIn[Line({}-{}):Col({}-{})]: {} in {}\n{}", prefix, isTail ? "└──" : "├──",
+        srcMgr->getLineAndColumn(getStart()).first, srcMgr->getLineAndColumn(getEnd()).first,
+        srcMgr->getLineAndColumn(getStart()).second, srcMgr->getLineAndColumn(getEnd()).second,
+        var->toString(srcMgr, prefix, true), iterable->toString(srcMgr, prefix, true),
+        block->toString(srcMgr, prefix + (isTail ? "    " : "│   "), true));
   }
 };
 
@@ -447,6 +554,9 @@ public:
   auto setResolvedSymbol(Value* v) const -> void { resolvedSymbol = v; }
   [[nodiscard]] auto getGenericScope() const -> SymbolTable* { return genericScope; }
   auto setGenericScope(SymbolTable* scopePtr) const -> void { genericScope = scopePtr; }
+  /** Trait method with a body is a default implementation; signature-only (no body) is a
+   * requirement (same shape as `def extern`). */
+  [[nodiscard]] auto hasTraitDefaultImplementation() const -> bool { return body != nullptr; }
 
   auto toString(llvm::SourceMgr* srcMgr, const std::string& prefix, bool isTail) const
       -> std::string override {
@@ -478,9 +588,70 @@ public:
     if (varargs) {
       ret += ", ...";
     }
-    ret += fmt::format(") -> {}\n{}", returnType->toString(srcMgr, prefix, isTail),
-                       body->toString(srcMgr, prefix + (isTail ? "    " : "│   "), true));
+    ret += fmt::format(") -> {}", returnType->toString(srcMgr, prefix, isTail));
+    if (body != nullptr) {
+      ret += fmt::format("\n{}", body->toString(srcMgr, prefix + (isTail ? "    " : "│   "), true));
+    } else {
+      ret += "\n";
+    }
     return ret;
+  }
+};
+
+class TraitDecl : public Statement {
+  std::string identifier;
+  llvm::SMRange nameSpan;
+  std::vector<GenericParamDecl> genericParams;
+  std::vector<std::unique_ptr<FuncDecl>> requirements;
+  bool exported;
+  mutable Value* resolvedSymbol = nullptr;
+
+public:
+  TraitDecl(llvm::SMRange loc, std::string identifier, llvm::SMRange nameSpan,
+            std::vector<GenericParamDecl> genericParams,
+            std::vector<std::unique_ptr<FuncDecl>> requirements, bool exported)
+      : Statement(loc), identifier(std::move(identifier)), nameSpan(nameSpan),
+        genericParams(std::move(genericParams)), requirements(std::move(requirements)),
+        exported(exported) {}
+  void accept(ASTVisitor& visitor) const override { visitor.visit(this); }
+
+  [[nodiscard]] auto getIdentifier() const -> std::string { return identifier; }
+  [[nodiscard]] auto getNameSpan() const -> llvm::SMRange { return nameSpan; }
+  [[nodiscard]] auto getGenericParamDecls() const -> const std::vector<GenericParamDecl>& {
+    return genericParams;
+  }
+  [[nodiscard]] auto getGenericParams() const -> std::vector<std::string> {
+    std::vector<std::string> result;
+    result.reserve(genericParams.size());
+    for (const auto& param : genericParams) {
+      result.push_back(param.name);
+    }
+    return result;
+  }
+  [[nodiscard]] auto getRequirements() const -> std::vector<FuncDecl*> {
+    std::vector<FuncDecl*> out;
+    out.reserve(requirements.size());
+    for (const auto& r : requirements) {
+      out.push_back(r.get());
+    }
+    return out;
+  }
+  [[nodiscard]] auto isExported() const -> bool { return exported; }
+  [[nodiscard]] auto getResolvedSymbol() const -> Value* { return resolvedSymbol; }
+  auto setResolvedSymbol(Value* v) const -> void { resolvedSymbol = v; }
+
+  auto toString(llvm::SourceMgr* srcMgr, const std::string& prefix, bool isTail) const
+      -> std::string override {
+    std::string req;
+    for (const auto& r : requirements) {
+      req += r->toString(srcMgr, prefix + (isTail ? "    " : "│   "),
+                         r.get() == requirements.back().get());
+    }
+    return fmt::format("{}{}Trait[Line({}-{}):Col({}-{})]: {}\n{}", prefix, isTail ? "└──" : "├──",
+                       srcMgr->getLineAndColumn(getStart()).first,
+                       srcMgr->getLineAndColumn(getEnd()).first,
+                       srcMgr->getLineAndColumn(getStart()).second,
+                       srcMgr->getLineAndColumn(getEnd()).second, identifier, req);
   }
 };
 
@@ -679,6 +850,26 @@ public:
   }
 };
 
+class SubscriptOp : public Expression {
+  std::unique_ptr<Expression> left;
+  std::unique_ptr<Expression> index;
+
+public:
+  SubscriptOp(llvm::SMRange loc, std::unique_ptr<Expression> left,
+              std::unique_ptr<Expression> index)
+      : Expression(loc), left(std::move(left)), index(std::move(index)) {}
+  void accept(ASTVisitor& visitor) const override { visitor.visit(this); }
+
+  [[nodiscard]] auto getLeft() const -> Expression* { return left.get(); }
+  [[nodiscard]] auto getIndex() const -> Expression* { return index.get(); }
+
+  auto toString(llvm::SourceMgr* srcMgr, const std::string& prefix, bool isTail) const
+      -> std::string override {
+    return left->toString(srcMgr, prefix, isTail) + "[" + index->toString(srcMgr, prefix, isTail) +
+           "]";
+  }
+};
+
 class IsOp : public Expression {
   std::unique_ptr<Expression> left;
   TokenType op;
@@ -737,6 +928,77 @@ public:
   }
 };
 
+class ListLiteral : public Expression {
+  std::vector<std::unique_ptr<Expression>> elements;
+  mutable Type* resolvedType = nullptr;
+
+public:
+  ListLiteral(llvm::SMRange loc, std::vector<std::unique_ptr<Expression>> elements)
+      : Expression(loc), elements(std::move(elements)) {}
+  void accept(ASTVisitor& visitor) const override { visitor.visit(this); }
+
+  [[nodiscard]] auto getElements() const -> std::vector<Expression*> {
+    std::vector<Expression*> result;
+    result.reserve(elements.size());
+    for (const auto& element : elements) {
+      result.push_back(element.get());
+    }
+    return result;
+  }
+  [[nodiscard]] auto getResolvedType() const -> Type* { return resolvedType; }
+  auto setResolvedType(Type* type) const -> void { resolvedType = type; }
+
+  auto toString(llvm::SourceMgr* srcMgr, const std::string& prefix, bool isTail) const
+      -> std::string override {
+    std::string result = "[";
+    for (const auto& element : elements) {
+      result += element->toString(srcMgr, prefix, isTail);
+      if (element.get() != elements.back().get()) {
+        result += ", ";
+      }
+    }
+    result += "]";
+    return result;
+  }
+};
+
+class TupleLiteral : public Expression {
+  std::vector<std::unique_ptr<Expression>> elements;
+  mutable Type* resolvedType = nullptr;
+
+public:
+  TupleLiteral(llvm::SMRange loc, std::vector<std::unique_ptr<Expression>> elements)
+      : Expression(loc), elements(std::move(elements)) {}
+  void accept(ASTVisitor& visitor) const override { visitor.visit(this); }
+
+  [[nodiscard]] auto getElements() const -> std::vector<Expression*> {
+    std::vector<Expression*> result;
+    result.reserve(elements.size());
+    for (const auto& element : elements) {
+      result.push_back(element.get());
+    }
+    return result;
+  }
+  [[nodiscard]] auto getResolvedType() const -> Type* { return resolvedType; }
+  auto setResolvedType(Type* type) const -> void { resolvedType = type; }
+
+  auto toString(llvm::SourceMgr* srcMgr, const std::string& prefix, bool isTail) const
+      -> std::string override {
+    std::string result = "(";
+    for (const auto& element : elements) {
+      result += element->toString(srcMgr, prefix, isTail);
+      if (element.get() != elements.back().get()) {
+        result += ", ";
+      }
+    }
+    if (elements.size() == 1U) {
+      result += ",";
+    }
+    result += ")";
+    return result;
+  }
+};
+
 class DotOp : public Expression {
   std::unique_ptr<Expression> left;
   TokenType op;
@@ -792,6 +1054,21 @@ public:
       -> std::string override {
     return fmt::format(
         "{}{}Continue[Line({}-{}):Col({}-{})]:\n", prefix, isTail ? "└──" : "├──",
+        srcMgr->getLineAndColumn(getStart()).first, srcMgr->getLineAndColumn(getEnd()).first,
+        srcMgr->getLineAndColumn(getStart()).second, srcMgr->getLineAndColumn(getEnd()).second);
+  }
+};
+
+/** No-op statement (Python-style); valid wherever a statement is allowed. */
+class Pass : public Statement {
+public:
+  explicit Pass(llvm::SMRange loc) : Statement(loc) {}
+  void accept(ASTVisitor& visitor) const override { visitor.visit(this); }
+
+  auto toString(llvm::SourceMgr* srcMgr, const std::string& prefix, bool isTail) const
+      -> std::string override {
+    return fmt::format(
+        "{}{}Pass[Line({}-{}):Col({}-{})]:\n", prefix, isTail ? "└──" : "├──",
         srcMgr->getLineAndColumn(getStart()).first, srcMgr->getLineAndColumn(getEnd()).first,
         srcMgr->getLineAndColumn(getStart()).second, srcMgr->getLineAndColumn(getEnd()).second);
   }
@@ -861,6 +1138,13 @@ class Class : public Statement {
   std::string identifier;
   llvm::SMRange nameSpan;
   std::vector<GenericParamDecl> genericParams;
+  /** Explicit `impl Trait1, Trait2` names (must match declared traits). */
+  std::vector<std::string> implTraitNames;
+  /** Source span for each name in `implTraitNames` (same order). */
+  std::vector<llvm::SMRange> implTraitSpans;
+  /** Type arguments for each `impl Trait<...>` (same order as `implTraitNames`; empty if no `<>`).
+   */
+  std::vector<std::vector<std::unique_ptr<TypeExpr>>> implTraitTypeArgs;
   std::vector<std::unique_ptr<VarDecl>> fields;
   std::vector<std::unique_ptr<FuncDecl>> methods;
   bool exported;
@@ -869,11 +1153,15 @@ class Class : public Statement {
 
 public:
   Class(llvm::SMRange loc, std::string identifier, llvm::SMRange nameSpan,
-        std::vector<GenericParamDecl> genericParams, std::vector<std::unique_ptr<VarDecl>> fields,
+        std::vector<GenericParamDecl> genericParams, std::vector<std::string> implTraitNames,
+        std::vector<llvm::SMRange> implTraitSpans,
+        std::vector<std::vector<std::unique_ptr<TypeExpr>>> implTraitTypeArgs,
+        std::vector<std::unique_ptr<VarDecl>> fields,
         std::vector<std::unique_ptr<FuncDecl>> methods, bool exported)
       : Statement(loc), identifier(std::move(identifier)), nameSpan(nameSpan),
-        genericParams(std::move(genericParams)), fields(std::move(fields)),
-        methods(std::move(methods)), exported(exported) {};
+        genericParams(std::move(genericParams)), implTraitNames(std::move(implTraitNames)),
+        implTraitSpans(std::move(implTraitSpans)), implTraitTypeArgs(std::move(implTraitTypeArgs)),
+        fields(std::move(fields)), methods(std::move(methods)), exported(exported) {};
   void accept(ASTVisitor& visitor) const override { visitor.visit(this); }
 
   [[nodiscard]] [[maybe_unused]] auto getIdentifier() const -> std::string { return identifier; }
@@ -889,6 +1177,16 @@ public:
   [[nodiscard]] [[maybe_unused]] auto getGenericParamDecls() const
       -> const std::vector<GenericParamDecl>& {
     return genericParams;
+  }
+  [[nodiscard]] auto getImplTraitNames() const -> const std::vector<std::string>& {
+    return implTraitNames;
+  }
+  [[nodiscard]] auto getImplTraitSpans() const -> const std::vector<llvm::SMRange>& {
+    return implTraitSpans;
+  }
+  [[nodiscard]] auto getImplTraitTypeArgs() const
+      -> const std::vector<std::vector<std::unique_ptr<TypeExpr>>>& {
+    return implTraitTypeArgs;
   }
   [[nodiscard]] [[maybe_unused]] auto getFields() const -> std::vector<VarDecl*> {
     std::vector<VarDecl*> result;

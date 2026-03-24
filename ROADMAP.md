@@ -4,18 +4,18 @@
 - [x] Migrate to LLVM 16 with custom Value and Type classes
 - [x] Fix multiple imports not working (import each file once)
 - [x] Add default values in function declarations
-- [ ] Add operator overloading
+- [x] Add operator overloading
 - [ ] Add global variables (like 'export let pi = 3.14')
-- [ ] Add generics
-- [ ] Add lists
+- [x] Add generics
+- [x] Add lists
 - [ ] Add optional types
 - [ ] Add optional parameters in function declarations
-- [ ] Add tuples
-- [ ] Add ranges (1..4 style)
+- [x] Add tuples
+- [x] Add ranges (1..4 style)
 - [ ] Add dictionaries
-- [ ] Add foreach loops
+- [x] Add foreach loops
 - [ ] Add lambda functions
-- [ ] Add inheritance (or traits)
+- [x] Add traits
 - [ ] Add string interpolation
 - [ ] Add multithreading using pthread for now (async/await? ala Spice)
 - [ ] Add multiple value return without having to make structs

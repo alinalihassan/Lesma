@@ -31,7 +31,7 @@ while true
 ## Convert the input and compare it
 
 ```txt
-    let guessed_number = strToInt(guess)
+    let guessed_number = guess.toInt()
 
     if guessed_number > secret_number
         print("Too big!")
@@ -51,7 +51,7 @@ let secret_number = random(1, 101)
 
 while true
     let guess = input("Please input your guess: ")
-    let guessed_number = strToInt(guess)
+    let guessed_number = guess.toInt()
 
     if guessed_number > secret_number
         print("Too big!")

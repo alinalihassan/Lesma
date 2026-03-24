@@ -30,9 +30,7 @@ auto isLesRelativePath(char const* path) -> bool {
   return len >= 4 && std::memcmp(path + len - 4, ".les", 4) == 0;
 }
 
-auto nonEmpty(char const* p) -> char const* {
-  return (p != nullptr && p[0] != '\0') ? p : nullptr;
-}
+auto nonEmpty(char const* p) -> char const* { return (p != nullptr && p[0] != '\0') ? p : nullptr; }
 
 auto pathFromStatusEntry(git_status_entry const* entry) -> char const* {
   if (entry->index_to_workdir != nullptr) {
@@ -76,12 +74,18 @@ auto tryListLesFilesViaGitRepository(std::string const& workspaceRoot)
   if (git_repository_open(&repoRaw, rootStr.c_str()) != 0) {
     return std::nullopt;
   }
-  std::unique_ptr<git_repository, decltype(&git_repository_free)> repo(repoRaw, git_repository_free);
+  std::unique_ptr<git_repository, decltype(&git_repository_free)> repo(repoRaw,
+                                                                       git_repository_free);
 
   std::unordered_set<std::string> relPaths;
   auto addRel = [&](char const* rel) {
     if (isLesRelativePath(rel)) {
       relPaths.emplace(rel);
+    }
+  };
+  auto removeRel = [&](char const* rel) {
+    if (isLesRelativePath(rel)) {
+      relPaths.erase(rel);
     }
   };
 
@@ -116,7 +120,8 @@ auto tryListLesFilesViaGitRepository(std::string const& workspaceRoot)
   if (git_status_list_new(&stRaw, repo.get(), &opts) != 0) {
     return std::nullopt;
   }
-  std::unique_ptr<git_status_list, decltype(&git_status_list_free)> stList(stRaw, git_status_list_free);
+  std::unique_ptr<git_status_list, decltype(&git_status_list_free)> stList(stRaw,
+                                                                           git_status_list_free);
 
   size_t const stCount = git_status_list_entrycount(stList.get());
   for (size_t i = 0; i < stCount; ++i) {
@@ -128,8 +133,22 @@ auto tryListLesFilesViaGitRepository(std::string const& workspaceRoot)
     if ((st & GIT_STATUS_IGNORED) != 0) {
       continue;
     }
-    if ((st & GIT_STATUS_WT_NEW) != 0) {
+    if ((st & (GIT_STATUS_INDEX_DELETED | GIT_STATUS_INDEX_RENAMED)) != 0U &&
+        entry->head_to_index != nullptr) {
+      removeRel(entry->head_to_index->old_file.path);
+    }
+    if ((st & (GIT_STATUS_WT_DELETED | GIT_STATUS_WT_RENAMED)) != 0U &&
+        entry->index_to_workdir != nullptr) {
+      removeRel(entry->index_to_workdir->old_file.path);
+    }
+    if ((st & GIT_STATUS_WT_NEW) != 0U) {
       addRel(pathFromStatusEntry(entry));
+    }
+    if ((st & GIT_STATUS_INDEX_RENAMED) != 0U && entry->head_to_index != nullptr) {
+      addRel(entry->head_to_index->new_file.path);
+    }
+    if ((st & GIT_STATUS_WT_RENAMED) != 0U && entry->index_to_workdir != nullptr) {
+      addRel(entry->index_to_workdir->new_file.path);
     }
   }
 
@@ -137,6 +156,10 @@ auto tryListLesFilesViaGitRepository(std::string const& workspaceRoot)
   out.reserve(relPaths.size());
   for (std::string const& rel : relPaths) {
     std::filesystem::path const full = std::filesystem::path(rootStr) / rel;
+    std::error_code existsEc;
+    if (!std::filesystem::exists(full, existsEc)) {
+      continue;
+    }
     out.push_back(normalizeAbsolutePathString(full));
   }
   return out;

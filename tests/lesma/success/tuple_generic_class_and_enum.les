@@ -1,0 +1,31 @@
+# Tuple mixing a specialized generic class and an enum: exercises structural `TY_TUPLE`
+# with nominal class layout (pointer) and enum lowering in the same aggregate.
+
+enum Mode
+    ON
+    OFF
+
+class Box<T>
+    var x: T
+    def new(v: T)
+        self.x = v
+
+def make_pair() -> (Box<int>, Mode)
+    return (Box<int>(99), Mode.ON)
+
+let box, mode = make_pair()
+
+if box.x != 99
+    exit(1)
+
+if mode != Mode.ON
+    exit(1)
+
+let packed: (Box<int>, Mode) = (Box<int>(-1), Mode.OFF)
+if packed[0].x != -1
+    exit(1)
+if packed[1] != Mode.OFF
+    exit(1)
+
+print(box.x)
+print(mode == Mode.ON)

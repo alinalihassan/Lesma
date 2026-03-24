@@ -1,16 +1,19 @@
 #include "LspCompletion.h"
 
-#include "LspUtf16.h"
-
-#include <array>
 #include <algorithm>
+#include <array>
 #include <cctype>
+#include <optional>
 #include <sstream>
 #include <string_view>
 #include <unordered_set>
 
 #include "llvm/ADT/StringRef.h"
 #include "llvm/Support/SourceMgr.h"
+
+#include "LspAnalysisGraph.h"
+#include "LspTypeFormat.h"
+#include "LspUtf16.h"
 
 #include "liblesma/AST/AST.h"
 #include "liblesma/Driver/Driver.h"
@@ -21,6 +24,7 @@ namespace lesma::lsp_srv {
 namespace {
 
 using namespace lesma;
+using lesma::lsp_srv::formatTypeName;
 
 struct CompletionContext {
   bool isMember = false;
@@ -78,42 +82,6 @@ auto splitChain(const std::string& chain) -> std::vector<std::string> {
   return parts;
 }
 
-auto typeDisplayName(Type* type, SymbolTable* root) -> std::string {
-  if (type == nullptr) {
-    return "?";
-  }
-  if (type->is(BaseType::TY_PTR) && type->getElementType() != nullptr) {
-    return typeDisplayName(type->getElementType(), root) + "*";
-  }
-  if (type->is(BaseType::TY_ARRAY) && type->getElementType() != nullptr) {
-    return typeDisplayName(type->getElementType(), root) + "[]";
-  }
-  if (type->is(BaseType::TY_INT)) {
-    return type->isSigned() ? "int" : "uint";
-  }
-  if (type->is(BaseType::TY_FLOAT)) {
-    return "float";
-  }
-  if (type->is(BaseType::TY_STRING)) {
-    return "string";
-  }
-  if (type->is(BaseType::TY_BOOL)) {
-    return "bool";
-  }
-  if (type->is(BaseType::TY_VOID)) {
-    return "void";
-  }
-  if ((type->is(BaseType::TY_CLASS) || type->is(BaseType::TY_ENUM)) && root != nullptr) {
-    for (Value* sym : root->getSymbols()) {
-      if (sym != nullptr && sym->getCategory() == ValueCategory::TYPE_SYMBOL &&
-          sym->getType() == type) {
-        return sym->getName();
-      }
-    }
-  }
-  return type->toString();
-}
-
 auto symbolDetail(Value* value, SymbolTable* root) -> std::string {
   if (value == nullptr || value->getType() == nullptr) {
     return {};
@@ -127,15 +95,15 @@ auto symbolDetail(Value* value, SymbolTable* root) -> std::string {
       if (i > 0U) {
         oss << ", ";
       }
-      oss << fields[i]->name << ": " << typeDisplayName(fields[i]->type, root);
+      oss << fields[i]->name << ": " << formatTypeName(fields[i]->type, root);
     }
     oss << ")";
     if (type->getReturnType() != nullptr && !type->getReturnType()->is(BaseType::TY_VOID)) {
-      oss << " -> " << typeDisplayName(type->getReturnType(), root);
+      oss << " -> " << formatTypeName(type->getReturnType(), root);
     }
     return oss.str();
   }
-  return typeDisplayName(type, root);
+  return formatTypeName(type, root);
 }
 
 auto candidateKindForValue(Value* value) -> ::lsp::CompletionItemKind {
@@ -285,7 +253,11 @@ auto lookupImportedModuleSymbol(const AnalysisResult& result, const std::string&
       moduleIt->second->rootScope == nullptr) {
     return nullptr;
   }
-  return moduleIt->second->rootScope->lookup(symbolName);
+  Value* value = moduleIt->second->rootScope->lookup(symbolName);
+  if (value == nullptr || !value->isExported()) {
+    return nullptr;
+  }
+  return value;
 }
 
 auto resolveMemberFieldType(Type* baseType, const std::string& name) -> Type* {
@@ -327,8 +299,231 @@ auto resolveChainType(const AnalysisResult& result, const std::string& chain, Sy
   return type;
 }
 
+/** When the receiver is `self`, resolve the class instance type from the innermost enclosing
+ * method. */
+auto resolveSelfReceiverType(Compound* ast, unsigned offset, llvm::SourceMgr* srcMgr,
+                             unsigned bufferId, SymbolTable* root) -> Type* {
+  if (ast == nullptr || root == nullptr) {
+    return nullptr;
+  }
+  InnermostFunc inner = findInnermostFuncContaining(ast, offset, srcMgr, bufferId);
+  if (inner.enclosingClass == nullptr) {
+    return nullptr;
+  }
+  Type* classTy = root->lookupType(inner.enclosingClass->getIdentifier());
+  if (classTy == nullptr) {
+    return nullptr;
+  }
+  return classTy;
+}
+
 void addCandidate(std::vector<CompletionCandidate>& out, std::unordered_set<std::string>& seen,
                   CompletionCandidate candidate);
+
+auto findTraitDeclNamed(AnalysisResult& result, Compound* mainAst, const std::string& name)
+    -> TraitDecl* {
+  auto scanCompound = [&name](Compound* compound) -> TraitDecl* {
+    if (compound == nullptr) {
+      return nullptr;
+    }
+    for (Statement* stmt : compound->getChildren()) {
+      if (auto* tr = dynamic_cast<TraitDecl*>(stmt)) {
+        if (tr->getIdentifier() == name) {
+          return tr;
+        }
+      }
+    }
+    return nullptr;
+  };
+  if (TraitDecl* tr = scanCompound(mainAst); tr != nullptr) {
+    return tr;
+  }
+  for (const auto& entry : result.importedModules) {
+    if (entry.second == nullptr || entry.second->parser == nullptr) {
+      continue;
+    }
+    Compound* modAst = entry.second->parser->getAst();
+    if (TraitDecl* tr = scanCompound(modAst); tr != nullptr) {
+      return tr;
+    }
+  }
+  return nullptr;
+}
+
+auto smRangesEqual(llvm::SMRange lhs, llvm::SMRange rhs) -> bool {
+  return lhs.isValid() && rhs.isValid() && lhs.Start == rhs.Start && lhs.End == rhs.End;
+}
+
+auto findClassDeclarationInCompound(Compound* compound, llvm::SMRange declarationSpan) -> Class*;
+
+auto findClassDeclarationInStatement(Statement* stmt, llvm::SMRange declarationSpan) -> Class* {
+  if (stmt == nullptr) {
+    return nullptr;
+  }
+  if (auto* compound = dynamic_cast<Compound*>(stmt)) {
+    return findClassDeclarationInCompound(compound, declarationSpan);
+  }
+  if (auto* klass = dynamic_cast<Class*>(stmt)) {
+    if (smRangesEqual(klass->getNameSpan(), declarationSpan)) {
+      return klass;
+    }
+    for (FuncDecl* method : klass->getMethods()) {
+      if (Class* nested = findClassDeclarationInCompound(method->getBody(), declarationSpan)) {
+        return nested;
+      }
+    }
+    return nullptr;
+  }
+  if (auto* func = dynamic_cast<FuncDecl*>(stmt)) {
+    return findClassDeclarationInCompound(func->getBody(), declarationSpan);
+  }
+  if (auto* ifNode = dynamic_cast<If*>(stmt)) {
+    for (Compound* block : ifNode->getBlocks()) {
+      if (Class* nested = findClassDeclarationInCompound(block, declarationSpan)) {
+        return nested;
+      }
+    }
+    return nullptr;
+  }
+  if (auto* whileNode = dynamic_cast<While*>(stmt)) {
+    return findClassDeclarationInCompound(whileNode->getBlock(), declarationSpan);
+  }
+  if (auto* defer = dynamic_cast<Defer*>(stmt)) {
+    return findClassDeclarationInStatement(defer->getStatement(), declarationSpan);
+  }
+  return nullptr;
+}
+
+auto findClassDeclarationInCompound(Compound* compound, llvm::SMRange declarationSpan) -> Class* {
+  if (compound == nullptr) {
+    return nullptr;
+  }
+  for (Statement* child : compound->getChildren()) {
+    if (Class* klass = findClassDeclarationInStatement(child, declarationSpan)) {
+      return klass;
+    }
+  }
+  return nullptr;
+}
+
+auto declarationIdentityForType(Type* classType, SymbolTable* root)
+    -> std::optional<IndexedDeclarationIdentity> {
+  if (classType == nullptr) {
+    return std::nullopt;
+  }
+  if (classType->getDeclarationSpan().isValid() && !classType->getDeclarationFilePath().empty()) {
+    return IndexedDeclarationIdentity{
+        .filePath = classType->getDeclarationFilePath(),
+        .span = classType->getDeclarationSpan(),
+    };
+  }
+  if (root == nullptr) {
+    return std::nullopt;
+  }
+  for (Value* symbol : root->getSymbols()) {
+    if (symbol == nullptr || symbol->getCategory() != ValueCategory::TYPE_SYMBOL ||
+        symbol->getType() == nullptr || !symbol->getType()->isEqual(classType) ||
+        !symbol->getDeclarationSpan().isValid() || symbol->getDeclarationFilePath().empty()) {
+      continue;
+    }
+    return IndexedDeclarationIdentity{
+        .filePath = symbol->getDeclarationFilePath(),
+        .span = symbol->getDeclarationSpan(),
+    };
+  }
+  return std::nullopt;
+}
+
+/** For types like list<int> or Box<int>, returns the template name before '<' (list, Box). */
+auto genericSpecializationBaseName(Type* classType) -> std::optional<std::string> {
+  if (classType == nullptr || !classType->is(BaseType::TY_CLASS)) {
+    return std::nullopt;
+  }
+  std::string const& dn = classType->getDisplayName();
+  if (dn.empty()) {
+    return std::nullopt;
+  }
+  size_t const angle = dn.find('<');
+  if (angle == std::string::npos) {
+    return std::nullopt;
+  }
+  return std::string(dn.substr(0U, angle));
+}
+
+auto findTopLevelClassByName(Compound* compound, std::string_view name) -> Class* {
+  if (compound == nullptr) {
+    return nullptr;
+  }
+  for (Statement* stmt : compound->getChildren()) {
+    if (auto* klass = dynamic_cast<Class*>(stmt)) {
+      if (klass->getIdentifier() == name) {
+        return klass;
+      }
+    }
+  }
+  return nullptr;
+}
+
+auto findClassDeclarationForType(AnalysisResult& result, Type* classType, Compound* fallbackAst,
+                                 SymbolTable* root) -> Class* {
+  if (std::optional<IndexedDeclarationIdentity> declaration =
+          declarationIdentityForType(classType, root)) {
+    if (std::optional<AnalysisView> analysis =
+            findAnalysisViewForPath(result, declaration->filePath)) {
+      if (Class* klass = findClassDeclarationInCompound(analysis->ast, declaration->span)) {
+        return klass;
+      }
+      if (std::optional<std::string> baseName = genericSpecializationBaseName(classType)) {
+        if (Class* klass = findTopLevelClassByName(analysis->ast, *baseName)) {
+          return klass;
+        }
+      }
+    }
+  }
+  if (fallbackAst == nullptr || root == nullptr) {
+    return nullptr;
+  }
+  for (Statement* stmt : fallbackAst->getChildren()) {
+    auto* klass = dynamic_cast<Class*>(stmt);
+    if (klass == nullptr) {
+      continue;
+    }
+    Type* fallbackType = root->lookupType(klass->getIdentifier());
+    if (fallbackType != nullptr && fallbackType->isEqual(classType)) {
+      return klass;
+    }
+    if (fallbackType != nullptr && fallbackType->is(BaseType::TY_CLASS) &&
+        !klass->getGenericParams().empty()) {
+      if (std::optional<std::string> baseName = genericSpecializationBaseName(classType);
+          baseName.has_value() && *baseName == klass->getIdentifier()) {
+        return klass;
+      }
+    }
+  }
+  return nullptr;
+}
+
+auto isHiddenClassMemberName(std::string_view name) -> bool { return name.starts_with("__"); }
+
+void appendMethodsForClass(Class* klass, SymbolTable* root, std::vector<CompletionCandidate>& out,
+                           std::unordered_set<std::string>& seen) {
+  if (klass == nullptr) {
+    return;
+  }
+  for (FuncDecl* method : klass->getMethods()) {
+    if (method == nullptr || method->getName() == "new" ||
+        isHiddenClassMemberName(method->getName())) {
+      continue;
+    }
+    Value* methodValue = method->getResolvedSymbol();
+    addCandidate(out, seen,
+                 CompletionCandidate{
+                     .label = method->getName(),
+                     .kind = ::lsp::CompletionItemKind::Method,
+                     .detail = symbolDetail(methodValue, root),
+                 });
+  }
+}
 
 void appendModuleMembersForAlias(const AnalysisResult& result, const std::string& alias,
                                  std::vector<CompletionCandidate>& out,
@@ -344,7 +539,7 @@ void appendModuleMembersForAlias(const AnalysisResult& result, const std::string
   }
   SymbolTable* moduleScope = moduleIt->second->rootScope.get();
   for (Value* value : moduleScope->getSymbols()) {
-    if (value == nullptr) {
+    if (value == nullptr || !value->isExported()) {
       continue;
     }
     addCandidate(out, seen,
@@ -364,7 +559,41 @@ void addCandidate(std::vector<CompletionCandidate>& out, std::unordered_set<std:
   out.push_back(std::move(candidate));
 }
 
-void appendMembersForType(Type* baseType, Compound* ast, SymbolTable* root,
+void appendTraitRequirementMethods(AnalysisResult& result, Type* classType, Compound* mainAst,
+                                   SymbolTable* root, std::vector<CompletionCandidate>& out,
+                                   std::unordered_set<std::string>& seen) {
+  if (classType == nullptr || root == nullptr) {
+    return;
+  }
+  // Match appendMembersForType: receivers like `self` are ptr-to-class; impl lists live on the
+  // class.
+  if (classType->is(BaseType::TY_PTR) && classType->getElementType() != nullptr) {
+    classType = classType->getElementType();
+  }
+  if (!classType->is(BaseType::TY_CLASS)) {
+    return;
+  }
+  for (const std::string& traitName : classType->getImplTraitNames()) {
+    TraitDecl* tr = findTraitDeclNamed(result, mainAst, traitName);
+    if (tr == nullptr) {
+      continue;
+    }
+    for (FuncDecl* req : tr->getRequirements()) {
+      if (req == nullptr || req->getName() == "new" || isHiddenClassMemberName(req->getName())) {
+        continue;
+      }
+      Value* methodValue = req->getResolvedSymbol();
+      addCandidate(out, seen,
+                   CompletionCandidate{
+                       .label = req->getName(),
+                       .kind = ::lsp::CompletionItemKind::Method,
+                       .detail = symbolDetail(methodValue, root),
+                   });
+    }
+  }
+}
+
+void appendMembersForType(AnalysisResult& result, Type* baseType, Compound* ast, SymbolTable* root,
                           std::vector<CompletionCandidate>& out,
                           std::unordered_set<std::string>& seen) {
   if (baseType == nullptr) {
@@ -378,7 +607,7 @@ void appendMembersForType(Type* baseType, Compound* ast, SymbolTable* root,
   }
 
   for (Field* field : baseType->getFields()) {
-    if (field == nullptr) {
+    if (field == nullptr || isHiddenClassMemberName(field->name)) {
       continue;
     }
     addCandidate(out, seen,
@@ -386,41 +615,19 @@ void appendMembersForType(Type* baseType, Compound* ast, SymbolTable* root,
                                      .kind = baseType->is(BaseType::TY_ENUM)
                                                  ? ::lsp::CompletionItemKind::EnumMember
                                                  : ::lsp::CompletionItemKind::Field,
-                                     .detail = typeDisplayName(field->type, root)});
+                                     .detail = formatTypeName(field->type, root)});
   }
 
-  if (!baseType->is(BaseType::TY_CLASS) || ast == nullptr || root == nullptr) {
+  if (!baseType->is(BaseType::TY_CLASS) || root == nullptr) {
     return;
   }
-  for (Statement* stmt : ast->getChildren()) {
-    auto* klass = dynamic_cast<Class*>(stmt);
-    if (klass == nullptr) {
-      continue;
-    }
-    Type* classType = root->lookupType(klass->getIdentifier());
-    if (classType == nullptr || !classType->isEqual(baseType)) {
-      continue;
-    }
-    for (FuncDecl* method : klass->getMethods()) {
-      if (method == nullptr) {
-        continue;
-      }
-      if (method->getName() == "new") {
-        continue;
-      }
-      Value* methodValue = method->getResolvedSymbol();
-      addCandidate(out, seen,
-                   CompletionCandidate{
-                       .label = method->getName(),
-                       .kind = ::lsp::CompletionItemKind::Method,
-                       .detail = symbolDetail(methodValue, root),
-                   });
-    }
-    break;
+  if (Class* klass = findClassDeclarationForType(result, baseType, ast, root)) {
+    appendMethodsForClass(klass, root, out, seen);
   }
 }
 
-void appendScopeSymbols(SymbolTable* scope, SymbolTable* root, std::vector<CompletionCandidate>& out,
+void appendScopeSymbols(SymbolTable* scope, SymbolTable* root,
+                        std::vector<CompletionCandidate>& out,
                         std::unordered_set<std::string>& seen) {
   for (SymbolTable* current = scope; current != nullptr; current = current->getParent()) {
     for (Value* value : current->getSymbols()) {
@@ -438,35 +645,38 @@ void appendScopeSymbols(SymbolTable* scope, SymbolTable* root, std::vector<Compl
 }
 
 void appendKeywords(std::vector<CompletionCandidate>& out, std::unordered_set<std::string>& seen) {
-  static constexpr std::array<std::string_view, 25> keywords = {
-      "and",      "as",   "break",  "class", "continue", "def", "defer", "else",   "enum",
-      "export",   "extern", "for",  "from",  "if",       "import", "in", "is",     "let",
-      "not",      "or",   "return", "super", "this",     "var", "while",
+  static constexpr std::array<std::string_view, 26> keywords = {
+      "and",    "as",     "break", "class",  "continue", "def",    "defer", "else",  "enum",
+      "export", "extern", "for",   "from",   "if",       "import", "in",    "is",    "let",
+      "not",    "or",     "pass",  "return", "super",    "this",   "var",   "while",
   };
   static constexpr std::array<std::string_view, 3> literals = {"false", "null", "true"};
   static constexpr std::array<std::string_view, 11> builtinTypes = {
-      "bool", "float", "float32", "float64", "int", "int8",
-      "int16", "int32", "int64", "str", "void",
+      "bool",  "float", "float32", "float64", "int",  "int8",
+      "int16", "int32", "int64",   "str",     "void",
   };
   for (std::string_view keyword : keywords) {
-    addCandidate(out, seen, CompletionCandidate{.label = std::string(keyword),
-                                                .kind = ::lsp::CompletionItemKind::Keyword,
-                                                .detail = {}});
+    addCandidate(out, seen,
+                 CompletionCandidate{.label = std::string(keyword),
+                                     .kind = ::lsp::CompletionItemKind::Keyword,
+                                     .detail = {}});
   }
   for (std::string_view literal : literals) {
-    addCandidate(out, seen, CompletionCandidate{.label = std::string(literal),
-                                                .kind = ::lsp::CompletionItemKind::Value,
-                                                .detail = {}});
+    addCandidate(out, seen,
+                 CompletionCandidate{.label = std::string(literal),
+                                     .kind = ::lsp::CompletionItemKind::Value,
+                                     .detail = {}});
   }
   for (std::string_view builtinType : builtinTypes) {
-    addCandidate(out, seen, CompletionCandidate{.label = std::string(builtinType),
-                                                .kind = ::lsp::CompletionItemKind::Class,
-                                                .detail = "built-in type"});
+    addCandidate(out, seen,
+                 CompletionCandidate{.label = std::string(builtinType),
+                                     .kind = ::lsp::CompletionItemKind::Class,
+                                     .detail = "built-in type"});
   }
 }
 
-auto toCompletionItems(const std::vector<CompletionCandidate>& candidates, const std::string& prefix)
-    -> std::vector<::lsp::CompletionItem> {
+auto toCompletionItems(const std::vector<CompletionCandidate>& candidates,
+                       const std::string& prefix) -> std::vector<::lsp::CompletionItem> {
   std::vector<::lsp::CompletionItem> items;
   for (const CompletionCandidate& candidate : candidates) {
     if (!startsWith(candidate.label, prefix)) {
@@ -481,8 +691,7 @@ auto toCompletionItems(const std::vector<CompletionCandidate>& candidates, const
     items.push_back(std::move(item));
   }
   std::sort(items.begin(), items.end(),
-            [](const ::lsp::CompletionItem& lhs,
-               const ::lsp::CompletionItem& rhs) -> bool {
+            [](const ::lsp::CompletionItem& lhs, const ::lsp::CompletionItem& rhs) -> bool {
               return lhs.label < rhs.label;
             });
   return items;
@@ -490,7 +699,7 @@ auto toCompletionItems(const std::vector<CompletionCandidate>& candidates, const
 
 } // namespace
 
-auto completionItems(const AnalysisResult& result, unsigned line, unsigned character)
+auto completionItems(AnalysisResult& result, unsigned line, unsigned character)
     -> std::vector<::lsp::CompletionItem> {
   std::vector<::lsp::CompletionItem> items;
   if (result.sourceMgr == nullptr) {
@@ -508,7 +717,7 @@ auto completionItems(const AnalysisResult& result, unsigned line, unsigned chara
   CompletionContext ctx = extractCompletionContext(text, offset);
 
   AnalysisResult patchedResult;
-  const AnalysisResult* activeResult = &result;
+  AnalysisResult* activeResult = &result;
   if (ctx.isMember && (result.parser == nullptr || result.rootScope == nullptr)) {
     // `holder.` is syntactically incomplete, so the normal analysis may fail to parse.
     // Re-analyze with a temporary identifier after the dot so we can still resolve members.
@@ -532,14 +741,16 @@ auto completionItems(const AnalysisResult& result, unsigned line, unsigned chara
 
   if (ctx.isMember) {
     std::vector<std::string> parts = splitChain(ctx.memberChain);
-    if (parts.size() == 1U) {
+    Type* baseType = resolveChainType(*activeResult, ctx.memberChain, activeScope, root);
+    if (baseType == nullptr && parts.size() == 1U && parts.front() == "self") {
+      baseType = resolveSelfReceiverType(ast, offset, srcMgr, bufferId, root);
+    }
+    if (parts.size() == 1U && activeResult->importAliasToPath.find(parts.front()) !=
+                                  activeResult->importAliasToPath.end()) {
       appendModuleMembersForAlias(*activeResult, parts.front(), candidates, seen);
     }
-    Type* baseType = resolveChainType(*activeResult, ctx.memberChain, activeScope, root);
-    appendMembersForType(baseType, ast, root, candidates, seen);
-    if (candidates.empty()) {
-      appendScopeSymbols(activeScope != nullptr ? activeScope : root, root, candidates, seen);
-    }
+    appendMembersForType(*activeResult, baseType, ast, root, candidates, seen);
+    appendTraitRequirementMethods(*activeResult, baseType, ast, root, candidates, seen);
   } else {
     appendScopeSymbols(activeScope != nullptr ? activeScope : root, root, candidates, seen);
     appendKeywords(candidates, seen);

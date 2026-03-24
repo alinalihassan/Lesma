@@ -2,6 +2,7 @@
 
 #include <cmath>
 #include <cstdlib>
+#include <filesystem>
 #include <sstream>
 #include <string>
 
@@ -104,5 +105,57 @@ auto getStdDir() -> std::string {
   }
   return fmt::format("{}/.lesma/stdlib/", homedir);
 #endif
+}
+
+auto isStdlibSourcePath(const std::string& path) -> bool {
+  if (path.empty()) {
+    return false;
+  }
+  std::error_code ec;
+  const std::filesystem::path absPath =
+      std::filesystem::weakly_canonical(std::filesystem::absolute(path), ec);
+  if (ec) {
+    return false;
+  }
+  const std::filesystem::path stdRoot =
+      std::filesystem::weakly_canonical(std::filesystem::absolute(getStdDir()), ec);
+  if (ec) {
+    return false;
+  }
+  if (absPath == stdRoot) {
+    return true;
+  }
+  std::filesystem::path rel = std::filesystem::relative(absPath, stdRoot, ec);
+  if (ec || rel.empty()) {
+    return false;
+  }
+  const std::string relStr = rel.generic_string();
+  return relStr.rfind("..", 0) != 0;
+}
+
+auto normalizeResolvedFilesystemPath(const std::string& path) -> std::string {
+  const std::filesystem::path abs = std::filesystem::absolute(std::filesystem::path(path));
+  std::error_code ec;
+  std::filesystem::path norm = std::filesystem::weakly_canonical(abs, ec);
+  if (ec) {
+    norm = abs.lexically_normal();
+  }
+  return norm.string();
+}
+
+auto normalizeModuleImportPath(const std::string& mainModulePath, const std::string& importPath)
+    -> std::string {
+  std::filesystem::path filePath(importPath);
+  const std::filesystem::path resolved =
+      filePath.is_absolute()
+          ? filePath
+          : (std::filesystem::absolute(std::filesystem::path(mainModulePath)).parent_path() /
+             filePath);
+  std::error_code ec;
+  std::filesystem::path norm = std::filesystem::weakly_canonical(resolved, ec);
+  if (ec) {
+    norm = std::filesystem::absolute(resolved).lexically_normal();
+  }
+  return norm.string();
 }
 } // namespace lesma

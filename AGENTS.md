@@ -88,6 +88,12 @@ The project uses **AddressSanitizer (ASan)** and **LeakSanitizer (LSan)** for me
   ```
   (On macOS with system LLVM, `ASAN_OPTIONS=detect_container_overflow=0` avoids a false positive in LLVM’s static initializers. CI sets this automatically.) Or with ctest (when `LESMA_BUILD_TESTS` is ON): `ctest --test-dir build/Debug_Asan --output-on-failure`.
 
+- **When ASan points at a crash or bad stack frame:** Use **`lldb`** to get a precise backtrace, inspect the crashing instruction, and check the live values/types that reached codegen or runtime. A typical flow is:
+  ```bash
+  lldb -- build/Debug_Asan/lesma run tests/lesma/success/list_methods_alias_copy.les
+  ```
+  Then use `run`, `bt`, `frame variable`, and `up` / `down`. This is usually worth doing after sanitizer output narrows the failing path, especially for recursive specialization bugs, invalid LLVM values, or crashes that happen before ASan can explain ownership clearly.
+
 - **Option without presets:** Configure with `-DLESMA_SANITIZE_ADDRESS=ON` and `-DCMAKE_BUILD_TYPE=Debug`, then build and run the same tests.
 
 - **macOS only — quick leak check:** You can run Apple’s `leaks` tool on any built binary (no recompile needed):

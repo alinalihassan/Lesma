@@ -3,3 +3,11 @@ def fib(x: int = 10, y: int = 20) -> int
 
 if fib() != 30
 	exit(1)
+
+# Trailing defaults only: first arg explicit, second uses default (5 + 20).
+if fib(5) != 25
+	exit(1)
+
+# Both explicit.
+if fib(3, 4) != 7
+	exit(1)

@@ -1,3 +1,0 @@
-from "import_source.les" import add as plus
-
-let value = plus(1, 2)

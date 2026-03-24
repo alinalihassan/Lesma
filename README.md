@@ -50,7 +50,7 @@ bash -c "$(curl -fsSL https://raw.githubusercontent.com/alinalihassan/Lesma/main
 
 ## 🔧 Build
 
-In order to build Lesma, you need a C++ compiler (Clang recommended), CMake, and Ninja; LLVM and LLD are built or installed via vcpkg from `vcpkg.json`. It's currently only supported on Linux and macOS.
+In order to build Lesma, you need a C++23 compiler, LLVM (17+), `lld`, and Ninja installed. We recommend using Clang as the host C++ compiler. It's currently only supported on Linux and macOS.
 For a more comprehensive guide, and more information on how to install the prerequisites,
 read the documentation on [Getting Started](https://lesma-lang.com/getting-started/)
 
@@ -59,8 +59,9 @@ read the documentation on [Getting Started](https://lesma-lang.com/getting-start
 **Required:**
 - CMake 3.24+
 - Ninja
-- Clang (or another C++ compiler supported by the project)
-- vcpkg (submodule; supplies LLVM and LLD for linking)
+- C++23 compiler (Clang recommended)
+- LLVM 17+
+- lld
 
 ### vcpkg (submodule)
 
@@ -73,11 +74,31 @@ cd vcpkg
 cd ..
 ```
 
-### LLVM
+### Installing LLVM
 
-The compiler links against **LLVM and LLD from vcpkg** (declared in `vcpkg.json`). Object linking uses the in-process LLD API, not an external `clang` driver. The first configure may take a long time while vcpkg builds LLVM from source; later builds reuse the install under your build directory. Use the vcpkg toolchain file when configuring CMake (the presets do this for you).
+#### Option 1: Homebrew (macOS)
+```bash
+brew install llvm lld
+export LLVM_DIR=$(brew --prefix llvm)/lib/cmake/llvm
+```
 
-You still need a **system C++ compiler** (for example Xcode Clang on macOS or GCC/Clang on Linux) to build Lesma itself.
+#### Option 2: Package Manager (Linux)
+```bash
+# Ubuntu/Debian
+sudo apt-get install llvm-dev lld clang
+
+# Or for a specific version (e.g., LLVM 17)
+sudo apt-get install llvm-17-dev lld-17 clang-17
+```
+
+#### Option 3: Build LLVM via vcpkg (Any platform)
+This option builds LLVM from source using vcpkg. It takes significant time (~1-2 hours) but works on any platform.
+
+```bash
+# Configure with LLVM build enabled
+cmake . -Bbuild -DLESMA_BUILD_LLVM=ON -G Ninja
+cmake --build build
+```
 
 ### Building Lesma
 

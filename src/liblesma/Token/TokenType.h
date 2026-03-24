@@ -64,11 +64,18 @@ enum class TokenType : std::uint8_t {
   VOID_TYPE,
   FUNC_TYPE,
   PTR_TYPE,
+  LIST_TYPE,
   CUSTOM_TYPE,
   INT8_TYPE,
   INT16_TYPE,
   INT32_TYPE,
+  UINT_TYPE,
+  UINT8_TYPE,
+  UINT16_TYPE,
+  UINT32_TYPE,
   FLOAT32_TYPE,
+  /** Structural tuple type `(T1, T2, ...)` in TypeExpr; not a lexer token. */
+  TUPLE_TYPE,
 
   // Keywords.
   AND,
@@ -86,6 +93,7 @@ enum class TokenType : std::uint8_t {
   NOT,
   EXTERN,
   EXPORT,
+  OPERATOR,
   RETURN,
   SUPER,
   THIS,
@@ -95,6 +103,7 @@ enum class TokenType : std::uint8_t {
   WHILE,
   BREAK,
   CONTINUE,
+  PASS,
   DEFER,
   AS,
   IS,
@@ -102,6 +111,8 @@ enum class TokenType : std::uint8_t {
   IN,
   IMPORT,
   FROM,
+  TRAIT,
+  IMPL,
 
   // Special tokens
   EOF_TOKEN,

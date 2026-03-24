@@ -30,10 +30,10 @@ auto getTypeMangledName(llvm::SMRange span, Type* type) -> std::string {
   if (type->is(BaseType::TY_INT)) {
     return "i";
   }
-  if (type->is(BaseType::TY_FLOAT) && llvmTy->isFloatTy()) {
+  if (type->is(BaseType::TY_FLOAT32)) {
     return "f32";
   }
-  if (type->is(BaseType::TY_FLOAT) && llvmTy->isFloatingPointTy()) {
+  if (type->is(BaseType::TY_FLOAT)) {
     return "f";
   }
   if (type->is(BaseType::TY_STRING)) {
@@ -45,7 +45,7 @@ auto getTypeMangledName(llvm::SMRange span, Type* type) -> std::string {
   if (type->is(BaseType::TY_GENERIC)) {
     return "(gen_" + type->getGenericName() + ")";
   }
-  if (type->is(BaseType::TY_ARRAY) && llvmTy->isArrayTy()) {
+  if (type->is(BaseType::TY_ARRAY)) {
     return "(arr_" + getTypeMangledName(span, type->getElementType()) + ")";
   }
   if (type->is(BaseType::TY_PTR)) {
@@ -63,6 +63,24 @@ auto getTypeMangledName(llvm::SMRange span, Type* type) -> std::string {
       return "(struct_" + structTy->getName().str() + ")";
     }
     throw CodegenError(span, "Class/Enum type does not have LLVM struct type");
+  }
+  if (type->is(BaseType::TY_TRAIT_EXISTENTIAL)) {
+    return "(exist_" + type->getDisplayName() + ")";
+  }
+  if (type->is(BaseType::TY_TUPLE)) {
+    std::string s = "tup_";
+    for (auto* f : type->getFields()) {
+      if (f == nullptr) {
+        throw CodegenError(span, "unresolved tuple field: null Field* in tuple type {}",
+                           type->toString());
+      }
+      if (f->type == nullptr) {
+        throw CodegenError(span, "unresolved tuple field type: field '{}' in tuple {}", f->name,
+                           type->toString());
+      }
+      s += getTypeMangledName(span, f->type) + "_";
+    }
+    return "(" + s + ")";
   }
 
   throw CodegenError(span, "Unknown type found during mangling");
