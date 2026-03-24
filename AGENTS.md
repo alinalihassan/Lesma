@@ -42,7 +42,7 @@ When reporting errors, the Driver and Codegen use `showInline()` in `Common/Util
 
 ## How to compile the project
 
-- **Prerequisites:** CMake 3.24+, Ninja, a C++ compiler (Clang recommended), and vcpkg (with Lesma’s `vcpkg.json`). **LLVM and LLD** are supplied by vcpkg per the manifest (no Clang libraries linked); the tree targets the LLVM version pinned by vcpkg (e.g. 18.x). CMake pins `LLVM_DIR` / `LLD_DIR` to `vcpkg_installed` so a system/Homebrew LLVM is not mixed in. vcpkg is typically used as a submodule; bootstrap it and use the vcpkg toolchain when configuring.
+- **Prerequisites:** CMake 3.24+, Ninja, a C++ compiler (Clang from the same LLVM generation as the libraries is recommended), and vcpkg (with Lesma’s `vcpkg.json`) for manifest dependencies (fmt, nameof, cli11, libgit2, etc.). **LLVM and LLD** are discovered by CMake (`find_package(LLVM)` / `find_package(LLD)`); they are **not** pulled in by the default manifest. The project targets **LLVM 21** (for example Homebrew `llvm@21` and `lld@21` with `CMAKE_PREFIX_PATH` as in CI, or Linux packages from [apt.llvm.org](https://apt.llvm.org/) with `-DLLVM_DIR=…` and `-DLLD_DIR=…`). Optional: `-DLESMA_BUILD_LLVM=ON` enables the vcpkg `build-llvm` feature and builds LLVM from source (slow). vcpkg is typically used as a submodule; bootstrap it and use the vcpkg toolchain when configuring.
 - **Configure (example):** From the repo root, using the vcpkg toolchain and a build directory such as `build` or `build/Debug`:
   ```bash
   cmake -B build -S . \

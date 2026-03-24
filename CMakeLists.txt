@@ -16,6 +16,7 @@ add_feature_option(LESMA_BUILD_CLI "cli" "Build CLI" ON)
 add_feature_option(LESMA_BUILD_TESTS "tests" "Build Tests" OFF)
 add_feature_option(LESMA_BUILD_BENCHMARKS "benchmarks" "Build Benchmarks" OFF)
 add_feature_option(LESMA_BUILD_DIST "dist" "Build Dist" OFF)
+add_feature_option(LESMA_BUILD_LLVM "build-llvm" "Build LLVM via vcpkg (optional, slow build)" OFF)
 add_feature_option(LESMA_BUILD_LSP "lsp" "Build Lesma LSP server (lesma-lsp)" OFF)
 option(LESMA_SANITIZE_ADDRESS "Build with AddressSanitizer and LeakSanitizer for memory error and leak detection (Debug builds, all platforms)" OFF)
 
@@ -144,6 +145,13 @@ if(DEFINED VCPKG_INSTALLED_DIR AND DEFINED VCPKG_TARGET_TRIPLET)
       break()
     endif()
   endforeach()
+endif()
+
+# Optional in-tree LLVM (e.g. llvm/build-release from a local LLVM build) when vcpkg did not set LLVM_DIR
+set(LESMA_IN_TREE_LLVM_CMAKE "${ROOT_DIR}/llvm/build-release/lib/cmake/llvm")
+if(EXISTS "${LESMA_IN_TREE_LLVM_CMAKE}/LLVMConfig.cmake" AND NOT LLVM_DIR)
+  set(LLVM_DIR "${LESMA_IN_TREE_LLVM_CMAKE}" CACHE PATH "Path to LLVM CMake package")
+  message(STATUS "Using in-tree LLVM at ${LLVM_DIR}")
 endif()
 
 find_package(LLVM CONFIG REQUIRED)

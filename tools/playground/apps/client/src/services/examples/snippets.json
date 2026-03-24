@@ -1,0 +1,49 @@
+{
+  "From compiler tests": [
+    {
+      "label": "Hello world",
+      "icon": "Emoji2",
+      "iconColor": "#ff8c00",
+      "source": {
+        "basePath": "hello",
+        "files": ["main.les"]
+      }
+    },
+    {
+      "label": "Arithmetic check",
+      "icon": "NumberSymbol",
+      "iconColor": "#007fd4",
+      "source": {
+        "basePath": "arithmetic",
+        "files": ["main.les"]
+      }
+    },
+    {
+      "label": "Break / while",
+      "icon": "Sync",
+      "iconColor": "#00cc6a",
+      "source": {
+        "basePath": "break-demo",
+        "files": ["main.les"]
+      }
+    },
+    {
+      "label": "Tuples",
+      "icon": "Table",
+      "iconColor": "#d29200",
+      "source": {
+        "basePath": "tuples",
+        "files": ["main.les"]
+      }
+    },
+    {
+      "label": "Boolean expressions",
+      "icon": "ToggleBorder",
+      "iconColor": "#b4a0ff",
+      "source": {
+        "basePath": "boolean",
+        "files": ["main.les"]
+      }
+    }
+  ]
+}

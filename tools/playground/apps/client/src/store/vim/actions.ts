@@ -1,0 +1,63 @@
+import { type ConfirmMessage, type VimState } from '~/store/vim/state'
+import { type Nullable } from '~/utils/types'
+
+export enum ActionType {
+  VIM_INIT = 'VIM_INIT',
+  VIM_DISPOSE = 'VIM_DISPOSE',
+  VIM_MODE_CHANGE = 'VIM_MODE_CHANGE',
+  VIM_KEYPRESS = 'VIM_KEYPRESS',
+  VIM_KEYDEL = 'VIM_KEYDEL',
+  VIM_COMMAND_START = 'VIM_COMMAND_START',
+  VIM_COMMAND_DONE = 'VIM_COMMAND_DONE',
+  VIM_SHOW_CONFIRM = 'VIM_SHOW_CONFIRM',
+}
+
+/**
+ * VimModeChangeArgs represents current selected mode and sub-mode.
+ */
+export type VimModeChangeArgs = Pick<VimState, 'mode' | 'subMode'>
+
+export interface VimKeyPressArgs {
+  key: string
+  replaceContents: boolean
+}
+
+export const newVimInitAction = () => ({
+  type: ActionType.VIM_INIT,
+  payload: null,
+})
+
+export const newVimDisposeAction = () => ({
+  type: ActionType.VIM_DISPOSE,
+  payload: null,
+})
+
+export const newVimModeChangeAction = (payload: VimModeChangeArgs) => ({
+  type: ActionType.VIM_MODE_CHANGE,
+  payload,
+})
+
+export const newVimKeyPressAction = (key: string, replaceContents = false) => ({
+  type: ActionType.VIM_KEYPRESS,
+  payload: { key, replaceContents },
+})
+
+export const newVimKeyDeleteAction = () => ({
+  type: ActionType.VIM_KEYDEL,
+  payload: null,
+})
+
+export const newVimCommandStartAction = (commandSuffix?: Nullable<string>) => ({
+  type: ActionType.VIM_COMMAND_START,
+  payload: commandSuffix ?? '',
+})
+
+export const newVimCommandDoneAction = () => ({
+  type: ActionType.VIM_COMMAND_DONE,
+  payload: null,
+})
+
+export const newVimConfirmAction = (payload: ConfirmMessage) => ({
+  type: ActionType.VIM_SHOW_CONFIRM,
+  payload,
+})

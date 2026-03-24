@@ -1,0 +1,9 @@
+# Used when building tools/playground/Dockerfile from the repo root.
+.git
+**/node_modules/
+build/
+**/Debug/
+**/Release/
+tools/playground/node_modules/
+tools/playground/apps/client/node_modules/
+**/.DS_Store

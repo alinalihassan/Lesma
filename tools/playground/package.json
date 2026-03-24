@@ -1,0 +1,22 @@
+{
+  "name": "playground",
+  "private": true,
+  "type": "module",
+  "workspaces": ["apps/*"],
+  "overrides": {
+    "@codemirror/state": "6.6.0",
+    "@codemirror/view": "6.40.0",
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1"
+  },
+  "scripts": {
+    "dev": "bun run --cwd apps/server dev",
+    "dev:client": "bun run --cwd apps/client start",
+    "build": "bun run build:client && bun run build:server",
+    "build:client": "bun run --cwd apps/client build",
+    "build:server": "bun run --cwd apps/server build",
+    "start": "bun run --cwd apps/server start",
+    "typecheck": "bun run --cwd apps/server typecheck",
+    "typecheck:client": "bun run --cwd apps/client typecheck"
+  }
+}

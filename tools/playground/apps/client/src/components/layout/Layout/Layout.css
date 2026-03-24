@@ -1,0 +1,14 @@
+.Layout {
+  display: flex;
+  flex: 1 1 auto;
+  overflow: hidden;
+  position: relative;
+}
+
+.Layout.Layout--vertical {
+  flex-direction: column;
+}
+
+.Layout.Layout--horizontal {
+  flex-direction: row;
+}
