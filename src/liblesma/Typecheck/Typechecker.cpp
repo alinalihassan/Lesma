@@ -52,6 +52,20 @@ auto traitExistentialBaseName(const std::string& displayName) -> std::string {
   return displayName;
 }
 
+/** Same argument list identity as `SymbolTable::lookupFunction(name, paramTypes)` (self + params). */
+auto methodLookupSignatureKey(const std::string& name, const std::vector<Type*>& lookupArgs)
+    -> std::string {
+  std::string key;
+  key.reserve(name.size() + (lookupArgs.size() * 24U));
+  key.append(name);
+  key.push_back('\0');
+  for (Type* t : lookupArgs) {
+    key.append(t != nullptr ? t->toString() : std::string("null"));
+    key.push_back('\0');
+  }
+  return key;
+}
+
 auto makeSpecializedDisplayName(Type* classTemplate,
                                 const std::vector<std::string>& genericParamNames,
                                 const std::unordered_map<std::string, Type*>& env) -> std::string {
@@ -3357,9 +3371,17 @@ auto Typechecker::mergeTraitImplTypeArgsIntoCurrentGenericEnv(const Class* class
 
 auto Typechecker::typecheckTraitDefaultBodies(const Class* classNode, Type* classType,
                                               SymbolTable* methodInsertScope) -> void {
-  std::unordered_set<std::string> explicitNames;
+  std::unordered_set<std::string> explicitSignatureKeys;
   for (FuncDecl* f : classNode->getMethods()) {
-    explicitNames.insert(f->getName());
+    Value* sym = f->getResolvedSymbol();
+    if (sym == nullptr || sym->getType() == nullptr || !sym->getType()->is(BaseType::TY_FUNCTION)) {
+      continue;
+    }
+    std::vector<Type*> lookupArgs;
+    for (Field* fld : sym->getType()->getFields()) {
+      lookupArgs.push_back(fld->type);
+    }
+    explicitSignatureKeys.insert(methodLookupSignatureKey(f->getName(), lookupArgs));
   }
   SymbolTable* savedListScope = scope;
   Type* savedClass = currentClassType;
@@ -3381,9 +3403,6 @@ auto Typechecker::typecheckTraitDefaultBodies(const Class* classNode, Type* clas
       if (req->getBody() == nullptr) {
         continue;
       }
-      if (explicitNames.contains(req->getName())) {
-        continue;
-      }
       Type* selfPtr = cacheType(std::make_unique<Type>(BaseType::TY_PTR, nullptr, classType));
       std::vector<Type*> lookupArgs = {selfPtr};
       for (Parameter* p : req->getParameters()) {
@@ -3395,6 +3414,9 @@ auto Typechecker::typecheckTraitDefaultBodies(const Class* classNode, Type* clas
           }
           lookupArgs.push_back(pt);
         }
+      }
+      if (explicitSignatureKeys.contains(methodLookupSignatureKey(req->getName(), lookupArgs))) {
+        continue;
       }
       Value* funcSym = methodInsertScope->lookupFunction(req->getName(), lookupArgs);
       if (funcSym == nullptr || funcSym->getBodyScope() == nullptr) {
