@@ -18,6 +18,7 @@
 #include "liblesma/Frontend/Lexer.h"
 #include "liblesma/Frontend/Parser.h"
 #include "liblesma/Token/Token.h"
+#include "liblesma/Symbol/Type.h"
 #include "liblesma/Token/TokenType.h"
 #include "liblesma/Typecheck/Typechecker.h"
 
@@ -562,6 +563,29 @@ TEST(AnalysisIndexTests, ImportedModulesAreIndexedDuringTypecheck) {
     }
   }
   EXPECT_TRUE(sawGetXDeclaration);
+}
+
+TEST(TypeIdentity, FunctionTraitBoundsAffectEquality) {
+  // fn<T: Iterable>(T) vs fn<T>(T) must not compare equal (same parameter/return shape).
+  lesma::Type voidTy(BaseType::TY_VOID);
+  lesma::Type genericT(std::string("T"));
+
+  auto makeFn = [&](std::vector<std::vector<std::string>> bounds) -> std::unique_ptr<lesma::Type> {
+    std::vector<std::unique_ptr<Field>> fields;
+    fields.push_back(std::make_unique<Field>("x", &genericT));
+    auto fn = std::make_unique<lesma::Type>(BaseType::TY_FUNCTION, nullptr, std::move(fields));
+    fn->setReturnType(&voidTy);
+    fn->setGenericParams({"T"});
+    fn->setGenericParamTraitBounds(std::move(bounds));
+    return fn;
+  };
+
+  std::unique_ptr<lesma::Type> bounded = makeFn({{"Iterable"}});
+  std::unique_ptr<lesma::Type> unbounded = makeFn({{}});
+  EXPECT_FALSE(bounded->isEqual(unbounded.get()));
+
+  std::unique_ptr<lesma::Type> boundedAgain = makeFn({{"Iterable"}});
+  EXPECT_TRUE(bounded->isEqual(boundedAgain.get()));
 }
 } // namespace
 

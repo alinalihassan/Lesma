@@ -189,6 +189,38 @@ public:
     return isEqualImpl(rhs, active);
   }
 
+  /** When both sides are TY_FUNCTION: compares varargs, generic parameter names, and trait bounds. */
+  [[nodiscard]] auto functionGenericSignatureEqual(Type const* rhs) const -> bool {
+    if (rhs == nullptr || baseType != BaseType::TY_FUNCTION ||
+        rhs->getBaseType() != BaseType::TY_FUNCTION) {
+      return false;
+    }
+    if (varArgs != rhs->isVarArgs()) {
+      return false;
+    }
+    const std::vector<std::string>& lp = getGenericParams();
+    const std::vector<std::string>& rp = rhs->getGenericParams();
+    if (lp.size() != rp.size()) {
+      return false;
+    }
+    for (size_t i = 0; i < lp.size(); ++i) {
+      if (lp[i] != rp[i]) {
+        return false;
+      }
+    }
+    const auto& lb = getGenericParamTraitBounds();
+    const auto& rb = rhs->getGenericParamTraitBounds();
+    if (lb.size() != rb.size()) {
+      return false;
+    }
+    for (size_t i = 0; i < lb.size(); ++i) {
+      if (lb[i] != rb[i]) {
+        return false;
+      }
+    }
+    return true;
+  }
+
 private:
   auto isEqualImpl(Type const* rhs,
                    std::set<std::pair<Type const*, Type const*>>& active) const -> bool {
@@ -317,7 +349,7 @@ private:
       return thisElementType->isEqualImpl(rhsElementType, active);
     }
     case BaseType::TY_FUNCTION: {
-      if (varArgs != rhs->isVarArgs()) {
+      if (!functionGenericSignatureEqual(rhs)) {
         return false;
       }
       auto lf = getFields();

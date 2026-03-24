@@ -144,7 +144,7 @@ auto matchGenericParameter(Type* formalTy, Type* argTy,
                                  genericBindings);
   }
   if (formalTy->is(BaseType::TY_FUNCTION)) {
-    if (formalTy->isVarArgs() != argTy->isVarArgs()) {
+    if (!formalTy->functionGenericSignatureEqual(argTy)) {
       return false;
     }
     auto formalFields = formalTy->getFields();

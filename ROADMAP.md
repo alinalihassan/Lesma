@@ -15,7 +15,7 @@
 - [ ] Add dictionaries
 - [x] Add foreach loops
 - [ ] Add lambda functions
-- [ ] Add inheritance (or traits)
+- [x] Add traits
 - [ ] Add string interpolation
 - [ ] Add multithreading using pthread for now (async/await? ala Spice)
 - [ ] Add multiple value return without having to make structs

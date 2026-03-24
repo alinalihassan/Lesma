@@ -645,6 +645,8 @@ auto Typechecker::materializeImportedType(Type* type) -> Type* {
     auto funcType = std::make_unique<Type>(BaseType::TY_FUNCTION, nullptr, std::move(fields));
     funcType->setReturnType(materializeImportedType(type->getReturnType()));
     funcType->setGenericParams(type->getGenericParams());
+    funcType->setGenericParamTraitBounds(
+        std::vector<std::vector<std::string>>(type->getGenericParamTraitBounds()));
     funcType->setVarArgs(type->isVarArgs());
     Type* copy = cacheType(std::move(funcType));
     importedTypeCopies[type] = copy;
@@ -702,6 +704,8 @@ auto Typechecker::substituteInType(Type* t, const std::unordered_map<std::string
     auto funcType = std::make_unique<Type>(BaseType::TY_FUNCTION, nullptr, std::move(fields));
     funcType->setReturnType(substituteInType(t->getReturnType(), env));
     funcType->setGenericParams(t->getGenericParams());
+    funcType->setGenericParamTraitBounds(
+        std::vector<std::vector<std::string>>(t->getGenericParamTraitBounds()));
     funcType->setVarArgs(t->isVarArgs());
     return cacheType(std::move(funcType));
   }
@@ -756,6 +760,9 @@ auto Typechecker::inferGenericBindings(Type* pattern, Type* actual,
     return;
   }
   if (pattern->is(BaseType::TY_FUNCTION)) {
+    if (!pattern->functionGenericSignatureEqual(actual)) {
+      return;
+    }
     auto patternFields = pattern->getFields();
     auto actualFields = actual->getFields();
     for (size_t i = 0; i < patternFields.size() && i < actualFields.size(); ++i) {
@@ -979,6 +986,9 @@ auto Typechecker::isAssignableTo(Type* from, Type* to) -> bool {
 auto Typechecker::functionTypesMatchForTraitImpl(Type* actualFn, Type* expectedFn) -> bool {
   if (actualFn == nullptr || expectedFn == nullptr || !actualFn->is(BaseType::TY_FUNCTION) ||
       !expectedFn->is(BaseType::TY_FUNCTION)) {
+    return false;
+  }
+  if (!actualFn->functionGenericSignatureEqual(expectedFn)) {
     return false;
   }
   auto af = actualFn->getFields();

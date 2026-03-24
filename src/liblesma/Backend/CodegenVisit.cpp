@@ -776,6 +776,14 @@ auto Codegen::visit(const FuncDecl* node) -> void {
   auto loweredType = std::make_unique<Type>(BaseType::TY_FUNCTION, funcType, std::move(fields));
   loweredType->setReturnType(returnType);
   loweredType->setGenericParams(node->getGenericParams());
+  {
+    std::vector<std::vector<std::string>> tb;
+    tb.reserve(node->getGenericParamDecls().size());
+    for (const auto& p : node->getGenericParamDecls()) {
+      tb.push_back(p.traitBounds);
+    }
+    loweredType->setGenericParamTraitBounds(std::move(tb));
+  }
   loweredType->setVarArgs(node->getVarArgs());
   if (existingFunc != nullptr) {
     existingFunc->setType(cacheType(std::move(loweredType)));
@@ -886,6 +894,14 @@ auto Codegen::visit(const ExternFuncDecl* node) -> void {
       std::make_unique<Type>(BaseType::TY_FUNCTION, f->getFunctionType(), std::move(fields));
   loweredType->setReturnType(retType);
   loweredType->setGenericParams(node->getGenericParams());
+  {
+    std::vector<std::vector<std::string>> tb;
+    tb.reserve(node->getGenericParamDecls().size());
+    for (const auto& p : node->getGenericParamDecls()) {
+      tb.push_back(p.traitBounds);
+    }
+    loweredType->setGenericParamTraitBounds(std::move(tb));
+  }
   loweredType->setVarArgs(node->getVarArgs());
   existingFunc->setType(cacheType(std::move(loweredType)));
   existingFunc->setLlvmValue(f);
