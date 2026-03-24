@@ -106,8 +106,8 @@ auto lesma::analyze(std::unique_ptr<Options> options) -> AnalysisResult {
     result.sourceMgr = std::move(srcMgr);
     result.mainBufferId = mainBufferId;
     result.parser = std::move(parser);
-    result.rootScope = typechecker.takeRootScope();
     result.typeCache = typechecker.takeTypeCache();
+    result.rootScope = typechecker.takeRootScope();
     result.specializedTypeEnv = typechecker.takeSpecializedTypeEnv();
     result.importAliasToPath = typechecker.takeImportAliasToPath();
     result.importedNameToSource = typechecker.takeImportedNameToSource();
@@ -122,8 +122,8 @@ auto lesma::analyze(std::unique_ptr<Options> options) -> AnalysisResult {
     result.mainBufferId = mainBufferId;
     result.parser = std::move(parser);
     // Capture partial rootScope even if typecheck failed partway through
-    result.rootScope = typechecker.takeRootScope();
     result.typeCache = typechecker.takeTypeCache();
+    result.rootScope = typechecker.takeRootScope();
     result.specializedTypeEnv = typechecker.takeSpecializedTypeEnv();
     result.importAliasToPath = typechecker.takeImportAliasToPath();
     result.importedNameToSource = typechecker.takeImportedNameToSource();

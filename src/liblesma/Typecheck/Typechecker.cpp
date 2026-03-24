@@ -95,6 +95,26 @@ void insertGenericParamSymbols(SymbolTable* genericsScope,
   }
 }
 
+/** Move all owning Type nodes from an import analysis tree into \p dest so \c
+ * SymbolTable typeRefs remain valid after \c importedModuleCache is cleared. */
+auto mergeImportedAnalysisTypeCachesInto(std::vector<std::unique_ptr<Type>>& dest,
+                                         const std::shared_ptr<ImportedModuleAnalysis>& mod) -> void {
+  if (mod == nullptr) {
+    return;
+  }
+  for (auto& t : mod->typeCache) {
+    dest.push_back(std::move(t));
+  }
+  mod->typeCache.clear();
+  if (mod->rootScope != nullptr) {
+    mod->rootScope->releaseOwnedTypesInto(dest);
+  }
+  for (auto& [path, nested] : mod->importedModules) {
+    (void)path;
+    mergeImportedAnalysisTypeCachesInto(dest, nested);
+  }
+}
+
 } // namespace
 
 auto Typechecker::pathLeadsToEndWithoutReturn(const std::vector<Statement*>& statements,
@@ -1277,8 +1297,8 @@ auto Typechecker::getOrTypecheckImport(const std::string& absolutePath) -> Symbo
   imported->mainBufferId = bufferId;
   imported->mainFilePath = absolutePath;
   imported->parser = std::move(parser);
-  imported->rootScope = sub.takeRootScope();
   imported->typeCache = sub.takeTypeCache();
+  imported->rootScope = sub.takeRootScope();
   imported->index =
       buildAnalysisIndex(imported->parser != nullptr ? imported->parser->getAst() : nullptr,
                          imported->sourceMgr.get(), imported->mainBufferId);
@@ -1320,6 +1340,13 @@ auto Typechecker::takeRootScope() -> std::unique_ptr<SymbolTable> {
 }
 
 auto Typechecker::takeTypeCache() -> std::vector<std::unique_ptr<Type>> {
+  for (auto& [path, mod] : importedModuleCache) {
+    (void)path;
+    mergeImportedAnalysisTypeCachesInto(typeCache, mod);
+  }
+  if (rootScope != nullptr) {
+    rootScope->releaseOwnedTypesInto(typeCache);
+  }
   return std::move(typeCache);
 }
 

@@ -43,8 +43,9 @@ auto Codegen::typecheckModule(const Compound* ast, const std::string& modulePath
         return getExportsFromFile(path, isStd, mainFilePath);
       });
   typechecker.run(ast);
-  return {typechecker.takeRootScope(), typechecker.takeTypeCache(),
-          typechecker.takeSpecializedTypeEnv()};
+  auto takenTypeCache = typechecker.takeTypeCache();
+  auto takenRoot = typechecker.takeRootScope();
+  return {std::move(takenRoot), std::move(takenTypeCache), typechecker.takeSpecializedTypeEnv()};
 }
 
 auto Codegen::isImported(const std::vector<ImportedNameBinding>& importedNames,

@@ -58,11 +58,13 @@ auto InitializeCodegen(std::shared_ptr<Parser> parser,
     -> std::unique_ptr<Codegen> {
   Typechecker typechecker;
   typechecker.run(parser->getAst());
+  auto takenTypeCache = typechecker.takeTypeCache();
+  auto takenRootScope = typechecker.takeRootScope();
   auto codegen = std::make_unique<Codegen>(std::move(parser), srcMgr, __FILE__,
                                            std::vector<std::string>{}, true, true, "", nullptr,
                                            nullptr, nullptr,
-                                           typechecker.takeRootScope(),
-                                           typechecker.takeTypeCache(),
+                                           std::move(takenRootScope),
+                                           std::move(takenTypeCache),
                                            typechecker.takeSpecializedTypeEnv());
   codegen->run();
 

@@ -52,6 +52,10 @@ class Codegen final : public ASTVisitor {
   std::unique_ptr<llvm::TargetMachine> targetMachine;
   std::shared_ptr<Parser> parser;
   std::shared_ptr<SourceMgr> sourceManager;
+  // deque so push_back never invalidates Type* pointers stored in scope (from
+  // typecheck). Declared before \c rootScope so symbols are destroyed before the
+  // type cache.
+  std::deque<std::unique_ptr<lesma::Type>> typeCache;
   std::unique_ptr<SymbolTable> rootScope; // Owns the root scope
   SymbolTable* scope{};                   // Non-owning navigation pointer
   std::string filename;
@@ -70,9 +74,6 @@ class Codegen final : public ASTVisitor {
                       // (e.g. math)
   std::vector<std::unique_ptr<Codegen>> importedCodegens; // Keep imported module codegens alive so
                                                           // Class* in symbols stay valid
-  // deque so push_back never invalidates Type* pointers stored in scope (from
-  // typecheck)
-  std::deque<std::unique_ptr<lesma::Type>> typeCache;
   std::unordered_map<std::string, llvm::StructType*> listStructTypes;
   std::vector<std::tuple<lesma::Value*, const FuncDecl*, Value*>> prototypes;
   std::unordered_map<std::string, const FuncDecl*> genericFunctions;

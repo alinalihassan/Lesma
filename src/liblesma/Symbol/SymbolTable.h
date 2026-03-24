@@ -76,6 +76,10 @@ public:
 
   auto getChild(const std::string& scopeId) -> SymbolTable*;
 
+  /** Move owning entries from \c types into \p dest and record non-owning \c typeRefs so
+   * \c lookupType still works after ownership is unified elsewhere (e.g. Driver/Codegen). */
+  auto releaseOwnedTypesInto(std::vector<std::unique_ptr<Type>>& dest) -> void;
+
   [[nodiscard]] auto toString(int ind) -> std::string {
     std::string res;
     for (const auto& [key, symbol] : symbols) {
@@ -93,10 +97,12 @@ public:
 
 private:
   SymbolTable* parent;
-  std::unordered_map<std::string, std::unique_ptr<SymbolTable>> children;
-  std::unordered_multimap<std::string, std::unique_ptr<Value>> symbols;
+  /** Owning types and symbols: destroy symbols before types (Values may point into \c types). */
   std::unordered_map<std::string, std::unique_ptr<Type>> types;
+  std::unordered_multimap<std::string, std::unique_ptr<Value>> symbols;
   // Non-owning references to imported Types (must outlive this SymbolTable)
   std::unordered_map<std::string, Type*> typeRefs;
+  /** Child scopes last so they are destroyed before this table's types/symbols. */
+  std::unordered_map<std::string, std::unique_ptr<SymbolTable>> children;
 };
 } // namespace lesma
