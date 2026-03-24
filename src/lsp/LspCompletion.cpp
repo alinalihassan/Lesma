@@ -299,8 +299,55 @@ auto resolveChainType(const AnalysisResult& result, const std::string& chain, Sy
   return type;
 }
 
+/** When the receiver is `self`, resolve the class instance type from the innermost enclosing method. */
+auto resolveSelfReceiverType(Compound* ast, unsigned offset, llvm::SourceMgr* srcMgr,
+                             unsigned bufferId, SymbolTable* root) -> Type* {
+  if (ast == nullptr || root == nullptr) {
+    return nullptr;
+  }
+  InnermostFunc inner = findInnermostFuncContaining(ast, offset, srcMgr, bufferId);
+  if (inner.enclosingClass == nullptr) {
+    return nullptr;
+  }
+  Type* classTy = root->lookupType(inner.enclosingClass->getIdentifier());
+  if (classTy == nullptr) {
+    return nullptr;
+  }
+  return classTy;
+}
+
 void addCandidate(std::vector<CompletionCandidate>& out, std::unordered_set<std::string>& seen,
                   CompletionCandidate candidate);
+
+auto findTraitDeclNamed(AnalysisResult& result, Compound* mainAst, const std::string& name)
+    -> TraitDecl* {
+  auto scanCompound = [&name](Compound* compound) -> TraitDecl* {
+    if (compound == nullptr) {
+      return nullptr;
+    }
+    for (Statement* stmt : compound->getChildren()) {
+      if (auto* tr = dynamic_cast<TraitDecl*>(stmt)) {
+        if (tr->getIdentifier() == name) {
+          return tr;
+        }
+      }
+    }
+    return nullptr;
+  };
+  if (TraitDecl* tr = scanCompound(mainAst); tr != nullptr) {
+    return tr;
+  }
+  for (const auto& entry : result.importedModules) {
+    if (entry.second == nullptr || entry.second->parser == nullptr) {
+      continue;
+    }
+    Compound* modAst = entry.second->parser->getAst();
+    if (TraitDecl* tr = scanCompound(modAst); tr != nullptr) {
+      return tr;
+    }
+  }
+  return nullptr;
+}
 
 auto smRangesEqual(llvm::SMRange lhs, llvm::SMRange rhs) -> bool {
   return lhs.isValid() && rhs.isValid() && lhs.Start == rhs.Start && lhs.End == rhs.End;
@@ -511,6 +558,39 @@ void addCandidate(std::vector<CompletionCandidate>& out, std::unordered_set<std:
   out.push_back(std::move(candidate));
 }
 
+void appendTraitRequirementMethods(AnalysisResult& result, Type* classType, Compound* mainAst,
+                                   SymbolTable* root, std::vector<CompletionCandidate>& out,
+                                   std::unordered_set<std::string>& seen) {
+  if (classType == nullptr || root == nullptr) {
+    return;
+  }
+  // Match appendMembersForType: receivers like `self` are ptr-to-class; impl lists live on the class.
+  if (classType->is(BaseType::TY_PTR) && classType->getElementType() != nullptr) {
+    classType = classType->getElementType();
+  }
+  if (!classType->is(BaseType::TY_CLASS)) {
+    return;
+  }
+  for (const std::string& traitName : classType->getImplTraitNames()) {
+    TraitDecl* tr = findTraitDeclNamed(result, mainAst, traitName);
+    if (tr == nullptr) {
+      continue;
+    }
+    for (FuncDecl* req : tr->getRequirements()) {
+      if (req == nullptr || req->getName() == "new" || isHiddenClassMemberName(req->getName())) {
+        continue;
+      }
+      Value* methodValue = req->getResolvedSymbol();
+      addCandidate(out, seen,
+                   CompletionCandidate{
+                       .label = req->getName(),
+                       .kind = ::lsp::CompletionItemKind::Method,
+                       .detail = symbolDetail(methodValue, root),
+                   });
+    }
+  }
+}
+
 void appendMembersForType(AnalysisResult& result, Type* baseType, Compound* ast, SymbolTable* root,
                           std::vector<CompletionCandidate>& out,
                           std::unordered_set<std::string>& seen) {
@@ -563,10 +643,10 @@ void appendScopeSymbols(SymbolTable* scope, SymbolTable* root,
 }
 
 void appendKeywords(std::vector<CompletionCandidate>& out, std::unordered_set<std::string>& seen) {
-  static constexpr std::array<std::string_view, 25> keywords = {
+  static constexpr std::array<std::string_view, 26> keywords = {
       "and",    "as",     "break",  "class", "continue", "def",    "defer", "else", "enum",
       "export", "extern", "for",    "from",  "if",       "import", "in",    "is",   "let",
-      "not",    "or",     "return", "super", "this",     "var",    "while",
+      "not",    "or",     "pass",   "return", "super",   "this",   "var",   "while",
   };
   static constexpr std::array<std::string_view, 3> literals = {"false", "null", "true"};
   static constexpr std::array<std::string_view, 11> builtinTypes = {
@@ -660,13 +740,15 @@ auto completionItems(AnalysisResult& result, unsigned line, unsigned character)
   if (ctx.isMember) {
     std::vector<std::string> parts = splitChain(ctx.memberChain);
     Type* baseType = resolveChainType(*activeResult, ctx.memberChain, activeScope, root);
-    if (parts.size() == 1U && lookupName(activeScope, root, parts.front()) == nullptr) {
+    if (baseType == nullptr && parts.size() == 1U && parts.front() == "self") {
+      baseType = resolveSelfReceiverType(ast, offset, srcMgr, bufferId, root);
+    }
+    if (parts.size() == 1U && activeResult->importAliasToPath.find(parts.front()) !=
+                                   activeResult->importAliasToPath.end()) {
       appendModuleMembersForAlias(*activeResult, parts.front(), candidates, seen);
     }
     appendMembersForType(*activeResult, baseType, ast, root, candidates, seen);
-    if (candidates.empty()) {
-      appendScopeSymbols(activeScope != nullptr ? activeScope : root, root, candidates, seen);
-    }
+    appendTraitRequirementMethods(*activeResult, baseType, ast, root, candidates, seen);
   } else {
     appendScopeSymbols(activeScope != nullptr ? activeScope : root, root, candidates, seen);
     appendKeywords(candidates, seen);

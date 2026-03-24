@@ -1,5 +1,4 @@
-# Nested for-in over the same list (direct `for x in xs`, not xs.iter()).
-# Also ensures non-exported list_iterator<T> in list.iter()'s signature resolves.
+# Nested for-in over the same list (direct `for x in xs`).
 
 let xs = [1, 2, 3]
 

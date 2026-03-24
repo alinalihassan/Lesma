@@ -1,0 +1,2 @@
+# `pass` is reserved; cannot be used as an identifier.
+var pass: int = 0

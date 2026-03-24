@@ -1,13 +1,368 @@
-def extern printf(fmt: str, ...)
-def extern scanf(fmt: str, ...) -> int
-def extern calloc(count: int, size: int) -> *int8
+def extern printf(fmt: cstr, ...)
+def extern scanf(fmt: cstr, ...) -> int
+export def extern calloc(count: int, size: int) -> *int8
 def extern malloc(size: int) -> *int8
-def extern strlen(x: str) -> int
-def extern atoll(x: str) -> int
-def extern strtod(x: str) -> float
+def extern free(ptr: cstr)
+def extern strlen(x: cstr) -> int
+def extern atoll(x: cstr) -> int
+def extern strtod(x: cstr) -> float
 def extern rand() -> int
 def extern srand(x: int)
 def extern time(x: int) -> int
+def extern strcmp(a: cstr, b: cstr) -> int
+def extern strncmp(a: cstr, b: cstr, n: int) -> int
+def extern strdup(s: cstr) -> cstr
+def extern fopen(path: cstr, mode: cstr) -> *int8
+def extern fclose(stream: *int8) -> int
+def extern fread(ptr: cstr, size: int, nmemb: int, stream: *int8) -> int
+def extern fseek(stream: *int8, offset: int, whence: int) -> int
+def extern ftell(stream: *int8) -> int
+def extern fwrite(ptr: cstr, size: int, nmemb: int, stream: *int8) -> int
+def extern remove(path: cstr) -> int
+
+# ASCII whitespace only (TAB, LF, VT, FF, CR, SPACE). uint8 avoids signed-byte pitfalls with UTF-8.
+def __str_byte_is_ascii_whitespace(b: uint8) -> bool
+    return b == 9 as uint8 or b == 10 as uint8 or b == 11 as uint8 or b == 12 as uint8 or b == 13 as uint8 or b == 32 as uint8
+
+export trait Iterator<T>
+    def has_next() -> bool
+    def next() -> T
+
+export trait Iterable<T>
+    def iter() -> Iterator<T>
+
+export class list_iter<T> impl Iterator<T>
+    var storage: __buffer<T>
+    var __scan: int = 0
+
+    def new(buf: __buffer<T>)
+        self.storage = buf
+
+    def has_next() -> bool
+        return self.__scan < __buffer_len(self.storage)
+
+    def next() -> T
+        var v = __buffer_get(self.storage, self.__scan)
+        self.__scan += 1
+        return v
+
+export class list<T> impl Iterable<T>
+    var storage: __buffer<T>
+
+    def new()
+        self.storage = __buffer_new<T>()
+
+    def new(initial: __buffer<T>)
+        self.storage = initial
+
+    def iter() -> list_iter<T>
+        return list_iter<T>(self.storage)
+
+    def len() -> int
+        return __buffer_len(self.storage)
+
+    def push(value: T)
+        __buffer_push(self.storage, value)
+
+    def pop() -> T
+        return __buffer_pop(self.storage)
+
+    def clear()
+        __buffer_clear(self.storage)
+
+    def copy() -> list<T>
+        return list<T>(__buffer_copy(self.storage))
+
+    def operator [](index: int) -> T
+        return __buffer_get(self.storage, index)
+
+    def operator []=(index: int, value: T)
+        __buffer_set(self.storage, index, value)
+
+export class str_iter impl Iterator<uint8>
+    var storage: cstr
+    var __scan: int = 0
+    var __len: int = 0
+
+    def new(s: cstr)
+        self.storage = s
+        self.__len = strlen(self.storage)
+
+    def has_next() -> bool
+        return self.__scan < self.__len
+
+    def next() -> uint8
+        var v = __cstr_byte_at(self.storage, self.__scan)
+        self.__scan += 1
+        return v
+
+export class str impl Iterable<uint8>
+    var storage: cstr
+
+    # Own a writable NUL-terminated copy; never retain arbitrary cstr (literals, borrowed buffers).
+    def new(s: cstr)
+        self.storage = strdup(s)
+
+    def cstr() -> cstr
+        return self.storage
+
+    def len() -> int
+        return strlen(self.storage)
+
+    def isEmpty() -> bool
+        return self.len() == 0
+
+    def operator [](index: int) -> str
+        return str(__str_slice(self.storage, index, 1))
+
+    def operator []=(index: int, value: str)
+        if value.len() == 0
+            return
+        __cstr_byte_set(self.storage, index, __cstr_byte_at(value.storage, 0))
+
+    def operator +(rhs: str) -> str
+        return str(__str_concat(self.storage, rhs.storage))
+
+    def startsWith(prefix: str) -> bool
+        let n = self.len()
+        let m = prefix.len()
+        if m > n
+            return false
+        return strncmp(self.storage, prefix.storage, m) == 0
+
+    def endsWith(suffix: str) -> bool
+        let n = self.len()
+        let m = suffix.len()
+        if m > n
+            return false
+        return strcmp(__cstr_offset(self.storage, n - m), suffix.storage) == 0
+
+    def contains(sub: str) -> bool
+        return self.indexOf(sub) >= 0
+
+    def indexOf(needle: str) -> int
+        return __cstr_index_of(self.storage, needle.storage)
+
+    def trimStart() -> str
+        var i: int = 0
+        let n: int = self.len()
+        while i < n
+            if not __str_byte_is_ascii_whitespace(__cstr_byte_at(self.storage, i))
+                break
+            i += 1
+        return str(__str_slice(self.storage, i, n - i))
+
+    def trimEnd() -> str
+        let n: int = self.len()
+        if n == 0
+            return str(__str_slice(self.storage, 0, 0))
+        var j: int = n - 1
+        while j >= 0
+            if not __str_byte_is_ascii_whitespace(__cstr_byte_at(self.storage, j))
+                break
+            j -= 1
+        return str(__str_slice(self.storage, 0, j + 1))
+
+    def trim() -> str
+        return self.trimStart().trimEnd()
+
+    # One code unit at i (same as self[i]; slice form matches operator []).
+    def charAt(i: int) -> str
+        return str(__str_slice(self.storage, i, 1))
+
+    # start is clamped (negative -> 0); len <= 0 yields "". If start >= len(), yields "".
+    def substring(start: int, len: int) -> str
+        let n: int = self.len()
+        var s: int = start
+        if s < 0
+            s = 0
+        if s >= n
+            return str(__str_slice(self.storage, 0, 0))
+        if len <= 0
+            return str(__str_slice(self.storage, 0, 0))
+        var take: int = len
+        if s + take > n
+            take = n - s
+        return str(__str_slice(self.storage, s, take))
+
+    # Empty separator: one str per code unit. Otherwise splits on each non-overlapping occurrence.
+    def split(sep: str) -> list<str>
+        var parts: list<str> = list<str>()
+        let n: int = self.len()
+        let m: int = sep.len()
+        if m == 0
+            var k: int = 0
+            while k < n
+                parts.push(str(__str_slice(self.storage, k, 1)))
+                k += 1
+            return parts
+        var start: int = 0
+        while start <= n
+            let rel: int = __cstr_index_of(__cstr_offset(self.storage, start), sep.storage)
+            if rel < 0
+                parts.push(str(__str_slice(self.storage, start, n - start)))
+                break
+            let hit: int = start + rel
+            parts.push(str(__str_slice(self.storage, start, hit - start)))
+            start = hit + m
+        return parts
+
+    # Separator is self (e.g. ",".join(parts)). Empty list -> "".
+    def join(parts: list<str>) -> str
+        let pl: int = parts.len()
+        if pl == 0
+            return str(__str_slice(self.storage, 0, 0))
+        var out: str = parts[0]
+        var j: int = 1
+        while j < pl
+            out = out + self + parts[j]
+            j += 1
+        return out
+
+    # n <= 0 -> "". Concatenates n copies of self.
+    def repeat(n: int) -> str
+        if n <= 0
+            return str(__str_slice(self.storage, 0, 0))
+        var out: str = str(__str_slice(self.storage, 0, 0))
+        var i: int = 0
+        while i < n
+            out = out + self
+            i += 1
+        return out
+
+    # Empty needle: unchanged self. Otherwise replaces every non-overlapping occurrence.
+    def replace(needle: str, with: str) -> str
+        let m: int = needle.len()
+        if m == 0
+            return self
+        var out: str = str(__str_slice(self.storage, 0, 0))
+        var start: int = 0
+        let n: int = self.len()
+        while start <= n
+            let rel: int = __cstr_index_of(__cstr_offset(self.storage, start), needle.storage)
+            if rel < 0
+                out = out + str(__str_slice(self.storage, start, n - start))
+                break
+            let hit: int = start + rel
+            out = out + str(__str_slice(self.storage, start, hit - start)) + with
+            start = hit + m
+        return out
+
+    # ASCII A–Z / a–z only; other bytes unchanged (not full Unicode case mapping).
+    def toLower() -> str
+        let n: int = self.len()
+        if n == 0
+            return str(__str_slice(self.storage, 0, 0))
+        var buf: cstr = calloc(n + 1, 1) as cstr
+        var i: int = 0
+        while i < n
+            var b: uint8 = __cstr_byte_at(self.storage, i)
+            if b >= 65 as uint8 and b <= 90 as uint8
+                b = b + 32 as uint8
+            __cstr_byte_set(buf, i, b)
+            i += 1
+        let out: str = str(buf)
+        free(buf)
+        return out
+
+    def toUpper() -> str
+        let n: int = self.len()
+        if n == 0
+            return str(__str_slice(self.storage, 0, 0))
+        var buf: cstr = calloc(n + 1, 1) as cstr
+        var i: int = 0
+        while i < n
+            var b: uint8 = __cstr_byte_at(self.storage, i)
+            if b >= 97 as uint8 and b <= 122 as uint8
+                b = b - 32 as uint8
+            __cstr_byte_set(buf, i, b)
+            i += 1
+        let out: str = str(buf)
+        free(buf)
+        return out
+
+    # pad must be non-empty; uses its first code unit repeated. width is target byte length.
+    def padStart(width: int, pad: str) -> str
+        if pad.len() == 0
+            return self
+        let n: int = self.len()
+        if width <= n
+            return self
+        let unit: str = str(__str_slice(pad.storage, 0, 1))
+        let need: int = width - n
+        return unit.repeat(need) + self
+
+    def padEnd(width: int, pad: str) -> str
+        if pad.len() == 0
+            return self
+        let n: int = self.len()
+        if width <= n
+            return self
+        let unit: str = str(__str_slice(pad.storage, 0, 1))
+        let need: int = width - n
+        return self + unit.repeat(need)
+
+    def operator ==(rhs: str) -> bool
+        return strcmp(self.storage, rhs.storage) == 0
+
+    def operator !=(rhs: str) -> bool
+        return strcmp(self.storage, rhs.storage) != 0
+
+    def toInt() -> int
+        return atoll(self.storage)
+
+    def toFloat() -> float
+        return strtod(self.storage)
+
+    def iter() -> str_iter
+        return str_iter(self.storage)
+
+# Read path as UTF-8 bytes (no BOM handling). text() returns "" on open/read errors.
+export class file
+    var storage: cstr
+
+    def new(p: cstr)
+        self.storage = strdup(p)
+
+    def text() -> str
+        var fp: *int8 = fopen(self.storage, "rb")
+        if fp == 0
+            return str(__str_slice(self.storage, 0, 0))
+        if fseek(fp, 0, 2) != 0
+            fclose(fp)
+            return str(__str_slice(self.storage, 0, 0))
+        var n: int = ftell(fp)
+        if n < 0
+            fclose(fp)
+            return str(__str_slice(self.storage, 0, 0))
+        if fseek(fp, 0, 0) != 0
+            fclose(fp)
+            return str(__str_slice(self.storage, 0, 0))
+        var buf: cstr = calloc(n + 1, 1) as cstr
+        var got: int = fread(buf, 1, n, fp)
+        fclose(fp)
+        if got != n
+            free(buf)
+            return str(__str_slice(self.storage, 0, 0))
+        let result: str = str(buf)
+        free(buf)
+        return result
+
+    # Static-style: file.write(path, data). self is unused (null this at call site).
+    def write(path: cstr, data: str)
+        var fp: *int8 = fopen(path, "wb")
+        if fp == 0
+            return
+        let n: int = data.len()
+        if n > 0
+            fwrite(data.cstr(), 1, n, fp)
+        fclose(fp)
+
+    def write(path: cstr, src: file)
+        self.write(path, src.text())
+
+    def delete()
+        remove(self.storage)
 
 export def extern exit(x: int)
 
@@ -15,27 +370,23 @@ export def input() -> str
     return input("")
 
 export def input(prompt: str) -> str
-    if strlen(prompt) > 0
-        printf("%s", prompt)
+    if strlen(prompt.cstr()) > 0
+        printf("%s", prompt.cstr())
 
-    var line: str = calloc(4096, 1) as str
-    var ignored: str = calloc(2, 1) as str
+    var line: cstr = calloc(4096, 1) as cstr
+    var ignored: cstr = calloc(2, 1) as cstr
     let read: int = scanf("%4095[^\n]", line)
 
     if read == 0
         scanf("%1c", ignored)
-        return line
 
     if read > 0
         scanf("%1c", ignored)
 
-    return line
-
-export def strToInt(x: str) -> int
-    return atoll(x)
-
-export def strToFloat(x: str) -> float
-    return strtod(x)
+    let result: str = str(line)
+    free(line)
+    free(ignored)
+    return result
 
 export def random(x: int, y: int) -> int
     srand(time(0))
@@ -45,10 +396,16 @@ export def random(x: int, y: int) -> int
     return y + rand() % (x - y)
 
 export def print(x: str)
-    printf("%s\n", x)
+    printf("%s\n", x.cstr())
 
 export def print(x: int)
     printf("%lld\n", x)
+
+export def print(x: int8)
+    printf("%c\n", x)
+
+export def print(x: uint8)
+    printf("%c\n", x)
 
 export def print(x: float)
     printf("%g\n", x)

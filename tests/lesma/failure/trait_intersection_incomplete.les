@@ -1,0 +1,19 @@
+trait Alpha
+    def a() -> int
+
+trait Beta
+    def b() -> int
+
+# Only Alpha — not valid for T: Alpha & Beta
+class OnlyA impl Alpha
+    def new()
+        var _ = 0
+    def a() -> int
+        return 1
+
+def both<T: Alpha & Beta>(x: T) -> int
+    return x.a() + x.b()
+
+var o = OnlyA()
+if both(o) != 1
+    exit(1)

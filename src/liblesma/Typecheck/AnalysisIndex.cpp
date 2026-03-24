@@ -62,6 +62,8 @@ auto indexedTokenKindFromDeclarationKind(ValueDeclarationKind declarationKind)
     return IndexedTokenKind::EnumMember;
   case ValueDeclarationKind::TYPE:
     return IndexedTokenKind::Type;
+  case ValueDeclarationKind::TRAIT:
+    return IndexedTokenKind::Type;
   case ValueDeclarationKind::TYPE_PARAMETER:
     return IndexedTokenKind::TypeParameter;
   case ValueDeclarationKind::FUNCTION:
@@ -262,6 +264,22 @@ auto collectIndexFromFuncLike(const FuncLike* node, AnalysisIndex& index, bool i
                               IndexedTokenKind::TypeParameter,
                               view.genericScope != nullptr ? view.genericScope->lookup(genericParam.name)
                                                            : nullptr);
+      for (size_t bi = 0; bi < genericParam.traitBounds.size(); ++bi) {
+        if (bi >= genericParam.traitBoundSpans.size()) {
+          break;
+        }
+        llvm::SMRange const boundSpan = genericParam.traitBoundSpans[bi];
+        if (!boundSpan.isValid()) {
+          continue;
+        }
+        Value* boundSym =
+            view.genericScope != nullptr ? view.genericScope->lookup(genericParam.traitBounds[bi])
+                                         : nullptr;
+        appendIndexedOccurrence(
+            index, genericParam.traitBounds[bi], std::nullopt, boundSpan, true, false, 0U,
+            indexedTokenKindFromResolvedSymbol(boundSym, true, false, IndexedTokenKind::Type),
+            boundSym);
+      }
     }
   }
   for (Parameter* param : view.parameters) {
@@ -404,8 +422,7 @@ auto collectIndexFromStmt(const Statement* stmt, AnalysisIndex& index, bool inCl
     if (varDecl->getIdentifier() != nullptr) {
       appendIndexedOccurrence(index, varDecl->getIdentifier()->getValue(), std::nullopt,
                               varDecl->getIdentifier()->getSpan(), false, false,
-                              analysis_index_modifier::DECLARATION,
-                              inClass ? IndexedTokenKind::Property : IndexedTokenKind::Variable,
+                              analysis_index_modifier::DECLARATION, IndexedTokenKind::Variable,
                               varDecl->getResolvedSymbol());
     }
     collectIndexFromTypeExpr(varDecl->getType(), index);
@@ -420,6 +437,33 @@ auto collectIndexFromStmt(const Statement* stmt, AnalysisIndex& index, bool inCl
     collectIndexFromFuncLike(ext, index, false);
     return;
   }
+  if (auto const* traitNode = dynamic_cast<const TraitDecl*>(stmt)) {
+    appendIndexedOccurrence(index, traitNode->getIdentifier(), std::nullopt, traitNode->getNameSpan(),
+                            true, false, analysis_index_modifier::DECLARATION, IndexedTokenKind::Type,
+                            traitNode->getResolvedSymbol());
+    for (const GenericParamDecl& genericParam : traitNode->getGenericParamDecls()) {
+      appendIndexedOccurrence(index, genericParam.name, std::nullopt, genericParam.span, true, false,
+                              analysis_index_modifier::DECLARATION, IndexedTokenKind::TypeParameter,
+                              nullptr);
+      for (size_t bi = 0; bi < genericParam.traitBounds.size(); ++bi) {
+        if (bi >= genericParam.traitBoundSpans.size()) {
+          break;
+        }
+        llvm::SMRange const boundSpan = genericParam.traitBoundSpans[bi];
+        if (!boundSpan.isValid()) {
+          continue;
+        }
+        appendIndexedOccurrence(
+            index, genericParam.traitBounds[bi], std::nullopt, boundSpan, true, false, 0U,
+            indexedTokenKindFromResolvedSymbol(nullptr, true, false, IndexedTokenKind::Type),
+            nullptr);
+      }
+    }
+    for (FuncDecl* req : traitNode->getRequirements()) {
+      collectIndexFromFuncLike(req, index, true);
+    }
+    return;
+  }
   if (auto const* klass = dynamic_cast<const Class*>(stmt)) {
     appendIndexedOccurrence(index, klass->getIdentifier(), std::nullopt, klass->getNameSpan(), true,
                             false, analysis_index_modifier::DECLARATION, IndexedTokenKind::Class,
@@ -431,6 +475,51 @@ auto collectIndexFromStmt(const Statement* stmt, AnalysisIndex& index, bool inCl
                               klass->getGenericScope() != nullptr
                                   ? klass->getGenericScope()->lookup(genericParam.name)
                                   : nullptr);
+      for (size_t bi = 0; bi < genericParam.traitBounds.size(); ++bi) {
+        if (bi >= genericParam.traitBoundSpans.size()) {
+          break;
+        }
+        llvm::SMRange const boundSpan = genericParam.traitBoundSpans[bi];
+        if (!boundSpan.isValid()) {
+          continue;
+        }
+        Value* boundSym =
+            klass->getGenericScope() != nullptr
+                ? klass->getGenericScope()->lookup(genericParam.traitBounds[bi])
+                : nullptr;
+        appendIndexedOccurrence(
+            index, genericParam.traitBounds[bi], std::nullopt, boundSpan, true, false, 0U,
+            indexedTokenKindFromResolvedSymbol(boundSym, true, false, IndexedTokenKind::Type),
+            boundSym);
+      }
+    }
+    {
+      std::vector<std::string> const& implNames = klass->getImplTraitNames();
+      std::vector<llvm::SMRange> const& implSpans = klass->getImplTraitSpans();
+      std::vector<std::vector<std::unique_ptr<TypeExpr>>> const& implTypeArgLists =
+          klass->getImplTraitTypeArgs();
+      for (size_t ti = 0; ti < implNames.size(); ++ti) {
+        if (ti >= implSpans.size()) {
+          break;
+        }
+        llvm::SMRange const traitSpan = implSpans[ti];
+        if (!traitSpan.isValid()) {
+          continue;
+        }
+        Value* traitSym =
+            klass->getGenericScope() != nullptr
+                ? klass->getGenericScope()->lookup(implNames[ti])
+                : nullptr;
+        appendIndexedOccurrence(
+            index, implNames[ti], std::nullopt, traitSpan, true, false, 0U,
+            indexedTokenKindFromResolvedSymbol(traitSym, true, false, IndexedTokenKind::Type),
+            traitSym);
+        if (ti < implTypeArgLists.size()) {
+          for (std::unique_ptr<TypeExpr> const& typeArg : implTypeArgLists[ti]) {
+            collectIndexFromTypeExpr(typeArg.get(), index);
+          }
+        }
+      }
     }
     for (VarDecl* field : klass->getFields()) {
       collectIndexFromStmt(field, index, true);

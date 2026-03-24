@@ -69,6 +69,10 @@ enum class TokenType : std::uint8_t {
   INT8_TYPE,
   INT16_TYPE,
   INT32_TYPE,
+  UINT_TYPE,
+  UINT8_TYPE,
+  UINT16_TYPE,
+  UINT32_TYPE,
   FLOAT32_TYPE,
 
   // Keywords.
@@ -97,6 +101,7 @@ enum class TokenType : std::uint8_t {
   WHILE,
   BREAK,
   CONTINUE,
+  PASS,
   DEFER,
   AS,
   IS,
@@ -104,6 +109,8 @@ enum class TokenType : std::uint8_t {
   IN,
   IMPORT,
   FROM,
+  TRAIT,
+  IMPL,
 
   // Special tokens
   EOF_TOKEN,

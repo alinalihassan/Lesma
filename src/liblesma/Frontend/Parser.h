@@ -78,10 +78,22 @@ private:
 
   auto parseCompound() -> std::unique_ptr<Compound>;
   auto parseBlock() -> std::unique_ptr<Compound>;
+
+  struct ParameterListParseResult {
+    std::vector<std::unique_ptr<Parameter>> parameters;
+    bool varargs = false;
+  };
+  /// Parses `(` … `)` contents (caller consumes `(` before and `)` after). When
+  /// `allowVarargsEllipsis` is true, `...` is accepted as a trailing varargs marker.
+  auto parseParameterList(bool allowVarargsEllipsis) -> ParameterListParseResult;
+
   auto parseFunctionDeclaration() -> std::unique_ptr<Statement>;
   auto parseExport() -> std::unique_ptr<Statement>;
   auto parseImport() -> std::unique_ptr<Statement>;
   auto parseClass() -> std::unique_ptr<Statement>;
+  auto parseTrait() -> std::unique_ptr<Statement>;
+  auto parseGenericParamList() -> std::vector<GenericParamDecl>;
+  auto parseTraitMethodDeclaration() -> std::unique_ptr<FuncDecl>;
   auto parseEnum() -> std::unique_ptr<Statement>;
   auto parseStatement(bool isTopLevel) -> std::unique_ptr<Statement>;
   auto parseIf() -> std::unique_ptr<Statement>;
@@ -91,6 +103,7 @@ private:
   auto parseAssignment() -> std::unique_ptr<Statement>;
   auto parseBreak() -> std::unique_ptr<Statement>;
   auto parseContinue() -> std::unique_ptr<Statement>;
+  auto parsePass() -> std::unique_ptr<Statement>;
   auto parseReturn() -> std::unique_ptr<Statement>;
   auto parseDefer() -> std::unique_ptr<Statement>;
   auto parseType() -> std::unique_ptr<TypeExpr>;

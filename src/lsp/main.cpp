@@ -358,9 +358,15 @@ auto formatHoverContent(lesma::Value* value, lesma::SymbolTable* rootScope) -> s
     if (type != nullptr && type->is(lesma::BaseType::TY_GENERIC)) {
       return "type parameter `" + name + "`";
     }
-    // For TYPE_SYMBOL (classes/enums), show as "enum `Name`" or "class `Name`"
+    // For TYPE_SYMBOL: enum, trait, or class
     if (type != nullptr && type->is(lesma::BaseType::TY_ENUM)) {
       return "enum `" + name + "`";
+    }
+    if (type != nullptr && type->is(lesma::BaseType::TY_TRAIT_EXISTENTIAL)) {
+      return "trait `" + name + "`";
+    }
+    if (value->getDeclarationKind() == lesma::ValueDeclarationKind::TRAIT) {
+      return "trait `" + name + "`";
     }
     return "class `" + name + "`";
   }
@@ -374,7 +380,7 @@ auto formatHoverContent(lesma::Value* value, lesma::SymbolTable* rootScope) -> s
 }
 
 auto isBuiltinTypeName(const std::string& name) -> bool {
-  return name == "int" || name == "float" || name == "bool" || name == "str" || name == "void";
+  return name == "int" || name == "float" || name == "bool" || name == "cstr" || name == "void";
 }
 
 auto containsGenericParam(const std::vector<std::string>& genericParams, const std::string& name)
@@ -1042,8 +1048,9 @@ auto resolveExpressionTypeAtOffset(const lesma::Expression* expr, lesma::Compoun
     case lesma::TokenType::DOUBLE:
     case lesma::TokenType::FLOAT_TYPE:
       return root->lookupType("float");
-    case lesma::TokenType::STRING:
     case lesma::TokenType::STRING_TYPE:
+      return root->lookupType("cstr");
+    case lesma::TokenType::STRING:
       return root->lookupType("str");
     case lesma::TokenType::IDENTIFIER: {
       lesma::SymbolTable* scope = activeScopeForOffset(ast, root, srcMgr, bufferId, targetOffset);
@@ -1126,7 +1133,8 @@ auto resolveExpressionTypeAtOffset(const lesma::Expression* expr, lesma::Compoun
     }
     switch (unary->getOperator()) {
     case lesma::TokenType::MINUS:
-      if (operand->isOneOf({lesma::BaseType::TY_INT, lesma::BaseType::TY_FLOAT}) ||
+      if (operand->isOneOf({lesma::BaseType::TY_INT, lesma::BaseType::TY_FLOAT,
+                            lesma::BaseType::TY_FLOAT32}) ||
           operand->is(lesma::BaseType::TY_GENERIC)) {
         return operand;
       }
@@ -1838,9 +1846,10 @@ auto collectSemanticTokens(AnalysisResult& analysisResult, unsigned bufferId)
   };
 
   auto isDefaultLibraryType = [](const lesma::Type* type) -> bool {
-    return type != nullptr && type->isOneOf({lesma::BaseType::TY_INT, lesma::BaseType::TY_FLOAT,
-                                             lesma::BaseType::TY_STRING, lesma::BaseType::TY_BOOL,
-                                             lesma::BaseType::TY_VOID});
+    return type != nullptr &&
+           type->isOneOf({lesma::BaseType::TY_INT, lesma::BaseType::TY_FLOAT,
+                          lesma::BaseType::TY_FLOAT32, lesma::BaseType::TY_STRING,
+                          lesma::BaseType::TY_BOOL, lesma::BaseType::TY_VOID});
   };
 
   auto semanticTokenTypeForResolved = [](const ResolvedSymbol& resolved, bool isTypePosition,

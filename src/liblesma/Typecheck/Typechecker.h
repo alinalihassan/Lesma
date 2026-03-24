@@ -18,6 +18,8 @@
 
 namespace lesma {
 
+class TraitDecl;
+
 /** Callback to resolve import *: (filepath, isStd, mainFilePath) -> exported
  * names. */
 using GetExportsFn =
@@ -59,9 +61,29 @@ class Typechecker final : public ASTVisitor {
   /** For each specialized class type, the template class type it was created
    * from. */
   std::unordered_map<Type*, Type*> specializedTypeToTemplate;
+  /** While visiting a class declaration: template Type* being built (fields added incrementally).
+   */
+  Type* classTemplateBeingDeclared = nullptr;
+  /** Expected field count for `classTemplateBeingDeclared` (for incomplete specialization stubs).
+   */
+  size_t classFieldCountExpected = 0;
+  /** Specialized trait existentials: key = trait name + concrete type strings (see
+   * getOrCreateSpecializedTraitExistentialType). */
+  std::unordered_map<std::string, Type*> specializedTraitExistentialTypes;
+  /** Substitution env for each specialized trait existential (trait generic name -> type). */
+  std::unordered_map<Type*, std::unordered_map<std::string, Type*>> specializedTraitExistentialEnv;
   /** Imported types materialized into this typechecker's cache so they outlive imported scopes. */
   std::unordered_map<Type*, Type*> importedTypeCopies;
   std::vector<Type*> expectedTypes;
+
+  /** Registered traits (name → AST) for impl checks and existential method lookup. */
+  std::unordered_map<std::string, const TraitDecl*> traitRegistry;
+  /** traitName -> methodName -> overload signatures (TY_FUNCTION: self + params, return type;
+   *  multiple entries per name preserve overloads; resolved during visit(TraitDecl)). */
+  std::unordered_map<std::string, std::unordered_map<std::string, std::vector<Type*>>>
+      traitMethodSignatures;
+  /** While typechecking a generic function body: generic param name -> trait bound names. */
+  std::unordered_map<std::string, std::vector<std::string>> currentGenericParamTraitBounds;
 
   /** Declared generic param list for a class or function type (resolves to template for specialized
    * classes). */
@@ -88,6 +110,15 @@ class Typechecker final : public ASTVisitor {
   auto getOrCreateSpecializedClassType(Type* classTemplate,
                                        const std::vector<std::string>& genericParamNames,
                                        const std::unordered_map<std::string, Type*>& env) -> Type*;
+  /** After all template fields exist, fill in placeholder specialized types created
+   * mid-declaration. */
+  void finalizeSpecializedTypesForTemplate(Type* classTemplate);
+  /** Existential trait type with explicit type args (e.g. Iterator<int>). */
+  auto getOrCreateSpecializedTraitExistentialType(Type* traitTemplate,
+                                                  const std::string& lookupName,
+                                                  const std::vector<std::string>& genericParamNames,
+                                                  const std::vector<Type*>& explicitTypeArgs)
+      -> Type*;
   /** Substitute env into type (for fields); returns cached type. */
   auto substituteInType(Type* t, const std::unordered_map<std::string, Type*>& env) -> Type*;
   /** Infer generic bindings from a parameter/argument type pair. */
@@ -102,6 +133,8 @@ class Typechecker final : public ASTVisitor {
   auto getExtendedType(Type* left, Type* right) -> Type*;
   /** Whether a value of type 'from' can be assigned/cast to type 'to'. */
   auto isAssignableTo(Type* from, Type* to) -> bool;
+  [[nodiscard]] auto functionTypesMatchForTraitImpl(Type* actualFn, Type* expectedFn) -> bool;
+  [[nodiscard]] auto wrapReturnTypeIfNominal(Type* returnType) -> Type*;
   /** Result type of a binary operator (arithmetic, comparison, logical). Throws on unsupported op.
    */
   auto typecheckBinaryOpResult(TokenType op, Type* leftTy, Type* rightTy, llvm::SMRange span)
@@ -123,6 +156,38 @@ class Typechecker final : public ASTVisitor {
   auto pathLeadsToEndWithoutReturn(const std::vector<Statement*>& statements, size_t index) -> bool;
   /** Returns true if the block always returns on every path. */
   auto blockAlwaysReturns(const Compound* body) -> bool;
+
+  auto buildMethodFunctionType(FuncDecl* decl, Type* classType) -> Type*;
+  auto registerTraitDefaultMethodSymbol(SymbolTable* insertScope, Type* classType, FuncDecl* req)
+      -> void;
+  auto typecheckTraitDefaultBodies(const Class* classNode, Type* classType,
+                                   SymbolTable* methodInsertScope) -> void;
+  auto checkTraitImplementation(const Class* classNode, Type* classType,
+                                SymbolTable* methodInsertScope) -> void;
+  /** Replace `currentGenericTypes` with a copy that includes bindings for the trait's generic
+   * parameters from `impl Trait<...>` (e.g. `Iterable<T>` or `Iterable<int>`). */
+  auto mergeTraitImplTypeArgsIntoCurrentGenericEnv(const Class* classNode, size_t traitClauseIndex,
+                                                   const TraitDecl* trait) -> void;
+  auto verifyGenericTraitBounds(Value* callee, const std::unordered_map<std::string, Type*>& subs,
+                                llvm::SMRange span) -> void;
+  auto classDeclaresTrait(Type* classTy, const std::string& traitName) -> bool;
+
+  /** Register trait AST nodes from an imported file so `impl Trait` resolves in the importer. */
+  auto registerTraitsFromImportedModule(const std::string& absolutePath) -> void;
+
+  /** `Iterator<int>` -> `Iterator` for trait registry / implTraitNames lookup. */
+  [[nodiscard]] auto traitExistentialBaseName(const std::string& displayName) -> std::string;
+  /** Same argument list identity as `SymbolTable::lookupFunction(name, paramTypes)` (self + params).
+   */
+  [[nodiscard]] auto methodLookupSignatureKey(const std::string& name,
+                                              const std::vector<Type*>& lookupArgs) -> std::string;
+  /** Move all owning Type nodes from an import analysis tree into \p dest so \c
+   * SymbolTable typeRefs remain valid after \c importedModuleCache is cleared. */
+  void mergeImportedAnalysisTypeCachesInto(std::vector<std::unique_ptr<Type>>& dest,
+                                           const std::shared_ptr<ImportedModuleAnalysis>& mod);
+  /** True when \p sym is the nominal type name binding (not a value, function,
+   *  or enum member), for CUSTOM_TYPE resolution after lookupStruct / lookup. */
+  [[nodiscard]] auto isTypeSymbolForCustomTypeName(Value const* sym) -> bool;
 
 public:
   /** Typecheck with no import * resolution. */
@@ -146,6 +211,9 @@ public:
   /** Take ownership of the type cache built during typecheck (call after
    * run()). */
   auto takeTypeCache() -> std::vector<std::unique_ptr<Type>>;
+  /** Per-specialized-class and trait-existential generic bindings (e.g. T -> int), for codegen. */
+  auto takeSpecializedTypeEnv()
+      -> std::unordered_map<Type*, std::unordered_map<std::string, Type*>>;
   auto takeImportAliasToPath() -> ImportAliasMap;
   auto takeImportedNameToSource() -> ImportedNameSourceMap;
   auto takeImportedModules()
@@ -160,11 +228,13 @@ public:
   auto visit(const Import* node) -> void override;
   auto visit(const Enum* node) -> void override;
   auto visit(const Class* node) -> void override;
+  auto visit(const TraitDecl* node) -> void override;
   auto visit(const FuncDecl* node) -> void override;
   auto visit(const ExternFuncDecl* node) -> void override;
   auto visit(const Assignment* node) -> void override;
   auto visit(const Break* node) -> void override;
   auto visit(const Continue* node) -> void override;
+  auto visit(const Pass* node) -> void override;
   auto visit(const Return* node) -> void override;
   auto visit(const Defer* node) -> void override;
   auto visit(const UnimplementedStatement* node) -> void override;
@@ -183,6 +253,9 @@ public:
   auto visit(const Else* node) -> void override;
 
   auto visit(const TypeExpr* node) -> void override;
+
+  auto getStdStrType(llvm::SMRange span) -> Type*;
+  auto isStdStrClassType(Type* type) const -> bool;
 };
 
 } // namespace lesma

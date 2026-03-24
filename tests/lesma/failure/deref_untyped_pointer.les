@@ -1,0 +1,2 @@
+# Dereferencing nil (untyped pointer) must fail typechecking
+var x = *nil

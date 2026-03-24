@@ -104,6 +104,26 @@ auto matchGenericParameter(Type* formalTy, Type* argTy,
   if (formalTy == nullptr || argTy == nullptr) {
     return formalTy == argTy;
   }
+  if (formalTy->is(BaseType::TY_TRAIT_EXISTENTIAL)) {
+    const std::string& want = formalTy->getDisplayName();
+    Type* cls = argTy;
+    if (argTy->is(BaseType::TY_PTR) && argTy->getElementType() != nullptr &&
+        argTy->getElementType()->is(BaseType::TY_CLASS)) {
+      cls = argTy->getElementType();
+    }
+    if (cls->is(BaseType::TY_CLASS)) {
+      for (const auto& n : cls->getImplTraitNames()) {
+        if (n == want) {
+          return true;
+        }
+      }
+      return false;
+    }
+    if (argTy->is(BaseType::TY_TRAIT_EXISTENTIAL)) {
+      return formalTy->getDisplayName() == argTy->getDisplayName();
+    }
+    return false;
+  }
   if (formalTy->is(BaseType::TY_GENERIC)) {
     std::string const& genericName = formalTy->getGenericName();
     auto bindingIt = genericBindings.find(genericName);
@@ -124,7 +144,7 @@ auto matchGenericParameter(Type* formalTy, Type* argTy,
                                  genericBindings);
   }
   if (formalTy->is(BaseType::TY_FUNCTION)) {
-    if (formalTy->isVarArgs() != argTy->isVarArgs()) {
+    if (!formalTy->functionGenericSignatureEqual(argTy)) {
       return false;
     }
     auto formalFields = formalTy->getFields();
@@ -142,14 +162,149 @@ auto matchGenericParameter(Type* formalTy, Type* argTy,
   }
   return formalTy->isEqual(argTy);
 }
+
+auto selectBestFunctionTypeMatchImpl(const std::vector<Type*>& candidateFunctionTypes,
+                                     const std::vector<Type*>& paramTypes) -> Type* {
+  Type* bestCandidate = nullptr;
+  std::vector<int> bestRanks;
+
+  for (Type* funcTy : candidateFunctionTypes) {
+    if (funcTy == nullptr || !funcTy->is(BaseType::TY_FUNCTION)) {
+      continue;
+    }
+
+    bool paramsMatch = true;
+    std::vector<int> candidateRanks;
+    std::unordered_map<std::string, Type*> genericBindings;
+    std::vector<Field*> funcParamFields = funcTy->getFields();
+    size_t const numParams = std::max(funcParamFields.size(), paramTypes.size());
+
+    for (size_t i = 0; i < numParams; ++i) {
+      if (i < funcParamFields.size() && i < paramTypes.size()) {
+        Type* formalTy = funcParamFields[i]->type;
+        Type* argTy = paramTypes[i];
+        if (argTy->is(BaseType::TY_GENERIC) && !typeContainsGeneric(formalTy)) {
+          paramsMatch = false;
+          break;
+        }
+        if (!matchGenericParameter(formalTy, argTy, genericBindings)) {
+          paramsMatch = false;
+          break;
+        }
+        candidateRanks.push_back(typeContainsGeneric(formalTy) ? RANK_GENERIC : RANK_EXACT);
+      } else if (i < funcParamFields.size() && funcParamFields[i]->defaultValue != nullptr) {
+        candidateRanks.push_back(RANK_DEFAULTED);
+      } else if (i >= funcParamFields.size()) {
+        if (funcTy->isVarArgs()) {
+          candidateRanks.push_back(RANK_VARARG);
+          break;
+        }
+        paramsMatch = false;
+        break;
+      } else {
+        paramsMatch = false;
+        break;
+      }
+    }
+
+    if (!paramsMatch) {
+      continue;
+    }
+
+    bool candidateWins = bestCandidate == nullptr || rankVectorBetter(candidateRanks, bestRanks);
+    if (candidateWins) {
+      bestRanks = std::move(candidateRanks);
+      bestCandidate = funcTy;
+    }
+  }
+
+  return bestCandidate;
+}
+
+auto selectBestFunctionTypeMatchTailImpl(const std::vector<Type*>& candidateFunctionTypes,
+                                         const std::vector<Type*>& paramTypesAfterSelf) -> Type* {
+  Type* bestCandidate = nullptr;
+  std::vector<int> bestRanks;
+
+  for (Type* funcTy : candidateFunctionTypes) {
+    if (funcTy == nullptr || !funcTy->is(BaseType::TY_FUNCTION)) {
+      continue;
+    }
+
+    std::vector<Field*> funcParamFields = funcTy->getFields();
+    if (funcParamFields.empty()) {
+      continue;
+    }
+
+    bool paramsMatch = true;
+    std::vector<int> candidateRanks;
+    std::unordered_map<std::string, Type*> genericBindings;
+    size_t const formalCount = funcParamFields.size() > 0 ? funcParamFields.size() - 1U : 0U;
+    size_t const numParams = std::max(formalCount, paramTypesAfterSelf.size());
+
+    for (size_t j = 0; j < numParams; ++j) {
+      size_t const i = j + 1U;
+      if (i < funcParamFields.size() && j < paramTypesAfterSelf.size()) {
+        Type* formalTy = funcParamFields[i]->type;
+        Type* argTy = paramTypesAfterSelf[j];
+        if (argTy->is(BaseType::TY_GENERIC) && !typeContainsGeneric(formalTy)) {
+          paramsMatch = false;
+          break;
+        }
+        if (!matchGenericParameter(formalTy, argTy, genericBindings)) {
+          paramsMatch = false;
+          break;
+        }
+        candidateRanks.push_back(typeContainsGeneric(formalTy) ? RANK_GENERIC : RANK_EXACT);
+      } else if (i < funcParamFields.size() && funcParamFields[i]->defaultValue != nullptr) {
+        candidateRanks.push_back(RANK_DEFAULTED);
+      } else if (i >= funcParamFields.size()) {
+        if (funcTy->isVarArgs()) {
+          candidateRanks.push_back(RANK_VARARG);
+          break;
+        }
+        paramsMatch = false;
+        break;
+      } else {
+        paramsMatch = false;
+        break;
+      }
+    }
+
+    if (!paramsMatch) {
+      continue;
+    }
+
+    bool candidateWins = bestCandidate == nullptr || rankVectorBetter(candidateRanks, bestRanks);
+    if (candidateWins) {
+      bestRanks = std::move(candidateRanks);
+      bestCandidate = funcTy;
+    }
+  }
+
+  return bestCandidate;
+}
 } // namespace
+
+namespace lesma {
+
+auto selectBestFunctionTypeMatch(const std::vector<Type*>& candidateFunctionTypes,
+                                 const std::vector<Type*>& paramTypes) -> Type* {
+  return selectBestFunctionTypeMatchImpl(candidateFunctionTypes, paramTypes);
+}
+
+auto selectBestFunctionTypeMatchTail(const std::vector<Type*>& candidateFunctionTypes,
+                                     const std::vector<Type*>& paramTypesAfterSelf) -> Type* {
+  return selectBestFunctionTypeMatchTailImpl(candidateFunctionTypes, paramTypesAfterSelf);
+}
+
+} // namespace lesma
 
 auto SymbolTable::lookupFunction(const std::string& name, std::vector<lesma::Type*> paramTypes)
     -> Value* {
   auto range = symbols.equal_range(name);
   Value* bestCandidate = nullptr;
   std::vector<int> bestRanks;
-  bool bestHasValue = false;
 
   for (auto it = range.first; it != range.second; ++it) {
     if (!it->second->getType()->is(BaseType::TY_FUNCTION)) {
@@ -194,14 +349,10 @@ auto SymbolTable::lookupFunction(const std::string& name, std::vector<lesma::Typ
       continue;
     }
 
-    bool hasValue = (it->second->getLlvmValue() != nullptr);
-    bool candidateWins =
-        bestCandidate == nullptr || rankVectorBetter(candidateRanks, bestRanks) ||
-        (!rankVectorBetter(bestRanks, candidateRanks) && hasValue && !bestHasValue);
+    bool candidateWins = bestCandidate == nullptr || rankVectorBetter(candidateRanks, bestRanks);
     if (candidateWins) {
       bestRanks = std::move(candidateRanks);
       bestCandidate = it->second.get();
-      bestHasValue = hasValue;
     }
   }
 
@@ -228,18 +379,37 @@ auto SymbolTable::lookupFunction(const std::string& name, std::vector<lesma::Typ
  */
 auto SymbolTable::lookup(const std::string& name) -> Value* {
   auto [it, end] = symbols.equal_range(name);
-  Value* withValue = nullptr;
+  Value* typeNominal = nullptr;
+  Value* importStub = nullptr;
+  Value* fallback = nullptr;
   for (auto i = it; i != end; ++i) {
     Value* v = i->second.get();
     if (v->getLlvmValue() != nullptr) {
       return v; // Prefer symbol that has LLVM value (from codegen)
     }
-    if (withValue == nullptr) {
-      withValue = v;
+    if (v->getCategory() == ValueCategory::TYPE_SYMBOL && v->getType() != nullptr &&
+        v->getType()->isOneOf(
+            {BaseType::TY_CLASS, BaseType::TY_ENUM, BaseType::TY_TRAIT_EXISTENTIAL})) {
+      typeNominal = v;
+      continue;
+    }
+    if (v->getCategory() == ValueCategory::MODULE_SYMBOL && v->getType() != nullptr &&
+        v->getType()->is(BaseType::TY_IMPORT)) {
+      importStub = v;
+      continue;
+    }
+    if (fallback == nullptr) {
+      fallback = v;
     }
   }
-  if (withValue != nullptr) {
-    return withValue;
+  if (typeNominal != nullptr) {
+    return typeNominal;
+  }
+  if (importStub != nullptr) {
+    return importStub;
+  }
+  if (fallback != nullptr) {
+    return fallback;
   }
 
   if (parent == nullptr) {
@@ -265,10 +435,20 @@ auto SymbolTable::lookupStruct(const std::string& name) -> Value* {
     auto* llvmTy = sym->getType()->getLlvmType();
     if (llvmTy != nullptr) {
       if (auto* st = llvm::dyn_cast<llvm::StructType>(llvmTy);
-          st != nullptr && st->getName() == name) {
+          st != nullptr && st->hasName() && st->getName() == name) {
         return sym.get();
       }
-    } else if (key == name) {
+    }
+    // Specialized generics and imports: LLVM struct name may not match Lesma display spelling;
+    // symbols may also have no LLVM StructType yet (imported / not yet codegen'd).
+    Type* stTy = sym->getType();
+    if (!stTy->getDisplayName().empty() && stTy->getDisplayName() == name) {
+      return sym.get();
+    }
+    if (key == name) {
+      if (llvmTy != nullptr) {
+        return sym.get();
+      }
       // Typechecker inserts class/enum symbols by name with no LLVM type yet
       nameFallback = sym.get();
     }
@@ -321,6 +501,20 @@ auto SymbolTable::lookupType(const std::string& name) -> Type* {
  */
 auto SymbolTable::insertTypeRef(const std::string& name, Type* type) -> void {
   typeRefs.insert_or_assign(name, type);
+}
+
+auto SymbolTable::releaseOwnedTypesInto(std::vector<std::unique_ptr<Type>>& dest) -> void {
+  for (auto it = types.begin(); it != types.end();) {
+    const std::string& name = it->first;
+    Type* raw = it->second.get();
+    typeRefs.insert_or_assign(name, raw);
+    dest.push_back(std::move(it->second));
+    it = types.erase(it);
+  }
+  for (auto& [childName, child] : children) {
+    (void) childName;
+    child->releaseOwnedTypesInto(dest);
+  }
 }
 
 /**

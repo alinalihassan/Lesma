@@ -103,12 +103,19 @@ set(LIB_NAME lesma)
 
 set(COMMON_SOURCES
   src/liblesma/Common/Utils.cpp
+  src/liblesma/Common/ExportDiscovery.cpp
   src/liblesma/Frontend/Lexer.cpp
   src/liblesma/Frontend/Parser.cpp
   src/liblesma/Token/Token.cpp
   src/liblesma/Typecheck/AnalysisIndex.cpp
   src/liblesma/Typecheck/Typechecker.cpp
-  src/liblesma/Backend/Codegen.cpp
+  src/liblesma/Backend/CodegenVisit.cpp
+  src/liblesma/Backend/CodegenImport.cpp
+  src/liblesma/Backend/CodegenPipeline.cpp
+  src/liblesma/Backend/CodegenBufferHelpers.cpp
+  src/liblesma/Backend/CodegenTypesTraits.cpp
+  src/liblesma/Backend/CodegenSpecialize.cpp
+  src/liblesma/Backend/CodegenBuiltinIntrinsics.cpp
   src/liblesma/Backend/CodegenTypeUtils.cpp
   src/liblesma/Backend/MangleUtils.cpp
   src/liblesma/Symbol/SymbolTable.cpp
@@ -165,6 +172,9 @@ if (LESMA_BUILD_TESTS)
   find_program(BASH_PROGRAM bash)
   if (BASH_PROGRAM)
     add_test(test_lesma_sources ${BASH_PROGRAM} ${CMAKE_CURRENT_SOURCE_DIR}/scripts/run_tests.sh ${CMAKE_CURRENT_BINARY_DIR}/lesma)
+    # Lesma integration tests use paths relative to the repo root (e.g. tests/lesma/success/...).
+    # ctest defaults the working directory to the build dir; run_tests must start from the source tree.
+    set_tests_properties(test_lesma_sources PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
   endif (BASH_PROGRAM)
 
   add_test(AllTestsInMain ${TESTS_NAME})

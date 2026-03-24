@@ -1,0 +1,16 @@
+# `impl Trait<int>` binds the trait's type parameter to a concrete type (not only `impl Trait<T>`).
+trait Boxed<T>
+    def read() -> T
+
+class Cell impl Boxed<int>
+    var x: int
+
+    def new()
+        self.x = 7
+
+    def read() -> int
+        return self.x
+
+var c = Cell()
+if c.read() != 7
+    exit(1)

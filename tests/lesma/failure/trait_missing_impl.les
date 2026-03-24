@@ -1,0 +1,16 @@
+trait NeedVal
+    def val() -> int
+
+class B
+    var x: int
+    def new(v: int)
+        self.x = v
+    def val() -> int
+        return self.x
+
+def f<T: NeedVal>(o: T) -> int
+    return o.val()
+
+var b = B(1)
+if f(b) != 1
+    exit(1)

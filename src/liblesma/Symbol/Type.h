@@ -18,6 +18,8 @@ enum class BaseType : std::uint8_t {
   TY_INVALID,
   TY_INT,
   TY_FLOAT,
+  /** IEEE binary32 (`float` in LLVM); distinct from `TY_FLOAT` (typically f64). */
+  TY_FLOAT32,
   TY_STRING,
   TY_BOOL,
   TY_PTR,
@@ -28,6 +30,8 @@ enum class BaseType : std::uint8_t {
   TY_CLASS,
   TY_ENUM,
   TY_IMPORT,
+  /** Existential trait type (e.g. `Drawable` as a value type): layout { ptr payload, ptr witness }. */
+  TY_TRAIT_EXISTENTIAL,
 };
 
 class Type;
@@ -73,6 +77,10 @@ class Type {
   std::string displayName;
   /** Declared generic parameter names in order (for TY_CLASS and TY_FUNCTION). */
   std::vector<std::string> genericParams;
+  /** Parallel to genericParams: trait intersection bounds per generic parameter (TY_FUNCTION). */
+  std::vector<std::vector<std::string>> genericParamTraitBounds;
+  /** For TY_CLASS: explicit `impl Trait` names from the declaration. */
+  std::vector<std::string> implTraitNames;
   // Owned collection of Fields
   std::vector<std::unique_ptr<Field>> fields;
   llvm::SMRange declarationSpan;
@@ -104,7 +112,11 @@ public:
 
   [[nodiscard]] auto is(BaseType type) const -> bool { return baseType == type; }
   [[nodiscard]] auto isPrimitive() const -> bool {
-    return isOneOf({BaseType::TY_INT, BaseType::TY_FLOAT, BaseType::TY_STRING, BaseType::TY_BOOL});
+    return isOneOf({BaseType::TY_INT, BaseType::TY_FLOAT, BaseType::TY_FLOAT32, BaseType::TY_STRING,
+                    BaseType::TY_BOOL});
+  }
+  [[nodiscard]] auto isFloatingPoint() const -> bool {
+    return baseType == BaseType::TY_FLOAT || baseType == BaseType::TY_FLOAT32;
   }
   [[nodiscard]] auto isOneOf(const std::vector<BaseType>& baseTypes) const -> bool {
     return std::any_of(baseTypes.begin(), baseTypes.end(),
@@ -140,6 +152,7 @@ public:
     return 64U;
   }
   auto setIntWidth(std::uint16_t width) -> void { intWidth = width; }
+  auto setSigned(bool value) -> void { signedInt = value; }
 
   // Returns raw pointers for non-owning access
   [[nodiscard]] auto getFields() const -> std::vector<Field*> {
@@ -160,14 +173,63 @@ public:
   auto setGenericParams(std::vector<std::string> params) -> void {
     genericParams = std::move(params);
   }
+  [[nodiscard]] auto getGenericParamTraitBounds() const
+      -> const std::vector<std::vector<std::string>>& {
+    return genericParamTraitBounds;
+  }
+  auto setGenericParamTraitBounds(std::vector<std::vector<std::string>> bounds) -> void {
+    genericParamTraitBounds = std::move(bounds);
+  }
+  [[nodiscard]] auto getImplTraitNames() const -> const std::vector<std::string>& {
+    return implTraitNames;
+  }
+  auto setImplTraitNames(std::vector<std::string> names) -> void {
+    implTraitNames = std::move(names);
+  }
   auto setDeclarationSpan(llvm::SMRange span) -> void { declarationSpan = span; }
   auto setDeclarationFilePath(std::string path) -> void { declarationFilePath = std::move(path); }
   auto setVarArgs(bool value) -> void { varArgs = value; }
   auto addField(std::unique_ptr<Field> field) -> void { fields.push_back(std::move(field)); }
+  /** Replace all fields (e.g. refresh a placeholder specialization after the template is complete). */
+  auto replaceFields(std::vector<std::unique_ptr<Field>> newFields) -> void {
+    fields = std::move(newFields);
+  }
 
   auto isEqual(Type* rhs) const -> bool {
     std::set<std::pair<Type const*, Type const*>> active;
     return isEqualImpl(rhs, active);
+  }
+
+  /** When both sides are TY_FUNCTION: compares varargs, generic parameter names, and trait bounds. */
+  [[nodiscard]] auto functionGenericSignatureEqual(Type const* rhs) const -> bool {
+    if (rhs == nullptr || baseType != BaseType::TY_FUNCTION ||
+        rhs->getBaseType() != BaseType::TY_FUNCTION) {
+      return false;
+    }
+    if (varArgs != rhs->isVarArgs()) {
+      return false;
+    }
+    const std::vector<std::string>& lp = getGenericParams();
+    const std::vector<std::string>& rp = rhs->getGenericParams();
+    if (lp.size() != rp.size()) {
+      return false;
+    }
+    for (size_t i = 0; i < lp.size(); ++i) {
+      if (lp[i] != rp[i]) {
+        return false;
+      }
+    }
+    const auto& lb = getGenericParamTraitBounds();
+    const auto& rb = rhs->getGenericParamTraitBounds();
+    if (lb.size() != rb.size()) {
+      return false;
+    }
+    for (size_t i = 0; i < lb.size(); ++i) {
+      if (lb[i] != rb[i]) {
+        return false;
+      }
+    }
+    return true;
   }
 
 private:
@@ -264,7 +326,8 @@ private:
       }
       return getIntWidth() == rhs->getIntWidth();
     }
-    case BaseType::TY_FLOAT: {
+    case BaseType::TY_FLOAT:
+    case BaseType::TY_FLOAT32: {
       llvm::Type* l = getLlvmType();
       llvm::Type* r = rhs->getLlvmType();
       if (l == nullptr && r == nullptr) {
@@ -298,7 +361,7 @@ private:
       return thisElementType->isEqualImpl(rhsElementType, active);
     }
     case BaseType::TY_FUNCTION: {
-      if (varArgs != rhs->isVarArgs()) {
+      if (!functionGenericSignatureEqual(rhs)) {
         return false;
       }
       auto lf = getFields();
@@ -323,6 +386,8 @@ private:
     }
     case BaseType::TY_GENERIC:
       return genericName == rhs->getGenericName();
+    case BaseType::TY_TRAIT_EXISTENTIAL:
+      return displayName == rhs->getDisplayName() && !displayName.empty();
     case BaseType::TY_CLASS:
     case BaseType::TY_ENUM:
       // Handled above; unreachable but required for switch completeness.
@@ -351,8 +416,11 @@ public:
     case BaseType::TY_FLOAT:
       result = "float";
       break;
+    case BaseType::TY_FLOAT32:
+      result = "float32";
+      break;
     case BaseType::TY_STRING:
-      result = "str";
+      result = "cstr";
       break;
     case BaseType::TY_BOOL:
       result = "bool";
@@ -380,6 +448,9 @@ public:
       break;
     case BaseType::TY_IMPORT:
       result = "Import";
+      break;
+    case BaseType::TY_TRAIT_EXISTENTIAL:
+      result = displayName.empty() ? "trait" : displayName;
       break;
     }
 

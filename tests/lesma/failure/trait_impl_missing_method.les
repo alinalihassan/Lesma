@@ -1,0 +1,9 @@
+trait TwoMethods
+    def a() -> int
+    def b() -> int
+
+class Incomplete impl TwoMethods
+    def new()
+        var _ = 0
+    def a() -> int
+        return 1

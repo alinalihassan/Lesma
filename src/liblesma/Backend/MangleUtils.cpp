@@ -30,10 +30,10 @@ auto getTypeMangledName(llvm::SMRange span, Type* type) -> std::string {
   if (type->is(BaseType::TY_INT)) {
     return "i";
   }
-  if (type->is(BaseType::TY_FLOAT) && llvmTy->isFloatTy()) {
+  if (type->is(BaseType::TY_FLOAT32)) {
     return "f32";
   }
-  if (type->is(BaseType::TY_FLOAT) && llvmTy->isFloatingPointTy()) {
+  if (type->is(BaseType::TY_FLOAT)) {
     return "f";
   }
   if (type->is(BaseType::TY_STRING)) {
@@ -63,6 +63,9 @@ auto getTypeMangledName(llvm::SMRange span, Type* type) -> std::string {
       return "(struct_" + structTy->getName().str() + ")";
     }
     throw CodegenError(span, "Class/Enum type does not have LLVM struct type");
+  }
+  if (type->is(BaseType::TY_TRAIT_EXISTENTIAL)) {
+    return "(exist_" + type->getDisplayName() + ")";
   }
 
   throw CodegenError(span, "Unknown type found during mangling");

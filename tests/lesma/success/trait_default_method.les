@@ -1,0 +1,14 @@
+# Default trait method bodies; class uses defaults (no explicit overrides)
+trait WithDefault
+    def base() -> int
+        return 7
+    def extra() -> int
+        return self.base() + 3
+
+class C impl WithDefault
+    def new()
+        var _x = 0
+
+var c = C()
+if c.extra() != 10
+    exit(1)

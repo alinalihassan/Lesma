@@ -1,0 +1,14 @@
+# Generic class constructor overload resolution: infer T from a later `new` when
+# an earlier overload does not mention T in its parameters (would not bind T).
+# The first overload uses a different parameter type than the call so overload
+# lookup is unambiguous.
+class Foo<T>
+    var x: T
+    def new(_: str)
+        self.x = 0 as T
+    def new(v: T)
+        self.x = v
+
+var f = Foo(42)
+if f.x != 42
+    exit(1)

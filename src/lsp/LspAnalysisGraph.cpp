@@ -238,8 +238,8 @@ auto makeImportedModuleAnalysis(AnalysisResult analyzed)
   imported->mainBufferId = analyzed.mainBufferId;
   imported->mainFilePath = std::move(analyzed.mainFilePath);
   imported->parser = std::move(analyzed.parser);
-  imported->rootScope = std::move(analyzed.rootScope);
   imported->typeCache = std::move(analyzed.typeCache);
+  imported->rootScope = std::move(analyzed.rootScope);
   imported->index = std::move(analyzed.index);
   imported->importAliasToPath = std::move(analyzed.importAliasToPath);
   imported->importedNameToSource = std::move(analyzed.importedNameToSource);

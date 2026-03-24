@@ -1,0 +1,10 @@
+# Non-exported trait; exported class still satisfies it locally
+trait InternalSeal
+    def seal() -> int
+
+export class Pub impl InternalSeal
+    var k: int
+    def new(v: int)
+        self.k = v
+    def seal() -> int
+        return self.k
