@@ -276,7 +276,15 @@ auto Codegen::getOrCreateLlvmType(lesma::Type* type) -> llvm::Type* {
     }
     std::vector<llvm::Type*> elementTypes;
     for (auto* f : type->getFields()) {
-      elementTypes.push_back(getOrCreateLlvmType(f->type));
+      llvm::Type* elt = nullptr;
+      if (f->type != nullptr && TypeUtils::passesByPointerInAbi(f->type)) {
+        // Class / trait values at runtime are pointers; tuple aggregate slots must match
+        // `insertvalue`/`extractvalue` operands (see TupleLiteral / unpack).
+        elt = builder->getPtrTy();
+      } else {
+        elt = getOrCreateLlvmType(f->type);
+      }
+      elementTypes.push_back(elt);
     }
     if (elementTypes.empty()) {
       elementTypes.push_back(builder->getInt8Ty());
