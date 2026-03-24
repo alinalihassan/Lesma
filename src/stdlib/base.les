@@ -2,6 +2,7 @@ def extern printf(fmt: cstr, ...)
 def extern scanf(fmt: cstr, ...) -> int
 export def extern calloc(count: int, size: int) -> *int8
 def extern malloc(size: int) -> *int8
+def extern free(ptr: cstr)
 def extern strlen(x: cstr) -> int
 def extern atoll(x: cstr) -> int
 def extern strtod(x: cstr) -> float
@@ -260,7 +261,9 @@ export class str impl Iterable<uint8>
                 b = b + 32 as uint8
             __cstr_byte_set(buf, i, b)
             i += 1
-        return str(buf)
+        let out: str = str(buf)
+        free(buf)
+        return out
 
     def toUpper() -> str
         let n: int = self.len()
@@ -274,7 +277,9 @@ export class str impl Iterable<uint8>
                 b = b - 32 as uint8
             __cstr_byte_set(buf, i, b)
             i += 1
-        return str(buf)
+        let out: str = str(buf)
+        free(buf)
+        return out
 
     # pad must be non-empty; uses its first code unit repeated. width is target byte length.
     def padStart(width: int, pad: str) -> str
@@ -337,8 +342,11 @@ export class file
         var got: int = fread(buf, 1, n, fp)
         fclose(fp)
         if got != n
+            free(buf)
             return str(__str_slice(self.storage, 0, 0))
-        return str(buf)
+        let result: str = str(buf)
+        free(buf)
+        return result
 
     # Static-style: file.write(path, data). self is unused (null this at call site).
     def write(path: cstr, data: str)
