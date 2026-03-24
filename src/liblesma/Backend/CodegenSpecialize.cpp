@@ -375,7 +375,7 @@ auto Codegen::specializeClass(const Class* node,
     method->accept(*this);
     if (method->getName() == "new") {
       hasConstructor = true;
-      std::vector<lesma::Type*> constructorParams = {selfSymbol->getType()};
+      std::vector<lesma::Type*> constructorParams = buildClassMethodParamTypesForLookup(method);
       auto* constructor = scope->lookupFunction("new", constructorParams);
       structSymbolPtr->setConstructor(constructor);
     }

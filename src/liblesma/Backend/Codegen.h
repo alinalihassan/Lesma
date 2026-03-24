@@ -313,5 +313,8 @@ protected:
   auto bindGenericsFromTypePair(const TypeExpr* declared, lesma::Type* actual,
                                 const std::unordered_set<std::string>& genericNameSet,
                                 std::unordered_map<std::string, lesma::Type*>& env) -> void;
+
+  /** Self + parameter types for class method overload resolution; must match \c visit(FuncDecl). */
+  auto buildClassMethodParamTypesForLookup(const FuncDecl* node) -> std::vector<lesma::Type*>;
 };
 } // namespace lesma

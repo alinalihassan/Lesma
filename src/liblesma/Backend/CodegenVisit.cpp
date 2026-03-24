@@ -627,6 +627,47 @@ auto Codegen::visit(const ForIn* node) -> void {
   continueBlocks.pop();
 }
 
+auto Codegen::buildClassMethodParamTypesForLookup(const FuncDecl* node)
+    -> std::vector<lesma::Type*> {
+  std::vector<lesma::Type*> paramTypes;
+  if (selfSymbol != nullptr) {
+    paramTypes.push_back(selfSymbol->getType());
+  }
+  for (auto* param : node->getParameters()) {
+    std::unique_ptr<lesma::Value> typeResult;
+    std::unique_ptr<lesma::Value> defaultValResult;
+
+    if (param->type) {
+      param->type->accept(*this);
+      typeResult = std::move(result);
+    }
+    if (param->defaultVal) {
+      param->defaultVal->accept(*this);
+      defaultValResult = std::move(result);
+      if (!typeResult) {
+        typeResult = std::make_unique<Value>(*defaultValResult);
+      }
+    }
+
+    if (typeResult->getType()->is(BaseType::TY_CLASS)) {
+      auto* ptrType = cacheType(
+          std::make_unique<Type>(BaseType::TY_PTR, builder->getPtrTy(), typeResult->getType()));
+      typeResult = std::make_unique<Value>("", ptrType);
+    }
+
+    if (defaultValResult && !typeResult->getType()->isEqual(defaultValResult->getType())) {
+      throw CodegenError(node->getSpan(),
+                         "Declared parameter type and default value do not match for {}",
+                         param->name);
+    }
+
+    lesma::Type* paramType = typeResult->getType();
+    getOrCreateLlvmType(paramType);
+    paramTypes.push_back(paramType);
+  }
+  return paramTypes;
+}
+
 auto Codegen::visit(const FuncDecl* node) -> void {
   if (!node->getGenericParams().empty()) {
     auto savedGenerics = currentGenericTypes;
@@ -1147,7 +1188,7 @@ auto Codegen::visit(const Class* node) -> void {
     func->accept(*this);
     if (func->getName() == "new") {
       hasConstructor = true;
-      std::vector<lesma::Type*> constructorParams = {selfSymbol->getType()};
+      std::vector<lesma::Type*> constructorParams = buildClassMethodParamTypesForLookup(func);
       auto* constructor = scope->lookupFunction("new", constructorParams);
       existingStruct->setConstructor(constructor);
     }
