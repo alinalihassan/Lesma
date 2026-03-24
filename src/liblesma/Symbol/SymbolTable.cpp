@@ -453,15 +453,17 @@ auto SymbolTable::lookupStruct(const std::string& name) -> Value* {
           st != nullptr && st->hasName() && st->getName() == name) {
         return sym.get();
       }
-      // Specialized generics and imports: LLVM struct name may not match Lesma display spelling.
-      Type* stTy = sym->getType();
-      if (!stTy->getDisplayName().empty() && stTy->getDisplayName() == name) {
+    }
+    // Specialized generics and imports: LLVM struct name may not match Lesma display spelling;
+    // symbols may also have no LLVM StructType yet (imported / not yet codegen'd).
+    Type* stTy = sym->getType();
+    if (!stTy->getDisplayName().empty() && stTy->getDisplayName() == name) {
+      return sym.get();
+    }
+    if (key == name) {
+      if (llvmTy != nullptr) {
         return sym.get();
       }
-      if (key == name) {
-        return sym.get();
-      }
-    } else if (key == name) {
       // Typechecker inserts class/enum symbols by name with no LLVM type yet
       nameFallback = sym.get();
     }
