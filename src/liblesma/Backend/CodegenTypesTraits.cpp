@@ -119,6 +119,24 @@ auto Codegen::visit(const TypeExpr* node) -> void {
         std::make_unique<Type>(BaseType::TY_FUNCTION, builder->getPtrTy(), std::move(fields));
     funcType->setReturnType(retType->getType());
     result = std::make_unique<Value>(cacheType(std::move(funcType)));
+  } else if (node->getType() == TokenType::TUPLE_TYPE) {
+    std::vector<std::unique_ptr<Field>> fields;
+    std::string displayName = "tuple<";
+    for (TypeExpr* param : node->getParams()) {
+      param->accept(*this);
+      Type* elemTy = result->getType();
+      if (!fields.empty()) {
+        displayName += ", ";
+      }
+      displayName += elemTy->toString();
+      fields.push_back(std::make_unique<Field>("_" + std::to_string(fields.size()), elemTy));
+    }
+    displayName += ">";
+    auto tup = std::make_unique<Type>(BaseType::TY_TUPLE, nullptr, std::move(fields));
+    tup->setDisplayName(displayName);
+    Type* cached = cacheType(std::move(tup));
+    getOrCreateLlvmType(cached);
+    result = std::make_unique<Value>(cached);
   } else if (node->getType() == TokenType::CUSTOM_TYPE) {
     const std::string lookupName = node->getLookupName();
     auto git = currentGenericTypes.find(lookupName);
@@ -247,6 +265,29 @@ auto Codegen::getOrCreateLlvmType(lesma::Type* type) -> llvm::Type* {
   case BaseType::TY_TRAIT_EXISTENTIAL: {
     llvm::Type* st =
         llvm::StructType::get(theModule->getContext(), {builder->getPtrTy(), builder->getPtrTy()});
+    type->setLlvmType(st);
+    break;
+  }
+  case BaseType::TY_TUPLE: {
+    std::string const& name = type->getDisplayName();
+    llvm::StructType* st = nullptr;
+    if (!name.empty()) {
+      st = llvm::StructType::getTypeByName(theModule->getContext(), name);
+    }
+    std::vector<llvm::Type*> elementTypes;
+    for (auto* f : type->getFields()) {
+      elementTypes.push_back(getOrCreateLlvmType(f->type));
+    }
+    if (elementTypes.empty()) {
+      elementTypes.push_back(builder->getInt8Ty());
+    }
+    if (st == nullptr) {
+      if (!name.empty()) {
+        st = llvm::StructType::create(theModule->getContext(), elementTypes, name);
+      } else {
+        st = llvm::StructType::create(theModule->getContext(), elementTypes);
+      }
+    }
     type->setLlvmType(st);
     break;
   }

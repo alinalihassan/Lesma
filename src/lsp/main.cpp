@@ -1174,6 +1174,12 @@ auto resolveExpressionTypeAtOffset(const lesma::Expression* expr, lesma::Compoun
     }
     return nullptr;
   }
+  if (auto const* tup = dynamic_cast<const lesma::TupleLiteral*>(expr)) {
+    if (tup->getResolvedType() != nullptr) {
+      return tup->getResolvedType();
+    }
+    return nullptr;
+  }
   return nullptr;
 }
 

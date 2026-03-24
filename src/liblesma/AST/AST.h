@@ -156,6 +156,12 @@ public:
            std::vector<std::unique_ptr<TypeExpr>> params, std::unique_ptr<TypeExpr> ret)
       : Expression(loc), name(std::move(name)), type(type), elementType(nullptr),
         params(std::move(params)), ret(std::move(ret)) {}
+  /** Tuple type `(T1, T2, ...)` / `(T,)`: same `params` as function types, `ret` is null. */
+  static auto makeTupleType(llvm::SMRange loc, std::string displayName,
+                            std::vector<std::unique_ptr<TypeExpr>> elements) -> std::unique_ptr<TypeExpr> {
+    return std::make_unique<TypeExpr>(loc, std::move(displayName), TokenType::TUPLE_TYPE,
+                                      std::move(elements), std::unique_ptr<TypeExpr>(nullptr));
+  }
   void accept(ASTVisitor& visitor) const override { visitor.visit(this); }
 
   [[nodiscard]] [[maybe_unused]] auto getName() const -> std::string { return name; }
@@ -296,26 +302,44 @@ public:
 };
 
 class VarDecl : public Statement {
-  std::unique_ptr<Literal> var;
+  std::vector<std::unique_ptr<Literal>> vars;
   std::unique_ptr<TypeExpr> type;
   std::unique_ptr<Expression> expr;
   bool isMutable;
-  /** Set by typechecker: resolved symbol for this declaration. */
-  mutable Value* resolvedSymbol = nullptr;
+  /** Set by typechecker: one entry per `vars` (unpack) or one for a simple `let`. */
+  mutable std::vector<Value*> resolvedSymbols;
 
 public:
-  VarDecl(llvm::SMRange loc, std::unique_ptr<Literal> var, std::unique_ptr<TypeExpr> type,
+  VarDecl(llvm::SMRange loc, std::vector<std::unique_ptr<Literal>> vars, std::unique_ptr<TypeExpr> type,
           std::unique_ptr<Expression> expr, bool isMutable)
-      : Statement(loc), var(std::move(var)), type(std::move(type)), expr(std::move(expr)),
+      : Statement(loc), vars(std::move(vars)), type(std::move(type)), expr(std::move(expr)),
         isMutable(isMutable) {}
   void accept(ASTVisitor& visitor) const override { visitor.visit(this); }
 
-  [[nodiscard]] [[maybe_unused]] auto getIdentifier() const -> Literal* { return var.get(); }
+  [[nodiscard]] [[maybe_unused]] auto getIdentifier() const -> Literal* {
+    return vars.empty() ? nullptr : vars.front().get();
+  }
+  [[nodiscard]] auto getVarLiterals() const -> std::vector<Literal*> {
+    std::vector<Literal*> out;
+    out.reserve(vars.size());
+    for (const auto& v : vars) {
+      out.push_back(v.get());
+    }
+    return out;
+  }
   [[nodiscard]] [[maybe_unused]] auto getType() const -> TypeExpr* { return type.get(); }
   [[nodiscard]] [[maybe_unused]] auto getValue() const -> Expression* { return expr.get(); }
   [[nodiscard]] [[maybe_unused]] auto getMutability() const -> bool { return isMutable; }
-  [[nodiscard]] auto getResolvedSymbol() const -> Value* { return resolvedSymbol; }
-  auto setResolvedSymbol(Value* v) const -> void { resolvedSymbol = v; }
+  [[nodiscard]] auto getResolvedSymbol() const -> Value* {
+    return resolvedSymbols.empty() ? nullptr : resolvedSymbols.front();
+  }
+  [[nodiscard]] auto getResolvedSymbols() const -> const std::vector<Value*>& {
+    return resolvedSymbols;
+  }
+  auto setResolvedSymbol(Value* v) const -> void { resolvedSymbols = {v}; }
+  auto setResolvedSymbols(std::vector<Value*> syms) const -> void {
+    resolvedSymbols = std::move(syms);
+  }
 
   auto toString(llvm::SourceMgr* srcMgr, const std::string& prefix, bool isTail) const
       -> std::string override {
@@ -323,7 +347,16 @@ public:
         "{}{}VarDecl[Line({}-{}):Col({}-{})]: {}{}{}\n", prefix, isTail ? "└──" : "├──",
         srcMgr->getLineAndColumn(getStart()).first, srcMgr->getLineAndColumn(getEnd()).first,
         srcMgr->getLineAndColumn(getStart()).second, srcMgr->getLineAndColumn(getEnd()).second,
-        var->toString(srcMgr, prefix, isTail),
+        [&]() -> std::string {
+          std::string names;
+          for (size_t i = 0; i < vars.size(); ++i) {
+            if (i > 0) {
+              names += ", ";
+            }
+            names += vars[i]->toString(srcMgr, prefix, isTail);
+          }
+          return names;
+        }(),
         (type ? ": " + type->toString(srcMgr, prefix, isTail) : ""),
         (expr ? " = " + expr->toString(srcMgr, prefix, isTail) : ""));
   }
@@ -914,6 +947,43 @@ public:
       }
     }
     result += "]";
+    return result;
+  }
+};
+
+class TupleLiteral : public Expression {
+  std::vector<std::unique_ptr<Expression>> elements;
+  mutable Type* resolvedType = nullptr;
+
+public:
+  TupleLiteral(llvm::SMRange loc, std::vector<std::unique_ptr<Expression>> elements)
+      : Expression(loc), elements(std::move(elements)) {}
+  void accept(ASTVisitor& visitor) const override { visitor.visit(this); }
+
+  [[nodiscard]] auto getElements() const -> std::vector<Expression*> {
+    std::vector<Expression*> result;
+    result.reserve(elements.size());
+    for (const auto& element : elements) {
+      result.push_back(element.get());
+    }
+    return result;
+  }
+  [[nodiscard]] auto getResolvedType() const -> Type* { return resolvedType; }
+  auto setResolvedType(Type* type) const -> void { resolvedType = type; }
+
+  auto toString(llvm::SourceMgr* srcMgr, const std::string& prefix, bool isTail) const
+      -> std::string override {
+    std::string result = "(";
+    for (const auto& element : elements) {
+      result += element->toString(srcMgr, prefix, isTail);
+      if (element.get() != elements.back().get()) {
+        result += ", ";
+      }
+    }
+    if (elements.size() == 1U) {
+      result += ",";
+    }
+    result += ")";
     return result;
   }
 };

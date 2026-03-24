@@ -305,6 +305,14 @@ namespace {
     }
     return typeContainsUnboundGenericImpl(type->getReturnType(), active);
   }
+  if (type->is(BaseType::TY_TUPLE)) {
+    for (Field* f : type->getFields()) {
+      if (typeContainsUnboundGenericImpl(f->type, active)) {
+        return true;
+      }
+    }
+    return false;
+  }
   return false;
 }
 
@@ -315,6 +323,39 @@ namespace {
 } // namespace
 
 auto Codegen::visit(const VarDecl* node) -> void {
+  std::vector<Literal*> const unpackNames = node->getVarLiterals();
+  if (unpackNames.size() > 1U) {
+    std::unique_ptr<lesma::Value> valueResult;
+    if (node->getValue() != nullptr) {
+      node->getValue()->accept(*this);
+      valueResult = std::move(result);
+    }
+    if (valueResult == nullptr || valueResult->getType() == nullptr ||
+        !valueResult->getType()->is(BaseType::TY_TUPLE)) {
+      throw CodegenError(node->getSpan(), "Destructuring requires a tuple value");
+    }
+    getOrCreateLlvmType(valueResult->getType());
+    llvm::Value* agg = valueResult->getLlvmValue();
+    std::vector<Field*> const tf = valueResult->getType()->getFields();
+    for (size_t i = 0; i < unpackNames.size(); ++i) {
+      std::string const elemName = unpackNames[i]->getValue();
+      lesma::Type* elemTy = tf[i]->type;
+      getOrCreateLlvmType(elemTy);
+      llvm::Value* ev =
+          builder->CreateExtractValue(agg, static_cast<unsigned>(i), elemName + ".tup");
+      lesma::Value* existing = scope->lookup(elemName);
+      llvm::Type* allocaTy = elemTy->getLlvmType();
+      auto* ptr = builder->CreateAlloca(allocaTy, nullptr, elemName);
+      builder->CreateStore(ev, ptr);
+      if (existing != nullptr) {
+        existing->setLlvmValue(ptr);
+        existing->setCategory(ValueCategory::ADDRESSABLE_STORAGE);
+        existing->setMutable(node->getMutability());
+      }
+    }
+    return;
+  }
+
   const std::string name = node->getIdentifier()->getValue();
   auto* existing = [&]() -> Value* {
     for (auto* symbol : scope->getSymbols()) {
@@ -1686,6 +1727,29 @@ auto Codegen::visit(const SubscriptOp* node) -> void {
   node->getIndex()->accept(*this);
   auto indexValue = std::move(result);
   if (listValue != nullptr && listValue->getType() != nullptr &&
+      listValue->getType()->is(BaseType::TY_TUPLE)) {
+    auto* idxLit = dynamic_cast<Literal*>(node->getIndex());
+    if (idxLit == nullptr || idxLit->getType() != TokenType::INTEGER) {
+      throw CodegenError(node->getIndex()->getSpan(),
+                         "Tuple index must be a non-negative integer literal");
+    }
+    unsigned long idx = 0;
+    try {
+      idx = static_cast<unsigned long>(std::stoull(idxLit->getValue()));
+    } catch (...) {
+      throw CodegenError(node->getIndex()->getSpan(), "Invalid tuple index literal");
+    }
+    std::vector<Field*> const tf = listValue->getType()->getFields();
+    if (idx >= tf.size()) {
+      throw CodegenError(node->getSpan(), "Invalid index on tuple");
+    }
+    llvm::Value* agg = listValue->getLlvmValue();
+    llvm::Value* ev =
+        builder->CreateExtractValue(agg, static_cast<unsigned>(idx), "tuple.sub");
+    result = std::make_unique<Value>("", tf[idx]->type, ev);
+    return;
+  }
+  if (listValue != nullptr && listValue->getType() != nullptr &&
       listValue->getType()->is(BaseType::TY_ARRAY)) {
     if (isAssignment) {
       throw CodegenError(node->getSpan(), "Operator [] assignment requires operator []=");
@@ -2177,6 +2241,28 @@ auto Codegen::visit(const ListLiteral* node) -> void {
   emitStoreListLength(listType, listHandle, count);
   emitStoreListCapacity(listType, listHandle, count);
   result = std::make_unique<Value>("", listType, listHandle);
+}
+
+auto Codegen::visit(const TupleLiteral* node) -> void {
+  lesma::Type* tupleType = node->getResolvedType();
+  if (tupleType == nullptr || !tupleType->is(BaseType::TY_TUPLE)) {
+    throw CodegenError(node->getSpan(), "Tuple literal has no resolved tuple type");
+  }
+  getOrCreateLlvmType(tupleType);
+  llvm::Type* structTy = tupleType->getLlvmType();
+  auto* st = llvm::cast<llvm::StructType>(structTy);
+  llvm::Value* agg = llvm::UndefValue::get(st);
+  std::vector<Expression*> const elements = node->getElements();
+  std::vector<Field*> const fields = tupleType->getFields();
+  if (elements.size() != fields.size()) {
+    throw CodegenError(node->getSpan(), "Tuple literal element count mismatch");
+  }
+  for (size_t i = 0; i < elements.size(); ++i) {
+    elements[i]->accept(*this);
+    llvm::Value* ev = result->getLlvmValue();
+    agg = builder->CreateInsertValue(agg, ev, static_cast<unsigned>(i), "tuple");
+  }
+  result = std::make_unique<Value>("", tupleType, agg);
 }
 
 auto Codegen::visit(const Literal* node) -> void {

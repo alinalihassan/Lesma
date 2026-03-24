@@ -302,7 +302,8 @@ auto collectIndexFromTypeExpr(const TypeExpr* typeExpr, AnalysisIndex& index) ->
   if (typeExpr == nullptr) {
     return;
   }
-  if (typeExpr->getType() != TokenType::PTR_TYPE && typeExpr->getType() != TokenType::FUNC_TYPE) {
+  if (typeExpr->getType() != TokenType::PTR_TYPE && typeExpr->getType() != TokenType::FUNC_TYPE &&
+      typeExpr->getType() != TokenType::TUPLE_TYPE) {
     Value* const resolvedSymbol = typeExpr->getResolvedSymbol();
     llvm::SMRange span = typeExpr->getSpan();
     std::string name = typeExpr->getName();
@@ -403,6 +404,12 @@ auto collectIndexFromExpr(const Expression* expr, AnalysisIndex& index) -> void 
     }
     return;
   }
+  if (auto const* tup = dynamic_cast<const TupleLiteral*>(expr)) {
+    for (Expression* element : tup->getElements()) {
+      collectIndexFromExpr(element, index);
+    }
+    return;
+  }
   if (auto const* castOp = dynamic_cast<const CastOp*>(expr)) {
     collectIndexFromExpr(castOp->getExpression(), index);
     collectIndexFromTypeExpr(castOp->getType(), index);
@@ -419,11 +426,16 @@ auto collectIndexFromStmt(const Statement* stmt, AnalysisIndex& index, bool inCl
     return;
   }
   if (auto const* varDecl = dynamic_cast<const VarDecl*>(stmt)) {
-    if (varDecl->getIdentifier() != nullptr) {
-      appendIndexedOccurrence(index, varDecl->getIdentifier()->getValue(), std::nullopt,
-                              varDecl->getIdentifier()->getSpan(), false, false,
-                              analysis_index_modifier::DECLARATION, IndexedTokenKind::Variable,
-                              varDecl->getResolvedSymbol());
+    std::vector<Literal*> const names = varDecl->getVarLiterals();
+    std::vector<Value*> const rs = varDecl->getResolvedSymbols();
+    for (size_t i = 0; i < names.size(); ++i) {
+      Literal* lit = names[i];
+      if (lit == nullptr) {
+        continue;
+      }
+      Value* sym = (!rs.empty() && i < rs.size()) ? rs[i] : varDecl->getResolvedSymbol();
+      appendIndexedOccurrence(index, lit->getValue(), std::nullopt, lit->getSpan(), false, false,
+                              analysis_index_modifier::DECLARATION, IndexedTokenKind::Variable, sym);
     }
     collectIndexFromTypeExpr(varDecl->getType(), index);
     collectIndexFromExpr(varDecl->getValue(), index);

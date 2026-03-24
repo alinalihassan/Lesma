@@ -67,6 +67,13 @@ auto getTypeMangledName(llvm::SMRange span, Type* type) -> std::string {
   if (type->is(BaseType::TY_TRAIT_EXISTENTIAL)) {
     return "(exist_" + type->getDisplayName() + ")";
   }
+  if (type->is(BaseType::TY_TUPLE)) {
+    std::string s = "tup_";
+    for (auto* f : type->getFields()) {
+      s += getTypeMangledName(span, f->type) + "_";
+    }
+    return "(" + s + ")";
+  }
 
   throw CodegenError(span, "Unknown type found during mangling");
 }

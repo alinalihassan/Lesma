@@ -32,6 +32,8 @@ enum class BaseType : std::uint8_t {
   TY_IMPORT,
   /** Existential trait type (e.g. `Drawable` as a value type): layout { ptr payload, ptr witness }. */
   TY_TRAIT_EXISTENTIAL,
+  /** Structural product type `(T1, T2, ...)` lowered to LLVM struct. */
+  TY_TUPLE,
 };
 
 class Type;
@@ -388,6 +390,27 @@ private:
       return genericName == rhs->getGenericName();
     case BaseType::TY_TRAIT_EXISTENTIAL:
       return displayName == rhs->getDisplayName() && !displayName.empty();
+    case BaseType::TY_TUPLE: {
+      auto lf = getFields();
+      auto rf = rhs->getFields();
+      if (lf.size() != rf.size()) {
+        return false;
+      }
+      for (size_t i = 0; i < lf.size(); ++i) {
+        Type* lt = lf[i]->type;
+        Type* rt = rf[i]->type;
+        if (lt == nullptr || rt == nullptr) {
+          if (lt != rt) {
+            return false;
+          }
+          continue;
+        }
+        if (!lt->isEqualImpl(rt, active)) {
+          return false;
+        }
+      }
+      return true;
+    }
     case BaseType::TY_CLASS:
     case BaseType::TY_ENUM:
       // Handled above; unreachable but required for switch completeness.
@@ -452,13 +475,29 @@ public:
     case BaseType::TY_TRAIT_EXISTENTIAL:
       result = displayName.empty() ? "trait" : displayName;
       break;
+    case BaseType::TY_TUPLE: {
+      if (!displayName.empty()) {
+        result = displayName;
+        break;
+      }
+      result = "tuple<";
+      auto fs = getFields();
+      for (size_t i = 0; i < fs.size(); ++i) {
+        if (i > 0) {
+          result += ", ";
+        }
+        result += fs[i]->type != nullptr ? fs[i]->type->toString() : "?";
+      }
+      result += ">";
+      break;
+    }
     }
 
     if (elementType != nullptr && baseType != BaseType::TY_PTR) {
       result += "<" + elementType->toString() + ">";
     }
 
-    if (!fields.empty() && !isOneOf({BaseType::TY_CLASS, BaseType::TY_ENUM})) {
+    if (!fields.empty() && !isOneOf({BaseType::TY_CLASS, BaseType::TY_ENUM, BaseType::TY_TUPLE})) {
       result += baseType == BaseType::TY_FUNCTION ? " ( " : " { ";
       for (const auto& field : fields) {
         result += field->name + ": " + field->type->toString() + "; ";

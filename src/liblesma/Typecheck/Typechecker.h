@@ -250,6 +250,7 @@ public:
   auto visit(const UnaryOp* node) -> void override;
   auto visit(const Literal* node) -> void override;
   auto visit(const ListLiteral* node) -> void override;
+  auto visit(const TupleLiteral* node) -> void override;
   auto visit(const Else* node) -> void override;
 
   auto visit(const TypeExpr* node) -> void override;
