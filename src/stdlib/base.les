@@ -379,12 +379,14 @@ export def input(prompt: str) -> str
 
     if read == 0
         scanf("%1c", ignored)
-        return str(line)
 
     if read > 0
         scanf("%1c", ignored)
 
-    return str(line)
+    let result: str = str(line)
+    free(line)
+    free(ignored)
+    return result
 
 export def random(x: int, y: int) -> int
     srand(time(0))
