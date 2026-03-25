@@ -97,6 +97,8 @@ export const ModernMonacoEditor: React.FC<MonacoEditorProps> = (props) => {
         minimap: { enabled: true },
         scrollBeyondLastLine: false,
         wordWrap: 'on',
+        inlayHints: { enabled: 'on' },
+        'semanticHighlighting.enabled': true,
       })
       editorRef.current = ed
       if (!cancelled) {
@@ -119,6 +121,8 @@ export const ModernMonacoEditor: React.FC<MonacoEditorProps> = (props) => {
         fontLigatures: prefs.fontLigatures ? 'on' : 'off',
         lineNumbers:
           prefs.inputMode === 'vim' && prefs.vimUseRelativeLineNumbers ? 'relative' : 'on',
+        inlayHints: { enabled: 'on' },
+        'semanticHighlighting.enabled': true,
       })
 
       ed.onDidChangeCursorPosition(() => {
@@ -202,6 +206,8 @@ export const ModernMonacoEditor: React.FC<MonacoEditorProps> = (props) => {
       fontLigatures: prefs.fontLigatures ? 'on' : 'off',
       lineNumbers:
         prefs.inputMode === 'vim' && prefs.vimUseRelativeLineNumbers ? 'relative' : 'on',
+      inlayHints: { enabled: 'on' },
+      'semanticHighlighting.enabled': true,
     })
     ed.layout()
   }, [props.preferences, props.readonly, monacoReady])

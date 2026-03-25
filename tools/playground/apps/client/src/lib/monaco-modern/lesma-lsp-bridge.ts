@@ -1,4 +1,10 @@
-import type { IMarkdownString, Position as MonacoPosition, editor, languages } from 'modern-monaco/editor-core'
+import type {
+  IMarkdownString,
+  Position as MonacoPosition,
+  Range as MonacoRange,
+  editor,
+} from 'modern-monaco/editor-core'
+import { languages } from 'modern-monaco/editor-core'
 import * as lsp from 'vscode-languageserver-protocol'
 
 import type { MonacoApi } from './init-monaco'
@@ -20,12 +26,93 @@ function isLesmaWorkspaceUri(uri: string): boolean {
 }
 
 function lspRangeToMonacoRange(monaco: MonacoApi, r: lsp.Range) {
-  return new monaco.Range(
-    r.start.line + 1,
-    r.start.character + 1,
-    r.end.line + 1,
-    r.end.character + 1,
-  )
+  return new monaco.Range(r.start.line + 1, r.start.character + 1, r.end.line + 1, r.end.character + 1)
+}
+
+function monacoRangeToLsp(r: MonacoRange): lsp.Range {
+  return {
+    start: { line: r.startLineNumber - 1, character: r.startColumn - 1 },
+    end: { line: r.endLineNumber - 1, character: r.endColumn - 1 },
+  }
+}
+
+function lspLocationToMonaco(monaco: MonacoApi, loc: lsp.Location): languages.Location {
+  return {
+    uri: monaco.Uri.parse(loc.uri),
+    range: lspRangeToMonacoRange(monaco, loc.range),
+  }
+}
+
+/** LSP `textDocument/definition` and `textDocument/declaration` (single or multiple locations). */
+function lspLocationLikeResultToMonaco(
+  monaco: MonacoApi,
+  result: lsp.Location | lsp.Location[] | null | undefined,
+): languages.Definition | null {
+  if (result == null) {
+    return null
+  }
+  if (Array.isArray(result)) {
+    return result.map((loc) => lspLocationToMonaco(monaco, loc))
+  }
+  return lspLocationToMonaco(monaco, result)
+}
+
+/** Must match `SemanticTokensLegend` in lesma-lsp (`src/lsp/main.cpp`). */
+const LESMA_SEMANTIC_TOKEN_TYPES: string[] = [
+  'namespace',
+  'class',
+  'enum',
+  'enumMember',
+  'type',
+  'typeParameter',
+  'function',
+  'method',
+  'parameter',
+  'variable',
+  'property',
+]
+
+const LESMA_SEMANTIC_TOKEN_MODIFIERS: string[] = ['declaration', 'defaultLibrary']
+
+function lspSymbolKindToMonaco(kind: lsp.SymbolKind): languages.SymbolKind {
+  const n = Number(kind)
+  if (n >= 1 && n <= 26) {
+    return (n - 1) as languages.SymbolKind
+  }
+  return languages.SymbolKind.Variable
+}
+
+function lspSymbolTagsToMonaco(
+  tags: lsp.SymbolTag[] | undefined,
+  deprecated: boolean | undefined,
+): languages.SymbolTag[] {
+  const out: languages.SymbolTag[] = []
+  if (tags?.includes(1)) {
+    out.push(languages.SymbolTag.Deprecated)
+  } else if (deprecated) {
+    out.push(languages.SymbolTag.Deprecated)
+  }
+  return out
+}
+
+function lspDocumentSymbolToMonaco(monaco: MonacoApi, s: lsp.DocumentSymbol): languages.DocumentSymbol {
+  const children = s.children?.map((c) => lspDocumentSymbolToMonaco(monaco, c))
+  return {
+    name: s.name,
+    detail: s.detail ?? '',
+    kind: lspSymbolKindToMonaco(s.kind),
+    tags: lspSymbolTagsToMonaco(s.tags, s.deprecated),
+    range: lspRangeToMonacoRange(monaco, s.range),
+    selectionRange: lspRangeToMonacoRange(monaco, s.selectionRange),
+    ...(children && children.length > 0 ? { children } : {}),
+  }
+}
+
+function normalizeSemanticTokensData(data: readonly number[] | Uint32Array): Uint32Array {
+  if (data instanceof Uint32Array) {
+    return data
+  }
+  return Uint32Array.from(data)
 }
 
 function toMarkerSeverity(monaco: MonacoApi, s?: lsp.DiagnosticSeverity) {
@@ -107,16 +194,113 @@ function markupToMarkdownString(doc: lsp.MarkupContent | lsp.MarkedString | stri
   return { value: `\`\`\`${doc.language}\n${doc.value}\n\`\`\``, isTrusted: true }
 }
 
+function lspTooltipToMarkdown(t: string | lsp.MarkupContent | undefined): IMarkdownString | string | undefined {
+  if (t == null) {
+    return undefined
+  }
+  if (typeof t === 'string') {
+    return t
+  }
+  return markupToMarkdownString(t)
+}
+
+function lspSignatureHelpToMonacoResult(help: lsp.SignatureHelp): languages.SignatureHelpResult {
+  const signatures: languages.SignatureInformation[] = help.signatures.map((sig) => {
+    const parameters: languages.ParameterInformation[] = (sig.parameters ?? []).map((p) => {
+      const label = p.label as string | [number, number]
+      let doc: languages.ParameterInformation['documentation']
+      if (p.documentation != null) {
+        doc =
+          typeof p.documentation === 'string'
+            ? p.documentation
+            : markupToMarkdownString(p.documentation as lsp.MarkupContent)
+      }
+      return { label, documentation: doc }
+    })
+    let sigDoc: languages.SignatureInformation['documentation']
+    if (sig.documentation != null) {
+      sigDoc =
+        typeof sig.documentation === 'string'
+          ? sig.documentation
+          : markupToMarkdownString(sig.documentation as lsp.MarkupContent)
+    }
+    return {
+      label: sig.label,
+      documentation: sigDoc,
+      parameters,
+      activeParameter: sig.activeParameter,
+    }
+  })
+  const value: languages.SignatureHelp = {
+    signatures,
+    activeSignature: help.activeSignature ?? 0,
+    activeParameter: help.activeParameter ?? 0,
+  }
+  return {
+    value,
+    dispose: () => {},
+  }
+}
+
+function monacoSignatureContextToLsp(ctx: languages.SignatureHelpContext): lsp.SignatureHelpContext {
+  return {
+    triggerKind: ctx.triggerKind as lsp.SignatureHelpTriggerKind,
+    triggerCharacter: ctx.triggerCharacter,
+    isRetrigger: ctx.isRetrigger,
+  }
+}
+
+function lspInlayHintLabelToMonaco(label: string | lsp.InlayHintLabelPart[]): languages.InlayHint['label'] {
+  if (typeof label === 'string') {
+    return label
+  }
+  return label.map((p) => ({
+    label: p.value,
+    tooltip: p.tooltip != null ? lspTooltipToMarkdown(p.tooltip) : undefined,
+  }))
+}
+
+function lspInlayHintToMonaco(monaco: MonacoApi, h: lsp.InlayHint): languages.InlayHint {
+  const position = {
+    lineNumber: h.position.line + 1,
+    column: h.position.character + 1,
+  }
+  const out: languages.InlayHint = {
+    position,
+    label: lspInlayHintLabelToMonaco(h.label),
+  }
+  if (h.kind != null) {
+    out.kind = h.kind === 1 ? monaco.languages.InlayHintKind.Type : monaco.languages.InlayHintKind.Parameter
+  }
+  if (h.tooltip != null) {
+    const tt = lspTooltipToMarkdown(h.tooltip)
+    if (tt != null) {
+      out.tooltip = tt
+    }
+  }
+  if (h.textEdits != null && h.textEdits.length > 0) {
+    out.textEdits = h.textEdits.map((e) => ({
+      range: lspRangeToMonacoRange(monaco, e.range),
+      text: e.newText,
+    }))
+  }
+  if (h.paddingLeft === true) {
+    out.paddingLeft = true
+  }
+  if (h.paddingRight === true) {
+    out.paddingRight = true
+  }
+  return out
+}
+
 /**
- * Minimal JSON-RPC LSP client for lesma-lsp: diagnostics, completion, hover (WebSocket, same transport as the old CodeMirror client).
+ * JSON-RPC LSP client for lesma-lsp: diagnostics, completion, hover, signature help, semantic
+ * tokens, document symbols, inlay hints, definition / declaration / references (WebSocket).
  */
 export class LesmaMonacoLspBridge {
   private ws: WebSocket | null = null
   private nextId = 0
-  private readonly pending = new Map<
-    number,
-    { resolve: (v: unknown) => void; reject: (e: unknown) => void }
-  >()
+  private readonly pending = new Map<number, { resolve: (v: unknown) => void; reject: (e: unknown) => void }>()
   private initialized = false
   private openUri: string | null = null
   private documentVersion = 0
@@ -125,6 +309,13 @@ export class LesmaMonacoLspBridge {
   private modelSub: { dispose: () => void } | null = null
   private completionDisposable: { dispose: () => void } | null = null
   private hoverDisposable: { dispose: () => void } | null = null
+  private inlayHintsDisposable: { dispose: () => void } | null = null
+  private definitionDisposable: { dispose: () => void } | null = null
+  private declarationDisposable: { dispose: () => void } | null = null
+  private referenceDisposable: { dispose: () => void } | null = null
+  private signatureHelpDisposable: { dispose: () => void } | null = null
+  private semanticTokensDisposable: { dispose: () => void } | null = null
+  private documentSymbolDisposable: { dispose: () => void } | null = null
 
   constructor(
     private readonly monaco: MonacoApi,
@@ -156,6 +347,13 @@ export class LesmaMonacoLspBridge {
   private registerLanguageFeatures(): void {
     this.completionDisposable?.dispose()
     this.hoverDisposable?.dispose()
+    this.inlayHintsDisposable?.dispose()
+    this.definitionDisposable?.dispose()
+    this.declarationDisposable?.dispose()
+    this.referenceDisposable?.dispose()
+    this.signatureHelpDisposable?.dispose()
+    this.semanticTokensDisposable?.dispose()
+    this.documentSymbolDisposable?.dispose()
 
     this.completionDisposable = this.monaco.languages.registerCompletionItemProvider('lesma', {
       provideCompletionItems: async (model, position, context, _token) => {
@@ -220,6 +418,174 @@ export class LesmaMonacoLspBridge {
           return { contents: [markupToMarkdownString(contents)] }
         }
         return { contents: [markupToMarkdownString(contents as lsp.MarkupContent)] }
+      },
+    })
+
+    this.inlayHintsDisposable = this.monaco.languages.registerInlayHintsProvider('lesma', {
+      provideInlayHints: async (model, range, _token) => {
+        if (!this.initialized || model.uri.toString() !== this.openUri) {
+          return { hints: [], dispose: () => {} }
+        }
+        await this.flushSync()
+        let hints: lsp.InlayHint[] | null
+        try {
+          hints = await this.request<lsp.InlayHintParams, lsp.InlayHint[] | null>('textDocument/inlayHint', {
+            textDocument: { uri: model.uri.toString() },
+            range: monacoRangeToLsp(range),
+          })
+        } catch {
+          return { hints: [], dispose: () => {} }
+        }
+        if (hints == null || hints.length === 0) {
+          return { hints: [], dispose: () => {} }
+        }
+        return {
+          hints: hints.map((h) => lspInlayHintToMonaco(this.monaco, h)),
+          dispose: () => {},
+        }
+      },
+    })
+
+    this.definitionDisposable = this.monaco.languages.registerDefinitionProvider('lesma', {
+      provideDefinition: async (model, position, _token) => {
+        if (!this.initialized || model.uri.toString() !== this.openUri) {
+          return null
+        }
+        await this.flushSync()
+        try {
+          const result = await this.request<lsp.TextDocumentPositionParams, lsp.Location | lsp.Location[] | null>(
+            'textDocument/definition',
+            {
+              textDocument: { uri: model.uri.toString() },
+              position: { line: position.lineNumber - 1, character: position.column - 1 },
+            },
+          )
+          return lspLocationLikeResultToMonaco(this.monaco, result)
+        } catch {
+          return null
+        }
+      },
+    })
+
+    this.declarationDisposable = this.monaco.languages.registerDeclarationProvider('lesma', {
+      provideDeclaration: async (model, position, _token) => {
+        if (!this.initialized || model.uri.toString() !== this.openUri) {
+          return null
+        }
+        await this.flushSync()
+        try {
+          const result = await this.request<lsp.TextDocumentPositionParams, lsp.Location | lsp.Location[] | null>(
+            'textDocument/declaration',
+            {
+              textDocument: { uri: model.uri.toString() },
+              position: { line: position.lineNumber - 1, character: position.column - 1 },
+            },
+          )
+          return lspLocationLikeResultToMonaco(this.monaco, result)
+        } catch {
+          return null
+        }
+      },
+    })
+
+    this.referenceDisposable = this.monaco.languages.registerReferenceProvider('lesma', {
+      provideReferences: async (model, position, context, _token) => {
+        if (!this.initialized || model.uri.toString() !== this.openUri) {
+          return null
+        }
+        await this.flushSync()
+        try {
+          const result = await this.request<lsp.ReferenceParams, lsp.Location[] | null>('textDocument/references', {
+            textDocument: { uri: model.uri.toString() },
+            position: { line: position.lineNumber - 1, character: position.column - 1 },
+            context: { includeDeclaration: context.includeDeclaration },
+          })
+          if (result == null || result.length === 0) {
+            return null
+          }
+          return result.map((loc) => lspLocationToMonaco(this.monaco, loc))
+        } catch {
+          return null
+        }
+      },
+    })
+
+    this.signatureHelpDisposable = this.monaco.languages.registerSignatureHelpProvider('lesma', {
+      signatureHelpTriggerCharacters: ['(', ','],
+      signatureHelpRetriggerCharacters: [','],
+      provideSignatureHelp: async (model, position, _token, context) => {
+        if (!this.initialized || model.uri.toString() !== this.openUri) {
+          return null
+        }
+        await this.flushSync()
+        try {
+          const help = await this.request<lsp.SignatureHelpParams, lsp.SignatureHelp | null>(
+            'textDocument/signatureHelp',
+            {
+              textDocument: { uri: model.uri.toString() },
+              position: { line: position.lineNumber - 1, character: position.column - 1 },
+              context: monacoSignatureContextToLsp(context),
+            },
+          )
+          if (help == null) {
+            return null
+          }
+          return lspSignatureHelpToMonacoResult(help)
+        } catch {
+          return null
+        }
+      },
+    })
+
+    const semanticLegend: languages.SemanticTokensLegend = {
+      tokenTypes: [...LESMA_SEMANTIC_TOKEN_TYPES],
+      tokenModifiers: [...LESMA_SEMANTIC_TOKEN_MODIFIERS],
+    }
+    this.semanticTokensDisposable = this.monaco.languages.registerDocumentSemanticTokensProvider('lesma', {
+      getLegend: () => semanticLegend,
+      provideDocumentSemanticTokens: async (model, _lastResultId, _token) => {
+        if (!this.initialized || model.uri.toString() !== this.openUri) {
+          return null
+        }
+        await this.flushSync()
+        try {
+          const result = await this.request<lsp.SemanticTokensParams, lsp.SemanticTokens | null>(
+            'textDocument/semanticTokens/full',
+            { textDocument: { uri: model.uri.toString() } },
+          )
+          if (result == null || result.data == null || result.data.length === 0) {
+            return null
+          }
+          return {
+            resultId: result.resultId,
+            data: normalizeSemanticTokensData(result.data),
+          }
+        } catch {
+          return null
+        }
+      },
+      releaseDocumentSemanticTokens: () => {},
+    })
+
+    this.documentSymbolDisposable = this.monaco.languages.registerDocumentSymbolProvider('lesma', {
+      displayName: 'Lesma',
+      provideDocumentSymbols: async (model, _token) => {
+        if (!this.initialized || model.uri.toString() !== this.openUri) {
+          return null
+        }
+        await this.flushSync()
+        try {
+          const syms = await this.request<lsp.DocumentSymbolParams, lsp.DocumentSymbol[] | null>(
+            'textDocument/documentSymbol',
+            { textDocument: { uri: model.uri.toString() } },
+          )
+          if (syms == null || syms.length === 0) {
+            return null
+          }
+          return syms.map((s) => lspDocumentSymbolToMonaco(this.monaco, s))
+        } catch {
+          return null
+        }
       },
     })
   }
@@ -376,6 +742,9 @@ export class LesmaMonacoLspBridge {
               dynamicRegistration: false,
               contentFormat: [lsp.MarkupKind.Markdown, lsp.MarkupKind.PlainText],
             },
+            inlayHint: {
+              dynamicRegistration: false,
+            },
             publishDiagnostics: {
               relatedInformation: true,
               versionSupport: true,
@@ -383,9 +752,21 @@ export class LesmaMonacoLspBridge {
                 valueSet: [lsp.DiagnosticTag.Unnecessary, lsp.DiagnosticTag.Deprecated],
               },
             },
-            signatureHelp: { dynamicRegistration: false },
+            signatureHelp: { dynamicRegistration: false, contextSupport: true },
+            semanticTokens: {
+              dynamicRegistration: false,
+              tokenTypes: [...LESMA_SEMANTIC_TOKEN_TYPES],
+              tokenModifiers: [...LESMA_SEMANTIC_TOKEN_MODIFIERS],
+              formats: ['relative'],
+              requests: { full: true },
+            },
+            documentSymbol: {
+              dynamicRegistration: false,
+              hierarchicalDocumentSymbolSupport: true,
+            },
             definition: { dynamicRegistration: false, linkSupport: true },
             declaration: { dynamicRegistration: false, linkSupport: true },
+            references: { dynamicRegistration: false },
             implementation: { dynamicRegistration: false, linkSupport: true },
             typeDefinition: { dynamicRegistration: false, linkSupport: true },
           },
@@ -509,6 +890,20 @@ export class LesmaMonacoLspBridge {
     this.completionDisposable = null
     this.hoverDisposable?.dispose()
     this.hoverDisposable = null
+    this.inlayHintsDisposable?.dispose()
+    this.inlayHintsDisposable = null
+    this.definitionDisposable?.dispose()
+    this.definitionDisposable = null
+    this.declarationDisposable?.dispose()
+    this.declarationDisposable = null
+    this.referenceDisposable?.dispose()
+    this.referenceDisposable = null
+    this.signatureHelpDisposable?.dispose()
+    this.signatureHelpDisposable = null
+    this.semanticTokensDisposable?.dispose()
+    this.semanticTokensDisposable = null
+    this.documentSymbolDisposable?.dispose()
+    this.documentSymbolDisposable = null
 
     if (this.openUri && this.ws?.readyState === WebSocket.OPEN) {
       this.notify('textDocument/didClose', { textDocument: { uri: this.openUri } })
