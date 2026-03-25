@@ -21,7 +21,7 @@ By default, Vite serves the app on `http://localhost:3000`.
 - TypeScript 5
 - Vite 5 with SWC (`@vitejs/plugin-react-swc`)
 - Fluent UI (`@fluentui/react`, `@fluentui/react-icons`)
-- CodeMirror 6 ecosystem (`@codemirror/*`, Replit keymaps, VS Code theme)
+- [modern-monaco](https://github.com/esm-dev/modern-monaco) (Monaco Editor + Shiki grammars; Lesma uses the repo TextMate grammar + a small WebSocket LSP bridge)
 - State and routing: Redux + React Redux, `connected-react-router`, React Router v5
 - Terminal integration: xterm.js (`@xterm/xterm` + addons)
 - Testing: Vitest + Testing Library + JSDOM

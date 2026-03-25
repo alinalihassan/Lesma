@@ -3,7 +3,7 @@
 Monorepo under **Bun workspaces** (`apps/*`):
 
 - **`apps/server`** — [Hono](https://hono.dev/) on Bun: HTTP API (`/api/*`), static SPA, WebSocket bridge to `lesma-lsp`.
-- **`apps/client`** — [Vite](https://vitejs.dev/) + React + CodeMirror.
+- **`apps/client`** — [Vite](https://vitejs.dev/) + React + [modern-monaco](https://github.com/esm-dev/modern-monaco) (Monaco + Shiki).
 
 ## Prerequisites
 

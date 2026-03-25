@@ -1,0 +1,20 @@
+/* Flex child: Monaco fills remaining workspace tab panel (needs explicit flex + min-height for nested Stack). */
+.gpgMonacoHost {
+  display: flex;
+  flex: 1 1 auto;
+  align-self: stretch;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  min-width: 0;
+  overflow: hidden;
+  position: relative;
+}
+
+.gpgMonacoHost[data-font-ligatures='true'] {
+  font-variant-ligatures: normal;
+}
+
+.gpgMonacoHost[data-font-ligatures='false'] {
+  font-variant-ligatures: none;
+}

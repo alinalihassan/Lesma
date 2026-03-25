@@ -6,7 +6,7 @@ import { dispatchCreateFile, dispatchRemoveFile, dispatchImportFile, newFileSele
 
 import { TabView } from '~/components/elements/tabs/TabView'
 import type { TabBarAction, TabIconStyle, TabIconStyles, TabInfo } from '~/components/elements/tabs/types'
-import type { EditorRemote } from '~/lib/cm-react/types/common'
+import type { EditorRemote } from '~/lib/editor'
 
 import { LazyCodeEditorContainer } from '../CMCodeEditor/LazyCodeEditorContainer'
 import { NewFileModal } from '../NewFileModal'

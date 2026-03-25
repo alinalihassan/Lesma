@@ -4,8 +4,6 @@
   "type": "module",
   "workspaces": ["apps/*"],
   "overrides": {
-    "@codemirror/state": "6.6.0",
-    "@codemirror/view": "6.40.0",
     "@types/react": "^18.3.12",
     "@types/react-dom": "^18.3.1"
   },

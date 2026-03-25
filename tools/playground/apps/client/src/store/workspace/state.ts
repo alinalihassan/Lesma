@@ -24,12 +24,12 @@ export interface SnippetState {
  */
 export interface WorkspaceState {
   /**
-   * Generation is a cache key for CodeMirror editor state.
+   * Generation is a cache key for editor / workspace buffer invalidation.
    *
    * Generation update triggers code editor cache and state flush.
    * Used eo flush cache after files format and snippet load operations.
    *
-   * @see web/src/lib/cm-react/buffers/store.ts
+   * @see playground editor buffer cache (Monaco models are keyed by URI).
    */
   generation: number
 

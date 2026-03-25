@@ -1,7 +1,5 @@
-import type { Text } from '@codemirror/state'
-
 /**
- * Input layout type.
+ * Input layout type (Vim/Emacs are not wired for Monaco yet; values are accepted for settings UX).
  */
 export type InputMode = 'default' | 'vim' | 'emacs'
 
@@ -20,7 +18,8 @@ export enum Syntax {
 export interface DocumentState {
   path: string
   language: Syntax
-  text: Text
+  /** Full document text (Monaco path); callers may use `.toString()` for compatibility. */
+  text: string
 }
 
 export interface Position {
@@ -37,33 +36,12 @@ export interface Range {
 }
 
 /**
- * EditorRemote interface provides offscreen control over editor instance.
+ * Offscreen control surface for the playground editor (format, focus, buffer eviction).
  */
 export interface EditorRemote {
-  /**
-   * Applies document formatting.
-   */
   formatDocument: (path: string) => void
-
-  /**
-   * Invalidates document contents.
-   *
-   * Triggers editor to explicitly update document contents and diagnostics.
-   */
   invalidateDocument: (path: string) => void
-
-  /**
-   * Remove document from editor state.
-   */
   forgetDocument: (path: string) => void
-
-  /**
-   * Focuses editor instance.
-   */
   focus: () => void
-
-  /**
-   * Detach from editor instance and free resources.
-   */
   dispose: () => void
 }

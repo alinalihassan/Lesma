@@ -1,17 +1,18 @@
 import React, { useMemo } from 'react'
 import { useDispatch, useSelector } from 'react-redux'
 import type { AnyAction } from 'redux'
+
 import {
-  defaultEditorPreferences,
-  Editor,
-  type EditorPreferences,
-  type Document,
-  EventType,
-  type EditorEvent,
-  type EditorCommand,
   CommandType,
+  defaultEditorPreferences,
+  type Document,
+  type EditorCommand,
+  type EditorEvent,
+  type EditorPreferences,
   type EditorRemote,
-} from '~/lib/cm-react'
+  EventType,
+} from '~/lib/editor'
+import { ModernMonacoEditor } from '~/lib/monaco-modern/ModernMonacoEditor'
 import type { State } from '~/store/state'
 import { VimMode, VimSubMode } from '~/store/vim/state'
 import { newVimDisposeAction, newVimModeChangeAction } from '~/store/vim/actions'
@@ -24,7 +25,6 @@ import {
   runFileDispatcher,
 } from '~/store'
 import { useDebouncer } from '~/hooks/debounce'
-import { useLesmaLspExtension } from '~/hooks/use-lesma-lsp'
 
 const preferencesWithDefaults = (src: Partial<EditorPreferences>): EditorPreferences =>
   Object.assign(Object.create(defaultEditorPreferences), src)
@@ -52,7 +52,7 @@ const mapEventToAction = (e: EditorEvent): AnyAction | Dispatcher | undefined =>
   }
 }
 
-const mapCommandToAction = (e: EditorCommand, rem: EditorRemote): AnyAction | Dispatcher | undefined => {
+const mapCommandToAction = (e: EditorCommand, _rem: EditorRemote): AnyAction | Dispatcher | undefined => {
   switch (e.type) {
     case CommandType.EditorZoom:
       return newMonacoParamsChangeDispatcher({
@@ -72,7 +72,7 @@ export interface CodeEditorContainerProps {
 }
 
 /**
- * Connects CodeMirror code editor to the application store and business logic.
+ * Connects the playground editor (modern-monaco) to Redux and run/share actions.
  */
 export const CodeEditorContainer: React.FC<CodeEditorContainerProps> = ({ onMount, onUnmount }) => {
   const dispatch = useDispatch()
@@ -82,8 +82,8 @@ export const CodeEditorContainer: React.FC<CodeEditorContainerProps> = ({ onMoun
   const settings = useSelector((state: State) => state.settings)
   const workspace = useSelector((state: State) => state.workspace)
   const isReadOnly = useSelector(
-    ({ status, workspace }: State) =>
-      Boolean(status?.loading || status?.running || workspace.snippet?.loading),
+    ({ status, workspace: ws }: State) =>
+      Boolean(status?.loading || status?.running || ws.snippet?.loading),
   )
 
   const preferences: EditorPreferences = useMemo(
@@ -112,35 +112,44 @@ export const CodeEditorContainer: React.FC<CodeEditorContainerProps> = ({ onMoun
     }
   }, [workspace])
 
-  const lspExtensions = useLesmaLspExtension(workspace.selectedFile)
-
   return (
-    <Editor
-      workspaceKey={workspace.generation}
-      value={doc}
-      preferences={preferences}
-      readonly={isReadOnly}
-      lspExtensions={lspExtensions}
-      onMount={onMount}
-      onUnmount={onUnmount}
-      onChange={({ path, text }) => {
-        saveDebouncer(() => {
-          dispatch(dispatchUpdateFile(path, text.toString()))
-        })
+    <div
+      style={{
+        display: 'flex',
+        flex: '1 1 auto',
+        flexDirection: 'column',
+        minHeight: 0,
+        minWidth: 0,
+        width: '100%',
+        height: '100%',
       }}
-      onEvent={(e) => {
-        const action = mapEventToAction(e)
-        if (action) {
-          dispatch(action)
-        }
-      }}
-      onCommand={(cmd, rem) => {
-        const action = mapCommandToAction(cmd, rem)
-        if (action) {
-          dispatch(action)
-        }
-      }}
-    />
+    >
+      <ModernMonacoEditor
+        workspaceKey={workspace.generation}
+        value={doc}
+        preferences={preferences}
+        readonly={isReadOnly}
+        onMount={onMount}
+        onUnmount={onUnmount}
+        onChange={({ path, text }) => {
+          saveDebouncer(() => {
+            dispatch(dispatchUpdateFile(path, text))
+          })
+        }}
+        onEvent={(e) => {
+          const action = mapEventToAction(e)
+          if (action) {
+            dispatch(action)
+          }
+        }}
+        onCommand={(cmd, rem) => {
+          const action = mapCommandToAction(cmd, rem)
+          if (action) {
+            dispatch(action)
+          }
+        }}
+      />
+    </div>
   )
 }
 
