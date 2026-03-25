@@ -68,7 +68,7 @@
 .ProblemsList__meta {
   flex: 0 0 auto;
   font-size: 12px;
-  font-family: Menlo, Monaco, 'Courier New', monospace;
+  font-family: 'Source Code Pro', Menlo, Monaco, 'Courier New', monospace;
   opacity: 0.75;
 }
 
