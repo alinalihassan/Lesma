@@ -2,29 +2,13 @@
   "From compiler tests": [
     {
       "label": "Hello world",
-      "icon": "Emoji2",
-      "iconColor": "#ff8c00",
+      "icon": "Lightbulb",
+      "iconColor": "#ffaa44",
       "source": {
         "basePath": "hello",
-        "files": ["main.les"]
-      }
-    },
-    {
-      "label": "Arithmetic check",
-      "icon": "NumberSymbol",
-      "iconColor": "#007fd4",
-      "source": {
-        "basePath": "arithmetic",
-        "files": ["main.les"]
-      }
-    },
-    {
-      "label": "Break / while",
-      "icon": "Sync",
-      "iconColor": "#00cc6a",
-      "source": {
-        "basePath": "break-demo",
-        "files": ["main.les"]
+        "files": [
+          "main.les"
+        ]
       }
     },
     {
@@ -33,16 +17,130 @@
       "iconColor": "#d29200",
       "source": {
         "basePath": "tuples",
-        "files": ["main.les"]
+        "files": [
+          "main.les"
+        ]
       }
     },
     {
-      "label": "Boolean expressions",
-      "icon": "ToggleBorder",
-      "iconColor": "#b4a0ff",
+      "label": "While & break",
+      "icon": "RepeatAll",
+      "iconColor": "#00a47a",
       "source": {
-        "basePath": "boolean",
-        "files": ["main.les"]
+        "basePath": "break-demo",
+        "files": [
+          "main.les"
+        ]
+      }
+    },
+    {
+      "label": "Strings (stdlib)",
+      "icon": "TextDocument",
+      "iconColor": "#8764b8",
+      "source": {
+        "basePath": "strings",
+        "files": [
+          "main.les"
+        ]
+      }
+    },
+    {
+      "label": "Lists & for-in",
+      "icon": "BulletedList",
+      "iconColor": "#107c10",
+      "source": {
+        "basePath": "lists",
+        "files": [
+          "main.les"
+        ]
+      }
+    },
+    {
+      "label": "Range (stdlib)",
+      "icon": "NumberedList",
+      "iconColor": "#038387",
+      "source": {
+        "basePath": "range",
+        "files": [
+          "main.les"
+        ]
+      }
+    },
+    {
+      "label": "Classes",
+      "icon": "CubeShape",
+      "iconColor": "#ca5010",
+      "source": {
+        "basePath": "classes",
+        "files": [
+          "main.les"
+        ]
+      }
+    },
+    {
+      "label": "Enums",
+      "icon": "Color",
+      "iconColor": "#e3008c",
+      "source": {
+        "basePath": "enums",
+        "files": [
+          "main.les"
+        ]
+      }
+    },
+    {
+      "label": "Generic functions",
+      "icon": "Code",
+      "iconColor": "#5c2d91",
+      "source": {
+        "basePath": "generics",
+        "files": [
+          "main.les"
+        ]
+      }
+    },
+    {
+      "label": "Generic classes",
+      "icon": "Package",
+      "iconColor": "#004e8c",
+      "source": {
+        "basePath": "generic-classes",
+        "files": [
+          "main.les"
+        ]
+      }
+    },
+    {
+      "label": "Traits",
+      "icon": "Link",
+      "iconColor": "#498205",
+      "source": {
+        "basePath": "traits",
+        "files": [
+          "main.les"
+        ]
+      }
+    },
+    {
+      "label": "Recursion",
+      "icon": "Org",
+      "iconColor": "#567c58",
+      "source": {
+        "basePath": "recursion",
+        "files": [
+          "main.les"
+        ]
+      }
+    },
+    {
+      "label": "Operator overloading",
+      "icon": "Calculator",
+      "iconColor": "#c239b3",
+      "source": {
+        "basePath": "operators",
+        "files": [
+          "main.les"
+        ]
       }
     }
   ]
