@@ -4,7 +4,7 @@ import type {
   Range as MonacoRange,
   editor,
 } from 'modern-monaco/editor-core'
-import { languages } from 'modern-monaco/editor-core'
+import { Emitter, languages } from 'modern-monaco/editor-core'
 import * as lsp from 'vscode-languageserver-protocol'
 
 import type { MonacoApi } from './init-monaco'
@@ -298,6 +298,13 @@ function lspInlayHintToMonaco(monaco: MonacoApi, h: lsp.InlayHint): languages.In
  * tokens, document symbols, inlay hints, definition / declaration / references (WebSocket).
  */
 export class LesmaMonacoLspBridge {
+  /**
+   * Fired after the active Lesma document is synced with the LSP (`didOpen` / ready).
+   * Monaco may run the first semantic-tokens and inlay-hint passes before `initialize` finishes; those
+   * requests return null and Monaco does not reschedule unless content changes or these events fire.
+   */
+  private readonly documentFeaturesInvalidation = new Emitter<void>()
+
   private ws: WebSocket | null = null
   private nextId = 0
   private readonly pending = new Map<number, { resolve: (v: unknown) => void; reject: (e: unknown) => void }>()
@@ -422,6 +429,7 @@ export class LesmaMonacoLspBridge {
     })
 
     this.inlayHintsDisposable = this.monaco.languages.registerInlayHintsProvider('lesma', {
+      onDidChangeInlayHints: this.documentFeaturesInvalidation.event,
       provideInlayHints: async (model, range, _token) => {
         if (!this.initialized || model.uri.toString() !== this.openUri) {
           return { hints: [], dispose: () => {} }
@@ -542,6 +550,7 @@ export class LesmaMonacoLspBridge {
       tokenModifiers: [...LESMA_SEMANTIC_TOKEN_MODIFIERS],
     }
     this.semanticTokensDisposable = this.monaco.languages.registerDocumentSemanticTokensProvider('lesma', {
+      onDidChange: this.documentFeaturesInvalidation.event,
       getLegend: () => semanticLegend,
       provideDocumentSemanticTokens: async (model, _lastResultId, _token) => {
         if (!this.initialized || model.uri.toString() !== this.openUri) {
@@ -838,6 +847,9 @@ export class LesmaMonacoLspBridge {
         },
       })
     }
+
+    /* Re-run semantic highlighting + inlay hints now that LSP is ready (see documentFeaturesInvalidation). */
+    this.documentFeaturesInvalidation.fire()
   }
 
   private scheduleFlush(): void {
@@ -914,6 +926,8 @@ export class LesmaMonacoLspBridge {
       p.reject(new Error('LSP disposed'))
     }
     this.pending.clear()
+
+    this.documentFeaturesInvalidation.dispose()
 
     this.ws?.close()
     this.ws = null
