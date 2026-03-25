@@ -13,6 +13,9 @@ const ENABLE_VIM_MODE_KEY = 'ms.monaco.vimModeEnabled'
 const AUTOFORMAT_KEY = 'go.build.autoFormat'
 const MONACO_SETTINGS = 'ms.monaco.settings'
 const PANEL_SETTINGS = 'ui.layout.panel'
+const COMPILER_DEBUG_LEXER_KEY = 'lesma.compiler.debugLexer'
+const COMPILER_DEBUG_AST_KEY = 'lesma.compiler.debugAst'
+const COMPILER_DEBUG_IR_KEY = 'lesma.compiler.debugIr'
 
 const setThemeStyles = (isDark: boolean) => loadTheme(isDark ? DarkTheme : LightTheme)
 
@@ -77,6 +80,30 @@ const Config = {
 
   set panelLayout(v: PanelState) {
     this.setObject(PANEL_SETTINGS, v)
+  },
+
+  get compilerDebugLexer(): boolean {
+    return this.getBoolean(COMPILER_DEBUG_LEXER_KEY, false)
+  },
+
+  set compilerDebugLexer(v: boolean) {
+    this.setBoolean(COMPILER_DEBUG_LEXER_KEY, v)
+  },
+
+  get compilerDebugAst(): boolean {
+    return this.getBoolean(COMPILER_DEBUG_AST_KEY, false)
+  },
+
+  set compilerDebugAst(v: boolean) {
+    this.setBoolean(COMPILER_DEBUG_AST_KEY, v)
+  },
+
+  get compilerDebugIr(): boolean {
+    return this.getBoolean(COMPILER_DEBUG_IR_KEY, false)
+  },
+
+  set compilerDebugIr(v: boolean) {
+    this.setBoolean(COMPILER_DEBUG_IR_KEY, v)
   },
 
   getString<T = string>(key: string, defaultVal: T) {

@@ -1,5 +1,5 @@
 import { type RunResponse } from './models/run'
-import type { IAPIClient } from './interface'
+import type { IAPIClient, RunRequestOptions } from './interface'
 
 export class Client implements IAPIClient {
   constructor(private readonly baseUrl: string) {}
@@ -7,8 +7,12 @@ export class Client implements IAPIClient {
   /**
    * Runs the workspace on the playground server (`POST /v2/run`).
    */
-  async run(files: Record<string, string>): Promise<RunResponse> {
-    return await this.post<RunResponse>('/v2/run', { files })
+  async run(files: Record<string, string>, options?: RunRequestOptions): Promise<RunResponse> {
+    const body: Record<string, unknown> = { files }
+    if (options?.debug !== undefined && options.debug.length > 0) {
+      body.debug = options.debug
+    }
+    return await this.post<RunResponse>('/v2/run', body)
   }
 
   private async post<T>(uri: string, data: unknown): Promise<T> {

@@ -5,7 +5,35 @@ export const MAX_FILES = 10
 
 const OTHER_EXT = new Set([".txt", ".json"])
 
-export type FilesPayload = { files: Record<string, string> }
+export type CompilerDebugFlag = 'lexer' | 'ast' | 'ir'
+
+export type RunPayload = {
+  files: Record<string, string>
+  debug?: CompilerDebugFlag[]
+}
+
+const DEBUG_FLAGS = new Set<CompilerDebugFlag>(['lexer', 'ast', 'ir'])
+
+function parseDebug(body: Record<string, unknown>): CompilerDebugFlag[] | undefined {
+  if (!('debug' in body)) {
+    return undefined
+  }
+  const raw = body.debug
+  if (raw === undefined) {
+    return undefined
+  }
+  if (!Array.isArray(raw)) {
+    throw new PayloadError('debug must be an array of strings', 400)
+  }
+  const out: CompilerDebugFlag[] = []
+  for (const x of raw) {
+    if (typeof x !== 'string' || !DEBUG_FLAGS.has(x as CompilerDebugFlag)) {
+      throw new PayloadError(`invalid debug flag ${JSON.stringify(x)}`, 400)
+    }
+    out.push(x as CompilerDebugFlag)
+  }
+  return out
+}
 
 export class PayloadError extends Error {
   constructor(
@@ -49,11 +77,12 @@ export function validateFilePath(name: string, strict: boolean): { isPrimary: bo
   throw new PayloadError(`invalid file name ${JSON.stringify(name)}`, 400)
 }
 
-export function validatePayload(body: unknown): FilesPayload {
+export function validatePayload(body: unknown): RunPayload {
   if (body === null || typeof body !== "object" || Array.isArray(body)) {
     throw new PayloadError("invalid JSON body", 400)
   }
-  const files = (body as { files?: unknown }).files
+  const obj = body as Record<string, unknown>
+  const files = obj.files
   if (files === null || typeof files !== "object" || Array.isArray(files)) {
     throw new PayloadError("empty request", 400)
   }
@@ -81,7 +110,9 @@ export function validatePayload(body: unknown): FilesPayload {
     throw new PayloadError("no Lesma source files (.les)", 400)
   }
 
-  return { files: files as Record<string, string> }
+  const debug = parseDebug(obj)
+
+  return { files: files as Record<string, string>, debug }
 }
 
 export async function readJsonBody(req: Request): Promise<unknown> {

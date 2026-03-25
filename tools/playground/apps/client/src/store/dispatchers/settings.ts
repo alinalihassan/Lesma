@@ -51,6 +51,16 @@ export const newSettingsChangeDispatcher =
       }
     }
 
+    if ('compilerDebugLexer' in changes) {
+      config.compilerDebugLexer = !!changes.compilerDebugLexer
+    }
+    if ('compilerDebugAst' in changes) {
+      config.compilerDebugAst = !!changes.compilerDebugAst
+    }
+    if ('compilerDebugIr' in changes) {
+      config.compilerDebugIr = !!changes.compilerDebugIr
+    }
+
     dispatch(newSettingsChangeAction(changes))
   }
 

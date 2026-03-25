@@ -47,6 +47,12 @@ export interface SettingsState {
   autoSave: boolean
   autoFormat: boolean
   enableVimMode: boolean
+  /** Pass `-d lexer` to `lesma run` when running from the playground. */
+  compilerDebugLexer: boolean
+  /** Pass `-d ast` to `lesma run`. */
+  compilerDebugAst: boolean
+  /** Pass `-d ir` to `lesma run`. */
+  compilerDebugIr: boolean
 }
 
 export interface PanelState {

@@ -204,6 +204,50 @@ class SettingsModal extends ThemeableComponent<Props, SettingsModalState> {
               }
             />
           </PivotItem>
+          <PivotItem itemKey="1" headerText="Compiler">
+            <SettingsProperty
+              key="compilerDebugLexer"
+              title="Debug: Lexer"
+              description="Log lexer tokens when you run code (same as lesma run -d lexer)."
+              control={
+                <Checkbox
+                  label="Enable lexer debug output"
+                  defaultChecked={this.props.settings?.compilerDebugLexer}
+                  onChange={(_, val) => {
+                    this.touchSettingsProperty({ compilerDebugLexer: val })
+                  }}
+                />
+              }
+            />
+            <SettingsProperty
+              key="compilerDebugAst"
+              title="Debug: AST"
+              description="Print the abstract syntax tree after parsing (-d ast)."
+              control={
+                <Checkbox
+                  label="Enable AST debug output"
+                  defaultChecked={this.props.settings?.compilerDebugAst}
+                  onChange={(_, val) => {
+                    this.touchSettingsProperty({ compilerDebugAst: val })
+                  }}
+                />
+              }
+            />
+            <SettingsProperty
+              key="compilerDebugIr"
+              title="Debug: LLVM IR"
+              description="Dump LLVM IR before optimization (-d ir)."
+              control={
+                <Checkbox
+                  label="Enable IR debug output"
+                  defaultChecked={this.props.settings?.compilerDebugIr}
+                  onChange={(_, val) => {
+                    this.touchSettingsProperty({ compilerDebugIr: val })
+                  }}
+                />
+              }
+            />
+          </PivotItem>
           <PivotItem itemKey="2" headerText="Terminal">
             <SettingsProperty
               title="Font Size"

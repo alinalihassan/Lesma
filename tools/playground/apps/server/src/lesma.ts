@@ -43,6 +43,7 @@ export async function runLesma(
   lesmaPath: string,
   files: Record<string, string>,
   timeoutMs: number,
+  debug?: string[],
 ): Promise<CompileEvent[]> {
   let mainRel: string
   try {
@@ -79,7 +80,13 @@ export async function runLesma(
     let runErr: Error | null = null
 
     try {
-      const proc = Bun.spawn([lesmaPath, "run", mainPath], {
+      const spawnArgs = [lesmaPath]
+      if (debug !== undefined && debug.length > 0) {
+        spawnArgs.push("-d", ...debug)
+      }
+      spawnArgs.push("run", mainPath)
+
+      const proc = Bun.spawn(spawnArgs, {
         cwd: tmpDir,
         stdout: "pipe",
         stderr: "pipe",

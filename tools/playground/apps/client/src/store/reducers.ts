@@ -30,6 +30,9 @@ const initialSettingsState: SettingsState = {
   autoFormat: true,
   useSystemTheme: config.useSystemTheme,
   enableVimMode: config.enableVimMode,
+  compilerDebugLexer: config.compilerDebugLexer,
+  compilerDebugAst: config.compilerDebugAst,
+  compilerDebugIr: config.compilerDebugIr,
 }
 
 const reducers = {

@@ -1,5 +1,6 @@
 #include "Driver.h"
 
+#include <cstdio>
 #include <filesystem>
 #include <memory>
 #include <string>
@@ -41,8 +42,8 @@ auto lesma::analyze(std::unique_ptr<Options> options) -> AnalysisResult {
     if (options->sourceType == SourceType::FILE) {
       auto buffer = llvm::MemoryBuffer::getFileAsStream(options->source);
       if (!buffer) {
-        result.diagnostics.push_back(
-            AnalysisDiagnostic{"Could not read file: " + options->source, llvm::SMRange()});
+        result.diagnostics.push_back(AnalysisDiagnostic{
+            .message = "Could not read file: " + options->source, .span = llvm::SMRange()});
         result.sourceMgr = std::move(srcMgr);
         result.mainBufferId = mainBufferId;
         return result;
@@ -53,8 +54,8 @@ auto lesma::analyze(std::unique_ptr<Options> options) -> AnalysisResult {
       mainBufferId = srcMgr->AddNewSourceBuffer(std::move(buffer), llvm::SMLoc());
     }
   } catch (const LesmaError& err) {
-    result.diagnostics.push_back(
-        AnalysisDiagnostic{err.what(), err.getSpan().isValid() ? err.getSpan() : llvm::SMRange()});
+    result.diagnostics.push_back(AnalysisDiagnostic{
+        .message = err.what(), .span = err.getSpan().isValid() ? err.getSpan() : llvm::SMRange()});
     result.sourceMgr = std::move(srcMgr);
     result.mainBufferId = mainBufferId;
     return result;
@@ -68,13 +69,15 @@ auto lesma::analyze(std::unique_ptr<Options> options) -> AnalysisResult {
       lesma::print(LogType::DEBUG, "Lexer tokens:\n");
       for (Token* tok : lexer->getTokens()) {
         if (tok != nullptr) {
-          lesma::print(LogType::DEBUG, "{}\n", tok->dump(srcMgr));
+          lesma::print(LogType::CLEAR, "  {}\n", tok->dump(srcMgr));
         }
       }
+      // stdout is often fully buffered when not a TTY; LLVM's IR print can flush earlier.
+      std::fflush(stdout);
     }
   } catch (const LesmaError& err) {
-    result.diagnostics.push_back(
-        AnalysisDiagnostic{err.what(), err.getSpan().isValid() ? err.getSpan() : llvm::SMRange()});
+    result.diagnostics.push_back(AnalysisDiagnostic{
+        .message = err.what(), .span = err.getSpan().isValid() ? err.getSpan() : llvm::SMRange()});
     result.sourceMgr = std::move(srcMgr);
     result.mainBufferId = mainBufferId;
     return result;
@@ -89,6 +92,7 @@ auto lesma::analyze(std::unique_ptr<Options> options) -> AnalysisResult {
       if (ast != nullptr) {
         lesma::print(LogType::DEBUG, "AST:\n{}\n", ast->toString(srcMgr.get(), "", true));
       }
+      std::fflush(stdout);
     }
   } catch (const LesmaError& err) {
     result.diagnostics.push_back(
@@ -159,21 +163,22 @@ auto Driver::baseCompile(std::unique_ptr<lesma::Options> options, bool jit) -> i
     {
       auto codegen = timer.measure("Compiling", [&]() -> std::unique_ptr<lesma::Codegen> {
         std::vector<std::string> const modules;
-        auto cg = std::make_unique<Codegen>(std::move(result.parser), result.sourceMgr,
-                                            result.mainFilePath.empty() ? "" : result.mainFilePath,
-                                            modules, jit, true, "", nullptr, nullptr, nullptr,
-                                            std::move(result.rootScope), std::move(result.typeCache),
-                                            std::move(result.specializedTypeEnv));
+        auto cg = std::make_unique<Codegen>(
+            std::move(result.parser), result.sourceMgr,
+            result.mainFilePath.empty() ? "" : result.mainFilePath, modules, jit, true, "", nullptr,
+            nullptr, nullptr, std::move(result.rootScope), std::move(result.typeCache),
+            std::move(result.specializedTypeEnv));
         cg->run();
         return cg;
       });
 
+      timer.measure("Optimizing", [&]() -> void { codegen->optimize(OptimizationLevel::O3); });
+
       if ((debugFlags & Debug::IR) != Debug::NONE) {
-        lesma::print(LogType::DEBUG, "LLVM IR: \n");
+        lesma::print(LogType::DEBUG, "LLVM IR (after optimization):\n");
+        std::fflush(stdout);
         codegen->dump();
       }
-
-      timer.measure("Optimizing", [&]() -> void { codegen->optimize(OptimizationLevel::O3); });
 
       if (!jit) {
         timer.measure("Writing Object File",
