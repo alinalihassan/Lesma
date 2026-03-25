@@ -1,5 +1,15 @@
 # Used when building tools/playground/Dockerfile from the repo root.
+#
+# Parent .git is excluded to keep context small, but vcpkg is a submodule: its object DB lives under
+# .git/modules/vcpkg. Those paths must be included or vcpkg manifest mode fails (builtin-baseline).
+# CI: use checkout with submodules (e.g. actions/checkout with submodules: true).
 .git
+!.git/modules/vcpkg
+!.git/modules/vcpkg/**
+
+# If the root pattern above hides the submodule gitlink, include it explicitly.
+!vcpkg/.git
+
 **/node_modules/
 build/
 **/Debug/
@@ -7,3 +17,8 @@ build/
 tools/playground/node_modules/
 tools/playground/apps/client/node_modules/
 **/.DS_Store
+
+# vcpkg host caches (large; not needed in the image — vcpkg populates these in-container)
+vcpkg/buildtrees/
+vcpkg/downloads/
+vcpkg/packages/

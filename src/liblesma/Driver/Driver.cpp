@@ -8,6 +8,7 @@
 
 #include "llvm/Support/SourceMgr.h"
 #include <llvm/Passes/OptimizationLevel.h>
+#include <llvm/Support/ManagedStatic.h>
 #include <llvm/Support/MemoryBuffer.h>
 #include <llvm/Support/SMLoc.h>
 
@@ -154,39 +155,42 @@ auto Driver::baseCompile(std::unique_ptr<lesma::Options> options, bool jit) -> i
   }
 
   try {
-    auto codegen = timer.measure("Compiling", [&]() -> std::unique_ptr<lesma::Codegen> {
-      std::vector<std::string> const modules;
-      auto cg = std::make_unique<Codegen>(std::move(result.parser), result.sourceMgr,
-                                          result.mainFilePath.empty() ? "" : result.mainFilePath,
-                                          modules, jit, true, "", nullptr, nullptr, nullptr,
-                                          std::move(result.rootScope), std::move(result.typeCache),
-                                          std::move(result.specializedTypeEnv));
-      cg->run();
-      return cg;
-    });
-
-    if ((debugFlags & Debug::IR) != Debug::NONE) {
-      lesma::print(LogType::DEBUG, "LLVM IR: \n");
-      codegen->dump();
-    }
-
-    timer.measure("Optimizing", [&]() -> void { codegen->optimize(OptimizationLevel::O3); });
-
     int exitCode = 0;
-    if (!jit) {
-      timer.measure("Writing Object File",
-                    [&]() -> void { codegen->writeToObjectFile(outputFilename); });
-      timer.measure("Linking Object File", [&]() -> void {
-        codegen->linkObjectFile(fmt::format("{}.o", outputFilename));
+    {
+      auto codegen = timer.measure("Compiling", [&]() -> std::unique_ptr<lesma::Codegen> {
+        std::vector<std::string> const modules;
+        auto cg = std::make_unique<Codegen>(std::move(result.parser), result.sourceMgr,
+                                            result.mainFilePath.empty() ? "" : result.mainFilePath,
+                                            modules, jit, true, "", nullptr, nullptr, nullptr,
+                                            std::move(result.rootScope), std::move(result.typeCache),
+                                            std::move(result.specializedTypeEnv));
+        cg->run();
+        return cg;
       });
-    } else {
-      timer.measure("JIT", [&]() -> void { codegen->prepareJit(); });
-      exitCode = timer.measure("Execution", [&]() -> int { return codegen->executeJit(); });
-    }
 
+      if ((debugFlags & Debug::IR) != Debug::NONE) {
+        lesma::print(LogType::DEBUG, "LLVM IR: \n");
+        codegen->dump();
+      }
+
+      timer.measure("Optimizing", [&]() -> void { codegen->optimize(OptimizationLevel::O3); });
+
+      if (!jit) {
+        timer.measure("Writing Object File",
+                      [&]() -> void { codegen->writeToObjectFile(outputFilename); });
+        timer.measure("Linking Object File", [&]() -> void {
+          codegen->linkObjectFile(fmt::format("{}.o", outputFilename));
+        });
+      } else {
+        timer.measure("JIT", [&]() -> void { codegen->prepareJit(); });
+        exitCode = timer.measure("Execution", [&]() -> int { return codegen->executeJit(); });
+      }
+    }
+    llvm::llvm_shutdown();
     timer.printTotal();
     return exitCode;
   } catch (const LesmaError& err) {
+    llvm::llvm_shutdown();
     if (!err.getSpan().isValid()) {
       lesma::print(LogType::ERROR, err.what());
     } else {

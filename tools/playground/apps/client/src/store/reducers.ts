@@ -2,7 +2,7 @@ import { connectRouter } from 'connected-react-router'
 import { combineReducers } from 'redux'
 
 import { type EvalEvent } from '~/services/api'
-import config, { type MonacoSettings, type RunTargetConfig } from '~/services/config'
+import config, { type MonacoSettings } from '~/services/config'
 
 import vimReducers from './vim/reducers'
 import notificationReducers from './notifications/reducers'
@@ -37,12 +37,6 @@ const initialSettingsState: SettingsState = {
 }
 
 const reducers = {
-  runTarget: mapByAction<RunTargetConfig>(
-    {
-      [ActionType.RUN_TARGET_CHANGE]: (_, { payload }: Action<RunTargetConfig>) => payload,
-    },
-    config.runTargetConfig,
-  ),
   status: mapByAction<StatusState>(
     {
       [WorkspaceAction.WORKSPACE_IMPORT]: (_: StatusState) => ({
@@ -52,7 +46,7 @@ const reducers = {
         lastError: null,
       }),
       // Snippet/example loads use workspace.snippet.loading for UI; keep status.loading for
-      // share/format (LOADING_STATE_CHANGE) and initial boot so the header does not grey out.
+      // Initial boot so the header does not grey out.
       [WorkspaceAction.SNIPPET_LOAD_FINISH]: (s: StatusState) => ({
         ...s,
         running: false,
@@ -107,14 +101,6 @@ const reducers = {
         running: false,
         dirty: true,
       }),
-      [ActionType.RUN_TARGET_CHANGE]: (s: StatusState, { payload }: Action<RunTargetConfig>) => {
-        // if (payload.target) {
-        //   // Reset build output if build runtime was changed
-        //   return { ...s, loading: false, lastError: null }
-        // }
-
-        return s
-      },
       [ActionType.MARKER_CHANGE]: (s: StatusState, { payload }: Action<MarkerChangePayload>) => ({
         ...s,
         markers: {
@@ -165,7 +151,7 @@ const reducers = {
     {
       [ActionType.LOADING_STATE_CHANGE]: (s: UIState, { payload: { loading } }: Action<LoadingStateChanges>) => {
         if (!s) {
-          return { loading, shareCreated: false, snippetId: null }
+          return { loading }
         }
 
         return {
@@ -194,7 +180,6 @@ export const getInitialState = (): State => ({
     loading: true,
   },
   settings: initialSettingsState,
-  runTarget: config.runTargetConfig,
   monaco: config.monacoSettings,
   panel: config.panelLayout,
   notifications: {},

@@ -27,21 +27,8 @@ export interface SnippetSource {
   files: string[]
 }
 
-/** Snippet loaded by shared ID (optional; Lesma playground may use file-based examples only). */
-type SharedSnippet = SnippetBase & {
-  id: string
-
-  source?: never
-}
-
-/**
- * Snippet based on file URLs.
- */
-type URLSnippet = SnippetBase & {
+export type Snippet = SnippetBase & {
   source: SnippetSource
-  snippetId?: never
 }
-
-export type Snippet = SharedSnippet | URLSnippet
 
 export type Snippets = Record<string, Snippet[]>

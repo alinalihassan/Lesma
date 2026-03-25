@@ -24,7 +24,7 @@ export const App = () => {
         <ConnectedRouter history={history}>
           <ConnectedThemeProvider className="App">
             <Switch>
-              <Route path={['/', '/snippet/:snippetID']} exact component={PlaygroundPage} />
+              <Route path="/" exact component={PlaygroundPage} />
               <Route path="*" component={NotFoundPage} />
             </Switch>
           </ConnectedThemeProvider>

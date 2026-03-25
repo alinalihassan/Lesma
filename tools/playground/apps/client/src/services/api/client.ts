@@ -1,86 +1,14 @@
-import {
-  Backend,
-  type AnnouncementMessageResponse,
-  type AnnouncementMessage,
-  type VersionResponse,
-  type RunResponse,
-  type BuildResponse,
-  type ShareResponse,
-  type VersionsInfo,
-  type FilesPayload,
-} from './models'
+import { type AnnouncementMessageResponse, type AnnouncementMessage, type RunResponse } from './models'
 import type { IAPIClient } from './interface'
 
 export class Client implements IAPIClient {
   constructor(private readonly baseUrl: string) {}
 
   /**
-   * Returns server API version.
+   * Runs the workspace on the playground server (`POST /v2/run`).
    */
-  async getVersion(): Promise<VersionResponse> {
-    return await this.get<VersionResponse>(`/version?=${Date.now()}`)
-  }
-
-  /**
-   * Build WebAssembly Go program using files.
-   *
-   * WASM file can be downloaded using {@link getArtifact} call.
-   */
-  async build(files: Record<string, string>): Promise<BuildResponse> {
-    return await this.post<BuildResponse>(`/v2/compile`, { files })
-  }
-
-  /**
-   * Returns WebAssembly program compiled using {@link build} call.
-   */
-  async getArtifact(fileName: string): Promise<Response> {
-    const resp = await fetch(`${this.baseUrl}/artifacts/${fileName}`)
-    if (resp.status >= 400) {
-      const err = await resp.json()
-      throw new Error(err.message ?? resp.statusText)
-    }
-
-    return resp
-  }
-
-  /**
-   * Runs a program on server and returns execution result.
-   *
-   * @param files List of Go files.
-   * @param vet Determines whether "go vet" should be executed.
-   * @param backend Go server backend to use.
-   * @returns
-   */
-  async run(files: Record<string, string>, vet: boolean, backend = Backend.Default): Promise<RunResponse> {
-    return await this.post<RunResponse>(`/v2/run?vet=${Boolean(vet)}&backend=${backend}`, { files })
-  }
-
-  /**
-   * Formats Go files.
-   */
-  async format(files: Record<string, string>, backend = Backend.Default): Promise<FilesPayload> {
-    return await this.post<FilesPayload>(`/v2/format?backend=${backend}`, { files })
-  }
-
-  /**
-   * Returns contents of a snippet shared using {@link shareSnippet}.
-   */
-  async getSnippet(id: string): Promise<FilesPayload> {
-    return await this.get<FilesPayload>(`/v2/share/${id}`)
-  }
-
-  /**
-   * Uploads a snippet and returns share URL link.
-   */
-  async shareSnippet(files: Record<string, string>): Promise<ShareResponse> {
-    return await this.post<ShareResponse>('/v2/share', { files })
-  }
-
-  /**
-   * Returns list of Go versions used to build or run programs on server.
-   */
-  async getBackendVersions(): Promise<VersionsInfo> {
-    return await this.get<VersionsInfo>('/backends/info')
+  async run(files: Record<string, string>): Promise<RunResponse> {
+    return await this.post<RunResponse>('/v2/run', { files })
   }
 
   /**
@@ -99,7 +27,7 @@ export class Client implements IAPIClient {
     })
   }
 
-  private async post<T>(uri: string, data: any): Promise<T> {
+  private async post<T>(uri: string, data: unknown): Promise<T> {
     return await this.doRequest(uri, {
       method: 'POST',
       headers: {
@@ -126,7 +54,6 @@ export class Client implements IAPIClient {
     try {
       errBody = await rsp.json()
     } catch (_) {
-      // Fallback in case of malformed response
       errBody = {
         error: `${rsp.status} ${rsp.statusText}`,
       }

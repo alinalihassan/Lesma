@@ -1,4 +1,4 @@
-import client, { Backend } from '~/services/api'
+import client from '~/services/api'
 import type { DispatchFn, StateProvider } from '~/store/helpers'
 import { newProgramFinishAction, newProgramStartAction, newProgramWriteAction } from '~/store/actions/build'
 import { newErrorAction } from '~/store/actions/ui'
@@ -6,10 +6,10 @@ import { newErrorAction } from '~/store/actions/ui'
 import type { Dispatcher } from './utils'
 
 /**
- * Runs the current workspace on the playground API (`POST /api/v2/run`).
+ * Runs the current workspace on the playground API (`POST /v2/run`).
  */
 export const runFileDispatcher: Dispatcher = async (dispatch: DispatchFn, getState: StateProvider) => {
-  const { workspace, runTarget } = getState()
+  const { workspace } = getState()
   const { files } = workspace
   if (!files) {
     return
@@ -17,8 +17,7 @@ export const runFileDispatcher: Dispatcher = async (dispatch: DispatchFn, getSta
 
   dispatch(newProgramStartAction())
   try {
-    const backend = runTarget.backend ?? Backend.Default
-    const { events } = await client.run(files, false, backend)
+    const { events } = await client.run(files)
     for (const ev of events) {
       dispatch(newProgramWriteAction(ev))
     }

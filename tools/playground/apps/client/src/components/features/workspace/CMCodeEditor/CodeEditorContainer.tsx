@@ -16,7 +16,7 @@ import { ModernMonacoEditor } from '~/lib/monaco-modern/ModernMonacoEditor'
 import type { State } from '~/store/state'
 import { VimMode, VimSubMode } from '~/store/vim/state'
 import { newVimDisposeAction, newVimModeChangeAction } from '~/store/vim/actions'
-import { dispatchShareSnippet, dispatchUpdateFile } from '~/store/workspace'
+import { dispatchUpdateFile } from '~/store/workspace'
 import { getDefaultFontFamily, getFontFamily } from '~/services/fonts'
 import {
   Dispatcher,
@@ -67,8 +67,6 @@ const mapCommandToAction = (e: EditorCommand, _rem: EditorRemote): AnyAction | D
       })
     case CommandType.Run:
       return runFileDispatcher
-    case CommandType.Share:
-      return dispatchShareSnippet()
     default:
   }
 }
@@ -79,7 +77,7 @@ export interface CodeEditorContainerProps {
 }
 
 /**
- * Connects the playground editor (modern-monaco) to Redux and run/share actions.
+ * Connects the playground editor (modern-monaco) to Redux and run actions.
  */
 export const CodeEditorContainer: React.FC<CodeEditorContainerProps> = ({ onMount, onUnmount }) => {
   const dispatch = useDispatch()

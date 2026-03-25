@@ -1,5 +1,5 @@
 import { isDarkModeEnabled } from '~/utils/theme'
-import config, { type RunTargetConfig } from '~/services/config'
+import config from '~/services/config'
 
 import { type Dispatcher } from './utils'
 import { type PanelState, type SettingsState } from '../state'
@@ -8,7 +8,6 @@ import {
   type MonacoParamsChanges,
   newMonacoParamsChangeAction,
   newPanelStateChangeAction,
-  newRunTargetChangeAction,
   newSettingsChangeAction,
   newToggleThemeAction,
 } from '../actions'
@@ -53,13 +52,6 @@ export const newSettingsChangeDispatcher =
     }
 
     dispatch(newSettingsChangeAction(changes))
-  }
-
-export const newRunTargetChangeDispatcher =
-  (cfg: RunTargetConfig): Dispatcher =>
-  (dispatch: DispatchFn) => {
-    config.runTargetConfig = cfg
-    dispatch(newRunTargetChangeAction(cfg))
   }
 
 export const dispatchToggleTheme: Dispatcher = (dispatch: DispatchFn, getState: StateProvider) => {

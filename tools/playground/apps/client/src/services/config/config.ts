@@ -4,13 +4,11 @@ import { type PanelState } from '~/store'
 import { defaultPanelProps } from '~/styles/layout'
 import { supportsPreferColorScheme } from '~/utils/theme'
 
-import { type RunTargetConfig, TargetType, defaultRunTarget } from './target'
 import { type MonacoSettings, defaultMonacoSettings } from './monaco'
 
 const DARK_THEME_KEY = 'ui.darkTheme.enabled'
 const USE_SYSTEM_THEME_KEY = 'ui.darkTheme.useSystem'
 const AUTOSAVE_ENABLED = 'ui.autosave.enabled'
-const RUN_TARGET_KEY = 'go.build.target'
 const ENABLE_VIM_MODE_KEY = 'ms.monaco.vimModeEnabled'
 const AUTOFORMAT_KEY = 'go.build.autoFormat'
 const MONACO_SETTINGS = 'ms.monaco.settings'
@@ -71,20 +69,6 @@ const Config = {
 
   set lastDismissedAnnouncement(announcementId: string) {
     this.setString(LAST_DISMISSED_ANNOUNCEMENT, announcementId)
-  },
-
-  get runTargetConfig(): RunTargetConfig {
-    const cfg = this.getObject<RunTargetConfig>(RUN_TARGET_KEY, defaultRunTarget)
-    if (cfg.target === TargetType.Interpreter) {
-      // Yaegi is unsupported anymode, see #348
-      cfg.target = TargetType.WebAssembly
-    }
-
-    return cfg
-  },
-
-  set runTargetConfig(newVal: RunTargetConfig) {
-    this.setObject(RUN_TARGET_KEY, newVal)
   },
 
   get autoFormat(): boolean {

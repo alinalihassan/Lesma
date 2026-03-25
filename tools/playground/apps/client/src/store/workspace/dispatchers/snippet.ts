@@ -1,26 +1,15 @@
-import { replace } from 'connected-react-router'
 import type { DispatchFn, StateProvider } from '~/store/helpers'
-import client from '~/services/api'
 import { getSnippetFromSource, type SnippetSource } from '~/services/examples'
-import {
-  newAddNotificationAction,
-  newNotificationId,
-  newRemoveNotificationAction,
-  NotificationIDs,
-  NotificationType,
-} from '~/store/notifications'
-import { newLoadingAction, newErrorAction, newUIStateChangeAction } from '~/store/actions/ui'
-import { type SnippetLoadPayload, WorkspaceAction, type BulkFileUpdatePayload } from '../actions'
+import { newRemoveNotificationAction, NotificationIDs } from '~/store/notifications'
+import { type SnippetLoadPayload, WorkspaceAction } from '../actions'
 import { loadWorkspaceState } from '../config'
-import { type WorkspaceState, getDefaultWorkspaceState } from '../state'
+import { getDefaultWorkspaceState } from '../state'
 
 let snippetFromSourceSeq = 0
 let snippetFromSourceAbort: AbortController | null = null
 
 /**
- * Dispatch snippet load from a predefined source.
- * Used to load examples hosted as static files.
- * @param source
+ * Dispatch snippet load from a predefined source (static example files).
  */
 export const dispatchLoadSnippetFromSource = (source: SnippetSource) => async (dispatch: DispatchFn) => {
   const seq = ++snippetFromSourceSeq
@@ -66,191 +55,17 @@ export const dispatchLoadSnippetFromSource = (source: SnippetSource) => async (d
 }
 
 /**
- * Dispatch snippet load from a snippet ID.
- * Loads shared snippets from the playground API (when sharing is enabled).
- * @param snippetId
+ * Initial workspace: autosaved state (if enabled) or default example.
  */
-export const dispatchLoadSnippet =
-  (snippetId: string | null) => async (dispatch: DispatchFn, getState: StateProvider) => {
-    if (!snippetId) {
-      const {
-        settings: { autoSave },
-        workspace: { snippet },
-      } = getState()
-
-      const shouldAutosave = autoSave && !snippet?.id
-      dispatch({
-        type: WorkspaceAction.WORKSPACE_IMPORT,
-        payload: shouldAutosave ? loadWorkspaceState() : getDefaultWorkspaceState(),
-      })
-      return
-    }
-
-    dispatch(newRemoveNotificationAction(NotificationIDs.GoModMissing))
-    const {
-      workspace: { snippet },
-      ui,
-    } = getState()
-    if (ui?.shareCreated && snippet?.id === snippetId) {
-      // Prevent loading the same snippet again if it was just shared.
-      return
-    }
-
-    dispatch({
-      type: WorkspaceAction.SNIPPET_LOAD_START,
-      payload: snippetId,
-    })
-
-    try {
-      const { files } = await client.getSnippet(snippetId)
-      dispatch<SnippetLoadPayload>({
-        type: WorkspaceAction.SNIPPET_LOAD_FINISH,
-        payload: {
-          id: snippetId,
-          error: null,
-          files,
-        },
-      })
-    } catch (err: any) {
-      dispatch<SnippetLoadPayload>({
-        type: WorkspaceAction.SNIPPET_LOAD_FINISH,
-        payload: {
-          id: snippetId,
-          error: err.message,
-        },
-      })
-    }
-  }
-
-const workspaceHasChanges = (state: WorkspaceState) => {
-  if (state.snippet?.loading) {
-    return false
-  }
-
-  if (!state.snippet?.id) {
-    return true
-  }
-
-  return !!state.dirty
-}
-
-const workspaceNotChangedNotificationID = 'WS_NOT_CHANGED'
-
-export const dispatchShareSnippet = () => async (dispatch: DispatchFn, getState: StateProvider) => {
-  const notificationId = newNotificationId()
-  const { workspace, status } = getState()
-
-  if (status?.loading || workspace.snippet?.loading) {
-    // Prevent sharing during share/format or while an example/snippet is loading.
-    return
-  }
-
-  if (!workspace.files) {
-    dispatch(
-      newAddNotificationAction({
-        id: notificationId,
-        type: NotificationType.Warning,
-        title: 'Share snippet',
-        description: 'Workspace is empty, nothing to share.',
-        canDismiss: true,
-      }),
-    )
-    return
-  }
-
-  if (!workspaceHasChanges(workspace)) {
-    // Prevent from sharing already shared shippets
-    dispatch(
-      newAddNotificationAction({
-        id: workspaceNotChangedNotificationID,
-        type: NotificationType.Info,
-        canDismiss: true,
-        title: 'Share snippet',
-        description: "You haven't made any changes to a snippet. Please edit any file before sharing.",
-        actions: [
-          {
-            label: 'OK',
-            key: 'ok',
-            primary: true,
-            onClick: () => newRemoveNotificationAction(workspaceNotChangedNotificationID),
-          },
-        ],
-      }),
-    )
-    return
-  }
-
-  dispatch(newRemoveNotificationAction(workspaceNotChangedNotificationID))
-  dispatch(newLoadingAction())
-  dispatch(
-    newAddNotificationAction({
-      id: notificationId,
-      type: NotificationType.Info,
-      title: 'Share snippet',
-      description: 'Saving snippet...',
-      canDismiss: false,
-      progress: {
-        indeterminate: true,
-      },
-    }),
-  )
-
-  try {
-    const { files } = workspace
-    const { snippetID } = await client.shareSnippet(files)
-    dispatch(newRemoveNotificationAction(notificationId))
-    dispatch(
-      newUIStateChangeAction({
-        shareCreated: true,
-        snippetId: snippetID,
-      }),
-    )
-    dispatch({
-      type: WorkspaceAction.WORKSPACE_IMPORT,
-      payload: {
-        ...workspace,
-        dirty: false,
-        snippet: {
-          id: snippetID,
-        },
-      },
-    })
-    dispatch(replace(`/snippet/${snippetID}`, getState()))
-  } catch (err) {
-    dispatch(
-      newAddNotificationAction({
-        id: notificationId,
-        type: NotificationType.Error,
-        title: 'Failed to share snippet',
-        description: `${err}`,
-        canDismiss: true,
-      }),
-    )
-  } finally {
-    dispatch(newLoadingAction(false))
-  }
-}
-
-export const dispatchFormatFile = () => async (dispatch: DispatchFn, getState: StateProvider) => {
+export const dispatchInitWorkspace = () => async (dispatch: DispatchFn, getState: StateProvider) => {
   const {
-    workspace: { files },
-    runTarget: { backend },
+    settings: { autoSave },
+    workspace: { snippet },
   } = getState()
-  if (!files) {
-    return
-  }
 
-  dispatch(newLoadingAction())
-  try {
-    const { files: formattedFiles } = await client.format(files, backend)
-
-    dispatch<BulkFileUpdatePayload>({
-      type: WorkspaceAction.UPDATE_FILES,
-      payload: formattedFiles,
-    })
-  } catch (err: any) {
-    dispatch(newErrorAction(err.message))
-  } finally {
-    dispatch(newLoadingAction(false))
-  }
+  const shouldAutosave = autoSave && !snippet?.id
+  dispatch({
+    type: WorkspaceAction.WORKSPACE_IMPORT,
+    payload: shouldAutosave ? loadWorkspaceState() : getDefaultWorkspaceState(),
+  })
 }

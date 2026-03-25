@@ -6,29 +6,17 @@ import type { Snippet } from '~/services/examples'
 import { ConnectedSettingsModal, type SettingsChanges } from '~/components/features/settings/SettingsModal'
 import { AboutModal } from '~/components/modals/AboutModal'
 import { ExamplesModal } from '~/components/features/examples/ExamplesModal'
-import { SharePopup } from '~/components/utils/SharePopup'
-
 import { dispatchTerminalSettingsChange } from '~/store/terminal'
-import {
-  dispatchLoadSnippet,
-  dispatchLoadSnippetFromSource,
-  dispatchShareSnippet,
-} from '~/store/workspace/dispatchers'
+import { dispatchLoadSnippetFromSource } from '~/store/workspace/dispatchers'
 import {
   dispatchToggleTheme,
   newMonacoParamsChangeDispatcher,
   newSettingsChangeDispatcher,
-  newUIStateChangeAction,
   runFileDispatcher,
   type State,
 } from '~/store'
 
 import './Header.css'
-
-/**
- * Unique class name for share button to use as popover target.
- */
-const BTN_SHARE_CLASSNAME = 'Header__btn--share'
 
 export const Header: React.FC = () => {
   const dispatch = useDispatch()
@@ -40,7 +28,6 @@ export const Header: React.FC = () => {
   const darkMode = useSelector(({ settings }: State) => settings.darkMode)
   const isDisabled = useSelector(({ status }: State) => Boolean(status?.loading || status?.running))
   const hideThemeToggle = useSelector(({ settings }: State) => settings.useSystemTheme)
-  const sharedSnippetName = useSelector(({ ui }: State) => (ui?.shareCreated ? ui?.snippetId : undefined))
   const commandBarStateKey = isDisabled ? 'disabled' : 'enabled'
 
   const applySettingsChanges = useCallback(
@@ -69,11 +56,6 @@ export const Header: React.FC = () => {
       setShowExamples(false)
       if (snippet.source) {
         dispatch(dispatchLoadSnippetFromSource(snippet.source))
-        return
-      }
-
-      if (snippet.id) {
-        dispatch(dispatchLoadSnippet(snippet.id))
       }
     },
     [dispatch],
@@ -95,17 +77,6 @@ export const Header: React.FC = () => {
       },
       onClick: () => {
         dispatch(runFileDispatcher)
-      },
-    },
-    {
-      key: 'share',
-      cacheKey: `share-${commandBarStateKey}`,
-      text: 'Share',
-      className: BTN_SHARE_CLASSNAME,
-      iconProps: { iconName: 'Share' },
-      disabled: isDisabled,
-      onClick: () => {
-        dispatch(dispatchShareSnippet())
       },
     },
     {
@@ -165,14 +136,6 @@ export const Header: React.FC = () => {
         items={menuItems}
         farItems={asideItems.filter(({ hidden }) => !hidden)}
         ariaLabel="CodeEditor menu"
-      />
-      <SharePopup
-        visible={!!sharedSnippetName?.length}
-        target={`.${BTN_SHARE_CLASSNAME}`}
-        snippetId={sharedSnippetName}
-        onDismiss={() => {
-          dispatch(newUIStateChangeAction({ shareCreated: false }))
-        }}
       />
       <ConnectedSettingsModal
         onApplyChanges={applySettingsChanges}

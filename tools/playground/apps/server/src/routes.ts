@@ -10,13 +10,6 @@ export function createApiApp(cfg: ServerConfig): Hono {
 
   app.get("/announcement", (c) => c.json({ message: null }))
 
-  app.get("/backends/info", (c) =>
-    c.json({
-      playground: { current: cfg.lesmaVersionLabel, goprev: "", gotip: "" },
-      wasm: "n/a",
-    }),
-  )
-
   app.post("/v2/run", async (c) => {
     try {
       const raw = await readJsonBody(c.req.raw)
@@ -30,24 +23,6 @@ export function createApiApp(cfg: ServerConfig): Hono {
       return c.json({ error: e instanceof Error ? e.message : String(e) }, 500)
     }
   })
-
-  app.post("/v2/format", (c) =>
-    c.json({ error: "format is not available for Lesma in the playground" }, 501),
-  )
-
-  app.post("/v2/share", (c) =>
-    c.json({ error: "snippet sharing is not available in the Lesma playground" }, 501),
-  )
-
-  app.get("/v2/share/:id", (c) =>
-    c.json({ error: "snippet sharing is not available in the Lesma playground" }, 501),
-  )
-
-  app.post("/v2/compile", (c) =>
-    c.json({ error: "WebAssembly Go builds are not available in the Lesma playground" }, 501),
-  )
-
-  app.get("/artifacts/*", (c) => c.json({ error: "artifact not found" }, 404))
 
   return app
 }

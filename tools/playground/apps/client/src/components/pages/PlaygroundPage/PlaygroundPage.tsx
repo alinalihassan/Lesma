@@ -1,8 +1,7 @@
 import React, { lazy, useEffect, useRef } from 'react'
-import { useParams } from 'react-router-dom'
 import { useDispatch } from 'react-redux'
 
-import { dispatchLoadSnippet } from '~/store/workspace'
+import { dispatchInitWorkspace } from '~/store/workspace'
 import { Header } from '~/components/layout/Header'
 import { StatusBar } from '~/components/layout/StatusBar'
 
@@ -12,17 +11,12 @@ import { LazyAnnouncementBanner } from '~/components/layout/AnnouncementBanner'
 
 const LazyPlaygroundContent = lazy(async () => await import('./PlaygroundContainer'))
 
-interface PageParams {
-  snippetID: string
-}
-
 export const PlaygroundPage: React.FC = () => {
   const dispatch = useDispatch()
   const containerRef = useRef<HTMLDivElement>(null)
-  const { snippetID } = useParams<PageParams>()
   useEffect(() => {
-    dispatch(dispatchLoadSnippet(snippetID))
-  }, [snippetID, dispatch])
+    dispatch(dispatchInitWorkspace())
+  }, [dispatch])
 
   return (
     <div ref={containerRef} className={styles.Playground}>
