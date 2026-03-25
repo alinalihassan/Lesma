@@ -13,8 +13,6 @@ const ENABLE_VIM_MODE_KEY = 'ms.monaco.vimModeEnabled'
 const AUTOFORMAT_KEY = 'go.build.autoFormat'
 const MONACO_SETTINGS = 'ms.monaco.settings'
 const PANEL_SETTINGS = 'ui.layout.panel'
-const GOPROXY_URL = 'go.env.GOPROXY'
-const LAST_DISMISSED_ANNOUNCEMENT = 'ui.announcements.lastDismissed'
 
 const setThemeStyles = (isDark: boolean) => loadTheme(isDark ? DarkTheme : LightTheme)
 
@@ -53,22 +51,6 @@ const Config = {
 
   set enableVimMode(val: boolean) {
     this.setBoolean(ENABLE_VIM_MODE_KEY, val)
-  },
-
-  get goProxyUrl() {
-    return this.getString(GOPROXY_URL, 'https://proxy.golang.org')
-  },
-
-  set goProxyUrl(newVal: string) {
-    this.setString(GOPROXY_URL, newVal)
-  },
-
-  get lastDismissedAnnouncement() {
-    return this.getString<string | null>(LAST_DISMISSED_ANNOUNCEMENT, null)
-  },
-
-  set lastDismissedAnnouncement(announcementId: string) {
-    this.setString(LAST_DISMISSED_ANNOUNCEMENT, announcementId)
   },
 
   get autoFormat(): boolean {

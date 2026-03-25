@@ -4,7 +4,6 @@ import { useDispatch, useSelector } from 'react-redux'
 
 import type { Snippet } from '~/services/examples'
 import { ConnectedSettingsModal, type SettingsChanges } from '~/components/features/settings/SettingsModal'
-import { AboutModal } from '~/components/modals/AboutModal'
 import { ExamplesModal } from '~/components/features/examples/ExamplesModal'
 import { dispatchTerminalSettingsChange } from '~/store/terminal'
 import { dispatchLoadSnippetFromSource } from '~/store/workspace/dispatchers'
@@ -22,7 +21,6 @@ export const Header: React.FC = () => {
   const dispatch = useDispatch()
   const theme = useTheme()
   const [showSettings, setShowSettings] = useState(false)
-  const [showAbout, setShowAbout] = useState(false)
   const [showExamples, setShowExamples] = useState(false)
 
   const darkMode = useSelector(({ settings }: State) => settings.darkMode)
@@ -102,15 +100,6 @@ export const Header: React.FC = () => {
         setShowSettings(true)
       },
     },
-    {
-      key: 'about',
-      text: 'About',
-      ariaLabel: 'About',
-      iconProps: { iconName: 'Info' },
-      onClick: () => {
-        setShowAbout(true)
-      },
-    },
   ]
 
   const asideItems: ICommandBarItemProps[] = [
@@ -141,22 +130,6 @@ export const Header: React.FC = () => {
         onApplyChanges={applySettingsChanges}
         onDismiss={onSettingsDismiss}
         isOpen={showSettings}
-      />
-      <AboutModal
-        isOpen={showAbout}
-        onClose={() => {
-          setShowAbout(false)
-        }}
-        onTitleClick={() => {
-          setShowAbout(false)
-          onSnippetSelected({
-            label: 'Hello world',
-            source: {
-              basePath: 'hello',
-              files: ['main.les'],
-            },
-          })
-        }}
       />
       <ExamplesModal
         isOpen={showExamples}

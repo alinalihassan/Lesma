@@ -33,7 +33,6 @@ const initialSettingsState: SettingsState = {
   autoFormat: true,
   useSystemTheme: config.useSystemTheme,
   enableVimMode: config.enableVimMode,
-  goProxyUrl: config.goProxyUrl,
 }
 
 const reducers = {

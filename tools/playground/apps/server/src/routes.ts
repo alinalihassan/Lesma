@@ -8,8 +8,6 @@ export function createApiApp(cfg: ServerConfig): Hono {
 
   app.get("/version", (c) => c.json({ version: cfg.serverVersion, APIVersion: "2" }))
 
-  app.get("/announcement", (c) => c.json({ message: null }))
-
   app.post("/v2/run", async (c) => {
     try {
       const raw = await readJsonBody(c.req.raw)

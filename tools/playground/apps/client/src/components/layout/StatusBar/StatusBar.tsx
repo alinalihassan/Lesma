@@ -3,7 +3,6 @@ import { clsx } from 'clsx'
 import { DiagnosticSeverity, type Diagnostic } from 'vscode-languageserver-protocol'
 import { VscDebugAlt } from 'react-icons/vsc'
 import { useSelector } from 'react-redux'
-import environment from '~/environment'
 import type { State } from '~/store'
 
 import { EllipsisText } from '~/components/utils/EllipsisText'
@@ -130,8 +129,6 @@ export const StatusBar: React.FC = () => {
             Ln {line}, Col {column}
           </StatusBarItem>
           <StatusBarItem mobileHidden>Tab Size: {tabSize}</StatusBarItem>
-          <StatusBarItem icon="Feedback" title="Send feedback" href={environment.urls.issue} iconOnly mobileHidden />
-          <StatusBarItem icon="VscGithubInverted" title="GitHub" href={environment.urls.github} iconOnly mobileHidden />
         </div>
       </div>
     </>

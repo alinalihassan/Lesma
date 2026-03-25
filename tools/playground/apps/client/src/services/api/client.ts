@@ -1,4 +1,4 @@
-import { type AnnouncementMessageResponse, type AnnouncementMessage, type RunResponse } from './models'
+import { type RunResponse } from './models'
 import type { IAPIClient } from './interface'
 
 export class Client implements IAPIClient {
@@ -9,22 +9,6 @@ export class Client implements IAPIClient {
    */
   async run(files: Record<string, string>): Promise<RunResponse> {
     return await this.post<RunResponse>('/v2/run', { files })
-  }
-
-  /**
-   * Returns important announcement message to be displayed at header banner.
-   */
-  async getAnnouncementMessage(): Promise<AnnouncementMessage | null> {
-    const { message } = await this.get<AnnouncementMessageResponse>('/announcement')
-    return message
-  }
-
-  private async get<T>(uri: string): Promise<T> {
-    return await this.doRequest<T>(uri, {
-      headers: {
-        Accept: 'application/json',
-      },
-    })
   }
 
   private async post<T>(uri: string, data: unknown): Promise<T> {
