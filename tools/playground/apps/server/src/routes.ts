@@ -1,0 +1,24 @@
+import { Hono } from "hono"
+import type { ServerConfig } from "./config"
+import { runLesma } from "./lesma"
+import { PayloadError, readJsonBody, validatePayload } from "./payload"
+
+export function createApiApp(cfg: ServerConfig): Hono {
+  const app = new Hono()
+
+  app.post("/v2/run", async (c) => {
+    try {
+      const raw = await readJsonBody(c.req.raw)
+      const { files, debug } = validatePayload(raw)
+      const events = await runLesma(cfg.lesmaBin, files, cfg.runTimeoutMs, debug)
+      return c.json({ events })
+    } catch (e) {
+      if (e instanceof PayloadError) {
+        return Response.json({ error: e.message }, { status: e.status })
+      }
+      return c.json({ error: e instanceof Error ? e.message : String(e) }, 500)
+    }
+  })
+
+  return app
+}

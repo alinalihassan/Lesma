@@ -1,0 +1,162 @@
+.InspectorPanel {
+  display: flex;
+  flex-direction: column;
+}
+
+.InspectorPanel__container {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  overflow: auto;
+}
+
+.InspectorPanel__container>* {
+  flex: 1 1 auto;
+}
+
+.InspectorPanel__container[hidden] {
+  display: none;
+}
+
+.InspectorPanel__controls {
+  padding: 10px 15px 0 15px;
+}
+
+.InspectorPanel--horizontal {
+  max-width: 80%;
+}
+
+.InspectorPanel--vertical {
+  max-height: 80%;
+}
+
+/** Collapsed state **/
+.InspectorPanel.InspectorPanel--collapsed {
+  height: auto !important;
+  max-width: none !important;
+  max-height: none !important;
+}
+
+.InspectorPanel.InspectorPanel--collapsed:before {
+  content: "";
+  position: absolute;
+  background: var(--pg-handle-default-color);
+}
+
+.InspectorPanel.InspectorPanel--collapsed.InspectorPanel--vertical:before {
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 1px;
+}
+
+/** Handles - vertical **/
+.InspectorPanel__handle--left:before {
+  content: "";
+  position: absolute;
+  background: var(--pg-handle-default-color);
+  transition: background-color 0.1s ease-in 0s;
+  width: 1px;
+  height: 100%;
+  top: 0;
+  left: 50%;
+}
+
+.InspectorPanel__handle--left {
+  transition: background-color 0.1s ease-in 0s;
+}
+
+.InspectorPanel__handle--left:hover:before,
+.InspectorPanel__handle--left:active:before {
+  background: var(--pg-handle-active-color);
+  width: 3px;
+}
+
+@media (hover: none),
+(pointer: coarse) {
+  .InspectorPanel__handle--left {
+    background: black;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    color: #999;
+  }
+
+  .InspectorPanel__handle--left:before {
+    display: none;
+  }
+
+  .InspectorPanel__handle--left:after {
+    content: "";
+    background: currentColor;
+    height: 20%;
+    max-height: 80px;
+    width: 4px;
+    border-radius: 4px;
+    align-self: center;
+    transition: color 0.15s ease 0s;
+  }
+
+  .InspectorPanel .InspectorPanel__handle:hover,
+  .InspectorPanel .InspectorPanel__handle:active,
+  .InspectorPanel--resizing .InspectorPanel__handle {
+    background: black;
+    color: white;
+  }
+}
+
+/** Handles - Horizontal **/
+.InspectorPanel__handle--top:before {
+  content: "";
+  position: absolute;
+  background: var(--pg-handle-default-color);
+  transition: background-color 0.1s ease-in 0s;
+  top: 5px;
+  left: 0;
+  right: 0;
+  height: 1px;
+}
+
+.InspectorPanel__handle--top {
+  transition: background-color 0.1s ease-in 0s;
+}
+
+.InspectorPanel__handle--top:hover:before,
+.InspectorPanel__handle--top:active:before {
+  background: var(--pg-handle-active-color);
+  height: 3px;
+}
+
+@media (hover: none),
+(pointer: coarse) {
+  .InspectorPanel__handle--top {
+    background: black;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    color: #999;
+  }
+
+  .InspectorPanel__handle--top:hover,
+  .InspectorPanel__handle--top:active {
+    background: black;
+    color: #fff;
+  }
+
+  .InspectorPanel__handle--top:before {
+    display: none;
+  }
+
+  .InspectorPanel__handle--top:after {
+    content: "";
+    background: currentColor;
+    width: 20%;
+    max-width: 80px;
+    height: 4px;
+    border-radius: 4px;
+    align-self: center;
+    transition: 0.15s ease 0s;
+  }
+}

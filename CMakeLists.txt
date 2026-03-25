@@ -16,7 +16,7 @@ add_feature_option(LESMA_BUILD_CLI "cli" "Build CLI" ON)
 add_feature_option(LESMA_BUILD_TESTS "tests" "Build Tests" OFF)
 add_feature_option(LESMA_BUILD_BENCHMARKS "benchmarks" "Build Benchmarks" OFF)
 add_feature_option(LESMA_BUILD_DIST "dist" "Build Dist" OFF)
-add_feature_option(LESMA_BUILD_LLVM "build-llvm" "Build LLVM 15 via vcpkg" OFF)
+add_feature_option(LESMA_BUILD_LLVM "build-llvm" "Build LLVM via vcpkg (optional, slow build)" OFF)
 add_feature_option(LESMA_BUILD_LSP "lsp" "Build Lesma LSP server (lesma-lsp)" OFF)
 option(LESMA_SANITIZE_ADDRESS "Build with AddressSanitizer and LeakSanitizer for memory error and leak detection (Debug builds, all platforms)" OFF)
 
@@ -80,6 +80,13 @@ if (EXISTS "${LLVM_DIR}" AND IS_DIRECTORY "${LLVM_DIR}") # Prefer local LLVM ins
   set(LLVM_DIR ./llvm/build-release/lib/cmake/llvm)
 endif ()
 
+# Optional in-tree LLVM (e.g. llvm/build-release from a local LLVM build) when vcpkg did not set LLVM_DIR
+set(LESMA_IN_TREE_LLVM_CMAKE "${ROOT_DIR}/llvm/build-release/lib/cmake/llvm")
+if(EXISTS "${LESMA_IN_TREE_LLVM_CMAKE}/LLVMConfig.cmake" AND NOT LLVM_DIR)
+  set(LLVM_DIR "${LESMA_IN_TREE_LLVM_CMAKE}" CACHE PATH "Path to LLVM CMake package")
+  message(STATUS "Using in-tree LLVM at ${LLVM_DIR}")
+endif()
+
 # LLVM configuration
 find_package(LLVM CONFIG REQUIRED)
 
@@ -88,15 +95,23 @@ message(STATUS "Using LLVMConfig.cmake from ${LLVM_DIR}")
 
 list(APPEND CMAKE_MODULE_PATH "${LLVM_CMAKE_DIR}")
 include(HandleLLVMOptions)
-include_directories(SYSTEM ${LLVM_INCLUDE_DIRS})
 add_definitions(${LLVM_DEFINITIONS})
 llvm_map_components_to_libnames(LLVM_LIBS core support demangle native orcjit)
 
 # LLD configuration
 find_package(LLD CONFIG REQUIRED)
 message(STATUS "Found LLDConfig.cmake in ${LLD_CMAKE_DIR}")
-include_directories(SYSTEM ${LLD_INCLUDE_DIRS})
 set(LLD_LIBS lldCommon lldELF lldCOFF lldMachO)
+
+# Do not use -isystem for LLVM/LLD before the C++ standard library: with -isystem, Clang
+# searches LLVM's tree before /usr/include, so <cxxabi.h> resolves to LLVM's header and
+# conflicts with libstdc++ (e.g. via nameof). -idirafter searches these dirs after system.
+foreach(_dir IN LISTS LLVM_INCLUDE_DIRS)
+  add_compile_options("$<$<COMPILE_LANGUAGE:CXX>:SHELL:-idirafter ${_dir}>")
+endforeach()
+foreach(_dir IN LISTS LLD_INCLUDE_DIRS)
+  add_compile_options("$<$<COMPILE_LANGUAGE:CXX>:SHELL:-idirafter ${_dir}>")
+endforeach()
 
 # Executable configuration
 set(LIB_NAME lesma)

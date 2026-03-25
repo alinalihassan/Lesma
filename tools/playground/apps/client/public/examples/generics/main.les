@@ -1,0 +1,60 @@
+def identity<T>(x: T) -> T
+    return x
+
+def first<T, U>(x: T, y: U) -> T
+    return x
+
+def second<T, U>(x: T, y: U) -> U
+    return y
+
+def add<T>(x: T, y: T) -> T
+    return x + y
+
+def mul<T>(x: T, y: T) -> T
+    return x * y
+
+def combine<T>(x: T, y: T) -> T
+    return add(x, y) + mul(x, y)
+
+def double_val<T>(x: T) -> T
+    return x + x
+
+def triple_val<T>(x: T) -> T
+    return x + double_val(x)
+
+def square<T>(x: T) -> T
+    return x * x
+
+def max_val<T>(a: T, b: T) -> T
+    if a > b
+        return a
+    return b
+
+def min_val<T>(a: T, b: T) -> T
+    if a < b
+        return a
+    return b
+
+if identity(11) != 11
+    exit(1)
+
+if first(42, 3.14) != 42
+    exit(1)
+
+if combine(3, 2) != 11
+    exit(1)
+
+if double_val(5) != 10
+    exit(1)
+
+if triple_val(1.5) != 4.5
+    exit(1)
+
+if square(5) != 25
+    exit(1)
+
+if max_val(10, 20) != 20
+    exit(1)
+
+if min_val(3.14, 2.71) != 2.71
+    exit(1)

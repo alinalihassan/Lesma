@@ -1,0 +1,7 @@
+def fibonacci(x: int) -> int
+	if x <= 1
+		return x
+	return fibonacci(x - 1) + fibonacci(x - 2)
+
+if fibonacci(10) != 55
+	exit(1)

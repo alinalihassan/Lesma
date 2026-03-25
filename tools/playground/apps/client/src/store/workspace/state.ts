@@ -1,0 +1,84 @@
+export const defaultFileName = 'main.les'
+const defaultFile = `print("Hello, World!")
+`.trimStart()
+
+export interface SnippetState {
+  /**
+   * Current snippet ID.
+   */
+  id?: string | null
+
+  /**
+   * Represents whether snippet is loading.
+   */
+  loading?: boolean
+
+  /**
+   * Contains snippet loading error.
+   */
+  error?: string | null
+}
+
+/**
+ * Represents current workspace state.
+ */
+export interface WorkspaceState {
+  /**
+   * Generation is a cache key for editor / workspace buffer invalidation.
+   *
+   * Generation update triggers code editor cache and state flush.
+   * Used eo flush cache after files format and snippet load operations.
+   *
+   * @see playground editor buffer cache (Monaco models are keyed by URI).
+   */
+  generation: number
+
+  /**
+   * Represents current snippet state.
+   *
+   * Empty if snippet is not loaded.
+   */
+  snippet?: SnippetState | null
+
+  /**
+   * Current selected file name.
+   */
+  selectedFile?: string | null
+
+  /**
+   * Key-value pair of file names and their content.
+   */
+  files?: Record<string, string>
+
+  /**
+   * Indicates whether any of workspace files were changed.
+   */
+  dirty?: boolean
+}
+
+export const initialWorkspaceState: WorkspaceState = {
+  generation: 0,
+  snippet: {
+    loading: true,
+  },
+}
+
+export const defaultFiles = {
+  [defaultFileName]: defaultFile,
+}
+
+/**
+ * Returns a new workspace state generation key
+ */
+export const newGenerationKey = () => Date.now()
+
+export const getDefaultWorkspaceState = (): WorkspaceState => ({
+  generation: newGenerationKey(),
+  selectedFile: defaultFileName,
+  snippet: {
+    loading: false,
+  },
+  files: {
+    [defaultFileName]: defaultFile,
+  },
+})

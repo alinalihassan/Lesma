@@ -1,0 +1,21 @@
+export enum ActionType {
+  LOADING_STATE_CHANGE = 'LOADING_STATE_CHANGE',
+  ERROR = 'ERROR',
+  TOGGLE_THEME = 'TOGGLE_THEME',
+  MONACO_SETTINGS_CHANGE = 'MONACO_SETTINGS_CHANGE',
+  UI_STATE_CHANGE = 'UI_STATE_CHANGE',
+  MARKER_CHANGE = 'MARKER_CHANGE',
+  CURSOR_POSITION_CHANGE = 'CURSOR_POSITION_CHANGE',
+  PANEL_STATE_CHANGE = 'PANEL_STATE_CHANGE',
+  SETTINGS_CHANGE = 'SETTINGS_CHANGE',
+
+  /** Run output streaming from the playground API (`/api/.../run`). */
+  EVAL_START = 'EVAL_START',
+  EVAL_EVENT = 'EVAL_EVENT',
+  EVAL_FINISH = 'EVAL_FINISH',
+}
+
+export interface Action<T = any, A = string> {
+  type: A
+  payload: T
+}

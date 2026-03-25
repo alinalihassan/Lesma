@@ -1,3 +1,4 @@
+#include <cstdio>
 #include <cstdlib>
 #include <filesystem>
 #include <memory>
@@ -89,6 +90,11 @@ auto main(int argc, char** argv) -> int {
       options->timer,
       "",
   });
-  return options->jit ? Driver::run(std::move(driverOptions))
-                      : Driver::compile(std::move(driverOptions));
+  int const exitCode = options->jit ? Driver::run(std::move(driverOptions))
+                                    : Driver::compile(std::move(driverOptions));
+  // Driver calls llvm::llvm_shutdown() before returning. A normal return from main would still
+  // run libc/loader finalization for libLLVM.so; on Linux that can double-free after llvm_shutdown.
+  std::fflush(stdout);
+  std::fflush(stderr);
+  std::_Exit(exitCode);
 }

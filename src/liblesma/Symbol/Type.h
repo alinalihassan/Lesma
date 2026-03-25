@@ -8,7 +8,7 @@
 #include <utility>
 #include <vector>
 
-#include <llvm/IR/Type.h>
+#include <llvm/IR/DerivedTypes.h>
 #include <llvm/Support/SMLoc.h>
 
 namespace lesma {

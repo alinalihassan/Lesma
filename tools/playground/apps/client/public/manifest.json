@@ -1,0 +1,16 @@
+{
+  "short_name": "Lesma Playground",
+  "name": "Lesma Playground",
+  "icons": [
+    {
+      "src": "lesma-logo.svg",
+      "type": "image/svg+xml",
+      "sizes": "512x512",
+      "purpose": "any"
+    }
+  ],
+  "start_url": ".",
+  "display": "standalone",
+  "theme_color": "#14a085",
+  "background_color": "#1f1f1f"
+}

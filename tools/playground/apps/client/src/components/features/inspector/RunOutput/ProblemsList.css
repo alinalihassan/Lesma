@@ -1,0 +1,80 @@
+.ProblemsList {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  overflow: auto;
+  flex: 1;
+  min-height: 0;
+}
+
+.ProblemsList--empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+}
+
+.ProblemsList__empty {
+  margin: 0;
+  font-size: 13px;
+  opacity: 0.8;
+}
+
+.ProblemsList__row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px 12px;
+  width: 100%;
+  text-align: left;
+  border: 0;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+  padding: 8px 12px;
+  font: inherit;
+  cursor: pointer;
+  background: transparent;
+  color: inherit;
+}
+
+.ProblemsList__row:hover {
+  background: rgba(0, 0, 0, 0.04);
+}
+
+.ProblemsList__row--error {
+  border-left: 3px solid #a4262c;
+}
+
+.ProblemsList__row--warning {
+  border-left: 3px solid #d29200;
+}
+
+.ProblemsList__row--info {
+  border-left: 3px solid #0078d4;
+}
+
+.ProblemsList__row--hint {
+  border-left: 3px solid rgba(0, 0, 0, 0.35);
+}
+
+.ProblemsList__badge {
+  flex: 0 0 auto;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  opacity: 0.85;
+}
+
+.ProblemsList__meta {
+  flex: 0 0 auto;
+  font-size: 12px;
+  font-family: 'Source Code Pro', Menlo, Monaco, 'Courier New', monospace;
+  opacity: 0.75;
+}
+
+.ProblemsList__message {
+  flex: 1 1 100%;
+  font-size: 13px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
