@@ -1,8 +1,8 @@
 import React, { useMemo, useState, useEffect, useRef } from 'react'
 import { Stack, useTheme } from '@fluentui/react'
-import { FlexContainer } from '~/components/features/workspace/FlexContainer'
+import { FlexContainer } from '~/components/features/workspace/FlexContainer/FlexContainer'
 
-import { TabHeader } from '../TabHeader'
+import { TabHeader } from '../TabHeader/TabHeader'
 import type { TabBarAction, TabInfo, TabIconStyles } from '../types'
 
 import { containerStyles, tabHeaderStyles, getTabContentStyles } from './styles'

@@ -1,12 +1,12 @@
 import React, { lazy, useEffect, useRef } from 'react'
 import { useDispatch } from 'react-redux'
 
-import { dispatchInitWorkspace } from '~/store/workspace'
-import { Header } from '~/components/layout/Header'
-import { StatusBar } from '~/components/layout/StatusBar'
+import { dispatchInitWorkspace } from '~/store/workspace/dispatchers/snippet'
+import { Header } from '~/components/layout/Header/Header'
+import { StatusBar } from '~/components/layout/StatusBar/StatusBar'
 
 import styles from './PlaygroundPage.module.css'
-import { SuspenseBoundary } from '~/components/elements/misc/SuspenseBoundary'
+import { SuspenseBoundary } from '~/components/elements/misc/SuspenseBoundary/SuspenseBoundary'
 
 const LazyPlaygroundContent = lazy(async () => await import('./PlaygroundContainer'))
 

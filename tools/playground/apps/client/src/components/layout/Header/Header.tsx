@@ -2,11 +2,11 @@ import React, { useCallback, useState } from 'react'
 import { CommandBar, type ICommandBarItemProps, useTheme } from '@fluentui/react'
 import { useDispatch, useSelector } from 'react-redux'
 
-import type { Snippet } from '~/services/examples'
+import type { Snippet } from '~/services/examples/client'
 import { ConnectedSettingsModal, type SettingsChanges } from '~/components/features/settings/SettingsModal'
-import { ExamplesModal } from '~/components/features/examples/ExamplesModal'
-import { dispatchTerminalSettingsChange } from '~/store/terminal'
-import { dispatchLoadSnippetFromSource } from '~/store/workspace/dispatchers'
+import { ExamplesModal } from '~/components/features/examples/ExamplesModal/ExamplesModal'
+import { dispatchTerminalSettingsChange } from '~/store/terminal/dispatchers'
+import { dispatchLoadSnippetFromSource } from '~/store/workspace/dispatchers/snippet'
 import {
   dispatchToggleTheme,
   newMonacoParamsChangeDispatcher,

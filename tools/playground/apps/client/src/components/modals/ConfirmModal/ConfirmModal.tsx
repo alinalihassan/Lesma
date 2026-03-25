@@ -1,8 +1,8 @@
 import React from 'react'
 import { Stack, DefaultButton, PrimaryButton, DefaultSpacing, type IStackTokens } from '@fluentui/react'
 
-import { Dialog } from '~/components/elements/modals/Dialog'
-import { DialogActions } from '~/components/elements/modals/DialogActions'
+import { Dialog } from '~/components/elements/modals/Dialog/Dialog'
+import { DialogActions } from '~/components/elements/modals/DialogActions/DialogActions'
 
 export interface ConfirmProps {
   isOpen?: boolean

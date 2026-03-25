@@ -1,5 +1,5 @@
 import { mapByAction } from '../helpers'
-import type { Action } from '../actions'
+import type { Action } from '../actions/actions'
 
 import { WorkspaceAction, type FileUpdatePayload, type FilePayload, type SnippetLoadPayload } from './actions'
 import { newGenerationKey, initialWorkspaceState, type WorkspaceState } from './state'

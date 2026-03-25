@@ -2,12 +2,12 @@ import React from 'react'
 import { useDispatch, useSelector } from 'react-redux'
 import { type State, dispatchPanelLayoutChange } from '~/store'
 import { InspectorPanel } from '~/components/features/inspector/InspectorPanel/InspectorPanel'
-import { NotificationHost } from '~/components/modals/Notification'
+import { NotificationHost } from '~/components/modals/Notification/NotificationHost'
 import { Layout } from '~/components/layout/Layout/Layout'
 import { computeSizePercentage } from './utils'
 
-import { ConfirmProvider } from '~/components/modals/ConfirmModal'
-import { LazyLoadedWorkspace } from '~/components/features/workspace/Workspace'
+import { ConfirmProvider } from '~/components/modals/ConfirmModal/ConfirmContext'
+import { LazyLoadedWorkspace } from '~/components/features/workspace/Workspace/LazyLoadedWorkspace'
 
 export interface PlaygroundContainerProps {
   parentRef: React.RefObject<HTMLElement>

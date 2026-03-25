@@ -1,12 +1,11 @@
 import type { DispatchFn, StateProvider } from '~/store/helpers'
-import type { Action } from '~/store/actions'
+import type { Action } from '~/store/actions/actions'
 import {
-  type Notification,
-  NotificationType,
   newNotificationId,
   newAddNotificationAction,
   newAddNotificationsAction,
-} from '~/store/notifications'
+} from '~/store/notifications/actions'
+import { type Notification, NotificationType } from '~/store/notifications/state'
 
 import { saveWorkspaceState } from '../config'
 import { WorkspaceAction, type FileUpdatePayload, type FilePayload } from '../actions'

@@ -1,4 +1,4 @@
-import config from '~/services/config'
+import config from '~/services/config/config'
 import { type WorkspaceState, defaultFiles, defaultFileName, newGenerationKey } from './state'
 
 const CONFIG_KEY = 'workspace.state'

@@ -1,4 +1,4 @@
-import type { Dispatcher } from '../dispatchers'
+import type { Dispatcher } from '../dispatchers/utils'
 import type { DispatchFn, StateProvider } from '../helpers'
 import { newAddNotificationAction, newRemoveNotificationAction } from './actions'
 import type { Notification } from './state'

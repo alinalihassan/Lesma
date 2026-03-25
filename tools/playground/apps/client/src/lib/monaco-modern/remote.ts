@@ -1,4 +1,4 @@
-import type { EditorRemote } from '~/lib/editor'
+import type { EditorRemote } from '~/lib/editor/props'
 
 import type { editor } from 'modern-monaco/editor-core'
 

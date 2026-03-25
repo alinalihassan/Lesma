@@ -2,7 +2,7 @@ import React from 'react'
 
 import { mergeStyleSets, useTheme } from '@fluentui/react'
 import type { StatusState } from '~/store'
-import { EvalEventKind } from '~/services/api'
+import { EvalEventKind } from '~/services/api/models/run'
 import { splitImageAndText } from './utils'
 
 interface Props {

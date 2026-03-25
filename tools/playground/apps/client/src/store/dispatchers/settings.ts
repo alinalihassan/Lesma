@@ -1,5 +1,5 @@
 import { isDarkModeEnabled } from '~/utils/theme'
-import config from '~/services/config'
+import config from '~/services/config/config'
 
 import { type Dispatcher } from './utils'
 import { type PanelState, type SettingsState } from '../state'
@@ -10,7 +10,7 @@ import {
   newPanelStateChangeAction,
   newSettingsChangeAction,
   newToggleThemeAction,
-} from '../actions'
+} from '../actions/settings'
 import { saveWorkspaceState, truncateWorkspaceState } from '../workspace/config'
 
 export function newMonacoParamsChangeDispatcher(changes: MonacoParamsChanges): Dispatcher {

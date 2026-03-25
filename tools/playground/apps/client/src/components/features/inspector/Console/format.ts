@@ -1,4 +1,4 @@
-import type { EvalEvent } from '~/services/api'
+import type { EvalEvent } from '~/services/api/models/run'
 
 const imgRegEx = /\bIMAGE:([A-Za-z0-9=+/]+)\b/
 

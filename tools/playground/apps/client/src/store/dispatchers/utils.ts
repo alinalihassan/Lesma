@@ -1,5 +1,5 @@
 import { type DispatchFn, type StateProvider } from '../helpers'
-import { type Action } from '../actions'
+import { type Action } from '../actions/actions'
 
 export type Dispatcher = (dispatch: DispatchFn, getState: StateProvider) => void
 

@@ -12,7 +12,7 @@ import {
   type IDropdownOption,
 } from '@fluentui/react'
 import type { TabInfo, TabKey, TabIconStyles } from '../types'
-import { TabActionBar } from '../TabActionBar'
+import { TabActionBar } from '../TabActionBar/TabActionBar'
 
 interface Props {
   tabs?: TabInfo[] | null

@@ -1,4 +1,4 @@
-import client from '~/services/api'
+import client from '~/services/api/singleton'
 import type { DispatchFn, StateProvider } from '~/store/helpers'
 import { newProgramFinishAction, newProgramStartAction, newProgramWriteAction } from '~/store/actions/build'
 import { newErrorAction } from '~/store/actions/ui'

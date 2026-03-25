@@ -1,4 +1,4 @@
-import { type RunResponse } from './models'
+import { type RunResponse } from './models/run'
 import type { IAPIClient } from './interface'
 
 export class Client implements IAPIClient {

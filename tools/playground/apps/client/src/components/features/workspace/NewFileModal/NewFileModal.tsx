@@ -1,8 +1,8 @@
 import React, { useEffect, useState } from 'react'
 import { Stack, TextField, DefaultButton, PrimaryButton, DefaultSpacing, type IStackTokens } from '@fluentui/react'
 
-import { Dialog } from '~/components/elements/modals/Dialog'
-import { DialogActions } from '~/components/elements/modals/DialogActions'
+import { Dialog } from '~/components/elements/modals/Dialog/Dialog'
+import { DialogActions } from '~/components/elements/modals/DialogActions/DialogActions'
 
 interface Props {
   isOpen: boolean

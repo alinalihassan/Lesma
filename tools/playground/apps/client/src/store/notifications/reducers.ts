@@ -1,5 +1,5 @@
 import { mapByAction } from '../helpers'
-import { type Action } from '../actions'
+import { type Action } from '../actions/actions'
 import { type Notification, type NotificationsState } from './state'
 import { ActionType } from './actions'
 

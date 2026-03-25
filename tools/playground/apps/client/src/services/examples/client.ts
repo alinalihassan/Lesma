@@ -1,4 +1,7 @@
-import type { SnippetSource } from './types'
+import snippets from './snippets.json'
+import type { SnippetSource, Snippets } from './types'
+
+export type { Snippet, SnippetSource } from './types'
 
 const baseUrl = new URL(import.meta.env.BASE_URL, location.origin)
 const snippetsBaseDir = 'examples'
@@ -18,3 +21,5 @@ export const getSnippetFromSource = async (
   const results = await Promise.all(promises)
   return Object.fromEntries(results)
 }
+
+export const getSnippetsList = (): Snippets => snippets as Snippets

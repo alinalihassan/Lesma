@@ -1,5 +1,5 @@
-import { type Action, type ActionType } from './actions'
-import type { Dispatcher } from './dispatchers'
+import { type Action, type ActionType } from './actions/actions'
+import type { Dispatcher } from './dispatchers/utils'
 import { type State } from './state'
 
 export type Reducer<S, T> = (s: S, a: Action<T>) => S

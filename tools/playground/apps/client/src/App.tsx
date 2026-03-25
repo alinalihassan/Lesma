@@ -5,10 +5,10 @@ import { Switch, Route, Redirect } from 'react-router-dom'
 
 import { configureStore } from './store'
 import { history } from '~/store/configure'
-import config from './services/config'
-import { PlaygroundPage } from '~/components/pages/PlaygroundPage'
+import config from '~/services/config/config'
+import { PlaygroundPage } from '~/components/pages/PlaygroundPage/PlaygroundPage'
 import { ConnectedThemeProvider } from '~/components/utils/ConnectedThemeProvider'
-import { ApiClientProvider } from '~/services/api'
+import { ApiClientProvider } from '~/services/api/provider'
 
 import './App.css'
 

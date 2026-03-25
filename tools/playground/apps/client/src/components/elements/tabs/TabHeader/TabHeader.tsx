@@ -1,10 +1,10 @@
 import React, { useMemo } from 'react'
 import { useTheme, Stack, FocusZone, type IStackStyles } from '@fluentui/react'
 
-import { TabLabel } from '../TabLabel'
-import { TabActionBar } from '../TabActionBar'
-import { TabSelector } from '../TabSelector'
-import { TabPanelPlaceholder } from '../TabPanelPlaceholder'
+import { TabLabel } from '../TabLabel/TabLabel'
+import { TabActionBar } from '../TabActionBar/TabActionBar'
+import { TabSelector } from '../TabSelector/TabSelector'
+import { TabPanelPlaceholder } from '../TabPanelPlaceholder/TabPanelPlaceholder'
 import type { TabBarAction, TabIconStyles, TabInfo, TabKey } from '../types'
 
 interface Props {

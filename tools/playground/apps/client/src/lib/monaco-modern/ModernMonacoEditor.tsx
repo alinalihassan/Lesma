@@ -3,7 +3,9 @@ import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { initVimMode } from 'monaco-vim'
 
 import environment from '~/environment'
-import { type DocumentState, type EditorPreferences, EventType, type MonacoEditorProps, Syntax } from '~/lib/editor'
+import { type DocumentState, type EditorPreferences, type MonacoEditorProps } from '~/lib/editor/props'
+import { EventType } from '~/lib/editor/types/events'
+import { Syntax } from '~/lib/editor/types/common'
 
 import type { editor } from 'modern-monaco/editor-core'
 import type { VimAdapterInstance } from 'monaco-vim'

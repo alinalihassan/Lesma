@@ -1,10 +1,10 @@
 import React, { useCallback } from 'react'
 import { type StateDispatch, connect } from '~/store'
 import {
-  type NotificationsState,
   newDeleteRemovedNotificationAction,
   newRemoveNotificationAction,
-} from '~/store/notifications'
+} from '~/store/notifications/actions'
+import type { NotificationsState } from '~/store/notifications/state'
 import { Notification } from './Notification'
 import './NotificationHost.css'
 

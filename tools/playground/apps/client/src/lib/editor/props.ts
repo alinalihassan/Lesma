@@ -42,3 +42,5 @@ export interface MonacoEditorProps {
   /** LSP diagnostics for the active document (drives status bar problem counts). */
   onDiagnostics?: (workspacePath: string, diagnostics: Diagnostic[]) => void
 }
+
+export type { DocumentState, EditorRemote } from './types/common'

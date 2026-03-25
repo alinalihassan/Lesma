@@ -11,18 +11,18 @@ import {
   TextField,
 } from '@fluentui/react'
 
-import { AnimatedPivot } from '~/components/elements/tabs/AnimatedPivot'
+import { AnimatedPivot } from '~/components/elements/tabs/AnimatedPivot/AnimatedPivot'
 import { ThemeableComponent } from '~/components/utils/ThemeableComponent'
-import { Dialog } from '~/components/elements/modals/Dialog'
+import { Dialog } from '~/components/elements/modals/Dialog/Dialog'
 import { SettingsProperty } from './SettingsProperty'
 import { DEFAULT_FONT } from '~/services/fonts'
-import type { MonacoSettings } from '~/services/config'
-import type { RenderingBackend, TerminalSettings } from '~/store/terminal'
+import type { MonacoSettings } from '~/services/config/monaco'
+import type { RenderingBackend, TerminalSettings } from '~/store/terminal/types'
 import { connect, type MonacoParamsChanges, type SettingsState } from '~/store'
 
 import { cursorBlinkOptions, cursorLineOptions, fontOptions, terminalBackendOptions } from './options'
 import { controlKeyLabel } from '~/utils/dom'
-import { Kbd } from '~/components/elements/misc/Kbd'
+import { Kbd } from '~/components/elements/misc/Kbd/Kbd'
 
 export interface SettingsChanges {
   monaco?: MonacoParamsChanges

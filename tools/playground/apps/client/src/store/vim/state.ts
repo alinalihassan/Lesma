@@ -1,4 +1,4 @@
-import { type Dispatcher } from '~/store/dispatchers'
+import { type Dispatcher } from '~/store/dispatchers/utils'
 
 export enum VimMode {
   Visual = 'visual',

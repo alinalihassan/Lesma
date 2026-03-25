@@ -1,6 +1,6 @@
 import { ActionType } from './actions'
 
-import { type EvalEvent } from '~/services/api'
+import { type EvalEvent } from '~/services/api/models/run'
 
 export const newProgramWriteAction = (event: EvalEvent) => ({
   type: ActionType.EVAL_EVENT,

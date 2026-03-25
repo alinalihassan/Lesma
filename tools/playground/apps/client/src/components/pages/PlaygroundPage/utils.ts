@@ -1,5 +1,5 @@
 import type { PanelState } from '~/store/state'
-import type { SizeChanges } from '~/components/features/inspector/InspectorPanel'
+import type { SizeChanges } from '~/components/features/inspector/InspectorPanel/InspectorPanel'
 
 type SizePercent = Pick<PanelState, 'widthPercent'>
 type ContainerSize = Pick<HTMLElement, 'offsetHeight' | 'offsetWidth'>

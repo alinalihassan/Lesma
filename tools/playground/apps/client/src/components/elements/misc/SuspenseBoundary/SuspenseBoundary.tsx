@@ -1,6 +1,6 @@
 import React, { type PropsWithChildren, Suspense } from 'react'
 import { type IStackStyles, mergeStyleSets, Spinner, Stack, useTheme } from '@fluentui/react'
-import { Poster } from '../Poster'
+import { Poster } from '../Poster/Poster'
 
 type ContainerProps = PropsWithChildren<{
   styles?: IStackStyles

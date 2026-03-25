@@ -1,8 +1,9 @@
 import { connectRouter } from 'connected-react-router'
 import { combineReducers } from 'redux'
 
-import { type EvalEvent } from '~/services/api'
-import config, { type MonacoSettings } from '~/services/config'
+import { type EvalEvent } from '~/services/api/models/run'
+import config from '~/services/config/config'
+import type { MonacoSettings } from '~/services/config/monaco'
 
 import vimReducers from './vim/reducers'
 import notificationReducers from './notifications/reducers'
@@ -14,14 +15,10 @@ import { type FilePayload, WorkspaceAction } from '~/store/workspace/actions'
 import { initialWorkspaceState } from '~/store/workspace/state'
 import { reducers as workspaceReducers } from '~/store/workspace/reducers'
 
-import {
-  type Action,
-  ActionType,
-  type LoadingStateChanges,
-  type MonacoParamsChanges,
-  type CursorPositionChangePayload,
-  type MarkerChangePayload,
-} from './actions'
+import { type Action, ActionType } from './actions/actions'
+import type { MonacoParamsChanges } from './actions/settings'
+import type { CursorPositionChangePayload, MarkerChangePayload } from './actions/editor'
+import type { LoadingStateChanges } from './actions/ui'
 import { mapByAction } from './helpers'
 
 import { type SettingsState, type State, type StatusState, type PanelState, type UIState } from './state'

@@ -7,3 +7,4 @@ apps/client/build/
 apps/client/dist/
 apps/server/dist/
 *.log
+.vite/

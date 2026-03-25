@@ -1,6 +1,6 @@
 import type { Diagnostic } from 'vscode-languageserver-protocol'
-import type { EvalEvent } from '~/services/api'
-import type { MonacoSettings } from '~/services/config'
+import type { EvalEvent } from '~/services/api/models/run'
+import type { MonacoSettings } from '~/services/config/monaco'
 import type { LayoutType } from '~/styles/layout'
 
 import type { VimState } from './vim/state'

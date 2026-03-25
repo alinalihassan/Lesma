@@ -4,7 +4,7 @@ import { DiagnosticSeverity, type Diagnostic } from 'vscode-languageserver-proto
 
 import type { State } from '~/store/state'
 import { newUIStateChangeAction } from '~/store'
-import { newFileSelectAction } from '~/store/workspace'
+import { newFileSelectAction } from '~/store/workspace/dispatchers/files'
 
 import './ProblemsList.css'
 

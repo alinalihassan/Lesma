@@ -14,7 +14,7 @@ import {
   type Notification as NotificationModel,
   type NotificationAction,
   NotificationType,
-} from '~/store/notifications'
+} from '~/store/notifications/state'
 
 import './Notification.css'
 

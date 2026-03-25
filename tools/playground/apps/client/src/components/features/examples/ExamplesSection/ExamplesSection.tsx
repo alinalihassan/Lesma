@@ -12,7 +12,7 @@ import {
   type IButtonStyles,
 } from '@fluentui/react'
 
-import type { Snippet } from '~/services/examples'
+import type { Snippet } from '~/services/examples/client'
 
 interface Props {
   label: string

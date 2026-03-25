@@ -4,7 +4,7 @@ import thunk from 'redux-thunk'
 import { routerMiddleware } from 'connected-react-router'
 
 import { createRootReducer, getInitialState } from './reducers'
-import { type Action } from './actions'
+import { type Action } from './actions/actions'
 import { type State } from './state'
 
 const composeEnhancers = (window as any).__REDUX_DEVTOOLS_EXTENSION_COMPOSE__ || compose

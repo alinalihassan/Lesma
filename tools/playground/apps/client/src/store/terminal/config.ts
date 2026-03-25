@@ -1,4 +1,4 @@
-import config from '~/services/config'
+import config from '~/services/config/config'
 import { type TerminalSettings, defaultTerminalSettings } from './types'
 
 /**

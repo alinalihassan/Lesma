@@ -4,9 +4,9 @@ import { Resizable } from 're-resizable'
 import { clsx } from 'clsx'
 import { VscChevronDown, VscChevronUp, VscSplitHorizontal, VscSplitVertical } from 'react-icons/vsc'
 
-import { RunOutput } from '../RunOutput'
+import { RunOutput } from '../RunOutput/RunOutput'
 import { OutputTabStrip } from '../RunOutput/OutputTabStrip'
-import { PanelHeader } from '~/components/elements/panel/PanelHeader'
+import { PanelHeader } from '~/components/elements/panel/PanelHeader/PanelHeader'
 import { LayoutType, DEFAULT_PANEL_HEIGHT, DEFAULT_PANEL_WIDTH_PERCENT } from '~/styles/layout'
 import './InspectorPanel.css'
 

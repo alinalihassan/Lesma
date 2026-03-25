@@ -1,4 +1,4 @@
-import { type MonacoSettings } from '~/services/config'
+import { type MonacoSettings } from '~/services/config/monaco'
 
 import { ActionType } from './actions'
 import { type PanelState, type SettingsState } from '../state'

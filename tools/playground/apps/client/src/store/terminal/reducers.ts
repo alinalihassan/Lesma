@@ -1,5 +1,5 @@
 import { mapByAction } from '../helpers'
-import type { Action } from '../actions'
+import type { Action } from '../actions/actions'
 import type { TerminalSettings } from './types'
 import { type TerminalState, initialTerminalState } from './state'
 import { TerminalAction } from './actions'

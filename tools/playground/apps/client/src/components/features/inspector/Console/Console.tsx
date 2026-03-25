@@ -10,8 +10,9 @@ import { CanvasAddon } from '@xterm/addon-canvas'
 import { WebglAddon } from '@xterm/addon-webgl'
 
 import type { StatusState } from '~/store'
-import { RenderingBackend } from '~/store/terminal'
-import { useXtermTheme, XTerm } from '~/components/utils/XTerm'
+import { RenderingBackend } from '~/store/terminal/types'
+import { XTerm } from '~/components/utils/XTerm/XTerm'
+import { useXtermTheme } from '~/components/utils/XTerm/hooks'
 
 import { formatEvalEvent } from './format'
 import { createDebounceResizeObserver } from './utils'

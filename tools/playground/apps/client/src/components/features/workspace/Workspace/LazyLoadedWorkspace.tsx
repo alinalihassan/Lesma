@@ -1,5 +1,5 @@
 import React, { lazy } from 'react'
-import { SuspenseBoundary } from '~/components/elements/misc/SuspenseBoundary'
+import { SuspenseBoundary } from '~/components/elements/misc/SuspenseBoundary/SuspenseBoundary'
 
 const LazyWorkspace = lazy(async () => await import('./Workspace'))
 

@@ -1,9 +1,8 @@
 import React from 'react'
-import { Dialog } from '~/components/elements/modals/Dialog'
-import { getSnippetsList } from '~/services/examples'
+import { Dialog } from '~/components/elements/modals/Dialog/Dialog'
+import { getSnippetsList, type Snippet } from '~/services/examples/client'
 
-import { ExamplesSection } from '../ExamplesSection'
-import type { Snippet } from '~/services/examples'
+import { ExamplesSection } from '~/components/features/examples/ExamplesSection/ExamplesSection'
 
 interface Props {
   isOpen?: boolean

@@ -4,20 +4,22 @@ import type { AnyAction } from 'redux'
 import type { Diagnostic } from 'vscode-languageserver-protocol'
 
 import {
-  CommandType,
   defaultEditorPreferences,
   type Document,
-  type EditorCommand,
-  type EditorEvent,
   type EditorPreferences,
   type EditorRemote,
+} from '~/lib/editor/props'
+import {
+  CommandType,
+  type EditorCommand,
+  type EditorEvent,
   EventType,
-} from '~/lib/editor'
+} from '~/lib/editor/types/events'
 import { ModernMonacoEditor } from '~/lib/monaco-modern/ModernMonacoEditor'
 import type { State } from '~/store/state'
 import { VimMode, VimSubMode } from '~/store/vim/state'
 import { newVimDisposeAction, newVimModeChangeAction } from '~/store/vim/actions'
-import { dispatchUpdateFile } from '~/store/workspace'
+import { dispatchUpdateFile } from '~/store/workspace/dispatchers/files'
 import { getDefaultFontFamily, getFontFamily } from '~/services/fonts'
 import {
   Dispatcher,

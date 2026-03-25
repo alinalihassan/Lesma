@@ -2,17 +2,17 @@ import React, { useState, useMemo, useRef } from 'react'
 import { useTheme } from '@fluentui/react'
 import { useDispatch, useSelector } from 'react-redux'
 import { type State } from '~/store'
-import { dispatchCreateFile, dispatchRemoveFile, dispatchImportFile, newFileSelectAction } from '~/store/workspace'
+import { dispatchCreateFile, dispatchRemoveFile, dispatchImportFile, newFileSelectAction } from '~/store/workspace/dispatchers/files'
 
-import { TabView } from '~/components/elements/tabs/TabView'
+import { TabView } from '~/components/elements/tabs/TabView/TabView'
 import type { TabBarAction, TabIconStyle, TabIconStyles, TabInfo } from '~/components/elements/tabs/types'
-import type { EditorRemote } from '~/lib/editor'
+import type { EditorRemote } from '~/lib/editor/props'
 
 import { LazyCodeEditorContainer } from '../CMCodeEditor/LazyCodeEditorContainer'
-import { NewFileModal } from '../NewFileModal'
-import { ContentPlaceholder } from '../ContentPlaceholder'
+import { NewFileModal } from '../NewFileModal/NewFileModal'
+import { ContentPlaceholder } from '../ContentPlaceholder/ContentPlaceholder'
 import { newEmptyFileContent } from './utils'
-import { useConfirmModal } from '~/components/modals/ConfirmModal'
+import { useConfirmModal } from '~/components/modals/ConfirmModal/ConfirmContext'
 
 const customFileTypeIcons: Record<string, Partial<TabIconStyle>> = {
   '.les': {
