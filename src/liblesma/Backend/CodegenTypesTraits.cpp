@@ -92,8 +92,8 @@ auto Codegen::visit(const TypeExpr* node) -> void {
     result = std::make_unique<Value>(type);
   } else if (node->getType() == TokenType::PTR_TYPE) {
     node->getElementType()->accept(*this);
-    // Function type is already a pointer at LLVM level; parser uses *func for
-    // consistency, so do not add another pointer layer.
+    // Function type is already a pointer at LLVM level; `*func(...)` is optional
+    // sugar for the same nominal type, so do not add another pointer layer.
     if (!result->getType()->is(BaseType::TY_FUNCTION)) {
       auto* type = cacheType(
           std::make_unique<Type>(BaseType::TY_PTR, builder->getPtrTy(), result->getType()));

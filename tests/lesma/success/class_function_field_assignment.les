@@ -1,18 +1,18 @@
-def accepts(callback: *func(int))
+def accepts(callback: func(int))
     var seen = 1
 
 def printer(value: int)
     print(value)
 
 class CallbackHolder
-    var callback: *func(int)
+    var callback: func(int)
 
-    def new(callback: *func(int))
+    def new(callback: func(int))
         self.callback = callback
 
 var holder = CallbackHolder(printer)
 
-if holder.callback is not *func(int)
+if holder.callback is not func(int)
     exit(1)
 
 accepts(holder.callback)

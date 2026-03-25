@@ -194,12 +194,11 @@ auto Parser::parseType() -> std::unique_ptr<TypeExpr> {
           TokenType::VOID_TYPE);
     }
 
-    // Function types are represented as pointer-to-function in the type system.
-    auto inner =
-        std::make_unique<TypeExpr>(llvm::SMRange{type->getStart(), ret->getEnd()}, lexeme,
-                                   TokenType::FUNC_TYPE, std::move(params), std::move(ret));
-    return std::make_unique<TypeExpr>(llvm::SMRange{type->getStart(), inner->getEnd()},
-                                      "*" + lexeme, TokenType::PTR_TYPE, std::move(inner));
+    // Function types are nominal (like classes): values are function pointers in LLVM, but the
+    // type is written `func(...)` without a leading `*`. `*func(...)` is still accepted and lowers
+    // to the same type.
+    return std::make_unique<TypeExpr>(llvm::SMRange{type->getStart(), ret->getEnd()}, lexeme,
+                                      TokenType::FUNC_TYPE, std::move(params), std::move(ret));
   }
 
   if (check(TokenType::IDENTIFIER)) {
