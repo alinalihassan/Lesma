@@ -263,7 +263,7 @@ auto Codegen::compileModule(llvm::SMRange span, const std::string& filepath, boo
     mergeImportedSpecializationState(*codegen);
 
     if (isJit) {
-      // Add the module to the JIT (after importing symbols; theModule still valid)
+      codegen->verifyIrModuleOrThrow(fmt::format("import {}", filepath));
       llvm::Error jitErr =
           theJit->addIRModule(ThreadSafeModule(std::move(codegen->theModule), *theContext));
       if (jitErr) {
@@ -272,6 +272,7 @@ auto Codegen::compileModule(llvm::SMRange span, const std::string& filepath, boo
                               [&](const llvm::ErrorInfoBase& ei) { errMsg = ei.message(); });
         throw CodegenError(span, "Failed adding import {} to JIT: {}", filepath, errMsg);
       }
+      codegen->theModule = codegen->initializeModule();
     } else {
       // Create object file to be linked
       std::string objFile = fmt::format("tmp{}", objectFiles.size());

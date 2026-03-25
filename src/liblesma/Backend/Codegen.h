@@ -130,6 +130,11 @@ public:
   auto linkObjectFile(const std::string& objFilename) -> void;
   auto optimize(OptimizationLevel opt) -> void;
 
+  /** Verify the current module's IR (JIT imports). The main program module is not verified: it
+   *  may reference Function values owned by other modules in the same LLVMContext, which the IR
+   *  verifier rejects while ORC still loads those modules together correctly. */
+  auto verifyIrModuleOrThrow(const std::string& contextLabel) const -> void;
+
 protected:
   auto initializeTargetMachine() -> std::unique_ptr<llvm::TargetMachine>;
   auto initializeModule() -> std::unique_ptr<Module>;

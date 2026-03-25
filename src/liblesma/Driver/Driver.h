@@ -4,6 +4,8 @@
 #include <memory>
 #include <string>
 
+#include <llvm/Passes/OptimizationLevel.h>
+
 namespace lesma {
 enum class SourceType : std::uint8_t {
   FILE,
@@ -38,6 +40,8 @@ struct Options {
   /** When sourceType is STRING, used as the logical file path (imports, diagnostics). LSP sets
    *  this to the open document's filesystem path. */
   std::string implicitFilePath;
+  /** IR optimization for codegen (compile and JIT run). Defaults to O3. */
+  llvm::OptimizationLevel optimizationLevel = llvm::OptimizationLevel::O3;
 };
 
 class Driver {

@@ -143,6 +143,7 @@ auto Driver::baseCompile(std::unique_ptr<lesma::Options> options, bool jit) -> i
   Timer timer(options->timer);
   std::string outputFilename = options->outputFilename;
   Debug debugFlags = options->debug;
+  llvm::OptimizationLevel const optLevel = options->optimizationLevel;
 
   auto result = analyze(std::move(options));
 
@@ -172,7 +173,7 @@ auto Driver::baseCompile(std::unique_ptr<lesma::Options> options, bool jit) -> i
         return cg;
       });
 
-      timer.measure("Optimizing", [&]() -> void { codegen->optimize(OptimizationLevel::O3); });
+      timer.measure("Optimizing", [&]() -> void { codegen->optimize(optLevel); });
 
       if ((debugFlags & Debug::IR) != Debug::NONE) {
         lesma::print(LogType::DEBUG, "LLVM IR (after optimization):\n");

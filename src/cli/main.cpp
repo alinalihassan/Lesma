@@ -12,9 +12,25 @@
 #include "liblesma/Common/Utils.h"
 #include "liblesma/Driver/Driver.h"
 
+#include <llvm/Passes/OptimizationLevel.h>
+
 using namespace lesma;
 
 namespace {
+
+[[nodiscard]] auto optimizationLevelFromCli(int level) -> llvm::OptimizationLevel {
+  switch (level) {
+  case 0:
+    return llvm::OptimizationLevel::O0;
+  case 1:
+    return llvm::OptimizationLevel::O1;
+  case 2:
+    return llvm::OptimizationLevel::O2;
+  default:
+    return llvm::OptimizationLevel::O3;
+  }
+}
+
 
 auto parseDebugFlags(const std::vector<std::string>& debugOptions) -> Debug {
   Debug flags = Debug::NONE;
@@ -37,6 +53,7 @@ auto parseCli(int argc, char** argv) -> std::unique_ptr<CLIOptions> {
   bool timer = false;
   std::string output = "output";
   std::string file;
+  int optimizationLevel = 3;
 
   CLI::App app{"Lesma programming language", "lesma"};
   app.set_version_flag("-v,--version", LESMA_VERSION, "Print the Lesma version");
@@ -54,6 +71,10 @@ auto parseCli(int argc, char** argv) -> std::unique_ptr<CLIOptions> {
   run->add_option("file", file, "Lesma source filename")->required();
   compile->add_option("file", file, "Lesma source filename")->required();
   compile->add_option("-o,--output", output, "Output filename");
+  run->add_option("-O,--opt", optimizationLevel, "Optimization level (0–3)")
+      ->check(CLI::Range(0, 3));
+  compile->add_option("-O,--opt", optimizationLevel, "Optimization level (0–3)")
+      ->check(CLI::Range(0, 3));
 
   try {
     app.parse(argc, argv);
@@ -72,8 +93,8 @@ auto parseCli(int argc, char** argv) -> std::unique_ptr<CLIOptions> {
     debug.emplace_back("all");
   }
 
-  return std::make_unique<CLIOptions>(
-      CLIOptions{std::filesystem::absolute(file), output, debug, timer, run->parsed()});
+  return std::make_unique<CLIOptions>(CLIOptions{std::filesystem::absolute(file), output, debug,
+                                                 timer, run->parsed(), optimizationLevel});
 }
 
 } // namespace
@@ -89,6 +110,7 @@ auto main(int argc, char** argv) -> int {
       options->output,
       options->timer,
       "",
+      optimizationLevelFromCli(options->optimizationLevel),
   });
   int const exitCode = options->jit ? Driver::run(std::move(driverOptions))
                                     : Driver::compile(std::move(driverOptions));

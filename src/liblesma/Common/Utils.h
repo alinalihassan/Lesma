@@ -23,6 +23,8 @@ struct CLIOptions {
   std::vector<std::string> debug;
   bool timer;
   bool jit;
+  /** Optimization level 0–3 for compile and run. */
+  int optimizationLevel = 3;
 };
 
 template <typename S, typename... Args>

@@ -19,6 +19,7 @@
 #include <llvm/IR/Module.h>
 #include <llvm/IR/PassManager.h>
 #include <llvm/IR/Verifier.h>
+#include <llvm/TargetParser/SubtargetFeature.h>
 #include <llvm/MC/TargetRegistry.h>
 #include <llvm/Pass.h>
 #include <llvm/Passes/OptimizationLevel.h>
@@ -27,6 +28,7 @@
 #include <llvm/Support/CodeGen.h>
 #include <llvm/Support/Error.h>
 #include <llvm/Support/FileSystem.h>
+#include <llvm/Support/raw_ostream.h>
 #include <llvm/Support/TargetSelect.h>
 #include <llvm/Target/TargetMachine.h>
 #include <llvm/Target/TargetOptions.h>
@@ -59,6 +61,16 @@ LLD_HAS_DRIVER(elf)
 using namespace lesma;
 using namespace llvm;
 using namespace llvm::orc;
+
+namespace {
+
+[[nodiscard]] auto llvmErrorToString(Error err) -> std::string {
+  std::string msg;
+  handleAllErrors(std::move(err), [&](const ErrorInfoBase& ei) { msg = ei.message(); });
+  return msg.empty() ? "unknown error" : msg;
+}
+
+} // namespace
 
 auto Codegen::initializeModule() -> std::unique_ptr<Module> {
   std::unique_ptr<Module> mod;
@@ -98,11 +110,25 @@ auto Codegen::initializeTargetMachine() -> std::unique_ptr<llvm::TargetMachine> 
 
   llvm::TargetOptions const opt;
   llvm::Reloc::Model rm = llvm::Reloc::Model();
+
+  std::string cpu(llvm::sys::getHostCPUName());
+  if (cpu.empty()) {
+    cpu = "generic";
+  }
+  std::string featuresStr;
+  if (cpu != "generic") {
+    SubtargetFeatures feat;
+    for (const auto& entry : llvm::sys::getHostCPUFeatures()) {
+      feat.AddFeature(entry.getKey(), entry.getValue());
+    }
+    featuresStr = feat.getString();
+  }
+
   std::unique_ptr<llvm::TargetMachine> targetMachine(
 #if LLVM_VERSION_MAJOR >= 21
-      target->createTargetMachine(targetTriple, "generic", "", opt, rm));
+      target->createTargetMachine(targetTriple, cpu, featuresStr, opt, rm));
 #else
-      target->createTargetMachine(targetTriple.str(), "generic", "", opt, rm));
+      target->createTargetMachine(targetTriple.str(), cpu, featuresStr, opt, rm));
 #endif
   return targetMachine;
 }
@@ -117,6 +143,10 @@ auto Codegen::initializeJit() -> std::unique_ptr<LLJIT> {
     throw CodegenError({}, "Couldn't initialize JIT:\n{}", llvm::toString(jitOrErr.takeError()));
   }
   auto jit = std::move(*jitOrErr);
+
+  // Default LLJIT uses JITLink on supported targets (in-process). Debugger registration via
+  // llvm::orc::enableDebuggerSupport is omitted: LLVM 21's helper can assert on darwin-arm64 with
+  // this stack; revisit when emitting JIT DWARF or when upstream stabilizes the API.
 
   // Add support for C native functions
   auto& mainJd = jit->getMainJITDylib();
@@ -143,6 +173,19 @@ auto Codegen::initializeTopLevel() -> llvm::Function* {
   builder->SetInsertPoint(entry);
 
   return f;
+}
+
+auto Codegen::verifyIrModuleOrThrow(const std::string& contextLabel) const -> void {
+  if (theModule == nullptr) {
+    throw CodegenError({}, "Internal error: no LLVM module to verify ({})", contextLabel);
+  }
+  std::string err;
+  raw_string_ostream os(err);
+  if (verifyModule(*theModule, &os)) {
+    os.flush();
+    // Avoid fmt::format: LLVM diagnostic text can contain braces and break formatting.
+    throw CodegenError({}, std::string("Invalid LLVM IR (") + contextLabel + "):\n" + err);
+  }
 }
 
 auto Codegen::optimize(OptimizationLevel opt) -> void {
@@ -277,15 +320,17 @@ auto Codegen::linkObjectFile(const std::string& objFilename) -> void {
 }
 
 auto Codegen::prepareJit() -> void {
-  auto jitError = theJit->addIRModule(ThreadSafeModule(std::move(theModule), *theContext));
-  if (jitError) {
-    throw CodegenError({}, "JIT Error:\n{}", llvm::toString(std::move(jitError)));
+  if (Error jitError =
+          theJit->addIRModule(ThreadSafeModule(std::move(theModule), *theContext))) {
+    throw CodegenError({}, "JIT addIRModule failed: {}", llvmErrorToString(std::move(jitError)));
   }
-  auto mainFunc = theJit->lookup(topLevelFunc->getName());
-  if (!mainFunc) {
-    throw CodegenError({}, "Couldn't find top level function\n");
+  Expected<ExecutorAddr> mainFuncOrErr = theJit->lookup(topLevelFunc->getName());
+  if (!mainFuncOrErr) {
+    throw CodegenError({}, "Couldn't find top-level function '{}': {}",
+                       topLevelFunc->getName().str(),
+                       llvmErrorToString(mainFuncOrErr.takeError()));
   }
-  mainFuncAddress = mainFunc->toPtr<MainFnTy>();
+  mainFuncAddress = mainFuncOrErr->toPtr<MainFnTy>();
 }
 
 auto Codegen::executeJit() -> int {
