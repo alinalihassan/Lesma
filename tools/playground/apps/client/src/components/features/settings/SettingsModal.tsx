@@ -18,7 +18,7 @@ import { SettingsProperty } from './SettingsProperty'
 import { DEFAULT_FONT } from '~/services/fonts'
 import type { MonacoSettings } from '~/services/config'
 import type { RenderingBackend, TerminalSettings } from '~/store/terminal'
-import { connect, type MonacoParamsChanges, type SettingsState, type StateDispatch } from '~/store'
+import { connect, type MonacoParamsChanges, type SettingsState } from '~/store'
 
 import { cursorBlinkOptions, cursorLineOptions, fontOptions, terminalBackendOptions } from './options'
 import { controlKeyLabel } from '~/utils/dom'
@@ -32,7 +32,9 @@ export interface SettingsChanges {
 
 interface OwnProps {
   isOpen?: boolean
-  onClose: (changes: SettingsChanges) => void
+  /** Persist each change as the user edits (checkboxes, dropdowns, etc.). */
+  onApplyChanges: (changes: SettingsChanges) => void
+  onDismiss: () => void
 }
 
 interface StateProps {
@@ -41,10 +43,7 @@ interface StateProps {
   terminal?: TerminalSettings
 }
 
-type Props = StateProps &
-  OwnProps & {
-    dispatch: StateDispatch
-  }
+type Props = StateProps & OwnProps
 
 interface SettingsModalState {
   isOpen?: boolean
@@ -66,8 +65,6 @@ const pivotStyles: Partial<IPivotStyles> = {
 }
 
 class SettingsModal extends ThemeableComponent<Props, SettingsModalState> {
-  private changes: SettingsChanges = {}
-
   constructor(props) {
     super(props)
     this.state = {
@@ -77,17 +74,8 @@ class SettingsModal extends ThemeableComponent<Props, SettingsModalState> {
     }
   }
 
-  private onClose() {
-    this.props.onClose({ ...this.changes })
-    this.changes = {}
-  }
-
   private touchMonacoProperty(key: keyof MonacoSettings, val: any) {
-    if (!this.changes.monaco) {
-      this.changes.monaco = {}
-    }
-
-    this.changes.monaco[key] = val
+    this.props.onApplyChanges({ monaco: { [key]: val } as MonacoParamsChanges })
   }
 
   private touchSettingsProperty(changes: Partial<SettingsState>) {
@@ -95,15 +83,7 @@ class SettingsModal extends ThemeableComponent<Props, SettingsModalState> {
       this.setState({ hideVimSettings: !changes.enableVimMode })
     }
 
-    if (!this.changes.settings) {
-      this.changes.settings = changes
-      return
-    }
-
-    this.changes.settings = {
-      ...this.changes.settings,
-      ...changes,
-    }
+    this.props.onApplyChanges({ settings: changes })
   }
 
   private touchTerminalSettings(changes: Partial<TerminalSettings>) {
@@ -111,15 +91,7 @@ class SettingsModal extends ThemeableComponent<Props, SettingsModalState> {
       this.setState({ hideTerminalSettings: !!changes.disableTerminalEmulation })
     }
 
-    if (!this.changes.terminal) {
-      this.changes.terminal = changes
-      return
-    }
-
-    this.changes.terminal = {
-      ...this.changes.terminal,
-      ...changes,
-    }
+    this.props.onApplyChanges({ terminal: changes })
   }
 
   render() {
@@ -127,7 +99,7 @@ class SettingsModal extends ThemeableComponent<Props, SettingsModalState> {
     const { spacing } = getTheme()
 
     return (
-      <Dialog label="Settings" onDismiss={() => this.onClose()} isOpen={isOpen} styles={modalStyles}>
+      <Dialog label="Settings" onDismiss={() => this.props.onDismiss()} isOpen={isOpen} styles={modalStyles}>
         <AnimatedPivot aria-label="Settings" styles={pivotStyles}>
           <PivotItem itemKey="0" headerText="Editor">
             <SettingsProperty

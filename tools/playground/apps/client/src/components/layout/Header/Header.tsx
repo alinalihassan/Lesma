@@ -43,7 +43,7 @@ export const Header: React.FC = () => {
   const sharedSnippetName = useSelector(({ ui }: State) => (ui?.shareCreated ? ui?.snippetId : undefined))
   const commandBarStateKey = isDisabled ? 'disabled' : 'enabled'
 
-  const onSettingsClose = useCallback(
+  const applySettingsChanges = useCallback(
     (changes: SettingsChanges) => {
       if (changes.monaco) {
         dispatch(newMonacoParamsChangeDispatcher(changes.monaco))
@@ -56,11 +56,13 @@ export const Header: React.FC = () => {
       if (changes.terminal) {
         dispatch(dispatchTerminalSettingsChange(changes.terminal))
       }
-
-      setShowSettings(false)
     },
     [dispatch],
   )
+
+  const onSettingsDismiss = useCallback(() => {
+    setShowSettings(false)
+  }, [])
 
   const onSnippetSelected = useCallback(
     (snippet: Snippet) => {
@@ -172,7 +174,11 @@ export const Header: React.FC = () => {
           dispatch(newUIStateChangeAction({ shareCreated: false }))
         }}
       />
-      <ConnectedSettingsModal onClose={onSettingsClose} isOpen={showSettings} />
+      <ConnectedSettingsModal
+        onApplyChanges={applySettingsChanges}
+        onDismiss={onSettingsDismiss}
+        isOpen={showSettings}
+      />
       <AboutModal
         isOpen={showAbout}
         onClose={() => {

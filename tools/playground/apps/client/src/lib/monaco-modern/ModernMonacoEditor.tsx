@@ -1,5 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react'
 
+import { initVimMode } from 'monaco-vim'
+
 import environment from '~/environment'
 import {
   type DocumentState,
@@ -10,6 +12,7 @@ import {
 } from '~/lib/editor'
 
 import type { editor } from 'modern-monaco/editor-core'
+import type { VimAdapterInstance } from 'monaco-vim'
 
 import { applyMonacoColorScheme, ensureMonaco, type MonacoApi } from './init-monaco'
 import { LesmaMonacoLspBridge } from './lesma-lsp-bridge'
@@ -62,6 +65,7 @@ export const ModernMonacoEditor: React.FC<MonacoEditorProps> = (props) => {
   const remoteRef = useRef<MonacoEditorRemote | null>(null)
   const lspRef = useRef<LesmaMonacoLspBridge | null>(null)
   const openPathRef = useRef<string | null>(null)
+  const vimAdapterRef = useRef<VimAdapterInstance | null>(null)
   const propsRef = useRef(props)
   propsRef.current = props
 
@@ -153,6 +157,8 @@ export const ModernMonacoEditor: React.FC<MonacoEditorProps> = (props) => {
       cancelled = true
       setMonacoReady(false)
       disposeLsp()
+      vimAdapterRef.current?.dispose()
+      vimAdapterRef.current = null
       propsRef.current.onUnmount?.()
       editorRef.current?.dispose()
       editorRef.current = null
@@ -199,6 +205,56 @@ export const ModernMonacoEditor: React.FC<MonacoEditorProps> = (props) => {
     })
     ed.layout()
   }, [props.preferences, props.readonly, monacoReady])
+
+  /* Vim keybindings (monaco-vim); status UI uses Redux via VimModeChanged / InputModeChanged. */
+  useEffect(() => {
+    const ed = editorRef.current
+    if (!ed || !monacoReady) {
+      return
+    }
+
+    const inputMode = preferencesWithDefaults(propsRef.current.preferences).inputMode
+
+    if (inputMode !== 'vim') {
+      if (vimAdapterRef.current) {
+        vimAdapterRef.current.dispose()
+        vimAdapterRef.current = null
+        propsRef.current.onEvent?.({ type: EventType.InputModeChanged, mode: 'default', prevMode: 'vim' })
+      }
+      return
+    }
+
+    if (vimAdapterRef.current) {
+      return
+    }
+
+    /* monaco-vim types against `monaco-editor`; modern-monaco provides a compatible editor instance. */
+    const vim = initVimMode(ed as never, null)
+    const onVimModeChange = (ev: { mode: string; subMode?: string }) => {
+      propsRef.current.onEvent?.({
+        type: EventType.VimModeChanged,
+        mode: ev.mode,
+        subMode: ev.subMode,
+      })
+    }
+    vim.on('vim-mode-change', onVimModeChange)
+    vimAdapterRef.current = vim
+
+    propsRef.current.onEvent?.({
+      type: EventType.InputModeChanged,
+      mode: 'vim',
+      prevMode: 'default',
+    })
+
+    return () => {
+      if (vimAdapterRef.current !== vim) {
+        return
+      }
+      vim.dispose()
+      vimAdapterRef.current = null
+      propsRef.current.onEvent?.({ type: EventType.InputModeChanged, mode: 'default', prevMode: 'vim' })
+    }
+  }, [monacoReady, preferencesWithDefaults(props.preferences).inputMode])
 
   /**
    * Open document + LSP: drive only from path / workspace generation.

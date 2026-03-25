@@ -31,17 +31,24 @@ const preferencesWithDefaults = (src: Partial<EditorPreferences>): EditorPrefere
 
 const mapEventToAction = (e: EditorEvent): AnyAction | Dispatcher | undefined => {
   switch (e.type) {
-    case EventType.VimModeChanged:
+    case EventType.VimModeChanged: {
+      const subMode =
+        e.mode === 'visual' && e.subMode === 'linewise'
+          ? VimSubMode.Linewise
+          : e.mode === 'visual' && e.subMode === 'blockwise'
+            ? VimSubMode.Blockwise
+            : undefined
       return newVimModeChangeAction({
         mode: e.mode as VimMode,
-        subMode: e.subMode as VimSubMode,
+        subMode,
       })
+    }
     case EventType.InputModeChanged:
-      switch ('vim') {
-        case e.prevMode:
-          return newVimDisposeAction()
-        case e.mode:
-          return newVimModeChangeAction({ mode: VimMode.Normal })
+      if (e.mode === 'default' && e.prevMode === 'vim') {
+        return newVimDisposeAction()
+      }
+      if (e.mode === 'vim' && e.prevMode !== 'vim') {
+        return newVimModeChangeAction({ mode: VimMode.Normal })
       }
       break
     case EventType.CursorPositionChanged: {
