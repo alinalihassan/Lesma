@@ -3,13 +3,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { initVimMode } from 'monaco-vim'
 
 import environment from '~/environment'
-import {
-  type DocumentState,
-  type EditorPreferences,
-  EventType,
-  type MonacoEditorProps,
-  Syntax,
-} from '~/lib/editor'
+import { type DocumentState, type EditorPreferences, EventType, type MonacoEditorProps, Syntax } from '~/lib/editor'
 
 import type { editor } from 'modern-monaco/editor-core'
 import type { VimAdapterInstance } from 'monaco-vim'
@@ -119,8 +113,7 @@ export const ModernMonacoEditor: React.FC<MonacoEditorProps> = (props) => {
         fontFamily: prefs.fontFamily,
         fontSize: prefs.fontSize,
         fontLigatures: prefs.fontLigatures ? 'on' : 'off',
-        lineNumbers:
-          prefs.inputMode === 'vim' && prefs.vimUseRelativeLineNumbers ? 'relative' : 'on',
+        lineNumbers: prefs.inputMode === 'vim' && prefs.vimUseRelativeLineNumbers ? 'relative' : 'on',
         inlayHints: { enabled: 'on' },
         'semanticHighlighting.enabled': true,
       })
@@ -204,8 +197,7 @@ export const ModernMonacoEditor: React.FC<MonacoEditorProps> = (props) => {
       fontFamily: prefs.fontFamily,
       fontSize: prefs.fontSize,
       fontLigatures: prefs.fontLigatures ? 'on' : 'off',
-      lineNumbers:
-        prefs.inputMode === 'vim' && prefs.vimUseRelativeLineNumbers ? 'relative' : 'on',
+      lineNumbers: prefs.inputMode === 'vim' && prefs.vimUseRelativeLineNumbers ? 'relative' : 'on',
       inlayHints: { enabled: 'on' },
       'semanticHighlighting.enabled': true,
     })

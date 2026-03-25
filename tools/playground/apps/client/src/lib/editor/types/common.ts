@@ -9,8 +9,6 @@ export type Callback<T> = (arg: T) => void
 
 export enum Syntax {
   PlainText,
-  Go,
-  GoMod,
   JSON,
   Lesma,
 }

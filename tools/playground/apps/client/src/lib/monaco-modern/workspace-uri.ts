@@ -20,7 +20,10 @@ export function workspacePathFromFileUri(uriStr: string): string | null {
     if (!rest) {
       return null
     }
-    return rest.split('/').map((seg) => decodeURIComponent(seg)).join('/')
+    return rest
+      .split('/')
+      .map((seg) => decodeURIComponent(seg))
+      .join('/')
   } catch {
     return null
   }

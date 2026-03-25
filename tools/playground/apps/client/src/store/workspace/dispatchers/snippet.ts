@@ -17,7 +17,7 @@ export const dispatchLoadSnippetFromSource = (source: SnippetSource) => async (d
   snippetFromSourceAbort = new AbortController()
   const { signal } = snippetFromSourceAbort
 
-  dispatch(newRemoveNotificationAction(NotificationIDs.GoModMissing))
+  dispatch(newRemoveNotificationAction(NotificationIDs.SnippetLoadClear))
   dispatch({
     type: WorkspaceAction.SNIPPET_LOAD_START,
     payload: source.basePath,

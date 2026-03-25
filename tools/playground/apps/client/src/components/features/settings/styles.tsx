@@ -1,14 +1,5 @@
 import { FontWeights, FontSizes, mergeStyleSets } from '@fluentui/react'
 
-export const settingsSectionStyles = mergeStyleSets({
-  title: {
-    fontSize: FontSizes.xLarge,
-  },
-  section: {
-    marginBottom: '25px',
-  },
-})
-
 export const settingsPropStyles = mergeStyleSets({
   title: {
     fontWeight: FontWeights.bold,

@@ -9,7 +9,7 @@ export enum ActionType {
   PANEL_STATE_CHANGE = 'PANEL_STATE_CHANGE',
   SETTINGS_CHANGE = 'SETTINGS_CHANGE',
 
-  // Special actions used by Go WASM bridge
+  /** Run output streaming from the playground API (`/api/.../run`). */
   EVAL_START = 'EVAL_START',
   EVAL_EVENT = 'EVAL_EVENT',
   EVAL_FINISH = 'EVAL_FINISH',

@@ -1,40 +1,30 @@
-# Web UI
+# Lesma Playground (web UI)
 
-Frontend for the Go Playground application.
+React + Vite client for the in-repo playground: editor, LSP bridge, run output, and examples.
 
 ## Run in development
 
-Start the frontend from the repository root:
+From `tools/playground/`:
 
 ```bash
-make ui
+bun install
+bun run dev
 ```
 
-Use `make ui` instead of `yarn start` in `web/`. The Makefile injects required environment variables (for example
-`VITE_VERSION`, `VITE_GITHUB_URL`, and WASM settings) and wires the expected API proxy settings.
-
-By default, Vite serves the app on `http://localhost:3000`.
+The Vite dev server defaults to `http://localhost:3000` and proxies `/api` to the Bun server (see `vite.config.ts` and `VITE_API_PROXY`).
 
 ## Tech stack
 
 - React 18 (`react`, `react-dom`)
 - TypeScript 5
 - Vite 5 with SWC (`@vitejs/plugin-react-swc`)
-- Fluent UI (`@fluentui/react`, `@fluentui/react-icons`)
-- [modern-monaco](https://github.com/esm-dev/modern-monaco) (Monaco Editor + Shiki grammars; Lesma uses the repo TextMate grammar + a small WebSocket LSP bridge)
+- Fluent UI (`@fluentui/react`)
+- [modern-monaco](https://github.com/esm-dev/modern-monaco) (Monaco + Lesma TextMate grammar + WebSocket LSP bridge)
 - State and routing: Redux + React Redux, `connected-react-router`, React Router v5
-- Terminal integration: xterm.js (`@xterm/xterm` + addons)
-- Testing: Vitest + Testing Library + JSDOM
-- Linting/formatting: ESLint 9 + `typescript-eslint` + Prettier
+- Terminal: xterm.js (`@xterm/xterm` + addons)
+- Tests: Vitest + `@testing-library/jest-dom` + JSDOM
+- Lint/format: ESLint 9 + `typescript-eslint` + Prettier
 
 ## Environment variables
 
-Frontend values are exposed through `VITE_*` variables:
-
-- `VITE_VERSION` - application version string shown in the UI/build metadata.
-- `VITE_GITHUB_URL` - repository URL used for source/issues links in the UI.
-- `VITE_WASM_API_VER` - WebAssembly API version used when resolving WASM endpoints.
-- `VITE_WASM_BASE_URL` - base URL where WASM assets and API routes are served.
-- `VITE_BASE_URL` - optional frontend base path when app is hosted under a subpath.
-
-Most of these are injected by the root `Makefile` when you run `make ui`.
+Build-time values use the `VITE_*` prefix where applicable. For local dev, the important one is `VITE_API_PROXY` (optional override for the `/api` proxy target); see `vite.config.ts`.

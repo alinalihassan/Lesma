@@ -36,7 +36,7 @@ export function registerLesmaMonarchLanguage(monaco: MonacoApi): void {
         ],
         [/[A-Z][\w]*/, 'type.identifier'],
         [/[a-z_]\w*/, 'identifier'],
-        [/[{}()\[\]]/, 'delimiter.bracket'],
+        [/[{}()\x5B\x5D]/, 'delimiter.bracket'],
         [/[<>]=?|!=|==|&&|\|\||\.\.|\+=|-=|\*=|\/=|[+\-*/%^&|~]|->/, 'operator'],
         [/\s+/, 'white'],
       ],

@@ -46,7 +46,7 @@ Server:
 bun run typecheck
 ```
 
-Client (optional; may report existing strictness issues):
+Client:
 
 ```bash
 bun run typecheck:client

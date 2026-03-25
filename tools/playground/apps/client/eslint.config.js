@@ -30,8 +30,6 @@ const ignores = [
   '**/.github/**',
   '*.d.ts',
   '**/*.d.ts',
-  'wasm_exec.js',
-  '**/wasm_exec.js',
   '**/node_modules/**',
 ];
 

@@ -1,11 +1,6 @@
 /**
- * List of standard predefined notification IDs.
+ * Stable notification IDs used when dismissing or updating toasts.
  */
 export enum NotificationIDs {
-  GoModMissing = 'GoModMissing',
-  WASMAppDownload = 'WASMDownload',
-  WASMAppExitError = 'WASMAppExitError',
-  PackageManager = 'PackageManager',
-  GoWorkerStatus = 'GoWorkerStatus',
-  GoTargetSwitched = 'GoTargetSwitched',
+  SnippetLoadClear = 'SnippetLoadClear',
 }

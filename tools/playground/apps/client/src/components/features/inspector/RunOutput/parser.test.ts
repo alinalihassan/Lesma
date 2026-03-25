@@ -4,29 +4,25 @@ import { splitStringUrls } from './parser'
 const cases = [
   {
     label: 'no URLs',
-    input: `prog.go:8:28: illegal character U+003F '?' (and 1 more errors)`,
+    input: `main.les:8:28: illegal character U+003F '?' (and 1 more errors)`,
     want: [
       {
         isUrl: false,
-        content: `prog.go:8:28: illegal character U+003F '?' (and 1 more errors)`,
+        content: `main.les:8:28: illegal character U+003F '?' (and 1 more errors)`,
       },
     ],
   },
   {
     label: 'single URL at end',
-    input:
-      "Due to Go Playground bug, unit test snippets can't have multiple files. " +
-      'Please remove non-test Go files. See: https://github.com/golang/go/issues/68327',
+    input: 'Some compiler output referencing documentation. See: https://example.com/docs/compiler-errors',
     want: [
       {
         isUrl: false,
-        content:
-          "Due to Go Playground bug, unit test snippets can't have multiple files. " +
-          'Please remove non-test Go files. See: ',
+        content: 'Some compiler output referencing documentation. See: ',
       },
       {
         isUrl: true,
-        content: 'https://github.com/golang/go/issues/68327',
+        content: 'https://example.com/docs/compiler-errors',
       },
     ],
   },
@@ -65,30 +61,30 @@ const cases = [
   {
     label: 'complex string',
     input:
-      'go: finding module for package localhost.localdomain/foo/bar\n' +
-      'prog.go:6:2: cannot find module providing package localhost.localdomain/foo/bar: ' +
-      'module localhost.localdomain/foo/bar: reading https://proxy.golang.org/localhost.localdomain/foo/bar/@v/list: 404 Not Found\n' +
-      '\tserver response: not found: localhost.localdomain/foo/bar@latest: unrecognized import path ' +
-      '"localhost.localdomain/foo/bar": https fetch: Get "https://localhost.localdomain/foo/bar?go-get=1": dial tcp: ' +
+      'import: resolving package localhost.localdomain/foo/bar\n' +
+      'main.les:6:2: cannot find module localhost.localdomain/foo/bar: ' +
+      'reading https://proxy.example.org/localhost.localdomain/foo/bar/@v/list: 404 Not Found\n' +
+      '\tserver response: not found: localhost.localdomain/foo/bar@latest: unrecognized path ' +
+      '"localhost.localdomain/foo/bar": fetch: Get "https://localhost.localdomain/foo/bar?go-get=1": dial tcp: ' +
       'lookup localhost.localdomain on 8.8.8.8:53: no such host',
     want: [
       {
         isUrl: false,
         content:
-          'go: finding module for package localhost.localdomain/foo/bar\n' +
-          'prog.go:6:2: cannot find module providing package localhost.localdomain/foo/bar: ' +
-          'module localhost.localdomain/foo/bar: reading ',
+          'import: resolving package localhost.localdomain/foo/bar\n' +
+          'main.les:6:2: cannot find module localhost.localdomain/foo/bar: ' +
+          'reading ',
       },
       {
         isUrl: true,
-        content: 'https://proxy.golang.org/localhost.localdomain/foo/bar/@v/list',
+        content: 'https://proxy.example.org/localhost.localdomain/foo/bar/@v/list',
       },
       {
         isUrl: false,
         content:
           ': 404 Not Found\n' +
-          '\tserver response: not found: localhost.localdomain/foo/bar@latest: unrecognized import path ' +
-          '"localhost.localdomain/foo/bar": https fetch: Get "',
+          '\tserver response: not found: localhost.localdomain/foo/bar@latest: unrecognized path ' +
+          '"localhost.localdomain/foo/bar": fetch: Get "',
       },
       {
         isUrl: true,
