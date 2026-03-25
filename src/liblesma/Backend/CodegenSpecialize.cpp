@@ -237,6 +237,7 @@ auto Codegen::specializeFunction(const FuncDecl* node, const std::vector<lesma::
   }
   auto* llvmFuncType = FunctionType::get(llvmReturnType, paramLLVMTypes, node->getVarArgs());
   auto* llvmFunc = Function::Create(llvmFuncType, linkage, mangledName, *theModule);
+  attachFunctionDebugInfo(llvmFunc, node->getName(), mangledName, node->getSpan(), linkage, false);
   typePtr->setLlvmType(llvmFuncType);
   func->setLlvmValue(llvmFunc);
   auto* funcPtr = func.get();

@@ -11,16 +11,25 @@
 #include <vector>
 
 namespace llvm {
+class DIBuilder;
+class DICompileUnit;
+class DIFile;
+class DISubroutineType;
+class DIType;
 class GlobalVariable;
+class Instruction;
+class AllocaInst;
 } // namespace llvm
 
 #include <llvm/ExecutionEngine/Orc/LLJIT.h>
 #include <llvm/ExecutionEngine/Orc/ThreadSafeModule.h>
 #include <llvm/IR/BasicBlock.h>
 #include <llvm/IR/IRBuilder.h>
+#include <llvm/IR/GlobalValue.h>
 #include <llvm/IR/Module.h>
 #include <llvm/Passes/OptimizationLevel.h>
 #include <llvm/Passes/PassBuilder.h>
+#include <llvm/Support/SMLoc.h>
 #include <llvm/Support/SourceMgr.h>
 #include <llvm/Target/TargetMachine.h>
 
@@ -102,6 +111,14 @@ class Codegen final : public ASTVisitor {
   bool isAssignment = false;
   bool isJit = false;
   bool isMain = true;
+  bool emitDebugInfo = false;
+  llvm::OptimizationLevel optimizationLevelForDebug = llvm::OptimizationLevel::O3;
+
+  std::unique_ptr<llvm::DIBuilder> diBuilder;
+  llvm::DICompileUnit* diCompileUnit = nullptr;
+  llvm::DIFile* moduleDiFile = nullptr;
+  llvm::DISubroutineType* emptyDiSubroutineType = nullptr;
+  std::unordered_map<unsigned, llvm::DIFile*> diFileByBufferId;
 
 public:
   /** Codegen lowers a module using the semantic scope and type cache produced
@@ -114,8 +131,10 @@ public:
           std::unique_ptr<SymbolTable> preScope = nullptr,
           std::vector<std::unique_ptr<lesma::Type>> preTypeCache = {},
           std::unordered_map<lesma::Type*, std::unordered_map<std::string, lesma::Type*>>
-              preSpecializedClassTypeEnvs = {});
-  ~Codegen() override = default;
+              preSpecializedClassTypeEnvs = {},
+          bool emitDebug = false,
+          llvm::OptimizationLevel optimizationLevelForDebugArg = llvm::OptimizationLevel::O3);
+  ~Codegen() override;
 
   Codegen(const Codegen&) = delete;
   auto operator=(const Codegen&) -> Codegen& = delete;
@@ -140,6 +159,21 @@ protected:
   auto initializeModule() -> std::unique_ptr<Module>;
   auto initializeJit() -> std::unique_ptr<LLJIT>;
   auto initializeTopLevel() -> llvm::Function*;
+
+  auto initializeDebugMetadata() -> void;
+  auto finalizeDebugMetadata() -> void;
+  auto getOrCreateDiFileForBuffer(unsigned bufferId) -> llvm::DIFile*;
+  auto getDiTypeForLlvmType(llvm::Type* t) -> llvm::DIType*;
+  auto attachFunctionDebugInfo(llvm::Function* f, llvm::StringRef displayName,
+                               llvm::StringRef linkageName, llvm::SMRange declSpan,
+                               llvm::GlobalValue::LinkageTypes linkage, bool isMainSubprogram)
+      -> void;
+  auto emitParameterDebugDeclare(llvm::Function* fn, llvm::Value* storage, llvm::StringRef name,
+                                 unsigned dwArgNo, llvm::DIFile* file, unsigned line,
+                                 llvm::Type* paramLlvmTy, llvm::Instruction* insertBefore) -> void;
+  auto emitAutoVarDebugDeclare(llvm::AllocaInst* allocaInst, llvm::StringRef name,
+                               llvm::SMRange span, llvm::Instruction* insertBefore) -> void;
+  auto setDebugLoc(llvm::SMRange span) -> void;
 
   auto linkObjectFileWithLld(const std::string& objFilename) -> void;
 

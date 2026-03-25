@@ -54,6 +54,7 @@ auto parseCli(int argc, char** argv) -> std::unique_ptr<CLIOptions> {
   std::string output = "output";
   std::string file;
   int optimizationLevel = 3;
+  bool emitDebugInfo = false;
 
   CLI::App app{"Lesma programming language", "lesma"};
   app.set_version_flag("-v,--version", LESMA_VERSION, "Print the Lesma version");
@@ -75,6 +76,14 @@ auto parseCli(int argc, char** argv) -> std::unique_ptr<CLIOptions> {
       ->check(CLI::Range(0, 3));
   compile->add_option("-O,--opt", optimizationLevel, "Optimization level (0–3)")
       ->check(CLI::Range(0, 3));
+  auto addDebugInfoFlag = [&](CLI::App* sub) -> void {
+    sub->add_flag_callback(
+        "-g,--debug-info",
+        [&emitDebugInfo]() -> void { emitDebugInfo = true; },
+        "Emit LLVM debug metadata (use with -d ir to print; compile also emits DWARF, best with -O0)");
+  };
+  addDebugInfoFlag(compile);
+  addDebugInfoFlag(run);
   CLI::Option* const runDebugOpt = addDebugOption(run);
   // add_flag(bool&) uses lexical_cast on flag values; it fails with "--timer = true" on CLI11 2.6.
   run->add_flag_callback(
@@ -106,7 +115,8 @@ auto parseCli(int argc, char** argv) -> std::unique_ptr<CLIOptions> {
                                                  .debug = debug,
                                                  .timer = timer,
                                                  .jit = run->parsed(),
-                                                 .optimizationLevel = optimizationLevel});
+                                                 .optimizationLevel = optimizationLevel,
+                                                 .emitDebugInfo = emitDebugInfo});
 }
 
 } // namespace
@@ -123,6 +133,7 @@ auto main(int argc, char** argv) -> int {
       .timer = options->timer,
       .implicitFilePath = "",
       .optimizationLevel = optimizationLevelFromCli(options->optimizationLevel),
+      .emitDebugInfo = options->emitDebugInfo,
   });
   int const exitCode = options->jit ? Driver::run(std::move(driverOptions))
                                     : Driver::compile(std::move(driverOptions));

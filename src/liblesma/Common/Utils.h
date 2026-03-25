@@ -25,6 +25,8 @@ struct CLIOptions {
   bool jit;
   /** Optimization level 0–3 for compile and run. */
   int optimizationLevel = 3;
+  /** Emit DWARF when compiling (compile subcommand -g). */
+  bool emitDebugInfo = false;
 };
 
 template <typename S, typename... Args>

@@ -22,11 +22,14 @@
 #include <llvm/ExecutionEngine/Orc/ThreadSafeModule.h>
 #include <llvm/IR/BasicBlock.h>
 #include <llvm/IR/Constants.h>
+#include <llvm/IR/DebugLoc.h>
 #include <llvm/IR/DerivedTypes.h>
+#include <llvm/IR/DIBuilder.h>
 #include <llvm/IR/Function.h>
 #include <llvm/IR/GlobalValue.h>
 #include <llvm/IR/GlobalVariable.h>
 #include <llvm/IR/IRBuilder.h>
+#include <llvm/IR/Instructions.h>
 #include <llvm/IR/LLVMContext.h>
 #include <llvm/IR/LegacyPassManager.h>
 #include <llvm/IR/PassManager.h>
@@ -93,7 +96,8 @@ Codegen::Codegen(std::shared_ptr<Parser> parser, std::shared_ptr<SourceMgr> srcM
                  std::unique_ptr<SymbolTable> preScope,
                  std::vector<std::unique_ptr<lesma::Type>> preTypeCache,
                  std::unordered_map<lesma::Type*, std::unordered_map<std::string, lesma::Type*>>
-                     preSpecializedClassTypeEnvs) {
+                     preSpecializedClassTypeEnvs,
+                 bool emitDebug, llvm::OptimizationLevel optimizationLevelForDebugArg) {
   InitializeNativeTarget();
   InitializeNativeTargetAsmPrinter();
   InitializeNativeTargetAsmParser();
@@ -132,6 +136,9 @@ Codegen::Codegen(std::shared_ptr<Parser> parser, std::shared_ptr<SourceMgr> srcM
     importedModules = std::make_shared<std::vector<std::string>>(std::move(imports));
     importedScopes = std::make_shared<std::vector<std::unique_ptr<SymbolTable>>>();
   }
+  emitDebugInfo = emitDebug;
+  optimizationLevelForDebug = optimizationLevelForDebugArg;
+  initializeDebugMetadata();
   topLevelFunc = initializeTopLevel();
   // base.les is loaded at the start of run() so we don't load it during
   // constructor re-entrancy when creating Codegens for imported modules.
@@ -175,6 +182,17 @@ auto Codegen::defineFunction(lesma::Value* value, const FuncDecl* node, Value* c
 
   BasicBlock* entry = BasicBlock::Create(theModule->getContext(), "entry", f);
   builder->SetInsertPoint(entry);
+  setDebugLoc(node->getBody()->getSpan());
+
+  llvm::DIFile* declFile = moduleDiFile;
+  unsigned declLine = 1U;
+  if (node->getSpan().isValid() && node->getSpan().Start.isValid()) {
+    unsigned const bid = sourceManager->FindBufferContainingLoc(node->getSpan().Start);
+    if (bid != 0U) {
+      declFile = getOrCreateDiFileForBuffer(bid);
+    }
+    declLine = sourceManager->getLineAndColumn(node->getSpan().Start).first;
+  }
 
   int fieldIndex = 0;
   for (const auto& field : value->getType()->getFields()) {
@@ -194,7 +212,9 @@ auto Codegen::defineFunction(lesma::Value* value, const FuncDecl* node, Value* c
     param->setName(paramName);
 
     llvm::Value* ptr = builder->CreateAlloca(param->getType(), nullptr, param->getName() + "_ptr");
-    builder->CreateStore(param, ptr);
+    llvm::Instruction* storeParam = builder->CreateStore(param, ptr);
+    emitParameterDebugDeclare(f, ptr, paramName, static_cast<unsigned>(fieldIndex + 1), declFile,
+                              declLine, param->getType(), storeParam);
 
     if (auto* existingParam = lookupInCurrentScope(paramName);
         existingParam != nullptr && existingParam->getLlvmValue() == nullptr) {
@@ -254,6 +274,8 @@ auto Codegen::defineFunction(lesma::Value* value, const FuncDecl* node, Value* c
 
   // Reset Insert Point to Top Level
   builder->SetInsertPoint(&topLevelFunc->back());
+  // Clear stale DILocation so top-level IR does not inherit the last function's DISubprogram.
+  builder->SetCurrentDebugLocation(llvm::DebugLoc());
 }
 
 auto Codegen::visit(const Statement* node) -> void {
@@ -265,6 +287,7 @@ auto Codegen::visit(const Expression* node) -> void {
 }
 
 auto Codegen::visit(const Compound* node) -> void {
+  setDebugLoc(node->getSpan());
   for (auto* elem : node->getChildren()) {
     elem->accept(*this);
   }
@@ -324,6 +347,7 @@ namespace {
 } // namespace
 
 auto Codegen::visit(const VarDecl* node) -> void {
+  setDebugLoc(node->getSpan());
   std::vector<Literal*> const unpackNames = node->getVarLiterals();
   if (unpackNames.size() > 1U) {
     std::unique_ptr<lesma::Value> valueResult;
@@ -347,7 +371,8 @@ auto Codegen::visit(const VarDecl* node) -> void {
       lesma::Value* existing = scope->lookup(elemName);
       llvm::Type* allocaTy = elemTy->getLlvmType();
       auto* ptr = builder->CreateAlloca(allocaTy, nullptr, elemName);
-      builder->CreateStore(ev, ptr);
+      llvm::Instruction* st = builder->CreateStore(ev, ptr);
+      emitAutoVarDebugDeclare(llvm::cast<llvm::AllocaInst>(ptr), elemName, node->getSpan(), st);
       if (existing != nullptr) {
         existing->setLlvmValue(ptr);
         existing->setCategory(ValueCategory::ADDRESSABLE_STORAGE);
@@ -410,14 +435,18 @@ auto Codegen::visit(const VarDecl* node) -> void {
     existing->setCategory(ValueCategory::ADDRESSABLE_STORAGE);
     existing->setMutable(node->getMutability());
     if (valueResult != nullptr) {
+      llvm::Instruction* st = nullptr;
       if (isPtrToClass && valueResult->getType() != nullptr &&
           valueResult->getType()->is(BaseType::TY_PTR)) {
-        builder->CreateStore(valueResult->getLlvmValue(), ptr);
+        st = builder->CreateStore(valueResult->getLlvmValue(), ptr);
       } else {
         lesma::Type* castTarget = isPtrToClass ? storedType->getElementType() : storedType;
         auto castVal = cast(node->getSpan(), valueResult.get(), castTarget);
-        builder->CreateStore(castVal->getLlvmValue(), ptr);
+        st = builder->CreateStore(castVal->getLlvmValue(), ptr);
       }
+      emitAutoVarDebugDeclare(llvm::cast<llvm::AllocaInst>(ptr), name, node->getSpan(), st);
+    } else {
+      emitAutoVarDebugDeclare(llvm::cast<llvm::AllocaInst>(ptr), name, node->getSpan(), nullptr);
     }
     return;
   }
@@ -452,17 +481,22 @@ auto Codegen::visit(const VarDecl* node) -> void {
   scope->insertSymbol(std::move(symbol));
 
   if (node->getValue() != nullptr) {
+    llvm::Instruction* st = nullptr;
     if (isPtrToClass && val->getType() != nullptr && val->getType()->is(BaseType::TY_PTR)) {
-      builder->CreateStore(val->getLlvmValue(), ptr);
+      st = builder->CreateStore(val->getLlvmValue(), ptr);
     } else {
       lesma::Type* castTarget = isPtrToClass ? type->getElementType() : type;
       auto castVal = cast(node->getSpan(), val.get(), castTarget);
-      builder->CreateStore(castVal->getLlvmValue(), ptr);
+      st = builder->CreateStore(castVal->getLlvmValue(), ptr);
     }
+    emitAutoVarDebugDeclare(llvm::cast<llvm::AllocaInst>(ptr), name, node->getSpan(), st);
+  } else {
+    emitAutoVarDebugDeclare(llvm::cast<llvm::AllocaInst>(ptr), name, node->getSpan(), nullptr);
   }
 }
 
 auto Codegen::visit(const If* node) -> void {
+  setDebugLoc(node->getSpan());
   auto* parentFct = builder->GetInsertBlock()->getParent();
   auto* bStart = llvm::BasicBlock::Create(theModule->getContext(), "if.start");
   auto* bEnd = llvm::BasicBlock::Create(theModule->getContext(), "if.end");
@@ -503,6 +537,7 @@ auto Codegen::visit(const If* node) -> void {
 }
 
 auto Codegen::visit(const While* node) -> void {
+  setDebugLoc(node->getSpan());
   llvm::Function* parentFct = builder->GetInsertBlock()->getParent();
 
   // Create blocks
@@ -554,6 +589,7 @@ auto Codegen::classTypeDeclaresIterable(lesma::Type* classTy) const -> bool {
 }
 
 auto Codegen::visit(const ForIn* node) -> void {
+  setDebugLoc(node->getSpan());
   node->getIterable()->accept(*this);
   std::unique_ptr<lesma::Value> iterable = std::move(result);
   lesma::Type* listType = iterable->getType();
@@ -725,6 +761,7 @@ auto Codegen::buildClassMethodParamTypesForLookup(const FuncDecl* node)
 }
 
 auto Codegen::visit(const FuncDecl* node) -> void {
+  setDebugLoc(node->getSpan());
   if (!node->getGenericParams().empty()) {
     auto savedGenerics = currentGenericTypes;
     for (const auto& name : node->getGenericParams()) {
@@ -884,6 +921,7 @@ auto Codegen::visit(const FuncDecl* node) -> void {
   llvm::FunctionType* funcType =
       FunctionType::get(llvmReturnType, paramLLVMTypes, node->getVarArgs());
   Function* f = Function::Create(funcType, linkage, mangledName, *theModule);
+  attachFunctionDebugInfo(f, node->getName(), mangledName, node->getSpan(), linkage, false);
   auto loweredType = std::make_unique<Type>(BaseType::TY_FUNCTION, funcType, std::move(fields));
   loweredType->setReturnType(returnType);
   loweredType->setGenericParams(node->getGenericParams());
@@ -1021,6 +1059,7 @@ auto Codegen::visit(const ExternFuncDecl* node) -> void {
 }
 
 auto Codegen::visit(const Assignment* node) -> void {
+  setDebugLoc(node->getSpan());
   if (auto* subscript = dynamic_cast<SubscriptOp*>(node->getLeftHandSide())) {
     subscript->getLeft()->accept(*this);
     auto baseValue = std::move(result);
@@ -1111,6 +1150,7 @@ auto Codegen::visit(const Assignment* node) -> void {
 }
 
 auto Codegen::visit(const Break* node) -> void {
+  setDebugLoc(node->getSpan());
   if (breakBlocks.empty()) {
     throw CodegenError(node->getSpan(), "Cannot break without being in a loop");
   }
@@ -1122,6 +1162,7 @@ auto Codegen::visit(const Break* node) -> void {
 }
 
 auto Codegen::visit(const Continue* node) -> void {
+  setDebugLoc(node->getSpan());
   if (continueBlocks.empty()) {
     throw CodegenError(node->getSpan(), "Cannot continue without being in a loop");
   }
@@ -1135,6 +1176,7 @@ auto Codegen::visit(const Continue* node) -> void {
 auto Codegen::visit(const Pass* node) -> void { (void) node; }
 
 auto Codegen::visit(const Return* node) -> void {
+  setDebugLoc(node->getSpan());
   // Check if it's top-level
   if (builder->GetInsertBlock()->getParent() == topLevelFunc) {
     throw CodegenError(node->getSpan(), "Return statements are not allowed at top-level");
@@ -1198,10 +1240,12 @@ auto Codegen::visit(const UnimplementedStatement* node) -> void {
 }
 
 auto Codegen::visit(const ExpressionStatement* node) -> void {
+  setDebugLoc(node->getSpan());
   node->getExpression()->accept(*this);
 }
 
 auto Codegen::visit(const Import* node) -> void {
+  setDebugLoc(node->getSpan());
   compileModule(node->getSpan(), node->getFilePath(), node->isStd(), node->getAlias(),
                 node->getImportAll(), node->getImportScope(), node->getImportedNames());
 }
@@ -1211,6 +1255,7 @@ auto Codegen::visit(const TraitDecl* /*node*/) -> void {
 }
 
 auto Codegen::visit(const Class* node) -> void {
+  setDebugLoc(node->getSpan());
   if (!node->getGenericParams().empty()) {
     genericClasses[node->getIdentifier()] = node;
     auto* genericSymbol = scope->lookupStruct(node->getIdentifier());
@@ -1282,6 +1327,7 @@ auto Codegen::visit(const Class* node) -> void {
 }
 
 auto Codegen::visit(const Enum* node) -> void {
+  setDebugLoc(node->getSpan());
   lesma::Value* existingEnum = scope->lookupStruct(node->getIdentifier());
   if (existingEnum == nullptr) {
     throw CodegenError(node->getSpan(), "Missing typechecked enum symbol for {}",
@@ -1296,9 +1342,13 @@ auto Codegen::visit(const Enum* node) -> void {
   }
 }
 
-auto Codegen::visit(const FuncCall* node) -> void { result = genFuncCall(node, {}); }
+auto Codegen::visit(const FuncCall* node) -> void {
+  setDebugLoc(node->getSpan());
+  result = genFuncCall(node, {});
+}
 
 auto Codegen::visit(const BinaryOp* node) -> void {
+  setDebugLoc(node->getSpan());
   node->getLeft()->accept(*this);
   auto left = std::move(result);
   node->getRight()->accept(*this);
@@ -1723,6 +1773,7 @@ auto Codegen::visit(const BinaryOp* node) -> void {
 }
 
 auto Codegen::visit(const SubscriptOp* node) -> void {
+  setDebugLoc(node->getSpan());
   node->getLeft()->accept(*this);
   auto listValue = std::move(result);
   node->getIndex()->accept(*this);
@@ -1766,6 +1817,7 @@ auto Codegen::visit(const SubscriptOp* node) -> void {
 }
 
 auto Codegen::visit(const DotOp* node) -> void {
+  setDebugLoc(node->getSpan());
   node->getLeft()->accept(*this);
   auto leftValue = std::move(result);
   if (leftValue != nullptr && leftValue->getType() != nullptr &&
@@ -2061,6 +2113,7 @@ auto Codegen::visit(const DotOp* node) -> void {
 }
 
 auto Codegen::visit(const CastOp* node) -> void {
+  setDebugLoc(node->getSpan());
   node->getExpression()->accept(*this);
   auto expr = std::move(result);
   node->getType()->accept(*this);
@@ -2069,6 +2122,7 @@ auto Codegen::visit(const CastOp* node) -> void {
 }
 
 auto Codegen::visit(const IsOp* node) -> void {
+  setDebugLoc(node->getSpan());
   node->getLeft()->accept(*this);
   auto* leftType = result->getType();
   node->getRight()->accept(*this);
@@ -2102,6 +2156,7 @@ auto Codegen::visit(const IsOp* node) -> void {
 }
 
 auto Codegen::visit(const UnaryOp* node) -> void {
+  setDebugLoc(node->getSpan());
   node->getExpression()->accept(*this);
   auto operand = std::move(result);
 
@@ -2161,6 +2216,7 @@ auto Codegen::visit(const UnaryOp* node) -> void {
 }
 
 auto Codegen::visit(const ListLiteral* node) -> void {
+  setDebugLoc(node->getSpan());
   lesma::Type* listType = node->getResolvedType();
   if (listType != nullptr && listType->is(BaseType::TY_CLASS)) {
     auto fields = listType->getFields();
@@ -2244,6 +2300,7 @@ auto Codegen::visit(const ListLiteral* node) -> void {
 }
 
 auto Codegen::visit(const TupleLiteral* node) -> void {
+  setDebugLoc(node->getSpan());
   lesma::Type* tupleType = node->getResolvedType();
   if (tupleType == nullptr || !tupleType->is(BaseType::TY_TUPLE)) {
     throw CodegenError(node->getSpan(), "Tuple literal has no resolved tuple type");
@@ -2266,6 +2323,7 @@ auto Codegen::visit(const TupleLiteral* node) -> void {
 }
 
 auto Codegen::visit(const Literal* node) -> void {
+  setDebugLoc(node->getSpan());
   // Cache Types to prevent dangling pointers when result is reassigned
   if (node->getType() == TokenType::DOUBLE) {
     auto* type = cacheType(std::make_unique<Type>(BaseType::TY_FLOAT, builder->getDoubleTy()));

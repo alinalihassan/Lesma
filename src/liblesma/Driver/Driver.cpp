@@ -170,6 +170,7 @@ auto Driver::baseCompile(std::unique_ptr<lesma::Options> options, bool jit) -> i
   std::string outputFilename = options->outputFilename;
   Debug debugFlags = options->debug;
   llvm::OptimizationLevel const optLevel = options->optimizationLevel;
+  bool const emitDebugInfo = options->emitDebugInfo;
   bool const timerEnabled = options->timer;
 
   auto result = analyze(std::move(options), timerEnabled ? &timer : nullptr);
@@ -195,7 +196,7 @@ auto Driver::baseCompile(std::unique_ptr<lesma::Options> options, bool jit) -> i
             std::move(result.parser), result.sourceMgr,
             result.mainFilePath.empty() ? "" : result.mainFilePath, modules, jit, true, "", nullptr,
             nullptr, nullptr, std::move(result.rootScope), std::move(result.typeCache),
-            std::move(result.specializedTypeEnv));
+            std::move(result.specializedTypeEnv), emitDebugInfo, optLevel);
         cg->run();
         return cg;
       });

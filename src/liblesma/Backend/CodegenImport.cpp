@@ -242,7 +242,8 @@ auto Codegen::compileModule(llvm::SMRange span, const std::string& filepath, boo
     auto codegen = std::make_unique<Codegen>(
         std::move(parser), sourceManager, absolutePath, std::vector<std::string>{}, isJit, false,
         !importToScope ? moduleAlias : "", theContext, importedModules, importedScopes,
-        std::move(preScope), std::move(preTypeCache), std::move(preSpecEnv));
+        std::move(preScope), std::move(preTypeCache), std::move(preSpecEnv), emitDebugInfo,
+        OptimizationLevel::O0);
     codegen->run();
     mergeImportedTraitMetadata(*codegen);
 

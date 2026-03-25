@@ -42,6 +42,8 @@ struct Options {
   std::string implicitFilePath;
   /** IR optimization for codegen (compile and JIT run). Defaults to O3. */
   llvm::OptimizationLevel optimizationLevel = llvm::OptimizationLevel::O3;
+  /** Emit DWARF debug info in object files (compile subcommand). */
+  bool emitDebugInfo = false;
 };
 
 class Driver {
