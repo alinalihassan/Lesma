@@ -81,6 +81,7 @@ const reducers = {
         running: false,
       }),
       [ActionType.EVAL_START]: (s: StatusState, _: Action) => ({
+        ...s,
         lastError: null,
         loading: false,
         running: true,
@@ -88,6 +89,7 @@ const reducers = {
         events: [],
       }),
       [ActionType.EVAL_EVENT]: (s: StatusState, a: Action<EvalEvent>) => ({
+        ...s,
         lastError: null,
         loading: false,
         dirty: true,

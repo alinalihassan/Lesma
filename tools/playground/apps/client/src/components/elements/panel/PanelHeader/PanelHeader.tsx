@@ -4,11 +4,14 @@ import { PanelAction, type PanelActionProps } from '../PanelAction'
 import './PanelHeader.css'
 
 interface Props {
-  label: string
+  /** Shown when `children` is not provided (uppercase styling). */
+  label?: string
+  /** Left side of the header (e.g. tabs). Replaces `label` when set. */
+  children?: React.ReactNode
   commands?: Record<string, PanelActionProps>
 }
 
-export const PanelHeader: React.FC<Props> = ({ label, commands }) => {
+export const PanelHeader: React.FC<Props> = ({ label, commands, children }) => {
   const theme = useContext(ThemeContext)
   const {
     palette: { neutralLight, neutralDark, neutralQuaternaryAlt },
@@ -26,7 +29,7 @@ export const PanelHeader: React.FC<Props> = ({ label, commands }) => {
       }
     >
       <div className="PanelHeader__side--left">
-        <span className="PanelHeader__title">{label}</span>
+        {children ?? (label ? <span className="PanelHeader__title">{label}</span> : null)}
       </div>
       <ul className="PanelHeader__commands">
         {commands

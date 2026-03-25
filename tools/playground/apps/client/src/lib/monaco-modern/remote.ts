@@ -35,6 +35,19 @@ export class MonacoEditorRemote implements EditorRemote {
     this.getEditor()?.focus()
   }
 
+  revealPosition(path: string, line: number, column: number): void {
+    const uri = this.monaco.Uri.parse(workspaceFileUri(path))
+    const model = this.monaco.editor.getModel(uri)
+    const ed = this.getEditor()
+    if (!model || !ed || ed.getModel() !== model) {
+      return
+    }
+    const position = { lineNumber: line, column: column }
+    ed.setPosition(position)
+    ed.revealPositionInCenter(position)
+    ed.focus()
+  }
+
   dispose(): void {
     /* Editor owns lifecycle */
   }

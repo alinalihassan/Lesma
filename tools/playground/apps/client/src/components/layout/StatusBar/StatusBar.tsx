@@ -1,9 +1,9 @@
-import React, { useMemo } from 'react'
+import React, { useCallback, useMemo } from 'react'
 import { clsx } from 'clsx'
 import { DiagnosticSeverity, type Diagnostic } from 'vscode-languageserver-protocol'
 import { VscDebugAlt } from 'react-icons/vsc'
-import { useSelector } from 'react-redux'
-import type { State } from '~/store'
+import { useDispatch, useSelector } from 'react-redux'
+import { dispatchPanelLayoutChange, newUIStateChangeAction, type DispatchFn, type State } from '~/store'
 
 import { EllipsisText } from '~/components/utils/EllipsisText'
 import { StatusBarItem, StatusBarItemCounter } from '~/components/layout/StatusBar/StatusBarItem'
@@ -89,6 +89,7 @@ const getStatusItem = ({ loading, running, lastError }: StateProps) => {
 }
 
 export const StatusBar: React.FC = () => {
+  const dispatch = useDispatch<DispatchFn>()
   const status = useSelector(({ status }: State) => status)
   const snippetLoading = useSelector(({ workspace }: State) => workspace.snippet?.loading)
   const tabSize = useSelector(({ monaco }: State) => monaco.tabSize)
@@ -101,6 +102,15 @@ export const StatusBar: React.FC = () => {
   const column = cursorPosition?.column ?? 1
 
   const { warnings, errors } = useMemo(() => countMarkers(markers), [markers])
+
+  const showProblemsPanel = useCallback(() => {
+    dispatch(dispatchPanelLayoutChange({ collapsed: false }))
+    dispatch(newUIStateChangeAction({ inspectorTab: 'problems' }))
+    requestAnimationFrame(() => {
+      document.querySelector('.InspectorPanel')?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+    })
+  }, [dispatch])
+
   return (
     <>
       <div
@@ -109,11 +119,22 @@ export const StatusBar: React.FC = () => {
         })}
       >
         <div className={styles['StatusBar__side-left']}>
-          <StatusBarItem icon="ErrorBadge" button>
+          <StatusBarItem
+            icon="ErrorBadge"
+            button
+            title="Problems: errors (click to open Problems panel)"
+            onClick={errors > 0 ? showProblemsPanel : undefined}
+            disabled={errors === 0}
+          >
             <StatusBarItemCounter label="Error" value={errors} />
           </StatusBarItem>
           {warnings > 0 ? (
-            <StatusBarItem icon="Warning" button>
+            <StatusBarItem
+              icon="Warning"
+              button
+              title="Problems: warnings (click to open Problems panel)"
+              onClick={showProblemsPanel}
+            >
               <StatusBarItemCounter label="Warning" value={warnings} />
             </StatusBarItem>
           ) : null}

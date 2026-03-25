@@ -8,7 +8,23 @@ import { type NotificationsState } from './notifications/state'
 import type { TerminalState } from './terminal/state'
 import type { WorkspaceState } from './workspace/state'
 
-export interface UIState {}
+export type InspectorOutputTab = 'terminal' | 'problems'
+
+export interface PendingEditorReveal {
+  path: string
+  /** 1-based line (Monaco) */
+  line: number
+  /** 1-based column (Monaco) */
+  column: number
+}
+
+export interface UIState {
+  loading?: boolean
+  /** Bottom panel: terminal vs Problems list */
+  inspectorTab?: InspectorOutputTab
+  /** After switching file, editor scrolls to this location */
+  pendingEditorReveal?: PendingEditorReveal | null
+}
 
 export interface Position {
   line: number

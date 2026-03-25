@@ -18,7 +18,8 @@
 .PanelHeader__side--left {
   display: flex;
   align-items: center;
-  /*background: #ff00aacc;*/
+  flex: 1;
+  min-width: 0;
 }
 
 .PanelHeader__commands {

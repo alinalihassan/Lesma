@@ -8,6 +8,7 @@ import { Emitter, languages } from 'modern-monaco/editor-core'
 import * as lsp from 'vscode-languageserver-protocol'
 
 import type { MonacoApi } from './init-monaco'
+import { workspacePathFromFileUri } from './workspace-uri'
 
 type ITextModel = editor.ITextModel
 
@@ -328,6 +329,7 @@ export class LesmaMonacoLspBridge {
     private readonly monaco: MonacoApi,
     private readonly socketUrl: string,
     private readonly getActiveModel: () => ITextModel | null,
+    private readonly onDiagnostics?: (workspacePath: string, diagnostics: lsp.Diagnostic[]) => void,
   ) {}
 
   start(): void {
@@ -723,6 +725,17 @@ export class LesmaMonacoLspBridge {
       code: typeof d.code === 'number' || typeof d.code === 'string' ? String(d.code) : undefined,
     }))
     this.monaco.editor.setModelMarkers(model, 'lesma-lsp', markers)
+    this.publishDiagnosticsToStore(params.uri, params.diagnostics)
+  }
+
+  private publishDiagnosticsToStore(uriStr: string, diagnostics: lsp.Diagnostic[]): void {
+    if (!this.onDiagnostics) {
+      return
+    }
+    const path = workspacePathFromFileUri(uriStr)
+    if (path) {
+      this.onDiagnostics(path, diagnostics)
+    }
   }
 
   private async handshake(): Promise<void> {
@@ -795,6 +808,7 @@ export class LesmaMonacoLspBridge {
     if (m) {
       this.monaco.editor.setModelMarkers(m, 'lesma-lsp', [])
     }
+    this.publishDiagnosticsToStore(uriStr, [])
   }
 
   private attachModelListener(model: ITextModel | null): void {
@@ -917,8 +931,11 @@ export class LesmaMonacoLspBridge {
     this.documentSymbolDisposable?.dispose()
     this.documentSymbolDisposable = null
 
-    if (this.openUri && this.ws?.readyState === WebSocket.OPEN) {
-      this.notify('textDocument/didClose', { textDocument: { uri: this.openUri } })
+    if (this.openUri) {
+      if (this.ws?.readyState === WebSocket.OPEN) {
+        this.notify('textDocument/didClose', { textDocument: { uri: this.openUri } })
+      }
+      this.publishDiagnosticsToStore(this.openUri, [])
     }
     this.openUri = null
 

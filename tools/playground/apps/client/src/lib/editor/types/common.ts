@@ -43,5 +43,7 @@ export interface EditorRemote {
   invalidateDocument: (path: string) => void
   forgetDocument: (path: string) => void
   focus: () => void
+  /** Scroll the open editor to a 1-based line/column (Monaco coordinates). */
+  revealPosition: (path: string, line: number, column: number) => void
   dispose: () => void
 }

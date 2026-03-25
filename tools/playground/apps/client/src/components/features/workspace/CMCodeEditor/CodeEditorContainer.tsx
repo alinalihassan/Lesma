@@ -1,6 +1,7 @@
-import React, { useMemo } from 'react'
+import React, { useCallback, useEffect, useMemo, useRef } from 'react'
 import { useDispatch, useSelector } from 'react-redux'
 import type { AnyAction } from 'redux'
+import type { Diagnostic } from 'vscode-languageserver-protocol'
 
 import {
   CommandType,
@@ -20,6 +21,8 @@ import { dispatchUpdateFile } from '~/store/workspace'
 import { getDefaultFontFamily, getFontFamily } from '~/services/fonts'
 import {
   Dispatcher,
+  newMarkerAction,
+  newUIStateChangeAction,
   newCursorPositionChangeDispatcher,
   newMonacoParamsChangeDispatcher,
   runFileDispatcher,
@@ -82,13 +85,14 @@ export interface CodeEditorContainerProps {
 export const CodeEditorContainer: React.FC<CodeEditorContainerProps> = ({ onMount, onUnmount }) => {
   const dispatch = useDispatch()
   const saveDebouncer = useDebouncer(150)
+  const editorRemoteRef = useRef<EditorRemote | null>(null)
 
   const monaco = useSelector((state: State) => state.monaco)
   const settings = useSelector((state: State) => state.settings)
   const workspace = useSelector((state: State) => state.workspace)
-  const isReadOnly = useSelector(
-    ({ status, workspace: ws }: State) =>
-      Boolean(status?.loading || status?.running || ws.snippet?.loading),
+  const pendingReveal = useSelector((state: State) => state.ui?.pendingEditorReveal)
+  const isReadOnly = useSelector(({ status, workspace: ws }: State) =>
+    Boolean(status?.loading || status?.running || ws.snippet?.loading),
   )
 
   const preferences: EditorPreferences = useMemo(
@@ -117,6 +121,46 @@ export const CodeEditorContainer: React.FC<CodeEditorContainerProps> = ({ onMoun
     }
   }, [workspace])
 
+  const onDiagnostics = useCallback(
+    (workspacePath: string, diagnostics: Diagnostic[]) => {
+      dispatch(newMarkerAction(workspacePath, diagnostics))
+    },
+    [dispatch],
+  )
+
+  const handleEditorMount = useCallback(
+    (remote: EditorRemote) => {
+      editorRemoteRef.current = remote
+      onMount(remote)
+    },
+    [onMount],
+  )
+
+  useEffect(() => {
+    return () => {
+      editorRemoteRef.current = null
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!pendingReveal) {
+      return
+    }
+    if (pendingReveal.path !== workspace.selectedFile) {
+      return
+    }
+    const remote = editorRemoteRef.current
+    if (!remote) {
+      return
+    }
+    /* Defer past Monaco model swap when switching tabs */
+    const id = window.setTimeout(() => {
+      remote.revealPosition(pendingReveal.path, pendingReveal.line, pendingReveal.column)
+      dispatch(newUIStateChangeAction({ pendingEditorReveal: null }))
+    }, 32)
+    return () => clearTimeout(id)
+  }, [pendingReveal, workspace.selectedFile, dispatch])
+
   return (
     <div
       style={{
@@ -134,7 +178,7 @@ export const CodeEditorContainer: React.FC<CodeEditorContainerProps> = ({ onMoun
         value={doc}
         preferences={preferences}
         readonly={isReadOnly}
-        onMount={onMount}
+        onMount={handleEditorMount}
         onUnmount={onUnmount}
         onChange={({ path, text }) => {
           saveDebouncer(() => {
@@ -153,6 +197,7 @@ export const CodeEditorContainer: React.FC<CodeEditorContainerProps> = ({ onMoun
             dispatch(action)
           }
         }}
+        onDiagnostics={onDiagnostics}
       />
     </div>
   )

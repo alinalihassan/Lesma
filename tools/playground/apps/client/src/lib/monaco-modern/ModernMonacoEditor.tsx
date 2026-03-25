@@ -300,7 +300,14 @@ export const ModernMonacoEditor: React.FC<MonacoEditorProps> = (props) => {
 
     disposeLsp()
     if (path.endsWith('.les')) {
-      const bridge = new LesmaMonacoLspBridge(monaco, environment.lspWebSocketUrl, () => ed.getModel())
+      const bridge = new LesmaMonacoLspBridge(
+        monaco,
+        environment.lspWebSocketUrl,
+        () => ed.getModel(),
+        (workspacePath, diagnostics) => {
+          propsRef.current.onDiagnostics?.(workspacePath, diagnostics)
+        },
+      )
       lspRef.current = bridge
       bridge.start()
       bridge.onActiveModelChanged()

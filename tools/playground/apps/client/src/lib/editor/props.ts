@@ -1,3 +1,5 @@
+import type { Diagnostic } from 'vscode-languageserver-protocol'
+
 import type { ColorScheme, DocumentState, EditorRemote, InputMode } from './types/common'
 import type { EditorCommand, EditorEvent } from './types/events'
 
@@ -37,4 +39,6 @@ export interface MonacoEditorProps {
   onUnmount?: () => void
   onEvent?: (e: EditorEvent) => void
   onCommand?: (cmd: EditorCommand, rem: EditorRemote) => void
+  /** LSP diagnostics for the active document (drives status bar problem counts). */
+  onDiagnostics?: (workspacePath: string, diagnostics: Diagnostic[]) => void
 }
