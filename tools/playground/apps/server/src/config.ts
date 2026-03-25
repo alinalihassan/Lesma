@@ -4,8 +4,6 @@ export type ServerConfig = {
   lesmaBin: string
   lesmaLspBin: string
   runTimeoutMs: number
-  serverVersion: string
-  lesmaVersionLabel: string
 }
 
 function envDurationMs(key: string, fallbackMs: number): number {
@@ -54,7 +52,5 @@ export function loadConfig(argv: string[]): ServerConfig {
     lesmaBin: envString("LESMA_BIN", "lesma"),
     lesmaLspBin: envString("LESMA_LSP_BIN", "lesma-lsp"),
     runTimeoutMs: envDurationMs("LESMA_RUN_TIMEOUT", 30_000),
-    serverVersion: envString("PLAYGROUND_SERVER_VERSION", "dev"),
-    lesmaVersionLabel: envString("LESMA_VERSION_LABEL", "Lesma"),
   }
 }
