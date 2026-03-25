@@ -27,7 +27,20 @@
 
 using namespace lesma;
 
-auto lesma::analyze(std::unique_ptr<Options> options) -> AnalysisResult {
+namespace {
+
+template <typename F>
+void maybeTimed(Timer* timerPtr, const std::string& label, F&& fn) {
+  if (timerPtr != nullptr) {
+    timerPtr->measure(label, std::forward<F>(fn));
+  } else {
+    std::forward<F>(fn)();
+  }
+}
+
+} // namespace
+
+auto lesma::analyze(std::unique_ptr<Options> options, Timer* phaseTimer) -> AnalysisResult {
   AnalysisResult result;
   if (options->sourceType == SourceType::FILE) {
     result.mainFilePath = options->source;
@@ -39,19 +52,26 @@ auto lesma::analyze(std::unique_ptr<Options> options) -> AnalysisResult {
   unsigned mainBufferId = 0;
 
   try {
-    if (options->sourceType == SourceType::FILE) {
-      auto buffer = llvm::MemoryBuffer::getFileAsStream(options->source);
-      if (!buffer) {
-        result.diagnostics.push_back(AnalysisDiagnostic{
-            .message = "Could not read file: " + options->source, .span = llvm::SMRange()});
-        result.sourceMgr = std::move(srcMgr);
-        result.mainBufferId = mainBufferId;
-        return result;
+    bool readFailed = false;
+    maybeTimed(phaseTimer, "Reading source", [&]() -> void {
+      if (options->sourceType == SourceType::FILE) {
+        auto buffer = llvm::MemoryBuffer::getFileAsStream(options->source);
+        if (!buffer) {
+          result.diagnostics.push_back(AnalysisDiagnostic{
+              .message = "Could not read file: " + options->source, .span = llvm::SMRange()});
+          readFailed = true;
+          return;
+        }
+        mainBufferId = srcMgr->AddNewSourceBuffer(std::move(*buffer), llvm::SMLoc());
+      } else {
+        auto buffer = llvm::MemoryBuffer::getMemBuffer(options->source);
+        mainBufferId = srcMgr->AddNewSourceBuffer(std::move(buffer), llvm::SMLoc());
       }
-      mainBufferId = srcMgr->AddNewSourceBuffer(std::move(*buffer), llvm::SMLoc());
-    } else {
-      auto buffer = llvm::MemoryBuffer::getMemBuffer(options->source);
-      mainBufferId = srcMgr->AddNewSourceBuffer(std::move(buffer), llvm::SMLoc());
+    });
+    if (readFailed) {
+      result.sourceMgr = std::move(srcMgr);
+      result.mainBufferId = mainBufferId;
+      return result;
     }
   } catch (const LesmaError& err) {
     result.diagnostics.push_back(AnalysisDiagnostic{
@@ -63,18 +83,20 @@ auto lesma::analyze(std::unique_ptr<Options> options) -> AnalysisResult {
 
   std::unique_ptr<Lexer> lexer;
   try {
-    lexer = std::make_unique<Lexer>(srcMgr);
-    lexer->scanAll();
-    if ((options->debug & Debug::LEXER) != Debug::NONE) {
-      lesma::print(LogType::DEBUG, "Lexer tokens:\n");
-      for (Token* tok : lexer->getTokens()) {
-        if (tok != nullptr) {
-          lesma::print(LogType::CLEAR, "  {}\n", tok->dump(srcMgr));
+    maybeTimed(phaseTimer, "Lexing", [&]() -> void {
+      lexer = std::make_unique<Lexer>(srcMgr);
+      lexer->scanAll();
+      if ((options->debug & Debug::LEXER) != Debug::NONE) {
+        lesma::print(LogType::DEBUG, "Lexer tokens:\n");
+        for (Token* tok : lexer->getTokens()) {
+          if (tok != nullptr) {
+            lesma::print(LogType::CLEAR, "  {}\n", tok->dump(srcMgr));
+          }
         }
+        // stdout is often fully buffered when not a TTY; LLVM's IR print can flush earlier.
+        std::fflush(stdout);
       }
-      // stdout is often fully buffered when not a TTY; LLVM's IR print can flush earlier.
-      std::fflush(stdout);
-    }
+    });
   } catch (const LesmaError& err) {
     result.diagnostics.push_back(AnalysisDiagnostic{
         .message = err.what(), .span = err.getSpan().isValid() ? err.getSpan() : llvm::SMRange()});
@@ -85,15 +107,17 @@ auto lesma::analyze(std::unique_ptr<Options> options) -> AnalysisResult {
 
   std::unique_ptr<Parser> parser;
   try {
-    parser = std::make_unique<Parser>(lexer->getTokens());
-    parser->parse();
-    if ((options->debug & Debug::AST) != Debug::NONE) {
-      Compound* ast = parser->getAst();
-      if (ast != nullptr) {
-        lesma::print(LogType::DEBUG, "AST:\n{}\n", ast->toString(srcMgr.get(), "", true));
+    maybeTimed(phaseTimer, "Parsing", [&]() -> void {
+      parser = std::make_unique<Parser>(lexer->getTokens());
+      parser->parse();
+      if ((options->debug & Debug::AST) != Debug::NONE) {
+        Compound* ast = parser->getAst();
+        if (ast != nullptr) {
+          lesma::print(LogType::DEBUG, "AST:\n{}\n", ast->toString(srcMgr.get(), "", true));
+        }
+        std::fflush(stdout);
       }
-      std::fflush(stdout);
-    }
+    });
   } catch (const LesmaError& err) {
     result.diagnostics.push_back(
         AnalysisDiagnostic{err.what(), err.getSpan().isValid() ? err.getSpan() : llvm::SMRange()});
@@ -107,7 +131,9 @@ auto lesma::analyze(std::unique_ptr<Options> options) -> AnalysisResult {
                             return getExportedTopLevelNamesFromFile(path, isStd, main);
                           });
   try {
-    typechecker.run(parser->getAst());
+    maybeTimed(phaseTimer, "Typecheck", [&]() -> void {
+      typechecker.run(parser->getAst());
+    });
     result.sourceMgr = std::move(srcMgr);
     result.mainBufferId = mainBufferId;
     result.parser = std::move(parser);
@@ -144,8 +170,9 @@ auto Driver::baseCompile(std::unique_ptr<lesma::Options> options, bool jit) -> i
   std::string outputFilename = options->outputFilename;
   Debug debugFlags = options->debug;
   llvm::OptimizationLevel const optLevel = options->optimizationLevel;
+  bool const timerEnabled = options->timer;
 
-  auto result = analyze(std::move(options));
+  auto result = analyze(std::move(options), timerEnabled ? &timer : nullptr);
 
   if (result.hasErrors()) {
     for (const auto& d : result.diagnostics) {

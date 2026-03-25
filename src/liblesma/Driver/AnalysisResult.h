@@ -18,6 +18,7 @@
 
 namespace lesma {
 class Compound;
+class Timer;
 
 /** Single diagnostic (error/warning) with a source span. */
 struct AnalysisDiagnostic {
@@ -109,8 +110,10 @@ struct AnalysisResult {
   [[nodiscard]] auto hasErrors() const -> bool { return !diagnostics.empty(); }
 };
 
-/** Run lexer, parser, and typechecker. Does not run codegen. */
-auto analyze(std::unique_ptr<Options> options) -> AnalysisResult;
+/** Run lexer, parser, and typechecker. Does not run codegen.
+ *  When \p phaseTimer is non-null, the driver passes an enabled Timer so phases are recorded
+ *  (Reading source, Lexing, Parsing, Typecheck). */
+auto analyze(std::unique_ptr<Options> options, Timer* phaseTimer = nullptr) -> AnalysisResult;
 auto buildAnalysisIndex(const Compound* ast, llvm::SourceMgr* srcMgr, unsigned bufferId)
     -> AnalysisIndex;
 
