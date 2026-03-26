@@ -8,18 +8,18 @@
 - [x] Add global variables (like 'export let pi = 3.14')
 - [x] Add generics
 - [x] Add lists
-- [ ] Add optional types
-- [ ] Add try catch
 - [x] Add optional parameters in function declarations
 - [x] Add tuples
 - [x] Add ranges (range(1, 4) style)
-- [ ] Add dictionaries
 - [x] Add foreach loops
-- [ ] Add lambda functions
 - [x] Add traits
 - [x] Add string interpolation
-- [ ] Add multithreading using pthread for now (async/await? ala Spice)
 - [x] Add multiple value return without having to make structs
+- [ ] Add optional types
+- [ ] Add dictionaries
+- [ ] Add lambda functions
+- [ ] Add try catch
+- [ ] Add multithreading using pthread for now (async/await? ala Spice)
 
 ## LSP
 - [ ] rename + prepareRename
