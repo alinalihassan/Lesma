@@ -413,6 +413,8 @@ auto Parser::parseListLiteral() -> std::unique_ptr<Expression> {
 
 auto Parser::parseTerm() -> std::unique_ptr<Expression> {
   switch (peek()->type) {
+  case TokenType::STRING_TEMPLATE_CHUNK:
+    return parseStringInterpolation();
   case TokenType::STRING:
   case TokenType::INTEGER:
   case TokenType::DOUBLE:
@@ -465,6 +467,25 @@ auto Parser::parseTerm() -> std::unique_ptr<Expression> {
   }
 
   return nullptr;
+}
+
+auto Parser::parseStringInterpolation() -> std::unique_ptr<Expression> {
+  auto* chunk0 = consume(TokenType::STRING_TEMPLATE_CHUNK);
+  std::vector<std::string> chunks;
+  chunks.push_back(chunk0->lexeme);
+  llvm::SMRange span = chunk0->span;
+  std::vector<std::unique_ptr<Expression>> exprs;
+  while (check(TokenType::STRING_TEMPLATE_EXPR_START)) {
+    consume(TokenType::STRING_TEMPLATE_EXPR_START);
+    std::unique_ptr<Expression> expr = parseExpression();
+    consume(TokenType::STRING_TEMPLATE_EXPR_END);
+    exprs.push_back(std::move(expr));
+    auto* tail = consume(TokenType::STRING_TEMPLATE_CHUNK,
+                         "Expected string text after } in interpolated string");
+    chunks.push_back(tail->lexeme);
+    span = llvm::SMRange{span.Start, tail->span.End};
+  }
+  return std::make_unique<StringInterpolation>(span, std::move(chunks), std::move(exprs));
 }
 
 auto Parser::parsePostfix() -> std::unique_ptr<Expression> {
@@ -1032,8 +1053,8 @@ auto Parser::parseExport() -> std::unique_ptr<Statement> {
     error(peek(), "Cannot export class members");
   }
 
-  if (!checkAny<TokenType::DEF, TokenType::CLASS, TokenType::ENUM, TokenType::TRAIT,
-               TokenType::LET, TokenType::VAR>()) {
+  if (!checkAny<TokenType::DEF, TokenType::CLASS, TokenType::ENUM, TokenType::TRAIT, TokenType::LET,
+                TokenType::VAR>()) {
     error(peek(), "Can only export functions, classes, enums, traits, and variables");
   }
 

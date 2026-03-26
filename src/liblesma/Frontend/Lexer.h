@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstddef>
+#include <deque>
 #include <memory>
 #include <optional>
 #include <string>
@@ -41,11 +42,14 @@ public:
 private:
   auto scanOne(bool continuation = false) -> std::unique_ptr<Token>;
 
+  auto openStringLiteral() -> std::unique_ptr<Token>;
+  auto continueTemplateStringChunk() -> std::unique_ptr<Token>;
+  enum class StringScanStep { Continue, ClosedQuote, StartInterpolation };
+  auto scanStringContentUnit(std::string& acc) -> StringScanStep;
+
   auto matchAndAdvance(char expected) -> bool;
 
   auto peek(int offset = 0) -> char;
-
-  auto addStringToken() -> std::unique_ptr<Token>;
 
   static auto isDigit(char c) -> bool { return c >= '0' && c <= '9'; }
 
@@ -108,6 +112,11 @@ private:
   int indent = 0;
   std::vector<int> indentStack = {0};
   std::vector<int> altIndentStack = {0};
+
+  std::deque<std::unique_ptr<Token>> pendingTokens;
+  /** Nested `${ ... }`; incremented on `${`, decremented on closing `}`. */
+  int templateInterpolationDepth = 0;
+  bool resumeTemplateStringChunk = false;
 
   auto resetTokenBeg() -> void;
 };

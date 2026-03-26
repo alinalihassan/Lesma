@@ -436,9 +436,9 @@ auto Codegen::visit(const VarDecl* node) -> void {
           filename.empty() ? std::string() : normalizeResolvedFilesystemPath(filename), name);
       llvm::GlobalVariable* gv = theModule->getGlobalVariable(mangled, true);
       if (gv == nullptr) {
-        gv = new llvm::GlobalVariable(
-            *theModule, storageLlvmTy, false, llvm::GlobalValue::ExternalLinkage,
-            llvm::Constant::getNullValue(storageLlvmTy), mangled);
+        gv = new llvm::GlobalVariable(*theModule, storageLlvmTy, false,
+                                      llvm::GlobalValue::ExternalLinkage,
+                                      llvm::Constant::getNullValue(storageLlvmTy), mangled);
       }
       existing->setLlvmValue(gv);
       existing->setMangledName(mangled);
@@ -2070,9 +2070,8 @@ auto Codegen::visit(const DotOp* node) -> void {
                   normalizeResolvedFilesystemPath(pathIt->second), field);
               llvm::GlobalVariable* gv = theModule->getGlobalVariable(mangled, true);
               if (gv == nullptr) {
-                gv = new llvm::GlobalVariable(
-                    *theModule, storageTy, false, llvm::GlobalValue::ExternalLinkage, nullptr,
-                    mangled);
+                gv = new llvm::GlobalVariable(*theModule, storageTy, false,
+                                              llvm::GlobalValue::ExternalLinkage, nullptr, mangled);
               }
               if (isAssignment) {
                 lesma::Type* ptrToVal = memTy;
@@ -2081,9 +2080,8 @@ auto Codegen::visit(const DotOp* node) -> void {
                       std::make_unique<Type>(BaseType::TY_PTR, builder->getPtrTy(), memTy));
                 } else if (memTy->is(BaseType::TY_PTR) &&
                            memTy->getElementType()->is(BaseType::TY_CLASS)) {
-                  ptrToVal =
-                      cacheType(std::make_unique<Type>(BaseType::TY_PTR, builder->getPtrTy(),
-                                                       memTy->getElementType()));
+                  ptrToVal = cacheType(std::make_unique<Type>(BaseType::TY_PTR, builder->getPtrTy(),
+                                                              memTy->getElementType()));
                 }
                 result = std::make_unique<Value>("", ptrToVal, gv);
                 return;
@@ -2453,6 +2451,197 @@ auto Codegen::visit(const Literal* node) -> void {
   } else {
     throw CodegenError(node->getSpan(), "Unknown literal {}", node->getValue());
   }
+}
+
+namespace {
+[[nodiscard]] auto isStrBoxLesmaType(lesma::Type* t) -> bool {
+  if (t == nullptr) {
+    return false;
+  }
+  lesma::Type* b = t;
+  if (t->is(BaseType::TY_PTR) && t->getElementType() != nullptr) {
+    b = t->getElementType();
+  }
+  return b->is(BaseType::TY_CLASS) && b->getDisplayName() == "str";
+}
+} // namespace
+
+auto Codegen::emitCstrConcatValues(llvm::SMRange span, llvm::Value* a, llvm::Value* b)
+    -> llvm::Value* {
+  (void) span;
+  llvm::Type* i8 = llvm::Type::getInt8Ty(theModule->getContext());
+  auto strlenFn = theModule->getOrInsertFunction(
+      std::string{codegen::runtime::kStrlen}.c_str(),
+      llvm::FunctionType::get(builder->getInt64Ty(), {builder->getPtrTy()}, false));
+  auto memcpyFn = theModule->getOrInsertFunction(
+      std::string{codegen::runtime::kMemcpy}.c_str(),
+      llvm::FunctionType::get(builder->getPtrTy(),
+                              {builder->getPtrTy(), builder->getPtrTy(), builder->getInt64Ty()},
+                              false));
+  llvm::Value* la = a;
+  llvm::Value* lb = b;
+  auto* lenA = builder->CreateCall(strlenFn, {la}, "ip.strcat.lenA");
+  auto* lenB = builder->CreateCall(strlenFn, {lb}, "ip.strcat.lenB");
+  auto* total =
+      builder->CreateAdd(builder->CreateAdd(lenA, lenB), builder->getInt64(1), "ip.strcat.total");
+  llvm::Value* buf = emitMalloc(total, "ip.strcat.buf");
+  builder->CreateCall(memcpyFn, {buf, la, lenA});
+  auto* tail = builder->CreateInBoundsGEP(i8, buf, lenA, "ip.strcat.tail");
+  builder->CreateCall(memcpyFn, {tail, lb, lenB});
+  auto* endPtr = builder->CreateInBoundsGEP(
+      i8, buf, builder->CreateSub(total, builder->getInt64(1)), "ip.strcat.nul");
+  builder->CreateStore(llvm::ConstantInt::get(i8, 0), endPtr);
+  return buf;
+}
+
+auto Codegen::emitFormatIntegerToCstr(llvm::SMRange span, llvm::Value* intVal, lesma::Type* intTy)
+    -> llvm::Value* {
+  (void) span;
+  llvm::Value* i64v = intVal;
+  if (!intVal->getType()->isIntegerTy(64)) {
+    if (intTy != nullptr && intTy->isSigned()) {
+      i64v = builder->CreateSExt(intVal, builder->getInt64Ty(), "ip.i64");
+    } else {
+      i64v = builder->CreateZExt(intVal, builder->getInt64Ty(), "ip.i64");
+    }
+  }
+  llvm::Value* buf = emitMalloc(builder->getInt64(80), "ip.int.buf");
+  llvm::Value* fmt = (intTy != nullptr && intTy->isSigned()) ? builder->CreateGlobalString("%lld")
+                                                             : builder->CreateGlobalString("%llu");
+  auto* snprintfTy = llvm::FunctionType::get(
+      builder->getInt32Ty(), {builder->getPtrTy(), builder->getInt64Ty(), builder->getPtrTy()},
+      true);
+  llvm::FunctionCallee snprintfFn = theModule->getOrInsertFunction("snprintf", snprintfTy);
+  builder->CreateCall(snprintfFn, {buf, builder->getInt64(79), fmt, i64v});
+  return buf;
+}
+
+auto Codegen::emitFormatFloatToCstr(llvm::SMRange span, llvm::Value* floatVal, lesma::Type* floatTy)
+    -> llvm::Value* {
+  (void) span;
+  llvm::Value* dbl = floatVal;
+  if (floatTy != nullptr && floatTy->is(BaseType::TY_FLOAT32)) {
+    dbl = builder->CreateFPExt(floatVal, builder->getDoubleTy(), "ip.dbl");
+  }
+  llvm::Value* buf = emitMalloc(builder->getInt64(80), "ip.flt.buf");
+  llvm::Value* fmt = builder->CreateGlobalString("%g");
+  auto* snprintfTy = llvm::FunctionType::get(
+      builder->getInt32Ty(), {builder->getPtrTy(), builder->getInt64Ty(), builder->getPtrTy()},
+      true);
+  llvm::FunctionCallee snprintfFn = theModule->getOrInsertFunction("snprintf", snprintfTy);
+  builder->CreateCall(snprintfFn, {buf, builder->getInt64(79), fmt, dbl});
+  return buf;
+}
+
+auto Codegen::emitBoxedStrLiteralText(llvm::SMRange span, const std::string& text,
+                                      lesma::Type* strClass) -> std::unique_ptr<lesma::Value> {
+  if (strClass == nullptr || !strClass->is(BaseType::TY_CLASS)) {
+    throw CodegenError(span, "Invalid str class for string interpolation chunk");
+  }
+  auto fields = strClass->getFields();
+  if (fields.empty() || fields.front()->type == nullptr ||
+      !fields.front()->type->is(BaseType::TY_STRING)) {
+    throw CodegenError(span, "String interpolation chunk: invalid stdlib str class");
+  }
+  auto* structType = llvm::cast<llvm::StructType>(getOrCreateLlvmType(strClass));
+  auto* classSize =
+      builder->getInt64(theModule->getDataLayout().getTypeAllocSize(structType).getFixedValue());
+  auto* classHandle = emitMalloc(classSize, "ip.str.obj");
+  auto* storagePtr = builder->CreateStructGEP(structType, classHandle, 0, "ip.str.storage.ptr");
+  llvm::Value* globalStr = builder->CreateGlobalString(text);
+  builder->CreateStore(globalStr, storagePtr);
+  return std::make_unique<Value>("", strClass, classHandle);
+}
+
+auto Codegen::emitBoxedStrWithCstrField(llvm::SMRange span, llvm::Value* nulTerminatedPtr,
+                                        lesma::Type* strClass) -> std::unique_ptr<lesma::Value> {
+  if (strClass == nullptr || !strClass->is(BaseType::TY_CLASS)) {
+    throw CodegenError(span, "Invalid str class for string interpolation");
+  }
+  auto fields = strClass->getFields();
+  if (fields.empty() || fields.front()->type == nullptr ||
+      !fields.front()->type->is(BaseType::TY_STRING)) {
+    throw CodegenError(span, "String interpolation: invalid stdlib str class");
+  }
+  auto* structType = llvm::cast<llvm::StructType>(getOrCreateLlvmType(strClass));
+  auto* classSize =
+      builder->getInt64(theModule->getDataLayout().getTypeAllocSize(structType).getFixedValue());
+  auto* classHandle = emitMalloc(classSize, "ip.str.dyn");
+  auto* storagePtr = builder->CreateStructGEP(structType, classHandle, 0, "ip.str.dyn.ptr");
+  builder->CreateStore(nulTerminatedPtr, storagePtr);
+  return std::make_unique<Value>("", strClass, classHandle);
+}
+
+auto Codegen::emitInterpolationExprToCstr(llvm::SMRange span, const Expression* expr,
+                                          lesma::Type* exprTy) -> llvm::Value* {
+  expr->accept(*this);
+  std::unique_ptr<lesma::Value> v = std::move(result);
+  if (isStrBoxLesmaType(exprTy)) {
+    std::unique_ptr<lesma::Value> cstrV = callMethodByName(span, v.get(), "cstr", {});
+    return cstrV->getLlvmValue();
+  }
+  if (exprTy->is(BaseType::TY_STRING)) {
+    return v->getLlvmValue();
+  }
+  if (exprTy->is(BaseType::TY_INT)) {
+    return emitFormatIntegerToCstr(span, v->getLlvmValue(), exprTy);
+  }
+  if (exprTy->is(BaseType::TY_FLOAT) || exprTy->is(BaseType::TY_FLOAT32)) {
+    return emitFormatFloatToCstr(span, v->getLlvmValue(), exprTy);
+  }
+  if (exprTy->is(BaseType::TY_BOOL)) {
+    llvm::Value* trueStr = builder->CreateGlobalString("true");
+    llvm::Value* falseStr = builder->CreateGlobalString("false");
+    return builder->CreateSelect(v->getLlvmValue(), trueStr, falseStr);
+  }
+  throw CodegenError(span, "Unsupported string interpolation type");
+}
+
+auto Codegen::emitInterpolationExprToBoxedStr(llvm::SMRange span, const Expression* expr,
+                                              lesma::Type* exprTy, lesma::Type* strClass)
+    -> std::unique_ptr<lesma::Value> {
+  if (isStrBoxLesmaType(exprTy)) {
+    expr->accept(*this);
+    return std::move(result);
+  }
+  llvm::Value* c = emitInterpolationExprToCstr(span, expr, exprTy);
+  return emitBoxedStrWithCstrField(span, c, strClass);
+}
+
+auto Codegen::visit(const StringInterpolation* node) -> void {
+  setDebugLoc(node->getSpan());
+  std::vector<std::string> const& chunks = node->getChunks();
+  std::vector<Expression*> exprs = node->getExprs();
+  std::vector<Type*> const& exprTys = node->getInterpolatedExprTypes();
+  if (exprTys.size() != exprs.size()) {
+    throw CodegenError(node->getSpan(), "String interpolation not typechecked");
+  }
+  lesma::Type* strClass = node->getResolvedStrClassType();
+
+  if (strClass != nullptr && strClass->is(BaseType::TY_CLASS)) {
+    std::unique_ptr<Value> acc = emitBoxedStrLiteralText(node->getSpan(), chunks[0], strClass);
+    std::string const opPlus = std::string{*OperatorUtils::getBinaryOperatorName(TokenType::PLUS)};
+    for (size_t i = 0; i < exprs.size(); ++i) {
+      std::unique_ptr<Value> rhs =
+          emitInterpolationExprToBoxedStr(node->getSpan(), exprs[i], exprTys[i], strClass);
+      acc = callMethodByName(node->getSpan(), acc.get(), opPlus, {rhs.get()});
+      std::unique_ptr<Value> tail =
+          emitBoxedStrLiteralText(node->getSpan(), chunks[i + 1], strClass);
+      acc = callMethodByName(node->getSpan(), acc.get(), opPlus, {tail.get()});
+    }
+    result = std::move(acc);
+    return;
+  }
+
+  llvm::Value* acc = builder->CreateGlobalString(chunks[0]);
+  for (size_t i = 0; i < exprs.size(); ++i) {
+    llvm::Value* part = emitInterpolationExprToCstr(node->getSpan(), exprs[i], exprTys[i]);
+    acc = emitCstrConcatValues(node->getSpan(), acc, part);
+    llvm::Value* tailG = builder->CreateGlobalString(chunks[i + 1]);
+    acc = emitCstrConcatValues(node->getSpan(), acc, tailG);
+  }
+  auto* ty = cacheType(std::make_unique<Type>(BaseType::TY_STRING, builder->getPtrTy()));
+  result = std::make_unique<Value>("", ty, acc);
 }
 
 auto Codegen::visit(const Else* /*node*/) -> void {

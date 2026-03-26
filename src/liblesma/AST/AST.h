@@ -93,6 +93,57 @@ public:
   }
 };
 
+/** Interpolated string: chunks[0] + expr[0] + chunks[1] + ... + chunks[n]. */
+class StringInterpolation : public Expression {
+  std::vector<std::string> chunks;
+  std::vector<std::unique_ptr<Expression>> exprs;
+  /** Same as Literal STRING: null => cstr, else boxed stdlib str. */
+  mutable Type* resolvedStrClassType = nullptr;
+  /** Filled by typechecker; parallel to exprs (for codegen coercion). */
+  mutable std::vector<Type*> interpolatedExprTypes;
+
+public:
+  StringInterpolation(llvm::SMRange loc, std::vector<std::string> chunks,
+                      std::vector<std::unique_ptr<Expression>> exprs)
+      : Expression(loc), chunks(std::move(chunks)), exprs(std::move(exprs)) {}
+  void accept(ASTVisitor& visitor) const override { visitor.visit(this); }
+
+  [[nodiscard]] auto getChunks() const -> const std::vector<std::string>& { return chunks; }
+  [[nodiscard]] auto getExprs() const -> std::vector<Expression*> {
+    std::vector<Expression*> out;
+    out.reserve(exprs.size());
+    for (const auto& e : exprs) {
+      out.push_back(e.get());
+    }
+    return out;
+  }
+  [[nodiscard]] auto getResolvedStrClassType() const -> Type* { return resolvedStrClassType; }
+  auto setResolvedStrClassType(Type* t) const -> void { resolvedStrClassType = t; }
+
+  [[nodiscard]] auto getInterpolatedExprTypes() const -> const std::vector<Type*>& {
+    return interpolatedExprTypes;
+  }
+  auto clearInterpolatedExprTypes() const -> void { interpolatedExprTypes.clear(); }
+  auto pushInterpolatedExprType(Type* t) const -> void { interpolatedExprTypes.push_back(t); }
+
+  auto toString(llvm::SourceMgr* srcMgr, const std::string& prefix, bool isTail) const
+      -> std::string override {
+    std::string inner;
+    for (size_t i = 0; i < exprs.size(); ++i) {
+      inner += chunks[i];
+      inner += "${";
+      inner += exprs[i]->toString(srcMgr, prefix, true);
+      inner += "}";
+    }
+    inner += chunks.back();
+    return fmt::format("{}{}StringInterpolation[Line({}-{}):Col({}-{})]: \"{}\"\n", prefix,
+                       isTail ? "└──" : "├──", srcMgr->getLineAndColumn(getStart()).first,
+                       srcMgr->getLineAndColumn(getEnd()).first,
+                       srcMgr->getLineAndColumn(getStart()).second,
+                       srcMgr->getLineAndColumn(getEnd()).second, inner);
+  }
+};
+
 class Compound : public Statement {
   std::vector<std::unique_ptr<Statement>> children;
 

@@ -4,6 +4,7 @@
 #include <cstddef>
 #include <memory>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include <llvm/Support/SMLoc.h>
@@ -33,6 +34,15 @@ auto Lexer::getTokens() -> std::vector<Token*> {
 
 // NOLINTNEXTLINE(readability-function-cognitive-complexity)
 auto Lexer::scanOne(bool continuation) -> std::unique_ptr<Token> {
+  if (!pendingTokens.empty()) {
+    auto t = std::move(pendingTokens.front());
+    pendingTokens.pop_front();
+    return t;
+  }
+  if (resumeTemplateStringChunk) {
+    resumeTemplateStringChunk = false;
+    return continueTemplateStringChunk();
+  }
   if (isAtEnd()) {
     return std::make_unique<Token>(TokenType::EOF_TOKEN, "EOF", llvm::SMRange{beginLoc, loc});
   }
@@ -56,6 +66,11 @@ auto Lexer::scanOne(bool continuation) -> std::unique_ptr<Token> {
     level++;
     return makeToken(TokenType::LEFT_BRACE);
   case '}':
+    if (templateInterpolationDepth > 0) {
+      templateInterpolationDepth--;
+      resumeTemplateStringChunk = true;
+      return makeToken(TokenType::STRING_TEMPLATE_EXPR_END, "}");
+    }
     level--;
     return makeToken(TokenType::RIGHT_BRACE);
   case ':':
@@ -195,7 +210,7 @@ auto Lexer::scanOne(bool continuation) -> std::unique_ptr<Token> {
     handleIndentation(continuation);
     return scanOne(false);
   case '"':
-    return addStringToken();
+    return openStringLiteral();
   default:
     if (isDigit(c)) {
       return addNumToken();
@@ -354,66 +369,129 @@ auto Lexer::peek(int offset) -> char {
   return getCharAt(targetPos);
 }
 
-auto Lexer::addStringToken() -> std::unique_ptr<Token> {
-  std::string string;
-
-  while (peek() != '"' && !isAtEnd()) {
-    // Should we allow newlines in strings? Probably not
-    if (peek() == '\n') {
-      line++;
-      col = 1;
-    }
-    // If it's not an escape sequence, proceed as usual
-    if (peek() != '\\') {
-      string.push_back(advance());
-      continue;
-    }
-
-    switch (peek(1)) {
-    case 'n':
-      string.push_back('\n');
-      break;
-    case 'r':
-      string.push_back('\r');
-      break;
-    case 't':
-      string.push_back('\t');
-      break;
-    case 'b':
-      string.push_back('\b');
-      break;
-    case '0':
-      string.push_back('\0');
-      break;
-    case '"':
-      string.push_back('"');
-      break;
-    case 'e':
-      string.push_back(0x1B);
-      break;
-    case '\'':
-      string.push_back('\'');
-      break;
-    case '\\':
-      string.push_back('\\');
-      break;
-    default:
-      error("Unknown escape sequence.");
-    }
-
-    // Skip the backslash and the escape sequence.
+auto Lexer::scanStringContentUnit(std::string& acc) -> StringScanStep {
+  if (isAtEnd()) {
+    error("Unterminated string.");
+  }
+  if (peek() == '\n') {
+    line++;
+    col = 1;
+  }
+  if (peek() == '"') {
     advance();
-    advance();
+    return StringScanStep::ClosedQuote;
+  }
+  if (peek() == '$' && peek(1) == '{') {
+    return StringScanStep::StartInterpolation;
+  }
+  if (peek() != '\\') {
+    acc.push_back(advance());
+    return StringScanStep::Continue;
   }
 
+  advance();
   if (isAtEnd()) {
     error("Unterminated string.");
   }
 
-  // Skip the closing ".
-  advance();
+  switch (peek()) {
+  case 'n':
+    acc.push_back('\n');
+    break;
+  case 'r':
+    acc.push_back('\r');
+    break;
+  case 't':
+    acc.push_back('\t');
+    break;
+  case 'b':
+    acc.push_back('\b');
+    break;
+  case '0':
+    acc.push_back('\0');
+    break;
+  case '"':
+    acc.push_back('"');
+    break;
+  case 'e':
+    acc.push_back(static_cast<char>(0x1B));
+    break;
+  case '\'':
+    acc.push_back('\'');
+    break;
+  case '\\':
+    acc.push_back('\\');
+    break;
+  case '$':
+    acc.push_back('$');
+    break;
+  default:
+    error("Unknown escape sequence.");
+  }
 
-  return makeToken(TokenType::STRING, string);
+  advance();
+  return StringScanStep::Continue;
+}
+
+auto Lexer::openStringLiteral() -> std::unique_ptr<Token> {
+  llvm::SMLoc const openQuoteLoc = beginLoc;
+  resetTokenBeg();
+  std::string acc;
+  bool sawTemplate = false;
+  for (;;) {
+    StringScanStep const step = scanStringContentUnit(acc);
+    if (step == StringScanStep::ClosedQuote) {
+      llvm::SMRange const fullSpan{openQuoteLoc, loc};
+      if (!sawTemplate) {
+        auto tok = std::make_unique<Token>(TokenType::STRING, acc, fullSpan);
+        resetTokenBeg();
+        return tok;
+      }
+      auto tok = std::make_unique<Token>(TokenType::STRING_TEMPLATE_CHUNK, acc,
+                                         llvm::SMRange{beginLoc, loc});
+      resetTokenBeg();
+      return tok;
+    }
+    if (step == StringScanStep::StartInterpolation) {
+      sawTemplate = true;
+      llvm::SMLoc const exprStartSml = loc;
+      advance();
+      advance();
+      pendingTokens.push_back(std::make_unique<Token>(TokenType::STRING_TEMPLATE_EXPR_START, "${",
+                                                      llvm::SMRange{exprStartSml, loc}));
+      templateInterpolationDepth++;
+      auto tok = std::make_unique<Token>(TokenType::STRING_TEMPLATE_CHUNK, acc,
+                                         llvm::SMRange{beginLoc, loc});
+      resetTokenBeg();
+      return tok;
+    }
+  }
+}
+
+auto Lexer::continueTemplateStringChunk() -> std::unique_ptr<Token> {
+  resetTokenBeg();
+  std::string acc;
+  for (;;) {
+    StringScanStep const step = scanStringContentUnit(acc);
+    if (step == StringScanStep::ClosedQuote) {
+      auto tok = std::make_unique<Token>(TokenType::STRING_TEMPLATE_CHUNK, acc,
+                                         llvm::SMRange{beginLoc, loc});
+      resetTokenBeg();
+      return tok;
+    }
+    if (step == StringScanStep::StartInterpolation) {
+      llvm::SMLoc const exprStartSml = loc;
+      advance();
+      advance();
+      pendingTokens.push_back(std::make_unique<Token>(TokenType::STRING_TEMPLATE_EXPR_START, "${",
+                                                      llvm::SMRange{exprStartSml, loc}));
+      templateInterpolationDepth++;
+      auto tok = std::make_unique<Token>(TokenType::STRING_TEMPLATE_CHUNK, acc,
+                                         llvm::SMRange{beginLoc, loc});
+      resetTokenBeg();
+      return tok;
+    }
+  }
 }
 
 auto Lexer::addNumToken() -> std::unique_ptr<Token> {

@@ -1,0 +1,5 @@
+# Literal dollar and newline in chunks; nested string inside ${}.
+let a: str = "cost is $5"
+print(a)
+let b: str = "line\n${ "}" }"
+print(b)

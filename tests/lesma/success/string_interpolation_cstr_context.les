@@ -1,0 +1,3 @@
+def extern printf(fmt: cstr, ...)
+
+printf("%s", "v=${1}")

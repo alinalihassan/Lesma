@@ -229,6 +229,7 @@ protected:
   auto visit(const IsOp* node) -> void override;
   auto visit(const UnaryOp* node) -> void override;
   auto visit(const Literal* node) -> void override;
+  auto visit(const StringInterpolation* node) -> void override;
   auto visit(const ListLiteral* node) -> void override;
   auto visit(const TupleLiteral* node) -> void override;
   auto visit(const Else* node) -> void override;
@@ -292,6 +293,20 @@ protected:
   auto emitCalloc(llvm::Value* count, llvm::Value* size, const llvm::Twine& name = "calloc.tmp")
       -> llvm::Value*;
   auto emitMalloc(llvm::Value* size, const llvm::Twine& name = "malloc.tmp") -> llvm::Value*;
+  auto emitCstrConcatValues(llvm::SMRange span, llvm::Value* a, llvm::Value* b) -> llvm::Value*;
+  auto emitFormatIntegerToCstr(llvm::SMRange span, llvm::Value* intVal, lesma::Type* intTy)
+      -> llvm::Value*;
+  auto emitFormatFloatToCstr(llvm::SMRange span, llvm::Value* floatVal, lesma::Type* floatTy)
+      -> llvm::Value*;
+  auto emitBoxedStrLiteralText(llvm::SMRange span, const std::string& text, lesma::Type* strClass)
+      -> std::unique_ptr<lesma::Value>;
+  auto emitBoxedStrWithCstrField(llvm::SMRange span, llvm::Value* nulTerminatedPtr,
+                                 lesma::Type* strClass) -> std::unique_ptr<lesma::Value>;
+  auto emitInterpolationExprToBoxedStr(llvm::SMRange span, const Expression* expr,
+                                       lesma::Type* exprTy, lesma::Type* strClass)
+      -> std::unique_ptr<lesma::Value>;
+  auto emitInterpolationExprToCstr(llvm::SMRange span, const Expression* expr, lesma::Type* exprTy)
+      -> llvm::Value*;
   auto emitRealloc(llvm::Value* ptr, llvm::Value* size, const llvm::Twine& name = "realloc.tmp")
       -> llvm::Value*;
   auto emitFree(llvm::Value* ptr) -> void;

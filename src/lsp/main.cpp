@@ -1102,6 +1102,13 @@ auto resolveExpressionTypeAtOffset(const lesma::Expression* expr, lesma::Compoun
       return nullptr;
     }
   }
+  if (auto const* sip = dynamic_cast<const lesma::StringInterpolation*>(expr)) {
+    lesma::Type* strClass = sip->getResolvedStrClassType();
+    if (strClass != nullptr) {
+      return strClass;
+    }
+    return root->lookupType("str");
+  }
   if (auto const* list = dynamic_cast<const lesma::ListLiteral*>(expr)) {
     if (list->getResolvedType() != nullptr) {
       return list->getResolvedType();
@@ -1185,6 +1192,12 @@ auto findActiveCallInExpr(const lesma::Expression* expr, llvm::SourceMgr* srcMgr
   }
   if (auto const* isOp = dynamic_cast<const lesma::IsOp*>(expr)) {
     findActiveCallInExpr(isOp->getLeft(), srcMgr, bufferId, targetOffset, nullptr, best);
+    return;
+  }
+  if (auto const* si = dynamic_cast<const lesma::StringInterpolation*>(expr)) {
+    for (lesma::Expression* e : si->getExprs()) {
+      findActiveCallInExpr(e, srcMgr, bufferId, targetOffset, nullptr, best);
+    }
   }
 }
 

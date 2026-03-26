@@ -1597,7 +1597,7 @@ void Typechecker::validateParameterDefaultOrdering(llvm::SMRange span,
       seenDefault = true;
     } else if (seenDefault) {
       throw TypeCheckError(span, "Parameters without default values must appear before parameters "
-                                "with default values");
+                                 "with default values");
     }
   }
 }
@@ -3716,6 +3716,60 @@ auto Typechecker::visit(const Literal* node) -> void {
     throw TypeCheckError(node->getSpan(), "Unsupported literal type: {}",
                          NAMEOF_ENUM(node->getType()));
   }
+}
+
+auto Typechecker::isAllowedStringInterpolationExprType(Type* t) const -> bool {
+  if (t == nullptr) {
+    return false;
+  }
+  if (t->is(BaseType::TY_STRING)) {
+    return true;
+  }
+  if (t->is(BaseType::TY_INT)) {
+    return true;
+  }
+  if (t->is(BaseType::TY_FLOAT) || t->is(BaseType::TY_FLOAT32)) {
+    return true;
+  }
+  if (t->is(BaseType::TY_BOOL)) {
+    return true;
+  }
+  return isStdStrClassType(t);
+}
+
+auto Typechecker::visit(const StringInterpolation* node) -> void {
+  node->clearInterpolatedExprTypes();
+  for (Expression* e : node->getExprs()) {
+    e->accept(*this);
+    Type* t = result != nullptr ? result->getType() : nullptr;
+    if (!isAllowedStringInterpolationExprType(t)) {
+      throw TypeCheckError(e->getSpan(), "Unsupported type in string interpolation: {}",
+                           t != nullptr ? t->toString() : "?");
+    }
+    node->pushInterpolatedExprType(t);
+  }
+  Type* expected = currentExpectedType();
+  if (expected != nullptr && expected->is(BaseType::TY_STRING)) {
+    node->setResolvedStrClassType(nullptr);
+    result = std::make_unique<Value>(cacheType(std::make_unique<Type>(BaseType::TY_STRING)));
+    return;
+  }
+  Type* strClassFromExpected = nullptr;
+  if (expected != nullptr) {
+    if (isStdStrClassType(expected)) {
+      strClassFromExpected = expected->is(BaseType::TY_PTR) && expected->getElementType() != nullptr
+                                 ? expected->getElementType()
+                                 : expected;
+    }
+  }
+  if (strClassFromExpected != nullptr) {
+    node->setResolvedStrClassType(strClassFromExpected);
+    result = std::make_unique<Value>(strClassFromExpected);
+    return;
+  }
+  Type* strClass = getStdStrType(node->getSpan());
+  node->setResolvedStrClassType(strClass);
+  result = std::make_unique<Value>(strClass);
 }
 
 auto Typechecker::visit(const TypeExpr* node) -> void {

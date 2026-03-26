@@ -5,7 +5,7 @@
   "author": "Alin Ali Hassan",
   "publisher": "hassanalinali",
   "license": "MIT",
-  "version": "1.0.7",
+  "version": "1.0.8",
   "repository": {
     "type": "git",
     "url": "https://github.com/alinalihassan/Lesma"
@@ -60,7 +60,9 @@
         "path": "./syntaxes/lesma.tmLanguage.json",
         "unbalancedBracketScopes": [
           "keyword.operator.relational",
-          "keyword.operator.arrow"
+          "keyword.operator.arrow",
+          "string.quoted.double.lesma",
+          "constant.character.escape.lesma"
         ]
       }
     ],

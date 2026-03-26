@@ -159,6 +159,10 @@ auto resolvedTypeForExpr(const Expression* expr) -> Type* {
     Value* const resolvedSymbol = lit->getResolvedSymbol();
     return resolvedSymbol != nullptr ? resolvedSymbol->getType() : nullptr;
   }
+  if (auto const* sip = dynamic_cast<const StringInterpolation*>(expr)) {
+    Type* const strTy = sip->getResolvedStrClassType();
+    return strTy != nullptr ? strTy : nullptr;
+  }
   if (auto const* typeExpr = dynamic_cast<const TypeExpr*>(expr)) {
     Value* const resolvedSymbol = typeExpr->getResolvedSymbol();
     return resolvedSymbol != nullptr ? resolvedSymbol->getType() : nullptr;
@@ -335,6 +339,12 @@ auto collectIndexFromExpr(const Expression* expr, AnalysisIndex& index) -> void 
                               indexedTokenKindFromResolvedSymbol(resolvedSymbol, false, false,
                                                                  IndexedTokenKind::Variable),
                               resolvedSymbol);
+    }
+    return;
+  }
+  if (auto const* interp = dynamic_cast<const StringInterpolation*>(expr)) {
+    for (Expression* part : interp->getExprs()) {
+      collectIndexFromExpr(part, index);
     }
     return;
   }

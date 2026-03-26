@@ -258,12 +258,14 @@ public:
   auto visit(const IsOp* node) -> void override;
   auto visit(const UnaryOp* node) -> void override;
   auto visit(const Literal* node) -> void override;
+  auto visit(const StringInterpolation* node) -> void override;
   auto visit(const ListLiteral* node) -> void override;
   auto visit(const TupleLiteral* node) -> void override;
   auto visit(const Else* node) -> void override;
 
   auto visit(const TypeExpr* node) -> void override;
 
+  [[nodiscard]] auto isAllowedStringInterpolationExprType(Type* t) const -> bool;
   auto getStdStrType(llvm::SMRange span) -> Type*;
   auto isStdStrClassType(Type* type) const -> bool;
 };
