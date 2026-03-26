@@ -200,12 +200,15 @@ if (LESMA_BUILD_BENCHMARKS)
   message(STATUS "Building Lesma Benchmarks")
 
   find_package(benchmark CONFIG REQUIRED)
+  find_package(CLI11 CONFIG REQUIRED)
 
   set(BENCHMARKS_NAME benchmark)
-  set(BENCHMARK_SOURCES benchmark/benchmark.cpp)
+  set(BENCHMARK_SOURCES benchmark/benchmark.cpp benchmark/benchmark_main.cpp
+                          benchmark/SuiteWallClock.cpp)
 
   add_executable(${BENCHMARKS_NAME} ${BENCHMARK_SOURCES})
-  target_link_libraries(${BENCHMARKS_NAME} PRIVATE ${LIB_NAME} benchmark::benchmark_main)
+  target_include_directories(${BENCHMARKS_NAME} PRIVATE "${CMAKE_SOURCE_DIR}/benchmark")
+  target_link_libraries(${BENCHMARKS_NAME} PRIVATE ${LIB_NAME} benchmark::benchmark CLI11::CLI11)
 endif ()
 
 # LSP server (lesma-lsp)

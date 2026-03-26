@@ -173,5 +173,3 @@ BENCHMARK_F(CodegenBenchmark, All)
     cg->executeJit();
   }
 }
-
-BENCHMARK_MAIN();
