@@ -1380,6 +1380,7 @@ auto Codegen::visit(const BinaryOp* node) -> void {
   auto left = std::move(result);
   node->getRight()->accept(*this);
   auto right = std::move(result);
+  setDebugLoc(node->getSpan());
   lesma::Type* finalType = CodegenTypeUtils::getExtendedType(left->getType(), right->getType());
   if (finalType == nullptr && left->getType()->is(BaseType::TY_ENUM) &&
       right->getType()->is(BaseType::TY_ENUM) && left->getType()->isEqual(right->getType())) {
@@ -1805,6 +1806,7 @@ auto Codegen::visit(const SubscriptOp* node) -> void {
   auto listValue = std::move(result);
   node->getIndex()->accept(*this);
   auto indexValue = std::move(result);
+  setDebugLoc(node->getSpan());
   if (listValue != nullptr && listValue->getType() != nullptr &&
       listValue->getType()->is(BaseType::TY_TUPLE)) {
     auto* idxLit = dynamic_cast<Literal*>(node->getIndex());
@@ -1847,6 +1849,7 @@ auto Codegen::visit(const DotOp* node) -> void {
   setDebugLoc(node->getSpan());
   node->getLeft()->accept(*this);
   auto leftValue = std::move(result);
+  setDebugLoc(node->getSpan());
   if (leftValue != nullptr && leftValue->getType() != nullptr &&
       leftValue->getType()->is(BaseType::TY_ARRAY)) {
     auto* call = dynamic_cast<FuncCall*>(node->getRight());
@@ -1865,6 +1868,7 @@ auto Codegen::visit(const DotOp* node) -> void {
       explicitTypeArg->accept(*this);
       explicitTypeArgs.push_back(result->getType());
     }
+    setDebugLoc(node->getSpan());
     result =
         callMethodByName(node->getSpan(), leftValue.get(), call->getName(), args, explicitTypeArgs);
     return;
@@ -1892,6 +1896,7 @@ auto Codegen::visit(const DotOp* node) -> void {
         explicitTypeArg->accept(*this);
         explicitTypeArgs.push_back(result->getType());
       }
+      setDebugLoc(node->getSpan());
       result = callMethodByName(node->getSpan(), leftValue.get(), call->getName(), args,
                                 explicitTypeArgs);
       return;
@@ -1966,6 +1971,7 @@ auto Codegen::visit(const DotOp* node) -> void {
           explicitTypeArg->accept(*this);
           explicitTypeArgs.push_back(result->getType());
         }
+        setDebugLoc(node->getSpan());
         result = callMethodByName(node->getSpan(), receiverValue.get(), method->getName(), args,
                                   explicitTypeArgs);
         return;
@@ -2104,6 +2110,7 @@ auto Codegen::visit(const DotOp* node) -> void {
     } else {
       // Assuming it's a class instance
       left->accept(*this);
+      setDebugLoc(node->getSpan());
       // We refer to the class type, if it's a pointer, we get the result
       lesma::Type* lesmaType = result->getType();
       if (result->getType()->is(BaseType::TY_PTR) &&
@@ -2180,6 +2187,7 @@ auto Codegen::visit(const DotOp* node) -> void {
             explicitTypeArg->accept(*this);
             explicitTypeArgs.push_back(result->getType());
           }
+          setDebugLoc(node->getSpan());
           result = callMethodByName(node->getSpan(), receiverValue.get(), method->getName(), args,
                                     explicitTypeArgs);
           return;
@@ -2197,6 +2205,7 @@ auto Codegen::visit(const CastOp* node) -> void {
   auto expr = std::move(result);
   node->getType()->accept(*this);
   auto* castType = result->getType();
+  setDebugLoc(node->getSpan());
   result = cast(node->getSpan(), expr.get(), castType);
 }
 
@@ -2216,6 +2225,7 @@ auto Codegen::visit(const IsOp* node) -> void {
     rightType = rightType->getElementType();
   }
 
+  setDebugLoc(node->getSpan());
   llvm::Value* val = nullptr;
   bool typesEqual = leftType->isEqual(rightType);
   if (!typesEqual && leftType != nullptr && rightType != nullptr &&
@@ -2238,6 +2248,7 @@ auto Codegen::visit(const UnaryOp* node) -> void {
   setDebugLoc(node->getSpan());
   node->getExpression()->accept(*this);
   auto operand = std::move(result);
+  setDebugLoc(node->getSpan());
 
   llvm::Value* val = nullptr;
   lesma::Type* type = operand->getType();
@@ -2326,6 +2337,7 @@ auto Codegen::visit(const ListLiteral* node) -> void {
       dataPtr = emitMalloc(byteSize, "list.data");
       for (size_t i = 0; i < elements.size(); ++i) {
         elements[i]->accept(*this);
+        setDebugLoc(node->getSpan());
         auto* elementPtr =
             builder->CreateGEP(elementLlvmType, dataPtr, builder->getInt64(i), "list.elem.ptr");
         builder->CreateStore(
@@ -2364,6 +2376,7 @@ auto Codegen::visit(const ListLiteral* node) -> void {
 
     for (size_t i = 0; i < elements.size(); ++i) {
       elements[i]->accept(*this);
+      setDebugLoc(node->getSpan());
       auto* elementPtr =
           builder->CreateGEP(elementLlvmType, dataPtr, builder->getInt64(i), "list.elem.ptr");
       builder->CreateStore(
@@ -2395,6 +2408,7 @@ auto Codegen::visit(const TupleLiteral* node) -> void {
   }
   for (size_t i = 0; i < elements.size(); ++i) {
     elements[i]->accept(*this);
+    setDebugLoc(node->getSpan());
     llvm::Value* ev = result->getLlvmValue();
     agg = builder->CreateInsertValue(agg, ev, static_cast<unsigned>(i), "tuple");
   }
@@ -2576,6 +2590,7 @@ auto Codegen::emitInterpolationExprToCstr(llvm::SMRange span, const Expression* 
                                           lesma::Type* exprTy) -> llvm::Value* {
   expr->accept(*this);
   std::unique_ptr<lesma::Value> v = std::move(result);
+  setDebugLoc(span);
   if (isStrBoxLesmaType(exprTy)) {
     std::unique_ptr<lesma::Value> cstrV = callMethodByName(span, v.get(), "cstr", {});
     return cstrV->getLlvmValue();
@@ -2602,6 +2617,7 @@ auto Codegen::emitInterpolationExprToBoxedStr(llvm::SMRange span, const Expressi
     -> std::unique_ptr<lesma::Value> {
   if (isStrBoxLesmaType(exprTy)) {
     expr->accept(*this);
+    setDebugLoc(span);
     return std::move(result);
   }
   llvm::Value* c = emitInterpolationExprToCstr(span, expr, exprTy);
@@ -2624,9 +2640,11 @@ auto Codegen::visit(const StringInterpolation* node) -> void {
     for (size_t i = 0; i < exprs.size(); ++i) {
       std::unique_ptr<Value> rhs =
           emitInterpolationExprToBoxedStr(node->getSpan(), exprs[i], exprTys[i], strClass);
+      setDebugLoc(node->getSpan());
       acc = callMethodByName(node->getSpan(), acc.get(), opPlus, {rhs.get()});
       std::unique_ptr<Value> tail =
           emitBoxedStrLiteralText(node->getSpan(), chunks[i + 1], strClass);
+      setDebugLoc(node->getSpan());
       acc = callMethodByName(node->getSpan(), acc.get(), opPlus, {tail.get()});
     }
     result = std::move(acc);
@@ -3318,6 +3336,7 @@ auto Codegen::genFuncCall(const FuncCall* node, const std::vector<lesma::Value*>
     explicitTypeArgs.push_back(result->getType());
   }
 
+  setDebugLoc(node->getSpan());
   if (isListIntrinsicName(node->getName())) {
     return genListIntrinsicCall(node, paramTypes, paramsLLVM);
   }
