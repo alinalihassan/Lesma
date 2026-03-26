@@ -24,8 +24,8 @@ class AllocaInst;
 #include <llvm/ExecutionEngine/Orc/LLJIT.h>
 #include <llvm/ExecutionEngine/Orc/ThreadSafeModule.h>
 #include <llvm/IR/BasicBlock.h>
-#include <llvm/IR/IRBuilder.h>
 #include <llvm/IR/GlobalValue.h>
+#include <llvm/IR/IRBuilder.h>
 #include <llvm/IR/Module.h>
 #include <llvm/Passes/OptimizationLevel.h>
 #include <llvm/Passes/PassBuilder.h>
@@ -174,6 +174,9 @@ protected:
   auto emitAutoVarDebugDeclare(llvm::AllocaInst* allocaInst, llvm::StringRef name,
                                llvm::SMRange span, llvm::Instruction* insertBefore) -> void;
   auto setDebugLoc(llvm::SMRange span) -> void;
+  /** Alloca in \p fn's entry block (after PHIs) so LLVM mem2reg can promote loop/stack slots. */
+  auto createAllocaInEntry(llvm::Function* fn, llvm::Type* elemTy, const std::string& name)
+      -> llvm::AllocaInst*;
 
   auto linkObjectFileWithLld(const std::string& objFilename) -> void;
 

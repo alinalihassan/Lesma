@@ -620,6 +620,9 @@ auto Codegen::visit(const ForIn* node) -> void {
   }
   lesma::Type* loopVarType = loopVar->getType();
   getOrCreateLlvmType(loopVarType);
+  llvm::Function* parentFct = builder->GetInsertBlock()->getParent();
+  bool const useArrayIndex = listType != nullptr && listType->is(BaseType::TY_ARRAY) &&
+                             listType->getElementType() != nullptr;
   if (loopVar->getLlvmValue() == nullptr) {
     if (loopVarType->is(BaseType::TY_CLASS)) {
       lesma::Type* ptrType =
@@ -633,25 +636,23 @@ auto Codegen::visit(const ForIn* node) -> void {
     llvm::Type* allocaTy = (storedType->is(BaseType::TY_CLASS) || isPtrToClass)
                                ? builder->getPtrTy()
                                : storedType->getLlvmType();
-    auto* elemPtr = builder->CreateAlloca(allocaTy, nullptr, loopVar->getName());
+    llvm::AllocaInst* elemPtr = createAllocaInEntry(parentFct, allocaTy, loopVar->getName());
     loopVar->setLlvmValue(elemPtr);
     loopVar->setCategory(ValueCategory::ADDRESSABLE_STORAGE);
   }
   scope = savedScope;
 
-  llvm::Function* parentFct = builder->GetInsertBlock()->getParent();
   llvm::BasicBlock* bCond = llvm::BasicBlock::Create(theModule->getContext(), "for.cond");
   llvm::BasicBlock* bLoop = llvm::BasicBlock::Create(theModule->getContext(), "for");
   llvm::BasicBlock* bInc = llvm::BasicBlock::Create(theModule->getContext(), "for.inc");
   llvm::BasicBlock* bEnd = llvm::BasicBlock::Create(theModule->getContext(), "for.end");
   std::unique_ptr<lesma::Value> iteratorValue;
   llvm::AllocaInst* indexPtr = nullptr;
-  if (listType == nullptr || !listType->is(BaseType::TY_ARRAY) ||
-      listType->getElementType() == nullptr) {
+  if (!useArrayIndex) {
     iteratorValue = callMethodByName(node->getSpan(), iterable.get(), "iter");
   } else {
     getOrCreateLlvmType(listType);
-    indexPtr = builder->CreateAlloca(builder->getInt64Ty(), nullptr, "for.index");
+    indexPtr = createAllocaInEntry(parentFct, builder->getInt64Ty(), "for.index");
     builder->CreateStore(builder->getInt64(0), indexPtr);
   }
 
@@ -659,8 +660,7 @@ auto Codegen::visit(const ForIn* node) -> void {
   continueBlocks.push(bInc);
   builder->CreateBr(bCond);
 
-  if (listType != nullptr && listType->is(BaseType::TY_ARRAY) &&
-      listType->getElementType() != nullptr) {
+  if (useArrayIndex) {
     bCond->insertInto(parentFct);
     builder->SetInsertPoint(bCond);
     auto* idxVal = builder->CreateLoad(builder->getInt64Ty(), indexPtr);

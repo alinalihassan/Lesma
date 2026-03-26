@@ -52,6 +52,8 @@
 #include <llvm/Transforms/Scalar/GVN.h>
 #include <llvm/Transforms/Scalar/LoopPassManager.h>
 #include <llvm/Transforms/Scalar/LoopUnrollPass.h>
+#include <llvm/Transforms/Scalar/SROA.h>
+#include <llvm/Transforms/Utils/Mem2Reg.h>
 #include <llvm/Transforms/Vectorize/LoopVectorize.h>
 
 #include "Codegen.h"
@@ -275,6 +277,13 @@ auto Codegen::setDebugLoc(SMRange span) -> void {
   builder->SetCurrentDebugLocation(loc);
 }
 
+auto Codegen::createAllocaInEntry(llvm::Function* fn, llvm::Type* elemTy, const std::string& name)
+    -> llvm::AllocaInst* {
+  llvm::BasicBlock& entry = fn->getEntryBlock();
+  llvm::IRBuilder<> atEntry(&entry, entry.getFirstInsertionPt());
+  return atEntry.CreateAlloca(elemTy, nullptr, name);
+}
+
 auto Codegen::initializeModule() -> std::unique_ptr<Module> {
   std::unique_ptr<Module> mod;
 #if LLVM_VERSION_MAJOR >= 21
@@ -425,6 +434,10 @@ auto Codegen::optimize(OptimizationLevel opt) -> void {
 
   // Add custom passes to FunctionPassManager
   llvm::FunctionPassManager fpm;
+  // Split promotable aggregate allocas, then mem2reg: reduces stack traffic and dead lifetime slots
+  // left after inlining (e.g. unused this/arg spill allocas in inlined callees).
+  fpm.addPass(llvm::SROAPass(llvm::SROAOptions::ModifyCFG));
+  fpm.addPass(llvm::PromotePass());
   fpm.addPass(llvm::ADCEPass());
   fpm.addPass(llvm::GVNPass());
   fpm.addPass(llvm::DSEPass());
