@@ -427,10 +427,37 @@ auto Codegen::visit(const VarDecl* node) -> void {
     const bool isPtrToClass = storedType->is(BaseType::TY_PTR) &&
                               storedType->getElementType() != nullptr &&
                               storedType->getElementType()->is(BaseType::TY_CLASS);
-    llvm::Type* allocaTy = (storedType->is(BaseType::TY_CLASS) || isPtrToClass)
-                               ? builder->getPtrTy()
-                               : storedType->getLlvmType();
-    auto* ptr = builder->CreateAlloca(allocaTy, nullptr, name);
+    llvm::Type* storageLlvmTy = (storedType->is(BaseType::TY_CLASS) || isPtrToClass)
+                                    ? builder->getPtrTy()
+                                    : storedType->getLlvmType();
+
+    if (node->isExported()) {
+      std::string const mangled = MangleUtils::getGlobalVariableSymbolName(
+          filename.empty() ? std::string() : normalizeResolvedFilesystemPath(filename), name);
+      llvm::GlobalVariable* gv = theModule->getGlobalVariable(mangled, true);
+      if (gv == nullptr) {
+        gv = new llvm::GlobalVariable(
+            *theModule, storageLlvmTy, false, llvm::GlobalValue::ExternalLinkage,
+            llvm::Constant::getNullValue(storageLlvmTy), mangled);
+      }
+      existing->setLlvmValue(gv);
+      existing->setMangledName(mangled);
+      existing->setCategory(ValueCategory::ADDRESSABLE_STORAGE);
+      existing->setMutable(node->getMutability());
+      if (valueResult != nullptr) {
+        if (isPtrToClass && valueResult->getType() != nullptr &&
+            valueResult->getType()->is(BaseType::TY_PTR)) {
+          builder->CreateStore(valueResult->getLlvmValue(), gv);
+        } else {
+          lesma::Type* castTarget = isPtrToClass ? storedType->getElementType() : storedType;
+          auto castVal = cast(node->getSpan(), valueResult.get(), castTarget);
+          builder->CreateStore(castVal->getLlvmValue(), gv);
+        }
+      }
+      return;
+    }
+
+    auto* ptr = builder->CreateAlloca(storageLlvmTy, nullptr, name);
     existing->setLlvmValue(ptr);
     existing->setCategory(ValueCategory::ADDRESSABLE_STORAGE);
     existing->setMutable(node->getMutability());
@@ -2012,6 +2039,60 @@ auto Codegen::visit(const DotOp* node) -> void {
           field = dynamic_cast<Literal*>(node->getRight())->getValue();
         } else {
           method = dynamic_cast<FuncCall*>(node->getRight());
+        }
+
+        if (!field.empty()) {
+          auto pathIt = importAliasToModulePath.find(left->getValue());
+          if (pathIt != importAliasToModulePath.end()) {
+            lesma::Type* memTy = nullptr;
+            for (size_t i = 0; i < importedModules->size(); ++i) {
+              if (normalizeResolvedFilesystemPath(importedModules->at(i)) ==
+                  normalizeResolvedFilesystemPath(pathIt->second)) {
+                SymbolTable* isc = importedScopes->at(i).get();
+                Value* vs = isc->lookup(field);
+                if (vs != nullptr && vs->getDeclarationKind() == ValueDeclarationKind::VARIABLE &&
+                    vs->isExported()) {
+                  memTy = vs->getType();
+                  break;
+                }
+              }
+            }
+            if (memTy != nullptr) {
+              getOrCreateLlvmType(memTy);
+              llvm::Type* storageTy = memTy->getLlvmType();
+              if (memTy->is(BaseType::TY_CLASS)) {
+                storageTy = builder->getPtrTy();
+              } else if (memTy->is(BaseType::TY_PTR) && memTy->getElementType() != nullptr &&
+                         memTy->getElementType()->is(BaseType::TY_CLASS)) {
+                storageTy = builder->getPtrTy();
+              }
+              std::string const mangled = MangleUtils::getGlobalVariableSymbolName(
+                  normalizeResolvedFilesystemPath(pathIt->second), field);
+              llvm::GlobalVariable* gv = theModule->getGlobalVariable(mangled, true);
+              if (gv == nullptr) {
+                gv = new llvm::GlobalVariable(
+                    *theModule, storageTy, false, llvm::GlobalValue::ExternalLinkage, nullptr,
+                    mangled);
+              }
+              if (isAssignment) {
+                lesma::Type* ptrToVal = memTy;
+                if (memTy->is(BaseType::TY_CLASS)) {
+                  ptrToVal = cacheType(
+                      std::make_unique<Type>(BaseType::TY_PTR, builder->getPtrTy(), memTy));
+                } else if (memTy->is(BaseType::TY_PTR) &&
+                           memTy->getElementType()->is(BaseType::TY_CLASS)) {
+                  ptrToVal =
+                      cacheType(std::make_unique<Type>(BaseType::TY_PTR, builder->getPtrTy(),
+                                                       memTy->getElementType()));
+                }
+                result = std::make_unique<Value>("", ptrToVal, gv);
+                return;
+              }
+              result = std::make_unique<Value>("", memTy, builder->CreateLoad(storageTy, gv));
+              return;
+            }
+          }
+          throw CodegenError(node->getRight()->getSpan(), "Unknown module member '{}'", field);
         }
 
         if (method != nullptr) {

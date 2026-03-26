@@ -657,7 +657,7 @@ auto Parser::parseVarDecl() -> std::unique_ptr<Statement> {
     endLoc = type->getEnd();
   }
   return std::make_unique<VarDecl>(llvm::SMRange{startTok->getStart(), endLoc}, std::move(vars),
-                                   std::move(type), std::move(expr), isMutable);
+                                   std::move(type), std::move(expr), isMutable, isExported);
 }
 
 auto Parser::parseIf() -> std::unique_ptr<Statement> {
@@ -913,6 +913,8 @@ auto Parser::parseParameterList(bool allowVarargsEllipsis) -> ParameterListParse
 auto Parser::parseFunctionDeclaration() -> std::unique_ptr<Statement> {
   auto loc = isExported ? previous()->span : peek()->span;
   consume(TokenType::DEF);
+  // `export class` / `export def` leave isExported set; locals inside the body must not inherit it.
+  bool const funcExported = isExported;
   bool externFunc = false;
 
   if (advanceIfMatchAny<TokenType::EXTERN>()) {
@@ -1009,15 +1011,18 @@ auto Parser::parseFunctionDeclaration() -> std::unique_ptr<Statement> {
     return std::make_unique<ExternFuncDecl>(llvm::SMRange{loc.Start, returnType->getEnd()},
                                             functionName, functionNameSpan,
                                             std::move(genericParams), std::move(returnType),
-                                            std::move(parameters), varargs, isExported);
+                                            std::move(parameters), varargs, funcExported);
   }
 
+  bool const savedExported = isExported;
+  isExported = false;
   auto body = parseBlock();
+  isExported = savedExported;
   auto funcEnd = body ? body->getEnd() : returnType->getEnd();
 
   return std::make_unique<FuncDecl>(
       llvm::SMRange{loc.Start, funcEnd}, functionName, functionNameSpan, std::move(genericParams),
-      std::move(returnType), std::move(parameters), std::move(body), false, isExported);
+      std::move(returnType), std::move(parameters), std::move(body), false, funcExported);
 }
 
 auto Parser::parseExport() -> std::unique_ptr<Statement> {
@@ -1027,14 +1032,21 @@ auto Parser::parseExport() -> std::unique_ptr<Statement> {
     error(peek(), "Cannot export class members");
   }
 
-  if (!checkAny<TokenType::DEF, TokenType::CLASS, TokenType::ENUM, TokenType::TRAIT>()) {
-    error(peek(), "Can only export functions, classes, enums, and traits");
+  if (!checkAny<TokenType::DEF, TokenType::CLASS, TokenType::ENUM, TokenType::TRAIT,
+               TokenType::LET, TokenType::VAR>()) {
+    error(peek(), "Can only export functions, classes, enums, traits, and variables");
   }
 
   isExported = true;
   std::unique_ptr<Statement> statement;
   if (check(TokenType::DEF)) {
     statement = parseFunctionDeclaration();
+  } else if (check(TokenType::LET) || check(TokenType::VAR)) {
+    statement = parseVarDecl();
+    if (auto* vd = dynamic_cast<VarDecl*>(statement.get());
+        vd != nullptr && vd->getVarLiterals().size() > 1U) {
+      error(peek(), "Cannot export destructuring declarations");
+    }
   } else if (check(TokenType::IMPORT)) {
     statement = parseImport();
   } else if (check(TokenType::CLASS)) {
@@ -1173,7 +1185,11 @@ auto Parser::parseClass() -> std::unique_ptr<Statement> {
   inClass = true;
   while (!checkAny<TokenType::DEDENT, TokenType::EOF_TOKEN>()) {
     if (checkAny<TokenType::LET, TokenType::VAR>()) {
+      // Class fields reuse parseVarDecl; do not inherit `export` from `export class …`.
+      bool const savedExported = isExported;
+      isExported = false;
       auto stmt = parseVarDecl();
+      isExported = savedExported;
       auto* varDecl = dynamic_cast<VarDecl*>(stmt.get());
       if (varDecl != nullptr) {
         endLoc = varDecl->getEnd();

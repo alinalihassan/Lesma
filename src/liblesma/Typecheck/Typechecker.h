@@ -105,6 +105,14 @@ class Typechecker final : public ASTVisitor {
   auto getOrTypecheckImport(const std::string& absolutePath) -> SymbolTable*;
 
   void loadImplicitStdModule(const std::string& moduleFilename);
+  /** If \p exportedName is an exported variable in the module at \p resolvedPath, insert a
+   * same-type alias as \p localName into the current scope (for typechecking `import *` / `from`).
+   */
+  auto insertImportedVariableAlias(const std::string& resolvedPath,
+                                   const std::string& exportedName, const std::string& localName)
+      -> void;
+  void validateParameterDefaultOrdering(llvm::SMRange span,
+                                        const std::vector<Parameter*>& params);
   /** Get or create a specialized class type by substituting env into template's
    * fields. */
   auto getOrCreateSpecializedClassType(Type* classTemplate,

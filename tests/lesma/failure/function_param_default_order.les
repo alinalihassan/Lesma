@@ -1,0 +1,3 @@
+# Required parameter after defaulted parameter is invalid.
+def bad(a: int = 1, b: int) -> int
+	return a + b

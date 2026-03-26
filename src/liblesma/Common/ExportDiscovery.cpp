@@ -58,6 +58,12 @@ auto getExportedTopLevelNamesFromFile(const std::string& filepath, bool isStd,
       if (tr->isExported()) {
         out.push_back(tr->getIdentifier());
       }
+    } else if (auto* vd = dynamic_cast<VarDecl*>(stmt)) {
+      if (vd->isExported()) {
+        for (Literal* lit : vd->getVarLiterals()) {
+          out.push_back(lit->getValue());
+        }
+      }
     }
   }
 

@@ -308,14 +308,16 @@ class VarDecl : public Statement {
   std::unique_ptr<TypeExpr> type;
   std::unique_ptr<Expression> expr;
   bool isMutable;
+  bool exported = false;
   /** Set by typechecker: one entry per `vars` (unpack) or one for a simple `let`. */
   mutable std::vector<Value*> resolvedSymbols;
 
 public:
   VarDecl(llvm::SMRange loc, std::vector<std::unique_ptr<Literal>> vars,
-          std::unique_ptr<TypeExpr> type, std::unique_ptr<Expression> expr, bool isMutable)
+          std::unique_ptr<TypeExpr> type, std::unique_ptr<Expression> expr, bool isMutable,
+          bool exportedArg = false)
       : Statement(loc), vars(std::move(vars)), type(std::move(type)), expr(std::move(expr)),
-        isMutable(isMutable) {}
+        isMutable(isMutable), exported(exportedArg) {}
   void accept(ASTVisitor& visitor) const override { visitor.visit(this); }
 
   [[nodiscard]] [[maybe_unused]] auto getIdentifier() const -> Literal* {
@@ -336,6 +338,7 @@ public:
   [[nodiscard]] [[maybe_unused]] auto getType() const -> TypeExpr* { return type.get(); }
   [[nodiscard]] [[maybe_unused]] auto getValue() const -> Expression* { return expr.get(); }
   [[nodiscard]] [[maybe_unused]] auto getMutability() const -> bool { return isMutable; }
+  [[nodiscard]] auto isExported() const -> bool { return exported; }
   [[nodiscard]] auto getResolvedSymbol() const -> Value* {
     if (resolvedSymbols.empty()) {
       return nullptr;

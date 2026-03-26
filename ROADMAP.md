@@ -5,11 +5,11 @@
 - [x] Fix multiple imports not working (import each file once)
 - [x] Add default values in function declarations
 - [x] Add operator overloading
-- [ ] Add global variables (like 'export let pi = 3.14')
+- [x] Add global variables (like 'export let pi = 3.14')
 - [x] Add generics
 - [x] Add lists
 - [ ] Add optional types
-- [ ] Add optional parameters in function declarations
+- [x] Add optional parameters in function declarations
 - [x] Add tuples
 - [x] Add ranges (1..4 style)
 - [ ] Add dictionaries
@@ -18,7 +18,7 @@
 - [x] Add traits
 - [ ] Add string interpolation
 - [ ] Add multithreading using pthread for now (async/await? ala Spice)
-- [ ] Add multiple value return without having to make structs
+- [x] Add multiple value return without having to make structs
 
 ## LSP
 - [ ] rename + prepareRename

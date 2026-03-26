@@ -8,6 +8,7 @@
 #include <llvm/ExecutionEngine/Orc/ThreadSafeModule.h>
 #include <llvm/IR/DerivedTypes.h>
 #include <llvm/IR/Function.h>
+#include <llvm/IR/GlobalVariable.h>
 #include <llvm/IR/GlobalValue.h>
 #include <llvm/Support/Error.h>
 #include <llvm/Support/MemoryBuffer.h>
@@ -19,6 +20,7 @@
 #include "liblesma/AST/AST.h"
 #include "liblesma/Backend/CodegenError.h"
 #include "liblesma/Backend/MangleUtils.h"
+#include <llvm/ExecutionEngine/Orc/Core.h>
 #include "liblesma/Common/ExportDiscovery.h"
 #include "liblesma/Common/LesmaError.h"
 #include "liblesma/Common/Utils.h"
@@ -109,6 +111,38 @@ auto Codegen::exposeImportedSymbols(llvm::SMRange /*span*/, SymbolTable* importe
       structSymbol->setGenericClassTemplate(sym->getGenericClassTemplate());
       scope->insertTypeRef(sym->getName(), sym->getType());
       scope->insertSymbol(std::move(structSymbol));
+      continue;
+    }
+
+    if (sym->getDeclarationKind() == ValueDeclarationKind::VARIABLE && sym->isExported()) {
+      if (!importAll && !importedByName) {
+        continue;
+      }
+      lesma::Type* memTy = sym->getType();
+      getOrCreateLlvmType(memTy);
+      llvm::Type* storageTy = memTy->getLlvmType();
+      if (memTy->is(BaseType::TY_CLASS)) {
+        storageTy = builder->getPtrTy();
+      } else if (memTy->is(BaseType::TY_PTR) && memTy->getElementType() != nullptr &&
+                 memTy->getElementType()->is(BaseType::TY_CLASS)) {
+        storageTy = builder->getPtrTy();
+      }
+      std::string const mangled = MangleUtils::getGlobalVariableSymbolName(
+          normalizeResolvedFilesystemPath(sym->getDeclarationFilePath()), sym->getName());
+      llvm::GlobalVariable* gv = theModule->getGlobalVariable(mangled, true);
+      if (gv == nullptr) {
+        gv = new llvm::GlobalVariable(*theModule, storageTy, false,
+                                      llvm::GlobalValue::ExternalLinkage, nullptr, mangled);
+      }
+      const std::string localName = importedLocalName.empty() ? sym->getName() : importedLocalName;
+      auto vs = std::make_unique<Value>(localName, memTy);
+      vs->setCategory(ValueCategory::ADDRESSABLE_STORAGE);
+      vs->setDeclarationKind(ValueDeclarationKind::VARIABLE);
+      vs->setMutable(sym->getMutability());
+      vs->setLlvmValue(gv);
+      vs->setMangledName(mangled);
+      vs->setDeclarationFilePath(sym->getDeclarationFilePath());
+      scope->insertSymbol(std::move(vs));
       continue;
     }
 
@@ -211,6 +245,7 @@ auto Codegen::compileModule(llvm::SMRange span, const std::string& filepath, boo
       }
     }
     insertImportAlias(moduleAlias, importToScope);
+    importAliasToModulePath[moduleAlias] = absolutePath;
     exposeImportedSymbols(span, existingScope, importAll, importToScope, importedNames);
     return;
   }
@@ -264,7 +299,19 @@ auto Codegen::compileModule(llvm::SMRange span, const std::string& filepath, boo
     codegen->theModule->setModuleIdentifier(filepath);
 
     insertImportAlias(moduleAlias, importToScope);
+    importAliasToModulePath[moduleAlias] = absolutePath;
     exposeImportedSymbols(span, codegen->rootScope.get(), importAll, importToScope, importedNames);
+
+    bool needsExportedVarInit = false;
+    if (SymbolTable* importedRoot = codegen->rootScope.get()) {
+      for (auto* sym : importedRoot->getSymbols()) {
+        if (sym != nullptr && sym->getDeclarationKind() == ValueDeclarationKind::VARIABLE &&
+            sym->isExported()) {
+          needsExportedVarInit = true;
+          break;
+        }
+      }
+    }
 
     importedScopes->push_back(std::move(codegen->rootScope));
     codegen->scope = nullptr; // Clear navigation pointer (rootscope now moved)
@@ -274,11 +321,15 @@ auto Codegen::compileModule(llvm::SMRange span, const std::string& filepath, boo
     }
     mergeImportedSpecializationState(*codegen);
 
+    std::string jitModuleInitSymbol;
     if (isJit) {
       codegen->verifyIrModuleOrThrow(fmt::format("import {}", filepath));
       if (llvm::Function* importMain = codegen->theModule->getFunction("main");
           importMain != nullptr && importMain->hasInternalLinkage()) {
-        importMain->setName("__lesma_imported_module_init");
+        jitModuleInitSymbol = MangleUtils::getImportedModuleInitSymbolName(absolutePath);
+        importMain->setName(jitModuleInitSymbol);
+        importMain->setLinkage(llvm::GlobalValue::ExternalLinkage);
+        importMain->setVisibility(llvm::GlobalValue::HiddenVisibility);
       }
       for (llvm::Function& fn : *codegen->theModule) {
         if (fn.hasPrivateLinkage()) {
@@ -286,11 +337,23 @@ auto Codegen::compileModule(llvm::SMRange span, const std::string& filepath, boo
           fn.setVisibility(llvm::GlobalValue::HiddenVisibility);
         }
       }
+      // Do not promote private GlobalVariables (string literals, etc.): Mach-O JITLink reports
+      // "Unexpected definitions" for anonymous ___unnamed_* symbols when they become external.
       llvm::Error jitErr =
           theJit->addIRModule(ThreadSafeModule(std::move(codegen->theModule), *theContext));
       if (jitErr) {
         throw CodegenError(span, std::string("Failed adding import to JIT: ") + absolutePath +
                                      ": " + jitErrorToString(std::move(jitErr)));
+      }
+      if (!jitModuleInitSymbol.empty() && needsExportedVarInit) {
+        Expected<ExecutorAddr> initAddr = theJit->lookup(jitModuleInitSymbol);
+        if (!initAddr) {
+          throw CodegenError(span, std::string("JIT could not resolve module initializer ") +
+                                       jitModuleInitSymbol + ": " +
+                                       jitErrorToString(initAddr.takeError()));
+        }
+        using ModuleInitTy = int64_t();
+        std::ignore = initAddr->toPtr<ModuleInitTy>()();
       }
       codegen->theModule = codegen->initializeModule();
     } else {

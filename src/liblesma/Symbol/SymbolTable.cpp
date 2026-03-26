@@ -405,6 +405,10 @@ auto SymbolTable::lookup(const std::string& name) -> Value* {
   if (typeNominal != nullptr) {
     return typeNominal;
   }
+  if (importStub != nullptr && fallback != nullptr && fallback->getType() != nullptr &&
+      !fallback->getType()->is(BaseType::TY_IMPORT)) {
+    return fallback;
+  }
   if (importStub != nullptr) {
     return importStub;
   }

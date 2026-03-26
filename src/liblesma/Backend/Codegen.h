@@ -83,6 +83,8 @@ class Codegen final : public ASTVisitor {
                       // (e.g. math)
   std::vector<std::unique_ptr<Codegen>> importedCodegens; // Keep imported module codegens alive so
                                                           // Class* in symbols stay valid
+  /** Maps `import "m"` alias -> absolute path of `m` (for resolving exported globals). */
+  std::unordered_map<std::string, std::string> importAliasToModulePath;
   std::unordered_map<std::string, llvm::StructType*> listStructTypes;
   std::vector<std::tuple<lesma::Value*, const FuncDecl*, Value*>> prototypes;
   std::unordered_map<std::string, const FuncDecl*> genericFunctions;
