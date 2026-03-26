@@ -9,14 +9,15 @@
 - [x] Add generics
 - [x] Add lists
 - [ ] Add optional types
+- [ ] Add try catch
 - [x] Add optional parameters in function declarations
 - [x] Add tuples
-- [x] Add ranges (1..4 style)
+- [x] Add ranges (range(1, 4) style)
 - [ ] Add dictionaries
 - [x] Add foreach loops
 - [ ] Add lambda functions
 - [x] Add traits
-- [ ] Add string interpolation
+- [x] Add string interpolation
 - [ ] Add multithreading using pthread for now (async/await? ala Spice)
 - [x] Add multiple value return without having to make structs
 
@@ -25,12 +26,7 @@
 - [ ] workspace/symbol
 - [ ] documentHighlight
 - [ ] codeAction for obvious fixes
-- [ ]documentLink for import targets
-- [ ]richer semantic tokens
-- [ ]folding/selection ranges
-- [ ]formatting
-
-## Bugs
-
-- [ ] Nested dot access is not implemented yet (for example `holder.payload.value`)
-- [ ] Dereferencing a pointer loaded from a class field does not work correctly at runtime/codegen
+- [ ] documentLink for import targets
+- [ ] richer semantic tokens
+- [ ] folding/selection ranges
+- [ ] formatting
