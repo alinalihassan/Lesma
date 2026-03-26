@@ -13,8 +13,6 @@
 
 #include <llvm/ADT/APFloat.h>
 #include <llvm/ADT/SmallVector.h>
-#include <llvm/Analysis/CGSCCPassManager.h>
-#include <llvm/Analysis/LoopAnalysisManager.h>
 #include <llvm/Config/llvm-config.h>
 #include <llvm/ExecutionEngine/Orc/ExecutionUtils.h>
 #include <llvm/ExecutionEngine/Orc/JITTargetMachineBuilder.h>
@@ -31,14 +29,10 @@
 #include <llvm/IR/IRBuilder.h>
 #include <llvm/IR/Instructions.h>
 #include <llvm/IR/LLVMContext.h>
-#include <llvm/IR/LegacyPassManager.h>
-#include <llvm/IR/PassManager.h>
 #include <llvm/IR/Value.h>
 #include <llvm/IR/Verifier.h>
 #include <llvm/MC/TargetRegistry.h>
-#include <llvm/Pass.h>
 #include <llvm/Passes/OptimizationLevel.h>
-#include <llvm/Passes/PassBuilder.h>
 #include <llvm/Support/Casting.h>
 #include <llvm/Support/CodeGen.h>
 #include <llvm/Support/FileSystem.h>
@@ -48,14 +42,6 @@
 #include <llvm/Target/TargetMachine.h>
 #include <llvm/Target/TargetOptions.h>
 #include <llvm/TargetParser/Host.h>
-#include <llvm/Transforms/IPO/GlobalDCE.h>
-#include <llvm/Transforms/IPO/Inliner.h>
-#include <llvm/Transforms/Scalar/ADCE.h>
-#include <llvm/Transforms/Scalar/DeadStoreElimination.h>
-#include <llvm/Transforms/Scalar/GVN.h>
-#include <llvm/Transforms/Scalar/LoopPassManager.h>
-#include <llvm/Transforms/Scalar/LoopUnrollPass.h>
-#include <llvm/Transforms/Vectorize/LoopVectorize.h>
 
 #include "Codegen.h"
 #include <lld/Common/Driver.h>

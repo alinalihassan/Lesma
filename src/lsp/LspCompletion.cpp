@@ -14,7 +14,6 @@
 #include "LspAnalysisGraph.h"
 #include "LspSourceHelpers.h"
 #include "LspTypeFormat.h"
-#include "LspUtf16.h"
 
 #include "liblesma/AST/AST.h"
 #include "liblesma/Driver/Driver.h"
@@ -23,6 +22,9 @@
 
 namespace lesma::lsp_srv {
 namespace {
+
+/** Inserted after `.` so `holder.` re-parses as member access (see completionItems). */
+constexpr std::string_view memberCompletionPlaceholder = "__cursor__";
 
 using namespace lesma;
 using lesma::lsp_srv::formatTypeName;
@@ -42,7 +44,7 @@ struct CompletionCandidate {
 using InnermostFunc = InnermostFuncAtOffset<lesma::FuncDecl, lesma::Class>;
 
 auto positionToOffset(llvm::StringRef ref, unsigned line, unsigned character) -> unsigned {
-  return static_cast<unsigned>(bufferByteOffsetFromLspPosition(ref, line, character));
+  return static_cast<unsigned>(bufferByteOffsetFromLspUtf8Position(ref, line, character));
 }
 
 [[nodiscard]] auto findInnermostFuncContaining(lesma::Compound* ast, unsigned targetOffset,
@@ -167,7 +169,7 @@ auto extractCompletionContext(llvm::StringRef text, unsigned offset) -> Completi
 auto reanalyzeWithCompletionPlaceholder(const AnalysisResult& result, llvm::StringRef text,
                                         unsigned offset) -> AnalysisResult {
   std::string patchedText(text.data(), text.size());
-  patchedText.insert(static_cast<size_t>(offset), "__cursor__");
+  patchedText.insert(static_cast<size_t>(offset), memberCompletionPlaceholder);
   auto options = std::make_unique<Options>(Options{
       SourceType::STRING,
       std::move(patchedText),

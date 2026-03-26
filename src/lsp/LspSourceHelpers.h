@@ -1,11 +1,19 @@
 #pragma once
 
+#include <cstddef>
+
+#include <llvm/ADT/StringRef.h>
 #include <llvm/Support/SMLoc.h>
 #include <llvm/Support/SourceMgr.h>
 
 #include "liblesma/AST/AST.h"
 
 namespace lesma::lsp_srv {
+
+/** With LSP UTF-8 position encoding: \p line is 0-based, \p characterUtf8 is 0-based UTF-8 code
+ * units (bytes) from the start of that line. Returns a byte offset into \p utf8Text. */
+[[nodiscard]] auto bufferByteOffsetFromLspUtf8Position(llvm::StringRef utf8Text, unsigned line,
+                                                       unsigned characterUtf8) -> std::size_t;
 
 /** Byte offset of \p loc within the given buffer (0 if buffer missing). */
 [[nodiscard]] auto getOffsetFromSMLoc(llvm::SourceMgr* srcMgr, unsigned bufferId, llvm::SMLoc loc)
