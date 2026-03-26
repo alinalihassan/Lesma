@@ -419,6 +419,88 @@ def f()
   EXPECT_TRUE(found);
 }
 
+TEST(AnalysisParseRecoveryTests, CollectsMultipleParserDiagnostics) {
+  constexpr auto source = R"(let x = 1
++
+let y = 2
+*
+let z = 3
+)";
+  AnalysisResult const result = analyzeSource(source);
+  unsigned unknownLiteralErrors = 0;
+  for (const auto& d : result.diagnostics) {
+    if (d.severity == AnalysisDiagnosticSeverity::Error &&
+        d.message.find("Unknown literal") != std::string::npos) {
+      ++unknownLiteralErrors;
+    }
+  }
+  EXPECT_GE(unknownLiteralErrors, 2U);
+}
+
+TEST(AnalysisParseRecoveryTests, CollectsMultipleLexerDiagnostics) {
+  constexpr auto source = R"(let x = 1
+@
+let y = 2
+`
+let z = 3
+)";
+  AnalysisResult const result = analyzeSource(source);
+  unsigned unexpectedCharErrors = 0;
+  for (const auto& d : result.diagnostics) {
+    if (d.severity == AnalysisDiagnosticSeverity::Error &&
+        d.message.find("Unexpected character") != std::string::npos) {
+      ++unexpectedCharErrors;
+    }
+  }
+  EXPECT_GE(unexpectedCharErrors, 2U);
+}
+
+TEST(AnalysisTypecheckRecoveryTests, CollectsMultipleErrorsInIfChain) {
+  constexpr auto source = R"(class Foo
+    var value: int
+
+    def new(value: int)
+        self.value = value
+
+class Bar
+    var value: int
+
+    def new(value: int)
+        self.value = value
+
+var foo = Foo(1)
+var bar = Bar(1)
+
+if foo < bar
+    let error = true
+else if foo > bar
+    let error = true
+
+let x: bool = 4
+)";
+  AnalysisResult const result = analyzeSource(source);
+  unsigned errors = 0;
+  unsigned comparisonErrors = 0;
+  unsigned assignabilityErrors = 0;
+  for (const auto& d : result.diagnostics) {
+    if (d.severity != AnalysisDiagnosticSeverity::Error) {
+      continue;
+    }
+    ++errors;
+    if (d.message.find("Comparison requires operands of the same enum or class type") !=
+        std::string::npos) {
+      ++comparisonErrors;
+    }
+    if (d.message.find("Variable initializer type") != std::string::npos &&
+        d.message.find("assignable") != std::string::npos) {
+      ++assignabilityErrors;
+    }
+  }
+  EXPECT_GE(errors, 3U);
+  EXPECT_EQ(comparisonErrors, 2U);
+  EXPECT_EQ(assignabilityErrors, 1U);
+}
+
 TEST(AnalysisIndexTests, IndexesOnlyResolvedEnumMemberAccesses) {
   constexpr auto source = R"(enum Status
     READY

@@ -14,6 +14,7 @@
 #include <sysexits.h>
 
 #include "liblesma/Common/LesmaError.h"
+#include "liblesma/Driver/AnalysisDiagnostic.h"
 #include "liblesma/Token/Token.h"
 #include "liblesma/Token/TokenType.h"
 
@@ -24,10 +25,12 @@ class LexerError : public LesmaErrorWithExitCode<EX_DATAERR> {
 
 class Lexer {
 public:
-  explicit Lexer(const std::shared_ptr<llvm::SourceMgr>& srcMgr)
+  explicit Lexer(const std::shared_ptr<llvm::SourceMgr>& srcMgr,
+                 std::vector<AnalysisDiagnostic>* diagnosticSink = nullptr)
       : curBuffer(srcMgr->getMemoryBuffer(srcMgr->getNumBuffers())),
         beginLoc(llvm::SMLoc::getFromPointer(curBuffer->getBufferStart())),
-        loc(llvm::SMLoc::getFromPointer(curBuffer->getBufferStart())), srcMgr(srcMgr) {}
+        loc(llvm::SMLoc::getFromPointer(curBuffer->getBufferStart())), srcMgr(srcMgr),
+        diagnosticSink(diagnosticSink) {}
   ~Lexer() = default;
 
   Lexer(const Lexer&) = delete;
@@ -64,7 +67,15 @@ private:
   auto makeToken(TokenType type) -> std::unique_ptr<Token>;
   auto makeToken(TokenType type, const std::string& value) -> std::unique_ptr<Token>;
 
-  auto error(const std::string& msg) const -> void;
+  [[nodiscard]] auto currentSpan() const -> llvm::SMRange { return llvm::SMRange{beginLoc, loc}; }
+
+  auto lexError(llvm::SMRange span, const std::string& msg) -> void;
+
+  /** Consume until after the next `\n`, or EOF. Updates line/col. */
+  auto skipRestOfPhysicalLine() -> void;
+
+  /** Emit DEDENTs for open indent levels and reset stacks (after a structural lex error). */
+  auto emitDedentsAndResetIndent() -> void;
 
   auto isAtEnd() -> bool { return curPos >= curBuffer->getBufferSize(); }
 
@@ -94,7 +105,8 @@ private:
   auto getLastToken() -> Token*;
   auto addIdentifierToken() -> std::unique_ptr<Token>;
 
-  auto handleWhitespace(char c) -> void;
+  /** Returns false if the caller should immediately `return scanOne(continuation)`. */
+  auto handleWhitespace(char c) -> bool;
   auto handleIndentation(bool continuation) -> bool;
   auto fallback() -> void;
 
@@ -106,6 +118,7 @@ private:
   llvm::SMLoc loc;
   std::vector<std::unique_ptr<Token>> tokens;
   std::shared_ptr<llvm::SourceMgr> srcMgr;
+  std::vector<AnalysisDiagnostic>* diagnosticSink = nullptr;
 
   std::optional<char> firstIndentChar;
   int level = 0;

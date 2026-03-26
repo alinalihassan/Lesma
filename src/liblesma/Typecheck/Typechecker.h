@@ -20,6 +20,7 @@ namespace lesma {
 
 class Class;
 class TraitDecl;
+class TypeCheckError;
 
 /** Callback to resolve import *: (filepath, isStd, mainFilePath) -> exported
  * names. */
@@ -97,11 +98,16 @@ class Typechecker final : public ASTVisitor {
   ImportedNameSourceMap importedNameToSource;
   /** Cache of fully analyzed imported modules for import-aware symbol resolution. */
   std::unordered_map<std::string, std::shared_ptr<ImportedModuleAnalysis>> importedModuleCache;
+  /** Filled during the second pass; diagnosed after the full unit so calls like `Foo()` see `new` as
+   *  used first (see \c run). */
+  std::vector<const Class*> classesPendingUnusedMemberDiagnosis;
 
-  /** When non-null, unreachable-code and other warnings are appended here (severity Warning). */
+  /** When non-null, unreachable-code and other warnings are appended here (severity Warning).
+   *  Type errors are also recorded (severity Error) and typecheck continues where possible. */
   std::vector<AnalysisDiagnostic>* warningDiagnostics = nullptr;
 
   void emitWarning(llvm::SMRange span, std::string message);
+  void recoverFromTypeError(const TypeCheckError& err);
   void markValueRead(Value* sym);
   void checkUnusedBindingsInScope(SymbolTable* blockScope);
   void warnShadowingFromEnclosing(const std::string& name, llvm::SMRange span);
@@ -225,7 +231,8 @@ public:
   Typechecker(Typechecker&&) = delete;
   auto operator=(Typechecker&&) -> Typechecker& = delete;
 
-  /** Run typecheck on the given AST. Throws TypeCheckError on first error. */
+  /** Run typecheck on the given AST. Throws TypeCheckError on first error when no diagnostic sink
+   *  is set; with \c warningDiagnostics non-null, records errors and continues where possible. */
   auto run(const Compound* ast) -> void;
 
   /** Take ownership of the symbol table built during typecheck (call after

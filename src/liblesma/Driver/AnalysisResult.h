@@ -11,6 +11,7 @@
 #include "llvm/Support/SMLoc.h"
 #include "llvm/Support/SourceMgr.h"
 
+#include "liblesma/Driver/AnalysisDiagnostic.h"
 #include "liblesma/Driver/Driver.h"
 #include "liblesma/Frontend/Parser.h"
 #include "liblesma/Symbol/SymbolTable.h"
@@ -19,15 +20,6 @@
 namespace lesma {
 class Compound;
 class Timer;
-
-enum class AnalysisDiagnosticSeverity : std::uint8_t { Error, Warning };
-
-/** Single diagnostic (error/warning) with a source span. */
-struct AnalysisDiagnostic {
-  std::string message;
-  llvm::SMRange span;
-  AnalysisDiagnosticSeverity severity = AnalysisDiagnosticSeverity::Error;
-};
 
 struct IndexedDeclarationIdentity {
   std::string filePath;

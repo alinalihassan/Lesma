@@ -1699,11 +1699,16 @@ auto Typechecker::run(const Compound* ast) -> void {
       registerTraitsFromImportedModule(basePath.string());
     }
   }
+  classesPendingUnusedMemberDiagnosis.clear();
   declarationPass = true;
   ast->accept(*this);
   declarationPass = false;
   ast->accept(*this);
   if (warningDiagnostics != nullptr && rootScope != nullptr) {
+    for (const Class* classNode : classesPendingUnusedMemberDiagnosis) {
+      diagnoseUnusedNonExportedClassMembers(classNode);
+    }
+    classesPendingUnusedMemberDiagnosis.clear();
     checkUnusedBindingsInScope(rootScope.get());
   }
 }
@@ -1755,7 +1760,11 @@ auto Typechecker::visit(const Compound* node) -> void {
     if (precededByTerminator) {
       emitWarning(elem->getSpan(), "Unreachable code");
     }
-    elem->accept(*this);
+    try {
+      elem->accept(*this);
+    } catch (const TypeCheckError& err) {
+      recoverFromTypeError(err);
+    }
     precededByTerminator = isControlFlowTerminator(elem);
   }
 }
@@ -1778,6 +1787,27 @@ void Typechecker::emitWarning(llvm::SMRange span, std::string message) {
       AnalysisDiagnostic{.message = std::move(message),
                          .span = span,
                          .severity = AnalysisDiagnosticSeverity::Warning});
+}
+
+void Typechecker::recoverFromTypeError(const TypeCheckError& err) {
+  if (warningDiagnostics == nullptr) {
+    throw;
+  }
+  if (!mainFilePath.empty() && isStdlibSourcePath(mainFilePath)) {
+    throw TypeCheckError(err.getSpan(), std::string(err.what()));
+  }
+  llvm::SMRange const span = err.getSpan().isValid() ? err.getSpan() : llvm::SMRange();
+  std::string const message = std::string(err.what());
+  for (const AnalysisDiagnostic& existing : *warningDiagnostics) {
+    if (existing.severity == AnalysisDiagnosticSeverity::Error && existing.message == message &&
+        existing.span.Start.getPointer() == span.Start.getPointer() &&
+        existing.span.End.getPointer() == span.End.getPointer()) {
+      return;
+    }
+  }
+  warningDiagnostics->push_back(AnalysisDiagnostic{.message = message,
+                                                     .span = span,
+                                                     .severity = AnalysisDiagnosticSeverity::Error});
 }
 
 void Typechecker::markValueRead(Value* sym) {
@@ -1812,8 +1842,31 @@ void Typechecker::checkUnusedBindingsInScope(SymbolTable* blockScope) {
     return;
   }
   // Declaration + definition passes each insert a symbol for the same VarDecl, so the multimap
-  // can hold duplicate names; emit at most one unused diagnostic per name per scope.
-  std::unordered_set<std::string> warnedUnusedVariable;
+  // can hold duplicate names; emit at most one unused diagnostic per declaration span per scope
+  // (same span => same VarDecl), while still warning for distinct bindings that share a name.
+  std::unordered_set<std::string> variableNameReadInScope;
+  for (Value* u : blockScope->getSymbols()) {
+    if (u->getDeclarationKind() == ValueDeclarationKind::VARIABLE && u->isUsed()) {
+      variableNameReadInScope.insert(u->getName());
+    }
+  }
+  struct UnusedVarDeclSpanHash {
+    auto operator()(llvm::SMRange s) const noexcept -> std::size_t {
+      const void* a = s.Start.getPointer();
+      const void* b = s.End.getPointer();
+      const std::size_t ha = std::hash<const void*>{}(a);
+      const std::size_t hb = std::hash<const void*>{}(b);
+      return ha ^ (hb + 0x9e3779b9U + (ha << 6U) + (ha >> 2U));
+    }
+  };
+  struct UnusedVarDeclSpanEq {
+    auto operator()(llvm::SMRange lhs, llvm::SMRange rhs) const noexcept -> bool {
+      return lhs.Start.getPointer() == rhs.Start.getPointer() &&
+             lhs.End.getPointer() == rhs.End.getPointer();
+    }
+  };
+  std::unordered_set<llvm::SMRange, UnusedVarDeclSpanHash, UnusedVarDeclSpanEq>
+      warnedUnusedVariableDecl;
   std::unordered_set<std::string> warnedUnusedParameter;
   std::unordered_set<std::string> warnedUnusedImport;
   for (Value* v : blockScope->getSymbols()) {
@@ -1828,8 +1881,12 @@ void Typechecker::checkUnusedBindingsInScope(SymbolTable* blockScope) {
       continue;
     }
     if (v->getDeclarationKind() == ValueDeclarationKind::VARIABLE && !v->isUsed()) {
-      if (warnedUnusedVariable.insert(n).second) {
-        emitWarning(v->getDeclarationSpan(), "Unused variable '" + n + "'");
+      if (variableNameReadInScope.count(n) != 0U) {
+        continue;
+      }
+      llvm::SMRange const declSpan = v->getDeclarationSpan();
+      if (warnedUnusedVariableDecl.insert(declSpan).second) {
+        emitWarning(declSpan, "Unused variable '" + n + "'");
       }
       continue;
     }
@@ -2075,30 +2132,46 @@ auto Typechecker::visit(const VarDecl* node) -> void {
 
 auto Typechecker::visit(const If* node) -> void {
   for (Expression* cond : node->getConds()) {
-    cond->accept(*this);
-    if (result->getType() != nullptr && !result->getType()->is(BaseType::TY_BOOL) &&
-        !result->getType()->is(BaseType::TY_GENERIC)) {
-      throw TypeCheckError(cond->getSpan(), "Condition must be Bool, got {}",
-                           result->getType()->toString());
+    try {
+      cond->accept(*this);
+      if (result->getType() != nullptr && !result->getType()->is(BaseType::TY_BOOL) &&
+          !result->getType()->is(BaseType::TY_GENERIC)) {
+        throw TypeCheckError(cond->getSpan(), "Condition must be Bool, got {}",
+                             result->getType()->toString());
+      }
+      warnIfTrivialBoolCondition(cond);
+    } catch (const TypeCheckError& err) {
+      recoverFromTypeError(err);
     }
-    warnIfTrivialBoolCondition(cond);
   }
   for (Compound* block : node->getBlocks()) {
-    warnIfEmptyCompoundBody(block, "if/else branch");
-    block->accept(*this);
+    try {
+      warnIfEmptyCompoundBody(block, "if/else branch");
+      block->accept(*this);
+    } catch (const TypeCheckError& err) {
+      recoverFromTypeError(err);
+    }
   }
 }
 
 auto Typechecker::visit(const While* node) -> void {
-  node->getCond()->accept(*this);
-  if (result->getType() != nullptr && !result->getType()->is(BaseType::TY_BOOL) &&
-      !result->getType()->is(BaseType::TY_GENERIC)) {
-    throw TypeCheckError(node->getCond()->getSpan(), "Condition must be Bool, got {}",
-                         result->getType()->toString());
+  try {
+    node->getCond()->accept(*this);
+    if (result->getType() != nullptr && !result->getType()->is(BaseType::TY_BOOL) &&
+        !result->getType()->is(BaseType::TY_GENERIC)) {
+      throw TypeCheckError(node->getCond()->getSpan(), "Condition must be Bool, got {}",
+                           result->getType()->toString());
+    }
+    warnIfTrivialBoolCondition(node->getCond());
+  } catch (const TypeCheckError& err) {
+    recoverFromTypeError(err);
   }
-  warnIfTrivialBoolCondition(node->getCond());
-  warnIfEmptyCompoundBody(node->getBlock(), "while body");
-  node->getBlock()->accept(*this);
+  try {
+    warnIfEmptyCompoundBody(node->getBlock(), "while body");
+    node->getBlock()->accept(*this);
+  } catch (const TypeCheckError& err) {
+    recoverFromTypeError(err);
+  }
 }
 
 auto Typechecker::visit(const ForIn* node) -> void {
@@ -2405,7 +2478,7 @@ auto Typechecker::visit(const Class* node) -> void {
   currentMethodInsertScope = savedMethodInsertScope;
 
   if (!declarationPass) {
-    diagnoseUnusedNonExportedClassMembers(node);
+    classesPendingUnusedMemberDiagnosis.push_back(node);
   }
 
   if (declarationPass) {
@@ -2928,6 +3001,7 @@ auto Typechecker::visit(const FuncCall* node) -> void {
       for (size_t i = 0; i < genericParamNames.size(); ++i) {
         env[genericParamNames[i]] = explicitTypes[i];
       }
+      Value* constructorForMark = nullptr;
       if (!argTypes.empty()) {
         Type* ptrToClass = cacheType(std::make_unique<Type>(BaseType::TY_PTR, nullptr, classType));
         std::vector<Type*> constructorParamTypes = {ptrToClass};
@@ -2938,6 +3012,7 @@ auto Typechecker::visit(const FuncCall* node) -> void {
                                "Constructor not found for {} with given type arguments",
                                node->getName());
         }
+        constructorForMark = constructor;
         auto ctorParams = constructor->getType()->getFields();
         for (size_t i = 1; i < ctorParams.size() && i - 1 < argTypes.size(); ++i) {
           Type* expected = substituteInType(ctorParams[i]->type, env);
@@ -2949,6 +3024,9 @@ auto Typechecker::visit(const FuncCall* node) -> void {
         }
       }
       Type* specialized = getOrCreateSpecializedClassType(classType, genericParamNames, env);
+      if (constructorForMark != nullptr) {
+        markValueRead(constructorForMark);
+      }
       result = std::make_unique<Value>(specialized);
       return;
     }
@@ -2994,6 +3072,7 @@ auto Typechecker::visit(const FuncCall* node) -> void {
           for (size_t i = 0; i < genericParamNames.size(); ++i) {
             env[genericParamNames[i]] = explicitTypes[i];
           }
+          Value* constructorForMark = nullptr;
           if (!argTypes.empty()) {
             Type* ptrToClass =
                 cacheType(std::make_unique<Type>(BaseType::TY_PTR, nullptr, classType));
@@ -3008,6 +3087,7 @@ auto Typechecker::visit(const FuncCall* node) -> void {
                                    "Constructor not found for {} with given type arguments",
                                    node->getName());
             }
+            constructorForMark = constructor;
             auto ctorParams = constructor->getType()->getFields();
             for (size_t i = 1; i < ctorParams.size() && i - 1 < argTypes.size(); ++i) {
               Type* expected = substituteInType(ctorParams[i]->type, env);
@@ -3019,6 +3099,9 @@ auto Typechecker::visit(const FuncCall* node) -> void {
             }
           }
           Type* specialized = getOrCreateSpecializedClassType(classType, genericParamNames, env);
+          if (constructorForMark != nullptr) {
+            markValueRead(constructorForMark);
+          }
           result = std::make_unique<Value>(
               importedScope != nullptr ? materializeImportedType(specialized) : specialized);
           return;
@@ -3042,6 +3125,7 @@ auto Typechecker::visit(const FuncCall* node) -> void {
               inferGenericBindings(ctorParams[i]->type, argTypes[i - 1], env, node->getSpan());
             }
             Type* specialized = getOrCreateSpecializedClassType(classType, genericParamNames, env);
+            markValueRead(constructor);
             result = std::make_unique<Value>(
                 importedScope != nullptr ? materializeImportedType(specialized) : specialized);
             return;

@@ -86,7 +86,7 @@ auto lesma::analyze(std::unique_ptr<Options> options, Timer* phaseTimer) -> Anal
   std::unique_ptr<Lexer> lexer;
   try {
     maybeTimed(phaseTimer, "Lexing", [&]() -> void {
-      lexer = std::make_unique<Lexer>(srcMgr);
+      lexer = std::make_unique<Lexer>(srcMgr, &result.diagnostics);
       lexer->scanAll();
       if ((options->debug & Debug::LEXER) != Debug::NONE) {
         lesma::print(LogType::DEBUG, "Lexer tokens:\n");
@@ -110,7 +110,7 @@ auto lesma::analyze(std::unique_ptr<Options> options, Timer* phaseTimer) -> Anal
   std::unique_ptr<Parser> parser;
   try {
     maybeTimed(phaseTimer, "Parsing", [&]() -> void {
-      parser = std::make_unique<Parser>(lexer->getTokens());
+      parser = std::make_unique<Parser>(lexer->getTokens(), &result.diagnostics);
       parser->parse();
       if ((options->debug & Debug::AST) != Debug::NONE) {
         Compound* ast = parser->getAst();
@@ -187,6 +187,19 @@ auto Driver::baseCompile(std::unique_ptr<lesma::Options> options, bool jit) -> i
                    d.message);
       } else {
         lesma::print(LogType::ERROR, "{}", std::string_view(d.message));
+      }
+    }
+    if (!result.suppressWarnings) {
+      for (const auto& d : result.diagnostics) {
+        if (d.severity != AnalysisDiagnosticSeverity::Warning) {
+          continue;
+        }
+        if (d.span.isValid()) {
+          showInline(result.sourceMgr.get(), result.mainBufferId, d.span, result.mainFilePath, false,
+                     d.message);
+        } else {
+          lesma::print(LogType::WARNING, "{}\n", std::string_view(d.message));
+        }
       }
     }
     return 1;

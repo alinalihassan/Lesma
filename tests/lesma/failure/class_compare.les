@@ -15,3 +15,5 @@ var bar = Bar(1)
 
 if foo < bar
     let error = true
+else if foo > bar
+    let error = true
