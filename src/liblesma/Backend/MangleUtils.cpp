@@ -86,6 +86,12 @@ auto getTypeMangledName(llvm::SMRange span, Type* type) -> std::string {
     }
     return "(" + s + ")";
   }
+  if (type->is(BaseType::TY_OPTIONAL)) {
+    if (type->getElementType() == nullptr) {
+      throw CodegenError(span, "Optional type has no payload for mangling");
+    }
+    return "(opt_" + getTypeMangledName(span, type->getElementType()) + ")";
+  }
 
   throw CodegenError(span, "Unknown type found during mangling");
 }

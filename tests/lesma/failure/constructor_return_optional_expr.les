@@ -1,0 +1,4 @@
+class Box
+    def new()
+        let x: int? = null
+        return x

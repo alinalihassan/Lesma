@@ -225,6 +225,7 @@ protected:
   auto visit(const BinaryOp* node) -> void override;
   auto visit(const SubscriptOp* node) -> void override;
   auto visit(const DotOp* node) -> void override;
+  auto visit(const OptionalForceUnwrap* node) -> void override;
   auto visit(const CastOp* node) -> void override;
   auto visit(const IsOp* node) -> void override;
   auto visit(const UnaryOp* node) -> void override;
@@ -379,5 +380,10 @@ protected:
 
   /** Self + parameter types for class method overload resolution; must match \c visit(FuncDecl). */
   auto buildClassMethodParamTypesForLookup(const FuncDecl* node) -> std::vector<lesma::Type*>;
+
+ private:
+  auto visitDotOpWithLeft(const DotOp* node, std::unique_ptr<lesma::Value> leftValue) -> void;
+  auto emitOptionalSomeLesma(lesma::Type* optTy, llvm::Value* payloadVal) -> llvm::Value*;
+  auto emitOptionalNoneLesma(lesma::Type* optTy) -> llvm::Value*;
 };
 } // namespace lesma

@@ -1,0 +1,28 @@
+class Box
+    var v: int
+
+    def new(n: int)
+        self.v = n
+
+var empty: Box? = null
+if empty != null
+    exit(1)
+if empty == null
+    pass
+else
+    exit(1)
+
+let o: Box? = Box.new(3)
+if o == null
+    exit(1)
+if o!.v != 3
+    exit(1)
+if o != null
+    if o.v != 3
+        exit(1)
+
+let chained: int? = o?.v
+if chained == null
+    exit(1)
+if chained! != 3
+    exit(1)

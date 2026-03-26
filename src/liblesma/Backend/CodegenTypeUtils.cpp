@@ -8,6 +8,7 @@
 #include "liblesma/Backend/CodegenError.h"
 #include "liblesma/Backend/MangleUtils.h"
 #include "liblesma/Symbol/Type.h"
+#include "liblesma/Symbol/TypeUtils.h"
 #include "liblesma/Symbol/Value.h"
 
 namespace lesma {
@@ -84,6 +85,31 @@ auto cast(llvm::SMRange span, Value* val, Type* type, llvm::IRBuilder<>* builder
 
   if (val->getType()->isEqual(type)) {
     return std::make_unique<Value>(*val); // Copy for borrowed value
+  }
+
+  if (type->is(BaseType::TY_OPTIONAL) && type->getElementType() != nullptr) {
+    Type* inner = type->getElementType();
+    llvm::Type* optLlvm = type->getLlvmType();
+    if (optLlvm == nullptr) {
+      throw CodegenError(span, "Optional cast target has no LLVM type");
+    }
+    if (TypeUtils::optionalPayloadUsesNullablePointer(inner)) {
+      Type* valPtrElem =
+          val->getType()->is(BaseType::TY_PTR) ? val->getType()->getElementType() : nullptr;
+      bool match = val->getType()->isEqual(inner) ||
+                   (valPtrElem != nullptr && valPtrElem->isEqual(inner));
+      if (match) {
+        llvm::Value* pv = val->getLlvmValue();
+        return std::make_unique<Value>(
+            "", type, builder->CreateBitCast(pv, optLlvm));
+      }
+    } else if (val->getType()->isEqual(inner)) {
+      llvm::StructType* st = llvm::cast<llvm::StructType>(optLlvm);
+      llvm::Value* agg = llvm::UndefValue::get(st);
+      agg = builder->CreateInsertValue(agg, builder->getTrue(), 0U);
+      agg = builder->CreateInsertValue(agg, val->getLlvmValue(), 1U);
+      return std::make_unique<Value>("", type, agg);
+    }
   }
 
   if (type->is(BaseType::TY_INT)) {

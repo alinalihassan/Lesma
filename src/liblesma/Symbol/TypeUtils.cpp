@@ -43,4 +43,20 @@ auto passesByPointerInAbi(Type const* t) -> bool {
   }
   return t->is(BaseType::TY_CLASS) || t->is(BaseType::TY_TRAIT_EXISTENTIAL);
 }
+
+auto optionalPayloadUsesNullablePointer(Type const* inner) -> bool {
+  if (inner == nullptr) {
+    return false;
+  }
+  if (inner->is(BaseType::TY_CLASS) || inner->is(BaseType::TY_STRING) ||
+      inner->is(BaseType::TY_ARRAY) || inner->is(BaseType::TY_FUNCTION) ||
+      inner->is(BaseType::TY_TRAIT_EXISTENTIAL)) {
+    return true;
+  }
+  if (inner->is(BaseType::TY_PTR) && inner->getElementType() != nullptr) {
+    Type const* elem = inner->getElementType();
+    return elem->is(BaseType::TY_CLASS) || elem->is(BaseType::TY_TRAIT_EXISTENTIAL);
+  }
+  return false;
+}
 } // namespace lesma::TypeUtils

@@ -28,6 +28,7 @@ class FuncCall;
 class BinaryOp;
 class SubscriptOp;
 class DotOp;
+class OptionalForceUnwrap;
 class CastOp;
 class IsOp;
 class UnaryOp;
@@ -71,6 +72,7 @@ public:
   virtual auto visit(const BinaryOp* node) -> void = 0;
   virtual auto visit(const SubscriptOp* node) -> void = 0;
   virtual auto visit(const DotOp* node) -> void = 0;
+  virtual auto visit(const OptionalForceUnwrap* node) -> void = 0;
   virtual auto visit(const CastOp* node) -> void = 0;
   virtual auto visit(const IsOp* node) -> void = 0;
   virtual auto visit(const UnaryOp* node) -> void = 0;

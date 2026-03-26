@@ -31,6 +31,7 @@ enum class TokenType : std::uint8_t {
   AMPERSAND,
   RANGE,
   ELLIPSIS,
+  QUESTION,
 
   // One or two character tokens.
   BANG,
@@ -80,6 +81,8 @@ enum class TokenType : std::uint8_t {
   FLOAT32_TYPE,
   /** Structural tuple type `(T1, T2, ...)` in TypeExpr; not a lexer token. */
   TUPLE_TYPE,
+  /** Postfix optional type `T?` in TypeExpr; not a lexer token. */
+  OPTIONAL_TYPE,
 
   // Keywords.
   AND,

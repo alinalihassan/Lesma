@@ -16,5 +16,7 @@ auto findFieldInFields(Type* structType, const std::string& field) -> Field*;
 /** Return value is passed as a pointer (class instance, trait existential, or already a pointer).
  */
 [[nodiscard]] auto passesByPointerInAbi(Type const* t) -> bool;
+/** Optional<T> lowers to a nullable pointer when T is already pointer-like at runtime. */
+[[nodiscard]] auto optionalPayloadUsesNullablePointer(Type const* inner) -> bool;
 } // namespace TypeUtils
 } // namespace lesma

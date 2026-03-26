@@ -120,6 +120,19 @@ auto Parser::parseGenericParamList() -> std::vector<GenericParamDecl> {
 }
 
 auto Parser::parseType() -> std::unique_ptr<TypeExpr> {
+  std::unique_ptr<TypeExpr> t = parseTypePrimary();
+  if (t == nullptr) {
+    return nullptr;
+  }
+  while (advanceIfMatchAny<TokenType::QUESTION>()) {
+    auto* q = previous();
+    t = std::make_unique<TypeExpr>(llvm::SMRange{t->getStart(), q->getEnd()}, t->getName() + "?",
+                                     TokenType::OPTIONAL_TYPE, std::move(t));
+  }
+  return t;
+}
+
+auto Parser::parseTypePrimary() -> std::unique_ptr<TypeExpr> {
   auto* type = peek();
   if (check(TokenType::LEFT_PAREN)) {
     auto* left = consume(TokenType::LEFT_PAREN);
@@ -233,6 +246,16 @@ auto Parser::parseType() -> std::unique_ptr<TypeExpr> {
 }
 
 auto Parser::parseTypeAt(unsigned long& off) -> bool {
+  if (!parseTypeAtCore(off)) {
+    return false;
+  }
+  while (index + off < tokens.size() && peek(off)->type == TokenType::QUESTION) {
+    off++;
+  }
+  return true;
+}
+
+auto Parser::parseTypeAtCore(unsigned long& off) -> bool {
   if (index + off >= tokens.size()) {
     return false;
   }
@@ -492,11 +515,21 @@ auto Parser::parsePostfix() -> std::unique_ptr<Expression> {
   auto left = parseTerm();
 
   while (true) {
+    if (advanceIfMatchAny<TokenType::QUESTION>()) {
+      if (!advanceIfMatchAny<TokenType::DOT>()) {
+        throw ParserError(previous()->span,
+                          "Expected '.' after '?' (optional chaining is written '?.')");
+      }
+      auto expr = parseTerm();
+      left = std::make_unique<DotOp>(llvm::SMRange{left->getStart(), expr->getEnd()},
+                                     std::move(left), TokenType::DOT, std::move(expr), true);
+      continue;
+    }
     if (advanceIfMatchAny<TokenType::DOT>()) {
       auto* op = previous();
       auto expr = parseTerm();
       left = std::make_unique<DotOp>(llvm::SMRange{left->getStart(), expr->getEnd()},
-                                     std::move(left), op->type, std::move(expr));
+                                     std::move(left), op->type, std::move(expr), false);
       continue;
     }
     if (advanceIfMatchAny<TokenType::LEFT_SQUARE>()) {
@@ -504,6 +537,12 @@ auto Parser::parsePostfix() -> std::unique_ptr<Expression> {
       auto* end = consume(TokenType::RIGHT_SQUARE, "Expected ']' after subscript index");
       left = std::make_unique<SubscriptOp>(llvm::SMRange{left->getStart(), end->getEnd()},
                                            std::move(left), std::move(index));
+      continue;
+    }
+    if (advanceIfMatchAny<TokenType::BANG>()) {
+      auto* op = previous();
+      left = std::make_unique<OptionalForceUnwrap>(llvm::SMRange{left->getStart(), op->getEnd()},
+                                                   std::move(left));
       continue;
     }
     break;

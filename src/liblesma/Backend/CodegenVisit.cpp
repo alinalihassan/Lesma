@@ -31,6 +31,7 @@
 #include <llvm/IR/LLVMContext.h>
 #include <llvm/IR/Value.h>
 #include <llvm/IR/Verifier.h>
+#include <llvm/IR/Intrinsics.h>
 #include <llvm/MC/TargetRegistry.h>
 #include <llvm/Passes/OptimizationLevel.h>
 #include <llvm/Support/Casting.h>
@@ -1510,6 +1511,35 @@ auto Codegen::visit(const BinaryOp* node) -> void {
   case TokenType::EQUAL_EQUAL: {
     Type* ltyEq = left->getType();
     Type* rtyEq = right->getType();
+    if (ltyEq != nullptr && rtyEq != nullptr && ltyEq->is(BaseType::TY_OPTIONAL) &&
+        rtyEq->is(BaseType::TY_OPTIONAL) && ltyEq->isEqual(rtyEq)) {
+      Type* inner = ltyEq->getElementType();
+      llvm::Value* cmp = nullptr;
+      if (inner != nullptr && TypeUtils::optionalPayloadUsesNullablePointer(inner)) {
+        cmp = builder->CreateICmpEQ(left->getLlvmValue(), right->getLlvmValue());
+      } else if (inner != nullptr) {
+        llvm::Value* pL = builder->CreateExtractValue(left->getLlvmValue(), {0U});
+        llvm::Value* pR = builder->CreateExtractValue(right->getLlvmValue(), {0U});
+        llvm::Value* bothAbsent = builder->CreateAnd(builder->CreateNot(pL), builder->CreateNot(pR));
+        llvm::Value* bothPresent = builder->CreateAnd(pL, pR);
+        llvm::Value* vL = builder->CreateExtractValue(left->getLlvmValue(), {1U});
+        llvm::Value* vR = builder->CreateExtractValue(right->getLlvmValue(), {1U});
+        llvm::Value* valEq = nullptr;
+        if (inner->isFloatingPoint()) {
+          valEq = builder->CreateFCmpOEQ(vL, vR);
+        } else if (inner->is(BaseType::TY_INT) || inner->is(BaseType::TY_BOOL)) {
+          valEq = builder->CreateICmpEQ(vL, vR);
+        } else {
+          throw CodegenError(node->getSpan(), "Optional == not implemented for payload type {}",
+                             inner->toString());
+        }
+        llvm::Value* payloadsEq = builder->CreateAnd(bothPresent, valEq);
+        cmp = builder->CreateOr(bothAbsent, payloadsEq);
+      }
+      result = std::make_unique<Value>(
+          "", cacheType(std::make_unique<Type>(BaseType::TY_BOOL, builder->getInt1Ty())), cmp);
+      return;
+    }
     if (ltyEq != nullptr && rtyEq != nullptr) {
       if (ltyEq->is(BaseType::TY_PTR) && rtyEq->is(BaseType::TY_INT)) {
         llvm::Value* lv = builder->CreatePtrToInt(left->getLlvmValue(), builder->getInt64Ty());
@@ -1587,6 +1617,36 @@ auto Codegen::visit(const BinaryOp* node) -> void {
   case TokenType::BANG_EQUAL: {
     Type* ltyNe = left->getType();
     Type* rtyNe = right->getType();
+    if (ltyNe != nullptr && rtyNe != nullptr && ltyNe->is(BaseType::TY_OPTIONAL) &&
+        rtyNe->is(BaseType::TY_OPTIONAL) && ltyNe->isEqual(rtyNe)) {
+      Type* inner = ltyNe->getElementType();
+      llvm::Value* eq = nullptr;
+      if (inner != nullptr && TypeUtils::optionalPayloadUsesNullablePointer(inner)) {
+        eq = builder->CreateICmpEQ(left->getLlvmValue(), right->getLlvmValue());
+      } else if (inner != nullptr) {
+        llvm::Value* pL = builder->CreateExtractValue(left->getLlvmValue(), {0U});
+        llvm::Value* pR = builder->CreateExtractValue(right->getLlvmValue(), {0U});
+        llvm::Value* bothAbsent = builder->CreateAnd(builder->CreateNot(pL), builder->CreateNot(pR));
+        llvm::Value* bothPresent = builder->CreateAnd(pL, pR);
+        llvm::Value* vL = builder->CreateExtractValue(left->getLlvmValue(), {1U});
+        llvm::Value* vR = builder->CreateExtractValue(right->getLlvmValue(), {1U});
+        llvm::Value* valEq = nullptr;
+        if (inner->isFloatingPoint()) {
+          valEq = builder->CreateFCmpOEQ(vL, vR);
+        } else if (inner->is(BaseType::TY_INT) || inner->is(BaseType::TY_BOOL)) {
+          valEq = builder->CreateICmpEQ(vL, vR);
+        } else {
+          throw CodegenError(node->getSpan(), "Optional != not implemented for payload type {}",
+                             inner->toString());
+        }
+        llvm::Value* payloadsEq = builder->CreateAnd(bothPresent, valEq);
+        eq = builder->CreateOr(bothAbsent, payloadsEq);
+      }
+      llvm::Value* ne = builder->CreateXor(eq, llvm::ConstantInt::getTrue(eq->getContext()));
+      result = std::make_unique<Value>(
+          "", cacheType(std::make_unique<Type>(BaseType::TY_BOOL, builder->getInt1Ty())), ne);
+      return;
+    }
     if (ltyNe != nullptr && rtyNe != nullptr) {
       if (ltyNe->is(BaseType::TY_PTR) && rtyNe->is(BaseType::TY_INT)) {
         llvm::Value* lv = builder->CreatePtrToInt(left->getLlvmValue(), builder->getInt64Ty());
@@ -1845,8 +1905,94 @@ auto Codegen::visit(const SubscriptOp* node) -> void {
 
 auto Codegen::visit(const DotOp* node) -> void {
   setDebugLoc(node->getSpan());
+  if (node->isOptionalChaining()) {
+    node->getLeft()->accept(*this);
+    auto optVal = std::move(result);
+    if (optVal == nullptr || optVal->getType() == nullptr ||
+        !optVal->getType()->is(BaseType::TY_OPTIONAL) ||
+        optVal->getType()->getElementType() == nullptr) {
+      throw CodegenError(node->getSpan(), "Optional chaining requires optional-typed receiver");
+    }
+    lesma::Type* optLesma = optVal->getType();
+    lesma::Type* inner = optLesma->getElementType();
+    lesma::Type* chainResTy = node->getOptionalChainResultLesmaType();
+    if (chainResTy == nullptr) {
+      throw CodegenError(node->getSpan(), "Optional chaining missing result type from checker");
+    }
+    getOrCreateLlvmType(optLesma);
+    llvm::Value* optLlvm = optVal->getLlvmValue();
+    llvm::Function* fn = builder->GetInsertBlock()->getParent();
+    llvm::LLVMContext& ctx = theModule->getContext();
+    llvm::BasicBlock* thenBB = llvm::BasicBlock::Create(ctx, "optchain.then", fn);
+    llvm::BasicBlock* elseBB = llvm::BasicBlock::Create(ctx, "optchain.else", fn);
+    llvm::BasicBlock* mergeBB = llvm::BasicBlock::Create(ctx, "optchain.end", fn);
+
+    if (TypeUtils::optionalPayloadUsesNullablePointer(inner)) {
+      auto* ptrTy = llvm::cast<llvm::PointerType>(optLlvm->getType());
+      llvm::Value* cond =
+          builder->CreateICmpNE(optLlvm, llvm::ConstantPointerNull::get(ptrTy));
+      builder->CreateCondBr(cond, thenBB, elseBB);
+    } else {
+      llvm::Value* present = builder->CreateExtractValue(optLlvm, {0U});
+      builder->CreateCondBr(present, thenBB, elseBB);
+    }
+
+    llvm::Value* elsePhiVal = nullptr;
+    builder->SetInsertPoint(elseBB);
+    if (!chainResTy->is(BaseType::TY_VOID)) {
+      elsePhiVal = emitOptionalNoneLesma(chainResTy);
+    }
+    builder->CreateBr(mergeBB);
+
+    builder->SetInsertPoint(thenBB);
+    std::unique_ptr<lesma::Value> recv;
+    if (TypeUtils::optionalPayloadUsesNullablePointer(inner)) {
+      llvm::Value* innerLlvm = optLlvm;
+      if (inner->is(BaseType::TY_CLASS) || inner->is(BaseType::TY_TRAIT_EXISTENTIAL)) {
+        recv = std::make_unique<Value>(
+            "", cacheType(std::make_unique<Type>(BaseType::TY_PTR, nullptr, inner)), innerLlvm);
+      } else {
+        recv = std::make_unique<Value>("", inner, innerLlvm);
+      }
+    } else {
+      llvm::Value* innerLlvm = builder->CreateExtractValue(optLlvm, {1U});
+      recv = std::make_unique<Value>("", inner, innerLlvm);
+    }
+    visitDotOpWithLeft(node, std::move(recv));
+
+    llvm::Value* thenPhiVal = nullptr;
+    if (!chainResTy->is(BaseType::TY_VOID)) {
+      if (result == nullptr) {
+        throw CodegenError(node->getSpan(), "Optional chaining produced no value");
+      }
+      thenPhiVal = emitOptionalSomeLesma(chainResTy, result->getLlvmValue());
+    }
+    builder->CreateBr(mergeBB);
+
+    builder->SetInsertPoint(mergeBB);
+    if (chainResTy->is(BaseType::TY_VOID)) {
+      result = std::make_unique<Value>(
+          "", cacheType(std::make_unique<Type>(BaseType::TY_VOID, builder->getVoidTy())), nullptr);
+    } else {
+      llvm::PHINode* phi =
+          builder->CreatePHI(chainResTy->getLlvmType(), 2, "optchain.phi");
+      phi->addIncoming(thenPhiVal, thenBB);
+      phi->addIncoming(elsePhiVal, elseBB);
+      result = std::make_unique<Value>("", chainResTy, phi);
+    }
+    return;
+  }
+
   node->getLeft()->accept(*this);
-  auto leftValue = std::move(result);
+  visitDotOpWithLeft(node, std::move(result));
+}
+
+auto Codegen::visitDotOpWithLeft(const DotOp* node, std::unique_ptr<lesma::Value> leftValue)
+    -> void {
+  setDebugLoc(node->getSpan());
+  if (leftValue == nullptr) {
+    throw CodegenError(node->getSpan(), "Dot operator missing receiver value");
+  }
   if (leftValue != nullptr && leftValue->getType() != nullptr &&
       leftValue->getType()->is(BaseType::TY_ARRAY)) {
     auto* call = dynamic_cast<FuncCall*>(node->getRight());
@@ -1953,6 +2099,43 @@ auto Codegen::visit(const DotOp* node) -> void {
         return;
       }
       if (method != nullptr) {
+        if (leftValue->getLlvmValue() == nullptr) {
+          std::string className = receiverType->getDisplayName();
+          if (className.empty()) {
+            if (auto* llit = dynamic_cast<Literal*>(node->getLeft());
+                llit != nullptr && llit->getType() == TokenType::IDENTIFIER) {
+              className = llit->getValue();
+            }
+          }
+          Value* clsSym = scope->lookupStruct(className);
+          if (clsSym == nullptr) {
+            throw CodegenError(node->getLeft()->getSpan(),
+                               "Static class constructor requires class symbol {}", className);
+          }
+          llvm::Type* classLlvmType = getOrCreateLlvmType(receiverType);
+          llvm::Value* classPtr = emitMalloc(
+              builder->getInt64(
+                  theModule->getDataLayout().getTypeAllocSize(classLlvmType).getFixedValue()),
+              className + ".obj");
+          lesma::Type* ptrTy = cacheType(
+              std::make_unique<Type>(BaseType::TY_PTR, builder->getPtrTy(), receiverType));
+          auto staticReceiver = std::make_unique<Value>("", ptrTy, classPtr);
+          std::vector<std::unique_ptr<lesma::Value>> argStorage;
+          std::vector<lesma::Value*> args;
+          for (auto* arg : method->getArguments()) {
+            arg->accept(*this);
+            argStorage.push_back(std::move(result));
+            args.push_back(argStorage.back().get());
+          }
+          std::vector<lesma::Type*> explicitTypeArgs;
+          for (auto* explicitTypeArg : method->getExplicitTypeArgs()) {
+            explicitTypeArg->accept(*this);
+            explicitTypeArgs.push_back(result->getType());
+          }
+          result = callMethodByName(node->getSpan(), staticReceiver.get(), method->getName(), args,
+                                    explicitTypeArgs);
+          return;
+        }
         auto receiverValue = std::move(leftValue);
         std::vector<std::unique_ptr<lesma::Value>> argStorage;
         std::vector<lesma::Value*> args;
@@ -2189,6 +2372,80 @@ auto Codegen::visit(const DotOp* node) -> void {
   }
   throw CodegenError(node->getSpan(), "Unimplemented dot accessor: {}",
                      node->toString(sourceManager.get(), "", true));
+}
+
+auto Codegen::emitOptionalSomeLesma(lesma::Type* optTy, llvm::Value* payloadVal) -> llvm::Value* {
+  if (optTy == nullptr || !optTy->is(BaseType::TY_OPTIONAL) || optTy->getElementType() == nullptr) {
+    throw CodegenError({}, "emitOptionalSomeLesma requires a well-formed optional type");
+  }
+  getOrCreateLlvmType(optTy);
+  lesma::Type* inner = optTy->getElementType();
+  if (TypeUtils::optionalPayloadUsesNullablePointer(inner)) {
+    return builder->CreateBitCast(payloadVal, optTy->getLlvmType());
+  }
+  auto* st = llvm::cast<llvm::StructType>(optTy->getLlvmType());
+  llvm::Value* agg = llvm::UndefValue::get(st);
+  agg = builder->CreateInsertValue(agg, builder->getTrue(), 0U);
+  agg = builder->CreateInsertValue(agg, payloadVal, 1U);
+  return agg;
+}
+
+auto Codegen::emitOptionalNoneLesma(lesma::Type* optTy) -> llvm::Value* {
+  if (optTy == nullptr || !optTy->is(BaseType::TY_OPTIONAL) || optTy->getElementType() == nullptr) {
+    throw CodegenError({}, "emitOptionalNoneLesma requires a well-formed optional type");
+  }
+  getOrCreateLlvmType(optTy);
+  lesma::Type* inner = optTy->getElementType();
+  if (TypeUtils::optionalPayloadUsesNullablePointer(inner)) {
+    return llvm::ConstantPointerNull::get(
+        llvm::cast<llvm::PointerType>(optTy->getLlvmType()));
+  }
+  auto* st = llvm::cast<llvm::StructType>(optTy->getLlvmType());
+  llvm::Value* agg = llvm::UndefValue::get(st);
+  agg = builder->CreateInsertValue(agg, builder->getFalse(), 0U);
+  llvm::Value* zeroPayload = llvm::Constant::getNullValue(st->getElementType(1));
+  agg = builder->CreateInsertValue(agg, zeroPayload, 1U);
+  return agg;
+}
+
+auto Codegen::visit(const OptionalForceUnwrap* node) -> void {
+  setDebugLoc(node->getSpan());
+  node->getInner()->accept(*this);
+  Type* t = result->getType();
+  if (t == nullptr || !t->is(BaseType::TY_OPTIONAL) || t->getElementType() == nullptr) {
+    throw CodegenError(node->getSpan(), "Force unwrap (!) requires optional value in codegen");
+  }
+  Type* inner = t->getElementType();
+  getOrCreateLlvmType(t);
+  llvm::Value* vv = result->getLlvmValue();
+  llvm::Function* fn = builder->GetInsertBlock()->getParent();
+  llvm::LLVMContext& ctx = theModule->getContext();
+  llvm::BasicBlock* okBB = llvm::BasicBlock::Create(ctx, "unwrap.ok", fn);
+  llvm::BasicBlock* badBB = llvm::BasicBlock::Create(ctx, "unwrap.fail", fn);
+  if (TypeUtils::optionalPayloadUsesNullablePointer(inner)) {
+    auto* pt = llvm::cast<llvm::PointerType>(vv->getType());
+    llvm::Value* ok = builder->CreateICmpNE(vv, llvm::ConstantPointerNull::get(pt));
+    builder->CreateCondBr(ok, okBB, badBB);
+  } else {
+    llvm::Value* present = builder->CreateExtractValue(vv, {0U});
+    builder->CreateCondBr(present, okBB, badBB);
+  }
+  builder->SetInsertPoint(badBB);
+  llvm::Function* trapFn =
+      llvm::Intrinsic::getOrInsertDeclaration(theModule.get(), llvm::Intrinsic::trap, {});
+  builder->CreateCall(trapFn, {});
+  builder->CreateUnreachable();
+  builder->SetInsertPoint(okBB);
+  llvm::Value* outLlvm = vv;
+  Type* outLesma = inner;
+  if (TypeUtils::optionalPayloadUsesNullablePointer(inner)) {
+    if (inner->is(BaseType::TY_CLASS) || inner->is(BaseType::TY_TRAIT_EXISTENTIAL)) {
+      outLesma = cacheType(std::make_unique<Type>(BaseType::TY_PTR, nullptr, inner));
+    }
+  } else {
+    outLlvm = builder->CreateExtractValue(vv, {1U});
+  }
+  result = std::make_unique<Value>("", outLesma, outLlvm);
 }
 
 auto Codegen::visit(const CastOp* node) -> void {
@@ -2438,9 +2695,24 @@ auto Codegen::visit(const Literal* node) -> void {
       result = std::make_unique<Value>("", type, builder->CreateGlobalString(node->getValue()));
     }
   } else if (node->getType() == TokenType::NIL) {
-    auto* type = cacheType(std::make_unique<Type>(BaseType::TY_VOID, builder->getVoidTy()));
-    result =
-        std::make_unique<Value>("", type, ConstantPointerNull::getNullValue(builder->getPtrTy()));
+    lesma::Type* optTy = node->getResolvedNilOptionalType();
+    if (optTy == nullptr || !optTy->is(BaseType::TY_OPTIONAL)) {
+      throw CodegenError(node->getSpan(), "nil literal missing resolved optional type from checker");
+    }
+    getOrCreateLlvmType(optTy);
+    lesma::Type* inner = optTy->getElementType();
+    if (inner != nullptr && TypeUtils::optionalPayloadUsesNullablePointer(inner)) {
+      result = std::make_unique<Value>(
+          "", optTy, llvm::ConstantPointerNull::get(
+                         llvm::cast<llvm::PointerType>(optTy->getLlvmType())));
+    } else {
+      llvm::StructType* st = llvm::cast<llvm::StructType>(optTy->getLlvmType());
+      llvm::Value* agg = llvm::UndefValue::get(st);
+      agg = builder->CreateInsertValue(agg, builder->getFalse(), 0U);
+      llvm::Value* zeroPayload = llvm::Constant::getNullValue(st->getElementType(1));
+      agg = builder->CreateInsertValue(agg, zeroPayload, 1U);
+      result = std::make_unique<Value>("", optTy, agg);
+    }
   } else if (node->getType() == TokenType::IDENTIFIER) {
     // Look this variable up in the function.
     auto* val = scope->lookup(node->getValue());
@@ -2448,6 +2720,24 @@ auto Codegen::visit(const Literal* node) -> void {
       throw CodegenError(node->getSpan(), "Unknown variable name {}", node->getValue());
     }
     result = materializeSymbolValue(val);
+    if (Type* nar = node->getOptionalNarrowedExprType(); nar != nullptr) {
+      Type* symTy = val->getType();
+      if (symTy != nullptr && symTy->is(BaseType::TY_OPTIONAL) &&
+          symTy->getElementType() != nullptr && symTy->getElementType()->isEqual(nar)) {
+        if (TypeUtils::optionalPayloadUsesNullablePointer(nar)) {
+          if (nar->is(BaseType::TY_CLASS) || nar->is(BaseType::TY_TRAIT_EXISTENTIAL)) {
+            result->setType(
+                cacheType(std::make_unique<Type>(BaseType::TY_PTR, nullptr, nar)));
+          } else {
+            result->setType(nar);
+          }
+        } else {
+          llvm::Value* payload =
+              builder->CreateExtractValue(result->getLlvmValue(), {1U}, "opt.narrow.payload");
+          result = std::make_unique<Value>("", nar, payload);
+        }
+      }
+    }
   } else {
     throw CodegenError(node->getSpan(), "Unknown literal {}", node->getValue());
   }
@@ -3283,10 +3573,19 @@ auto Codegen::callMethodByName(llvm::SMRange span, lesma::Value* receiver,
         getOrCreateLlvmType(returnTy);
       }
       selfSymbol = savedSelfSymbol;
-      auto* callResult =
+      llvm::Value* call =
           builder->CreateCall(llvm::cast<Function>(directMethod->getLlvmValue()), finalParams);
+      llvm::Value* outLlvm = call;
+      if (methodName == "new" &&
+          (returnTy == nullptr || returnTy->is(BaseType::TY_VOID))) {
+        returnTy = receiverType;
+        if (finalParams.empty()) {
+          throw CodegenError(span, "Constructor call missing receiver pointer");
+        }
+        outLlvm = finalParams[0];
+      }
       currentGenericTypes = std::move(savedGenerics);
-      return std::make_unique<Value>("", returnTy, callResult);
+      return std::make_unique<Value>("", returnTy, outLlvm);
     } catch (...) {
       currentGenericTypes = std::move(savedGenerics);
       throw;

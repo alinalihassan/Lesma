@@ -950,6 +950,10 @@ auto resolveMethodReturnType(const lesma::FuncCall* call, const lesma::Expressio
   if (receiverType->is(lesma::BaseType::TY_PTR) && receiverType->getElementType() != nullptr) {
     receiverType = receiverType->getElementType();
   }
+  if (receiverType->is(lesma::BaseType::TY_OPTIONAL) &&
+      receiverType->getElementType() != nullptr) {
+    receiverType = receiverType->getElementType();
+  }
   lesma::Type* selfType = receiverType;
   if (!selfType->is(lesma::BaseType::TY_PTR)) {
     selfType = nullptr;
@@ -1001,6 +1005,8 @@ auto resolveExpressionTypeAtOffset(const lesma::Expression* expr, lesma::Compoun
       return root->lookupType("cstr");
     case lesma::TokenType::STRING:
       return root->lookupType("str");
+    case lesma::TokenType::NIL:
+      return lit->getResolvedNilOptionalType();
     case lesma::TokenType::IDENTIFIER: {
       lesma::SymbolTable* scope = activeScopeForOffset(ast, root, srcMgr, bufferId, targetOffset);
       if (scope == nullptr) {
@@ -1036,7 +1042,20 @@ auto resolveExpressionTypeAtOffset(const lesma::Expression* expr, lesma::Compoun
     }
     return nullptr;
   }
+  if (auto const* unwrap = dynamic_cast<const lesma::OptionalForceUnwrap*>(expr)) {
+    lesma::Type* inner =
+        resolveExpressionTypeAtOffset(unwrap->getInner(), ast, root, srcMgr, bufferId,
+                                      targetOffset);
+    if (inner != nullptr && inner->is(lesma::BaseType::TY_OPTIONAL) &&
+        inner->getElementType() != nullptr) {
+      return inner->getElementType();
+    }
+    return nullptr;
+  }
   if (auto const* dot = dynamic_cast<const lesma::DotOp*>(expr)) {
+    if (dot->isOptionalChaining() && dot->getOptionalChainResultLesmaType() != nullptr) {
+      return dot->getOptionalChainResultLesmaType();
+    }
     lesma::Type* baseType =
         resolveExpressionTypeAtOffset(dot->getLeft(), ast, root, srcMgr, bufferId, targetOffset);
     if (baseType == nullptr) {
@@ -1047,6 +1066,9 @@ auto resolveExpressionTypeAtOffset(const lesma::Expression* expr, lesma::Compoun
                                      targetOffset);
     }
     if (baseType->is(lesma::BaseType::TY_PTR) && baseType->getElementType() != nullptr) {
+      baseType = baseType->getElementType();
+    }
+    if (baseType->is(lesma::BaseType::TY_OPTIONAL) && baseType->getElementType() != nullptr) {
       baseType = baseType->getElementType();
     }
     if (auto const* rightLit = dynamic_cast<const lesma::Literal*>(dot->getRight())) {
@@ -1180,6 +1202,10 @@ auto findActiveCallInExpr(const lesma::Expression* expr, llvm::SourceMgr* srcMgr
   if (auto const* binary = dynamic_cast<const lesma::BinaryOp*>(expr)) {
     findActiveCallInExpr(binary->getLeft(), srcMgr, bufferId, targetOffset, nullptr, best);
     findActiveCallInExpr(binary->getRight(), srcMgr, bufferId, targetOffset, nullptr, best);
+    return;
+  }
+  if (auto const* unwrap = dynamic_cast<const lesma::OptionalForceUnwrap*>(expr)) {
+    findActiveCallInExpr(unwrap->getInner(), srcMgr, bufferId, targetOffset, nullptr, best);
     return;
   }
   if (auto const* unary = dynamic_cast<const lesma::UnaryOp*>(expr)) {

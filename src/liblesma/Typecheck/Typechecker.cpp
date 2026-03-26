@@ -691,6 +691,12 @@ auto Typechecker::materializeImportedType(Type* type) -> Type* {
     importedTypeCopies[type] = copy;
     return copy;
   }
+  if (type->is(BaseType::TY_OPTIONAL)) {
+    Type* copy = cacheType(std::make_unique<Type>(BaseType::TY_OPTIONAL, nullptr,
+                                                  materializeImportedType(type->getElementType())));
+    importedTypeCopies[type] = copy;
+    return copy;
+  }
   if (type->is(BaseType::TY_FUNCTION)) {
     std::vector<std::unique_ptr<Field>> fields;
     for (Field* field : type->getFields()) {
@@ -806,6 +812,10 @@ auto Typechecker::substituteInType(Type* t, const std::unordered_map<std::string
     Type* elem = substituteInType(t->getElementType(), env);
     return cacheType(std::make_unique<Type>(BaseType::TY_ARRAY, nullptr, elem));
   }
+  if (t->is(BaseType::TY_OPTIONAL) && t->getElementType() != nullptr) {
+    Type* inner = substituteInType(t->getElementType(), env);
+    return cacheType(std::make_unique<Type>(BaseType::TY_OPTIONAL, nullptr, inner));
+  }
   if (t->is(BaseType::TY_FUNCTION)) {
     std::vector<std::unique_ptr<Field>> fields;
     for (Field* field : t->getFields()) {
@@ -875,6 +885,10 @@ auto Typechecker::inferGenericBindings(Type* pattern, Type* actual,
     return;
   }
   if (pattern->isOneOf({BaseType::TY_PTR, BaseType::TY_ARRAY})) {
+    inferGenericBindings(pattern->getElementType(), actual->getElementType(), bindings, span);
+    return;
+  }
+  if (pattern->is(BaseType::TY_OPTIONAL) && actual->is(BaseType::TY_OPTIONAL)) {
     inferGenericBindings(pattern->getElementType(), actual->getElementType(), bindings, span);
     return;
   }
@@ -1165,6 +1179,25 @@ auto Typechecker::isAssignableTo(Type* from, Type* to) -> bool {
   if (from->isEqual(to)) {
     return true;
   }
+  auto const isUntypedNilType = [](Type* t) -> bool {
+    return t != nullptr && t->is(BaseType::TY_PTR) && t->getElementType() == nullptr;
+  };
+  if (to->is(BaseType::TY_OPTIONAL)) {
+    if (isUntypedNilType(from)) {
+      return true;
+    }
+    Type* innerTo = to->getElementType();
+    if (innerTo != nullptr && isAssignableTo(from, innerTo)) {
+      return true;
+    }
+  }
+  if (from->is(BaseType::TY_OPTIONAL) && to->is(BaseType::TY_OPTIONAL)) {
+    Type* fi = from->getElementType();
+    Type* ti = to->getElementType();
+    if (fi != nullptr && ti != nullptr) {
+      return isAssignableTo(fi, ti);
+    }
+  }
   if (from->is(BaseType::TY_PTR) && from->getElementType() != nullptr &&
       from->getElementType()->is(BaseType::TY_CLASS) && to->is(BaseType::TY_CLASS)) {
     return from->getElementType()->isEqual(to);
@@ -1270,6 +1303,9 @@ auto Typechecker::wrapReturnTypeIfNominal(Type* returnType) -> Type* {
   if (returnType == nullptr) {
     return nullptr;
   }
+  if (returnType->is(BaseType::TY_OPTIONAL)) {
+    return returnType;
+  }
   if (returnType->is(BaseType::TY_PTR)) {
     return returnType;
   }
@@ -1350,6 +1386,11 @@ auto Typechecker::resolveType(const TypeExpr* node) -> Type* {
       return elem; // Function type is already a pointer in Lesma
     }
     return cacheType(std::make_unique<Type>(BaseType::TY_PTR, nullptr, elem));
+  }
+  if (node->getType() == TokenType::OPTIONAL_TYPE) {
+    node->getElementType()->accept(*this);
+    Type* inner = result->getType();
+    return cacheType(std::make_unique<Type>(BaseType::TY_OPTIONAL, nullptr, inner));
   }
   if (node->getType() == TokenType::FUNC_TYPE) {
     node->getReturnType()->accept(*this);
@@ -1828,17 +1869,69 @@ auto Typechecker::visit(const VarDecl* node) -> void {
   scope->insertSymbol(std::move(symbol));
 }
 
-auto Typechecker::visit(const If* node) -> void {
-  for (Expression* cond : node->getConds()) {
-    cond->accept(*this);
-    if (result->getType() != nullptr && !result->getType()->is(BaseType::TY_BOOL) &&
-        !result->getType()->is(BaseType::TY_GENERIC)) {
-      throw TypeCheckError(cond->getSpan(), "Condition must be Bool, got {}",
-                           result->getType()->toString());
+auto Typechecker::lookupOptionalNarrowing(const std::string& name) const -> Type* {
+  for (auto it = optionalNarrowingScopes.rbegin(); it != optionalNarrowingScopes.rend(); ++it) {
+    auto j = it->find(name);
+    if (j != it->end()) {
+      return j->second;
     }
   }
-  for (Compound* block : node->getBlocks()) {
-    block->accept(*this);
+  return nullptr;
+}
+
+auto Typechecker::tryExtractOptionalNarrowingForThen(Expression* cond)
+    -> std::unordered_map<std::string, Type*> {
+  std::unordered_map<std::string, Type*> out;
+  auto* bin = dynamic_cast<BinaryOp*>(cond);
+  if (bin == nullptr) {
+    return out;
+  }
+  if (bin->getOperator() != TokenType::BANG_EQUAL) {
+    return out;
+  }
+  auto tryOne = [&](Expression* idSide, Expression* nilSide) -> void {
+    auto* idLit = dynamic_cast<Literal*>(idSide);
+    auto* nilLit = dynamic_cast<Literal*>(nilSide);
+    if (idLit == nullptr || nilLit == nullptr) {
+      return;
+    }
+    if (idLit->getType() != TokenType::IDENTIFIER || nilLit->getType() != TokenType::NIL) {
+      return;
+    }
+    Value* sym = scope->lookup(idLit->getValue());
+    if (sym == nullptr || sym->getMutability()) {
+      return;
+    }
+    Type* sty = sym->getType();
+    if (sty == nullptr || !sty->is(BaseType::TY_OPTIONAL) || sty->getElementType() == nullptr) {
+      return;
+    }
+    out[idLit->getValue()] = sty->getElementType();
+  };
+  tryOne(bin->getLeft(), bin->getRight());
+  tryOne(bin->getRight(), bin->getLeft());
+  return out;
+}
+
+auto Typechecker::visit(const If* node) -> void {
+  std::vector<Expression*> conds = node->getConds();
+  std::vector<Compound*> blocks = node->getBlocks();
+  for (size_t i = 0; i < conds.size(); ++i) {
+    Expression* cond = conds[i];
+    cond->accept(*this);
+    // Parser uses a synthetic `Else` expression as the "condition" slot for the final else block;
+    // it does not typecheck to bool. After a previous branch body, `result` may be void, so skip.
+    if (dynamic_cast<Else*>(cond) == nullptr) {
+      if (result->getType() != nullptr && !result->getType()->is(BaseType::TY_BOOL) &&
+          !result->getType()->is(BaseType::TY_GENERIC)) {
+        throw TypeCheckError(cond->getSpan(), "Condition must be Bool, got {}",
+                             result->getType()->toString());
+      }
+    }
+    std::unordered_map<std::string, Type*> narrow = tryExtractOptionalNarrowingForThen(cond);
+    optionalNarrowingScopes.push_back(std::move(narrow));
+    blocks[i]->accept(*this);
+    optionalNarrowingScopes.pop_back();
   }
 }
 
@@ -2171,6 +2264,14 @@ auto Typechecker::visit(const FuncDecl* node) -> void {
                             mainFilePath);
   node->getReturnType()->accept(*this);
   Type* returnType = wrapReturnTypeIfNominal(result->getType());
+  if (currentClassType != nullptr && node->getName() == "new" && returnType != nullptr &&
+      returnType->is(BaseType::TY_OPTIONAL)) {
+    TypeExpr* retExpr = node->getReturnType();
+    llvm::SMRange errSpan =
+        retExpr != nullptr ? retExpr->getSpan() : node->getNameSpan();
+    throw TypeCheckError(errSpan,
+                         "Class constructor `new` cannot declare an optional return type (`?`)");
+  }
   std::vector<std::unique_ptr<Field>> paramFields;
   std::vector<Type*> paramTypes;
   if (currentClassType != nullptr) {
@@ -2609,9 +2710,27 @@ auto Typechecker::visit(const Return* node) -> void {
     return;
   }
   visitExprWithExpectedType(node->getValue(), expected);
-  if (!isAssignableTo(result->getType(), expected)) {
+  Type* got = result->getType();
+  if (currentFunction != nullptr && currentFunction->getName() == "new") {
+    Type* fnTy = currentFunction->getType();
+    if (fnTy != nullptr && fnTy->is(BaseType::TY_FUNCTION)) {
+      auto const& fields = fnTy->getFields();
+      if (!fields.empty() && fields[0]->name == "self" &&
+          fields[0]->type != nullptr && fields[0]->type->is(BaseType::TY_PTR)) {
+        const auto* lit = dynamic_cast<const Literal*>(node->getValue());
+        if (lit != nullptr && lit->getType() == TokenType::NIL) {
+          throw TypeCheckError(node->getSpan(), "Constructor `new` cannot return null");
+        }
+        if (got != nullptr && got->is(BaseType::TY_OPTIONAL)) {
+          throw TypeCheckError(node->getSpan(),
+                               "Constructor `new` cannot return an optional value");
+        }
+      }
+    }
+  }
+  if (!isAssignableTo(got, expected)) {
     throw TypeCheckError(node->getSpan(), "Return type does not match: expected {}, got {}",
-                         expected->toString(), result->getType()->toString());
+                         expected->toString(), got->toString());
   }
 }
 
@@ -2940,6 +3059,33 @@ auto Typechecker::visit(const FuncCall* node) -> void {
 }
 
 auto Typechecker::visit(const BinaryOp* node) -> void {
+  if (node->getOperator() == TokenType::EQUAL_EQUAL ||
+      node->getOperator() == TokenType::BANG_EQUAL) {
+    auto* leftNil = dynamic_cast<Literal*>(node->getLeft());
+    auto* rightNil = dynamic_cast<Literal*>(node->getRight());
+    if (rightNil != nullptr && rightNil->getType() == TokenType::NIL) {
+      node->getLeft()->accept(*this);
+      Type* lt = result->getType();
+      if (lt != nullptr && lt->is(BaseType::TY_OPTIONAL)) {
+        visitExprWithExpectedType(node->getRight(), lt);
+        Type* resultType = typecheckBinaryOpResult(node->getOperator(), lt, result->getType(),
+                                                   node->getSpan());
+        result = std::make_unique<Value>(resultType);
+        return;
+      }
+    }
+    if (leftNil != nullptr && leftNil->getType() == TokenType::NIL) {
+      node->getRight()->accept(*this);
+      Type* rt = result->getType();
+      if (rt != nullptr && rt->is(BaseType::TY_OPTIONAL)) {
+        visitExprWithExpectedType(node->getLeft(), rt);
+        Type* resultType = typecheckBinaryOpResult(node->getOperator(), result->getType(), rt,
+                                                   node->getSpan());
+        result = std::make_unique<Value>(resultType);
+        return;
+      }
+    }
+  }
   node->getLeft()->accept(*this);
   std::unique_ptr<Value> left = std::move(result);
   node->getRight()->accept(*this);
@@ -3021,6 +3167,15 @@ auto Typechecker::visit(const DotOp* node) -> void {
   };
   if (base == nullptr) {
     throw TypeCheckError(node->getSpan(), "Dot operator on unknown type");
+  }
+  bool const optionalChain = node->isOptionalChaining();
+  if (base->is(BaseType::TY_OPTIONAL)) {
+    if (!optionalChain) {
+      throw TypeCheckError(node->getSpan(),
+                           "Member access on optional requires '?.' optional chaining or '!' to "
+                           "unwrap");
+    }
+    base = base->getElementType();
   }
   if (base->is(BaseType::TY_VOID)) {
     if (auto* fc = dynamic_cast<FuncCall*>(node->getRight())) {
@@ -3184,12 +3339,21 @@ auto Typechecker::visit(const DotOp* node) -> void {
                              base->getDisplayName());
       }
       fc->setResolvedSymbol(nullptr);
+      if (optionalChain && retType != nullptr && !retType->is(BaseType::TY_VOID)) {
+        retType = cacheType(std::make_unique<Type>(BaseType::TY_OPTIONAL, nullptr, retType));
+      }
+      if (optionalChain) {
+        node->setOptionalChainResultLesmaType(retType);
+      }
       result = std::make_unique<Value>(retType);
       return;
     }
     throw TypeCheckError(node->getSpan(), "Expected method call after dot on trait value");
   }
   if (base->is(BaseType::TY_ARRAY)) {
+    if (optionalChain) {
+      throw TypeCheckError(node->getSpan(), "Optional chaining on list values is not supported yet");
+    }
     if (auto* call = dynamic_cast<FuncCall*>(node->getRight())) {
       if (visitListMethodCall(base, node, call)) {
         return;
@@ -3224,7 +3388,14 @@ auto Typechecker::visit(const DotOp* node) -> void {
           if (Type* matched = selectBestFunctionTypeMatchTail(mIt->second, argTypes);
               matched != nullptr) {
             fc->setResolvedSymbol(nullptr);
-            result = std::make_unique<Value>(matched->getReturnType());
+            Type* genRet = matched->getReturnType();
+            if (optionalChain && genRet != nullptr && !genRet->is(BaseType::TY_VOID)) {
+              genRet = cacheType(std::make_unique<Type>(BaseType::TY_OPTIONAL, nullptr, genRet));
+            }
+            if (optionalChain) {
+              node->setOptionalChainResultLesmaType(genRet);
+            }
+            result = std::make_unique<Value>(genRet);
             return;
           }
         }
@@ -3350,6 +3521,15 @@ auto Typechecker::visit(const DotOp* node) -> void {
     if (!traitBoundSubs.empty() && retType != nullptr) {
       retType = substituteInType(retType, traitBoundSubs);
     }
+    if (fc->getName() == "new" && (retType == nullptr || retType->is(BaseType::TY_VOID))) {
+      retType = base;
+    }
+    if (optionalChain && retType != nullptr && !retType->is(BaseType::TY_VOID)) {
+      retType = cacheType(std::make_unique<Type>(BaseType::TY_OPTIONAL, nullptr, retType));
+    }
+    if (optionalChain) {
+      node->setOptionalChainResultLesmaType(retType);
+    }
     result = std::make_unique<Value>(retType);
     return;
   }
@@ -3364,7 +3544,24 @@ auto Typechecker::visit(const DotOp* node) -> void {
   if (field->getDeclarationSymbol() != nullptr) {
     rightLit->setResolvedSymbol(field->getDeclarationSymbol());
   }
-  result = std::make_unique<Value>(field->type);
+  Type* fieldTy = field->type;
+  if (optionalChain && fieldTy != nullptr && !fieldTy->is(BaseType::TY_VOID)) {
+    fieldTy = cacheType(std::make_unique<Type>(BaseType::TY_OPTIONAL, nullptr, fieldTy));
+  }
+  if (optionalChain) {
+    node->setOptionalChainResultLesmaType(fieldTy);
+  }
+  result = std::make_unique<Value>(fieldTy);
+}
+
+auto Typechecker::visit(const OptionalForceUnwrap* node) -> void {
+  node->getInner()->accept(*this);
+  Type* t = result->getType();
+  if (t == nullptr || !t->is(BaseType::TY_OPTIONAL) || t->getElementType() == nullptr) {
+    throw TypeCheckError(node->getSpan(), "Force unwrap (!) requires an optional type, got {}",
+                         t != nullptr ? t->toString() : "?");
+  }
+  result = std::make_unique<Value>(t->getElementType());
 }
 
 auto Typechecker::visit(const CastOp* node) -> void {
@@ -3699,17 +3896,29 @@ auto Typechecker::visit(const Literal* node) -> void {
   case TokenType::FALSE_:
     result = std::make_unique<Value>(cacheType(std::make_unique<Type>(BaseType::TY_BOOL)));
     break;
-  case TokenType::NIL:
-    result = std::make_unique<Value>(
-        cacheType(std::make_unique<Type>(BaseType::TY_PTR, nullptr, nullptr)));
-    break;
+  case TokenType::NIL: {
+    Type* expected = currentExpectedType();
+    if (expected != nullptr && expected->is(BaseType::TY_OPTIONAL)) {
+      node->setResolvedNilOptionalType(expected);
+      result = std::make_unique<Value>(expected);
+      break;
+    }
+    throw TypeCheckError(node->getSpan(),
+                         "'nil' is only allowed where an optional type is expected (e.g. after "
+                         "'var x: T?' or comparing to T?)");
+  }
   case TokenType::IDENTIFIER: {
     Value* sym = scope->lookup(node->getValue());
     if (sym == nullptr) {
       throw TypeCheckError(node->getSpan(), "Unknown name: {}", node->getValue());
     }
     node->setResolvedSymbol(sym);
-    result = std::make_unique<Value>(*sym);
+    auto out = std::make_unique<Value>(*sym);
+    if (Type* narrowed = lookupOptionalNarrowing(node->getValue())) {
+      node->setOptionalNarrowedExprType(narrowed);
+      out->setType(narrowed);
+    }
+    result = std::move(out);
     break;
   }
   default:
@@ -3843,6 +4052,13 @@ auto Typechecker::buildMethodFunctionType(FuncDecl* decl, Type* classType) -> Ty
   }
   decl->getReturnType()->accept(*this);
   Type* returnType = wrapReturnTypeIfNominal(result->getType());
+  if (decl->getName() == "new" && returnType != nullptr && returnType->is(BaseType::TY_OPTIONAL)) {
+    TypeExpr* retExpr = decl->getReturnType();
+    llvm::SMRange errSpan =
+        retExpr != nullptr ? retExpr->getSpan() : decl->getNameSpan();
+    throw TypeCheckError(errSpan,
+                         "Constructor `new` cannot declare an optional return type (`?`)");
+  }
   auto funcType = std::make_unique<Type>(BaseType::TY_FUNCTION, nullptr, std::move(paramFields));
   funcType->setReturnType(returnType);
   return cacheType(std::move(funcType));

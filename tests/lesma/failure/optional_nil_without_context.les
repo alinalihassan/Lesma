@@ -1,0 +1,2 @@
+# null must appear in optional context
+var x = null

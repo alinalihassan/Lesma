@@ -67,6 +67,10 @@ class Literal : public Expression {
   mutable Value* resolvedSymbol = nullptr;
   /** If non-null for STRING literals, codegen emits a boxed stdlib str instance. */
   mutable Type* resolvedStrClassType = nullptr;
+  /** Filled for `nil` when typed as `T?` (strict null safety). */
+  mutable Type* resolvedNilOptionalType = nullptr;
+  /** When an identifier is narrowed from `T?` to `T` inside `if x != null`, codegen lowers the load. */
+  mutable Type* optionalNarrowedExprType = nullptr;
 
 public:
   Literal(llvm::SMRange loc, std::string value, TokenType type)
@@ -79,6 +83,10 @@ public:
   auto setResolvedSymbol(Value* v) const -> void { resolvedSymbol = v; }
   [[nodiscard]] auto getResolvedStrClassType() const -> Type* { return resolvedStrClassType; }
   auto setResolvedStrClassType(Type* t) const -> void { resolvedStrClassType = t; }
+  [[nodiscard]] auto getResolvedNilOptionalType() const -> Type* { return resolvedNilOptionalType; }
+  auto setResolvedNilOptionalType(Type* t) const -> void { resolvedNilOptionalType = t; }
+  [[nodiscard]] auto getOptionalNarrowedExprType() const -> Type* { return optionalNarrowedExprType; }
+  auto setOptionalNarrowedExprType(Type* t) const -> void { optionalNarrowedExprType = t; }
 
   auto toString(llvm::SourceMgr* /*srcMgr*/, const std::string& /*prefix*/, bool /*isTail*/) const
       -> std::string override {
@@ -1057,20 +1065,49 @@ class DotOp : public Expression {
   std::unique_ptr<Expression> left;
   TokenType op;
   std::unique_ptr<Expression> right;
+  bool optionalChaining;
+  /** Filled by typechecker for `?.` — full expression type (typically `U?`). */
+  mutable Type* optionalChainResultLesmaType = nullptr;
 
 public:
   DotOp(llvm::SMRange loc, std::unique_ptr<Expression> left, TokenType op,
-        std::unique_ptr<Expression> right)
-      : Expression(loc), left(std::move(left)), op(op), right(std::move(right)) {}
+        std::unique_ptr<Expression> right, bool optionalChaining = false)
+      : Expression(loc), left(std::move(left)), op(op), right(std::move(right)),
+        optionalChaining(optionalChaining) {}
   void accept(ASTVisitor& visitor) const override { visitor.visit(this); }
 
   [[nodiscard]] [[maybe_unused]] auto getLeft() const -> Expression* { return left.get(); }
   [[nodiscard]] [[maybe_unused]] auto getOperator() const -> TokenType { return op; }
   [[nodiscard]] [[maybe_unused]] auto getRight() const -> Expression* { return right.get(); }
+  [[nodiscard]] auto isOptionalChaining() const -> bool { return optionalChaining; }
+  [[nodiscard]] auto getOptionalChainResultLesmaType() const -> Type* {
+    return optionalChainResultLesmaType;
+  }
+  auto setOptionalChainResultLesmaType(Type* t) const -> void {
+    optionalChainResultLesmaType = t;
+  }
 
   auto toString(llvm::SourceMgr* srcMgr, const std::string& prefix, bool isTail) const
       -> std::string override {
-    return left->toString(srcMgr, prefix, isTail) + "." + right->toString(srcMgr, prefix, isTail);
+    std::string const sep = optionalChaining ? "?." : ".";
+    return left->toString(srcMgr, prefix, isTail) + sep + right->toString(srcMgr, prefix, isTail);
+  }
+};
+
+/** Postfix `expr!` — force-unwrap optional to its payload (runtime check). */
+class OptionalForceUnwrap : public Expression {
+  std::unique_ptr<Expression> inner;
+
+public:
+  OptionalForceUnwrap(llvm::SMRange loc, std::unique_ptr<Expression> inner)
+      : Expression(loc), inner(std::move(inner)) {}
+  void accept(ASTVisitor& visitor) const override { visitor.visit(this); }
+
+  [[nodiscard]] auto getInner() const -> Expression* { return inner.get(); }
+
+  auto toString(llvm::SourceMgr* srcMgr, const std::string& prefix, bool isTail) const
+      -> std::string override {
+    return inner->toString(srcMgr, prefix, isTail) + "!";
   }
 };
 

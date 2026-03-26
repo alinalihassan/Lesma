@@ -99,6 +99,12 @@ auto Codegen::visit(const TypeExpr* node) -> void {
           std::make_unique<Type>(BaseType::TY_PTR, builder->getPtrTy(), result->getType()));
       result = std::make_unique<Value>(type);
     }
+  } else if (node->getType() == TokenType::OPTIONAL_TYPE) {
+    node->getElementType()->accept(*this);
+    Type* inner = result->getType();
+    Type* opt = cacheType(std::make_unique<Type>(BaseType::TY_OPTIONAL, nullptr, inner));
+    getOrCreateLlvmType(opt);
+    result = std::make_unique<Value>(opt);
   } else if (node->getType() == TokenType::FUNC_TYPE) {
     node->getReturnType()->accept(*this);
     auto retType = std::move(result);
@@ -297,6 +303,22 @@ auto Codegen::getOrCreateLlvmType(lesma::Type* type) -> llvm::Type* {
       }
     }
     type->setLlvmType(st);
+    break;
+  }
+  case BaseType::TY_OPTIONAL: {
+    lesma::Type* inner = type->getElementType();
+    if (inner == nullptr) {
+      throw CodegenError({}, "Optional type has no payload type");
+    }
+    if (TypeUtils::optionalPayloadUsesNullablePointer(inner)) {
+      getOrCreateLlvmType(inner);
+      type->setLlvmType(builder->getPtrTy());
+    } else {
+      llvm::Type* payloadTy = getOrCreateLlvmType(inner);
+      llvm::Type* st =
+          llvm::StructType::get(theModule->getContext(), {builder->getInt1Ty(), payloadTy});
+      type->setLlvmType(st);
+    }
     break;
   }
   case BaseType::TY_CLASS:

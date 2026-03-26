@@ -1,0 +1,18 @@
+# int?, null, promotion, narrowing, force unwrap, optional compare
+let a: int? = null
+let b: int? = 42
+if a != null
+    exit(1)
+if b == null
+    exit(1)
+if b! != 42
+    exit(1)
+var plain: int = 7
+let promoted: int? = plain
+if promoted == null
+    exit(1)
+if promoted! != 7
+    exit(1)
+if b != null
+    if b != 42
+        exit(1)

@@ -176,12 +176,26 @@ auto resolvedTypeForExpr(const Expression* expr) -> Type* {
   if (auto const* castOp = dynamic_cast<const CastOp*>(expr)) {
     return resolvedTypeForExpr(castOp->getType());
   }
+  if (auto const* unwrap = dynamic_cast<const OptionalForceUnwrap*>(expr)) {
+    Type* innerTy = resolvedTypeForExpr(unwrap->getInner());
+    if (innerTy != nullptr && innerTy->is(BaseType::TY_OPTIONAL) &&
+        innerTy->getElementType() != nullptr) {
+      return innerTy->getElementType();
+    }
+    return nullptr;
+  }
   if (auto const* dot = dynamic_cast<const DotOp*>(expr)) {
+    if (dot->isOptionalChaining() && dot->getOptionalChainResultLesmaType() != nullptr) {
+      return dot->getOptionalChainResultLesmaType();
+    }
     Type* baseType = resolvedTypeForExpr(dot->getLeft());
     if (baseType == nullptr) {
       return nullptr;
     }
     if (baseType->is(BaseType::TY_PTR) && baseType->getElementType() != nullptr) {
+      baseType = baseType->getElementType();
+    }
+    if (baseType->is(BaseType::TY_OPTIONAL) && baseType->getElementType() != nullptr) {
       baseType = baseType->getElementType();
     }
     if (auto const* rightCall = dynamic_cast<const FuncCall*>(dot->getRight())) {
@@ -240,6 +254,9 @@ auto fieldDeclarationFromMemberAccess(const Expression* expr, const std::string&
     return std::nullopt;
   }
   if (resolvedType->is(BaseType::TY_PTR) && resolvedType->getElementType() != nullptr) {
+    resolvedType = resolvedType->getElementType();
+  }
+  if (resolvedType->is(BaseType::TY_OPTIONAL) && resolvedType->getElementType() != nullptr) {
     resolvedType = resolvedType->getElementType();
   }
   return declarationIdentityFromField(TypeUtils::findFieldInFields(resolvedType, memberName));
@@ -399,6 +416,10 @@ auto collectIndexFromExpr(const Expression* expr, AnalysisIndex& index) -> void 
   if (auto const* subscript = dynamic_cast<const SubscriptOp*>(expr)) {
     collectIndexFromExpr(subscript->getLeft(), index);
     collectIndexFromExpr(subscript->getIndex(), index);
+    return;
+  }
+  if (auto const* unwrap = dynamic_cast<const OptionalForceUnwrap*>(expr)) {
+    collectIndexFromExpr(unwrap->getInner(), index);
     return;
   }
   if (auto const* unary = dynamic_cast<const UnaryOp*>(expr)) {

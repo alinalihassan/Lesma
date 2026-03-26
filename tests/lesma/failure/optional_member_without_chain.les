@@ -1,0 +1,9 @@
+class A
+    var f: int
+
+    def new()
+        self.f = 1
+
+var a: A? = A.new()
+if a.f == 1
+    exit(0)

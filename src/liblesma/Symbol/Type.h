@@ -35,6 +35,8 @@ enum class BaseType : std::uint8_t {
   TY_TRAIT_EXISTENTIAL,
   /** Structural product type `(T1, T2, ...)` lowered to LLVM struct. */
   TY_TUPLE,
+  /** Optional `T?`; payload in `elementType`. */
+  TY_OPTIONAL,
 };
 
 class Type;
@@ -365,6 +367,14 @@ private:
       }
       return thisElementType->isEqualImpl(rhsElementType, active);
     }
+    case BaseType::TY_OPTIONAL: {
+      Type const* thisInner = getElementType();
+      Type* rhsInner = rhs->getElementType();
+      if (thisInner == nullptr || rhsInner == nullptr) {
+        return false;
+      }
+      return thisInner->isEqualImpl(rhsInner, active);
+    }
     case BaseType::TY_FUNCTION: {
       if (!functionGenericSignatureEqual(rhs)) {
         return false;
@@ -494,9 +504,13 @@ public:
       result += ">";
       break;
     }
+    case BaseType::TY_OPTIONAL:
+      result = elementType != nullptr ? elementType->toString() + "?" : "?";
+      break;
     }
 
-    if (elementType != nullptr && baseType != BaseType::TY_PTR) {
+    if (elementType != nullptr && baseType != BaseType::TY_PTR &&
+        baseType != BaseType::TY_OPTIONAL) {
       result += "<" + elementType->toString() + ">";
     }
 

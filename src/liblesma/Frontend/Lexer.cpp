@@ -107,6 +107,8 @@ auto Lexer::scanOne(bool continuation) -> std::unique_ptr<Token> {
   }
   case ';':
     return makeToken(TokenType::SEMICOLON);
+  case '?':
+    return makeToken(TokenType::QUESTION);
   case '*': {
     if (matchAndAdvance('=')) {
       return makeToken(TokenType::STAR_EQUAL);

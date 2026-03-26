@@ -1,0 +1,3 @@
+class Box
+    def new(v: int) -> int?
+        pass

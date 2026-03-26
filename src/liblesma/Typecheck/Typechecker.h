@@ -75,6 +75,8 @@ class Typechecker final : public ASTVisitor {
   /** Imported types materialized into this typechecker's cache so they outlive imported scopes. */
   std::unordered_map<Type*, Type*> importedTypeCopies;
   std::vector<Type*> expectedTypes;
+  /** `if x != nil` then-branch: local name -> unwrapped type (immutable locals only). */
+  std::vector<std::unordered_map<std::string, Type*>> optionalNarrowingScopes;
 
   /** Registered traits (name → AST) for impl checks and existential method lookup. */
   std::unordered_map<std::string, const TraitDecl*> traitRegistry;
@@ -198,6 +200,10 @@ class Typechecker final : public ASTVisitor {
    *  or enum member), for CUSTOM_TYPE resolution after lookupStruct / lookup. */
   [[nodiscard]] auto isTypeSymbolForCustomTypeName(Value const* sym) -> bool;
 
+  [[nodiscard]] auto lookupOptionalNarrowing(const std::string& name) const -> Type*;
+  [[nodiscard]] auto tryExtractOptionalNarrowingForThen(Expression* cond)
+      -> std::unordered_map<std::string, Type*>;
+
 public:
   /** Typecheck with no import * resolution. */
   explicit Typechecker();
@@ -254,6 +260,7 @@ public:
   auto visit(const BinaryOp* node) -> void override;
   auto visit(const SubscriptOp* node) -> void override;
   auto visit(const DotOp* node) -> void override;
+  auto visit(const OptionalForceUnwrap* node) -> void override;
   auto visit(const CastOp* node) -> void override;
   auto visit(const IsOp* node) -> void override;
   auto visit(const UnaryOp* node) -> void override;
