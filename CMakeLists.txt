@@ -224,8 +224,8 @@ if (LESMA_BUILD_LSP)
   find_package(libgit2 CONFIG REQUIRED)
 
   set(LSP_SERVER_SOURCES src/lsp/main.cpp src/lsp/DocumentStore.cpp src/lsp/LspAnalysisGraph.cpp
-      src/lsp/LspCompletion.cpp src/lsp/LspTypeFormat.cpp src/lsp/LspUtf16.cpp
-      src/lsp/WorkspaceLesFiles.cpp)
+      src/lsp/LspCompletion.cpp src/lsp/LspSourceHelpers.cpp src/lsp/LspTypeFormat.cpp
+      src/lsp/LspUtf16.cpp src/lsp/WorkspaceLesFiles.cpp)
   add_executable(lesma-lsp ${LSP_SERVER_SOURCES})
   target_link_libraries(lesma-lsp PRIVATE ${LIB_NAME} lsp libgit2::libgit2package)
   target_include_directories(lesma-lsp PRIVATE ${lsp_framework_SOURCE_DIR})

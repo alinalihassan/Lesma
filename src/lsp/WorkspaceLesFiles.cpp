@@ -8,6 +8,7 @@
 
 #include <git2.h>
 
+namespace lesma::lsp_srv {
 namespace {
 
 std::once_flag libgit2InitFlag;
@@ -164,3 +165,5 @@ auto tryListLesFilesViaGitRepository(std::string const& workspaceRoot)
   }
   return out;
 }
+
+} // namespace lesma::lsp_srv

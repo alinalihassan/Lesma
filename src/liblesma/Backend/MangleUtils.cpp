@@ -89,38 +89,4 @@ auto getTypeMangledName(llvm::SMRange span, Type* type) -> std::string {
 auto isMethod(const std::string& mangledName) -> bool {
   return mangledName.find("::") != std::string::npos;
 }
-
-auto isMangled(std::string name) -> bool {
-  if (name.empty()) {
-    return false;
-  }
-  return name.find(':') != std::string::npos || name.at(0) == '.';
-}
-
-auto getDemangledName(const std::string& name) -> std::string {
-  if (!isMangled(name)) {
-    return name;
-  }
-
-  auto demangledName = name;
-
-  // Remove class mangling
-  auto classMangling = demangledName.find("::");
-  if (classMangling != std::string::npos) {
-    demangledName = demangledName.substr(classMangling + 2);
-  }
-
-  // Remove standard '.' mangling to differentiate from native functions
-  if (!demangledName.empty() && demangledName.at(0) == '.') {
-    demangledName.erase(0, 1);
-  }
-
-  // Remove parameters mangling
-  auto parameterMangling = demangledName.find(':');
-  if (parameterMangling != std::string::npos) {
-    demangledName = demangledName.substr(0, parameterMangling);
-  }
-
-  return demangledName;
-}
 } // namespace lesma::MangleUtils

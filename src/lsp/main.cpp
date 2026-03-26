@@ -15,6 +15,7 @@
 #include "DocumentStore.h"
 #include "LspAnalysisGraph.h"
 #include "LspCompletion.h"
+#include "LspSourceHelpers.h"
 #include "LspTypeFormat.h"
 #include "LspUtf16.h"
 #include <lsp/connection.h>
@@ -102,17 +103,6 @@ struct SymbolIdentity {
   ::lsp::Range range;
   std::string name;
 };
-
-auto getOffsetFromSMLoc(llvm::SourceMgr* srcMgr, unsigned bufferId, llvm::SMLoc loc) -> unsigned;
-
-auto smRangesEqual(llvm::SourceMgr* srcMgr, unsigned bufferId, llvm::SMRange lhs, llvm::SMRange rhs)
-    -> bool {
-  return lhs.isValid() && rhs.isValid() &&
-         getOffsetFromSMLoc(srcMgr, bufferId, lhs.Start) ==
-             getOffsetFromSMLoc(srcMgr, bufferId, rhs.Start) &&
-         getOffsetFromSMLoc(srcMgr, bufferId, lhs.End) ==
-             getOffsetFromSMLoc(srcMgr, bufferId, rhs.End);
-}
 
 template <typename FuncLike>
 auto resolveFuncLikeDeclarationSymbol(const FuncLike* node, llvm::SourceMgr* srcMgr,
@@ -398,71 +388,13 @@ auto containsGenericParam(const std::vector<std::string>& genericParams, const s
   return std::ranges::find(genericParams, name) != genericParams.end();
 }
 
-auto getOffsetFromSMLoc(llvm::SourceMgr* srcMgr, unsigned bufferId, llvm::SMLoc loc) -> unsigned {
-  auto const* buf = srcMgr->getMemoryBuffer(bufferId);
-  if (buf == nullptr) {
-    return 0U;
-  }
-  return static_cast<unsigned>(loc.getPointer() - buf->getBufferStart());
-}
+using InnermostFunc =
+    lesma::lsp_srv::InnermostFuncAtOffset<const lesma::FuncDecl, const lesma::Class>;
 
-struct InnermostFunc {
-  const lesma::FuncDecl* func = nullptr;
-  const lesma::Class* enclosingClass = nullptr;
-};
-
-auto considerFunc(const lesma::FuncDecl* f, const lesma::Class* cls, unsigned targetOffset,
-                  llvm::SourceMgr* sm, unsigned bid, InnermostFunc& best, unsigned& bestLen)
-    -> void {
-  if (f->getBody() == nullptr) {
-    return;
-  }
-  llvm::SMRange span = f->getBody()->getSpan();
-  if (!span.isValid()) {
-    return;
-  }
-  unsigned const a = getOffsetFromSMLoc(sm, bid, span.Start);
-  unsigned const b = getOffsetFromSMLoc(sm, bid, span.End);
-  if (targetOffset < a || targetOffset >= b) {
-    return;
-  }
-  unsigned const len = b - a;
-  if (best.func == nullptr || len < bestLen) {
-    best.func = f;
-    best.enclosingClass = cls;
-    bestLen = len;
-  }
-}
-
-auto scanCompoundForFuncs(lesma::Compound* c, lesma::Class* cls, unsigned targetOffset,
-                          llvm::SourceMgr* sm, unsigned bid, InnermostFunc& best, unsigned& bestLen)
-    -> void {
-  if (c == nullptr) {
-    return;
-  }
-  for (lesma::Statement* s : c->getChildren()) {
-    if (auto* f = dynamic_cast<lesma::FuncDecl*>(s)) {
-      considerFunc(f, cls, targetOffset, sm, bid, best, bestLen);
-      if (f->getBody() != nullptr) {
-        scanCompoundForFuncs(f->getBody(), cls, targetOffset, sm, bid, best, bestLen);
-      }
-    } else if (auto* st = dynamic_cast<lesma::Class*>(s)) {
-      for (lesma::FuncDecl* m : st->getMethods()) {
-        considerFunc(m, st, targetOffset, sm, bid, best, bestLen);
-        if (m->getBody() != nullptr) {
-          scanCompoundForFuncs(m->getBody(), st, targetOffset, sm, bid, best, bestLen);
-        }
-      }
-    }
-  }
-}
-
-InnermostFunc findInnermostFuncContaining(lesma::Compound* ast, unsigned targetOffset,
-                                          llvm::SourceMgr* sm, unsigned bid) {
-  InnermostFunc best;
-  unsigned bestLen = 0U;
-  scanCompoundForFuncs(ast, nullptr, targetOffset, sm, bid, best, bestLen);
-  return best;
+[[nodiscard]] auto findInnermostFuncContaining(lesma::Compound* ast, unsigned targetOffset,
+                                               llvm::SourceMgr* sm, unsigned bid) -> InnermostFunc {
+  return lesma::lsp_srv::findInnermostFuncContainingAst<const lesma::FuncDecl, const lesma::Class>(
+      ast, targetOffset, sm, bid);
 }
 
 /** Find function (or method) whose signature contains the cursor (name or any parameter).
