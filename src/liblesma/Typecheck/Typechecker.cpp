@@ -95,6 +95,12 @@ void insertGenericParamSymbols(SymbolTable* genericsScope,
   }
 }
 
+[[nodiscard]] auto isControlFlowTerminator(const Statement* stmt) -> bool {
+  return stmt != nullptr && (dynamic_cast<const Return*>(stmt) != nullptr ||
+                             dynamic_cast<const Break*>(stmt) != nullptr ||
+                             dynamic_cast<const Continue*>(stmt) != nullptr);
+}
+
 } // namespace
 
 auto Typechecker::traitExistentialBaseName(const std::string& displayName) -> std::string {
@@ -190,6 +196,16 @@ auto Typechecker::visitExprWithExpectedType(const Expression* node, Type* expect
   expectedTypes.push_back(expected);
   node->accept(*this);
   expectedTypes.pop_back();
+  if (!declarationPass && warningDiagnostics != nullptr && expected != nullptr &&
+      result != nullptr) {
+    Type* got = result->getType();
+    if (got != nullptr && isAssignableTo(got, expected) &&
+        isLossyImplicitConversion(got, expected)) {
+      emitWarning(node->getSpan(),
+                  fmt::format("Implicit conversion from {} to {} may lose precision",
+                              got->toString(), expected->toString()));
+    }
+  }
 }
 
 auto Typechecker::currentExpectedType() const -> Type* {
@@ -574,6 +590,7 @@ auto Typechecker::visitListMethodCall(Type* listType, const DotOp* node, const F
   }
 
   call->setResolvedSymbol(callee);
+  markValueRead(callee);
   auto* funcType = callee->getType();
   auto fields = funcType->getFields();
   if (!call->getExplicitTypeArgs().empty()) {
@@ -1493,9 +1510,11 @@ auto Typechecker::resolveType(const TypeExpr* node) -> Type* {
 Typechecker::Typechecker()
     : rootScope(std::make_unique<SymbolTable>(nullptr)), scope(rootScope.get()) {}
 
-Typechecker::Typechecker(std::string mainFilePath, GetExportsFn getExports)
+Typechecker::Typechecker(std::string mainFilePath, GetExportsFn getExports,
+                         std::vector<AnalysisDiagnostic>* warningDiagnosticsOut)
     : rootScope(std::make_unique<SymbolTable>(nullptr)), scope(rootScope.get()),
-      mainFilePath(std::move(mainFilePath)), getExports(std::move(getExports)) {}
+      mainFilePath(std::move(mainFilePath)), getExports(std::move(getExports)),
+      warningDiagnostics(warningDiagnosticsOut) {}
 
 void Typechecker::loadImplicitStdModule(const std::string& moduleFilename) {
   const auto basePath =
@@ -1684,6 +1703,9 @@ auto Typechecker::run(const Compound* ast) -> void {
   ast->accept(*this);
   declarationPass = false;
   ast->accept(*this);
+  if (warningDiagnostics != nullptr && rootScope != nullptr) {
+    checkUnusedBindingsInScope(rootScope.get());
+  }
 }
 
 auto Typechecker::takeRootScope() -> std::unique_ptr<SymbolTable> {
@@ -1728,8 +1750,229 @@ auto Typechecker::visit(const Expression* /*node*/) -> void {}
 auto Typechecker::visit(const Else* /*node*/) -> void {}
 
 auto Typechecker::visit(const Compound* node) -> void {
+  bool precededByTerminator = false;
   for (Statement* elem : node->getChildren()) {
+    if (precededByTerminator) {
+      emitWarning(elem->getSpan(), "Unreachable code");
+    }
     elem->accept(*this);
+    precededByTerminator = isControlFlowTerminator(elem);
+  }
+}
+
+// Semantic warnings (compiler warning catalog):
+// unreachable_code; unused variable/parameter/import; shadowing (incl. import_shadows);
+// empty if/while/for-in body; trivial bool condition; lossy implicit conversion;
+// unused non-exported class field/method; unimplemented (before error).
+// Not implemented here: deprecated_use (needs @deprecated in the language); trailing_semicolon
+// style.
+
+void Typechecker::emitWarning(llvm::SMRange span, std::string message) {
+  if (warningDiagnostics == nullptr || !span.isValid()) {
+    return;
+  }
+  if (!mainFilePath.empty() && isStdlibSourcePath(mainFilePath)) {
+    return;
+  }
+  warningDiagnostics->push_back(
+      AnalysisDiagnostic{.message = std::move(message),
+                         .span = span,
+                         .severity = AnalysisDiagnosticSeverity::Warning});
+}
+
+void Typechecker::markValueRead(Value* sym) {
+  if (sym == nullptr || declarationPass) {
+    return;
+  }
+  const std::string& n = sym->getName();
+  if (!n.empty() && n[0] == '_') {
+    return;
+  }
+  if (n == "self") {
+    return;
+  }
+  const auto kind = sym->getDeclarationKind();
+  if (kind == ValueDeclarationKind::VARIABLE || kind == ValueDeclarationKind::PARAMETER ||
+      kind == ValueDeclarationKind::PROPERTY) {
+    sym->setUsed(true);
+    return;
+  }
+  if (kind == ValueDeclarationKind::METHOD || kind == ValueDeclarationKind::FUNCTION) {
+    sym->setUsed(true);
+    return;
+  }
+  if (sym->getCategory() == ValueCategory::MODULE_SYMBOL && sym->getType() != nullptr &&
+      sym->getType()->is(BaseType::TY_IMPORT)) {
+    sym->setUsed(true);
+  }
+}
+
+void Typechecker::checkUnusedBindingsInScope(SymbolTable* blockScope) {
+  if (warningDiagnostics == nullptr || blockScope == nullptr || declarationPass) {
+    return;
+  }
+  // Declaration + definition passes each insert a symbol for the same VarDecl, so the multimap
+  // can hold duplicate names; emit at most one unused diagnostic per name per scope.
+  std::unordered_set<std::string> warnedUnusedVariable;
+  std::unordered_set<std::string> warnedUnusedParameter;
+  std::unordered_set<std::string> warnedUnusedImport;
+  for (Value* v : blockScope->getSymbols()) {
+    const std::string& n = v->getName();
+    if (!n.empty() && n[0] == '_') {
+      continue;
+    }
+    if (n == "self") {
+      continue;
+    }
+    if (v->isExported()) {
+      continue;
+    }
+    if (v->getDeclarationKind() == ValueDeclarationKind::VARIABLE && !v->isUsed()) {
+      if (warnedUnusedVariable.insert(n).second) {
+        emitWarning(v->getDeclarationSpan(), "Unused variable '" + n + "'");
+      }
+      continue;
+    }
+    if (v->getDeclarationKind() == ValueDeclarationKind::PARAMETER && !v->isUsed()) {
+      if (warnedUnusedParameter.insert(n).second) {
+        emitWarning(v->getDeclarationSpan(), "Unused parameter '" + n + "'");
+      }
+      continue;
+    }
+    if (v->getCategory() == ValueCategory::MODULE_SYMBOL && v->getType() != nullptr &&
+        v->getType()->is(BaseType::TY_IMPORT) && !v->isUsed()) {
+      if (warnedUnusedImport.insert(n).second) {
+        emitWarning(v->getDeclarationSpan(), "Unused import '" + n + "'");
+      }
+    }
+  }
+}
+
+void Typechecker::warnShadowingFromEnclosing(const std::string& name, llvm::SMRange span) {
+  if (warningDiagnostics == nullptr || declarationPass || scope == nullptr ||
+      scope->getParent() == nullptr || !span.isValid()) {
+    return;
+  }
+  Value* outer = scope->getParent()->lookup(name);
+  if (outer == nullptr) {
+    return;
+  }
+  if (outer->getCategory() == ValueCategory::MODULE_SYMBOL && outer->getType() != nullptr &&
+      outer->getType()->is(BaseType::TY_IMPORT)) {
+    emitWarning(span, "Declaration of '" + name + "' shadows an import");
+    return;
+  }
+  emitWarning(span, "Declaration of '" + name + "' shadows an outer binding");
+}
+
+auto Typechecker::tryGetLiteralBool(const Expression* e, bool& outValue) -> bool {
+  auto* lit = dynamic_cast<const Literal*>(e);
+  if (lit == nullptr) {
+    return false;
+  }
+  switch (lit->getType()) {
+  case TokenType::TRUE_:
+    outValue = true;
+    return true;
+  case TokenType::FALSE_:
+    outValue = false;
+    return true;
+  case TokenType::BOOL: {
+    const std::string& v = lit->getValue();
+    if (v == "true") {
+      outValue = true;
+      return true;
+    }
+    if (v == "false") {
+      outValue = false;
+      return true;
+    }
+    return false;
+  }
+  default:
+    return false;
+  }
+}
+
+void Typechecker::warnIfTrivialBoolCondition(const Expression* cond) {
+  if (warningDiagnostics == nullptr || declarationPass || cond == nullptr) {
+    return;
+  }
+  if (dynamic_cast<const Else*>(cond) != nullptr) {
+    return;
+  }
+  bool v = false;
+  if (!tryGetLiteralBool(cond, v)) {
+    return;
+  }
+  emitWarning(cond->getSpan(), v ? "Condition is always true" : "Condition is always false");
+}
+
+void Typechecker::warnIfEmptyCompoundBody(const Compound* block, const char* context) {
+  if (warningDiagnostics == nullptr || declarationPass || block == nullptr) {
+    return;
+  }
+  if (!block->getChildren().empty()) {
+    return;
+  }
+  emitWarning(block->getSpan(), std::string("Empty ") + context);
+}
+
+auto Typechecker::isLossyImplicitConversion(Type* from, Type* to) -> bool {
+  if (from == nullptr || to == nullptr) {
+    return false;
+  }
+  if (from->is(BaseType::TY_GENERIC) || to->is(BaseType::TY_GENERIC)) {
+    return false;
+  }
+  if (from->isEqual(to)) {
+    return false;
+  }
+  if (to->is(BaseType::TY_FLOAT) || to->is(BaseType::TY_FLOAT32)) {
+    return from->is(BaseType::TY_INT) ||
+           (to->is(BaseType::TY_FLOAT32) && from->is(BaseType::TY_FLOAT));
+  }
+  if (to->is(BaseType::TY_INT)) {
+    return from->isFloatingPoint();
+  }
+  return false;
+}
+
+void Typechecker::warnIfLossyConversion(llvm::SMRange span, Type* from, Type* to) {
+  if (warningDiagnostics == nullptr || declarationPass || from == nullptr || to == nullptr ||
+      !span.isValid()) {
+    return;
+  }
+  if (!isAssignableTo(from, to) || !isLossyImplicitConversion(from, to)) {
+    return;
+  }
+  emitWarning(span, fmt::format("Implicit conversion from {} to {} may lose precision",
+                                from->toString(), to->toString()));
+}
+
+void Typechecker::diagnoseUnusedNonExportedClassMembers(const Class* classNode) {
+  if (warningDiagnostics == nullptr || declarationPass || classNode == nullptr) {
+    return;
+  }
+  for (VarDecl* field : classNode->getFields()) {
+    if (field->isExported()) {
+      continue;
+    }
+    Value* vs = field->getResolvedSymbol();
+    if (vs != nullptr && !vs->isUsed()) {
+      emitWarning(vs->getDeclarationSpan(),
+                  "Unused non-exported class field '" + vs->getName() + "'");
+    }
+  }
+  for (FuncDecl* method : classNode->getMethods()) {
+    if (method->isExported()) {
+      continue;
+    }
+    Value* vs = method->getResolvedSymbol();
+    if (vs != nullptr && !vs->isUsed()) {
+      emitWarning(method->getNameSpan(),
+                  "Unused non-exported class method '" + method->getName() + "'");
+    }
   }
 }
 
@@ -1786,6 +2029,7 @@ auto Typechecker::visit(const VarDecl* node) -> void {
       symbol->setDeclarationSpan(names[i]->getSpan());
       symbol->setDeclarationFilePath(mainFilePath);
       resolved.push_back(symbol.get());
+      warnShadowingFromEnclosing(names[i]->getValue(), names[i]->getSpan());
       scope->insertSymbol(std::move(symbol));
     }
     node->setResolvedSymbols(std::move(resolved));
@@ -1825,6 +2069,7 @@ auto Typechecker::visit(const VarDecl* node) -> void {
   symbol->setDeclarationSpan(node->getIdentifier()->getSpan());
   symbol->setDeclarationFilePath(mainFilePath);
   node->setResolvedSymbol(symbol.get());
+  warnShadowingFromEnclosing(node->getIdentifier()->getValue(), node->getIdentifier()->getSpan());
   scope->insertSymbol(std::move(symbol));
 }
 
@@ -1836,8 +2081,10 @@ auto Typechecker::visit(const If* node) -> void {
       throw TypeCheckError(cond->getSpan(), "Condition must be Bool, got {}",
                            result->getType()->toString());
     }
+    warnIfTrivialBoolCondition(cond);
   }
   for (Compound* block : node->getBlocks()) {
+    warnIfEmptyCompoundBody(block, "if/else branch");
     block->accept(*this);
   }
 }
@@ -1849,6 +2096,8 @@ auto Typechecker::visit(const While* node) -> void {
     throw TypeCheckError(node->getCond()->getSpan(), "Condition must be Bool, got {}",
                          result->getType()->toString());
   }
+  warnIfTrivialBoolCondition(node->getCond());
+  warnIfEmptyCompoundBody(node->getBlock(), "while body");
   node->getBlock()->accept(*this);
 }
 
@@ -1915,7 +2164,9 @@ auto Typechecker::visit(const ForIn* node) -> void {
   node->getIdentifier()->setResolvedSymbol(symbol.get());
   scope->insertSymbol(std::move(symbol));
 
+  warnIfEmptyCompoundBody(node->getBlock(), "for-in body");
   node->getBlock()->accept(*this);
+  checkUnusedBindingsInScope(child);
   scope = savedScope;
 }
 
@@ -1966,31 +2217,35 @@ auto Typechecker::visit(const Import* node) -> void {
   if (!node->isStd()) {
     registerTraitsFromImportedModule(resolvedPath);
   }
-  auto addImportSymbol = [this, &importType](const std::string& name) {
+  auto addImportSymbol = [this, &importType](const std::string& name, llvm::SMRange declSpan) {
     if (!name.empty()) {
       auto symbol = std::make_unique<Value>(name, importType);
       symbol->setCategory(ValueCategory::MODULE_SYMBOL);
       symbol->setDeclarationKind(ValueDeclarationKind::NAMESPACE);
+      symbol->setDeclarationSpan(declSpan.isValid() ? declSpan : llvm::SMRange());
+      symbol->setDeclarationFilePath(mainFilePath);
       scope->insertSymbol(std::move(symbol));
     }
   };
   if (node->getImportAll() && getExports) {
     std::vector<std::string> names = getExports(node->getFilePath(), node->isStd(), mainFilePath);
     for (const std::string& name : names) {
-      addImportSymbol(name);
+      addImportSymbol(name, node->getSpan());
       importedNameToSource[name] = std::make_pair(resolvedPath, name);
       insertImportedVariableAlias(resolvedPath, name, name);
     }
     std::string aliasName =
         node->getAlias().empty() ? getBasename(node->getFilePath()) : node->getAlias();
-    addImportSymbol(aliasName);
+    addImportSymbol(aliasName,
+                    node->getAliasSpan().isValid() ? node->getAliasSpan() : node->getSpan());
     importAliasToPath[aliasName] = resolvedPath;
     return;
   }
   if (node->getImportedNames().empty()) {
     std::string aliasName =
         node->getAlias().empty() ? getBasename(node->getFilePath()) : node->getAlias();
-    addImportSymbol(aliasName);
+    addImportSymbol(aliasName,
+                    node->getAliasSpan().isValid() ? node->getAliasSpan() : node->getSpan());
     importAliasToPath[aliasName] = resolvedPath;
     return;
   }
@@ -1998,7 +2253,11 @@ auto Typechecker::visit(const Import* node) -> void {
     const std::string& name = binding.name;
     const std::string& alias = binding.alias;
     const std::string localName = alias.empty() ? name : alias;
-    addImportSymbol(localName);
+    llvm::SMRange const localSpan =
+        !alias.empty() && binding.aliasSpan.isValid()
+            ? binding.aliasSpan
+            : (binding.nameSpan.isValid() ? binding.nameSpan : node->getSpan());
+    addImportSymbol(localName, localSpan);
     importedNameToSource[localName] = std::make_pair(resolvedPath, name);
     insertImportedVariableAlias(resolvedPath, name, localName);
   }
@@ -2145,6 +2404,10 @@ auto Typechecker::visit(const Class* node) -> void {
   }
   currentMethodInsertScope = savedMethodInsertScope;
 
+  if (!declarationPass) {
+    diagnoseUnusedNonExportedClassMembers(node);
+  }
+
   if (declarationPass) {
     // Impl check runs in the declaration pass so default trait methods are registered before user
     // code in the second pass. Trait requirement *signatures* may reference classes declared later
@@ -2273,6 +2536,7 @@ auto Typechecker::visit(const FuncDecl* node) -> void {
         paramSymbol->setDeclarationSpan(param->nameSpan);
         paramSymbol->setDeclarationFilePath(mainFilePath);
         param->setResolvedSymbol(paramSymbol.get());
+        warnShadowingFromEnclosing(param->name, param->nameSpan);
         scope->insertSymbol(std::move(paramSymbol));
       }
       scope = savedScopePtr;
@@ -2296,6 +2560,7 @@ auto Typechecker::visit(const FuncDecl* node) -> void {
     if (node->getBody() != nullptr) {
       node->getBody()->accept(*this);
     }
+    checkUnusedBindingsInScope(scope);
     currentGenericParamTraitBounds = std::move(savedTraitBounds);
     Type* funcReturnType = currentFunction->getType()->getReturnType();
     if (node->getBody() != nullptr && funcReturnType != nullptr &&
@@ -2447,6 +2712,9 @@ auto Typechecker::visit(const Assignment* node) -> void {
     if (!sym->getMutability()) {
       throw TypeCheckError(node->getSpan(), "Cannot assign to immutable variable {}",
                            lit->getValue());
+    }
+    if (binaryOp.has_value()) {
+      markValueRead(sym);
     }
     Type* lhsType = sym->getType();
     visitExprWithExpectedType(node->getRightHandSide(), lhsType);
@@ -2618,6 +2886,7 @@ auto Typechecker::visit(const Return* node) -> void {
 auto Typechecker::visit(const Defer* node) -> void { node->getStatement()->accept(*this); }
 
 auto Typechecker::visit(const UnimplementedStatement* node) -> void {
+  emitWarning(node->getSpan(), std::string("Unimplemented: ") + node->getMessage());
   throw TypeCheckError(node->getSpan(), "{}", node->getMessage());
 }
 
@@ -2874,6 +3143,7 @@ auto Typechecker::visit(const FuncCall* node) -> void {
     throw TypeCheckError(node->getSpan(), "Not a function: {}", node->getName());
   }
   node->setResolvedSymbol(callee);
+  markValueRead(callee);
 
   auto* funcType = callee->getType();
   auto fields = funcType->getFields();
@@ -3032,6 +3302,12 @@ auto Typechecker::visit(const DotOp* node) -> void {
     return;
   }
   if (base->is(BaseType::TY_IMPORT)) {
+    if (auto* leftLit = dynamic_cast<Literal*>(node->getLeft());
+        leftLit != nullptr && leftLit->getType() == TokenType::IDENTIFIER) {
+      if (Value* modSym = scope->lookup(leftLit->getValue())) {
+        markValueRead(modSym);
+      }
+    }
     if (auto* idLit = dynamic_cast<Literal*>(node->getRight());
         idLit != nullptr && idLit->getType() == TokenType::IDENTIFIER) {
       std::string const alias = result->getName();
@@ -3299,6 +3575,7 @@ auto Typechecker::visit(const DotOp* node) -> void {
       throw TypeCheckError(node->getSpan(), "Function not found: {}", fc->getName());
     }
     fc->setResolvedSymbol(method);
+    markValueRead(method);
     auto* methodType = method->getType();
     if (!fc->getExplicitTypeArgs().empty()) {
       std::vector<Type*> explicitTypes;
@@ -3363,6 +3640,7 @@ auto Typechecker::visit(const DotOp* node) -> void {
   }
   if (field->getDeclarationSymbol() != nullptr) {
     rightLit->setResolvedSymbol(field->getDeclarationSymbol());
+    markValueRead(field->getDeclarationSymbol());
   }
   result = std::make_unique<Value>(field->type);
 }
@@ -3709,6 +3987,7 @@ auto Typechecker::visit(const Literal* node) -> void {
       throw TypeCheckError(node->getSpan(), "Unknown name: {}", node->getValue());
     }
     node->setResolvedSymbol(sym);
+    markValueRead(sym);
     result = std::make_unique<Value>(*sym);
     break;
   }

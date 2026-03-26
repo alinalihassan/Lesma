@@ -20,10 +20,13 @@ namespace lesma {
 class Compound;
 class Timer;
 
+enum class AnalysisDiagnosticSeverity : std::uint8_t { Error, Warning };
+
 /** Single diagnostic (error/warning) with a source span. */
 struct AnalysisDiagnostic {
   std::string message;
   llvm::SMRange span;
+  AnalysisDiagnosticSeverity severity = AnalysisDiagnosticSeverity::Error;
 };
 
 struct IndexedDeclarationIdentity {
@@ -92,8 +95,10 @@ struct AnalysisResult {
   unsigned mainBufferId = 0;
   std::string mainFilePath;
 
-  /** Non-empty when lex/parse/typecheck failed. First error only (fail-fast). */
+  /** Errors stop analysis; warnings may appear on success. */
   std::vector<AnalysisDiagnostic> diagnostics;
+  /** Copied from Options for Driver printing (warnings are still stored in \c diagnostics). */
+  bool suppressWarnings = false;
 
   /** Set when parse succeeded (and possibly typecheck). */
   std::unique_ptr<Parser> parser;
@@ -107,7 +112,14 @@ struct AnalysisResult {
   ImportedNameSourceMap importedNameToSource;
   std::unordered_map<std::string, std::shared_ptr<ImportedModuleAnalysis>> importedModules;
 
-  [[nodiscard]] auto hasErrors() const -> bool { return !diagnostics.empty(); }
+  [[nodiscard]] auto hasErrors() const -> bool {
+    for (const AnalysisDiagnostic& d : diagnostics) {
+      if (d.severity == AnalysisDiagnosticSeverity::Error) {
+        return true;
+      }
+    }
+    return false;
+  }
 };
 
 /** Run lexer, parser, and typechecker. Does not run codegen.

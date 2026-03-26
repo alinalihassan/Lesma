@@ -261,8 +261,7 @@ auto getLazyImportedAnalysis(const std::string& path)
   }
   auto& cacheState = lazyImportedAnalysisCacheState();
 
-  auto lookupCached = [&]()
-      -> std::shared_ptr<lesma::ImportedModuleAnalysis> {
+  auto lookupCached = [&]() -> std::shared_ptr<lesma::ImportedModuleAnalysis> {
     std::lock_guard<std::mutex> lock(cacheState.cacheMutex);
     auto it = cacheState.cache.find(normalized);
     return it != cacheState.cache.end() ? it->second : nullptr;

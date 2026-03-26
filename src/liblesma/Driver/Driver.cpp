@@ -43,6 +43,7 @@ void maybeTimed(Timer* timerPtr, const std::string& label, F&& fn) {
 
 auto lesma::analyze(std::unique_ptr<Options> options, Timer* phaseTimer) -> AnalysisResult {
   AnalysisResult result;
+  result.suppressWarnings = options->suppressWarnings;
   if (options->sourceType == SourceType::FILE) {
     result.mainFilePath = options->source;
   } else {
@@ -127,10 +128,12 @@ auto lesma::analyze(std::unique_ptr<Options> options, Timer* phaseTimer) -> Anal
     return result;
   }
 
-  Typechecker typechecker(result.mainFilePath,
-                          [&](const std::string& path, bool isStd, const std::string& main) {
-                            return getExportedTopLevelNamesFromFile(path, isStd, main);
-                          });
+  Typechecker typechecker(
+      result.mainFilePath,
+      [&](const std::string& path, bool isStd, const std::string& main) {
+        return getExportedTopLevelNamesFromFile(path, isStd, main);
+      },
+      &result.diagnostics);
   try {
     maybeTimed(phaseTimer, "Typecheck", [&]() -> void { typechecker.run(parser->getAst()); });
     result.sourceMgr = std::move(srcMgr);
@@ -176,6 +179,9 @@ auto Driver::baseCompile(std::unique_ptr<lesma::Options> options, bool jit) -> i
 
   if (result.hasErrors()) {
     for (const auto& d : result.diagnostics) {
+      if (d.severity != AnalysisDiagnosticSeverity::Error) {
+        continue;
+      }
       if (d.span.isValid()) {
         showInline(result.sourceMgr.get(), result.mainBufferId, d.span, result.mainFilePath, true,
                    d.message);
@@ -184,6 +190,20 @@ auto Driver::baseCompile(std::unique_ptr<lesma::Options> options, bool jit) -> i
       }
     }
     return 1;
+  }
+
+  if (!result.suppressWarnings) {
+    for (const auto& d : result.diagnostics) {
+      if (d.severity != AnalysisDiagnosticSeverity::Warning) {
+        continue;
+      }
+      if (d.span.isValid()) {
+        showInline(result.sourceMgr.get(), result.mainBufferId, d.span, result.mainFilePath, false,
+                   d.message);
+      } else {
+        lesma::print(LogType::WARNING, "{}\n", std::string_view(d.message));
+      }
+    }
   }
 
   try {

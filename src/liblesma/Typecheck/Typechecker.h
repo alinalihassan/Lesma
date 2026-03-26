@@ -18,6 +18,7 @@
 
 namespace lesma {
 
+class Class;
 class TraitDecl;
 
 /** Callback to resolve import *: (filepath, isStd, mainFilePath) -> exported
@@ -97,6 +98,20 @@ class Typechecker final : public ASTVisitor {
   /** Cache of fully analyzed imported modules for import-aware symbol resolution. */
   std::unordered_map<std::string, std::shared_ptr<ImportedModuleAnalysis>> importedModuleCache;
 
+  /** When non-null, unreachable-code and other warnings are appended here (severity Warning). */
+  std::vector<AnalysisDiagnostic>* warningDiagnostics = nullptr;
+
+  void emitWarning(llvm::SMRange span, std::string message);
+  void markValueRead(Value* sym);
+  void checkUnusedBindingsInScope(SymbolTable* blockScope);
+  void warnShadowingFromEnclosing(const std::string& name, llvm::SMRange span);
+  [[nodiscard]] static auto tryGetLiteralBool(const Expression* e, bool& outValue) -> bool;
+  void warnIfTrivialBoolCondition(const Expression* cond);
+  void warnIfEmptyCompoundBody(const Compound* block, const char* context);
+  [[nodiscard]] static auto isLossyImplicitConversion(Type* from, Type* to) -> bool;
+  void warnIfLossyConversion(llvm::SMRange span, Type* from, Type* to);
+  void diagnoseUnusedNonExportedClassMembers(const Class* classNode);
+
   /** Resolve absolute path for an import (same logic as Driver getExportsFromFile). */
   [[nodiscard]] auto resolveImportPath(const std::string& filepath, bool isStd) const
       -> std::string;
@@ -108,11 +123,9 @@ class Typechecker final : public ASTVisitor {
   /** If \p exportedName is an exported variable in the module at \p resolvedPath, insert a
    * same-type alias as \p localName into the current scope (for typechecking `import *` / `from`).
    */
-  auto insertImportedVariableAlias(const std::string& resolvedPath,
-                                   const std::string& exportedName, const std::string& localName)
-      -> void;
-  void validateParameterDefaultOrdering(llvm::SMRange span,
-                                        const std::vector<Parameter*>& params);
+  auto insertImportedVariableAlias(const std::string& resolvedPath, const std::string& exportedName,
+                                   const std::string& localName) -> void;
+  void validateParameterDefaultOrdering(llvm::SMRange span, const std::vector<Parameter*>& params);
   /** Get or create a specialized class type by substituting env into template's
    * fields. */
   auto getOrCreateSpecializedClassType(Type* classTemplate,
@@ -203,7 +216,8 @@ public:
   explicit Typechecker();
   /** Typecheck with import * resolution; mainFilePath used for relative
    * imports. */
-  Typechecker(std::string mainFilePath, GetExportsFn getExports);
+  Typechecker(std::string mainFilePath, GetExportsFn getExports,
+              std::vector<AnalysisDiagnostic>* warningDiagnosticsOut = nullptr);
   ~Typechecker() override = default;
 
   Typechecker(const Typechecker&) = delete;

@@ -314,8 +314,8 @@ auto findClassDeclarationInStatement(Statement* stmt, llvm::SMRange declarationS
       return klass;
     }
     for (FuncDecl* method : klass->getMethods()) {
-      if (Class* nested =
-              findClassDeclarationInCompound(method->getBody(), declarationSpan, srcMgr, bufferId)) {
+      if (Class* nested = findClassDeclarationInCompound(method->getBody(), declarationSpan, srcMgr,
+                                                         bufferId)) {
         return nested;
       }
     }
@@ -337,7 +337,8 @@ auto findClassDeclarationInStatement(Statement* stmt, llvm::SMRange declarationS
     return findClassDeclarationInCompound(whileNode->getBlock(), declarationSpan, srcMgr, bufferId);
   }
   if (auto* defer = dynamic_cast<Defer*>(stmt)) {
-    return findClassDeclarationInStatement(defer->getStatement(), declarationSpan, srcMgr, bufferId);
+    return findClassDeclarationInStatement(defer->getStatement(), declarationSpan, srcMgr,
+                                           bufferId);
   }
   return nullptr;
 }

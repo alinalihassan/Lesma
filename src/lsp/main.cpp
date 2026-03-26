@@ -287,10 +287,13 @@ auto runAnalyzeAndPublish(const ::lsp::DocumentUri& uri,
   std::vector<::lsp::Diagnostic> lspDiagnostics;
   for (const auto& d : result.diagnostics) {
     ::lsp::Range range = smRangeToLspRange(result.sourceMgr.get(), result.mainBufferId, d.span);
+    ::lsp::DiagnosticSeverity const sev = d.severity == lesma::AnalysisDiagnosticSeverity::Warning
+                                              ? ::lsp::DiagnosticSeverity::Warning
+                                              : ::lsp::DiagnosticSeverity::Error;
     lspDiagnostics.push_back(::lsp::Diagnostic{
         .range = range,
         .message = d.message,
-        .severity = ::lsp::Opt<::lsp::DiagnosticSeverityEnum>(::lsp::DiagnosticSeverity::Error),
+        .severity = ::lsp::Opt<::lsp::DiagnosticSeverityEnum>(sev),
     });
   }
 
@@ -791,10 +794,12 @@ auto collectInlayHints(const AnalysisResult& analysisResult, unsigned bufferId,
   }
 
   llvm::StringRef const text = buf->getBuffer();
-  unsigned const rangeStart = static_cast<unsigned>(lesma::lsp_srv::bufferByteOffsetFromLspUtf8Position(
-      text, range.start.line, range.start.character));
-  unsigned const rangeEnd = static_cast<unsigned>(
-      lesma::lsp_srv::bufferByteOffsetFromLspUtf8Position(text, range.end.line, range.end.character));
+  unsigned const rangeStart =
+      static_cast<unsigned>(lesma::lsp_srv::bufferByteOffsetFromLspUtf8Position(
+          text, range.start.line, range.start.character));
+  unsigned const rangeEnd =
+      static_cast<unsigned>(lesma::lsp_srv::bufferByteOffsetFromLspUtf8Position(
+          text, range.end.line, range.end.character));
 
   auto isInRequestedRange = [&](llvm::SMRange span) -> bool {
     if (!span.isValid()) {
@@ -1419,8 +1424,8 @@ auto buildSignatureHelp(AnalysisResult& result, unsigned line, unsigned characte
     return std::nullopt;
   }
   llvm::StringRef text = buf->getBuffer();
-  unsigned const targetOffset =
-      static_cast<unsigned>(lesma::lsp_srv::bufferByteOffsetFromLspUtf8Position(text, line, character));
+  unsigned const targetOffset = static_cast<unsigned>(
+      lesma::lsp_srv::bufferByteOffsetFromLspUtf8Position(text, line, character));
   lesma::SymbolTable* scope = activeScopeForOffset(
       analysis.ast, analysis.rootScope, analysis.sourceMgr, analysis.bufferId, targetOffset);
   if (scope == nullptr) {

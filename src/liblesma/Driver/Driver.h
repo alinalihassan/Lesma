@@ -44,6 +44,8 @@ struct Options {
   llvm::OptimizationLevel optimizationLevel = llvm::OptimizationLevel::O3;
   /** Emit DWARF debug info in object files (compile subcommand). */
   bool emitDebugInfo = false;
+  /** When true, Driver does not print warnings to stderr (diagnostics still collected). */
+  bool suppressWarnings = false;
 };
 
 class Driver {

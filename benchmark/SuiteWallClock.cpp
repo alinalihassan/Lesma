@@ -11,14 +11,13 @@
 #include <utility>
 #include <vector>
 
-#include "CLI/CLI.hpp"
-
 #include <llvm/ADT/SmallVector.h>
 #include <llvm/Support/FormatVariadic.h>
 #include <llvm/Support/JSON.h>
 #include <llvm/Support/Program.h>
 #include <llvm/Support/raw_ostream.h>
 
+#include "CLI/CLI.hpp"
 #include "fmt/format.h"
 
 namespace fs = std::filesystem;
@@ -37,9 +36,8 @@ enum class ExpectExit : std::uint8_t { Zero, NonZero };
 
 [[nodiscard]] auto chartTestLabel(std::string_view filePath) -> std::string {
   auto const slash = filePath.find_last_of('/');
-  std::string base =
-      slash == std::string_view::npos ? std::string(filePath)
-                                      : std::string(filePath.substr(slash + 1));
+  std::string base = slash == std::string_view::npos ? std::string(filePath)
+                                                     : std::string(filePath.substr(slash + 1));
   if (base.size() >= 4 && base.compare(base.size() - 4, 4, ".les") == 0) {
     base.resize(base.size() - 4);
   }
@@ -110,8 +108,7 @@ void appendLesFiles(fs::path const& dir, std::vector<fs::path>& out) {
     meanPart = fmt::format("{} ms/test", *m);
   }
   double const total = aggregate.getNumber("total_wall_milliseconds").value_or(0.0);
-  std::string const description =
-      fmt::format("suite total: {} ms, mean: {}", total, meanPart);
+  std::string const description = fmt::format("suite total: {} ms, mean: {}", total, meanPart);
   std::string const title = suite == "success"
                                 ? "Lesma run() wall time per success test (ms)"
                                 : fmt::format("Lesma run() wall time ({} suite, ms)", suite);
@@ -179,13 +176,14 @@ void appendLesFiles(fs::path const& dir, std::vector<fs::path>& out) {
   }
   std::error_code relEc;
   auto const rel = fs::relative(testFile, repoRoot, relEc);
-  std::string const testArg = relEc ? testFile.lexically_normal().generic_string()
-                                    : rel.generic_string();
+  std::string const testArg =
+      relEc ? testFile.lexically_normal().generic_string() : rel.generic_string();
   std::string const exeStr = lesmaExe.generic_string();
 
   std::vector<std::string> storage;
   storage.push_back(exeStr);
   storage.emplace_back("run");
+  storage.emplace_back("--no-warnings");
   if (optLevel >= 0 && optLevel <= 3) {
     storage.push_back(fmt::format("-O{}", optLevel));
   }
@@ -203,8 +201,7 @@ void appendLesFiles(fs::path const& dir, std::vector<fs::path>& out) {
   };
 
   auto const t0 = std::chrono::steady_clock::now();
-  unsigned const wait =
-      timeoutSec > 0.0 ? static_cast<unsigned>(std::ceil(timeoutSec)) : 0U;
+  unsigned const wait = timeoutSec > 0.0 ? static_cast<unsigned>(std::ceil(timeoutSec)) : 0U;
   std::string errMsg;
   int const ret = llvm::sys::ExecuteAndWait(
       exeStr, args, std::nullopt, llvm::ArrayRef<std::optional<llvm::StringRef>>(redirects), wait,
@@ -214,7 +211,7 @@ void appendLesFiles(fs::path const& dir, std::vector<fs::path>& out) {
 
   std::error_code ecRestore;
   fs::current_path(prevCwd, ecRestore);
-  (void)ecRestore;
+  (void) ecRestore;
 
   if (ret == -1) {
     outError = errMsg.empty() ? "spawn_failed" : errMsg;
@@ -271,10 +268,9 @@ auto runSuiteWallClock(int argc, char** argv) -> int {
           "npx -p vega-lite vl2svg -o chart.svg spec.vl.json. PNG: use Rust "
           "vl-convert (cargo install vl-convert; vl-convert vl2png -i spec.vl.json -o chart.png) "
           "— Node vl2png/vg2png need node-canvas/Cairo and often fail under npx alone.");
-  app.add_option("--gha-benchmark-json", ghaOut)
-      ->description("Write github-action-benchmark JSON");
-  app.add_flag_callback("--quiet", [&quiet]() -> void { quiet = true; },
-                        "Suppress per-test stderr lines");
+  app.add_option("--gha-benchmark-json", ghaOut)->description("Write github-action-benchmark JSON");
+  app.add_flag_callback(
+      "--quiet", [&quiet]() -> void { quiet = true; }, "Suppress per-test stderr lines");
 
   std::vector<std::string> const argvOwned = argvStrings(argc, argv);
   std::vector<std::string> ownedArgv;
@@ -298,8 +294,7 @@ auto runSuiteWallClock(int argc, char** argv) -> int {
     return app.exit(e);
   }
 
-  fs::path repoRoot =
-      repoRootStr.empty() ? fs::current_path() : fs::absolute(repoRootStr);
+  fs::path repoRoot = repoRootStr.empty() ? fs::current_path() : fs::absolute(repoRootStr);
   fs::path lesmaPath = fs::absolute(lesmaStr);
   if (!fs::is_regular_file(lesmaPath)) {
     fmt::print(stderr, "error: lesma binary not found: {}\n", lesmaPath.string());
@@ -423,8 +418,7 @@ auto runSuiteWallClock(int argc, char** argv) -> int {
   if (!vegaLiteOut.empty()) {
     llvm::json::Object vegaStandalone = buildVegaLiteSpec(suite, aggregate, testRows);
     if (!writeJsonDocumentPretty(vegaLiteOut, llvm::json::Value(std::move(vegaStandalone)))) {
-      fmt::print(stderr, "error: could not write {}\n",
-                 fs::absolute(vegaLiteOut).string());
+      fmt::print(stderr, "error: could not write {}\n", fs::absolute(vegaLiteOut).string());
       return 2;
     }
   }

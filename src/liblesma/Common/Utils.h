@@ -27,6 +27,8 @@ struct CLIOptions {
   int optimizationLevel = 3;
   /** Emit DWARF when compiling (compile subcommand -g). */
   bool emitDebugInfo = false;
+  /** When true, do not print compiler warnings to stderr. */
+  bool suppressWarnings = false;
 };
 
 template <typename S, typename... Args>

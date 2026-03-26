@@ -30,3 +30,22 @@
 - [ ] richer semantic tokens
 - [ ] folding/selection ranges
 - [ ] formatting
+
+## Compiler warnings
+
+Semantic diagnostics are emitted in the typechecker; warnings are suppressed for stdlib sources. The CLI can hide diagnostics with `--no-warnings`.
+
+- [x] Unreachable code — statement after `return` / `break` / `continue` in the same block
+- [x] Unused variable
+- [x] Unused parameter
+- [x] Unused import
+- [x] Shadowing — local declaration hides an outer binding
+- [x] Import shadowing — same as above when the outer binding is an import
+- [x] Empty `if` / `else` branch body
+- [x] Empty `while` body
+- [x] Empty `for-in` body
+- [x] Trivial condition — `if` / `while` on constant `true` / `false`
+- [x] Lossy implicit conversion — e.g. `int` ↔ `float` / `float32`
+- [x] Unused non-exported class field
+- [x] Unused non-exported class method
+- [x] `unimplemented` / stub statement — warning then error

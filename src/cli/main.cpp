@@ -55,6 +55,7 @@ auto parseCli(int argc, char** argv) -> std::unique_ptr<CLIOptions> {
   std::string file;
   int optimizationLevel = 3;
   bool emitDebugInfo = false;
+  bool suppressWarnings = false;
 
   CLI::App app{"Lesma programming language", "lesma"};
   app.set_version_flag("-v,--version", LESMA_VERSION, "Print the Lesma version");
@@ -78,12 +79,19 @@ auto parseCli(int argc, char** argv) -> std::unique_ptr<CLIOptions> {
       ->check(CLI::Range(0, 3));
   auto addDebugInfoFlag = [&](CLI::App* sub) -> void {
     sub->add_flag_callback(
-        "-g,--debug-info",
-        [&emitDebugInfo]() -> void { emitDebugInfo = true; },
-        "Emit LLVM debug metadata (use with -d ir to print; compile also emits DWARF, best with -O0)");
+        "-g,--debug-info", [&emitDebugInfo]() -> void { emitDebugInfo = true; },
+        "Emit LLVM debug metadata (use with -d ir to print; compile also emits DWARF, best with "
+        "-O0)");
   };
   addDebugInfoFlag(compile);
   addDebugInfoFlag(run);
+  auto addNoWarningsFlag = [&](CLI::App* sub) -> void {
+    sub->add_flag_callback(
+        "--no-warnings", [&suppressWarnings]() -> void { suppressWarnings = true; },
+        "Do not print compiler warnings to stderr");
+  };
+  addNoWarningsFlag(run);
+  addNoWarningsFlag(compile);
   CLI::Option* const runDebugOpt = addDebugOption(run);
   // add_flag(bool&) uses lexical_cast on flag values; it fails with "--timer = true" on CLI11 2.6.
   run->add_flag_callback(
@@ -116,7 +124,8 @@ auto parseCli(int argc, char** argv) -> std::unique_ptr<CLIOptions> {
                                                  .timer = timer,
                                                  .jit = run->parsed(),
                                                  .optimizationLevel = optimizationLevel,
-                                                 .emitDebugInfo = emitDebugInfo});
+                                                 .emitDebugInfo = emitDebugInfo,
+                                                 .suppressWarnings = suppressWarnings});
 }
 
 } // namespace
@@ -134,6 +143,7 @@ auto main(int argc, char** argv) -> int {
       .implicitFilePath = "",
       .optimizationLevel = optimizationLevelFromCli(options->optimizationLevel),
       .emitDebugInfo = options->emitDebugInfo,
+      .suppressWarnings = options->suppressWarnings,
   });
   int const exitCode = options->jit ? Driver::run(std::move(driverOptions))
                                     : Driver::compile(std::move(driverOptions));

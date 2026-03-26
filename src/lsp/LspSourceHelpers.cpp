@@ -39,8 +39,8 @@ auto getOffsetFromSMLoc(llvm::SourceMgr* srcMgr, unsigned bufferId, llvm::SMLoc 
   return static_cast<unsigned>(loc.getPointer() - buf->getBufferStart());
 }
 
-auto smRangesEqual(llvm::SourceMgr* srcMgr, unsigned bufferId, llvm::SMRange lhs,
-                   llvm::SMRange rhs) -> bool {
+auto smRangesEqual(llvm::SourceMgr* srcMgr, unsigned bufferId, llvm::SMRange lhs, llvm::SMRange rhs)
+    -> bool {
   if (!lhs.isValid() || !rhs.isValid()) {
     return false;
   }

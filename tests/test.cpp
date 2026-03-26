@@ -15,10 +15,11 @@
 
 #include "liblesma/Backend/Codegen.h"
 #include "liblesma/Driver/AnalysisResult.h"
+#include "liblesma/Driver/Driver.h"
 #include "liblesma/Frontend/Lexer.h"
 #include "liblesma/Frontend/Parser.h"
-#include "liblesma/Token/Token.h"
 #include "liblesma/Symbol/Type.h"
+#include "liblesma/Token/Token.h"
 #include "liblesma/Token/TokenType.h"
 #include "liblesma/Typecheck/Typechecker.h"
 
@@ -35,8 +36,7 @@ auto initializeSrcMgr(const std::string& src) -> std::shared_ptr<SourceMgr> {
   return sourceMgr;
 }
 
-auto initializeLexer(const std::shared_ptr<SourceMgr>& sourceMgr)
-    -> std::unique_ptr<Lexer> {
+auto initializeLexer(const std::shared_ptr<SourceMgr>& sourceMgr) -> std::unique_ptr<Lexer> {
   auto curLexer = std::make_unique<Lexer>(sourceMgr);
   curLexer->scanAll();
 
@@ -50,8 +50,7 @@ auto initializeParser(std::unique_ptr<Lexer> lexer) -> std::unique_ptr<Parser> {
   return curParser;
 }
 
-auto initializeCodegen(std::unique_ptr<Parser> parser,
-                       const std::shared_ptr<SourceMgr>& srcMgr)
+auto initializeCodegen(std::unique_ptr<Parser> parser, const std::shared_ptr<SourceMgr>& srcMgr)
     -> std::unique_ptr<Codegen> {
   Typechecker typechecker;
   typechecker.run(parser->getAst());
@@ -71,6 +70,7 @@ auto analyzeSource(const std::string& src) -> AnalysisResult {
   options->sourceType = SourceType::STRING;
   options->source = src;
   options->implicitFilePath = "analysis_index_test.les";
+  options->suppressWarnings = true;
   return analyze(std::move(options));
 }
 
@@ -78,6 +78,7 @@ auto analyzeFile(const std::filesystem::path& path) -> AnalysisResult {
   auto options = std::make_unique<Options>();
   options->sourceType = SourceType::FILE;
   options->source = path.string();
+  options->suppressWarnings = true;
   return analyze(std::move(options));
 }
 
@@ -132,8 +133,7 @@ public:
   auto SetUp() -> void override {
     ParserTest::SetUp();
 
-    codegen =
-        initializeCodegen(std::move(ParserTest::parser), LexerTest::srcMgr);
+    codegen = initializeCodegen(std::move(ParserTest::parser), LexerTest::srcMgr);
   }
 
   auto TearDown() -> void override { ParserTest::TearDown(); }
@@ -144,34 +144,33 @@ TEST_F(LexerTest, Tokens) {
 
   // Get the buffer start pointer from the SourceMgr (not the local source
   // string)
-  const char* bufStart =
-      srcMgr->getMemoryBuffer(srcMgr->getNumBuffers())->getBufferStart();
+  const char* bufStart = srcMgr->getMemoryBuffer(srcMgr->getNumBuffers())->getBufferStart();
 
   std::vector<std::unique_ptr<Token>> expectedTokens;
   expectedTokens.push_back(
       std::make_unique<Token>(TokenType::VAR, "var", getRange(bufStart, 0, 3)));
-  expectedTokens.push_back(std::make_unique<Token>(TokenType::IDENTIFIER, "y",
-                                                   getRange(bufStart, 4, 5)));
+  expectedTokens.push_back(
+      std::make_unique<Token>(TokenType::IDENTIFIER, "y", getRange(bufStart, 4, 5)));
   expectedTokens.push_back(
       std::make_unique<Token>(TokenType::COLON, ":", getRange(bufStart, 5, 6)));
-  expectedTokens.push_back(std::make_unique<Token>(TokenType::INT_TYPE, "int",
-                                                   getRange(bufStart, 7, 10)));
-  expectedTokens.push_back(std::make_unique<Token>(TokenType::EQUAL, "=",
-                                                   getRange(bufStart, 11, 12)));
-  expectedTokens.push_back(std::make_unique<Token>(TokenType::INTEGER, "100",
-                                                   getRange(bufStart, 13, 16)));
-  expectedTokens.push_back(std::make_unique<Token>(
-      TokenType::NEWLINE, "NEWLINE", getRange(bufStart, 16, 17)));
-  expectedTokens.push_back(std::make_unique<Token>(TokenType::IDENTIFIER, "y",
-                                                   getRange(bufStart, 17, 18)));
-  expectedTokens.push_back(std::make_unique<Token>(TokenType::EQUAL, "=",
-                                                   getRange(bufStart, 19, 20)));
-  expectedTokens.push_back(std::make_unique<Token>(TokenType::INTEGER, "101",
-                                                   getRange(bufStart, 21, 24)));
-  expectedTokens.push_back(std::make_unique<Token>(
-      TokenType::NEWLINE, "NEWLINE", getRange(bufStart, 24, 25)));
-  expectedTokens.push_back(std::make_unique<Token>(TokenType::EOF_TOKEN, "EOF",
-                                                   getRange(bufStart, 24, 25)));
+  expectedTokens.push_back(
+      std::make_unique<Token>(TokenType::INT_TYPE, "int", getRange(bufStart, 7, 10)));
+  expectedTokens.push_back(
+      std::make_unique<Token>(TokenType::EQUAL, "=", getRange(bufStart, 11, 12)));
+  expectedTokens.push_back(
+      std::make_unique<Token>(TokenType::INTEGER, "100", getRange(bufStart, 13, 16)));
+  expectedTokens.push_back(
+      std::make_unique<Token>(TokenType::NEWLINE, "NEWLINE", getRange(bufStart, 16, 17)));
+  expectedTokens.push_back(
+      std::make_unique<Token>(TokenType::IDENTIFIER, "y", getRange(bufStart, 17, 18)));
+  expectedTokens.push_back(
+      std::make_unique<Token>(TokenType::EQUAL, "=", getRange(bufStart, 19, 20)));
+  expectedTokens.push_back(
+      std::make_unique<Token>(TokenType::INTEGER, "101", getRange(bufStart, 21, 24)));
+  expectedTokens.push_back(
+      std::make_unique<Token>(TokenType::NEWLINE, "NEWLINE", getRange(bufStart, 24, 25)));
+  expectedTokens.push_back(
+      std::make_unique<Token>(TokenType::EOF_TOKEN, "EOF", getRange(bufStart, 24, 25)));
 
   auto actualTokens = lexer->getTokens();
   ASSERT_EQ(expectedTokens.size(), actualTokens.size());
@@ -183,12 +182,10 @@ TEST_F(LexerTest, Tokens) {
 
 TEST_F(ParserTest, AST) {
   EXPECT_EQ(parser->getAst()->getChildren().size(), 2);
-  EXPECT_EQ(
-      parser->getAst()->getChildren().at(0)->toString(srcMgr.get(), "", true),
-      "└──VarDecl[Line(1-1):Col(1-17)]: y: int = 100\n");
-  EXPECT_EQ(
-      parser->getAst()->getChildren().at(1)->toString(srcMgr.get(), "", true),
-      "└──Assignment[Line(2-2):Col(1-8)]: y EQUAL 101\n");
+  EXPECT_EQ(parser->getAst()->getChildren().at(0)->toString(srcMgr.get(), "", true),
+            "└──VarDecl[Line(1-1):Col(1-17)]: y: int = 100\n");
+  EXPECT_EQ(parser->getAst()->getChildren().at(1)->toString(srcMgr.get(), "", true),
+            "└──Assignment[Line(2-2):Col(1-8)]: y EQUAL 101\n");
 }
 
 // We cannot return from top-level, and the exit function just exits the whole
@@ -275,8 +272,7 @@ TEST(ParserTests, ParseBinaryOp) {
   auto parser = initializeParser(std::move(lexer));
 
   ASSERT_EQ(parser->getAst()->getChildren().size(), 1);
-  auto astStr =
-      parser->getAst()->getChildren().at(0)->toString(srcMgr.get(), "", true);
+  auto astStr = parser->getAst()->getChildren().at(0)->toString(srcMgr.get(), "", true);
   // BinaryOp toString returns "left OP right", so check for the operator
   EXPECT_TRUE(astStr.find("PLUS") != std::string::npos);
 }
@@ -287,8 +283,7 @@ TEST(ParserTests, ParseUnaryMinus) {
   auto parser = initializeParser(std::move(lexer));
 
   ASSERT_EQ(parser->getAst()->getChildren().size(), 1);
-  auto astStr =
-      parser->getAst()->getChildren().at(0)->toString(srcMgr.get(), "", true);
+  auto astStr = parser->getAst()->getChildren().at(0)->toString(srcMgr.get(), "", true);
   // UnaryOp toString returns "OP expr", so check for MINUS
   EXPECT_TRUE(astStr.find("MINUS") != std::string::npos);
 }
@@ -299,8 +294,7 @@ TEST(ParserTests, ParseVarDecl) {
   auto parser = initializeParser(std::move(lexer));
 
   ASSERT_EQ(parser->getAst()->getChildren().size(), 1);
-  auto astStr =
-      parser->getAst()->getChildren().at(0)->toString(srcMgr.get(), "", true);
+  auto astStr = parser->getAst()->getChildren().at(0)->toString(srcMgr.get(), "", true);
   EXPECT_TRUE(astStr.find("VarDecl") != std::string::npos);
 }
 
@@ -310,8 +304,7 @@ TEST(ParserTests, ParseLetDecl) {
   auto parser = initializeParser(std::move(lexer));
 
   ASSERT_EQ(parser->getAst()->getChildren().size(), 1);
-  auto astStr =
-      parser->getAst()->getChildren().at(0)->toString(srcMgr.get(), "", true);
+  auto astStr = parser->getAst()->getChildren().at(0)->toString(srcMgr.get(), "", true);
   EXPECT_TRUE(astStr.find("VarDecl") != std::string::npos);
 }
 
@@ -403,6 +396,29 @@ TEST(CodegenTests, Comparison) {
   EXPECT_EQ(exitCode, 0);
 }
 
+TEST(WarningDiagnostics, EmitsUnreachableCodeWarning) {
+  constexpr auto source = R"(
+def f()
+    return
+    var x: int = 1
+)";
+  auto options = std::make_unique<Options>();
+  options->sourceType = SourceType::STRING;
+  options->source = source;
+  options->implicitFilePath = "unreachable_warn_test.les";
+  options->suppressWarnings = false;
+  AnalysisResult const result = analyze(std::move(options));
+  ASSERT_FALSE(result.hasErrors());
+  bool found = false;
+  for (const auto& d : result.diagnostics) {
+    if (d.severity == AnalysisDiagnosticSeverity::Warning && d.message == "Unreachable code") {
+      found = true;
+      break;
+    }
+  }
+  EXPECT_TRUE(found);
+}
+
 TEST(AnalysisIndexTests, IndexesOnlyResolvedEnumMemberAccesses) {
   constexpr auto source = R"(enum Status
     READY
@@ -490,7 +506,8 @@ var status: Status = Status.READY
         sawReadyUsageDeclaration = true;
       }
     }
-    if (occurrence.name == "READY" && occurrence.fallbackTokenKind == IndexedTokenKind::EnumMember) {
+    if (occurrence.name == "READY" &&
+        occurrence.fallbackTokenKind == IndexedTokenKind::EnumMember) {
       ASSERT_TRUE(occurrence.declaration.has_value());
       if ((occurrence.modifiers & analysis_index_modifier::DECLARATION) != 0U) {
         sawEnumDeclaration = true;
@@ -544,22 +561,23 @@ var nestedValue = holder.payload.value
 
 TEST(AnalysisIndexTests, ImportedModulesAreIndexedDuringTypecheck) {
   std::filesystem::path const importClassMethodPath =
-      std::filesystem::path(__FILE__).parent_path() / "lesma" / "success" / "import_class_method.les";
+      std::filesystem::path(__FILE__).parent_path() / "lesma" / "success" /
+      "import_class_method.les";
 
   AnalysisResult const result = analyzeFile(importClassMethodPath);
   ASSERT_FALSE(result.hasErrors());
 
   std::filesystem::path const importedModulePath =
       std::filesystem::path(__FILE__).parent_path() / "lesma" / "success" / "class.les";
-  auto importedIt = result.importedModules.find(std::filesystem::weakly_canonical(importedModulePath).string());
+  auto importedIt =
+      result.importedModules.find(std::filesystem::weakly_canonical(importedModulePath).string());
   ASSERT_NE(importedIt, result.importedModules.end());
   ASSERT_NE(importedIt->second, nullptr);
   EXPECT_FALSE(importedIt->second->index.symbolOccurrences.empty());
 
   bool sawGetXDeclaration = false;
   for (const IndexedSymbolOccurrence& occurrence : importedIt->second->index.symbolOccurrences) {
-    if (occurrence.name == "getX" &&
-        occurrence.fallbackTokenKind == IndexedTokenKind::Method &&
+    if (occurrence.name == "getX" && occurrence.fallbackTokenKind == IndexedTokenKind::Method &&
         (occurrence.modifiers & analysis_index_modifier::DECLARATION) != 0U) {
       sawGetXDeclaration = true;
     }

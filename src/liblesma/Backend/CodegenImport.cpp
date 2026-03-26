@@ -4,12 +4,13 @@
 #include <unordered_set>
 #include <vector>
 
+#include <llvm/ExecutionEngine/Orc/Core.h>
 #include <llvm/ExecutionEngine/Orc/ExecutionUtils.h>
 #include <llvm/ExecutionEngine/Orc/ThreadSafeModule.h>
 #include <llvm/IR/DerivedTypes.h>
 #include <llvm/IR/Function.h>
-#include <llvm/IR/GlobalVariable.h>
 #include <llvm/IR/GlobalValue.h>
+#include <llvm/IR/GlobalVariable.h>
 #include <llvm/Support/Error.h>
 #include <llvm/Support/MemoryBuffer.h>
 #include <llvm/Support/SourceMgr.h>
@@ -20,7 +21,6 @@
 #include "liblesma/AST/AST.h"
 #include "liblesma/Backend/CodegenError.h"
 #include "liblesma/Backend/MangleUtils.h"
-#include <llvm/ExecutionEngine/Orc/Core.h>
 #include "liblesma/Common/ExportDiscovery.h"
 #include "liblesma/Common/LesmaError.h"
 #include "liblesma/Common/Utils.h"

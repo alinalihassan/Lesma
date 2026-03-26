@@ -7,11 +7,11 @@
 #include <llvm/Support/Casting.h>
 #include <llvm/Support/SMLoc.h>
 
+#include "fmt/format.h"
+
 #include "liblesma/Backend/CodegenError.h"
 #include "liblesma/Common/Utils.h"
 #include "liblesma/Symbol/Type.h"
-
-#include "fmt/format.h"
 
 namespace lesma::MangleUtils {
 auto getTypeMangledName(llvm::SMRange span, Type* type) -> std::string {
@@ -96,17 +96,17 @@ auto isMethod(const std::string& mangledName) -> bool {
 
 auto getGlobalVariableSymbolName(const std::string& modulePathNormalized,
                                  const std::string& variableName) -> std::string {
-  std::string const norm =
-      modulePathNormalized.empty() ? std::string("<stdin>")
-                                   : normalizeResolvedFilesystemPath(modulePathNormalized);
+  std::string const norm = modulePathNormalized.empty()
+                               ? std::string("<stdin>")
+                               : normalizeResolvedFilesystemPath(modulePathNormalized);
   std::size_t const h = std::hash<std::string>{}(norm + '\0' + variableName);
   return fmt::format("__lesma_g_{:x}_{}", static_cast<unsigned long long>(h), variableName);
 }
 
 auto getImportedModuleInitSymbolName(const std::string& modulePathNormalized) -> std::string {
-  std::string const norm =
-      modulePathNormalized.empty() ? std::string("<stdin>")
-                                   : normalizeResolvedFilesystemPath(modulePathNormalized);
+  std::string const norm = modulePathNormalized.empty()
+                               ? std::string("<stdin>")
+                               : normalizeResolvedFilesystemPath(modulePathNormalized);
   std::size_t const h = std::hash<std::string>{}(norm);
   return fmt::format("__lesma_mod_init_{:x}", static_cast<unsigned long long>(h));
 }
