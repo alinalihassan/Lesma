@@ -2,7 +2,7 @@ from time import sleep as sleep_test
 from "class.les" import Animal
 
 let y = Animal()
-sleep_test(0.1)
+sleep_test(0.001)
 
 if y.getX() != 101
 	exit(1)

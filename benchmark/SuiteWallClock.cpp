@@ -144,8 +144,9 @@ void appendLesFiles(fs::path const& dir, std::vector<fs::path>& out) {
 }
 
 [[nodiscard]] auto runLesmaOnTest(fs::path const& lesmaExe, fs::path const& repoRoot,
-                                  fs::path const& testFile, double timeoutSec, double& outSeconds,
-                                  int& outExitCode, std::string& outError) -> bool {
+                                  fs::path const& testFile, int optLevel, double timeoutSec,
+                                  double& outSeconds, int& outExitCode, std::string& outError)
+    -> bool {
   outError.clear();
   std::error_code ec;
   fs::path const prevCwd = fs::current_path(ec);
@@ -167,6 +168,9 @@ void appendLesFiles(fs::path const& dir, std::vector<fs::path>& out) {
   std::vector<std::string> storage;
   storage.push_back(exeStr);
   storage.emplace_back("run");
+  if (optLevel >= 0 && optLevel <= 3) {
+    storage.push_back(fmt::format("-O{}", optLevel));
+  }
   storage.push_back(testArg);
 
   llvm::SmallVector<llvm::StringRef, 4> args;
@@ -229,6 +233,7 @@ auto runSuiteWallClock(int argc, char** argv) -> int {
   std::string repoRootStr;
   std::string suite = "success";
   double timeoutSec = 120.0;
+  int optLevel = 3;
   std::string jsonOut;
   std::string ghaOut;
   bool quiet = false;
@@ -237,6 +242,8 @@ auto runSuiteWallClock(int argc, char** argv) -> int {
   app.add_option("--repo-root", repoRootStr)->description("Repository root (default: cwd)");
   app.add_option("--suite", suite)->check(CLI::IsMember({"success", "failure", "both"}));
   app.add_option("--timeout", timeoutSec);
+  app.add_option("--opt", optLevel, "Optimization level passed to lesma run (-O), 0–3 (default: 3)")
+      ->check(CLI::Range(0, 3));
   app.add_option("--json-out", jsonOut)->description("Write full results JSON (includes vegaLite)");
   app.add_option("--gha-benchmark-json", ghaOut)
       ->description("Write github-action-benchmark JSON");
@@ -302,7 +309,7 @@ auto runSuiteWallClock(int argc, char** argv) -> int {
     int code = 0;
     std::string err;
     bool const ran =
-        runLesmaOnTest(lesmaPath, repoRoot, path, timeoutSec, elapsed, code, err);
+        runLesmaOnTest(lesmaPath, repoRoot, path, optLevel, timeoutSec, elapsed, code, err);
 
     if (!ran) {
       if (err == "timeout") {
@@ -394,6 +401,7 @@ auto runSuiteWallClock(int argc, char** argv) -> int {
     payload["lesma"] = lesmaPath.generic_string();
     payload["repo_root"] = repoRoot.generic_string();
     payload["suite"] = suite;
+    payload["opt_level"] = optLevel;
     payload["aggregate"] = llvm::json::Value(std::move(aggregate));
     payload["tests"] = llvm::json::Value(std::move(testRows));
     payload["vegaLite"] = llvm::json::Value(std::move(vega));
