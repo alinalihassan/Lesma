@@ -46,6 +46,6 @@ Semantic diagnostics are emitted in the typechecker; warnings are suppressed for
 - [x] Empty `for-in` body
 - [x] Trivial condition — `if` / `while` on constant `true` / `false`
 - [x] Lossy implicit conversion — e.g. `int` ↔ `float` / `float32`
-- [x] Unused non-exported class field
-- [x] Unused non-exported class method
+- [x] Unused class field on non-exported class
+- [x] Unused class method on non-exported class
 - [x] `unimplemented` / stub statement — warning then error
