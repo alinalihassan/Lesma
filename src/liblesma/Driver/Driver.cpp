@@ -66,7 +66,7 @@ auto lesma::analyze(std::unique_ptr<Options> options, Timer* phaseTimer) -> Anal
         }
         mainBufferId = srcMgr->AddNewSourceBuffer(std::move(*buffer), llvm::SMLoc());
       } else {
-        auto buffer = llvm::MemoryBuffer::getMemBuffer(options->source);
+        auto buffer = llvm::MemoryBuffer::getMemBufferCopy(options->source);
         mainBufferId = srcMgr->AddNewSourceBuffer(std::move(buffer), llvm::SMLoc());
       }
     });
