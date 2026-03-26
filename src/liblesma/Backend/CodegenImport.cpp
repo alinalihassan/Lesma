@@ -5,6 +5,7 @@
 #include <vector>
 
 #include <llvm/ExecutionEngine/Orc/ExecutionUtils.h>
+#include <llvm/ExecutionEngine/Orc/ThreadSafeModule.h>
 #include <llvm/IR/DerivedTypes.h>
 #include <llvm/IR/Function.h>
 #include <llvm/IR/GlobalValue.h>
@@ -28,6 +29,16 @@
 using namespace lesma;
 using namespace llvm;
 using namespace llvm::orc;
+
+namespace {
+
+[[nodiscard]] auto jitErrorToString(Error err) -> std::string {
+  std::string msg;
+  handleAllErrors(std::move(err), [&](const ErrorInfoBase& ei) { msg = ei.message(); });
+  return msg.empty() ? "unknown error" : msg;
+}
+
+} // namespace
 
 auto Codegen::getExportsFromFile(const std::string& filepath, bool isStd,
                                  const std::string& mainFilePath) -> std::vector<std::string> {
@@ -247,8 +258,8 @@ auto Codegen::compileModule(llvm::SMRange span, const std::string& filepath, boo
     codegen->run();
     mergeImportedTraitMetadata(*codegen);
 
-    // O0: imported modules are separate LLVM modules; O3+ADCE can drop defs only referenced
-    // from another module (e.g. list methods). The main module is optimized in Driver.
+    // Imported modules run optimize(O0) (no-op). For JIT, promote PrivateLinkage so Mach-O
+    // JITLink can resolve symbols across ORC modules at -O0 (see prepareJit / addIRModule path).
     codegen->optimize(OptimizationLevel::O0);
     codegen->theModule->setModuleIdentifier(filepath);
 
@@ -265,13 +276,21 @@ auto Codegen::compileModule(llvm::SMRange span, const std::string& filepath, boo
 
     if (isJit) {
       codegen->verifyIrModuleOrThrow(fmt::format("import {}", filepath));
+      if (llvm::Function* importMain = codegen->theModule->getFunction("main");
+          importMain != nullptr && importMain->hasInternalLinkage()) {
+        importMain->setName("__lesma_imported_module_init");
+      }
+      for (llvm::Function& fn : *codegen->theModule) {
+        if (fn.hasPrivateLinkage()) {
+          fn.setLinkage(llvm::GlobalValue::ExternalLinkage);
+          fn.setVisibility(llvm::GlobalValue::HiddenVisibility);
+        }
+      }
       llvm::Error jitErr =
           theJit->addIRModule(ThreadSafeModule(std::move(codegen->theModule), *theContext));
       if (jitErr) {
-        std::string errMsg;
-        llvm::handleAllErrors(std::move(jitErr),
-                              [&](const llvm::ErrorInfoBase& ei) { errMsg = ei.message(); });
-        throw CodegenError(span, "Failed adding import {} to JIT: {}", filepath, errMsg);
+        throw CodegenError(span, std::string("Failed adding import to JIT: ") + absolutePath +
+                                     ": " + jitErrorToString(std::move(jitErr)));
       }
       codegen->theModule = codegen->initializeModule();
     } else {

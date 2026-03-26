@@ -4,6 +4,7 @@
 #include <filesystem>
 #include <memory>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -131,9 +132,7 @@ auto lesma::analyze(std::unique_ptr<Options> options, Timer* phaseTimer) -> Anal
                             return getExportedTopLevelNamesFromFile(path, isStd, main);
                           });
   try {
-    maybeTimed(phaseTimer, "Typecheck", [&]() -> void {
-      typechecker.run(parser->getAst());
-    });
+    maybeTimed(phaseTimer, "Typecheck", [&]() -> void { typechecker.run(parser->getAst()); });
     result.sourceMgr = std::move(srcMgr);
     result.mainBufferId = mainBufferId;
     result.parser = std::move(parser);
@@ -181,7 +180,7 @@ auto Driver::baseCompile(std::unique_ptr<lesma::Options> options, bool jit) -> i
         showInline(result.sourceMgr.get(), result.mainBufferId, d.span, result.mainFilePath, true,
                    d.message);
       } else {
-        lesma::print(LogType::ERROR, "{}", d.message);
+        lesma::print(LogType::ERROR, "{}", std::string_view(d.message));
       }
     }
     return 1;
@@ -226,7 +225,7 @@ auto Driver::baseCompile(std::unique_ptr<lesma::Options> options, bool jit) -> i
   } catch (const LesmaError& err) {
     llvm::llvm_shutdown();
     if (!err.getSpan().isValid()) {
-      lesma::print(LogType::ERROR, err.what());
+      lesma::print(LogType::ERROR, "{}", std::string_view(err.what()));
     } else {
       showInline(result.sourceMgr.get(), result.mainBufferId, err.getSpan(), result.mainFilePath,
                  true, err.what());

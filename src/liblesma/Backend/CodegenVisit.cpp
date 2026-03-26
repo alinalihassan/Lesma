@@ -20,9 +20,9 @@
 #include <llvm/ExecutionEngine/Orc/ThreadSafeModule.h>
 #include <llvm/IR/BasicBlock.h>
 #include <llvm/IR/Constants.h>
+#include <llvm/IR/DIBuilder.h>
 #include <llvm/IR/DebugLoc.h>
 #include <llvm/IR/DerivedTypes.h>
-#include <llvm/IR/DIBuilder.h>
 #include <llvm/IR/Function.h>
 #include <llvm/IR/GlobalValue.h>
 #include <llvm/IR/GlobalVariable.h>
@@ -348,15 +348,29 @@ auto Codegen::visit(const VarDecl* node) -> void {
     getOrCreateLlvmType(valueResult->getType());
     llvm::Value* agg = valueResult->getLlvmValue();
     std::vector<Field*> const tf = valueResult->getType()->getFields();
+    std::vector<Value*> const& resolvedUnpack = node->getResolvedSymbols();
     for (size_t i = 0; i < unpackNames.size(); ++i) {
       std::string const elemName = unpackNames[i]->getValue();
       lesma::Type* elemTy = tf[i]->type;
       getOrCreateLlvmType(elemTy);
       llvm::Value* ev =
           builder->CreateExtractValue(agg, static_cast<unsigned>(i), elemName + ".tup");
-      lesma::Value* existing = scope->lookup(elemName);
-      llvm::Type* allocaTy = elemTy->getLlvmType();
+      lesma::Value* existing =
+          i < resolvedUnpack.size() ? resolvedUnpack[i] : scope->lookup(elemName);
+      const bool isPtrToClass = elemTy->is(BaseType::TY_PTR) &&
+                                elemTy->getElementType() != nullptr &&
+                                elemTy->getElementType()->is(BaseType::TY_CLASS);
+      llvm::Type* allocaTy = (elemTy->is(BaseType::TY_CLASS) || isPtrToClass)
+                                 ? builder->getPtrTy()
+                                 : elemTy->getLlvmType();
       auto* ptr = builder->CreateAlloca(allocaTy, nullptr, elemName);
+      if (elemTy->is(BaseType::TY_CLASS)) {
+        lesma::Type* ptrType =
+            cacheType(std::make_unique<Type>(BaseType::TY_PTR, builder->getPtrTy(), elemTy));
+        if (existing != nullptr) {
+          existing->setType(ptrType);
+        }
+      }
       llvm::Instruction* st = builder->CreateStore(ev, ptr);
       emitAutoVarDebugDeclare(llvm::cast<llvm::AllocaInst>(ptr), elemName, node->getSpan(), st);
       if (existing != nullptr) {
