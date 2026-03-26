@@ -26,6 +26,8 @@ namespace fs = std::filesystem;
 namespace lesma {
 namespace {
 
+constexpr double kSecondsToMilliseconds = 1000.0;
+
 enum class ExpectExit : std::uint8_t { Zero, NonZero };
 
 [[nodiscard]] auto roundDigits(double x, int digits) -> double {
@@ -59,6 +61,22 @@ void appendLesFiles(fs::path const& dir, std::vector<fs::path>& out) {
   std::sort(out.begin(), out.end());
 }
 
+[[nodiscard]] auto writeJsonDocumentPretty(fs::path const& path, llvm::json::Value const& root)
+    -> bool {
+  std::string buffer;
+  llvm::raw_string_ostream os(buffer);
+  os << llvm::formatv("{0:2}", root);
+  os.flush();
+  fs::path const outPath = fs::absolute(path);
+  fs::create_directories(outPath.parent_path());
+  std::ofstream f(outPath);
+  if (!f) {
+    return false;
+  }
+  f << buffer;
+  return static_cast<bool>(f);
+}
+
 [[nodiscard]] auto buildVegaLiteSpec(std::string const& suite, llvm::json::Object const& aggregate,
                                      llvm::json::Array const& testRows) -> llvm::json::Object {
   llvm::json::Array values;
@@ -67,14 +85,14 @@ void appendLesFiles(fs::path const& dir, std::vector<fs::path>& out) {
     if (obj == nullptr) {
       continue;
     }
-    if (!obj->getNumber("seconds").has_value()) {
+    if (!obj->getNumber("milliseconds").has_value()) {
       continue;
     }
     llvm::json::Object copy;
     if (auto fp = obj->getString("file")) {
       copy["file"] = chartTestLabel(*fp);
     }
-    copy["seconds"] = *obj->getNumber("seconds");
+    copy["milliseconds"] = *obj->getNumber("milliseconds");
     if (auto c = obj->getInteger("exit_code")) {
       copy["exit_code"] = *c;
     }
@@ -88,20 +106,20 @@ void appendLesFiles(fs::path const& dir, std::vector<fs::path>& out) {
   }
 
   std::string meanPart = "n/a";
-  if (auto m = aggregate.getNumber("mean_seconds_per_test")) {
-    meanPart = fmt::format("{}s/test", *m);
+  if (auto m = aggregate.getNumber("mean_milliseconds_per_test")) {
+    meanPart = fmt::format("{} ms/test", *m);
   }
-  double const total = aggregate.getNumber("total_wall_seconds").value_or(0.0);
+  double const total = aggregate.getNumber("total_wall_milliseconds").value_or(0.0);
   std::string const description =
-      fmt::format("suite total: {}s, mean: {}", total, meanPart);
+      fmt::format("suite total: {} ms, mean: {}", total, meanPart);
   std::string const title = suite == "success"
-                                ? "Lesma run() wall time per success test"
-                                : fmt::format("Lesma run() wall time ({} suite)", suite);
+                                ? "Lesma run() wall time per success test (ms)"
+                                : fmt::format("Lesma run() wall time ({} suite, ms)", suite);
 
   llvm::json::Object encX;
-  encX["field"] = "seconds";
+  encX["field"] = "milliseconds";
   encX["type"] = "quantitative";
-  encX["title"] = "Wall time (s)";
+  encX["title"] = "Wall time (ms)";
   llvm::json::Object encY;
   encY["field"] = "file";
   encY["type"] = "nominal";
@@ -112,10 +130,10 @@ void appendLesFiles(fs::path const& dir, std::vector<fs::path>& out) {
   tipA["type"] = "nominal";
   tipA["title"] = "test";
   llvm::json::Object tipB;
-  tipB["field"] = "seconds";
+  tipB["field"] = "milliseconds";
   tipB["type"] = "quantitative";
-  tipB["title"] = "seconds";
-  tipB["format"] = ".4f";
+  tipB["title"] = "ms";
+  tipB["format"] = ".2f";
   llvm::json::Array tooltips;
   tooltips.push_back(llvm::json::Value(std::move(tipA)));
   tooltips.push_back(llvm::json::Value(std::move(tipB)));
@@ -235,6 +253,7 @@ auto runSuiteWallClock(int argc, char** argv) -> int {
   double timeoutSec = 120.0;
   int optLevel = 3;
   std::string jsonOut;
+  std::string vegaLiteOut;
   std::string ghaOut;
   bool quiet = false;
 
@@ -244,7 +263,14 @@ auto runSuiteWallClock(int argc, char** argv) -> int {
   app.add_option("--timeout", timeoutSec);
   app.add_option("--opt", optLevel, "Optimization level passed to lesma run (-O), 0–3 (default: 3)")
       ->check(CLI::Range(0, 3));
-  app.add_option("--json-out", jsonOut)->description("Write full results JSON (includes vegaLite)");
+  app.add_option("--json-out", jsonOut)
+      ->description("Write full results JSON (includes embedded vegaLite for convenience)");
+  app.add_option("--vega-lite-out", vegaLiteOut)
+      ->description(
+          "Write a standalone Vega-Lite v5 spec ($schema included). SVG (no native canvas): "
+          "npx -p vega-lite vl2svg -o chart.svg spec.vl.json. PNG: use Rust "
+          "vl-convert (cargo install vl-convert; vl-convert vl2png -i spec.vl.json -o chart.png) "
+          "— Node vl2png/vg2png need node-canvas/Cairo and often fail under npx alone.");
   app.add_option("--gha-benchmark-json", ghaOut)
       ->description("Write github-action-benchmark JSON");
   app.add_flag_callback("--quiet", [&quiet]() -> void { quiet = true; },
@@ -319,7 +345,7 @@ auto runSuiteWallClock(int argc, char** argv) -> int {
         }
         llvm::json::Object row;
         row["file"] = relStr;
-        row["seconds"] = nullptr;
+        row["milliseconds"] = nullptr;
         row["exit_code"] = nullptr;
         row["error"] = "timeout";
         testRows.push_back(llvm::json::Value(std::move(row)));
@@ -330,7 +356,7 @@ auto runSuiteWallClock(int argc, char** argv) -> int {
         }
         llvm::json::Object row;
         row["file"] = relStr;
-        row["seconds"] = nullptr;
+        row["milliseconds"] = nullptr;
         row["exit_code"] = nullptr;
         row["error"] = err;
         testRows.push_back(llvm::json::Value(std::move(row)));
@@ -346,7 +372,7 @@ auto runSuiteWallClock(int argc, char** argv) -> int {
     }
     llvm::json::Object row;
     row["file"] = relStr;
-    row["seconds"] = roundDigits(elapsed, 6);
+    row["milliseconds"] = roundDigits(elapsed * kSecondsToMilliseconds, 3);
     row["exit_code"] = code;
     row["unexpected"] = bad;
     testRows.push_back(llvm::json::Value(std::move(row)));
@@ -365,8 +391,8 @@ auto runSuiteWallClock(int argc, char** argv) -> int {
     if (o->getBoolean("unexpected").value_or(false)) {
       continue;
     }
-    if (std::optional<double> s = o->getNumber("seconds")) {
-      okTimes.push_back(*s);
+    if (std::optional<double> ms = o->getNumber("milliseconds")) {
+      okTimes.push_back(*ms);
     }
   }
 
@@ -383,20 +409,28 @@ auto runSuiteWallClock(int argc, char** argv) -> int {
   aggregate["count"] = static_cast<int64_t>(tests.size());
   aggregate["ok_count"] = static_cast<int64_t>(okTimes.size());
   aggregate["failures"] = failures;
-  aggregate["total_wall_seconds"] = roundDigits(totalWall, 4);
+  aggregate["total_wall_milliseconds"] = roundDigits(totalWall * kSecondsToMilliseconds, 2);
   if (okTimes.empty()) {
-    aggregate["mean_seconds_per_test"] = nullptr;
+    aggregate["mean_milliseconds_per_test"] = nullptr;
   } else {
-    aggregate["mean_seconds_per_test"] = roundDigits(meanOk, 6);
+    aggregate["mean_milliseconds_per_test"] = roundDigits(meanOk, 3);
   }
 
-  double const totalPrint = roundDigits(totalWall, 4);
+  double const totalPrint = roundDigits(totalWall * kSecondsToMilliseconds, 2);
   std::optional<double> const meanPrint =
-      okTimes.empty() ? std::nullopt : std::optional<double>(roundDigits(meanOk, 6));
+      okTimes.empty() ? std::nullopt : std::optional<double>(roundDigits(meanOk, 3));
+
+  if (!vegaLiteOut.empty()) {
+    llvm::json::Object vegaStandalone = buildVegaLiteSpec(suite, aggregate, testRows);
+    if (!writeJsonDocumentPretty(vegaLiteOut, llvm::json::Value(std::move(vegaStandalone)))) {
+      fmt::print(stderr, "error: could not write {}\n",
+                 fs::absolute(vegaLiteOut).string());
+      return 2;
+    }
+  }
 
   if (!jsonOut.empty()) {
-    llvm::json::Object vega =
-        buildVegaLiteSpec(suite, aggregate, testRows);
+    llvm::json::Object vega = buildVegaLiteSpec(suite, aggregate, testRows);
     llvm::json::Object payload;
     payload["lesma"] = lesmaPath.generic_string();
     payload["repo_root"] = repoRoot.generic_string();
@@ -406,22 +440,8 @@ auto runSuiteWallClock(int argc, char** argv) -> int {
     payload["tests"] = llvm::json::Value(std::move(testRows));
     payload["vegaLite"] = llvm::json::Value(std::move(vega));
 
-    llvm::json::Value root(std::move(payload));
-    std::string buffer;
-    llvm::raw_string_ostream os(buffer);
-    os << llvm::formatv("{0:2}", root);
-    os.flush();
-
-    fs::path const outPath = fs::absolute(jsonOut);
-    fs::create_directories(outPath.parent_path());
-    std::ofstream f(outPath);
-    if (!f) {
-      fmt::print(stderr, "error: could not write {}\n", outPath.string());
-      return 2;
-    }
-    f << buffer;
-    if (!f) {
-      fmt::print(stderr, "error: write failed {}\n", outPath.string());
+    if (!writeJsonDocumentPretty(jsonOut, llvm::json::Value(std::move(payload)))) {
+      fmt::print(stderr, "error: could not write {}\n", fs::absolute(jsonOut).string());
       return 2;
     }
   }
@@ -432,13 +452,13 @@ auto runSuiteWallClock(int argc, char** argv) -> int {
     bench["output_file"] = fs::path(ghaOut).filename().string();
     llvm::json::Array benches;
     llvm::json::Object b1;
-    b1["name"] = fmt::format("lesma_suite_{}_wall_total_s", suite);
-    b1["unit"] = "second";
-    b1["value"] = roundDigits(totalWall, 4);
+    b1["name"] = fmt::format("lesma_suite_{}_wall_total_ms", suite);
+    b1["unit"] = "millisecond";
+    b1["value"] = roundDigits(totalWall * kSecondsToMilliseconds, 2);
     llvm::json::Object b2;
-    b2["name"] = fmt::format("lesma_suite_{}_mean_run_s", suite);
-    b2["unit"] = "second";
-    b2["value"] = okTimes.empty() ? 0.0 : roundDigits(meanOk, 6);
+    b2["name"] = fmt::format("lesma_suite_{}_mean_run_ms", suite);
+    b2["unit"] = "millisecond";
+    b2["value"] = okTimes.empty() ? 0.0 : roundDigits(meanOk, 3);
     benches.push_back(llvm::json::Value(std::move(b1)));
     benches.push_back(llvm::json::Value(std::move(b2)));
     bench["benches"] = llvm::json::Value(std::move(benches));
@@ -457,12 +477,12 @@ auto runSuiteWallClock(int argc, char** argv) -> int {
     gf << ghBuf;
   }
 
-  fmt::print("Lesma benchmark ({}): {}/{} ok, total wall {} s, mean ", suite,
+  fmt::print("Lesma benchmark ({}): {}/{} ok, total wall {} ms, mean ", suite,
              static_cast<int>(okTimes.size()), static_cast<int>(tests.size()), totalPrint);
   if (!meanPrint.has_value()) {
     fmt::print("{}\n", "None");
   } else {
-    fmt::print("{} s/test\n", *meanPrint);
+    fmt::print("{} ms/test\n", *meanPrint);
   }
   if (failures != 0 && !quiet) {
     fmt::print(stderr, "({} test(s) failed or timed out)\n", failures);

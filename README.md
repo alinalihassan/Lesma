@@ -126,6 +126,24 @@ cmake --build build
     ctest --output-on-failure
     ```
 
+### Benchmark suite (optional)
+
+Enable **`LESMA_BUILD_BENCHMARKS`** in CMake, build the **`benchmark`** target, then from the **repository root** run the integration wall-clock harness (it spawns `lesma run` per test and writes JSON plus an optional Vega-Lite chart spec):
+
+```bash
+./build/Debug/benchmark suite ./build/Debug/lesma \
+  --vega-lite-out suite.vl.json \
+  --json-out bench.json
+```
+
+Timings in `bench.json` are in **milliseconds** (`milliseconds` per test; `total_wall_milliseconds` / `mean_milliseconds_per_test` in `aggregate`). Render a static SVG with Vega-Lite’s CLI (no native `canvas` required); **redirect stdout** so the SVG is not printed in the terminal:
+
+```bash
+npx -p vega-lite vl2svg suite.vl.json > chart.svg
+```
+
+See **AGENTS.md** for flags (`--suite`, `--opt`, GitHub Actions JSON, and PNG options).
+
 ## 💬 Contributing
 
 Pull requests are welcome. For major changes, please open an issue to discuss your proposal and what you'd like to
