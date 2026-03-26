@@ -50,6 +50,9 @@ class Typechecker final : public ASTVisitor {
 
   Value* currentFunction = nullptr;
   Type* currentClassType = nullptr; // Set when visiting class methods, for self
+  /** While visiting class methods: whether the enclosing class is exported (method AST may not
+   * carry export; parser clears ambient `export` for spans). */
+  bool currentClassExported = false;
   SymbolTable* currentMethodInsertScope = nullptr;
   bool inTopLevel = true;
   bool declarationPass = false;

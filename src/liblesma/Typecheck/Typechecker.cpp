@@ -2022,7 +2022,7 @@ void Typechecker::diagnoseUnusedNonExportedClassMembers(const Class* classNode) 
     }
   }
   for (FuncDecl* method : classNode->getMethods()) {
-    if (method->isExported()) {
+    if (method->isExported() || classNode->isExported()) {
       continue;
     }
     Value* vs = method->getResolvedSymbol();
@@ -2463,6 +2463,8 @@ auto Typechecker::visit(const Class* node) -> void {
   classTypePtr->setImplTraitNames(node->getImplTraitNames());
   auto* selfPtrType = cacheType(std::make_unique<Type>(BaseType::TY_PTR, nullptr, classTypePtr));
   SymbolTable* savedMethodInsertScope = currentMethodInsertScope;
+  bool const savedClassExportedFlag = currentClassExported;
+  currentClassExported = node->isExported();
   for (FuncDecl* func : node->getMethods()) {
     currentClassType = classTypePtr;
     currentMethodInsertScope = outerScope;
@@ -2475,6 +2477,7 @@ auto Typechecker::visit(const Class* node) -> void {
     scope = scope->getParent();
     currentClassType = nullptr;
   }
+  currentClassExported = savedClassExportedFlag;
   currentMethodInsertScope = savedMethodInsertScope;
 
   if (!declarationPass) {
@@ -2567,6 +2570,8 @@ auto Typechecker::visit(const FuncDecl* node) -> void {
   SymbolTable* insertScope =
       currentMethodInsertScope != nullptr ? currentMethodInsertScope : scope->getParent();
   Value* funcSymbol = insertScope->lookupFunction(node->getName(), paramTypes);
+  bool const effectiveFuncExported =
+      currentClassType != nullptr ? currentClassExported : node->isExported();
 
   if (declarationPass) {
     if (funcSymbol == nullptr) {
@@ -2575,7 +2580,7 @@ auto Typechecker::visit(const FuncDecl* node) -> void {
       declaredFunc->setDeclarationKind(currentClassType != nullptr
                                            ? ValueDeclarationKind::METHOD
                                            : ValueDeclarationKind::FUNCTION);
-      declaredFunc->setExported(node->isExported());
+      declaredFunc->setExported(effectiveFuncExported);
       declaredFunc->setDeclarationSpan(node->getNameSpan());
       declaredFunc->setDeclarationFilePath(mainFilePath);
       insertScope->insertSymbol(std::move(declaredFunc));
@@ -2588,7 +2593,7 @@ auto Typechecker::visit(const FuncDecl* node) -> void {
       funcSymbol->setType(funcTypePtr);
       funcSymbol->setDeclarationKind(currentClassType != nullptr ? ValueDeclarationKind::METHOD
                                                                  : ValueDeclarationKind::FUNCTION);
-      funcSymbol->setExported(node->isExported());
+      funcSymbol->setExported(effectiveFuncExported);
       funcSymbol->setDeclarationSpan(node->getNameSpan());
       funcSymbol->setDeclarationFilePath(mainFilePath);
       // Set resolvedSymbol for existing symbol (this exact overload)

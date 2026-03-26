@@ -1264,7 +1264,11 @@ auto Parser::parseClass() -> std::unique_ptr<Statement> {
           fields.push_back(std::unique_ptr<VarDecl>(varDecl));
         }
       } else if (checkAny<TokenType::DEF>()) {
+        // Class methods reuse parseFunctionDeclaration; do not inherit `export` from `export class …`.
+        bool const savedExported = isExported;
+        isExported = false;
         auto stmt = parseFunctionDeclaration();
+        isExported = savedExported;
         auto* funcDecl = dynamic_cast<FuncDecl*>(stmt.get());
         if (funcDecl != nullptr) {
           endLoc = funcDecl->getEnd();
