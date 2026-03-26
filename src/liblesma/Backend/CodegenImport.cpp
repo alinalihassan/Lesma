@@ -245,7 +245,9 @@ auto Codegen::compileModule(llvm::SMRange span, const std::string& filepath, boo
       }
     }
     insertImportAlias(moduleAlias, importToScope);
-    importAliasToModulePath[moduleAlias] = absolutePath;
+    if (!importToScope && !moduleAlias.empty()) {
+      importAliasToModulePath[moduleAlias] = absolutePath;
+    }
     exposeImportedSymbols(span, existingScope, importAll, importToScope, importedNames);
     return;
   }
@@ -299,7 +301,9 @@ auto Codegen::compileModule(llvm::SMRange span, const std::string& filepath, boo
     codegen->theModule->setModuleIdentifier(filepath);
 
     insertImportAlias(moduleAlias, importToScope);
-    importAliasToModulePath[moduleAlias] = absolutePath;
+    if (!importToScope && !moduleAlias.empty()) {
+      importAliasToModulePath[moduleAlias] = absolutePath;
+    }
     exposeImportedSymbols(span, codegen->rootScope.get(), importAll, importToScope, importedNames);
 
     bool needsExportedVarInit = false;
