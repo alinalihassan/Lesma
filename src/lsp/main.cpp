@@ -1723,6 +1723,9 @@ auto appendCallParameterInlayHints(const AnalysisResult& analysisResult, unsigne
     } else if (auto const* func = dynamic_cast<const lesma::FuncDecl*>(stmt)) {
       walkStmt(func->getBody());
     } else if (auto const* klass = dynamic_cast<const lesma::Class*>(stmt)) {
+      for (lesma::VarDecl* field : klass->getFields()) {
+        walkStmt(field);
+      }
       for (lesma::FuncDecl* method : klass->getMethods()) {
         walkStmt(method);
       }
