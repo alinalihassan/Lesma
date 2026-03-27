@@ -276,9 +276,11 @@ auto declarationBelongsToAnalysis(const AnalysisView& analysis,
 }
 
 /** `Value::declarationSpan` lives in `getDeclarationFilePath()`; `ResolvedSymbol::owner` is often the
- * referring document. Map the span using the defining file's SourceMgr buffer. */
+ * referring document. Map the span using the defining file's SourceMgr buffer. When the declaration
+ * path is known but that module has no usable AnalysisView, returns std::nullopt so callers do not pair
+ * `uriFromPath(declPath)` with coordinates from the referring buffer. */
 auto lspRangeForValueDeclaration(AnalysisResult& result, lesma::Value* value,
-                                 const AnalysisView& fallbackOwner) -> ::lsp::Range {
+                                 const AnalysisView& fallbackOwner) -> std::optional<::lsp::Range> {
   if (value == nullptr) {
     return ::lsp::Range{
         .start = ::lsp::Position{.line = 0U, .character = 0U},
@@ -301,6 +303,7 @@ auto lspRangeForValueDeclaration(AnalysisResult& result, lesma::Value* value,
         declView && isUsableAnalysis(*declView)) {
       return smRangeToLspRange(declView->sourceMgr, declView->bufferId, declSpan);
     }
+    return std::nullopt;
   }
   return smRangeToLspRange(fallbackOwner.sourceMgr, fallbackOwner.bufferId, declSpan);
 }
@@ -2038,9 +2041,14 @@ auto symbolIdentityForResolved(AnalysisResult& result, const ResolvedSymbol& res
   if (path.empty() && resolved.owner.mainFilePath != nullptr) {
     path = *resolved.owner.mainFilePath;
   }
+  std::optional<::lsp::Range> declRange =
+      lspRangeForValueDeclaration(result, resolved.value, resolved.owner);
+  if (!declRange) {
+    return std::nullopt;
+  }
   return SymbolIdentity{
       .path = normalizePath(path),
-      .range = lspRangeForValueDeclaration(result, resolved.value, resolved.owner),
+      .range = *declRange,
       .name = resolved.value->getName(),
   };
 }
@@ -2228,10 +2236,12 @@ auto collectSemanticTokens(AnalysisResult& analysisResult, unsigned bufferId)
     if (declPath.empty() && resolved.owner.mainFilePath != nullptr) {
       declPath = *resolved.owner.mainFilePath;
     }
-    if (declSpan.isValid() && !declPath.empty() && normalizePath(declPath) == currentPath &&
-        rangeEquals(lspRangeForValueDeclaration(analysisResult, resolved.value, resolved.owner),
-                    occurrenceRange)) {
-      modifiers |= semantic_token_modifier::DECLARATION;
+    if (declSpan.isValid() && !declPath.empty() && normalizePath(declPath) == currentPath) {
+      if (std::optional<::lsp::Range> declRange =
+              lspRangeForValueDeclaration(analysisResult, resolved.value, resolved.owner);
+          declRange && rangeEquals(*declRange, occurrenceRange)) {
+        modifiers |= semantic_token_modifier::DECLARATION;
+      }
     }
     if (isDefaultLibraryType(resolved.value->getType())) {
       modifiers |= semantic_token_modifier::DEFAULT_LIBRARY;
@@ -2634,10 +2644,15 @@ auto tryResolveDefinitionLocation(AnalysisResult& result, unsigned line, unsigne
   if (declPath.empty()) {
     return std::nullopt;
   }
-  ::lsp::Location loc;
-  loc.uri = uriFromPath(declPath);
-  loc.range = lspRangeForValueDeclaration(result, resolved->value, resolved->owner);
-  return loc;
+  std::optional<::lsp::Range> mappedRange =
+      lspRangeForValueDeclaration(result, resolved->value, resolved->owner);
+  if (!mappedRange) {
+    return std::nullopt;
+  }
+  return ::lsp::Location{
+      .uri = uriFromPath(declPath),
+      .range = *mappedRange,
+  };
 }
 
 auto tryResolveDeclarationLocation(AnalysisResult& result, unsigned line, unsigned character)
