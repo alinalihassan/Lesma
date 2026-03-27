@@ -398,8 +398,10 @@ auto Lexer::scanStringContentUnit(std::string& acc) -> StringScanStep {
     return StringScanStep::ClosedQuote;
   }
   if (peek() == '\n') {
-    line++;
+    acc.push_back(advance());
+    ++line;
     col = 1;
+    return StringScanStep::Continue;
   }
   if (peek() == '"') {
     advance();
