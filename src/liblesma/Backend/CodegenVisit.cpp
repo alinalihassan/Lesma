@@ -628,7 +628,7 @@ auto Codegen::visit(const ForIn* node) -> void {
     listType = listType->getElementType();
   }
   if (listType != nullptr && listType->is(BaseType::TY_CLASS) &&
-      classTypeDeclaresIterable(listType)) {
+      classTypeDeclaresIterable(listType) && classHasSingleBufferStorageField(listType)) {
     auto fields = listType->getFields();
     if (!fields.empty() && fields.front()->type != nullptr &&
         fields.front()->type->is(BaseType::TY_ARRAY)) {
@@ -3220,6 +3220,17 @@ auto Codegen::isBuiltinListBuiltinMethodName(const std::string& methodName) cons
   return OperatorUtils::isBuiltinListMethodName(methodName);
 }
 
+auto Codegen::classHasSingleBufferStorageField(lesma::Type* classTy) const -> bool {
+  if (classTy == nullptr || !classTy->is(BaseType::TY_CLASS)) {
+    return false;
+  }
+  auto fields = classTy->getFields();
+  if (fields.size() != 1U) {
+    return false;
+  }
+  return fields.front()->type != nullptr && fields.front()->type->is(BaseType::TY_ARRAY);
+}
+
 auto Codegen::callListMethodByName(llvm::SMRange span, lesma::Value* receiver,
                                    const std::string& methodName,
                                    const std::vector<lesma::Value*>& args,
@@ -3238,6 +3249,9 @@ auto Codegen::callListMethodByName(llvm::SMRange span, lesma::Value* receiver,
       receiverType = receiverType->getElementType();
     }
     if (receiverType->is(BaseType::TY_CLASS)) {
+      if (!classHasSingleBufferStorageField(receiverType)) {
+        throw CodegenError(span, "Function {} not in current scope.", methodName);
+      }
       auto fields = receiverType->getFields();
       if (!fields.empty() && fields.front()->type != nullptr &&
           fields.front()->type->is(BaseType::TY_ARRAY)) {
@@ -3364,14 +3378,9 @@ auto Codegen::callMethodByName(llvm::SMRange span, lesma::Value* receiver,
   if (receiverType->is(BaseType::TY_TRAIT_EXISTENTIAL)) {
     return callExistentialMethod(span, receiver, methodName, args, explicitTypeArgs);
   }
-  if (receiverType->is(BaseType::TY_CLASS)) {
-    auto fields = receiverType->getFields();
-    if (!fields.empty() && fields.front()->type != nullptr &&
-        fields.front()->type->is(BaseType::TY_ARRAY)) {
-      if (isBuiltinListBuiltinMethodName(methodName)) {
-        return callListMethodByName(span, receiver, methodName, args, explicitTypeArgs);
-      }
-    }
+  if (receiverType->is(BaseType::TY_CLASS) && classHasSingleBufferStorageField(receiverType) &&
+      isBuiltinListBuiltinMethodName(methodName)) {
+    return callListMethodByName(span, receiver, methodName, args, explicitTypeArgs);
   }
   if (!receiverType->is(BaseType::TY_CLASS)) {
     throw CodegenError(span, "Method {} requires class receiver", methodName);

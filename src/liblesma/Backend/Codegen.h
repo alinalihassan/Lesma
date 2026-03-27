@@ -264,6 +264,8 @@ protected:
       -> std::unique_ptr<lesma::Value>;
   /** True for methods lowered via buffer unwrapping (list-like class layout). */
   [[nodiscard]] auto isBuiltinListBuiltinMethodName(const std::string& methodName) const -> bool;
+  /** True when class layout matches stdlib list (single __buffer field; not dict keys+vals). */
+  [[nodiscard]] auto classHasSingleBufferStorageField(lesma::Type* classTy) const -> bool;
   auto callMethodByName(llvm::SMRange span, lesma::Value* receiver, const std::string& methodName,
                         const std::vector<lesma::Value*>& args = {},
                         const std::vector<lesma::Type*>& explicitTypeArgs = {})
