@@ -2422,41 +2422,62 @@ auto Codegen::visit(const DictLiteral* node) -> void {
 
   std::vector<Expression*> keys = node->getKeys();
   std::vector<Expression*> values = node->getValues();
+  if (keys.size() != values.size()) {
+    throw CodegenError(node->getSpan(), "Dict literal key/value count mismatch");
+  }
+  const size_t pairCount = keys.size();
 
-  auto emitBufferForExprs = [&](lesma::Type* bufferType, lesma::Type* elemType,
-                                std::vector<Expression*> const& exprs,
-                                const char* headerName) -> llvm::Value* {
-    auto* listStructTy = getOrCreateListStructType(bufferType);
-    auto* headerSize = builder->getInt64(
-        theModule->getDataLayout().getTypeAllocSize(listStructTy).getFixedValue());
-    auto* bufferHandle = emitMalloc(headerSize, headerName);
-    llvm::Value* dataPtr = llvm::ConstantPointerNull::get(builder->getPtrTy());
-    if (!exprs.empty()) {
-      auto* elementLlvmType = getListStoredElementType(bufferType);
-      auto* byteSize = builder->getInt64(
-          theModule->getDataLayout().getTypeAllocSize(elementLlvmType).getFixedValue() *
-          exprs.size());
-      dataPtr = emitMalloc(byteSize, "dict.data");
-      for (size_t i = 0; i < exprs.size(); ++i) {
-        exprs[i]->accept(*this);
-        setDebugLoc(node->getSpan());
-        auto* elementPtr =
-            builder->CreateGEP(elementLlvmType, dataPtr, builder->getInt64(i), "dict.elem.ptr");
-        builder->CreateStore(
-            getListStoredElementValue(node->getSpan(), result.get(), elemType), elementPtr);
-      }
+  auto* keysListStructTy = getOrCreateListStructType(keysBufferType);
+  auto* valsListStructTy = getOrCreateListStructType(valsBufferType);
+  auto* keysHeader = emitMalloc(
+      builder->getInt64(
+          theModule->getDataLayout().getTypeAllocSize(keysListStructTy).getFixedValue()),
+      "dict.keys.header");
+  auto* valsHeader = emitMalloc(
+      builder->getInt64(
+          theModule->getDataLayout().getTypeAllocSize(valsListStructTy).getFixedValue()),
+      "dict.vals.header");
+
+  llvm::Value* keysDataPtr = llvm::ConstantPointerNull::get(builder->getPtrTy());
+  llvm::Value* valsDataPtr = llvm::ConstantPointerNull::get(builder->getPtrTy());
+  if (pairCount != 0U) {
+    auto* keysElementLlvmType = getListStoredElementType(keysBufferType);
+    auto* valsElementLlvmType = getListStoredElementType(valsBufferType);
+    keysDataPtr = emitMalloc(
+        builder->getInt64(
+            theModule->getDataLayout().getTypeAllocSize(keysElementLlvmType).getFixedValue() *
+            pairCount),
+        "dict.keys.data");
+    valsDataPtr = emitMalloc(
+        builder->getInt64(
+            theModule->getDataLayout().getTypeAllocSize(valsElementLlvmType).getFixedValue() *
+            pairCount),
+        "dict.vals.data");
+
+    for (size_t i = 0; i < pairCount; ++i) {
+      keys[i]->accept(*this);
+      setDebugLoc(node->getSpan());
+      auto* keyPtr = builder->CreateGEP(keysElementLlvmType, keysDataPtr, builder->getInt64(i),
+                                        "dict.key.elem.ptr");
+      builder->CreateStore(
+          getListStoredElementValue(keys[i]->getSpan(), result.get(), keyElemType), keyPtr);
+
+      values[i]->accept(*this);
+      setDebugLoc(node->getSpan());
+      auto* valPtr = builder->CreateGEP(valsElementLlvmType, valsDataPtr, builder->getInt64(i),
+                                        "dict.val.elem.ptr");
+      builder->CreateStore(
+          getListStoredElementValue(values[i]->getSpan(), result.get(), valElemType), valPtr);
     }
-    auto* count = builder->getInt64(exprs.size());
-    emitStoreListDataPtr(bufferType, bufferHandle, dataPtr);
-    emitStoreListLength(bufferType, bufferHandle, count);
-    emitStoreListCapacity(bufferType, bufferHandle, count);
-    return bufferHandle;
-  };
+  }
 
-  llvm::Value* keysHeader =
-      emitBufferForExprs(keysBufferType, keyElemType, keys, "dict.keys.header");
-  llvm::Value* valsHeader =
-      emitBufferForExprs(valsBufferType, valElemType, values, "dict.vals.header");
+  auto* count = builder->getInt64(pairCount);
+  emitStoreListDataPtr(keysBufferType, keysHeader, keysDataPtr);
+  emitStoreListLength(keysBufferType, keysHeader, count);
+  emitStoreListCapacity(keysBufferType, keysHeader, count);
+  emitStoreListDataPtr(valsBufferType, valsHeader, valsDataPtr);
+  emitStoreListLength(valsBufferType, valsHeader, count);
+  emitStoreListCapacity(valsBufferType, valsHeader, count);
   builder->CreateStore(keysHeader, keysFieldPtr);
   builder->CreateStore(valsHeader, valsFieldPtr);
   result = std::make_unique<Value>("", dictType, classHandle);
