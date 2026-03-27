@@ -1881,7 +1881,7 @@ void Typechecker::checkUnusedBindingsInScope(SymbolTable* blockScope) {
       continue;
     }
     if (v->getDeclarationKind() == ValueDeclarationKind::VARIABLE && !v->isUsed()) {
-      if (variableNameReadInScope.count(n) != 0U) {
+      if (variableNameReadInScope.contains(n)) {
         continue;
       }
       llvm::SMRange const declSpan = v->getDeclarationSpan();
@@ -1923,7 +1923,7 @@ void Typechecker::warnShadowingFromEnclosing(const std::string& name, llvm::SMRa
 }
 
 auto Typechecker::tryGetLiteralBool(const Expression* e, bool& outValue) -> bool {
-  auto* lit = dynamic_cast<const Literal*>(e);
+  const auto* lit = dynamic_cast<const Literal*>(e);
   if (lit == nullptr) {
     return false;
   }
@@ -4517,12 +4517,8 @@ auto Typechecker::classDeclaresTrait(Type* classTy, const std::string& traitName
   if (auto sp = specializedTypeToTemplate.find(classTy); sp != specializedTypeToTemplate.end()) {
     classTy = sp->second;
   }
-  for (const auto& n : classTy->getImplTraitNames()) {
-    if (n == traitName) {
-      return true;
-    }
-  }
-  return false;
+  return std::ranges::any_of(classTy->getImplTraitNames(),
+                             [traitName](const std::string& n) -> bool { return n == traitName; });
 }
 
 } // namespace lesma

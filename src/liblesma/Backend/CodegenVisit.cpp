@@ -1,13 +1,10 @@
 #include <algorithm>
 #include <cctype>
 #include <cstddef>
-#include <filesystem>
 #include <memory>
 #include <optional>
 #include <string>
 #include <string_view>
-#include <system_error>
-#include <tuple>
 #include <unordered_set>
 #include <utility>
 #include <vector>
@@ -62,10 +59,8 @@ LLD_HAS_DRIVER(elf)
 #include "liblesma/Backend/CodegenRuntimeNames.h"
 #include "liblesma/Backend/CodegenTypeUtils.h"
 #include "liblesma/Backend/MangleUtils.h"
-#include "liblesma/Common/ExportDiscovery.h"
 #include "liblesma/Common/OperatorUtils.h"
 #include "liblesma/Common/Utils.h"
-#include "liblesma/Frontend/Lexer.h"
 #include "liblesma/Frontend/Parser.h"
 #include "liblesma/Symbol/Type.h"
 #include "liblesma/Symbol/TypeUtils.h"
@@ -618,12 +613,8 @@ auto Codegen::classTypeDeclaresIterable(lesma::Type* classTy) const -> bool {
   if (classTy == nullptr || !classTy->is(BaseType::TY_CLASS)) {
     return false;
   }
-  for (const auto& n : classTy->getImplTraitNames()) {
-    if (n == "Iterable") {
-      return true;
-    }
-  }
-  return false;
+  return std::ranges::any_of(classTy->getImplTraitNames(),
+                             [](const std::string& n) -> bool { return n == "Iterable"; });
 }
 
 auto Codegen::visit(const ForIn* node) -> void {
@@ -2534,10 +2525,10 @@ auto Codegen::emitCstrConcatValues(llvm::SMRange span, llvm::Value* a, llvm::Val
   (void) span;
   llvm::Type* i8 = llvm::Type::getInt8Ty(theModule->getContext());
   auto strlenFn = theModule->getOrInsertFunction(
-      std::string{codegen::runtime::kStrlen}.c_str(),
+      std::string{codegen::runtime::kStrlen},
       llvm::FunctionType::get(builder->getInt64Ty(), {builder->getPtrTy()}, false));
   auto memcpyFn = theModule->getOrInsertFunction(
-      std::string{codegen::runtime::kMemcpy}.c_str(),
+      std::string{codegen::runtime::kMemcpy},
       llvm::FunctionType::get(builder->getPtrTy(),
                               {builder->getPtrTy(), builder->getPtrTy(), builder->getInt64Ty()},
                               false));

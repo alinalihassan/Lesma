@@ -105,10 +105,10 @@ auto Codegen::genListIntrinsicCall(const FuncCall* node,
     }
     llvm::Type* i8 = llvm::Type::getInt8Ty(theModule->getContext());
     auto strlenFn = theModule->getOrInsertFunction(
-        std::string{codegen::runtime::kStrlen}.c_str(),
+        std::string{codegen::runtime::kStrlen},
         llvm::FunctionType::get(builder->getInt64Ty(), {builder->getPtrTy()}, false));
     auto memcpyFn = theModule->getOrInsertFunction(
-        std::string{codegen::runtime::kMemcpy}.c_str(),
+        std::string{codegen::runtime::kMemcpy},
         llvm::FunctionType::get(builder->getPtrTy(),
                                 {builder->getPtrTy(), builder->getPtrTy(), builder->getInt64Ty()},
                                 false));
@@ -134,7 +134,7 @@ auto Codegen::genListIntrinsicCall(const FuncCall* node,
     }
     llvm::Type* i8 = llvm::Type::getInt8Ty(theModule->getContext());
     auto memcpyFn = theModule->getOrInsertFunction(
-        std::string{codegen::runtime::kMemcpy}.c_str(),
+        std::string{codegen::runtime::kMemcpy},
         llvm::FunctionType::get(builder->getPtrTy(),
                                 {builder->getPtrTy(), builder->getPtrTy(), builder->getInt64Ty()},
                                 false));
@@ -177,7 +177,7 @@ auto Codegen::genListIntrinsicCall(const FuncCall* node,
       throw CodegenError(node->getSpan(), "__cstr_index_of expects haystack and needle");
     }
     auto strstrFn = theModule->getOrInsertFunction(
-        std::string{codegen::runtime::kStrstr}.c_str(),
+        std::string{codegen::runtime::kStrstr},
         llvm::FunctionType::get(builder->getPtrTy(), {builder->getPtrTy(), builder->getPtrTy()},
                                 false));
     llvm::Value* hay = paramsLLVM[0];
