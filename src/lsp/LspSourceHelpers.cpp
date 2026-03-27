@@ -29,7 +29,10 @@ auto bufferByteOffsetFromLspUtf8Position(llvm::StringRef utf8Text, unsigned line
 }
 
 auto getOffsetFromSMLoc(llvm::SourceMgr* srcMgr, unsigned bufferId, llvm::SMLoc loc) -> unsigned {
-  if (srcMgr == nullptr) {
+  if (srcMgr == nullptr || !loc.isValid()) {
+    return 0U;
+  }
+  if (srcMgr->FindBufferContainingLoc(loc) != bufferId) {
     return 0U;
   }
   auto const* buf = srcMgr->getMemoryBuffer(bufferId);
@@ -44,8 +47,18 @@ auto smRangesEqual(llvm::SourceMgr* srcMgr, unsigned bufferId, llvm::SMRange lhs
   if (!lhs.isValid() || !rhs.isValid()) {
     return false;
   }
+  if (!lhs.Start.isValid() || !lhs.End.isValid() || !rhs.Start.isValid() || !rhs.End.isValid()) {
+    return false;
+  }
   if (srcMgr == nullptr) {
     return lhs.Start == rhs.Start && lhs.End == rhs.End;
+  }
+  auto const sameBuffer = [&](llvm::SMLoc loc) -> bool {
+    return srcMgr->FindBufferContainingLoc(loc) == bufferId;
+  };
+  if (!sameBuffer(lhs.Start) || !sameBuffer(lhs.End) || !sameBuffer(rhs.Start) ||
+      !sameBuffer(rhs.End)) {
+    return false;
   }
   return getOffsetFromSMLoc(srcMgr, bufferId, lhs.Start) ==
              getOffsetFromSMLoc(srcMgr, bufferId, rhs.Start) &&

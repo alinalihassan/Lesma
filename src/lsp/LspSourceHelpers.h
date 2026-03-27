@@ -15,7 +15,8 @@ namespace lesma::lsp_srv {
 [[nodiscard]] auto bufferByteOffsetFromLspUtf8Position(llvm::StringRef utf8Text, unsigned line,
                                                        unsigned characterUtf8) -> std::size_t;
 
-/** Byte offset of \p loc within the given buffer (0 if buffer missing). */
+/** Byte offset of \p loc within \p bufferId (0 if \p loc is invalid, not in that buffer, or the
+ * buffer is missing). */
 [[nodiscard]] auto getOffsetFromSMLoc(llvm::SourceMgr* srcMgr, unsigned bufferId, llvm::SMLoc loc)
     -> unsigned;
 
