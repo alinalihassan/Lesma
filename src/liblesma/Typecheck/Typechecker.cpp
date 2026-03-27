@@ -2690,7 +2690,14 @@ auto Typechecker::visit(const ExternFuncDecl* node) -> void {
     }
     if (param->defaultVal != nullptr) {
       if (nominalParamType != nullptr) {
-        visitExprWithExpectedType(param->defaultVal.get(), nominalParamType);
+        Type* expectedForDefault = nominalParamType;
+        // Match codegen: extern params use pointer-to-class; defaults must check against that type
+        // so overload resolution agrees with Codegen::visit(ExternFuncDecl).
+        if (expectedForDefault->is(BaseType::TY_CLASS)) {
+          expectedForDefault =
+              cacheType(std::make_unique<Type>(BaseType::TY_PTR, nullptr, expectedForDefault));
+        }
+        visitExprWithExpectedType(param->defaultVal.get(), expectedForDefault);
       } else {
         param->defaultVal->accept(*this);
         nominalParamType = result->getType();
@@ -2700,6 +2707,9 @@ auto Typechecker::visit(const ExternFuncDecl* node) -> void {
                            param->name);
     }
     Type* paramType = nominalParamType;
+    if (paramType->is(BaseType::TY_CLASS)) {
+      paramType = cacheType(std::make_unique<Type>(BaseType::TY_PTR, nullptr, paramType));
+    }
     if (param->defaultVal != nullptr && !isAssignableTo(result->getType(), paramType)) {
       throw TypeCheckError(param->defaultVal->getSpan(),
                            "Default value type {} is not assignable to parameter type {}",
