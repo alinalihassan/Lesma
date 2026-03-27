@@ -4125,8 +4125,16 @@ auto Typechecker::isAllowedStringInterpolationExprType(Type* t) const -> bool {
 }
 
 auto Typechecker::visit(const StringInterpolation* node) -> void {
+  const auto& chunks = node->getChunks();
+  const std::vector<Expression*> exprs = node->getExprs();
+  if (chunks.size() != exprs.size() + 1U) {
+    throw TypeCheckError(node->getSpan(),
+                         "Malformed string interpolation: expected {} literal segment(s) for {} "
+                         "embedded expression(s), got {} segment(s)",
+                         exprs.size() + 1, exprs.size(), chunks.size());
+  }
   node->clearInterpolatedExprTypes();
-  for (Expression* e : node->getExprs()) {
+  for (Expression* e : exprs) {
     e->accept(*this);
     Type* t = result != nullptr ? result->getType() : nullptr;
     if (!isAllowedStringInterpolationExprType(t)) {
