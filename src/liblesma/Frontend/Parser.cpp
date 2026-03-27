@@ -85,6 +85,10 @@ auto Parser::error(Token* token, const std::string& errorMessage) -> void {
   throw ParserError(token->span, "{}", errorMessage);
 }
 
+auto Parser::error(llvm::SMRange span, const std::string& errorMessage) -> void {
+  throw ParserError(span, "{}", errorMessage);
+}
+
 auto Parser::synchronizeToNextLine() -> void {
   while (!isAtEnd()) {
     TokenType const t = peek()->type;
@@ -1111,7 +1115,7 @@ auto Parser::parseExport() -> std::unique_ptr<Statement> {
     statement = parseVarDecl();
     if (auto* vd = dynamic_cast<VarDecl*>(statement.get());
         vd != nullptr && vd->getVarLiterals().size() > 1U) {
-      error(peek(), "Cannot export destructuring declarations");
+      error(vd->getSpan(), "Cannot export destructuring declarations");
     }
   } else if (check(TokenType::IMPORT)) {
     statement = parseImport();

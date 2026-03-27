@@ -80,6 +80,7 @@ private:
   std::vector<AnalysisDiagnostic>* diagnosticsOut = nullptr;
 
   auto error(Token* token, const std::string& errorMessage) -> void;
+  auto error(llvm::SMRange span, const std::string& errorMessage) -> void;
   /** Skip tokens until the next newline (or EOF) after a recovered parse error. */
   auto synchronizeToNextLine() -> void;
   auto recoverFromParserError(const ParserError& err) -> void;
