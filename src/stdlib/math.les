@@ -1,12 +1,12 @@
 # Base functions
-def extern llabs(x: int) -> int
+def extern llabs(n: int) -> int
 def extern fabs(x: float) -> float
 
-export def abs(x: int) -> int
-	return llabs(x)
+export def abs(value: int) -> int
+	return llabs(value)
 
-export def abs(x: float) -> float
-	return fabs(x)
+export def abs(value: float) -> float
+	return fabs(value)
 
 # Nearest integer floating-point operations
 def extern ceil(x: float) -> float

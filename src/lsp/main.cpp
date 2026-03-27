@@ -778,6 +778,10 @@ auto findIdentifierAtCursor(const AnalysisView& analysis, unsigned line, unsigne
 auto collectSemanticTokens(AnalysisResult& analysisResult, unsigned bufferId)
     -> std::vector<std::uint32_t>;
 
+auto appendCallParameterInlayHints(const AnalysisResult& analysisResult, unsigned bufferId,
+                                   const ::lsp::Range& range, std::vector<::lsp::InlayHint>& hints)
+    -> void;
+
 auto collectInlayHints(const AnalysisResult& analysisResult, unsigned bufferId,
                        const ::lsp::Range& range) -> std::vector<::lsp::InlayHint> {
   std::vector<::lsp::InlayHint> hints;
@@ -904,6 +908,7 @@ auto collectInlayHints(const AnalysisResult& analysisResult, unsigned bufferId,
     visitStmt(stmt);
   }
 
+  appendCallParameterInlayHints(analysisResult, bufferId, range, hints);
   return hints;
 }
 
@@ -1499,6 +1504,232 @@ auto buildSignatureHelp(AnalysisResult& result, unsigned line, unsigned characte
     return std::nullopt;
   }
   return help;
+}
+
+auto appendCallParameterInlayHints(const AnalysisResult& analysisResult, unsigned bufferId,
+                                   const ::lsp::Range& range, std::vector<::lsp::InlayHint>& hints)
+    -> void {
+  llvm::SourceMgr* srcMgr = analysisResult.sourceMgr.get();
+  lesma::SymbolTable* root = analysisResult.rootScope.get();
+  lesma::Compound* ast = analysisResult.parser ? analysisResult.parser->getAst() : nullptr;
+  if (srcMgr == nullptr || root == nullptr || ast == nullptr) {
+    return;
+  }
+  auto const* buf = srcMgr->getMemoryBuffer(bufferId);
+  if (buf == nullptr) {
+    return;
+  }
+  llvm::StringRef const text = buf->getBuffer();
+  unsigned const rangeStart =
+      static_cast<unsigned>(lesma::lsp_srv::bufferByteOffsetFromLspUtf8Position(
+          text, range.start.line, range.start.character));
+  unsigned const rangeEnd =
+      static_cast<unsigned>(lesma::lsp_srv::bufferByteOffsetFromLspUtf8Position(
+          text, range.end.line, range.end.character));
+
+  auto isOffsetInRange = [&](unsigned offset) -> bool {
+    return offset >= rangeStart && offset <= rangeEnd;
+  };
+
+  auto tryHintCall = [&](const lesma::FuncCall* call, const lesma::Expression* receiver) -> void {
+    if (call == nullptr) {
+      return;
+    }
+    llvm::SMRange const callSpan = call->getSpan();
+    if (!callSpan.isValid()) {
+      return;
+    }
+    unsigned const callStartOffset = getOffsetFromSMLoc(srcMgr, bufferId, callSpan.Start);
+    lesma::SymbolTable* scope =
+        activeScopeForOffset(ast, root, srcMgr, bufferId, callStartOffset);
+    if (scope == nullptr) {
+      scope = root;
+    }
+    std::vector<lesma::Expression*> const args = call->getArguments();
+    std::vector<CallableCandidate> candidates;
+
+    lesma::Value* resolvedSym = call->getResolvedSymbol();
+    if (resolvedSym != nullptr && resolvedSym->getType() != nullptr &&
+        resolvedSym->getType()->is(lesma::BaseType::TY_FUNCTION)) {
+      std::vector<lesma::Field*> const rf = resolvedSym->getType()->getFields();
+      unsigned paramOffset = 0U;
+      if (receiver != nullptr && !rf.empty() && rf[0] != nullptr && rf[0]->name == "self") {
+        paramOffset = 1U;
+      }
+      candidates.push_back(CallableCandidate{.value = resolvedSym, .paramOffset = paramOffset});
+    } else {
+      std::vector<lesma::Type*> argTypes;
+      argTypes.reserve(args.size());
+      for (lesma::Expression* arg : args) {
+        lesma::Type* argType = resolveExpressionTypeAtOffset(arg, ast, root, srcMgr, bufferId,
+                                                            callStartOffset);
+        if (argType == nullptr) {
+          return;
+        }
+        argTypes.push_back(argType);
+      }
+      lesma::Type* receiverType = nullptr;
+      if (receiver != nullptr) {
+        receiverType = resolveExpressionTypeAtOffset(receiver, ast, root, srcMgr, bufferId,
+                                                    callStartOffset);
+      }
+      candidates =
+          collectCallableCandidates(scope, call->getName(), receiverType, argTypes);
+      if (resolvedSym != nullptr) {
+        std::vector<CallableCandidate> narrowed;
+        for (const CallableCandidate& c : candidates) {
+          if (c.value == resolvedSym) {
+            narrowed.push_back(c);
+          }
+        }
+        if (narrowed.size() == 1U) {
+          candidates = std::move(narrowed);
+        }
+      }
+    }
+    if (candidates.size() != 1U) {
+      return;
+    }
+    CallableCandidate const& cand = candidates.front();
+    if (cand.value == nullptr || cand.value->getType() == nullptr) {
+      return;
+    }
+    std::vector<lesma::Field*> fields = cand.value->getType()->getFields();
+    for (size_t i = 0; i < args.size(); ++i) {
+      size_t const fieldIdx = cand.paramOffset + i;
+      if (fieldIdx >= fields.size()) {
+        break;
+      }
+      lesma::Field* field = fields[fieldIdx];
+      if (field == nullptr || field->name.empty()) {
+        continue;
+      }
+      lesma::Expression* arg = args[i];
+      llvm::SMRange argSpan = arg->getSpan();
+      if (!argSpan.isValid()) {
+        continue;
+      }
+      unsigned const argStart = getOffsetFromSMLoc(srcMgr, bufferId, argSpan.Start);
+      if (!isOffsetInRange(argStart)) {
+        continue;
+      }
+      ::lsp::Range const argLspRange = smRangeToLspRange(srcMgr, bufferId, argSpan);
+      ::lsp::Position const hintPos = argLspRange.start;
+      std::string const label = field->name + ":";
+      ::lsp::InlayHint hint;
+      hint.position = hintPos;
+      hint.label = ::lsp::String(label);
+      hint.kind = ::lsp::Opt<::lsp::InlayHintKindEnum>(::lsp::InlayHintKind::Parameter);
+      hints.push_back(std::move(hint));
+    }
+  };
+
+  std::function<void(const lesma::Expression*, const lesma::Expression*)> walkExpr =
+      [&](const lesma::Expression* expr, const lesma::Expression* dotReceiver) -> void {
+    if (expr == nullptr) {
+      return;
+    }
+    if (auto const* call = dynamic_cast<const lesma::FuncCall*>(expr)) {
+      tryHintCall(call, dotReceiver);
+      for (lesma::Expression* arg : call->getArguments()) {
+        walkExpr(arg, nullptr);
+      }
+      return;
+    }
+    if (auto const* dot = dynamic_cast<const lesma::DotOp*>(expr)) {
+      if (dot->getRight() != nullptr) {
+        walkExpr(dot->getRight(), dot->getLeft());
+      }
+      if (dot->getLeft() != nullptr) {
+        walkExpr(dot->getLeft(), nullptr);
+      }
+      return;
+    }
+    if (auto const* binary = dynamic_cast<const lesma::BinaryOp*>(expr)) {
+      walkExpr(binary->getLeft(), nullptr);
+      walkExpr(binary->getRight(), nullptr);
+      return;
+    }
+    if (auto const* unary = dynamic_cast<const lesma::UnaryOp*>(expr)) {
+      walkExpr(unary->getExpression(), nullptr);
+      return;
+    }
+    if (auto const* castOp = dynamic_cast<const lesma::CastOp*>(expr)) {
+      walkExpr(castOp->getExpression(), nullptr);
+      return;
+    }
+    if (auto const* isOp = dynamic_cast<const lesma::IsOp*>(expr)) {
+      walkExpr(isOp->getLeft(), nullptr);
+      return;
+    }
+    if (auto const* si = dynamic_cast<const lesma::StringInterpolation*>(expr)) {
+      for (lesma::Expression* e : si->getExprs()) {
+        walkExpr(e, nullptr);
+      }
+      return;
+    }
+    if (auto const* sub = dynamic_cast<const lesma::SubscriptOp*>(expr)) {
+      walkExpr(sub->getLeft(), nullptr);
+      walkExpr(sub->getIndex(), nullptr);
+      return;
+    }
+    if (auto const* list = dynamic_cast<const lesma::ListLiteral*>(expr)) {
+      for (lesma::Expression* el : list->getElements()) {
+        walkExpr(el, nullptr);
+      }
+      return;
+    }
+    if (auto const* tup = dynamic_cast<const lesma::TupleLiteral*>(expr)) {
+      for (lesma::Expression* el : tup->getElements()) {
+        walkExpr(el, nullptr);
+      }
+    }
+  };
+
+  std::function<void(const lesma::Statement*)> walkStmt = [&](const lesma::Statement* stmt) -> void {
+    if (stmt == nullptr) {
+      return;
+    }
+    if (auto const* exprStmt = dynamic_cast<const lesma::ExpressionStatement*>(stmt)) {
+      walkExpr(exprStmt->getExpression(), nullptr);
+    } else if (auto const* varDecl = dynamic_cast<const lesma::VarDecl*>(stmt)) {
+      walkExpr(varDecl->getValue(), nullptr);
+    } else if (auto const* assign = dynamic_cast<const lesma::Assignment*>(stmt)) {
+      walkExpr(assign->getLeftHandSide(), nullptr);
+      walkExpr(assign->getRightHandSide(), nullptr);
+    } else if (auto const* ifNode = dynamic_cast<const lesma::If*>(stmt)) {
+      for (lesma::Expression* cond : ifNode->getConds()) {
+        walkExpr(cond, nullptr);
+      }
+      for (lesma::Compound* block : ifNode->getBlocks()) {
+        walkStmt(block);
+      }
+    } else if (auto const* whileNode = dynamic_cast<const lesma::While*>(stmt)) {
+      walkExpr(whileNode->getCond(), nullptr);
+      walkStmt(whileNode->getBlock());
+    } else if (auto const* forIn = dynamic_cast<const lesma::ForIn*>(stmt)) {
+      walkExpr(forIn->getIterable(), nullptr);
+      walkStmt(forIn->getBlock());
+    } else if (auto const* ret = dynamic_cast<const lesma::Return*>(stmt)) {
+      walkExpr(ret->getValue(), nullptr);
+    } else if (auto const* defer = dynamic_cast<const lesma::Defer*>(stmt)) {
+      walkStmt(defer->getStatement());
+    } else if (auto const* compound = dynamic_cast<const lesma::Compound*>(stmt)) {
+      for (lesma::Statement* child : compound->getChildren()) {
+        walkStmt(child);
+      }
+    } else if (auto const* func = dynamic_cast<const lesma::FuncDecl*>(stmt)) {
+      walkStmt(func->getBody());
+    } else if (auto const* klass = dynamic_cast<const lesma::Class*>(stmt)) {
+      for (lesma::FuncDecl* method : klass->getMethods()) {
+        walkStmt(method);
+      }
+    }
+  };
+
+  for (lesma::Statement* stmt : ast->getChildren()) {
+    walkStmt(stmt);
+  }
 }
 
 auto lookupFunctionOrSymbol(lesma::SymbolTable* scope, const std::string& name,
