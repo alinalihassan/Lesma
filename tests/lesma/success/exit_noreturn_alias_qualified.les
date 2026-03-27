@@ -1,0 +1,11 @@
+# Stdlib exit is noreturn by resolved symbol (alias + module-qualified call sites).
+from base import exit as quit_exit
+import base as bm
+
+def via_alias() -> int
+    quit_exit(1)
+
+def via_qualified() -> int
+    bm.exit(1)
+
+exit(0)

@@ -44,28 +44,6 @@ auto makeGenericDisplaySuffix(const std::vector<std::string>& genericParamNames)
   return suffix;
 }
 
-// Stdlib `extern exit` from base.les (resolved symbol path), not a user-defined `exit`.
-[[nodiscard]] auto resolvedCallIsStdlibBaseLesExit(const FuncCall* call) -> bool {
-  if (call == nullptr || call->getName() != "exit") {
-    return false;
-  }
-  Value* sym = call->getResolvedSymbol();
-  if (sym == nullptr || sym->getName() != "exit" ||
-      sym->getDeclarationKind() != ValueDeclarationKind::FUNCTION) {
-    return false;
-  }
-  const std::string& declPath = sym->getDeclarationFilePath();
-  if (declPath.empty()) {
-    return false;
-  }
-  const std::string baseLesExpected =
-      std::filesystem::absolute(std::filesystem::path(getStdDir()) / "base.les")
-          .lexically_normal()
-          .string();
-  return normalizeResolvedFilesystemPath(declPath) ==
-         normalizeResolvedFilesystemPath(baseLesExpected);
-}
-
 auto makeSpecializedDisplayName(Type* classTemplate,
                                 const std::vector<std::string>& genericParamNames,
                                 const std::unordered_map<std::string, Type*>& env) -> std::string {
@@ -180,10 +158,8 @@ auto Typechecker::pathLeadsToEndWithoutReturn(const std::vector<Statement*>& sta
     return false; // this path returns
   }
   if (auto* exprStmt = dynamic_cast<ExpressionStatement*>(s)) {
-    if (auto* call = dynamic_cast<FuncCall*>(exprStmt->getExpression())) {
-      if (resolvedCallIsStdlibBaseLesExit(call)) {
-        return false; // noreturn (stdlib extern exit in base.les)
-      }
+    if (expressionCallsStdlibBaseLesExit(exprStmt->getExpression())) {
+      return false; // noreturn (stdlib extern exit in base.les)
     }
   }
   if (auto* comp = dynamic_cast<Compound*>(s)) {
@@ -3198,6 +3174,7 @@ auto Typechecker::visit(const FuncCall* node) -> void {
 
   SymbolTable* importedScope = nullptr;
   Value* callee = scope->lookupFunction(node->getName(), argTypes);
+  bool funcCallResolvedViaImportedNameBinding = false;
   if (callee == nullptr) {
     Value* sym = scope->lookup(node->getName());
     std::string importedName;
@@ -3210,6 +3187,9 @@ auto Typechecker::visit(const FuncCall* node) -> void {
       if (importedScope != nullptr) {
         sym = importedScope->lookup(importedName);
         callee = importedScope->lookupFunction(importedName, argTypes);
+        if (callee != nullptr) {
+          funcCallResolvedViaImportedNameBinding = true;
+        }
       }
     }
     if (callee == nullptr && sym != nullptr) {
@@ -3367,6 +3347,9 @@ auto Typechecker::visit(const FuncCall* node) -> void {
                 SymbolTable* imp = getOrTypecheckImport(ctorImportedIt->second.first);
                 if (imp != nullptr) {
                   callee = imp->lookupFunction("new", constructorParamTypes);
+                  if (callee != nullptr) {
+                    funcCallResolvedViaImportedNameBinding = true;
+                  }
                 }
               }
             }
@@ -3378,6 +3361,9 @@ auto Typechecker::visit(const FuncCall* node) -> void {
             importedScope = getOrTypecheckImport(importedIt->second.first);
             if (importedScope != nullptr) {
               callee = importedScope->lookupFunction(importedIt->second.second, argTypes);
+              if (callee != nullptr) {
+                funcCallResolvedViaImportedNameBinding = true;
+              }
             }
           }
         }
@@ -3392,6 +3378,13 @@ auto Typechecker::visit(const FuncCall* node) -> void {
   }
   node->setResolvedSymbol(callee);
   markValueRead(callee);
+  if (funcCallResolvedViaImportedNameBinding) {
+    if (Value* importStub = scope->lookup(node->getName());
+        importStub != nullptr && importStub->getCategory() == ValueCategory::MODULE_SYMBOL &&
+        importStub->getType() != nullptr && importStub->getType()->is(BaseType::TY_IMPORT)) {
+      markValueRead(importStub);
+    }
+  }
 
   auto* funcType = callee->getType();
   auto fields = funcType->getFields();

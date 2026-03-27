@@ -220,6 +220,16 @@ auto Codegen::defineFunction(lesma::Value* value, const FuncDecl* node, Value* c
 
   node->getBody()->accept(*this);
 
+  if (llvm::BasicBlock* cur = builder->GetInsertBlock();
+      cur != nullptr && cur->getTerminator() == nullptr && cur->empty()) {
+    lesma::Type* rt = value->getType()->getReturnType();
+    if (rt != nullptr && rt->is(BaseType::TY_VOID)) {
+      builder->CreateRetVoid();
+    } else {
+      builder->CreateUnreachable();
+    }
+  }
+
   auto instrs = deferStack.top();
   deferStack.pop();
 
@@ -1272,6 +1282,25 @@ auto Codegen::visit(const UnimplementedStatement* node) -> void {
 auto Codegen::visit(const ExpressionStatement* node) -> void {
   setDebugLoc(node->getSpan());
   node->getExpression()->accept(*this);
+  if (expressionCallsStdlibBaseLesExit(node->getExpression()) && currentFunction != nullptr) {
+    isReturn = true;
+    setDebugLoc(node->getSpan());
+    // Terminate this BB so LLVM is satisfied; further stmts in the same compound emit into a new
+    // dead block (stdlib exit does not return).
+    lesma::Type* declaredReturnType = currentFunction->getType()->getReturnType();
+    if (declaredReturnType == nullptr || declaredReturnType->is(BaseType::TY_VOID)) {
+      builder->CreateRetVoid();
+    } else {
+      getOrCreateLlvmType(declaredReturnType);
+      llvm::Type* llvmRet = declaredReturnType->is(BaseType::TY_CLASS)
+                                ? builder->getPtrTy()
+                                : declaredReturnType->getLlvmType();
+      builder->CreateRet(UndefValue::get(llvmRet));
+    }
+    llvm::Function* parent = builder->GetInsertBlock()->getParent();
+    llvm::BasicBlock* dead = BasicBlock::Create(theModule->getContext(), "dead", parent);
+    builder->SetInsertPoint(dead);
+  }
 }
 
 auto Codegen::visit(const Import* node) -> void {
