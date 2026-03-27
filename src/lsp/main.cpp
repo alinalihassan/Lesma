@@ -1848,10 +1848,7 @@ auto resolveImportedSymbol(AnalysisResult& result, const AnalysisView& analysis,
 
 /** Same set as Codegen::isBuiltinListBuiltinMethodName — `__buffer<T>` dot calls. */
 auto isBuiltinBufferListMethodName(const std::string& methodName) -> bool {
-  return methodName == "len" || methodName == "clear" || methodName == "push" ||
-         methodName == "pop" || methodName == "copy" ||
-         methodName == std::string{OperatorUtils::SUBSCRIPT_GET_NAME} ||
-         methodName == std::string{OperatorUtils::SUBSCRIPT_SET_NAME};
+  return OperatorUtils::isBuiltinListMethodName(methodName);
 }
 
 auto findTopLevelClassNamed(Compound* compound, std::string_view className) -> Class* {

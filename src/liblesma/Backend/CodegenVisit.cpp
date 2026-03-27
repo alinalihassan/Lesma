@@ -3196,10 +3196,7 @@ auto Codegen::callNamedFunction(llvm::SMRange span, const std::string& functionN
 }
 
 auto Codegen::isBuiltinListBuiltinMethodName(const std::string& methodName) const -> bool {
-  return methodName == "len" || methodName == "clear" || methodName == "push" ||
-         methodName == "pop" || methodName == "copy" ||
-         methodName == std::string{OperatorUtils::SUBSCRIPT_GET_NAME} ||
-         methodName == std::string{OperatorUtils::SUBSCRIPT_SET_NAME};
+  return OperatorUtils::isBuiltinListMethodName(methodName);
 }
 
 auto Codegen::callListMethodByName(llvm::SMRange span, lesma::Value* receiver,
