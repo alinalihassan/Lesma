@@ -20,6 +20,7 @@
 - [ ] Add lambda functions
 - [ ] Add try catch
 - [ ] Add multithreading using pthread for now (async/await? ala Spice)
+- [ ] Add automatic reference counting
 
 ## LSP
 - [ ] rename + prepareRename
