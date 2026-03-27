@@ -1027,7 +1027,9 @@ class DictLiteral : public Expression {
 public:
   DictLiteral(llvm::SMRange loc, std::vector<std::unique_ptr<Expression>> keyExprs,
               std::vector<std::unique_ptr<Expression>> valueExprs)
-      : Expression(loc), keys(std::move(keyExprs)), values(std::move(valueExprs)) {}
+      : Expression(loc), keys(std::move(keyExprs)), values(std::move(valueExprs)) {
+    assert(keys.size() == values.size() && "DictLiteral requires equal number of keys and values");
+  }
   void accept(ASTVisitor& visitor) const override { visitor.visit(this); }
 
   [[nodiscard]] auto getKeys() const -> std::vector<Expression*> {
