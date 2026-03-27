@@ -1,0 +1,6 @@
+// User-defined `exit` must not satisfy noreturn return-path analysis (only stdlib base.les extern exit does).
+def exit(x: int) -> int
+    return x
+
+def f() -> int
+    exit(1)

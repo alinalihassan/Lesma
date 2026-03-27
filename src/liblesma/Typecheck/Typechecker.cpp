@@ -44,6 +44,28 @@ auto makeGenericDisplaySuffix(const std::vector<std::string>& genericParamNames)
   return suffix;
 }
 
+// Stdlib `extern exit` from base.les (resolved symbol path), not a user-defined `exit`.
+[[nodiscard]] auto resolvedCallIsStdlibBaseLesExit(const FuncCall* call) -> bool {
+  if (call == nullptr || call->getName() != "exit") {
+    return false;
+  }
+  Value* sym = call->getResolvedSymbol();
+  if (sym == nullptr || sym->getName() != "exit" ||
+      sym->getDeclarationKind() != ValueDeclarationKind::FUNCTION) {
+    return false;
+  }
+  const std::string& declPath = sym->getDeclarationFilePath();
+  if (declPath.empty()) {
+    return false;
+  }
+  const std::string baseLesExpected =
+      std::filesystem::absolute(std::filesystem::path(getStdDir()) / "base.les")
+          .lexically_normal()
+          .string();
+  return normalizeResolvedFilesystemPath(declPath) ==
+         normalizeResolvedFilesystemPath(baseLesExpected);
+}
+
 auto makeSpecializedDisplayName(Type* classTemplate,
                                 const std::vector<std::string>& genericParamNames,
                                 const std::unordered_map<std::string, Type*>& env) -> std::string {
@@ -159,8 +181,8 @@ auto Typechecker::pathLeadsToEndWithoutReturn(const std::vector<Statement*>& sta
   }
   if (auto* exprStmt = dynamic_cast<ExpressionStatement*>(s)) {
     if (auto* call = dynamic_cast<FuncCall*>(exprStmt->getExpression())) {
-      if (call->getName() == "exit") {
-        return false; // noreturn (stdlib extern)
+      if (resolvedCallIsStdlibBaseLesExit(call)) {
+        return false; // noreturn (stdlib extern exit in base.les)
       }
     }
   }
@@ -588,7 +610,8 @@ auto Typechecker::visitListMethodCall(Type* listType, const DotOp* node, const F
   }
   if (call->getName() == "clear" && call->getArguments().empty()) {
     if (!isMutableListReceiver(node->getLeft())) {
-      throw TypeCheckError(node->getSpan(), "Cannot call mutating list method {} on immutable value",
+      throw TypeCheckError(node->getSpan(),
+                           "Cannot call mutating list method {} on immutable value",
                            call->getName());
     }
     result = std::make_unique<Value>(cacheType(std::make_unique<Type>(BaseType::TY_VOID)));
@@ -599,7 +622,8 @@ auto Typechecker::visitListMethodCall(Type* listType, const DotOp* node, const F
       throw TypeCheckError(call->getSpan(), "pop expects no arguments");
     }
     if (!isMutableListReceiver(node->getLeft())) {
-      throw TypeCheckError(node->getSpan(), "Cannot call mutating list method {} on immutable value",
+      throw TypeCheckError(node->getSpan(),
+                           "Cannot call mutating list method {} on immutable value",
                            call->getName());
     }
     if (elemType == nullptr) {
@@ -613,7 +637,8 @@ auto Typechecker::visitListMethodCall(Type* listType, const DotOp* node, const F
       throw TypeCheckError(call->getSpan(), "push expects one argument");
     }
     if (!isMutableListReceiver(node->getLeft())) {
-      throw TypeCheckError(node->getSpan(), "Cannot call mutating list method {} on immutable value",
+      throw TypeCheckError(node->getSpan(),
+                           "Cannot call mutating list method {} on immutable value",
                            call->getName());
     }
     call->getArguments()[0]->accept(*this);
@@ -622,7 +647,8 @@ auto Typechecker::visitListMethodCall(Type* listType, const DotOp* node, const F
       argType = cacheType(std::make_unique<Type>(BaseType::TY_PTR, nullptr, argType));
     }
     if (elemType == nullptr || argType == nullptr || !isAssignableTo(argType, elemType)) {
-      throw TypeCheckError(call->getSpan(), "Cannot push value of type {} into buffer element type {}",
+      throw TypeCheckError(call->getSpan(),
+                           "Cannot push value of type {} into buffer element type {}",
                            argType != nullptr ? argType->toString() : "(unknown)",
                            elemType != nullptr ? elemType->toString() : "(unknown)");
     }
@@ -649,7 +675,8 @@ auto Typechecker::visitListMethodCall(Type* listType, const DotOp* node, const F
       throw TypeCheckError(call->getSpan(), "operator []= expects two arguments");
     }
     if (!isMutableListReceiver(node->getLeft())) {
-      throw TypeCheckError(node->getSpan(), "Cannot call mutating list method {} on immutable value",
+      throw TypeCheckError(node->getSpan(),
+                           "Cannot call mutating list method {} on immutable value",
                            call->getName());
     }
     call->getArguments()[0]->accept(*this);
@@ -4143,8 +4170,7 @@ auto Typechecker::visit(const DictLiteral* node) -> void {
       if (unifiedKey != nullptr) {
         keyType = unifiedKey;
       } else if (!keyT->isEqual(keyType)) {
-        throw TypeCheckError(keys[i]->getSpan(),
-                             "Dict keys must have a common type, got {} and {}",
+        throw TypeCheckError(keys[i]->getSpan(), "Dict keys must have a common type, got {} and {}",
                              keyType->toString(), keyT->toString());
       }
     }
@@ -4174,8 +4200,8 @@ auto Typechecker::visit(const DictLiteral* node) -> void {
     }
   }
 
-  if (expectedType != nullptr &&
-      (getStdDictKeyType(expectedType) == nullptr || getStdDictValueType(expectedType) == nullptr)) {
+  if (expectedType != nullptr && (getStdDictKeyType(expectedType) == nullptr ||
+                                  getStdDictValueType(expectedType) == nullptr)) {
     throw TypeCheckError(node->getSpan(), "Dict literal is not compatible with expected type {}",
                          expectedType->toString());
   }
