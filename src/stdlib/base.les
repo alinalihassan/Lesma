@@ -3,21 +3,22 @@ def extern scanf(fmt: cstr, ...) -> int
 export def extern calloc(count: int, size: int) -> *int8
 def extern malloc(size: int) -> *int8
 def extern free(ptr: cstr)
-def extern strlen(x: cstr) -> int
-def extern atoll(x: cstr) -> int
-def extern strtod(x: cstr) -> float
+def extern strlen(s: cstr) -> int
+def extern atoll(s: cstr) -> int
+def extern strtod(s: cstr) -> float
 def extern rand() -> int
-def extern srand(x: int)
-def extern time(x: int) -> int
+def extern srand(seed: int)
+# C `time(NULL)`; pass 0.
+def extern time(timer: int) -> int
 def extern strcmp(a: cstr, b: cstr) -> int
 def extern strncmp(a: cstr, b: cstr, n: int) -> int
 def extern strdup(s: cstr) -> cstr
 def extern fopen(path: cstr, mode: cstr) -> *int8
 def extern fclose(stream: *int8) -> int
-def extern fread(ptr: cstr, size: int, nmemb: int, stream: *int8) -> int
+def extern fread(dest: cstr, size: int, count: int, stream: *int8) -> int
 def extern fseek(stream: *int8, offset: int, whence: int) -> int
 def extern ftell(stream: *int8) -> int
-def extern fwrite(ptr: cstr, size: int, nmemb: int, stream: *int8) -> int
+def extern fwrite(src: cstr, size: int, count: int, stream: *int8) -> int
 def extern remove(path: cstr) -> int
 
 # ASCII whitespace only (TAB, LF, VT, FF, CR, SPACE). uint8 avoids signed-byte pitfalls with UTF-8.
@@ -212,9 +213,9 @@ export class str impl Iterable<uint8>
     def trim() -> str
         return self.trimStart().trimEnd()
 
-    # One code unit at i (same as self[i]; slice form matches operator []).
-    def charAt(i: int) -> str
-        return str(__str_slice(self.storage, i, 1))
+    # One code unit at index (same as self[index]; slice form matches operator []).
+    def charAt(index: int) -> str
+        return str(__str_slice(self.storage, index, 1))
 
     # start is clamped (negative -> 0); len <= 0 yields "". If start >= len(), yields "".
     def substring(start: int, len: int) -> str
@@ -277,7 +278,7 @@ export class str impl Iterable<uint8>
         return out
 
     # Empty needle: unchanged self. Otherwise replaces every non-overlapping occurrence.
-    def replace(needle: str, with: str) -> str
+    def replace(needle: str, replacement: str) -> str
         let m: int = needle.len()
         if m == 0
             return self
@@ -290,7 +291,7 @@ export class str impl Iterable<uint8>
                 out = out + str(__str_slice(self.storage, start, n - start))
                 break
             let hit: int = start + rel
-            out = out + str(__str_slice(self.storage, start, hit - start)) + with
+            out = out + str(__str_slice(self.storage, start, hit - start)) + replacement
             start = hit + m
         return out
 
@@ -367,8 +368,8 @@ export class str impl Iterable<uint8>
 export class file
     var storage: cstr
 
-    def new(p: cstr)
-        self.storage = strdup(p)
+    def new(path: cstr)
+        self.storage = strdup(path)
 
     def text() -> str
         var fp: *int8 = fopen(self.storage, "rb")
@@ -410,7 +411,7 @@ export class file
     def delete()
         remove(self.storage)
 
-export def extern exit(x: int)
+export def extern exit(code: int)
 
 export def input() -> str
     return input("")
@@ -434,12 +435,17 @@ export def input(prompt: str) -> str
     free(ignored)
     return result
 
-export def random(x: int, y: int) -> int
+# Inclusive integer in either order (min/max need not match argument order).
+export def random(bound1: int, bound2: int) -> int
     srand(time(0))
-    if x < y
-        return x + rand() % (y - x)
 
-    return y + rand() % (x - y)
+    if bound1 == bound2
+        return bound1
+
+    if bound1 < bound2
+        return bound1 + rand() % (bound2 - bound1 + 1)
+
+    return bound2 + rand() % (bound1 - bound2 + 1)
 
 export def print(x: str)
     printf("%s\n", x.cstr())
