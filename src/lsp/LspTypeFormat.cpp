@@ -87,4 +87,12 @@ auto formatTypeName(Type* type, SymbolTable* rootScope) -> std::string {
   return type->toString();
 }
 
+auto formatBufferArrayTypeName(Type* arrayType, SymbolTable* rootScope) -> std::string {
+  if (arrayType == nullptr || !arrayType->is(BaseType::TY_ARRAY) ||
+      arrayType->getElementType() == nullptr) {
+    return "?";
+  }
+  return "__buffer<" + formatTypeName(arrayType->getElementType(), rootScope) + ">";
+}
+
 } // namespace lesma::lsp_srv

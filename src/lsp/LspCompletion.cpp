@@ -27,6 +27,7 @@ namespace {
 constexpr std::string_view MEMBER_COMPLETION_PLACEHOLDER = "__cursor__";
 
 using namespace lesma;
+using lesma::lsp_srv::formatBufferArrayTypeName;
 using lesma::lsp_srv::formatTypeName;
 
 struct CompletionContext {
@@ -545,9 +546,10 @@ void appendTraitRequirementMethods(AnalysisResult& result, Type* classType, Comp
 }
 
 /** `__buffer<T>` (TY_ARRAY): same dot-call surface as `list<T>` in codegen (`callListMethodByName`). */
-void appendBuiltinBufferListMethodCandidates(Type* elementType, SymbolTable* root,
+void appendBuiltinBufferListMethodCandidates(Type* bufferType, SymbolTable* root,
                                              std::vector<CompletionCandidate>& out,
                                              std::unordered_set<std::string>& seen) {
+  Type* elementType = bufferType != nullptr ? bufferType->getElementType() : nullptr;
   std::string const elemStr =
       elementType != nullptr ? formatTypeName(elementType, root) : std::string{"?"};
   addCandidate(out, seen,
@@ -569,7 +571,7 @@ void appendBuiltinBufferListMethodCandidates(Type* elementType, SymbolTable* roo
   addCandidate(out, seen,
                CompletionCandidate{.label = "copy",
                                    .kind = ::lsp::CompletionItemKind::Method,
-                                   .detail = "copy() -> list<" + elemStr + ">"});
+                                   .detail = "copy() -> " + formatBufferArrayTypeName(bufferType, root)});
 }
 
 void appendMembersForType(AnalysisResult& result, Type* baseType, Compound* ast, SymbolTable* root,
@@ -582,7 +584,7 @@ void appendMembersForType(AnalysisResult& result, Type* baseType, Compound* ast,
     baseType = baseType->getElementType();
   }
   if (baseType->is(BaseType::TY_ARRAY)) {
-    appendBuiltinBufferListMethodCandidates(baseType->getElementType(), root, out, seen);
+    appendBuiltinBufferListMethodCandidates(baseType, root, out, seen);
     return;
   }
   if (!baseType->is(BaseType::TY_CLASS) && !baseType->is(BaseType::TY_ENUM)) {
