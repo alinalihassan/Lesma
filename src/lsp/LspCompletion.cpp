@@ -16,6 +16,7 @@
 #include "LspTypeFormat.h"
 
 #include "liblesma/AST/AST.h"
+#include "liblesma/Common/OperatorUtils.h"
 #include "liblesma/Driver/Driver.h"
 #include "liblesma/Symbol/TypeUtils.h"
 #include "liblesma/Symbol/Value.h"
@@ -552,26 +553,40 @@ void appendBuiltinBufferListMethodCandidates(Type* bufferType, SymbolTable* root
   Type* elementType = bufferType != nullptr ? bufferType->getElementType() : nullptr;
   std::string const elemStr =
       elementType != nullptr ? formatTypeName(elementType, root) : std::string{"?"};
-  addCandidate(out, seen,
-               CompletionCandidate{.label = "len",
-                                   .kind = ::lsp::CompletionItemKind::Method,
-                                   .detail = "len() -> int"});
-  addCandidate(out, seen,
-               CompletionCandidate{.label = "clear",
-                                   .kind = ::lsp::CompletionItemKind::Method,
-                                   .detail = "clear() -> void"});
-  addCandidate(out, seen,
-               CompletionCandidate{.label = "push",
-                                   .kind = ::lsp::CompletionItemKind::Method,
-                                   .detail = "push(value: " + elemStr + ") -> void"});
-  addCandidate(out, seen,
-               CompletionCandidate{.label = "pop",
-                                   .kind = ::lsp::CompletionItemKind::Method,
-                                   .detail = "pop() -> " + elemStr});
-  addCandidate(out, seen,
-               CompletionCandidate{.label = "copy",
-                                   .kind = ::lsp::CompletionItemKind::Method,
-                                   .detail = "copy() -> " + formatBufferArrayTypeName(bufferType, root)});
+
+  auto detailForName = [&](std::string_view name) -> std::string {
+    using OperatorUtils::SUBSCRIPT_GET_NAME;
+    using OperatorUtils::SUBSCRIPT_SET_NAME;
+    if (name == "len") {
+      return "len() -> int";
+    }
+    if (name == "clear") {
+      return "clear() -> void";
+    }
+    if (name == "push") {
+      return "push(value: " + elemStr + ") -> void";
+    }
+    if (name == "pop") {
+      return "pop() -> " + elemStr;
+    }
+    if (name == "copy") {
+      return "copy() -> " + formatBufferArrayTypeName(bufferType, root);
+    }
+    if (name == SUBSCRIPT_GET_NAME) {
+      return std::string{SUBSCRIPT_GET_NAME} + "(index: int) -> " + elemStr;
+    }
+    if (name == SUBSCRIPT_SET_NAME) {
+      return std::string{SUBSCRIPT_SET_NAME} + "(index: int, value: " + elemStr + ") -> void";
+    }
+    return std::string{name};
+  };
+
+  for (std::string_view name : OperatorUtils::BUILTIN_LIST_METHOD_NAMES) {
+    addCandidate(out, seen,
+                 CompletionCandidate{.label = std::string{name},
+                                     .kind = ::lsp::CompletionItemKind::Method,
+                                     .detail = detailForName(name)});
+  }
 }
 
 void appendMembersForType(AnalysisResult& result, Type* baseType, Compound* ast, SymbolTable* root,
