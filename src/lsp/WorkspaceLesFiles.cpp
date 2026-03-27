@@ -79,12 +79,12 @@ auto tryListLesFilesViaGitRepository(std::string const& workspaceRoot)
                                                                        git_repository_free);
 
   std::unordered_set<std::string> relPaths;
-  auto addRel = [&](char const* rel) {
+  auto addRel = [&](char const* rel) -> void {
     if (isLesRelativePath(rel)) {
       relPaths.emplace(rel);
     }
   };
-  auto removeRel = [&](char const* rel) {
+  auto removeRel = [&](char const* rel) -> void {
     if (isLesRelativePath(rel)) {
       relPaths.erase(rel);
     }

@@ -53,7 +53,7 @@ auto Codegen::getListStoredElementValue(llvm::SMRange span, lesma::Value* value,
 auto Codegen::emitCalloc(llvm::Value* count, llvm::Value* size, const llvm::Twine& name)
     -> llvm::Value* {
   auto callocFn = theModule->getOrInsertFunction(
-      std::string{codegen::runtime::kCalloc},
+      std::string{codegen::runtime::CALLOC},
       llvm::FunctionType::get(builder->getPtrTy(), {builder->getInt64Ty(), builder->getInt64Ty()},
                               false));
   return builder->CreateCall(callocFn, {count, size}, name);
@@ -61,7 +61,7 @@ auto Codegen::emitCalloc(llvm::Value* count, llvm::Value* size, const llvm::Twin
 
 auto Codegen::emitMalloc(llvm::Value* size, const llvm::Twine& name) -> llvm::Value* {
   auto mallocFn = theModule->getOrInsertFunction(
-      std::string{codegen::runtime::kMalloc},
+      std::string{codegen::runtime::MALLOC},
       llvm::FunctionType::get(builder->getPtrTy(), {builder->getInt64Ty()}, false));
   return builder->CreateCall(mallocFn, {size}, name);
 }
@@ -69,7 +69,7 @@ auto Codegen::emitMalloc(llvm::Value* size, const llvm::Twine& name) -> llvm::Va
 auto Codegen::emitRealloc(llvm::Value* ptr, llvm::Value* size, const llvm::Twine& name)
     -> llvm::Value* {
   auto reallocFn = theModule->getOrInsertFunction(
-      std::string{codegen::runtime::kRealloc},
+      std::string{codegen::runtime::REALLOC},
       llvm::FunctionType::get(builder->getPtrTy(), {builder->getPtrTy(), builder->getInt64Ty()},
                               false));
   return builder->CreateCall(reallocFn, {ptr, size}, name);
@@ -77,14 +77,14 @@ auto Codegen::emitRealloc(llvm::Value* ptr, llvm::Value* size, const llvm::Twine
 
 auto Codegen::emitFree(llvm::Value* ptr) -> void {
   auto freeFn = theModule->getOrInsertFunction(
-      std::string{codegen::runtime::kFree},
+      std::string{codegen::runtime::FREE},
       llvm::FunctionType::get(builder->getVoidTy(), {builder->getPtrTy()}, false));
   builder->CreateCall(freeFn, {ptr});
 }
 
 auto Codegen::emitExit(int code) -> void {
   auto exitFn = theModule->getOrInsertFunction(
-      std::string{codegen::runtime::kExit},
+      std::string{codegen::runtime::EXIT},
       llvm::FunctionType::get(builder->getVoidTy(), {builder->getInt64Ty()}, false));
   builder->CreateCall(exitFn, {builder->getInt64(code)});
 }
@@ -279,7 +279,7 @@ auto Codegen::emitListDeepCopy(lesma::Type* listType, llvm::Value* listHandle) -
     builder->CreateBr(loopCond);
   } else {
     auto memcpyFn = theModule->getOrInsertFunction(
-        std::string{codegen::runtime::kMemcpy},
+        std::string{codegen::runtime::MEMCPY},
         llvm::FunctionType::get(builder->getPtrTy(),
                                 {builder->getPtrTy(), builder->getPtrTy(), builder->getInt64Ty()},
                                 false));

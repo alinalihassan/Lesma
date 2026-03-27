@@ -2516,7 +2516,7 @@ namespace {
     return false;
   }
   llvm::StringRef calleeName = callee->getName();
-  return std::string_view{calleeName.data(), calleeName.size()} == codegen::runtime::kMalloc;
+  return std::string_view{calleeName.data(), calleeName.size()} == codegen::runtime::MALLOC;
 }
 } // namespace
 
@@ -2525,10 +2525,10 @@ auto Codegen::emitCstrConcatValues(llvm::SMRange span, llvm::Value* a, llvm::Val
   (void) span;
   llvm::Type* i8 = llvm::Type::getInt8Ty(theModule->getContext());
   auto strlenFn = theModule->getOrInsertFunction(
-      std::string{codegen::runtime::kStrlen},
+      std::string{codegen::runtime::STRLEN},
       llvm::FunctionType::get(builder->getInt64Ty(), {builder->getPtrTy()}, false));
   auto memcpyFn = theModule->getOrInsertFunction(
-      std::string{codegen::runtime::kMemcpy},
+      std::string{codegen::runtime::MEMCPY},
       llvm::FunctionType::get(builder->getPtrTy(),
                               {builder->getPtrTy(), builder->getPtrTy(), builder->getInt64Ty()},
                               false));

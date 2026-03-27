@@ -157,7 +157,7 @@ public:
   }
   [[nodiscard]] auto usesDirectLlvmValue() const -> bool { return !usesAddressableStorage(); }
 
-  auto toString() const -> std::string {
+  [[nodiscard]] auto toString() const -> std::string {
     std::string typeStr;
     std::string valueStr;
     llvm::raw_string_ostream rso(typeStr);

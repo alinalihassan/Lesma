@@ -288,13 +288,13 @@ auto Codegen::initializeModule() -> std::unique_ptr<Module> {
   std::unique_ptr<Module> mod;
 #if LLVM_VERSION_MAJOR >= 21
   theContext->withContextDo([&mod](LLVMContext* ctx) {
-    mod = std::make_unique<Module>(std::string{codegen::runtime::kLlvmModuleName}, *ctx);
+    mod = std::make_unique<Module>(std::string{codegen::runtime::LLVM_MODULE_NAME}, *ctx);
   });
 #else
   {
     auto lock = theContext->getLock();
     LLVMContext* ctx = theContext->getContext();
-    mod = std::make_unique<Module>(std::string{codegen::runtime::kLlvmModuleName}, *ctx);
+    mod = std::make_unique<Module>(std::string{codegen::runtime::LLVM_MODULE_NAME}, *ctx);
   }
 #endif
 #if LLVM_VERSION_MAJOR >= 21
@@ -590,7 +590,7 @@ auto Codegen::run() -> void {
   // Done here (not in constructor) to avoid re-entrancy when creating Codegens for imported
   // modules.
   std::vector<std::string> const implicitStdlibModules = {
-      std::string{codegen::runtime::kImplicitStdlibModule}};
+      std::string{codegen::runtime::IMPLICIT_STDLIB_MODULE}};
   auto const currentPath = normalizeResolvedFilesystemPath(filename);
   auto const basePath =
       normalizeResolvedFilesystemPath((std::filesystem::path(getStdDir()) / "base.les").string());

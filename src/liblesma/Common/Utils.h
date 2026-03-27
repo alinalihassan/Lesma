@@ -73,7 +73,7 @@ public:
   // return types
   template <typename F>
   auto measure(const std::string& operation, F&& func) -> decltype(auto) {
-    auto recordElapsed = [this, &operation](double elapsed) {
+    auto recordElapsed = [this, &operation](double elapsed) -> auto {
       total += elapsed;
       if (enabled) {
         print(LogType::DEBUG, "{} -> {:.2f} ms\n", operation, elapsed);

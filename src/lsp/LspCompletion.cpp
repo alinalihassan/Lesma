@@ -24,7 +24,7 @@ namespace lesma::lsp_srv {
 namespace {
 
 /** Inserted after `.` so `holder.` re-parses as member access (see completionItems). */
-constexpr std::string_view memberCompletionPlaceholder = "__cursor__";
+constexpr std::string_view MEMBER_COMPLETION_PLACEHOLDER = "__cursor__";
 
 using namespace lesma;
 using lesma::lsp_srv::formatTypeName;
@@ -169,14 +169,14 @@ auto extractCompletionContext(llvm::StringRef text, unsigned offset) -> Completi
 auto reanalyzeWithCompletionPlaceholder(const AnalysisResult& result, llvm::StringRef text,
                                         unsigned offset) -> AnalysisResult {
   std::string patchedText(text.data(), text.size());
-  patchedText.insert(static_cast<size_t>(offset), memberCompletionPlaceholder);
+  patchedText.insert(static_cast<size_t>(offset), MEMBER_COMPLETION_PLACEHOLDER);
   auto options = std::make_unique<Options>(Options{
-      SourceType::STRING,
-      std::move(patchedText),
-      Debug::NONE,
-      "output",
-      false,
-      result.mainFilePath,
+      .sourceType = SourceType::STRING,
+      .source = std::move(patchedText),
+      .debug = Debug::NONE,
+      .outputFilename = "output",
+      .timer = false,
+      .implicitFilePath = result.mainFilePath,
   });
   return analyze(std::move(options));
 }
@@ -696,8 +696,7 @@ auto completionItems(AnalysisResult& result, unsigned line, unsigned character)
     if (baseType == nullptr && parts.size() == 1U && parts.front() == "self") {
       baseType = resolveSelfReceiverType(ast, offset, srcMgr, bufferId, root);
     }
-    if (parts.size() == 1U && activeResult->importAliasToPath.find(parts.front()) !=
-                                  activeResult->importAliasToPath.end()) {
+    if (parts.size() == 1U && activeResult->importAliasToPath.contains(parts.front())) {
       appendModuleMembersForAlias(*activeResult, parts.front(), candidates, seen);
     }
     appendMembersForType(*activeResult, baseType, ast, root, candidates, seen);
