@@ -1573,8 +1573,10 @@ auto appendCallParameterInlayHints(const AnalysisResult& analysisResult, unsigne
         receiverType = resolveExpressionTypeAtOffset(receiver, ast, root, srcMgr, bufferId,
                                                     callStartOffset);
       }
-      candidates =
-          collectCallableCandidates(scope, call->getName(), receiverType, argTypes);
+      if (receiver == nullptr || receiverType != nullptr) {
+        candidates =
+            collectCallableCandidates(scope, call->getName(), receiverType, argTypes);
+      }
       if (resolvedSym != nullptr) {
         std::vector<CallableCandidate> narrowed;
         for (const CallableCandidate& c : candidates) {
