@@ -1165,6 +1165,7 @@ auto Codegen::visit(const Assignment* node) -> void {
   auto value = cast(node->getSpan(), result.get(),
                     isPtr ? lhs->getType()->getElementType() : lhs->getType());
 
+  setDebugLoc(node->getSpan());
   switch (node->getOperator()) {
   case TokenType::EQUAL:
     builder->CreateStore(value->getLlvmValue(), lhs->getLlvmValue());
