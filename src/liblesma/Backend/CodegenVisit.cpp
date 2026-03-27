@@ -83,7 +83,8 @@ Codegen::Codegen(std::shared_ptr<Parser> parser, std::shared_ptr<SourceMgr> srcM
                  std::vector<std::unique_ptr<lesma::Type>> preTypeCache,
                  std::unordered_map<lesma::Type*, std::unordered_map<std::string, lesma::Type*>>
                      preSpecializedClassTypeEnvs,
-                 bool emitDebug, llvm::OptimizationLevel optimizationLevelForDebugArg) {
+                 bool emitDebug, llvm::OptimizationLevel optimizationLevelForDebugArg,
+                 std::shared_ptr<std::vector<std::string>> sharedPendingJitModuleInits) {
   InitializeNativeTarget();
   InitializeNativeTargetAsmPrinter();
   InitializeNativeTargetAsmParser();
@@ -114,6 +115,12 @@ Codegen::Codegen(std::shared_ptr<Parser> parser, std::shared_ptr<SourceMgr> srcM
   this->filename = filename;
   isMain = main;
   isJit = jit;
+
+  if (sharedPendingJitModuleInits != nullptr) {
+    pendingJitModuleInits = std::move(sharedPendingJitModuleInits);
+  } else if (jit) {
+    pendingJitModuleInits = std::make_shared<std::vector<std::string>>();
+  }
 
   if (sharedModules && sharedScopes) {
     importedModules = std::move(sharedModules);

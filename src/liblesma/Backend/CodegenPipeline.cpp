@@ -561,6 +561,19 @@ auto Codegen::prepareJit() -> void {
                                "': " + llvmErrorToString(mainFuncOrErr.takeError()));
   }
   mainFuncAddress = mainFuncOrErr->toPtr<MainFnTy>();
+
+  if (pendingJitModuleInits != nullptr) {
+    for (const std::string& sym : *pendingJitModuleInits) {
+      Expected<ExecutorAddr> initAddr = theJit->lookup(sym);
+      if (!initAddr) {
+        throw CodegenError({}, std::string("JIT could not resolve module initializer ") + sym +
+                                   ": " + llvmErrorToString(initAddr.takeError()));
+      }
+      using ModuleInitTy = int64_t();
+      std::ignore = initAddr->toPtr<ModuleInitTy>()();
+    }
+    pendingJitModuleInits->clear();
+  }
 }
 
 auto Codegen::executeJit() -> int {

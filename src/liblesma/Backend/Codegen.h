@@ -58,6 +58,8 @@ class Codegen final : public ASTVisitor {
   std::unique_ptr<IRBuilder<>> builder;
 
   std::unique_ptr<LLJIT> theJit;
+  /// JIT: mangled per-import init symbols; run from \c prepareJit (shared across nested imports).
+  std::shared_ptr<std::vector<std::string>> pendingJitModuleInits;
   std::unique_ptr<llvm::TargetMachine> targetMachine;
   std::shared_ptr<Parser> parser;
   std::shared_ptr<SourceMgr> sourceManager;
@@ -135,7 +137,8 @@ public:
           std::unordered_map<lesma::Type*, std::unordered_map<std::string, lesma::Type*>>
               preSpecializedClassTypeEnvs = {},
           bool emitDebug = false,
-          llvm::OptimizationLevel optimizationLevelForDebugArg = llvm::OptimizationLevel::O3);
+          llvm::OptimizationLevel optimizationLevelForDebugArg = llvm::OptimizationLevel::O3,
+          std::shared_ptr<std::vector<std::string>> sharedPendingJitModuleInits = nullptr);
   ~Codegen() override;
 
   Codegen(const Codegen&) = delete;

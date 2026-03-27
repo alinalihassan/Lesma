@@ -291,7 +291,7 @@ auto Codegen::compileModule(llvm::SMRange span, const std::string& filepath, boo
         std::move(parser), sourceManager, absolutePath, std::vector<std::string>{}, isJit, false,
         !importToScope ? moduleAlias : "", theContext, importedModules, importedScopes,
         std::move(preScope), std::move(preTypeCache), std::move(preSpecEnv), emitDebugInfo,
-        OptimizationLevel::O0);
+        OptimizationLevel::O0, pendingJitModuleInits);
     codegen->run();
     mergeImportedTraitMetadata(*codegen);
 
@@ -305,17 +305,6 @@ auto Codegen::compileModule(llvm::SMRange span, const std::string& filepath, boo
       importAliasToModulePath[moduleAlias] = absolutePath;
     }
     exposeImportedSymbols(span, codegen->rootScope.get(), importAll, importToScope, importedNames);
-
-    bool needsExportedVarInit = false;
-    if (SymbolTable* importedRoot = codegen->rootScope.get()) {
-      for (auto* sym : importedRoot->getSymbols()) {
-        if (sym != nullptr && sym->getDeclarationKind() == ValueDeclarationKind::VARIABLE &&
-            sym->isExported()) {
-          needsExportedVarInit = true;
-          break;
-        }
-      }
-    }
 
     importedScopes->push_back(std::move(codegen->rootScope));
     codegen->scope = nullptr; // Clear navigation pointer (rootscope now moved)
@@ -349,15 +338,8 @@ auto Codegen::compileModule(llvm::SMRange span, const std::string& filepath, boo
         throw CodegenError(span, std::string("Failed adding import to JIT: ") + absolutePath +
                                      ": " + jitErrorToString(std::move(jitErr)));
       }
-      if (!jitModuleInitSymbol.empty() && needsExportedVarInit) {
-        Expected<ExecutorAddr> initAddr = theJit->lookup(jitModuleInitSymbol);
-        if (!initAddr) {
-          throw CodegenError(span, std::string("JIT could not resolve module initializer ") +
-                                       jitModuleInitSymbol + ": " +
-                                       jitErrorToString(initAddr.takeError()));
-        }
-        using ModuleInitTy = int64_t();
-        std::ignore = initAddr->toPtr<ModuleInitTy>()();
+      if (!jitModuleInitSymbol.empty() && pendingJitModuleInits != nullptr) {
+        pendingJitModuleInits->push_back(jitModuleInitSymbol);
       }
       codegen->theModule = codegen->initializeModule();
     } else {
