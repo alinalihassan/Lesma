@@ -1244,6 +1244,16 @@ auto findActiveCallInExpr(const lesma::Expression* expr, llvm::SourceMgr* srcMgr
     for (lesma::Expression* e : si->getExprs()) {
       findActiveCallInExpr(e, srcMgr, bufferId, targetOffset, nullptr, best);
     }
+    return;
+  }
+  if (auto const* dict = dynamic_cast<const lesma::DictLiteral*>(expr)) {
+    for (lesma::Expression* k : dict->getKeys()) {
+      findActiveCallInExpr(k, srcMgr, bufferId, targetOffset, nullptr, best);
+    }
+    for (lesma::Expression* v : dict->getValues()) {
+      findActiveCallInExpr(v, srcMgr, bufferId, targetOffset, nullptr, best);
+    }
+    return;
   }
 }
 
