@@ -4075,6 +4075,14 @@ auto Typechecker::visit(const ListLiteral* node) -> void {
 
 auto Typechecker::visit(const DictLiteral* node) -> void {
   Type* expectedType = currentExpectedType();
+  // Return contexts use wrapReturnTypeIfNominal(), so e.g. dict<K,V> may appear as ptr dict<K,V>.
+  // Stdlib dict specialization maps live on the class type, not the pointer wrapper.
+  Type* dictExpectedShape = expectedType;
+  while (dictExpectedShape != nullptr && dictExpectedShape->is(BaseType::TY_PTR) &&
+         dictExpectedShape->getElementType() != nullptr &&
+         dictExpectedShape->getElementType()->is(BaseType::TY_CLASS)) {
+    dictExpectedShape = dictExpectedShape->getElementType();
+  }
   auto isStdDictClassType = [this](Type* type) -> bool {
     if (type == nullptr || !type->is(BaseType::TY_CLASS)) {
       return false;
@@ -4130,9 +4138,9 @@ auto Typechecker::visit(const DictLiteral* node) -> void {
 
   Type* expectedKeyType = nullptr;
   Type* expectedValueType = nullptr;
-  if (expectedType != nullptr) {
-    expectedKeyType = getStdDictKeyType(expectedType);
-    expectedValueType = getStdDictValueType(expectedType);
+  if (dictExpectedShape != nullptr) {
+    expectedKeyType = getStdDictKeyType(dictExpectedShape);
+    expectedValueType = getStdDictValueType(dictExpectedShape);
   }
 
   std::vector<Expression*> const keys = node->getKeys();
@@ -4202,8 +4210,8 @@ auto Typechecker::visit(const DictLiteral* node) -> void {
     }
   }
 
-  if (expectedType != nullptr && (getStdDictKeyType(expectedType) == nullptr ||
-                                  getStdDictValueType(expectedType) == nullptr)) {
+  if (expectedType != nullptr && (getStdDictKeyType(dictExpectedShape) == nullptr ||
+                                  getStdDictValueType(dictExpectedShape) == nullptr)) {
     throw TypeCheckError(node->getSpan(), "Dict literal is not compatible with expected type {}",
                          expectedType->toString());
   }
