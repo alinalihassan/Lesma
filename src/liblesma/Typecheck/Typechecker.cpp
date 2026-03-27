@@ -1008,14 +1008,23 @@ auto Typechecker::inferGenericBindings(Type* pattern, Type* actual,
   }
   if (pattern->is(BaseType::TY_GENERIC)) {
     const std::string genericName = pattern->getGenericName();
+    // Class-typed arguments use pointer types at the call/overload boundary (`*U`) while generic
+    // bindings and class specializations use the nominal class type `U`. Bind the parameter to
+    // the pointee so inference matches `specializedTypeEnv` and method signatures written as `K`.
+    Type* bindingActual = actual;
+    Type* const pointee =
+        actual != nullptr && actual->is(BaseType::TY_PTR) ? actual->getElementType() : nullptr;
+    if (pointee != nullptr && pointee->isNominal()) {
+      bindingActual = pointee;
+    }
     auto it = bindings.find(genericName);
     if (it == bindings.end()) {
-      bindings[genericName] = actual;
+      bindings[genericName] = bindingActual;
       return;
     }
-    if (!actual->isEqual(it->second)) {
+    if (!bindingActual->isEqual(it->second)) {
       throw TypeCheckError(span, "Conflicting inferred types for generic parameter {}: {} and {}",
-                           genericName, it->second->toString(), actual->toString());
+                           genericName, it->second->toString(), bindingActual->toString());
     }
     return;
   }

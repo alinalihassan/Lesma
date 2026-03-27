@@ -168,6 +168,12 @@ export class dict<K, V>
         __buffer_push(self.keys, key)
         __buffer_push(self.vals, value)
 
+    def operator [](key: K) -> V
+        return self.get(key)
+
+    def operator []=(key: K, value: V)
+        self.set(key, value)
+
 export class str_iter impl Iterator<uint8>
     var storage: cstr
     var __scan: int = 0
