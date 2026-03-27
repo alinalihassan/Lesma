@@ -357,6 +357,7 @@ auto Codegen::visit(const VarDecl* node) -> void {
     llvm::Value* agg = valueResult->getLlvmValue();
     std::vector<Field*> const tf = valueResult->getType()->getFields();
     std::vector<Value*> const& resolvedUnpack = node->getResolvedSymbols();
+    llvm::Function* parentFct = builder->GetInsertBlock()->getParent();
     for (size_t i = 0; i < unpackNames.size(); ++i) {
       std::string const elemName = unpackNames[i]->getValue();
       lesma::Type* elemTy = tf[i]->type;
@@ -371,7 +372,7 @@ auto Codegen::visit(const VarDecl* node) -> void {
       llvm::Type* allocaTy = (elemTy->is(BaseType::TY_CLASS) || isPtrToClass)
                                  ? builder->getPtrTy()
                                  : elemTy->getLlvmType();
-      auto* ptr = builder->CreateAlloca(allocaTy, nullptr, elemName);
+      llvm::AllocaInst* ptr = createAllocaInEntry(parentFct, allocaTy, elemName);
       if (elemTy->is(BaseType::TY_CLASS)) {
         lesma::Type* ptrType =
             cacheType(std::make_unique<Type>(BaseType::TY_PTR, builder->getPtrTy(), elemTy));
@@ -465,7 +466,8 @@ auto Codegen::visit(const VarDecl* node) -> void {
       return;
     }
 
-    auto* ptr = builder->CreateAlloca(storageLlvmTy, nullptr, name);
+    llvm::Function* parentFct = builder->GetInsertBlock()->getParent();
+    llvm::AllocaInst* ptr = createAllocaInEntry(parentFct, storageLlvmTy, name);
     existing->setLlvmValue(ptr);
     existing->setCategory(ValueCategory::ADDRESSABLE_STORAGE);
     existing->setMutable(node->getMutability());
@@ -501,7 +503,8 @@ auto Codegen::visit(const VarDecl* node) -> void {
   }
 
   getOrCreateLlvmType(type);
-  auto* ptr = builder->CreateAlloca(type->getLlvmType(), nullptr, name);
+  llvm::Function* parentFct = builder->GetInsertBlock()->getParent();
+  llvm::AllocaInst* ptr = createAllocaInEntry(parentFct, type->getLlvmType(), name);
 
   if (type->is(BaseType::TY_CLASS)) {
     type = cacheType(std::make_unique<Type>(BaseType::TY_PTR, builder->getPtrTy(), type));
