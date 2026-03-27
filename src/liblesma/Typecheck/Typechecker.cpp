@@ -1792,7 +1792,7 @@ void Typechecker::emitWarning(llvm::SMRange span, std::string message) {
 
 void Typechecker::recoverFromTypeError(const TypeCheckError& err) {
   if (warningDiagnostics == nullptr) {
-    throw;
+    throw err;
   }
   if (!mainFilePath.empty() && isStdlibSourcePath(mainFilePath)) {
     throw TypeCheckError(err.getSpan(), std::string(err.what()));
