@@ -9,6 +9,7 @@
 
 #include "liblesma/AST/AST.h"
 #include "liblesma/Common/LesmaError.h"
+#include "liblesma/Driver/AnalysisDiagnostic.h"
 #include "liblesma/Token/Token.h"
 #include "liblesma/Token/TokenType.h"
 
@@ -20,7 +21,9 @@ public:
 
 class Parser {
 public:
-  explicit Parser(std::vector<Token*> tokens) : tokens(std::move(tokens)) {}
+  explicit Parser(std::vector<Token*> tokens,
+                  std::vector<AnalysisDiagnostic>* diagnosticSink = nullptr)
+      : tokens(std::move(tokens)), diagnosticsOut(diagnosticSink) {}
   ~Parser() = default;
 
   Parser(const Parser&) = delete;
@@ -73,8 +76,14 @@ private:
   bool inClass = false;
   bool isExported = false;
   std::unique_ptr<Compound> tree;
+  /** When non-null, parse errors are recorded here and parsing continues where possible. */
+  std::vector<AnalysisDiagnostic>* diagnosticsOut = nullptr;
 
-  static auto error(Token* token, const std::string& errorMessage) -> void;
+  auto error(Token* token, const std::string& errorMessage) -> void;
+  auto error(llvm::SMRange span, const std::string& errorMessage) -> void;
+  /** Skip tokens until the next newline (or EOF) after a recovered parse error. */
+  auto synchronizeToNextLine() -> void;
+  auto recoverFromParserError(const ParserError& err) -> void;
 
   auto parseCompound() -> std::unique_ptr<Compound>;
   auto parseBlock() -> std::unique_ptr<Compound>;
@@ -120,6 +129,7 @@ private:
   auto parseCast() -> std::unique_ptr<Expression>;
   auto parseUnary() -> std::unique_ptr<Expression>;
   auto parseTerm() -> std::unique_ptr<Expression>;
+  auto parseStringInterpolation() -> std::unique_ptr<Expression>;
   auto parseFunctionCall() -> std::unique_ptr<Expression>;
   auto parseListLiteral() -> std::unique_ptr<Expression>;
 

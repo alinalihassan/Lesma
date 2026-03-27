@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cstddef>
+#include <filesystem>
 #include <memory>
 #include <string>
 #include <unordered_map>
@@ -15,6 +16,29 @@
 #include "liblesma/Symbol/Value.h"
 
 using namespace lesma;
+
+namespace {
+
+[[nodiscard]] auto sameResolvedModulePath(const std::string& a, const std::string& b) -> bool {
+  if (a.empty() || b.empty()) {
+    return false;
+  }
+  std::error_code ec;
+  const std::filesystem::path pa = std::filesystem::absolute(a, ec);
+  if (ec) {
+    return false;
+  }
+  const std::filesystem::path pb = std::filesystem::absolute(b, ec);
+  if (ec) {
+    return false;
+  }
+  if (pa.lexically_normal() == pb.lexically_normal()) {
+    return true;
+  }
+  return std::filesystem::equivalent(pa, pb, ec) && !ec;
+}
+
+} // namespace
 
 Field::Field(std::string n, Type* t) : name(std::move(n)), type(t) {}
 
@@ -404,6 +428,15 @@ auto SymbolTable::lookup(const std::string& name) -> Value* {
   }
   if (typeNominal != nullptr) {
     return typeNominal;
+  }
+  if (importStub != nullptr && fallback != nullptr && fallback->getType() != nullptr &&
+      !fallback->getType()->is(BaseType::TY_IMPORT)) {
+    Type* stubTy = importStub->getType();
+    if (stubTy == nullptr || !stubTy->is(BaseType::TY_IMPORT) ||
+        !sameResolvedModulePath(stubTy->getDeclarationFilePath(),
+                                fallback->getDeclarationFilePath())) {
+      return fallback;
+    }
   }
   if (importStub != nullptr) {
     return importStub;

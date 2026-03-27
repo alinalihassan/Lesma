@@ -23,6 +23,7 @@ class Defer;
 class UnimplementedStatement;
 class Expression;
 class Literal;
+class StringInterpolation;
 class FuncCall;
 class BinaryOp;
 class SubscriptOp;
@@ -65,6 +66,7 @@ public:
 
   virtual auto visit(const Expression* node) -> void = 0;
   virtual auto visit(const Literal* node) -> void = 0;
+  virtual auto visit(const StringInterpolation* node) -> void = 0;
   virtual auto visit(const FuncCall* node) -> void = 0;
   virtual auto visit(const BinaryOp* node) -> void = 0;
   virtual auto visit(const SubscriptOp* node) -> void = 0;

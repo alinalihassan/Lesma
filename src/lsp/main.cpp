@@ -15,8 +15,8 @@
 #include "DocumentStore.h"
 #include "LspAnalysisGraph.h"
 #include "LspCompletion.h"
+#include "LspSourceHelpers.h"
 #include "LspTypeFormat.h"
-#include "LspUtf16.h"
 #include <lsp/connection.h>
 #include <lsp/io/standardio.h>
 #include <lsp/messagehandler.h>
@@ -102,17 +102,6 @@ struct SymbolIdentity {
   ::lsp::Range range;
   std::string name;
 };
-
-auto getOffsetFromSMLoc(llvm::SourceMgr* srcMgr, unsigned bufferId, llvm::SMLoc loc) -> unsigned;
-
-auto smRangesEqual(llvm::SourceMgr* srcMgr, unsigned bufferId, llvm::SMRange lhs, llvm::SMRange rhs)
-    -> bool {
-  return lhs.isValid() && rhs.isValid() &&
-         getOffsetFromSMLoc(srcMgr, bufferId, lhs.Start) ==
-             getOffsetFromSMLoc(srcMgr, bufferId, rhs.Start) &&
-         getOffsetFromSMLoc(srcMgr, bufferId, lhs.End) ==
-             getOffsetFromSMLoc(srcMgr, bufferId, rhs.End);
-}
 
 template <typename FuncLike>
 auto resolveFuncLikeDeclarationSymbol(const FuncLike* node, llvm::SourceMgr* srcMgr,
@@ -298,10 +287,13 @@ auto runAnalyzeAndPublish(const ::lsp::DocumentUri& uri,
   std::vector<::lsp::Diagnostic> lspDiagnostics;
   for (const auto& d : result.diagnostics) {
     ::lsp::Range range = smRangeToLspRange(result.sourceMgr.get(), result.mainBufferId, d.span);
+    ::lsp::DiagnosticSeverity const sev = d.severity == lesma::AnalysisDiagnosticSeverity::Warning
+                                              ? ::lsp::DiagnosticSeverity::Warning
+                                              : ::lsp::DiagnosticSeverity::Error;
     lspDiagnostics.push_back(::lsp::Diagnostic{
         .range = range,
         .message = d.message,
-        .severity = ::lsp::Opt<::lsp::DiagnosticSeverityEnum>(::lsp::DiagnosticSeverity::Error),
+        .severity = ::lsp::Opt<::lsp::DiagnosticSeverityEnum>(sev),
     });
   }
 
@@ -398,71 +390,13 @@ auto containsGenericParam(const std::vector<std::string>& genericParams, const s
   return std::ranges::find(genericParams, name) != genericParams.end();
 }
 
-auto getOffsetFromSMLoc(llvm::SourceMgr* srcMgr, unsigned bufferId, llvm::SMLoc loc) -> unsigned {
-  auto const* buf = srcMgr->getMemoryBuffer(bufferId);
-  if (buf == nullptr) {
-    return 0U;
-  }
-  return static_cast<unsigned>(loc.getPointer() - buf->getBufferStart());
-}
+using InnermostFunc =
+    lesma::lsp_srv::InnermostFuncAtOffset<const lesma::FuncDecl, const lesma::Class>;
 
-struct InnermostFunc {
-  const lesma::FuncDecl* func = nullptr;
-  const lesma::Class* enclosingClass = nullptr;
-};
-
-auto considerFunc(const lesma::FuncDecl* f, const lesma::Class* cls, unsigned targetOffset,
-                  llvm::SourceMgr* sm, unsigned bid, InnermostFunc& best, unsigned& bestLen)
-    -> void {
-  if (f->getBody() == nullptr) {
-    return;
-  }
-  llvm::SMRange span = f->getBody()->getSpan();
-  if (!span.isValid()) {
-    return;
-  }
-  unsigned const a = getOffsetFromSMLoc(sm, bid, span.Start);
-  unsigned const b = getOffsetFromSMLoc(sm, bid, span.End);
-  if (targetOffset < a || targetOffset >= b) {
-    return;
-  }
-  unsigned const len = b - a;
-  if (best.func == nullptr || len < bestLen) {
-    best.func = f;
-    best.enclosingClass = cls;
-    bestLen = len;
-  }
-}
-
-auto scanCompoundForFuncs(lesma::Compound* c, lesma::Class* cls, unsigned targetOffset,
-                          llvm::SourceMgr* sm, unsigned bid, InnermostFunc& best, unsigned& bestLen)
-    -> void {
-  if (c == nullptr) {
-    return;
-  }
-  for (lesma::Statement* s : c->getChildren()) {
-    if (auto* f = dynamic_cast<lesma::FuncDecl*>(s)) {
-      considerFunc(f, cls, targetOffset, sm, bid, best, bestLen);
-      if (f->getBody() != nullptr) {
-        scanCompoundForFuncs(f->getBody(), cls, targetOffset, sm, bid, best, bestLen);
-      }
-    } else if (auto* st = dynamic_cast<lesma::Class*>(s)) {
-      for (lesma::FuncDecl* m : st->getMethods()) {
-        considerFunc(m, st, targetOffset, sm, bid, best, bestLen);
-        if (m->getBody() != nullptr) {
-          scanCompoundForFuncs(m->getBody(), st, targetOffset, sm, bid, best, bestLen);
-        }
-      }
-    }
-  }
-}
-
-InnermostFunc findInnermostFuncContaining(lesma::Compound* ast, unsigned targetOffset,
-                                          llvm::SourceMgr* sm, unsigned bid) {
-  InnermostFunc best;
-  unsigned bestLen = 0U;
-  scanCompoundForFuncs(ast, nullptr, targetOffset, sm, bid, best, bestLen);
-  return best;
+[[nodiscard]] auto findInnermostFuncContaining(lesma::Compound* ast, unsigned targetOffset,
+                                               llvm::SourceMgr* sm, unsigned bid) -> InnermostFunc {
+  return lesma::lsp_srv::findInnermostFuncContainingAst<const lesma::FuncDecl, const lesma::Class>(
+      ast, targetOffset, sm, bid);
 }
 
 /** Find function (or method) whose signature contains the cursor (name or any parameter).
@@ -716,7 +650,7 @@ auto lookupValueForHover(lesma::Compound* ast, lesma::SymbolTable* root, llvm::S
     return nullptr;
   }
   auto const targetOffset = static_cast<unsigned>(
-      lesma::lsp_srv::bufferByteOffsetFromLspPosition(buf->getBuffer(), line, character));
+      lesma::lsp_srv::bufferByteOffsetFromLspUtf8Position(buf->getBuffer(), line, character));
 
   // If cursor is in a function's signature (e.g. on a parameter or function name), use the resolved
   // symbol. Use the symbol the typechecker resolved for this exact overload (getResolvedSymbol).
@@ -801,7 +735,7 @@ auto findIndexedSymbolOccurrenceAtCursor(const AnalysisView& analysis, unsigned 
     return nullptr;
   }
   unsigned const targetOffset = static_cast<unsigned>(
-      lesma::lsp_srv::bufferByteOffsetFromLspPosition(buf->getBuffer(), line, character));
+      lesma::lsp_srv::bufferByteOffsetFromLspUtf8Position(buf->getBuffer(), line, character));
   const lesma::IndexedSymbolOccurrence* best = nullptr;
   unsigned bestLen = 0U;
   bool bestContains = false;
@@ -860,10 +794,12 @@ auto collectInlayHints(const AnalysisResult& analysisResult, unsigned bufferId,
   }
 
   llvm::StringRef const text = buf->getBuffer();
-  unsigned const rangeStart = static_cast<unsigned>(lesma::lsp_srv::bufferByteOffsetFromLspPosition(
-      text, range.start.line, range.start.character));
-  unsigned const rangeEnd = static_cast<unsigned>(
-      lesma::lsp_srv::bufferByteOffsetFromLspPosition(text, range.end.line, range.end.character));
+  unsigned const rangeStart =
+      static_cast<unsigned>(lesma::lsp_srv::bufferByteOffsetFromLspUtf8Position(
+          text, range.start.line, range.start.character));
+  unsigned const rangeEnd =
+      static_cast<unsigned>(lesma::lsp_srv::bufferByteOffsetFromLspUtf8Position(
+          text, range.end.line, range.end.character));
 
   auto isInRequestedRange = [&](llvm::SMRange span) -> bool {
     if (!span.isValid()) {
@@ -1171,6 +1107,13 @@ auto resolveExpressionTypeAtOffset(const lesma::Expression* expr, lesma::Compoun
       return nullptr;
     }
   }
+  if (auto const* sip = dynamic_cast<const lesma::StringInterpolation*>(expr)) {
+    lesma::Type* strClass = sip->getResolvedStrClassType();
+    if (strClass != nullptr) {
+      return strClass;
+    }
+    return root->lookupType("str");
+  }
   if (auto const* list = dynamic_cast<const lesma::ListLiteral*>(expr)) {
     if (list->getResolvedType() != nullptr) {
       return list->getResolvedType();
@@ -1254,6 +1197,12 @@ auto findActiveCallInExpr(const lesma::Expression* expr, llvm::SourceMgr* srcMgr
   }
   if (auto const* isOp = dynamic_cast<const lesma::IsOp*>(expr)) {
     findActiveCallInExpr(isOp->getLeft(), srcMgr, bufferId, targetOffset, nullptr, best);
+    return;
+  }
+  if (auto const* si = dynamic_cast<const lesma::StringInterpolation*>(expr)) {
+    for (lesma::Expression* e : si->getExprs()) {
+      findActiveCallInExpr(e, srcMgr, bufferId, targetOffset, nullptr, best);
+    }
   }
 }
 
@@ -1309,7 +1258,7 @@ auto findActiveCallSite(const AnalysisView& analysis, unsigned line, unsigned ch
     return std::nullopt;
   }
   unsigned const targetOffset = static_cast<unsigned>(
-      lesma::lsp_srv::bufferByteOffsetFromLspPosition(buf->getBuffer(), line, character));
+      lesma::lsp_srv::bufferByteOffsetFromLspUtf8Position(buf->getBuffer(), line, character));
 
   ActiveCallSite best;
   for (lesma::Statement* stmt : analysis.ast->getChildren()) {
@@ -1475,8 +1424,8 @@ auto buildSignatureHelp(AnalysisResult& result, unsigned line, unsigned characte
     return std::nullopt;
   }
   llvm::StringRef text = buf->getBuffer();
-  unsigned const targetOffset =
-      static_cast<unsigned>(lesma::lsp_srv::bufferByteOffsetFromLspPosition(text, line, character));
+  unsigned const targetOffset = static_cast<unsigned>(
+      lesma::lsp_srv::bufferByteOffsetFromLspUtf8Position(text, line, character));
   lesma::SymbolTable* scope = activeScopeForOffset(
       analysis.ast, analysis.rootScope, analysis.sourceMgr, analysis.bufferId, targetOffset);
   if (scope == nullptr) {
@@ -1585,7 +1534,7 @@ auto resolveCallArgumentTypesAtCursor(const AnalysisView& analysis, unsigned lin
     return std::nullopt;
   }
   unsigned const targetOffset = static_cast<unsigned>(
-      lesma::lsp_srv::bufferByteOffsetFromLspPosition(buf->getBuffer(), line, character));
+      lesma::lsp_srv::bufferByteOffsetFromLspUtf8Position(buf->getBuffer(), line, character));
   std::vector<lesma::Type*> argTypes;
   for (lesma::Expression* arg : activeCall->call->getArguments()) {
     lesma::Type* argType = resolveExpressionTypeAtOffset(
@@ -1638,7 +1587,7 @@ auto resolveMethodSymbolAtCursor(AnalysisResult& result, const AnalysisView& ana
     return std::nullopt;
   }
   unsigned const targetOffset = static_cast<unsigned>(
-      lesma::lsp_srv::bufferByteOffsetFromLspPosition(buf->getBuffer(), line, character));
+      lesma::lsp_srv::bufferByteOffsetFromLspUtf8Position(buf->getBuffer(), line, character));
   std::vector<lesma::Type*> argTypes;
   for (lesma::Expression* arg : activeCall->call->getArguments()) {
     lesma::Type* argType = resolveExpressionTypeAtOffset(
@@ -2390,7 +2339,7 @@ auto main() -> int {
                                                         -> ::lsp::requests::Initialize::Result {
       ::lsp::ServerCapabilities caps;
       caps.positionEncoding =
-          ::lsp::Opt<::lsp::PositionEncodingKindEnum>(::lsp::PositionEncodingKind::UTF16);
+          ::lsp::Opt<::lsp::PositionEncodingKindEnum>(::lsp::PositionEncodingKind::UTF8);
       caps.textDocumentSync =
           ::lsp::Opt<::lsp::OneOf<::lsp::TextDocumentSyncOptions, ::lsp::TextDocumentSyncKindEnum>>(
               ::lsp::TextDocumentSyncOptions{.openClose = true,
@@ -2543,7 +2492,7 @@ auto main() -> int {
                   auto const* buf = result.sourceMgr->getMemoryBuffer(result.mainBufferId);
                   if (buf != nullptr) {
                     unsigned targetOffset =
-                        static_cast<unsigned>(lesma::lsp_srv::bufferByteOffsetFromLspPosition(
+                        static_cast<unsigned>(lesma::lsp_srv::bufferByteOffsetFromLspUtf8Position(
                             buf->getBuffer(), line, character));
                     InnermostFunc sigFunc = findFuncWithCursorInSignature(
                         ast, targetOffset, result.sourceMgr.get(), result.mainBufferId);

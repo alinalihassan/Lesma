@@ -4,6 +4,8 @@
 
 #include <benchmark/benchmark.h>
 
+#include <llvm/Passes/OptimizationLevel.h>
+
 #include "liblesma/Backend/Codegen.h"
 #include "liblesma/Frontend/Lexer.h"
 #include "liblesma/Frontend/Parser.h"
@@ -148,7 +150,7 @@ BENCHMARK_F(CodegenBenchmark, Optimize)
 (benchmark::State& state) {
   for ([[maybe_unused]] auto _ : state) {
     auto cg = InitializeCodegen(parser, srcMgr);
-    cg->optimize(OptimizationLevel::O3);
+    cg->optimize(llvm::OptimizationLevel::O3);
   }
 }
 
@@ -156,6 +158,7 @@ BENCHMARK_F(CodegenBenchmark, JIT)
 (benchmark::State& state) {
   for ([[maybe_unused]] auto _ : state) {
     auto cg = InitializeCodegen(parser, srcMgr);
+    cg->optimize(llvm::OptimizationLevel::O3);
     cg->prepareJit();
     cg->executeJit();
   }
@@ -165,10 +168,8 @@ BENCHMARK_F(CodegenBenchmark, All)
 (benchmark::State& state) {
   for ([[maybe_unused]] auto _ : state) {
     auto cg = InitializeCodegen(parser, srcMgr);
-    cg->optimize(OptimizationLevel::O3);
+    cg->optimize(llvm::OptimizationLevel::O3);
     cg->prepareJit();
     cg->executeJit();
   }
 }
-
-BENCHMARK_MAIN();

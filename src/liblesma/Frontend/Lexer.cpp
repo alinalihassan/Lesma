@@ -4,6 +4,7 @@
 #include <cstddef>
 #include <memory>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include <llvm/Support/SMLoc.h>
@@ -33,6 +34,15 @@ auto Lexer::getTokens() -> std::vector<Token*> {
 
 // NOLINTNEXTLINE(readability-function-cognitive-complexity)
 auto Lexer::scanOne(bool continuation) -> std::unique_ptr<Token> {
+  if (!pendingTokens.empty()) {
+    auto t = std::move(pendingTokens.front());
+    pendingTokens.pop_front();
+    return t;
+  }
+  if (resumeTemplateStringChunk) {
+    resumeTemplateStringChunk = false;
+    return continueTemplateStringChunk();
+  }
   if (isAtEnd()) {
     return std::make_unique<Token>(TokenType::EOF_TOKEN, "EOF", llvm::SMRange{beginLoc, loc});
   }
@@ -56,6 +66,11 @@ auto Lexer::scanOne(bool continuation) -> std::unique_ptr<Token> {
     level++;
     return makeToken(TokenType::LEFT_BRACE);
   case '}':
+    if (templateInterpolationDepth > 0) {
+      templateInterpolationDepth--;
+      resumeTemplateStringChunk = true;
+      return makeToken(TokenType::STRING_TEMPLATE_EXPR_END, "}");
+    }
     level--;
     return makeToken(TokenType::RIGHT_BRACE);
   case ':':
@@ -170,7 +185,10 @@ auto Lexer::scanOne(bool continuation) -> std::unique_ptr<Token> {
     }
 
     if (c != '\n') {
-      error(fmt::format("Newline expected after line continuation, found {}", c));
+      lexError(currentSpan(),
+               fmt::format("Newline expected after line continuation, found {}", c));
+      skipRestOfPhysicalLine();
+      return scanOne(false);
     }
 
     line++;
@@ -180,7 +198,9 @@ auto Lexer::scanOne(bool continuation) -> std::unique_ptr<Token> {
   case ' ':
   case '\r':
   case '\t':
-    handleWhitespace(c);
+    if (!handleWhitespace(c)) {
+      return scanOne(continuation);
+    }
     if (col == 2) {
       handleIndentation(false);
     }
@@ -195,31 +215,37 @@ auto Lexer::scanOne(bool continuation) -> std::unique_ptr<Token> {
     handleIndentation(continuation);
     return scanOne(false);
   case '"':
-    return addStringToken();
+    return openStringLiteral();
   default:
     if (isDigit(c)) {
       return addNumToken();
     } else if (isAlpha(c)) {
       return addIdentifierToken();
     } else {
-      error(fmt::format("Unexpected character: {}", c));
+      lexError(currentSpan(), fmt::format("Unexpected character: {}", c));
+      return scanOne(continuation);
     }
   }
-  error("Unknown error");
-  return nullptr;
+  assert(false && "Lexer::scanOne should not fall through");
+  lexError(currentSpan(), "Unknown lexer error");
+  return scanOne(continuation);
 }
 
-auto Lexer::handleWhitespace(char c) -> void {
+auto Lexer::handleWhitespace(char c) -> bool {
   if (!firstIndentChar.has_value()) {
     firstIndentChar = c;
   }
   if (firstIndentChar != c) {
-    error(fmt::format("Mixed indentation, first indentation character is: {}",
-                      firstIndentChar.value()));
+    lexError(currentSpan(), fmt::format("Mixed indentation, first indentation character is: {}",
+                                        firstIndentChar.value()));
+    skipRestOfPhysicalLine();
+    firstIndentChar.reset();
+    return false;
   }
   if (c == '\t') {
     col += 7;
   }
+  return true;
 }
 
 // NOLINTNEXTLINE(readability-function-cognitive-complexity)
@@ -263,13 +289,19 @@ auto Lexer::handleIndentation(bool continuation) -> bool {
 
   if (col == indentStack[indent]) {
     if (altCol != altIndentStack[indent]) {
-      error("Indentation error");
-      return false;
+      lexError(currentSpan(), "Indentation error");
+      skipRestOfPhysicalLine();
+      emitDedentsAndResetIndent();
+      firstIndentChar.reset();
+      return true;
     }
   } else if (col > indentStack[indent]) {
     if (altCol <= altIndentStack[indent]) {
-      error("Indentation error");
-      return false;
+      lexError(currentSpan(), "Indentation error");
+      skipRestOfPhysicalLine();
+      emitDedentsAndResetIndent();
+      firstIndentChar.reset();
+      return true;
     }
     ++indent;
     ++changes;
@@ -287,12 +319,18 @@ auto Lexer::handleIndentation(bool continuation) -> bool {
       --indent;
     }
     if (col != indentStack[indent]) {
-      error("Dedentation error");
-      return false;
+      lexError(currentSpan(), "Dedentation error");
+      skipRestOfPhysicalLine();
+      emitDedentsAndResetIndent();
+      firstIndentChar.reset();
+      return true;
     }
     if (altCol != altIndentStack[indent]) {
-      error("Indentation error");
-      return false;
+      lexError(currentSpan(), "Indentation error");
+      skipRestOfPhysicalLine();
+      emitDedentsAndResetIndent();
+      firstIndentChar.reset();
+      return true;
     }
   }
 
@@ -354,66 +392,135 @@ auto Lexer::peek(int offset) -> char {
   return getCharAt(targetPos);
 }
 
-auto Lexer::addStringToken() -> std::unique_ptr<Token> {
-  std::string string;
-
-  while (peek() != '"' && !isAtEnd()) {
-    // Should we allow newlines in strings? Probably not
-    if (peek() == '\n') {
-      line++;
-      col = 1;
-    }
-    // If it's not an escape sequence, proceed as usual
-    if (peek() != '\\') {
-      string.push_back(advance());
-      continue;
-    }
-
-    switch (peek(1)) {
-    case 'n':
-      string.push_back('\n');
-      break;
-    case 'r':
-      string.push_back('\r');
-      break;
-    case 't':
-      string.push_back('\t');
-      break;
-    case 'b':
-      string.push_back('\b');
-      break;
-    case '0':
-      string.push_back('\0');
-      break;
-    case '"':
-      string.push_back('"');
-      break;
-    case 'e':
-      string.push_back(0x1B);
-      break;
-    case '\'':
-      string.push_back('\'');
-      break;
-    case '\\':
-      string.push_back('\\');
-      break;
-    default:
-      error("Unknown escape sequence.");
-    }
-
-    // Skip the backslash and the escape sequence.
-    advance();
-    advance();
-  }
-
+auto Lexer::scanStringContentUnit(std::string& acc) -> StringScanStep {
   if (isAtEnd()) {
-    error("Unterminated string.");
+    lexError(currentSpan(), "Unterminated string.");
+    return StringScanStep::ClosedQuote;
+  }
+  if (peek() == '\n') {
+    acc.push_back(advance());
+    ++line;
+    col = 1;
+    return StringScanStep::Continue;
+  }
+  if (peek() == '"') {
+    advance();
+    return StringScanStep::ClosedQuote;
+  }
+  if (peek() == '$' && peek(1) == '{') {
+    return StringScanStep::StartInterpolation;
+  }
+  if (peek() != '\\') {
+    acc.push_back(advance());
+    return StringScanStep::Continue;
   }
 
-  // Skip the closing ".
   advance();
+  if (isAtEnd()) {
+    lexError(currentSpan(), "Unterminated string.");
+    return StringScanStep::ClosedQuote;
+  }
 
-  return makeToken(TokenType::STRING, string);
+  switch (peek()) {
+  case 'n':
+    acc.push_back('\n');
+    break;
+  case 'r':
+    acc.push_back('\r');
+    break;
+  case 't':
+    acc.push_back('\t');
+    break;
+  case 'b':
+    acc.push_back('\b');
+    break;
+  case '0':
+    acc.push_back('\0');
+    break;
+  case '"':
+    acc.push_back('"');
+    break;
+  case 'e':
+    acc.push_back(static_cast<char>(0x1B));
+    break;
+  case '\'':
+    acc.push_back('\'');
+    break;
+  case '\\':
+    acc.push_back('\\');
+    break;
+  case '$':
+    acc.push_back('$');
+    break;
+  default:
+    lexError(currentSpan(), "Unknown escape sequence.");
+    advance();
+    return StringScanStep::Continue;
+  }
+
+  advance();
+  return StringScanStep::Continue;
+}
+
+auto Lexer::openStringLiteral() -> std::unique_ptr<Token> {
+  llvm::SMLoc const openQuoteLoc = beginLoc;
+  resetTokenBeg();
+  std::string acc;
+  bool sawTemplate = false;
+  for (;;) {
+    StringScanStep const step = scanStringContentUnit(acc);
+    if (step == StringScanStep::ClosedQuote) {
+      llvm::SMRange const fullSpan{openQuoteLoc, loc};
+      if (!sawTemplate) {
+        auto tok = std::make_unique<Token>(TokenType::STRING, acc, fullSpan);
+        resetTokenBeg();
+        return tok;
+      }
+      auto tok = std::make_unique<Token>(TokenType::STRING_TEMPLATE_CHUNK, acc,
+                                         llvm::SMRange{beginLoc, loc});
+      resetTokenBeg();
+      return tok;
+    }
+    if (step == StringScanStep::StartInterpolation) {
+      sawTemplate = true;
+      llvm::SMLoc const exprStartSml = loc;
+      advance();
+      advance();
+      pendingTokens.push_back(std::make_unique<Token>(TokenType::STRING_TEMPLATE_EXPR_START, "${",
+                                                      llvm::SMRange{exprStartSml, loc}));
+      templateInterpolationDepth++;
+      auto tok = std::make_unique<Token>(TokenType::STRING_TEMPLATE_CHUNK, acc,
+                                         llvm::SMRange{beginLoc, loc});
+      resetTokenBeg();
+      return tok;
+    }
+  }
+}
+
+auto Lexer::continueTemplateStringChunk() -> std::unique_ptr<Token> {
+  resetTokenBeg();
+  std::string acc;
+  for (;;) {
+    StringScanStep const step = scanStringContentUnit(acc);
+    if (step == StringScanStep::ClosedQuote) {
+      auto tok = std::make_unique<Token>(TokenType::STRING_TEMPLATE_CHUNK, acc,
+                                         llvm::SMRange{beginLoc, loc});
+      resetTokenBeg();
+      return tok;
+    }
+    if (step == StringScanStep::StartInterpolation) {
+      llvm::SMLoc const exprStartSml = loc;
+      advance();
+      advance();
+      pendingTokens.push_back(std::make_unique<Token>(TokenType::STRING_TEMPLATE_EXPR_START, "${",
+                                                      llvm::SMRange{exprStartSml, loc}));
+      templateInterpolationDepth++;
+      auto tok = std::make_unique<Token>(TokenType::STRING_TEMPLATE_CHUNK, acc,
+                                         llvm::SMRange{beginLoc, loc});
+      resetTokenBeg();
+      return tok;
+    }
+  }
 }
 
 auto Lexer::addNumToken() -> std::unique_ptr<Token> {
@@ -462,6 +569,31 @@ auto Lexer::addIdentifierToken() -> std::unique_ptr<Token> {
 
 auto Lexer::lastChar() -> char { return getCharAt(curPos); }
 
-auto Lexer::error(const std::string& msg) const -> void {
-  throw LexerError(llvm::SMRange{beginLoc, loc}, msg);
+auto Lexer::lexError(llvm::SMRange span, const std::string& msg) -> void {
+  if (diagnosticSink == nullptr) {
+    throw LexerError(span, msg);
+  }
+  llvm::SMRange const useSpan = span.isValid() ? span : llvm::SMRange{beginLoc, loc};
+  diagnosticSink->push_back(AnalysisDiagnostic{.message = msg, .span = useSpan});
+}
+
+auto Lexer::skipRestOfPhysicalLine() -> void {
+  while (!isAtEnd()) {
+    if (peek() == '\n') {
+      advance();
+      line++;
+      col = 1;
+      return;
+    }
+    advance();
+  }
+}
+
+auto Lexer::emitDedentsAndResetIndent() -> void {
+  while (indent > 0) {
+    tokens.push_back(std::make_unique<Token>(TokenType::DEDENT, "DEDENT", llvm::SMRange{loc, loc}));
+    --indent;
+  }
+  indentStack = {0};
+  altIndentStack = {0};
 }

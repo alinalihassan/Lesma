@@ -49,6 +49,10 @@
         {
           "name": "benchmark",
           "version>=": "1.7.1"
+        },
+        {
+          "name": "cli11",
+          "version>=": "2.3.1"
         }
       ]
     },

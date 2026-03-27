@@ -20,9 +20,9 @@ test_compiler() {
   local compiler_path="$3"
   local quiet="${4:-}"
   if [ -n "${quiet}" ]; then
-    "${compiler_path}" "${mode}" "${file}" >/dev/null 2>&1
+    "${compiler_path}" "${mode}" --no-warnings "${file}" >/dev/null 2>&1
   else
-    "${compiler_path}" "${mode}" "${file}"
+    "${compiler_path}" "${mode}" --no-warnings "${file}"
   fi
   return $?
 }

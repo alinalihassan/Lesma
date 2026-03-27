@@ -93,6 +93,60 @@ public:
   }
 };
 
+/** Interpolated string: chunks[0] + expr[0] + chunks[1] + ... + chunks[n]. */
+class StringInterpolation : public Expression {
+  std::vector<std::string> chunks;
+  std::vector<std::unique_ptr<Expression>> exprs;
+  /** Same as Literal STRING: null => cstr, else boxed stdlib str. */
+  mutable Type* resolvedStrClassType = nullptr;
+  /** Filled by typechecker; parallel to exprs (for codegen coercion). */
+  mutable std::vector<Type*> interpolatedExprTypes;
+
+public:
+  StringInterpolation(llvm::SMRange loc, std::vector<std::string> chunks,
+                      std::vector<std::unique_ptr<Expression>> exprs)
+      : Expression(loc), chunks(std::move(chunks)), exprs(std::move(exprs)) {
+    assert(this->chunks.size() == this->exprs.size() + 1U &&
+           "StringInterpolation requires exactly one more chunk than expression");
+  }
+  void accept(ASTVisitor& visitor) const override { visitor.visit(this); }
+
+  [[nodiscard]] auto getChunks() const -> const std::vector<std::string>& { return chunks; }
+  [[nodiscard]] auto getExprs() const -> std::vector<Expression*> {
+    std::vector<Expression*> out;
+    out.reserve(exprs.size());
+    for (const auto& e : exprs) {
+      out.push_back(e.get());
+    }
+    return out;
+  }
+  [[nodiscard]] auto getResolvedStrClassType() const -> Type* { return resolvedStrClassType; }
+  auto setResolvedStrClassType(Type* t) const -> void { resolvedStrClassType = t; }
+
+  [[nodiscard]] auto getInterpolatedExprTypes() const -> const std::vector<Type*>& {
+    return interpolatedExprTypes;
+  }
+  auto clearInterpolatedExprTypes() const -> void { interpolatedExprTypes.clear(); }
+  auto pushInterpolatedExprType(Type* t) const -> void { interpolatedExprTypes.push_back(t); }
+
+  auto toString(llvm::SourceMgr* srcMgr, const std::string& prefix, bool isTail) const
+      -> std::string override {
+    std::string inner;
+    for (size_t i = 0; i < exprs.size(); ++i) {
+      inner += chunks[i];
+      inner += "${";
+      inner += exprs[i]->toString(srcMgr, prefix, true);
+      inner += "}";
+    }
+    inner += chunks.back();
+    return fmt::format("{}{}StringInterpolation[Line({}-{}):Col({}-{})]: \"{}\"\n", prefix,
+                       isTail ? "└──" : "├──", srcMgr->getLineAndColumn(getStart()).first,
+                       srcMgr->getLineAndColumn(getEnd()).first,
+                       srcMgr->getLineAndColumn(getStart()).second,
+                       srcMgr->getLineAndColumn(getEnd()).second, inner);
+  }
+};
+
 class Compound : public Statement {
   std::vector<std::unique_ptr<Statement>> children;
 
@@ -308,14 +362,16 @@ class VarDecl : public Statement {
   std::unique_ptr<TypeExpr> type;
   std::unique_ptr<Expression> expr;
   bool isMutable;
+  bool exported = false;
   /** Set by typechecker: one entry per `vars` (unpack) or one for a simple `let`. */
   mutable std::vector<Value*> resolvedSymbols;
 
 public:
   VarDecl(llvm::SMRange loc, std::vector<std::unique_ptr<Literal>> vars,
-          std::unique_ptr<TypeExpr> type, std::unique_ptr<Expression> expr, bool isMutable)
+          std::unique_ptr<TypeExpr> type, std::unique_ptr<Expression> expr, bool isMutable,
+          bool exportedArg = false)
       : Statement(loc), vars(std::move(vars)), type(std::move(type)), expr(std::move(expr)),
-        isMutable(isMutable) {}
+        isMutable(isMutable), exported(exportedArg) {}
   void accept(ASTVisitor& visitor) const override { visitor.visit(this); }
 
   [[nodiscard]] [[maybe_unused]] auto getIdentifier() const -> Literal* {
@@ -336,6 +392,7 @@ public:
   [[nodiscard]] [[maybe_unused]] auto getType() const -> TypeExpr* { return type.get(); }
   [[nodiscard]] [[maybe_unused]] auto getValue() const -> Expression* { return expr.get(); }
   [[nodiscard]] [[maybe_unused]] auto getMutability() const -> bool { return isMutable; }
+  [[nodiscard]] auto isExported() const -> bool { return exported; }
   [[nodiscard]] auto getResolvedSymbol() const -> Value* {
     if (resolvedSymbols.empty()) {
       return nullptr;

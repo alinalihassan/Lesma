@@ -23,6 +23,12 @@ struct CLIOptions {
   std::vector<std::string> debug;
   bool timer;
   bool jit;
+  /** Optimization level 0–3 for compile and run. */
+  int optimizationLevel = 3;
+  /** Emit DWARF when compiling (compile subcommand -g). */
+  bool emitDebugInfo = false;
+  /** When true, do not print compiler warnings to stderr. */
+  bool suppressWarnings = false;
 };
 
 template <typename S, typename... Args>
@@ -67,7 +73,7 @@ public:
   // return types
   template <typename F>
   auto measure(const std::string& operation, F&& func) -> decltype(auto) {
-    auto recordElapsed = [this, &operation](double elapsed) {
+    auto recordElapsed = [this, &operation](double elapsed) -> auto {
       total += elapsed;
       if (enabled) {
         print(LogType::DEBUG, "{} -> {:.2f} ms\n", operation, elapsed);

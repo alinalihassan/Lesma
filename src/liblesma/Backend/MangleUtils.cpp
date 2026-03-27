@@ -1,13 +1,35 @@
 #include "MangleUtils.h"
 
 #include <string>
+#include <string_view>
 
 #include <llvm/IR/DerivedTypes.h>
 #include <llvm/Support/Casting.h>
 #include <llvm/Support/SMLoc.h>
 
+#include "fmt/format.h"
+
 #include "liblesma/Backend/CodegenError.h"
+#include "liblesma/Common/Utils.h"
 #include "liblesma/Symbol/Type.h"
+
+namespace {
+
+// FNV-1a 64-bit: published test-vector constants (same as Wikipedia / chongo’s FNV page),
+// not magic picks — xor each byte into the hash, then multiply by the FNV prime.
+// Deterministic everywhere; std::hash<std::string> is not.
+auto stableHash64(std::string_view data) -> unsigned long long {
+  constexpr unsigned long long offsetBasis = 0xCBF29CE484222325ULL;
+  constexpr unsigned long long prime = 0x100000001B3ULL;
+  unsigned long long h = offsetBasis;
+  for (char ch : data) {
+    h ^= static_cast<unsigned char>(ch);
+    h *= prime;
+  }
+  return h;
+}
+
+} // namespace
 
 namespace lesma::MangleUtils {
 auto getTypeMangledName(llvm::SMRange span, Type* type) -> std::string {
@@ -90,37 +112,21 @@ auto isMethod(const std::string& mangledName) -> bool {
   return mangledName.find("::") != std::string::npos;
 }
 
-auto isMangled(std::string name) -> bool {
-  if (name.empty()) {
-    return false;
-  }
-  return name.find(':') != std::string::npos || name.at(0) == '.';
+auto getGlobalVariableSymbolName(const std::string& modulePathNormalized,
+                                 const std::string& variableName) -> std::string {
+  std::string const norm = modulePathNormalized.empty()
+                               ? std::string("<stdin>")
+                               : normalizeResolvedFilesystemPath(modulePathNormalized);
+  std::string const key = norm + '\0' + variableName;
+  unsigned long long const h = stableHash64(key);
+  return fmt::format("__lesma_g_{:x}_{}", static_cast<unsigned long long>(h), variableName);
 }
 
-auto getDemangledName(const std::string& name) -> std::string {
-  if (!isMangled(name)) {
-    return name;
-  }
-
-  auto demangledName = name;
-
-  // Remove class mangling
-  auto classMangling = demangledName.find("::");
-  if (classMangling != std::string::npos) {
-    demangledName = demangledName.substr(classMangling + 2);
-  }
-
-  // Remove standard '.' mangling to differentiate from native functions
-  if (!demangledName.empty() && demangledName.at(0) == '.') {
-    demangledName.erase(0, 1);
-  }
-
-  // Remove parameters mangling
-  auto parameterMangling = demangledName.find(':');
-  if (parameterMangling != std::string::npos) {
-    demangledName = demangledName.substr(0, parameterMangling);
-  }
-
-  return demangledName;
+auto getImportedModuleInitSymbolName(const std::string& modulePathNormalized) -> std::string {
+  std::string const norm = modulePathNormalized.empty()
+                               ? std::string("<stdin>")
+                               : normalizeResolvedFilesystemPath(modulePathNormalized);
+  unsigned long long const h = stableHash64(norm);
+  return fmt::format("__lesma_mod_init_{:x}", static_cast<unsigned long long>(h));
 }
 } // namespace lesma::MangleUtils

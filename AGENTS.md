@@ -22,10 +22,37 @@ Lesma is a compiled, statically typed, imperative, object-oriented language that
     - **`Symbol/`** — Symbol table, `Type`, `Value`, `TypeUtils`.
     - **`Backend/`** — Codegen (AST → LLVM IR), `MangleUtils`, `CodegenTypeUtils`, linking/JIT.
   - **`src/stdlib/`** — Lesma standard library (e.g. `base.les`, `math.les`, `time.les`).
-  - **`src/lsp/`** — `lesma-lsp` (when `LESMA_BUILD_LSP` is ON). Enables vcpkg feature **`lsp`** (**libgit2**, minimal: `pcre2` only, no HTTPS/SSH) for workspace-wide `.les` discovery in Git work trees without shelling out to `git`.
+  - **`src/lsp/`** — `lesma-lsp` (when `LESMA_BUILD_LSP` is ON). Advertises **UTF-8 position encoding** (`PositionEncodingKind::UTF8`); clients must send `Position.character` as UTF-8 code units (bytes) from the line start. Enables vcpkg feature **`lsp`** (**libgit2**, minimal: `pcre2` only, no HTTPS/SSH) for workspace-wide `.les` discovery in Git work trees without shelling out to `git`.
 - **`tests/lesma/success/`** — Programs that must compile and run (exit 0).
 - **`tests/lesma/failure/`** — Programs that must be rejected (expected to fail).
 - **`scripts/run_tests.sh`** — Runs the compiler on all success/failure cases (run + compile for each).
+- **`benchmark/`** — Google Benchmark targets plus the **`benchmark suite`** integration harness (`benchmark/SuiteWallClock.cpp`).
+
+---
+
+## Wall-clock benchmark (`benchmark suite`)
+
+The **`benchmark`** executable can run an integration suite that measures **end-to-end wall time** for `lesma run` on each `.les` file (subprocess startup, compile/JIT, and the test program). Enable **`LESMA_BUILD_BENCHMARKS`** in CMake, build the **`benchmark`** target, then run from the **repository root** so paths like `tests/lesma/success/...` resolve:
+
+```bash
+./build/Debug/benchmark suite ./build/Debug/lesma \
+  --vega-lite-out suite.vl.json \
+  --json-out bench.json
+```
+
+- **`--json-out`** — Full payload: `tests[]` with **`milliseconds`** per row, **`aggregate`** with **`total_wall_milliseconds`** and **`mean_milliseconds_per_test`**, plus embedded **`vegaLite`** for charting.
+- **`--vega-lite-out`** — Same chart as a **standalone Vega-Lite v5** JSON file (handy for `vl2svg` / other tooling).
+- **`--suite`** — `success` (default), `failure`, or `both` (default success-only matches `tests/lesma/success/` file count; `both` matches the combined count used by `run_tests.sh`).
+- **`--opt`** — Optimization level **0–3** forwarded as `lesma run -O…` (default **3**).
+- **`--gha-benchmark-json`** — Writes [github-action-benchmark](https://github.com/benchmark-action/github-action-benchmark)-style JSON with totals in **milliseconds**.
+
+**Static SVG chart** (works with `npx` alone; Node **`vl2png`** usually needs native **canvas**/Cairo). **`vl2svg` writes the SVG to stdout**—redirect to a file so it does not flood the terminal:
+
+```bash
+npx -p vega-lite vl2svg suite.vl.json > chart.svg
+```
+
+**PNG** without Node canvas: use **[vl-convert](https://github.com/vega/vl-convert)** (`vl-convert vl2png -i suite.vl.json -o chart.png`) or similar; see `--help` on `benchmark suite` for a short reminder.
 
 ---
 
@@ -139,5 +166,6 @@ The codebase follows consistent C++ style. Respect it when editing.
 - **Buffer IDs:** LLVM `SourceMgr` uses 1-based buffer IDs; use `getNumBuffers()` as the ID for the last-added buffer; store `AddNewSourceBuffer()`’s return value for the main file in error reporting.
 - **Build:** CMake + vcpkg toolchain; build the `lesma` target.
 - **Validation:** Always run `scripts/run_tests.sh <path-to-lesma>` and ensure 0 failures.
+- **Wall-clock benchmark:** With `LESMA_BUILD_BENCHMARKS`, `./build/Debug/benchmark suite … --json-out` / `--vega-lite-out`; timings in JSON are **milliseconds**; SVG via `npx -p vega-lite vl2svg suite.vl.json > chart.svg`.
 - **Memory:** Use the **Debug_Asan** preset (AddressSanitizer + LeakSanitizer) on macOS and Linux; Valgrind is Linux-only and not supported on Apple Silicon.
 - **C++ style:** Follow `.clang-format` and `.clang-tidy`; use private methods instead of anonymous-namespace helpers where the helper belongs to a class.

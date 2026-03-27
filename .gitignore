@@ -23,3 +23,6 @@ compile_commands.json
 
 # Typescript
 *.tsbuildinfo
+/dbgout.dSYM/Contents
+/bench.json
+/suite.vl.json

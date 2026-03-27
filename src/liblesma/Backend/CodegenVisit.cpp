@@ -1,20 +1,16 @@
 #include <algorithm>
 #include <cctype>
 #include <cstddef>
-#include <filesystem>
 #include <memory>
 #include <optional>
 #include <string>
-#include <system_error>
-#include <tuple>
+#include <string_view>
 #include <unordered_set>
 #include <utility>
 #include <vector>
 
 #include <llvm/ADT/APFloat.h>
 #include <llvm/ADT/SmallVector.h>
-#include <llvm/Analysis/CGSCCPassManager.h>
-#include <llvm/Analysis/LoopAnalysisManager.h>
 #include <llvm/Config/llvm-config.h>
 #include <llvm/ExecutionEngine/Orc/ExecutionUtils.h>
 #include <llvm/ExecutionEngine/Orc/JITTargetMachineBuilder.h>
@@ -22,20 +18,19 @@
 #include <llvm/ExecutionEngine/Orc/ThreadSafeModule.h>
 #include <llvm/IR/BasicBlock.h>
 #include <llvm/IR/Constants.h>
+#include <llvm/IR/DIBuilder.h>
+#include <llvm/IR/DebugLoc.h>
 #include <llvm/IR/DerivedTypes.h>
 #include <llvm/IR/Function.h>
 #include <llvm/IR/GlobalValue.h>
 #include <llvm/IR/GlobalVariable.h>
 #include <llvm/IR/IRBuilder.h>
+#include <llvm/IR/Instructions.h>
 #include <llvm/IR/LLVMContext.h>
-#include <llvm/IR/LegacyPassManager.h>
-#include <llvm/IR/PassManager.h>
 #include <llvm/IR/Value.h>
 #include <llvm/IR/Verifier.h>
 #include <llvm/MC/TargetRegistry.h>
-#include <llvm/Pass.h>
 #include <llvm/Passes/OptimizationLevel.h>
-#include <llvm/Passes/PassBuilder.h>
 #include <llvm/Support/Casting.h>
 #include <llvm/Support/CodeGen.h>
 #include <llvm/Support/FileSystem.h>
@@ -45,14 +40,6 @@
 #include <llvm/Target/TargetMachine.h>
 #include <llvm/Target/TargetOptions.h>
 #include <llvm/TargetParser/Host.h>
-#include <llvm/Transforms/IPO/GlobalDCE.h>
-#include <llvm/Transforms/IPO/Inliner.h>
-#include <llvm/Transforms/Scalar/ADCE.h>
-#include <llvm/Transforms/Scalar/DeadStoreElimination.h>
-#include <llvm/Transforms/Scalar/GVN.h>
-#include <llvm/Transforms/Scalar/LoopPassManager.h>
-#include <llvm/Transforms/Scalar/LoopUnrollPass.h>
-#include <llvm/Transforms/Vectorize/LoopVectorize.h>
 
 #include "Codegen.h"
 #include <lld/Common/Driver.h>
@@ -72,10 +59,8 @@ LLD_HAS_DRIVER(elf)
 #include "liblesma/Backend/CodegenRuntimeNames.h"
 #include "liblesma/Backend/CodegenTypeUtils.h"
 #include "liblesma/Backend/MangleUtils.h"
-#include "liblesma/Common/ExportDiscovery.h"
 #include "liblesma/Common/OperatorUtils.h"
 #include "liblesma/Common/Utils.h"
-#include "liblesma/Frontend/Lexer.h"
 #include "liblesma/Frontend/Parser.h"
 #include "liblesma/Symbol/Type.h"
 #include "liblesma/Symbol/TypeUtils.h"
@@ -93,7 +78,9 @@ Codegen::Codegen(std::shared_ptr<Parser> parser, std::shared_ptr<SourceMgr> srcM
                  std::unique_ptr<SymbolTable> preScope,
                  std::vector<std::unique_ptr<lesma::Type>> preTypeCache,
                  std::unordered_map<lesma::Type*, std::unordered_map<std::string, lesma::Type*>>
-                     preSpecializedClassTypeEnvs) {
+                     preSpecializedClassTypeEnvs,
+                 bool emitDebug, llvm::OptimizationLevel optimizationLevelForDebugArg,
+                 std::shared_ptr<std::vector<std::string>> sharedPendingJitModuleInits) {
   InitializeNativeTarget();
   InitializeNativeTargetAsmPrinter();
   InitializeNativeTargetAsmParser();
@@ -125,6 +112,12 @@ Codegen::Codegen(std::shared_ptr<Parser> parser, std::shared_ptr<SourceMgr> srcM
   isMain = main;
   isJit = jit;
 
+  if (sharedPendingJitModuleInits != nullptr) {
+    pendingJitModuleInits = std::move(sharedPendingJitModuleInits);
+  } else if (jit) {
+    pendingJitModuleInits = std::make_shared<std::vector<std::string>>();
+  }
+
   if (sharedModules && sharedScopes) {
     importedModules = std::move(sharedModules);
     importedScopes = std::move(sharedScopes);
@@ -132,6 +125,9 @@ Codegen::Codegen(std::shared_ptr<Parser> parser, std::shared_ptr<SourceMgr> srcM
     importedModules = std::make_shared<std::vector<std::string>>(std::move(imports));
     importedScopes = std::make_shared<std::vector<std::unique_ptr<SymbolTable>>>();
   }
+  emitDebugInfo = emitDebug;
+  optimizationLevelForDebug = optimizationLevelForDebugArg;
+  initializeDebugMetadata();
   topLevelFunc = initializeTopLevel();
   // base.les is loaded at the start of run() so we don't load it during
   // constructor re-entrancy when creating Codegens for imported modules.
@@ -175,6 +171,17 @@ auto Codegen::defineFunction(lesma::Value* value, const FuncDecl* node, Value* c
 
   BasicBlock* entry = BasicBlock::Create(theModule->getContext(), "entry", f);
   builder->SetInsertPoint(entry);
+  setDebugLoc(node->getBody()->getSpan());
+
+  llvm::DIFile* declFile = moduleDiFile;
+  unsigned declLine = 1U;
+  if (node->getSpan().isValid() && node->getSpan().Start.isValid()) {
+    unsigned const bid = sourceManager->FindBufferContainingLoc(node->getSpan().Start);
+    if (bid != 0U) {
+      declFile = getOrCreateDiFileForBuffer(bid);
+    }
+    declLine = sourceManager->getLineAndColumn(node->getSpan().Start).first;
+  }
 
   int fieldIndex = 0;
   for (const auto& field : value->getType()->getFields()) {
@@ -194,7 +201,9 @@ auto Codegen::defineFunction(lesma::Value* value, const FuncDecl* node, Value* c
     param->setName(paramName);
 
     llvm::Value* ptr = builder->CreateAlloca(param->getType(), nullptr, param->getName() + "_ptr");
-    builder->CreateStore(param, ptr);
+    llvm::Instruction* storeParam = builder->CreateStore(param, ptr);
+    emitParameterDebugDeclare(f, ptr, paramName, static_cast<unsigned>(fieldIndex + 1), declFile,
+                              declLine, param->getType(), storeParam);
 
     if (auto* existingParam = lookupInCurrentScope(paramName);
         existingParam != nullptr && existingParam->getLlvmValue() == nullptr) {
@@ -254,6 +263,8 @@ auto Codegen::defineFunction(lesma::Value* value, const FuncDecl* node, Value* c
 
   // Reset Insert Point to Top Level
   builder->SetInsertPoint(&topLevelFunc->back());
+  // Clear stale DILocation so top-level IR does not inherit the last function's DISubprogram.
+  builder->SetCurrentDebugLocation(llvm::DebugLoc());
 }
 
 auto Codegen::visit(const Statement* node) -> void {
@@ -265,6 +276,7 @@ auto Codegen::visit(const Expression* node) -> void {
 }
 
 auto Codegen::visit(const Compound* node) -> void {
+  setDebugLoc(node->getSpan());
   for (auto* elem : node->getChildren()) {
     elem->accept(*this);
   }
@@ -324,6 +336,7 @@ namespace {
 } // namespace
 
 auto Codegen::visit(const VarDecl* node) -> void {
+  setDebugLoc(node->getSpan());
   std::vector<Literal*> const unpackNames = node->getVarLiterals();
   if (unpackNames.size() > 1U) {
     std::unique_ptr<lesma::Value> valueResult;
@@ -338,16 +351,32 @@ auto Codegen::visit(const VarDecl* node) -> void {
     getOrCreateLlvmType(valueResult->getType());
     llvm::Value* agg = valueResult->getLlvmValue();
     std::vector<Field*> const tf = valueResult->getType()->getFields();
+    std::vector<Value*> const& resolvedUnpack = node->getResolvedSymbols();
+    llvm::Function* parentFct = builder->GetInsertBlock()->getParent();
     for (size_t i = 0; i < unpackNames.size(); ++i) {
       std::string const elemName = unpackNames[i]->getValue();
       lesma::Type* elemTy = tf[i]->type;
       getOrCreateLlvmType(elemTy);
       llvm::Value* ev =
           builder->CreateExtractValue(agg, static_cast<unsigned>(i), elemName + ".tup");
-      lesma::Value* existing = scope->lookup(elemName);
-      llvm::Type* allocaTy = elemTy->getLlvmType();
-      auto* ptr = builder->CreateAlloca(allocaTy, nullptr, elemName);
-      builder->CreateStore(ev, ptr);
+      lesma::Value* existing =
+          i < resolvedUnpack.size() ? resolvedUnpack[i] : scope->lookup(elemName);
+      const bool isPtrToClass = elemTy->is(BaseType::TY_PTR) &&
+                                elemTy->getElementType() != nullptr &&
+                                elemTy->getElementType()->is(BaseType::TY_CLASS);
+      llvm::Type* allocaTy = (elemTy->is(BaseType::TY_CLASS) || isPtrToClass)
+                                 ? builder->getPtrTy()
+                                 : elemTy->getLlvmType();
+      llvm::AllocaInst* ptr = createAllocaInEntry(parentFct, allocaTy, elemName);
+      if (elemTy->is(BaseType::TY_CLASS)) {
+        lesma::Type* ptrType =
+            cacheType(std::make_unique<Type>(BaseType::TY_PTR, builder->getPtrTy(), elemTy));
+        if (existing != nullptr) {
+          existing->setType(ptrType);
+        }
+      }
+      llvm::Instruction* st = builder->CreateStore(ev, ptr);
+      emitAutoVarDebugDeclare(llvm::cast<llvm::AllocaInst>(ptr), elemName, node->getSpan(), st);
       if (existing != nullptr) {
         existing->setLlvmValue(ptr);
         existing->setCategory(ValueCategory::ADDRESSABLE_STORAGE);
@@ -402,22 +431,54 @@ auto Codegen::visit(const VarDecl* node) -> void {
     const bool isPtrToClass = storedType->is(BaseType::TY_PTR) &&
                               storedType->getElementType() != nullptr &&
                               storedType->getElementType()->is(BaseType::TY_CLASS);
-    llvm::Type* allocaTy = (storedType->is(BaseType::TY_CLASS) || isPtrToClass)
-                               ? builder->getPtrTy()
-                               : storedType->getLlvmType();
-    auto* ptr = builder->CreateAlloca(allocaTy, nullptr, name);
+    llvm::Type* storageLlvmTy = (storedType->is(BaseType::TY_CLASS) || isPtrToClass)
+                                    ? builder->getPtrTy()
+                                    : storedType->getLlvmType();
+
+    if (node->isExported()) {
+      std::string const mangled = MangleUtils::getGlobalVariableSymbolName(
+          filename.empty() ? std::string() : normalizeResolvedFilesystemPath(filename), name);
+      llvm::GlobalVariable* gv = theModule->getGlobalVariable(mangled, true);
+      if (gv == nullptr) {
+        gv = new llvm::GlobalVariable(*theModule, storageLlvmTy, false,
+                                      llvm::GlobalValue::ExternalLinkage,
+                                      llvm::Constant::getNullValue(storageLlvmTy), mangled);
+      }
+      existing->setLlvmValue(gv);
+      existing->setMangledName(mangled);
+      existing->setCategory(ValueCategory::ADDRESSABLE_STORAGE);
+      existing->setMutable(node->getMutability());
+      if (valueResult != nullptr) {
+        if (isPtrToClass && valueResult->getType() != nullptr &&
+            valueResult->getType()->is(BaseType::TY_PTR)) {
+          builder->CreateStore(valueResult->getLlvmValue(), gv);
+        } else {
+          lesma::Type* castTarget = isPtrToClass ? storedType->getElementType() : storedType;
+          auto castVal = cast(node->getSpan(), valueResult.get(), castTarget);
+          builder->CreateStore(castVal->getLlvmValue(), gv);
+        }
+      }
+      return;
+    }
+
+    llvm::Function* parentFct = builder->GetInsertBlock()->getParent();
+    llvm::AllocaInst* ptr = createAllocaInEntry(parentFct, storageLlvmTy, name);
     existing->setLlvmValue(ptr);
     existing->setCategory(ValueCategory::ADDRESSABLE_STORAGE);
     existing->setMutable(node->getMutability());
     if (valueResult != nullptr) {
+      llvm::Instruction* st = nullptr;
       if (isPtrToClass && valueResult->getType() != nullptr &&
           valueResult->getType()->is(BaseType::TY_PTR)) {
-        builder->CreateStore(valueResult->getLlvmValue(), ptr);
+        st = builder->CreateStore(valueResult->getLlvmValue(), ptr);
       } else {
         lesma::Type* castTarget = isPtrToClass ? storedType->getElementType() : storedType;
         auto castVal = cast(node->getSpan(), valueResult.get(), castTarget);
-        builder->CreateStore(castVal->getLlvmValue(), ptr);
+        st = builder->CreateStore(castVal->getLlvmValue(), ptr);
       }
+      emitAutoVarDebugDeclare(llvm::cast<llvm::AllocaInst>(ptr), name, node->getSpan(), st);
+    } else {
+      emitAutoVarDebugDeclare(llvm::cast<llvm::AllocaInst>(ptr), name, node->getSpan(), nullptr);
     }
     return;
   }
@@ -437,7 +498,8 @@ auto Codegen::visit(const VarDecl* node) -> void {
   }
 
   getOrCreateLlvmType(type);
-  auto* ptr = builder->CreateAlloca(type->getLlvmType(), nullptr, name);
+  llvm::Function* parentFct = builder->GetInsertBlock()->getParent();
+  llvm::AllocaInst* ptr = createAllocaInEntry(parentFct, type->getLlvmType(), name);
 
   if (type->is(BaseType::TY_CLASS)) {
     type = cacheType(std::make_unique<Type>(BaseType::TY_PTR, builder->getPtrTy(), type));
@@ -452,17 +514,22 @@ auto Codegen::visit(const VarDecl* node) -> void {
   scope->insertSymbol(std::move(symbol));
 
   if (node->getValue() != nullptr) {
+    llvm::Instruction* st = nullptr;
     if (isPtrToClass && val->getType() != nullptr && val->getType()->is(BaseType::TY_PTR)) {
-      builder->CreateStore(val->getLlvmValue(), ptr);
+      st = builder->CreateStore(val->getLlvmValue(), ptr);
     } else {
       lesma::Type* castTarget = isPtrToClass ? type->getElementType() : type;
       auto castVal = cast(node->getSpan(), val.get(), castTarget);
-      builder->CreateStore(castVal->getLlvmValue(), ptr);
+      st = builder->CreateStore(castVal->getLlvmValue(), ptr);
     }
+    emitAutoVarDebugDeclare(llvm::cast<llvm::AllocaInst>(ptr), name, node->getSpan(), st);
+  } else {
+    emitAutoVarDebugDeclare(llvm::cast<llvm::AllocaInst>(ptr), name, node->getSpan(), nullptr);
   }
 }
 
 auto Codegen::visit(const If* node) -> void {
+  setDebugLoc(node->getSpan());
   auto* parentFct = builder->GetInsertBlock()->getParent();
   auto* bStart = llvm::BasicBlock::Create(theModule->getContext(), "if.start");
   auto* bEnd = llvm::BasicBlock::Create(theModule->getContext(), "if.end");
@@ -503,6 +570,7 @@ auto Codegen::visit(const If* node) -> void {
 }
 
 auto Codegen::visit(const While* node) -> void {
+  setDebugLoc(node->getSpan());
   llvm::Function* parentFct = builder->GetInsertBlock()->getParent();
 
   // Create blocks
@@ -545,15 +613,12 @@ auto Codegen::classTypeDeclaresIterable(lesma::Type* classTy) const -> bool {
   if (classTy == nullptr || !classTy->is(BaseType::TY_CLASS)) {
     return false;
   }
-  for (const auto& n : classTy->getImplTraitNames()) {
-    if (n == "Iterable") {
-      return true;
-    }
-  }
-  return false;
+  return std::ranges::any_of(classTy->getImplTraitNames(),
+                             [](const std::string& n) -> bool { return n == "Iterable"; });
 }
 
 auto Codegen::visit(const ForIn* node) -> void {
+  setDebugLoc(node->getSpan());
   node->getIterable()->accept(*this);
   std::unique_ptr<lesma::Value> iterable = std::move(result);
   lesma::Type* listType = iterable->getType();
@@ -584,6 +649,9 @@ auto Codegen::visit(const ForIn* node) -> void {
   }
   lesma::Type* loopVarType = loopVar->getType();
   getOrCreateLlvmType(loopVarType);
+  llvm::Function* parentFct = builder->GetInsertBlock()->getParent();
+  bool const useArrayIndex = listType != nullptr && listType->is(BaseType::TY_ARRAY) &&
+                             listType->getElementType() != nullptr;
   if (loopVar->getLlvmValue() == nullptr) {
     if (loopVarType->is(BaseType::TY_CLASS)) {
       lesma::Type* ptrType =
@@ -597,25 +665,23 @@ auto Codegen::visit(const ForIn* node) -> void {
     llvm::Type* allocaTy = (storedType->is(BaseType::TY_CLASS) || isPtrToClass)
                                ? builder->getPtrTy()
                                : storedType->getLlvmType();
-    auto* elemPtr = builder->CreateAlloca(allocaTy, nullptr, loopVar->getName());
+    llvm::AllocaInst* elemPtr = createAllocaInEntry(parentFct, allocaTy, loopVar->getName());
     loopVar->setLlvmValue(elemPtr);
     loopVar->setCategory(ValueCategory::ADDRESSABLE_STORAGE);
   }
   scope = savedScope;
 
-  llvm::Function* parentFct = builder->GetInsertBlock()->getParent();
   llvm::BasicBlock* bCond = llvm::BasicBlock::Create(theModule->getContext(), "for.cond");
   llvm::BasicBlock* bLoop = llvm::BasicBlock::Create(theModule->getContext(), "for");
   llvm::BasicBlock* bInc = llvm::BasicBlock::Create(theModule->getContext(), "for.inc");
   llvm::BasicBlock* bEnd = llvm::BasicBlock::Create(theModule->getContext(), "for.end");
   std::unique_ptr<lesma::Value> iteratorValue;
   llvm::AllocaInst* indexPtr = nullptr;
-  if (listType == nullptr || !listType->is(BaseType::TY_ARRAY) ||
-      listType->getElementType() == nullptr) {
+  if (!useArrayIndex) {
     iteratorValue = callMethodByName(node->getSpan(), iterable.get(), "iter");
   } else {
     getOrCreateLlvmType(listType);
-    indexPtr = builder->CreateAlloca(builder->getInt64Ty(), nullptr, "for.index");
+    indexPtr = createAllocaInEntry(parentFct, builder->getInt64Ty(), "for.index");
     builder->CreateStore(builder->getInt64(0), indexPtr);
   }
 
@@ -623,8 +689,7 @@ auto Codegen::visit(const ForIn* node) -> void {
   continueBlocks.push(bInc);
   builder->CreateBr(bCond);
 
-  if (listType != nullptr && listType->is(BaseType::TY_ARRAY) &&
-      listType->getElementType() != nullptr) {
+  if (useArrayIndex) {
     bCond->insertInto(parentFct);
     builder->SetInsertPoint(bCond);
     auto* idxVal = builder->CreateLoad(builder->getInt64Ty(), indexPtr);
@@ -725,6 +790,7 @@ auto Codegen::buildClassMethodParamTypesForLookup(const FuncDecl* node)
 }
 
 auto Codegen::visit(const FuncDecl* node) -> void {
+  setDebugLoc(node->getSpan());
   if (!node->getGenericParams().empty()) {
     auto savedGenerics = currentGenericTypes;
     for (const auto& name : node->getGenericParams()) {
@@ -884,6 +950,7 @@ auto Codegen::visit(const FuncDecl* node) -> void {
   llvm::FunctionType* funcType =
       FunctionType::get(llvmReturnType, paramLLVMTypes, node->getVarArgs());
   Function* f = Function::Create(funcType, linkage, mangledName, *theModule);
+  attachFunctionDebugInfo(f, node->getName(), mangledName, node->getSpan(), linkage, false);
   auto loweredType = std::make_unique<Type>(BaseType::TY_FUNCTION, funcType, std::move(fields));
   loweredType->setReturnType(returnType);
   loweredType->setGenericParams(node->getGenericParams());
@@ -1021,6 +1088,7 @@ auto Codegen::visit(const ExternFuncDecl* node) -> void {
 }
 
 auto Codegen::visit(const Assignment* node) -> void {
+  setDebugLoc(node->getSpan());
   if (auto* subscript = dynamic_cast<SubscriptOp*>(node->getLeftHandSide())) {
     subscript->getLeft()->accept(*this);
     auto baseValue = std::move(result);
@@ -1092,6 +1160,7 @@ auto Codegen::visit(const Assignment* node) -> void {
   auto value = cast(node->getSpan(), result.get(),
                     isPtr ? lhs->getType()->getElementType() : lhs->getType());
 
+  setDebugLoc(node->getSpan());
   switch (node->getOperator()) {
   case TokenType::EQUAL:
     builder->CreateStore(value->getLlvmValue(), lhs->getLlvmValue());
@@ -1111,6 +1180,7 @@ auto Codegen::visit(const Assignment* node) -> void {
 }
 
 auto Codegen::visit(const Break* node) -> void {
+  setDebugLoc(node->getSpan());
   if (breakBlocks.empty()) {
     throw CodegenError(node->getSpan(), "Cannot break without being in a loop");
   }
@@ -1122,6 +1192,7 @@ auto Codegen::visit(const Break* node) -> void {
 }
 
 auto Codegen::visit(const Continue* node) -> void {
+  setDebugLoc(node->getSpan());
   if (continueBlocks.empty()) {
     throw CodegenError(node->getSpan(), "Cannot continue without being in a loop");
   }
@@ -1135,6 +1206,7 @@ auto Codegen::visit(const Continue* node) -> void {
 auto Codegen::visit(const Pass* node) -> void { (void) node; }
 
 auto Codegen::visit(const Return* node) -> void {
+  setDebugLoc(node->getSpan());
   // Check if it's top-level
   if (builder->GetInsertBlock()->getParent() == topLevelFunc) {
     throw CodegenError(node->getSpan(), "Return statements are not allowed at top-level");
@@ -1198,10 +1270,12 @@ auto Codegen::visit(const UnimplementedStatement* node) -> void {
 }
 
 auto Codegen::visit(const ExpressionStatement* node) -> void {
+  setDebugLoc(node->getSpan());
   node->getExpression()->accept(*this);
 }
 
 auto Codegen::visit(const Import* node) -> void {
+  setDebugLoc(node->getSpan());
   compileModule(node->getSpan(), node->getFilePath(), node->isStd(), node->getAlias(),
                 node->getImportAll(), node->getImportScope(), node->getImportedNames());
 }
@@ -1211,6 +1285,7 @@ auto Codegen::visit(const TraitDecl* /*node*/) -> void {
 }
 
 auto Codegen::visit(const Class* node) -> void {
+  setDebugLoc(node->getSpan());
   if (!node->getGenericParams().empty()) {
     genericClasses[node->getIdentifier()] = node;
     auto* genericSymbol = scope->lookupStruct(node->getIdentifier());
@@ -1282,6 +1357,7 @@ auto Codegen::visit(const Class* node) -> void {
 }
 
 auto Codegen::visit(const Enum* node) -> void {
+  setDebugLoc(node->getSpan());
   lesma::Value* existingEnum = scope->lookupStruct(node->getIdentifier());
   if (existingEnum == nullptr) {
     throw CodegenError(node->getSpan(), "Missing typechecked enum symbol for {}",
@@ -1296,13 +1372,18 @@ auto Codegen::visit(const Enum* node) -> void {
   }
 }
 
-auto Codegen::visit(const FuncCall* node) -> void { result = genFuncCall(node, {}); }
+auto Codegen::visit(const FuncCall* node) -> void {
+  setDebugLoc(node->getSpan());
+  result = genFuncCall(node, {});
+}
 
 auto Codegen::visit(const BinaryOp* node) -> void {
+  setDebugLoc(node->getSpan());
   node->getLeft()->accept(*this);
   auto left = std::move(result);
   node->getRight()->accept(*this);
   auto right = std::move(result);
+  setDebugLoc(node->getSpan());
   lesma::Type* finalType = CodegenTypeUtils::getExtendedType(left->getType(), right->getType());
   if (finalType == nullptr && left->getType()->is(BaseType::TY_ENUM) &&
       right->getType()->is(BaseType::TY_ENUM) && left->getType()->isEqual(right->getType())) {
@@ -1723,10 +1804,12 @@ auto Codegen::visit(const BinaryOp* node) -> void {
 }
 
 auto Codegen::visit(const SubscriptOp* node) -> void {
+  setDebugLoc(node->getSpan());
   node->getLeft()->accept(*this);
   auto listValue = std::move(result);
   node->getIndex()->accept(*this);
   auto indexValue = std::move(result);
+  setDebugLoc(node->getSpan());
   if (listValue != nullptr && listValue->getType() != nullptr &&
       listValue->getType()->is(BaseType::TY_TUPLE)) {
     auto* idxLit = dynamic_cast<Literal*>(node->getIndex());
@@ -1766,8 +1849,10 @@ auto Codegen::visit(const SubscriptOp* node) -> void {
 }
 
 auto Codegen::visit(const DotOp* node) -> void {
+  setDebugLoc(node->getSpan());
   node->getLeft()->accept(*this);
   auto leftValue = std::move(result);
+  setDebugLoc(node->getSpan());
   if (leftValue != nullptr && leftValue->getType() != nullptr &&
       leftValue->getType()->is(BaseType::TY_ARRAY)) {
     auto* call = dynamic_cast<FuncCall*>(node->getRight());
@@ -1786,6 +1871,7 @@ auto Codegen::visit(const DotOp* node) -> void {
       explicitTypeArg->accept(*this);
       explicitTypeArgs.push_back(result->getType());
     }
+    setDebugLoc(node->getSpan());
     result =
         callMethodByName(node->getSpan(), leftValue.get(), call->getName(), args, explicitTypeArgs);
     return;
@@ -1813,6 +1899,7 @@ auto Codegen::visit(const DotOp* node) -> void {
         explicitTypeArg->accept(*this);
         explicitTypeArgs.push_back(result->getType());
       }
+      setDebugLoc(node->getSpan());
       result = callMethodByName(node->getSpan(), leftValue.get(), call->getName(), args,
                                 explicitTypeArgs);
       return;
@@ -1887,6 +1974,7 @@ auto Codegen::visit(const DotOp* node) -> void {
           explicitTypeArg->accept(*this);
           explicitTypeArgs.push_back(result->getType());
         }
+        setDebugLoc(node->getSpan());
         result = callMethodByName(node->getSpan(), receiverValue.get(), method->getName(), args,
                                   explicitTypeArgs);
         return;
@@ -1962,6 +2050,58 @@ auto Codegen::visit(const DotOp* node) -> void {
           method = dynamic_cast<FuncCall*>(node->getRight());
         }
 
+        if (!field.empty()) {
+          auto pathIt = importAliasToModulePath.find(left->getValue());
+          if (pathIt != importAliasToModulePath.end()) {
+            lesma::Type* memTy = nullptr;
+            for (size_t i = 0; i < importedModules->size(); ++i) {
+              if (normalizeResolvedFilesystemPath(importedModules->at(i)) ==
+                  normalizeResolvedFilesystemPath(pathIt->second)) {
+                SymbolTable* isc = importedScopes->at(i).get();
+                Value* vs = isc->lookup(field);
+                if (vs != nullptr && vs->getDeclarationKind() == ValueDeclarationKind::VARIABLE &&
+                    vs->isExported()) {
+                  memTy = vs->getType();
+                  break;
+                }
+              }
+            }
+            if (memTy != nullptr) {
+              getOrCreateLlvmType(memTy);
+              llvm::Type* storageTy = memTy->getLlvmType();
+              if (memTy->is(BaseType::TY_CLASS)) {
+                storageTy = builder->getPtrTy();
+              } else if (memTy->is(BaseType::TY_PTR) && memTy->getElementType() != nullptr &&
+                         memTy->getElementType()->is(BaseType::TY_CLASS)) {
+                storageTy = builder->getPtrTy();
+              }
+              std::string const mangled = MangleUtils::getGlobalVariableSymbolName(
+                  normalizeResolvedFilesystemPath(pathIt->second), field);
+              llvm::GlobalVariable* gv = theModule->getGlobalVariable(mangled, true);
+              if (gv == nullptr) {
+                gv = new llvm::GlobalVariable(*theModule, storageTy, false,
+                                              llvm::GlobalValue::ExternalLinkage, nullptr, mangled);
+              }
+              if (isAssignment) {
+                lesma::Type* ptrToVal = memTy;
+                if (memTy->is(BaseType::TY_CLASS)) {
+                  ptrToVal = cacheType(
+                      std::make_unique<Type>(BaseType::TY_PTR, builder->getPtrTy(), memTy));
+                } else if (memTy->is(BaseType::TY_PTR) &&
+                           memTy->getElementType()->is(BaseType::TY_CLASS)) {
+                  ptrToVal = cacheType(
+                      std::make_unique<Type>(BaseType::TY_PTR, builder->getPtrTy(), memTy));
+                }
+                result = std::make_unique<Value>("", ptrToVal, gv);
+                return;
+              }
+              result = std::make_unique<Value>("", memTy, builder->CreateLoad(storageTy, gv));
+              return;
+            }
+          }
+          throw CodegenError(node->getRight()->getSpan(), "Unknown module member '{}'", field);
+        }
+
         if (method != nullptr) {
           auto tmpAlias = alias;
           alias = left->getValue();
@@ -1973,6 +2113,7 @@ auto Codegen::visit(const DotOp* node) -> void {
     } else {
       // Assuming it's a class instance
       left->accept(*this);
+      setDebugLoc(node->getSpan());
       // We refer to the class type, if it's a pointer, we get the result
       lesma::Type* lesmaType = result->getType();
       if (result->getType()->is(BaseType::TY_PTR) &&
@@ -2049,6 +2190,7 @@ auto Codegen::visit(const DotOp* node) -> void {
             explicitTypeArg->accept(*this);
             explicitTypeArgs.push_back(result->getType());
           }
+          setDebugLoc(node->getSpan());
           result = callMethodByName(node->getSpan(), receiverValue.get(), method->getName(), args,
                                     explicitTypeArgs);
           return;
@@ -2061,14 +2203,17 @@ auto Codegen::visit(const DotOp* node) -> void {
 }
 
 auto Codegen::visit(const CastOp* node) -> void {
+  setDebugLoc(node->getSpan());
   node->getExpression()->accept(*this);
   auto expr = std::move(result);
   node->getType()->accept(*this);
   auto* castType = result->getType();
+  setDebugLoc(node->getSpan());
   result = cast(node->getSpan(), expr.get(), castType);
 }
 
 auto Codegen::visit(const IsOp* node) -> void {
+  setDebugLoc(node->getSpan());
   node->getLeft()->accept(*this);
   auto* leftType = result->getType();
   node->getRight()->accept(*this);
@@ -2083,6 +2228,7 @@ auto Codegen::visit(const IsOp* node) -> void {
     rightType = rightType->getElementType();
   }
 
+  setDebugLoc(node->getSpan());
   llvm::Value* val = nullptr;
   bool typesEqual = leftType->isEqual(rightType);
   if (!typesEqual && leftType != nullptr && rightType != nullptr &&
@@ -2102,8 +2248,10 @@ auto Codegen::visit(const IsOp* node) -> void {
 }
 
 auto Codegen::visit(const UnaryOp* node) -> void {
+  setDebugLoc(node->getSpan());
   node->getExpression()->accept(*this);
   auto operand = std::move(result);
+  setDebugLoc(node->getSpan());
 
   llvm::Value* val = nullptr;
   lesma::Type* type = operand->getType();
@@ -2161,6 +2309,7 @@ auto Codegen::visit(const UnaryOp* node) -> void {
 }
 
 auto Codegen::visit(const ListLiteral* node) -> void {
+  setDebugLoc(node->getSpan());
   lesma::Type* listType = node->getResolvedType();
   if (listType != nullptr && listType->is(BaseType::TY_CLASS)) {
     auto fields = listType->getFields();
@@ -2191,6 +2340,7 @@ auto Codegen::visit(const ListLiteral* node) -> void {
       dataPtr = emitMalloc(byteSize, "list.data");
       for (size_t i = 0; i < elements.size(); ++i) {
         elements[i]->accept(*this);
+        setDebugLoc(node->getSpan());
         auto* elementPtr =
             builder->CreateGEP(elementLlvmType, dataPtr, builder->getInt64(i), "list.elem.ptr");
         builder->CreateStore(
@@ -2229,6 +2379,7 @@ auto Codegen::visit(const ListLiteral* node) -> void {
 
     for (size_t i = 0; i < elements.size(); ++i) {
       elements[i]->accept(*this);
+      setDebugLoc(node->getSpan());
       auto* elementPtr =
           builder->CreateGEP(elementLlvmType, dataPtr, builder->getInt64(i), "list.elem.ptr");
       builder->CreateStore(
@@ -2244,6 +2395,7 @@ auto Codegen::visit(const ListLiteral* node) -> void {
 }
 
 auto Codegen::visit(const TupleLiteral* node) -> void {
+  setDebugLoc(node->getSpan());
   lesma::Type* tupleType = node->getResolvedType();
   if (tupleType == nullptr || !tupleType->is(BaseType::TY_TUPLE)) {
     throw CodegenError(node->getSpan(), "Tuple literal has no resolved tuple type");
@@ -2259,6 +2411,7 @@ auto Codegen::visit(const TupleLiteral* node) -> void {
   }
   for (size_t i = 0; i < elements.size(); ++i) {
     elements[i]->accept(*this);
+    setDebugLoc(node->getSpan());
     llvm::Value* ev = result->getLlvmValue();
     agg = builder->CreateInsertValue(agg, ev, static_cast<unsigned>(i), "tuple");
   }
@@ -2266,6 +2419,7 @@ auto Codegen::visit(const TupleLiteral* node) -> void {
 }
 
 auto Codegen::visit(const Literal* node) -> void {
+  setDebugLoc(node->getSpan());
   // Cache Types to prevent dangling pointers when result is reassigned
   if (node->getType() == TokenType::DOUBLE) {
     auto* type = cacheType(std::make_unique<Type>(BaseType::TY_FLOAT, builder->getDoubleTy()));
@@ -2314,6 +2468,251 @@ auto Codegen::visit(const Literal* node) -> void {
   } else {
     throw CodegenError(node->getSpan(), "Unknown literal {}", node->getValue());
   }
+}
+
+namespace {
+[[nodiscard]] auto isStrBoxLesmaType(lesma::Type* t) -> bool {
+  if (t == nullptr) {
+    return false;
+  }
+  lesma::Type* b = t;
+  if (t->is(BaseType::TY_PTR) && t->getElementType() != nullptr) {
+    b = t->getElementType();
+  }
+  return b->is(BaseType::TY_CLASS) && b->getDisplayName() == "str";
+}
+
+/// Pointers we may free after copying in \c emitCstrConcatValues: results of \c emitMalloc (format
+/// helpers, prior concat buffers). Excludes literals (\c llvm::Constant / globals), loads
+/// (e.g. \c str.cstr() storage), and any non-malloc calls.
+[[nodiscard]] auto stripPtrValue(llvm::Value* v) -> llvm::Value* {
+  while (v != nullptr) {
+    if (auto* ce = llvm::dyn_cast<llvm::CastInst>(v)) {
+      if (!ce->getType()->isPointerTy()) {
+        break;
+      }
+      v = ce->getOperand(0);
+      continue;
+    }
+    break;
+  }
+  return v;
+}
+
+[[nodiscard]] auto isOwnedMallocCstrBuffer(llvm::Value* v) -> bool {
+  if (v == nullptr || llvm::isa<llvm::Constant>(v)) {
+    return false;
+  }
+  v = stripPtrValue(v);
+  if (v == nullptr || llvm::isa<llvm::Constant>(v)) {
+    return false;
+  }
+  auto* call = llvm::dyn_cast<llvm::CallBase>(v);
+  if (call == nullptr) {
+    return false;
+  }
+  llvm::Function* callee = call->getCalledFunction();
+  if (callee == nullptr) {
+    return false;
+  }
+  llvm::StringRef calleeName = callee->getName();
+  return std::string_view{calleeName.data(), calleeName.size()} == codegen::runtime::MALLOC;
+}
+} // namespace
+
+auto Codegen::emitCstrConcatValues(llvm::SMRange span, llvm::Value* a, llvm::Value* b)
+    -> llvm::Value* {
+  (void) span;
+  llvm::Type* i8 = llvm::Type::getInt8Ty(theModule->getContext());
+  auto strlenFn = theModule->getOrInsertFunction(
+      std::string{codegen::runtime::STRLEN},
+      llvm::FunctionType::get(builder->getInt64Ty(), {builder->getPtrTy()}, false));
+  auto memcpyFn = theModule->getOrInsertFunction(
+      std::string{codegen::runtime::MEMCPY},
+      llvm::FunctionType::get(builder->getPtrTy(),
+                              {builder->getPtrTy(), builder->getPtrTy(), builder->getInt64Ty()},
+                              false));
+  llvm::Value* la = a;
+  llvm::Value* lb = b;
+  auto* lenA = builder->CreateCall(strlenFn, {la}, "ip.strcat.lenA");
+  auto* lenB = builder->CreateCall(strlenFn, {lb}, "ip.strcat.lenB");
+  auto* total =
+      builder->CreateAdd(builder->CreateAdd(lenA, lenB), builder->getInt64(1), "ip.strcat.total");
+  llvm::Value* buf = emitMalloc(total, "ip.strcat.buf");
+  builder->CreateCall(memcpyFn, {buf, la, lenA});
+  auto* tail = builder->CreateInBoundsGEP(i8, buf, lenA, "ip.strcat.tail");
+  builder->CreateCall(memcpyFn, {tail, lb, lenB});
+  auto* endPtr = builder->CreateInBoundsGEP(
+      i8, buf, builder->CreateSub(total, builder->getInt64(1)), "ip.strcat.nul");
+  builder->CreateStore(llvm::ConstantInt::get(i8, 0), endPtr);
+
+  if (la == lb) {
+    if (isOwnedMallocCstrBuffer(la)) {
+      emitFree(la);
+    }
+  } else {
+    if (isOwnedMallocCstrBuffer(la)) {
+      emitFree(la);
+    }
+    if (isOwnedMallocCstrBuffer(lb)) {
+      emitFree(lb);
+    }
+  }
+  return buf;
+}
+
+auto Codegen::emitFormatIntegerToCstr(llvm::SMRange span, llvm::Value* intVal, lesma::Type* intTy)
+    -> llvm::Value* {
+  (void) span;
+  llvm::Value* i64v = intVal;
+  if (!intVal->getType()->isIntegerTy(64)) {
+    if (intTy != nullptr && intTy->isSigned()) {
+      i64v = builder->CreateSExt(intVal, builder->getInt64Ty(), "ip.i64");
+    } else {
+      i64v = builder->CreateZExt(intVal, builder->getInt64Ty(), "ip.i64");
+    }
+  }
+  llvm::Value* buf = emitMalloc(builder->getInt64(80), "ip.int.buf");
+  llvm::Value* fmt = (intTy != nullptr && intTy->isSigned()) ? builder->CreateGlobalString("%lld")
+                                                             : builder->CreateGlobalString("%llu");
+  auto* snprintfTy = llvm::FunctionType::get(
+      builder->getInt32Ty(), {builder->getPtrTy(), builder->getInt64Ty(), builder->getPtrTy()},
+      true);
+  llvm::FunctionCallee snprintfFn = theModule->getOrInsertFunction("snprintf", snprintfTy);
+  builder->CreateCall(snprintfFn, {buf, builder->getInt64(79), fmt, i64v});
+  return buf;
+}
+
+auto Codegen::emitFormatFloatToCstr(llvm::SMRange span, llvm::Value* floatVal, lesma::Type* floatTy)
+    -> llvm::Value* {
+  (void) span;
+  llvm::Value* dbl = floatVal;
+  if (floatTy != nullptr && floatTy->is(BaseType::TY_FLOAT32)) {
+    dbl = builder->CreateFPExt(floatVal, builder->getDoubleTy(), "ip.dbl");
+  }
+  llvm::Value* buf = emitMalloc(builder->getInt64(80), "ip.flt.buf");
+  llvm::Value* fmt = builder->CreateGlobalString("%g");
+  auto* snprintfTy = llvm::FunctionType::get(
+      builder->getInt32Ty(), {builder->getPtrTy(), builder->getInt64Ty(), builder->getPtrTy()},
+      true);
+  llvm::FunctionCallee snprintfFn = theModule->getOrInsertFunction("snprintf", snprintfTy);
+  builder->CreateCall(snprintfFn, {buf, builder->getInt64(79), fmt, dbl});
+  return buf;
+}
+
+auto Codegen::emitBoxedStrLiteralText(llvm::SMRange span, const std::string& text,
+                                      lesma::Type* strClass) -> std::unique_ptr<lesma::Value> {
+  if (strClass == nullptr || !strClass->is(BaseType::TY_CLASS)) {
+    throw CodegenError(span, "Invalid str class for string interpolation chunk");
+  }
+  auto fields = strClass->getFields();
+  if (fields.empty() || fields.front()->type == nullptr ||
+      !fields.front()->type->is(BaseType::TY_STRING)) {
+    throw CodegenError(span, "String interpolation chunk: invalid stdlib str class");
+  }
+  auto* structType = llvm::cast<llvm::StructType>(getOrCreateLlvmType(strClass));
+  auto* classSize =
+      builder->getInt64(theModule->getDataLayout().getTypeAllocSize(structType).getFixedValue());
+  auto* classHandle = emitMalloc(classSize, "ip.str.obj");
+  auto* storagePtr = builder->CreateStructGEP(structType, classHandle, 0, "ip.str.storage.ptr");
+  llvm::Value* globalStr = builder->CreateGlobalString(text);
+  builder->CreateStore(globalStr, storagePtr);
+  return std::make_unique<Value>("", strClass, classHandle);
+}
+
+auto Codegen::emitBoxedStrWithCstrField(llvm::SMRange span, llvm::Value* nulTerminatedPtr,
+                                        lesma::Type* strClass) -> std::unique_ptr<lesma::Value> {
+  if (strClass == nullptr || !strClass->is(BaseType::TY_CLASS)) {
+    throw CodegenError(span, "Invalid str class for string interpolation");
+  }
+  auto fields = strClass->getFields();
+  if (fields.empty() || fields.front()->type == nullptr ||
+      !fields.front()->type->is(BaseType::TY_STRING)) {
+    throw CodegenError(span, "String interpolation: invalid stdlib str class");
+  }
+  auto* structType = llvm::cast<llvm::StructType>(getOrCreateLlvmType(strClass));
+  auto* classSize =
+      builder->getInt64(theModule->getDataLayout().getTypeAllocSize(structType).getFixedValue());
+  auto* classHandle = emitMalloc(classSize, "ip.str.dyn");
+  auto* storagePtr = builder->CreateStructGEP(structType, classHandle, 0, "ip.str.dyn.ptr");
+  builder->CreateStore(nulTerminatedPtr, storagePtr);
+  return std::make_unique<Value>("", strClass, classHandle);
+}
+
+auto Codegen::emitInterpolationExprToCstr(llvm::SMRange span, const Expression* expr,
+                                          lesma::Type* exprTy) -> llvm::Value* {
+  expr->accept(*this);
+  std::unique_ptr<lesma::Value> v = std::move(result);
+  setDebugLoc(span);
+  if (isStrBoxLesmaType(exprTy)) {
+    std::unique_ptr<lesma::Value> cstrV = callMethodByName(span, v.get(), "cstr", {});
+    return cstrV->getLlvmValue();
+  }
+  if (exprTy->is(BaseType::TY_STRING)) {
+    return v->getLlvmValue();
+  }
+  if (exprTy->is(BaseType::TY_INT)) {
+    return emitFormatIntegerToCstr(span, v->getLlvmValue(), exprTy);
+  }
+  if (exprTy->is(BaseType::TY_FLOAT) || exprTy->is(BaseType::TY_FLOAT32)) {
+    return emitFormatFloatToCstr(span, v->getLlvmValue(), exprTy);
+  }
+  if (exprTy->is(BaseType::TY_BOOL)) {
+    llvm::Value* trueStr = builder->CreateGlobalString("true");
+    llvm::Value* falseStr = builder->CreateGlobalString("false");
+    return builder->CreateSelect(v->getLlvmValue(), trueStr, falseStr);
+  }
+  throw CodegenError(span, "Unsupported string interpolation type");
+}
+
+auto Codegen::emitInterpolationExprToBoxedStr(llvm::SMRange span, const Expression* expr,
+                                              lesma::Type* exprTy, lesma::Type* strClass)
+    -> std::unique_ptr<lesma::Value> {
+  if (isStrBoxLesmaType(exprTy)) {
+    expr->accept(*this);
+    setDebugLoc(span);
+    return std::move(result);
+  }
+  llvm::Value* c = emitInterpolationExprToCstr(span, expr, exprTy);
+  return emitBoxedStrWithCstrField(span, c, strClass);
+}
+
+auto Codegen::visit(const StringInterpolation* node) -> void {
+  setDebugLoc(node->getSpan());
+  std::vector<std::string> const& chunks = node->getChunks();
+  std::vector<Expression*> exprs = node->getExprs();
+  std::vector<Type*> const& exprTys = node->getInterpolatedExprTypes();
+  if (exprTys.size() != exprs.size()) {
+    throw CodegenError(node->getSpan(), "String interpolation not typechecked");
+  }
+  lesma::Type* strClass = node->getResolvedStrClassType();
+
+  if (strClass != nullptr && strClass->is(BaseType::TY_CLASS)) {
+    std::unique_ptr<Value> acc = emitBoxedStrLiteralText(node->getSpan(), chunks[0], strClass);
+    std::string const opPlus = std::string{*OperatorUtils::getBinaryOperatorName(TokenType::PLUS)};
+    for (size_t i = 0; i < exprs.size(); ++i) {
+      std::unique_ptr<Value> rhs =
+          emitInterpolationExprToBoxedStr(node->getSpan(), exprs[i], exprTys[i], strClass);
+      setDebugLoc(node->getSpan());
+      acc = callMethodByName(node->getSpan(), acc.get(), opPlus, {rhs.get()});
+      std::unique_ptr<Value> tail =
+          emitBoxedStrLiteralText(node->getSpan(), chunks[i + 1], strClass);
+      setDebugLoc(node->getSpan());
+      acc = callMethodByName(node->getSpan(), acc.get(), opPlus, {tail.get()});
+    }
+    result = std::move(acc);
+    return;
+  }
+
+  llvm::Value* acc = builder->CreateGlobalString(chunks[0]);
+  for (size_t i = 0; i < exprs.size(); ++i) {
+    llvm::Value* part = emitInterpolationExprToCstr(node->getSpan(), exprs[i], exprTys[i]);
+    acc = emitCstrConcatValues(node->getSpan(), acc, part);
+    llvm::Value* tailG = builder->CreateGlobalString(chunks[i + 1]);
+    acc = emitCstrConcatValues(node->getSpan(), acc, tailG);
+  }
+  auto* ty = cacheType(std::make_unique<Type>(BaseType::TY_STRING, builder->getPtrTy()));
+  result = std::make_unique<Value>("", ty, acc);
 }
 
 auto Codegen::visit(const Else* /*node*/) -> void {
@@ -2990,6 +3389,7 @@ auto Codegen::genFuncCall(const FuncCall* node, const std::vector<lesma::Value*>
     explicitTypeArgs.push_back(result->getType());
   }
 
+  setDebugLoc(node->getSpan());
   if (isListIntrinsicName(node->getName())) {
     return genListIntrinsicCall(node, paramTypes, paramsLLVM);
   }

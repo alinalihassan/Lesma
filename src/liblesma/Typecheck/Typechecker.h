@@ -18,7 +18,9 @@
 
 namespace lesma {
 
+class Class;
 class TraitDecl;
+class TypeCheckError;
 
 /** Callback to resolve import *: (filepath, isStd, mainFilePath) -> exported
  * names. */
@@ -48,6 +50,9 @@ class Typechecker final : public ASTVisitor {
 
   Value* currentFunction = nullptr;
   Type* currentClassType = nullptr; // Set when visiting class methods, for self
+  /** While visiting class methods: whether the enclosing class is exported (method AST may not
+   * carry export; parser clears ambient `export` for spans). */
+  bool currentClassExported = false;
   SymbolTable* currentMethodInsertScope = nullptr;
   bool inTopLevel = true;
   bool declarationPass = false;
@@ -96,6 +101,25 @@ class Typechecker final : public ASTVisitor {
   ImportedNameSourceMap importedNameToSource;
   /** Cache of fully analyzed imported modules for import-aware symbol resolution. */
   std::unordered_map<std::string, std::shared_ptr<ImportedModuleAnalysis>> importedModuleCache;
+  /** Filled during the second pass; diagnosed after the full unit so calls like `Foo()` see `new` as
+   *  used first (see \c run). */
+  std::vector<const Class*> classesPendingUnusedMemberDiagnosis;
+
+  /** When non-null, unreachable-code and other warnings are appended here (severity Warning).
+   *  Type errors are also recorded (severity Error) and typecheck continues where possible. */
+  std::vector<AnalysisDiagnostic>* warningDiagnostics = nullptr;
+
+  void emitWarning(llvm::SMRange span, std::string message);
+  void recoverFromTypeError(const TypeCheckError& err);
+  void markValueRead(Value* sym);
+  void checkUnusedBindingsInScope(SymbolTable* blockScope);
+  void warnShadowingFromEnclosing(const std::string& name, llvm::SMRange span);
+  [[nodiscard]] static auto tryGetLiteralBool(const Expression* e, bool& outValue) -> bool;
+  void warnIfTrivialBoolCondition(const Expression* cond);
+  void warnIfEmptyCompoundBody(const Compound* block, const char* context);
+  [[nodiscard]] static auto isLossyImplicitConversion(Type* from, Type* to) -> bool;
+  void warnIfLossyConversion(llvm::SMRange span, Type* from, Type* to);
+  void diagnoseUnusedNonExportedClassMembers(const Class* classNode);
 
   /** Resolve absolute path for an import (same logic as Driver getExportsFromFile). */
   [[nodiscard]] auto resolveImportPath(const std::string& filepath, bool isStd) const
@@ -105,6 +129,12 @@ class Typechecker final : public ASTVisitor {
   auto getOrTypecheckImport(const std::string& absolutePath) -> SymbolTable*;
 
   void loadImplicitStdModule(const std::string& moduleFilename);
+  /** If \p exportedName is an exported variable in the module at \p resolvedPath, insert a
+   * same-type alias as \p localName into the current scope (for typechecking `import *` / `from`).
+   */
+  auto insertImportedVariableAlias(const std::string& resolvedPath, const std::string& exportedName,
+                                   const std::string& localName) -> void;
+  void validateParameterDefaultOrdering(llvm::SMRange span, const std::vector<Parameter*>& params);
   /** Get or create a specialized class type by substituting env into template's
    * fields. */
   auto getOrCreateSpecializedClassType(Type* classTemplate,
@@ -195,7 +225,8 @@ public:
   explicit Typechecker();
   /** Typecheck with import * resolution; mainFilePath used for relative
    * imports. */
-  Typechecker(std::string mainFilePath, GetExportsFn getExports);
+  Typechecker(std::string mainFilePath, GetExportsFn getExports,
+              std::vector<AnalysisDiagnostic>* warningDiagnosticsOut = nullptr);
   ~Typechecker() override = default;
 
   Typechecker(const Typechecker&) = delete;
@@ -203,7 +234,8 @@ public:
   Typechecker(Typechecker&&) = delete;
   auto operator=(Typechecker&&) -> Typechecker& = delete;
 
-  /** Run typecheck on the given AST. Throws TypeCheckError on first error. */
+  /** Run typecheck on the given AST. Throws TypeCheckError on first error when no diagnostic sink
+   *  is set; with \c warningDiagnostics non-null, records errors and continues where possible. */
   auto run(const Compound* ast) -> void;
 
   /** Take ownership of the symbol table built during typecheck (call after
@@ -250,12 +282,14 @@ public:
   auto visit(const IsOp* node) -> void override;
   auto visit(const UnaryOp* node) -> void override;
   auto visit(const Literal* node) -> void override;
+  auto visit(const StringInterpolation* node) -> void override;
   auto visit(const ListLiteral* node) -> void override;
   auto visit(const TupleLiteral* node) -> void override;
   auto visit(const Else* node) -> void override;
 
   auto visit(const TypeExpr* node) -> void override;
 
+  [[nodiscard]] auto isAllowedStringInterpolationExprType(Type* t) const -> bool;
   auto getStdStrType(llvm::SMRange span) -> Type*;
   auto isStdStrClassType(Type* type) const -> bool;
 };

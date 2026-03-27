@@ -1,7 +1,6 @@
 #pragma once
 
 #include <string>
-#include <vector>
 
 #include <llvm/Support/SMLoc.h>
 
@@ -11,7 +10,10 @@ class Type;
 namespace MangleUtils {
 auto getTypeMangledName(llvm::SMRange span, Type* type) -> std::string;
 auto isMethod(const std::string& mangledName) -> bool;
-auto isMangled(std::string name) -> bool;
-auto getDemangledName(const std::string& mangledName) -> std::string;
+/** Stable global symbol for exported module variables (cross-module linkage). */
+auto getGlobalVariableSymbolName(const std::string& modulePathNormalized,
+                                 const std::string& variableName) -> std::string;
+/** Unique per-module top-level init symbol for JIT (replaces internal `main`). */
+auto getImportedModuleInitSymbolName(const std::string& modulePathNormalized) -> std::string;
 } // namespace MangleUtils
 } // namespace lesma

@@ -90,15 +90,80 @@
     "strings": {
       "patterns": [
         {
+          "include": "#string-double-quoted"
+        }
+      ]
+    },
+    "string-double-quoted": {
+      "name": "string.quoted.double.lesma",
+      "begin": "\"",
+      "end": "\"",
+      "patterns": [
+        {
+          "include": "#string-double-content"
+        }
+      ]
+    },
+    "string-double-content": {
+      "patterns": [
+        {
+          "include": "#string-interpolation-expr"
+        },
+        {
+          "name": "constant.character.escape.lesma",
+          "match": "\\\\."
+        },
+        {
           "name": "string.quoted.double.lesma",
-          "begin": "\"",
-          "end": "\"",
-          "patterns": [
-            {
-              "name": "constant.character.escape.lesma",
-              "match": "\\\\."
-            }
-          ]
+          "match": "[^\\\\\"$]+"
+        },
+        {
+          "name": "string.quoted.double.lesma",
+          "match": "\\$"
+        }
+      ]
+    },
+    "string-interpolation-expr": {
+      "begin": "\\$\\{",
+      "beginCaptures": {
+        "0": {
+          "name": "punctuation.definition.template-expression.begin.lesma"
+        }
+      },
+      "end": "\\}",
+      "endCaptures": {
+        "0": {
+          "name": "punctuation.definition.template-expression.end.lesma"
+        }
+      },
+      "contentName": "meta.embedded.line.lesma",
+      "patterns": [
+        {
+          "include": "#string-double-quoted"
+        },
+        {
+          "include": "#comments"
+        },
+        {
+          "include": "#constants"
+        },
+        {
+          "include": "#keywords"
+        },
+        {
+          "include": "#numbers"
+        },
+        {
+          "include": "#types"
+        },
+        {
+          "include": "#operators"
+        },
+        {
+          "include": "#functions"
+        },
+        {
+          "include": "#invalid"
         }
       ]
     },

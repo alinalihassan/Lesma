@@ -11,6 +11,7 @@
 #include "llvm/Support/SMLoc.h"
 #include "llvm/Support/SourceMgr.h"
 
+#include "liblesma/Driver/AnalysisDiagnostic.h"
 #include "liblesma/Driver/Driver.h"
 #include "liblesma/Frontend/Parser.h"
 #include "liblesma/Symbol/SymbolTable.h"
@@ -18,12 +19,7 @@
 
 namespace lesma {
 class Compound;
-
-/** Single diagnostic (error/warning) with a source span. */
-struct AnalysisDiagnostic {
-  std::string message;
-  llvm::SMRange span;
-};
+class Timer;
 
 struct IndexedDeclarationIdentity {
   std::string filePath;
@@ -91,8 +87,10 @@ struct AnalysisResult {
   unsigned mainBufferId = 0;
   std::string mainFilePath;
 
-  /** Non-empty when lex/parse/typecheck failed. First error only (fail-fast). */
+  /** Errors stop analysis; warnings may appear on success. */
   std::vector<AnalysisDiagnostic> diagnostics;
+  /** Copied from Options for Driver printing (warnings are still stored in \c diagnostics). */
+  bool suppressWarnings = false;
 
   /** Set when parse succeeded (and possibly typecheck). */
   std::unique_ptr<Parser> parser;
@@ -106,11 +104,20 @@ struct AnalysisResult {
   ImportedNameSourceMap importedNameToSource;
   std::unordered_map<std::string, std::shared_ptr<ImportedModuleAnalysis>> importedModules;
 
-  [[nodiscard]] auto hasErrors() const -> bool { return !diagnostics.empty(); }
+  [[nodiscard]] auto hasErrors() const -> bool {
+    for (const AnalysisDiagnostic& d : diagnostics) {
+      if (d.severity == AnalysisDiagnosticSeverity::Error) {
+        return true;
+      }
+    }
+    return false;
+  }
 };
 
-/** Run lexer, parser, and typechecker. Does not run codegen. */
-auto analyze(std::unique_ptr<Options> options) -> AnalysisResult;
+/** Run lexer, parser, and typechecker. Does not run codegen.
+ *  When \p phaseTimer is non-null, the driver passes an enabled Timer so phases are recorded
+ *  (Reading source, Lexing, Parsing, Typecheck). */
+auto analyze(std::unique_ptr<Options> options, Timer* phaseTimer = nullptr) -> AnalysisResult;
 auto buildAnalysisIndex(const Compound* ast, llvm::SourceMgr* srcMgr, unsigned bufferId)
     -> AnalysisIndex;
 

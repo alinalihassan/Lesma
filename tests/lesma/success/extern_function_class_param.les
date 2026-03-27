@@ -1,0 +1,16 @@
+# Nominal class parameters on extern declarations lower to pointers for ABI/overload identity
+# (same as normal functions). Typechecker and codegen must agree.
+
+export class Box
+    var v: int
+
+    def new()
+        self.v = 0
+
+# libc: int memcmp(const void *s1, const void *s2, size_t n)
+def extern memcmp(a: Box, b: Box, n: int) -> int
+
+var x = Box()
+# Same instance: memcmp must see identical bytes for any in-bounds n.
+if memcmp(x, x, 1) != 0
+    exit(1)

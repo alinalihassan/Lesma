@@ -11,16 +11,25 @@
 #include <vector>
 
 namespace llvm {
+class DIBuilder;
+class DICompileUnit;
+class DIFile;
+class DISubroutineType;
+class DIType;
 class GlobalVariable;
+class Instruction;
+class AllocaInst;
 } // namespace llvm
 
 #include <llvm/ExecutionEngine/Orc/LLJIT.h>
 #include <llvm/ExecutionEngine/Orc/ThreadSafeModule.h>
 #include <llvm/IR/BasicBlock.h>
+#include <llvm/IR/GlobalValue.h>
 #include <llvm/IR/IRBuilder.h>
 #include <llvm/IR/Module.h>
 #include <llvm/Passes/OptimizationLevel.h>
 #include <llvm/Passes/PassBuilder.h>
+#include <llvm/Support/SMLoc.h>
 #include <llvm/Support/SourceMgr.h>
 #include <llvm/Target/TargetMachine.h>
 
@@ -49,6 +58,8 @@ class Codegen final : public ASTVisitor {
   std::unique_ptr<IRBuilder<>> builder;
 
   std::unique_ptr<LLJIT> theJit;
+  /// JIT: mangled per-import init symbols; run from \c prepareJit (shared across nested imports).
+  std::shared_ptr<std::vector<std::string>> pendingJitModuleInits;
   std::unique_ptr<llvm::TargetMachine> targetMachine;
   std::shared_ptr<Parser> parser;
   std::shared_ptr<SourceMgr> sourceManager;
@@ -74,6 +85,8 @@ class Codegen final : public ASTVisitor {
                       // (e.g. math)
   std::vector<std::unique_ptr<Codegen>> importedCodegens; // Keep imported module codegens alive so
                                                           // Class* in symbols stay valid
+  /** Maps `import "m"` alias -> absolute path of `m` (for resolving exported globals). */
+  std::unordered_map<std::string, std::string> importAliasToModulePath;
   std::unordered_map<std::string, llvm::StructType*> listStructTypes;
   std::vector<std::tuple<lesma::Value*, const FuncDecl*, Value*>> prototypes;
   std::unordered_map<std::string, const FuncDecl*> genericFunctions;
@@ -102,6 +115,14 @@ class Codegen final : public ASTVisitor {
   bool isAssignment = false;
   bool isJit = false;
   bool isMain = true;
+  bool emitDebugInfo = false;
+  llvm::OptimizationLevel optimizationLevelForDebug = llvm::OptimizationLevel::O3;
+
+  std::unique_ptr<llvm::DIBuilder> diBuilder;
+  llvm::DICompileUnit* diCompileUnit = nullptr;
+  llvm::DIFile* moduleDiFile = nullptr;
+  llvm::DISubroutineType* emptyDiSubroutineType = nullptr;
+  std::unordered_map<unsigned, llvm::DIFile*> diFileByBufferId;
 
 public:
   /** Codegen lowers a module using the semantic scope and type cache produced
@@ -114,8 +135,11 @@ public:
           std::unique_ptr<SymbolTable> preScope = nullptr,
           std::vector<std::unique_ptr<lesma::Type>> preTypeCache = {},
           std::unordered_map<lesma::Type*, std::unordered_map<std::string, lesma::Type*>>
-              preSpecializedClassTypeEnvs = {});
-  ~Codegen() override = default;
+              preSpecializedClassTypeEnvs = {},
+          bool emitDebug = false,
+          llvm::OptimizationLevel optimizationLevelForDebugArg = llvm::OptimizationLevel::O3,
+          std::shared_ptr<std::vector<std::string>> sharedPendingJitModuleInits = nullptr);
+  ~Codegen() override;
 
   Codegen(const Codegen&) = delete;
   auto operator=(const Codegen&) -> Codegen& = delete;
@@ -130,11 +154,34 @@ public:
   auto linkObjectFile(const std::string& objFilename) -> void;
   auto optimize(OptimizationLevel opt) -> void;
 
+  /** Verify the current module's IR (JIT imports). The main program module is not verified: it
+   *  may reference Function values owned by other modules in the same LLVMContext, which the IR
+   *  verifier rejects while ORC still loads those modules together correctly. */
+  auto verifyIrModuleOrThrow(const std::string& contextLabel) const -> void;
+
 protected:
   auto initializeTargetMachine() -> std::unique_ptr<llvm::TargetMachine>;
   auto initializeModule() -> std::unique_ptr<Module>;
   auto initializeJit() -> std::unique_ptr<LLJIT>;
   auto initializeTopLevel() -> llvm::Function*;
+
+  auto initializeDebugMetadata() -> void;
+  auto finalizeDebugMetadata() -> void;
+  auto getOrCreateDiFileForBuffer(unsigned bufferId) -> llvm::DIFile*;
+  auto getDiTypeForLlvmType(llvm::Type* t) -> llvm::DIType*;
+  auto attachFunctionDebugInfo(llvm::Function* f, llvm::StringRef displayName,
+                               llvm::StringRef linkageName, llvm::SMRange declSpan,
+                               llvm::GlobalValue::LinkageTypes linkage, bool isMainSubprogram)
+      -> void;
+  auto emitParameterDebugDeclare(llvm::Function* fn, llvm::Value* storage, llvm::StringRef name,
+                                 unsigned dwArgNo, llvm::DIFile* file, unsigned line,
+                                 llvm::Type* paramLlvmTy, llvm::Instruction* insertBefore) -> void;
+  auto emitAutoVarDebugDeclare(llvm::AllocaInst* allocaInst, llvm::StringRef name,
+                               llvm::SMRange span, llvm::Instruction* insertBefore) -> void;
+  auto setDebugLoc(llvm::SMRange span) -> void;
+  /** Alloca in \p fn's entry block (after PHIs) so LLVM mem2reg can promote loop/stack slots. */
+  auto createAllocaInEntry(llvm::Function* fn, llvm::Type* elemTy, const std::string& name)
+      -> llvm::AllocaInst*;
 
   auto linkObjectFileWithLld(const std::string& objFilename) -> void;
 
@@ -150,7 +197,8 @@ protected:
                                 const std::string& importName) const -> bool;
   [[nodiscard]] auto getImportedLocalName(const std::vector<ImportedNameBinding>& importedNames,
                                           const std::string& importName) const -> std::string;
-  auto insertImportAlias(const std::string& moduleAlias, bool importToScope) -> void;
+  auto insertImportAlias(const std::string& moduleAlias, bool importToScope,
+                         const std::string& importedModuleAbsolutePath) -> void;
   auto exposeImportedSymbols(llvm::SMRange span, SymbolTable* importedScope, bool importAll,
                              bool importToScope,
                              const std::vector<ImportedNameBinding>& importedNames) -> void;
@@ -185,6 +233,7 @@ protected:
   auto visit(const IsOp* node) -> void override;
   auto visit(const UnaryOp* node) -> void override;
   auto visit(const Literal* node) -> void override;
+  auto visit(const StringInterpolation* node) -> void override;
   auto visit(const ListLiteral* node) -> void override;
   auto visit(const TupleLiteral* node) -> void override;
   auto visit(const Else* node) -> void override;
@@ -248,6 +297,20 @@ protected:
   auto emitCalloc(llvm::Value* count, llvm::Value* size, const llvm::Twine& name = "calloc.tmp")
       -> llvm::Value*;
   auto emitMalloc(llvm::Value* size, const llvm::Twine& name = "malloc.tmp") -> llvm::Value*;
+  auto emitCstrConcatValues(llvm::SMRange span, llvm::Value* a, llvm::Value* b) -> llvm::Value*;
+  auto emitFormatIntegerToCstr(llvm::SMRange span, llvm::Value* intVal, lesma::Type* intTy)
+      -> llvm::Value*;
+  auto emitFormatFloatToCstr(llvm::SMRange span, llvm::Value* floatVal, lesma::Type* floatTy)
+      -> llvm::Value*;
+  auto emitBoxedStrLiteralText(llvm::SMRange span, const std::string& text, lesma::Type* strClass)
+      -> std::unique_ptr<lesma::Value>;
+  auto emitBoxedStrWithCstrField(llvm::SMRange span, llvm::Value* nulTerminatedPtr,
+                                 lesma::Type* strClass) -> std::unique_ptr<lesma::Value>;
+  auto emitInterpolationExprToBoxedStr(llvm::SMRange span, const Expression* expr,
+                                       lesma::Type* exprTy, lesma::Type* strClass)
+      -> std::unique_ptr<lesma::Value>;
+  auto emitInterpolationExprToCstr(llvm::SMRange span, const Expression* expr, lesma::Type* exprTy)
+      -> llvm::Value*;
   auto emitRealloc(llvm::Value* ptr, llvm::Value* size, const llvm::Twine& name = "realloc.tmp")
       -> llvm::Value*;
   auto emitFree(llvm::Value* ptr) -> void;

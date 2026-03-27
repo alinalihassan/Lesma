@@ -5,32 +5,47 @@
 - [x] Fix multiple imports not working (import each file once)
 - [x] Add default values in function declarations
 - [x] Add operator overloading
-- [ ] Add global variables (like 'export let pi = 3.14')
+- [x] Add global variables (like 'export let pi = 3.14')
 - [x] Add generics
 - [x] Add lists
-- [ ] Add optional types
-- [ ] Add optional parameters in function declarations
+- [x] Add optional parameters in function declarations
 - [x] Add tuples
-- [x] Add ranges (1..4 style)
-- [ ] Add dictionaries
+- [x] Add ranges (range(1, 4) style)
 - [x] Add foreach loops
-- [ ] Add lambda functions
 - [x] Add traits
-- [ ] Add string interpolation
+- [x] Add string interpolation
+- [x] Add multiple value return without having to make structs
+- [ ] Add optional types
+- [ ] Add dictionaries
+- [ ] Add lambda functions
+- [ ] Add try catch
 - [ ] Add multithreading using pthread for now (async/await? ala Spice)
-- [ ] Add multiple value return without having to make structs
 
 ## LSP
 - [ ] rename + prepareRename
 - [ ] workspace/symbol
 - [ ] documentHighlight
 - [ ] codeAction for obvious fixes
-- [ ]documentLink for import targets
-- [ ]richer semantic tokens
-- [ ]folding/selection ranges
-- [ ]formatting
+- [ ] documentLink for import targets
+- [ ] richer semantic tokens
+- [ ] folding/selection ranges
+- [ ] formatting
 
-## Bugs
+## Compiler warnings
 
-- [ ] Nested dot access is not implemented yet (for example `holder.payload.value`)
-- [ ] Dereferencing a pointer loaded from a class field does not work correctly at runtime/codegen
+Semantic diagnostics are emitted in the typechecker; warnings are suppressed for stdlib sources. The CLI can hide diagnostics with `--no-warnings`.
+
+- [x] Unreachable code — statement after `return` / `break` / `continue` in the same block
+- [x] Unused variable
+- [x] Unused parameter
+- [x] Unused import
+- [x] Shadowing — local declaration hides an outer binding
+- [x] Import shadowing — same as above when the outer binding is an import
+- [x] Empty `if` / `else` branch body
+- [x] Empty `while` body
+- [x] Empty `for-in` body
+- [x] Trivial condition — `if` / `while` on constant `true` / `false`
+- [x] Lossy implicit conversion — e.g. `int` ↔ `float` / `float32`
+- [x] Unused class field on non-exported class
+- [x] Unused class method on non-exported class
+- [x] `unimplemented` / stub statement — warning then error

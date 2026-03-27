@@ -12,8 +12,8 @@
 #include "llvm/Support/SourceMgr.h"
 
 #include "LspAnalysisGraph.h"
+#include "LspSourceHelpers.h"
 #include "LspTypeFormat.h"
-#include "LspUtf16.h"
 
 #include "liblesma/AST/AST.h"
 #include "liblesma/Driver/Driver.h"
@@ -22,6 +22,9 @@
 
 namespace lesma::lsp_srv {
 namespace {
+
+/** Inserted after `.` so `holder.` re-parses as member access (see completionItems). */
+constexpr std::string_view MEMBER_COMPLETION_PLACEHOLDER = "__cursor__";
 
 using namespace lesma;
 using lesma::lsp_srv::formatTypeName;
@@ -38,21 +41,17 @@ struct CompletionCandidate {
   std::string detail;
 };
 
-struct InnermostFunc {
-  lesma::FuncDecl* func = nullptr;
-  lesma::Class* enclosingClass = nullptr;
-};
+using InnermostFunc = InnermostFuncAtOffset<lesma::FuncDecl, lesma::Class>;
 
 auto positionToOffset(llvm::StringRef ref, unsigned line, unsigned character) -> unsigned {
-  return static_cast<unsigned>(bufferByteOffsetFromLspPosition(ref, line, character));
+  return static_cast<unsigned>(bufferByteOffsetFromLspUtf8Position(ref, line, character));
 }
 
-auto getOffsetFromSMLoc(llvm::SourceMgr* srcMgr, unsigned bufferId, llvm::SMLoc loc) -> unsigned {
-  auto const* buf = srcMgr->getMemoryBuffer(bufferId);
-  if (buf == nullptr) {
-    return 0U;
-  }
-  return static_cast<unsigned>(loc.getPointer() - buf->getBufferStart());
+[[nodiscard]] auto findInnermostFuncContaining(lesma::Compound* ast, unsigned targetOffset,
+                                               llvm::SourceMgr* srcMgr, unsigned bufferId)
+    -> InnermostFunc {
+  return findInnermostFuncContainingAst<lesma::FuncDecl, lesma::Class>(ast, targetOffset, srcMgr,
+                                                                       bufferId);
 }
 
 auto isIdentChar(char c) -> bool {
@@ -125,57 +124,6 @@ auto candidateKindForValue(Value* value) -> ::lsp::CompletionItemKind {
   return ::lsp::CompletionItemKind::Text;
 }
 
-void considerFunc(lesma::FuncDecl* func, lesma::Class* cls, unsigned targetOffset,
-                  llvm::SourceMgr* srcMgr, unsigned bufferId, InnermostFunc& best,
-                  unsigned& bestLen) {
-  if (func == nullptr || func->getBody() == nullptr) {
-    return;
-  }
-  llvm::SMRange span = func->getBody()->getSpan();
-  if (!span.isValid()) {
-    return;
-  }
-  unsigned const start = getOffsetFromSMLoc(srcMgr, bufferId, span.Start);
-  unsigned const end = getOffsetFromSMLoc(srcMgr, bufferId, span.End);
-  if (targetOffset < start || targetOffset >= end) {
-    return;
-  }
-  unsigned const len = end - start;
-  if (best.func == nullptr || len < bestLen) {
-    best.func = func;
-    best.enclosingClass = cls;
-    bestLen = len;
-  }
-}
-
-void scanCompoundForFuncs(lesma::Compound* compound, lesma::Class* cls, unsigned targetOffset,
-                          llvm::SourceMgr* srcMgr, unsigned bufferId, InnermostFunc& best,
-                          unsigned& bestLen) {
-  if (compound == nullptr) {
-    return;
-  }
-  for (lesma::Statement* stmt : compound->getChildren()) {
-    if (auto* func = dynamic_cast<lesma::FuncDecl*>(stmt)) {
-      considerFunc(func, cls, targetOffset, srcMgr, bufferId, best, bestLen);
-      scanCompoundForFuncs(func->getBody(), cls, targetOffset, srcMgr, bufferId, best, bestLen);
-    } else if (auto* klass = dynamic_cast<lesma::Class*>(stmt)) {
-      for (lesma::FuncDecl* method : klass->getMethods()) {
-        considerFunc(method, klass, targetOffset, srcMgr, bufferId, best, bestLen);
-        scanCompoundForFuncs(method->getBody(), klass, targetOffset, srcMgr, bufferId, best,
-                             bestLen);
-      }
-    }
-  }
-}
-
-auto findInnermostFuncContaining(lesma::Compound* ast, unsigned targetOffset,
-                                 llvm::SourceMgr* srcMgr, unsigned bufferId) -> InnermostFunc {
-  InnermostFunc best;
-  unsigned bestLen = 0U;
-  scanCompoundForFuncs(ast, nullptr, targetOffset, srcMgr, bufferId, best, bestLen);
-  return best;
-}
-
 auto activeScopeForOffset(const AnalysisResult& result, unsigned offset) -> SymbolTable* {
   if (result.rootScope == nullptr || result.parser == nullptr || result.sourceMgr == nullptr) {
     return nullptr;
@@ -221,14 +169,14 @@ auto extractCompletionContext(llvm::StringRef text, unsigned offset) -> Completi
 auto reanalyzeWithCompletionPlaceholder(const AnalysisResult& result, llvm::StringRef text,
                                         unsigned offset) -> AnalysisResult {
   std::string patchedText(text.data(), text.size());
-  patchedText.insert(static_cast<size_t>(offset), "__cursor__");
+  patchedText.insert(static_cast<size_t>(offset), MEMBER_COMPLETION_PLACEHOLDER);
   auto options = std::make_unique<Options>(Options{
-      SourceType::STRING,
-      std::move(patchedText),
-      Debug::NONE,
-      "output",
-      false,
-      result.mainFilePath,
+      .sourceType = SourceType::STRING,
+      .source = std::move(patchedText),
+      .debug = Debug::NONE,
+      .outputFilename = "output",
+      .timer = false,
+      .implicitFilePath = result.mainFilePath,
   });
   return analyze(std::move(options));
 }
@@ -350,56 +298,58 @@ auto findTraitDeclNamed(AnalysisResult& result, Compound* mainAst, const std::st
   return nullptr;
 }
 
-auto smRangesEqual(llvm::SMRange lhs, llvm::SMRange rhs) -> bool {
-  return lhs.isValid() && rhs.isValid() && lhs.Start == rhs.Start && lhs.End == rhs.End;
-}
+auto findClassDeclarationInCompound(Compound* compound, llvm::SMRange declarationSpan,
+                                    llvm::SourceMgr* srcMgr, unsigned bufferId) -> Class*;
 
-auto findClassDeclarationInCompound(Compound* compound, llvm::SMRange declarationSpan) -> Class*;
-
-auto findClassDeclarationInStatement(Statement* stmt, llvm::SMRange declarationSpan) -> Class* {
+auto findClassDeclarationInStatement(Statement* stmt, llvm::SMRange declarationSpan,
+                                     llvm::SourceMgr* srcMgr, unsigned bufferId) -> Class* {
   if (stmt == nullptr) {
     return nullptr;
   }
   if (auto* compound = dynamic_cast<Compound*>(stmt)) {
-    return findClassDeclarationInCompound(compound, declarationSpan);
+    return findClassDeclarationInCompound(compound, declarationSpan, srcMgr, bufferId);
   }
   if (auto* klass = dynamic_cast<Class*>(stmt)) {
-    if (smRangesEqual(klass->getNameSpan(), declarationSpan)) {
+    if (smRangesEqual(srcMgr, bufferId, klass->getNameSpan(), declarationSpan)) {
       return klass;
     }
     for (FuncDecl* method : klass->getMethods()) {
-      if (Class* nested = findClassDeclarationInCompound(method->getBody(), declarationSpan)) {
+      if (Class* nested = findClassDeclarationInCompound(method->getBody(), declarationSpan, srcMgr,
+                                                         bufferId)) {
         return nested;
       }
     }
     return nullptr;
   }
   if (auto* func = dynamic_cast<FuncDecl*>(stmt)) {
-    return findClassDeclarationInCompound(func->getBody(), declarationSpan);
+    return findClassDeclarationInCompound(func->getBody(), declarationSpan, srcMgr, bufferId);
   }
   if (auto* ifNode = dynamic_cast<If*>(stmt)) {
     for (Compound* block : ifNode->getBlocks()) {
-      if (Class* nested = findClassDeclarationInCompound(block, declarationSpan)) {
+      if (Class* nested =
+              findClassDeclarationInCompound(block, declarationSpan, srcMgr, bufferId)) {
         return nested;
       }
     }
     return nullptr;
   }
   if (auto* whileNode = dynamic_cast<While*>(stmt)) {
-    return findClassDeclarationInCompound(whileNode->getBlock(), declarationSpan);
+    return findClassDeclarationInCompound(whileNode->getBlock(), declarationSpan, srcMgr, bufferId);
   }
   if (auto* defer = dynamic_cast<Defer*>(stmt)) {
-    return findClassDeclarationInStatement(defer->getStatement(), declarationSpan);
+    return findClassDeclarationInStatement(defer->getStatement(), declarationSpan, srcMgr,
+                                           bufferId);
   }
   return nullptr;
 }
 
-auto findClassDeclarationInCompound(Compound* compound, llvm::SMRange declarationSpan) -> Class* {
+auto findClassDeclarationInCompound(Compound* compound, llvm::SMRange declarationSpan,
+                                    llvm::SourceMgr* srcMgr, unsigned bufferId) -> Class* {
   if (compound == nullptr) {
     return nullptr;
   }
   for (Statement* child : compound->getChildren()) {
-    if (Class* klass = findClassDeclarationInStatement(child, declarationSpan)) {
+    if (Class* klass = findClassDeclarationInStatement(child, declarationSpan, srcMgr, bufferId)) {
       return klass;
     }
   }
@@ -470,7 +420,8 @@ auto findClassDeclarationForType(AnalysisResult& result, Type* classType, Compou
           declarationIdentityForType(classType, root)) {
     if (std::optional<AnalysisView> analysis =
             findAnalysisViewForPath(result, declaration->filePath)) {
-      if (Class* klass = findClassDeclarationInCompound(analysis->ast, declaration->span)) {
+      if (Class* klass = findClassDeclarationInCompound(analysis->ast, declaration->span,
+                                                        analysis->sourceMgr, analysis->bufferId)) {
         return klass;
       }
       if (std::optional<std::string> baseName = genericSpecializationBaseName(classType)) {
@@ -745,8 +696,7 @@ auto completionItems(AnalysisResult& result, unsigned line, unsigned character)
     if (baseType == nullptr && parts.size() == 1U && parts.front() == "self") {
       baseType = resolveSelfReceiverType(ast, offset, srcMgr, bufferId, root);
     }
-    if (parts.size() == 1U && activeResult->importAliasToPath.find(parts.front()) !=
-                                  activeResult->importAliasToPath.end()) {
+    if (parts.size() == 1U && activeResult->importAliasToPath.contains(parts.front())) {
       appendModuleMembersForAlias(*activeResult, parts.front(), candidates, seen);
     }
     appendMembersForType(*activeResult, baseType, ast, root, candidates, seen);

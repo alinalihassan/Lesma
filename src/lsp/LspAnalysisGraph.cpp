@@ -183,8 +183,7 @@ auto findWorkspaceRoot(const std::string& mainFilePath) -> std::string {
     return {};
   }
   while (!current.empty()) {
-    if (std::filesystem::exists(current / ".git", ec) ||
-        std::filesystem::exists(current / "CMakeLists.txt", ec)) {
+    if (std::filesystem::exists(current / ".git", ec)) {
       return current.lexically_normal().string();
     }
     std::filesystem::path parent = current.parent_path();
@@ -262,12 +261,14 @@ auto getLazyImportedAnalysis(const std::string& path)
   }
   auto& cacheState = lazyImportedAnalysisCacheState();
 
-  {
+  auto lookupCached = [&]() -> std::shared_ptr<lesma::ImportedModuleAnalysis> {
     std::lock_guard<std::mutex> lock(cacheState.cacheMutex);
-    auto existing = cacheState.cache.find(normalized);
-    if (existing != cacheState.cache.end()) {
-      return existing->second;
-    }
+    auto it = cacheState.cache.find(normalized);
+    return it != cacheState.cache.end() ? it->second : nullptr;
+  };
+
+  if (std::shared_ptr<lesma::ImportedModuleAnalysis> hit = lookupCached()) {
+    return hit;
   }
 
   auto options = std::make_unique<Options>(Options{
@@ -281,24 +282,18 @@ auto getLazyImportedAnalysis(const std::string& path)
   AnalysisResult analyzed = lesma::analyze(std::move(options));
   AnalysisView view = makeAnalysisView(analyzed);
   if (!isUsableAnalysis(view)) {
-    std::lock_guard<std::mutex> lock(cacheState.cacheMutex);
-    auto existing = cacheState.cache.find(normalized);
-    if (existing != cacheState.cache.end()) {
-      return existing->second;
-    }
-    return nullptr;
+    return lookupCached();
   }
 
   std::shared_ptr<lesma::ImportedModuleAnalysis> imported =
       makeImportedModuleAnalysis(std::move(analyzed));
   std::lock_guard<std::mutex> lock(cacheState.cacheMutex);
-  auto existing = cacheState.cache.find(normalized);
-  if (existing != cacheState.cache.end()) {
-    return existing->second;
+  if (auto it = cacheState.cache.find(normalized); it != cacheState.cache.end()) {
+    return it->second;
   }
   cacheState.cache[normalized] = imported;
   recordDependencyEdgesForImporter(cacheState, normalized, *imported);
-  return cacheState.cache[normalized];
+  return imported;
 }
 
 } // namespace
@@ -403,6 +398,8 @@ auto uriFromPath(const std::string& path) -> ::lsp::DocumentUri {
   return ::lsp::FileUri::fromPath(normalized.empty() ? path : normalized);
 }
 
+/** \p span → LSP range using negotiated UTF-8 positions. LLVM `getLineAndColumn` column is a
+ * 1-based byte index from the line start; LSP `character` is 0-based UTF-8 code units. */
 auto smRangeToLspRange(llvm::SourceMgr* srcMgr, unsigned bufferId, llvm::SMRange span)
     -> ::lsp::Range {
   if (!span.isValid()) {

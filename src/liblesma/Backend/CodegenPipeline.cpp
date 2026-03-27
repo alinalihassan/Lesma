@@ -1,10 +1,14 @@
 #include <filesystem>
 #include <memory>
+#include <string>
 #include <utility>
 #include <vector>
 
+#include <llvm/ADT/ArrayRef.h>
+#include <llvm/ADT/SmallString.h>
 #include <llvm/Analysis/CGSCCPassManager.h>
 #include <llvm/Analysis/LoopAnalysisManager.h>
+#include <llvm/BinaryFormat/Dwarf.h>
 #include <llvm/Config/llvm-config.h>
 #include <llvm/ExecutionEngine/Orc/ExecutionUtils.h>
 #include <llvm/ExecutionEngine/Orc/JITTargetMachineBuilder.h>
@@ -12,10 +16,15 @@
 #include <llvm/ExecutionEngine/Orc/ThreadSafeModule.h>
 #include <llvm/IR/BasicBlock.h>
 #include <llvm/IR/Constants.h>
+#include <llvm/IR/DIBuilder.h>
+#include <llvm/IR/DebugInfoMetadata.h>
 #include <llvm/IR/DerivedTypes.h>
 #include <llvm/IR/Function.h>
 #include <llvm/IR/GlobalValue.h>
+#include <llvm/IR/Instruction.h>
+#include <llvm/IR/Instructions.h>
 #include <llvm/IR/LegacyPassManager.h>
+#include <llvm/IR/Metadata.h>
 #include <llvm/IR/Module.h>
 #include <llvm/IR/PassManager.h>
 #include <llvm/IR/Verifier.h>
@@ -27,10 +36,14 @@
 #include <llvm/Support/CodeGen.h>
 #include <llvm/Support/Error.h>
 #include <llvm/Support/FileSystem.h>
+#include <llvm/Support/MemoryBuffer.h>
+#include <llvm/Support/Path.h>
 #include <llvm/Support/TargetSelect.h>
+#include <llvm/Support/raw_ostream.h>
 #include <llvm/Target/TargetMachine.h>
 #include <llvm/Target/TargetOptions.h>
 #include <llvm/TargetParser/Host.h>
+#include <llvm/TargetParser/SubtargetFeature.h>
 #include <llvm/Transforms/IPO/GlobalDCE.h>
 #include <llvm/Transforms/IPO/Inliner.h>
 #include <llvm/Transforms/IPO/StripDeadPrototypes.h>
@@ -39,6 +52,8 @@
 #include <llvm/Transforms/Scalar/GVN.h>
 #include <llvm/Transforms/Scalar/LoopPassManager.h>
 #include <llvm/Transforms/Scalar/LoopUnrollPass.h>
+#include <llvm/Transforms/Scalar/SROA.h>
+#include <llvm/Transforms/Utils/Mem2Reg.h>
 #include <llvm/Transforms/Vectorize/LoopVectorize.h>
 
 #include "Codegen.h"
@@ -54,23 +69,232 @@ LLD_HAS_DRIVER(elf)
 
 #include "liblesma/Backend/CodegenError.h"
 #include "liblesma/Backend/CodegenRuntimeNames.h"
+#include "liblesma/Common/LesmaVersion.h"
 #include "liblesma/Common/Utils.h"
 
 using namespace lesma;
 using namespace llvm;
 using namespace llvm::orc;
 
+namespace {
+
+[[nodiscard]] auto llvmErrorToString(Error err) -> std::string {
+  std::string msg;
+  handleAllErrors(std::move(err), [&](const ErrorInfoBase& ei) { msg = ei.message(); });
+  return msg.empty() ? "unknown error" : msg;
+}
+
+} // namespace
+
+Codegen::~Codegen() = default;
+
+auto Codegen::initializeDebugMetadata() -> void {
+  if (!emitDebugInfo) {
+    return;
+  }
+  diBuilder = std::make_unique<DIBuilder>(*theModule);
+  SmallString<512> pathNative(filename);
+  sys::path::native(pathNative);
+  StringRef const full = pathNative.empty() ? StringRef("<stdin>") : StringRef(pathNative);
+  StringRef const dir = pathNative.empty() ? StringRef(".") : sys::path::parent_path(full);
+  StringRef const fname = pathNative.empty() ? StringRef("<stdin>") : sys::path::filename(full);
+  moduleDiFile = diBuilder->createFile(fname, dir.empty() ? StringRef(".") : dir);
+
+  std::string const producer = std::string("Lesma ") + LESMA_VERSION;
+  bool const isOptimized = optimizationLevelForDebug != OptimizationLevel::O0;
+  diCompileUnit = diBuilder->createCompileUnit(
+      dwarf::DW_LANG_C99, moduleDiFile, producer, isOptimized, "",
+      /*RuntimeVersion=*/0U, StringRef(), DICompileUnit::DebugEmissionKind::FullDebug);
+
+  emptyDiSubroutineType =
+      diBuilder->createSubroutineType(diBuilder->getOrCreateTypeArray(ArrayRef<Metadata*>{}));
+
+  theModule->addModuleFlag(Module::Warning, "Debug Info Version", DEBUG_METADATA_VERSION);
+  theModule->addModuleFlag(Module::Warning, "Dwarf Version", dwarf::DWARF_VERSION);
+}
+
+auto Codegen::finalizeDebugMetadata() -> void {
+  if (diBuilder != nullptr) {
+    diBuilder->finalize();
+    diBuilder.reset();
+  }
+}
+
+auto Codegen::getOrCreateDiFileForBuffer(unsigned bufferId) -> DIFile* {
+  if (bufferId == 0U || diBuilder == nullptr) {
+    return moduleDiFile;
+  }
+  if (auto it = diFileByBufferId.find(bufferId); it != diFileByBufferId.end()) {
+    return it->second;
+  }
+  const MemoryBuffer* mb = sourceManager->getMemoryBuffer(bufferId);
+  std::string pathStr = std::string(mb->getBufferIdentifier());
+  SmallString<512> nativePath(pathStr);
+  sys::path::native(nativePath);
+  StringRef const full = nativePath;
+  StringRef const dir = sys::path::parent_path(full);
+  StringRef const fname = sys::path::filename(full);
+  DIFile* df = diBuilder->createFile(fname, dir.empty() ? StringRef(".") : dir);
+  diFileByBufferId.emplace(bufferId, df);
+  return df;
+}
+
+auto Codegen::getDiTypeForLlvmType(llvm::Type* t) -> llvm::DIType* {
+  if (diBuilder == nullptr || t == nullptr) {
+    return nullptr;
+  }
+  DataLayout const& dl = theModule->getDataLayout();
+  if (t->isIntegerTy()) {
+    unsigned const bits = t->getIntegerBitWidth();
+    dwarf::TypeKind ate = bits == 1U ? dwarf::DW_ATE_boolean : dwarf::DW_ATE_signed;
+    return diBuilder->createBasicType("int", bits, ate);
+  }
+  if (t->isFloatingPointTy()) {
+    return diBuilder->createBasicType("float", dl.getTypeSizeInBits(t), dwarf::DW_ATE_float);
+  }
+  if (t->isPointerTy()) {
+    return diBuilder->createBasicType("__ptr", dl.getPointerSizeInBits(0), dwarf::DW_ATE_address);
+  }
+  if (t->isVoidTy()) {
+    return diBuilder->createUnspecifiedType("void");
+  }
+  if (t->isStructTy() || t->isArrayTy()) {
+    return diBuilder->createBasicType("aggregate", dl.getTypeSizeInBits(t), dwarf::DW_ATE_unsigned);
+  }
+  return diBuilder->createBasicType("opaque", dl.getTypeSizeInBits(t), dwarf::DW_ATE_unsigned);
+}
+
+auto Codegen::attachFunctionDebugInfo(Function* f, StringRef displayName, StringRef linkageName,
+                                      SMRange declSpan, GlobalValue::LinkageTypes linkage,
+                                      bool isMainSubprogram) -> void {
+  if (!emitDebugInfo || diBuilder == nullptr || emptyDiSubroutineType == nullptr ||
+      diCompileUnit == nullptr) {
+    return;
+  }
+  DIFile* file = moduleDiFile;
+  unsigned line = 1U;
+  if (declSpan.isValid() && declSpan.Start.isValid()) {
+    unsigned const bufId = sourceManager->FindBufferContainingLoc(declSpan.Start);
+    if (bufId != 0U) {
+      file = getOrCreateDiFileForBuffer(bufId);
+    }
+    auto const lc = sourceManager->getLineAndColumn(declSpan.Start);
+    line = lc.first;
+  }
+  bool const localToUnit =
+      linkage == GlobalValue::InternalLinkage || linkage == GlobalValue::PrivateLinkage;
+  bool const isOpt = optimizationLevelForDebug != OptimizationLevel::O0;
+  DISubprogram::DISPFlags const spFlags = DISubprogram::toSPFlags(
+      localToUnit, true, isOpt, DISubprogram::SPFlagNonvirtual, isMainSubprogram);
+  DISubprogram* sp = diBuilder->createFunction(static_cast<DIScope*>(diCompileUnit), displayName,
+                                               linkageName, file, line, emptyDiSubroutineType, line,
+                                               DINode::FlagPrototyped, spFlags);
+  f->setSubprogram(sp);
+}
+
+auto Codegen::emitParameterDebugDeclare(llvm::Function* fn, llvm::Value* storage,
+                                        llvm::StringRef name, unsigned dwArgNo, llvm::DIFile* file,
+                                        unsigned line, llvm::Type* paramLlvmTy,
+                                        llvm::Instruction* insertBefore) -> void {
+  if (!emitDebugInfo || diBuilder == nullptr || fn->getSubprogram() == nullptr) {
+    return;
+  }
+  DISubprogram* sp = fn->getSubprogram();
+  DIType* ty = getDiTypeForLlvmType(paramLlvmTy);
+  if (ty == nullptr) {
+    ty = getDiTypeForLlvmType(builder->getInt64Ty());
+  }
+  DILocalVariable* v = diBuilder->createParameterVariable(sp, name, dwArgNo, file, line, ty);
+  DILocation* dl = DILocation::get(fn->getContext(), line, 0, sp);
+  if (insertBefore != nullptr) {
+    diBuilder->insertDeclare(storage, v, diBuilder->createExpression(), dl,
+                             InsertPosition(insertBefore->getIterator()));
+  }
+}
+
+auto Codegen::emitAutoVarDebugDeclare(llvm::AllocaInst* allocaInst, llvm::StringRef name,
+                                      SMRange span, llvm::Instruction* insertBefore) -> void {
+  if (!emitDebugInfo || diBuilder == nullptr) {
+    return;
+  }
+  Function* fn = allocaInst->getFunction();
+  DISubprogram* sp = fn->getSubprogram();
+  if (sp == nullptr) {
+    return;
+  }
+  DIFile* file = moduleDiFile;
+  unsigned line = 1U;
+  if (span.isValid() && span.Start.isValid()) {
+    unsigned const bufId = sourceManager->FindBufferContainingLoc(span.Start);
+    if (bufId != 0U) {
+      file = getOrCreateDiFileForBuffer(bufId);
+    }
+    line = sourceManager->getLineAndColumn(span.Start).first;
+  }
+  DIType* ty = getDiTypeForLlvmType(allocaInst->getAllocatedType());
+  if (ty == nullptr) {
+    ty = getDiTypeForLlvmType(builder->getInt64Ty());
+  }
+  DILocalVariable* v = diBuilder->createAutoVariable(sp, name, file, line, ty);
+  DILocation* dl = DILocation::get(allocaInst->getContext(), line, 0, sp);
+  DIExpression* expr = diBuilder->createExpression();
+  if (insertBefore != nullptr) {
+    diBuilder->insertDeclare(allocaInst, v, expr, dl, InsertPosition(insertBefore->getIterator()));
+    return;
+  }
+  if (llvm::Instruction* next = allocaInst->getNextNode()) {
+    diBuilder->insertDeclare(allocaInst, v, expr, dl, InsertPosition(next->getIterator()));
+    return;
+  }
+  diBuilder->insertDeclare(allocaInst, v, expr, dl, InsertPosition(allocaInst->getParent()->end()));
+}
+
+auto Codegen::setDebugLoc(SMRange span) -> void {
+  if (!emitDebugInfo || diBuilder == nullptr) {
+    return;
+  }
+  BasicBlock* bb = builder->GetInsertBlock();
+  if (bb == nullptr) {
+    return;
+  }
+  Function* fn = bb->getParent();
+  DISubprogram* sp = fn->getSubprogram();
+  if (sp == nullptr) {
+    builder->SetCurrentDebugLocation(DebugLoc());
+    return;
+  }
+  if (!span.isValid() || !span.Start.isValid()) {
+    builder->SetCurrentDebugLocation(DebugLoc());
+    return;
+  }
+  unsigned const bufId = sourceManager->FindBufferContainingLoc(span.Start);
+  if (bufId == 0U) {
+    builder->SetCurrentDebugLocation(DebugLoc());
+    return;
+  }
+  auto const lc = sourceManager->getLineAndColumn(span.Start);
+  DILocation* loc = DILocation::get(theModule->getContext(), lc.first, lc.second, sp);
+  builder->SetCurrentDebugLocation(loc);
+}
+
+auto Codegen::createAllocaInEntry(llvm::Function* fn, llvm::Type* elemTy, const std::string& name)
+    -> llvm::AllocaInst* {
+  llvm::BasicBlock& entry = fn->getEntryBlock();
+  llvm::IRBuilder<> atEntry(&entry, entry.getFirstInsertionPt());
+  return atEntry.CreateAlloca(elemTy, nullptr, name);
+}
+
 auto Codegen::initializeModule() -> std::unique_ptr<Module> {
   std::unique_ptr<Module> mod;
 #if LLVM_VERSION_MAJOR >= 21
   theContext->withContextDo([&mod](LLVMContext* ctx) {
-    mod = std::make_unique<Module>(std::string{codegen::runtime::kLlvmModuleName}, *ctx);
+    mod = std::make_unique<Module>(std::string{codegen::runtime::LLVM_MODULE_NAME}, *ctx);
   });
 #else
   {
     auto lock = theContext->getLock();
     LLVMContext* ctx = theContext->getContext();
-    mod = std::make_unique<Module>(std::string{codegen::runtime::kLlvmModuleName}, *ctx);
+    mod = std::make_unique<Module>(std::string{codegen::runtime::LLVM_MODULE_NAME}, *ctx);
   }
 #endif
 #if LLVM_VERSION_MAJOR >= 21
@@ -98,11 +322,25 @@ auto Codegen::initializeTargetMachine() -> std::unique_ptr<llvm::TargetMachine> 
 
   llvm::TargetOptions const opt;
   llvm::Reloc::Model rm = llvm::Reloc::Model();
+
+  std::string cpu(llvm::sys::getHostCPUName());
+  if (cpu.empty()) {
+    cpu = "generic";
+  }
+  std::string featuresStr;
+  if (cpu != "generic") {
+    SubtargetFeatures feat;
+    for (const auto& entry : llvm::sys::getHostCPUFeatures()) {
+      feat.AddFeature(entry.getKey(), entry.getValue());
+    }
+    featuresStr = feat.getString();
+  }
+
   std::unique_ptr<llvm::TargetMachine> targetMachine(
 #if LLVM_VERSION_MAJOR >= 21
-      target->createTargetMachine(targetTriple, "generic", "", opt, rm));
+      target->createTargetMachine(targetTriple, cpu, featuresStr, opt, rm));
 #else
-      target->createTargetMachine(targetTriple.str(), "generic", "", opt, rm));
+      target->createTargetMachine(targetTriple.str(), cpu, featuresStr, opt, rm));
 #endif
   return targetMachine;
 }
@@ -114,17 +352,22 @@ auto Codegen::initializeJit() -> std::unique_ptr<LLJIT> {
       llvm::orc::JITTargetMachineBuilder(targetMachine->getTargetTriple()));
   auto jitOrErr = jitBuilder.create();
   if (!jitOrErr) {
-    throw CodegenError({}, "Couldn't initialize JIT:\n{}", llvm::toString(jitOrErr.takeError()));
+    throw CodegenError({}, std::string("Couldn't initialize JIT:\n") +
+                               llvm::toString(jitOrErr.takeError()));
   }
   auto jit = std::move(*jitOrErr);
+
+  // Default LLJIT uses JITLink on supported targets (in-process). Debugger registration via
+  // llvm::orc::enableDebuggerSupport is omitted: LLVM 21's helper can assert on darwin-arm64 with
+  // this stack; revisit when emitting JIT DWARF or when upstream stabilizes the API.
 
   // Add support for C native functions
   auto& mainJd = jit->getMainJITDylib();
   auto generatorOrErr =
       DynamicLibrarySearchGenerator::GetForCurrentProcess(jit->getDataLayout().getGlobalPrefix());
   if (!generatorOrErr) {
-    throw CodegenError({}, "Couldn't create dynamic library search generator:\n{}",
-                       llvm::toString(generatorOrErr.takeError()));
+    throw CodegenError({}, std::string("Couldn't create dynamic library search generator:\n") +
+                               llvm::toString(generatorOrErr.takeError()));
   }
   auto generator = std::move(*generatorOrErr);
   mainJd.addGenerator(std::move(generator));
@@ -142,7 +385,29 @@ auto Codegen::initializeTopLevel() -> llvm::Function* {
   auto* entry = BasicBlock::Create(theModule->getContext(), "entry", f);
   builder->SetInsertPoint(entry);
 
+  if (emitDebugInfo) {
+    SMRange span;
+    if (parser != nullptr && parser->getAst() != nullptr) {
+      span = parser->getAst()->getSpan();
+    }
+    attachFunctionDebugInfo(f, isMain ? StringRef("main") : StringRef("<module>"), f->getName(),
+                            span, f->getLinkage(), isMain);
+  }
+
   return f;
+}
+
+auto Codegen::verifyIrModuleOrThrow(const std::string& contextLabel) const -> void {
+  if (theModule == nullptr) {
+    throw CodegenError({}, "Internal error: no LLVM module to verify ({})", contextLabel);
+  }
+  std::string err;
+  raw_string_ostream os(err);
+  if (verifyModule(*theModule, &os)) {
+    os.flush();
+    // Avoid fmt::format: LLVM diagnostic text can contain braces and break formatting.
+    throw CodegenError({}, std::string("Invalid LLVM IR (") + contextLabel + "):\n" + err);
+  }
 }
 
 auto Codegen::optimize(OptimizationLevel opt) -> void {
@@ -169,6 +434,10 @@ auto Codegen::optimize(OptimizationLevel opt) -> void {
 
   // Add custom passes to FunctionPassManager
   llvm::FunctionPassManager fpm;
+  // Split promotable aggregate allocas, then mem2reg: reduces stack traffic and dead lifetime slots
+  // left after inlining (e.g. unused this/arg spill allocas in inlined callees).
+  fpm.addPass(llvm::SROAPass(llvm::SROAOptions::ModifyCFG));
+  fpm.addPass(llvm::PromotePass());
   fpm.addPass(llvm::ADCEPass());
   fpm.addPass(llvm::GVNPass());
   fpm.addPass(llvm::DSEPass());
@@ -265,10 +534,13 @@ void Codegen::linkObjectFileWithLld(const std::string& objFilename) {
     throw CodegenError({}, "Linking Failed");
   }
 
-  // Remove object files (ignore errors as they're temporary)
-  std::ignore = llvm::sys::fs::remove(objFilename);
-  for (const auto& obj : objectFiles) {
-    std::ignore = llvm::sys::fs::remove(obj);
+  // Mach-O link leaves a debug map pointing at these .o paths; removing them
+  // breaks lldb/dsymutil. Keep them when DWARF was requested.
+  if (!emitDebugInfo) {
+    std::ignore = llvm::sys::fs::remove(objFilename);
+    for (const auto& obj : objectFiles) {
+      std::ignore = llvm::sys::fs::remove(obj);
+    }
   }
 }
 
@@ -277,15 +549,31 @@ auto Codegen::linkObjectFile(const std::string& objFilename) -> void {
 }
 
 auto Codegen::prepareJit() -> void {
-  auto jitError = theJit->addIRModule(ThreadSafeModule(std::move(theModule), *theContext));
-  if (jitError) {
-    throw CodegenError({}, "JIT Error:\n{}", llvm::toString(std::move(jitError)));
+  if (Error jitError = theJit->addIRModule(ThreadSafeModule(std::move(theModule), *theContext))) {
+    // Concatenate: LLVM error text may contain characters that break fmt::format placeholders.
+    throw CodegenError({}, std::string("JIT addIRModule failed: ") +
+                               llvmErrorToString(std::move(jitError)));
   }
-  auto mainFunc = theJit->lookup(topLevelFunc->getName());
-  if (!mainFunc) {
-    throw CodegenError({}, "Couldn't find top level function\n");
+  Expected<ExecutorAddr> mainFuncOrErr = theJit->lookup(topLevelFunc->getName());
+  if (!mainFuncOrErr) {
+    throw CodegenError({}, std::string("Couldn't find top-level function '") +
+                               topLevelFunc->getName().str() +
+                               "': " + llvmErrorToString(mainFuncOrErr.takeError()));
   }
-  mainFuncAddress = mainFunc->toPtr<MainFnTy>();
+  mainFuncAddress = mainFuncOrErr->toPtr<MainFnTy>();
+
+  if (pendingJitModuleInits != nullptr) {
+    for (const std::string& sym : *pendingJitModuleInits) {
+      Expected<ExecutorAddr> initAddr = theJit->lookup(sym);
+      if (!initAddr) {
+        throw CodegenError({}, std::string("JIT could not resolve module initializer ") + sym +
+                                   ": " + llvmErrorToString(initAddr.takeError()));
+      }
+      using ModuleInitTy = int64_t();
+      std::ignore = initAddr->toPtr<ModuleInitTy>()();
+    }
+    pendingJitModuleInits->clear();
+  }
 }
 
 auto Codegen::executeJit() -> int {
@@ -302,7 +590,7 @@ auto Codegen::run() -> void {
   // Done here (not in constructor) to avoid re-entrancy when creating Codegens for imported
   // modules.
   std::vector<std::string> const implicitStdlibModules = {
-      std::string{codegen::runtime::kImplicitStdlibModule}};
+      std::string{codegen::runtime::IMPLICIT_STDLIB_MODULE}};
   auto const currentPath = normalizeResolvedFilesystemPath(filename);
   auto const basePath =
       normalizeResolvedFilesystemPath((std::filesystem::path(getStdDir()) / "base.les").string());
@@ -319,6 +607,9 @@ auto Codegen::run() -> void {
   }
 
   deferStack.emplace();
+  if (parser->getAst() != nullptr) {
+    setDebugLoc(parser->getAst()->getSpan());
+  }
   parser->getAst()->accept(*this);
 
   auto instrs = deferStack.top();
@@ -359,8 +650,13 @@ auto Codegen::run() -> void {
     currentGenericTypes = std::move(savedGenerics);
   }
 
-  // Return 0 for top-level function
+  // Return 0 for top-level function (location must match topLevelFunc's DISubprogram)
+  if (parser->getAst() != nullptr) {
+    setDebugLoc(parser->getAst()->getSpan());
+  }
   builder->CreateRet(ConstantInt::getSigned(builder->getInt64Ty(), 0));
+
+  finalizeDebugMetadata();
 }
 
 auto Codegen::dump() -> void { theModule->print(outs(), nullptr); }

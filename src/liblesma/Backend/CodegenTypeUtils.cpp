@@ -10,8 +10,7 @@
 #include "liblesma/Symbol/Type.h"
 #include "liblesma/Symbol/Value.h"
 
-namespace lesma {
-namespace CodegenTypeUtils {
+namespace lesma::CodegenTypeUtils {
 auto getExtendedType(Type* left, Type* right) -> Type* {
   if (left->isEqual(right)) {
     return left;
@@ -159,5 +158,4 @@ auto cast(llvm::SMRange span, Value* val, Type* type, llvm::IRBuilder<>* builder
                      MangleUtils::getTypeMangledName(span, val->getType()),
                      MangleUtils::getTypeMangledName(span, type));
 }
-} // namespace CodegenTypeUtils
-} // namespace lesma
+} // namespace lesma::CodegenTypeUtils

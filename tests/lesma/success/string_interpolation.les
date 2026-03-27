@@ -1,0 +1,8 @@
+let name: str = "Lesma"
+print("Hello ${name}!")
+let n: int = 7
+print("n=${n} done")
+let flag: bool = true
+print("flag=${flag}")
+let x: float = 3.5
+print("x=${x}")

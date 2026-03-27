@@ -80,11 +80,11 @@ export async function runLesma(
     let runErr: Error | null = null
 
     try {
-      const spawnArgs = [lesmaPath]
+      const spawnArgs = [lesmaPath, "run"]
       if (debug !== undefined && debug.length > 0) {
         spawnArgs.push("-d", ...debug)
       }
-      spawnArgs.push("run", mainPath)
+      spawnArgs.push(mainPath)
 
       const proc = Bun.spawn(spawnArgs, {
         cwd: tmpDir,

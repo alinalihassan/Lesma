@@ -1,0 +1,8 @@
+# Parameter type inferred from default when `: T` is omitted.
+def twice(x = 21) -> int
+	return x + x
+
+if twice() != 42
+	exit(1)
+if twice(10) != 20
+	exit(1)

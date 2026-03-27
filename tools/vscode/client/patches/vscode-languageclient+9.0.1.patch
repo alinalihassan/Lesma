@@ -1,0 +1,22 @@
+diff --git a/node_modules/vscode-languageclient/lib/common/client.js b/node_modules/vscode-languageclient/lib/common/client.js
+index e49c166..40c275f 100644
+--- a/node_modules/vscode-languageclient/lib/common/client.js
++++ b/node_modules/vscode-languageclient/lib/common/client.js
+@@ -832,7 +832,7 @@ class BaseLanguageClient {
+     async doInitialize(connection, initParams) {
+         try {
+             const result = await connection.initialize(initParams);
+-            if (result.capabilities.positionEncoding !== undefined && result.capabilities.positionEncoding !== vscode_languageserver_protocol_1.PositionEncodingKind.UTF16) {
++            if (result.capabilities.positionEncoding !== undefined && result.capabilities.positionEncoding !== vscode_languageserver_protocol_1.PositionEncodingKind.UTF16 && result.capabilities.positionEncoding !== vscode_languageserver_protocol_1.PositionEncodingKind.UTF8) {
+                 throw new Error(`Unsupported position encoding (${result.capabilities.positionEncoding}) received from server ${this.name}`);
+             }
+             this._initializeResult = result;
+@@ -1367,7 +1367,7 @@ class BaseLanguageClient {
+             parser: 'marked',
+             version: '1.1.0',
+         };
+-        generalCapabilities.positionEncodings = ['utf-16'];
++        generalCapabilities.positionEncodings = ['utf-8', 'utf-16'];
+         if (this._clientOptions.markdown.supportHtml) {
+             generalCapabilities.markdown.allowedTags = ['ul', 'li', 'p', 'code', 'blockquote', 'ol', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'hr', 'em', 'pre', 'table', 'thead', 'tbody', 'tr', 'th', 'td', 'div', 'del', 'a', 'strong', 'br', 'img', 'span'];
+         }

@@ -85,6 +85,45 @@ auto Parser::error(Token* token, const std::string& errorMessage) -> void {
   throw ParserError(token->span, "{}", errorMessage);
 }
 
+auto Parser::error(llvm::SMRange span, const std::string& errorMessage) -> void {
+  throw ParserError(span, "{}", errorMessage);
+}
+
+auto Parser::synchronizeToNextLine() -> void {
+  while (!isAtEnd()) {
+    TokenType const t = peek()->type;
+    if (t == TokenType::EOF_TOKEN) {
+      return;
+    }
+    if (t == TokenType::NEWLINE) {
+      advance();
+      while (!isAtEnd()) {
+        TokenType const t2 = peek()->type;
+        if (t2 == TokenType::NEWLINE) {
+          advance();
+          continue;
+        }
+        if (t2 == TokenType::SEMICOLON) {
+          advance();
+          continue;
+        }
+        break;
+      }
+      return;
+    }
+    if (t == TokenType::DEDENT) {
+      return;
+    }
+    advance();
+  }
+}
+
+auto Parser::recoverFromParserError(const ParserError& err) -> void {
+  llvm::SMRange const span = err.getSpan().isValid() ? err.getSpan() : llvm::SMRange();
+  diagnosticsOut->push_back(AnalysisDiagnostic{.message = std::string(err.what()), .span = span});
+  synchronizeToNextLine();
+}
+
 auto Parser::parseGenericParamList() -> std::vector<GenericParamDecl> {
   std::vector<GenericParamDecl> genericParams;
   if (!check(TokenType::LESS)) {
@@ -413,6 +452,8 @@ auto Parser::parseListLiteral() -> std::unique_ptr<Expression> {
 
 auto Parser::parseTerm() -> std::unique_ptr<Expression> {
   switch (peek()->type) {
+  case TokenType::STRING_TEMPLATE_CHUNK:
+    return parseStringInterpolation();
   case TokenType::STRING:
   case TokenType::INTEGER:
   case TokenType::DOUBLE:
@@ -465,6 +506,25 @@ auto Parser::parseTerm() -> std::unique_ptr<Expression> {
   }
 
   return nullptr;
+}
+
+auto Parser::parseStringInterpolation() -> std::unique_ptr<Expression> {
+  auto* chunk0 = consume(TokenType::STRING_TEMPLATE_CHUNK);
+  std::vector<std::string> chunks;
+  chunks.push_back(chunk0->lexeme);
+  llvm::SMRange span = chunk0->span;
+  std::vector<std::unique_ptr<Expression>> exprs;
+  while (check(TokenType::STRING_TEMPLATE_EXPR_START)) {
+    consume(TokenType::STRING_TEMPLATE_EXPR_START);
+    std::unique_ptr<Expression> expr = parseExpression();
+    consume(TokenType::STRING_TEMPLATE_EXPR_END);
+    exprs.push_back(std::move(expr));
+    auto* tail = consume(TokenType::STRING_TEMPLATE_CHUNK,
+                         "Expected string text after } in interpolated string");
+    chunks.push_back(tail->lexeme);
+    span = llvm::SMRange{span.Start, tail->span.End};
+  }
+  return std::make_unique<StringInterpolation>(span, std::move(chunks), std::move(exprs));
 }
 
 auto Parser::parsePostfix() -> std::unique_ptr<Expression> {
@@ -657,7 +717,7 @@ auto Parser::parseVarDecl() -> std::unique_ptr<Statement> {
     endLoc = type->getEnd();
   }
   return std::make_unique<VarDecl>(llvm::SMRange{startTok->getStart(), endLoc}, std::move(vars),
-                                   std::move(type), std::move(expr), isMutable);
+                                   std::move(type), std::move(expr), isMutable, isExported);
 }
 
 auto Parser::parseIf() -> std::unique_ptr<Statement> {
@@ -857,7 +917,17 @@ auto Parser::parseBlock() -> std::unique_ptr<Compound> {
     if (checkAny<TokenType::DEDENT, TokenType::EOF_TOKEN>()) {
       break;
     }
-    statements.push_back(parseStatement(false));
+    try {
+      std::unique_ptr<Statement> stmt = parseStatement(false);
+      if (stmt != nullptr) {
+        statements.push_back(std::move(stmt));
+      }
+    } catch (const ParserError& err) {
+      if (diagnosticsOut == nullptr) {
+        throw;
+      }
+      recoverFromParserError(err);
+    }
   }
 
   advanceIfMatchAny<TokenType::DEDENT>();
@@ -913,6 +983,8 @@ auto Parser::parseParameterList(bool allowVarargsEllipsis) -> ParameterListParse
 auto Parser::parseFunctionDeclaration() -> std::unique_ptr<Statement> {
   auto loc = isExported ? previous()->span : peek()->span;
   consume(TokenType::DEF);
+  // `export class` / `export def` leave isExported set; locals inside the body must not inherit it.
+  bool const funcExported = isExported;
   bool externFunc = false;
 
   if (advanceIfMatchAny<TokenType::EXTERN>()) {
@@ -1009,15 +1081,18 @@ auto Parser::parseFunctionDeclaration() -> std::unique_ptr<Statement> {
     return std::make_unique<ExternFuncDecl>(llvm::SMRange{loc.Start, returnType->getEnd()},
                                             functionName, functionNameSpan,
                                             std::move(genericParams), std::move(returnType),
-                                            std::move(parameters), varargs, isExported);
+                                            std::move(parameters), varargs, funcExported);
   }
 
+  bool const savedExported = isExported;
+  isExported = false;
   auto body = parseBlock();
+  isExported = savedExported;
   auto funcEnd = body ? body->getEnd() : returnType->getEnd();
 
   return std::make_unique<FuncDecl>(
       llvm::SMRange{loc.Start, funcEnd}, functionName, functionNameSpan, std::move(genericParams),
-      std::move(returnType), std::move(parameters), std::move(body), false, isExported);
+      std::move(returnType), std::move(parameters), std::move(body), false, funcExported);
 }
 
 auto Parser::parseExport() -> std::unique_ptr<Statement> {
@@ -1027,14 +1102,21 @@ auto Parser::parseExport() -> std::unique_ptr<Statement> {
     error(peek(), "Cannot export class members");
   }
 
-  if (!checkAny<TokenType::DEF, TokenType::CLASS, TokenType::ENUM, TokenType::TRAIT>()) {
-    error(peek(), "Can only export functions, classes, enums, and traits");
+  if (!checkAny<TokenType::DEF, TokenType::CLASS, TokenType::ENUM, TokenType::TRAIT, TokenType::LET,
+                TokenType::VAR>()) {
+    error(peek(), "Can only export functions, classes, enums, traits, and variables");
   }
 
   isExported = true;
   std::unique_ptr<Statement> statement;
   if (check(TokenType::DEF)) {
     statement = parseFunctionDeclaration();
+  } else if (check(TokenType::LET) || check(TokenType::VAR)) {
+    statement = parseVarDecl();
+    if (auto* vd = dynamic_cast<VarDecl*>(statement.get());
+        vd != nullptr && vd->getVarLiterals().size() > 1U) {
+      error(vd->getSpan(), "Cannot export destructuring declarations");
+    }
   } else if (check(TokenType::IMPORT)) {
     statement = parseImport();
   } else if (check(TokenType::CLASS)) {
@@ -1172,24 +1254,39 @@ auto Parser::parseClass() -> std::unique_ptr<Statement> {
 
   inClass = true;
   while (!checkAny<TokenType::DEDENT, TokenType::EOF_TOKEN>()) {
-    if (checkAny<TokenType::LET, TokenType::VAR>()) {
-      auto stmt = parseVarDecl();
-      auto* varDecl = dynamic_cast<VarDecl*>(stmt.get());
-      if (varDecl != nullptr) {
-        endLoc = varDecl->getEnd();
-        std::ignore = stmt.release();
-        fields.push_back(std::unique_ptr<VarDecl>(varDecl));
+    try {
+      if (checkAny<TokenType::LET, TokenType::VAR>()) {
+        // Class fields reuse parseVarDecl; do not inherit `export` from `export class …`.
+        bool const savedExported = isExported;
+        isExported = false;
+        auto stmt = parseVarDecl();
+        isExported = savedExported;
+        auto* varDecl = dynamic_cast<VarDecl*>(stmt.get());
+        if (varDecl != nullptr) {
+          endLoc = varDecl->getEnd();
+          std::ignore = stmt.release();
+          fields.push_back(std::unique_ptr<VarDecl>(varDecl));
+        }
+      } else if (checkAny<TokenType::DEF>()) {
+        // Class methods reuse parseFunctionDeclaration; do not inherit `export` from `export class …`.
+        bool const savedExported = isExported;
+        isExported = false;
+        auto stmt = parseFunctionDeclaration();
+        isExported = savedExported;
+        auto* funcDecl = dynamic_cast<FuncDecl*>(stmt.get());
+        if (funcDecl != nullptr) {
+          endLoc = funcDecl->getEnd();
+          std::ignore = stmt.release();
+          methods.push_back(std::unique_ptr<FuncDecl>(funcDecl));
+        }
+      } else {
+        consume(TokenType::NEWLINE);
       }
-    } else if (checkAny<TokenType::DEF>()) {
-      auto stmt = parseFunctionDeclaration();
-      auto* funcDecl = dynamic_cast<FuncDecl*>(stmt.get());
-      if (funcDecl != nullptr) {
-        endLoc = funcDecl->getEnd();
-        std::ignore = stmt.release();
-        methods.push_back(std::unique_ptr<FuncDecl>(funcDecl));
+    } catch (const ParserError& err) {
+      if (diagnosticsOut == nullptr) {
+        throw;
       }
-    } else {
-      consume(TokenType::NEWLINE);
+      recoverFromParserError(err);
     }
   }
   inClass = false;
@@ -1263,12 +1360,19 @@ auto Parser::parseTrait() -> std::unique_ptr<Statement> {
     if (checkAny<TokenType::DEDENT, TokenType::EOF_TOKEN>()) {
       break;
     }
-    if (check(TokenType::DEF)) {
-      auto req = parseTraitMethodDeclaration();
-      endLoc = req->getEnd();
-      requirements.push_back(std::move(req));
-    } else {
-      error(peek(), "Expected 'def' in trait body");
+    try {
+      if (check(TokenType::DEF)) {
+        auto req = parseTraitMethodDeclaration();
+        endLoc = req->getEnd();
+        requirements.push_back(std::move(req));
+      } else {
+        error(peek(), "Expected 'def' in trait body");
+      }
+    } catch (const ParserError& err) {
+      if (diagnosticsOut == nullptr) {
+        throw;
+      }
+      recoverFromParserError(err);
     }
   }
   if (advanceIfMatchAny<TokenType::DEDENT>()) {
@@ -1292,11 +1396,18 @@ auto Parser::parseEnum() -> std::unique_ptr<Statement> {
   consume(TokenType::INDENT);
 
   while (!checkAny<TokenType::DEDENT, TokenType::EOF_TOKEN>()) {
-    auto* valueToken = consume(TokenType::IDENTIFIER);
-    values.push_back(valueToken->lexeme);
-    valueSpans.push_back(valueToken->span);
-    endLoc = valueToken->getEnd();
-    consume(TokenType::NEWLINE);
+    try {
+      auto* valueToken = consume(TokenType::IDENTIFIER);
+      values.push_back(valueToken->lexeme);
+      valueSpans.push_back(valueToken->span);
+      endLoc = valueToken->getEnd();
+      consume(TokenType::NEWLINE);
+    } catch (const ParserError& err) {
+      if (diagnosticsOut == nullptr) {
+        throw;
+      }
+      recoverFromParserError(err);
+    }
   }
 
   if (advanceIfMatchAny<TokenType::DEDENT>()) {
@@ -1317,7 +1428,17 @@ auto Parser::parseCompound() -> std::unique_ptr<Compound> {
     if (isAtEnd()) {
       break;
     }
-    statements.push_back(parseStatement(true));
+    try {
+      std::unique_ptr<Statement> stmt = parseStatement(true);
+      if (stmt != nullptr) {
+        statements.push_back(std::move(stmt));
+      }
+    } catch (const ParserError& err) {
+      if (diagnosticsOut == nullptr) {
+        throw;
+      }
+      recoverFromParserError(err);
+    }
   }
   if (statements.empty()) {
     return std::make_unique<Compound>(peek()->span, std::move(statements));

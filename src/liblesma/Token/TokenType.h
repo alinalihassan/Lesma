@@ -52,6 +52,10 @@ enum class TokenType : std::uint8_t {
   // Literals.
   IDENTIFIER,
   STRING,
+  /** Decoded UTF-8 chunk inside an interpolated string literal `"a${...}b"`. */
+  STRING_TEMPLATE_CHUNK,
+  STRING_TEMPLATE_EXPR_START,
+  STRING_TEMPLATE_EXPR_END,
   INTEGER,
   DOUBLE,
   BOOL,
