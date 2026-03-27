@@ -25,6 +25,7 @@ export function registerLesmaMonarchLanguage(monaco: MonacoApi): void {
   const interpRules = [
     [/\}/, { token: 'punctuation.definition.template-expression.end', next: '@pop' }],
     [/"/, 'string', '@string_double_inner'],
+    [/'/, 'string', '@string_single'],
     [/^#.*/, 'comment'],
     [/\b(?:0x[0-9a-fA-F_]+|\d[\d_]*(?:\.\d[\d_]*)?(?:[eE][+-]?\d+)?)\b/, 'number'],
     [keywordPattern, 'keyword'],
