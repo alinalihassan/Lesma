@@ -77,12 +77,14 @@ auto Codegen::getImportedLocalName(const std::vector<ImportedNameBinding>& impor
   return "";
 }
 
-auto Codegen::insertImportAlias(const std::string& moduleAlias, bool importToScope) -> void {
+auto Codegen::insertImportAlias(const std::string& moduleAlias, bool importToScope,
+                                const std::string& importedModuleAbsolutePath) -> void {
   if (importToScope) {
     return;
   }
 
   auto importTyp = std::make_unique<Type>(BaseType::TY_IMPORT);
+  importTyp->setDeclarationFilePath(importedModuleAbsolutePath);
   auto* importTypPtr = importTyp.get();
   auto importSym = std::make_unique<Value>(moduleAlias, importTypPtr);
   importSym->setCategory(ValueCategory::MODULE_SYMBOL);
@@ -244,7 +246,7 @@ auto Codegen::compileModule(llvm::SMRange span, const std::string& filepath, boo
         break;
       }
     }
-    insertImportAlias(moduleAlias, importToScope);
+    insertImportAlias(moduleAlias, importToScope, absolutePath);
     if (!importToScope && !moduleAlias.empty()) {
       importAliasToModulePath[moduleAlias] = absolutePath;
     }
@@ -300,7 +302,7 @@ auto Codegen::compileModule(llvm::SMRange span, const std::string& filepath, boo
     codegen->optimize(OptimizationLevel::O0);
     codegen->theModule->setModuleIdentifier(filepath);
 
-    insertImportAlias(moduleAlias, importToScope);
+    insertImportAlias(moduleAlias, importToScope, absolutePath);
     if (!importToScope && !moduleAlias.empty()) {
       importAliasToModulePath[moduleAlias] = absolutePath;
     }

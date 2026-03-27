@@ -197,7 +197,8 @@ protected:
                                 const std::string& importName) const -> bool;
   [[nodiscard]] auto getImportedLocalName(const std::vector<ImportedNameBinding>& importedNames,
                                           const std::string& importName) const -> std::string;
-  auto insertImportAlias(const std::string& moduleAlias, bool importToScope) -> void;
+  auto insertImportAlias(const std::string& moduleAlias, bool importToScope,
+                         const std::string& importedModuleAbsolutePath) -> void;
   auto exposeImportedSymbols(llvm::SMRange span, SymbolTable* importedScope, bool importAll,
                              bool importToScope,
                              const std::vector<ImportedNameBinding>& importedNames) -> void;

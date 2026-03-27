@@ -1532,6 +1532,7 @@ void Typechecker::loadImplicitStdModule(const std::string& moduleFilename) {
   }
 
   auto* importType = cacheType(std::make_unique<Type>(BaseType::TY_IMPORT));
+  importType->setDeclarationFilePath(basePath.string());
   for (auto* sym : baseScope->getSymbols()) {
     if (!sym->isExported()) {
       continue;
@@ -1805,9 +1806,8 @@ void Typechecker::recoverFromTypeError(const TypeCheckError& err) {
       return;
     }
   }
-  warningDiagnostics->push_back(AnalysisDiagnostic{.message = message,
-                                                     .span = span,
-                                                     .severity = AnalysisDiagnosticSeverity::Error});
+  warningDiagnostics->push_back(AnalysisDiagnostic{
+      .message = message, .span = span, .severity = AnalysisDiagnosticSeverity::Error});
 }
 
 void Typechecker::markValueRead(Value* sym) {
@@ -2287,6 +2287,15 @@ auto Typechecker::visit(const Import* node) -> void {
   }
   auto* importType = cacheType(std::make_unique<Type>(BaseType::TY_IMPORT));
   const std::string resolvedPath = resolveImportPath(node->getFilePath(), node->isStd());
+  if (node->isStd()) {
+    importType->setDeclarationFilePath(
+        std::filesystem::absolute(std::filesystem::path(getStdDir()) / node->getFilePath())
+            .lexically_normal()
+            .string());
+  } else {
+    importType->setDeclarationFilePath(
+        std::filesystem::absolute(std::filesystem::path(resolvedPath)).lexically_normal().string());
+  }
   if (!node->isStd()) {
     registerTraitsFromImportedModule(resolvedPath);
   }
