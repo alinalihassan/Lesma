@@ -39,6 +39,23 @@ void maybeTimed(Timer* timerPtr, const std::string& label, F&& fn) {
   }
 }
 
+void displayWarnings(const lesma::AnalysisResult& result) {
+  if (result.suppressWarnings) {
+    return;
+  }
+  for (const auto& d : result.diagnostics) {
+    if (d.severity != lesma::AnalysisDiagnosticSeverity::Warning) {
+      continue;
+    }
+    if (d.span.isValid()) {
+      lesma::showInline(result.sourceMgr.get(), result.mainBufferId, d.span, result.mainFilePath,
+                        false, d.message);
+    } else {
+      lesma::print(lesma::LogType::WARNING, "{}\n", std::string_view(d.message));
+    }
+  }
+}
+
 } // namespace
 
 auto lesma::analyze(std::unique_ptr<Options> options, Timer* phaseTimer) -> AnalysisResult {
@@ -189,35 +206,11 @@ auto Driver::baseCompile(std::unique_ptr<lesma::Options> options, bool jit) -> i
         lesma::print(LogType::ERROR, "{}", std::string_view(d.message));
       }
     }
-    if (!result.suppressWarnings) {
-      for (const auto& d : result.diagnostics) {
-        if (d.severity != AnalysisDiagnosticSeverity::Warning) {
-          continue;
-        }
-        if (d.span.isValid()) {
-          showInline(result.sourceMgr.get(), result.mainBufferId, d.span, result.mainFilePath, false,
-                     d.message);
-        } else {
-          lesma::print(LogType::WARNING, "{}\n", std::string_view(d.message));
-        }
-      }
-    }
+    displayWarnings(result);
     return 1;
   }
 
-  if (!result.suppressWarnings) {
-    for (const auto& d : result.diagnostics) {
-      if (d.severity != AnalysisDiagnosticSeverity::Warning) {
-        continue;
-      }
-      if (d.span.isValid()) {
-        showInline(result.sourceMgr.get(), result.mainBufferId, d.span, result.mainFilePath, false,
-                   d.message);
-      } else {
-        lesma::print(LogType::WARNING, "{}\n", std::string_view(d.message));
-      }
-    }
-  }
+  displayWarnings(result);
 
   try {
     int exitCode = 0;
