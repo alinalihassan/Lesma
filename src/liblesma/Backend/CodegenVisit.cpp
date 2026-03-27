@@ -5,6 +5,7 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <system_error>
 #include <tuple>
 #include <unordered_set>
@@ -2486,6 +2487,43 @@ namespace {
   }
   return b->is(BaseType::TY_CLASS) && b->getDisplayName() == "str";
 }
+
+/// Pointers we may free after copying in \c emitCstrConcatValues: results of \c emitMalloc (format
+/// helpers, prior concat buffers). Excludes literals (\c llvm::Constant / globals), loads
+/// (e.g. \c str.cstr() storage), and any non-malloc calls.
+[[nodiscard]] auto stripPtrValue(llvm::Value* v) -> llvm::Value* {
+  while (v != nullptr) {
+    if (auto* ce = llvm::dyn_cast<llvm::CastInst>(v)) {
+      if (!ce->getType()->isPointerTy()) {
+        break;
+      }
+      v = ce->getOperand(0);
+      continue;
+    }
+    break;
+  }
+  return v;
+}
+
+[[nodiscard]] auto isOwnedMallocCstrBuffer(llvm::Value* v) -> bool {
+  if (v == nullptr || llvm::isa<llvm::Constant>(v)) {
+    return false;
+  }
+  v = stripPtrValue(v);
+  if (v == nullptr || llvm::isa<llvm::Constant>(v)) {
+    return false;
+  }
+  auto* call = llvm::dyn_cast<llvm::CallBase>(v);
+  if (call == nullptr) {
+    return false;
+  }
+  llvm::Function* callee = call->getCalledFunction();
+  if (callee == nullptr) {
+    return false;
+  }
+  llvm::StringRef calleeName = callee->getName();
+  return std::string_view{calleeName.data(), calleeName.size()} == codegen::runtime::kMalloc;
+}
 } // namespace
 
 auto Codegen::emitCstrConcatValues(llvm::SMRange span, llvm::Value* a, llvm::Value* b)
@@ -2513,6 +2551,19 @@ auto Codegen::emitCstrConcatValues(llvm::SMRange span, llvm::Value* a, llvm::Val
   auto* endPtr = builder->CreateInBoundsGEP(
       i8, buf, builder->CreateSub(total, builder->getInt64(1)), "ip.strcat.nul");
   builder->CreateStore(llvm::ConstantInt::get(i8, 0), endPtr);
+
+  if (la == lb) {
+    if (isOwnedMallocCstrBuffer(la)) {
+      emitFree(la);
+    }
+  } else {
+    if (isOwnedMallocCstrBuffer(la)) {
+      emitFree(la);
+    }
+    if (isOwnedMallocCstrBuffer(lb)) {
+      emitFree(lb);
+    }
+  }
   return buf;
 }
 
