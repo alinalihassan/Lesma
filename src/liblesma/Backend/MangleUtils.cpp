@@ -1,7 +1,7 @@
 #include "MangleUtils.h"
 
-#include <functional>
 #include <string>
+#include <string_view>
 
 #include <llvm/IR/DerivedTypes.h>
 #include <llvm/Support/Casting.h>
@@ -12,6 +12,24 @@
 #include "liblesma/Backend/CodegenError.h"
 #include "liblesma/Common/Utils.h"
 #include "liblesma/Symbol/Type.h"
+
+namespace {
+
+// FNV-1a 64-bit: published test-vector constants (same as Wikipedia / chongo’s FNV page),
+// not magic picks — xor each byte into the hash, then multiply by the FNV prime.
+// Deterministic everywhere; std::hash<std::string> is not.
+auto stableHash64(std::string_view data) -> unsigned long long {
+  constexpr unsigned long long offsetBasis = 0xCBF29CE484222325ULL;
+  constexpr unsigned long long prime = 0x100000001B3ULL;
+  unsigned long long h = offsetBasis;
+  for (char ch : data) {
+    h ^= static_cast<unsigned char>(ch);
+    h *= prime;
+  }
+  return h;
+}
+
+} // namespace
 
 namespace lesma::MangleUtils {
 auto getTypeMangledName(llvm::SMRange span, Type* type) -> std::string {
@@ -99,7 +117,8 @@ auto getGlobalVariableSymbolName(const std::string& modulePathNormalized,
   std::string const norm = modulePathNormalized.empty()
                                ? std::string("<stdin>")
                                : normalizeResolvedFilesystemPath(modulePathNormalized);
-  std::size_t const h = std::hash<std::string>{}(norm + '\0' + variableName);
+  std::string const key = norm + '\0' + variableName;
+  unsigned long long const h = stableHash64(key);
   return fmt::format("__lesma_g_{:x}_{}", static_cast<unsigned long long>(h), variableName);
 }
 
@@ -107,7 +126,7 @@ auto getImportedModuleInitSymbolName(const std::string& modulePathNormalized) ->
   std::string const norm = modulePathNormalized.empty()
                                ? std::string("<stdin>")
                                : normalizeResolvedFilesystemPath(modulePathNormalized);
-  std::size_t const h = std::hash<std::string>{}(norm);
+  unsigned long long const h = stableHash64(norm);
   return fmt::format("__lesma_mod_init_{:x}", static_cast<unsigned long long>(h));
 }
 } // namespace lesma::MangleUtils
