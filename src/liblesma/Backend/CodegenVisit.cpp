@@ -2093,8 +2093,8 @@ auto Codegen::visit(const DotOp* node) -> void {
                       std::make_unique<Type>(BaseType::TY_PTR, builder->getPtrTy(), memTy));
                 } else if (memTy->is(BaseType::TY_PTR) &&
                            memTy->getElementType()->is(BaseType::TY_CLASS)) {
-                  ptrToVal = cacheType(std::make_unique<Type>(BaseType::TY_PTR, builder->getPtrTy(),
-                                                              memTy->getElementType()));
+                  ptrToVal = cacheType(
+                      std::make_unique<Type>(BaseType::TY_PTR, builder->getPtrTy(), memTy));
                 }
                 result = std::make_unique<Value>("", ptrToVal, gv);
                 return;
