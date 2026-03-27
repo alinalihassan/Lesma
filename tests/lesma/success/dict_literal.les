@@ -1,0 +1,38 @@
+var d: dict<str, int> = {"a": 1, "b": 2}
+
+if d.len() != 2
+    exit(1)
+
+if not d.has("a")
+    exit(1)
+
+if d.get("a") != 1
+    exit(1)
+
+d.set("c", 3)
+
+if d.len() != 3
+    exit(1)
+
+if d.get("c") != 3
+    exit(1)
+
+d.set("a", 9)
+
+if d.get("a") != 9
+    exit(1)
+
+if d.len() != 3
+    exit(1)
+
+var n = {1: 10, 2: 20}
+
+if n.get(1) != 10 or n.get(2) != 20
+    exit(1)
+
+let empty: dict<int, str> = {}
+
+if empty.len() != 0
+    exit(1)
+
+print(d.keys.len())

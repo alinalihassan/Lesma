@@ -157,6 +157,13 @@ auto Typechecker::pathLeadsToEndWithoutReturn(const std::vector<Statement*>& sta
   if (dynamic_cast<Return*>(s) != nullptr) {
     return false; // this path returns
   }
+  if (auto* exprStmt = dynamic_cast<ExpressionStatement*>(s)) {
+    if (auto* call = dynamic_cast<FuncCall*>(exprStmt->getExpression())) {
+      if (call->getName() == "exit") {
+        return false; // noreturn (stdlib extern)
+      }
+    }
+  }
   if (auto* comp = dynamic_cast<Compound*>(s)) {
     // If inner block always returns, we never fall off it.
     if (!pathLeadsToEndWithoutReturn(comp->getChildren(), 0)) {
@@ -565,6 +572,103 @@ auto Typechecker::visitListMethodCall(Type* listType, const DotOp* node, const F
     -> bool {
   if (listType == nullptr || !listType->is(BaseType::TY_ARRAY) || call == nullptr) {
     return false;
+  }
+  // Raw __buffer<T> (e.g. dict.keys) is TY_ARRAY; stdlib exposes length via list.len(self), not on
+  // the buffer type. Match codegen's callListMethodByName buffer path.
+  if (call->getName() == "len" && call->getArguments().empty()) {
+    auto intLen = std::make_unique<Type>(BaseType::TY_INT);
+    intLen->setIntWidth(64);
+    result = std::make_unique<Value>(cacheType(std::move(intLen)));
+    return true;
+  }
+  Type* const elemType = listType->getElementType();
+  if (call->getName() == "copy" && call->getArguments().empty()) {
+    result = std::make_unique<Value>(listType);
+    return true;
+  }
+  if (call->getName() == "clear" && call->getArguments().empty()) {
+    if (!isMutableListReceiver(node->getLeft())) {
+      throw TypeCheckError(node->getSpan(), "Cannot call mutating list method {} on immutable value",
+                           call->getName());
+    }
+    result = std::make_unique<Value>(cacheType(std::make_unique<Type>(BaseType::TY_VOID)));
+    return true;
+  }
+  if (call->getName() == "pop") {
+    if (!call->getArguments().empty()) {
+      throw TypeCheckError(call->getSpan(), "pop expects no arguments");
+    }
+    if (!isMutableListReceiver(node->getLeft())) {
+      throw TypeCheckError(node->getSpan(), "Cannot call mutating list method {} on immutable value",
+                           call->getName());
+    }
+    if (elemType == nullptr) {
+      return false;
+    }
+    result = std::make_unique<Value>(elemType);
+    return true;
+  }
+  if (call->getName() == "push") {
+    if (call->getArguments().size() != 1U) {
+      throw TypeCheckError(call->getSpan(), "push expects one argument");
+    }
+    if (!isMutableListReceiver(node->getLeft())) {
+      throw TypeCheckError(node->getSpan(), "Cannot call mutating list method {} on immutable value",
+                           call->getName());
+    }
+    call->getArguments()[0]->accept(*this);
+    Type* argType = result->getType();
+    if (argType != nullptr && argType->is(BaseType::TY_CLASS)) {
+      argType = cacheType(std::make_unique<Type>(BaseType::TY_PTR, nullptr, argType));
+    }
+    if (elemType == nullptr || argType == nullptr || !isAssignableTo(argType, elemType)) {
+      throw TypeCheckError(call->getSpan(), "Cannot push value of type {} into buffer element type {}",
+                           argType != nullptr ? argType->toString() : "(unknown)",
+                           elemType != nullptr ? elemType->toString() : "(unknown)");
+    }
+    result = std::make_unique<Value>(cacheType(std::make_unique<Type>(BaseType::TY_VOID)));
+    return true;
+  }
+  if (call->getName() == std::string{OperatorUtils::SUBSCRIPT_GET_NAME}) {
+    if (call->getArguments().size() != 1U) {
+      throw TypeCheckError(call->getSpan(), "operator [] expects one argument");
+    }
+    call->getArguments()[0]->accept(*this);
+    Type* idxType = result->getType();
+    if (idxType == nullptr || !idxType->is(BaseType::TY_INT)) {
+      throw TypeCheckError(call->getSpan(), "operator [] index must be int");
+    }
+    if (elemType == nullptr) {
+      return false;
+    }
+    result = std::make_unique<Value>(elemType);
+    return true;
+  }
+  if (call->getName() == std::string{OperatorUtils::SUBSCRIPT_SET_NAME}) {
+    if (call->getArguments().size() != 2U) {
+      throw TypeCheckError(call->getSpan(), "operator []= expects two arguments");
+    }
+    if (!isMutableListReceiver(node->getLeft())) {
+      throw TypeCheckError(node->getSpan(), "Cannot call mutating list method {} on immutable value",
+                           call->getName());
+    }
+    call->getArguments()[0]->accept(*this);
+    Type* idxType = result->getType();
+    if (idxType == nullptr || !idxType->is(BaseType::TY_INT)) {
+      throw TypeCheckError(call->getSpan(), "operator []= index must be int");
+    }
+    call->getArguments()[1]->accept(*this);
+    Type* valType = result->getType();
+    if (valType != nullptr && valType->is(BaseType::TY_CLASS)) {
+      valType = cacheType(std::make_unique<Type>(BaseType::TY_PTR, nullptr, valType));
+    }
+    if (elemType == nullptr || valType == nullptr || !isAssignableTo(valType, elemType)) {
+      throw TypeCheckError(call->getSpan(), "Cannot assign type {} into buffer element type {}",
+                           valType != nullptr ? valType->toString() : "(unknown)",
+                           elemType != nullptr ? elemType->toString() : "(unknown)");
+    }
+    result = std::make_unique<Value>(cacheType(std::make_unique<Type>(BaseType::TY_VOID)));
+    return true;
   }
   std::vector<Type*> argTypes = {listType};
   for (Expression* arg : call->getArguments()) {
@@ -3938,6 +4042,150 @@ auto Typechecker::visit(const ListLiteral* node) -> void {
   }
   node->setResolvedType(listType);
   result = std::make_unique<Value>(listType);
+}
+
+auto Typechecker::visit(const DictLiteral* node) -> void {
+  Type* expectedType = currentExpectedType();
+  auto isStdDictClassType = [this](Type* type) -> bool {
+    if (type == nullptr || !type->is(BaseType::TY_CLASS)) {
+      return false;
+    }
+    Type* baseType = type;
+    if (auto it = specializedTypeToTemplate.find(type); it != specializedTypeToTemplate.end()) {
+      baseType = it->second;
+    }
+    const std::string& displayName = baseType->getDisplayName();
+    return displayName == "dict<K, V>" || displayName == "dict";
+  };
+  auto getStdDictKeyType = [this, &isStdDictClassType](Type* type) -> Type* {
+    if (!isStdDictClassType(type)) {
+      return nullptr;
+    }
+    if (auto it = specializedTypeEnv.find(type); it != specializedTypeEnv.end()) {
+      auto envIt = it->second.find("K");
+      if (envIt != it->second.end()) {
+        return envIt->second;
+      }
+    }
+    return nullptr;
+  };
+  auto getStdDictValueType = [this, &isStdDictClassType](Type* type) -> Type* {
+    if (!isStdDictClassType(type)) {
+      return nullptr;
+    }
+    if (auto it = specializedTypeEnv.find(type); it != specializedTypeEnv.end()) {
+      auto envIt = it->second.find("V");
+      if (envIt != it->second.end()) {
+        return envIt->second;
+      }
+    }
+    return nullptr;
+  };
+  auto getStdDictType = [this, node](Type* keyType, Type* valueType) -> Type* {
+    const auto dictPath = std::filesystem::absolute(std::filesystem::path(getStdDir()) / "base.les")
+                              .lexically_normal();
+    SymbolTable* dictScope = getOrTypecheckImport(dictPath.string());
+    if (dictScope == nullptr) {
+      throw TypeCheckError(node->getSpan(), "Unable to load stdlib dict class");
+    }
+    Value* dictSymbol = dictScope->lookupStruct("dict");
+    Type* dictTemplate = dictSymbol != nullptr
+                             ? materializeImportedType(dictSymbol->getType())
+                             : materializeImportedType(dictScope->lookupType("dict"));
+    if (dictTemplate == nullptr || !dictTemplate->is(BaseType::TY_CLASS)) {
+      throw TypeCheckError(node->getSpan(), "Stdlib dict class not found");
+    }
+    std::unordered_map<std::string, Type*> env = {{"K", keyType}, {"V", valueType}};
+    return getOrCreateSpecializedClassType(dictTemplate, dictTemplate->getGenericParams(), env);
+  };
+
+  Type* expectedKeyType = nullptr;
+  Type* expectedValueType = nullptr;
+  if (expectedType != nullptr) {
+    expectedKeyType = getStdDictKeyType(expectedType);
+    expectedValueType = getStdDictValueType(expectedType);
+  }
+
+  std::vector<Expression*> const keys = node->getKeys();
+  std::vector<Expression*> const values = node->getValues();
+  if (keys.empty()) {
+    if (expectedType == nullptr || expectedKeyType == nullptr || expectedValueType == nullptr) {
+      throw TypeCheckError(node->getSpan(),
+                           "Empty dict literal requires an explicit dict<K, V> context");
+    }
+    node->setResolvedType(expectedType);
+    result = std::make_unique<Value>(expectedType);
+    return;
+  }
+
+  if (keys.size() != values.size()) {
+    throw TypeCheckError(node->getSpan(), "Dict literal key/value count mismatch");
+  }
+
+  Type* keyType = expectedKeyType;
+  Type* valueType = expectedValueType;
+  for (size_t i = 0; i < keys.size(); ++i) {
+    visitExprWithExpectedType(keys[i], expectedKeyType);
+    Type* keyT = result->getType();
+    if (keyT == nullptr) {
+      throw TypeCheckError(keys[i]->getSpan(), "Dict key has unknown type");
+    }
+    if (expectedKeyType != nullptr) {
+      if (!isAssignableTo(keyT, expectedKeyType)) {
+        throw TypeCheckError(keys[i]->getSpan(),
+                             "Dict key type {} is not assignable to expected type {}",
+                             keyT->toString(), expectedKeyType->toString());
+      }
+    } else if (keyType == nullptr) {
+      keyType = keyT;
+    } else {
+      Type* unifiedKey = getExtendedType(keyType, keyT);
+      if (unifiedKey != nullptr) {
+        keyType = unifiedKey;
+      } else if (!keyT->isEqual(keyType)) {
+        throw TypeCheckError(keys[i]->getSpan(),
+                             "Dict keys must have a common type, got {} and {}",
+                             keyType->toString(), keyT->toString());
+      }
+    }
+
+    visitExprWithExpectedType(values[i], expectedValueType);
+    Type* valT = result->getType();
+    if (valT == nullptr) {
+      throw TypeCheckError(values[i]->getSpan(), "Dict value has unknown type");
+    }
+    if (expectedValueType != nullptr) {
+      if (!isAssignableTo(valT, expectedValueType)) {
+        throw TypeCheckError(values[i]->getSpan(),
+                             "Dict value type {} is not assignable to expected type {}",
+                             valT->toString(), expectedValueType->toString());
+      }
+    } else if (valueType == nullptr) {
+      valueType = valT;
+    } else {
+      Type* unifiedVal = getExtendedType(valueType, valT);
+      if (unifiedVal != nullptr) {
+        valueType = unifiedVal;
+      } else if (!valT->isEqual(valueType)) {
+        throw TypeCheckError(values[i]->getSpan(),
+                             "Dict values must have a common type, got {} and {}",
+                             valueType->toString(), valT->toString());
+      }
+    }
+  }
+
+  if (expectedType != nullptr &&
+      (getStdDictKeyType(expectedType) == nullptr || getStdDictValueType(expectedType) == nullptr)) {
+    throw TypeCheckError(node->getSpan(), "Dict literal is not compatible with expected type {}",
+                         expectedType->toString());
+  }
+
+  Type* dictTy = expectedType;
+  if (dictTy == nullptr) {
+    dictTy = getStdDictType(keyType, valueType);
+  }
+  node->setResolvedType(dictTy);
+  result = std::make_unique<Value>(dictTy);
 }
 
 auto Typechecker::visit(const TupleLiteral* node) -> void {

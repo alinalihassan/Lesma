@@ -450,6 +450,23 @@ auto Parser::parseListLiteral() -> std::unique_ptr<Expression> {
                                        std::move(elements));
 }
 
+auto Parser::parseDictLiteral() -> std::unique_ptr<Expression> {
+  auto* start = consume(TokenType::LEFT_BRACE);
+  std::vector<std::unique_ptr<Expression>> keyExprs;
+  std::vector<std::unique_ptr<Expression>> valueExprs;
+  while (!check(TokenType::RIGHT_BRACE)) {
+    keyExprs.push_back(parseExpression());
+    consume(TokenType::COLON);
+    valueExprs.push_back(parseExpression());
+    if (!check(TokenType::RIGHT_BRACE)) {
+      consume(TokenType::COMMA);
+    }
+  }
+  auto* end = consume(TokenType::RIGHT_BRACE);
+  return std::make_unique<DictLiteral>(llvm::SMRange{start->getStart(), end->getEnd()},
+                                       std::move(keyExprs), std::move(valueExprs));
+}
+
 auto Parser::parseTerm() -> std::unique_ptr<Expression> {
   switch (peek()->type) {
   case TokenType::STRING_TEMPLATE_CHUNK:
@@ -495,6 +512,8 @@ auto Parser::parseTerm() -> std::unique_ptr<Expression> {
   }
   case TokenType::LEFT_SQUARE:
     return parseListLiteral();
+  case TokenType::LEFT_BRACE:
+    return parseDictLiteral();
   case TokenType::TRUE_:
   case TokenType::FALSE_: {
     auto* token = peek();

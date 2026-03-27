@@ -235,6 +235,7 @@ protected:
   auto visit(const Literal* node) -> void override;
   auto visit(const StringInterpolation* node) -> void override;
   auto visit(const ListLiteral* node) -> void override;
+  auto visit(const DictLiteral* node) -> void override;
   auto visit(const TupleLiteral* node) -> void override;
   auto visit(const Else* node) -> void override;
 
@@ -354,6 +355,8 @@ protected:
   auto lookupClassStructSymbol(lesma::Type* classTy) -> Value*;
   /** Ensure stdlib \c list<T> is specialized when the typechecker only has a structural match. */
   auto tryEnsureStdlibListClassSpecialized(lesma::Type* classTy) -> void;
+  /** Ensure stdlib \c dict<K, V> is specialized (same role as list). */
+  auto tryEnsureStdlibDictClassSpecialized(lesma::Type* classTy) -> void;
 
   auto collectTraitMetadataFromAst() -> void;
   auto mergeImportedTraitMetadata(Codegen const& imported) -> void;

@@ -544,6 +544,34 @@ void appendTraitRequirementMethods(AnalysisResult& result, Type* classType, Comp
   }
 }
 
+/** `__buffer<T>` (TY_ARRAY): same dot-call surface as `list<T>` in codegen (`callListMethodByName`). */
+void appendBuiltinBufferListMethodCandidates(Type* elementType, SymbolTable* root,
+                                             std::vector<CompletionCandidate>& out,
+                                             std::unordered_set<std::string>& seen) {
+  std::string const elemStr =
+      elementType != nullptr ? formatTypeName(elementType, root) : std::string{"?"};
+  addCandidate(out, seen,
+               CompletionCandidate{.label = "len",
+                                   .kind = ::lsp::CompletionItemKind::Method,
+                                   .detail = "len() -> int"});
+  addCandidate(out, seen,
+               CompletionCandidate{.label = "clear",
+                                   .kind = ::lsp::CompletionItemKind::Method,
+                                   .detail = "clear() -> void"});
+  addCandidate(out, seen,
+               CompletionCandidate{.label = "push",
+                                   .kind = ::lsp::CompletionItemKind::Method,
+                                   .detail = "push(value: " + elemStr + ") -> void"});
+  addCandidate(out, seen,
+               CompletionCandidate{.label = "pop",
+                                   .kind = ::lsp::CompletionItemKind::Method,
+                                   .detail = "pop() -> " + elemStr});
+  addCandidate(out, seen,
+               CompletionCandidate{.label = "copy",
+                                   .kind = ::lsp::CompletionItemKind::Method,
+                                   .detail = "copy() -> list<" + elemStr + ">"});
+}
+
 void appendMembersForType(AnalysisResult& result, Type* baseType, Compound* ast, SymbolTable* root,
                           std::vector<CompletionCandidate>& out,
                           std::unordered_set<std::string>& seen) {
@@ -552,6 +580,10 @@ void appendMembersForType(AnalysisResult& result, Type* baseType, Compound* ast,
   }
   if (baseType->is(BaseType::TY_PTR) && baseType->getElementType() != nullptr) {
     baseType = baseType->getElementType();
+  }
+  if (baseType->is(BaseType::TY_ARRAY)) {
+    appendBuiltinBufferListMethodCandidates(baseType->getElementType(), root, out, seen);
+    return;
   }
   if (!baseType->is(BaseType::TY_CLASS) && !baseType->is(BaseType::TY_ENUM)) {
     return;

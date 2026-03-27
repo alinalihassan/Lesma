@@ -126,6 +126,48 @@ export class list<T> impl Iterable<T>
     def operator []=(index: int, value: T)
         __buffer_set(self.storage, index, value)
 
+# Parallel key/value buffers; lookup is linear. Field order keys then vals matches dict literal codegen.
+export class dict<K, V>
+    var keys: __buffer<K>
+    var vals: __buffer<V>
+
+    def new()
+        self.keys = __buffer_new<K>()
+        self.vals = __buffer_new<V>()
+
+    def len() -> int
+        return __buffer_len(self.keys)
+
+    def has(key: K) -> bool
+        var i: int = 0
+        let n = self.len()
+        while i < n
+            if __buffer_get(self.keys, i) == key
+                return true
+            i += 1
+        return false
+
+    def get(key: K) -> V
+        var i: int = 0
+        let n = self.len()
+        while i < n
+            if __buffer_get(self.keys, i) == key
+                return __buffer_get(self.vals, i)
+            i += 1
+        exit(1)
+        return __buffer_get(self.vals, 0)
+
+    def set(key: K, value: V)
+        var i: int = 0
+        let n = self.len()
+        while i < n
+            if __buffer_get(self.keys, i) == key
+                __buffer_set(self.vals, i, value)
+                return
+            i += 1
+        __buffer_push(self.keys, key)
+        __buffer_push(self.vals, value)
+
 export class str_iter impl Iterator<uint8>
     var storage: cstr
     var __scan: int = 0

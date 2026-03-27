@@ -2394,6 +2394,74 @@ auto Codegen::visit(const ListLiteral* node) -> void {
   result = std::make_unique<Value>("", listType, listHandle);
 }
 
+auto Codegen::visit(const DictLiteral* node) -> void {
+  setDebugLoc(node->getSpan());
+  lesma::Type* dictType = node->getResolvedType();
+  if (dictType == nullptr || !dictType->is(BaseType::TY_CLASS)) {
+    throw CodegenError(node->getSpan(), "Dict literal has no resolved dict type");
+  }
+  auto fields = dictType->getFields();
+  if (fields.size() < 2 || fields[0]->type == nullptr || fields[1]->type == nullptr ||
+      !fields[0]->type->is(BaseType::TY_ARRAY) || !fields[1]->type->is(BaseType::TY_ARRAY) ||
+      fields[0]->type->getElementType() == nullptr ||
+      fields[1]->type->getElementType() == nullptr) {
+    throw CodegenError(node->getSpan(),
+                       "Dict literal resolved to invalid class (expected two __buffer fields)");
+  }
+  lesma::Type* keysBufferType = fields[0]->type;
+  lesma::Type* valsBufferType = fields[1]->type;
+  lesma::Type* keyElemType = keysBufferType->getElementType();
+  lesma::Type* valElemType = valsBufferType->getElementType();
+
+  auto* structType = cast<llvm::StructType>(getOrCreateLlvmType(dictType));
+  auto* classSize =
+      builder->getInt64(theModule->getDataLayout().getTypeAllocSize(structType).getFixedValue());
+  auto* classHandle = emitMalloc(classSize, "dict.obj");
+  auto* keysFieldPtr = builder->CreateStructGEP(structType, classHandle, 0, "dict.keys.ptr");
+  auto* valsFieldPtr = builder->CreateStructGEP(structType, classHandle, 1, "dict.vals.ptr");
+
+  std::vector<Expression*> keys = node->getKeys();
+  std::vector<Expression*> values = node->getValues();
+
+  auto emitBufferForExprs = [&](lesma::Type* bufferType, lesma::Type* elemType,
+                                std::vector<Expression*> const& exprs,
+                                const char* headerName) -> llvm::Value* {
+    auto* listStructTy = getOrCreateListStructType(bufferType);
+    auto* headerSize = builder->getInt64(
+        theModule->getDataLayout().getTypeAllocSize(listStructTy).getFixedValue());
+    auto* bufferHandle = emitMalloc(headerSize, headerName);
+    llvm::Value* dataPtr = llvm::ConstantPointerNull::get(builder->getPtrTy());
+    if (!exprs.empty()) {
+      auto* elementLlvmType = getListStoredElementType(bufferType);
+      auto* byteSize = builder->getInt64(
+          theModule->getDataLayout().getTypeAllocSize(elementLlvmType).getFixedValue() *
+          exprs.size());
+      dataPtr = emitMalloc(byteSize, "dict.data");
+      for (size_t i = 0; i < exprs.size(); ++i) {
+        exprs[i]->accept(*this);
+        setDebugLoc(node->getSpan());
+        auto* elementPtr =
+            builder->CreateGEP(elementLlvmType, dataPtr, builder->getInt64(i), "dict.elem.ptr");
+        builder->CreateStore(
+            getListStoredElementValue(node->getSpan(), result.get(), elemType), elementPtr);
+      }
+    }
+    auto* count = builder->getInt64(exprs.size());
+    emitStoreListDataPtr(bufferType, bufferHandle, dataPtr);
+    emitStoreListLength(bufferType, bufferHandle, count);
+    emitStoreListCapacity(bufferType, bufferHandle, count);
+    return bufferHandle;
+  };
+
+  llvm::Value* keysHeader =
+      emitBufferForExprs(keysBufferType, keyElemType, keys, "dict.keys.header");
+  llvm::Value* valsHeader =
+      emitBufferForExprs(valsBufferType, valElemType, values, "dict.vals.header");
+  builder->CreateStore(keysHeader, keysFieldPtr);
+  builder->CreateStore(valsHeader, valsFieldPtr);
+  result = std::make_unique<Value>("", dictType, classHandle);
+}
+
 auto Codegen::visit(const TupleLiteral* node) -> void {
   setDebugLoc(node->getSpan());
   lesma::Type* tupleType = node->getResolvedType();
@@ -3304,7 +3372,23 @@ auto Codegen::callMethodByName(llvm::SMRange span, lesma::Value* receiver,
   auto* savedSelfSymbol = selfSymbol;
   std::vector<lesma::Type*> paramTypes;
   std::vector<llvm::Value*> paramsLLVM;
-  appendCallableArgument(receiver, paramTypes, paramsLLVM);
+  // Typechecker Type* for a generic instance may differ from specializeClass's Type*; method symbols
+  // use the latter. Same LLVM pointer, canonical class type for signature lookup.
+  lesma::Value* receiverForCall = receiver;
+  std::unique_ptr<lesma::Value> receiverAdapter;
+  if (receiver->getType()->is(BaseType::TY_PTR) && receiver->getType()->getElementType() != nullptr) {
+    lesma::Type* elemTy = receiver->getType()->getElementType();
+    if (auto it = specializedClassSymbolsByType.find(elemTy);
+        it != specializedClassSymbolsByType.end()) {
+      lesma::Type* specClassTy = it->second->getType();
+      lesma::Type* ptrToSpec = cacheType(
+          std::make_unique<Type>(BaseType::TY_PTR, builder->getPtrTy(), specClassTy));
+      receiverAdapter =
+          std::make_unique<lesma::Value>("", ptrToSpec, receiver->getLlvmValue());
+      receiverForCall = receiverAdapter.get();
+    }
+  }
+  appendCallableArgument(receiverForCall, paramTypes, paramsLLVM);
   for (auto* arg : args) {
     appendCallableArgument(arg, paramTypes, paramsLLVM);
   }
