@@ -438,10 +438,14 @@ export def input(prompt: str) -> str
 # Inclusive integer in either order (min/max need not match argument order).
 export def random(bound1: int, bound2: int) -> int
     srand(time(0))
-    if bound1 < bound2
-        return bound1 + rand() % (bound2 - bound1)
 
-    return bound2 + rand() % (bound1 - bound2)
+    if bound1 == bound2
+        return bound1
+
+    if bound1 < bound2
+        return bound1 + rand() % (bound2 - bound1 + 1)
+
+    return bound2 + rand() % (bound1 - bound2 + 1)
 
 export def print(x: str)
     printf("%s\n", x.cstr())
