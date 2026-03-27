@@ -105,7 +105,10 @@ class StringInterpolation : public Expression {
 public:
   StringInterpolation(llvm::SMRange loc, std::vector<std::string> chunks,
                       std::vector<std::unique_ptr<Expression>> exprs)
-      : Expression(loc), chunks(std::move(chunks)), exprs(std::move(exprs)) {}
+      : Expression(loc), chunks(std::move(chunks)), exprs(std::move(exprs)) {
+    assert(this->chunks.size() == this->exprs.size() + 1U &&
+           "StringInterpolation requires exactly one more chunk than expression");
+  }
   void accept(ASTVisitor& visitor) const override { visitor.visit(this); }
 
   [[nodiscard]] auto getChunks() const -> const std::vector<std::string>& { return chunks; }
