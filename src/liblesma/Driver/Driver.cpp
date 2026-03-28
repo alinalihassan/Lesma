@@ -158,6 +158,7 @@ auto lesma::analyze(std::unique_ptr<Options> options, Timer* phaseTimer) -> Anal
     result.typeCache = typechecker.takeTypeCache();
     result.rootScope = typechecker.takeRootScope();
     result.specializedTypeEnv = typechecker.takeSpecializedTypeEnv();
+    result.specializedTypeToTemplate = typechecker.takeSpecializedTypeToTemplate();
     result.importAliasToPath = typechecker.takeImportAliasToPath();
     result.importedNameToSource = typechecker.takeImportedNameToSource();
     result.importedModules = typechecker.takeImportedModules();
@@ -174,6 +175,7 @@ auto lesma::analyze(std::unique_ptr<Options> options, Timer* phaseTimer) -> Anal
     result.typeCache = typechecker.takeTypeCache();
     result.rootScope = typechecker.takeRootScope();
     result.specializedTypeEnv = typechecker.takeSpecializedTypeEnv();
+    result.specializedTypeToTemplate = typechecker.takeSpecializedTypeToTemplate();
     result.importAliasToPath = typechecker.takeImportAliasToPath();
     result.importedNameToSource = typechecker.takeImportedNameToSource();
     result.importedModules = typechecker.takeImportedModules();
@@ -219,8 +221,9 @@ auto Driver::baseCompile(std::unique_ptr<lesma::Options> options, bool jit) -> i
         auto cg = std::make_unique<Codegen>(
             std::move(result.parser), result.sourceMgr,
             result.mainFilePath.empty() ? "" : result.mainFilePath, modules, jit, true, "", nullptr,
-            nullptr, nullptr, std::move(result.rootScope), std::move(result.typeCache),
-            std::move(result.specializedTypeEnv), emitDebugInfo, optLevel);
+            nullptr, nullptr,             std::move(result.rootScope), std::move(result.typeCache),
+            std::move(result.specializedTypeEnv), std::move(result.specializedTypeToTemplate),
+            emitDebugInfo, optLevel);
         cg->run();
         return cg;
       });

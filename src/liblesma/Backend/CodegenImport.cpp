@@ -49,7 +49,8 @@ auto Codegen::getExportsFromFile(const std::string& filepath, bool isStd,
 
 auto Codegen::typecheckModule(const Compound* ast, const std::string& modulePath)
     -> std::tuple<std::unique_ptr<SymbolTable>, std::vector<std::unique_ptr<lesma::Type>>,
-                  std::unordered_map<lesma::Type*, std::unordered_map<std::string, lesma::Type*>>> {
+                  std::unordered_map<lesma::Type*, std::unordered_map<std::string, lesma::Type*>>,
+                  std::unordered_map<lesma::Type*, lesma::Type*>> {
   Typechecker typechecker(
       modulePath, [this](const std::string& path, bool isStd, const std::string& mainFilePath) {
         return getExportsFromFile(path, isStd, mainFilePath);
@@ -57,7 +58,8 @@ auto Codegen::typecheckModule(const Compound* ast, const std::string& modulePath
   typechecker.run(ast);
   auto takenTypeCache = typechecker.takeTypeCache();
   auto takenRoot = typechecker.takeRootScope();
-  return {std::move(takenRoot), std::move(takenTypeCache), typechecker.takeSpecializedTypeEnv()};
+  return {std::move(takenRoot), std::move(takenTypeCache), typechecker.takeSpecializedTypeEnv(),
+          typechecker.takeSpecializedTypeToTemplate()};
 }
 
 auto Codegen::isImported(const std::vector<ImportedNameBinding>& importedNames,
@@ -287,13 +289,13 @@ auto Codegen::compileModule(llvm::SMRange span, const std::string& filepath, boo
       throw CodegenError(span, "Unable to parse imported module {}", filepath);
     }
 
-    auto [preScope, preTypeCache, preSpecEnv] = typecheckModule(ast, absolutePath);
+    auto [preScope, preTypeCache, preSpecEnv, preTemplateOf] = typecheckModule(ast, absolutePath);
 
     auto codegen = std::make_unique<Codegen>(
         std::move(parser), sourceManager, absolutePath, std::vector<std::string>{}, isJit, false,
         !importToScope ? moduleAlias : "", theContext, importedModules, importedScopes,
-        std::move(preScope), std::move(preTypeCache), std::move(preSpecEnv), emitDebugInfo,
-        OptimizationLevel::O0, pendingJitModuleInits);
+        std::move(preScope), std::move(preTypeCache), std::move(preSpecEnv),
+        std::move(preTemplateOf), emitDebugInfo, OptimizationLevel::O0, pendingJitModuleInits);
     codegen->run();
     mergeImportedTraitMetadata(*codegen);
 

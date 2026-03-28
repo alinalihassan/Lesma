@@ -382,6 +382,9 @@ auto Codegen::mergeImportedSpecializationState(Codegen const& imported) -> void 
   for (const auto& entry : imported.specializedClassTypeEnvs) {
     specializedClassTypeEnvs.insert(entry);
   }
+  for (const auto& entry : imported.specializedClassTemplateOf) {
+    specializedClassTemplateOf.insert(entry);
+  }
   for (const auto& entry : imported.specializationEnvs) {
     specializationEnvs.insert(entry);
   }

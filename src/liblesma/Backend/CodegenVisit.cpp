@@ -165,6 +165,7 @@ Codegen::Codegen(std::shared_ptr<Parser> parser, std::shared_ptr<SourceMgr> srcM
                  std::vector<std::unique_ptr<lesma::Type>> preTypeCache,
                  std::unordered_map<lesma::Type*, std::unordered_map<std::string, lesma::Type*>>
                      preSpecializedClassTypeEnvs,
+                 std::unordered_map<lesma::Type*, lesma::Type*> preSpecializedClassTemplateOf,
                  bool emitDebug, llvm::OptimizationLevel optimizationLevelForDebugArg,
                  std::shared_ptr<std::vector<std::string>> sharedPendingJitModuleInits) {
   InitializeNativeTarget();
@@ -192,6 +193,7 @@ Codegen::Codegen(std::shared_ptr<Parser> parser, std::shared_ptr<SourceMgr> srcM
     typeCache.push_back(std::move(t));
   }
   specializedClassTypeEnvs.merge(std::move(preSpecializedClassTypeEnvs));
+  specializedClassTemplateOf.merge(std::move(preSpecializedClassTemplateOf));
 
   this->alias = std::move(alias);
   this->filename = filename;
@@ -2368,6 +2370,22 @@ auto Codegen::visit(const SubscriptOp* node) -> void {
                             std::string{OperatorUtils::SUBSCRIPT_GET_NAME}, {indexValue.get()});
 }
 
+auto Codegen::superMethodReceiverMatchesFormalCodegen(Type* formalReceiverClass,
+                                                      Type* staticSuperType) const -> bool {
+  if (formalReceiverClass == nullptr || staticSuperType == nullptr) {
+    return false;
+  }
+  if (formalReceiverClass->isEqual(staticSuperType)) {
+    return true;
+  }
+  if (auto specIt = specializedClassTemplateOf.find(staticSuperType);
+      specIt != specializedClassTemplateOf.end() &&
+      formalReceiverClass->isEqual(specIt->second)) {
+    return true;
+  }
+  return false;
+}
+
 auto Codegen::visit(const DotOp* node) -> void {
   setDebugLoc(node->getSpan());
   if (dynamic_cast<SuperExpr*>(node->getLeft()) != nullptr) {
@@ -2376,8 +2394,14 @@ auto Codegen::visit(const DotOp* node) -> void {
       throw CodegenError(node->getSpan(), "Expected super.method(...)");
     }
     Value* resolved = method->getResolvedSymbol();
-    if (resolved == nullptr || resolved->getLlvmValue() == nullptr) {
-      throw CodegenError(node->getSpan(), "Internal error: super call has no lowered method");
+    if (builder->GetInsertBlock() != nullptr) {
+      if (auto* curFn = builder->GetInsertBlock()->getParent()) {
+        if (resolved != nullptr && resolved->getLlvmValue() != nullptr &&
+            resolved->getLlvmValue() == curFn) {
+          // `super.new` must never lower to the ctor currently being emitted (mis-resolved overload).
+          resolved = nullptr;
+        }
+      }
     }
     std::vector<std::unique_ptr<lesma::Value>> argStorage;
     std::vector<lesma::Value*> args;
@@ -2390,6 +2414,57 @@ auto Codegen::visit(const DotOp* node) -> void {
     std::vector<llvm::Value*> paramsLLVM;
     for (auto* arg : args) {
       appendCallableArgument(arg, paramTypes, paramsLLVM);
+    }
+    if (resolved == nullptr || resolved->getLlvmValue() == nullptr) {
+      // Typecheck may bind `super.new` to a generic template method (no LLVM). Prefer the immediate
+      // superclass implementation so `lookupFunction(Value)` does not pick the subclass `new`.
+      Type* curCls = nullptr;
+      if (currentFunction != nullptr) {
+        std::vector<Field*> const ff = currentFunction->getType()->getFields();
+        if (!ff.empty() && ff[0]->type != nullptr && ff[0]->type->is(BaseType::TY_PTR) &&
+            ff[0]->type->getElementType() != nullptr &&
+            ff[0]->type->getElementType()->is(BaseType::TY_CLASS)) {
+          curCls = ff[0]->type->getElementType();
+        }
+      }
+      if (curCls == nullptr && selfSymbol != nullptr && selfSymbol->getType() != nullptr &&
+          selfSymbol->getType()->getElementType() != nullptr) {
+        curCls = selfSymbol->getType()->getElementType();
+      }
+      Type* superTy = curCls != nullptr ? curCls->getClassSuperclass() : nullptr;
+      const std::unordered_map<std::string, Type*>* superSeed = nullptr;
+      if (superTy != nullptr) {
+        if (auto envIt = specializedClassTypeEnvs.find(superTy);
+            envIt != specializedClassTypeEnvs.end()) {
+          superSeed = &envIt->second;
+        } else {
+          for (const auto& entry : specializedClassTypeEnvs) {
+            if (entry.first != nullptr && entry.first->isEqual(superTy)) {
+              superSeed = &entry.second;
+              break;
+            }
+          }
+        }
+      }
+      Value* superPick = nullptr;
+      if (superTy != nullptr) {
+        superPick = scope->lookupSuperClassMethod(
+            method->getName(), paramTypes,
+            [this, superTy](Type* recvCls) {
+              return superMethodReceiverMatchesFormalCodegen(recvCls, superTy);
+            },
+            superTy, superSeed);
+      }
+      if (superPick != nullptr) {
+        resolved = superPick;
+      }
+      if (resolved == nullptr || resolved->getLlvmValue() == nullptr) {
+        resolved =
+            scope->lookupFunction(method->getName(), paramTypes, FunctionLookupKind::Value, curCls);
+      }
+    }
+    if (resolved == nullptr || resolved->getLlvmValue() == nullptr) {
+      throw CodegenError(node->getSpan(), "Internal error: super call has no lowered method");
     }
     auto fields = resolved->getType()->getFields();
     auto savedGenerics = currentGenericTypes;

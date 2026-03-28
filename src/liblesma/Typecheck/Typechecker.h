@@ -93,6 +93,10 @@ class Typechecker final : public ASTVisitor {
   /** Declared generic param list for a class or function type (resolves to template for specialized
    * classes). */
   auto getDeclaredGenericParams(Type* type) const -> const std::vector<std::string>&;
+  /** Whether \p formalReceiverClass is the class that owns the target `super` implementation for
+   * static superclass \p staticSuperType (handles generic template vs specialization). */
+  [[nodiscard]] auto superMethodReceiverMatchesFormal(Type* formalReceiverClass, Type* staticSuperType)
+      -> bool;
 
   /** Import alias (e.g. "import_math") -> absolute path, for resolving return types of
    * import_math.func(). */
@@ -228,6 +232,8 @@ class Typechecker final : public ASTVisitor {
   /** When a class has no `def new`, register a constructor taking each field without a default. */
   void registerSynthesizedClassConstructor(const Class* node, Type* classTypePtr,
                                            SymbolTable* outerScope);
+  /** Merge superclass vtable slots with methods declared on \p classTy (see \c Class). */
+  void mergeClassVtableOrder(const Class* node, Type* classTy);
 
 public:
   /** Typecheck with no import * resolution. */
@@ -256,6 +262,9 @@ public:
   /** Per-specialized-class and trait-existential generic bindings (e.g. T -> int), for codegen. */
   auto takeSpecializedTypeEnv()
       -> std::unordered_map<Type*, std::unordered_map<std::string, Type*>>;
+  /** Specialized class type → its generic template (for substituting through `Base<T>`-style supers).
+   */
+  auto takeSpecializedTypeToTemplate() -> std::unordered_map<Type*, Type*>;
   auto takeImportAliasToPath() -> ImportAliasMap;
   auto takeImportedNameToSource() -> ImportedNameSourceMap;
   auto takeImportedModules()

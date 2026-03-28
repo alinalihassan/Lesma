@@ -960,18 +960,34 @@ auto Typechecker::substituteInType(Type* t, const std::unordered_map<std::string
       classTemplate = tmplIt->second;
     }
     const auto& genericParamNames = classTemplate->getGenericParams();
-    if (!genericParamNames.empty()) {
-      std::unordered_map<std::string, Type*> classEnv;
-      bool changed = false;
-      for (const auto& name : genericParamNames) {
-        if (auto it = env.find(name); it != env.end()) {
-          classEnv[name] = it->second;
-          changed = true;
+    if (genericParamNames.empty()) {
+      return t;
+    }
+    std::unordered_map<std::string, Type*> classEnv;
+    if (auto specTmpl = specializedTypeToTemplate.find(t); specTmpl != specializedTypeToTemplate.end()) {
+      if (auto envIt = specializedTypeEnv.find(t); envIt != specializedTypeEnv.end()) {
+        for (const auto& name : genericParamNames) {
+          auto b = envIt->second.find(name);
+          if (b != envIt->second.end()) {
+            classEnv[name] = substituteInType(b->second, env);
+          }
         }
       }
-      if (changed) {
-        return getOrCreateSpecializedClassType(classTemplate, genericParamNames, classEnv);
+    }
+    for (const auto& name : genericParamNames) {
+      if (auto it = env.find(name); it != env.end()) {
+        classEnv[name] = it->second;
       }
+    }
+    bool allBound = true;
+    for (const auto& name : genericParamNames) {
+      if (!classEnv.contains(name)) {
+        allBound = false;
+        break;
+      }
+    }
+    if (allBound) {
+      return getOrCreateSpecializedClassType(classTemplate, genericParamNames, classEnv);
     }
   }
   return t;
@@ -1046,6 +1062,22 @@ auto Typechecker::getDeclaredGenericParams(Type* type) const -> const std::vecto
   return key->getGenericParams();
 }
 
+auto Typechecker::superMethodReceiverMatchesFormal(Type* formalReceiverClass, Type* staticSuperType)
+    -> bool {
+  if (formalReceiverClass == nullptr || staticSuperType == nullptr) {
+    return false;
+  }
+  if (formalReceiverClass->isEqual(staticSuperType)) {
+    return true;
+  }
+  if (auto specIt = specializedTypeToTemplate.find(staticSuperType);
+      specIt != specializedTypeToTemplate.end() &&
+      formalReceiverClass->isEqual(specIt->second)) {
+    return true;
+  }
+  return false;
+}
+
 auto Typechecker::lookupConstructorForAllocatedClass(SymbolTable* tab,
                                                      const std::vector<Type*>& ctorParamTypes,
                                                      Type* classType) -> Value* {
@@ -1098,6 +1130,9 @@ auto Typechecker::getOrCreateSpecializedClassType(Type* classTemplate,
     ptr->setDeclarationSpan(classTemplate->getDeclarationSpan());
     ptr->setDeclarationFilePath(classTemplate->getDeclarationFilePath());
     ptr->setDisplayName(makeSpecializedDisplayName(classTemplate, genericParamNames, env));
+    if (classTemplate->getClassSuperclass() != nullptr) {
+      ptr->setClassSuperclass(substituteInType(classTemplate->getClassSuperclass(), env));
+    }
     return ptr;
   }
   // Cache an empty specialization before substituting fields so recursive references (e.g. *Node<T>
@@ -1113,6 +1148,9 @@ auto Typechecker::getOrCreateSpecializedClassType(Type* classTemplate,
   ptr->setDeclarationSpan(classTemplate->getDeclarationSpan());
   ptr->setDeclarationFilePath(classTemplate->getDeclarationFilePath());
   ptr->setDisplayName(makeSpecializedDisplayName(classTemplate, genericParamNames, env));
+  if (classTemplate->getClassSuperclass() != nullptr) {
+    ptr->setClassSuperclass(substituteInType(classTemplate->getClassSuperclass(), env));
+  }
 
   std::vector<std::unique_ptr<Field>> newFields;
   for (Field* f : classTemplate->getFields()) {
@@ -1144,6 +1182,11 @@ void Typechecker::finalizeSpecializedTypesForTemplate(Type* classTemplate) {
     }
     specPtr->replaceFields(std::move(newFields));
     specPtr->setDisplayName(makeSpecializedDisplayName(classTemplate, genericParamNames, env));
+    if (classTemplate->getClassSuperclass() != nullptr) {
+      specPtr->setClassSuperclass(substituteInType(classTemplate->getClassSuperclass(), env));
+    } else {
+      specPtr->setClassSuperclass(nullptr);
+    }
   }
 }
 
@@ -1887,6 +1930,10 @@ auto Typechecker::takeSpecializedTypeEnv()
   return result;
 }
 
+auto Typechecker::takeSpecializedTypeToTemplate() -> std::unordered_map<Type*, Type*> {
+  return std::move(specializedTypeToTemplate);
+}
+
 auto Typechecker::takeImportAliasToPath() -> ImportAliasMap { return std::move(importAliasToPath); }
 
 auto Typechecker::takeImportedNameToSource() -> ImportedNameSourceMap {
@@ -2170,6 +2217,10 @@ void Typechecker::diagnoseUnusedNonExportedClassMembers(const Class* classNode) 
   }
   for (FuncDecl* method : classNode->getMethods()) {
     if (method->isExported() || classNode->isExported()) {
+      continue;
+    }
+    if (method->getName() == "new" && classNode->getBaseType() != nullptr) {
+      // Calls may bind to specialized `new` overloads; the template symbol stays unmarked.
       continue;
     }
     Value* vs = method->getResolvedSymbol();
@@ -2551,27 +2602,6 @@ namespace {
   return nullptr;
 }
 
-auto mergeClassVtableOrder(const Class* node, Type* classTy) -> void {
-  std::vector<std::string> order;
-  std::unordered_map<std::string, size_t> slotIndex;
-  if (Type* sup = classTy->getClassSuperclass()) {
-    order = sup->getClassVtableMethodOrder();
-    for (size_t i = 0; i < order.size(); ++i) {
-      slotIndex[order[i]] = i;
-    }
-  }
-  for (FuncDecl* m : node->getMethods()) {
-    if (m->getName() == "new") {
-      continue;
-    }
-    if (slotIndex.count(m->getName()) != 0U) {
-      continue;
-    }
-    slotIndex[m->getName()] = order.size();
-    order.push_back(m->getName());
-  }
-  classTy->setClassVtableMethodOrder(std::move(order));
-}
 } // namespace
 
 void Typechecker::registerSynthesizedClassConstructor(const Class* node, Type* classTypePtr,
@@ -2641,6 +2671,32 @@ void Typechecker::registerSynthesizedClassConstructor(const Class* node, Type* c
   }
 }
 
+void Typechecker::mergeClassVtableOrder(const Class* node, Type* classTy) {
+  std::vector<std::string> order;
+  std::unordered_map<std::string, size_t> slotIndex;
+  if (Type* sup = classTy->getClassSuperclass()) {
+    Type* supForVtable = sup;
+    if (auto it = specializedTypeToTemplate.find(sup); it != specializedTypeToTemplate.end()) {
+      supForVtable = it->second;
+    }
+    order = supForVtable->getClassVtableMethodOrder();
+    for (size_t i = 0; i < order.size(); ++i) {
+      slotIndex[order[i]] = i;
+    }
+  }
+  for (FuncDecl* m : node->getMethods()) {
+    if (m->getName() == "new") {
+      continue;
+    }
+    if (slotIndex.count(m->getName()) != 0U) {
+      continue;
+    }
+    slotIndex[m->getName()] = order.size();
+    order.push_back(m->getName());
+  }
+  classTy->setClassVtableMethodOrder(std::move(order));
+}
+
 auto Typechecker::visit(const Class* node) -> void {
   auto savedGenerics = currentGenericTypes;
   SymbolTable* outerScope = scope;
@@ -2680,10 +2736,6 @@ auto Typechecker::visit(const Class* node) -> void {
     node->setResolvedSymbol(outerScope->lookupStruct(node->getIdentifier()));
 
     if (node->getBaseType() != nullptr) {
-      if (!node->getGenericParams().empty()) {
-        throw TypeCheckError(node->getBaseTypeSpan(),
-                             "Generic class inheritance is not supported yet");
-      }
       node->getBaseType()->accept(*this);
       Type* superType = result->getType();
       if (superType == nullptr || !superType->is(BaseType::TY_CLASS)) {
@@ -2695,6 +2747,10 @@ auto Typechecker::visit(const Class* node) -> void {
           throw TypeCheckError(node->getBaseTypeSpan(), "Cyclic inheritance in superclass chain");
         }
         if (t->isEqual(classTypePtr)) {
+          throw TypeCheckError(node->getBaseTypeSpan(), "Cyclic inheritance");
+        }
+        if (auto it = specializedTypeToTemplate.find(t);
+            it != specializedTypeToTemplate.end() && it->second->isEqual(classTypePtr)) {
           throw TypeCheckError(node->getBaseTypeSpan(), "Cyclic inheritance");
         }
       }
@@ -3758,13 +3814,25 @@ auto Typechecker::visit(const DotOp* node) -> void {
     if (insertScope == nullptr) {
       insertScope = scope;
     }
-    Value* method = insertScope->lookupFunction(fc->getName(), methodArgTypes);
+    const std::unordered_map<std::string, Type*>* superSeed = nullptr;
+    if (auto envIt = specializedTypeEnv.find(superTy); envIt != specializedTypeEnv.end()) {
+      superSeed = &envIt->second;
+    }
+    Value* method = insertScope->lookupSuperClassMethod(
+        fc->getName(), methodArgTypes,
+        [this, superTy](Type* recvCls) { return superMethodReceiverMatchesFormal(recvCls, superTy); },
+        superTy, superSeed);
     if (method == nullptr) {
       for (auto& [_, cachedModule] : importedModuleCache) {
         if (cachedModule == nullptr || cachedModule->rootScope == nullptr) {
           continue;
         }
-        method = cachedModule->rootScope->lookupFunction(fc->getName(), methodArgTypes);
+        method = cachedModule->rootScope->lookupSuperClassMethod(
+            fc->getName(), methodArgTypes,
+            [this, superTy](Type* recvCls) {
+              return superMethodReceiverMatchesFormal(recvCls, superTy);
+            },
+            superTy, superSeed);
         if (method != nullptr) {
           break;
         }

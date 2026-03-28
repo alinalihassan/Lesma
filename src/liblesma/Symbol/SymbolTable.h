@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <functional>
 #include <memory>
 #include <string>
 #include <unordered_map>
@@ -42,7 +43,19 @@ public:
   auto operator=(SymbolTable&&) -> SymbolTable& = default;
 
   auto lookupFunction(const std::string& symbolName, std::vector<lesma::Type*> paramTypes,
-                      FunctionLookupKind kind = FunctionLookupKind::Value) -> Value*;
+                      FunctionLookupKind kind = FunctionLookupKind::Value,
+                      Type* excludeFormalReceiverClass = nullptr) -> Value*;
+  /** Like \c lookupFunction(Value), but only considers overloads for which \p receiverMatches
+   * returns true for the class type under the first (receiver) pointer parameter. Used for
+   * `super.method(self, …)` so the subclass overload is not chosen via subtyping.
+   * \p staticSuperclassType is the declared immediate superclass (e.g. \c GBase<int>); the first
+   * argument \c *Derived still matches when \p Derived subclasses it. Optional \p seedGenericBindings
+   * supplies class type args (e.g. \c T -> int) so trailing parameters match. */
+  auto lookupSuperClassMethod(
+      const std::string& symbolName, std::vector<lesma::Type*> paramTypes,
+      const std::function<bool(Type* formalReceiverClass)>& receiverMatches,
+      Type* staticSuperclassType,
+      const std::unordered_map<std::string, Type*>* seedGenericBindings) -> Value*;
   auto lookup(const std::string& name) -> Value*;
   auto lookupStruct(const std::string& name) -> Value*;
   auto lookupType(const std::string& symbolName) -> Type*;
