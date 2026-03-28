@@ -2553,7 +2553,7 @@ void Typechecker::registerSynthesizedClassConstructor(const Class* node, Type* c
   selfParam->setDeclarationSpan(node->getNameSpan());
   selfParam->setDeclarationFilePath(mainFilePath);
   body->insertSymbol(std::move(selfParam));
-  unsigned reqIdx = 0;
+  unsigned reqIdx = 0U;
   for (VarDecl* field : node->getFields()) {
     if (field->getValue() != nullptr) {
       continue;
