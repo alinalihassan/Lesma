@@ -4582,6 +4582,9 @@ auto Typechecker::visit(const TraitDecl* node) -> void {
   traitMethodSignatures[node->getIdentifier()].clear();
   Type* traitTy = scope->lookupType(node->getIdentifier());
   for (FuncDecl* req : node->getRequirements()) {
+    if (req->getName() == "new") {
+      throw TypeCheckError(req->getNameSpan(), "Traits cannot declare constructor 'new'");
+    }
     if (traitTy != nullptr) {
       traitMethodSignatures[node->getIdentifier()][req->getName()].push_back(
           buildMethodFunctionType(req, traitTy));
