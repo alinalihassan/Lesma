@@ -14,6 +14,8 @@
 #include "plf_nanotimer.h"
 
 namespace lesma {
+class Expression;
+class FuncCall;
 // CLEAR = no log prefix (plain output); use for version, help, etc.
 enum class LogType : std::uint8_t { ERROR, WARNING, DEBUG, SUCCESS, CLEAR };
 
@@ -110,4 +112,9 @@ auto getStdDir() -> std::string;
 /** Resolved absolute path for an import relative to \p mainModulePath's directory. */
 [[nodiscard]] auto normalizeModuleImportPath(const std::string& mainModulePath,
                                              const std::string& importPath) -> std::string;
+
+/** True if \p call resolves to stdlib `extern exit` in base.les (declaration name + file path). */
+[[nodiscard]] auto resolvedFuncCallIsStdlibBaseLesExit(const FuncCall* call) -> bool;
+/** Expression is a call (possibly `mod.exit(...)`) to that stdlib exit. */
+[[nodiscard]] auto expressionCallsStdlibBaseLesExit(Expression* expr) -> bool;
 } // namespace lesma

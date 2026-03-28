@@ -220,6 +220,16 @@ auto Codegen::defineFunction(lesma::Value* value, const FuncDecl* node, Value* c
 
   node->getBody()->accept(*this);
 
+  if (llvm::BasicBlock* cur = builder->GetInsertBlock();
+      cur != nullptr && cur->getTerminator() == nullptr && cur->empty()) {
+    lesma::Type* rt = value->getType()->getReturnType();
+    if (rt != nullptr && rt->is(BaseType::TY_VOID)) {
+      builder->CreateRetVoid();
+    } else {
+      builder->CreateUnreachable();
+    }
+  }
+
   auto instrs = deferStack.top();
   deferStack.pop();
 
@@ -628,7 +638,7 @@ auto Codegen::visit(const ForIn* node) -> void {
     listType = listType->getElementType();
   }
   if (listType != nullptr && listType->is(BaseType::TY_CLASS) &&
-      classTypeDeclaresIterable(listType)) {
+      classTypeDeclaresIterable(listType) && classHasSingleBufferStorageField(listType)) {
     auto fields = listType->getFields();
     if (!fields.empty() && fields.front()->type != nullptr &&
         fields.front()->type->is(BaseType::TY_ARRAY)) {
@@ -1272,6 +1282,25 @@ auto Codegen::visit(const UnimplementedStatement* node) -> void {
 auto Codegen::visit(const ExpressionStatement* node) -> void {
   setDebugLoc(node->getSpan());
   node->getExpression()->accept(*this);
+  if (expressionCallsStdlibBaseLesExit(node->getExpression()) && currentFunction != nullptr) {
+    isReturn = true;
+    setDebugLoc(node->getSpan());
+    // Terminate this BB so LLVM is satisfied; further stmts in the same compound emit into a new
+    // dead block (stdlib exit does not return).
+    lesma::Type* declaredReturnType = currentFunction->getType()->getReturnType();
+    if (declaredReturnType == nullptr || declaredReturnType->is(BaseType::TY_VOID)) {
+      builder->CreateRetVoid();
+    } else {
+      getOrCreateLlvmType(declaredReturnType);
+      llvm::Type* llvmRet = declaredReturnType->is(BaseType::TY_CLASS)
+                                ? builder->getPtrTy()
+                                : declaredReturnType->getLlvmType();
+      builder->CreateRet(UndefValue::get(llvmRet));
+    }
+    llvm::Function* parent = builder->GetInsertBlock()->getParent();
+    llvm::BasicBlock* dead = BasicBlock::Create(theModule->getContext(), "dead", parent);
+    builder->SetInsertPoint(dead);
+  }
 }
 
 auto Codegen::visit(const Import* node) -> void {
@@ -2394,6 +2423,95 @@ auto Codegen::visit(const ListLiteral* node) -> void {
   result = std::make_unique<Value>("", listType, listHandle);
 }
 
+auto Codegen::visit(const DictLiteral* node) -> void {
+  setDebugLoc(node->getSpan());
+  lesma::Type* dictType = node->getResolvedType();
+  if (dictType == nullptr || !dictType->is(BaseType::TY_CLASS)) {
+    throw CodegenError(node->getSpan(), "Dict literal has no resolved dict type");
+  }
+  auto fields = dictType->getFields();
+  if (fields.size() < 2 || fields[0]->type == nullptr || fields[1]->type == nullptr ||
+      !fields[0]->type->is(BaseType::TY_ARRAY) || !fields[1]->type->is(BaseType::TY_ARRAY) ||
+      fields[0]->type->getElementType() == nullptr ||
+      fields[1]->type->getElementType() == nullptr) {
+    throw CodegenError(node->getSpan(),
+                       "Dict literal resolved to invalid class (expected two __buffer fields)");
+  }
+  lesma::Type* keysBufferType = fields[0]->type;
+  lesma::Type* valsBufferType = fields[1]->type;
+  lesma::Type* keyElemType = keysBufferType->getElementType();
+  lesma::Type* valElemType = valsBufferType->getElementType();
+
+  auto* structType = cast<llvm::StructType>(getOrCreateLlvmType(dictType));
+  auto* classSize =
+      builder->getInt64(theModule->getDataLayout().getTypeAllocSize(structType).getFixedValue());
+  auto* classHandle = emitMalloc(classSize, "dict.obj");
+  auto* keysFieldPtr = builder->CreateStructGEP(structType, classHandle, 0, "dict.keys.ptr");
+  auto* valsFieldPtr = builder->CreateStructGEP(structType, classHandle, 1, "dict.vals.ptr");
+
+  std::vector<Expression*> keys = node->getKeys();
+  std::vector<Expression*> values = node->getValues();
+  if (keys.size() != values.size()) {
+    throw CodegenError(node->getSpan(), "Dict literal key/value count mismatch");
+  }
+  const size_t pairCount = keys.size();
+
+  auto* keysListStructTy = getOrCreateListStructType(keysBufferType);
+  auto* valsListStructTy = getOrCreateListStructType(valsBufferType);
+  auto* keysHeader = emitMalloc(
+      builder->getInt64(
+          theModule->getDataLayout().getTypeAllocSize(keysListStructTy).getFixedValue()),
+      "dict.keys.header");
+  auto* valsHeader = emitMalloc(
+      builder->getInt64(
+          theModule->getDataLayout().getTypeAllocSize(valsListStructTy).getFixedValue()),
+      "dict.vals.header");
+
+  llvm::Value* keysDataPtr = llvm::ConstantPointerNull::get(builder->getPtrTy());
+  llvm::Value* valsDataPtr = llvm::ConstantPointerNull::get(builder->getPtrTy());
+  if (pairCount != 0U) {
+    auto* keysElementLlvmType = getListStoredElementType(keysBufferType);
+    auto* valsElementLlvmType = getListStoredElementType(valsBufferType);
+    keysDataPtr = emitMalloc(
+        builder->getInt64(
+            theModule->getDataLayout().getTypeAllocSize(keysElementLlvmType).getFixedValue() *
+            pairCount),
+        "dict.keys.data");
+    valsDataPtr = emitMalloc(
+        builder->getInt64(
+            theModule->getDataLayout().getTypeAllocSize(valsElementLlvmType).getFixedValue() *
+            pairCount),
+        "dict.vals.data");
+
+    for (size_t i = 0; i < pairCount; ++i) {
+      keys[i]->accept(*this);
+      setDebugLoc(node->getSpan());
+      auto* keyPtr = builder->CreateGEP(keysElementLlvmType, keysDataPtr, builder->getInt64(i),
+                                        "dict.key.elem.ptr");
+      builder->CreateStore(
+          getListStoredElementValue(keys[i]->getSpan(), result.get(), keyElemType), keyPtr);
+
+      values[i]->accept(*this);
+      setDebugLoc(node->getSpan());
+      auto* valPtr = builder->CreateGEP(valsElementLlvmType, valsDataPtr, builder->getInt64(i),
+                                        "dict.val.elem.ptr");
+      builder->CreateStore(
+          getListStoredElementValue(values[i]->getSpan(), result.get(), valElemType), valPtr);
+    }
+  }
+
+  auto* count = builder->getInt64(pairCount);
+  emitStoreListDataPtr(keysBufferType, keysHeader, keysDataPtr);
+  emitStoreListLength(keysBufferType, keysHeader, count);
+  emitStoreListCapacity(keysBufferType, keysHeader, count);
+  emitStoreListDataPtr(valsBufferType, valsHeader, valsDataPtr);
+  emitStoreListLength(valsBufferType, valsHeader, count);
+  emitStoreListCapacity(valsBufferType, valsHeader, count);
+  builder->CreateStore(keysHeader, keysFieldPtr);
+  builder->CreateStore(valsHeader, valsFieldPtr);
+  result = std::make_unique<Value>("", dictType, classHandle);
+}
+
 auto Codegen::visit(const TupleLiteral* node) -> void {
   setDebugLoc(node->getSpan());
   lesma::Type* tupleType = node->getResolvedType();
@@ -3128,10 +3246,18 @@ auto Codegen::callNamedFunction(llvm::SMRange span, const std::string& functionN
 }
 
 auto Codegen::isBuiltinListBuiltinMethodName(const std::string& methodName) const -> bool {
-  return methodName == "len" || methodName == "clear" || methodName == "push" ||
-         methodName == "pop" || methodName == "copy" ||
-         methodName == std::string{OperatorUtils::SUBSCRIPT_GET_NAME} ||
-         methodName == std::string{OperatorUtils::SUBSCRIPT_SET_NAME};
+  return OperatorUtils::isBuiltinListMethodName(methodName);
+}
+
+auto Codegen::classHasSingleBufferStorageField(lesma::Type* classTy) const -> bool {
+  if (classTy == nullptr || !classTy->is(BaseType::TY_CLASS)) {
+    return false;
+  }
+  auto fields = classTy->getFields();
+  if (fields.size() != 1U) {
+    return false;
+  }
+  return fields.front()->type != nullptr && fields.front()->type->is(BaseType::TY_ARRAY);
 }
 
 auto Codegen::callListMethodByName(llvm::SMRange span, lesma::Value* receiver,
@@ -3152,6 +3278,9 @@ auto Codegen::callListMethodByName(llvm::SMRange span, lesma::Value* receiver,
       receiverType = receiverType->getElementType();
     }
     if (receiverType->is(BaseType::TY_CLASS)) {
+      if (!classHasSingleBufferStorageField(receiverType)) {
+        throw CodegenError(span, "Function {} not in current scope.", methodName);
+      }
       auto fields = receiverType->getFields();
       if (!fields.empty() && fields.front()->type != nullptr &&
           fields.front()->type->is(BaseType::TY_ARRAY)) {
@@ -3278,14 +3407,9 @@ auto Codegen::callMethodByName(llvm::SMRange span, lesma::Value* receiver,
   if (receiverType->is(BaseType::TY_TRAIT_EXISTENTIAL)) {
     return callExistentialMethod(span, receiver, methodName, args, explicitTypeArgs);
   }
-  if (receiverType->is(BaseType::TY_CLASS)) {
-    auto fields = receiverType->getFields();
-    if (!fields.empty() && fields.front()->type != nullptr &&
-        fields.front()->type->is(BaseType::TY_ARRAY)) {
-      if (isBuiltinListBuiltinMethodName(methodName)) {
-        return callListMethodByName(span, receiver, methodName, args, explicitTypeArgs);
-      }
-    }
+  if (receiverType->is(BaseType::TY_CLASS) && classHasSingleBufferStorageField(receiverType) &&
+      isBuiltinListBuiltinMethodName(methodName)) {
+    return callListMethodByName(span, receiver, methodName, args, explicitTypeArgs);
   }
   if (!receiverType->is(BaseType::TY_CLASS)) {
     throw CodegenError(span, "Method {} requires class receiver", methodName);
@@ -3304,7 +3428,23 @@ auto Codegen::callMethodByName(llvm::SMRange span, lesma::Value* receiver,
   auto* savedSelfSymbol = selfSymbol;
   std::vector<lesma::Type*> paramTypes;
   std::vector<llvm::Value*> paramsLLVM;
-  appendCallableArgument(receiver, paramTypes, paramsLLVM);
+  // Typechecker Type* for a generic instance may differ from specializeClass's Type*; method symbols
+  // use the latter. Same LLVM pointer, canonical class type for signature lookup.
+  lesma::Value* receiverForCall = receiver;
+  std::unique_ptr<lesma::Value> receiverAdapter;
+  if (receiver->getType()->is(BaseType::TY_PTR) && receiver->getType()->getElementType() != nullptr) {
+    lesma::Type* elemTy = receiver->getType()->getElementType();
+    if (auto it = specializedClassSymbolsByType.find(elemTy);
+        it != specializedClassSymbolsByType.end()) {
+      lesma::Type* specClassTy = it->second->getType();
+      lesma::Type* ptrToSpec = cacheType(
+          std::make_unique<Type>(BaseType::TY_PTR, builder->getPtrTy(), specClassTy));
+      receiverAdapter =
+          std::make_unique<lesma::Value>("", ptrToSpec, receiver->getLlvmValue());
+      receiverForCall = receiverAdapter.get();
+    }
+  }
+  appendCallableArgument(receiverForCall, paramTypes, paramsLLVM);
   for (auto* arg : args) {
     appendCallableArgument(arg, paramTypes, paramsLLVM);
   }

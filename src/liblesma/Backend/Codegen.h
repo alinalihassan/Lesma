@@ -235,6 +235,7 @@ protected:
   auto visit(const Literal* node) -> void override;
   auto visit(const StringInterpolation* node) -> void override;
   auto visit(const ListLiteral* node) -> void override;
+  auto visit(const DictLiteral* node) -> void override;
   auto visit(const TupleLiteral* node) -> void override;
   auto visit(const Else* node) -> void override;
 
@@ -263,6 +264,8 @@ protected:
       -> std::unique_ptr<lesma::Value>;
   /** True for methods lowered via buffer unwrapping (list-like class layout). */
   [[nodiscard]] auto isBuiltinListBuiltinMethodName(const std::string& methodName) const -> bool;
+  /** True when class layout matches stdlib list (single __buffer field; not dict keys+vals). */
+  [[nodiscard]] auto classHasSingleBufferStorageField(lesma::Type* classTy) const -> bool;
   auto callMethodByName(llvm::SMRange span, lesma::Value* receiver, const std::string& methodName,
                         const std::vector<lesma::Value*>& args = {},
                         const std::vector<lesma::Type*>& explicitTypeArgs = {})
@@ -354,6 +357,8 @@ protected:
   auto lookupClassStructSymbol(lesma::Type* classTy) -> Value*;
   /** Ensure stdlib \c list<T> is specialized when the typechecker only has a structural match. */
   auto tryEnsureStdlibListClassSpecialized(lesma::Type* classTy) -> void;
+  /** Ensure stdlib \c dict<K, V> is specialized (same role as list). */
+  auto tryEnsureStdlibDictClassSpecialized(lesma::Type* classTy) -> void;
 
   auto collectTraitMetadataFromAst() -> void;
   auto mergeImportedTraitMetadata(Codegen const& imported) -> void;

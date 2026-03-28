@@ -118,12 +118,16 @@ public:
     return isOneOf({BaseType::TY_INT, BaseType::TY_FLOAT, BaseType::TY_FLOAT32, BaseType::TY_STRING,
                     BaseType::TY_BOOL});
   }
+  /** `class` and `enum`: compared by nominal identity in \c isEqual (not structural shape). */
+  [[nodiscard]] auto isNominal() const -> bool {
+    return isOneOf({BaseType::TY_CLASS, BaseType::TY_ENUM});
+  }
   [[nodiscard]] auto isFloatingPoint() const -> bool {
     return baseType == BaseType::TY_FLOAT || baseType == BaseType::TY_FLOAT32;
   }
   [[nodiscard]] auto isOneOf(const std::vector<BaseType>& baseTypes) const -> bool {
-    return std::any_of(baseTypes.begin(), baseTypes.end(),
-                       [this](BaseType type) -> bool { return type == this->baseType; });
+    return std::ranges::any_of(baseTypes, [this](BaseType type) { return type == this->baseType; });
+    [this](BaseType type) -> bool { return type == this->baseType; };
   }
   [[nodiscard]] auto getBaseType() const -> BaseType { return baseType; }
   [[nodiscard]] auto getElementType() const -> Type* { return elementType; }
@@ -272,7 +276,7 @@ private:
     // variants. When neither is lowered yet, require matching non-empty
     // displayName before structural comparison so distinct nominal types are
     // not equated by shape alone.
-    if (isOneOf({BaseType::TY_CLASS, BaseType::TY_ENUM})) {
+    if (isNominal()) {
       if (llvmType != nullptr && rhs->llvmType != nullptr) {
         if (llvmType == rhs->llvmType) {
           return true;

@@ -1,5 +1,7 @@
 #pragma once
 
+#include <algorithm>
+#include <array>
 #include <optional>
 #include <string_view>
 
@@ -9,6 +11,15 @@ namespace lesma::OperatorUtils {
 
 inline constexpr std::string_view SUBSCRIPT_GET_NAME = "__operator_subscript";
 inline constexpr std::string_view SUBSCRIPT_SET_NAME = "__operator_subscript_set";
+
+/** Methods lowered on list-like `__buffer<T>` receivers (codegen + LSP). */
+inline constexpr std::array<std::string_view, 7U> BUILTIN_LIST_METHOD_NAMES{
+    "len", "clear", "push", "pop", "copy", SUBSCRIPT_GET_NAME, SUBSCRIPT_SET_NAME};
+
+[[nodiscard]] constexpr auto isBuiltinListMethodName(std::string_view methodName) noexcept -> bool {
+  return std::ranges::any_of(BUILTIN_LIST_METHOD_NAMES,
+                             [methodName](std::string_view name) { return name == methodName; });
+}
 
 inline auto getBinaryOperatorName(TokenType op) -> std::optional<std::string_view> {
   switch (op) {

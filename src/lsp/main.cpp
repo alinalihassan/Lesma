@@ -6,6 +6,7 @@
 #include <iostream>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <unordered_map>
 #include <unordered_set>
 #include <variant>
@@ -272,6 +273,39 @@ auto declarationBelongsToAnalysis(const AnalysisView& analysis,
                                   const lesma::IndexedDeclarationIdentity& declaration) -> bool {
   return analysis.mainFilePath != nullptr &&
          normalizePath(*analysis.mainFilePath) == normalizePath(declaration.filePath);
+}
+
+/** `Value::declarationSpan` lives in `getDeclarationFilePath()`; `ResolvedSymbol::owner` is often the
+ * referring document. Map the span using the defining file's SourceMgr buffer. When the declaration
+ * path is known but that module has no usable AnalysisView, returns std::nullopt so callers do not pair
+ * `uriFromPath(declPath)` with coordinates from the referring buffer. */
+auto lspRangeForValueDeclaration(AnalysisResult& result, lesma::Value* value,
+                                 const AnalysisView& fallbackOwner) -> std::optional<::lsp::Range> {
+  if (value == nullptr) {
+    return ::lsp::Range{
+        .start = ::lsp::Position{.line = 0U, .character = 0U},
+        .end = ::lsp::Position{.line = 0U, .character = 0U},
+    };
+  }
+  llvm::SMRange const declSpan = value->getDeclarationSpan();
+  if (!declSpan.isValid()) {
+    return ::lsp::Range{
+        .start = ::lsp::Position{.line = 0U, .character = 0U},
+        .end = ::lsp::Position{.line = 0U, .character = 0U},
+    };
+  }
+  std::string declPath = value->getDeclarationFilePath();
+  if (declPath.empty() && fallbackOwner.mainFilePath != nullptr) {
+    declPath = *fallbackOwner.mainFilePath;
+  }
+  if (!declPath.empty()) {
+    if (std::optional<AnalysisView> declView = findAnalysisViewForPath(result, declPath);
+        declView && isUsableAnalysis(*declView)) {
+      return smRangeToLspRange(declView->sourceMgr, declView->bufferId, declSpan);
+    }
+    return std::nullopt;
+  }
+  return smRangeToLspRange(fallbackOwner.sourceMgr, fallbackOwner.bufferId, declSpan);
 }
 
 auto runAnalyzeAndPublish(const ::lsp::DocumentUri& uri,
@@ -1141,6 +1175,12 @@ auto resolveExpressionTypeAtOffset(const lesma::Expression* expr, lesma::Compoun
     }
     return nullptr;
   }
+  if (auto const* dict = dynamic_cast<const lesma::DictLiteral*>(expr)) {
+    if (dict->getResolvedType() != nullptr) {
+      return dict->getResolvedType();
+    }
+    return nullptr;
+  }
   if (auto const* tup = dynamic_cast<const lesma::TupleLiteral*>(expr)) {
     if (tup->getResolvedType() != nullptr) {
       return tup->getResolvedType();
@@ -1208,6 +1248,16 @@ auto findActiveCallInExpr(const lesma::Expression* expr, llvm::SourceMgr* srcMgr
     for (lesma::Expression* e : si->getExprs()) {
       findActiveCallInExpr(e, srcMgr, bufferId, targetOffset, nullptr, best);
     }
+    return;
+  }
+  if (auto const* dict = dynamic_cast<const lesma::DictLiteral*>(expr)) {
+    for (lesma::Expression* k : dict->getKeys()) {
+      findActiveCallInExpr(k, srcMgr, bufferId, targetOffset, nullptr, best);
+    }
+    for (lesma::Expression* v : dict->getValues()) {
+      findActiveCallInExpr(v, srcMgr, bufferId, targetOffset, nullptr, best);
+    }
+    return;
   }
 }
 
@@ -1681,6 +1731,15 @@ auto appendCallParameterInlayHints(const AnalysisResult& analysisResult, unsigne
       }
       return;
     }
+    if (auto const* dict = dynamic_cast<const lesma::DictLiteral*>(expr)) {
+      for (lesma::Expression* k : dict->getKeys()) {
+        walkExpr(k, nullptr);
+      }
+      for (lesma::Expression* v : dict->getValues()) {
+        walkExpr(v, nullptr);
+      }
+      return;
+    }
     if (auto const* tup = dynamic_cast<const lesma::TupleLiteral*>(expr)) {
       for (lesma::Expression* el : tup->getElements()) {
         walkExpr(el, nullptr);
@@ -1801,6 +1860,51 @@ auto resolveImportedSymbol(AnalysisResult& result, const AnalysisView& analysis,
   return ResolvedSymbol{.value = resolved, .owner = *targetAnalysis};
 }
 
+/** Same set as Codegen::isBuiltinListBuiltinMethodName — `__buffer<T>` dot calls. */
+auto isBuiltinBufferListMethodName(const std::string& methodName) -> bool {
+  return OperatorUtils::isBuiltinListMethodName(methodName);
+}
+
+auto findTopLevelClassNamed(Compound* compound, std::string_view className) -> Class* {
+  if (compound == nullptr) {
+    return nullptr;
+  }
+  for (Statement* stmt : compound->getChildren()) {
+    auto* klass = dynamic_cast<Class*>(stmt);
+    if (klass != nullptr && klass->getIdentifier() == className) {
+      return klass;
+    }
+  }
+  return nullptr;
+}
+
+/** Buffer methods share semantics with `export class list` in stdlib/base.les. */
+auto findBuiltinBufferListMethodInStdlib(AnalysisResult& result, const std::string& methodName)
+    -> std::optional<ResolvedSymbol> {
+  for (const AnalysisView& view : collectAnalysisViews(result)) {
+    if (!isUsableAnalysis(view) || view.mainFilePath == nullptr || view.ast == nullptr) {
+      continue;
+    }
+    std::string const p = normalizePath(*view.mainFilePath);
+    if (!p.ends_with("base.les")) {
+      continue;
+    }
+    Class* listClass = findTopLevelClassNamed(view.ast, "list");
+    if (listClass == nullptr) {
+      continue;
+    }
+    for (FuncDecl* method : listClass->getMethods()) {
+      if (method != nullptr && method->getName() == methodName) {
+        Value* sym = method->getResolvedSymbol();
+        if (sym != nullptr) {
+          return ResolvedSymbol{.value = sym, .owner = view};
+        }
+      }
+    }
+  }
+  return std::nullopt;
+}
+
 auto resolveMethodSymbolAtCursor(AnalysisResult& result, const AnalysisView& analysis,
                                  unsigned line, unsigned character, const CursorIdentifier& id)
     -> std::optional<ResolvedSymbol> {
@@ -1850,6 +1954,16 @@ auto resolveMethodSymbolAtCursor(AnalysisResult& result, const AnalysisView& ana
     if (!candidates.empty() && candidates.front().value != nullptr) {
       return ResolvedSymbol{.value = candidates.front().value, .owner = candidateAnalysis};
     }
+  }
+
+  lesma::Type* bufferReceiver = receiverType;
+  if (bufferReceiver != nullptr && bufferReceiver->is(lesma::BaseType::TY_PTR) &&
+      bufferReceiver->getElementType() != nullptr) {
+    bufferReceiver = bufferReceiver->getElementType();
+  }
+  if (bufferReceiver != nullptr && bufferReceiver->is(lesma::BaseType::TY_ARRAY) &&
+      isBuiltinBufferListMethodName(id.name)) {
+    return findBuiltinBufferListMethodInStdlib(result, id.name);
   }
   return std::nullopt;
 }
@@ -1914,7 +2028,8 @@ auto resolveCanonicalSymbolAtCursor(AnalysisResult& result, unsigned line, unsig
   return resolveCanonicalSymbolAtCursor(result, makeAnalysisView(result), line, character, id);
 }
 
-auto symbolIdentityForResolved(const ResolvedSymbol& resolved) -> std::optional<SymbolIdentity> {
+auto symbolIdentityForResolved(AnalysisResult& result, const ResolvedSymbol& resolved)
+    -> std::optional<SymbolIdentity> {
   if (resolved.value == nullptr || !isUsableAnalysis(resolved.owner)) {
     return std::nullopt;
   }
@@ -1926,9 +2041,14 @@ auto symbolIdentityForResolved(const ResolvedSymbol& resolved) -> std::optional<
   if (path.empty() && resolved.owner.mainFilePath != nullptr) {
     path = *resolved.owner.mainFilePath;
   }
+  std::optional<::lsp::Range> declRange =
+      lspRangeForValueDeclaration(result, resolved.value, resolved.owner);
+  if (!declRange) {
+    return std::nullopt;
+  }
   return SymbolIdentity{
       .path = normalizePath(path),
-      .range = smRangeToLspRange(resolved.owner.sourceMgr, resolved.owner.bufferId, declSpan),
+      .range = *declRange,
       .name = resolved.value->getName(),
   };
 }
@@ -2116,10 +2236,12 @@ auto collectSemanticTokens(AnalysisResult& analysisResult, unsigned bufferId)
     if (declPath.empty() && resolved.owner.mainFilePath != nullptr) {
       declPath = *resolved.owner.mainFilePath;
     }
-    if (declSpan.isValid() && !declPath.empty() && normalizePath(declPath) == currentPath &&
-        rangeEquals(smRangeToLspRange(resolved.owner.sourceMgr, resolved.owner.bufferId, declSpan),
-                    occurrenceRange)) {
-      modifiers |= semantic_token_modifier::DECLARATION;
+    if (declSpan.isValid() && !declPath.empty() && normalizePath(declPath) == currentPath) {
+      if (std::optional<::lsp::Range> declRange =
+              lspRangeForValueDeclaration(analysisResult, resolved.value, resolved.owner);
+          declRange && rangeEquals(*declRange, occurrenceRange)) {
+        modifiers |= semantic_token_modifier::DECLARATION;
+      }
     }
     if (isDefaultLibraryType(resolved.value->getType())) {
       modifiers |= semantic_token_modifier::DEFAULT_LIBRARY;
@@ -2236,7 +2358,7 @@ auto collectReferences(AnalysisResult& result, unsigned line, unsigned character
   }
   if (!targetIdentity) {
     if (targetResolved) {
-      targetIdentity = symbolIdentityForResolved(*targetResolved);
+      targetIdentity = symbolIdentityForResolved(result, *targetResolved);
     }
   }
   if (targetIdentity) {
@@ -2271,7 +2393,7 @@ auto collectReferences(AnalysisResult& result, unsigned line, unsigned character
           if (!resolved) {
             continue;
           }
-          occurrenceIdentity = symbolIdentityForResolved(*resolved);
+          occurrenceIdentity = symbolIdentityForResolved(result, *resolved);
         }
         if (!occurrenceIdentity || occurrenceIdentity->path != targetIdentity->path ||
             occurrenceIdentity->name != targetIdentity->name ||
@@ -2522,10 +2644,15 @@ auto tryResolveDefinitionLocation(AnalysisResult& result, unsigned line, unsigne
   if (declPath.empty()) {
     return std::nullopt;
   }
-  ::lsp::Location loc;
-  loc.uri = uriFromPath(declPath);
-  loc.range = smRangeToLspRange(resolved->owner.sourceMgr, resolved->owner.bufferId, declSpan);
-  return loc;
+  std::optional<::lsp::Range> mappedRange =
+      lspRangeForValueDeclaration(result, resolved->value, resolved->owner);
+  if (!mappedRange) {
+    return std::nullopt;
+  }
+  return ::lsp::Location{
+      .uri = uriFromPath(declPath),
+      .range = *mappedRange,
+  };
 }
 
 auto tryResolveDeclarationLocation(AnalysisResult& result, unsigned line, unsigned character)

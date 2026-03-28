@@ -16,6 +16,7 @@
 #include "LspTypeFormat.h"
 
 #include "liblesma/AST/AST.h"
+#include "liblesma/Common/OperatorUtils.h"
 #include "liblesma/Driver/Driver.h"
 #include "liblesma/Symbol/TypeUtils.h"
 #include "liblesma/Symbol/Value.h"
@@ -27,6 +28,7 @@ namespace {
 constexpr std::string_view MEMBER_COMPLETION_PLACEHOLDER = "__cursor__";
 
 using namespace lesma;
+using lesma::lsp_srv::formatBufferArrayTypeName;
 using lesma::lsp_srv::formatTypeName;
 
 struct CompletionContext {
@@ -544,6 +546,44 @@ void appendTraitRequirementMethods(AnalysisResult& result, Type* classType, Comp
   }
 }
 
+/** `__buffer<T>` (TY_ARRAY): same dot-call surface as `list<T>` in codegen (`callListMethodByName`). */
+void appendBuiltinBufferListMethodCandidates(Type* bufferType, SymbolTable* root,
+                                             std::vector<CompletionCandidate>& out,
+                                             std::unordered_set<std::string>& seen) {
+  Type* elementType = bufferType != nullptr ? bufferType->getElementType() : nullptr;
+  std::string const elemStr =
+      elementType != nullptr ? formatTypeName(elementType, root) : std::string{"?"};
+
+  auto detailForName = [&](std::string_view name) -> std::string {
+    if (name == "len") {
+      return "len() -> int";
+    }
+    if (name == "clear") {
+      return "clear() -> void";
+    }
+    if (name == "push") {
+      return "push(value: " + elemStr + ") -> void";
+    }
+    if (name == "pop") {
+      return "pop() -> " + elemStr;
+    }
+    if (name == "copy") {
+      return "copy() -> " + formatBufferArrayTypeName(bufferType, root);
+    }
+    return std::string{name};
+  };
+
+  for (std::string_view name : OperatorUtils::BUILTIN_LIST_METHOD_NAMES) {
+    if (isHiddenClassMemberName(name)) {
+      continue;
+    }
+    addCandidate(out, seen,
+                 CompletionCandidate{.label = std::string{name},
+                                     .kind = ::lsp::CompletionItemKind::Method,
+                                     .detail = detailForName(name)});
+  }
+}
+
 void appendMembersForType(AnalysisResult& result, Type* baseType, Compound* ast, SymbolTable* root,
                           std::vector<CompletionCandidate>& out,
                           std::unordered_set<std::string>& seen) {
@@ -552,6 +592,10 @@ void appendMembersForType(AnalysisResult& result, Type* baseType, Compound* ast,
   }
   if (baseType->is(BaseType::TY_PTR) && baseType->getElementType() != nullptr) {
     baseType = baseType->getElementType();
+  }
+  if (baseType->is(BaseType::TY_ARRAY)) {
+    appendBuiltinBufferListMethodCandidates(baseType, root, out, seen);
+    return;
   }
   if (!baseType->is(BaseType::TY_CLASS) && !baseType->is(BaseType::TY_ENUM)) {
     return;

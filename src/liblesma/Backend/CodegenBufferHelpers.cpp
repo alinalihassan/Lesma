@@ -351,9 +351,61 @@ auto Codegen::tryEnsureStdlibListClassSpecialized(lesma::Type* classTy) -> void 
   specializeClass(git->second, {}, {typeArg});
 }
 
+auto Codegen::tryEnsureStdlibDictClassSpecialized(lesma::Type* classTy) -> void {
+  if (classTy == nullptr || !classTy->is(BaseType::TY_CLASS)) {
+    return;
+  }
+  const std::string& dn = classTy->getDisplayName();
+  if (dn.size() < 6 || dn.compare(0, 5, "dict<") != 0 || dn.back() != '>') {
+    return;
+  }
+  auto git = genericClasses.find("dict");
+  if (git == genericClasses.end() || git->second == nullptr) {
+    return;
+  }
+  lesma::Type* keyT = nullptr;
+  lesma::Type* valT = nullptr;
+  if (auto envIt = specializedClassTypeEnvs.find(classTy);
+      envIt != specializedClassTypeEnvs.end()) {
+    if (auto kIt = envIt->second.find("K"); kIt != envIt->second.end()) {
+      keyT = kIt->second;
+    }
+    if (auto vIt = envIt->second.find("V"); vIt != envIt->second.end()) {
+      valT = vIt->second;
+    }
+  }
+  if (keyT == nullptr || valT == nullptr) {
+    auto fields = classTy->getFields();
+    if (fields.size() >= 2 && fields[0]->type != nullptr && fields[1]->type != nullptr &&
+        fields[0]->type->is(BaseType::TY_ARRAY) && fields[1]->type->is(BaseType::TY_ARRAY)) {
+      keyT = fields[0]->type->getElementType();
+      valT = fields[1]->type->getElementType();
+    }
+  }
+  if (keyT == nullptr || valT == nullptr) {
+    return;
+  }
+  lesma::Value* sym = specializeClass(git->second, {}, {keyT, valT});
+  if (sym != nullptr) {
+    specializedClassSymbolsByType[classTy] = sym;
+    lesma::Type* specTy = sym->getType();
+    if (auto envIt = specializedClassTypeEnvs.find(specTy);
+        envIt != specializedClassTypeEnvs.end()) {
+      specializedClassTypeEnvs[classTy] = envIt->second;
+    }
+  }
+}
+
 auto Codegen::lookupClassStructSymbol(lesma::Type* classTy) -> Value* {
   if (classTy == nullptr || !classTy->is(BaseType::TY_CLASS)) {
     return nullptr;
+  }
+  // Emit specialized stdlib methods even when LLVM struct + symbol already exist (e.g. dict/list
+  // literals materialize the class layout before any method call).
+  tryEnsureStdlibListClassSpecialized(classTy);
+  tryEnsureStdlibDictClassSpecialized(classTy);
+  if (auto it = specializedClassSymbolsByType.find(classTy); it != specializedClassSymbolsByType.end()) {
+    return it->second;
   }
   llvm::Type* lt = classTy->getLlvmType();
   if (lt != nullptr) {
@@ -371,18 +423,6 @@ auto Codegen::lookupClassStructSymbol(lesma::Type* classTy) -> Value* {
     }
     // Typechecker may use a different Type* than the one codegen registered when specializing
     // generics; match the struct symbol by display name.
-    for (const auto& [ty, sym] : specializedClassSymbolsByType) {
-      if (ty != nullptr &&
-          classDisplayNamesMatch(ty->getDisplayName(), classTy->getDisplayName())) {
-        return sym;
-      }
-    }
-  }
-  tryEnsureStdlibListClassSpecialized(classTy);
-  if (!classTy->getDisplayName().empty()) {
-    if (Value* v = scope->lookupStruct(classTy->getDisplayName())) {
-      return v;
-    }
     for (const auto& [ty, sym] : specializedClassSymbolsByType) {
       if (ty != nullptr &&
           classDisplayNamesMatch(ty->getDisplayName(), classTy->getDisplayName())) {

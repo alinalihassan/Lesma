@@ -311,6 +311,12 @@ auto collectIndexFromTypeExpr(const TypeExpr* typeExpr, AnalysisIndex& index) ->
     if (typeExpr->getType() == TokenType::LIST_TYPE) {
       name = "list";
       span = makeNameSpan(typeExpr->getStart(), name);
+    } else if (typeExpr->getType() == TokenType::CUSTOM_TYPE &&
+               !typeExpr->getTypeArgs().empty()) {
+      // `dict<K,V>` / `Box<T>`: index only the constructor name so hover/definition match
+      // `root->lookup("dict")`, not the full spelling `dict<...>`.
+      name = typeExpr->getLookupName();
+      span = makeNameSpan(typeExpr->getStart(), name);
     }
     appendIndexedOccurrence(
         index, name, std::nullopt, span, true, false, 0U,
@@ -408,6 +414,15 @@ auto collectIndexFromExpr(const Expression* expr, AnalysisIndex& index) -> void 
   if (auto const* list = dynamic_cast<const ListLiteral*>(expr)) {
     for (Expression* element : list->getElements()) {
       collectIndexFromExpr(element, index);
+    }
+    return;
+  }
+  if (auto const* dict = dynamic_cast<const DictLiteral*>(expr)) {
+    for (Expression* k : dict->getKeys()) {
+      collectIndexFromExpr(k, index);
+    }
+    for (Expression* v : dict->getValues()) {
+      collectIndexFromExpr(v, index);
     }
     return;
   }

@@ -1019,6 +1019,55 @@ public:
   }
 };
 
+class DictLiteral : public Expression {
+  std::vector<std::unique_ptr<Expression>> keys;
+  std::vector<std::unique_ptr<Expression>> values;
+  mutable Type* resolvedType = nullptr;
+
+public:
+  DictLiteral(llvm::SMRange loc, std::vector<std::unique_ptr<Expression>> keyExprs,
+              std::vector<std::unique_ptr<Expression>> valueExprs)
+      : Expression(loc), keys(std::move(keyExprs)), values(std::move(valueExprs)) {
+    assert(keys.size() == values.size() && "DictLiteral requires equal number of keys and values");
+  }
+  void accept(ASTVisitor& visitor) const override { visitor.visit(this); }
+
+  [[nodiscard]] auto getKeys() const -> std::vector<Expression*> {
+    std::vector<Expression*> result;
+    result.reserve(keys.size());
+    for (const auto& k : keys) {
+      result.push_back(k.get());
+    }
+    return result;
+  }
+  [[nodiscard]] auto getValues() const -> std::vector<Expression*> {
+    std::vector<Expression*> result;
+    result.reserve(values.size());
+    for (const auto& v : values) {
+      result.push_back(v.get());
+    }
+    return result;
+  }
+  [[nodiscard]] auto getEntryCount() const -> size_t { return keys.size(); }
+  [[nodiscard]] auto getResolvedType() const -> Type* { return resolvedType; }
+  auto setResolvedType(Type* type) const -> void { resolvedType = type; }
+
+  auto toString(llvm::SourceMgr* srcMgr, const std::string& prefix, bool isTail) const
+      -> std::string override {
+    std::string result = "{";
+    for (size_t i = 0; i < keys.size(); ++i) {
+      if (i > 0) {
+        result += ", ";
+      }
+      result += keys[i]->toString(srcMgr, prefix, isTail);
+      result += ": ";
+      result += values[i]->toString(srcMgr, prefix, isTail);
+    }
+    result += "}";
+    return result;
+  }
+};
+
 class TupleLiteral : public Expression {
   std::vector<std::unique_ptr<Expression>> elements;
   mutable Type* resolvedType = nullptr;

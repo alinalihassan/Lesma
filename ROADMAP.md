@@ -16,7 +16,7 @@
 - [x] Add string interpolation
 - [x] Add multiple value return without having to make structs
 - [ ] Add optional types
-- [ ] Add dictionaries
+- [x] Add dictionaries
 - [ ] Add lambda functions
 - [ ] Add try catch
 - [ ] Add multithreading using pthread for now (async/await? ala Spice)

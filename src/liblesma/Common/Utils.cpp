@@ -6,6 +6,9 @@
 #include <sstream>
 #include <string>
 
+#include "liblesma/AST/AST.h"
+#include "liblesma/Symbol/Value.h"
+
 #include <llvm/Support/SMLoc.h>
 #include <llvm/Support/SourceMgr.h>
 
@@ -157,5 +160,39 @@ auto normalizeModuleImportPath(const std::string& mainModulePath, const std::str
     norm = std::filesystem::absolute(resolved).lexically_normal();
   }
   return norm.string();
+}
+
+auto resolvedFuncCallIsStdlibBaseLesExit(const FuncCall* call) -> bool {
+  if (call == nullptr) {
+    return false;
+  }
+  Value* sym = call->getResolvedSymbol();
+  if (sym == nullptr || sym->getName() != "exit" ||
+      sym->getDeclarationKind() != ValueDeclarationKind::FUNCTION) {
+    return false;
+  }
+  const std::string& declPath = sym->getDeclarationFilePath();
+  if (declPath.empty()) {
+    return false;
+  }
+  const std::string baseLesExpected =
+      std::filesystem::absolute(std::filesystem::path(getStdDir()) / "base.les")
+          .lexically_normal()
+          .string();
+  return normalizeResolvedFilesystemPath(declPath) ==
+         normalizeResolvedFilesystemPath(baseLesExpected);
+}
+
+auto expressionCallsStdlibBaseLesExit(Expression* expr) -> bool {
+  if (expr == nullptr) {
+    return false;
+  }
+  const FuncCall* call = nullptr;
+  if (auto* fc = dynamic_cast<FuncCall*>(expr)) {
+    call = fc;
+  } else if (auto* dot = dynamic_cast<DotOp*>(expr)) {
+    call = dynamic_cast<FuncCall*>(dot->getRight());
+  }
+  return resolvedFuncCallIsStdlibBaseLesExit(call);
 }
 } // namespace lesma
