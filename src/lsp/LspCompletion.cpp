@@ -555,8 +555,6 @@ void appendBuiltinBufferListMethodCandidates(Type* bufferType, SymbolTable* root
       elementType != nullptr ? formatTypeName(elementType, root) : std::string{"?"};
 
   auto detailForName = [&](std::string_view name) -> std::string {
-    using OperatorUtils::SUBSCRIPT_GET_NAME;
-    using OperatorUtils::SUBSCRIPT_SET_NAME;
     if (name == "len") {
       return "len() -> int";
     }
@@ -572,16 +570,13 @@ void appendBuiltinBufferListMethodCandidates(Type* bufferType, SymbolTable* root
     if (name == "copy") {
       return "copy() -> " + formatBufferArrayTypeName(bufferType, root);
     }
-    if (name == SUBSCRIPT_GET_NAME) {
-      return std::string{SUBSCRIPT_GET_NAME} + "(index: int) -> " + elemStr;
-    }
-    if (name == SUBSCRIPT_SET_NAME) {
-      return std::string{SUBSCRIPT_SET_NAME} + "(index: int, value: " + elemStr + ") -> void";
-    }
     return std::string{name};
   };
 
   for (std::string_view name : OperatorUtils::BUILTIN_LIST_METHOD_NAMES) {
+    if (isHiddenClassMemberName(name)) {
+      continue;
+    }
     addCandidate(out, seen,
                  CompletionCandidate{.label = std::string{name},
                                      .kind = ::lsp::CompletionItemKind::Method,
