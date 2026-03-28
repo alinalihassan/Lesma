@@ -1,0 +1,5 @@
+{
+  // Same folder must contain lesma-lsp (see extension client/src/extension.ts).
+  // Change the path if you use a different CMake output directory (e.g. build/lesma on some setups).
+  "lesma.compilerPath": "${workspaceFolder}/build/Debug/lesma",
+}

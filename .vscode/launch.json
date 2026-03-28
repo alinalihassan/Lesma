@@ -1,0 +1,36 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Lesma: Run Extension",
+      "type": "extensionHost",
+      "request": "launch",
+      // Disable other extensions in the Extension Development Host (avoids e.g. Bun’s
+      // diagnostics socket EADDRINUSE when another extension already bound the same path).
+      "args": [
+        "--disable-extensions",
+        "--extensionDevelopmentPath=${workspaceFolder}/tools/vscode"
+      ],
+      "outFiles": ["${workspaceFolder}/tools/vscode/client/out/**/*.js"],
+      "preLaunchTask": "Lesma: Build LSP + compile extension"
+    },
+    {
+      "name": "Lesma: Run Extension (no prebuild)",
+      "type": "extensionHost",
+      "request": "launch",
+      "args": [
+        "--disable-extensions",
+        "--extensionDevelopmentPath=${workspaceFolder}/tools/vscode"
+      ],
+      "outFiles": ["${workspaceFolder}/tools/vscode/client/out/**/*.js"]
+    }
+  ],
+  "compounds": [
+    {
+      "name": "Lesma: Run Extension (watch)",
+      "configurations": ["Lesma: Run Extension (no prebuild)"],
+      "preLaunchTask": "Lesma: Watch VS Code extension",
+      "stopAll": true
+    }
+  ]
+}

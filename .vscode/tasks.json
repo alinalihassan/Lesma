@@ -1,0 +1,49 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Lesma: Build lesma + lesma-lsp (Debug)",
+      "type": "shell",
+      "command": "cmake --build build/Debug --target lesma lesma-lsp",
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "group": "build",
+      "problemMatcher": []
+    },
+    {
+      "label": "Lesma: Compile VS Code extension",
+      "type": "npm",
+      "script": "compile",
+      "path": "tools/vscode",
+      "group": "build",
+      "presentation": {
+        "reveal": "silent",
+        "panel": "shared"
+      },
+      "problemMatcher": "$tsc"
+    },
+    {
+      "label": "Lesma: Watch VS Code extension",
+      "type": "npm",
+      "script": "watch",
+      "path": "tools/vscode",
+      "group": "build",
+      "isBackground": true,
+      "presentation": {
+        "reveal": "silent",
+        "panel": "shared"
+      },
+      "problemMatcher": "$tsc-watch"
+    },
+    {
+      "label": "Lesma: Build LSP + compile extension",
+      "dependsOn": [
+        "Lesma: Build lesma + lesma-lsp (Debug)",
+        "Lesma: Compile VS Code extension"
+      ],
+      "dependsOrder": "sequence",
+      "problemMatcher": []
+    }
+  ]
+}

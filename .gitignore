@@ -1,6 +1,9 @@
 # IDE related
 .idea/
-.vscode/
+.vscode/*
+!.vscode/launch.json
+!.vscode/tasks.json
+!.vscode/settings.json
 
 # Build folders
 cmake-build-debug/
@@ -26,3 +29,5 @@ compile_commands.json
 /dbgout.dSYM/Contents
 /bench.json
 /suite.vl.json
+
+*.tsbuildinfo
