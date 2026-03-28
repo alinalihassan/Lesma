@@ -101,8 +101,8 @@ class Typechecker final : public ASTVisitor {
   ImportedNameSourceMap importedNameToSource;
   /** Cache of fully analyzed imported modules for import-aware symbol resolution. */
   std::unordered_map<std::string, std::shared_ptr<ImportedModuleAnalysis>> importedModuleCache;
-  /** Filled during the second pass; diagnosed after the full unit so calls like `Foo()` see `new` as
-   *  used first (see \c run). */
+  /** Filled during the second pass; diagnosed after the full unit so calls like `Foo()` see `new`
+   * as used first (see \c run). */
   std::vector<const Class*> classesPendingUnusedMemberDiagnosis;
 
   /** When non-null, unreachable-code and other warnings are appended here (severity Warning).
@@ -219,6 +219,10 @@ class Typechecker final : public ASTVisitor {
   /** True when \p sym is the nominal type name binding (not a value, function,
    *  or enum member), for CUSTOM_TYPE resolution after lookupStruct / lookup. */
   [[nodiscard]] auto isTypeSymbolForCustomTypeName(Value const* sym) -> bool;
+
+  /** When a class has no `def new`, register a constructor taking each field without a default. */
+  void registerSynthesizedClassConstructor(const Class* node, Type* classTypePtr,
+                                           SymbolTable* outerScope);
 
 public:
   /** Typecheck with no import * resolution. */

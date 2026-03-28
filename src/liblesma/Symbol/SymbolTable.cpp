@@ -374,6 +374,16 @@ auto SymbolTable::lookupFunction(const std::string& name, std::vector<lesma::Typ
     }
 
     bool candidateWins = bestCandidate == nullptr || rankVectorBetter(candidateRanks, bestRanks);
+    if (!candidateWins && bestCandidate != nullptr && candidateRanks.size() == bestRanks.size()) {
+      bool const ranksEqual =
+          std::equal(candidateRanks.begin(), candidateRanks.end(), bestRanks.begin());
+      if (ranksEqual) {
+        Value* candSym = it->second.get();
+        if (candSym->getLlvmValue() != nullptr && bestCandidate->getLlvmValue() == nullptr) {
+          candidateWins = true;
+        }
+      }
+    }
     if (candidateWins) {
       bestRanks = std::move(candidateRanks);
       bestCandidate = it->second.get();
