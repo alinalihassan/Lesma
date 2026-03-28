@@ -89,6 +89,8 @@ class Codegen final : public ASTVisitor {
   std::unordered_map<std::string, std::string> importAliasToModulePath;
   std::unordered_map<std::string, llvm::StructType*> listStructTypes;
   std::vector<std::tuple<lesma::Value*, const FuncDecl*, Value*>> prototypes;
+  /** Class AST + constructor symbol for default `new` bodies (no FuncDecl). */
+  std::vector<std::pair<lesma::Value*, const Class*>> syntheticConstructorBodies;
   std::unordered_map<std::string, const FuncDecl*> genericFunctions;
   std::unordered_map<std::string, std::unordered_map<std::string, const FuncDecl*>> genericMethods;
   std::unordered_map<std::string, const Class*> genericClasses;
@@ -271,6 +273,9 @@ protected:
                         const std::vector<lesma::Type*>& explicitTypeArgs = {})
       -> std::unique_ptr<lesma::Value>;
   auto defineFunction(lesma::Value* value, const FuncDecl* node, Value* clsSymbol) -> void;
+  auto declareSynthesizedClassConstructor(const Class* astNode, lesma::Type* classType,
+                                          lesma::Value* classStructSym) -> lesma::Value*;
+  auto defineSynthesizedClassConstructor(lesma::Value* ctorSym, const Class* astNode) -> void;
   auto computeGenericFunctionBindingEnv(const FuncDecl* node,
                                         const std::vector<lesma::Type*>& paramTypes,
                                         const std::vector<std::string>& genericNames,

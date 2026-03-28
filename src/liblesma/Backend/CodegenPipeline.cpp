@@ -650,6 +650,27 @@ auto Codegen::run() -> void {
     currentGenericTypes = std::move(savedGenerics);
   }
 
+  for (size_t si = 0; si < syntheticConstructorBodies.size(); ++si) {
+    lesma::Value* ctorSym = syntheticConstructorBodies[si].first;
+    const Class* cls = syntheticConstructorBodies[si].second;
+    auto savedGenerics = currentGenericTypes;
+    if (auto env = specializationEnvs.find(ctorSym); env != specializationEnvs.end()) {
+      currentGenericTypes = env->second;
+    } else {
+      auto fields = ctorSym->getType()->getFields();
+      if (!fields.empty() && fields.front()->type != nullptr &&
+          fields.front()->type->is(BaseType::TY_PTR) &&
+          fields.front()->type->getElementType() != nullptr) {
+        if (auto clsEnv = specializedClassTypeEnvs.find(fields.front()->type->getElementType());
+            clsEnv != specializedClassTypeEnvs.end()) {
+          currentGenericTypes = clsEnv->second;
+        }
+      }
+    }
+    defineSynthesizedClassConstructor(ctorSym, cls);
+    currentGenericTypes = std::move(savedGenerics);
+  }
+
   // Return 0 for top-level function (location must match topLevelFunc's DISubprogram)
   if (parser->getAst() != nullptr) {
     setDebugLoc(parser->getAst()->getSpan());

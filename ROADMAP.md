@@ -15,6 +15,7 @@
 - [x] Add traits
 - [x] Add string interpolation
 - [x] Add multiple value return without having to make structs
+- [x] Dataclasses (implicit constructors)
 - [ ] Add optional types
 - [x] Add dictionaries
 - [ ] Add lambda functions

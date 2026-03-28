@@ -68,6 +68,20 @@ LLD_HAS_DRIVER(elf)
 #include "liblesma/Token/TokenType.h"
 #include "liblesma/Typecheck/Typechecker.h"
 
+namespace {
+
+[[nodiscard]] auto makeCallableSignatureKey(const std::string& name,
+                                            const std::vector<lesma::Type*>& types)
+    -> std::string {
+  std::string key = name;
+  for (lesma::Type* type : types) {
+    key += "|" + (type != nullptr ? type->toString() : "?");
+  }
+  return key;
+}
+
+} // namespace
+
 using namespace lesma;
 
 Codegen::Codegen(std::shared_ptr<Parser> parser, std::shared_ptr<SourceMgr> srcMgr,
@@ -799,6 +813,291 @@ auto Codegen::buildClassMethodParamTypesForLookup(const FuncDecl* node)
   return paramTypes;
 }
 
+auto Codegen::declareSynthesizedClassConstructor(const Class* astNode, lesma::Type* classType,
+                                                 lesma::Value* classStructSym) -> lesma::Value* {
+  Type* selfPtrType =
+      cacheType(std::make_unique<Type>(BaseType::TY_PTR, builder->getPtrTy(), classType));
+  std::vector<lesma::Type*> paramTypes = {selfPtrType};
+  std::vector<std::unique_ptr<Field>> fields;
+  fields.push_back(std::make_unique<Field>("self", selfPtrType));
+  std::vector<Field*> const typeFields = classType->getFields();
+  size_t ti = 0;
+  for (VarDecl* v : astNode->getFields()) {
+    if (ti >= typeFields.size()) {
+      break;
+    }
+    Type* storageTy = typeFields[ti]->type;
+    ti++;
+    if (v->getValue() != nullptr) {
+      continue;
+    }
+    Type* paramType = storageTy;
+    if (paramType->is(BaseType::TY_CLASS)) {
+      paramType =
+          cacheType(std::make_unique<Type>(BaseType::TY_PTR, builder->getPtrTy(), paramType));
+    }
+    getOrCreateLlvmType(paramType);
+    paramTypes.push_back(paramType);
+    fields.push_back(std::make_unique<Field>(v->getIdentifier()->getValue(), paramType));
+  }
+  Type* returnType = cacheType(std::make_unique<Type>(BaseType::TY_VOID, builder->getVoidTy()));
+  getOrCreateLlvmType(returnType);
+
+  Value* savedSelfSym = selfSymbol;
+  selfSymbol = classStructSym;
+
+  auto mangledName = getMangledName(astNode->getSpan(), "new", paramTypes, selfSymbol != nullptr);
+  std::string signatureKey = makeCallableSignatureKey("new", paramTypes);
+  if (!currentGenericTypes.empty()) {
+    std::vector<std::string> bindingOrder;
+    if (selfSymbol != nullptr && selfSymbol->getType() != nullptr &&
+        selfSymbol->getType()->getElementType() != nullptr) {
+      bindingOrder = selfSymbol->getType()->getElementType()->getGenericParams();
+    }
+    if (bindingOrder.empty()) {
+      bindingOrder.reserve(currentGenericTypes.size());
+      for (const auto& kv : currentGenericTypes) {
+        bindingOrder.push_back(kv.first);
+      }
+      std::sort(bindingOrder.begin(), bindingOrder.end());
+    }
+    appendGenericBindingSuffix(astNode->getSpan(), mangledName, bindingOrder, currentGenericTypes);
+    appendGenericBindingSuffix(astNode->getSpan(), signatureKey, bindingOrder, currentGenericTypes);
+  }
+  const bool shouldExport = classStructSym->isExported();
+  auto linkage = shouldExport ? Function::ExternalLinkage : Function::PrivateLinkage;
+
+  std::vector<llvm::Type*> paramLLVMTypes;
+  for (auto* pt : paramTypes) {
+    paramLLVMTypes.push_back(pt->getLlvmType());
+  }
+  llvm::FunctionType* llvmFnTy = FunctionType::get(builder->getVoidTy(), paramLLVMTypes, false);
+  Function* f = Function::Create(llvmFnTy, linkage, mangledName, *theModule);
+  attachFunctionDebugInfo(f, "new", mangledName, astNode->getNameSpan(), linkage, false);
+  auto loweredType = std::make_unique<Type>(BaseType::TY_FUNCTION, llvmFnTy, std::move(fields));
+  loweredType->setReturnType(returnType);
+  loweredType->setVarArgs(false);
+  Type* loweredTypePtr = cacheType(std::move(loweredType));
+
+  const bool isSpecializedInstance = specializedClassSymbolsByType.contains(classType);
+
+  if (isSpecializedInstance) {
+    SymbolTable* bodyScope = scope->createChildBlock("synthetic_ctor");
+    auto selfPs = std::make_unique<Value>("self", paramTypes[0]);
+    selfPs->setCategory(ValueCategory::ADDRESSABLE_STORAGE);
+    selfPs->setDeclarationKind(ValueDeclarationKind::PARAMETER);
+    bodyScope->insertSymbol(std::move(selfPs));
+    unsigned reqIdx = 0;
+    for (VarDecl* v : astNode->getFields()) {
+      if (v->getValue() != nullptr) {
+        continue;
+      }
+      auto ps = std::make_unique<Value>(v->getIdentifier()->getValue(), paramTypes[1U + reqIdx]);
+      ps->setCategory(ValueCategory::ADDRESSABLE_STORAGE);
+      ps->setDeclarationKind(ValueDeclarationKind::PARAMETER);
+      bodyScope->insertSymbol(std::move(ps));
+      reqIdx++;
+    }
+    auto funcSymbol = std::make_unique<Value>("new", loweredTypePtr, f);
+    funcSymbol->setCategory(ValueCategory::CALLABLE_SYMBOL);
+    funcSymbol->setDeclarationKind(ValueDeclarationKind::METHOD);
+    funcSymbol->setExported(shouldExport);
+    funcSymbol->setMangledName(mangledName);
+    funcSymbol->setBodyScope(bodyScope);
+    auto* funcSymbolPtr = funcSymbol.get();
+    scope->insertSymbol(std::move(funcSymbol));
+    specializedFunctions[mangledName] = funcSymbolPtr;
+    specializedFunctions[signatureKey] = funcSymbolPtr;
+    specializationEnvs[funcSymbolPtr] = currentGenericTypes;
+    syntheticConstructorBodies.emplace_back(funcSymbolPtr, astNode);
+    selfSymbol = savedSelfSym;
+    return funcSymbolPtr;
+  }
+
+  lesma::Value* existingFunc = scope->lookupFunction("new", paramTypes);
+  if (existingFunc == nullptr) {
+    auto normalizeFunctionParamType = [](lesma::Type* type) -> lesma::Type* {
+      if (type != nullptr && type->is(BaseType::TY_PTR) && type->getElementType() != nullptr &&
+          type->getElementType()->is(BaseType::TY_CLASS)) {
+        return type->getElementType();
+      }
+      return type;
+    };
+    for (auto* candidate : scope->getSymbols()) {
+      if (candidate == nullptr || candidate->getName() != "new" ||
+          !candidate->getType()->is(BaseType::TY_FUNCTION) ||
+          candidate->getLlvmValue() != nullptr) {
+        continue;
+      }
+      auto candidateFields = candidate->getType()->getFields();
+      if (candidateFields.size() != paramTypes.size()) {
+        continue;
+      }
+      bool compatible = true;
+      for (size_t i = 0; i < candidateFields.size(); ++i) {
+        lesma::Type* formalType = normalizeFunctionParamType(candidateFields[i]->type);
+        lesma::Type* actualType = normalizeFunctionParamType(paramTypes[i]);
+        if ((formalType == nullptr) != (actualType == nullptr) ||
+            (formalType != nullptr && !formalType->isEqual(actualType))) {
+          compatible = false;
+          break;
+        }
+      }
+      if (compatible) {
+        existingFunc = candidate;
+        break;
+      }
+    }
+  }
+
+  if (existingFunc == nullptr) {
+    throw CodegenError(astNode->getSpan(),
+                       "Missing typechecked symbol for synthesized constructor");
+  }
+  existingFunc->setType(loweredTypePtr);
+  existingFunc->setLlvmValue(f);
+  existingFunc->setCategory(ValueCategory::CALLABLE_SYMBOL);
+  existingFunc->setMangledName(mangledName);
+  specializedFunctions[mangledName] = existingFunc;
+  specializedFunctions[signatureKey] = existingFunc;
+  syntheticConstructorBodies.emplace_back(existingFunc, astNode);
+  selfSymbol = savedSelfSym;
+  return existingFunc;
+}
+
+auto Codegen::defineSynthesizedClassConstructor(lesma::Value* ctorSym, const Class* astNode)
+    -> void {
+  SymbolTable* savedScope = scope;
+  scope = ctorSym->getBodyScope();
+  if (scope == nullptr) {
+    throw CodegenError(astNode->getSpan(), "Synthesized constructor has no body scope");
+  }
+  currentFunction = ctorSym;
+  deferStack.emplace();
+
+  if (ctorSym->getLlvmValue() == nullptr) {
+    throw CodegenError(astNode->getSpan(), "Synthesized constructor has no LLVM function");
+  }
+  auto* f = llvm::cast<Function>(ctorSym->getLlvmValue());
+
+  BasicBlock* entry = BasicBlock::Create(theModule->getContext(), "entry", f);
+  builder->SetInsertPoint(entry);
+  setDebugLoc(astNode->getSpan());
+
+  llvm::DIFile* declFile = moduleDiFile;
+  unsigned declLine = 1U;
+  if (astNode->getNameSpan().isValid() && astNode->getNameSpan().Start.isValid()) {
+    unsigned const bid = sourceManager->FindBufferContainingLoc(astNode->getNameSpan().Start);
+    if (bid != 0U) {
+      declFile = getOrCreateDiFileForBuffer(bid);
+    }
+    declLine = sourceManager->getLineAndColumn(astNode->getNameSpan().Start).first;
+  }
+
+  auto lookupInCurrentScope = [this](const std::string& name) -> Value* {
+    for (auto* symbol : scope->getSymbols()) {
+      if (symbol->getName() == name) {
+        return symbol;
+      }
+    }
+    return nullptr;
+  };
+
+  int fieldIndex = 0;
+  for (const auto& field : ctorSym->getType()->getFields()) {
+    auto* param = f->getArg(fieldIndex);
+    std::string const paramName = field->name;
+
+    param->setName(paramName);
+
+    llvm::Value* ptr = builder->CreateAlloca(param->getType(), nullptr, param->getName() + "_ptr");
+    llvm::Instruction* storeParam = builder->CreateStore(param, ptr);
+    emitParameterDebugDeclare(f, ptr, paramName, static_cast<unsigned>(fieldIndex + 1), declFile,
+                              declLine, param->getType(), storeParam);
+
+    if (auto* existingParam = lookupInCurrentScope(paramName);
+        existingParam != nullptr && existingParam->getLlvmValue() == nullptr) {
+      existingParam->setLlvmValue(ptr);
+      existingParam->setCategory(ValueCategory::ADDRESSABLE_STORAGE);
+    } else {
+      auto symbol = std::make_unique<Value>(field->name, field->type, ptr);
+      symbol->setCategory(ValueCategory::ADDRESSABLE_STORAGE);
+      scope->insertSymbol(std::move(symbol));
+    }
+
+    fieldIndex++;
+  }
+
+  Type* classType = ctorSym->getType()->getFields()[0]->type->getElementType();
+  getOrCreateLlvmType(classType);
+  auto* structTy = llvm::cast<llvm::StructType>(getOrCreateLlvmType(classType));
+  Value* selfSym = scope->lookup("self");
+  if (selfSym == nullptr) {
+    throw CodegenError(astNode->getSpan(), "Synthesized constructor missing self parameter");
+  }
+  llvm::Value* selfAlloca = selfSym->getLlvmValue();
+  llvm::Value* selfPtr = builder->CreateLoad(builder->getPtrTy(), selfAlloca, "self.ptr");
+
+  std::vector<Field*> const layoutFields = classType->getFields();
+  size_t layoutIdx = 0;
+  for (VarDecl* v : astNode->getFields()) {
+    if (layoutIdx >= layoutFields.size()) {
+      break;
+    }
+    Type* storageTy = layoutFields[layoutIdx]->type;
+    llvm::Value* slotPtr =
+        builder->CreateStructGEP(structTy, selfPtr, static_cast<unsigned>(layoutIdx),
+                                 v->getIdentifier()->getValue() + ".ptr");
+    layoutIdx++;
+    if (v->getValue() != nullptr) {
+      v->getValue()->accept(*this);
+      auto rhs = cast(v->getValue()->getSpan(), result.get(), storageTy);
+      builder->CreateStore(rhs->getLlvmValue(), slotPtr);
+    } else {
+      Value* ps = scope->lookup(v->getIdentifier()->getValue());
+      if (ps == nullptr) {
+        throw CodegenError(astNode->getSpan(), "Missing parameter for field {}",
+                           v->getIdentifier()->getValue());
+      }
+      getOrCreateLlvmType(storageTy);
+      llvm::Value* loaded =
+          builder->CreateLoad(storageTy->getLlvmType(), ps->getLlvmValue(),
+                              llvm::Twine(v->getIdentifier()->getValue()).concat(".arg"));
+      builder->CreateStore(loaded, slotPtr);
+    }
+  }
+
+  builder->CreateRetVoid();
+
+  auto instrs = deferStack.top();
+  deferStack.pop();
+
+  for (auto* inst : instrs) {
+    inst->accept(*this);
+  }
+
+  for (BasicBlock& bb : *f) {
+    Instruction* terminator = bb.getTerminator();
+    if (terminator != nullptr) {
+      continue;
+    }
+    builder->SetInsertPoint(&bb);
+    builder->CreateRetVoid();
+  }
+
+  isReturn = false;
+  std::string verifyOutput;
+  llvm::raw_string_ostream oss(verifyOutput);
+  if (llvm::verifyFunction(*f, &oss)) {
+    throw CodegenError(astNode->getSpan(), "Invalid synthesized constructor\n{}", verifyOutput);
+  }
+
+  scope = savedScope;
+  currentFunction = nullptr;
+  builder->SetInsertPoint(&topLevelFunc->back());
+  builder->SetCurrentDebugLocation(llvm::DebugLoc());
+}
+
 auto Codegen::visit(const FuncDecl* node) -> void {
   setDebugLoc(node->getSpan());
   if (!node->getGenericParams().empty()) {
@@ -924,14 +1223,6 @@ auto Codegen::visit(const FuncDecl* node) -> void {
 
   auto mangledName =
       getMangledName(node->getSpan(), node->getName(), paramTypes, selfSymbol != nullptr);
-  auto makeCallableSignatureKey = [](const std::string& name,
-                                     const std::vector<lesma::Type*>& types) -> std::string {
-    std::string key = name;
-    for (auto* type : types) {
-      key += "|" + (type != nullptr ? type->toString() : "?");
-    }
-    return key;
-  };
   std::string signatureKey = makeCallableSignatureKey(node->getName(), paramTypes);
   if (!currentGenericTypes.empty()) {
     std::vector<std::string> bindingOrder;
@@ -1379,7 +1670,8 @@ auto Codegen::visit(const Class* node) -> void {
   }
 
   if (!hasConstructor) {
-    throw CodegenError(node->getSpan(), "Class {} has no constructors", node->getIdentifier());
+    lesma::Value* synthCtor = declareSynthesizedClassConstructor(node, type, existingStruct);
+    existingStruct->setConstructor(synthCtor);
   }
 
   selfSymbol = nullptr;
@@ -2458,14 +2750,14 @@ auto Codegen::visit(const DictLiteral* node) -> void {
 
   auto* keysListStructTy = getOrCreateListStructType(keysBufferType);
   auto* valsListStructTy = getOrCreateListStructType(valsBufferType);
-  auto* keysHeader = emitMalloc(
-      builder->getInt64(
-          theModule->getDataLayout().getTypeAllocSize(keysListStructTy).getFixedValue()),
-      "dict.keys.header");
-  auto* valsHeader = emitMalloc(
-      builder->getInt64(
-          theModule->getDataLayout().getTypeAllocSize(valsListStructTy).getFixedValue()),
-      "dict.vals.header");
+  auto* keysHeader =
+      emitMalloc(builder->getInt64(
+                     theModule->getDataLayout().getTypeAllocSize(keysListStructTy).getFixedValue()),
+                 "dict.keys.header");
+  auto* valsHeader =
+      emitMalloc(builder->getInt64(
+                     theModule->getDataLayout().getTypeAllocSize(valsListStructTy).getFixedValue()),
+                 "dict.vals.header");
 
   llvm::Value* keysDataPtr = llvm::ConstantPointerNull::get(builder->getPtrTy());
   llvm::Value* valsDataPtr = llvm::ConstantPointerNull::get(builder->getPtrTy());
@@ -2488,8 +2780,8 @@ auto Codegen::visit(const DictLiteral* node) -> void {
       setDebugLoc(node->getSpan());
       auto* keyPtr = builder->CreateGEP(keysElementLlvmType, keysDataPtr, builder->getInt64(i),
                                         "dict.key.elem.ptr");
-      builder->CreateStore(
-          getListStoredElementValue(keys[i]->getSpan(), result.get(), keyElemType), keyPtr);
+      builder->CreateStore(getListStoredElementValue(keys[i]->getSpan(), result.get(), keyElemType),
+                           keyPtr);
 
       values[i]->accept(*this);
       setDebugLoc(node->getSpan());
@@ -3020,14 +3312,6 @@ auto Codegen::callNamedFunction(llvm::SMRange span, const std::string& functionN
     -> std::unique_ptr<lesma::Value> {
   std::vector<lesma::Type*> localParamTypes = paramTypes;
   std::vector<llvm::Value*> localParamsLLVM = paramsLLVM;
-  auto makeCallableSignatureKey = [](const std::string& name,
-                                     const std::vector<lesma::Type*>& types) -> std::string {
-    std::string key = name;
-    for (auto* type : types) {
-      key += "|" + (type != nullptr ? type->toString() : "?");
-    }
-    return key;
-  };
   for (auto* explicitTypeArg : explicitTypeArgs) {
     if (explicitTypeArg != nullptr) {
       getOrCreateLlvmType(explicitTypeArg);
@@ -3428,19 +3712,19 @@ auto Codegen::callMethodByName(llvm::SMRange span, lesma::Value* receiver,
   auto* savedSelfSymbol = selfSymbol;
   std::vector<lesma::Type*> paramTypes;
   std::vector<llvm::Value*> paramsLLVM;
-  // Typechecker Type* for a generic instance may differ from specializeClass's Type*; method symbols
-  // use the latter. Same LLVM pointer, canonical class type for signature lookup.
+  // Typechecker Type* for a generic instance may differ from specializeClass's Type*; method
+  // symbols use the latter. Same LLVM pointer, canonical class type for signature lookup.
   lesma::Value* receiverForCall = receiver;
   std::unique_ptr<lesma::Value> receiverAdapter;
-  if (receiver->getType()->is(BaseType::TY_PTR) && receiver->getType()->getElementType() != nullptr) {
+  if (receiver->getType()->is(BaseType::TY_PTR) &&
+      receiver->getType()->getElementType() != nullptr) {
     lesma::Type* elemTy = receiver->getType()->getElementType();
     if (auto it = specializedClassSymbolsByType.find(elemTy);
         it != specializedClassSymbolsByType.end()) {
       lesma::Type* specClassTy = it->second->getType();
-      lesma::Type* ptrToSpec = cacheType(
-          std::make_unique<Type>(BaseType::TY_PTR, builder->getPtrTy(), specClassTy));
-      receiverAdapter =
-          std::make_unique<lesma::Value>("", ptrToSpec, receiver->getLlvmValue());
+      lesma::Type* ptrToSpec =
+          cacheType(std::make_unique<Type>(BaseType::TY_PTR, builder->getPtrTy(), specClassTy));
+      receiverAdapter = std::make_unique<lesma::Value>("", ptrToSpec, receiver->getLlvmValue());
       receiverForCall = receiverAdapter.get();
     }
   }

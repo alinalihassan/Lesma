@@ -325,6 +325,27 @@ auto Codegen::specializeClass(const Class* node,
       }
     }
   }
+  if (!constructorEnvResolved && needsConstructorInference && constructorDecl == nullptr) {
+    std::vector<VarDecl*> requiredFields;
+    for (VarDecl* fd : node->getFields()) {
+      if (fd->getValue() == nullptr) {
+        requiredFields.push_back(fd);
+      }
+    }
+    if (constructorArgTypes.size() != requiredFields.size()) {
+      throw CodegenError(node->getSpan(),
+                         "Generic class {}: expected {} constructor argument(s) for synthesized "
+                         "constructor, got {}",
+                         node->getIdentifier(), requiredFields.size(), constructorArgTypes.size());
+    }
+    for (size_t i = 0; i < requiredFields.size(); ++i) {
+      TypeExpr* declType = requiredFields[i]->getType();
+      if (declType != nullptr) {
+        bindGenericsFromTypePair(declType, constructorArgTypes[i], genericNameSet, env);
+      }
+    }
+    constructorEnvResolved = true;
+  }
 
   for (const auto& gn : genericNames) {
     if (!env.contains(gn)) {
@@ -439,8 +460,10 @@ auto Codegen::specializeClass(const Class* node,
   selfSymbol = nullptr;
 
   if (!hasConstructor) {
-    throw CodegenError(node->getSpan(), "Generic class {} has no constructors",
-                       node->getIdentifier());
+    selfSymbol = structSymbolPtr;
+    lesma::Value* synthCtor = declareSynthesizedClassConstructor(node, typePtr, structSymbolPtr);
+    structSymbolPtr->setConstructor(synthCtor);
+    selfSymbol = nullptr;
   }
   selfSymbol = savedSelfSymbol;
   currentGenericTypes = std::move(saved);

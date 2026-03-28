@@ -723,9 +723,13 @@ auto Parser::parseVarDecl() -> std::unique_ptr<Statement> {
   }
 
   if (!expr && !isMutable) {
-    throw ParserError(
-        llvm::SMRange{startTok->getStart(), type != nullptr ? type->getEnd() : nameEnd->getEnd()},
-        "Cannot declare an immutable variable without an initial expression");
+    // In a class, `let x: T` without `=` is allowed: initialized by `new` (explicit or
+    // synthesized from required fields).
+    if (!(inClass && type != nullptr)) {
+      throw ParserError(
+          llvm::SMRange{startTok->getStart(), type != nullptr ? type->getEnd() : nameEnd->getEnd()},
+          "Cannot declare an immutable variable without an initial expression");
+    }
   }
 
   consumeNewline();
@@ -1287,7 +1291,8 @@ auto Parser::parseClass() -> std::unique_ptr<Statement> {
           fields.push_back(std::unique_ptr<VarDecl>(varDecl));
         }
       } else if (checkAny<TokenType::DEF>()) {
-        // Class methods reuse parseFunctionDeclaration; do not inherit `export` from `export class …`.
+        // Class methods reuse parseFunctionDeclaration; do not inherit `export` from `export class
+        // …`.
         bool const savedExported = isExported;
         isExported = false;
         auto stmt = parseFunctionDeclaration();

@@ -2496,6 +2496,79 @@ auto Typechecker::visit(const Enum* node) -> void {
   node->setResolvedSymbol(scope->lookupStruct(node->getIdentifier()));
 }
 
+void Typechecker::registerSynthesizedClassConstructor(const Class* node, Type* classTypePtr,
+                                                      SymbolTable* outerScope) {
+  Type* selfPtrType = cacheType(std::make_unique<Type>(BaseType::TY_PTR, nullptr, classTypePtr));
+  std::vector<std::unique_ptr<Field>> paramFields;
+  paramFields.push_back(std::make_unique<Field>("self", selfPtrType));
+  std::vector<Type*> lookupTypes = {selfPtrType};
+  std::vector<Field*> const& typeFields = classTypePtr->getFields();
+  size_t typeIdx = 0;
+  for (VarDecl* field : node->getFields()) {
+    if (typeIdx >= typeFields.size()) {
+      break;
+    }
+    Type* storageTy = typeFields[typeIdx]->type;
+    typeIdx++;
+    if (field->getValue() != nullptr) {
+      continue;
+    }
+    Type* paramType = storageTy;
+    if (paramType != nullptr && paramType->is(BaseType::TY_CLASS)) {
+      paramType = cacheType(std::make_unique<Type>(BaseType::TY_PTR, nullptr, paramType));
+    }
+    if (paramType == nullptr) {
+      throw TypeCheckError(field->getSpan(),
+                           "Synthesized constructor cannot infer type for field '{}'",
+                           field->getIdentifier()->getValue());
+    }
+    lookupTypes.push_back(paramType);
+    paramFields.push_back(std::make_unique<Field>(field->getIdentifier()->getValue(), paramType));
+  }
+  Type* voidRet = cacheType(std::make_unique<Type>(BaseType::TY_VOID));
+  auto funcType = std::make_unique<Type>(BaseType::TY_FUNCTION, nullptr, std::move(paramFields));
+  funcType->setReturnType(voidRet);
+  Type* funcTypePtr = cacheType(std::move(funcType));
+
+  if (outerScope->lookupFunction("new", lookupTypes) != nullptr) {
+    throw TypeCheckError(node->getNameSpan(), "Constructor 'new' already registered for class {}",
+                         node->getIdentifier());
+  }
+  auto ctorSym = std::make_unique<Value>("new", funcTypePtr);
+  ctorSym->setCategory(ValueCategory::CALLABLE_SYMBOL);
+  ctorSym->setDeclarationKind(ValueDeclarationKind::METHOD);
+  ctorSym->setExported(node->isExported());
+  ctorSym->setDeclarationSpan(node->getNameSpan());
+  ctorSym->setDeclarationFilePath(mainFilePath);
+  outerScope->insertSymbol(std::move(ctorSym));
+  Value* ctorFunc = outerScope->lookupFunction("new", lookupTypes);
+  if (ctorFunc == nullptr) {
+    throw TypeCheckError(node->getNameSpan(), "Internal error registering synthesized constructor");
+  }
+  SymbolTable* body = outerScope->createChildBlock("function");
+  ctorFunc->setBodyScope(body);
+  auto selfParam = std::make_unique<Value>("self", selfPtrType);
+  selfParam->setCategory(ValueCategory::ADDRESSABLE_STORAGE);
+  selfParam->setDeclarationKind(ValueDeclarationKind::PARAMETER);
+  selfParam->setDeclarationSpan(node->getNameSpan());
+  selfParam->setDeclarationFilePath(mainFilePath);
+  body->insertSymbol(std::move(selfParam));
+  unsigned reqIdx = 0U;
+  for (VarDecl* field : node->getFields()) {
+    if (field->getValue() != nullptr) {
+      continue;
+    }
+    Type* paramType = lookupTypes[1U + reqIdx];
+    auto ps = std::make_unique<Value>(field->getIdentifier()->getValue(), paramType);
+    ps->setCategory(ValueCategory::ADDRESSABLE_STORAGE);
+    ps->setDeclarationKind(ValueDeclarationKind::PARAMETER);
+    ps->setDeclarationSpan(field->getIdentifier()->getSpan());
+    ps->setDeclarationFilePath(mainFilePath);
+    body->insertSymbol(std::move(ps));
+    reqIdx++;
+  }
+}
+
 auto Typechecker::visit(const Class* node) -> void {
   auto savedGenerics = currentGenericTypes;
   SymbolTable* outerScope = scope;
@@ -2604,6 +2677,19 @@ auto Typechecker::visit(const Class* node) -> void {
   }
   currentClassExported = savedClassExportedFlag;
   currentMethodInsertScope = savedMethodInsertScope;
+
+  if (declarationPass) {
+    bool hasExplicitNew = false;
+    for (FuncDecl* m : node->getMethods()) {
+      if (m->getName() == "new") {
+        hasExplicitNew = true;
+        break;
+      }
+    }
+    if (!hasExplicitNew) {
+      registerSynthesizedClassConstructor(node, classTypePtr, outerScope);
+    }
+  }
 
   if (!declarationPass) {
     classesPendingUnusedMemberDiagnosis.push_back(node);
@@ -4496,6 +4582,9 @@ auto Typechecker::visit(const TraitDecl* node) -> void {
   traitMethodSignatures[node->getIdentifier()].clear();
   Type* traitTy = scope->lookupType(node->getIdentifier());
   for (FuncDecl* req : node->getRequirements()) {
+    if (req->getName() == "new") {
+      throw TypeCheckError(req->getNameSpan(), "Traits cannot declare constructor 'new'");
+    }
     if (traitTy != nullptr) {
       traitMethodSignatures[node->getIdentifier()][req->getName()].push_back(
           buildMethodFunctionType(req, traitTy));
