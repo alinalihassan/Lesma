@@ -12,6 +12,13 @@ auto findIndexInFields(Type* structType, const std::string& field) -> int {
   return -1;
 }
 
+auto classDataFieldStructIndex(Type* classTy, unsigned logicalIndex) -> unsigned {
+  if (classTy != nullptr && classTy->is(BaseType::TY_CLASS)) {
+    return logicalIndex + 1U;
+  }
+  return logicalIndex;
+}
+
 auto findTypeInFields(Type* structType, const std::string& field) -> Type* {
   for (const auto& i : structType->getFields()) {
     if (i->name == field) {

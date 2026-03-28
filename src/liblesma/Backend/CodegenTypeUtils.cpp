@@ -123,6 +123,20 @@ auto cast(llvm::SMRange span, Value* val, Type* type, llvm::IRBuilder<>* builder
     }
   }
 
+  if (type->is(BaseType::TY_PTR) && val->getType()->is(BaseType::TY_PTR)) {
+    Type* toElem = type->getElementType();
+    Type* fromElem = val->getType()->getElementType();
+    if (fromElem != nullptr && toElem != nullptr && fromElem->is(BaseType::TY_CLASS) &&
+        toElem->is(BaseType::TY_CLASS)) {
+      for (Type* t = fromElem; t != nullptr; t = t->getClassSuperclass()) {
+        if (t->isEqual(toElem)) {
+          return std::make_unique<Value>(
+              "", type, builder->CreateBitCast(val->getLlvmValue(), type->getLlvmType()));
+        }
+      }
+    }
+  }
+
   if (val->getType()->is(BaseType::TY_TUPLE) && type->is(BaseType::TY_TUPLE)) {
     std::vector<Field*> const fromFields = val->getType()->getFields();
     std::vector<Field*> const toFields = type->getFields();

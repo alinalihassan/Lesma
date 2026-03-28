@@ -124,7 +124,8 @@ auto typeContainsGeneric(Type* type) -> bool {
 }
 
 auto matchGenericParameter(Type* formalTy, Type* argTy,
-                           std::unordered_map<std::string, Type*>& genericBindings) -> bool {
+                           std::unordered_map<std::string, Type*>& genericBindings,
+                           FunctionLookupKind lookupKind) -> bool {
   if (formalTy == nullptr || argTy == nullptr) {
     return formalTy == argTy;
   }
@@ -148,6 +149,25 @@ auto matchGenericParameter(Type* formalTy, Type* argTy,
     }
     return false;
   }
+  if (formalTy->is(BaseType::TY_PTR) && argTy->is(BaseType::TY_PTR) &&
+      formalTy->getElementType() != nullptr && argTy->getElementType() != nullptr &&
+      formalTy->getElementType()->is(BaseType::TY_CLASS) &&
+      argTy->getElementType()->is(BaseType::TY_CLASS)) {
+    Type* fromCls = argTy->getElementType();
+    Type* toCls = formalTy->getElementType();
+    if (lookupKind == FunctionLookupKind::OverloadIdentity) {
+      return fromCls->isEqual(toCls);
+    }
+    if (fromCls->isEqual(toCls)) {
+      return true;
+    }
+    for (Type* t = fromCls; t != nullptr; t = t->getClassSuperclass()) {
+      if (t->isEqual(toCls)) {
+        return true;
+      }
+    }
+    return false;
+  }
   if (formalTy->is(BaseType::TY_GENERIC)) {
     std::string const& genericName = formalTy->getGenericName();
     auto bindingIt = genericBindings.find(genericName);
@@ -165,7 +185,7 @@ auto matchGenericParameter(Type* formalTy, Type* argTy,
   }
   if (formalTy->isOneOf({BaseType::TY_PTR, BaseType::TY_ARRAY})) {
     return matchGenericParameter(formalTy->getElementType(), argTy->getElementType(),
-                                 genericBindings);
+                                 genericBindings, lookupKind);
   }
   if (formalTy->is(BaseType::TY_FUNCTION)) {
     if (!formalTy->functionGenericSignatureEqual(argTy)) {
@@ -177,12 +197,13 @@ auto matchGenericParameter(Type* formalTy, Type* argTy,
       return false;
     }
     for (size_t i = 0; i < formalFields.size(); ++i) {
-      if (!matchGenericParameter(formalFields[i]->type, argFields[i]->type, genericBindings)) {
+      if (!matchGenericParameter(formalFields[i]->type, argFields[i]->type, genericBindings,
+                                 lookupKind)) {
         return false;
       }
     }
-    return matchGenericParameter(formalTy->getReturnType(), argTy->getReturnType(),
-                                 genericBindings);
+    return matchGenericParameter(formalTy->getReturnType(), argTy->getReturnType(), genericBindings,
+                               lookupKind);
   }
   return formalTy->isEqual(argTy);
 }
@@ -211,7 +232,7 @@ auto selectBestFunctionTypeMatchImpl(const std::vector<Type*>& candidateFunction
           paramsMatch = false;
           break;
         }
-        if (!matchGenericParameter(formalTy, argTy, genericBindings)) {
+        if (!matchGenericParameter(formalTy, argTy, genericBindings, FunctionLookupKind::Value)) {
           paramsMatch = false;
           break;
         }
@@ -275,7 +296,7 @@ auto selectBestFunctionTypeMatchTailImpl(const std::vector<Type*>& candidateFunc
           paramsMatch = false;
           break;
         }
-        if (!matchGenericParameter(formalTy, argTy, genericBindings)) {
+        if (!matchGenericParameter(formalTy, argTy, genericBindings, FunctionLookupKind::Value)) {
           paramsMatch = false;
           break;
         }
@@ -324,8 +345,8 @@ auto selectBestFunctionTypeMatchTail(const std::vector<Type*>& candidateFunction
 
 } // namespace lesma
 
-auto SymbolTable::lookupFunction(const std::string& name, std::vector<lesma::Type*> paramTypes)
-    -> Value* {
+auto SymbolTable::lookupFunction(const std::string& name, std::vector<lesma::Type*> paramTypes,
+                                 FunctionLookupKind lookupKind) -> Value* {
   auto range = symbols.equal_range(name);
   Value* bestCandidate = nullptr;
   std::vector<int> bestRanks;
@@ -349,7 +370,7 @@ auto SymbolTable::lookupFunction(const std::string& name, std::vector<lesma::Typ
           paramsMatch = false;
           break; // argument must be concrete
         }
-        if (!matchGenericParameter(formalTy, argTy, genericBindings)) {
+        if (!matchGenericParameter(formalTy, argTy, genericBindings, lookupKind)) {
           paramsMatch = false;
           break;
         }
@@ -398,7 +419,7 @@ auto SymbolTable::lookupFunction(const std::string& name, std::vector<lesma::Typ
     return nullptr;
   }
 
-  return parent->lookupFunction(name, paramTypes);
+  return parent->lookupFunction(name, paramTypes, lookupKind);
 }
 
 /**

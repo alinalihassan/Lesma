@@ -5,6 +5,7 @@
 #include <memory>
 #include <optional>
 #include <sstream>
+#include <unordered_map>
 #include <unordered_set>
 #include <utility>
 #include <vector>
@@ -1045,6 +1046,22 @@ auto Typechecker::getDeclaredGenericParams(Type* type) const -> const std::vecto
   return key->getGenericParams();
 }
 
+auto Typechecker::lookupConstructorForAllocatedClass(SymbolTable* tab,
+                                                     const std::vector<Type*>& ctorParamTypes,
+                                                     Type* classType) -> Value* {
+  if (tab == nullptr) {
+    return nullptr;
+  }
+  if (classType != nullptr && getDeclaredGenericParams(classType).empty()) {
+    if (Value* exact = tab->lookupFunction("new", ctorParamTypes,
+                                           FunctionLookupKind::OverloadIdentity);
+        exact != nullptr) {
+      return exact;
+    }
+  }
+  return tab->lookupFunction("new", ctorParamTypes);
+}
+
 auto Typechecker::getOrCreateSpecializedClassType(Type* classTemplate,
                                                   const std::vector<std::string>& genericParamNames,
                                                   const std::unordered_map<std::string, Type*>& env)
@@ -1297,6 +1314,20 @@ auto Typechecker::isAssignableTo(Type* from, Type* to) -> bool {
   }
   if (from->isEqual(to)) {
     return true;
+  }
+  if (from->is(BaseType::TY_PTR) && from->getElementType() != nullptr &&
+      to->is(BaseType::TY_PTR) && to->getElementType() != nullptr &&
+      from->getElementType()->is(BaseType::TY_CLASS) && to->getElementType()->is(BaseType::TY_CLASS)) {
+    Type* fromCls = from->getElementType();
+    Type* toCls = to->getElementType();
+    if (fromCls->isEqual(toCls)) {
+      return true;
+    }
+    for (Type* t = fromCls; t != nullptr; t = t->getClassSuperclass()) {
+      if (t->isEqual(toCls)) {
+        return true;
+      }
+    }
   }
   if (from->is(BaseType::TY_PTR) && from->getElementType() != nullptr &&
       from->getElementType()->is(BaseType::TY_CLASS) && to->is(BaseType::TY_CLASS)) {
@@ -1890,7 +1921,7 @@ auto Typechecker::visit(const Compound* node) -> void {
 // unreachable_code; unused variable/parameter/import; shadowing (incl. import_shadows);
 // empty if/while/for-in body; trivial bool condition; lossy implicit conversion;
 // unused non-exported class field/method; unimplemented (before error).
-// Not implemented here: deprecated_use (needs @deprecated in the language); trailing_semicolon
+// Not implemented here: deprecated_use; trailing_semicolon
 // style.
 
 void Typechecker::emitWarning(llvm::SMRange span, std::string message) {
@@ -2496,41 +2527,86 @@ auto Typechecker::visit(const Enum* node) -> void {
   node->setResolvedSymbol(scope->lookupStruct(node->getIdentifier()));
 }
 
+namespace {
+[[nodiscard]] auto cloneFieldForInheritance(Field* source) -> std::unique_ptr<Field> {
+  std::unique_ptr<Field> nf;
+  if (source->defaultValue != nullptr) {
+    nf = std::make_unique<Field>(source->name, source->type,
+                                 std::make_unique<Value>(*source->defaultValue));
+  } else {
+    nf = std::make_unique<Field>(source->name, source->type);
+  }
+  nf->setDeclarationSpan(source->getDeclarationSpan());
+  nf->setDeclarationFilePath(source->getDeclarationFilePath());
+  return nf;
+}
+
+[[nodiscard]] auto findVarDeclWithName(const std::vector<VarDecl*>& fields, const std::string& name)
+    -> VarDecl* {
+  for (VarDecl* v : fields) {
+    if (v != nullptr && v->getIdentifier()->getValue() == name) {
+      return v;
+    }
+  }
+  return nullptr;
+}
+
+auto mergeClassVtableOrder(const Class* node, Type* classTy) -> void {
+  std::vector<std::string> order;
+  std::unordered_map<std::string, size_t> slotIndex;
+  if (Type* sup = classTy->getClassSuperclass()) {
+    order = sup->getClassVtableMethodOrder();
+    for (size_t i = 0; i < order.size(); ++i) {
+      slotIndex[order[i]] = i;
+    }
+  }
+  for (FuncDecl* m : node->getMethods()) {
+    if (m->getName() == "new") {
+      continue;
+    }
+    if (slotIndex.count(m->getName()) != 0U) {
+      continue;
+    }
+    slotIndex[m->getName()] = order.size();
+    order.push_back(m->getName());
+  }
+  classTy->setClassVtableMethodOrder(std::move(order));
+}
+} // namespace
+
 void Typechecker::registerSynthesizedClassConstructor(const Class* node, Type* classTypePtr,
                                                       SymbolTable* outerScope) {
   Type* selfPtrType = cacheType(std::make_unique<Type>(BaseType::TY_PTR, nullptr, classTypePtr));
   std::vector<std::unique_ptr<Field>> paramFields;
   paramFields.push_back(std::make_unique<Field>("self", selfPtrType));
   std::vector<Type*> lookupTypes = {selfPtrType};
-  std::vector<Field*> const& typeFields = classTypePtr->getFields();
-  size_t typeIdx = 0;
-  for (VarDecl* field : node->getFields()) {
-    if (typeIdx >= typeFields.size()) {
-      break;
-    }
-    Type* storageTy = typeFields[typeIdx]->type;
-    typeIdx++;
-    if (field->getValue() != nullptr) {
+  for (Field* tf : classTypePtr->getFields()) {
+    if (tf->defaultValue != nullptr) {
       continue;
     }
+    if (VarDecl* vd = findVarDeclWithName(node->getFields(), tf->name);
+        vd != nullptr && vd->getValue() != nullptr) {
+      continue;
+    }
+    Type* storageTy = tf->type;
     Type* paramType = storageTy;
     if (paramType != nullptr && paramType->is(BaseType::TY_CLASS)) {
       paramType = cacheType(std::make_unique<Type>(BaseType::TY_PTR, nullptr, paramType));
     }
     if (paramType == nullptr) {
-      throw TypeCheckError(field->getSpan(),
-                           "Synthesized constructor cannot infer type for field '{}'",
-                           field->getIdentifier()->getValue());
+      throw TypeCheckError(node->getNameSpan(),
+                           "Synthesized constructor cannot infer type for field '{}'", tf->name);
     }
     lookupTypes.push_back(paramType);
-    paramFields.push_back(std::make_unique<Field>(field->getIdentifier()->getValue(), paramType));
+    paramFields.push_back(std::make_unique<Field>(tf->name, paramType));
   }
   Type* voidRet = cacheType(std::make_unique<Type>(BaseType::TY_VOID));
   auto funcType = std::make_unique<Type>(BaseType::TY_FUNCTION, nullptr, std::move(paramFields));
   funcType->setReturnType(voidRet);
   Type* funcTypePtr = cacheType(std::move(funcType));
 
-  if (outerScope->lookupFunction("new", lookupTypes) != nullptr) {
+  if (outerScope->lookupFunction("new", lookupTypes, FunctionLookupKind::OverloadIdentity) !=
+      nullptr) {
     throw TypeCheckError(node->getNameSpan(), "Constructor 'new' already registered for class {}",
                          node->getIdentifier());
   }
@@ -2541,7 +2617,8 @@ void Typechecker::registerSynthesizedClassConstructor(const Class* node, Type* c
   ctorSym->setDeclarationSpan(node->getNameSpan());
   ctorSym->setDeclarationFilePath(mainFilePath);
   outerScope->insertSymbol(std::move(ctorSym));
-  Value* ctorFunc = outerScope->lookupFunction("new", lookupTypes);
+  Value* ctorFunc =
+      outerScope->lookupFunction("new", lookupTypes, FunctionLookupKind::OverloadIdentity);
   if (ctorFunc == nullptr) {
     throw TypeCheckError(node->getNameSpan(), "Internal error registering synthesized constructor");
   }
@@ -2553,19 +2630,14 @@ void Typechecker::registerSynthesizedClassConstructor(const Class* node, Type* c
   selfParam->setDeclarationSpan(node->getNameSpan());
   selfParam->setDeclarationFilePath(mainFilePath);
   body->insertSymbol(std::move(selfParam));
-  unsigned reqIdx = 0U;
-  for (VarDecl* field : node->getFields()) {
-    if (field->getValue() != nullptr) {
-      continue;
-    }
-    Type* paramType = lookupTypes[1U + reqIdx];
-    auto ps = std::make_unique<Value>(field->getIdentifier()->getValue(), paramType);
+  for (size_t i = 1; i < lookupTypes.size(); ++i) {
+    std::string const pname = funcTypePtr->getFields()[i]->name;
+    auto ps = std::make_unique<Value>(pname, lookupTypes[i]);
     ps->setCategory(ValueCategory::ADDRESSABLE_STORAGE);
     ps->setDeclarationKind(ValueDeclarationKind::PARAMETER);
-    ps->setDeclarationSpan(field->getIdentifier()->getSpan());
+    ps->setDeclarationSpan(node->getNameSpan());
     ps->setDeclarationFilePath(mainFilePath);
     body->insertSymbol(std::move(ps));
-    reqIdx++;
   }
 }
 
@@ -2607,10 +2679,44 @@ auto Typechecker::visit(const Class* node) -> void {
     outerScope->insertSymbol(std::move(classSymbol));
     node->setResolvedSymbol(outerScope->lookupStruct(node->getIdentifier()));
 
+    if (node->getBaseType() != nullptr) {
+      if (!node->getGenericParams().empty()) {
+        throw TypeCheckError(node->getBaseTypeSpan(),
+                             "Generic class inheritance is not supported yet");
+      }
+      node->getBaseType()->accept(*this);
+      Type* superType = result->getType();
+      if (superType == nullptr || !superType->is(BaseType::TY_CLASS)) {
+        throw TypeCheckError(node->getBaseTypeSpan(), "Superclass must be a class type");
+      }
+      std::unordered_set<Type*> seen;
+      for (Type* t = superType; t != nullptr; t = t->getClassSuperclass()) {
+        if (!seen.insert(t).second) {
+          throw TypeCheckError(node->getBaseTypeSpan(), "Cyclic inheritance in superclass chain");
+        }
+        if (t->isEqual(classTypePtr)) {
+          throw TypeCheckError(node->getBaseTypeSpan(), "Cyclic inheritance");
+        }
+      }
+      classTypePtr->setClassSuperclass(superType);
+      superType->setClassHasDerivedClass(true);
+      for (Field* bf : superType->getFields()) {
+        classTypePtr->addField(cloneFieldForInheritance(bf));
+      }
+    }
+
     classTemplateBeingDeclared = classTypePtr;
     classFieldCountExpected = node->getFields().size();
 
     for (VarDecl* field : node->getFields()) {
+      std::string const fname = field->getIdentifier()->getValue();
+      for (Field* existing : classTypePtr->getFields()) {
+        if (existing->name == fname) {
+          throw TypeCheckError(
+              field->getSpan(),
+              "Field '{}' conflicts with a superclass field or duplicate declaration", fname);
+        }
+      }
       Type* fieldType = nullptr;
       if (field->getType() != nullptr) {
         field->getType()->accept(*this);
@@ -2648,6 +2754,7 @@ auto Typechecker::visit(const Class* node) -> void {
       classTypePtr->addField(std::move(fieldEntry));
     }
 
+    mergeClassVtableOrder(node, classTypePtr);
     finalizeSpecializedTypesForTemplate(classTypePtr);
     classTemplateBeingDeclared = nullptr;
     classFieldCountExpected = 0;
@@ -2685,6 +2792,11 @@ auto Typechecker::visit(const Class* node) -> void {
         hasExplicitNew = true;
         break;
       }
+    }
+    if (classTypePtr->getClassSuperclass() != nullptr && !hasExplicitNew) {
+      throw TypeCheckError(node->getNameSpan(),
+                           "Class with a superclass must define `def new` (call super.new to "
+                           "initialize the base)");
     }
     if (!hasExplicitNew) {
       registerSynthesizedClassConstructor(node, classTypePtr, outerScope);
@@ -2780,7 +2892,8 @@ auto Typechecker::visit(const FuncDecl* node) -> void {
   }
   SymbolTable* insertScope =
       currentMethodInsertScope != nullptr ? currentMethodInsertScope : scope->getParent();
-  Value* funcSymbol = insertScope->lookupFunction(node->getName(), paramTypes);
+  Value* funcSymbol =
+      insertScope->lookupFunction(node->getName(), paramTypes, FunctionLookupKind::OverloadIdentity);
   bool const effectiveFuncExported =
       currentClassType != nullptr ? currentClassExported : node->isExported();
 
@@ -2795,7 +2908,8 @@ auto Typechecker::visit(const FuncDecl* node) -> void {
       declaredFunc->setDeclarationSpan(node->getNameSpan());
       declaredFunc->setDeclarationFilePath(mainFilePath);
       insertScope->insertSymbol(std::move(declaredFunc));
-      funcSymbol = insertScope->lookupFunction(node->getName(), paramTypes);
+      funcSymbol = insertScope->lookupFunction(node->getName(), paramTypes,
+                                               FunctionLookupKind::OverloadIdentity);
       // Set resolvedSymbol immediately after we get the symbol for this exact overload
       if (funcSymbol != nullptr) {
         node->setResolvedSymbol(funcSymbol);
@@ -3232,7 +3346,8 @@ auto Typechecker::visit(const FuncCall* node) -> void {
         Type* ptrToClass = cacheType(std::make_unique<Type>(BaseType::TY_PTR, nullptr, classType));
         std::vector<Type*> constructorParamTypes = {ptrToClass};
         constructorParamTypes.insert(constructorParamTypes.end(), argTypes.begin(), argTypes.end());
-        Value* constructor = scope->lookupFunction("new", constructorParamTypes);
+        Value* constructor =
+            lookupConstructorForAllocatedClass(scope, constructorParamTypes, classType);
         if (constructor == nullptr) {
           throw TypeCheckError(node->getSpan(),
                                "Constructor not found for {} with given type arguments",
@@ -3309,9 +3424,11 @@ auto Typechecker::visit(const FuncCall* node) -> void {
             std::vector<Type*> constructorParamTypes = {ptrToClass};
             constructorParamTypes.insert(constructorParamTypes.end(), argTypes.begin(),
                                          argTypes.end());
-            Value* constructor = importedScope != nullptr
-                                     ? importedScope->lookupFunction("new", constructorParamTypes)
-                                     : scope->lookupFunction("new", constructorParamTypes);
+            Value* constructor =
+                importedScope != nullptr
+                    ? lookupConstructorForAllocatedClass(importedScope, constructorParamTypes,
+                                                         classType)
+                    : lookupConstructorForAllocatedClass(scope, constructorParamTypes, classType);
             if (constructor == nullptr) {
               throw TypeCheckError(node->getSpan(),
                                    "Constructor not found for {} with given type arguments",
@@ -3344,9 +3461,11 @@ auto Typechecker::visit(const FuncCall* node) -> void {
           for (Type* t : argTypes) {
             constructorParamTypes.push_back(t);
           }
-          Value* constructor = importedScope != nullptr
-                                   ? importedScope->lookupFunction("new", constructorParamTypes)
-                                   : scope->lookupFunction("new", constructorParamTypes);
+          Value* constructor =
+              importedScope != nullptr
+                  ? lookupConstructorForAllocatedClass(importedScope, constructorParamTypes,
+                                                       classType)
+                  : lookupConstructorForAllocatedClass(scope, constructorParamTypes, classType);
           if (constructor != nullptr) {
             std::unordered_map<std::string, Type*> env;
             auto* funcType = constructor->getType();
@@ -3365,6 +3484,18 @@ auto Typechecker::visit(const FuncCall* node) -> void {
         // constructor lookup failed (e.g. str("x") with a string literal typed as str first), fall
         // through so the string-literal repair below can re-type literals as cstr and find new().
         if (node->getArguments().empty()) {
+          Type* ptrToClass =
+              cacheType(std::make_unique<Type>(BaseType::TY_PTR, nullptr, classType));
+          std::vector<Type*> ctorParamTypes = {ptrToClass};
+          Value* constructor =
+              importedScope != nullptr
+                  ? importedScope->lookupFunction("new", ctorParamTypes,
+                                                  FunctionLookupKind::OverloadIdentity)
+                  : scope->lookupFunction("new", ctorParamTypes,
+                                          FunctionLookupKind::OverloadIdentity);
+          if (constructor != nullptr) {
+            markValueRead(constructor);
+          }
           result = std::make_unique<Value>(classType);
           return;
         }
@@ -3426,13 +3557,13 @@ auto Typechecker::visit(const FuncCall* node) -> void {
             std::vector<Type*> constructorParamTypes = {ptrToClass};
             constructorParamTypes.insert(constructorParamTypes.end(), argTypes.begin(),
                                          argTypes.end());
-            callee = scope->lookupFunction("new", constructorParamTypes);
+            callee = lookupConstructorForAllocatedClass(scope, constructorParamTypes, classType);
             if (callee == nullptr) {
               auto ctorImportedIt = importedNameToSource.find(node->getName());
               if (ctorImportedIt != importedNameToSource.end()) {
                 SymbolTable* imp = getOrTypecheckImport(ctorImportedIt->second.first);
                 if (imp != nullptr) {
-                  callee = imp->lookupFunction("new", constructorParamTypes);
+                  callee = lookupConstructorForAllocatedClass(imp, constructorParamTypes, classType);
                   if (callee != nullptr) {
                     funcCallResolvedViaImportedNameBinding = true;
                   }
@@ -3597,6 +3728,114 @@ auto Typechecker::visit(const SubscriptOp* node) -> void {
 }
 
 auto Typechecker::visit(const DotOp* node) -> void {
+  if (dynamic_cast<const SuperExpr*>(node->getLeft()) != nullptr) {
+    if (currentClassType == nullptr || currentClassType->getClassSuperclass() == nullptr) {
+      throw TypeCheckError(node->getSpan(),
+                           "`super` is only valid in a method of a class that has a superclass");
+    }
+    auto* fc = dynamic_cast<FuncCall*>(node->getRight());
+    if (fc == nullptr) {
+      throw TypeCheckError(node->getSpan(), "`super` must be used in a call: super.method(...)");
+    }
+    Type* superTy = currentClassType->getClassSuperclass();
+    std::vector<Type*> argTypes;
+    for (Expression* arg : fc->getArguments()) {
+      arg->accept(*this);
+      Type* t = result->getType();
+      if (t != nullptr && t->is(BaseType::TY_CLASS)) {
+        t = cacheType(std::make_unique<Type>(BaseType::TY_PTR, nullptr, t));
+      }
+      argTypes.push_back(t);
+    }
+    Type* selfPtrSuper = cacheType(std::make_unique<Type>(BaseType::TY_PTR, nullptr, superTy));
+    // Calls are spelled super.method(self, ...); the receiver is the first explicit argument.
+    std::vector<Type*> methodArgTypes = argTypes;
+    if (methodArgTypes.empty()) {
+      methodArgTypes.push_back(selfPtrSuper);
+    }
+    SymbolTable* insertScope =
+        currentMethodInsertScope != nullptr ? currentMethodInsertScope : scope->getParent();
+    if (insertScope == nullptr) {
+      insertScope = scope;
+    }
+    Value* method = insertScope->lookupFunction(fc->getName(), methodArgTypes);
+    if (method == nullptr) {
+      for (auto& [_, cachedModule] : importedModuleCache) {
+        if (cachedModule == nullptr || cachedModule->rootScope == nullptr) {
+          continue;
+        }
+        method = cachedModule->rootScope->lookupFunction(fc->getName(), methodArgTypes);
+        if (method != nullptr) {
+          break;
+        }
+      }
+    }
+    if (method == nullptr) {
+      throw TypeCheckError(node->getSpan(), "Super method not found: {}", fc->getName());
+    }
+    fc->setResolvedSymbol(method);
+    fc->setSuperDispatch(true);
+    markValueRead(method);
+    auto* methodType = method->getType();
+    std::unordered_map<std::string, Type*> methodTypeEnv;
+    auto specializedIt = specializedTypeEnv.find(superTy);
+    if (specializedIt != specializedTypeEnv.end()) {
+      methodTypeEnv = specializedIt->second;
+    }
+    if (!fc->getExplicitTypeArgs().empty()) {
+      std::vector<Type*> explicitTypes;
+      explicitTypes.reserve(fc->getExplicitTypeArgs().size());
+      for (TypeExpr* texpr : fc->getExplicitTypeArgs()) {
+        explicitTypes.push_back(resolveType(texpr));
+      }
+      const std::vector<std::string>& genericParamNames = getDeclaredGenericParams(methodType);
+      if (explicitTypes.size() != genericParamNames.size()) {
+        throw TypeCheckError(node->getSpan(),
+                             "Explicit type argument count {} does not match "
+                             "generic parameter count {}",
+                             explicitTypes.size(), genericParamNames.size());
+      }
+      for (size_t i = 0; i < genericParamNames.size(); ++i) {
+        methodTypeEnv[genericParamNames[i]] = explicitTypes[i];
+      }
+      auto fields = methodType->getFields();
+      for (size_t i = 0; i < fields.size() && i < methodArgTypes.size(); ++i) {
+        Type* expected = substituteInType(fields[i]->type, methodTypeEnv);
+        if (expected != nullptr && !methodArgTypes[i]->isEqual(expected)) {
+          throw TypeCheckError(node->getSpan(),
+                               "Argument type {} does not match explicit "
+                               "parameter type {}",
+                               methodArgTypes[i]->toString(), expected->toString());
+        }
+      }
+    }
+    std::unordered_map<std::string, Type*> traitBoundSubs = methodTypeEnv;
+    if (fc->getExplicitTypeArgs().empty()) {
+      const auto& methodGenericNames = methodType->getGenericParams();
+      if (!methodGenericNames.empty()) {
+        std::unordered_map<std::string, Type*> extraInferred;
+        auto fields = methodType->getFields();
+        for (size_t i = 0; i < fields.size() && i < methodArgTypes.size(); ++i) {
+          inferGenericBindings(fields[i]->type, methodArgTypes[i], extraInferred, node->getSpan());
+        }
+        for (const auto& kv : extraInferred) {
+          if (std::find(methodGenericNames.begin(), methodGenericNames.end(), kv.first) ==
+              methodGenericNames.end()) {
+            continue;
+          }
+          traitBoundSubs[kv.first] = kv.second;
+        }
+      }
+    }
+    verifyGenericTraitBounds(method, traitBoundSubs, node->getSpan());
+    Type* retType = methodType->getReturnType();
+    if (!traitBoundSubs.empty() && retType != nullptr) {
+      retType = substituteInType(retType, traitBoundSubs);
+    }
+    result = std::make_unique<Value>(retType);
+    return;
+  }
+
   node->getLeft()->accept(*this);
   Type* base = result->getType();
   auto isStdListClassType = [this](Type* type) -> bool {
@@ -3702,7 +3941,8 @@ auto Typechecker::visit(const DotOp* node) -> void {
                   std::vector<Type*> constructorParamTypes = {ptrToClass};
                   constructorParamTypes.insert(constructorParamTypes.end(), argTypes.begin(),
                                                argTypes.end());
-                  Value* constructor = importScope->lookupFunction("new", constructorParamTypes);
+                  Value* constructor = lookupConstructorForAllocatedClass(
+                      importScope, constructorParamTypes, classType);
                   if (constructor == nullptr) {
                     throw TypeCheckError(node->getSpan(),
                                          "Constructor not found for {} with given type arguments",
@@ -3729,7 +3969,8 @@ auto Typechecker::visit(const DotOp* node) -> void {
                 std::vector<Type*> constructorParamTypes = {ptrToClass};
                 constructorParamTypes.insert(constructorParamTypes.end(), argTypes.begin(),
                                              argTypes.end());
-                Value* constructor = importScope->lookupFunction("new", constructorParamTypes);
+                Value* constructor = lookupConstructorForAllocatedClass(
+                    importScope, constructorParamTypes, classType);
                 if (constructor != nullptr) {
                   std::unordered_map<std::string, Type*> env;
                   auto* funcType = constructor->getType();
@@ -4413,6 +4654,10 @@ auto Typechecker::getStdStrType(llvm::SMRange span) -> Type* {
   return strTemplate;
 }
 
+auto Typechecker::visit(const SuperExpr* node) -> void {
+  throw TypeCheckError(node->getSpan(), "`super` must be used as super.method(...)");
+}
+
 auto Typechecker::visit(const Literal* node) -> void {
   switch (node->getType()) {
   case TokenType::INTEGER: {
@@ -4630,7 +4875,8 @@ auto Typechecker::registerTraitDefaultMethodSymbol(SymbolTable* insertScope, Typ
       lookupArgs.push_back(pt);
     }
   }
-  if (insertScope->lookupFunction(req->getName(), lookupArgs) != nullptr) {
+  if (insertScope->lookupFunction(req->getName(), lookupArgs, FunctionLookupKind::OverloadIdentity) !=
+      nullptr) {
     return;
   }
   Type* funcTypePtr = buildMethodFunctionType(req, classType);
@@ -4641,7 +4887,8 @@ auto Typechecker::registerTraitDefaultMethodSymbol(SymbolTable* insertScope, Typ
   declaredFunc->setDeclarationSpan(req->getNameSpan());
   declaredFunc->setDeclarationFilePath(mainFilePath);
   insertScope->insertSymbol(std::move(declaredFunc));
-  Value* funcSymbol = insertScope->lookupFunction(req->getName(), lookupArgs);
+  Value* funcSymbol =
+      insertScope->lookupFunction(req->getName(), lookupArgs, FunctionLookupKind::OverloadIdentity);
   if (funcSymbol == nullptr) {
     return;
   }
@@ -4746,7 +4993,8 @@ auto Typechecker::typecheckTraitDefaultBodies(const Class* classNode, Type* clas
       if (explicitSignatureKeys.contains(methodLookupSignatureKey(req->getName(), lookupArgs))) {
         continue;
       }
-      Value* funcSym = methodInsertScope->lookupFunction(req->getName(), lookupArgs);
+      Value* funcSym = methodInsertScope->lookupFunction(req->getName(), lookupArgs,
+                                                         FunctionLookupKind::OverloadIdentity);
       if (funcSym == nullptr || funcSym->getBodyScope() == nullptr) {
         continue;
       }
@@ -4801,10 +5049,12 @@ auto Typechecker::checkTraitImplementation(const Class* classNode, Type* classTy
           lookupArgs.push_back(pt);
         }
       }
-      Value* methodSym = methodInsertScope->lookupFunction(req->getName(), lookupArgs);
+      Value* methodSym = methodInsertScope->lookupFunction(req->getName(), lookupArgs,
+                                                           FunctionLookupKind::OverloadIdentity);
       if (methodSym == nullptr && req->getBody() != nullptr) {
         registerTraitDefaultMethodSymbol(methodInsertScope, classType, req);
-        methodSym = methodInsertScope->lookupFunction(req->getName(), lookupArgs);
+        methodSym = methodInsertScope->lookupFunction(req->getName(), lookupArgs,
+                                                      FunctionLookupKind::OverloadIdentity);
       }
       if (methodSym == nullptr) {
         throw TypeCheckError(classNode->getNameSpan(),

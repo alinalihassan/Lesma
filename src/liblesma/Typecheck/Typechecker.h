@@ -140,6 +140,11 @@ class Typechecker final : public ASTVisitor {
   auto getOrCreateSpecializedClassType(Type* classTemplate,
                                        const std::vector<std::string>& genericParamNames,
                                        const std::unordered_map<std::string, Type*>& env) -> Type*;
+  /** `ClassName(args)`: prefer `new` whose `self` type equals \p classType (non-generic only) so a
+   * subclass constructor is not resolved as the base `new` with the same trailing parameters. */
+  auto lookupConstructorForAllocatedClass(SymbolTable* tab,
+                                          const std::vector<Type*>& ctorParamTypes, Type* classType)
+      -> Value*;
   /** After all template fields exist, fill in placeholder specialized types created
    * mid-declaration. */
   void finalizeSpecializedTypesForTemplate(Type* classTemplate);
@@ -286,6 +291,7 @@ public:
   auto visit(const IsOp* node) -> void override;
   auto visit(const UnaryOp* node) -> void override;
   auto visit(const Literal* node) -> void override;
+  auto visit(const SuperExpr* node) -> void override;
   auto visit(const StringInterpolation* node) -> void override;
   auto visit(const ListLiteral* node) -> void override;
   auto visit(const DictLiteral* node) -> void override;

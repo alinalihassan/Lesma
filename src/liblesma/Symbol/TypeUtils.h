@@ -8,6 +8,8 @@ class Type;
 
 namespace TypeUtils {
 auto findIndexInFields(Type* structType, const std::string& field) -> int;
+/** LLVM struct index for the \p logicalIndex-th class data field (after the vtable pointer). */
+auto classDataFieldStructIndex(Type* classTy, unsigned logicalIndex) -> unsigned;
 auto findTypeInFields(Type* structType, const std::string& field) -> Type*;
 auto findFieldInFields(Type* structType, const std::string& field) -> Field*;
 /** Class, enum, or array (buffer): types compared by `is` using display-name fallback when

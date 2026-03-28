@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstdint>
 #include <memory>
 #include <string>
 #include <unordered_map>
@@ -10,6 +11,14 @@
 #include "liblesma/Symbol/Type.h"
 
 namespace lesma {
+
+/** Controls how pointer-to-class parameters compare in overload lookup. */
+enum class FunctionLookupKind : std::uint8_t {
+  /// Allow *Derived to match a formal *Base (call sites and general resolution).
+  Value,
+  /// Require exact class type under pointers (registering / selecting an overload slot).
+  OverloadIdentity,
+};
 
 /** Pick the best-matching overload from candidate function types (same rules as
  * SymbolTable::lookupFunction). Returns nullptr if none match. */
@@ -32,8 +41,8 @@ public:
   SymbolTable(SymbolTable&&) = default;
   auto operator=(SymbolTable&&) -> SymbolTable& = default;
 
-  auto lookupFunction(const std::string& symbolName, std::vector<lesma::Type*> paramTypes)
-      -> Value*;
+  auto lookupFunction(const std::string& symbolName, std::vector<lesma::Type*> paramTypes,
+                      FunctionLookupKind kind = FunctionLookupKind::Value) -> Value*;
   auto lookup(const std::string& name) -> Value*;
   auto lookupStruct(const std::string& name) -> Value*;
   auto lookupType(const std::string& symbolName) -> Type*;

@@ -49,6 +49,7 @@ using namespace llvm::orc;
 namespace lesma {
 using MainFnTy = int();
 
+class Class;
 class TraitDecl;
 class FuncDecl;
 
@@ -105,6 +106,9 @@ class Codegen final : public ASTVisitor {
   std::unordered_map<std::string, std::vector<std::string>> traitRequirementMethodOrder;
   std::unordered_map<std::string, const TraitDecl*> traitDeclByName;
   std::unordered_map<std::string, llvm::GlobalVariable*> witnessGlobalCache;
+  std::unordered_map<lesma::Type*, llvm::GlobalVariable*> classVtableGlobals;
+  std::unordered_map<lesma::Type*, const Class*> codegenClassAstByType;
+  std::unordered_map<std::string, const Class*> codegenClassAstByDisplayName;
   std::unordered_map<std::string, llvm::Function*> traitThunkCache;
   // deque so push_back never invalidates pointers to existing elements (used in
   // prototypes)
@@ -235,6 +239,7 @@ protected:
   auto visit(const IsOp* node) -> void override;
   auto visit(const UnaryOp* node) -> void override;
   auto visit(const Literal* node) -> void override;
+  auto visit(const SuperExpr* node) -> void override;
   auto visit(const StringInterpolation* node) -> void override;
   auto visit(const ListLiteral* node) -> void override;
   auto visit(const DictLiteral* node) -> void override;
@@ -257,8 +262,8 @@ protected:
   auto callNamedFunction(llvm::SMRange span, const std::string& functionName,
                          const std::vector<lesma::Type*>& paramTypes,
                          const std::vector<llvm::Value*>& paramsLLVM,
-                         const std::vector<lesma::Type*>& explicitTypeArgs = {})
-      -> std::unique_ptr<lesma::Value>;
+                         const std::vector<lesma::Type*>& explicitTypeArgs = {},
+                         Value* typecheckCalleeFallback = nullptr) -> std::unique_ptr<lesma::Value>;
   auto callListMethodByName(llvm::SMRange span, lesma::Value* receiver,
                             const std::string& methodName,
                             const std::vector<lesma::Value*>& args = {},
@@ -276,6 +281,9 @@ protected:
   auto declareSynthesizedClassConstructor(const Class* astNode, lesma::Type* classType,
                                           lesma::Value* classStructSym) -> lesma::Value*;
   auto defineSynthesizedClassConstructor(lesma::Value* ctorSym, const Class* astNode) -> void;
+  auto getOrEmitClassVtableGlobal(lesma::Type* classTy, const Class* astNode)
+      -> llvm::GlobalVariable*;
+  auto emitInitClassVtablePointer(lesma::Type* classTy, llvm::Value* objectPtr) -> void;
   auto computeGenericFunctionBindingEnv(const FuncDecl* node,
                                         const std::vector<lesma::Type*>& paramTypes,
                                         const std::vector<std::string>& genericNames,

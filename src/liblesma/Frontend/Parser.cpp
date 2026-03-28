@@ -520,6 +520,10 @@ auto Parser::parseTerm() -> std::unique_ptr<Expression> {
     consume(token->type);
     return std::make_unique<Literal>(token->span, token->lexeme, TokenType::BOOL);
   }
+  case TokenType::SUPER: {
+    auto* token = consume(TokenType::SUPER);
+    return std::make_unique<SuperExpr>(token->span);
+  }
   default:
     error(peek(), fmt::format("Unknown literal: {}", peek()->lexeme));
   }
@@ -859,6 +863,12 @@ auto Parser::parseDefer() -> std::unique_ptr<Statement> {
 }
 
 auto Parser::parseStatement(bool isTopLevel) -> std::unique_ptr<Statement> {
+  if (isTopLevel) {
+    while (check(TokenType::NEWLINE)) {
+      advance();
+    }
+  }
+
   if (checkAny<TokenType::DEF, TokenType::IMPORT, TokenType::CLASS, TokenType::ENUM,
                TokenType::TRAIT, TokenType::EXPORT>() &&
       !isTopLevel) {
@@ -1125,6 +1135,10 @@ auto Parser::parseExport() -> std::unique_ptr<Statement> {
     error(peek(), "Cannot export class members");
   }
 
+  while (check(TokenType::NEWLINE)) {
+    advance();
+  }
+
   if (!checkAny<TokenType::DEF, TokenType::CLASS, TokenType::ENUM, TokenType::TRAIT, TokenType::LET,
                 TokenType::VAR>()) {
     error(peek(), "Can only export functions, classes, enums, traits, and variables");
@@ -1244,6 +1258,12 @@ auto Parser::parseClass() -> std::unique_ptr<Statement> {
 
   auto* token = consume(TokenType::IDENTIFIER);
   std::vector<GenericParamDecl> genericParams = parseGenericParamList();
+  std::unique_ptr<TypeExpr> baseType;
+  llvm::SMRange baseTypeSpan;
+  if (advanceIfMatchAny<TokenType::COLON>()) {
+    baseType = parseType();
+    baseTypeSpan = baseType->getSpan();
+  }
   std::vector<std::string> implTraitNames;
   std::vector<llvm::SMRange> implTraitSpans;
   std::vector<std::vector<std::unique_ptr<TypeExpr>>> implTraitTypeArgs;
@@ -1303,8 +1323,15 @@ auto Parser::parseClass() -> std::unique_ptr<Statement> {
           std::ignore = stmt.release();
           methods.push_back(std::unique_ptr<FuncDecl>(funcDecl));
         }
-      } else {
+      } else if (check(TokenType::NEWLINE)) {
         consume(TokenType::NEWLINE);
+      } else if (diagnosticsOut != nullptr) {
+        diagnosticsOut->push_back(AnalysisDiagnostic{
+            .message = "Expected field, method, or newline in class body",
+            .span = peek()->span.isValid() ? peek()->span : llvm::SMRange()});
+        synchronizeToNextLine();
+      } else {
+        error(peek(), "Expected field, method, or newline in class body");
       }
     } catch (const ParserError& err) {
       if (diagnosticsOut == nullptr) {
@@ -1322,7 +1349,8 @@ auto Parser::parseClass() -> std::unique_ptr<Statement> {
   return std::make_unique<Class>(llvm::SMRange{loc.Start, endLoc}, token->lexeme, token->span,
                                  std::move(genericParams), std::move(implTraitNames),
                                  std::move(implTraitSpans), std::move(implTraitTypeArgs),
-                                 std::move(fields), std::move(methods), isExported);
+                                 std::move(baseType), baseTypeSpan, std::move(fields),
+                                 std::move(methods), isExported);
 }
 
 auto Parser::parseTraitMethodDeclaration() -> std::unique_ptr<FuncDecl> {
@@ -1462,6 +1490,9 @@ auto Parser::parseCompound() -> std::unique_ptr<Compound> {
         throw;
       }
       recoverFromParserError(err);
+      if (peek()->type == TokenType::DEDENT) {
+        advance();
+      }
     }
   }
   if (statements.empty()) {

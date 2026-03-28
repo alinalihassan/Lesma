@@ -796,6 +796,8 @@ class FuncCall : public Expression {
   std::vector<std::unique_ptr<TypeExpr>> explicitTypeArgs;
   std::vector<std::unique_ptr<Expression>> arguments;
   mutable Value* resolvedSymbol = nullptr;
+  /** When true, codegen calls the base implementation (from `super.method(...)`). */
+  mutable bool superDispatch = false;
 
 public:
   FuncCall(llvm::SMRange loc, std::string name,
@@ -808,6 +810,8 @@ public:
   [[nodiscard]] [[maybe_unused]] auto getName() const -> std::string { return name; }
   [[nodiscard]] auto getResolvedSymbol() const -> Value* { return resolvedSymbol; }
   auto setResolvedSymbol(Value* v) const -> void { resolvedSymbol = v; }
+  [[nodiscard]] auto getSuperDispatch() const -> bool { return superDispatch; }
+  auto setSuperDispatch(bool value) const -> void { superDispatch = value; }
   [[nodiscard]] [[maybe_unused]] auto getExplicitTypeArgs() const -> std::vector<TypeExpr*> {
     std::vector<TypeExpr*> result;
     result.reserve(explicitTypeArgs.size());
@@ -836,6 +840,18 @@ public:
     }
     ret += ")";
     return ret;
+  }
+};
+
+/** `super` as the left-hand side of `super.method(...)` (constructor or instance method). */
+class SuperExpr : public Expression {
+public:
+  explicit SuperExpr(llvm::SMRange loc) : Expression(loc) {}
+  void accept(ASTVisitor& visitor) const override { visitor.visit(this); }
+
+  auto toString(llvm::SourceMgr* /*srcMgr*/, const std::string& /*prefix*/, bool /*isTail*/) const
+      -> std::string override {
+    return "super";
   }
 };
 
@@ -1251,6 +1267,8 @@ class Class : public Statement {
   /** Type arguments for each `impl Trait<...>` (same order as `implTraitNames`; empty if no `<>`).
    */
   std::vector<std::vector<std::unique_ptr<TypeExpr>>> implTraitTypeArgs;
+  std::unique_ptr<TypeExpr> baseType;
+  llvm::SMRange baseTypeSpan;
   std::vector<std::unique_ptr<VarDecl>> fields;
   std::vector<std::unique_ptr<FuncDecl>> methods;
   bool exported;
@@ -1262,12 +1280,14 @@ public:
         std::vector<GenericParamDecl> genericParams, std::vector<std::string> implTraitNames,
         std::vector<llvm::SMRange> implTraitSpans,
         std::vector<std::vector<std::unique_ptr<TypeExpr>>> implTraitTypeArgs,
-        std::vector<std::unique_ptr<VarDecl>> fields,
-        std::vector<std::unique_ptr<FuncDecl>> methods, bool exported)
+        std::unique_ptr<TypeExpr> baseType, llvm::SMRange baseTypeSpan,
+        std::vector<std::unique_ptr<VarDecl>> fields, std::vector<std::unique_ptr<FuncDecl>> methods,
+        bool exported)
       : Statement(loc), identifier(std::move(identifier)), nameSpan(nameSpan),
         genericParams(std::move(genericParams)), implTraitNames(std::move(implTraitNames)),
         implTraitSpans(std::move(implTraitSpans)), implTraitTypeArgs(std::move(implTraitTypeArgs)),
-        fields(std::move(fields)), methods(std::move(methods)), exported(exported) {};
+        baseType(std::move(baseType)), baseTypeSpan(baseTypeSpan), fields(std::move(fields)),
+        methods(std::move(methods)), exported(exported) {};
   void accept(ASTVisitor& visitor) const override { visitor.visit(this); }
 
   [[nodiscard]] [[maybe_unused]] auto getIdentifier() const -> std::string { return identifier; }
@@ -1294,6 +1314,8 @@ public:
       -> const std::vector<std::vector<std::unique_ptr<TypeExpr>>>& {
     return implTraitTypeArgs;
   }
+  [[nodiscard]] auto getBaseType() const -> TypeExpr* { return baseType.get(); }
+  [[nodiscard]] auto getBaseTypeSpan() const -> llvm::SMRange { return baseTypeSpan; }
   [[nodiscard]] [[maybe_unused]] auto getFields() const -> std::vector<VarDecl*> {
     std::vector<VarDecl*> result;
     result.reserve(fields.size());

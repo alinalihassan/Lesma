@@ -616,8 +616,11 @@ void appendMembersForType(AnalysisResult& result, Type* baseType, Compound* ast,
   if (!baseType->is(BaseType::TY_CLASS) || root == nullptr) {
     return;
   }
-  if (Class* klass = findClassDeclarationForType(result, baseType, ast, root)) {
-    appendMethodsForClass(klass, root, out, seen);
+  // Walk inheritance chain so subclass completion includes superclass methods (deduped by `seen`).
+  for (Type* ty = baseType; ty != nullptr; ty = ty->getClassSuperclass()) {
+    if (Class* klass = findClassDeclarationForType(result, ty, ast, root)) {
+      appendMethodsForClass(klass, root, out, seen);
+    }
   }
 }
 

@@ -411,8 +411,13 @@ auto Codegen::specializeClass(const Class* node,
   specializedClasses.emplace(key, structSymbolPtr);
   specializedClassSymbolsByType[typePtr] = structSymbolPtr;
   specializedClassTypeEnvs[typePtr] = env;
+  codegenClassAstByType[typePtr] = node;
+  if (!typePtr->getDisplayName().empty()) {
+    codegenClassAstByDisplayName.insert({typePtr->getDisplayName(), node});
+  }
 
   std::vector<llvm::Type*> elementLLVMTypes;
+  elementLLVMTypes.push_back(builder->getPtrTy());
   for (auto* field : node->getFields()) {
     if (field->getType() != nullptr) {
       field->getType()->accept(*this);
@@ -434,12 +439,20 @@ auto Codegen::specializeClass(const Class* node,
                                               std::move(defaultVal)));
   }
 
-  if (elementLLVMTypes.empty()) {
+  if (elementLLVMTypes.size() == 1U) {
     elementLLVMTypes.push_back(builder->getInt8Ty());
   }
   structType->setBody(elementLLVMTypes, /*isPacked=*/false);
   typePtr->setDisplayName(std::move(displayName));
   typePtr->setImplTraitNames(std::vector<std::string>(node->getImplTraitNames()));
+
+  if (auto* tmplSym = scope->lookupStruct(node->getIdentifier());
+      tmplSym != nullptr && tmplSym->getType() != nullptr) {
+    Type* tmplTy = tmplSym->getType();
+    typePtr->setClassSuperclass(tmplTy->getClassSuperclass());
+    typePtr->setClassVtableMethodOrder(tmplTy->getClassVtableMethodOrder());
+    typePtr->setClassHasDerivedClass(tmplTy->getClassHasDerivedClass());
+  }
 
   auto* selfType =
       cacheType(std::make_unique<Type>(BaseType::TY_PTR, builder->getPtrTy(), typePtr));
@@ -453,7 +466,8 @@ auto Codegen::specializeClass(const Class* node,
     if (method->getName() == "new") {
       hasConstructor = true;
       std::vector<lesma::Type*> constructorParams = buildClassMethodParamTypesForLookup(method);
-      auto* constructor = scope->lookupFunction("new", constructorParams);
+      auto* constructor =
+          scope->lookupFunction("new", constructorParams, FunctionLookupKind::OverloadIdentity);
       structSymbolPtr->setConstructor(constructor);
     }
   }
@@ -465,6 +479,7 @@ auto Codegen::specializeClass(const Class* node,
     structSymbolPtr->setConstructor(synthCtor);
     selfSymbol = nullptr;
   }
+  getOrEmitClassVtableGlobal(typePtr, node);
   selfSymbol = savedSelfSymbol;
   currentGenericTypes = std::move(saved);
   return structSymbolPtr;

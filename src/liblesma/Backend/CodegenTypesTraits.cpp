@@ -299,11 +299,28 @@ auto Codegen::getOrCreateLlvmType(lesma::Type* type) -> llvm::Type* {
     type->setLlvmType(st);
     break;
   }
-  case BaseType::TY_CLASS:
-  case BaseType::TY_ENUM: {
+  case BaseType::TY_CLASS: {
     // Create opaque struct first to break recursion (e.g. class with field
-    // *Self). Use the Lesma display name so imported class types (e.g. stdlib
-    // str) get a stable LLVM struct name when this module never visits Class*.
+    // *Self). Leading slot: vtable pointer (single inheritance, dynamic dispatch).
+    llvm::StructType* st = nullptr;
+    if (!type->getDisplayName().empty()) {
+      st = llvm::StructType::create(theModule->getContext(), type->getDisplayName());
+    } else {
+      st = llvm::StructType::create(theModule->getContext());
+    }
+    type->setLlvmType(st);
+    std::vector<llvm::Type*> elementTypes;
+    elementTypes.push_back(builder->getPtrTy());
+    for (auto* f : type->getFields()) {
+      elementTypes.push_back(getOrCreateLlvmType(f->type));
+    }
+    if (elementTypes.size() == 1U) {
+      elementTypes.push_back(builder->getInt8Ty());
+    }
+    st->setBody(elementTypes);
+    break;
+  }
+  case BaseType::TY_ENUM: {
     llvm::StructType* st = nullptr;
     if (!type->getDisplayName().empty()) {
       st = llvm::StructType::create(theModule->getContext(), type->getDisplayName());
@@ -367,6 +384,9 @@ auto Codegen::mergeImportedSpecializationState(Codegen const& imported) -> void 
   }
   for (const auto& entry : imported.specializationEnvs) {
     specializationEnvs.insert(entry);
+  }
+  for (const auto& entry : imported.codegenClassAstByDisplayName) {
+    codegenClassAstByDisplayName.insert(entry);
   }
 }
 
