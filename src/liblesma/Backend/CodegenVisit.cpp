@@ -68,6 +68,20 @@ LLD_HAS_DRIVER(elf)
 #include "liblesma/Token/TokenType.h"
 #include "liblesma/Typecheck/Typechecker.h"
 
+namespace {
+
+[[nodiscard]] auto makeCallableSignatureKey(const std::string& name,
+                                            const std::vector<lesma::Type*>& types)
+    -> std::string {
+  std::string key = name;
+  for (lesma::Type* type : types) {
+    key += "|" + (type != nullptr ? type->toString() : "?");
+  }
+  return key;
+}
+
+} // namespace
+
 using namespace lesma;
 
 Codegen::Codegen(std::shared_ptr<Parser> parser, std::shared_ptr<SourceMgr> srcMgr,
@@ -832,15 +846,6 @@ auto Codegen::declareSynthesizedClassConstructor(const Class* astNode, lesma::Ty
   Value* savedSelfSym = selfSymbol;
   selfSymbol = classStructSym;
 
-  auto makeCallableSignatureKey = [](const std::string& name,
-                                     const std::vector<lesma::Type*>& types) -> std::string {
-    std::string key = name;
-    for (auto* type : types) {
-      key += "|" + (type != nullptr ? type->toString() : "?");
-    }
-    return key;
-  };
-
   auto mangledName = getMangledName(astNode->getSpan(), "new", paramTypes, selfSymbol != nullptr);
   std::string signatureKey = makeCallableSignatureKey("new", paramTypes);
   if (!currentGenericTypes.empty()) {
@@ -1218,14 +1223,6 @@ auto Codegen::visit(const FuncDecl* node) -> void {
 
   auto mangledName =
       getMangledName(node->getSpan(), node->getName(), paramTypes, selfSymbol != nullptr);
-  auto makeCallableSignatureKey = [](const std::string& name,
-                                     const std::vector<lesma::Type*>& types) -> std::string {
-    std::string key = name;
-    for (auto* type : types) {
-      key += "|" + (type != nullptr ? type->toString() : "?");
-    }
-    return key;
-  };
   std::string signatureKey = makeCallableSignatureKey(node->getName(), paramTypes);
   if (!currentGenericTypes.empty()) {
     std::vector<std::string> bindingOrder;
@@ -3315,14 +3312,6 @@ auto Codegen::callNamedFunction(llvm::SMRange span, const std::string& functionN
     -> std::unique_ptr<lesma::Value> {
   std::vector<lesma::Type*> localParamTypes = paramTypes;
   std::vector<llvm::Value*> localParamsLLVM = paramsLLVM;
-  auto makeCallableSignatureKey = [](const std::string& name,
-                                     const std::vector<lesma::Type*>& types) -> std::string {
-    std::string key = name;
-    for (auto* type : types) {
-      key += "|" + (type != nullptr ? type->toString() : "?");
-    }
-    return key;
-  };
   for (auto* explicitTypeArg : explicitTypeArgs) {
     if (explicitTypeArg != nullptr) {
       getOrCreateLlvmType(explicitTypeArg);
