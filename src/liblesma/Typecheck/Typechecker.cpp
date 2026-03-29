@@ -3826,11 +3826,9 @@ auto Typechecker::visit(const DotOp* node) -> void {
       argTypes.push_back(t);
     }
     Type* selfPtrSuper = cacheType(std::make_unique<Type>(BaseType::TY_PTR, nullptr, superTy));
-    // Calls are spelled super.method(self, ...); the receiver is the first explicit argument.
+    // Super dispatch always resolves against an implicit receiver followed by explicit args.
     std::vector<Type*> methodArgTypes = argTypes;
-    if (methodArgTypes.empty()) {
-      methodArgTypes.push_back(selfPtrSuper);
-    }
+    methodArgTypes.insert(methodArgTypes.begin(), selfPtrSuper);
     SymbolTable* insertScope =
         currentMethodInsertScope != nullptr ? currentMethodInsertScope : scope->getParent();
     if (insertScope == nullptr) {
