@@ -4,6 +4,7 @@
 #include <llvm/IR/Constants.h>
 #include <llvm/IR/DerivedTypes.h>
 #include <llvm/IR/Function.h>
+#include <llvm/IR/GlobalVariable.h>
 #include <llvm/IR/Instructions.h>
 
 #include "Codegen.h"
@@ -292,120 +293,32 @@ auto Codegen::emitListDeepCopy(lesma::Type* listType, llvm::Value* listHandle) -
   return newHandle;
 }
 
-namespace {
-[[nodiscard]] auto stripSpacesCopy(std::string s) -> std::string {
-  s.erase(std::remove(s.begin(), s.end(), ' '), s.end());
-  return s;
-}
-[[nodiscard]] auto classDisplayNamesMatch(const std::string& a, const std::string& b) -> bool {
-  if (a == b) {
-    return true;
-  }
-  if (a.size() < 6 || b.size() < 6 || a.compare(0, 5, "list<") != 0 ||
-      b.compare(0, 5, "list<") != 0) {
-    return false;
-  }
-  return stripSpacesCopy(a) == stripSpacesCopy(b);
-}
-} // namespace
-
-auto Codegen::tryEnsureStdlibListClassSpecialized(lesma::Type* classTy) -> void {
-  if (classTy == nullptr || !classTy->is(BaseType::TY_CLASS)) {
-    return;
-  }
-  const std::string& dn = classTy->getDisplayName();
-  if (dn.size() < 6 || dn.compare(0, 5, "list<") != 0 || dn.back() != '>') {
-    return;
-  }
-  auto git = genericClasses.find("list");
-  if (git == genericClasses.end() || git->second == nullptr) {
-    return;
-  }
-  lesma::Type* typeArg = nullptr;
-  if (auto envIt = specializedClassTypeEnvs.find(classTy);
-      envIt != specializedClassTypeEnvs.end()) {
-    if (auto tIt = envIt->second.find("T"); tIt != envIt->second.end()) {
-      typeArg = tIt->second;
-    }
-  }
-  if (typeArg == nullptr) {
-    for (const auto& [ty, env] : specializedClassTypeEnvs) {
-      if (ty != nullptr && classDisplayNamesMatch(ty->getDisplayName(), dn)) {
-        if (auto tIt = env.find("T"); tIt != env.end()) {
-          typeArg = tIt->second;
-          break;
-        }
-      }
-    }
-  }
-  if (typeArg == nullptr) {
-    auto fields = classTy->getFields();
-    if (!fields.empty() && fields[0]->type != nullptr && fields[0]->type->is(BaseType::TY_ARRAY) &&
-        fields[0]->type->getElementType() != nullptr) {
-      typeArg = fields[0]->type->getElementType();
-    }
-  }
-  if (typeArg == nullptr) {
-    return;
-  }
-  specializeClass(git->second, {}, {typeArg});
-}
-
-auto Codegen::tryEnsureStdlibDictClassSpecialized(lesma::Type* classTy) -> void {
-  if (classTy == nullptr || !classTy->is(BaseType::TY_CLASS)) {
-    return;
-  }
-  const std::string& dn = classTy->getDisplayName();
-  if (dn.size() < 6 || dn.compare(0, 5, "dict<") != 0 || dn.back() != '>') {
-    return;
-  }
-  auto git = genericClasses.find("dict");
-  if (git == genericClasses.end() || git->second == nullptr) {
-    return;
-  }
-  lesma::Type* keyT = nullptr;
-  lesma::Type* valT = nullptr;
-  if (auto envIt = specializedClassTypeEnvs.find(classTy);
-      envIt != specializedClassTypeEnvs.end()) {
-    if (auto kIt = envIt->second.find("K"); kIt != envIt->second.end()) {
-      keyT = kIt->second;
-    }
-    if (auto vIt = envIt->second.find("V"); vIt != envIt->second.end()) {
-      valT = vIt->second;
-    }
-  }
-  if (keyT == nullptr || valT == nullptr) {
-    auto fields = classTy->getFields();
-    if (fields.size() >= 2 && fields[0]->type != nullptr && fields[1]->type != nullptr &&
-        fields[0]->type->is(BaseType::TY_ARRAY) && fields[1]->type->is(BaseType::TY_ARRAY)) {
-      keyT = fields[0]->type->getElementType();
-      valT = fields[1]->type->getElementType();
-    }
-  }
-  if (keyT == nullptr || valT == nullptr) {
-    return;
-  }
-  lesma::Value* sym = specializeClass(git->second, {}, {keyT, valT});
-  if (sym != nullptr) {
-    specializedClassSymbolsByType[classTy] = sym;
-    lesma::Type* specTy = sym->getType();
-    if (auto envIt = specializedClassTypeEnvs.find(specTy);
-        envIt != specializedClassTypeEnvs.end()) {
-      specializedClassTypeEnvs[classTy] = envIt->second;
-    }
-  }
-}
-
 auto Codegen::lookupClassStructSymbol(lesma::Type* classTy) -> Value* {
   if (classTy == nullptr || !classTy->is(BaseType::TY_CLASS)) {
     return nullptr;
   }
-  // Emit specialized stdlib methods even when LLVM struct + symbol already exist (e.g. dict/list
-  // literals materialize the class layout before any method call).
-  tryEnsureStdlibListClassSpecialized(classTy);
-  tryEnsureStdlibDictClassSpecialized(classTy);
   if (auto it = specializedClassSymbolsByType.find(classTy); it != specializedClassSymbolsByType.end()) {
     return it->second;
+  }
+  if (auto envIt = specializedClassTypeEnvs.find(classTy); envIt != specializedClassTypeEnvs.end()) {
+    bool isConcrete = true;
+    for (const auto& [name, ty] : envIt->second) {
+      (void) name;
+      if (ty != nullptr && ty->is(BaseType::TY_GENERIC)) {
+        isConcrete = false;
+        break;
+      }
+    }
+    if (isConcrete) {
+      Type* templateTy = classTy;
+      if (auto it = specializedClassTemplateOf.find(classTy); it != specializedClassTemplateOf.end()) {
+        templateTy = it->second;
+      }
+      if (const Class* templateAst = findGenericClassAstForTemplateType(templateTy);
+          templateAst != nullptr) {
+        return emitClassMonomorph(classTy, templateAst);
+      }
+    }
   }
   llvm::Type* lt = classTy->getLlvmType();
   if (lt != nullptr) {
@@ -421,14 +334,6 @@ auto Codegen::lookupClassStructSymbol(lesma::Type* classTy) -> Value* {
     if (Value* v = scope->lookupStruct(classTy->getDisplayName())) {
       return v;
     }
-    // Typechecker may use a different Type* than the one codegen registered when specializing
-    // generics; match the struct symbol by display name.
-    for (const auto& [ty, sym] : specializedClassSymbolsByType) {
-      if (ty != nullptr &&
-          classDisplayNamesMatch(ty->getDisplayName(), classTy->getDisplayName())) {
-        return sym;
-      }
-    }
   }
   lt = classTy->getLlvmType();
   if (lt != nullptr) {
@@ -438,6 +343,37 @@ auto Codegen::lookupClassStructSymbol(lesma::Type* classTy) -> Value* {
           return v;
         }
       }
+    }
+  }
+  return nullptr;
+}
+
+auto Codegen::specializedClassEnvFor(lesma::Type* classTy)
+    -> const std::unordered_map<std::string, lesma::Type*>* {
+  if (classTy == nullptr || !classTy->is(BaseType::TY_CLASS)) {
+    return nullptr;
+  }
+  if (auto it = specializedClassTypeEnvs.find(classTy); it != specializedClassTypeEnvs.end()) {
+    return &it->second;
+  }
+  if (Value* sym = lookupClassStructSymbol(classTy); sym != nullptr && sym->getType() != nullptr) {
+    if (auto it = specializedClassTypeEnvs.find(sym->getType()); it != specializedClassTypeEnvs.end()) {
+      return &it->second;
+    }
+  }
+  return nullptr;
+}
+
+auto Codegen::lookupClassVtableGlobal(lesma::Type* classTy) -> llvm::GlobalVariable* {
+  if (classTy == nullptr) {
+    return nullptr;
+  }
+  if (auto it = classVtableGlobals.find(classTy); it != classVtableGlobals.end()) {
+    return it->second;
+  }
+  if (Value* sym = lookupClassStructSymbol(classTy); sym != nullptr && sym->getType() != nullptr) {
+    if (auto it = classVtableGlobals.find(sym->getType()); it != classVtableGlobals.end()) {
+      return it->second;
     }
   }
   return nullptr;

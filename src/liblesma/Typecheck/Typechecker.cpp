@@ -788,18 +788,15 @@ auto Typechecker::materializeImportedType(Type* type) -> Type* {
       }
       copy->addField(std::move(fieldCopy));
     }
-    if (auto envIt = specializedTypeEnv.find(type); envIt != specializedTypeEnv.end()) {
-      std::unordered_map<std::string, Type*> envCopy;
-      for (const auto& [name, envType] : envIt->second) {
-        envCopy[name] = materializeImportedType(envType);
-      }
-      specializedTypeEnv[copy] = std::move(envCopy);
-    }
     if (auto tmplIt = specializedTypeToTemplate.find(type);
         tmplIt != specializedTypeToTemplate.end()) {
-      specializedTypeToTemplate[copy] = materializeImportedType(tmplIt->second);
-      copy->setDisplayName(makeSpecializedDisplayName(
-          specializedTypeToTemplate[copy], copy->getGenericParams(), specializedTypeEnv[copy]));
+      std::unordered_map<std::string, Type*> envCopy;
+      if (auto envIt = specializedTypeEnv.find(type); envIt != specializedTypeEnv.end()) {
+        for (const auto& [name, envType] : envIt->second) {
+          envCopy[name] = materializeImportedType(envType);
+        }
+      }
+      registerSpecializedClassType(copy, materializeImportedType(tmplIt->second), std::move(envCopy));
     }
     return copy;
   }
@@ -1094,6 +1091,24 @@ auto Typechecker::lookupConstructorForAllocatedClass(SymbolTable* tab,
   return tab->lookupFunction("new", ctorParamTypes);
 }
 
+void Typechecker::registerSpecializedClassType(Type* specialized, Type* classTemplate,
+                                               std::unordered_map<std::string, Type*> env) {
+  if (specialized == nullptr || classTemplate == nullptr) {
+    return;
+  }
+  const auto& genericParamNames = classTemplate->getGenericParams();
+  specializedTypeEnv[specialized] = std::move(env);
+  specializedTypeToTemplate[specialized] = classTemplate;
+  specialized->setGenericParams(genericParamNames);
+  specialized->setImplTraitNames(classTemplate->getImplTraitNames());
+  specialized->setDeclarationSpan(classTemplate->getDeclarationSpan());
+  specialized->setDeclarationFilePath(classTemplate->getDeclarationFilePath());
+  specialized->setDisplayName(
+      makeSpecializedDisplayName(classTemplate, genericParamNames, specializedTypeEnv[specialized]));
+  specializedClassTypes[TypeUtils::makeSpecializedClassKey(
+      classTemplate, genericParamNames, specializedTypeEnv[specialized])] = specialized;
+}
+
 auto Typechecker::getOrCreateSpecializedClassType(Type* classTemplate,
                                                   const std::vector<std::string>& genericParamNames,
                                                   const std::unordered_map<std::string, Type*>& env)
@@ -1102,15 +1117,7 @@ auto Typechecker::getOrCreateSpecializedClassType(Type* classTemplate,
     return classTemplate;
   }
 
-  std::ostringstream key;
-  key << classTemplate->toString();
-  for (const auto& name : genericParamNames) {
-    auto it = env.find(name);
-    if (it != env.end()) {
-      key << "|" << it->second->toString();
-    }
-  }
-  std::string keyStr = key.str();
+  std::string keyStr = TypeUtils::makeSpecializedClassKey(classTemplate, genericParamNames, env);
   auto it = specializedClassTypes.find(keyStr);
   if (it != specializedClassTypes.end()) {
     return it->second;
@@ -1122,14 +1129,7 @@ auto Typechecker::getOrCreateSpecializedClassType(Type* classTemplate,
     auto specialized =
         std::make_unique<Type>(BaseType::TY_CLASS, nullptr, std::vector<std::unique_ptr<Field>>{});
     Type* ptr = cacheType(std::move(specialized));
-    specializedClassTypes[keyStr] = ptr;
-    specializedTypeEnv[ptr] = env;
-    specializedTypeToTemplate[ptr] = classTemplate;
-    ptr->setGenericParams(genericParamNames);
-    ptr->setImplTraitNames(classTemplate->getImplTraitNames());
-    ptr->setDeclarationSpan(classTemplate->getDeclarationSpan());
-    ptr->setDeclarationFilePath(classTemplate->getDeclarationFilePath());
-    ptr->setDisplayName(makeSpecializedDisplayName(classTemplate, genericParamNames, env));
+    registerSpecializedClassType(ptr, classTemplate, std::unordered_map<std::string, Type*>(env));
     if (classTemplate->getClassSuperclass() != nullptr) {
       ptr->setClassSuperclass(substituteInType(classTemplate->getClassSuperclass(), env));
     }
@@ -1140,14 +1140,7 @@ auto Typechecker::getOrCreateSpecializedClassType(Type* classTemplate,
   auto specializedShell =
       std::make_unique<Type>(BaseType::TY_CLASS, nullptr, std::vector<std::unique_ptr<Field>>{});
   Type* ptr = cacheType(std::move(specializedShell));
-  specializedClassTypes[keyStr] = ptr;
-  specializedTypeEnv[ptr] = env;
-  specializedTypeToTemplate[ptr] = classTemplate;
-  ptr->setGenericParams(genericParamNames);
-  ptr->setImplTraitNames(classTemplate->getImplTraitNames());
-  ptr->setDeclarationSpan(classTemplate->getDeclarationSpan());
-  ptr->setDeclarationFilePath(classTemplate->getDeclarationFilePath());
-  ptr->setDisplayName(makeSpecializedDisplayName(classTemplate, genericParamNames, env));
+  registerSpecializedClassType(ptr, classTemplate, std::unordered_map<std::string, Type*>(env));
   if (classTemplate->getClassSuperclass() != nullptr) {
     ptr->setClassSuperclass(substituteInType(classTemplate->getClassSuperclass(), env));
   }
@@ -1850,6 +1843,8 @@ auto Typechecker::getOrTypecheckImport(const std::string& absolutePath) -> Symbo
   imported->rootScope = sub.takeRootScope();
   {
     auto subEnv = sub.takeSpecializedTypeEnv();
+    auto subTemplateOf = sub.takeSpecializedTypeToTemplate();
+    auto subClassTypes = sub.takeSpecializedClassTypes();
     for (auto& [ty, env] : subEnv) {
       if (ty->is(BaseType::TY_TRAIT_EXISTENTIAL)) {
         specializedTraitExistentialEnv[ty] = std::move(env);
@@ -1857,8 +1852,11 @@ auto Typechecker::getOrTypecheckImport(const std::string& absolutePath) -> Symbo
         specializedTypeEnv[ty] = std::move(env);
       }
     }
-    for (const auto& [specPtr, tmplPtr] : sub.specializedTypeToTemplate) {
+    for (const auto& [specPtr, tmplPtr] : subTemplateOf) {
       specializedTypeToTemplate[specPtr] = tmplPtr;
+    }
+    for (const auto& kv : subClassTypes) {
+      specializedClassTypes[kv.first] = kv.second;
     }
   }
   imported->index =
@@ -1932,6 +1930,10 @@ auto Typechecker::takeSpecializedTypeEnv()
 
 auto Typechecker::takeSpecializedTypeToTemplate() -> std::unordered_map<Type*, Type*> {
   return std::move(specializedTypeToTemplate);
+}
+
+auto Typechecker::takeSpecializedClassTypes() -> std::unordered_map<std::string, Type*> {
+  return std::move(specializedClassTypes);
 }
 
 auto Typechecker::takeImportAliasToPath() -> ImportAliasMap { return std::move(importAliasToPath); }
@@ -3364,6 +3366,7 @@ auto Typechecker::visit(const ExpressionStatement* node) -> void {
 }
 
 auto Typechecker::visit(const FuncCall* node) -> void {
+  node->clearGenericBindingEnv();
   std::vector<Type*> argTypes;
   for (Expression* arg : node->getArguments()) {
     arg->accept(*this);
@@ -3425,6 +3428,7 @@ auto Typechecker::visit(const FuncCall* node) -> void {
         markValueRead(constructorForMark);
       }
       result = std::make_unique<Value>(specialized);
+      node->setAllocatedClassMonomorph(specialized);
       return;
     }
   }
@@ -3505,8 +3509,10 @@ auto Typechecker::visit(const FuncCall* node) -> void {
           if (constructorForMark != nullptr) {
             markValueRead(constructorForMark);
           }
-          result = std::make_unique<Value>(
-              importedScope != nullptr ? materializeImportedType(specialized) : specialized);
+          Type* valueType =
+              importedScope != nullptr ? materializeImportedType(specialized) : specialized;
+          result = std::make_unique<Value>(valueType);
+          node->setAllocatedClassMonomorph(valueType);
           return;
         }
         if (!node->getArguments().empty()) {
@@ -3531,8 +3537,10 @@ auto Typechecker::visit(const FuncCall* node) -> void {
             }
             Type* specialized = getOrCreateSpecializedClassType(classType, genericParamNames, env);
             markValueRead(constructor);
-            result = std::make_unique<Value>(
-                importedScope != nullptr ? materializeImportedType(specialized) : specialized);
+            Type* valueType =
+                importedScope != nullptr ? materializeImportedType(specialized) : specialized;
+            result = std::make_unique<Value>(valueType);
+            node->setAllocatedClassMonomorph(valueType);
             return;
           }
         }
@@ -3689,12 +3697,17 @@ auto Typechecker::visit(const FuncCall* node) -> void {
       }
     }
     if (callee->getName() == "new" && !fields.empty() && fields[0]->type->is(BaseType::TY_PTR)) {
-      result = std::make_unique<Value>(
-          substituteInType(fields[0]->type->getElementType(), explicitSubst));
+      Type* monomorph = substituteInType(fields[0]->type->getElementType(), explicitSubst);
+      Type* valueType = importedScope != nullptr ? materializeImportedType(monomorph) : monomorph;
+      result = std::make_unique<Value>(valueType);
+      node->setAllocatedClassMonomorph(valueType);
     } else {
       Type* retType = substituteInType(funcType->getReturnType(), explicitSubst);
       result = std::make_unique<Value>(importedScope != nullptr ? materializeImportedType(retType)
                                                                 : retType);
+    }
+    if (callee->getName() != "new" && !funcType->getGenericParams().empty()) {
+      node->setGenericBindingEnv(explicitSubst);
     }
     verifyGenericTraitBounds(callee, explicitSubst, node->getSpan());
     return;
@@ -3711,7 +3724,9 @@ auto Typechecker::visit(const FuncCall* node) -> void {
     const std::vector<std::string>& genericParamNames = getDeclaredGenericParams(classType);
     Type* specialized =
         getOrCreateSpecializedClassType(classType, genericParamNames, localGenericTypes);
-    result = std::make_unique<Value>(specialized);
+    Type* valueType = importedScope != nullptr ? materializeImportedType(specialized) : specialized;
+    result = std::make_unique<Value>(valueType);
+    node->setAllocatedClassMonomorph(valueType);
   } else {
     Type* retType = substituteInType(funcType->getReturnType(), localGenericTypes);
     if (retType == nullptr) {
@@ -3719,6 +3734,9 @@ auto Typechecker::visit(const FuncCall* node) -> void {
     }
     result = std::make_unique<Value>(importedScope != nullptr ? materializeImportedType(retType)
                                                               : retType);
+  }
+  if (callee->getName() != "new" && !funcType->getGenericParams().empty()) {
+    node->setGenericBindingEnv(localGenericTypes);
   }
   verifyGenericTraitBounds(callee, localGenericTypes, node->getSpan());
 }
@@ -4027,8 +4045,10 @@ auto Typechecker::visit(const DotOp* node) -> void {
                     }
                   }
                 }
-                result = std::make_unique<Value>(
-                    getOrCreateSpecializedClassType(classType, genericParamNames, env));
+                Type* specialized =
+                    getOrCreateSpecializedClassType(classType, genericParamNames, env);
+                result = std::make_unique<Value>(specialized);
+                fc->setAllocatedClassMonomorph(specialized);
                 return;
               }
               if (!fc->getArguments().empty()) {
@@ -4047,8 +4067,11 @@ auto Typechecker::visit(const DotOp* node) -> void {
                     inferGenericBindings(ctorParams[i]->type, argTypes[i - 1], env,
                                          node->getSpan());
                   }
-                  result = std::make_unique<Value>(materializeImportedType(
-                      getOrCreateSpecializedClassType(classType, genericParamNames, env)));
+                  Type* specialized =
+                      getOrCreateSpecializedClassType(classType, genericParamNames, env);
+                  Type* valueType = materializeImportedType(specialized);
+                  result = std::make_unique<Value>(valueType);
+                  fc->setAllocatedClassMonomorph(valueType);
                   return;
                 }
               }

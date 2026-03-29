@@ -33,6 +33,12 @@ auto stableHash64(std::string_view data) -> unsigned long long {
 
 namespace lesma::MangleUtils {
 auto getTypeMangledName(llvm::SMRange span, Type* type) -> std::string {
+  if (type->is(BaseType::TY_GENERIC)) {
+    return "(gen_" + type->getGenericName() + ")";
+  }
+  if (type->is(BaseType::TY_TRAIT_EXISTENTIAL)) {
+    return "(exist_" + type->getDisplayName() + ")";
+  }
   auto* llvmTy = type->getLlvmType();
   if (llvmTy == nullptr) {
     throw CodegenError(span, "Type has no LLVM type for mangling: {}", type->toString());
@@ -64,9 +70,6 @@ auto getTypeMangledName(llvm::SMRange span, Type* type) -> std::string {
   if (type->is(BaseType::TY_VOID)) {
     return "void";
   }
-  if (type->is(BaseType::TY_GENERIC)) {
-    return "(gen_" + type->getGenericName() + ")";
-  }
   if (type->is(BaseType::TY_ARRAY)) {
     return "(arr_" + getTypeMangledName(span, type->getElementType()) + ")";
   }
@@ -85,9 +88,6 @@ auto getTypeMangledName(llvm::SMRange span, Type* type) -> std::string {
       return "(struct_" + structTy->getName().str() + ")";
     }
     throw CodegenError(span, "Class/Enum type does not have LLVM struct type");
-  }
-  if (type->is(BaseType::TY_TRAIT_EXISTENTIAL)) {
-    return "(exist_" + type->getDisplayName() + ")";
   }
   if (type->is(BaseType::TY_TUPLE)) {
     std::string s = "tup_";

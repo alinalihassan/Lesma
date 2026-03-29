@@ -102,6 +102,8 @@ struct AnalysisResult {
   /** Specialized class → template class type (same keys as specialized-type entries in
    * \p specializedTypeEnv). */
   std::unordered_map<Type*, Type*> specializedTypeToTemplate;
+  /** Stable registry key -> canonical specialized class type from typecheck. */
+  std::unordered_map<std::string, Type*> specializedClassTypes;
   AnalysisIndex index;
   ImportAliasMap importAliasToPath;
   ImportedNameSourceMap importedNameToSource;

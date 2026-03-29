@@ -68,7 +68,8 @@ auto InitializeCodegen(std::shared_ptr<Parser> parser,
                                            std::move(takenRootScope),
                                            std::move(takenTypeCache),
                                            typechecker.takeSpecializedTypeEnv(),
-                                           typechecker.takeSpecializedTypeToTemplate());
+                                           typechecker.takeSpecializedTypeToTemplate(),
+                                           typechecker.takeSpecializedClassTypes());
   codegen->run();
 
   return codegen;

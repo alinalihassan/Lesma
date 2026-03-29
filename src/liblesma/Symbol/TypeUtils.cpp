@@ -1,5 +1,7 @@
 #include "TypeUtils.h"
 
+#include <sstream>
+
 #include "liblesma/Symbol/Type.h"
 
 namespace lesma::TypeUtils {
@@ -49,5 +51,18 @@ auto passesByPointerInAbi(Type const* t) -> bool {
     return true;
   }
   return t->is(BaseType::TY_CLASS) || t->is(BaseType::TY_TRAIT_EXISTENTIAL);
+}
+
+auto makeSpecializedClassKey(Type* classTemplate, const std::vector<std::string>& genericParamNames,
+                             const std::unordered_map<std::string, Type*>& env) -> std::string {
+  std::ostringstream key;
+  key << classTemplate->toString();
+  for (const auto& name : genericParamNames) {
+    auto it = env.find(name);
+    if (it != env.end()) {
+      key << "|" << it->second->toString();
+    }
+  }
+  return key.str();
 }
 } // namespace lesma::TypeUtils

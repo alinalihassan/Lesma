@@ -6,6 +6,7 @@
 #include <memory>
 #include <sstream>
 #include <string>
+#include <unordered_map>
 #include <utility>
 #include <vector>
 
@@ -798,6 +799,10 @@ class FuncCall : public Expression {
   mutable Value* resolvedSymbol = nullptr;
   /** When true, codegen calls the base implementation (from `super.method(...)`). */
   mutable bool superDispatch = false;
+  /** Canonical specialized class type chosen by typecheck for `ClassName(...)`/`new(...)`. */
+  mutable Type* allocatedClassMonomorph = nullptr;
+  /** Generic binding environment chosen by typecheck for top-level generic function calls. */
+  mutable std::vector<std::pair<std::string, Type*>> genericBindingEnv;
 
 public:
   FuncCall(llvm::SMRange loc, std::string name,
@@ -812,6 +817,18 @@ public:
   auto setResolvedSymbol(Value* v) const -> void { resolvedSymbol = v; }
   [[nodiscard]] auto getSuperDispatch() const -> bool { return superDispatch; }
   auto setSuperDispatch(bool value) const -> void { superDispatch = value; }
+  [[nodiscard]] auto getAllocatedClassMonomorph() const -> Type* { return allocatedClassMonomorph; }
+  auto setAllocatedClassMonomorph(Type* t) const -> void { allocatedClassMonomorph = t; }
+  auto clearGenericBindingEnv() const -> void { genericBindingEnv.clear(); }
+  auto setGenericBindingEnv(const std::unordered_map<std::string, Type*>& env) const -> void {
+    genericBindingEnv.assign(env.begin(), env.end());
+    std::sort(genericBindingEnv.begin(), genericBindingEnv.end(),
+              [](const auto& lhs, const auto& rhs) { return lhs.first < rhs.first; });
+  }
+  [[nodiscard]] auto getGenericBindingEnv() const
+      -> const std::vector<std::pair<std::string, Type*>>& {
+    return genericBindingEnv;
+  }
   [[nodiscard]] [[maybe_unused]] auto getExplicitTypeArgs() const -> std::vector<TypeExpr*> {
     std::vector<TypeExpr*> result;
     result.reserve(explicitTypeArgs.size());

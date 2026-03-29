@@ -276,15 +276,7 @@ auto Codegen::getOrCreateLlvmType(lesma::Type* type) -> llvm::Type* {
     }
     std::vector<llvm::Type*> elementTypes;
     for (auto* f : type->getFields()) {
-      llvm::Type* elt = nullptr;
-      if (f->type != nullptr && TypeUtils::passesByPointerInAbi(f->type)) {
-        // Class / trait values at runtime are pointers; tuple aggregate slots must match
-        // `insertvalue`/`extractvalue` operands (see TupleLiteral / unpack).
-        elt = builder->getPtrTy();
-      } else {
-        elt = getOrCreateLlvmType(f->type);
-      }
-      elementTypes.push_back(elt);
+      elementTypes.push_back(getStoredAggregateFieldLlvmType(f->type));
     }
     if (elementTypes.empty()) {
       elementTypes.push_back(builder->getInt8Ty());
@@ -312,7 +304,7 @@ auto Codegen::getOrCreateLlvmType(lesma::Type* type) -> llvm::Type* {
     std::vector<llvm::Type*> elementTypes;
     elementTypes.push_back(builder->getPtrTy());
     for (auto* f : type->getFields()) {
-      elementTypes.push_back(getOrCreateLlvmType(f->type));
+      elementTypes.push_back(getStoredAggregateFieldLlvmType(f->type));
     }
     if (elementTypes.size() == 1U) {
       elementTypes.push_back(builder->getInt8Ty());
@@ -343,6 +335,22 @@ auto Codegen::getOrCreateLlvmType(lesma::Type* type) -> llvm::Type* {
     break;
   }
   return type->getLlvmType();
+}
+
+auto Codegen::getStoredAggregateFieldLlvmType(lesma::Type* fieldType) -> llvm::Type* {
+  if (fieldType == nullptr) {
+    return nullptr;
+  }
+  getOrCreateLlvmType(fieldType);
+  if (TypeUtils::passesByPointerInAbi(fieldType)) {
+    return builder->getPtrTy();
+  }
+  return fieldType->getLlvmType();
+}
+
+auto Codegen::loadStoredAggregateFieldValue(llvm::Value* slotPtr, lesma::Type* fieldType,
+                                           const llvm::Twine& name) -> llvm::Value* {
+  return builder->CreateLoad(getStoredAggregateFieldLlvmType(fieldType), slotPtr, name);
 }
 
 auto Codegen::collectTraitMetadataFromAst() -> void {
@@ -378,6 +386,9 @@ auto Codegen::mergeImportedTraitMetadata(Codegen const& imported) -> void {
 auto Codegen::mergeImportedSpecializationState(Codegen const& imported) -> void {
   for (const auto& entry : imported.genericClasses) {
     genericClasses.insert(entry);
+  }
+  for (const auto& entry : imported.specializedClassTypesByKey) {
+    specializedClassTypesByKey.insert(entry);
   }
   for (const auto& entry : imported.specializedClassTypeEnvs) {
     specializedClassTypeEnvs.insert(entry);
@@ -589,16 +600,8 @@ auto Codegen::callExistentialMethod(llvm::SMRange span, lesma::Value* receiver,
   llvm::SmallVector<llvm::Type*, 8> tparams;
   tparams.push_back(ptrTy);
   auto savedGenerics = currentGenericTypes;
-  if (auto clsEnvIt = specializedClassTypeEnvs.find(receiverType);
-      clsEnvIt != specializedClassTypeEnvs.end()) {
-    currentGenericTypes = clsEnvIt->second;
-  } else {
-    for (const auto& entry : specializedClassTypeEnvs) {
-      if (entry.first != nullptr && entry.first->isEqual(receiverType)) {
-        currentGenericTypes = entry.second;
-        break;
-      }
-    }
+  if (const auto* envPtr = specializedClassEnvFor(receiverType); envPtr != nullptr) {
+    currentGenericTypes = *envPtr;
   }
   lesma::Type* retLesma = nullptr;
   try {

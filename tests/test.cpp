@@ -59,7 +59,8 @@ auto initializeCodegen(std::unique_ptr<Parser> parser, const std::shared_ptr<Sou
   auto codegen = std::make_unique<Codegen>(
       std::move(parser), srcMgr, __FILE__, std::vector<std::string>{}, true, true, "", nullptr,
       nullptr, nullptr, std::move(takenRootScope), std::move(takenTypeCache),
-      typechecker.takeSpecializedTypeEnv(), typechecker.takeSpecializedTypeToTemplate());
+      typechecker.takeSpecializedTypeEnv(), typechecker.takeSpecializedTypeToTemplate(),
+      typechecker.takeSpecializedClassTypes());
   codegen->run();
 
   return codegen;

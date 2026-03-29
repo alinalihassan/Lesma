@@ -85,6 +85,17 @@ auto cast(llvm::SMRange span, Value* val, Type* type, llvm::IRBuilder<>* builder
     return std::make_unique<Value>(*val); // Copy for borrowed value
   }
 
+  if (type->is(BaseType::TY_CLASS) && val->getType()->is(BaseType::TY_PTR)) {
+    Type* fromElem = val->getType()->getElementType();
+    if (fromElem != nullptr && fromElem->is(BaseType::TY_CLASS)) {
+      for (Type* t = fromElem; t != nullptr; t = t->getClassSuperclass()) {
+        if (t->isEqual(type)) {
+          return std::make_unique<Value>("", type, val->getLlvmValue());
+        }
+      }
+    }
+  }
+
   if (type->is(BaseType::TY_INT)) {
     if (val->getType()->isFloatingPoint()) {
       auto* casted = type->isSigned()

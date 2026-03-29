@@ -152,6 +152,9 @@ class Typechecker final : public ASTVisitor {
   /** After all template fields exist, fill in placeholder specialized types created
    * mid-declaration. */
   void finalizeSpecializedTypesForTemplate(Type* classTemplate);
+  /** Register canonical bookkeeping for a specialized class type. */
+  void registerSpecializedClassType(Type* specialized, Type* classTemplate,
+                                    std::unordered_map<std::string, Type*> env);
   /** Existential trait type with explicit type args (e.g. Iterator<int>). */
   auto getOrCreateSpecializedTraitExistentialType(Type* traitTemplate,
                                                   const std::string& lookupName,
@@ -265,6 +268,8 @@ public:
   /** Specialized class type → its generic template (for substituting through `Base<T>`-style supers).
    */
   auto takeSpecializedTypeToTemplate() -> std::unordered_map<Type*, Type*>;
+  /** Stable registry key -> canonical specialized class type from typecheck. */
+  auto takeSpecializedClassTypes() -> std::unordered_map<std::string, Type*>;
   auto takeImportAliasToPath() -> ImportAliasMap;
   auto takeImportedNameToSource() -> ImportedNameSourceMap;
   auto takeImportedModules()
