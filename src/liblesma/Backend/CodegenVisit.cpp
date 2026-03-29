@@ -1126,8 +1126,8 @@ auto Codegen::defineSynthesizedClassConstructor(lesma::Value* ctorSym, const Cla
   }
   llvm::Value* selfAlloca = selfSym->getLlvmValue();
   llvm::Value* selfPtr = builder->CreateLoad(builder->getPtrTy(), selfAlloca, "self.ptr");
-
-  emitInitClassVtablePointer(classType, selfPtr);
+  // Vtable pointer is initialized at the allocation site for the concrete class. Re-emitting it
+  // here would let synthesized base constructors overwrite a derived object's vtable.
 
   std::vector<Field*> const layoutFields = classType->getFields();
   size_t layoutIdx = 0;
