@@ -8,7 +8,6 @@ import { ExamplesModal } from '@/playground/components/features/examples/Example
 import { dispatchTerminalSettingsChange } from '@/playground/store/terminal/dispatchers'
 import { dispatchLoadSnippetFromSource } from '@/playground/store/workspace/dispatchers/snippet'
 import {
-  dispatchToggleTheme,
   newMonacoParamsChangeDispatcher,
   newSettingsChangeDispatcher,
   runFileDispatcher,
@@ -25,7 +24,6 @@ export const Header: React.FC = () => {
   const [showSettings, setShowSettings] = useState(false)
   const [showExamples, setShowExamples] = useState(false)
 
-  const darkMode = useSelector(({ settings }: State) => settings.darkMode)
   const isDisabled = useSelector(({ status }: State) => Boolean(status?.loading || status?.running))
   const commandBarStateKey = isDisabled ? 'disabled' : 'enabled'
 
@@ -103,20 +101,6 @@ export const Header: React.FC = () => {
     },
   ]
 
-  const asideItems: ICommandBarItemProps[] = [
-    {
-      key: 'toggleTheme',
-      cacheKey: `toggleTheme-${darkMode ? 'dark' : 'light'}`,
-      text: 'Toggle Dark Mode',
-      ariaLabel: 'Toggle Dark Mode',
-      iconOnly: true,
-      iconProps: { iconName: darkMode ? 'Brightness' : 'ClearNight' },
-      onClick: () => {
-        dispatch(dispatchToggleTheme)
-      },
-    },
-  ]
-
   const embedded = isEmbeddedInParentFrame()
 
   return (
@@ -130,7 +114,6 @@ export const Header: React.FC = () => {
       <CommandBar
         className="header__commandBar"
         items={menuItems}
-        farItems={asideItems.filter(({ hidden }) => !hidden)}
         ariaLabel="CodeEditor menu"
       />
       <ConnectedSettingsModal

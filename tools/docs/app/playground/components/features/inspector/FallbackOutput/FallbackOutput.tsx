@@ -3,7 +3,7 @@ import React from 'react'
 import { mergeStyleSets, useTheme } from '@fluentui/react'
 import type { StatusState } from '@/playground/store'
 import { EvalEventKind } from '@/playground/services/api/models/run'
-import { splitImageAndText } from './utils'
+import { ansiToPlaygroundHtml, containsAnsiEscapes } from '@/playground/utils/ansi'
 
 interface Props {
   status?: StatusState
@@ -32,11 +32,8 @@ export const FallbackOutput: React.FC<Props> = ({ fontFamily, fontSize, status }
       border: 'none',
       margin: 0,
     },
-    stderr: {
+    stderrPlain: {
       color: theme.palette.red,
-    },
-    image: {
-      display: 'block',
     },
     programExitMsg: {
       marginTop: '1rem',
@@ -49,26 +46,22 @@ export const FallbackOutput: React.FC<Props> = ({ fontFamily, fontSize, status }
     <div className={styles.root} style={{ fontFamily, fontSize: `${fontSize}px` }}>
       <div className={styles.content}>
         {status?.events?.map((ev, i) => {
-          const kind = ev.Kind
           const msg = ev.Message ?? ''
-          if (kind === EvalEventKind.Stderr) {
+          if (containsAnsiEscapes(msg)) {
             return (
-              <span key={i} className={styles.stderr}>
-                {msg}
-              </span>
+              <span
+                key={i}
+                // eslint-disable-next-line react/no-danger -- Anser output from run stderr/stdout
+                dangerouslySetInnerHTML={{ __html: ansiToPlaygroundHtml(msg) }}
+              />
             )
           }
-
-          // Image content and text can come mixed due to output buffering
-          return splitImageAndText(msg).map(({ isImage, data }, j) => (
-            <React.Fragment key={`${i}.${j}`}>
-              {isImage ? (
-                <img className={styles.image} key={i} src={`data:image;base64,${data}`} alt="Image output" />
-              ) : (
-                data
-              )}
-            </React.Fragment>
-          ))
+          const isStderr = ev.Kind === EvalEventKind.Stderr
+          return (
+            <span key={i} className={isStderr ? styles.stderrPlain : undefined}>
+              {msg}
+            </span>
+          )
         })}
       </div>
       {!status?.running && <span className={styles.programExitMsg}>Program exited.</span>}

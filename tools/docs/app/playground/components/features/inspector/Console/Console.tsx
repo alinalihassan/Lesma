@@ -5,7 +5,6 @@ import { DefaultButton, useTheme } from '@fluentui/react'
 
 import type { ITerminalAddon, ITerminalOptions, Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
-import { ImageAddon } from '@xterm/addon-image'
 import { CanvasAddon } from '@xterm/addon-canvas'
 import { WebglAddon } from '@xterm/addon-webgl'
 
@@ -21,13 +20,6 @@ import { createDebounceResizeObserver } from './utils'
 import './Console.css'
 
 const RESIZE_DELAY = 50
-
-const imageAddonConfig = {
-  enableSizeReports: true,
-  sixelSupport: true,
-  sixelScrolling: true,
-  iipSupport: true,
-}
 
 const config: ITerminalOptions = {
   convertEol: true,
@@ -84,16 +76,13 @@ const CopyButton: React.FC<{
   )
 }
 
-/**
- * Console is Go program events output component based on xterm.js
- */
+/** Run output (stdout/stderr) using xterm.js. */
 export const Console: React.FC<ConsoleProps> = ({ fontFamily, fontSize, status, backend }) => {
   const theme = useXtermTheme()
   const [isFocused, setIsFocused] = useState(false)
   const [xtermHost, setXtermHost] = useState<XTerm | null>(null)
 
   const fitAddonRef = useRef(new FitAddon())
-  const imageAddonRef = useRef(new ImageAddon(imageAddonConfig))
   const eventsWrittenRef = useRef(0)
 
   const handleXTermRef = useCallback((instance: XTerm | null) => {
@@ -256,7 +245,7 @@ export const Console: React.FC<ConsoleProps> = ({ fontFamily, fontSize, status, 
       <XTerm
         ref={handleXTermRef}
         className="app-Console__xterm"
-        addons={[fitAddonRef.current, imageAddonRef.current]}
+        addons={[fitAddonRef.current]}
         options={{
           ...config,
           theme,

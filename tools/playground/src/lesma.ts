@@ -1,6 +1,6 @@
 import path from "node:path"
 
-export type CompileEvent = {
+export type RunEvent = {
   Message: string
   Kind: string
   Delay: number
@@ -44,7 +44,7 @@ export async function runLesma(
   files: Record<string, string>,
   timeoutMs: number,
   debug?: string[],
-): Promise<CompileEvent[]> {
+): Promise<RunEvent[]> {
   let mainRel: string
   try {
     mainRel = pickMainRel(files)
@@ -80,7 +80,8 @@ export async function runLesma(
     let runErr: Error | null = null
 
     try {
-      const spawnArgs = [lesmaPath, "run"]
+      // Warnings still appear via lesma-lsp in the Problems panel; keep run output free of duplicates.
+      const spawnArgs = [lesmaPath, "run", "--no-warnings"]
       if (debug !== undefined && debug.length > 0) {
         spawnArgs.push("-d", ...debug)
       }
@@ -116,7 +117,7 @@ export async function runLesma(
       if (timer) clearTimeout(timer)
     }
 
-    const events: CompileEvent[] = []
+    const events: RunEvent[] = []
     if (stdout.length > 0) {
       events.push({ Message: stdout, Kind: "stdout", Delay: 0 })
     }
