@@ -9,6 +9,9 @@ export const gitConfig = {
   branch: 'main',
 };
 
+/** Canonical GitHub repo URL (same for docs chrome and playground nav). */
+export const githubRepoWebUrl = `https://github.com/${gitConfig.user}/${gitConfig.repo}` as const;
+
 /** Blob URL prefix for “Edit on GitHub” / View options (paths under `tools/docs/content/docs`). */
 export const docsGithubBlobBase = `https://github.com/${gitConfig.user}/${gitConfig.repo}/blob/${gitConfig.branch}/tools/docs/content/docs`;
 

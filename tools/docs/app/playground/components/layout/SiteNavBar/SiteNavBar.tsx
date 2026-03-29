@@ -3,7 +3,7 @@ import { useDispatch, useSelector } from 'react-redux'
 import { BookOpen, Gamepad2, Moon, Search, Sun } from 'lucide-react'
 import { clsx } from 'clsx'
 
-import { docsSiteBaseUrl, githubRepoUrl } from '@/playground/config/siteNav'
+import { githubRepoWebUrl } from '@/lib/shared'
 import { GithubMark } from './GithubMark'
 import { dispatchToggleTheme, type State } from '@/playground/store'
 
@@ -16,8 +16,8 @@ export const SiteNavBar: React.FC = () => {
   const dispatch = useDispatch()
   const darkMode = useSelector(({ settings }: State) => settings.darkMode)
 
-  const docsBase = docsSiteBaseUrl()
-  const githubUrl = githubRepoUrl()
+  const docsBase = typeof window !== 'undefined' ? window.location.origin.replace(/\/$/, '') : ''
+  const githubUrl = githubRepoWebUrl
   const docsHome = docsBase ? `${docsBase}/` : '/'
   const docsSection = docsBase ? `${docsBase}/docs` : '/docs'
   const searchHint = docsBase ? `${docsBase}/docs` : '/docs'

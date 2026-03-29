@@ -5,7 +5,6 @@
   "scripts": {
     "build": "node ./node_modules/@react-router/dev/bin.js build",
     "dev": "react-router dev --port 5174",
-    "start": "serve ./build/client --config ./serve.json",
     "deploy:cloudflare": "cd ../playground && bun run deploy:cloudflare",
     "dev:cloudflare": "cd ../playground && bun run dev:cloudflare",
     "types:check": "react-router typegen && fumadocs-mdx && tsc --noEmit",
@@ -61,8 +60,6 @@
     "@types/prop-types": "^15.7.15",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
-    "react-router-devtools": "^6.2.0",
-    "serve": "^14.2.6",
     "tailwindcss": "^4.2.2",
     "typescript": "^6.0.2",
     "vite": "^8.0.3",

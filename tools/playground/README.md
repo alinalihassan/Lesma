@@ -26,10 +26,9 @@ For a full local loop, build or run the docs app and point the server at its cli
 
 - **Recommended dev:** from `tools/docs`, `bun run dev` (port **5174**) and, in another terminal, `bun run dev` here so `/api` is proxied by Vite to **8080** (see `tools/docs/vite.config.ts`).
 - **`VITE_API_PROXY`** / `LISTEN_ADDR` — set if the API is not on the default `127.0.0.1:8080` (see `src/config.ts` and `tools/docs/vite.config.ts`).
+- **`VITE_API_ORIGIN`** (optional, docs Vite build) — only if the browser must call an API on another origin; defaults to `window.location.origin`.
 
-Playground in-app links use **`VITE_DOCS_URL`** when set at docs build time; otherwise `window.location.origin` (same-host deploy).
-
-**Shipping:** static `build/client` alone is not enough for Run/LSP — you need this Bun process (or the Docker image). See **`tools/docs/README.md`** (section *Shipping (static files vs server)*).
+**Shipping:** static `build/client` alone is not enough for Run/LSP — you need this Bun process (or the Docker image). See **`tools/docs/README.md`** (*Shipping*).
 
 ## Production build
 
@@ -83,13 +82,11 @@ One hostname is enough: **docs** are at `https://lesma.dev/`, the **playground**
 3. Run **`bun run deploy:cloudflare`**. Wrangler attaches those custom domains to this Worker; Cloudflare will show any DNS records still needed under the zone (often auto-managed when the zone is on Cloudflare).
 4. Optional: add a **Redirect rule** in the dashboard (`www.lesma.dev/*` → `https://lesma.dev/$1`) if you only want the apex as canonical.
 
-Do **not** set **`VITE_DOCS_URL`** for this layout; the app uses `window.location.origin` for API paths and in-app links.
-
 ## Environment (server)
 
 See `src/config.ts` for flags and env vars (`LESMA_BIN`, `LESMA_LSP_BIN`, `LESMA_RUN_TIMEOUT`, etc.).
 
 ## Troubleshooting
 
-- **`EADDRINUSE` on port 8080** — Free the port or use e.g. `LISTEN_ADDR=:8787 bun dev` and set `VITE_API_PROXY=http://127.0.0.1:8787` when running `tools/docs` Vite dev.
+- **`EADDRINUSE` on port 8080** — Free the port or use e.g. `LISTEN_ADDR=:8787 bun dev` and set `VITE_API_PROXY=http://127.0.0.1:8787` when running `tools/docs` Vite dev. Only if the client must target a different API host, set **`VITE_API_ORIGIN`** on the docs build.
 - **API / LSP from the Vite app** — Defaults proxy `/api` (and WebSockets) to **8080**; see `tools/docs/vite.config.ts`.

@@ -1,7 +1,9 @@
 /**
- * Global environment variables
+ * Optional `VITE_API_ORIGIN`: HTTP origin for the playground API (e.g. `https://lesma.dev`).
+ * Defaults to the current page origin. LSP WebSocket URL is derived from this base.
  */
-const rawApiBase = import.meta.env.VITE_LANG_SERVER ?? window.location.origin
+const fromEnv = import.meta.env.VITE_API_ORIGIN?.trim()
+const rawApiBase = (fromEnv ? fromEnv.replace(/\/$/, '') : '') || window.location.origin
 
 const environment = {
   apiUrl: rawApiBase,
