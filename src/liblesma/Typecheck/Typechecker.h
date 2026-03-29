@@ -224,6 +224,8 @@ class Typechecker final : public ASTVisitor {
    */
   [[nodiscard]] auto methodLookupSignatureKey(const std::string& name,
                                               const std::vector<Type*>& lookupArgs) -> std::string;
+  /** Stable class-vtable slot key for a resolved method symbol. */
+  [[nodiscard]] auto vtableMethodKey(const Value* methodSymbol) -> std::string;
   /** Move all owning Type nodes from an import analysis tree into \p dest so \c
    * SymbolTable typeRefs remain valid after \c importedModuleCache is cleared. */
   void mergeImportedAnalysisTypeCachesInto(std::vector<std::unique_ptr<Type>>& dest,

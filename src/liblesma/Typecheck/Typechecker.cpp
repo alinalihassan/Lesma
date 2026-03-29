@@ -124,6 +124,24 @@ auto Typechecker::methodLookupSignatureKey(const std::string& name,
   return key;
 }
 
+auto Typechecker::vtableMethodKey(const Value* methodSymbol) -> std::string {
+  if (methodSymbol == nullptr) {
+    return {};
+  }
+  std::string key = methodSymbol->getName();
+  Type* methodType = methodSymbol->getType();
+  if (methodType == nullptr || !methodType->is(BaseType::TY_FUNCTION)) {
+    return key;
+  }
+  auto fields = methodType->getFields();
+  size_t start = fields.empty() ? 0U : 1U;
+  for (size_t i = start; i < fields.size(); ++i) {
+    Field* field = fields[i];
+    key += "|" + (field != nullptr && field->type != nullptr ? field->type->toString() : "?");
+  }
+  return key;
+}
+
 void Typechecker::mergeImportedAnalysisTypeCachesInto(
     std::vector<std::unique_ptr<Type>>& dest, const std::shared_ptr<ImportedModuleAnalysis>& mod) {
   if (mod == nullptr) {
@@ -2696,11 +2714,15 @@ void Typechecker::mergeClassVtableOrder(const Class* node, Type* classTy) {
     if (m->getName() == "new") {
       continue;
     }
-    if (slotIndex.count(m->getName()) != 0U) {
+    std::string methodKey = vtableMethodKey(m->getResolvedSymbol());
+    if (methodKey.empty()) {
+      methodKey = m->getName();
+    }
+    if (slotIndex.count(methodKey) != 0U) {
       continue;
     }
-    slotIndex[m->getName()] = order.size();
-    order.push_back(m->getName());
+    slotIndex[methodKey] = order.size();
+    order.push_back(std::move(methodKey));
   }
   classTy->setClassVtableMethodOrder(std::move(order));
 }
@@ -2818,7 +2840,6 @@ auto Typechecker::visit(const Class* node) -> void {
       classTypePtr->addField(std::move(fieldEntry));
     }
 
-    mergeClassVtableOrder(node, classTypePtr);
     finalizeSpecializedTypesForTemplate(classTypePtr);
     classTemplateBeingDeclared = nullptr;
     classFieldCountExpected = 0;
@@ -2850,6 +2871,7 @@ auto Typechecker::visit(const Class* node) -> void {
   currentMethodInsertScope = savedMethodInsertScope;
 
   if (declarationPass) {
+    mergeClassVtableOrder(node, classTypePtr);
     bool hasExplicitNew = false;
     for (FuncDecl* m : node->getMethods()) {
       if (m->getName() == "new") {
@@ -3825,10 +3847,8 @@ auto Typechecker::visit(const DotOp* node) -> void {
       }
       argTypes.push_back(t);
     }
-    Type* selfPtrSuper = cacheType(std::make_unique<Type>(BaseType::TY_PTR, nullptr, superTy));
-    // Super dispatch always resolves against an implicit receiver followed by explicit args.
+    // `super.new(self, ...)` passes the receiver explicitly; mirror codegen lookup exactly.
     std::vector<Type*> methodArgTypes = argTypes;
-    methodArgTypes.insert(methodArgTypes.begin(), selfPtrSuper);
     SymbolTable* insertScope =
         currentMethodInsertScope != nullptr ? currentMethodInsertScope : scope->getParent();
     if (insertScope == nullptr) {
@@ -3843,6 +3863,10 @@ auto Typechecker::visit(const DotOp* node) -> void {
         [this, superTy](Type* recvCls) { return superMethodReceiverMatchesFormal(recvCls, superTy); },
         superTy, superSeed);
     if (method == nullptr) {
+      method = insertScope->lookupFunction(fc->getName(), methodArgTypes, FunctionLookupKind::VALUE,
+                                           currentClassType);
+    }
+    if (method == nullptr) {
       for (auto& [_, cachedModule] : importedModuleCache) {
         if (cachedModule == nullptr || cachedModule->rootScope == nullptr) {
           continue;
@@ -3853,6 +3877,11 @@ auto Typechecker::visit(const DotOp* node) -> void {
               return superMethodReceiverMatchesFormal(recvCls, superTy);
             },
             superTy, superSeed);
+        if (method == nullptr) {
+          method = cachedModule->rootScope->lookupFunction(fc->getName(), methodArgTypes,
+                                                           FunctionLookupKind::VALUE,
+                                                           currentClassType);
+        }
         if (method != nullptr) {
           break;
         }

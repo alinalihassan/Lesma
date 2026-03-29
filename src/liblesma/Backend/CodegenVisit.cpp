@@ -83,6 +83,25 @@ namespace {
   return key;
 }
 
+[[nodiscard]] auto makeResolvedCallableKey(const lesma::Value* symbol) -> std::string {
+  if (symbol == nullptr) {
+    return {};
+  }
+  lesma::Type* callableType = symbol->getType();
+  if (callableType == nullptr || !callableType->is(lesma::BaseType::TY_FUNCTION)) {
+    return symbol->getName();
+  }
+  auto fields = callableType->getFields();
+  std::vector<lesma::Type*> lookupArgs;
+  size_t start = fields.empty() ? 0U : 1U;
+  lookupArgs.reserve(fields.size() - start);
+  for (size_t i = start; i < fields.size(); ++i) {
+    lesma::Field* field = fields[i];
+    lookupArgs.push_back(field != nullptr ? field->type : nullptr);
+  }
+  return makeCallableSignatureKey(symbol->getName(), lookupArgs);
+}
+
 /** Vtable initializers must reference Function* in the emitting module; imported codegen may still
  *  hold pointers into a module that was already moved to the JIT. */
 [[nodiscard]] auto materializeVtableFunctionPointer(llvm::Module* mod, llvm::PointerType* ptrTyTyped,
@@ -1245,12 +1264,13 @@ auto Codegen::getOrEmitClassVtableGlobal(lesma::Type* classTy, const Class* astN
       if (rs == nullptr) {
         continue;
       }
+      std::string const methodKey = makeResolvedCallableKey(rs);
       llvm::Constant* fnConst = materializeVtableFunctionPointer(theModule.get(), ptrTyTyped, rs);
       if (fnConst == nullptr) {
         continue;
       }
       for (size_t i = 0; i < order.size(); ++i) {
-        if (order[i] == m->getName()) {
+        if (order[i] == methodKey) {
           elems[i] = fnConst;
           break;
         }
@@ -4168,9 +4188,10 @@ auto Codegen::callMethodByName(llvm::SMRange span, lesma::Value* receiver,
       selfSymbol = savedSelfSymbol;
       llvm::Value* callResult = nullptr;
       const auto& vtOrder = receiverType->getClassVtableMethodOrder();
+      std::string const methodKey = makeResolvedCallableKey(directMethod);
       unsigned vtableSlot = ~0U;
       for (size_t i = 0; i < vtOrder.size(); ++i) {
-        if (vtOrder[i] == methodName) {
+        if (vtOrder[i] == methodKey) {
           vtableSlot = static_cast<unsigned>(i);
           break;
         }
