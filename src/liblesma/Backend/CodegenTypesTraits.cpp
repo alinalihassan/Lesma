@@ -621,7 +621,7 @@ auto Codegen::callExistentialMethod(llvm::SMRange span, lesma::Value* receiver,
   llvm::SmallVector<llvm::Type*, 8> tparams;
   tparams.push_back(ptrTy);
   auto savedGenerics = currentGenericTypes;
-  if (const auto* envPtr = specializedClassEnvFor(receiverType); envPtr != nullptr) {
+  if (const auto* envPtr = specializedTraitExistentialEnvFor(receiverType); envPtr != nullptr) {
     currentGenericTypes = *envPtr;
   }
   lesma::Type* retLesma = nullptr;

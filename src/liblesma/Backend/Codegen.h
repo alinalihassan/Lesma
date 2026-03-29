@@ -410,6 +410,8 @@ protected:
   auto lookupClassStructSymbol(lesma::Type* classTy) -> Value*;
   [[nodiscard]] auto specializedClassEnvFor(lesma::Type* classTy)
       -> const std::unordered_map<std::string, lesma::Type*>*;
+  [[nodiscard]] auto specializedTraitExistentialEnvFor(lesma::Type* existentialTy)
+      -> const std::unordered_map<std::string, lesma::Type*>*;
   [[nodiscard]] auto lookupClassVtableGlobal(lesma::Type* classTy) -> llvm::GlobalVariable*;
 
   auto collectTraitMetadataFromAst() -> void;

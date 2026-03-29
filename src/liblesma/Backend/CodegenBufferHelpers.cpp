@@ -364,6 +364,17 @@ auto Codegen::specializedClassEnvFor(lesma::Type* classTy)
   return nullptr;
 }
 
+auto Codegen::specializedTraitExistentialEnvFor(lesma::Type* existentialTy)
+    -> const std::unordered_map<std::string, lesma::Type*>* {
+  if (existentialTy == nullptr || !existentialTy->is(BaseType::TY_TRAIT_EXISTENTIAL)) {
+    return nullptr;
+  }
+  if (auto it = specializedClassTypeEnvs.find(existentialTy); it != specializedClassTypeEnvs.end()) {
+    return &it->second;
+  }
+  return nullptr;
+}
+
 auto Codegen::lookupClassVtableGlobal(lesma::Type* classTy) -> llvm::GlobalVariable* {
   if (classTy == nullptr) {
     return nullptr;
