@@ -9,7 +9,7 @@ Lesma programs split across **modules** (typically one `.les` file per unit of c
 
 ## Import a file
 
-```
+```les
 import "other.les"
 ```
 
@@ -19,7 +19,7 @@ Paths are resolved relative to the file doing the import (and the compiler’s s
 
 Selective imports:
 
-```
+```les
 from time import sleep as sleep_test
 from "class.les" import Animal
 ```
@@ -28,7 +28,7 @@ from "class.les" import Animal
 
 Import every exported name from a module:
 
-```
+```les
 from "helpers.les" import *
 ```
 

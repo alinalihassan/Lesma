@@ -11,7 +11,7 @@ Lesma supports **traits** (interfaces with optional default method bodies) and *
 
 A trait declares required methods. A class **implements** a trait with `impl`:
 
-```
+```les
 export trait Describable
     def label() -> str
 
@@ -32,7 +32,7 @@ Default bodies on trait methods are allowed—classes that `impl` the trait inhe
 
 Type parameters appear in angle brackets before the parameter list:
 
-```
+```les
 def identity<T>(x: T) -> T
     return x
 
@@ -46,7 +46,7 @@ def max_val<T>(a: T, b: T) -> T
 
 Require that a type parameter implements a trait:
 
-```
+```les
 def print_label<T: Describable>(x: T) -> void
     print(x.label())
 ```

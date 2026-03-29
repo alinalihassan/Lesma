@@ -1,4 +1,7 @@
 import { fileURLToPath } from 'node:url';
+
+const docsPackageRoot = fileURLToPath(new URL('.', import.meta.url));
+const toolsDir = fileURLToPath(new URL('..', import.meta.url));
 import { reactRouter } from '@react-router/dev/vite';
 import tailwindcss from '@tailwindcss/vite';
 import { defineConfig } from 'vite';
@@ -6,6 +9,7 @@ import mdx from 'fumadocs-mdx/vite';
 import { nodePolyfills } from 'vite-plugin-node-polyfills';
 import svgr from 'vite-plugin-svgr';
 import * as MdxConfig from './source.config';
+import { modernMonacoShikiLoadedLanguages } from './vite-plugins/modern-monaco-shiki-languages';
 
 function playgroundApiProxyTarget(): string {
   const explicit = process.env.VITE_API_PROXY?.trim();
@@ -23,7 +27,12 @@ function playgroundApiProxyTarget(): string {
 }
 
 export default defineConfig({
+  optimizeDeps: {
+    // Let Vite transform `modern-monaco/dist/core.mjs` so custom `registerSyntax` grammars get Shiki tokenizers.
+    exclude: ['modern-monaco'],
+  },
   plugins: [
+    modernMonacoShikiLoadedLanguages(),
     nodePolyfills({
       include: ['buffer', 'process'],
       globals: {
@@ -37,6 +46,10 @@ export default defineConfig({
     svgr({ svgrOptions: { icon: true } }),
   ],
   server: {
+    fs: {
+      // `lesma.tmLanguage.json` lives under `tools/vscode/` (sibling of this package).
+      allow: [docsPackageRoot, toolsDir],
+    },
     port: 5174,
     strictPort: false,
     proxy: {

@@ -9,7 +9,7 @@ category: Language
 
 An **`enum`** declares a set of named constants. Cases are referenced as **`EnumName.CASE`**.
 
-```
+```les
 enum Color
     RED
     BLUE
@@ -27,7 +27,7 @@ Enums can be used as parameter and return types like any other nominal type.
 
 Tuple types are written with parentheses and comma-separated element types. A single-element tuple keeps a trailing comma: **`(int,)`**.
 
-```
+```les
 def sumAndMul(x: int, y: int) -> (int, int)
     return (x + y, x * y)
 
@@ -43,7 +43,7 @@ Unpacking (`let a, b = …`) and indexing (`both[0]`) work as in the example abo
 
 You can construct **`list<T>`** and **`dict<K, V>`** values with bracket literals; the compiler infers element types when possible.
 
-```
+```les
 let nums = [1, 2, 3]
 let table: dict<str, int> = {"a": 1, "b": 2}
 ```
@@ -54,7 +54,7 @@ See the [standard library overview](/docs/language/stdlib-overview) for types li
 
 **`is`** and **`is not`** compare a value’s **runtime type** to a type expression. They are useful after generic or pointer-heavy code where you need a clear type check.
 
-```
+```les
 var x: int = 5
 let p: *int = &x
 
@@ -68,7 +68,7 @@ You can test built-ins, generics, and other type forms the compiler accepts in t
 
 Numeric and other conversions can be written with **`as`**, when the conversion is defined by the type checker:
 
-```
+```les
 let y: float = 101.5
 let z: int = y as int
 ```
@@ -77,7 +77,7 @@ let z: int = y as int
 
 **`pass`** is a no-op statement. It is useful as a placeholder where the grammar requires a body (for example an empty branch, a stub method, or a temporary definition).
 
-```
+```les
 def todo()
     pass
 ```

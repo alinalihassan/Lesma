@@ -16,7 +16,7 @@ values to C, see [Foreign Function Interface](/docs/language/ffi).
 `text()` reads the file into a **`str`**. On failure (missing file, I/O error), you get an empty
 string—check the result if you care about errors.
 
-```
+```les
 let data = file("notes.txt").text()
 print(data)
 ```
@@ -25,7 +25,7 @@ print(data)
 
 `file.write` is a static-style call: the first argument is the path, the second is the content.
 
-```
+```les
 file.write("out.txt", "hello\n")
 ```
 
@@ -38,7 +38,7 @@ an intermediate `str`.
 Construct a `file` for the path, then call **`delete()`** (this uses the C `remove` function under
 the hood).
 
-```
+```les
 var f = file("out.txt")
 f.delete()
 ```

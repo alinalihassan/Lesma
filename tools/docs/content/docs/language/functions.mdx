@@ -11,7 +11,7 @@ Functions bundle behavior with a typed interface.
 
 Define a function with `def`, parameters, an optional return type, and a body:
 
-```
+```les
 def add(a: int, b: int) -> int
     return a + b
 ```
@@ -20,7 +20,7 @@ def add(a: int, b: int) -> int
 
 Call with parentheses and comma-separated arguments. Calls can nest:
 
-```
+```les
 print("${add(1, add(2, 3))}")
 ```
 
@@ -28,7 +28,7 @@ print("${add(1, add(2, 3))}")
 
 Functions may call themselves:
 
-```
+```les
 def countdown(n: int) -> void
     if n <= 0
         return
@@ -40,7 +40,7 @@ def countdown(n: int) -> void
 
 Parameters may provide defaults (the default must match the declared type):
 
-```
+```les
 def bump(n: int = 0) -> int
     return n + 1
 

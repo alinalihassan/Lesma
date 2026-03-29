@@ -11,7 +11,7 @@ Lesma is **statically typed**: every expression has a type known at compile time
 
 Function parameters, return types, fields, and locals can carry explicit types:
 
-```
+```les
 def clamp(value: int, lo: int, hi: int) -> int
     if value < lo
         return lo
@@ -22,7 +22,7 @@ def clamp(value: int, lo: int, hi: int) -> int
 
 When types can be inferred reliably, you can omit annotations on locals:
 
-```
+```les
 let n = 40 + 2
 ```
 
@@ -30,7 +30,7 @@ let n = 40 + 2
 
 Pointer types use a leading `*`. They show up in low-level code and in [FFI](/docs/language/ffi) declarations:
 
-```
+```les
 var x: int = 5
 let x_ptr: *int = &x
 ```
@@ -39,7 +39,7 @@ let x_ptr: *int = &x
 
 Functions and classes can take type parameters. A minimal generic function:
 
-```
+```les
 def identity<T>(x: T) -> T
     return x
 ```

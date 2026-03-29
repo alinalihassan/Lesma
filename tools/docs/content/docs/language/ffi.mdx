@@ -11,7 +11,7 @@ Lesma can **declare** functions implemented in C (or another language with a C A
 
 Use **`def extern`** with a name and parameter list that match the C prototype. Return type follows `->` (use `void` when there is no return value).
 
-```
+```les
 def extern abs(x: int) -> int
 
 if abs(-1) != 1
@@ -28,7 +28,7 @@ To expose a C binding from a module that other Lesma files import, use **`export
 - String **literals** are typed as **`str`** by default, but in a context that expects **`cstr`** (for example the first argument to a `printf`-style declaration), a literal is accepted as **`cstr`**.
 - To pass a **`str`** value into a C function that expects **`cstr`**, call **`.cstr()`** on it. That yields a pointer suitable for the duration of the call; treat it like a borrowed buffer unless the C API’s contract says otherwise.
 
-```
+```les
 def extern printf(fmt: cstr, ...)
 
 printf("%s\n", "literal ok")
@@ -41,7 +41,7 @@ printf("%s\n", msg.cstr())
 
 Declare C variadic functions with **`...`** after the fixed parameters:
 
-```
+```les
 def extern printf(fmt: cstr, ...)
 
 printf("n=%d\n", 42)

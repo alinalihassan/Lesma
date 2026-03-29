@@ -1,6 +1,10 @@
+import type { TextmateGrammar } from 'modern-monaco'
+import { registerSyntax } from 'modern-monaco/core'
 import { init } from 'modern-monaco'
 
-import { registerLesmaMonarchLanguage } from './lesma-monarch'
+import { lesmaTextmateGrammar } from '../../../../lib/lesma-textmate-grammar'
+
+import { applyLesmaLanguageConfiguration } from './lesma-language-configuration'
 
 /** Shiki theme when the site / editor is in light mode. */
 export const PLAYGROUND_SHIKI_LIGHT_THEME = 'one-light' as const
@@ -10,6 +14,8 @@ export const PLAYGROUND_SHIKI_DARK_THEME = 'dark-plus' as const
 
 const BUNDLED_SHIKI_THEMES = [PLAYGROUND_SHIKI_LIGHT_THEME, PLAYGROUND_SHIKI_DARK_THEME] as const
 
+registerSyntax(lesmaTextmateGrammar as TextmateGrammar)
+
 /** Runtime API object returned by `init()` (Monaco + Shiki wiring). */
 export type MonacoApi = typeof import('modern-monaco/editor-core')
 
@@ -17,8 +23,7 @@ let initPromise: Promise<MonacoApi> | null = null
 
 /**
  * One-time [modern-monaco](https://github.com/esm-dev/modern-monaco) bootstrap (Shiki + editor core).
- * Lesma uses a Monarch tokenizer — custom TextMate grammars in `init({ langs })` are not hooked to Monaco
- * by modern-monaco (only built-in tm-grammars get `setTokensProvider`).
+ * Lesma highlighting uses the same TextMate grammar as the VS Code extension (`tools/vscode/syntaxes`).
  */
 export function ensureMonaco(): Promise<MonacoApi> {
   if (!initPromise) {
@@ -27,7 +32,7 @@ export function ensureMonaco(): Promise<MonacoApi> {
       themes: [...BUNDLED_SHIKI_THEMES],
       langs: ['json'],
     }).then((monaco) => {
-      registerLesmaMonarchLanguage(monaco)
+      applyLesmaLanguageConfiguration(monaco)
       return monaco
     })
   }
