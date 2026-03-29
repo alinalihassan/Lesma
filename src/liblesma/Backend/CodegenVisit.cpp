@@ -1003,7 +1003,7 @@ auto Codegen::declareSynthesizedClassConstructor(const Class* astNode, lesma::Ty
   }
 
   lesma::Value* existingFunc =
-      scope->lookupFunction("new", paramTypes, FunctionLookupKind::OverloadIdentity);
+      scope->lookupFunction("new", paramTypes, FunctionLookupKind::OVERLOAD_IDENTITY);
   if (existingFunc == nullptr) {
     auto normalizeFunctionParamType = [](lesma::Type* type) -> lesma::Type* {
       if (type != nullptr && type->is(BaseType::TY_PTR) && type->getElementType() != nullptr &&
@@ -1373,7 +1373,7 @@ auto Codegen::visit(const FuncDecl* node) -> void {
   getOrCreateLlvmType(returnType);
 
   lesma::Value* existingFunc = scope->lookupFunction(node->getName(), paramTypes,
-                                                     FunctionLookupKind::OverloadIdentity);
+                                                     FunctionLookupKind::OVERLOAD_IDENTITY);
   if (existingFunc == nullptr) {
     auto normalizeFunctionParamType = [](lesma::Type* type) -> lesma::Type* {
       if (type != nullptr && type->is(BaseType::TY_PTR) && type->getElementType() != nullptr &&
@@ -1544,7 +1544,7 @@ auto Codegen::visit(const ExternFuncDecl* node) -> void {
   }
 
   lesma::Value* existingFunc = scope->lookupFunction(node->getName(), paramTypes,
-                                                     FunctionLookupKind::OverloadIdentity);
+                                                     FunctionLookupKind::OVERLOAD_IDENTITY);
   if (existingFunc == nullptr) {
     throw CodegenError(node->getSpan(), "Missing typechecked extern symbol for {}",
                        node->getName());
@@ -2446,7 +2446,7 @@ auto Codegen::visit(const DotOp* node) -> void {
       }
       if (resolved == nullptr || resolved->getLlvmValue() == nullptr) {
         resolved =
-            scope->lookupFunction(method->getName(), paramTypes, FunctionLookupKind::Value, curCls);
+            scope->lookupFunction(method->getName(), paramTypes, FunctionLookupKind::VALUE, curCls);
       }
     }
     if (resolved == nullptr || resolved->getLlvmValue() == nullptr) {

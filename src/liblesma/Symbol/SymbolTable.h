@@ -16,9 +16,9 @@ namespace lesma {
 /** Controls how pointer-to-class parameters compare in overload lookup. */
 enum class FunctionLookupKind : std::uint8_t {
   /// Allow *Derived to match a formal *Base (call sites and general resolution).
-  Value,
+  VALUE,
   /// Require exact class type under pointers (registering / selecting an overload slot).
-  OverloadIdentity,
+  OVERLOAD_IDENTITY,
 };
 
 /** Pick the best-matching overload from candidate function types (same rules as
@@ -43,7 +43,7 @@ public:
   auto operator=(SymbolTable&&) -> SymbolTable& = default;
 
   auto lookupFunction(const std::string& symbolName, std::vector<lesma::Type*> paramTypes,
-                      FunctionLookupKind kind = FunctionLookupKind::Value,
+                      FunctionLookupKind kind = FunctionLookupKind::VALUE,
                       Type* excludeFormalReceiverClass = nullptr) -> Value*;
   /** Like \c lookupFunction(Value), but only considers overloads for which \p receiverMatches
    * returns true for the class type under the first (receiver) pointer parameter. Used for

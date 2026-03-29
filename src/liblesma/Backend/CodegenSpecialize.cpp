@@ -207,7 +207,7 @@ auto Codegen::emitClassMonomorph(Type* specialized, const Class* templateAst) ->
       hasConstructor = true;
       std::vector<lesma::Type*> constructorParams = buildClassMethodParamTypesForLookup(method);
       auto* constructor =
-          scope->lookupFunction("new", constructorParams, FunctionLookupKind::OverloadIdentity);
+          scope->lookupFunction("new", constructorParams, FunctionLookupKind::OVERLOAD_IDENTITY);
       structSymbolPtr->setConstructor(constructor);
     }
   }
@@ -818,7 +818,7 @@ auto Codegen::specializeClass(const Class* node,
       hasConstructor = true;
       std::vector<lesma::Type*> constructorParams = buildClassMethodParamTypesForLookup(method);
       auto* constructor =
-          scope->lookupFunction("new", constructorParams, FunctionLookupKind::OverloadIdentity);
+          scope->lookupFunction("new", constructorParams, FunctionLookupKind::OVERLOAD_IDENTITY);
       structSymbolPtr->setConstructor(constructor);
     }
   }

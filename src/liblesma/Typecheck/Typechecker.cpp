@@ -1083,7 +1083,7 @@ auto Typechecker::lookupConstructorForAllocatedClass(SymbolTable* tab,
   }
   if (classType != nullptr && getDeclaredGenericParams(classType).empty()) {
     if (Value* exact = tab->lookupFunction("new", ctorParamTypes,
-                                           FunctionLookupKind::OverloadIdentity);
+                                           FunctionLookupKind::OVERLOAD_IDENTITY);
         exact != nullptr) {
       return exact;
     }
@@ -2637,7 +2637,7 @@ void Typechecker::registerSynthesizedClassConstructor(const Class* node, Type* c
   funcType->setReturnType(voidRet);
   Type* funcTypePtr = cacheType(std::move(funcType));
 
-  if (outerScope->lookupFunction("new", lookupTypes, FunctionLookupKind::OverloadIdentity) !=
+  if (outerScope->lookupFunction("new", lookupTypes, FunctionLookupKind::OVERLOAD_IDENTITY) !=
       nullptr) {
     throw TypeCheckError(node->getNameSpan(), "Constructor 'new' already registered for class {}",
                          node->getIdentifier());
@@ -2650,7 +2650,7 @@ void Typechecker::registerSynthesizedClassConstructor(const Class* node, Type* c
   ctorSym->setDeclarationFilePath(mainFilePath);
   outerScope->insertSymbol(std::move(ctorSym));
   Value* ctorFunc =
-      outerScope->lookupFunction("new", lookupTypes, FunctionLookupKind::OverloadIdentity);
+      outerScope->lookupFunction("new", lookupTypes, FunctionLookupKind::OVERLOAD_IDENTITY);
   if (ctorFunc == nullptr) {
     throw TypeCheckError(node->getNameSpan(), "Internal error registering synthesized constructor");
   }
@@ -2951,7 +2951,7 @@ auto Typechecker::visit(const FuncDecl* node) -> void {
   SymbolTable* insertScope =
       currentMethodInsertScope != nullptr ? currentMethodInsertScope : scope->getParent();
   Value* funcSymbol =
-      insertScope->lookupFunction(node->getName(), paramTypes, FunctionLookupKind::OverloadIdentity);
+      insertScope->lookupFunction(node->getName(), paramTypes, FunctionLookupKind::OVERLOAD_IDENTITY);
   bool const effectiveFuncExported =
       currentClassType != nullptr ? currentClassExported : node->isExported();
 
@@ -2967,7 +2967,7 @@ auto Typechecker::visit(const FuncDecl* node) -> void {
       declaredFunc->setDeclarationFilePath(mainFilePath);
       insertScope->insertSymbol(std::move(declaredFunc));
       funcSymbol = insertScope->lookupFunction(node->getName(), paramTypes,
-                                               FunctionLookupKind::OverloadIdentity);
+                                               FunctionLookupKind::OVERLOAD_IDENTITY);
       // Set resolvedSymbol immediately after we get the symbol for this exact overload
       if (funcSymbol != nullptr) {
         node->setResolvedSymbol(funcSymbol);
@@ -3554,9 +3554,9 @@ auto Typechecker::visit(const FuncCall* node) -> void {
           Value* constructor =
               importedScope != nullptr
                   ? importedScope->lookupFunction("new", ctorParamTypes,
-                                                  FunctionLookupKind::OverloadIdentity)
+                                                  FunctionLookupKind::OVERLOAD_IDENTITY)
                   : scope->lookupFunction("new", ctorParamTypes,
-                                          FunctionLookupKind::OverloadIdentity);
+                                          FunctionLookupKind::OVERLOAD_IDENTITY);
           if (constructor != nullptr) {
             markValueRead(constructor);
           }
@@ -4966,7 +4966,8 @@ auto Typechecker::registerTraitDefaultMethodSymbol(SymbolTable* insertScope, Typ
       lookupArgs.push_back(pt);
     }
   }
-  if (insertScope->lookupFunction(req->getName(), lookupArgs, FunctionLookupKind::OverloadIdentity) !=
+  if (insertScope->lookupFunction(req->getName(), lookupArgs,
+                                  FunctionLookupKind::OVERLOAD_IDENTITY) !=
       nullptr) {
     return;
   }
@@ -4978,8 +4979,8 @@ auto Typechecker::registerTraitDefaultMethodSymbol(SymbolTable* insertScope, Typ
   declaredFunc->setDeclarationSpan(req->getNameSpan());
   declaredFunc->setDeclarationFilePath(mainFilePath);
   insertScope->insertSymbol(std::move(declaredFunc));
-  Value* funcSymbol =
-      insertScope->lookupFunction(req->getName(), lookupArgs, FunctionLookupKind::OverloadIdentity);
+  Value* funcSymbol = insertScope->lookupFunction(req->getName(), lookupArgs,
+                                                  FunctionLookupKind::OVERLOAD_IDENTITY);
   if (funcSymbol == nullptr) {
     return;
   }
@@ -5085,7 +5086,7 @@ auto Typechecker::typecheckTraitDefaultBodies(const Class* classNode, Type* clas
         continue;
       }
       Value* funcSym = methodInsertScope->lookupFunction(req->getName(), lookupArgs,
-                                                         FunctionLookupKind::OverloadIdentity);
+                                                         FunctionLookupKind::OVERLOAD_IDENTITY);
       if (funcSym == nullptr || funcSym->getBodyScope() == nullptr) {
         continue;
       }
@@ -5141,11 +5142,11 @@ auto Typechecker::checkTraitImplementation(const Class* classNode, Type* classTy
         }
       }
       Value* methodSym = methodInsertScope->lookupFunction(req->getName(), lookupArgs,
-                                                           FunctionLookupKind::OverloadIdentity);
+                                                           FunctionLookupKind::OVERLOAD_IDENTITY);
       if (methodSym == nullptr && req->getBody() != nullptr) {
         registerTraitDefaultMethodSymbol(methodInsertScope, classType, req);
         methodSym = methodInsertScope->lookupFunction(req->getName(), lookupArgs,
-                                                      FunctionLookupKind::OverloadIdentity);
+                                                      FunctionLookupKind::OVERLOAD_IDENTITY);
       }
       if (methodSym == nullptr) {
         throw TypeCheckError(classNode->getNameSpan(),

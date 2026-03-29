@@ -190,7 +190,7 @@ auto matchGenericParameter(Type* formalTy, Type* argTy,
       argTy->getElementType()->is(BaseType::TY_CLASS)) {
     Type* fromCls = argTy->getElementType();
     Type* toCls = formalTy->getElementType();
-    if (lookupKind == FunctionLookupKind::OverloadIdentity) {
+    if (lookupKind == FunctionLookupKind::OVERLOAD_IDENTITY) {
       return fromCls->isEqual(toCls);
     }
     if (fromCls->isEqual(toCls)) {
@@ -267,7 +267,7 @@ auto selectBestFunctionTypeMatchImpl(const std::vector<Type*>& candidateFunction
           paramsMatch = false;
           break;
         }
-        if (!matchGenericParameter(formalTy, argTy, genericBindings, FunctionLookupKind::Value)) {
+        if (!matchGenericParameter(formalTy, argTy, genericBindings, FunctionLookupKind::VALUE)) {
           paramsMatch = false;
           break;
         }
@@ -331,7 +331,7 @@ auto selectBestFunctionTypeMatchTailImpl(const std::vector<Type*>& candidateFunc
           paramsMatch = false;
           break;
         }
-        if (!matchGenericParameter(formalTy, argTy, genericBindings, FunctionLookupKind::Value)) {
+        if (!matchGenericParameter(formalTy, argTy, genericBindings, FunctionLookupKind::VALUE)) {
           paramsMatch = false;
           break;
         }
@@ -504,7 +504,7 @@ auto SymbolTable::lookupSuperClassMethod(
           candidateRanks.push_back(typeContainsGeneric(formalTy) ? RANK_GENERIC : RANK_EXACT);
           continue;
         }
-        if (!matchGenericParameter(formalTy, argTy, genericBindings, FunctionLookupKind::Value)) {
+        if (!matchGenericParameter(formalTy, argTy, genericBindings, FunctionLookupKind::VALUE)) {
           paramsMatch = false;
           break;
         }
@@ -581,7 +581,7 @@ auto SymbolTable::lookupSuperClassMethod(
             candidateRanks2.push_back(typeContainsGeneric(formalTy) ? RANK_GENERIC : RANK_EXACT);
             continue;
           }
-          if (!matchGenericParameter(formalTy, argTy, genericBindings2, FunctionLookupKind::Value)) {
+          if (!matchGenericParameter(formalTy, argTy, genericBindings2, FunctionLookupKind::VALUE)) {
             paramsMatch2 = false;
             break;
           }
