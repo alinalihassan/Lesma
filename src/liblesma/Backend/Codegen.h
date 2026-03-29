@@ -62,6 +62,8 @@ struct ImportedSpecializationState {
   std::unordered_map<lesma::Value*, std::unordered_map<std::string, lesma::Type*>>
       specializationEnvs;
   std::unordered_map<std::string, const Class*> codegenClassAstByDisplayName;
+  std::unordered_map<std::string, std::vector<std::string>> traitRequirementMethodOrder;
+  std::unordered_map<std::string, const TraitDecl*> traitDeclByName;
 };
 
 class Codegen final : public ASTVisitor {
@@ -411,6 +413,7 @@ protected:
   [[nodiscard]] auto lookupClassVtableGlobal(lesma::Type* classTy) -> llvm::GlobalVariable*;
 
   auto collectTraitMetadataFromAst() -> void;
+  auto mergeImportedTraitMetadata(ImportedSpecializationState const& imported) -> void;
   auto mergeImportedTraitMetadata(Codegen const& imported) -> void;
   [[nodiscard]] auto captureImportedSpecializationState() const -> ImportedSpecializationState;
   auto mergeImportedSpecializationState(ImportedSpecializationState const& imported) -> void;

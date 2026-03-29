@@ -371,6 +371,10 @@ auto Codegen::collectTraitMetadataFromAst() -> void {
 }
 
 auto Codegen::mergeImportedTraitMetadata(Codegen const& imported) -> void {
+  mergeImportedTraitMetadata(imported.captureImportedSpecializationState());
+}
+
+auto Codegen::mergeImportedTraitMetadata(ImportedSpecializationState const& imported) -> void {
   for (const auto& entry : imported.traitDeclByName) {
     if (traitDeclByName.contains(entry.first)) {
       continue;
@@ -391,6 +395,8 @@ auto Codegen::captureImportedSpecializationState() const -> ImportedSpecializati
   importedState.specializedClassTemplateOf = specializedClassTemplateOf;
   importedState.specializationEnvs = specializationEnvs;
   importedState.codegenClassAstByDisplayName = codegenClassAstByDisplayName;
+  importedState.traitRequirementMethodOrder = traitRequirementMethodOrder;
+  importedState.traitDeclByName = traitDeclByName;
   return importedState;
 }
 

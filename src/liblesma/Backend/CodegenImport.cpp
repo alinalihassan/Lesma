@@ -243,15 +243,10 @@ auto Codegen::compileModule(llvm::SMRange span, const std::string& filepath, boo
     if (existingIdx >= importedSpecializationStates->size()) {
       throw CodegenError(span, "Missing specialization metadata for import {}", filepath);
     }
-    mergeImportedSpecializationState(importedSpecializationStates->at(existingIdx));
-    // importedCodegens is per-Codegen; shared importedModules may list paths compiled by an
-    // ancestor, so only use it to merge non-shared metadata kept alive on this Codegen.
-    for (const auto& cg : importedCodegens) {
-      if (cg != nullptr && cg->filename == absolutePath) {
-        mergeImportedTraitMetadata(*cg);
-        break;
-      }
-    }
+    const ImportedSpecializationState& importedState =
+        importedSpecializationStates->at(existingIdx);
+    mergeImportedSpecializationState(importedState);
+    mergeImportedTraitMetadata(importedState);
     insertImportAlias(moduleAlias, importToScope, absolutePath);
     if (!importToScope && !moduleAlias.empty()) {
       importAliasToModulePath[moduleAlias] = absolutePath;
