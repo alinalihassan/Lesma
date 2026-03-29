@@ -6,6 +6,7 @@
 #include <tuple>
 #include <utility>
 
+#include <llvm/ADT/ScopeExit.h>
 #include <llvm/Support/SMLoc.h>
 
 #include "fmt/core.h"
@@ -1302,8 +1303,9 @@ auto Parser::parseClass() -> std::unique_ptr<Statement> {
         // Class fields reuse parseVarDecl; do not inherit `export` from `export class …`.
         bool const savedExported = isExported;
         isExported = false;
+        auto restoreExported =
+            llvm::make_scope_exit([this, savedExported] { isExported = savedExported; });
         auto stmt = parseVarDecl();
-        isExported = savedExported;
         auto* varDecl = dynamic_cast<VarDecl*>(stmt.get());
         if (varDecl != nullptr) {
           endLoc = varDecl->getEnd();
@@ -1315,8 +1317,9 @@ auto Parser::parseClass() -> std::unique_ptr<Statement> {
         // …`.
         bool const savedExported = isExported;
         isExported = false;
+        auto restoreExported =
+            llvm::make_scope_exit([this, savedExported] { isExported = savedExported; });
         auto stmt = parseFunctionDeclaration();
-        isExported = savedExported;
         auto* funcDecl = dynamic_cast<FuncDecl*>(stmt.get());
         if (funcDecl != nullptr) {
           endLoc = funcDecl->getEnd();
