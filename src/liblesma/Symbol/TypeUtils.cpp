@@ -59,9 +59,12 @@ auto makeSpecializedClassKey(Type* classTemplate, const std::vector<std::string>
   key << classTemplate->toString();
   for (const auto& name : genericParamNames) {
     auto it = env.find(name);
+    key << "|";
     if (it != env.end()) {
-      key << "|" << it->second->toString();
+      key << it->second->toString();
+      continue;
     }
+    key << "<unbound:" << name << ">";
   }
   return key.str();
 }
