@@ -609,7 +609,9 @@ auto SymbolTable::lookupSuperClassMethod(
         withLlvm = cand;
       }
     }
-    if (withLlvm != nullptr) {
+    if (withLlvm != nullptr &&
+        !rankVectorBetter(bestRanks, withLlvmRanks) &&
+        !rankVectorBetter(withLlvmRanks, bestRanks)) {
       bestCandidate = withLlvm;
     }
   }
