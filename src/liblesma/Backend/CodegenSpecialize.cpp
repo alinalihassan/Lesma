@@ -34,6 +34,79 @@ auto Codegen::findGenericClassAstForTemplateType(Type* classTemplateTy) const ->
   return nullptr;
 }
 
+auto Codegen::isTypeFullyConcrete(Type* t) const -> bool {
+  std::unordered_set<Type*> active;
+  auto isTypeFullyConcreteImpl = [&](auto&& self, Type* cur) -> bool {
+    if (cur == nullptr) {
+      return false;
+    }
+    if (cur->is(BaseType::TY_GENERIC)) {
+      return false;
+    }
+    if (!active.insert(cur).second) {
+      return true;
+    }
+
+    bool isConcrete = true;
+    switch (cur->getBaseType()) {
+    case BaseType::TY_PTR:
+    case BaseType::TY_ARRAY:
+      isConcrete = self(self, cur->getElementType());
+      break;
+    case BaseType::TY_FUNCTION:
+      for (Field* field : cur->getFields()) {
+        if (!self(self, field->type)) {
+          isConcrete = false;
+          break;
+        }
+      }
+      if (isConcrete) {
+        isConcrete = self(self, cur->getReturnType());
+      }
+      break;
+    case BaseType::TY_TUPLE:
+    case BaseType::TY_ENUM:
+      for (Field* field : cur->getFields()) {
+        if (!self(self, field->type)) {
+          isConcrete = false;
+          break;
+        }
+      }
+      break;
+    case BaseType::TY_CLASS:
+      if (auto envIt = specializedClassTypeEnvs.find(cur); envIt != specializedClassTypeEnvs.end()) {
+        for (const auto& [name, boundType] : envIt->second) {
+          (void) name;
+          if (!self(self, boundType)) {
+            isConcrete = false;
+            break;
+          }
+        }
+      } else if (!cur->getGenericParams().empty()) {
+        isConcrete = false;
+      }
+      if (isConcrete && cur->getClassSuperclass() != nullptr) {
+        isConcrete = self(self, cur->getClassSuperclass());
+      }
+      if (isConcrete) {
+        for (Field* field : cur->getFields()) {
+          if (!self(self, field->type)) {
+            isConcrete = false;
+            break;
+          }
+        }
+      }
+      break;
+    default:
+      break;
+    }
+
+    active.erase(cur);
+    return isConcrete;
+  };
+  return isTypeFullyConcreteImpl(isTypeFullyConcreteImpl, t);
+}
+
 auto Codegen::emitClassMonomorph(Type* specialized, const Class* templateAst) -> lesma::Value* {
   if (specialized == nullptr || templateAst == nullptr) {
     throw CodegenError({}, "Internal error: emitClassMonomorph requires specialized class input");
@@ -583,10 +656,12 @@ auto Codegen::specializeClass(const Class* node,
     }
   }
 
-  auto envIsFullyConcrete = [](const std::unordered_map<std::string, lesma::Type*>& bindings) -> bool {
+  auto envIsFullyConcrete = [this](
+                                const std::unordered_map<std::string, lesma::Type*>& bindings)
+      -> bool {
     for (const auto& [name, ty] : bindings) {
       (void) name;
-      if (ty != nullptr && ty->is(BaseType::TY_GENERIC)) {
+      if (!isTypeFullyConcrete(ty)) {
         return false;
       }
     }

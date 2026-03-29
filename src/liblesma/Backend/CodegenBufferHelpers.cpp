@@ -304,7 +304,7 @@ auto Codegen::lookupClassStructSymbol(lesma::Type* classTy) -> Value* {
     bool isConcrete = true;
     for (const auto& [name, ty] : envIt->second) {
       (void) name;
-      if (ty != nullptr && ty->is(BaseType::TY_GENERIC)) {
+      if (!isTypeFullyConcrete(ty)) {
         isConcrete = false;
         break;
       }

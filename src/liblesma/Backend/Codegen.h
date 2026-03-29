@@ -443,6 +443,7 @@ protected:
 
   [[nodiscard]] auto findGenericClassAstForTemplateType(lesma::Type* classTemplateTy) const
       -> const Class*;
+  [[nodiscard]] auto isTypeFullyConcrete(lesma::Type* t) const -> bool;
   /** Substitute generic parameters (and nested specialized classes) for lowering a template field
    * or superclass type. */
   auto substituteTypeForSpecializationEnv(
