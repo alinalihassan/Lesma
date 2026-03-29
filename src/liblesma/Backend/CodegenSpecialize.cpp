@@ -668,10 +668,11 @@ auto Codegen::specializeClass(const Class* node,
     return true;
   };
 
-  if (Value* templateSymbol = scope->lookupStruct(node->getIdentifier());
-      templateSymbol != nullptr && templateSymbol->getType() != nullptr && !genericNames.empty()) {
-    const std::string registryKey =
-        TypeUtils::makeSpecializedClassKey(templateSymbol->getType(), genericNames, env);
+  Value* templateSymbol = scope->lookupStruct(node->getIdentifier());
+  Type* templateType = templateSymbol != nullptr ? templateSymbol->getType() : nullptr;
+  std::string registryKey;
+  if (templateType != nullptr && !genericNames.empty()) {
+    registryKey = TypeUtils::makeSpecializedClassKey(templateType, genericNames, env);
     if (auto it = specializedClassTypesByKey.find(registryKey); it != specializedClassTypesByKey.end()) {
       if (envIsFullyConcrete(env)) {
         return emitClassMonomorph(it->second, node);
@@ -738,6 +739,10 @@ auto Codegen::specializeClass(const Class* node,
   specializedClasses.emplace(key, structSymbolPtr);
   specializedClassSymbolsByType[typePtr] = structSymbolPtr;
   specializedClassTypeEnvs[typePtr] = env;
+  if (templateType != nullptr && !registryKey.empty()) {
+    specializedClassTemplateOf[typePtr] = templateType;
+    specializedClassTypesByKey[registryKey] = typePtr;
+  }
   codegenClassAstByType[typePtr] = node;
   if (!typePtr->getDisplayName().empty()) {
     codegenClassAstByDisplayName.insert({typePtr->getDisplayName(), node});
