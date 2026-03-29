@@ -30,4 +30,4 @@ compile_commands.json
 /bench.json
 /suite.vl.json
 
-*.tsbuildinfo
+tsconfig.tsbuildinfo
