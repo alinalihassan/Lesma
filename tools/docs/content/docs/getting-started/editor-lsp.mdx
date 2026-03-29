@@ -7,13 +7,13 @@ category: First steps
 
 ## VS Code extension
 
-The repository includes a VS Code extension under `tools/vscode`. It starts the native **`lesma-lsp`**
-executable and talks to it over the standard Language Server Protocol (stdio).
+The Lesma VS Code extension starts the native **`lesma-lsp`** executable and talks to it over the
+standard Language Server Protocol (stdio).
 
-1. Build or install **`lesma-lsp`** (CMake option `LESMA_BUILD_LSP`) and ensure the binary is on
-   your `PATH`.
-2. Open the `tools/vscode` folder in VS Code (or install the packaged extension, if you have one)
-   and open a `.les` workspace.
+1. Build or install **`lesma-lsp`** (enable the LSP target when you configure CMake) and ensure the
+   binary is on your `PATH`.
+2. Install the Lesma extension in VS Code (from the marketplace when available, or from a `.vsix`
+   supplied with your Lesma install), then open a folder with `.les` files.
 
 You should see diagnostics, completion, and navigation features as you edit.
 

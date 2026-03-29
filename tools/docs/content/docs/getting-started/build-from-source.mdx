@@ -42,7 +42,8 @@ cmake --preset Debug
 cmake --build --preset Debug
 ```
 
-Enable the CLI, tests, and LSP as needed via CMake options (see repository `CMakeLists.txt` and **AGENTS.md**): `LESMA_BUILD_CLI`, `LESMA_BUILD_TESTS`, `LESMA_BUILD_LSP`.
+Enable the CLI, tests, and LSP as needed with CMake cache variables such as `LESMA_BUILD_CLI`,
+`LESMA_BUILD_TESTS`, and `LESMA_BUILD_LSP`.
 
 Typical binaries:
 
@@ -51,15 +52,15 @@ Typical binaries:
 
 ## Validate
 
-From the repo root, after building:
+After building, check that the tools are on your path:
 
 ```bash
-./scripts/run_tests.sh build/Debug/lesma
+lesma --version
 ```
 
-Optional **AddressSanitizer** preset: `Debug_Asan` (see **AGENTS.md**).
+The CMake presets also include an optional **AddressSanitizer** configuration (`Debug_Asan`) if you need
+memory-error checking while developing the toolchain.
 
 ## Next steps
 
 - [CLI Reference](/docs/tooling/cli) for `lesma run` / `compile`.
-- [Project Layout](/docs/tooling/project-layout) for repository structure.

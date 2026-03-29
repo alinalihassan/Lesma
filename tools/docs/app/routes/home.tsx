@@ -1,7 +1,7 @@
 import type { Route } from './+types/home';
 import { Card, Cards } from 'fumadocs-ui/components/card';
 import { HomeLayout } from 'fumadocs-ui/layouts/home';
-import { BookOpen, Download, Gamepad2, Hammer, Wrench } from 'lucide-react';
+import { BookOpen, Download, Gamepad2, Hammer } from 'lucide-react';
 import { Link } from 'react-router';
 import { HomeSiteHeader } from '@/components/site-header';
 import { baseOptions } from '@/lib/layout.shared';
@@ -151,23 +151,17 @@ export default function Home() {
             <p className="text-fd-muted-foreground mb-2 text-xs font-semibold tracking-wider uppercase">
               Tooling
             </p>
-            <h2 className="mb-2 text-2xl font-semibold">Compiler & workflow</h2>
+            <h2 className="mb-2 text-2xl font-semibold">Command line</h2>
             <p className="text-fd-muted-foreground mb-6 max-w-2xl">
-              Use `lesma run` and `lesma compile`, understand optimization flags, and find the standard
-              library in the repository.
+              Run and compile programs with the `lesma` CLI, including optimization flags for release
+              builds.
             </p>
             <Cards className="grid gap-4 sm:grid-cols-2">
               <Card
                 icon={<Hammer className="size-5" />}
                 title="CLI Reference"
-                description="Run, compile, optimization levels, and typical command-line workflows."
+                description="`lesma run`, `lesma compile`, optimization levels, and common workflows."
                 href="/docs/tooling/cli"
-              />
-              <Card
-                icon={<Wrench className="size-5" />}
-                title="Project Layout"
-                description="How the repo is organized: compiler, stdlib, tests, and benchmarks."
-                href="/docs/tooling/project-layout"
               />
             </Cards>
             <p className="mt-4">

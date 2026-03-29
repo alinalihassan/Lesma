@@ -11,9 +11,13 @@ The **Lesma playground** is a web UI (Monaco editor + terminal) backed by a smal
 
 Use the **Playground** item in the site header, or open [**/playground**](/playground) from the hub.
 
-For **local development**, the embed page loads the playground Vite dev server at `http://localhost:3000` in an iframe (run the playground API with `bun run` in `tools/playground` and the client with `bun run dev:client`). To point the docs UI at a **different** hosted playground instead, set **`VITE_PLAYGROUND_URL`** in `.env`.
+For **local development**, clone the Lesma repository and follow the README to run the documentation
+and playground dev servers together; the embed can load the playground UI in an iframe. To point the
+docs UI at a **different** hosted playground, set **`VITE_PLAYGROUND_URL`** in your environment for
+the docs build.
 
-Production builds shipped in the **unified Docker image** (`tools/playground/Dockerfile`) serve docs at `/` and the playground static bundle at `/playground/` behind the same **`/api`** routes. Deploy that image with **Cloudflare Workers + Containers** using `tools/playground/wrangler.jsonc`.
+In production, this site and the playground are usually served from the **same origin** (documentation
+at `/` and the playground under `/playground/`), sharing the **`/api`** routes that run the compiler.
 
 ## Relationship to `lesma run`
 
