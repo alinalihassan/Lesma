@@ -35,7 +35,7 @@ RUN LLVM_CMAKE="$(llvm-config-21 --cmakedir)" \
         -DLESMA_BUILD_TESTS=OFF -DLESMA_BUILD_BENCHMARKS=OFF -DLESMA_BUILD_DIST=OFF \
     && cmake --build build/Release --target lesma lesma-lsp -j"$(nproc)"
 
-# Same as `tools/docs/Dockerfile`: Node runs the React Router prerender; Bun is only for `bun install` (lockfile + postinstall).
+# Node runs the React Router prerender; Bun is only for `bun install` (lockfile + postinstall).
 FROM node:22-bookworm-slim AS docs-build
 WORKDIR /repo
 RUN apt-get update \

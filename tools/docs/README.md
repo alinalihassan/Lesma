@@ -4,16 +4,9 @@ Vite + React Router + **Fumadocs** for [lesma-lang.com](https://lesma-lang.com/)
 
 The playground UI lives in this app at [`/playground`](./app/routes/playground.tsx) (same SPA as the docs, lazy-loaded). The **site header** (logo, Documentation, Playground, search, theme) is shared with the rest of the site via Fumadocs `HomeLayout` + [`HomeSiteHeader`](./app/components/site-header.tsx); the playground only adds its own **toolbar** (Run, Examples, Settings) and status bar.
 
-### Shipping (static files vs server)
+### Shipping
 
-The Vite build (`bun run build`) is only **browser assets**. The playground still needs a **backend** for `lesma run`, compile, and `lesma-lsp` over HTTP/WebSocket:
-
-| What you ship | Docs browsing | Playground Run / LSP |
-| --- | --- | --- |
-| `build/client` on static hosting only (e.g. `bun run start` here) | Works | **No** — `/api` is missing |
-| **`tools/playground` Bun server** or **`tools/playground/Dockerfile`** image | Works | **Yes** — serves `build/client` **and** `/api` |
-
-For production on Cloudflare, use **`tools/playground/wrangler.jsonc`** (Workers + **Containers**): one container runs the same Bun process that serves the unified SPA and the API (see below).
+The Vite build (`bun run build`) is only **browser assets**. Production ships **`tools/playground/Dockerfile`** (or `bun run dev` / `wrangler deploy` there): one process serves `build/client` **and** **`/api`** (`lesma run`, compile, `lesma-lsp`). Use **`tools/playground/wrangler.jsonc`** on Cloudflare (Workers + **Containers**).
 
 ## Commands
 
@@ -22,7 +15,7 @@ From `tools/docs`:
 - `bun install` — installs dependencies and runs `fumadocs-mdx` (generates `.source/`).
 - `bun run dev` — dev server on **port 5174**. Run the Bun API from `tools/playground` (`bun run dev`, default **8080**) so `/api` and LSP WebSockets work; Vite proxies `/api` to that server (see [`vite.config.ts`](./vite.config.ts)).
 - `bun run build` — production client build under `build/client/` (prerendered HTML + SPA assets).
-- `bun run start` — serve `build/client` with `serve` and `serve.json` (SPA fallback) — docs only, no playground API.
+- `bun run start` — local-only: serve `build/client` with `serve` (no `/api`; use for a quick static preview of the built SPA).
 - `bun run types:check` — React Router typegen, MDX codegen, and `tsc`.
 - **`bun run deploy:cloudflare`** — runs **`deploy:cloudflare`** in `tools/playground` (Workers + **Containers** with the unified image).
 - **`bun run dev:cloudflare`** — `wrangler dev` from `tools/playground`.
@@ -43,12 +36,7 @@ Do **not** deploy this folder alone as a static-only Worker for the main site. U
 - `app/` — React Router routes, layouts, search dialog.
 - `content/docs/` — MDX documentation and `meta.json` sidebars.
 - `public/` — static assets (`CNAME`, favicon, logo).
-- `serve.json` — SPA rewrite rules for static hosting (`bun run start`).
-
-## Docker
-
-- **Unified (recommended):** `docker build -f tools/playground/Dockerfile` from the repo root (includes docs + playground + Lesma binaries). See `tools/playground/README.md`.
-- **Docs-only:** [`Dockerfile`](./Dockerfile) — run from the **repository root**: `docker build -f tools/docs/Dockerfile -t lesma-docs .` (copies `tools/vscode/syntaxes/lesma.tmLanguage.json` for Shiki; no playground API).
+- `serve.json` — SPA rewrite rules for `bun run start` (local preview).
 
 ## Editing on GitHub
 
