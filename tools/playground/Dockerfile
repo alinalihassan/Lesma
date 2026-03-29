@@ -35,11 +35,20 @@ RUN LLVM_CMAKE="$(llvm-config-21 --cmakedir)" \
         -DLESMA_BUILD_TESTS=OFF -DLESMA_BUILD_BENCHMARKS=OFF -DLESMA_BUILD_DIST=OFF \
     && cmake --build build/Release --target lesma lesma-lsp -j"$(nproc)"
 
-FROM oven/bun:1-debian AS docs-build
-WORKDIR /docs
-COPY tools/docs/ ./
+# Same as `tools/docs/Dockerfile`: Node runs the React Router prerender; Bun is only for `bun install` (lockfile + postinstall).
+FROM node:22-bookworm-slim AS docs-build
+WORKDIR /repo
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends curl unzip ca-certificates \
+  && rm -rf /var/lib/apt/lists/* \
+  && curl -fsSL https://bun.sh/install | bash
+ENV PATH="/root/.bun/bin:$PATH"
+# Preserve `tools/docs` + `tools/vscode/syntaxes` layout: `lib/lesma-textmate-grammar.ts` imports the extension grammar.
+COPY tools/docs ./tools/docs
+COPY tools/vscode/syntaxes/lesma.tmLanguage.json ./tools/vscode/syntaxes/lesma.tmLanguage.json
+WORKDIR /repo/tools/docs
 RUN bun install --frozen-lockfile
-RUN bun run build
+RUN node ./node_modules/@react-router/dev/bin.js build
 
 FROM oven/bun:1-debian AS server-workspace
 WORKDIR /app
@@ -72,7 +81,7 @@ COPY --from=lesma-build /src/build/Release/lesma-lsp /usr/local/bin/lesma-lsp
 COPY --from=lesma-build /src/src/stdlib /opt/lesma/.lesma/stdlib/
 
 COPY --from=server-workspace /app /app
-COPY --from=docs-build /docs/build/client /app/site-static
+COPY --from=docs-build /repo/tools/docs/build/client /app/site-static
 RUN chown -R playground:playground /opt/lesma /app
 
 USER playground

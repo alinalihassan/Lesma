@@ -52,7 +52,7 @@ Do **not** deploy this folder alone as a static-only Worker for the main site. U
 ## Docker
 
 - **Unified (recommended):** `docker build -f tools/playground/Dockerfile` from the repo root (includes docs + playground + Lesma binaries). See `tools/playground/README.md`.
-- **Docs-only:** [`Dockerfile`](./Dockerfile) in this directory builds and serves static `build/client` (no playground API).
+- **Docs-only:** [`Dockerfile`](./Dockerfile) — run from the **repository root**: `docker build -f tools/docs/Dockerfile -t lesma-docs .` (copies `tools/vscode/syntaxes/lesma.tmLanguage.json` for Shiki; no playground API).
 
 ## Editing on GitHub
 
