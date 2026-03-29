@@ -1,4 +1,3 @@
 {
-  "title": "Tooling",
-  "pages": ["cli", "project-layout"]
+  "pages": ["cli", "project-layout", "debugging"]
 }

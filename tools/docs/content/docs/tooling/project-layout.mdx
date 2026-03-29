@@ -1,5 +1,5 @@
 ---
-title: Project layout
+title: Project Layout
 description: |
   Compiler sources, standard library, tests, benchmarks, and tools in the Lesma repository.
 category: Tooling
@@ -11,7 +11,7 @@ category: Tooling
 - **`src/cli/`** — CLI entry when `LESMA_BUILD_CLI` is enabled.
 - **`src/stdlib/`** — Lesma standard library (`.les`).
 - **`src/lsp/`** — `lesma-lsp` when `LESMA_BUILD_LSP` is enabled.
-- **`tests/lesma/success/` and `failure/`** — regression tests for the language.
+- **Language tests** — automated success and expected-failure programs exercised by the build.
 - **`benchmark/`** — microbenchmarks and the optional wall-clock suite harness.
 - **`tools/docs`** — this documentation site.
 - **`tools/playground`** — browser playground client and API server.
@@ -23,5 +23,5 @@ Build with CMake presets, run `./scripts/run_tests.sh`, and prefer **Debug_Asan*
 
 ## Next steps
 
-- [Build from source](/docs/getting-started/build-from-source)
-- [Understanding errors](/docs/guides/errors)
+- [Build From Source](/docs/getting-started/build-from-source)
+- [Debugging Builds](/docs/tooling/debugging)

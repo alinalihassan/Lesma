@@ -18,7 +18,8 @@ import { docsGithubBlobBase } from '@/lib/shared';
 import { useFumadocsLoader } from 'fumadocs-core/source/client';
 import { useMDXComponents } from '@/components/mdx';
 
-export async function loader({ params }: Route.LoaderArgs) {
+/** SPA mode (`ssr: false`): non-root routes must use `clientLoader`, not `loader`, so dev and client navigation resolve MDX the same way as production. */
+export async function clientLoader({ params }: Route.ClientLoaderArgs) {
   const slugs = params['*'].split('/').filter((v) => v.length > 0);
   const page = source.getPage(slugs);
   if (!page) throw new Response('Not found', { status: 404 });
@@ -30,7 +31,7 @@ export async function loader({ params }: Route.LoaderArgs) {
   };
 }
 
-const clientLoader = browserCollections.docs.createClientLoader({
+const docsMdxLoader = browserCollections.docs.createClientLoader({
   component(
     { toc, frontmatter, default: Mdx },
     // you can define props for the component
@@ -85,7 +86,7 @@ export default function Page({ loaderData }: Route.ComponentProps) {
         },
       }}
     >
-      {clientLoader.useContent(loaderData.path, {
+      {docsMdxLoader.useContent(loaderData.path, {
         markdownUrl,
         path,
       })}

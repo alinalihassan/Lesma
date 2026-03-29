@@ -1,23 +1,28 @@
 ---
-title: Lesma documentation
+title: Lesma Documentation
 description: |
   Welcome to the Lesma language documentation: installation, language tutorials,
   compiler tooling, and practical guides.
 ---
 
-Lesma is a **compiled**, **statically typed**, **imperative**, **object-oriented** language that targets **LLVM**. The compiler is written in C++23; the standard library is written in Lesma (`.les` files shipped with the toolchain).
+Lesma is a **compiled**, **statically typed**, **imperative**, **object-oriented** language you can
+install locally or try in the browser. Programs start from **top-level statements** in the file you
+run—there is no required `main` function.
 
 Use this site in three ways:
 
 - **Start at the hub** — [Back to home](/) lists the main tracks with links into each section.
-- **Follow getting started** — [Installing Lesma](/docs/getting-started/install), then [your first program](/docs/getting-started/first-program).
-- **Try code in the browser** — [Playground](/playground) (embedded UI; same origin in production — see [Playground](/docs/getting-started/playground)).
+- **Follow Getting Started** — [Installing Lesma](/docs/getting-started/install), then
+  [A Tour of Lesma](/docs/getting-started/tour) or [Your First Program](/docs/getting-started/first-program).
+- **Try code in the browser** — [Playground](/playground) (embedded UI; same origin in production —
+  see [Playground](/docs/getting-started/playground)).
 
-The compiler exposes a small CLI (`lesma run`, `lesma compile`) and an optional language server (`lesma-lsp`) for editor integration.
+The compiler ships with a small CLI (`lesma run`, `lesma compile`) and an optional language server
+(`lesma-lsp`) for editor support.
 
 <Cards>
   <Card title="Install Lesma" href="/docs/getting-started/install" />
   <Card title="Language tutorials" href="/docs/language/literals" />
   <Card title="CLI & workflow" href="/docs/tooling/cli" />
-  <Card title="Guides" href="/docs/guides/errors" />
+  <Card title="Guides" href="/docs/guides/working-with-files" />
 </Cards>

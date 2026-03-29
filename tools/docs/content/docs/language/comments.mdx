@@ -1,7 +1,7 @@
 ---
 title: Comments
 description: |
-  Line and block comments, and documentation habits for Lesma source.
+  Line comments, line continuation, and documentation habits for Lesma source.
 category: Language
 ---
 
@@ -11,14 +11,23 @@ Use comments to explain **why** non-obvious code exists; let types and names car
 
 `#` starts a line comment through the end of the line.
 
-## Block comments
+```
+# Compute the next value
+let n = x + 1
+```
 
-Block comment syntax follows the style used in Lesma sources (see examples under `tests/lesma/success/` and `src/stdlib/`).
+For a short “block” of commentary, use several `#` lines in a row—the lexer only knows line comments, but this is the usual style in Lesma sources.
 
 ## Line continuation
 
-Long physical lines can be split with line continuation where the grammar allows (`line_continuation.les`).
+A `\` at the end of a physical line continues the statement on the next line:
+
+```
+let x = \
+    100 + \
+    1
+```
 
 ## Next steps
 
-- [Language index](/docs/language/literals) for the full tutorial order.
+- [Literals & Expressions](/docs/language/literals) for the full tutorial order.

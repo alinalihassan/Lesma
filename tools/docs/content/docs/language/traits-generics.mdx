@@ -1,21 +1,59 @@
 ---
-title: Traits & generics
+title: Traits & Generics
 description: |
   Traits, impls, bounds, and generic functions and classes.
 category: Language
 ---
 
-Lesma supports **traits** (interfaces with optional default methods) and **generics** over functions and classes.
+Lesma supports **traits** (interfaces with optional default method bodies) and **generics** on functions and classes.
 
-## Where to learn from code
+## Traits
 
-The fastest way to stay accurate is to read the compiler tests:
+A trait declares required methods. A class **implements** a trait with `impl`:
 
-- Traits: `trait_default_method.les`, `trait_bounds_mod.les`, `trait_import_star.les`, …
-- Generics: `generics.les`, `generics_class.les`, `generic_class_constructor.les`, …
-- Intersection and advanced bounds: `trait_intersection_bounds.les`, `trait_intersection_import.les`
+```
+export trait Describable
+    def label() -> str
 
-This page intentionally stays short: the language is evolving and the **test suite** is the specification surface.
+export class Box impl Describable
+    def new()
+        pass
+
+    def label() -> str
+        return "box"
+
+var b = Box()
+print(b.label())
+```
+
+Default bodies on trait methods are allowed—classes that `impl` the trait inherit them unless they override.
+
+## Generic functions
+
+Type parameters appear in angle brackets before the parameter list:
+
+```
+def identity<T>(x: T) -> T
+    return x
+
+def max_val<T>(a: T, b: T) -> T
+    if a > b
+        return a
+    return b
+```
+
+## Bounds
+
+Require that a type parameter implements a trait:
+
+```
+def print_label<T: Describable>(x: T) -> void
+    print(x.label())
+```
+
+## Generic classes
+
+Classes can carry type parameters and participate in inheritance; combine generics with `:` / `impl` as needed for your program.
 
 ## Next steps
 

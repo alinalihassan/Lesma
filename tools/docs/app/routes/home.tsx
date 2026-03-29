@@ -87,18 +87,18 @@ export default function Home() {
                 href="/docs/getting-started/install"
               />
               <Card
-                title="A tour of Lesma"
-                description="Syntax, compilation model, and how Lesma relates to LLVM and the standard library."
+                title="A Tour of Lesma"
+                description="A longer example with comments: no main function, imports, types, classes, and control flow."
                 href="/docs/getting-started/tour"
               />
               <Card
-                title="Your first program"
+                title="Your First Program"
                 description="Create a small program and run it with the `lesma` CLI."
                 href="/docs/getting-started/first-program"
               />
               <Card
-                title="Editor & language server"
-                description="VS Code extension, `lesma-lsp`, and UTF-8 positions in the LSP protocol."
+                title="Editor & Language Server"
+                description="VS Code extension and `lesma-lsp` for diagnostics, completion, and navigation."
                 href="/docs/getting-started/editor-lsp"
               />
             </Cards>
@@ -120,12 +120,12 @@ export default function Home() {
             </p>
             <Cards className="grid gap-4 sm:grid-cols-2">
               <Card
-                title="Literals & expressions"
+                title="Literals & Expressions"
                 description="Numbers, strings, booleans, operators, and how expressions are typed."
                 href="/docs/language/literals"
               />
               <Card
-                title="Variables & assignment"
+                title="Variables & Assignment"
                 description="Mutable bindings, patterns, and updating state."
                 href="/docs/language/variables"
               />
@@ -159,13 +159,13 @@ export default function Home() {
             <Cards className="grid gap-4 sm:grid-cols-2">
               <Card
                 icon={<Hammer className="size-5" />}
-                title="CLI reference"
+                title="CLI Reference"
                 description="Run, compile, optimization levels, and typical command-line workflows."
                 href="/docs/tooling/cli"
               />
               <Card
                 icon={<Wrench className="size-5" />}
-                title="Project layout"
+                title="Project Layout"
                 description="How the repo is organized: compiler, stdlib, tests, and benchmarks."
                 href="/docs/tooling/project-layout"
               />
@@ -183,27 +183,33 @@ export default function Home() {
             </p>
             <h2 className="mb-2 text-2xl font-semibold">Practical guides</h2>
             <p className="text-fd-muted-foreground mb-6 max-w-2xl">
-              Read compiler output, debug programs, and work through a slightly larger example.
+              Short recipes for everyday tasks using the standard library: files, console I/O, math,
+              randomness, and sleep.
             </p>
             <Cards className="grid gap-4 sm:grid-cols-2">
               <Card
-                title="Understanding errors"
-                description="How Lesma reports type and compile errors and how to narrow them down."
-                href="/docs/guides/errors"
+                title="Reading and Writing Files"
+                description="Use the `file` type to read text, write bytes, and delete paths."
+                href="/docs/guides/working-with-files"
               />
               <Card
-                title="Debugging"
-                description="Strategies for local debugging, tests, and sanitizer builds."
-                href="/docs/guides/debugging"
+                title="Console Input and Output"
+                description="`print`, `input`, and C-style `printf` when you need precise formatting."
+                href="/docs/guides/console-io"
               />
               <Card
-                title="Guessing game tutorial"
-                description="A small interactive program that ties together control flow and I/O ideas."
-                href="/docs/guides/guessing-game"
+                title="Random, Time, and Sleep"
+                description="Inclusive `random`, wall-clock `time`, and `sleep` from the `time` module."
+                href="/docs/guides/random-time-and-sleep"
+              />
+              <Card
+                title="Using Math"
+                description="Import `abs`, rounding, and trig helpers from the `math` module."
+                href="/docs/guides/using-math"
               />
             </Cards>
             <p className="mt-4">
-              <Link className="text-fd-primary text-sm font-medium" to="/docs/guides/errors">
+              <Link className="text-fd-primary text-sm font-medium" to="/docs/guides/working-with-files">
                 Guides →
               </Link>
             </p>

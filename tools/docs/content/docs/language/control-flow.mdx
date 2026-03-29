@@ -1,5 +1,5 @@
 ---
-title: Control flow
+title: Control Flow
 description: |
   Conditionals, loops, break and continue, and early exit patterns.
 category: Language
@@ -7,19 +7,52 @@ category: Language
 
 ## Conditionals
 
-`if` / `else` chains choose between branches (`ifelse.les`, `if_return.les`).
+`if` / `else` chains pick a branch. You can return early from a function:
+
+```
+def sign(n: int) -> str
+    if n < 0
+        return "neg"
+    else if n > 0
+        return "pos"
+    return "zero"
+```
 
 ## Loops
 
-`while` loops and `for`/`in` iteration over iterables are both used in the language (`while.les`, `for_in_break_continue.les`, list and range examples).
+`while` runs while a condition holds. `for` / `in` iterates any **iterable** (for example `range` or a `list`):
+
+```
+var i: int = 0
+while i < 3
+    print(i)
+    i = i + 1
+
+for j in range(1, 4)
+    print("${j}")
+```
 
 ## Break and continue
 
-Loop control transfer uses `break` and `continue` (`break.les`, `continue.les`).
+`break` leaves the innermost loop; `continue` skips to the next iteration:
+
+```
+for k in range(1, 10)
+    if k == 3
+        continue
+    if k == 7
+        break
+    print("${k}")
+```
 
 ## Exit
 
-Programs can terminate with `exit(code)` where appropriate for tests and scripts.
+Terminate the process with **`exit(code)`** when a script should signal failure to the shell:
+
+```
+if bad_condition
+    exit(1)
+```
 
 ## Next steps
 

@@ -1,0 +1,49 @@
+---
+title: Reading and Writing Files
+description: |
+  Use the standard library `file` type to read text, write bytes, and delete paths on disk.
+category: Guides
+---
+
+The **`file`** type is part of the standard environment (you do not need an explicit `import` to use
+it). It wraps the platform C library (`fopen`, `fread`, `fwrite`, …) so you do not have to declare
+those low-level bindings yourself. Path arguments follow the same rules as other C-linked APIs in the
+standard library: **string literals** work directly; if you need details on how Lesma bridges string
+values to C, see [Foreign Function Interface](/docs/language/ffi).
+
+## Read a whole file as text
+
+`text()` reads the file into a **`str`**. On failure (missing file, I/O error), you get an empty
+string—check the result if you care about errors.
+
+```
+let data = file("notes.txt").text()
+print(data)
+```
+
+## Write text to a path
+
+`file.write` is a static-style call: the first argument is the path, the second is the content.
+
+```
+file.write("out.txt", "hello\n")
+```
+
+You can also copy a file by reading `text()` from one path and writing that string to another, or
+use the `file.write` overload that accepts a `file` value when you want to duplicate contents without
+an intermediate `str`.
+
+## Delete a file
+
+Construct a `file` for the path, then call **`delete()`** (this uses the C `remove` function under
+the hood).
+
+```
+var f = file("out.txt")
+f.delete()
+```
+
+## Next steps
+
+- [Console Input and Output](/docs/guides/console-io) for `print` and typed `input`.
+- [Standard Library Overview](/docs/language/stdlib-overview) for modules such as `math` and `time`.

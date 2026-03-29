@@ -22,21 +22,6 @@ export default {
       paths.push(getUrl(slugs), `/llms.mdx/docs/${[...slugs, 'content.md'].join('/')}`);
     }
 
-    const legacy = [
-      '/getting-started',
-      '/hello-world',
-      '/guessing-game',
-      '/introduction/what-is-lesma',
-      '/modules/overview',
-      '/language/literals',
-      '/language/variables',
-      '/language/types',
-      '/language/functions',
-      '/language/control-flow',
-      '/language/comments',
-    ];
-    paths.push(...legacy);
-
     return paths.filter((p) => p !== '/playground');
   },
 } satisfies Config;

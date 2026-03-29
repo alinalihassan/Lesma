@@ -1,3 +1,4 @@
+import { fileURLToPath } from 'node:url';
 import { reactRouter } from '@react-router/dev/vite';
 import tailwindcss from '@tailwindcss/vite';
 import { defineConfig } from 'vite';
@@ -48,6 +49,12 @@ export default defineConfig({
   },
   resolve: {
     tsconfigPaths: true,
+    // Client loaders pull in `fumadocs-mdx/runtime/server`, which imports `node:path`. Use a tiny
+    // ESM shim — `path-browserify` is CJS and throws `module is not defined` under Vite's runner.
+    alias: {
+      path: fileURLToPath(new URL('./app/shims/node-path.ts', import.meta.url)),
+      'node:path': fileURLToPath(new URL('./app/shims/node-path.ts', import.meta.url)),
+    },
     // Do not alias react-dom/server → server.node.js: that entry is CJS (`require`) and
     // fails under Vite 8's ESM module runner ("require is not defined"). Normal package
     // exports use the right server build per environment (client vs SSR).

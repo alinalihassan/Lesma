@@ -9,17 +9,45 @@ Lesma is **statically typed**: every expression has a type known at compile time
 
 ## Annotations
 
-Function parameters, return types, fields, and locals can carry explicit types. When types can be inferred reliably, annotations may be omitted (see `inference.les` and related tests).
+Function parameters, return types, fields, and locals can carry explicit types:
 
-## Pointers and references
+```
+def clamp(value: int, lo: int, hi: int) -> int
+    if value < lo
+        return lo
+    if value > hi
+        return hi
+    return value
+```
 
-Lesma includes pointer types used in low-level and stdlib-style code (`pointer.les`).
+When types can be inferred reliably, you can omit annotations on locals:
+
+```
+let n = 40 + 2
+```
+
+## Pointers
+
+Pointer types use a leading `*`. They show up in low-level code and in [FFI](/docs/language/ffi) declarations:
+
+```
+var x: int = 5
+let x_ptr: *int = &x
+```
 
 ## Generics
 
-Type and method generics appear across the test suite (`generics.les`, `generics_class.les`, …). See [Traits & generics](/docs/language/traits-generics) for a higher-level tour.
+Functions and classes can take type parameters. A minimal generic function:
+
+```
+def identity<T>(x: T) -> T
+    return x
+```
+
+See [Traits & Generics](/docs/language/traits-generics) for traits, bounds, and class-level generics.
 
 ## Next steps
 
+- [Foreign Function Interface](/docs/language/ffi) for `def extern` and C-compatible types.
 - [Functions](/docs/language/functions)
 - [Classes](/docs/language/classes)

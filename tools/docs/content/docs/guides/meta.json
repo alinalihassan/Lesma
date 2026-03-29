@@ -1,4 +1,8 @@
 {
-  "title": "Guides",
-  "pages": ["errors", "debugging", "guessing-game"]
+  "pages": [
+    "working-with-files",
+    "console-io",
+    "random-time-and-sleep",
+    "using-math"
+  ]
 }

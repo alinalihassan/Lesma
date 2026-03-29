@@ -1,0 +1,88 @@
+---
+title: Enums, Tuples, and Type Tests
+description: |
+  Enumerations, tuple types and unpacking, runtime type checks, casts, and the `pass` statement.
+category: Language
+---
+
+## Enumerations
+
+An **`enum`** declares a set of named constants. Cases are referenced as **`EnumName.CASE`**.
+
+```
+enum Color
+    RED
+    BLUE
+    GREEN
+
+var paint: Color = Color.RED
+
+if Color.BLUE == Color.BLUE and Color.GREEN != Color.RED
+    print("ok")
+```
+
+Enums can be used as parameter and return types like any other nominal type.
+
+## Tuples
+
+Tuple types are written with parentheses and comma-separated element types. A single-element tuple keeps a trailing comma: **`(int,)`**.
+
+```
+def sumAndMul(x: int, y: int) -> (int, int)
+    return (x + y, x * y)
+
+let sumRes, mulRes = sumAndMul(5, 10)
+let both = sumAndMul(5, 10)
+print(both[0])
+print(both[1])
+```
+
+Unpacking (`let a, b = …`) and indexing (`both[0]`) work as in the example above.
+
+## List and dict literals
+
+You can construct **`list<T>`** and **`dict<K, V>`** values with bracket literals; the compiler infers element types when possible.
+
+```
+let nums = [1, 2, 3]
+let table: dict<str, int> = {"a": 1, "b": 2}
+```
+
+See the [standard library overview](/docs/language/stdlib-overview) for types like `list` and `dict` and how they are used in practice.
+
+## `is` and `is not`
+
+**`is`** and **`is not`** compare a value’s **runtime type** to a type expression. They are useful after generic or pointer-heavy code where you need a clear type check.
+
+```
+var x: int = 5
+let p: *int = &x
+
+if p is not *int
+    exit(1)
+```
+
+You can test built-ins, generics, and other type forms the compiler accepts in that position (for example **`list<int>`**).
+
+## `as` casts
+
+Numeric and other conversions can be written with **`as`**, when the conversion is defined by the type checker:
+
+```
+let y: float = 101.5
+let z: int = y as int
+```
+
+## `pass`
+
+**`pass`** is a no-op statement. It is useful as a placeholder where the grammar requires a body (for example an empty branch, a stub method, or a temporary definition).
+
+```
+def todo()
+    pass
+```
+
+## Next steps
+
+- [Classes](/docs/language/classes) and [Traits & Generics](/docs/language/traits-generics) for larger type patterns.
+- [Control flow](/docs/language/control-flow) for conditionals and loops.

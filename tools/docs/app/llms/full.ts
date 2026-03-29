@@ -1,6 +1,6 @@
 import { getLLMText, source } from '@/lib/source';
 
-export async function loader() {
+export async function clientLoader() {
   const scan = source.getPages().map(getLLMText);
   const scanned = await Promise.all(scan);
 

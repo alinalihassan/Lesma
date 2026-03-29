@@ -1,25 +1,23 @@
 ---
-title: Editor & language server
+title: Editor & Language Server
 description: |
-  Use the VS Code extension and lesma-lsp for diagnostics, completion, and navigation in .les files.
+  Use the VS Code extension and lesma-lsp for diagnostics, completion, and go-to-definition in .les files.
 category: First steps
 ---
 
 ## VS Code extension
 
-The repository ships a VS Code extension under `tools/vscode`. It launches the native **`lesma-lsp`** executable and talks LSP over stdio.
+The repository includes a VS Code extension under `tools/vscode`. It starts the native **`lesma-lsp`**
+executable and talks to it over the standard Language Server Protocol (stdio).
 
-Build or install `lesma-lsp` first (CMake option `LESMA_BUILD_LSP`), ensure it is on your `PATH`, then load the extension in VS Code.
+1. Build or install **`lesma-lsp`** (CMake option `LESMA_BUILD_LSP`) and ensure the binary is on
+   your `PATH`.
+2. Open the `tools/vscode` folder in VS Code (or install the packaged extension, if you have one)
+   and open a `.les` workspace.
 
-## UTF-8 positions
-
-`lesma-lsp` advertises **UTF-8** position encoding to clients. Your editor must send `Position.character` as **UTF-8 code units (bytes)** from the start of the line. If the client assumes UTF-16 code units, diagnostics and cursors can drift on non-ASCII source.
-
-## Workspace discovery
-
-With the **lsp** vcpkg feature enabled, the language server can discover `.les` files across a Git work tree using **libgit2** (no shelling out to `git`). Configure CMake/vcpkg per **AGENTS.md** if you need that mode.
+You should see diagnostics, completion, and navigation features as you edit.
 
 ## Next steps
 
-- [CLI reference](/docs/tooling/cli) for running programs from the terminal.
-- [Understanding errors](/docs/guides/errors) when the compiler or LSP reports issues.
+- [CLI Reference](/docs/tooling/cli) for running programs from the terminal.
+- [Standard Library Overview](/docs/language/stdlib-overview) for modules you can import.

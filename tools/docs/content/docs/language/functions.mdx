@@ -18,17 +18,37 @@ def add(a: int, b: int) -> int
 
 ## Calls
 
-Call syntax uses parentheses and comma-separated arguments. Nested and higher-order patterns appear in tests such as `function_call.les` and `nested_function_calls.les`.
+Call with parentheses and comma-separated arguments. Calls can nest:
+
+```
+print("${add(1, add(2, 3))}")
+```
 
 ## Recursion
 
-Recursive functions are supported (`function_recursive.les`).
+Functions may call themselves:
+
+```
+def countdown(n: int) -> void
+    if n <= 0
+        return
+    print(n)
+    countdown(n - 1)
+```
 
 ## Default arguments
 
-Default parameter values are supported (`function_default_value.les`).
+Parameters may provide defaults (the default must match the declared type):
+
+```
+def bump(n: int = 0) -> int
+    return n + 1
+
+print("${bump()}")
+print("${bump(5)}")
+```
 
 ## Next steps
 
-- [Control flow](/docs/language/control-flow)
+- [Control Flow](/docs/language/control-flow)
 - [Modules](/docs/language/modules) to split functions across files.

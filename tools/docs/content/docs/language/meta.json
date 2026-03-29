@@ -1,9 +1,10 @@
 {
-  "title": "Language",
   "pages": [
     "literals",
     "variables",
     "types",
+    "ffi",
+    "enums-tuples-and-more",
     "functions",
     "control-flow",
     "comments",

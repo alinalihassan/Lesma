@@ -1,7 +1,7 @@
 import type { Route } from './+types/mdx';
 import { getLLMText, source } from '@/lib/source';
 
-export async function loader({ params }: Route.LoaderArgs) {
+export async function clientLoader({ params }: Route.ClientLoaderArgs) {
   const slugs = params['*'].split('/').filter((v) => v.length > 0);
   // remove the appended "content.md"
   slugs.pop();

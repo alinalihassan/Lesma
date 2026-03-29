@@ -1,3 +1,14 @@
 {
-  "pages": ["index", "getting-started", "language", "tooling", "guides"]
+  "title": "Lesma Documentation",
+  "pages": [
+    "index",
+    "---Getting Started---",
+    "...getting-started",
+    "---Language---",
+    "...language",
+    "---Tooling---",
+    "...tooling",
+    "---Guides---",
+    "...guides"
+  ]
 }

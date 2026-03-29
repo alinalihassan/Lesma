@@ -1,0 +1,61 @@
+---
+title: Foreign Function Interface
+description: |
+  Call C library functions from Lesma with `def extern`, C-compatible types, and varargs.
+category: Language
+---
+
+Lesma can **declare** functions implemented in C (or another language with a C ABI) and **call** them like ordinary Lesma functions. The compiler emits calls against the platform C library for symbols such as `printf` or `malloc`; for your own shared objects or static libraries you link them the same way you would for a C program when using `lesma compile`.
+
+## Declaring a C function
+
+Use **`def extern`** with a name and parameter list that match the C prototype. Return type follows `->` (use `void` when there is no return value).
+
+```
+def extern abs(x: int) -> int
+
+if abs(-1) != 1
+    exit(1)
+```
+
+To expose a C binding from a module that other Lesma files import, use **`export def extern`** the same way you export ordinary definitions.
+
+## The `cstr` type
+
+**`cstr`** is Lesma’s name for a **nul-terminated C string** (`char *` in C). It is a distinct type from **`str`**, which is Lesma’s growable string type from the standard library.
+
+- Use **`cstr`** in **`def extern`** signatures wherever the C API expects `char *` or `const char *`.
+- String **literals** are typed as **`str`** by default, but in a context that expects **`cstr`** (for example the first argument to a `printf`-style declaration), a literal is accepted as **`cstr`**.
+- To pass a **`str`** value into a C function that expects **`cstr`**, call **`.cstr()`** on it. That yields a pointer suitable for the duration of the call; treat it like a borrowed buffer unless the C API’s contract says otherwise.
+
+```
+def extern printf(fmt: cstr, ...)
+
+printf("%s\n", "literal ok")
+
+let msg: str = "hello"
+printf("%s\n", msg.cstr())
+```
+
+## Varargs
+
+Declare C variadic functions with **`...`** after the fixed parameters:
+
+```
+def extern printf(fmt: cstr, ...)
+
+printf("n=%d\n", 42)
+```
+
+## Pointers and integer widths
+
+C APIs often use pointers and fixed-width integers. Lesma’s **`types`** page covers pointer syntax (`*T`). For C interop you will also see widths such as **`int8`**, **`uint8`**, **`int32`**, **`uint64`**, and similar, so declarations can match headers closely.
+
+## Name and linking
+
+The declared name is the **linker symbol** Lesma calls (with the usual platform naming; on macOS/Linux this is typically the unmangled C name). If a symbol is not found at link time, the linker reports an unresolved reference like it would for C.
+
+## Next steps
+
+- [Types](/docs/language/types) for pointers and annotations.
+- [Modules](/docs/language/modules) for splitting code and imports.

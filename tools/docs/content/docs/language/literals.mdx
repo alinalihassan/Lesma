@@ -1,5 +1,5 @@
 ---
-title: Literals & expressions
+title: Literals & Expressions
 description: |
   Numeric, string, and boolean literals, operators, and expression-oriented evaluation.
 category: Language
@@ -13,15 +13,24 @@ Integer and floating-point literals behave as you would expect; types are inferr
 
 ## Strings
 
-String literals use double quotes. The language also supports string-oriented features used in the test suite (interpolation, `str`/`cstr` contexts); start with plain strings and grow from there.
+String literals use double quotes. You can splice values into a string with **`${…}`**:
+
+```
+let name: str = "Lesma"
+print("Hello, ${name}!")
+let n: int = 7
+print("n=${n}")
+```
+
+For calling C libraries and using nul-terminated string parameters, see [Foreign Function Interface](/docs/language/ffi).
 
 ## Booleans
 
-Boolean literals `true` and `false` participate in logical operators (see [Control flow](/docs/language/control-flow)).
+Boolean literals `true` and `false` participate in logical operators (see [Control Flow](/docs/language/control-flow)).
 
 ## Operators
 
-Arithmetic (`+`, `-`, `*`, `/`, `%`), comparison (`==`, `!=`, `<`, `>`), and logical combinations appear throughout examples in `tests/lesma/success/`.
+Arithmetic (`+`, `-`, `*`, `/`, `%`), comparison (`==`, `!=`, `<`, `>`), and logical combinations (`and`, `or`, `not`) combine expressions as you would expect.
 
 ## Next steps
 

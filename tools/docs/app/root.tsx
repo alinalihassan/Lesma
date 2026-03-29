@@ -15,6 +15,7 @@ import { LESMA_NEXT_THEME_STORAGE_KEY } from '@/lib/lesma-theme-bridge';
 import NotFound from './routes/not-found';
 
 export const links: Route.LinksFunction = () => [
+  { rel: 'icon', href: '/favicon.svg', type: 'image/svg+xml' },
   { rel: 'preconnect', href: 'https://fonts.googleapis.com' },
   {
     rel: 'preconnect',
