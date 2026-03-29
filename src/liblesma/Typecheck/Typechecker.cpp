@@ -3730,7 +3730,18 @@ auto Typechecker::visit(const FuncCall* node) -> void {
     }
     if (callee->getName() == "new" && !fields.empty() && fields[0]->type->is(BaseType::TY_PTR)) {
       Type* monomorph = substituteInType(fields[0]->type->getElementType(), explicitSubst);
-      Type* valueType = importedScope != nullptr ? materializeImportedType(monomorph) : monomorph;
+      Type* valueType = monomorph;
+      if (importedScope != nullptr && monomorph != nullptr) {
+        const bool alreadyRegisteredSpecialized =
+            specializedTypeToTemplate.contains(monomorph) ||
+            specializedTypeEnv.contains(monomorph) ||
+            std::ranges::any_of(specializedClassTypes, [monomorph](const auto& entry) {
+              return entry.second == monomorph;
+            });
+        if (!alreadyRegisteredSpecialized) {
+          valueType = materializeImportedType(monomorph);
+        }
+      }
       result = std::make_unique<Value>(valueType);
       node->setAllocatedClassMonomorph(valueType);
     } else {
