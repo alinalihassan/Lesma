@@ -25,16 +25,6 @@
 }
 
 /**
- xterm.js canvas plugin fixes.
-
- The plugin places a few canvas elements inside with absolute positioning
- relative to parent and doesn't respect parent's paddings.
- */
-.app-Console .xterm .xterm-screen canvas {
-  transform: translate3d(var(--terminal-padding-x), 0, 0);
-}
-
-/**
 Copy button for touch devices
  */
 .app-Console__copy {

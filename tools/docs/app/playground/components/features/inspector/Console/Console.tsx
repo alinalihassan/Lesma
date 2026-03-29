@@ -1,16 +1,12 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import copy from 'copy-to-clipboard'
 
 import { DefaultButton, useTheme } from '@fluentui/react'
 
-import type { ITerminalAddon, ITerminalOptions, Terminal } from '@xterm/xterm'
+import type { ITerminalOptions, Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
-import { CanvasAddon } from '@xterm/addon-canvas'
-import { WebglAddon } from '@xterm/addon-webgl'
 
 import type { StatusState } from '@/playground/store'
 import type { EvalEvent } from '@/playground/services/api/models/run'
-import { RenderingBackend } from '@/playground/store/terminal/types'
 import { XTerm } from '@/playground/components/utils/XTerm/XTerm'
 import { useXtermTheme } from '@/playground/components/utils/XTerm/hooks'
 
@@ -29,17 +25,24 @@ export interface ConsoleProps {
   status?: StatusState
   fontFamily: string
   fontSize: number
-  backend: RenderingBackend
 }
 
-const getAddonFromBackend = (backend: RenderingBackend): ITerminalAddon | null => {
-  switch (backend) {
-    case RenderingBackend.WebGL:
-      return new WebglAddon()
-    case RenderingBackend.Canvas:
-      return new CanvasAddon()
-    default:
-      return null
+async function writeTextToClipboard(text: string): Promise<void> {
+  try {
+    await navigator.clipboard.writeText(text)
+  } catch {
+    const ta = document.createElement('textarea')
+    ta.value = text
+    ta.setAttribute('readonly', '')
+    ta.style.position = 'fixed'
+    ta.style.left = '-9999px'
+    document.body.appendChild(ta)
+    ta.select()
+    try {
+      document.execCommand('copy')
+    } finally {
+      document.body.removeChild(ta)
+    }
   }
 }
 
@@ -76,8 +79,8 @@ const CopyButton: React.FC<{
   )
 }
 
-/** Run output (stdout/stderr) using xterm.js. */
-export const Console: React.FC<ConsoleProps> = ({ fontFamily, fontSize, status, backend }) => {
+/** Run output (stdout/stderr) using xterm.js (DOM renderer). */
+export const Console: React.FC<ConsoleProps> = ({ fontFamily, fontSize, status }) => {
   const theme = useXtermTheme()
   const [isFocused, setIsFocused] = useState(false)
   const [xtermHost, setXtermHost] = useState<XTerm | null>(null)
@@ -122,8 +125,8 @@ export const Console: React.FC<ConsoleProps> = ({ fontFamily, fontSize, status, 
     const str = terminal.getSelection()
     terminal.clearSelection()
 
-    // TODO: notify about copy result
-    copy(shouldTrim ? str.trim() : str)
+    const text = shouldTrim ? str.trim() : str
+    void writeTextToClipboard(text)
   }, [terminal])
 
   useEffect(() => {
@@ -204,22 +207,6 @@ export const Console: React.FC<ConsoleProps> = ({ fontFamily, fontSize, status, 
   }, [theme, terminal, fontFamily, fontSize])
 
   useEffect(() => {
-    if (!terminal) {
-      return
-    }
-
-    const addon = getAddonFromBackend(backend)
-    if (!addon) {
-      return
-    }
-
-    terminal.loadAddon(addon)
-    return () => {
-      addon.dispose()
-    }
-  }, [terminal, backend])
-
-  useEffect(() => {
     if (!terminal?.textarea) {
       return
     }
@@ -240,7 +227,7 @@ export const Console: React.FC<ConsoleProps> = ({ fontFamily, fontSize, status, 
   }, [terminal?.textarea, setIsFocused])
 
   return (
-    <div className="app-Console" style={{ '--terminal-bg': theme.background } as any}>
+    <div className="app-Console" style={{ '--terminal-bg': theme.background } as React.CSSProperties}>
       <CopyButton hidden={!isFocused} onClick={copySelection} />
       <XTerm
         ref={handleXTermRef}

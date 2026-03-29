@@ -31,10 +31,10 @@ const highlightLinks = (str: string) =>
 
 const ConsoleWrapper: React.FC<ConsoleProps & { disableTerminal?: boolean }> = (props) => {
   if (props.disableTerminal) {
-    return <FallbackOutput {...props} />
+    return <FallbackOutput fontFamily={props.fontFamily} fontSize={props.fontSize} status={props.status} />
   }
 
-  return <Console {...props} />
+  return <Console fontFamily={props.fontFamily} fontSize={props.fontSize} status={props.status} />
 }
 
 export const RunOutput: React.FC = () => {
@@ -44,7 +44,7 @@ export const RunOutput: React.FC = () => {
   const terminal = useSelector((state: State) => state.terminal)
   const ui = useSelector((state: State) => state.ui)
 
-  const { fontSize, renderingBackend } = terminal.settings
+  const { fontSize } = terminal.settings
   const styles = useMemo(() => {
     const { palette } = theme
     return {
@@ -82,7 +82,6 @@ export const RunOutput: React.FC = () => {
       fontFamily={fontFamily}
       fontSize={fontSize}
       status={status}
-      backend={renderingBackend}
       disableTerminal={terminal.settings.disableTerminalEmulation}
     />
   )

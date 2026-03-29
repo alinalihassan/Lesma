@@ -17,15 +17,10 @@ import { Dialog } from '@/playground/components/elements/modals/Dialog/Dialog'
 import { SettingsProperty } from './SettingsProperty'
 import { DEFAULT_FONT } from '@/playground/services/fonts'
 import { defaultMonacoSettings, type MonacoSettings } from '@/playground/services/config/monaco'
-import type { RenderingBackend, TerminalSettings } from '@/playground/store/terminal/types'
+import type { TerminalSettings } from '@/playground/store/terminal/types'
 import { connect, type MonacoParamsChanges, type SettingsState } from '@/playground/store'
 
-import {
-  cursorBlinkOptions,
-  cursorLineOptions,
-  fontOptions,
-  terminalBackendOptions,
-} from './options'
+import { cursorBlinkOptions, cursorLineOptions, fontOptions } from './options'
 import { controlKeyLabel } from '@/playground/utils/dom'
 import { Kbd } from '@/playground/components/elements/misc/Kbd/Kbd'
 
@@ -260,23 +255,6 @@ class SettingsModal extends ThemeableComponent<Props, SettingsModalState> {
                     }
 
                     this.touchTerminalSettings({ fontSize })
-                  }}
-                />
-              }
-            />
-            <SettingsProperty
-              key="terminalBackend"
-              title="Rendering Backend"
-              description="Set the rendering backend for the terminal."
-              control={
-                <Dropdown
-                  options={terminalBackendOptions}
-                  disabled={this.state.hideTerminalSettings}
-                  defaultSelectedKey={this.props.terminal?.renderingBackend}
-                  onChange={(_, val) => {
-                    this.touchTerminalSettings({
-                      renderingBackend: val?.key.toString() as RenderingBackend,
-                    })
                   }}
                 />
               }

@@ -1,5 +1,4 @@
 import type { IDropdownOption } from '@fluentui/react'
-import { RenderingBackend } from '@/playground/store/terminal/types'
 import { DEFAULT_FONT, getAvailableFonts } from '@/playground/services/fonts'
 
 export const cursorBlinkOptions: IDropdownOption[] = [
@@ -27,8 +26,3 @@ export const fontOptions: IDropdownOption[] = [
   })),
 ]
 
-export const terminalBackendOptions: IDropdownOption[] = [
-  { key: RenderingBackend.Canvas, text: 'Canvas' },
-  { key: RenderingBackend.DOM, text: 'DOM' },
-  { key: RenderingBackend.WebGL, text: 'WebGL (experimental)' },
-]
