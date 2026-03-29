@@ -2,18 +2,22 @@
   "name": "playground",
   "private": true,
   "type": "module",
-  "workspaces": ["apps/server"],
   "scripts": {
-    "dev": "bun run --cwd apps/server dev",
-    "build": "bun run --cwd apps/server build",
-    "start": "bun run --cwd apps/server start",
-    "typecheck": "bun run --cwd apps/server typecheck",
+    "dev": "bun run --watch src/index.ts",
+    "start": "bun run src/index.ts",
+    "build": "bun build src/index.ts --outdir=dist --target=bun",
+    "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.worker.json",
     "deploy:cloudflare": "wrangler deploy",
     "dev:cloudflare": "wrangler dev"
+  },
+  "dependencies": {
+    "hono": "^4.7.2"
   },
   "devDependencies": {
     "@cloudflare/containers": "^0.2.0",
     "@cloudflare/workers-types": "^4.20250321.0",
+    "@types/bun": "latest",
+    "typescript": "~5.7.0",
     "wrangler": "^4.28.0"
   }
 }

@@ -3,6 +3,12 @@
   "name": "lesma-playground",
   "main": "worker.ts",
   "compatibility_date": "2025-04-01",
+  // Custom hostnames (zone must be on Cloudflare). Same Worker serves docs (/),
+  // playground (/playground), and API (/api) — no separate playground domain.
+  "routes": [
+    { "pattern": "lesma.dev", "custom_domain": true },
+    { "pattern": "www.lesma.dev", "custom_domain": true }
+  ],
   "containers": [
     {
       "class_name": "PlaygroundContainer",

@@ -44,9 +44,9 @@ RUN bun run build
 FROM oven/bun:1-debian AS server-workspace
 WORKDIR /app
 COPY tools/playground/package.json tools/playground/bun.lock ./
-COPY tools/playground/apps/server/package.json ./apps/server/
 RUN bun install --frozen-lockfile
-COPY tools/playground/apps/server ./apps/server
+COPY tools/playground/src ./src
+COPY tools/playground/tsconfig.json ./
 
 FROM debian:bookworm-slim
 ENV DEBIAN_FRONTEND=noninteractive
@@ -81,5 +81,5 @@ ENV HOME=/opt/lesma
 ENV APP_ASSETS_DIR=/app/site-static
 
 EXPOSE 8080
-ENTRYPOINT ["bun", "run", "--cwd", "/app/apps/server", "start"]
+ENTRYPOINT ["bun", "run", "start"]
 CMD ["--addr=:8080", "--static-dir=/app/site-static"]
