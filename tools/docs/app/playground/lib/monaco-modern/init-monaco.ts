@@ -2,6 +2,14 @@ import { init } from 'modern-monaco'
 
 import { registerLesmaMonarchLanguage } from './lesma-monarch'
 
+/** Shiki theme when the site / editor is in light mode. */
+export const PLAYGROUND_SHIKI_LIGHT_THEME = 'one-light' as const
+
+/** Shiki theme when the site / editor is in dark mode. */
+export const PLAYGROUND_SHIKI_DARK_THEME = 'dark-plus' as const
+
+const BUNDLED_SHIKI_THEMES = [PLAYGROUND_SHIKI_LIGHT_THEME, PLAYGROUND_SHIKI_DARK_THEME] as const
+
 /** Runtime API object returned by `init()` (Monaco + Shiki wiring). */
 export type MonacoApi = typeof import('modern-monaco/editor-core')
 
@@ -15,8 +23,8 @@ let initPromise: Promise<MonacoApi> | null = null
 export function ensureMonaco(): Promise<MonacoApi> {
   if (!initPromise) {
     initPromise = init({
-      defaultTheme: 'one-light',
-      themes: ['one-light', 'one-dark-pro'],
+      defaultTheme: PLAYGROUND_SHIKI_LIGHT_THEME,
+      themes: [...BUNDLED_SHIKI_THEMES],
       langs: ['json'],
     }).then((monaco) => {
       registerLesmaMonarchLanguage(monaco)
@@ -27,5 +35,6 @@ export function ensureMonaco(): Promise<MonacoApi> {
 }
 
 export function applyMonacoColorScheme(monaco: MonacoApi, scheme: 'light' | 'dark'): void {
-  monaco.editor.setTheme(scheme === 'dark' ? 'one-dark-pro' : 'one-light')
+  const name = scheme === 'dark' ? PLAYGROUND_SHIKI_DARK_THEME : PLAYGROUND_SHIKI_LIGHT_THEME
+  monaco.editor.setTheme(name)
 }

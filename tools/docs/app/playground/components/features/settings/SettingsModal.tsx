@@ -16,11 +16,16 @@ import { ThemeableComponent } from '@/playground/components/utils/ThemeableCompo
 import { Dialog } from '@/playground/components/elements/modals/Dialog/Dialog'
 import { SettingsProperty } from './SettingsProperty'
 import { DEFAULT_FONT } from '@/playground/services/fonts'
-import type { MonacoSettings } from '@/playground/services/config/monaco'
+import { defaultMonacoSettings, type MonacoSettings } from '@/playground/services/config/monaco'
 import type { RenderingBackend, TerminalSettings } from '@/playground/store/terminal/types'
 import { connect, type MonacoParamsChanges, type SettingsState } from '@/playground/store'
 
-import { cursorBlinkOptions, cursorLineOptions, fontOptions, terminalBackendOptions } from './options'
+import {
+  cursorBlinkOptions,
+  cursorLineOptions,
+  fontOptions,
+  terminalBackendOptions,
+} from './options'
 import { controlKeyLabel } from '@/playground/utils/dom'
 import { Kbd } from '@/playground/components/elements/misc/Kbd/Kbd'
 

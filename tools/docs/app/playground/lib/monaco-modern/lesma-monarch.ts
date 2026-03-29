@@ -11,7 +11,7 @@ const typePattern =
 /**
  * modern-monaco only wires Shiki tokenizers for built-in tm-grammars; custom `langs` are loaded in Shiki
  * but never get `languages.register` + `setTokensProvider` in Monaco. Register Lesma with a Monarch lexer
- * so themes (one-light / one-dark-pro) apply standard token classes.
+ * so Shiki themes one-light / dark-plus apply standard token classes.
  */
 export function registerLesmaMonarchLanguage(monaco: MonacoApi): void {
   if (monaco.languages.getLanguages().some((l) => l.id === 'lesma')) {
