@@ -12,12 +12,10 @@ The **Lesma playground** is a web UI (Monaco editor + terminal) backed by a smal
 Use the **Playground** item in the site header, or open [**/playground**](/playground) from the hub.
 
 For **local development**, clone the Lesma repository and follow the README to run the documentation
-and playground dev servers together; the embed can load the playground UI in an iframe. To point the
-docs UI at a **different** hosted playground, set **`VITE_PLAYGROUND_URL`** in your environment for
-the docs build.
+dev server and the playground API together so **`/playground`** and **`/api`** work on the same origin.
 
-In production, this site and the playground are usually served from the **same origin** (documentation
-at `/` and the playground under `/playground/`), sharing the **`/api`** routes that run the compiler.
+In production, documentation and the playground are served from the **same origin** (docs at `/` and
+the playground under `/playground/`), sharing the **`/api`** routes that run the compiler.
 
 ## Relationship to `lesma run`
 

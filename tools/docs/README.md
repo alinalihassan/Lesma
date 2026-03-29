@@ -38,10 +38,6 @@ Do **not** deploy this folder alone as a static-only Worker for the main site. U
 2. `npx wrangler login`
 3. From `tools/docs`: `bun run deploy:cloudflare` (delegates to `tools/playground`), or run `bun run deploy:cloudflare` directly in `tools/playground`.
 
-## Environment
-
-- **`VITE_PLAYGROUND_URL`** — optional. If set, the header “Playground” link points at this absolute URL instead of `/playground` in this SPA. Use when a playground build is still hosted on another origin.
-
 ## Structure
 
 - `app/` — React Router routes, layouts, search dialog.

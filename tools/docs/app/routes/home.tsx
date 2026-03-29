@@ -5,7 +5,7 @@ import { BookOpen, Download, Gamepad2, Hammer } from 'lucide-react';
 import { Link } from 'react-router';
 import { HomeSiteHeader } from '@/components/site-header';
 import { baseOptions } from '@/lib/layout.shared';
-import { gitConfig, playgroundNavHref } from '@/lib/shared';
+import { gitConfig, playgroundNavPath } from '@/lib/shared';
 
 export function meta({}: Route.MetaArgs) {
   return [
@@ -19,7 +19,7 @@ export function meta({}: Route.MetaArgs) {
 }
 
 export default function Home() {
-  const playHref = playgroundNavHref();
+  const playHref = playgroundNavPath;
   const playIsInternal = playHref.startsWith('/');
 
   return (

@@ -6,7 +6,6 @@ interface ImportMetaEnv {
   readonly VITE_LANG_SERVER?: string
   readonly VITE_DOCS_URL?: string
   readonly VITE_GITHUB_URL?: string
-  readonly VITE_PLAYGROUND_URL?: string
   readonly BASE_URL: string
 }
 

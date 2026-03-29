@@ -72,7 +72,7 @@ Local: `bun run dev:cloudflare` (Wrangler [container dev](https://developers.clo
 
 **CI:** GitHub Actions workflow **Deploy Cloudflare** runs `wrangler deploy` on every push to **`main`** or **`dev`**. Add repository secrets `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID`. Each run builds Lesma inside Docker and can take on the order of tens of minutes on a default runner.
 
-The same Worker URL serves **docs and playground**; you normally do **not** set `VITE_PLAYGROUND_URL`. Set it only if the playground stays on a **separate** origin (then enable CORS on that API if needed).
+The same Worker URL serves **docs and playground** on one origin.
 
 ### Custom domain (e.g. lesma.dev)
 
@@ -83,7 +83,7 @@ One hostname is enough: **docs** are at `https://lesma.dev/`, the **playground**
 3. Run **`bun run deploy:cloudflare`**. Wrangler attaches those custom domains to this Worker; Cloudflare will show any DNS records still needed under the zone (often auto-managed when the zone is on Cloudflare).
 4. Optional: add a **Redirect rule** in the dashboard (`www.lesma.dev/*` → `https://lesma.dev/$1`) if you only want the apex as canonical.
 
-Do **not** set **`VITE_DOCS_URL`** or **`VITE_PLAYGROUND_URL`** for this layout; the app uses `window.location.origin` for API paths and in-app links.
+Do **not** set **`VITE_DOCS_URL`** for this layout; the app uses `window.location.origin` for API paths and in-app links.
 
 ## Environment (server)
 

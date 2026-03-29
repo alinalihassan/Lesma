@@ -1,6 +1,6 @@
 import type { BaseLayoutProps, LinkItemType } from 'fumadocs-ui/layouts/shared';
 import { BookOpen, Gamepad2 } from 'lucide-react';
-import { gitConfig, playgroundNavHref } from './shared';
+import { gitConfig, playgroundNavPath } from './shared';
 
 const navTitle = (
   <>
@@ -15,7 +15,7 @@ const navTitle = (
  * screens still get Documentation + Playground in the header menu.
  */
 function mainNavLinks(includeInMenu: boolean): LinkItemType[] {
-  const play = playgroundNavHref();
+  const play = playgroundNavPath;
   const placement = includeInMenu ? {} : { on: 'nav' as const };
 
   return [
