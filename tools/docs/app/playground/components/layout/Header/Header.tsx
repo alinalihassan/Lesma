@@ -25,6 +25,7 @@ export const Header: React.FC = () => {
   const [showExamples, setShowExamples] = useState(false)
 
   const isDisabled = useSelector(({ status }: State) => Boolean(status?.loading || status?.running))
+  const workspaceGeneration = useSelector((s: State) => s.workspace.generation)
   const commandBarStateKey = isDisabled ? 'disabled' : 'enabled'
 
   const applySettingsChanges = useCallback(
@@ -112,6 +113,7 @@ export const Header: React.FC = () => {
       }}
     >
       <CommandBar
+        key={`pg-cmd-${workspaceGeneration}-${commandBarStateKey}`}
         className="header__commandBar"
         items={menuItems}
         ariaLabel="CodeEditor menu"

@@ -1,4 +1,4 @@
-import React, { lazy, useEffect, useRef } from 'react'
+import React, { lazy, useLayoutEffect, useRef } from 'react'
 import { useDispatch } from 'react-redux'
 
 import { dispatchInitWorkspace } from '@/playground/store/workspace/dispatchers/snippet'
@@ -13,7 +13,7 @@ const LazyPlaygroundContent = lazy(async () => await import('./PlaygroundContain
 export const PlaygroundPage: React.FC = () => {
   const dispatch = useDispatch()
   const containerRef = useRef<HTMLDivElement>(null)
-  useEffect(() => {
+  useLayoutEffect(() => {
     dispatch(dispatchInitWorkspace())
   }, [dispatch])
 

@@ -45,6 +45,10 @@ export async function serveStaticDocumentRoot(
   let rsp = await tryFile(filePath)
   if (rsp !== null) return rsp
 
+  // e.g. /playground -> playground/index.html (prerendered route directory)
+  rsp = await tryFile(path.join(filePath, INDEX))
+  if (rsp !== null) return rsp
+
   const indexPath = path.join(rootDir, INDEX)
   rsp = await tryFile(indexPath)
   if (rsp !== null) return rsp

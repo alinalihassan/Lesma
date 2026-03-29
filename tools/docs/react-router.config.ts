@@ -22,6 +22,6 @@ export default {
       paths.push(getUrl(slugs), `/llms.mdx/docs/${[...slugs, 'content.md'].join('/')}`);
     }
 
-    return paths.filter((p) => p !== '/playground');
+    return paths;
   },
 } satisfies Config;

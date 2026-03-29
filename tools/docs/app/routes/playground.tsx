@@ -5,6 +5,8 @@ import { HomeSiteHeader } from '@/components/site-header';
 import { baseOptions } from '@/lib/layout.shared';
 
 const PlaygroundRoot = lazy(async () => {
+  const { disableIndexedDbIfBroken } = await import('@/lib/indexed-db-preflight');
+  await disableIndexedDbIfBroken();
   const m = await import('@/playground/PlaygroundRoot');
   return { default: m.PlaygroundRoot };
 });

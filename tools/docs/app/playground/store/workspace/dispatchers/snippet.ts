@@ -65,8 +65,16 @@ export const dispatchInitWorkspace = () => async (dispatch: DispatchFn, getState
   } = getState()
 
   const shouldAutosave = autoSave && !snippet?.id
+  let payload = getDefaultWorkspaceState()
+  if (shouldAutosave) {
+    try {
+      payload = loadWorkspaceState()
+    } catch (err) {
+      console.warn('playground: failed to load autosaved workspace', err)
+    }
+  }
   dispatch({
     type: WorkspaceAction.WORKSPACE_IMPORT,
-    payload: shouldAutosave ? loadWorkspaceState() : getDefaultWorkspaceState(),
+    payload,
   })
 }

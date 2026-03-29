@@ -11,7 +11,7 @@ import { initialTerminalState } from './terminal/state'
 import { reducers as terminalReducers } from './terminal/reducers'
 
 import { type FilePayload, WorkspaceAction } from '@/playground/store/workspace/actions'
-import { initialWorkspaceState } from '@/playground/store/workspace/state'
+import { getDefaultWorkspaceState } from '@/playground/store/workspace/state'
 import { reducers as workspaceReducers } from '@/playground/store/workspace/reducers'
 
 import { type Action, ActionType } from './actions/actions'
@@ -179,7 +179,11 @@ const reducers = {
 
 export const getInitialState = (): State => ({
   status: {
-    loading: true,
+    loading: false,
+    running: false,
+    dirty: false,
+    lastError: null,
+    events: undefined,
   },
   settings: initialSettingsState,
   monaco: config.monacoSettings,
@@ -187,7 +191,7 @@ export const getInitialState = (): State => ({
   notifications: {},
   vim: null,
   terminal: initialTerminalState,
-  workspace: initialWorkspaceState,
+  workspace: getDefaultWorkspaceState(),
 })
 
 export const rootReducer = combineReducers(reducers)
