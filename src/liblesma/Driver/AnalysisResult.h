@@ -99,6 +99,11 @@ struct AnalysisResult {
   std::unique_ptr<SymbolTable> rootScope;
   /** Generic bindings for specialized classes (e.g. list<int>); keys align with \p typeCache. */
   std::unordered_map<Type*, std::unordered_map<std::string, Type*>> specializedTypeEnv;
+  /** Specialized class → template class type (same keys as specialized-type entries in
+   * \p specializedTypeEnv). */
+  std::unordered_map<Type*, Type*> specializedTypeToTemplate;
+  /** Stable registry key -> canonical specialized class type from typecheck. */
+  std::unordered_map<std::string, Type*> specializedClassTypes;
   AnalysisIndex index;
   ImportAliasMap importAliasToPath;
   ImportedNameSourceMap importedNameToSource;

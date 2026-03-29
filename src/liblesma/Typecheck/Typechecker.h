@@ -93,6 +93,10 @@ class Typechecker final : public ASTVisitor {
   /** Declared generic param list for a class or function type (resolves to template for specialized
    * classes). */
   auto getDeclaredGenericParams(Type* type) const -> const std::vector<std::string>&;
+  /** Whether \p formalReceiverClass is the class that owns the target `super` implementation for
+   * static superclass \p staticSuperType (handles generic template vs specialization). */
+  [[nodiscard]] auto superMethodReceiverMatchesFormal(Type* formalReceiverClass, Type* staticSuperType)
+      -> bool;
 
   /** Import alias (e.g. "import_math") -> absolute path, for resolving return types of
    * import_math.func(). */
@@ -140,9 +144,17 @@ class Typechecker final : public ASTVisitor {
   auto getOrCreateSpecializedClassType(Type* classTemplate,
                                        const std::vector<std::string>& genericParamNames,
                                        const std::unordered_map<std::string, Type*>& env) -> Type*;
+  /** `ClassName(args)`: prefer `new` whose `self` type equals \p classType (non-generic only) so a
+   * subclass constructor is not resolved as the base `new` with the same trailing parameters. */
+  auto lookupConstructorForAllocatedClass(SymbolTable* tab,
+                                          const std::vector<Type*>& ctorParamTypes, Type* classType)
+      -> Value*;
   /** After all template fields exist, fill in placeholder specialized types created
    * mid-declaration. */
   void finalizeSpecializedTypesForTemplate(Type* classTemplate);
+  /** Register canonical bookkeeping for a specialized class type. */
+  void registerSpecializedClassType(Type* specialized, Type* classTemplate,
+                                    std::unordered_map<std::string, Type*> env);
   /** Existential trait type with explicit type args (e.g. Iterator<int>). */
   auto getOrCreateSpecializedTraitExistentialType(Type* traitTemplate,
                                                   const std::string& lookupName,
@@ -212,6 +224,8 @@ class Typechecker final : public ASTVisitor {
    */
   [[nodiscard]] auto methodLookupSignatureKey(const std::string& name,
                                               const std::vector<Type*>& lookupArgs) -> std::string;
+  /** Stable class-vtable slot key for a resolved method symbol. */
+  [[nodiscard]] auto vtableMethodKey(const Value* methodSymbol) -> std::string;
   /** Move all owning Type nodes from an import analysis tree into \p dest so \c
    * SymbolTable typeRefs remain valid after \c importedModuleCache is cleared. */
   void mergeImportedAnalysisTypeCachesInto(std::vector<std::unique_ptr<Type>>& dest,
@@ -219,10 +233,15 @@ class Typechecker final : public ASTVisitor {
   /** True when \p sym is the nominal type name binding (not a value, function,
    *  or enum member), for CUSTOM_TYPE resolution after lookupStruct / lookup. */
   [[nodiscard]] auto isTypeSymbolForCustomTypeName(Value const* sym) -> bool;
+  [[nodiscard]] static auto cloneFieldForInheritance(Field* source) -> std::unique_ptr<Field>;
+  [[nodiscard]] static auto findVarDeclWithName(const std::vector<VarDecl*>& fields,
+                                                const std::string& name) -> VarDecl*;
 
   /** When a class has no `def new`, register a constructor taking each field without a default. */
   void registerSynthesizedClassConstructor(const Class* node, Type* classTypePtr,
                                            SymbolTable* outerScope);
+  /** Merge superclass vtable slots with methods declared on \p classTy (see \c Class). */
+  void mergeClassVtableOrder(const Class* node, Type* classTy);
 
 public:
   /** Typecheck with no import * resolution. */
@@ -251,6 +270,11 @@ public:
   /** Per-specialized-class and trait-existential generic bindings (e.g. T -> int), for codegen. */
   auto takeSpecializedTypeEnv()
       -> std::unordered_map<Type*, std::unordered_map<std::string, Type*>>;
+  /** Specialized class type → its generic template (for substituting through `Base<T>`-style supers).
+   */
+  auto takeSpecializedTypeToTemplate() -> std::unordered_map<Type*, Type*>;
+  /** Stable registry key -> canonical specialized class type from typecheck. */
+  auto takeSpecializedClassTypes() -> std::unordered_map<std::string, Type*>;
   auto takeImportAliasToPath() -> ImportAliasMap;
   auto takeImportedNameToSource() -> ImportedNameSourceMap;
   auto takeImportedModules()
@@ -286,6 +310,7 @@ public:
   auto visit(const IsOp* node) -> void override;
   auto visit(const UnaryOp* node) -> void override;
   auto visit(const Literal* node) -> void override;
+  auto visit(const SuperExpr* node) -> void override;
   auto visit(const StringInterpolation* node) -> void override;
   auto visit(const ListLiteral* node) -> void override;
   auto visit(const DictLiteral* node) -> void override;

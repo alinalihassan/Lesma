@@ -1,0 +1,5 @@
+# super requires a base class.
+
+class Solo
+    def new()
+        super.new(self)

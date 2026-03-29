@@ -9,6 +9,7 @@ import {
 } from "vscode-languageclient/node";
 import { getIndentDedentConfiguration } from "./configurations/indentDedentConfiguration";
 import { checkForLesma, setLesmaCommands } from "./lesma/lesmaCommands";
+import { resolveWorkspaceConfigPath } from "./utils/configPath";
 import OutputConsole from "./utils/OutputConsole";
 
 let client: LanguageClient;
@@ -17,7 +18,7 @@ function getLspServerCommand(): string {
   const config = workspace.getConfiguration("lesma");
   const compilerPath = config.get<string | null>("compilerPath");
   if (compilerPath) {
-    const dir = path.dirname(compilerPath);
+    const dir = path.dirname(resolveWorkspaceConfigPath(compilerPath));
     const exe = process.platform === "win32" ? "lesma-lsp.exe" : "lesma-lsp";
     return path.join(dir, exe);
   }

@@ -76,6 +76,10 @@ class Type {
   // Non-owning references to other Types (owned elsewhere)
   Type* elementType;
   Type* returnType;
+  /** For TY_CLASS: direct superclass (single inheritance), or nullptr. */
+  Type* classSuperclass = nullptr;
+  /** True once another class declares this type as its base (needs vtable dispatch via base ptr). */
+  bool classHasDerivedClass = false;
   std::string genericName;
   std::string displayName;
   /** Declared generic parameter names in order (for TY_CLASS and TY_FUNCTION). */
@@ -84,6 +88,8 @@ class Type {
   std::vector<std::vector<std::string>> genericParamTraitBounds;
   /** For TY_CLASS: explicit `impl Trait` names from the declaration. */
   std::vector<std::string> implTraitNames;
+  /** For TY_CLASS: instance method names in vtable order (root-to-leaf, overrides share a slot). */
+  std::vector<std::string> classVtableMethodOrder;
   // Owned collection of Fields
   std::vector<std::unique_ptr<Field>> fields;
   llvm::SMRange declarationSpan;
@@ -126,8 +132,8 @@ public:
     return baseType == BaseType::TY_FLOAT || baseType == BaseType::TY_FLOAT32;
   }
   [[nodiscard]] auto isOneOf(const std::vector<BaseType>& baseTypes) const -> bool {
-    return std::ranges::any_of(baseTypes, [this](BaseType type) { return type == this->baseType; });
-    [this](BaseType type) -> bool { return type == this->baseType; };
+    return std::ranges::any_of(baseTypes,
+                               [this](BaseType type) { return type == this->baseType; });
   }
   [[nodiscard]] auto getBaseType() const -> BaseType { return baseType; }
   [[nodiscard]] auto getElementType() const -> Type* { return elementType; }
@@ -192,6 +198,16 @@ public:
   }
   auto setImplTraitNames(std::vector<std::string> names) -> void {
     implTraitNames = std::move(names);
+  }
+  [[nodiscard]] auto getClassSuperclass() const -> Type* { return classSuperclass; }
+  auto setClassSuperclass(Type* super) -> void { classSuperclass = super; }
+  [[nodiscard]] auto getClassHasDerivedClass() const -> bool { return classHasDerivedClass; }
+  auto setClassHasDerivedClass(bool value) -> void { classHasDerivedClass = value; }
+  [[nodiscard]] auto getClassVtableMethodOrder() const -> const std::vector<std::string>& {
+    return classVtableMethodOrder;
+  }
+  auto setClassVtableMethodOrder(std::vector<std::string> order) -> void {
+    classVtableMethodOrder = std::move(order);
   }
   auto setDeclarationSpan(llvm::SMRange span) -> void { declarationSpan = span; }
   auto setDeclarationFilePath(std::string path) -> void { declarationFilePath = std::move(path); }

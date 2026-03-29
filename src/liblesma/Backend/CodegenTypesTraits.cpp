@@ -276,15 +276,7 @@ auto Codegen::getOrCreateLlvmType(lesma::Type* type) -> llvm::Type* {
     }
     std::vector<llvm::Type*> elementTypes;
     for (auto* f : type->getFields()) {
-      llvm::Type* elt = nullptr;
-      if (f->type != nullptr && TypeUtils::passesByPointerInAbi(f->type)) {
-        // Class / trait values at runtime are pointers; tuple aggregate slots must match
-        // `insertvalue`/`extractvalue` operands (see TupleLiteral / unpack).
-        elt = builder->getPtrTy();
-      } else {
-        elt = getOrCreateLlvmType(f->type);
-      }
-      elementTypes.push_back(elt);
+      elementTypes.push_back(getStoredAggregateFieldLlvmType(f->type));
     }
     if (elementTypes.empty()) {
       elementTypes.push_back(builder->getInt8Ty());
@@ -299,11 +291,28 @@ auto Codegen::getOrCreateLlvmType(lesma::Type* type) -> llvm::Type* {
     type->setLlvmType(st);
     break;
   }
-  case BaseType::TY_CLASS:
-  case BaseType::TY_ENUM: {
+  case BaseType::TY_CLASS: {
     // Create opaque struct first to break recursion (e.g. class with field
-    // *Self). Use the Lesma display name so imported class types (e.g. stdlib
-    // str) get a stable LLVM struct name when this module never visits Class*.
+    // *Self). Leading slot: vtable pointer (single inheritance, dynamic dispatch).
+    llvm::StructType* st = nullptr;
+    if (!type->getDisplayName().empty()) {
+      st = llvm::StructType::create(theModule->getContext(), type->getDisplayName());
+    } else {
+      st = llvm::StructType::create(theModule->getContext());
+    }
+    type->setLlvmType(st);
+    std::vector<llvm::Type*> elementTypes;
+    elementTypes.push_back(builder->getPtrTy());
+    for (auto* f : type->getFields()) {
+      elementTypes.push_back(getStoredAggregateFieldLlvmType(f->type));
+    }
+    if (elementTypes.size() == 1U) {
+      elementTypes.push_back(builder->getInt8Ty());
+    }
+    st->setBody(elementTypes);
+    break;
+  }
+  case BaseType::TY_ENUM: {
     llvm::StructType* st = nullptr;
     if (!type->getDisplayName().empty()) {
       st = llvm::StructType::create(theModule->getContext(), type->getDisplayName());
@@ -328,6 +337,22 @@ auto Codegen::getOrCreateLlvmType(lesma::Type* type) -> llvm::Type* {
   return type->getLlvmType();
 }
 
+auto Codegen::getStoredAggregateFieldLlvmType(lesma::Type* fieldType) -> llvm::Type* {
+  if (fieldType == nullptr) {
+    return nullptr;
+  }
+  getOrCreateLlvmType(fieldType);
+  if (TypeUtils::passesByPointerInAbi(fieldType)) {
+    return builder->getPtrTy();
+  }
+  return fieldType->getLlvmType();
+}
+
+auto Codegen::loadStoredAggregateFieldValue(llvm::Value* slotPtr, lesma::Type* fieldType,
+                                           const llvm::Twine& name) -> llvm::Value* {
+  return builder->CreateLoad(getStoredAggregateFieldLlvmType(fieldType), slotPtr, name);
+}
+
 auto Codegen::collectTraitMetadataFromAst() -> void {
   Compound* ast = parser->getAst();
   if (ast == nullptr) {
@@ -346,6 +371,10 @@ auto Codegen::collectTraitMetadataFromAst() -> void {
 }
 
 auto Codegen::mergeImportedTraitMetadata(Codegen const& imported) -> void {
+  mergeImportedTraitMetadata(imported.captureImportedSpecializationState());
+}
+
+auto Codegen::mergeImportedTraitMetadata(ImportedSpecializationState const& imported) -> void {
   for (const auto& entry : imported.traitDeclByName) {
     if (traitDeclByName.contains(entry.first)) {
       continue;
@@ -358,16 +387,42 @@ auto Codegen::mergeImportedTraitMetadata(Codegen const& imported) -> void {
   }
 }
 
-auto Codegen::mergeImportedSpecializationState(Codegen const& imported) -> void {
+auto Codegen::captureImportedSpecializationState() const -> ImportedSpecializationState {
+  ImportedSpecializationState importedState;
+  importedState.genericClasses = genericClasses;
+  importedState.specializedClassTypesByKey = specializedClassTypesByKey;
+  importedState.specializedClassTypeEnvs = specializedClassTypeEnvs;
+  importedState.specializedClassTemplateOf = specializedClassTemplateOf;
+  importedState.specializationEnvs = specializationEnvs;
+  importedState.codegenClassAstByDisplayName = codegenClassAstByDisplayName;
+  importedState.traitRequirementMethodOrder = traitRequirementMethodOrder;
+  importedState.traitDeclByName = traitDeclByName;
+  return importedState;
+}
+
+auto Codegen::mergeImportedSpecializationState(ImportedSpecializationState const& imported) -> void {
   for (const auto& entry : imported.genericClasses) {
     genericClasses.insert(entry);
+  }
+  for (const auto& entry : imported.specializedClassTypesByKey) {
+    specializedClassTypesByKey.insert(entry);
   }
   for (const auto& entry : imported.specializedClassTypeEnvs) {
     specializedClassTypeEnvs.insert(entry);
   }
+  for (const auto& entry : imported.specializedClassTemplateOf) {
+    specializedClassTemplateOf.insert(entry);
+  }
   for (const auto& entry : imported.specializationEnvs) {
     specializationEnvs.insert(entry);
   }
+  for (const auto& entry : imported.codegenClassAstByDisplayName) {
+    codegenClassAstByDisplayName.insert(entry);
+  }
+}
+
+auto Codegen::mergeImportedSpecializationState(Codegen const& imported) -> void {
+  mergeImportedSpecializationState(imported.captureImportedSpecializationState());
 }
 
 auto Codegen::findTraitRequirement(const TraitDecl* trait, const std::string& methodName) const
@@ -566,16 +621,8 @@ auto Codegen::callExistentialMethod(llvm::SMRange span, lesma::Value* receiver,
   llvm::SmallVector<llvm::Type*, 8> tparams;
   tparams.push_back(ptrTy);
   auto savedGenerics = currentGenericTypes;
-  if (auto clsEnvIt = specializedClassTypeEnvs.find(receiverType);
-      clsEnvIt != specializedClassTypeEnvs.end()) {
-    currentGenericTypes = clsEnvIt->second;
-  } else {
-    for (const auto& entry : specializedClassTypeEnvs) {
-      if (entry.first != nullptr && entry.first->isEqual(receiverType)) {
-        currentGenericTypes = entry.second;
-        break;
-      }
-    }
+  if (const auto* envPtr = specializedTraitExistentialEnvFor(receiverType); envPtr != nullptr) {
+    currentGenericTypes = *envPtr;
   }
   lesma::Type* retLesma = nullptr;
   try {

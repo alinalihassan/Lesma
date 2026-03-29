@@ -49,7 +49,9 @@ auto Codegen::getExportsFromFile(const std::string& filepath, bool isStd,
 
 auto Codegen::typecheckModule(const Compound* ast, const std::string& modulePath)
     -> std::tuple<std::unique_ptr<SymbolTable>, std::vector<std::unique_ptr<lesma::Type>>,
-                  std::unordered_map<lesma::Type*, std::unordered_map<std::string, lesma::Type*>>> {
+                  std::unordered_map<lesma::Type*, std::unordered_map<std::string, lesma::Type*>>,
+                  std::unordered_map<lesma::Type*, lesma::Type*>,
+                  std::unordered_map<std::string, lesma::Type*>> {
   Typechecker typechecker(
       modulePath, [this](const std::string& path, bool isStd, const std::string& mainFilePath) {
         return getExportsFromFile(path, isStd, mainFilePath);
@@ -57,7 +59,8 @@ auto Codegen::typecheckModule(const Compound* ast, const std::string& modulePath
   typechecker.run(ast);
   auto takenTypeCache = typechecker.takeTypeCache();
   auto takenRoot = typechecker.takeRootScope();
-  return {std::move(takenRoot), std::move(takenTypeCache), typechecker.takeSpecializedTypeEnv()};
+  return {std::move(takenRoot), std::move(takenTypeCache), typechecker.takeSpecializedTypeEnv(),
+          typechecker.takeSpecializedTypeToTemplate(), typechecker.takeSpecializedClassTypes()};
 }
 
 auto Codegen::isImported(const std::vector<ImportedNameBinding>& importedNames,
@@ -230,22 +233,20 @@ auto Codegen::compileModule(llvm::SMRange span, const std::string& filepath, boo
   auto it = std::find(importedModules->begin(), importedModules->end(), absolutePath);
   if (it != importedModules->end()) {
     auto existingIdx = static_cast<size_t>(it - importedModules->begin());
-    if (existingIdx >= importedScopes->size()) {
+    if (existingIdx >= importedScopes->size() || !importedScopes->at(existingIdx)) {
       throw CodegenError(span, "Circular import detected: {}", filepath);
     }
   }
   if (it != importedModules->end()) {
     auto existingIdx = static_cast<size_t>(it - importedModules->begin());
     SymbolTable* existingScope = importedScopes->at(existingIdx).get();
-    // importedCodegens is per-Codegen; shared importedModules may list paths compiled by an
-    // ancestor, so index must not be used to pick the matching Codegen.
-    for (const auto& cg : importedCodegens) {
-      if (cg != nullptr && cg->filename == absolutePath) {
-        mergeImportedTraitMetadata(*cg);
-        mergeImportedSpecializationState(*cg);
-        break;
-      }
+    if (existingIdx >= importedSpecializationStates->size()) {
+      throw CodegenError(span, "Missing specialization metadata for import {}", filepath);
     }
+    const ImportedSpecializationState& importedState =
+        importedSpecializationStates->at(existingIdx);
+    mergeImportedSpecializationState(importedState);
+    mergeImportedTraitMetadata(importedState);
     insertImportAlias(moduleAlias, importToScope, absolutePath);
     if (!importToScope && !moduleAlias.empty()) {
       importAliasToModulePath[moduleAlias] = absolutePath;
@@ -273,6 +274,13 @@ auto Codegen::compileModule(llvm::SMRange span, const std::string& filepath, boo
 
   auto fileId = sourceManager->AddNewSourceBuffer(std::move(*buffer), llvm::SMLoc());
   importedModules->push_back(absolutePath);
+  auto importIdx = importedModules->size() - 1U;
+  if (importedScopes->size() <= importIdx) {
+    importedScopes->resize(importIdx + 1U);
+  }
+  if (importedSpecializationStates->size() <= importIdx) {
+    importedSpecializationStates->resize(importIdx + 1U);
+  }
 
   try {
     // Lexer
@@ -287,15 +295,20 @@ auto Codegen::compileModule(llvm::SMRange span, const std::string& filepath, boo
       throw CodegenError(span, "Unable to parse imported module {}", filepath);
     }
 
-    auto [preScope, preTypeCache, preSpecEnv] = typecheckModule(ast, absolutePath);
+    auto [preScope, preTypeCache, preSpecEnv, preTemplateOf, preSpecializedClassTypes] =
+        typecheckModule(ast, absolutePath);
 
     auto codegen = std::make_unique<Codegen>(
         std::move(parser), sourceManager, absolutePath, std::vector<std::string>{}, isJit, false,
         !importToScope ? moduleAlias : "", theContext, importedModules, importedScopes,
-        std::move(preScope), std::move(preTypeCache), std::move(preSpecEnv), emitDebugInfo,
+        importedSpecializationStates,
+        std::move(preScope), std::move(preTypeCache), std::move(preSpecEnv),
+        std::move(preTemplateOf), std::move(preSpecializedClassTypes), emitDebugInfo,
         OptimizationLevel::O0, pendingJitModuleInits);
     codegen->run();
-    mergeImportedTraitMetadata(*codegen);
+    ImportedSpecializationState importedState = codegen->captureImportedSpecializationState();
+    importedSpecializationStates->at(importIdx) = importedState;
+    mergeImportedTraitMetadata(importedState);
 
     // Imported modules run optimize(O0) (no-op). For JIT, promote PrivateLinkage so Mach-O
     // JITLink can resolve symbols across ORC modules at -O0 (see prepareJit / addIRModule path).
@@ -308,13 +321,13 @@ auto Codegen::compileModule(llvm::SMRange span, const std::string& filepath, boo
     }
     exposeImportedSymbols(span, codegen->rootScope.get(), importAll, importToScope, importedNames);
 
-    importedScopes->push_back(std::move(codegen->rootScope));
+    importedScopes->at(importIdx) = std::move(codegen->rootScope);
     codegen->scope = nullptr; // Clear navigation pointer (rootscope now moved)
 
     for (auto& type : codegen->typeCache) {
       typeCache.push_back(std::move(type));
     }
-    mergeImportedSpecializationState(*codegen);
+    mergeImportedSpecializationState(importedState);
 
     std::string jitModuleInitSymbol;
     if (isJit) {

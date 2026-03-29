@@ -21,6 +21,8 @@
 - [ ] Add lambda functions
 - [ ] Add try catch
 - [ ] Add multithreading using pthread for now (async/await? ala Spice)
+- [ ] Add comments above classes and functions as documentation in LSP
+- [ ] Check dictionaries for multiline support
 
 ## LSP
 - [ ] rename + prepareRename

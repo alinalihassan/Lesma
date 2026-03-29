@@ -1,6 +1,60 @@
 #include "LspSourceHelpers.h"
 
+#include <algorithm>
+#include <vector>
+
 namespace lesma::lsp_srv {
+
+namespace {
+
+[[nodiscard]] auto lineIndexAtOffset(llvm::StringRef buf, std::size_t offset) -> unsigned {
+  offset = std::min(offset, buf.size());
+  unsigned line = 0;
+  for (std::size_t i = 0; i < offset; ++i) {
+    if (buf[i] == '\n') {
+      ++line;
+    }
+  }
+  return line;
+}
+
+[[nodiscard]] auto lineBoundsByIndex(llvm::StringRef buf, unsigned lineIdx, std::size_t& outStart,
+                                     std::size_t& outEndExcl) -> bool {
+  unsigned cur = 0;
+  std::size_t start = 0;
+  for (std::size_t i = 0; i <= buf.size(); ++i) {
+    bool const atEnd = (i == buf.size());
+    if (atEnd || buf[i] == '\n') {
+      if (cur == lineIdx) {
+        outStart = start;
+        outEndExcl = i;
+        return true;
+      }
+      ++cur;
+      start = i + 1;
+      if (atEnd) {
+        break;
+      }
+    }
+  }
+  return false;
+}
+
+[[nodiscard]] auto trimmedLineIsHashComment(llvm::StringRef line) -> bool {
+  llvm::StringRef const t = line.ltrim(" \t\r");
+  return t.starts_with("#");
+}
+
+[[nodiscard]] auto stripHashCommentBody(llvm::StringRef line) -> std::string {
+  llvm::StringRef t = line.ltrim(" \t\r");
+  if (!t.starts_with("#")) {
+    return std::string(t);
+  }
+  t = t.drop_front(1).ltrim(" \t");
+  return std::string(t);
+}
+
+} // namespace
 
 auto bufferByteOffsetFromLspUtf8Position(llvm::StringRef utf8Text, unsigned line,
                                          unsigned characterUtf8) -> std::size_t {
@@ -64,6 +118,62 @@ auto smRangesEqual(llvm::SourceMgr* srcMgr, unsigned bufferId, llvm::SMRange lhs
              getOffsetFromSMLoc(srcMgr, bufferId, rhs.Start) &&
          getOffsetFromSMLoc(srcMgr, bufferId, lhs.End) ==
              getOffsetFromSMLoc(srcMgr, bufferId, rhs.End);
+}
+
+auto extractLineCommentDocumentationAboveDecl(llvm::StringRef buffer,
+                                                std::size_t declarationByteOffset) -> std::string {
+  if (buffer.empty() || declarationByteOffset > buffer.size()) {
+    return {};
+  }
+  unsigned const declLine = lineIndexAtOffset(buffer, declarationByteOffset);
+  if (declLine == 0U) {
+    return {};
+  }
+  int scan = static_cast<int>(declLine) - 1;
+  while (scan >= 0) {
+    std::size_t lineStart = 0;
+    std::size_t lineEndExcl = 0;
+    if (!lineBoundsByIndex(buffer, static_cast<unsigned>(scan), lineStart, lineEndExcl)) {
+      return {};
+    }
+    llvm::StringRef const lineText = buffer.slice(lineStart, lineEndExcl);
+    if (lineText.trim().empty()) {
+      --scan;
+      continue;
+    }
+    if (!trimmedLineIsHashComment(lineText)) {
+      return {};
+    }
+    std::vector<std::string> linesBottomToTop;
+    int c = scan;
+    while (c >= 0) {
+      std::size_t ls = 0;
+      std::size_t le = 0;
+      if (!lineBoundsByIndex(buffer, static_cast<unsigned>(c), ls, le)) {
+        break;
+      }
+      llvm::StringRef const lt = buffer.slice(ls, le);
+      if (lt.trim().empty()) {
+        break;
+      }
+      if (!trimmedLineIsHashComment(lt)) {
+        break;
+      }
+      linesBottomToTop.push_back(stripHashCommentBody(lt));
+      --c;
+    }
+    std::reverse(linesBottomToTop.begin(), linesBottomToTop.end());
+    std::string out;
+    for (size_t i = 0; i < linesBottomToTop.size(); ++i) {
+      if (i != 0U) {
+        // GFM/CommonMark: two spaces before newline = hard line break (single \n is a soft break).
+        out += "  \n";
+      }
+      out += linesBottomToTop[i];
+    }
+    return out;
+  }
+  return {};
 }
 
 } // namespace lesma::lsp_srv

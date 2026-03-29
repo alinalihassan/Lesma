@@ -2,6 +2,8 @@ import * as fs from "fs";
 import * as vscode from "vscode";
 import which from "which";
 
+import { resolveWorkspaceConfigPath } from "./configPath";
+
 export default class SystemCommands {
   private static getLesmaLangConfiguration() {
     return vscode.workspace.getConfiguration("lesma");
@@ -22,11 +24,15 @@ export default class SystemCommands {
    */
   public static async getAllPossibleLesmaCommandPaths(): Promise<string[]> {
     const compilerPaths: string[] = [];
+    const config = SystemCommands.getLesmaLangConfiguration();
 
     // Prefer the extension-set compilerPath first, and then remaining possible paths
     // as fallback.
-    const exeChoice: string | null =
-      SystemCommands.getLesmaLangConfiguration().get("compilerPath");
+    const rawCompilerPath = config.get<string | null>("compilerPath");
+    const exeChoice =
+      typeof rawCompilerPath === "string"
+        ? resolveWorkspaceConfigPath(rawCompilerPath)
+        : null;
     if (exeChoice !== null) {
       compilerPaths.push(exeChoice);
     }
@@ -45,8 +51,13 @@ export default class SystemCommands {
     );
 
     if (paths.length > 0) {
-      // Set the first non-null compilerPath as the extension-configuration.
-      SystemCommands.updateLesmaCommandPath(paths[0]);
+      const configuredResolves =
+        typeof rawCompilerPath === "string" &&
+        fs.existsSync(resolveWorkspaceConfigPath(rawCompilerPath));
+      // Do not replace a valid workspace-relative setting with an absolute path.
+      if (rawCompilerPath === null || rawCompilerPath === "" || !configuredResolves) {
+        void SystemCommands.updateLesmaCommandPath(paths[0]);
+      }
     }
 
     return paths;
@@ -59,11 +70,11 @@ export default class SystemCommands {
     const config = SystemCommands.getLesmaLangConfiguration();
     // Prefer an explicit Lesma compiler path when one is configured.
     const lesmaCompilerPath = config.get("compilerPath");
-    if (
-      typeof lesmaCompilerPath === "string" &&
-      fs.existsSync(lesmaCompilerPath)
-    ) {
-      return lesmaCompilerPath;
+    if (typeof lesmaCompilerPath === "string") {
+      const resolved = resolveWorkspaceConfigPath(lesmaCompilerPath);
+      if (fs.existsSync(resolved)) {
+        return resolved;
+      }
     }
     return null;
   }

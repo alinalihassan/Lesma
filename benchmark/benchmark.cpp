@@ -64,10 +64,12 @@ auto InitializeCodegen(std::shared_ptr<Parser> parser,
   auto takenRootScope = typechecker.takeRootScope();
   auto codegen = std::make_unique<Codegen>(std::move(parser), srcMgr, __FILE__,
                                            std::vector<std::string>{}, true, true, "", nullptr,
-                                           nullptr, nullptr,
+                                           nullptr, nullptr, nullptr,
                                            std::move(takenRootScope),
                                            std::move(takenTypeCache),
-                                           typechecker.takeSpecializedTypeEnv());
+                                           typechecker.takeSpecializedTypeEnv(),
+                                           typechecker.takeSpecializedTypeToTemplate(),
+                                           typechecker.takeSpecializedClassTypes());
   codegen->run();
 
   return codegen;

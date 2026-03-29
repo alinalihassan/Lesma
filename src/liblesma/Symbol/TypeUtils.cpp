@@ -1,5 +1,7 @@
 #include "TypeUtils.h"
 
+#include <sstream>
+
 #include "liblesma/Symbol/Type.h"
 
 namespace lesma::TypeUtils {
@@ -10,6 +12,13 @@ auto findIndexInFields(Type* structType, const std::string& field) -> int {
     }
   }
   return -1;
+}
+
+auto classDataFieldStructIndex(Type* classTy, unsigned logicalIndex) -> unsigned {
+  if (classTy != nullptr && classTy->is(BaseType::TY_CLASS)) {
+    return logicalIndex + 1U;
+  }
+  return logicalIndex;
 }
 
 auto findTypeInFields(Type* structType, const std::string& field) -> Type* {
@@ -42,5 +51,21 @@ auto passesByPointerInAbi(Type const* t) -> bool {
     return true;
   }
   return t->is(BaseType::TY_CLASS) || t->is(BaseType::TY_TRAIT_EXISTENTIAL);
+}
+
+auto makeSpecializedClassKey(Type* classTemplate, const std::vector<std::string>& genericParamNames,
+                             const std::unordered_map<std::string, Type*>& env) -> std::string {
+  std::ostringstream key;
+  key << classTemplate->toString();
+  for (const auto& name : genericParamNames) {
+    auto it = env.find(name);
+    key << "|";
+    if (it != env.end()) {
+      key << it->second->toString();
+      continue;
+    }
+    key << "<unbound:" << name << ">";
+  }
+  return key.str();
 }
 } // namespace lesma::TypeUtils

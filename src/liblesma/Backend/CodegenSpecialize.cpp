@@ -20,6 +20,304 @@
 using namespace lesma;
 using namespace llvm;
 
+auto Codegen::findGenericClassAstForTemplateType(Type* classTemplateTy) const -> const Class* {
+  if (classTemplateTy == nullptr) {
+    return nullptr;
+  }
+  for (const auto& [id, ast] : genericClasses) {
+    lesma::Value* sym = rootScope->lookupStruct(id);
+    if (sym != nullptr && sym->getType() != nullptr &&
+        sym->getType()->isEqual(classTemplateTy)) {
+      return ast;
+    }
+  }
+  return nullptr;
+}
+
+auto Codegen::isTypeFullyConcrete(Type* t) const -> bool {
+  std::unordered_set<Type*> active;
+  auto isTypeFullyConcreteImpl = [&](auto&& self, Type* cur) -> bool {
+    if (cur == nullptr) {
+      return false;
+    }
+    if (cur->is(BaseType::TY_GENERIC)) {
+      return false;
+    }
+    if (!active.insert(cur).second) {
+      return true;
+    }
+
+    bool isConcrete = true;
+    switch (cur->getBaseType()) {
+    case BaseType::TY_PTR:
+    case BaseType::TY_ARRAY:
+      isConcrete = self(self, cur->getElementType());
+      break;
+    case BaseType::TY_FUNCTION:
+      for (Field* field : cur->getFields()) {
+        if (!self(self, field->type)) {
+          isConcrete = false;
+          break;
+        }
+      }
+      if (isConcrete) {
+        isConcrete = self(self, cur->getReturnType());
+      }
+      break;
+    case BaseType::TY_TUPLE:
+    case BaseType::TY_ENUM:
+      for (Field* field : cur->getFields()) {
+        if (!self(self, field->type)) {
+          isConcrete = false;
+          break;
+        }
+      }
+      break;
+    case BaseType::TY_CLASS:
+      if (auto envIt = specializedClassTypeEnvs.find(cur); envIt != specializedClassTypeEnvs.end()) {
+        for (const auto& [name, boundType] : envIt->second) {
+          (void) name;
+          if (!self(self, boundType)) {
+            isConcrete = false;
+            break;
+          }
+        }
+      } else if (!cur->getGenericParams().empty()) {
+        isConcrete = false;
+      }
+      if (isConcrete && cur->getClassSuperclass() != nullptr) {
+        isConcrete = self(self, cur->getClassSuperclass());
+      }
+      if (isConcrete) {
+        for (Field* field : cur->getFields()) {
+          if (!self(self, field->type)) {
+            isConcrete = false;
+            break;
+          }
+        }
+      }
+      break;
+    default:
+      break;
+    }
+
+    active.erase(cur);
+    return isConcrete;
+  };
+  return isTypeFullyConcreteImpl(isTypeFullyConcreteImpl, t);
+}
+
+auto Codegen::emitClassMonomorph(Type* specialized, const Class* templateAst) -> lesma::Value* {
+  if (specialized == nullptr || templateAst == nullptr) {
+    throw CodegenError({}, "Internal error: emitClassMonomorph requires specialized class input");
+  }
+  if (auto it = specializedClassSymbolsByType.find(specialized);
+      it != specializedClassSymbolsByType.end()) {
+    return it->second;
+  }
+
+  auto envIt = specializedClassTypeEnvs.find(specialized);
+  if (envIt == specializedClassTypeEnvs.end()) {
+    throw CodegenError(templateAst->getSpan(),
+                       "Internal error: missing specialization env for {}",
+                       specialized->getDisplayName());
+  }
+
+  const auto& env = envIt->second;
+  const auto& genericNames = templateAst->getGenericParams();
+
+  auto saved = currentGenericTypes;
+  auto* savedSelfSymbol = selfSymbol;
+  currentGenericTypes = env;
+
+  for (const auto& [name, ty] : env) {
+    (void) name;
+    if (ty != nullptr) {
+      getOrCreateLlvmType(ty);
+    }
+  }
+
+  std::string concreteName = (alias.empty() ? "" : alias + "_") + templateAst->getIdentifier();
+  for (const auto& name : genericNames) {
+    concreteName += "_" + MangleUtils::getTypeMangledName(templateAst->getSpan(), env.at(name));
+  }
+
+  auto* structType = llvm::StructType::create(theModule->getContext(), concreteName);
+  specialized->setLlvmType(structType);
+  scope->insertTypeRef(concreteName, specialized);
+
+  auto structSymbol = std::make_unique<Value>(concreteName, specialized);
+  structSymbol->setCategory(ValueCategory::TYPE_SYMBOL);
+  structSymbol->setExported(templateAst->isExported());
+  auto* structSymbolPtr = structSymbol.get();
+  scope->insertSymbol(std::move(structSymbol));
+  specializedClassSymbolsByType[specialized] = structSymbolPtr;
+  codegenClassAstByType[specialized] = templateAst;
+  if (!specialized->getDisplayName().empty()) {
+    codegenClassAstByDisplayName.insert({specialized->getDisplayName(), templateAst});
+  }
+
+  std::string specializationKey =
+      (alias.empty() ? "" : "&" + alias + "=>") + templateAst->getIdentifier();
+  for (const auto& name : genericNames) {
+    specializationKey += "|" + MangleUtils::getTypeMangledName(templateAst->getSpan(), env.at(name));
+  }
+  specializedClasses[specializationKey] = structSymbolPtr;
+
+  std::vector<llvm::Type*> elementLLVMTypes;
+  elementLLVMTypes.push_back(builder->getPtrTy());
+  for (Field* field : specialized->getFields()) {
+    elementLLVMTypes.push_back(getStoredAggregateFieldLlvmType(field->type));
+  }
+  if (elementLLVMTypes.size() == 1U) {
+    elementLLVMTypes.push_back(builder->getInt8Ty());
+  }
+  structType->setBody(elementLLVMTypes, false);
+
+  if (specialized->getClassVtableMethodOrder().empty()) {
+    if (auto* tmplSym = scope->lookupStruct(templateAst->getIdentifier());
+        tmplSym != nullptr && tmplSym->getType() != nullptr) {
+      specialized->setClassVtableMethodOrder(tmplSym->getType()->getClassVtableMethodOrder());
+      specialized->setClassHasDerivedClass(tmplSym->getType()->getClassHasDerivedClass());
+    }
+  }
+
+  if (Type* superTy = specialized->getClassSuperclass();
+      superTy != nullptr && superTy->is(BaseType::TY_CLASS)) {
+    Type* superTemplate = superTy;
+    if (auto it = specializedClassTemplateOf.find(superTy); it != specializedClassTemplateOf.end()) {
+      superTemplate = it->second;
+    }
+    if (const Class* superAst = findGenericClassAstForTemplateType(superTemplate);
+        superAst != nullptr) {
+      emitClassMonomorph(superTy, superAst);
+    }
+  }
+
+  auto* selfType =
+      cacheType(std::make_unique<Type>(BaseType::TY_PTR, builder->getPtrTy(), specialized));
+  methodSelfSymbols.push_back(std::make_unique<Value>(concreteName, selfType));
+  methodSelfSymbols.back()->setExported(templateAst->isExported());
+  selfSymbol = methodSelfSymbols.back().get();
+
+  bool hasConstructor = false;
+  for (auto* method : templateAst->getMethods()) {
+    method->accept(*this);
+    if (method->getName() == "new") {
+      hasConstructor = true;
+      std::vector<lesma::Type*> constructorParams = buildClassMethodParamTypesForLookup(method);
+      auto* constructor =
+          scope->lookupFunction("new", constructorParams, FunctionLookupKind::OVERLOAD_IDENTITY);
+      structSymbolPtr->setConstructor(constructor);
+    }
+  }
+  selfSymbol = nullptr;
+
+  if (!hasConstructor) {
+    selfSymbol = structSymbolPtr;
+    lesma::Value* synthCtor =
+        declareSynthesizedClassConstructor(templateAst, specialized, structSymbolPtr);
+    structSymbolPtr->setConstructor(synthCtor);
+    selfSymbol = nullptr;
+  }
+
+  getOrEmitClassVtableGlobal(specialized, templateAst);
+  selfSymbol = savedSelfSymbol;
+  currentGenericTypes = std::move(saved);
+  return structSymbolPtr;
+}
+
+auto Codegen::substituteTypeForSpecializationEnv(
+    Type* t, const std::unordered_map<std::string, Type*>& env) -> Type* {
+  if (t == nullptr) {
+    return nullptr;
+  }
+  if (t->is(BaseType::TY_GENERIC)) {
+    auto it = env.find(t->getGenericName());
+    if (it != env.end()) {
+      return it->second;
+    }
+    return t;
+  }
+  if (t->is(BaseType::TY_PTR) && t->getElementType() != nullptr) {
+    Type* elem = substituteTypeForSpecializationEnv(t->getElementType(), env);
+    return cacheType(std::make_unique<Type>(BaseType::TY_PTR, nullptr, elem));
+  }
+  if (t->is(BaseType::TY_ARRAY) && t->getElementType() != nullptr) {
+    Type* elem = substituteTypeForSpecializationEnv(t->getElementType(), env);
+    auto* arr = cacheType(std::make_unique<Type>(BaseType::TY_ARRAY, nullptr, elem));
+    arr->setDisplayName(t->getDisplayName());
+    return arr;
+  }
+  if (t->is(BaseType::TY_FUNCTION)) {
+    std::vector<std::unique_ptr<Field>> fields;
+    for (Field* field : t->getFields()) {
+      fields.push_back(std::make_unique<Field>(
+          field->name, substituteTypeForSpecializationEnv(field->type, env)));
+    }
+    auto funcType = std::make_unique<Type>(BaseType::TY_FUNCTION, nullptr, std::move(fields));
+    funcType->setReturnType(substituteTypeForSpecializationEnv(t->getReturnType(), env));
+    funcType->setGenericParams(t->getGenericParams());
+    funcType->setGenericParamTraitBounds(
+        std::vector<std::vector<std::string>>(t->getGenericParamTraitBounds()));
+    funcType->setVarArgs(t->isVarArgs());
+    return cacheType(std::move(funcType));
+  }
+  if (t->is(BaseType::TY_TUPLE)) {
+    std::vector<std::unique_ptr<Field>> fields;
+    for (Field* field : t->getFields()) {
+      fields.push_back(std::make_unique<Field>(
+          field->name, substituteTypeForSpecializationEnv(field->type, env)));
+    }
+    auto tupleType = std::make_unique<Type>(BaseType::TY_TUPLE, nullptr, std::move(fields));
+    tupleType->setDisplayName(t->getDisplayName());
+    return cacheType(std::move(tupleType));
+  }
+  if (t->is(BaseType::TY_CLASS)) {
+    Type* classTemplate = t;
+    if (auto tmplIt = specializedClassTemplateOf.find(t);
+        tmplIt != specializedClassTemplateOf.end()) {
+      classTemplate = tmplIt->second;
+    }
+    const auto& genericParamNames = classTemplate->getGenericParams();
+    if (genericParamNames.empty()) {
+      return t;
+    }
+    std::unordered_map<std::string, Type*> classEnv;
+    if (auto specTmpl = specializedClassTemplateOf.find(t);
+        specTmpl != specializedClassTemplateOf.end()) {
+      if (auto envIt = specializedClassTypeEnvs.find(t); envIt != specializedClassTypeEnvs.end()) {
+        for (const auto& name : genericParamNames) {
+          auto b = envIt->second.find(name);
+          if (b != envIt->second.end()) {
+            classEnv[name] = substituteTypeForSpecializationEnv(b->second, env);
+          }
+        }
+      }
+    }
+    for (const auto& name : genericParamNames) {
+      if (auto it = env.find(name); it != env.end()) {
+        classEnv[name] = it->second;
+      }
+    }
+    bool allBound = true;
+    for (const auto& name : genericParamNames) {
+      if (!classEnv.contains(name)) {
+        allBound = false;
+        break;
+      }
+    }
+    if (allBound) {
+      const std::string registryKey =
+          TypeUtils::makeSpecializedClassKey(classTemplate, genericParamNames, classEnv);
+      if (auto it = specializedClassTypesByKey.find(registryKey); it != specializedClassTypesByKey.end()) {
+        return it->second;
+      }
+    }
+  }
+  return t;
+}
+
 auto Codegen::bindGenericsFromTypePair(const TypeExpr* declared, lesma::Type* actual,
                                        const std::unordered_set<std::string>& genericNameSet,
                                        std::unordered_map<std::string, lesma::Type*>& env,
@@ -43,8 +341,7 @@ auto Codegen::bindGenericsFromTypePair(const TypeExpr* declared, lesma::Type* ac
         actualBase = display.substr(0, anglePos);
       }
       if (name == actualBase) {
-        if (auto envIt = specializedClassTypeEnvs.find(classActual);
-            envIt != specializedClassTypeEnvs.end()) {
+        if (const auto* envMap = specializedClassEnvFor(classActual); envMap != nullptr) {
           const Class* templateClass = nullptr;
           if (auto git = genericClasses.find(name); git != genericClasses.end()) {
             templateClass = git->second;
@@ -59,8 +356,8 @@ auto Codegen::bindGenericsFromTypePair(const TypeExpr* declared, lesma::Type* ac
                 templateClass->getGenericParams();
             if (templateGenericParams.size() == declTypeArgs.size()) {
               for (size_t i = 0; i < declTypeArgs.size(); ++i) {
-                if (auto concreteIt = envIt->second.find(templateGenericParams[i]);
-                    concreteIt != envIt->second.end() && concreteIt->second != nullptr) {
+                if (auto concreteIt = envMap->find(templateGenericParams[i]);
+                    concreteIt != envMap->end() && concreteIt->second != nullptr) {
                   bindGenericsFromTypePair(declTypeArgs[i], concreteIt->second, genericNameSet, env,
                                            bindingConflict);
                 }
@@ -168,10 +465,13 @@ auto Codegen::appendGenericBindingSuffix(llvm::SMRange span, std::string& base,
 
 auto Codegen::specializeFunction(const FuncDecl* node, const std::vector<lesma::Type*>& paramTypes,
                                  const std::vector<std::string>& genericNames,
-                                 const std::vector<lesma::Type*>& explicitTypeArgs)
+                                 const std::vector<lesma::Type*>& explicitTypeArgs,
+                                 const std::unordered_map<std::string, lesma::Type*>* bindingEnvHint)
     -> lesma::Value* {
   auto saved = currentGenericTypes;
-  auto env = computeGenericFunctionBindingEnv(node, paramTypes, genericNames, explicitTypeArgs);
+  auto env = bindingEnvHint != nullptr
+                 ? *bindingEnvHint
+                 : computeGenericFunctionBindingEnv(node, paramTypes, genericNames, explicitTypeArgs);
   currentGenericTypes = env;
 
   for (auto* paramType : paramTypes) {
@@ -356,6 +656,34 @@ auto Codegen::specializeClass(const Class* node,
     }
   }
 
+  auto envIsFullyConcrete = [this](
+                                const std::unordered_map<std::string, lesma::Type*>& bindings)
+      -> bool {
+    for (const auto& [name, ty] : bindings) {
+      (void) name;
+      if (!isTypeFullyConcrete(ty)) {
+        return false;
+      }
+    }
+    return true;
+  };
+
+  Value* templateSymbol = scope->lookupStruct(node->getIdentifier());
+  Type* templateType = templateSymbol != nullptr ? templateSymbol->getType() : nullptr;
+  std::string registryKey;
+  if (templateType != nullptr && !genericNames.empty()) {
+    registryKey = TypeUtils::makeSpecializedClassKey(templateType, genericNames, env);
+    if (auto it = specializedClassTypesByKey.find(registryKey); it != specializedClassTypesByKey.end()) {
+      if (envIsFullyConcrete(env)) {
+        return emitClassMonomorph(it->second, node);
+      }
+      if (auto symIt = specializedClassSymbolsByType.find(it->second);
+          symIt != specializedClassSymbolsByType.end()) {
+        return symIt->second;
+      }
+    }
+  }
+
   std::string key = (alias.empty() ? "" : "&" + alias + "=>") + node->getIdentifier();
   for (const auto& gn : genericNames) {
     key += "|" + MangleUtils::getTypeMangledName(node->getSpan(), env[gn]);
@@ -411,35 +739,71 @@ auto Codegen::specializeClass(const Class* node,
   specializedClasses.emplace(key, structSymbolPtr);
   specializedClassSymbolsByType[typePtr] = structSymbolPtr;
   specializedClassTypeEnvs[typePtr] = env;
+  if (templateType != nullptr && !registryKey.empty()) {
+    specializedClassTemplateOf[typePtr] = templateType;
+    specializedClassTypesByKey[registryKey] = typePtr;
+  }
+  codegenClassAstByType[typePtr] = node;
+  if (!typePtr->getDisplayName().empty()) {
+    codegenClassAstByDisplayName.insert({typePtr->getDisplayName(), node});
+  }
 
   std::vector<llvm::Type*> elementLLVMTypes;
-  for (auto* field : node->getFields()) {
-    if (field->getType() != nullptr) {
-      field->getType()->accept(*this);
-    } else {
-      field->getValue()->accept(*this);
+  elementLLVMTypes.push_back(builder->getPtrTy());
+  lesma::Value* tmplSymForFields = scope->lookupStruct(node->getIdentifier());
+  Type* tmplTyForFields =
+      tmplSymForFields != nullptr ? tmplSymForFields->getType() : nullptr;
+
+  if (!node->getGenericParams().empty() && tmplTyForFields != nullptr) {
+    for (Field* f : tmplTyForFields->getFields()) {
+      Type* ft = substituteTypeForSpecializationEnv(f->type, env);
+      elementLLVMTypes.push_back(getStoredAggregateFieldLlvmType(ft));
+      std::unique_ptr<Value> defaultVal;
+      if (f->defaultValue != nullptr) {
+        defaultVal = std::make_unique<Value>(*f->defaultValue);
+      }
+      typePtr->addField(std::make_unique<Field>(f->name, ft, std::move(defaultVal)));
     }
-    getOrCreateLlvmType(result->getType());
-    elementLLVMTypes.push_back(result->getType()->getLlvmType());
-    std::unique_ptr<Value> defaultVal;
-    if (field->getValue() != nullptr) {
-      defaultVal = std::move(result);
+  } else {
+    for (auto* field : node->getFields()) {
       if (field->getType() != nullptr) {
         field->getType()->accept(*this);
       } else {
-        result = std::make_unique<Value>(*defaultVal);
+        field->getValue()->accept(*this);
       }
+      elementLLVMTypes.push_back(getStoredAggregateFieldLlvmType(result->getType()));
+      std::unique_ptr<Value> defaultVal;
+      if (field->getValue() != nullptr) {
+        defaultVal = std::move(result);
+        if (field->getType() != nullptr) {
+          field->getType()->accept(*this);
+        } else {
+          result = std::make_unique<Value>(*defaultVal);
+        }
+      }
+      typePtr->addField(std::make_unique<Field>(field->getIdentifier()->getValue(), result->getType(),
+                                                std::move(defaultVal)));
     }
-    typePtr->addField(std::make_unique<Field>(field->getIdentifier()->getValue(), result->getType(),
-                                              std::move(defaultVal)));
   }
 
-  if (elementLLVMTypes.empty()) {
+  if (elementLLVMTypes.size() == 1U) {
     elementLLVMTypes.push_back(builder->getInt8Ty());
   }
   structType->setBody(elementLLVMTypes, /*isPacked=*/false);
   typePtr->setDisplayName(std::move(displayName));
   typePtr->setImplTraitNames(std::vector<std::string>(node->getImplTraitNames()));
+
+  if (auto* tmplSym = scope->lookupStruct(node->getIdentifier());
+      tmplSym != nullptr && tmplSym->getType() != nullptr) {
+    Type* tmplTy = tmplSym->getType();
+    Type* superResolved = nullptr;
+    if (tmplTy->getClassSuperclass() != nullptr) {
+      superResolved = substituteTypeForSpecializationEnv(tmplTy->getClassSuperclass(), env);
+    }
+    typePtr->setClassSuperclass(superResolved);
+    typePtr->setClassVtableMethodOrder(tmplTy->getClassVtableMethodOrder());
+    typePtr->setClassHasDerivedClass(tmplTy->getClassHasDerivedClass());
+  }
 
   auto* selfType =
       cacheType(std::make_unique<Type>(BaseType::TY_PTR, builder->getPtrTy(), typePtr));
@@ -453,7 +817,8 @@ auto Codegen::specializeClass(const Class* node,
     if (method->getName() == "new") {
       hasConstructor = true;
       std::vector<lesma::Type*> constructorParams = buildClassMethodParamTypesForLookup(method);
-      auto* constructor = scope->lookupFunction("new", constructorParams);
+      auto* constructor =
+          scope->lookupFunction("new", constructorParams, FunctionLookupKind::OVERLOAD_IDENTITY);
       structSymbolPtr->setConstructor(constructor);
     }
   }
@@ -465,6 +830,7 @@ auto Codegen::specializeClass(const Class* node,
     structSymbolPtr->setConstructor(synthCtor);
     selfSymbol = nullptr;
   }
+  getOrEmitClassVtableGlobal(typePtr, node);
   selfSymbol = savedSelfSymbol;
   currentGenericTypes = std::move(saved);
   return structSymbolPtr;

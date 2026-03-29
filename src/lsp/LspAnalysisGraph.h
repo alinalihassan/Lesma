@@ -12,6 +12,10 @@
 
 #include "liblesma/Driver/AnalysisResult.h"
 
+namespace lesma {
+class Value;
+}
+
 namespace lesma::lsp_srv {
 
 struct AnalysisView {
@@ -49,5 +53,11 @@ auto collectReferenceAnalysisViews(AnalysisResult& result, bool includeWorkspace
     -> std::vector<AnalysisView>;
 auto findAnalysisViewForPath(AnalysisResult& result, const std::string& path)
     -> std::optional<AnalysisView>;
+
+/** Leading `#` lines above a class or function-like declaration (see
+ * `extractLineCommentDocumentationAboveDecl`). */
+[[nodiscard]] auto documentationCommentAboveDeclaration(AnalysisResult& result, lesma::Value* value,
+                                                          const AnalysisView& fallbackOwner)
+    -> std::string;
 
 } // namespace lesma::lsp_srv

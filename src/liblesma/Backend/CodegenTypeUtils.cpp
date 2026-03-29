@@ -85,6 +85,17 @@ auto cast(llvm::SMRange span, Value* val, Type* type, llvm::IRBuilder<>* builder
     return std::make_unique<Value>(*val); // Copy for borrowed value
   }
 
+  if (type->is(BaseType::TY_CLASS) && val->getType()->is(BaseType::TY_PTR)) {
+    Type* fromElem = val->getType()->getElementType();
+    if (fromElem != nullptr && fromElem->is(BaseType::TY_CLASS)) {
+      for (Type* t = fromElem; t != nullptr; t = t->getClassSuperclass()) {
+        if (t->isEqual(type)) {
+          return std::make_unique<Value>("", type, val->getLlvmValue());
+        }
+      }
+    }
+  }
+
   if (type->is(BaseType::TY_INT)) {
     if (val->getType()->isFloatingPoint()) {
       auto* casted = type->isSigned()
@@ -119,6 +130,20 @@ auto cast(llvm::SMRange span, Value* val, Type* type, llvm::IRBuilder<>* builder
       if (isPtrToVoid || isPtrToByte) {
         return std::make_unique<Value>(
             "", type, builder->CreateBitCast(val->getLlvmValue(), type->getLlvmType()));
+      }
+    }
+  }
+
+  if (type->is(BaseType::TY_PTR) && val->getType()->is(BaseType::TY_PTR)) {
+    Type* toElem = type->getElementType();
+    Type* fromElem = val->getType()->getElementType();
+    if (fromElem != nullptr && toElem != nullptr && fromElem->is(BaseType::TY_CLASS) &&
+        toElem->is(BaseType::TY_CLASS)) {
+      for (Type* t = fromElem; t != nullptr; t = t->getClassSuperclass()) {
+        if (t->isEqual(toElem)) {
+          return std::make_unique<Value>(
+              "", type, builder->CreateBitCast(val->getLlvmValue(), type->getLlvmType()));
+        }
       }
     }
   }

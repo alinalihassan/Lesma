@@ -1,0 +1,85 @@
+# Class inheritance plus traits: `class Derived: Base impl Trait`, trait methods using inherited
+# fields, generic bounds, `impl Trait<int>` on a subclass, and intersection impl on a subclass.
+
+trait Scalable
+    def scale() -> int
+
+class ScaleBase
+    var k: int
+
+    def new(n: int)
+        self.k = n
+
+class ScaleChild: ScaleBase impl Scalable
+    var bump: int
+
+    def new(n: int, b: int)
+        super.new(self, n)
+        self.bump = b
+
+    def scale() -> int
+        return self.k * 2 + self.bump
+
+def scaled_sum<T: Scalable>(x: T) -> int
+    return x.scale()
+
+trait HasU
+    def u_val() -> int
+
+trait HasV
+    def v_val() -> int
+
+class PairBase
+    var u: int
+    var v: int
+
+    def new(p: int, q: int)
+        self.u = p
+        self.v = q
+
+class PairCombo: PairBase impl HasU, HasV
+    def new(p: int, q: int)
+        super.new(self, p, q)
+
+    def u_val() -> int
+        return self.u
+
+    def v_val() -> int
+        return self.v
+
+def pair_total<T: HasU & HasV>(x: T) -> int
+    return x.u_val() + x.v_val()
+
+trait Tagged<T>
+    def tag() -> T
+
+class TagBase
+    var n: int
+
+    def new(v: int)
+        self.n = v
+
+class TagCell: TagBase impl Tagged<int>
+    def new(v: int)
+        super.new(self, v)
+
+    def tag() -> int
+        return self.n + 100
+
+var sc = ScaleChild(5, 3)
+if sc.k != 5 or sc.bump != 3
+    exit(1)
+if sc.scale() != 13
+    exit(1)
+if scaled_sum(sc) != 13
+    exit(1)
+
+var pc = PairCombo(10, 20)
+if pc.u_val() != 10 or pc.v_val() != 20
+    exit(1)
+if pair_total(pc) != 30
+    exit(1)
+
+var tc = TagCell(7)
+if tc.tag() != 107
+    exit(1)

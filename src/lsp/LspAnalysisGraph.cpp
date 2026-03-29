@@ -5,10 +5,12 @@
 #include <unordered_set>
 #include <utility>
 
+#include "LspSourceHelpers.h"
 #include "WorkspaceLesFiles.h"
 
 #include "liblesma/AST/AST.h"
 #include "liblesma/Driver/Driver.h"
+#include "liblesma/Symbol/Value.h"
 
 namespace lesma::lsp_srv {
 namespace {
@@ -544,6 +546,62 @@ auto findAnalysisViewForPath(AnalysisResult& result, const std::string& path)
     return makeAnalysisView(*imported);
   }
   return std::nullopt;
+}
+
+namespace {
+
+[[nodiscard]] auto wantsLeadingCommentDocumentation(lesma::ValueDeclarationKind k) -> bool {
+  switch (k) {
+  case lesma::ValueDeclarationKind::CLASS:
+  case lesma::ValueDeclarationKind::FUNCTION:
+  case lesma::ValueDeclarationKind::METHOD:
+    return true;
+  default:
+    return false;
+  }
+}
+
+} // namespace
+
+auto documentationCommentAboveDeclaration(AnalysisResult& result, lesma::Value* value,
+                                        const AnalysisView& fallbackOwner) -> std::string {
+  if (value == nullptr || !wantsLeadingCommentDocumentation(value->getDeclarationKind())) {
+    return {};
+  }
+  llvm::SMRange const declSpan = value->getDeclarationSpan();
+  if (!declSpan.isValid() || !declSpan.Start.isValid()) {
+    return {};
+  }
+  std::string declPath = value->getDeclarationFilePath();
+  if (declPath.empty() && fallbackOwner.mainFilePath != nullptr) {
+    declPath = *fallbackOwner.mainFilePath;
+  }
+  llvm::SourceMgr* srcMgr = nullptr;
+  unsigned bufferId = 0;
+  if (!declPath.empty()) {
+    std::optional<AnalysisView> declView = findAnalysisViewForPath(result, declPath);
+    if (!declView || !isUsableAnalysis(*declView)) {
+      return {};
+    }
+    if (declView->sourceMgr->FindBufferContainingLoc(declSpan.Start) != declView->bufferId) {
+      return {};
+    }
+    srcMgr = declView->sourceMgr;
+    bufferId = declView->bufferId;
+  } else {
+    if (fallbackOwner.sourceMgr == nullptr ||
+        fallbackOwner.sourceMgr->FindBufferContainingLoc(declSpan.Start) != fallbackOwner.bufferId) {
+      return {};
+    }
+    srcMgr = fallbackOwner.sourceMgr;
+    bufferId = fallbackOwner.bufferId;
+  }
+  auto const* memBuf = srcMgr->getMemoryBuffer(bufferId);
+  if (memBuf == nullptr) {
+    return {};
+  }
+  unsigned const offset = getOffsetFromSMLoc(srcMgr, bufferId, declSpan.Start);
+  return extractLineCommentDocumentationAboveDecl(memBuf->getBuffer(), offset);
 }
 
 } // namespace lesma::lsp_srv

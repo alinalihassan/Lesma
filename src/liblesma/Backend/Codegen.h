@@ -49,8 +49,22 @@ using namespace llvm::orc;
 namespace lesma {
 using MainFnTy = int();
 
+class Class;
 class TraitDecl;
 class FuncDecl;
+
+struct ImportedSpecializationState {
+  std::unordered_map<std::string, const Class*> genericClasses;
+  std::unordered_map<std::string, lesma::Type*> specializedClassTypesByKey;
+  std::unordered_map<lesma::Type*, std::unordered_map<std::string, lesma::Type*>>
+      specializedClassTypeEnvs;
+  std::unordered_map<lesma::Type*, lesma::Type*> specializedClassTemplateOf;
+  std::unordered_map<lesma::Value*, std::unordered_map<std::string, lesma::Type*>>
+      specializationEnvs;
+  std::unordered_map<std::string, const Class*> codegenClassAstByDisplayName;
+  std::unordered_map<std::string, std::vector<std::string>> traitRequirementMethodOrder;
+  std::unordered_map<std::string, const TraitDecl*> traitDeclByName;
+};
 
 class Codegen final : public ASTVisitor {
   std::shared_ptr<ThreadSafeContext> theContext;
@@ -83,6 +97,7 @@ class Codegen final : public ASTVisitor {
   std::shared_ptr<std::vector<std::unique_ptr<SymbolTable>>>
       importedScopes; // Shared so child (e.g. B) sees parent's (A) imports
                       // (e.g. math)
+  std::shared_ptr<std::vector<ImportedSpecializationState>> importedSpecializationStates;
   std::vector<std::unique_ptr<Codegen>> importedCodegens; // Keep imported module codegens alive so
                                                           // Class* in symbols stay valid
   /** Maps `import "m"` alias -> absolute path of `m` (for resolving exported globals). */
@@ -102,9 +117,16 @@ class Codegen final : public ASTVisitor {
       specializationEnvs;
   std::unordered_map<lesma::Type*, std::unordered_map<std::string, lesma::Type*>>
       specializedClassTypeEnvs;
+  /** From typecheck: specialized class → template (for lowering `Base<T>` field/super types). */
+  std::unordered_map<lesma::Type*, lesma::Type*> specializedClassTemplateOf;
+  /** From typecheck: stable specialization key -> canonical specialized class type. */
+  std::unordered_map<std::string, lesma::Type*> specializedClassTypesByKey;
   std::unordered_map<std::string, std::vector<std::string>> traitRequirementMethodOrder;
   std::unordered_map<std::string, const TraitDecl*> traitDeclByName;
   std::unordered_map<std::string, llvm::GlobalVariable*> witnessGlobalCache;
+  std::unordered_map<lesma::Type*, llvm::GlobalVariable*> classVtableGlobals;
+  std::unordered_map<lesma::Type*, const Class*> codegenClassAstByType;
+  std::unordered_map<std::string, const Class*> codegenClassAstByDisplayName;
   std::unordered_map<std::string, llvm::Function*> traitThunkCache;
   // deque so push_back never invalidates pointers to existing elements (used in
   // prototypes)
@@ -134,10 +156,14 @@ public:
           std::string alias = "", const std::shared_ptr<ThreadSafeContext>& = nullptr,
           std::shared_ptr<std::vector<std::string>> sharedModules = nullptr,
           std::shared_ptr<std::vector<std::unique_ptr<SymbolTable>>> sharedScopes = nullptr,
+          std::shared_ptr<std::vector<ImportedSpecializationState>>
+              sharedImportedSpecializationStates = nullptr,
           std::unique_ptr<SymbolTable> preScope = nullptr,
           std::vector<std::unique_ptr<lesma::Type>> preTypeCache = {},
           std::unordered_map<lesma::Type*, std::unordered_map<std::string, lesma::Type*>>
               preSpecializedClassTypeEnvs = {},
+          std::unordered_map<lesma::Type*, lesma::Type*> preSpecializedClassTemplateOf = {},
+          std::unordered_map<std::string, lesma::Type*> preSpecializedClassTypesByKey = {},
           bool emitDebug = false,
           llvm::OptimizationLevel optimizationLevelForDebugArg = llvm::OptimizationLevel::O3,
           std::shared_ptr<std::vector<std::string>> sharedPendingJitModuleInits = nullptr);
@@ -192,9 +218,11 @@ protected:
                      const std::vector<ImportedNameBinding>& importedNames) -> void;
   auto getExportsFromFile(const std::string& filepath, bool isStd, const std::string& mainFilePath)
       -> std::vector<std::string>;
-  auto typecheckModule(const Compound* ast, const std::string& modulePath) -> std::tuple<
-      std::unique_ptr<SymbolTable>, std::vector<std::unique_ptr<lesma::Type>>,
-      std::unordered_map<lesma::Type*, std::unordered_map<std::string, lesma::Type*>>>;
+  auto typecheckModule(const Compound* ast, const std::string& modulePath)
+      -> std::tuple<std::unique_ptr<SymbolTable>, std::vector<std::unique_ptr<lesma::Type>>,
+                    std::unordered_map<lesma::Type*, std::unordered_map<std::string, lesma::Type*>>,
+                    std::unordered_map<lesma::Type*, lesma::Type*>,
+                    std::unordered_map<std::string, lesma::Type*>>;
   [[nodiscard]] auto isImported(const std::vector<ImportedNameBinding>& importedNames,
                                 const std::string& importName) const -> bool;
   [[nodiscard]] auto getImportedLocalName(const std::vector<ImportedNameBinding>& importedNames,
@@ -235,6 +263,7 @@ protected:
   auto visit(const IsOp* node) -> void override;
   auto visit(const UnaryOp* node) -> void override;
   auto visit(const Literal* node) -> void override;
+  auto visit(const SuperExpr* node) -> void override;
   auto visit(const StringInterpolation* node) -> void override;
   auto visit(const ListLiteral* node) -> void override;
   auto visit(const DictLiteral* node) -> void override;
@@ -257,7 +286,11 @@ protected:
   auto callNamedFunction(llvm::SMRange span, const std::string& functionName,
                          const std::vector<lesma::Type*>& paramTypes,
                          const std::vector<llvm::Value*>& paramsLLVM,
-                         const std::vector<lesma::Type*>& explicitTypeArgs = {})
+                         const std::vector<lesma::Type*>& explicitTypeArgs = {},
+                         Value* typecheckCalleeFallback = nullptr,
+                         lesma::Type* allocatedClassMonomorph = nullptr,
+                         const std::vector<std::pair<std::string, lesma::Type*>>*
+                             genericBindingHint = nullptr)
       -> std::unique_ptr<lesma::Value>;
   auto callListMethodByName(llvm::SMRange span, lesma::Value* receiver,
                             const std::string& methodName,
@@ -276,6 +309,9 @@ protected:
   auto declareSynthesizedClassConstructor(const Class* astNode, lesma::Type* classType,
                                           lesma::Value* classStructSym) -> lesma::Value*;
   auto defineSynthesizedClassConstructor(lesma::Value* ctorSym, const Class* astNode) -> void;
+  auto getOrEmitClassVtableGlobal(lesma::Type* classTy, const Class* astNode)
+      -> llvm::GlobalVariable*;
+  auto emitInitClassVtablePointer(lesma::Type* classTy, llvm::Value* objectPtr) -> void;
   auto computeGenericFunctionBindingEnv(const FuncDecl* node,
                                         const std::vector<lesma::Type*>& paramTypes,
                                         const std::vector<std::string>& genericNames,
@@ -286,10 +322,17 @@ protected:
                                   const std::unordered_map<std::string, lesma::Type*>& env) -> void;
   auto specializeFunction(const FuncDecl* node, const std::vector<lesma::Type*>& paramTypes,
                           const std::vector<std::string>& genericNames,
-                          const std::vector<lesma::Type*>& explicitTypeArgs = {}) -> lesma::Value*;
+                          const std::vector<lesma::Type*>& explicitTypeArgs = {},
+                          const std::unordered_map<std::string, lesma::Type*>* bindingEnvHint = nullptr)
+      -> lesma::Value*;
   auto specializeClass(const Class* node, const std::vector<lesma::Type*>& constructorArgTypes,
                        const std::vector<lesma::Type*>& explicitTypeArgs = {}) -> lesma::Value*;
+  auto emitClassMonomorph(lesma::Type* specialized, const Class* templateAst) -> lesma::Value*;
   [[nodiscard]] auto wrapNominalReturnAsPointer(Type* t) -> Type*;
+  /** Match `super` callee receiver type (mirrors Typechecker::superMethodReceiverMatchesFormal). */
+  [[nodiscard]] auto superMethodReceiverMatchesFormalCodegen(lesma::Type* formalReceiverClass,
+                                                             lesma::Type* staticSuperType) const
+      -> bool;
 
   auto emitCompoundAssign(llvm::SMRange span, TokenType op, lesma::Value* lhs, lesma::Value* value)
       -> void;
@@ -356,17 +399,26 @@ protected:
 
   /** Ensure \p type has an LLVM type (fill in when from typechecker). */
   auto getOrCreateLlvmType(lesma::Type* type) -> llvm::Type*;
+  /** LLVM storage type for aggregate fields/slots after ABI lowering. */
+  [[nodiscard]] auto getStoredAggregateFieldLlvmType(lesma::Type* fieldType) -> llvm::Type*;
+  /** Load an aggregate field/slot value using the ABI-lowered storage type. */
+  auto loadStoredAggregateFieldValue(llvm::Value* slotPtr, lesma::Type* fieldType,
+                                     const llvm::Twine& name = "") -> llvm::Value*;
 
   /** Resolve the class template symbol for codegen; prefers Type display name (imported classes may
    * not have a named LLVM struct yet). */
   auto lookupClassStructSymbol(lesma::Type* classTy) -> Value*;
-  /** Ensure stdlib \c list<T> is specialized when the typechecker only has a structural match. */
-  auto tryEnsureStdlibListClassSpecialized(lesma::Type* classTy) -> void;
-  /** Ensure stdlib \c dict<K, V> is specialized (same role as list). */
-  auto tryEnsureStdlibDictClassSpecialized(lesma::Type* classTy) -> void;
+  [[nodiscard]] auto specializedClassEnvFor(lesma::Type* classTy)
+      -> const std::unordered_map<std::string, lesma::Type*>*;
+  [[nodiscard]] auto specializedTraitExistentialEnvFor(lesma::Type* existentialTy)
+      -> const std::unordered_map<std::string, lesma::Type*>*;
+  [[nodiscard]] auto lookupClassVtableGlobal(lesma::Type* classTy) -> llvm::GlobalVariable*;
 
   auto collectTraitMetadataFromAst() -> void;
+  auto mergeImportedTraitMetadata(ImportedSpecializationState const& imported) -> void;
   auto mergeImportedTraitMetadata(Codegen const& imported) -> void;
+  [[nodiscard]] auto captureImportedSpecializationState() const -> ImportedSpecializationState;
+  auto mergeImportedSpecializationState(ImportedSpecializationState const& imported) -> void;
   /// Copy specialization env maps from an imported module codegen so call sites in this module
   /// can resolve TY_GENERIC when invoking methods on specialized types from the import.
   auto mergeImportedSpecializationState(Codegen const& imported) -> void;
@@ -393,5 +445,13 @@ protected:
 
   /** Self + parameter types for class method overload resolution; must match \c visit(FuncDecl). */
   auto buildClassMethodParamTypesForLookup(const FuncDecl* node) -> std::vector<lesma::Type*>;
+
+  [[nodiscard]] auto findGenericClassAstForTemplateType(lesma::Type* classTemplateTy) const
+      -> const Class*;
+  [[nodiscard]] auto isTypeFullyConcrete(lesma::Type* t) const -> bool;
+  /** Substitute generic parameters (and nested specialized classes) for lowering a template field
+   * or superclass type. */
+  auto substituteTypeForSpecializationEnv(
+      lesma::Type* t, const std::unordered_map<std::string, lesma::Type*>& env) -> lesma::Type*;
 };
 } // namespace lesma

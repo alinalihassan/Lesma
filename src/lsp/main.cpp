@@ -2829,6 +2829,12 @@ auto main() -> int {
                     resolved->value->getType() != nullptr) {
                   std::string hoverText =
                       formatHoverContent(resolved->value, resolved->owner.rootScope);
+                  if (std::string doc = documentationCommentAboveDeclaration(
+                          result, resolved->value, resolved->owner);
+                      !doc.empty()) {
+                    hoverText += "\n\n---\n\n";
+                    hoverText += doc;
+                  }
                   ::lsp::Hover hover;
                   hover.contents = ::lsp::MarkupContent{
                       .kind = ::lsp::MarkupKindEnum(::lsp::MarkupKind::Markdown),

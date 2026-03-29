@@ -25,6 +25,7 @@ class Expression;
 class Literal;
 class StringInterpolation;
 class FuncCall;
+class SuperExpr;
 class BinaryOp;
 class SubscriptOp;
 class DotOp;
@@ -69,6 +70,7 @@ public:
   virtual auto visit(const Literal* node) -> void = 0;
   virtual auto visit(const StringInterpolation* node) -> void = 0;
   virtual auto visit(const FuncCall* node) -> void = 0;
+  virtual auto visit(const SuperExpr* node) -> void = 0;
   virtual auto visit(const BinaryOp* node) -> void = 0;
   virtual auto visit(const SubscriptOp* node) -> void = 0;
   virtual auto visit(const DotOp* node) -> void = 0;
