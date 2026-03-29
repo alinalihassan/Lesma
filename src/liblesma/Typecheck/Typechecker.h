@@ -231,6 +231,9 @@ class Typechecker final : public ASTVisitor {
   /** True when \p sym is the nominal type name binding (not a value, function,
    *  or enum member), for CUSTOM_TYPE resolution after lookupStruct / lookup. */
   [[nodiscard]] auto isTypeSymbolForCustomTypeName(Value const* sym) -> bool;
+  [[nodiscard]] static auto cloneFieldForInheritance(Field* source) -> std::unique_ptr<Field>;
+  [[nodiscard]] static auto findVarDeclWithName(const std::vector<VarDecl*>& fields,
+                                                const std::string& name) -> VarDecl*;
 
   /** When a class has no `def new`, register a constructor taking each field without a default. */
   void registerSynthesizedClassConstructor(const Class* node, Type* classTypePtr,

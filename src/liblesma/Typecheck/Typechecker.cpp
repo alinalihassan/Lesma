@@ -2586,8 +2586,7 @@ auto Typechecker::visit(const Enum* node) -> void {
   node->setResolvedSymbol(scope->lookupStruct(node->getIdentifier()));
 }
 
-namespace {
-[[nodiscard]] auto cloneFieldForInheritance(Field* source) -> std::unique_ptr<Field> {
+[[nodiscard]] auto Typechecker::cloneFieldForInheritance(Field* source) -> std::unique_ptr<Field> {
   std::unique_ptr<Field> nf;
   if (source->defaultValue != nullptr) {
     nf = std::make_unique<Field>(source->name, source->type,
@@ -2597,11 +2596,14 @@ namespace {
   }
   nf->setDeclarationSpan(source->getDeclarationSpan());
   nf->setDeclarationFilePath(source->getDeclarationFilePath());
+  if (Value* declarationSymbol = source->getDeclarationSymbol()) {
+    nf->setDeclarationSymbol(std::make_unique<Value>(*declarationSymbol));
+  }
   return nf;
 }
 
-[[nodiscard]] auto findVarDeclWithName(const std::vector<VarDecl*>& fields, const std::string& name)
-    -> VarDecl* {
+[[nodiscard]] auto Typechecker::findVarDeclWithName(const std::vector<VarDecl*>& fields,
+                                                    const std::string& name) -> VarDecl* {
   for (VarDecl* v : fields) {
     if (v != nullptr && v->getIdentifier()->getValue() == name) {
       return v;
@@ -2609,8 +2611,6 @@ namespace {
   }
   return nullptr;
 }
-
-} // namespace
 
 void Typechecker::registerSynthesizedClassConstructor(const Class* node, Type* classTypePtr,
                                                       SymbolTable* outerScope) {
@@ -2622,7 +2622,7 @@ void Typechecker::registerSynthesizedClassConstructor(const Class* node, Type* c
     if (tf->defaultValue != nullptr) {
       continue;
     }
-    if (VarDecl* vd = findVarDeclWithName(node->getFields(), tf->name);
+    if (VarDecl* vd = Typechecker::findVarDeclWithName(node->getFields(), tf->name);
         vd != nullptr && vd->getValue() != nullptr) {
       continue;
     }
@@ -2765,7 +2765,7 @@ auto Typechecker::visit(const Class* node) -> void {
       classTypePtr->setClassSuperclass(superType);
       superType->setClassHasDerivedClass(true);
       for (Field* bf : superType->getFields()) {
-        classTypePtr->addField(cloneFieldForInheritance(bf));
+        classTypePtr->addField(Typechecker::cloneFieldForInheritance(bf));
       }
     }
 
