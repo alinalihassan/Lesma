@@ -4196,23 +4196,12 @@ auto Codegen::callMethodByName(llvm::SMRange span, lesma::Value* receiver,
           break;
         }
       }
-      llvm::GlobalVariable* vgForReceiver = lookupClassVtableGlobal(receiverType);
       unsigned vtableArrayLen = static_cast<unsigned>(vtOrder.size());
-      bool vtableSlotHasTarget = false;
-      if (vgForReceiver != nullptr && vgForReceiver->hasInitializer() && vtableSlot != ~0U) {
-        if (auto* carr = llvm::dyn_cast<llvm::ConstantArray>(vgForReceiver->getInitializer())) {
-          vtableArrayLen = carr->getNumOperands();
-          if (vtableSlot < vtableArrayLen) {
-            vtableSlotHasTarget =
-                !llvm::cast<llvm::Constant>(carr->getOperand(vtableSlot))->isNullValue();
-          }
-        }
-      }
-      const bool useVirtual = methodName != "new" && vtableSlot != ~0U && !vtOrder.empty() &&
-                              vtableSlotHasTarget && vtableSlot < vtableArrayLen &&
-                              (receiverType->getClassSuperclass() != nullptr ||
-                               receiverType->getClassHasDerivedClass());
-      if (useVirtual) {
+      const bool canUseVirtual =
+          methodName != "new" && vtableSlot != ~0U && !vtOrder.empty() && vtableSlot < vtableArrayLen &&
+          (receiverType->getClassSuperclass() != nullptr ||
+           receiverType->getClassHasDerivedClass());
+      if (canUseVirtual) {
         llvm::Type* const ptrTy = builder->getPtrTy();
         auto* st = llvm::cast<llvm::StructType>(getOrCreateLlvmType(receiverType));
         llvm::Value* recvPtr = receiverForCall->getLlvmValue();
@@ -4225,7 +4214,13 @@ auto Codegen::callMethodByName(llvm::SMRange span, lesma::Value* receiver,
         llvm::Value* fnPtrVal = builder->CreateLoad(ptrTy, fnPtrSlot, "vt.fn");
         auto* calleeFn = llvm::cast<llvm::Function>(directMethod->getLlvmValue());
         llvm::FunctionType* ft = calleeFn->getFunctionType();
-        llvm::Value* callee = builder->CreateBitCast(fnPtrVal, calleeFn->getType());
+        llvm::Value* useVirtual =
+            builder->CreateIsNotNull(fnPtrVal, "vt.fn.has.target");
+        llvm::Value* directFnPtr =
+            builder->CreateBitCast(directMethod->getLlvmValue(), ptrTy, "direct.fn.ptr");
+        llvm::Value* selectedFnPtr =
+            builder->CreateSelect(useVirtual, fnPtrVal, directFnPtr, "dispatch.fn.ptr");
+        llvm::Value* callee = builder->CreateBitCast(selectedFnPtr, calleeFn->getType());
         callResult = builder->CreateCall(llvm::FunctionCallee(ft, callee), finalParams);
       } else {
         callResult =
