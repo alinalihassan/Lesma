@@ -788,6 +788,12 @@ auto Typechecker::materializeImportedType(Type* type) -> Type* {
       }
       copy->addField(std::move(fieldCopy));
     }
+    if (type->is(BaseType::TY_CLASS)) {
+      copy->setClassSuperclass(materializeImportedType(type->getClassSuperclass()));
+      copy->setClassVtableMethodOrder(
+          std::vector<std::string>(type->getClassVtableMethodOrder()));
+      copy->setClassHasDerivedClass(type->getClassHasDerivedClass());
+    }
     if (auto tmplIt = specializedTypeToTemplate.find(type);
         tmplIt != specializedTypeToTemplate.end()) {
       std::unordered_map<std::string, Type*> envCopy;
