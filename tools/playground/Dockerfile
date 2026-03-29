@@ -1,7 +1,7 @@
 # docker build -f tools/playground/Dockerfile -t lesma-web .
 # Needs vcpkg submodule in context (.dockerignore keeps .git but includes vcpkg).
 #
-# Serves the docs SPA at `/` and the playground UI at `/playground/` (single Bun server, same `/api`).
+# Single SPA from tools/docs (`build/client`) + Bun `/api` on the same origin.
 # Cloudflare: Workers + Containers from tools/playground (wrangler.jsonc); image_build_context is repo root.
 
 FROM debian:bookworm-slim AS lesma-build
@@ -41,16 +41,12 @@ COPY tools/docs/ ./
 RUN bun install --frozen-lockfile
 RUN bun run build
 
-FROM oven/bun:1-debian AS bun-workspace
+FROM oven/bun:1-debian AS server-workspace
 WORKDIR /app
 COPY tools/playground/package.json tools/playground/bun.lock ./
 COPY tools/playground/apps/server/package.json ./apps/server/
-COPY tools/playground/apps/client/package.json ./apps/client/
 RUN bun install --frozen-lockfile
 COPY tools/playground/apps/server ./apps/server
-COPY tools/playground/apps/client ./apps/client
-ENV PLAYGROUND_BASE=/playground/
-RUN bun run --cwd apps/client build
 
 FROM debian:bookworm-slim
 ENV DEBIAN_FRONTEND=noninteractive
@@ -67,7 +63,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && apt-get autoremove -y \
     && rm -rf /var/lib/apt/lists/*
 
-COPY --from=bun-workspace /usr/local/bin/bun /usr/local/bin/bun
+COPY --from=server-workspace /usr/local/bin/bun /usr/local/bin/bun
 
 RUN useradd --create-home --home-dir /opt/lesma --shell /usr/sbin/nologin playground
 
@@ -75,17 +71,15 @@ COPY --from=lesma-build /src/build/Release/lesma /usr/local/bin/lesma
 COPY --from=lesma-build /src/build/Release/lesma-lsp /usr/local/bin/lesma-lsp
 COPY --from=lesma-build /src/src/stdlib /opt/lesma/.lesma/stdlib/
 
-COPY --from=bun-workspace /app /app
-COPY --from=docs-build /docs/build/client /app/docs-static
-RUN rm -rf /app/apps/client/node_modules 2>/dev/null || true \
-    && chown -R playground:playground /opt/lesma /app
+COPY --from=server-workspace /app /app
+COPY --from=docs-build /docs/build/client /app/site-static
+RUN chown -R playground:playground /opt/lesma /app
 
 USER playground
 WORKDIR /app
 ENV HOME=/opt/lesma
-ENV APP_ASSETS_DIR=/app/apps/client/build
-ENV DOCS_ASSETS_DIR=/app/docs-static
+ENV APP_ASSETS_DIR=/app/site-static
 
 EXPOSE 8080
 ENTRYPOINT ["bun", "run", "--cwd", "/app/apps/server", "start"]
-CMD ["--addr=:8080", "--static-dir=/app/apps/client/build", "--docs-static-dir=/app/docs-static"]
+CMD ["--addr=:8080", "--static-dir=/app/site-static"]

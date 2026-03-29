@@ -13,7 +13,7 @@ export const gitConfig = {
 export const docsGithubBlobBase = `https://github.com/${gitConfig.user}/${gitConfig.repo}/blob/${gitConfig.branch}/tools/docs/content/docs`;
 
 /**
- * Nav target for “Playground” in the header. Default: in-app `/playground` (embedded UI).
+ * Nav target for “Playground” in the header. Default: `/playground` in this SPA.
  * Set `VITE_PLAYGROUND_URL` to use a separate deployment (absolute URL).
  */
 export function playgroundNavHref(): string {
@@ -24,16 +24,3 @@ export function playgroundNavHref(): string {
   return '/playground';
 }
 
-/**
- * `iframe` src for the embedded playground. In dev, points at the playground Vite dev server.
- */
-export function playgroundEmbedSrc(): string {
-  const url = import.meta.env.VITE_PLAYGROUND_URL?.trim();
-  if (url) {
-    return url.endsWith('/') ? url : `${url}/`;
-  }
-  if (import.meta.env.DEV) {
-    return 'http://localhost:3000/';
-  }
-  return '/playground/';
-}

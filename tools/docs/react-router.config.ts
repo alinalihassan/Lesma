@@ -37,6 +37,6 @@ export default {
     ];
     paths.push(...legacy);
 
-    return paths;
+    return paths.filter((p) => p !== '/playground');
   },
 } satisfies Config;

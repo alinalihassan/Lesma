@@ -151,8 +151,8 @@ change.
 
 Repository tooling lives under `tools/`:
 
-- `tools/docs` contains the Fumadocs (Vite + React Router) documentation site; it embeds the playground at `/playground` and is built into the **unified** container image.
-- `tools/playground` includes **`wrangler.jsonc`** + **`worker.ts`** + **`Dockerfile`** for **Cloudflare Workers + Containers**: one image serves docs at `/`, the playground UI at `/playground/`, and the compiler API at `/api`.
+- `tools/docs` contains the Fumadocs (Vite + React Router) documentation site, including the in-app playground at `/playground`, and is built into the **unified** container image.
+- `tools/playground` includes **`wrangler.jsonc`** + **`worker.ts`** + **`Dockerfile`** for **Cloudflare Workers + Containers**: one image serves the combined docs SPA at `/` (playground route included) and the compiler API at `/api`.
 - `tools/vscode` contains the VS Code extension that launches the native `lesma-lsp` server.
 
 - To keep updated with releases, consider starring the project.

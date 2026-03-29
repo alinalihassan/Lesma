@@ -1,9 +1,10 @@
-# Lesma playground (Bun + Hono + Vite)
+# Lesma playground (Bun + Hono)
 
-Monorepo under **Bun workspaces** (`apps/*`):
+Bun workspace with **`apps/server`** only:
 
-- **`apps/server`** — [Hono](https://hono.dev/) on Bun: HTTP API (`/api/*`), static SPA, WebSocket bridge to `lesma-lsp`.
-- **`apps/client`** — [Vite](https://vitejs.dev/) + React + [modern-monaco](https://github.com/esm-dev/modern-monaco) (Monaco + Shiki).
+- **`apps/server`** — [Hono](https://hono.dev/) on Bun: HTTP API (`/api/*`), static SPA from the docs build, WebSocket bridge to `lesma-lsp`.
+
+The playground **UI** (Monaco, terminal, Redux) is part of **`tools/docs`** (`app/playground/`) and ships as the `/playground` route in the same Vite bundle as the docs.
 
 ## Prerequisites
 
@@ -17,57 +18,36 @@ From **`tools/playground`**:
 bun install
 ```
 
-API (Bun):
+API + static hosting (Bun):
 
 ```bash
 bun run dev
 ```
 
-UI (Vite, separate terminal):
+For a full local loop, build or run the docs app and point the server at its client output, **or** use Vite dev with proxying:
 
-```bash
-bun run dev:client
-```
+- **Recommended dev:** from `tools/docs`, `bun run dev` (port **5174**) and, in another terminal, `bun run dev` here so `/api` is proxied by Vite to **8080** (see `tools/docs/vite.config.ts`).
+- **`VITE_API_PROXY`** / `LISTEN_ADDR` — set if the API is not on the default `127.0.0.1:8080` (see `apps/server/src/config.ts` and `tools/docs/vite.config.ts`).
 
-Set `LISTEN_ADDR` / `VITE_API_PROXY` if the API is not on the default `127.0.0.1:8080` (see `apps/client/vite.config.ts`).
+Playground in-app links use **`VITE_DOCS_URL`** when set at docs build time; otherwise `window.location.origin` (same-host deploy).
 
-The client **site nav** (Lesma logo, Documentation, Playground, Search, theme, GitHub) matches the docs top bar. **`VITE_DOCS_URL`** — optional at build time; in dev it defaults to `http://localhost:5174` (the docs Vite server). In production builds without it, links use `window.location.origin` (same-host deploy). For a separate docs origin, set e.g. `VITE_DOCS_URL=https://example.com` when running `vite build` or pass Docker build-arg `VITE_DOCS_URL`.
+**Shipping:** static `build/client` alone is not enough for Run/LSP — you need this Bun process (or the Docker image). See **`tools/docs/README.md`** (section *Shipping (static files vs server)*).
 
 ## Production build
 
-**Playground only** (no docs):
+Serve the **unified** static tree produced by the docs app:
 
 ```bash
-bun run build
-bun run start -- --addr=:8080 --static-dir=apps/client/build
-```
-
-**Unified docs + playground** (same as the Cloudflare container): build the docs app into `tools/docs/build/client`, build the client with `PLAYGROUND_BASE=/playground/`, then run the server with a docs static dir:
-
-```bash
-# from repo root — example local smoke test
 (cd tools/docs && bun install && bun run build)
-PLAYGROUND_BASE=/playground/ bun run --cwd tools/playground build:client
-bun run --cwd tools/playground/apps/server start -- \
-  --addr=:8080 \
-  --static-dir=tools/playground/apps/client/build \
-  --docs-static-dir=tools/docs/build/client
+bun run start -- --addr=:8080 --static-dir=../docs/build/client
 ```
 
-The **`tools/playground/Dockerfile`** automates Lesma + docs + playground client and sets `DOCS_ASSETS_DIR` + `PLAYGROUND_BASE=/playground/`.
+The **`tools/playground/Dockerfile`** builds `tools/docs` and copies `build/client` into the image; see that file for the exact layout.
 
 ## Typecheck
 
-Server:
-
 ```bash
 bun run typecheck
-```
-
-Client:
-
-```bash
-bun run typecheck:client
 ```
 
 ## Docker
@@ -100,5 +80,5 @@ See `apps/server/src/config.ts` for flags and env vars (`LESMA_BIN`, `LESMA_LSP_
 
 ## Troubleshooting
 
-- **`EADDRINUSE` on port 8080** — Free the port or use e.g. `LISTEN_ADDR=:8787 bun dev` and match Vite: `LISTEN_ADDR=:8787 bun run dev:client` or `VITE_API_PROXY=http://127.0.0.1:8787 bun run dev:client`.
-- **API / LSP from the Vite app** — Defaults proxy `/api` (and WebSockets) to **8080**; see `vite.config.ts`.
+- **`EADDRINUSE` on port 8080** — Free the port or use e.g. `LISTEN_ADDR=:8787 bun dev` and set `VITE_API_PROXY=http://127.0.0.1:8787` when running `tools/docs` Vite dev.
+- **API / LSP from the Vite app** — Defaults proxy `/api` (and WebSockets) to **8080**; see `tools/docs/vite.config.ts`.

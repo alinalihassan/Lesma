@@ -2,7 +2,7 @@
 import { Hono } from "hono"
 import { loadConfig } from "./config"
 import { createApiApp } from "./routes"
-import { serveStatic, serveStaticDocumentRoot } from "./static"
+import { serveStatic } from "./static"
 import { startLspSession } from "./lsp"
 
 function parseAddr(addr: string): { hostname: string; port: number } {
@@ -49,16 +49,6 @@ Bun.serve<WsData>({
       return root.fetch(req)
     }
 
-    if (cfg.docsAssetsDir) {
-      /* `/playground` (no slash) is the docs SPA embed route; `/playground/` is the Vite app. */
-      if (url.pathname === "/playground/" || url.pathname.startsWith("/playground/")) {
-        const inner =
-          url.pathname === "/playground/" ? "/" : url.pathname.slice("/playground".length) || "/"
-        return serveStaticDocumentRoot(cfg.assetsDir, inner, req)
-      }
-      return serveStaticDocumentRoot(cfg.docsAssetsDir, url.pathname, req)
-    }
-
     return serveStatic(cfg.assetsDir, req)
   },
   websocket: {
@@ -90,5 +80,4 @@ Bun.serve<WsData>({
   },
 })
 
-const mode = cfg.docsAssetsDir ? "docs+playground" : "playground"
-console.error(`Lesma ${mode} server listening on http://${hostname}:${port}`)
+console.error(`Lesma site server listening on http://${hostname}:${port}`)

@@ -1,0 +1,30 @@
+.header {
+  position: sticky;
+  /* Site chrome is the docs `HomeSiteHeader` (h-14) outside this tree; command bar sticks to top of playground column */
+  top: 0;
+  z-index: 100;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: row;
+  justify-content: space-between;
+  align-items: center;
+  min-height: 44px;
+  padding-left: 8px;
+}
+
+.header__preloader {
+  margin-right: 15px;
+}
+
+.header__commandBar {
+  flex: 1 1 auto;
+  max-width: 100%;
+}
+
+@media only screen and (max-width: 600px) {
+
+  /* NOTE: .ms-CommandBar is a global style */
+  .header__commandBar .ms-CommandBar {
+    padding: 0 10px;
+  }
+}

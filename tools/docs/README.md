@@ -2,14 +2,25 @@
 
 Vite + React Router + **Fumadocs** for [lesma-lang.com](https://lesma-lang.com/).
 
-The playground UI is **embedded** from this app at [`/playground`](./app/routes/playground.tsx) (iframe). In production, both docs and the playground static bundle are served by the **unified** Bun server in `tools/playground` (see that README and `tools/playground/Dockerfile`).
+The playground UI lives in this app at [`/playground`](./app/routes/playground.tsx) (same SPA as the docs, lazy-loaded). The **site header** (logo, Documentation, Playground, search, theme) is shared with the rest of the site via Fumadocs `HomeLayout` + [`HomeSiteHeader`](./app/components/site-header.tsx); the playground only adds its own **toolbar** (Run, Examples, Settings) and status bar.
+
+### Shipping (static files vs server)
+
+The Vite build (`bun run build`) is only **browser assets**. The playground still needs a **backend** for `lesma run`, compile, and `lesma-lsp` over HTTP/WebSocket:
+
+| What you ship | Docs browsing | Playground Run / LSP |
+| --- | --- | --- |
+| `build/client` on static hosting only (e.g. `bun run start` here) | Works | **No** — `/api` is missing |
+| **`tools/playground` Bun server** or **`tools/playground/Dockerfile`** image | Works | **Yes** — serves `build/client` **and** `/api` |
+
+For production on Cloudflare, use **`tools/playground/wrangler.jsonc`** (Workers + **Containers**): one container runs the same Bun process that serves the unified SPA and the API (see below).
 
 ## Commands
 
 From `tools/docs`:
 
 - `bun install` — installs dependencies and runs `fumadocs-mdx` (generates `.source/`).
-- `bun run dev` — dev server on **port 5174**. The embed page loads the playground dev server at `http://localhost:3000` (run `bun run dev` + `bun run dev:client` under `tools/playground`).
+- `bun run dev` — dev server on **port 5174**. Run the Bun API from `tools/playground` (`bun run dev`, default **8080**) so `/api` and LSP WebSockets work; Vite proxies `/api` to that server (see [`vite.config.ts`](./vite.config.ts)).
 - `bun run build` — production client build under `build/client/` (prerendered HTML + SPA assets).
 - `bun run start` — serve `build/client` with `serve` and `serve.json` (SPA fallback) — docs only, no playground API.
 - `bun run types:check` — React Router typegen, MDX codegen, and `tsc`.
@@ -20,8 +31,7 @@ From `tools/docs`:
 
 Do **not** deploy this folder alone as a static-only Worker for the main site. Use **`tools/playground/wrangler.jsonc`**, which runs the Docker image that serves:
 
-- docs SPA at `/`
-- playground SPA at `/playground/`
+- docs + playground SPA at `/` (playground at `/playground`)
 - compiler API + LSP at `/api`
 
 1. `cd tools/playground && bun install`
@@ -30,7 +40,7 @@ Do **not** deploy this folder alone as a static-only Worker for the main site. U
 
 ## Environment
 
-- **`VITE_PLAYGROUND_URL`** — optional. If set, the header “Playground” link and embed `iframe` use this origin instead of the in-app `/playground` page and `/playground/` static path. Use when the playground is still hosted separately.
+- **`VITE_PLAYGROUND_URL`** — optional. If set, the header “Playground” link points at this absolute URL instead of `/playground` in this SPA. Use when a playground build is still hosted on another origin.
 
 ## Structure
 
