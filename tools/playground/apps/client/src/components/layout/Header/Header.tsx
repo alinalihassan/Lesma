@@ -15,6 +15,8 @@ import {
   type State,
 } from '~/store'
 
+import { isEmbeddedInParentFrame } from '~/utils/embedding'
+
 import './Header.css'
 
 export const Header: React.FC = () => {
@@ -117,9 +119,16 @@ export const Header: React.FC = () => {
     },
   ]
 
+  const embedded = isEmbeddedInParentFrame()
+
   return (
-    <header className="header" style={{ backgroundColor: theme.palette.white }}>
-      <img src="/lesma-logo.svg" className="header__logo" alt="Lesma" />
+    <header
+      className="header"
+      style={{
+        backgroundColor: theme.palette.white,
+        ...(embedded ? { position: 'relative' as const, top: 0 } : {}),
+      }}
+    >
       <CommandBar
         className="header__commandBar"
         items={menuItems}

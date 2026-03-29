@@ -1,0 +1,38 @@
+---
+title: Classes & OOP
+description: |
+  Classes, constructors, fields, methods, inheritance, and object construction.
+category: Language
+---
+
+Lesma is **object-oriented**: you model state and behavior with **classes**, construct instances with **`new`**, and call methods on **objects**.
+
+## Minimal class
+
+```
+export class Animal
+    var x: int
+
+    def new()
+        self.x = 101
+
+    def getX() -> int
+        return self.x
+
+var z = Animal()
+```
+
+This shape matches patterns in `tests/lesma/success/class.les` and related files.
+
+## Fields and methods
+
+Classes hold **fields** (`var`) and **methods** (`def`). `self` refers to the receiver.
+
+## Inheritance
+
+Single inheritance and related edge cases are covered extensively in tests (`class_inheritance_edges.les`, `generic_class_inheritance.les`, …).
+
+## Next steps
+
+- [Traits & generics](/docs/language/traits-generics)
+- [Modules](/docs/language/modules)

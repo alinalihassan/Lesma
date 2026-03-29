@@ -1,0 +1,29 @@
+---
+title: Debugging
+description: |
+  Local debugging strategies: tests, lldb, and AddressSanitizer builds.
+category: Guides
+---
+
+## Compiler and runtime issues
+
+When a program misbehaves or crashes:
+
+1. **Confirm** you run the binary you just built (`which lesma`, or an explicit path to `build/Debug/lesma`).
+2. **Reduce** the `.les` input until you have a minimal reproducer.
+3. Use **`lldb`** on macOS/Linux to capture a backtrace for native crashes (**AGENTS.md** shows a typical `lldb -- build/Debug/lesma run …` flow).
+
+## Sanitizers
+
+The **Debug_Asan** CMake preset enables AddressSanitizer and LeakSanitizer. Run the full test suite under that build to catch undefined behavior and leaks before merging.
+
+On macOS with certain LLVM builds, `ASAN_OPTIONS=detect_container_overflow=0` avoids known false positives in LLVM static initializers (CI sets this).
+
+## Test suite
+
+`./scripts/run_tests.sh` runs success cases (must run and compile) and failure cases (must be rejected). Use it after every compiler change.
+
+## Next steps
+
+- [Project layout](/docs/tooling/project-layout)
+- [Build from source](/docs/getting-started/build-from-source)

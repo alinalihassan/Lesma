@@ -1,0 +1,37 @@
+---
+title: CLI reference
+description: |
+  lesma run, lesma compile, optimization flags, and common workflows.
+category: Tooling
+---
+
+The **`lesma`** executable is the user-facing compiler driver.
+
+## `lesma run`
+
+Compile and execute a program via LLVM JIT (typical development flow):
+
+```bash
+lesma run path/to/file.les
+```
+
+Optimization level can be forwarded (see **AGENTS.md** / `lesma --help` for current flags such as `-O0` … `-O3`).
+
+## `lesma compile`
+
+Emit object files for linking:
+
+```bash
+lesma compile path/to/file.les -o out.o
+```
+
+## Version
+
+```bash
+lesma --version
+```
+
+## Next steps
+
+- [Project layout](/docs/tooling/project-layout)
+- [Debugging](/docs/guides/debugging) for sanitizer and test workflows.

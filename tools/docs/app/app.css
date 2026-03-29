@@ -1,0 +1,38 @@
+@import 'tailwindcss';
+@import 'fumadocs-ui/css/neutral.css';
+@import 'fumadocs-ui/css/preset.css';
+
+html {
+  scrollbar-gutter: stable;
+}
+
+html:has(body[data-scroll-locked]) {
+  scrollbar-gutter: auto;
+}
+
+/*
+ * Full-width header row; sidebar and TOC start on row 2. Fumadocs assumes the sidebar
+ * shares row 1 with the header and uses --fd-docs-row-1 for sticky tops — bump to row-2.
+ */
+.lesma-docs-sidebar-below-header [data-sidebar-placeholder] {
+  top: var(--fd-docs-row-2);
+  height: calc(var(--fd-docs-height) - var(--fd-docs-row-2));
+}
+
+.lesma-docs-sidebar-below-header #nd-toc {
+  top: var(--fd-docs-row-2);
+  height: calc(var(--fd-docs-height) - var(--fd-docs-row-2));
+}
+
+/* Docs sidebar: drop logo row, in-sidebar search, and floating collapse/search chip (header keeps search). */
+.lesma-docs-sidebar-below-header #nd-sidebar [data-sidebar-panel] {
+  display: none !important;
+}
+
+.lesma-docs-sidebar-below-header #nd-sidebar > div:first-child > div:first-child {
+  display: none;
+}
+
+.lesma-docs-sidebar-below-header #nd-sidebar button[data-search-full] {
+  display: none !important;
+}

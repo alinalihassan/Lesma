@@ -1,0 +1,27 @@
+---
+title: Understanding errors
+description: |
+  How to read Lesma compiler diagnostics and narrow down type and codegen failures.
+category: Guides
+---
+
+Lesma reports failures during **parsing**, **type checking**, and **code generation**. Messages usually include a **location** (file, line, column) and a short explanation.
+
+## Start from the first error
+
+Later errors are often **cascades** from an earlier mistake. Fix the topmost diagnostic, rebuild, and repeat.
+
+## Common classes
+
+- **Syntax** — unexpected token or malformed construct; check matching delimiters and keywords.
+- **Types** — mismatch between expected and actual types; verify signatures, imports, and generics.
+- **Name resolution** — missing import or wrong module path.
+
+## Reproduce minimally
+
+Copy the failing code into a small `.les` file under `tests/lesma/failure/` if you are contributing a regression, or trim your example until it is the smallest program that still fails.
+
+## Next steps
+
+- [Debugging](/docs/guides/debugging)
+- [CLI](/docs/tooling/cli)

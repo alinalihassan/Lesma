@@ -1,0 +1,65 @@
+---
+title: Build from source
+description: |
+  Configure Lesma with CMake and vcpkg, link against LLVM and lld, and build the CLI, tests, and lesma-lsp.
+category: First steps
+---
+
+Building Lesma requires a C++23 toolchain, **CMake 3.24+**, **Ninja**, **LLVM** (the project targets **LLVM 21**; use the same generation as your LLVM libraries), **lld**, and **vcpkg** as a git submodule for manifest dependencies (fmt, CLI11, optional LSP/git support, etc.).
+
+## Clone and vcpkg
+
+```bash
+git clone --recurse-submodules https://github.com/alinalihassan/Lesma
+cd Lesma
+```
+
+If you already cloned without submodules:
+
+```bash
+git submodule update --init --recursive
+cd vcpkg && ./bootstrap-vcpkg.sh && cd ..
+```
+
+## Configure LLVM
+
+Point CMake at your LLVM and LLD install (example: Homebrew on macOS):
+
+```bash
+brew install llvm@21 lld@21
+export LLVM_DIR="$(brew --prefix llvm@21)/lib/cmake/llvm"
+export LLD_DIR="$(brew --prefix lld@21)/lib/cmake/lld"
+```
+
+On Linux, use your distribution packages or [apt.llvm.org](https://apt.llvm.org/) and set `LLVM_DIR` / `LLD_DIR` accordingly.
+
+## Configure and build
+
+Using the Debug preset (recommended):
+
+```bash
+cmake --preset Debug
+cmake --build --preset Debug
+```
+
+Enable the CLI, tests, and LSP as needed via CMake options (see repository `CMakeLists.txt` and **AGENTS.md**): `LESMA_BUILD_CLI`, `LESMA_BUILD_TESTS`, `LESMA_BUILD_LSP`.
+
+Typical binaries:
+
+- `build/Debug/lesma` (or `build/lesma` depending on generator)
+- `build/Debug/lesma-lsp` when the LSP target is enabled
+
+## Validate
+
+From the repo root, after building:
+
+```bash
+./scripts/run_tests.sh build/Debug/lesma
+```
+
+Optional **AddressSanitizer** preset: `Debug_Asan` (see **AGENTS.md**).
+
+## Next steps
+
+- [CLI reference](/docs/tooling/cli) for `lesma run` / `compile`.
+- [Project layout](/docs/tooling/project-layout) for repository structure.

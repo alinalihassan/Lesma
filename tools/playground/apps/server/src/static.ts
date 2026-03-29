@@ -6,13 +6,19 @@ function hasDotDot(urlPath: string): boolean {
   return urlPath.split("/").some((p) => p === "..")
 }
 
-export async function serveStatic(rootDir: string, req: Request): Promise<Response> {
-  const url = new URL(req.url)
+/**
+ * Serve a static tree from `rootDir` for a URL pathname (e.g. `/` or `/assets/x.js`).
+ */
+export async function serveStaticDocumentRoot(
+  rootDir: string,
+  urlPath: string,
+  req: Request,
+): Promise<Response> {
   if (req.method !== "GET" && req.method !== "HEAD") {
     return new Response("Method Not Allowed", { status: 405 })
   }
 
-  let p = decodeURIComponent(url.pathname)
+  let p = decodeURIComponent(urlPath)
   if (!p.startsWith("/")) p = "/" + p
   p = path.posix.normalize(p)
   if (hasDotDot(p)) {
@@ -44,4 +50,9 @@ export async function serveStatic(rootDir: string, req: Request): Promise<Respon
   if (rsp !== null) return rsp
 
   return new Response("Not Found", { status: 404 })
+}
+
+export async function serveStatic(rootDir: string, req: Request): Promise<Response> {
+  const url = new URL(req.url)
+  return serveStaticDocumentRoot(rootDir, url.pathname, req)
 }

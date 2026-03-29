@@ -1,5 +1,8 @@
-# docker build -f tools/playground/Dockerfile -t lesma-playground .
+# docker build -f tools/playground/Dockerfile -t lesma-web .
 # Needs vcpkg submodule in context (.dockerignore keeps .git but includes vcpkg).
+#
+# Serves the docs SPA at `/` and the playground UI at `/playground/` (single Bun server, same `/api`).
+# Cloudflare: Workers + Containers from tools/playground (wrangler.jsonc); image_build_context is repo root.
 
 FROM debian:bookworm-slim AS lesma-build
 ENV DEBIAN_FRONTEND=noninteractive
@@ -32,6 +35,12 @@ RUN LLVM_CMAKE="$(llvm-config-21 --cmakedir)" \
         -DLESMA_BUILD_TESTS=OFF -DLESMA_BUILD_BENCHMARKS=OFF -DLESMA_BUILD_DIST=OFF \
     && cmake --build build/Release --target lesma lesma-lsp -j"$(nproc)"
 
+FROM oven/bun:1-debian AS docs-build
+WORKDIR /docs
+COPY tools/docs/ ./
+RUN bun install --frozen-lockfile
+RUN bun run build
+
 FROM oven/bun:1-debian AS bun-workspace
 WORKDIR /app
 COPY tools/playground/package.json tools/playground/bun.lock ./
@@ -40,6 +49,7 @@ COPY tools/playground/apps/client/package.json ./apps/client/
 RUN bun install --frozen-lockfile
 COPY tools/playground/apps/server ./apps/server
 COPY tools/playground/apps/client ./apps/client
+ENV PLAYGROUND_BASE=/playground/
 RUN bun run --cwd apps/client build
 
 FROM debian:bookworm-slim
@@ -66,14 +76,16 @@ COPY --from=lesma-build /src/build/Release/lesma-lsp /usr/local/bin/lesma-lsp
 COPY --from=lesma-build /src/src/stdlib /opt/lesma/.lesma/stdlib/
 
 COPY --from=bun-workspace /app /app
+COPY --from=docs-build /docs/build/client /app/docs-static
 RUN rm -rf /app/apps/client/node_modules 2>/dev/null || true \
     && chown -R playground:playground /opt/lesma /app
 
 USER playground
 WORKDIR /app
 ENV HOME=/opt/lesma
-ENV APP_ASSETS_DIR=/app/public
+ENV APP_ASSETS_DIR=/app/apps/client/build
+ENV DOCS_ASSETS_DIR=/app/docs-static
 
 EXPOSE 8080
 ENTRYPOINT ["bun", "run", "--cwd", "/app/apps/server", "start"]
-CMD ["--addr=:8080", "--static-dir=/app/apps/client/build"]
+CMD ["--addr=:8080", "--static-dir=/app/apps/client/build", "--docs-static-dir=/app/docs-static"]

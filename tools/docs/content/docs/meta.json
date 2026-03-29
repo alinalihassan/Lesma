@@ -1,0 +1,13 @@
+{
+  "pages": [
+    "index",
+    "---Getting started---",
+    "getting-started",
+    "---Language---",
+    "language",
+    "---Tooling---",
+    "tooling",
+    "---Guides---",
+    "guides"
+  ]
+}

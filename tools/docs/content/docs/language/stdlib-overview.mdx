@@ -1,0 +1,23 @@
+---
+title: Standard library overview
+description: |
+  base, math, time, and where Lesma stdlib sources live in the repository.
+category: Language
+---
+
+The **standard library** ships as Lesma source under `src/stdlib/` in the repository. Releases bundle these files for the compiler to resolve on `import`.
+
+## Core modules
+
+- **`base.les`** — foundational definitions used across programs.
+- **`math.les`** — math helpers (see `import_math.les` patterns in tests; note test-local modules may duplicate names for isolation).
+- **`time.les`** — time and sleep utilities (`from time import …` in tests).
+
+## Learning by example
+
+Stdlib usage appears throughout `tests/lesma/success/`. Search for `import` and `from` in that tree when you need a working pattern.
+
+## Next steps
+
+- [Project layout](/docs/tooling/project-layout) for repository structure.
+- [CLI](/docs/tooling/cli) to run programs that import stdlib modules.

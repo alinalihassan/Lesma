@@ -9,7 +9,15 @@ import { type State } from './state'
 
 const composeEnhancers = (window as any).__REDUX_DEVTOOLS_EXTENSION_COMPOSE__ || compose
 
-export const history = createBrowserHistory()
+function viteRouterBasename(): string | undefined {
+  const b = import.meta.env.BASE_URL
+  if (b === '/' || b === '') {
+    return undefined
+  }
+  return b.endsWith('/') ? b.slice(0, -1) : b
+}
+
+export const history = createBrowserHistory({ basename: viteRouterBasename() })
 
 export function configureStore(): Store<State, Action> {
   const preloadedState = getInitialState()

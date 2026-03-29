@@ -1,0 +1,25 @@
+---
+title: Playground
+description: |
+  Try Lesma in the browser: editor, LSP, and API-backed execution from the same site as these docs.
+category: First steps
+---
+
+The **Lesma playground** is a web UI (Monaco editor + terminal) backed by a small API server that runs the compiler. On the main deployment it is served **under `/playground/`** on the same origin as this documentation, and linked from the header as [**Playground**](/playground) (embedded in the docs chrome).
+
+## Open the playground
+
+Use the **Playground** item in the site header, or open [**/playground**](/playground) from the hub.
+
+For **local development**, the embed page loads the playground Vite dev server at `http://localhost:3000` in an iframe (run the playground API with `bun run` in `tools/playground` and the client with `bun run dev:client`). To point the docs UI at a **different** hosted playground instead, set **`VITE_PLAYGROUND_URL`** in `.env`.
+
+Production builds shipped in the **unified Docker image** (`tools/playground/Dockerfile`) serve docs at `/` and the playground static bundle at `/playground/` behind the same **`/api`** routes. Deploy that image with **Cloudflare Workers + Containers** using `tools/playground/wrangler.jsonc`.
+
+## Relationship to `lesma run`
+
+The playground exercises the same compiler as the CLI, but through the hosted API. Network limits, sandboxing, and version skew can differ from your laptop. For reproducible runs and full filesystem access, prefer **`lesma run`** locally.
+
+## Next steps
+
+- [First program](/docs/getting-started/first-program) for local CLI workflow.
+- [CLI reference](/docs/tooling/cli).

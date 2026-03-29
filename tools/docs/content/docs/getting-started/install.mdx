@@ -1,0 +1,32 @@
+---
+title: Installing Lesma
+description: |
+  Install a release with the official script, or build the compiler and language server from source.
+category: First steps
+---
+
+You can use Lesma in two ways: install a **prebuilt release** (fastest), or **build from source** (for contributors and bleeding-edge features).
+
+## Quick install (release)
+
+Run the installer script from the Lesma repository. It downloads the latest release for your platform and lays out the `lesma` binary and standard library:
+
+```bash
+bash -c "$(curl -fsSL https://raw.githubusercontent.com/alinalihassan/Lesma/main/scripts/get-lesma.sh)"
+```
+
+Verify the install:
+
+```bash
+lesma --version
+```
+
+## Build from source
+
+If you develop the compiler or need a custom build, see [Build from source](/docs/getting-started/build-from-source) for CMake presets, vcpkg, and LLVM setup.
+
+## Next steps
+
+- [A tour of Lesma](/docs/getting-started/tour) — mental model and toolchain overview.
+- [Your first program](/docs/getting-started/first-program) — minimal `.les` file and `lesma run`.
+- [Editor & language server](/docs/getting-started/editor-lsp) — VS Code and `lesma-lsp`.

@@ -1,0 +1,33 @@
+---
+title: A tour of Lesma
+description: |
+  How Lesma source becomes native code via LLVM, and where the standard library and tests live.
+category: First steps
+---
+
+## Pipeline
+
+Lesma compilation follows a familiar pipeline:
+
+1. **Lexer & parser** turn `.les` source into an AST.
+2. **Type checking** builds a symbol table and validates types and visibility.
+3. **Codegen** lowers the AST to **LLVM IR**, then LLVM optimizes and either **JITs** for `lesma run` or emits **object files** for `lesma compile`.
+
+Imports compile other modules and merge symbols for a single program.
+
+## Standard library
+
+The stdlib is written in Lesma under `src/stdlib/` (for example `base.les`, `math.les`, `time.les`). Released builds ship these files next to the compiler so `import` can resolve them.
+
+## Tests as examples
+
+The repository’s `tests/lesma/success/` tree is the ground truth for what the language accepts today. When in doubt, search there for a minimal example of a feature.
+
+## LLVM version
+
+Match the **LLVM generation** your CMake finds (see **AGENTS.md** — currently **LLVM 21**). Mixing compiler and library major versions usually fails at link or runtime.
+
+## Next steps
+
+- [Your first program](/docs/getting-started/first-program)
+- [Literals & expressions](/docs/language/literals)

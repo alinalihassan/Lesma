@@ -1,0 +1,32 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "lesma-playground",
+  "main": "worker.ts",
+  "compatibility_date": "2025-04-01",
+  "containers": [
+    {
+      "class_name": "PlaygroundContainer",
+      "image": "./Dockerfile",
+      "image_build_context": "../..",
+      "max_instances": 4,
+      "instance_type": "standard-1"
+    }
+  ],
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "PLAYGROUND_CONTAINER",
+        "class_name": "PlaygroundContainer"
+      }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "v1-playground-container",
+      "new_sqlite_classes": ["PlaygroundContainer"]
+    }
+  ],
+  "observability": {
+    "enabled": true
+  }
+}

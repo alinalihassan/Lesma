@@ -1,0 +1,29 @@
+---
+title: Literals & expressions
+description: |
+  Numeric, string, and boolean literals, operators, and expression-oriented evaluation.
+category: Language
+---
+
+Lesma programs are built from **expressions** that evaluate to typed values. Literals are the simplest expressions.
+
+## Numbers
+
+Integer and floating-point literals behave as you would expect; types are inferred in context or annotated explicitly (see [Types](/docs/language/types)).
+
+## Strings
+
+String literals use double quotes. The language also supports string-oriented features used in the test suite (interpolation, `str`/`cstr` contexts); start with plain strings and grow from there.
+
+## Booleans
+
+Boolean literals `true` and `false` participate in logical operators (see [Control flow](/docs/language/control-flow)).
+
+## Operators
+
+Arithmetic (`+`, `-`, `*`, `/`, `%`), comparison (`==`, `!=`, `<`, `>`), and logical combinations appear throughout examples in `tests/lesma/success/`.
+
+## Next steps
+
+- [Variables](/docs/language/variables) to bind names to values.
+- [Functions](/docs/language/functions) to abstract computation.

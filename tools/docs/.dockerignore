@@ -1,0 +1,10 @@
+node_modules
+build
+.react-router
+.source
+.DS_Store
+.env
+.env.*
+
+# Wrangler / Cloudflare (not needed inside the static docs image)
+.wrangler/

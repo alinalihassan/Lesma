@@ -9,6 +9,9 @@ import 'vitest/config'
 
 const { NODE_ENV = 'dev' } = process.env
 
+/** Subpath for unified docs+playground deploy (`/playground/`). Default `/` for standalone dev. */
+const playgroundBase = process.env.PLAYGROUND_BASE?.trim() || '/'
+
 /**
  * Where the Bun playground API listens (must match `apps/server` default :8080 unless overridden).
  * Set `VITE_API_PROXY=http://127.0.0.1:9000` if you use `LISTEN_ADDR=:9000` for the server.
@@ -29,6 +32,7 @@ function playgroundApiProxyTarget(): string {
 }
 
 export default defineConfig({
+  base: playgroundBase,
   resolve: {
     alias: {
       '~': resolve(__dirname, './src'),

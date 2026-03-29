@@ -1,5 +1,5 @@
 <h1 align="center">
-  <img src="tools/docs/src/assets/logo.svg" height="180px" style="height: 180px" alt="Lesma Programming Language" title="Lesma Programming Language">
+  <img src="tools/docs/public/logo.svg" height="180px" style="height: 180px" alt="Lesma Programming Language" title="Lesma Programming Language">
   <br>
   Lesma
 </h1>
@@ -50,9 +50,9 @@ bash -c "$(curl -fsSL https://raw.githubusercontent.com/alinalihassan/Lesma/main
 
 ## 🔧 Build
 
-In order to build Lesma, you need a C++23 compiler, LLVM (17+), `lld`, and Ninja installed. We recommend using Clang as the host C++ compiler. It's currently only supported on Linux and macOS.
+In order to build Lesma, you need a C++23 compiler, LLVM (21 recommended; see **AGENTS.md**), `lld`, and Ninja installed. We recommend using Clang as the host C++ compiler. It's currently only supported on Linux and macOS.
 For a more comprehensive guide, and more information on how to install the prerequisites,
-read the documentation on [Getting Started](https://lesma-lang.com/getting-started/)
+read the documentation on [Getting Started](https://lesma-lang.com/docs/getting-started/install/)
 
 ### Prerequisites
 
@@ -60,7 +60,7 @@ read the documentation on [Getting Started](https://lesma-lang.com/getting-start
 - CMake 3.24+
 - Ninja
 - C++23 compiler (Clang recommended)
-- LLVM 17+
+- LLVM 21 (recommended; same generation as linked libraries)
 - lld
 
 ### vcpkg (submodule)
@@ -151,7 +151,8 @@ change.
 
 Repository tooling lives under `tools/`:
 
-- `tools/docs` contains the Astro Starlight documentation site.
+- `tools/docs` contains the Fumadocs (Vite + React Router) documentation site; it embeds the playground at `/playground` and is built into the **unified** container image.
+- `tools/playground` includes **`wrangler.jsonc`** + **`worker.ts`** + **`Dockerfile`** for **Cloudflare Workers + Containers**: one image serves docs at `/`, the playground UI at `/playground/`, and the compiler API at `/api`.
 - `tools/vscode` contains the VS Code extension that launches the native `lesma-lsp` server.
 
 - To keep updated with releases, consider starring the project.

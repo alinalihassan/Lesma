@@ -1,0 +1,27 @@
+---
+title: Project layout
+description: |
+  Compiler sources, standard library, tests, benchmarks, and tools in the Lesma repository.
+category: Tooling
+---
+
+## High-level tree
+
+- **`src/liblesma/`** — lexer, parser, AST, type checker, symbol table, LLVM codegen.
+- **`src/cli/`** — CLI entry when `LESMA_BUILD_CLI` is enabled.
+- **`src/stdlib/`** — Lesma standard library (`.les`).
+- **`src/lsp/`** — `lesma-lsp` when `LESMA_BUILD_LSP` is enabled.
+- **`tests/lesma/success/` and `failure/`** — regression tests for the language.
+- **`benchmark/`** — microbenchmarks and the optional wall-clock suite harness.
+- **`tools/docs`** — this documentation site.
+- **`tools/playground`** — browser playground client and API server.
+- **`tools/vscode`** — VS Code extension.
+
+## Contributing changes
+
+Build with CMake presets, run `./scripts/run_tests.sh`, and prefer **Debug_Asan** when chasing memory issues (**AGENTS.md**).
+
+## Next steps
+
+- [Build from source](/docs/getting-started/build-from-source)
+- [Understanding errors](/docs/guides/errors)

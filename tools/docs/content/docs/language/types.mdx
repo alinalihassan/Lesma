@@ -1,0 +1,25 @@
+---
+title: Types
+description: |
+  Static typing, annotations, inference, and common built-in types in Lesma.
+category: Language
+---
+
+Lesma is **statically typed**: every expression has a type known at compile time, and the type checker rejects invalid combinations before codegen.
+
+## Annotations
+
+Function parameters, return types, fields, and locals can carry explicit types. When types can be inferred reliably, annotations may be omitted (see `inference.les` and related tests).
+
+## Pointers and references
+
+Lesma includes pointer types used in low-level and stdlib-style code (`pointer.les`).
+
+## Generics
+
+Type and method generics appear across the test suite (`generics.les`, `generics_class.les`, …). See [Traits & generics](/docs/language/traits-generics) for a higher-level tour.
+
+## Next steps
+
+- [Functions](/docs/language/functions)
+- [Classes](/docs/language/classes)

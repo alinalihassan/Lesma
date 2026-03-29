@@ -1,0 +1,15 @@
+{
+  "title": "Language",
+  "pages": [
+    "literals",
+    "variables",
+    "types",
+    "functions",
+    "control-flow",
+    "comments",
+    "classes",
+    "traits-generics",
+    "modules",
+    "stdlib-overview"
+  ]
+}
