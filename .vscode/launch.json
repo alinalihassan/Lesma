@@ -5,10 +5,7 @@
       "name": "Lesma: Run Extension",
       "type": "extensionHost",
       "request": "launch",
-      // Disable other extensions in the Extension Development Host (avoids e.g. Bun’s
-      // diagnostics socket EADDRINUSE when another extension already bound the same path).
       "args": [
-        "--disable-extensions",
         "--extensionDevelopmentPath=${workspaceFolder}/tools/vscode"
       ],
       "outFiles": ["${workspaceFolder}/tools/vscode/client/out/**/*.js"],

@@ -1127,6 +1127,9 @@ void Typechecker::registerSpecializedClassType(Type* specialized, Type* classTem
   specialized->setImplTraitNames(classTemplate->getImplTraitNames());
   specialized->setDeclarationSpan(classTemplate->getDeclarationSpan());
   specialized->setDeclarationFilePath(classTemplate->getDeclarationFilePath());
+  specialized->setClassVtableMethodOrder(
+      std::vector<std::string>(classTemplate->getClassVtableMethodOrder()));
+  specialized->setClassHasDerivedClass(classTemplate->getClassHasDerivedClass());
   specialized->setDisplayName(
       makeSpecializedDisplayName(classTemplate, genericParamNames, specializedTypeEnv[specialized]));
   specializedClassTypes[TypeUtils::makeSpecializedClassKey(
@@ -1204,6 +1207,9 @@ void Typechecker::finalizeSpecializedTypesForTemplate(Type* classTemplate) {
     } else {
       specPtr->setClassSuperclass(nullptr);
     }
+    specPtr->setClassVtableMethodOrder(
+        std::vector<std::string>(classTemplate->getClassVtableMethodOrder()));
+    specPtr->setClassHasDerivedClass(classTemplate->getClassHasDerivedClass());
   }
 }
 
