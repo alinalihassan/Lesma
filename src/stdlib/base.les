@@ -495,23 +495,23 @@ export def random(bound1: int, bound2: int) -> int
 
     return bound2 + rand() % (bound1 - bound2 + 1)
 
-export def print(x: str)
-    printf("%s\n", x.cstr())
+export def print(text: str)
+    printf("%s\n", text.cstr())
 
-export def print(x: int)
-    printf("%lld\n", x)
+export def print(num: int)
+    printf("%lld\n", num)
 
-export def print(x: int8)
-    printf("%c\n", x)
+export def print(char: int8)
+    printf("%c\n", char)
 
-export def print(x: uint8)
-    printf("%c\n", x)
+export def print(char: uint8)
+    printf("%c\n", char)
 
-export def print(x: float)
-    printf("%g\n", x)
+export def print(num: float)
+    printf("%g\n", num)
 
-export def print(x: bool)
-    if x
+export def print(value: bool)
+    if value
         print("true")
     else
         print("false")
