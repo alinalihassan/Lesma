@@ -383,7 +383,18 @@ auto Codegen::mergeImportedTraitMetadata(Codegen const& imported) -> void {
   }
 }
 
-auto Codegen::mergeImportedSpecializationState(Codegen const& imported) -> void {
+auto Codegen::captureImportedSpecializationState() const -> ImportedSpecializationState {
+  ImportedSpecializationState importedState;
+  importedState.genericClasses = genericClasses;
+  importedState.specializedClassTypesByKey = specializedClassTypesByKey;
+  importedState.specializedClassTypeEnvs = specializedClassTypeEnvs;
+  importedState.specializedClassTemplateOf = specializedClassTemplateOf;
+  importedState.specializationEnvs = specializationEnvs;
+  importedState.codegenClassAstByDisplayName = codegenClassAstByDisplayName;
+  return importedState;
+}
+
+auto Codegen::mergeImportedSpecializationState(ImportedSpecializationState const& imported) -> void {
   for (const auto& entry : imported.genericClasses) {
     genericClasses.insert(entry);
   }
@@ -402,6 +413,10 @@ auto Codegen::mergeImportedSpecializationState(Codegen const& imported) -> void 
   for (const auto& entry : imported.codegenClassAstByDisplayName) {
     codegenClassAstByDisplayName.insert(entry);
   }
+}
+
+auto Codegen::mergeImportedSpecializationState(Codegen const& imported) -> void {
+  mergeImportedSpecializationState(imported.captureImportedSpecializationState());
 }
 
 auto Codegen::findTraitRequirement(const TraitDecl* trait, const std::string& methodName) const

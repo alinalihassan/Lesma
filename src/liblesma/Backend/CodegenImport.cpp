@@ -240,12 +240,15 @@ auto Codegen::compileModule(llvm::SMRange span, const std::string& filepath, boo
   if (it != importedModules->end()) {
     auto existingIdx = static_cast<size_t>(it - importedModules->begin());
     SymbolTable* existingScope = importedScopes->at(existingIdx).get();
+    if (existingIdx >= importedSpecializationStates->size()) {
+      throw CodegenError(span, "Missing specialization metadata for import {}", filepath);
+    }
+    mergeImportedSpecializationState(importedSpecializationStates->at(existingIdx));
     // importedCodegens is per-Codegen; shared importedModules may list paths compiled by an
-    // ancestor, so index must not be used to pick the matching Codegen.
+    // ancestor, so only use it to merge non-shared metadata kept alive on this Codegen.
     for (const auto& cg : importedCodegens) {
       if (cg != nullptr && cg->filename == absolutePath) {
         mergeImportedTraitMetadata(*cg);
-        mergeImportedSpecializationState(*cg);
         break;
       }
     }
@@ -296,6 +299,7 @@ auto Codegen::compileModule(llvm::SMRange span, const std::string& filepath, boo
     auto codegen = std::make_unique<Codegen>(
         std::move(parser), sourceManager, absolutePath, std::vector<std::string>{}, isJit, false,
         !importToScope ? moduleAlias : "", theContext, importedModules, importedScopes,
+        importedSpecializationStates,
         std::move(preScope), std::move(preTypeCache), std::move(preSpecEnv),
         std::move(preTemplateOf), std::move(preSpecializedClassTypes), emitDebugInfo,
         OptimizationLevel::O0, pendingJitModuleInits);
@@ -313,6 +317,7 @@ auto Codegen::compileModule(llvm::SMRange span, const std::string& filepath, boo
     }
     exposeImportedSymbols(span, codegen->rootScope.get(), importAll, importToScope, importedNames);
 
+    importedSpecializationStates->push_back(codegen->captureImportedSpecializationState());
     importedScopes->push_back(std::move(codegen->rootScope));
     codegen->scope = nullptr; // Clear navigation pointer (rootscope now moved)
 

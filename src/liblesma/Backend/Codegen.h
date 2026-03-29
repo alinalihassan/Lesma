@@ -53,6 +53,17 @@ class Class;
 class TraitDecl;
 class FuncDecl;
 
+struct ImportedSpecializationState {
+  std::unordered_map<std::string, const Class*> genericClasses;
+  std::unordered_map<std::string, lesma::Type*> specializedClassTypesByKey;
+  std::unordered_map<lesma::Type*, std::unordered_map<std::string, lesma::Type*>>
+      specializedClassTypeEnvs;
+  std::unordered_map<lesma::Type*, lesma::Type*> specializedClassTemplateOf;
+  std::unordered_map<lesma::Value*, std::unordered_map<std::string, lesma::Type*>>
+      specializationEnvs;
+  std::unordered_map<std::string, const Class*> codegenClassAstByDisplayName;
+};
+
 class Codegen final : public ASTVisitor {
   std::shared_ptr<ThreadSafeContext> theContext;
   std::unique_ptr<Module> theModule;
@@ -84,6 +95,7 @@ class Codegen final : public ASTVisitor {
   std::shared_ptr<std::vector<std::unique_ptr<SymbolTable>>>
       importedScopes; // Shared so child (e.g. B) sees parent's (A) imports
                       // (e.g. math)
+  std::shared_ptr<std::vector<ImportedSpecializationState>> importedSpecializationStates;
   std::vector<std::unique_ptr<Codegen>> importedCodegens; // Keep imported module codegens alive so
                                                           // Class* in symbols stay valid
   /** Maps `import "m"` alias -> absolute path of `m` (for resolving exported globals). */
@@ -142,6 +154,8 @@ public:
           std::string alias = "", const std::shared_ptr<ThreadSafeContext>& = nullptr,
           std::shared_ptr<std::vector<std::string>> sharedModules = nullptr,
           std::shared_ptr<std::vector<std::unique_ptr<SymbolTable>>> sharedScopes = nullptr,
+          std::shared_ptr<std::vector<ImportedSpecializationState>>
+              sharedImportedSpecializationStates = nullptr,
           std::unique_ptr<SymbolTable> preScope = nullptr,
           std::vector<std::unique_ptr<lesma::Type>> preTypeCache = {},
           std::unordered_map<lesma::Type*, std::unordered_map<std::string, lesma::Type*>>
@@ -398,6 +412,8 @@ protected:
 
   auto collectTraitMetadataFromAst() -> void;
   auto mergeImportedTraitMetadata(Codegen const& imported) -> void;
+  [[nodiscard]] auto captureImportedSpecializationState() const -> ImportedSpecializationState;
+  auto mergeImportedSpecializationState(ImportedSpecializationState const& imported) -> void;
   /// Copy specialization env maps from an imported module codegen so call sites in this module
   /// can resolve TY_GENERIC when invoking methods on specialized types from the import.
   auto mergeImportedSpecializationState(Codegen const& imported) -> void;

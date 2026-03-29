@@ -161,6 +161,8 @@ Codegen::Codegen(std::shared_ptr<Parser> parser, std::shared_ptr<SourceMgr> srcM
                  std::string alias, const std::shared_ptr<ThreadSafeContext>& context,
                  std::shared_ptr<std::vector<std::string>> sharedModules,
                  std::shared_ptr<std::vector<std::unique_ptr<SymbolTable>>> sharedScopes,
+                 std::shared_ptr<std::vector<ImportedSpecializationState>>
+                     sharedImportedSpecializationStates,
                  std::unique_ptr<SymbolTable> preScope,
                  std::vector<std::unique_ptr<lesma::Type>> preTypeCache,
                  std::unordered_map<lesma::Type*, std::unordered_map<std::string, lesma::Type*>>
@@ -211,9 +213,13 @@ Codegen::Codegen(std::shared_ptr<Parser> parser, std::shared_ptr<SourceMgr> srcM
   if (sharedModules && sharedScopes) {
     importedModules = std::move(sharedModules);
     importedScopes = std::move(sharedScopes);
+    importedSpecializationStates = sharedImportedSpecializationStates != nullptr
+                                       ? std::move(sharedImportedSpecializationStates)
+                                       : std::make_shared<std::vector<ImportedSpecializationState>>();
   } else {
     importedModules = std::make_shared<std::vector<std::string>>(std::move(imports));
     importedScopes = std::make_shared<std::vector<std::unique_ptr<SymbolTable>>>();
+    importedSpecializationStates = std::make_shared<std::vector<ImportedSpecializationState>>();
   }
   emitDebugInfo = emitDebug;
   optimizationLevelForDebug = optimizationLevelForDebugArg;
