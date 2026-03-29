@@ -15,10 +15,12 @@
   flex: 1;
   flex-direction: column;
   align-items: stretch;
-  flex-wrap: wrap;
   align-content: stretch;
-  overflow: hidden;
+  /* Allow long program output to scroll (plain-text terminal + errors + problems). */
   min-height: 0;
+  overflow-x: auto;
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 
 .RunOutput__container {

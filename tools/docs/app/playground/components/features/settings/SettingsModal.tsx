@@ -162,21 +162,6 @@ class SettingsModal extends ThemeableComponent<Props, SettingsModalState> {
               }
             />
             <SettingsProperty
-              key="autoDetectTheme"
-              title="Use System Theme"
-              control={
-                <Checkbox
-                  label="Match editor theme with system dark mode preference"
-                  defaultChecked={this.props.settings?.useSystemTheme}
-                  onChange={(_, val) => {
-                    this.touchSettingsProperty({
-                      useSystemTheme: val,
-                    })
-                  }}
-                />
-              }
-            />
-            <SettingsProperty
               key="enableVimMode"
               title="Enable Vim Mode"
               control={

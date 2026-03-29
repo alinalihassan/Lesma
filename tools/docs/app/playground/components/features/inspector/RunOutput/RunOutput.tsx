@@ -39,7 +39,10 @@ const ConsoleWrapper: React.FC<ConsoleProps & { disableTerminal?: boolean }> = (
 
 export const RunOutput: React.FC = () => {
   const theme = useTheme()
-  const { status, monaco, terminal, ui } = useSelector((state: State) => state)
+  const status = useSelector((state: State) => state.status)
+  const monaco = useSelector((state: State) => state.monaco)
+  const terminal = useSelector((state: State) => state.terminal)
+  const ui = useSelector((state: State) => state.ui)
 
   const { fontSize, renderingBackend } = terminal.settings
   const styles = useMemo(() => {
@@ -51,7 +54,9 @@ export const RunOutput: React.FC = () => {
     }
   }, [theme])
   const fontFamily = useMemo(() => getFontFamily(monaco?.fontFamily ?? DEFAULT_FONT), [monaco])
-  const isClean = !status?.dirty
+  const hasRunSession = Boolean(
+    status?.lastError || status?.running || status?.dirty || (status?.events?.length ?? 0) > 0,
+  )
 
   const activeTab: InspectorOutputTab = ui?.inspectorTab ?? 'terminal'
 
@@ -62,7 +67,7 @@ export const RunOutput: React.FC = () => {
         <pre className="RunOutput__errors">{highlightLinks(status.lastError)}</pre>
       </MessageBar>
     </div>
-  ) : isClean ? (
+  ) : !hasRunSession ? (
     <div
       className="RunOutput__container"
       style={{

@@ -3,13 +3,14 @@ import copy from 'copy-to-clipboard'
 
 import { DefaultButton, useTheme } from '@fluentui/react'
 
-import type { ITerminalAddon, ITerminalOptions } from '@xterm/xterm'
+import type { ITerminalAddon, ITerminalOptions, Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import { ImageAddon } from '@xterm/addon-image'
 import { CanvasAddon } from '@xterm/addon-canvas'
 import { WebglAddon } from '@xterm/addon-webgl'
 
 import type { StatusState } from '@/playground/store'
+import type { EvalEvent } from '@/playground/services/api/models/run'
 import { RenderingBackend } from '@/playground/store/terminal/types'
 import { XTerm } from '@/playground/components/utils/XTerm/XTerm'
 import { useXtermTheme } from '@/playground/components/utils/XTerm/hooks'
@@ -88,25 +89,36 @@ const CopyButton: React.FC<{
  */
 export const Console: React.FC<ConsoleProps> = ({ fontFamily, fontSize, status, backend }) => {
   const theme = useXtermTheme()
-  const [offset, setOffset] = useState(0)
   const [isFocused, setIsFocused] = useState(false)
+  const [xtermHost, setXtermHost] = useState<XTerm | null>(null)
 
-  const xtermRef = useRef<XTerm>(null)
   const fitAddonRef = useRef(new FitAddon())
   const imageAddonRef = useRef(new ImageAddon(imageAddonConfig))
+  const eventsWrittenRef = useRef(0)
+
+  const handleXTermRef = useCallback((instance: XTerm | null) => {
+    setXtermHost(instance)
+  }, [])
+
+  const events = status?.events
+  const terminal: Terminal | null = xtermHost?.terminal ?? null
+  const terminalRef = useRef<Terminal | null>(null)
+  terminalRef.current = terminal
 
   const resizeObserver = useMemo(
     () =>
       createDebounceResizeObserver(() => {
-        fitAddonRef.current.fit()
+        const t = terminalRef.current
+        if (t) {
+          try {
+            fitAddonRef.current.fit()
+          } catch {
+            /* ignore */
+          }
+        }
       }, RESIZE_DELAY),
     [fitAddonRef],
   )
-
-  const isClean = !status?.dirty
-  const events = status?.events
-  const terminal = xtermRef.current?.terminal
-  const elemRef = xtermRef?.current?.terminalRef
 
   const copySelection = useCallback(() => {
     if (!terminal) {
@@ -125,53 +137,66 @@ export const Console: React.FC<ConsoleProps> = ({ fontFamily, fontSize, status, 
     copy(shouldTrim ? str.trim() : str)
   }, [terminal])
 
-  // Track output events
   useEffect(() => {
-    if (!events?.length || !terminal) {
-      setOffset(0)
-      terminal?.clear()
-      terminal?.reset()
+    const term = xtermHost?.terminal
+    const list: EvalEvent[] | undefined = events
+
+    if (!list || list.length === 0) {
+      eventsWrittenRef.current = 0
+      if (term) {
+        try {
+          term.clear()
+          term.reset()
+        } catch {
+          /* ignore */
+        }
+      }
       return
     }
 
-    if (offset === 0) {
-      terminal?.clear()
-      terminal?.reset()
-    }
-
-    const batch = events?.slice(offset)
-    if (!batch) {
+    if (!term) {
       return
     }
 
-    batch.map(formatEvalEvent).forEach((msg) => {
-      terminal?.write(msg)
-    })
-    terminal?.scrollToBottom()
-    setOffset(offset + batch.length)
-  }, [terminal, offset, events])
-
-  // Reset output offset on clean
-  useEffect(() => {
-    if (isClean) {
-      setOffset(0)
+    if (eventsWrittenRef.current > list.length) {
+      eventsWrittenRef.current = 0
+      try {
+        term.clear()
+        term.reset()
+      } catch {
+        /* ignore */
+      }
     }
-  }, [isClean])
 
-  // Track terminal resize
+    for (let i = eventsWrittenRef.current; i < list.length; i++) {
+      try {
+        term.write(formatEvalEvent(list[i]))
+      } catch {
+        /* ignore */
+      }
+    }
+    eventsWrittenRef.current = list.length
+    try {
+      term.scrollToBottom()
+      fitAddonRef.current.fit()
+    } catch {
+      /* ignore */
+    }
+  }, [xtermHost, events])
+
   useEffect(() => {
-    if (!elemRef?.current) {
+    const el = xtermHost?.terminalRef.current
+    if (!el) {
       resizeObserver.disconnect()
       return
     }
 
-    resizeObserver.observe(elemRef.current)
+    resizeObserver.observe(el)
     return () => {
       resizeObserver.disconnect()
     }
-  }, [elemRef, resizeObserver])
+  }, [xtermHost, resizeObserver])
 
-  // Theme
   useEffect(() => {
     if (!terminal) {
       return
@@ -182,16 +207,18 @@ export const Console: React.FC<ConsoleProps> = ({ fontFamily, fontSize, status, 
       fontSize,
       fontFamily,
     }
-    fitAddonRef.current.fit()
-  }, [theme, terminal, fitAddonRef, fontFamily, fontSize])
+    try {
+      fitAddonRef.current.fit()
+    } catch {
+      /* ignore */
+    }
+  }, [theme, terminal, fontFamily, fontSize])
 
-  // Rendering backend
   useEffect(() => {
     if (!terminal) {
       return
     }
 
-    console.log('xterm: switched backend:', backend)
     const addon = getAddonFromBackend(backend)
     if (!addon) {
       return
@@ -199,12 +226,10 @@ export const Console: React.FC<ConsoleProps> = ({ fontFamily, fontSize, status, 
 
     terminal.loadAddon(addon)
     return () => {
-      console.log('xterm: unloading old backend:', backend)
       addon.dispose()
     }
   }, [terminal, backend])
 
-  // Register button on focus
   useEffect(() => {
     if (!terminal?.textarea) {
       return
@@ -215,7 +240,6 @@ export const Console: React.FC<ConsoleProps> = ({ fontFamily, fontSize, status, 
     })
 
     terminal.textarea.addEventListener('blur', () => {
-      // Delay before blur to keep enough time for btn click
       setTimeout(() => {
         setIsFocused(false)
       }, 150)
@@ -230,7 +254,7 @@ export const Console: React.FC<ConsoleProps> = ({ fontFamily, fontSize, status, 
     <div className="app-Console" style={{ '--terminal-bg': theme.background } as any}>
       <CopyButton hidden={!isFocused} onClick={copySelection} />
       <XTerm
-        ref={xtermRef}
+        ref={handleXTermRef}
         className="app-Console__xterm"
         addons={[fitAddonRef.current, imageAddonRef.current]}
         options={{

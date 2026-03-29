@@ -27,7 +27,6 @@ export const Header: React.FC = () => {
 
   const darkMode = useSelector(({ settings }: State) => settings.darkMode)
   const isDisabled = useSelector(({ status }: State) => Boolean(status?.loading || status?.running))
-  const hideThemeToggle = useSelector(({ settings }: State) => settings.useSystemTheme)
   const commandBarStateKey = isDisabled ? 'disabled' : 'enabled'
 
   const applySettingsChanges = useCallback(
@@ -107,11 +106,10 @@ export const Header: React.FC = () => {
   const asideItems: ICommandBarItemProps[] = [
     {
       key: 'toggleTheme',
-      cacheKey: `toggleTheme-${darkMode ? 'dark' : 'light'}-${hideThemeToggle ? 'hidden' : 'visible'}`,
+      cacheKey: `toggleTheme-${darkMode ? 'dark' : 'light'}`,
       text: 'Toggle Dark Mode',
       ariaLabel: 'Toggle Dark Mode',
       iconOnly: true,
-      hidden: hideThemeToggle,
       iconProps: { iconName: darkMode ? 'Brightness' : 'ClearNight' },
       onClick: () => {
         dispatch(dispatchToggleTheme)

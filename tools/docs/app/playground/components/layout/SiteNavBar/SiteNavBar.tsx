@@ -15,7 +15,6 @@ const iconTool = { className: 'site-nav__lucide', size: 20, strokeWidth: 2 } as 
 export const SiteNavBar: React.FC = () => {
   const dispatch = useDispatch()
   const darkMode = useSelector(({ settings }: State) => settings.darkMode)
-  const hideThemeToggle = useSelector(({ settings }: State) => settings.useSystemTheme)
 
   const docsBase = docsSiteBaseUrl()
   const githubUrl = githubRepoUrl()
@@ -63,16 +62,14 @@ export const SiteNavBar: React.FC = () => {
             <span>Search</span>
             <span className="site-nav__search-kbd">⌘K</span>
           </a>
-          {!hideThemeToggle && (
-            <button
-              type="button"
-              className="site-nav__icon-btn"
-              aria-label={darkMode ? 'Switch to light theme' : 'Switch to dark theme'}
-              onClick={() => dispatch(dispatchToggleTheme)}
-            >
-              {darkMode ? <Sun {...iconTool} aria-hidden /> : <Moon {...iconTool} aria-hidden />}
-            </button>
-          )}
+          <button
+            type="button"
+            className="site-nav__icon-btn"
+            aria-label={darkMode ? 'Switch to light theme' : 'Switch to dark theme'}
+            onClick={() => dispatch(dispatchToggleTheme)}
+          >
+            {darkMode ? <Sun {...iconTool} aria-hidden /> : <Moon {...iconTool} aria-hidden />}
+          </button>
           <a
             className={clsx('site-nav__icon-btn', 'site-nav__github')}
             href={githubUrl}
@@ -103,16 +100,14 @@ export const SiteNavBar: React.FC = () => {
           >
             <Search {...iconTool} aria-hidden />
           </a>
-          {!hideThemeToggle && (
-            <button
-              type="button"
-              className="site-nav__icon-btn"
-              aria-label={darkMode ? 'Switch to light theme' : 'Switch to dark theme'}
-              onClick={() => dispatch(dispatchToggleTheme)}
-            >
-              {darkMode ? <Sun {...iconTool} aria-hidden /> : <Moon {...iconTool} aria-hidden />}
-            </button>
-          )}
+          <button
+            type="button"
+            className="site-nav__icon-btn"
+            aria-label={darkMode ? 'Switch to light theme' : 'Switch to dark theme'}
+            onClick={() => dispatch(dispatchToggleTheme)}
+          >
+            {darkMode ? <Sun {...iconTool} aria-hidden /> : <Moon {...iconTool} aria-hidden />}
+          </button>
           <a
             className={clsx('site-nav__icon-btn', 'site-nav__github')}
             href={githubUrl}

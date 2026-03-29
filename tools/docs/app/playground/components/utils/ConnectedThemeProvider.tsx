@@ -1,42 +1,41 @@
 import React, { useEffect } from 'react'
 import { connect } from 'react-redux'
+import { useDispatch } from 'react-redux'
+import { useTheme } from 'next-themes'
 import { ThemeProvider, type ThemeProviderProps } from '@fluentui/react/lib/Theme'
-import {
-  getThemeFromVariant,
-  isDarkModeEnabled,
-  supportsPreferColorScheme,
-  ThemeVariant,
-  usePrefersColorScheme,
-} from '@/playground/utils/theme'
-import { newSettingsChangeAction, type SettingsState } from '@/playground/store'
+import { getThemeFromVariant, ThemeVariant } from '@/playground/utils/theme'
+import config from '@/playground/services/config/config'
+import { newSettingsChangeAction, type SettingsState, type State } from '@/playground/store'
 
 interface Props extends ThemeProviderProps {
   settings?: SettingsState
-  dispatch?: Function
 }
 
-const getInitialTheme = ({ darkMode, useSystemTheme }: SettingsState) => {
-  if (useSystemTheme && supportsPreferColorScheme()) {
-    return { currentTheme: isDarkModeEnabled() ? ThemeVariant.dark : ThemeVariant.light, matchMedia: true }
-  }
+const ThemeProviderContainer: React.FunctionComponent<Props> = ({ settings, children, ...props }) => {
+  const dispatch = useDispatch()
+  const { resolvedTheme } = useTheme()
 
-  return { currentTheme: darkMode ? ThemeVariant.dark : ThemeVariant.light, matchMedia: false }
-}
-
-const ThemeProviderContainer: React.FunctionComponent<Props> = ({ settings, children, dispatch, ...props }) => {
-  const { currentTheme, matchMedia } = getInitialTheme(settings!)
-  const systemTheme = usePrefersColorScheme(currentTheme, matchMedia)
   useEffect(() => {
-    dispatch?.(newSettingsChangeAction({ darkMode: systemTheme === ThemeVariant.dark }))
-  }, [systemTheme, dispatch])
+    if (resolvedTheme !== 'dark' && resolvedTheme !== 'light') {
+      return
+    }
+    const nextDark = resolvedTheme === 'dark'
+    if (settings!.darkMode === nextDark) {
+      return
+    }
+    config.darkThemeEnabled = nextDark
+    dispatch(newSettingsChangeAction({ darkMode: nextDark }))
+  }, [resolvedTheme, settings, dispatch])
+
+  const isDark = settings!.darkMode
 
   return (
-    <ThemeProvider theme={getThemeFromVariant(matchMedia ? systemTheme : currentTheme)} {...props}>
+    <ThemeProvider theme={getThemeFromVariant(isDark ? ThemeVariant.dark : ThemeVariant.light)} {...props}>
       {children}
     </ThemeProvider>
   )
 }
 
-export const ConnectedThemeProvider = connect(({ settings, dispatch }: any) => ({ settings, dispatch }))(
-  ThemeProviderContainer,
-)
+export const ConnectedThemeProvider = connect((state: State) => ({
+  settings: state.settings,
+}))(ThemeProviderContainer)

@@ -1,4 +1,4 @@
-import { isDarkModeEnabled } from '@/playground/utils/theme'
+import { setLesmaChromeTheme } from '@/lib/lesma-theme-bridge'
 import config from '@/playground/services/config/config'
 
 import { type Dispatcher } from './utils'
@@ -24,11 +24,6 @@ export function newMonacoParamsChangeDispatcher(changes: MonacoParamsChanges): D
 export const newSettingsChangeDispatcher =
   (changes: Partial<SettingsState>): Dispatcher =>
   (dispatch: DispatchFn, getState: StateProvider) => {
-    if ('useSystemTheme' in changes) {
-      config.useSystemTheme = !!changes.useSystemTheme
-      changes.darkMode = isDarkModeEnabled()
-    }
-
     if ('darkMode' in changes) {
       config.darkThemeEnabled = !!changes.darkMode
     }
@@ -66,7 +61,9 @@ export const newSettingsChangeDispatcher =
 
 export const dispatchToggleTheme: Dispatcher = (dispatch: DispatchFn, getState: StateProvider) => {
   const { darkMode } = getState().settings
-  config.darkThemeEnabled = !darkMode
+  const next = !darkMode
+  setLesmaChromeTheme(next ? 'dark' : 'light')
+  config.darkThemeEnabled = next
   dispatch(newToggleThemeAction())
 }
 

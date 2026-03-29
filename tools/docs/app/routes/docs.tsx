@@ -12,7 +12,7 @@ import { DocsSiteHeader } from '@/components/site-header';
 import { cn } from '@/lib/cn';
 import { getPageMarkdownUrl, source } from '@/lib/source';
 import browserCollections from 'collections/browser';
-import { baseOptions } from '@/lib/layout.shared';
+import { docsBaseOptions } from '@/lib/layout.shared';
 import { docsSidebarBelowHeaderGridTemplate } from '@/lib/docs-layout-grid';
 import { docsGithubBlobBase } from '@/lib/shared';
 import { useFumadocsLoader } from 'fumadocs-core/source/client';
@@ -68,7 +68,7 @@ export default function Page({ loaderData }: Route.ComponentProps) {
 
   return (
     <DocsLayout
-      {...baseOptions()}
+      {...docsBaseOptions()}
       tree={pageTree}
       sidebar={{ collapsible: false }}
       slots={{ header: DocsSiteHeader }}

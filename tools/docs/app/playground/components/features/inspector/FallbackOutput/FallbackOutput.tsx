@@ -18,19 +18,19 @@ export const FallbackOutput: React.FC<Props> = ({ fontFamily, fontSize, status }
   const theme = useTheme()
   const styles = mergeStyleSets({
     root: {
-      flex: '1 1 auto',
       boxSizing: 'border-box',
-      padding: '0, 15px',
+      flex: '1 1 0%',
+      minHeight: 0,
+      overflowY: 'auto',
+      padding: '0 15px',
     },
     content: {
       whiteSpace: 'pre-wrap',
-      display: 'table',
+      display: 'block',
       width: '100%',
-
       font: 'inherit',
       border: 'none',
       margin: 0,
-      float: 'left',
     },
     stderr: {
       color: theme.palette.red,
@@ -48,7 +48,9 @@ export const FallbackOutput: React.FC<Props> = ({ fontFamily, fontSize, status }
   return (
     <div className={styles.root} style={{ fontFamily, fontSize: `${fontSize}px` }}>
       <div className={styles.content}>
-        {status?.events?.map(({ Kind: kind, Message: msg }, i) => {
+        {status?.events?.map((ev, i) => {
+          const kind = ev.Kind
+          const msg = ev.Message ?? ''
           if (kind === EvalEventKind.Stderr) {
             return (
               <span key={i} className={styles.stderr}>

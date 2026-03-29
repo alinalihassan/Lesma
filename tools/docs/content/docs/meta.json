@@ -1,13 +1,3 @@
 {
-  "pages": [
-    "index",
-    "---Getting started---",
-    "getting-started",
-    "---Language---",
-    "language",
-    "---Tooling---",
-    "tooling",
-    "---Guides---",
-    "guides"
-  ]
+  "pages": ["index", "getting-started", "language", "tooling", "guides"]
 }

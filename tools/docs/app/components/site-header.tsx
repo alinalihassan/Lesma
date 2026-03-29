@@ -1,6 +1,6 @@
 'use client';
 
-import { Fragment, useState, type ComponentProps, type ReactNode } from 'react';
+import { Fragment, useMemo, useState, type ComponentProps, type ReactNode } from 'react';
 import { buttonVariants } from 'fumadocs-ui/components/ui/button';
 import {
   NavigationMenu,
@@ -30,6 +30,21 @@ function isSecondary(item: LinkItemType) {
     return item.secondary;
   }
   return item.type === 'icon';
+}
+
+/** Docs layout: `on: 'nav'` links are omitted from Fumadocs `menuItems` (sidebar / drawer). Re-inject primary `navItems` so the mobile header menu still lists Documentation + Playground without duplicating GitHub. */
+function mergeDocsHeaderMenuItems(navItems: LinkItemType[], menuItems: LinkItemType[]): LinkItemType[] {
+  const urlsInMenu = new Set(
+    menuItems
+      .filter((i): i is LinkItemType & { url: string } => 'url' in i && typeof i.url === 'string')
+      .map((i) => i.url),
+  );
+  const extraFromNav = navItems.filter(
+    (item) =>
+      !isSecondary(item) &&
+      (!('url' in item) || typeof item.url !== 'string' || !urlsInMenu.has(item.url)),
+  );
+  return [...extraFromNav, ...menuItems];
 }
 
 function NavigationMenuLinkItem({
@@ -335,6 +350,11 @@ export function DocsSiteHeader(props: ComponentProps<'header'>) {
     return nav.component;
   }
 
+  const mergedMenuItems = useMemo(
+    () => mergeDocsHeaderMenuItems(navItems, menuItems),
+    [navItems, menuItems],
+  );
+
   const leading = slots.sidebar ? (
     <slots.sidebar.trigger
       className={cn(
@@ -349,7 +369,7 @@ export function DocsSiteHeader(props: ComponentProps<'header'>) {
     <LesmaTopBar
       nav={nav}
       navItems={navItems}
-      menuItems={menuItems}
+      menuItems={mergedMenuItems}
       slots={slots}
       leading={leading}
       headerSlotProps={props}

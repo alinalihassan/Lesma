@@ -1,4 +1,4 @@
-import { type RunResponse } from './models/run'
+import { normalizeEvalEvent, type RunResponse } from './models/run'
 import type { IAPIClient, RunRequestOptions } from './interface'
 
 export class Client implements IAPIClient {
@@ -12,7 +12,11 @@ export class Client implements IAPIClient {
     if (options?.debug !== undefined && options.debug.length > 0) {
       body.debug = options.debug
     }
-    return await this.post<RunResponse>('/v2/run', body)
+    const data = await this.post<RunResponse>('/v2/run', body)
+    const raw = Array.isArray(data.events) ? data.events : []
+    return {
+      events: raw.map((ev) => normalizeEvalEvent(ev)),
+    }
   }
 
   private async post<T>(uri: string, data: unknown): Promise<T> {

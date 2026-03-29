@@ -18,6 +18,8 @@ import { type Action, ActionType } from './actions/actions'
 import type { MonacoParamsChanges } from './actions/settings'
 import type { CursorPositionChangePayload, MarkerChangePayload } from './actions/editor'
 import type { LoadingStateChanges } from './actions/ui'
+import { readStoredChromeThemeIsDark } from '@/lib/lesma-theme-bridge'
+
 import { mapByAction } from './helpers'
 
 import { type SettingsState, type State, type StatusState, type PanelState, type UIState } from './state'
@@ -25,9 +27,8 @@ import { type SettingsState, type State, type StatusState, type PanelState, type
 // TODO: move settings reducers and state to store/settings
 const initialSettingsState: SettingsState = {
   autoSave: config.autoSave,
-  darkMode: config.darkThemeEnabled,
+  darkMode: readStoredChromeThemeIsDark() ?? config.darkThemeEnabled,
   autoFormat: true,
-  useSystemTheme: config.useSystemTheme,
   enableVimMode: config.enableVimMode,
   compilerDebugLexer: config.compilerDebugLexer,
   compilerDebugAst: config.compilerDebugAst,
@@ -42,20 +43,21 @@ const reducers = {
         running: false,
         dirty: false,
         lastError: null,
+        events: undefined,
       }),
-      // Snippet/example loads use workspace.snippet.loading for UI; keep status.loading for
-      // Initial boot so the header does not grey out.
       [WorkspaceAction.SNIPPET_LOAD_FINISH]: (s: StatusState) => ({
         ...s,
         running: false,
         dirty: false,
         lastError: null,
+        events: undefined,
       }),
       [WorkspaceAction.SNIPPET_LOAD_START]: (s: StatusState) => ({
         ...s,
         running: false,
         dirty: false,
         lastError: null,
+        events: undefined,
       }),
       [WorkspaceAction.REMOVE_FILE]: (
         { markers, ...state }: StatusState,

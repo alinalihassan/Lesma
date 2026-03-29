@@ -38,7 +38,9 @@ const newInlineImage = (b64: string) => {
 /**
  * Formats output event from program.
  */
-export const formatEvalEvent = ({ Message: msg, Kind: type }: EvalEvent) => {
+export const formatEvalEvent = (ev: EvalEvent) => {
+  const msg = ev.Message ?? ''
+  const type = ev.Kind
   if (type === 'stderr') {
     return `${Colors.Red}${msg}${Colors.Reset}`
   }

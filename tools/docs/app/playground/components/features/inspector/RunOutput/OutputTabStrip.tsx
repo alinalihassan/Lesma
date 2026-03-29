@@ -19,10 +19,11 @@ function countDiagnostics(markers: Record<string, Diagnostic[] | null> | undefin
  */
 export const OutputTabStrip: React.FC = () => {
   const dispatch = useDispatch()
-  const { status, ui } = useSelector((state: State) => state)
+  const inspectorTab = useSelector((state: State) => state.ui?.inspectorTab)
+  const markers = useSelector((state: State) => state.status?.markers)
 
-  const activeTab: InspectorOutputTab = ui?.inspectorTab ?? 'terminal'
-  const problemCount = useMemo(() => countDiagnostics(status?.markers), [status?.markers])
+  const activeTab: InspectorOutputTab = inspectorTab ?? 'terminal'
+  const problemCount = useMemo(() => countDiagnostics(markers), [markers])
 
   const setTab = useCallback(
     (tab: InspectorOutputTab) => {

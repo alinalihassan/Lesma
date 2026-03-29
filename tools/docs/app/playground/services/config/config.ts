@@ -1,11 +1,9 @@
 import type { PanelState } from '@/playground/store/state'
 import { defaultPanelProps } from '@/playground/styles/layout'
-import { supportsPreferColorScheme } from '@/playground/utils/theme'
 
 import { type MonacoSettings, defaultMonacoSettings } from './monaco'
 
 const DARK_THEME_KEY = 'ui.darkTheme.enabled'
-const USE_SYSTEM_THEME_KEY = 'ui.darkTheme.useSystem'
 const AUTOSAVE_ENABLED = 'ui.autosave.enabled'
 const ENABLE_VIM_MODE_KEY = 'ms.monaco.vimModeEnabled'
 const AUTOFORMAT_KEY = 'go.build.autoFormat'
@@ -38,14 +36,6 @@ const Config = {
 
   set autoSave(val: boolean) {
     this.setBoolean(AUTOSAVE_ENABLED, val)
-  },
-
-  get useSystemTheme() {
-    return this.getBoolean(USE_SYSTEM_THEME_KEY, supportsPreferColorScheme())
-  },
-
-  set useSystemTheme(val: boolean) {
-    this.setBoolean(USE_SYSTEM_THEME_KEY, val)
   },
 
   get enableVimMode() {

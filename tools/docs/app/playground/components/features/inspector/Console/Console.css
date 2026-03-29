@@ -1,7 +1,11 @@
 .app-Console {
-  flex: 1 1 auto;
+  flex: 1 1 0%;
+  min-width: 0;
+  min-height: 0;
+  width: 100%;
   position: relative;
   box-sizing: border-box;
+  overflow: hidden;
 
   --terminal-padding-x: 15px;
 }
