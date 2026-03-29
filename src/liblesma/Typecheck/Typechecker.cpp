@@ -3515,8 +3515,7 @@ auto Typechecker::visit(const FuncCall* node) -> void {
           if (constructorForMark != nullptr) {
             markValueRead(constructorForMark);
           }
-          Type* valueType =
-              importedScope != nullptr ? materializeImportedType(specialized) : specialized;
+          Type* valueType = specialized;
           result = std::make_unique<Value>(valueType);
           node->setAllocatedClassMonomorph(valueType);
           return;
@@ -3543,8 +3542,7 @@ auto Typechecker::visit(const FuncCall* node) -> void {
             }
             Type* specialized = getOrCreateSpecializedClassType(classType, genericParamNames, env);
             markValueRead(constructor);
-            Type* valueType =
-                importedScope != nullptr ? materializeImportedType(specialized) : specialized;
+            Type* valueType = specialized;
             result = std::make_unique<Value>(valueType);
             node->setAllocatedClassMonomorph(valueType);
             return;
@@ -3730,7 +3728,7 @@ auto Typechecker::visit(const FuncCall* node) -> void {
     const std::vector<std::string>& genericParamNames = getDeclaredGenericParams(classType);
     Type* specialized =
         getOrCreateSpecializedClassType(classType, genericParamNames, localGenericTypes);
-    Type* valueType = importedScope != nullptr ? materializeImportedType(specialized) : specialized;
+    Type* valueType = specialized;
     result = std::make_unique<Value>(valueType);
     node->setAllocatedClassMonomorph(valueType);
   } else {
@@ -4075,7 +4073,7 @@ auto Typechecker::visit(const DotOp* node) -> void {
                   }
                   Type* specialized =
                       getOrCreateSpecializedClassType(classType, genericParamNames, env);
-                  Type* valueType = materializeImportedType(specialized);
+                  Type* valueType = specialized;
                   result = std::make_unique<Value>(valueType);
                   fc->setAllocatedClassMonomorph(valueType);
                   return;
