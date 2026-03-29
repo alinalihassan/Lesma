@@ -2428,6 +2428,20 @@ auto Codegen::visit(const DotOp* node) -> void {
     }
     std::vector<lesma::Type*> paramTypes;
     std::vector<llvm::Value*> paramsLLVM;
+    // Instance methods take implicit `self` as fields[0]. Constructor chaining uses
+    // `super.new(self, ...)` so the receiver is already the first explicit argument.
+    std::unique_ptr<lesma::Value> implicitSelfValue;
+    bool const chainingCtorWithExplicitReceiver =
+        method->getName() == "new" && !args.empty();
+    if (!chainingCtorWithExplicitReceiver) {
+      Value* selfSym = scope->lookup("self");
+      if (selfSym == nullptr) {
+        throw CodegenError(node->getSpan(),
+                           "Internal error: super call requires `self` in scope (instance method)");
+      }
+      implicitSelfValue = materializeSymbolValue(selfSym);
+      appendCallableArgument(implicitSelfValue.get(), paramTypes, paramsLLVM);
+    }
     for (auto* arg : args) {
       appendCallableArgument(arg, paramTypes, paramsLLVM);
     }
