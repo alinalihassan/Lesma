@@ -14,7 +14,7 @@ Reserved identifiers come from the compiler’s keyword table (everything below 
 
 **Control flow:** `if`, `else` (and **`else if`** as two tokens), `while`, `for`, `break`, `continue`, `return`, `pass`, `defer` (deferred statements run when the enclosing function or module finishes, **LIFO**—last `defer` first—before the `return` value is evaluated). Example with C **`fopen`/`fclose`**: [Control flow → Defer](/docs/language/control-flow#defer).
 
-**Bindings and declarations:** `let`, `var`, `def`, `func`, `class`, `enum`, `trait`, `impl`.
+**Bindings and declarations:** `let`, `var`, `func` (functions and `func(...)` function types), `class`, `enum`, `trait`, `impl`.
 
 **Class members:** `private` (field or method visible only in the class that declares it—subclasses and outside code cannot read or call it), `overload` (mark a method that **replaces** a superclass method with the same name; without `overload`, reusing the name is an error). See [Classes → Private and overload](/docs/language/classes#private-and-overload).
 

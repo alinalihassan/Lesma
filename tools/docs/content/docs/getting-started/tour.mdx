@@ -25,33 +25,39 @@ from time import sleep
 let title: str = "Lesma"
 var total: int = 0
 
-# Functions use `def`, parameters, and an optional return type. `void` means no meaningful value.
-def greet(who: str) -> void
+# Functions use `func`, parameters, and an optional return type. `void` means no meaningful value.
+func greet(who: str) -> void {
     print("Hello, ${who}!")
 
+}
 # Classes group state and methods. `self` refers to the current instance.
-class Counter
+class Counter {
     var n: int = 0
 
-    def new()
+    func new() {
         pass
 
-    def add(amount: int)
+    }
+    func add(amount: int) {
         self.n = self.n + amount
 
-    def value() -> int
+    }
+    func value() -> int {
         return self.n
 
+    }
+}
 # --- Top-level execution starts here (no main). ---
 
 greet(title)
 
 var c = Counter()
 # `range` is from the built-in environment (same family of helpers as `print`).
-for i in range(1, 4)
+for i in range(1, 4) {
     c.add(i)
     total = total + i
 
+}
 print("Loop ran; counter holds ${c.value()}, sum of indices is ${total}")
 
 # Stdlib `math` wraps common numeric helpers from the C runtime.

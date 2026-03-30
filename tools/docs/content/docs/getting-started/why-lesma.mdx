@@ -31,7 +31,7 @@ Other stdlib modules (**`math`**, **`time`**, …) still use **`from … import`
 
 ## FFI and the platform
 
-**`def extern`** declares C functions; **`cstr`** and pointer types (**`*T`**) match the usual C ABI ([FFI](/docs/language/ffi)). The standard library uses this for the OS and libc—FFI is the escape hatch when something is not wrapped yet.
+**`func extern`** declares C functions; **`cstr`** and pointer types (**`*T`**) match the usual C ABI ([FFI](/docs/language/ffi)). The standard library uses this for the OS and libc—FFI is the escape hatch when something is not wrapped yet.
 
 ## CLI, playground, and editors
 

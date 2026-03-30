@@ -1,4 +1,4 @@
 from "function_call.les" import *
 
-if fib() != 101
-	exit(1)
+if fib() != 101 {
+	exit(1)}

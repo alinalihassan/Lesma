@@ -1,7 +1,8 @@
-def extern usleep(usec: int)
+func extern usleep(usec: int)
 
-export def sleep(seconds: float)
+export func sleep(seconds: float) {
     usleep((seconds * 1000000) as int)
 
-export def sleep(seconds: int)
-    usleep(seconds * 1000000)
+}
+export func sleep(seconds: int) {
+    usleep(seconds * 1000000)}

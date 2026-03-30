@@ -1,15 +1,18 @@
-enum Color
+enum Color {
     RED
     BLUE
     GREEN
 
+}
 var x: Color = Color.RED
 
-def checkEnum(x: Color) -> bool
-    if (Color.BLUE == Color.BLUE and Color.GREEN != Color.RED and x == Color.RED)
+func checkEnum(x: Color) -> bool {
+    if (Color.BLUE == Color.BLUE and Color.GREEN != Color.RED and x == Color.RED) {
         return true
 
+    }
     return false
 
-if not checkEnum(Color.RED)
-	exit(1)
+}
+if not checkEnum(Color.RED) {
+	exit(1)}

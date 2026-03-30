@@ -1,5 +1,6 @@
 # Test that the same generic is instantiated correctly for different types
-def square<T>(x: T, y: T) -> T
+func square<T>(x: T, y: T) -> T {
     return x * y
 
+}
 square("a", "b")

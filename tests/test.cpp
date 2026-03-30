@@ -399,9 +399,10 @@ TEST(CodegenTests, Comparison) {
 
 TEST(WarningDiagnostics, EmitsUnreachableCodeWarning) {
   constexpr auto source = R"(
-def f()
+func f() -> void {
     return
     var x: int = 1
+}
 )";
   auto options = std::make_unique<Options>();
   options->sourceType = SourceType::STRING;
@@ -457,25 +458,29 @@ let z = 3
 }
 
 TEST(AnalysisTypecheckRecoveryTests, CollectsMultipleErrorsInIfChain) {
-  constexpr auto source = R"(class Foo
+  constexpr auto source = R"(class Foo {
     var value: int
 
-    def new(value: int)
+    func new(value: int) {
         self.value = value
-
-class Bar
+    }
+}
+class Bar {
     var value: int
 
-    def new(value: int)
+    func new(value: int) {
         self.value = value
+    }
+}
 
 var foo = Foo(1)
 var bar = Bar(1)
 
-if foo < bar
+if foo < bar {
     let error = true
-else if foo > bar
+} else if foo > bar {
     let error = true
+}
 
 let x: bool = 4
 )";
@@ -503,14 +508,17 @@ let x: bool = 4
 }
 
 TEST(AnalysisIndexTests, IndexesOnlyResolvedEnumMemberAccesses) {
-  constexpr auto source = R"(enum Status
+  constexpr auto source = R"(enum Status {
     READY
+}
 
-class Holder
+class Holder {
     var ready: int
 
-    def new(value: int)
+    func new(value: int) {
         self.ready = value
+    }
+}
 
 var holder = Holder(1)
 var propertyValue = holder.ready
@@ -554,14 +562,17 @@ var status: Status = Status.READY
 }
 
 TEST(AnalysisIndexTests, MemberAccessesCarryDeclarationIdentity) {
-  constexpr auto source = R"(enum Status
+  constexpr auto source = R"(enum Status {
     READY
+}
 
-class Holder
+class Holder {
     var ready: int
 
-    def new(value: int)
+    func new(value: int) {
         self.ready = value
+    }
+}
 
 var holder = Holder(1)
 var propertyValue = holder.ready
@@ -607,17 +618,21 @@ var status: Status = Status.READY
 }
 
 TEST(AnalysisIndexTests, NestedMemberAccessPreservesOuterReceiverName) {
-  constexpr auto source = R"(class Payload
+  constexpr auto source = R"(class Payload {
     var value: int
 
-    def new(value: int)
+    func new(value: int) {
         self.value = value
+    }
+}
 
-class Holder
+class Holder {
     var payload: Payload
 
-    def new(value: int)
+    func new(value: int) {
         self.payload = Payload(value)
+    }
+}
 
 var holder = Holder(101)
 var nestedValue = holder.payload.value

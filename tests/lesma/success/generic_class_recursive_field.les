@@ -2,12 +2,15 @@
 # Typecheck inserts the class template in scope before field types resolve; getOrCreateSpecializedClassType
 # caches a shell before substituting fields. Codegen registers an opaque LLVM struct before lowering
 # fields, and typeContainsUnboundGeneric must not recurse infinitely on cyclic class types.
-class Node<T>
+class Node<T> {
     var value: T
     var child: *Node<T>
-    def new(v: T)
+    func new(v: T) {
         self.value = v
 
+    }
+}
 var leaf = Node<int>(7)
-if leaf.value != 7
+if leaf.value != 7 {
     exit(1)
+}

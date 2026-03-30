@@ -6,17 +6,22 @@ var count: int = 0
 var sum_outer: int = 0
 var sum_inner: int = 0
 
-for a in xs
+for a in xs {
     sum_outer = sum_outer + a
-    for b in xs
+    for b in xs {
         count = count + 1
         sum_inner = sum_inner + b
 
-if count != 9
+    }
+}
+if count != 9 {
     exit(1)
 
-if sum_outer != 6
+}
+if sum_outer != 6 {
     exit(1)
 
-if sum_inner != 18
+}
+if sum_inner != 18 {
     exit(1)
+}

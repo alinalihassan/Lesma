@@ -42,6 +42,8 @@ private:
   auto consume(TokenType type) -> Token*;
   auto consume(TokenType type, const std::string& errorMessage) -> Token*;
   auto consumeNewline() -> Token*;
+  /** Like `consumeNewline` but allows closing `}` without a newline (last stmt in `{` … `}`). */
+  auto consumeNewlineOrBlockEnd() -> void;
 
   [[nodiscard]] auto previous() -> Token* { return (index > 0) ? tokens.at(index - 1) : nullptr; }
 

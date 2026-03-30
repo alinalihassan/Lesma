@@ -1,7 +1,10 @@
 # Generic traits require explicit `impl Trait<...>` type arguments.
-trait NeedsArg<T>
-    def f() -> T
+trait NeedsArg<T> {
+    func f() -> T
 
-class Bad impl NeedsArg
-    def f() -> int
+}
+class Bad impl NeedsArg {
+    func f() -> int {
         return 0
+    }
+}

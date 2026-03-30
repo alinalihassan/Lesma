@@ -1,14 +1,18 @@
 # Default `new` from fields: required parameters are fields without initializers (in order).
 
-class Animal
+class Animal {
     let type: str
     let name: str
     var age: int = 1
 
+}
 var dog = Animal("dog", "frankie")
-if dog.type != "dog"
+if dog.type != "dog" {
     exit(1)
-if dog.name != "frankie"
+}
+if dog.name != "frankie" {
     exit(1)
-if dog.age != 1
+}
+if dog.age != 1 {
     exit(1)
+}

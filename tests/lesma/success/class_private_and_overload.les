@@ -1,38 +1,49 @@
 # `private` fields and `overload` for intentional superclass method replacement.
 
-class Base
+class Base {
     var tag: int
 
-    def new(t: int)
+    func new(t: int) {
         self.tag = t
 
-    def bump() -> int
+    }
+    func bump() -> int {
         return self.tag + 1
 
-class Child: Base
+    }
+}
+class Child: Base {
     private var extra: int
 
-    def new(t: int, e: int)
+    func new(t: int, e: int) {
         super.new(self, t)
         self.extra = e
 
-    overload def bump() -> int
+    }
+    overload func bump() -> int {
         return self.tag + self.extra + 10
 
-class Grandchild: Child
+    }
+}
+class Grandchild: Child {
     var bonus: int
 
-    def new(t: int, e: int, b: int)
+    func new(t: int, e: int, b: int) {
         super.new(self, t, e)
         self.bonus = b
 
-    overload def bump() -> int
+    }
+    overload func bump() -> int {
         return self.tag + self.bonus + 100
 
+    }
+}
 var c = Child(2, 3)
-if c.bump() != 15
+if c.bump() != 15 {
     exit(1)
 
+}
 var g = Grandchild(2, 3, 5)
-if g.bump() != 107
+if g.bump() != 107 {
     exit(1)
+}

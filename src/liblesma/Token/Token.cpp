@@ -30,7 +30,6 @@ static const std::unordered_map<std::string_view, TokenType> KEYWORDS = {
     {"else", TokenType::ELSE},
     {"false", TokenType::FALSE_},
     {"for", TokenType::FOR},
-    {"def", TokenType::DEF},
     {"defer", TokenType::DEFER},
     {"func", TokenType::FUNC},
     {"if", TokenType::IF},

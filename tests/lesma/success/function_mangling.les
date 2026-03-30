@@ -1,8 +1,10 @@
-def sleep(x: float) -> int
+func sleep(x: float) -> int {
     return 50
 
-def sleep(x: int) -> int
+}
+func sleep(x: int) -> int {
     return 51
 
-if sleep(1.0) + sleep(1) != 101
-	exit(1)
+}
+if sleep(1.0) + sleep(1) != 101 {
+	exit(1)}

@@ -1,2 +1,3 @@
-class C
+class C {
     var a, b: int
+}

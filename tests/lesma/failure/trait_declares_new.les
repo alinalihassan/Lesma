@@ -1,3 +1,4 @@
 # Constructors belong on classes; trait requirements may not use `new`.
-trait Bad
-    def new()
+trait Bad {
+    func new()
+}

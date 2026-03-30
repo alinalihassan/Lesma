@@ -1,9 +1,12 @@
 # Generic with no value parameters: specialization must include T (not just param types).
-def zero<T>() -> T
+func zero<T>() -> T {
     var z: T = 0 as T
     return z
 
-if zero<int>() != 0
+}
+if zero<int>() != 0 {
     exit(1)
-if zero<float>() != 0.0
+}
+if zero<float>() != 0.0 {
     exit(1)
+}

@@ -1,6 +1,8 @@
 # Traits exported for cross-file intersection / impl tests
-export trait HasVal
-    def val() -> int
+export trait HasVal {
+    func val() -> int
 
-export trait HasDbl
-    def dbl() -> int
+}
+export trait HasDbl {
+    func dbl() -> int
+}

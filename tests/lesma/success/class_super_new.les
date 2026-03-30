@@ -1,15 +1,20 @@
 # Subclass constructor calls base `new` via super.
 
-class Base
+class Base {
     var x: int
 
-    def new()
+    func new() {
         self.x = 7
 
-class Child: Base
-    def new()
+    }
+}
+class Child: Base {
+    func new() {
         super.new(self)
 
+    }
+}
 var c = Child()
-if c.x != 7
+if c.x != 7 {
     exit(1)
+}

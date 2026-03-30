@@ -1,4 +1,5 @@
-def extern abs(x: int) -> int
+func extern abs(x: int) -> int
 
-if abs(-1) != 1
+if abs(-1) != 1 {
 	exit(1)
+}

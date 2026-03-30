@@ -1,61 +1,76 @@
 # Deferred bodies run in LIFO order (last defer first), before the return expression is evaluated.
-def lifo_order() -> int
+func lifo_order() -> int {
     var x = 0
     defer x = x * 10 + 2
     defer x = x * 10 + 1
     return x
 
-if lifo_order() != 12
+}
+if lifo_order() != 12 {
     exit(1)
 
-def return_after_defer_assigns() -> int
+}
+func return_after_defer_assigns() -> int {
     var x = 0
     defer x = 100
     return x
 
-if return_after_defer_assigns() != 100
+}
+if return_after_defer_assigns() != 100 {
     exit(1)
 
-def early_branch(b: bool) -> int
+}
+func early_branch(b: bool) -> int {
     var x = 0
     defer x = 7
-    if b
+    if b {
         return x
+    }
     return x
 
-if early_branch(true) != 7
+}
+if early_branch(true) != 7 {
     exit(1)
-if early_branch(false) != 7
+}
+if early_branch(false) != 7 {
     exit(1)
 
-class Counter
+}
+class Counter {
     var n: int
 
-    def new()
+    func new() {
         self.n = 0
 
-    def run() -> int
+    }
+    func run() -> int {
         defer self.n = self.n + 2
         defer self.n = self.n * 10
         return self.n
 
+    }
+}
 var c = Counter()
-if c.run() != 2
+if c.run() != 2 {
     exit(1)
 
-def void_fallthrough()
+}
+func void_fallthrough() {
     var x = 0
     defer x = 1
 
-def void_via_return()
+}
+func void_via_return() {
     var x = 0
     defer x = 2
     return
 
+}
 void_fallthrough()
 void_via_return()
 
-def no_op() -> int
+func no_op() -> int {
     return 0
 
+}
 defer no_op()

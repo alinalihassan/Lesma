@@ -6,8 +6,6 @@ namespace lesma {
 enum class TokenType : std::uint8_t {
   // Whitespace
   NEWLINE,
-  INDENT,
-  DEDENT,
 
   // Single-character tokens.
   LEFT_PAREN,
@@ -88,7 +86,6 @@ enum class TokenType : std::uint8_t {
   ELSE,
   ELSE_IF,
   FALSE_,
-  DEF,
   FOR,
   FUNC,
   IF,
