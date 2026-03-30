@@ -44,6 +44,7 @@ export async function runLesma(
   files: Record<string, string>,
   timeoutMs: number,
   debug?: string[],
+  timer?: boolean,
 ): Promise<RunEvent[]> {
   let mainRel: string
   try {
@@ -84,6 +85,9 @@ export async function runLesma(
       const spawnArgs = [lesmaPath, "run", "--no-warnings"]
       if (debug !== undefined && debug.length > 0) {
         spawnArgs.push("-d", ...debug)
+      }
+      if (timer) {
+        spawnArgs.push("--timer")
       }
       spawnArgs.push(mainPath)
 

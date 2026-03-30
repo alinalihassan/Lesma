@@ -33,6 +33,7 @@ const initialSettingsState: SettingsState = {
   compilerDebugLexer: config.compilerDebugLexer,
   compilerDebugAst: config.compilerDebugAst,
   compilerDebugIr: config.compilerDebugIr,
+  compilerTimer: config.compilerTimer,
 }
 
 const reducers = {

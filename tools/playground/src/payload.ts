@@ -10,6 +10,8 @@ export type CompilerDebugFlag = 'lexer' | 'ast' | 'ir'
 export type RunPayload = {
   files: Record<string, string>
   debug?: CompilerDebugFlag[]
+  /** When true, the server passes `-t` / `--timer` to `lesma run`. */
+  timer?: boolean
 }
 
 const DEBUG_FLAGS = new Set<CompilerDebugFlag>(['lexer', 'ast', 'ir'])
@@ -33,6 +35,20 @@ function parseDebug(body: Record<string, unknown>): CompilerDebugFlag[] | undefi
     out.push(x as CompilerDebugFlag)
   }
   return out
+}
+
+function parseTimer(body: Record<string, unknown>): boolean | undefined {
+  if (!('timer' in body)) {
+    return undefined
+  }
+  const raw = body.timer
+  if (raw === undefined) {
+    return undefined
+  }
+  if (typeof raw !== 'boolean') {
+    throw new PayloadError('timer must be a boolean', 400)
+  }
+  return raw
 }
 
 export class PayloadError extends Error {
@@ -111,8 +127,9 @@ export function validatePayload(body: unknown): RunPayload {
   }
 
   const debug = parseDebug(obj)
+  const timer = parseTimer(obj)
 
-  return { files: files as Record<string, string>, debug }
+  return { files: files as Record<string, string>, debug, timer }
 }
 
 export async function readJsonBody(req: Request): Promise<unknown> {

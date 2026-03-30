@@ -51,10 +51,6 @@ printf("n=%d\n", 42)
 
 C APIs often use pointers and fixed-width integers. Lesma’s **`types`** page covers pointer syntax (`*T`). For C interop you will also see widths such as **`int8`**, **`uint8`**, **`int32`**, **`uint64`**, and similar, so declarations can match headers closely.
 
-## Name and linking
-
-The declared name is the **linker symbol** Lesma calls (with the usual platform naming; on macOS/Linux this is typically the unmangled C name). If a symbol is not found at link time, the linker reports an unresolved reference like it would for C.
-
 ## Next steps
 
 - [Types](/docs/language/types) for pointers and annotations.

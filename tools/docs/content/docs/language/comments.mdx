@@ -1,7 +1,7 @@
 ---
 title: Comments
 description: |
-  Line comments, line continuation, and documentation habits for Lesma source.
+  Line comments, line continuation, and how leading comments become documentation in the Lesma LSP.
 category: Language
 ---
 
@@ -18,6 +18,12 @@ let n = x + 1
 
 For a short “block” of commentary, use several `#` lines in a row—the lexer only knows line comments, but this is the usual style in Lesma sources.
 
+## Documentation in the LSP
+
+When one or more `#` lines sit **immediately above** a declaration, with only blank lines between the comment block and the declaration, the Lesma language server treats that text as **Markdown documentation** for the symbol. It is shown in **hover** (and in completion detail where applicable), so editors can surface the same prose you keep in source.
+
+This applies to major declarations such as **functions**, **methods**, **classes**, **enums**, and **traits**—the same pattern you would use to document an API in-tree.
+
 ## Line continuation
 
 A `\` at the end of a physical line continues the statement on the next line:
@@ -31,3 +37,4 @@ let x = \
 ## Next steps
 
 - [Literals & Expressions](/docs/language/literals) for the full tutorial order.
+- [Traits & Generics](/docs/language/traits-generics) for traits and `impl` syntax.

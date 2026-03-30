@@ -32,7 +32,19 @@ Boolean literals `true` and `false` participate in logical operators (see [Contr
 
 Arithmetic (`+`, `-`, `*`, `/`, `%`), comparison (`==`, `!=`, `<`, `>`), and logical combinations (`and`, `or`, `not`) combine expressions as you would expect.
 
+## List and dict literals
+
+You can construct **`list<T>`** and **`dict<K, V>`** values with bracket literals; the compiler infers element types when possible.
+
+```les
+let nums = [1, 2, 3]
+let table: dict<str, int> = {"a": 1, "b": 2}
+```
+
+See the [standard library overview](/docs/language/stdlib-overview) for types like `list` and `dict` and how they are used in practice.
+
 ## Next steps
 
 - [Variables](/docs/language/variables) to bind names to values.
+- [Tuples](/docs/language/tuples) for fixed-size heterogeneous bundles.
 - [Functions](/docs/language/functions) to abstract computation.

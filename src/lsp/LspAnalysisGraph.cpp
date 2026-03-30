@@ -553,8 +553,10 @@ namespace {
 [[nodiscard]] auto wantsLeadingCommentDocumentation(lesma::ValueDeclarationKind k) -> bool {
   switch (k) {
   case lesma::ValueDeclarationKind::CLASS:
+  case lesma::ValueDeclarationKind::ENUM:
   case lesma::ValueDeclarationKind::FUNCTION:
   case lesma::ValueDeclarationKind::METHOD:
+  case lesma::ValueDeclarationKind::TRAIT:
     return true;
   default:
     return false;

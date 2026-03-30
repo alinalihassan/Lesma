@@ -20,9 +20,17 @@ export const runFileDispatcher: Dispatcher = async (dispatch: DispatchFn, getSta
   if (settings.compilerDebugAst) debug.push('ast')
   if (settings.compilerDebugIr) debug.push('ir')
 
+  const runOptions =
+    debug.length > 0 || settings.compilerTimer
+      ? {
+          ...(debug.length > 0 ? { debug } : {}),
+          ...(settings.compilerTimer ? { timer: true as const } : {}),
+        }
+      : undefined
+
   dispatch(newProgramStartAction())
   try {
-    const { events } = await client.run(files, debug.length > 0 ? { debug } : undefined)
+    const { events } = await client.run(files, runOptions)
     for (const ev of events) {
       dispatch(newProgramWriteAction(ev))
     }

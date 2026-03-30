@@ -1,13 +1,15 @@
 ---
 title: Types
 description: |
-  Static typing, annotations, inference, and common built-in types in Lesma.
+  Static typing, type annotations, inference, runtime checks, casts, and common built-in types in Lesma.
 category: Language
 ---
 
 Lesma is **statically typed**: every expression has a type known at compile time, and the type checker rejects invalid combinations before codegen.
 
-## Annotations
+## Type annotations
+
+**Type annotations** are explicit types written next to parameters, return types, fields, and locals. They tell the checker what shape of value is allowed—they are not metadata decorators attached to declarations.
 
 Function parameters, return types, fields, and locals can carry explicit types:
 
@@ -46,8 +48,32 @@ def identity<T>(x: T) -> T
 
 See [Traits & Generics](/docs/language/traits-generics) for traits, bounds, and class-level generics.
 
+## `is` and `is not`
+
+**`is`** and **`is not`** compare a value’s **runtime type** to a type expression. They are useful after generic or pointer-heavy code where you need a clear type check.
+
+```les
+var x: int = 5
+let p: *int = &x
+
+if p is not *int
+    exit(1)
+```
+
+You can test built-ins, generics, and other type forms the compiler accepts in that position (for example **`list<int>`**).
+
+## `as` casts
+
+Numeric and other conversions can be written with **`as`**, when the conversion is defined by the type checker:
+
+```les
+let y: float = 101.5
+let z: int = y as int
+```
+
 ## Next steps
 
+- [Enums](/docs/language/enums) and [Tuples](/docs/language/tuples) for more type forms.
 - [Foreign Function Interface](/docs/language/ffi) for `def extern` and C-compatible types.
 - [Functions](/docs/language/functions)
 - [Classes](/docs/language/classes)

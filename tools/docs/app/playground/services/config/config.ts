@@ -12,6 +12,7 @@ const PANEL_SETTINGS = 'ui.layout.panel'
 const COMPILER_DEBUG_LEXER_KEY = 'lesma.compiler.debugLexer'
 const COMPILER_DEBUG_AST_KEY = 'lesma.compiler.debugAst'
 const COMPILER_DEBUG_IR_KEY = 'lesma.compiler.debugIr'
+const COMPILER_TIMER_KEY = 'lesma.compiler.timer'
 
 // TODO: move key operations to store.
 
@@ -94,6 +95,14 @@ const Config = {
 
   set compilerDebugIr(v: boolean) {
     this.setBoolean(COMPILER_DEBUG_IR_KEY, v)
+  },
+
+  get compilerTimer(): boolean {
+    return this.getBoolean(COMPILER_TIMER_KEY, false)
+  },
+
+  set compilerTimer(v: boolean) {
+    this.setBoolean(COMPILER_TIMER_KEY, v)
   },
 
   getString<T = string>(key: string, defaultVal: T) {

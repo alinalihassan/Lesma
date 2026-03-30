@@ -92,7 +92,7 @@ export default function Home() {
                 href="/docs/getting-started/tour"
               />
               <Card
-                title="Your First Program"
+                title="Hello World"
                 description="Create a small program and run it with the `lesma` CLI."
                 href="/docs/getting-started/first-program"
               />

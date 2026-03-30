@@ -12,6 +12,9 @@ export class Client implements IAPIClient {
     if (options?.debug !== undefined && options.debug.length > 0) {
       body.debug = options.debug
     }
+    if (options?.timer === true) {
+      body.timer = true
+    }
     const data = await this.post<RunResponse>('/v2/run', body)
     const raw = Array.isArray(data.events) ? data.events : []
     return {

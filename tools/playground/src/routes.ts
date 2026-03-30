@@ -9,8 +9,8 @@ export function createApiApp(cfg: ServerConfig): Hono {
   app.post("/v2/run", async (c) => {
     try {
       const raw = await readJsonBody(c.req.raw)
-      const { files, debug } = validatePayload(raw)
-      const events = await runLesma(cfg.lesmaBin, files, cfg.runTimeoutMs, debug)
+      const { files, debug, timer } = validatePayload(raw)
+      const events = await runLesma(cfg.lesmaBin, files, cfg.runTimeoutMs, debug, timer)
       return c.json({ events })
     } catch (e) {
       if (e instanceof PayloadError) {

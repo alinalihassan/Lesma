@@ -52,6 +52,8 @@ export interface SettingsState {
   compilerDebugAst: boolean
   /** Pass `-d ir` to `lesma run`. */
   compilerDebugIr: boolean
+  /** Pass `-t` / `--timer` to `lesma run`. */
+  compilerTimer: boolean
 }
 
 export interface PanelState {

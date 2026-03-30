@@ -1,7 +1,7 @@
 ---
 title: Control Flow
 description: |
-  Conditionals, loops, break and continue, and early exit patterns.
+  Conditionals, loops, break and continue, and terminal nodes (`return`, `exit`).
 category: Language
 ---
 
@@ -45,9 +45,20 @@ for k in range(1, 10)
     print("${k}")
 ```
 
-## Exit
+## Terminal nodes
 
-Terminate the process with **`exit(code)`** when a script should signal failure to the shell:
+A **terminal node** is a statement that **ends execution along the current path**. The two you will use most often are **`return`**, which leaves the **current function** (and yields a value when the function’s return type is not `void`), and **`exit(code)`**, which stops the **whole process** and sets the program’s exit status for the shell.
+
+`return` is what makes early exits in `if` branches work (see [Conditionals](#conditionals)). In a `void` function you can write a bare `return` to leave immediately:
+
+```les
+def setup() -> void
+    if not ready
+        return
+    run()
+```
+
+Call **`exit(code)`** when the program should signal success or failure to the environment (conventionally `0` for success, non-zero for failure):
 
 ```les
 if bad_condition

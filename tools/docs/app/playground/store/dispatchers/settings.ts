@@ -55,6 +55,9 @@ export const newSettingsChangeDispatcher =
     if ('compilerDebugIr' in changes) {
       config.compilerDebugIr = !!changes.compilerDebugIr
     }
+    if ('compilerTimer' in changes) {
+      config.compilerTimer = !!changes.compilerTimer
+    }
 
     dispatch(newSettingsChangeAction(changes))
   }

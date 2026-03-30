@@ -1,11 +1,11 @@
 ---
-title: Your First Program
+title: Hello World
 description: |
   Create a minimal Lesma source file and run it with the lesma CLI.
 category: First steps
 ---
 
-## Hello world
+## Create and run
 
 Create `hello.les`:
 
@@ -30,22 +30,6 @@ lesma compile hello.les -o hello.o
 ```
 
 Exact linking steps depend on your platform; the compiler focuses on generating objects and driving LLVM.
-
-## Slightly larger shape
-
-Lesma supports **functions**, **classes**, **modules**, and more. A tiny class-based sketch:
-
-```les
-export class Greeter
-    def new()
-        pass
-
-    def hi() -> void
-        print("Hello")
-
-var g = Greeter()
-g.hi()
-```
 
 ## Next steps
 

@@ -191,6 +191,20 @@ class SettingsModal extends ThemeableComponent<Props, SettingsModalState> {
           </PivotItem>
           <PivotItem itemKey="1" headerText="Compiler">
             <SettingsProperty
+              key="compilerTimer"
+              title="Compiler timer"
+              description="Print compiler timing to stderr when you run code (same as lesma run -t / --timer)."
+              control={
+                <Checkbox
+                  label="Enable compiler timer"
+                  defaultChecked={this.props.settings?.compilerTimer}
+                  onChange={(_, val) => {
+                    this.touchSettingsProperty({ compilerTimer: val })
+                  }}
+                />
+              }
+            />
+            <SettingsProperty
               key="compilerDebugLexer"
               title="Debug: Lexer"
               description="Log lexer tokens when you run code (same as lesma run -d lexer)."
