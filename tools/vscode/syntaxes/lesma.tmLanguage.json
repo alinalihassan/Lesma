@@ -47,7 +47,7 @@
         },
         {
           "name": "keyword.other.lesma",
-          "match": "\\b(export|class|enum|type|def|extern|trait|impl)\\b"
+          "match": "\\b(export|class|enum|type|def|extern|trait|impl|private|overload)\\b"
         },
         {
           "name": "keyword.implicit.lesma",

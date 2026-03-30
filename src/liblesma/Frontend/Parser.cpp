@@ -688,7 +688,7 @@ auto Parser::parseOr() -> std::unique_ptr<Expression> {
 auto Parser::parseExpression() -> std::unique_ptr<Expression> { return parseOr(); }
 
 // Statements
-auto Parser::parseVarDecl() -> std::unique_ptr<Statement> {
+auto Parser::parseVarDecl(bool fieldIsPrivate) -> std::unique_ptr<Statement> {
   bool isMutable = false;
   Token const* startTok = nullptr;
   if (advanceIfMatchAny<TokenType::LET>()) {
@@ -745,7 +745,8 @@ auto Parser::parseVarDecl() -> std::unique_ptr<Statement> {
     endLoc = type->getEnd();
   }
   return std::make_unique<VarDecl>(llvm::SMRange{startTok->getStart(), endLoc}, std::move(vars),
-                                   std::move(type), std::move(expr), isMutable, isExported);
+                                   std::move(type), std::move(expr), isMutable, isExported,
+                                   fieldIsPrivate);
 }
 
 auto Parser::parseIf() -> std::unique_ptr<Statement> {
@@ -876,6 +877,9 @@ auto Parser::parseStatement(bool isTopLevel) -> std::unique_ptr<Statement> {
     error(peek(), "Statement not allowed inside a block");
   }
 
+  if (check(TokenType::PRIVATE) || check(TokenType::OVERLOAD)) {
+    error(peek(), "`private` and `overload` are only valid on class fields and methods");
+  }
   if (check(TokenType::DEF)) {
     return parseFunctionDeclaration();
   }
@@ -1014,7 +1018,8 @@ auto Parser::parseParameterList(bool allowVarargsEllipsis) -> ParameterListParse
   return result;
 }
 
-auto Parser::parseFunctionDeclaration() -> std::unique_ptr<Statement> {
+auto Parser::parseFunctionDeclaration(bool methodIsPrivate, bool declaresInheritanceOverload)
+    -> std::unique_ptr<Statement> {
   auto loc = isExported ? previous()->span : peek()->span;
   consume(TokenType::DEF);
   // `export class` / `export def` leave isExported set; locals inside the body must not inherit it.
@@ -1129,10 +1134,10 @@ auto Parser::parseFunctionDeclaration() -> std::unique_ptr<Statement> {
   isExported = savedExported;
   auto funcEnd = body ? body->getEnd() : returnType->getEnd();
 
-  return std::make_unique<FuncDecl>(llvm::SMRange{loc.Start, funcEnd}, functionName,
-                                    functionNameSpan, overloadGlyphSpan, std::move(genericParams),
-                                    std::move(returnType), std::move(parameters), std::move(body),
-                                    false, funcExported);
+  return std::make_unique<FuncDecl>(
+      llvm::SMRange{loc.Start, funcEnd}, functionName, functionNameSpan, overloadGlyphSpan,
+      std::move(genericParams), std::move(returnType), std::move(parameters), std::move(body),
+      false, funcExported, methodIsPrivate, declaresInheritanceOverload);
 }
 
 auto Parser::parseExport() -> std::unique_ptr<Statement> {
@@ -1305,39 +1310,63 @@ auto Parser::parseClass() -> std::unique_ptr<Statement> {
   inClass = true;
   while (!checkAny<TokenType::DEDENT, TokenType::EOF_TOKEN>()) {
     try {
-      if (checkAny<TokenType::LET, TokenType::VAR>()) {
-        // Class fields reuse parseVarDecl; do not inherit `export` from `export class …`.
-        bool const savedExported = isExported;
-        isExported = false;
-        auto restoreExported =
-            llvm::make_scope_exit([this, savedExported] { isExported = savedExported; });
-        auto stmt = parseVarDecl();
-        auto* varDecl = dynamic_cast<VarDecl*>(stmt.get());
-        if (varDecl != nullptr) {
-          endLoc = varDecl->getEnd();
-          std::ignore = stmt.release();
-          fields.push_back(std::unique_ptr<VarDecl>(varDecl));
+      if (checkAny<TokenType::PRIVATE, TokenType::OVERLOAD, TokenType::LET, TokenType::VAR,
+                   TokenType::DEF>()) {
+        bool memberPrivate = false;
+        bool inheritanceOverload = false;
+        while (check(TokenType::PRIVATE) || check(TokenType::OVERLOAD)) {
+          if (advanceIfMatchAny<TokenType::PRIVATE>()) {
+            if (memberPrivate) {
+              error(previous(), "Duplicate `private`");
+            }
+            memberPrivate = true;
+          } else {
+            if (inheritanceOverload) {
+              error(peek(), "Duplicate `overload`");
+            }
+            consume(TokenType::OVERLOAD);
+            inheritanceOverload = true;
+          }
         }
-      } else if (checkAny<TokenType::DEF>()) {
-        // Class methods reuse parseFunctionDeclaration; do not inherit `export` from `export class
-        // …`.
-        bool const savedExported = isExported;
-        isExported = false;
-        auto restoreExported =
-            llvm::make_scope_exit([this, savedExported] { isExported = savedExported; });
-        auto stmt = parseFunctionDeclaration();
-        auto* funcDecl = dynamic_cast<FuncDecl*>(stmt.get());
-        if (funcDecl != nullptr) {
-          endLoc = funcDecl->getEnd();
-          std::ignore = stmt.release();
-          methods.push_back(std::unique_ptr<FuncDecl>(funcDecl));
+        if (checkAny<TokenType::LET, TokenType::VAR>()) {
+          if (inheritanceOverload) {
+            error(peek(), "`overload` is not valid on class fields");
+          }
+          // Class fields reuse parseVarDecl; do not inherit `export` from `export class …`.
+          bool const savedExported = isExported;
+          isExported = false;
+          auto restoreExported =
+              llvm::make_scope_exit([this, savedExported] { isExported = savedExported; });
+          auto stmt = parseVarDecl(memberPrivate);
+          auto* varDecl = dynamic_cast<VarDecl*>(stmt.get());
+          if (varDecl != nullptr) {
+            endLoc = varDecl->getEnd();
+            std::ignore = stmt.release();
+            fields.push_back(std::unique_ptr<VarDecl>(varDecl));
+          }
+        } else if (checkAny<TokenType::DEF>()) {
+          // Class methods reuse parseFunctionDeclaration; do not inherit `export` from `export
+          // class …`.
+          bool const savedExported = isExported;
+          isExported = false;
+          auto restoreExported =
+              llvm::make_scope_exit([this, savedExported] { isExported = savedExported; });
+          auto stmt = parseFunctionDeclaration(memberPrivate, inheritanceOverload);
+          auto* funcDecl = dynamic_cast<FuncDecl*>(stmt.get());
+          if (funcDecl != nullptr) {
+            endLoc = funcDecl->getEnd();
+            std::ignore = stmt.release();
+            methods.push_back(std::unique_ptr<FuncDecl>(funcDecl));
+          }
+        } else {
+          error(peek(), "Expected field or method after `private` / `overload`");
         }
       } else if (check(TokenType::NEWLINE)) {
         consume(TokenType::NEWLINE);
       } else if (diagnosticsOut != nullptr) {
-        diagnosticsOut->push_back(AnalysisDiagnostic{
-            .message = "Expected field, method, or newline in class body",
-            .span = peek()->span.isValid() ? peek()->span : llvm::SMRange()});
+        diagnosticsOut->push_back(
+            AnalysisDiagnostic{.message = "Expected field, method, or newline in class body",
+                               .span = peek()->span.isValid() ? peek()->span : llvm::SMRange()});
         synchronizeToNextLine();
       } else {
         error(peek(), "Expected field, method, or newline in class body");
@@ -1355,11 +1384,10 @@ auto Parser::parseClass() -> std::unique_ptr<Statement> {
     endLoc = previous()->getEnd();
   }
 
-  return std::make_unique<Class>(llvm::SMRange{loc.Start, endLoc}, token->lexeme, token->span,
-                                 std::move(genericParams), std::move(implTraitNames),
-                                 std::move(implTraitSpans), std::move(implTraitTypeArgs),
-                                 std::move(baseType), baseTypeSpan, std::move(fields),
-                                 std::move(methods), isExported);
+  return std::make_unique<Class>(
+      llvm::SMRange{loc.Start, endLoc}, token->lexeme, token->span, std::move(genericParams),
+      std::move(implTraitNames), std::move(implTraitSpans), std::move(implTraitTypeArgs),
+      std::move(baseType), baseTypeSpan, std::move(fields), std::move(methods), isExported);
 }
 
 auto Parser::parseTraitMethodDeclaration() -> std::unique_ptr<FuncDecl> {

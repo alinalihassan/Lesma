@@ -1,0 +1,24 @@
+# `private` fields and `overload` for intentional superclass method replacement.
+
+class Base
+    var tag: int
+
+    def new(t: int)
+        self.tag = t
+
+    def bump() -> int
+        return self.tag + 1
+
+class Child: Base
+    private var extra: int
+
+    def new(t: int, e: int)
+        super.new(self, t)
+        self.extra = e
+
+    overload def bump() -> int
+        return self.tag + self.extra + 10
+
+var c = Child(2, 3)
+if c.bump() != 15
+    exit(1)

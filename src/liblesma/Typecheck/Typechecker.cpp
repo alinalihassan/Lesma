@@ -142,6 +142,39 @@ auto Typechecker::vtableMethodKey(const Value* methodSymbol) -> std::string {
   return key;
 }
 
+auto Typechecker::classLexicalScopeMatchesForPrivate(Type* contextClass, Type* declaredIn) -> bool {
+  if (contextClass == nullptr || declaredIn == nullptr) {
+    return false;
+  }
+  if (contextClass->isEqual(declaredIn)) {
+    return true;
+  }
+  Type* ctxTpl = contextClass;
+  if (auto it = specializedTypeToTemplate.find(contextClass);
+      it != specializedTypeToTemplate.end()) {
+    ctxTpl = it->second;
+  }
+  Type* declTpl = declaredIn;
+  if (auto it = specializedTypeToTemplate.find(declaredIn); it != specializedTypeToTemplate.end()) {
+    declTpl = it->second;
+  }
+  return ctxTpl->isEqual(declTpl);
+}
+
+auto Typechecker::enforcePrivateMemberReadable(llvm::SMRange span, Value* member) -> void {
+  if (member == nullptr || !member->isPrivateMember()) {
+    return;
+  }
+  Type* declaredIn = member->getMemberDeclaredInClass();
+  if (declaredIn == nullptr) {
+    return;
+  }
+  if (!classLexicalScopeMatchesForPrivate(currentClassType, declaredIn)) {
+    throw TypeCheckError(span, "Cannot access private member '{}' from this context",
+                         member->getName());
+  }
+}
+
 void Typechecker::mergeImportedAnalysisTypeCachesInto(
     std::vector<std::unique_ptr<Type>>& dest, const std::shared_ptr<ImportedModuleAnalysis>& mod) {
   if (mod == nullptr) {
@@ -328,6 +361,8 @@ auto Typechecker::resolveMethodReturnType(Type* baseType, const std::string& met
   if (method == nullptr || !method->getType()->is(BaseType::TY_FUNCTION)) {
     return nullptr;
   }
+
+  enforcePrivateMemberReadable(span, method);
 
   auto fields = method->getType()->getFields();
   for (size_t i = 0; i < fields.size() && i < methodArgTypes.size(); ++i) {
@@ -806,14 +841,17 @@ auto Typechecker::materializeImportedType(Type* type) -> Type* {
         symbolCopy->setDeclarationSpan(declarationSymbol->getDeclarationSpan());
         symbolCopy->setDeclarationFilePath(declarationSymbol->getDeclarationFilePath());
         symbolCopy->setMutable(declarationSymbol->getMutability());
+        symbolCopy->setPrivateMember(declarationSymbol->isPrivateMember());
+        if (Type* declCls = declarationSymbol->getMemberDeclaredInClass(); declCls != nullptr) {
+          symbolCopy->setMemberDeclaredInClass(materializeImportedType(declCls));
+        }
         fieldCopy->setDeclarationSymbol(std::move(symbolCopy));
       }
       copy->addField(std::move(fieldCopy));
     }
     if (type->is(BaseType::TY_CLASS)) {
       copy->setClassSuperclass(materializeImportedType(type->getClassSuperclass()));
-      copy->setClassVtableMethodOrder(
-          std::vector<std::string>(type->getClassVtableMethodOrder()));
+      copy->setClassVtableMethodOrder(std::vector<std::string>(type->getClassVtableMethodOrder()));
       copy->setClassHasDerivedClass(type->getClassHasDerivedClass());
     }
     if (auto tmplIt = specializedTypeToTemplate.find(type);
@@ -824,7 +862,8 @@ auto Typechecker::materializeImportedType(Type* type) -> Type* {
           envCopy[name] = materializeImportedType(envType);
         }
       }
-      registerSpecializedClassType(copy, materializeImportedType(tmplIt->second), std::move(envCopy));
+      registerSpecializedClassType(copy, materializeImportedType(tmplIt->second),
+                                   std::move(envCopy));
     }
     return copy;
   }
@@ -855,6 +894,10 @@ auto Typechecker::materializeImportedType(Type* type) -> Type* {
         symbolCopy->setDeclarationSpan(declarationSymbol->getDeclarationSpan());
         symbolCopy->setDeclarationFilePath(declarationSymbol->getDeclarationFilePath());
         symbolCopy->setMutable(declarationSymbol->getMutability());
+        symbolCopy->setPrivateMember(declarationSymbol->isPrivateMember());
+        if (Type* declCls = declarationSymbol->getMemberDeclaredInClass(); declCls != nullptr) {
+          symbolCopy->setMemberDeclaredInClass(materializeImportedType(declCls));
+        }
         fieldCopy->setDeclarationSymbol(std::move(symbolCopy));
       }
       fields.push_back(std::move(fieldCopy));
@@ -883,6 +926,10 @@ auto Typechecker::materializeImportedType(Type* type) -> Type* {
         symbolCopy->setDeclarationSpan(declarationSymbol->getDeclarationSpan());
         symbolCopy->setDeclarationFilePath(declarationSymbol->getDeclarationFilePath());
         symbolCopy->setMutable(declarationSymbol->getMutability());
+        symbolCopy->setPrivateMember(declarationSymbol->isPrivateMember());
+        if (Type* declCls = declarationSymbol->getMemberDeclaredInClass(); declCls != nullptr) {
+          symbolCopy->setMemberDeclaredInClass(materializeImportedType(declCls));
+        }
         fieldCopy->setDeclarationSymbol(std::move(symbolCopy));
       }
       fields.push_back(std::move(fieldCopy));
@@ -989,7 +1036,8 @@ auto Typechecker::substituteInType(Type* t, const std::unordered_map<std::string
       return t;
     }
     std::unordered_map<std::string, Type*> classEnv;
-    if (auto specTmpl = specializedTypeToTemplate.find(t); specTmpl != specializedTypeToTemplate.end()) {
+    if (auto specTmpl = specializedTypeToTemplate.find(t);
+        specTmpl != specializedTypeToTemplate.end()) {
       if (auto envIt = specializedTypeEnv.find(t); envIt != specializedTypeEnv.end()) {
         for (const auto& name : genericParamNames) {
           auto b = envIt->second.find(name);
@@ -1096,8 +1144,7 @@ auto Typechecker::superMethodReceiverMatchesFormal(Type* formalReceiverClass, Ty
     return true;
   }
   if (auto specIt = specializedTypeToTemplate.find(staticSuperType);
-      specIt != specializedTypeToTemplate.end() &&
-      formalReceiverClass->isEqual(specIt->second)) {
+      specIt != specializedTypeToTemplate.end() && formalReceiverClass->isEqual(specIt->second)) {
     return true;
   }
   return false;
@@ -1110,8 +1157,8 @@ auto Typechecker::lookupConstructorForAllocatedClass(SymbolTable* tab,
     return nullptr;
   }
   if (classType != nullptr && getDeclaredGenericParams(classType).empty()) {
-    if (Value* exact = tab->lookupFunction("new", ctorParamTypes,
-                                           FunctionLookupKind::OVERLOAD_IDENTITY);
+    if (Value* exact =
+            tab->lookupFunction("new", ctorParamTypes, FunctionLookupKind::OVERLOAD_IDENTITY);
         exact != nullptr) {
       return exact;
     }
@@ -1134,8 +1181,8 @@ void Typechecker::registerSpecializedClassType(Type* specialized, Type* classTem
   specialized->setClassVtableMethodOrder(
       std::vector<std::string>(classTemplate->getClassVtableMethodOrder()));
   specialized->setClassHasDerivedClass(classTemplate->getClassHasDerivedClass());
-  specialized->setDisplayName(
-      makeSpecializedDisplayName(classTemplate, genericParamNames, specializedTypeEnv[specialized]));
+  specialized->setDisplayName(makeSpecializedDisplayName(classTemplate, genericParamNames,
+                                                         specializedTypeEnv[specialized]));
   specializedClassTypes[TypeUtils::makeSpecializedClassKey(
       classTemplate, genericParamNames, specializedTypeEnv[specialized])] = specialized;
 }
@@ -1179,7 +1226,15 @@ auto Typechecker::getOrCreateSpecializedClassType(Type* classTemplate,
   std::vector<std::unique_ptr<Field>> newFields;
   for (Field* f : classTemplate->getFields()) {
     Type* subst = substituteInType(f->type, env);
-    newFields.push_back(std::make_unique<Field>(f->name, subst));
+    auto nf = std::make_unique<Field>(f->name, subst);
+    nf->setDeclarationSpan(f->getDeclarationSpan());
+    nf->setDeclarationFilePath(f->getDeclarationFilePath());
+    if (Value* ds = f->getDeclarationSymbol()) {
+      auto symCopy = std::make_unique<Value>(*ds);
+      symCopy->setType(subst);
+      nf->setDeclarationSymbol(std::move(symCopy));
+    }
+    newFields.push_back(std::move(nf));
   }
   ptr->replaceFields(std::move(newFields));
   return ptr;
@@ -1202,7 +1257,15 @@ void Typechecker::finalizeSpecializedTypesForTemplate(Type* classTemplate) {
     std::vector<std::unique_ptr<Field>> newFields;
     for (Field* f : classTemplate->getFields()) {
       Type* subst = substituteInType(f->type, env);
-      newFields.push_back(std::make_unique<Field>(f->name, subst));
+      auto nf = std::make_unique<Field>(f->name, subst);
+      nf->setDeclarationSpan(f->getDeclarationSpan());
+      nf->setDeclarationFilePath(f->getDeclarationFilePath());
+      if (Value* ds = f->getDeclarationSymbol()) {
+        auto symCopy = std::make_unique<Value>(*ds);
+        symCopy->setType(subst);
+        nf->setDeclarationSymbol(std::move(symCopy));
+      }
+      newFields.push_back(std::move(nf));
     }
     specPtr->replaceFields(std::move(newFields));
     specPtr->setDisplayName(makeSpecializedDisplayName(classTemplate, genericParamNames, env));
@@ -1385,9 +1448,9 @@ auto Typechecker::isAssignableTo(Type* from, Type* to) -> bool {
   if (from->isEqual(to)) {
     return true;
   }
-  if (from->is(BaseType::TY_PTR) && from->getElementType() != nullptr &&
-      to->is(BaseType::TY_PTR) && to->getElementType() != nullptr &&
-      from->getElementType()->is(BaseType::TY_CLASS) && to->getElementType()->is(BaseType::TY_CLASS)) {
+  if (from->is(BaseType::TY_PTR) && from->getElementType() != nullptr && to->is(BaseType::TY_PTR) &&
+      to->getElementType() != nullptr && from->getElementType()->is(BaseType::TY_CLASS) &&
+      to->getElementType()->is(BaseType::TY_CLASS)) {
     Type* fromCls = from->getElementType();
     Type* toCls = to->getElementType();
     if (fromCls->isEqual(toCls)) {
@@ -2729,6 +2792,11 @@ void Typechecker::mergeClassVtableOrder(const Class* node, Type* classTy) {
       methodKey = m->getName();
     }
     if (slotIndex.count(methodKey) != 0U) {
+      if (!m->getDeclaresOverload()) {
+        throw TypeCheckError(m->getNameSpan(),
+                             "Method overrides an inherited method; add the `overload` keyword "
+                             "before `def`");
+      }
       continue;
     }
     slotIndex[methodKey] = order.size();
@@ -2843,6 +2911,8 @@ auto Typechecker::visit(const Class* node) -> void {
       fieldSymbol->setCategory(ValueCategory::ADDRESSABLE_STORAGE);
       fieldSymbol->setDeclarationKind(ValueDeclarationKind::PROPERTY);
       fieldSymbol->setMutable(field->getMutability());
+      fieldSymbol->setPrivateMember(field->getIsPrivate());
+      fieldSymbol->setMemberDeclaredInClass(classTypePtr);
       fieldSymbol->setDeclarationSpan(field->getIdentifier()->getSpan());
       fieldSymbol->setDeclarationFilePath(mainFilePath);
       field->setResolvedSymbol(fieldSymbol.get());
@@ -2988,8 +3058,8 @@ auto Typechecker::visit(const FuncDecl* node) -> void {
   }
   SymbolTable* insertScope =
       currentMethodInsertScope != nullptr ? currentMethodInsertScope : scope->getParent();
-  Value* funcSymbol =
-      insertScope->lookupFunction(node->getName(), paramTypes, FunctionLookupKind::OVERLOAD_IDENTITY);
+  Value* funcSymbol = insertScope->lookupFunction(node->getName(), paramTypes,
+                                                  FunctionLookupKind::OVERLOAD_IDENTITY);
   bool const effectiveFuncExported =
       currentClassType != nullptr ? currentClassExported : node->isExported();
 
@@ -3001,6 +3071,10 @@ auto Typechecker::visit(const FuncDecl* node) -> void {
                                            ? ValueDeclarationKind::METHOD
                                            : ValueDeclarationKind::FUNCTION);
       declaredFunc->setExported(effectiveFuncExported);
+      if (currentClassType != nullptr) {
+        declaredFunc->setPrivateMember(node->getIsPrivate());
+        declaredFunc->setMemberDeclaredInClass(currentClassType);
+      }
       declaredFunc->setDeclarationSpan(node->getNameSpan());
       declaredFunc->setDeclarationFilePath(mainFilePath);
       insertScope->insertSymbol(std::move(declaredFunc));
@@ -3015,6 +3089,10 @@ auto Typechecker::visit(const FuncDecl* node) -> void {
       funcSymbol->setDeclarationKind(currentClassType != nullptr ? ValueDeclarationKind::METHOD
                                                                  : ValueDeclarationKind::FUNCTION);
       funcSymbol->setExported(effectiveFuncExported);
+      if (currentClassType != nullptr) {
+        funcSymbol->setPrivateMember(node->getIsPrivate());
+        funcSymbol->setMemberDeclaredInClass(currentClassType);
+      }
       funcSymbol->setDeclarationSpan(node->getNameSpan());
       funcSymbol->setDeclarationFilePath(mainFilePath);
       // Set resolvedSymbol for existing symbol (this exact overload)
@@ -3676,7 +3754,8 @@ auto Typechecker::visit(const FuncCall* node) -> void {
               if (ctorImportedIt != importedNameToSource.end()) {
                 SymbolTable* imp = getOrTypecheckImport(ctorImportedIt->second.first);
                 if (imp != nullptr) {
-                  callee = lookupConstructorForAllocatedClass(imp, constructorParamTypes, classType);
+                  callee =
+                      lookupConstructorForAllocatedClass(imp, constructorParamTypes, classType);
                   if (callee != nullptr) {
                     funcCallResolvedViaImportedNameBinding = true;
                   }
@@ -3894,7 +3973,9 @@ auto Typechecker::visit(const DotOp* node) -> void {
     }
     Value* method = insertScope->lookupSuperClassMethod(
         fc->getName(), methodArgTypes,
-        [this, superTy](Type* recvCls) { return superMethodReceiverMatchesFormal(recvCls, superTy); },
+        [this, superTy](Type* recvCls) {
+          return superMethodReceiverMatchesFormal(recvCls, superTy);
+        },
         superTy, superSeed);
     if (method == nullptr) {
       method = insertScope->lookupFunction(fc->getName(), methodArgTypes, FunctionLookupKind::VALUE,
@@ -3912,9 +3993,8 @@ auto Typechecker::visit(const DotOp* node) -> void {
             },
             superTy, superSeed);
         if (method == nullptr) {
-          method = cachedModule->rootScope->lookupFunction(fc->getName(), methodArgTypes,
-                                                           FunctionLookupKind::VALUE,
-                                                           currentClassType);
+          method = cachedModule->rootScope->lookupFunction(
+              fc->getName(), methodArgTypes, FunctionLookupKind::VALUE, currentClassType);
         }
         if (method != nullptr) {
           break;
@@ -3926,6 +4006,7 @@ auto Typechecker::visit(const DotOp* node) -> void {
     }
     fc->setResolvedSymbol(method);
     fc->setSuperDispatch(true);
+    enforcePrivateMemberReadable(node->getSpan(), method);
     markValueRead(method);
     auto* methodType = method->getType();
     std::unordered_map<std::string, Type*> methodTypeEnv;
@@ -4299,6 +4380,7 @@ auto Typechecker::visit(const DotOp* node) -> void {
       throw TypeCheckError(node->getSpan(), "Function not found: {}", fc->getName());
     }
     fc->setResolvedSymbol(method);
+    enforcePrivateMemberReadable(node->getSpan(), method);
     markValueRead(method);
     auto* methodType = method->getType();
     if (!fc->getExplicitTypeArgs().empty()) {
@@ -4364,6 +4446,7 @@ auto Typechecker::visit(const DotOp* node) -> void {
   }
   if (field->getDeclarationSymbol() != nullptr) {
     rightLit->setResolvedSymbol(field->getDeclarationSymbol());
+    enforcePrivateMemberReadable(node->getSpan(), field->getDeclarationSymbol());
     markValueRead(field->getDeclarationSymbol());
   }
   result = std::make_unique<Value>(field->type);
@@ -5032,8 +5115,7 @@ auto Typechecker::registerTraitDefaultMethodSymbol(SymbolTable* insertScope, Typ
     }
   }
   if (insertScope->lookupFunction(req->getName(), lookupArgs,
-                                  FunctionLookupKind::OVERLOAD_IDENTITY) !=
-      nullptr) {
+                                  FunctionLookupKind::OVERLOAD_IDENTITY) != nullptr) {
     return;
   }
   Type* funcTypePtr = buildMethodFunctionType(req, classType);

@@ -83,7 +83,8 @@ public:
         mutableVar(other.mutableVar), signedVar(other.signedVar), exported(other.exported),
         constructor(other.constructor), genericClassTemplate(other.genericClassTemplate),
         bodyScope(other.bodyScope), declarationKind(other.declarationKind),
-        declarationSpan(other.declarationSpan), declarationFilePath(other.declarationFilePath) {}
+        declarationSpan(other.declarationSpan), declarationFilePath(other.declarationFilePath),
+        privateMember(other.privateMember), memberDeclaredInClass(other.memberDeclaredInClass) {}
 
   ~Value() = default;
   auto operator=(const Value& other) -> Value& {
@@ -105,6 +106,8 @@ public:
       declarationKind = other.declarationKind;
       declarationSpan = other.declarationSpan;
       declarationFilePath = other.declarationFilePath;
+      privateMember = other.privateMember;
+      memberDeclaredInClass = other.memberDeclaredInClass;
     }
     return *this;
   }
@@ -152,6 +155,11 @@ public:
   auto setDeclarationKind(ValueDeclarationKind value) -> void { declarationKind = value; }
   auto setDeclarationSpan(llvm::SMRange span) -> void { declarationSpan = span; }
   auto setDeclarationFilePath(std::string path) -> void { declarationFilePath = std::move(path); }
+  /** Class field or method: visible only in methods of the declaring class (not subclasses). */
+  [[nodiscard]] auto isPrivateMember() const -> bool { return privateMember; }
+  [[nodiscard]] auto getMemberDeclaredInClass() const -> Type* { return memberDeclaredInClass; }
+  auto setPrivateMember(bool value) -> void { privateMember = value; }
+  auto setMemberDeclaredInClass(Type* classType) -> void { memberDeclaredInClass = classType; }
   [[nodiscard]] auto usesAddressableStorage() const -> bool {
     return category == ValueCategory::ADDRESSABLE_STORAGE;
   }
@@ -197,5 +205,7 @@ private:
   // For LSP: declaration location
   llvm::SMRange declarationSpan;
   std::string declarationFilePath;
+  bool privateMember = false;
+  Type* memberDeclaredInClass = nullptr;
 };
 } // namespace lesma

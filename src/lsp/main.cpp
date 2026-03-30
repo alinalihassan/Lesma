@@ -275,10 +275,10 @@ auto declarationBelongsToAnalysis(const AnalysisView& analysis,
          normalizePath(*analysis.mainFilePath) == normalizePath(declaration.filePath);
 }
 
-/** `Value::declarationSpan` lives in `getDeclarationFilePath()`; `ResolvedSymbol::owner` is often the
- * referring document. Map the span using the defining file's SourceMgr buffer. When the declaration
- * path is known but that module has no usable AnalysisView, returns std::nullopt so callers do not pair
- * `uriFromPath(declPath)` with coordinates from the referring buffer. */
+/** `Value::declarationSpan` lives in `getDeclarationFilePath()`; `ResolvedSymbol::owner` is often
+ * the referring document. Map the span using the defining file's SourceMgr buffer. When the
+ * declaration path is known but that module has no usable AnalysisView, returns std::nullopt so
+ * callers do not pair `uriFromPath(declPath)` with coordinates from the referring buffer. */
 auto lspRangeForValueDeclaration(AnalysisResult& result, lesma::Value* value,
                                  const AnalysisView& fallbackOwner) -> std::optional<::lsp::Range> {
   if (value == nullptr) {
@@ -1595,8 +1595,7 @@ auto appendCallParameterInlayHints(const AnalysisResult& analysisResult, unsigne
       return;
     }
     unsigned const callStartOffset = getOffsetFromSMLoc(srcMgr, bufferId, callSpan.Start);
-    lesma::SymbolTable* scope =
-        activeScopeForOffset(ast, root, srcMgr, bufferId, callStartOffset);
+    lesma::SymbolTable* scope = activeScopeForOffset(ast, root, srcMgr, bufferId, callStartOffset);
     if (scope == nullptr) {
       scope = root;
     }
@@ -1616,8 +1615,8 @@ auto appendCallParameterInlayHints(const AnalysisResult& analysisResult, unsigne
       std::vector<lesma::Type*> argTypes;
       argTypes.reserve(args.size());
       for (lesma::Expression* arg : args) {
-        lesma::Type* argType = resolveExpressionTypeAtOffset(arg, ast, root, srcMgr, bufferId,
-                                                            callStartOffset);
+        lesma::Type* argType =
+            resolveExpressionTypeAtOffset(arg, ast, root, srcMgr, bufferId, callStartOffset);
         if (argType == nullptr) {
           return;
         }
@@ -1625,12 +1624,11 @@ auto appendCallParameterInlayHints(const AnalysisResult& analysisResult, unsigne
       }
       lesma::Type* receiverType = nullptr;
       if (receiver != nullptr) {
-        receiverType = resolveExpressionTypeAtOffset(receiver, ast, root, srcMgr, bufferId,
-                                                    callStartOffset);
+        receiverType =
+            resolveExpressionTypeAtOffset(receiver, ast, root, srcMgr, bufferId, callStartOffset);
       }
       if (receiver == nullptr || receiverType != nullptr) {
-        candidates =
-            collectCallableCandidates(scope, call->getName(), receiverType, argTypes);
+        candidates = collectCallableCandidates(scope, call->getName(), receiverType, argTypes);
       }
       if (resolvedSym != nullptr) {
         std::vector<CallableCandidate> narrowed;
@@ -1752,7 +1750,8 @@ auto appendCallParameterInlayHints(const AnalysisResult& analysisResult, unsigne
     }
   };
 
-  std::function<void(const lesma::Statement*)> walkStmt = [&](const lesma::Statement* stmt) -> void {
+  std::function<void(const lesma::Statement*)> walkStmt =
+      [&](const lesma::Statement* stmt) -> void {
     if (stmt == nullptr) {
       return;
     }
@@ -2285,9 +2284,9 @@ auto collectSemanticTokens(AnalysisResult& analysisResult, unsigned bufferId)
     if (occurrence.fallbackTokenKind.has_value()) {
       llvm::SMRange const highlightSpan =
           occurrence.semanticHighlightSpan.value_or(occurrence.span);
-      appendRawTokenFromSpan(
-          highlightSpan, semanticTokenTypeFromIndexedKind(*occurrence.fallbackTokenKind),
-          occurrence.modifiers);
+      appendRawTokenFromSpan(highlightSpan,
+                             semanticTokenTypeFromIndexedKind(*occurrence.fallbackTokenKind),
+                             occurrence.modifiers);
     }
   }
 
@@ -2733,8 +2732,9 @@ auto main() -> int {
           ::lsp::OneOf<bool, ::lsp::DeclarationOptions, ::lsp::DeclarationRegistrationOptions>{
               true});
       // Letters are not listed here: listing a–z would request completion on every identifier
-      // keystroke. Import paths live in strings; VS Code/Cursor need editor.quickSuggestions.strings
-      // (defaults in tools/vscode/package.json) so typing inside "…" still triggers completion.
+      // keystroke. Import paths live in strings; VS Code/Cursor need
+      // editor.quickSuggestions.strings (defaults in tools/vscode/package.json) so typing inside
+      // "…" still triggers completion.
       caps.completionProvider = ::lsp::Opt<::lsp::CompletionOptions>(::lsp::CompletionOptions{
           .triggerCharacters = ::lsp::Opt<::lsp::Array<::lsp::String>>(
               {std::string("\""), std::string("/"), std::string(".")}),
@@ -2754,9 +2754,9 @@ auto main() -> int {
               .legend =
                   ::lsp::SemanticTokensLegend{
                       .tokenTypes =
-                          ::lsp::Array<::lsp::String>{"namespace", "class", "enum", "enumMember",
-                                                      "type", "typeParameter", "function", "method",
-                                                      "parameter", "variable", "property"},
+                          ::lsp::Array<::lsp::String>{
+                              "namespace", "class", "enum", "enumMember", "type", "typeParameter",
+                              "function", "method", "parameter", "variable", "property"},
                       .tokenModifiers =
                           ::lsp::Array<::lsp::String>{"declaration", "defaultLibrary"},
                   },

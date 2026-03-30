@@ -1,0 +1,7 @@
+class Base
+    def id() -> int
+        return 1
+
+class Child: Base
+    def id() -> int
+        return 2

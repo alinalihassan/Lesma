@@ -9,14 +9,13 @@
 #include <string_view>
 #include <unordered_set>
 
-#include <lsp/types.h>
-
 #include "llvm/ADT/StringRef.h"
 #include "llvm/Support/SourceMgr.h"
 
 #include "LspAnalysisGraph.h"
 #include "LspSourceHelpers.h"
 #include "LspTypeFormat.h"
+#include <lsp/types.h>
 
 #include "liblesma/AST/AST.h"
 #include "liblesma/Common/OperatorUtils.h"
@@ -189,7 +188,8 @@ auto hashCommentBeforeOnSameLine(llvm::StringRef text, unsigned lineStart, unsig
   return false;
 }
 
-/** True if the string starting at \p openQuoteIdx is an import path (`from "…"` or `import "…"`). */
+/** True if the string starting at \p openQuoteIdx is an import path (`from "…"` or `import "…"`).
+ */
 auto isImportPathStringContext(llvm::StringRef text, unsigned openQuoteIdx) -> bool {
   if (openQuoteIdx == 0U) {
     return false;
@@ -313,13 +313,14 @@ auto importPathCompletionItems(llvm::StringRef text, unsigned offset,
   } catch (const std::filesystem::filesystem_error&) {
     return items;
   }
-  std::sort(matches.begin(), matches.end(),
-            [](const std::pair<std::string, bool>& a, const std::pair<std::string, bool>& b) -> bool {
-              if (a.second != b.second) {
-                return a.second;
-              }
-              return a.first < b.first;
-            });
+  std::sort(
+      matches.begin(), matches.end(),
+      [](const std::pair<std::string, bool>& a, const std::pair<std::string, bool>& b) -> bool {
+        if (a.second != b.second) {
+          return a.second;
+        }
+        return a.first < b.first;
+      });
 
   ::lsp::Position const rangeStart = lspPositionAtBufferOffset(text, pathStart);
   ::lsp::Position const rangeEnd = lspPositionAtBufferOffset(text, offset);
@@ -340,8 +341,8 @@ auto importPathCompletionItems(llvm::StringRef text, unsigned offset,
     // cursor (often the full partial path). Using only `label` (e.g. `class.les`) makes
     // `nested/clas` match nothing after a backspace; full path keeps prefix filtering correct.
     item.filterText = ::lsp::Opt<::lsp::String>(std::string(newPath));
-    item.kind = ::lsp::Opt<::lsp::CompletionItemKindEnum>(
-        isDir ? ::lsp::CompletionItemKind::Folder : ::lsp::CompletionItemKind::File);
+    item.kind = ::lsp::Opt<::lsp::CompletionItemKindEnum>(isDir ? ::lsp::CompletionItemKind::Folder
+                                                                : ::lsp::CompletionItemKind::File);
     item.sortText = ::lsp::Opt<::lsp::String>(std::string(isDir ? "0" : "1") + label);
     item.textEdit = ::lsp::Opt<::lsp::OneOf<::lsp::TextEdit, ::lsp::InsertReplaceEdit>>(
         ::lsp::TextEdit{.range = replaceRange, .newText = std::move(newPath)});
@@ -742,8 +743,6 @@ auto findClassDeclarationForType(AnalysisResult& result, Type* classType, Compou
   return nullptr;
 }
 
-auto isHiddenClassMemberName(std::string_view name) -> bool { return name.starts_with("__"); }
-
 void appendMethodsForClass(AnalysisResult& result, Class* klass, SymbolTable* root,
                            std::vector<CompletionCandidate>& out,
                            std::unordered_set<std::string>& seen) {
@@ -752,19 +751,18 @@ void appendMethodsForClass(AnalysisResult& result, Class* klass, SymbolTable* ro
   }
   AnalysisView const mainView = makeAnalysisView(result);
   for (FuncDecl* method : klass->getMethods()) {
-    if (method == nullptr || method->getName() == "new" ||
-        isHiddenClassMemberName(method->getName())) {
+    if (method == nullptr || method->getName() == "new" || method->getIsPrivate()) {
       continue;
     }
     Value* methodValue = method->getResolvedSymbol();
-    addCandidate(out, seen,
-                 CompletionCandidate{
-                     .label = method->getName(),
-                     .kind = ::lsp::CompletionItemKind::Method,
-                     .detail = symbolDetail(methodValue, root),
-                     .documentation = documentationCommentAboveDeclaration(result, methodValue,
-                                                                         mainView),
-                 });
+    addCandidate(
+        out, seen,
+        CompletionCandidate{
+            .label = method->getName(),
+            .kind = ::lsp::CompletionItemKind::Method,
+            .detail = symbolDetail(methodValue, root),
+            .documentation = documentationCommentAboveDeclaration(result, methodValue, mainView),
+        });
   }
 }
 
@@ -786,14 +784,14 @@ void appendModuleMembersForAlias(AnalysisResult& result, const std::string& alia
     if (value == nullptr || !value->isExported()) {
       continue;
     }
-    addCandidate(out, seen,
-                 CompletionCandidate{
-                     .label = value->getName(),
-                     .kind = candidateKindForValue(value),
-                     .detail = symbolDetail(value, moduleScope),
-                     .documentation =
-                         documentationCommentAboveDeclaration(result, value, moduleView),
-                 });
+    addCandidate(
+        out, seen,
+        CompletionCandidate{
+            .label = value->getName(),
+            .kind = candidateKindForValue(value),
+            .detail = symbolDetail(value, moduleScope),
+            .documentation = documentationCommentAboveDeclaration(result, value, moduleView),
+        });
   }
 }
 
@@ -826,23 +824,24 @@ void appendTraitRequirementMethods(AnalysisResult& result, Type* classType, Comp
       continue;
     }
     for (FuncDecl* req : tr->getRequirements()) {
-      if (req == nullptr || req->getName() == "new" || isHiddenClassMemberName(req->getName())) {
+      if (req == nullptr || req->getName() == "new" || req->getIsPrivate()) {
         continue;
       }
       Value* methodValue = req->getResolvedSymbol();
-      addCandidate(out, seen,
-                   CompletionCandidate{
-                       .label = req->getName(),
-                       .kind = ::lsp::CompletionItemKind::Method,
-                       .detail = symbolDetail(methodValue, root),
-                       .documentation = documentationCommentAboveDeclaration(result, methodValue,
-                                                                             mainView),
-                   });
+      addCandidate(
+          out, seen,
+          CompletionCandidate{
+              .label = req->getName(),
+              .kind = ::lsp::CompletionItemKind::Method,
+              .detail = symbolDetail(methodValue, root),
+              .documentation = documentationCommentAboveDeclaration(result, methodValue, mainView),
+          });
     }
   }
 }
 
-/** `__buffer<T>` (TY_ARRAY): same dot-call surface as `list<T>` in codegen (`callListMethodByName`). */
+/** `__buffer<T>` (TY_ARRAY): same dot-call surface as `list<T>` in codegen
+ * (`callListMethodByName`). */
 void appendBuiltinBufferListMethodCandidates(Type* bufferType, SymbolTable* root,
                                              std::vector<CompletionCandidate>& out,
                                              std::unordered_set<std::string>& seen) {
@@ -870,9 +869,6 @@ void appendBuiltinBufferListMethodCandidates(Type* bufferType, SymbolTable* root
   };
 
   for (std::string_view name : OperatorUtils::BUILTIN_LIST_METHOD_NAMES) {
-    if (isHiddenClassMemberName(name)) {
-      continue;
-    }
     addCandidate(out, seen,
                  CompletionCandidate{.label = std::string{name},
                                      .kind = ::lsp::CompletionItemKind::Method,
@@ -899,7 +895,10 @@ void appendMembersForType(AnalysisResult& result, Type* baseType, Compound* ast,
   }
 
   for (Field* field : baseType->getFields()) {
-    if (field == nullptr || isHiddenClassMemberName(field->name)) {
+    if (field == nullptr) {
+      continue;
+    }
+    if (Value* decl = field->getDeclarationSymbol(); decl != nullptr && decl->isPrivateMember()) {
       continue;
     }
     addCandidate(out, seen,
@@ -931,22 +930,24 @@ void appendScopeSymbols(AnalysisResult& result, SymbolTable* scope, SymbolTable*
       if (value == nullptr) {
         continue;
       }
-      addCandidate(out, seen,
-                   CompletionCandidate{
-                       .label = value->getName(),
-                       .kind = candidateKindForValue(value),
-                       .detail = symbolDetail(value, root),
-                       .documentation = documentationCommentAboveDeclaration(result, value, mainView),
-                   });
+      addCandidate(
+          out, seen,
+          CompletionCandidate{
+              .label = value->getName(),
+              .kind = candidateKindForValue(value),
+              .detail = symbolDetail(value, root),
+              .documentation = documentationCommentAboveDeclaration(result, value, mainView),
+          });
     }
   }
 }
 
 void appendKeywords(std::vector<CompletionCandidate>& out, std::unordered_set<std::string>& seen) {
-  static constexpr std::array<std::string_view, 26> keywords = {
-      "and",    "as",     "break", "class",  "continue", "def",    "defer", "else",  "enum",
-      "export", "extern", "for",   "from",   "if",       "import", "in",    "is",    "let",
-      "not",    "or",     "pass",  "return", "super",    "this",   "var",   "while",
+  static constexpr std::array<std::string_view, 28> keywords = {
+      "and",    "as",      "break",  "class",  "continue", "def",  "defer",
+      "else",   "enum",    "export", "extern", "for",      "from", "if",
+      "import", "in",      "is",     "let",    "not",      "or",   "overload",
+      "pass",   "private", "return", "super",  "this",     "var",  "while",
   };
   static constexpr std::array<std::string_view, 3> literals = {"false", "null", "true"};
   static constexpr std::array<std::string_view, 11> builtinTypes = {
@@ -992,7 +993,7 @@ auto toCompletionItems(const std::vector<CompletionCandidate>& candidates,
     if (!candidate.documentation.empty()) {
       item.documentation = ::lsp::Opt<::lsp::OneOf<::lsp::String, ::lsp::MarkupContent>>(
           ::lsp::MarkupContent{.kind = ::lsp::MarkupKindEnum(::lsp::MarkupKind::Markdown),
-                                .value = candidate.documentation});
+                               .value = candidate.documentation});
     }
     items.push_back(std::move(item));
   }
@@ -1010,7 +1011,8 @@ auto toCompletionItems(const std::vector<CompletionCandidate>& candidates,
 
 } // namespace
 
-auto completionItems(AnalysisResult& result, unsigned line, unsigned character) -> CompletionOutcome {
+auto completionItems(AnalysisResult& result, unsigned line, unsigned character)
+    -> CompletionOutcome {
   if (result.sourceMgr == nullptr) {
     return CompletionOutcome{};
   }
@@ -1069,7 +1071,8 @@ auto completionItems(AnalysisResult& result, unsigned line, unsigned character) 
     appendKeywords(candidates, seen);
   }
 
-  return CompletionOutcome{.items = toCompletionItems(candidates, ctx.prefix), .isIncomplete = false};
+  return CompletionOutcome{.items = toCompletionItems(candidates, ctx.prefix),
+                           .isIncomplete = false};
 }
 
 } // namespace lesma::lsp_srv

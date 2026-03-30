@@ -80,17 +80,17 @@ export def range(start: int, stop: int, step: int) -> range_values
 
 export class list_iter<T> impl Iterator<T>
     var storage: __buffer<T>
-    var __scan: int = 0
+    private var scan: int = 0
 
     def new(buf: __buffer<T>)
         self.storage = buf
 
     def has_next() -> bool
-        return self.__scan < __buffer_len(self.storage)
+        return self.scan < __buffer_len(self.storage)
 
     def next() -> T
-        var v = __buffer_get(self.storage, self.__scan)
-        self.__scan += 1
+        var v = __buffer_get(self.storage, self.scan)
+        self.scan += 1
         return v
 
 export class list<T> impl Iterable<T>
@@ -176,19 +176,19 @@ export class dict<K, V>
 
 export class str_iter impl Iterator<uint8>
     var storage: cstr
-    var __scan: int = 0
-    var __len: int = 0
+    private var scan: int = 0
+    private var byte_len: int = 0
 
     def new(s: cstr)
         self.storage = s
-        self.__len = strlen(self.storage)
+        self.byte_len = strlen(self.storage)
 
     def has_next() -> bool
-        return self.__scan < self.__len
+        return self.scan < self.byte_len
 
     def next() -> uint8
-        var v = __cstr_byte_at(self.storage, self.__scan)
-        self.__scan += 1
+        var v = __cstr_byte_at(self.storage, self.scan)
+        self.scan += 1
         return v
 
 export class str impl Iterable<uint8>

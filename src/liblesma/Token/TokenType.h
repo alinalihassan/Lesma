@@ -117,6 +117,8 @@ enum class TokenType : std::uint8_t {
   FROM,
   TRAIT,
   IMPL,
+  PRIVATE,
+  OVERLOAD,
 
   // Special tokens
   EOF_TOKEN,

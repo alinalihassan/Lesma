@@ -95,8 +95,8 @@ class Typechecker final : public ASTVisitor {
   auto getDeclaredGenericParams(Type* type) const -> const std::vector<std::string>&;
   /** Whether \p formalReceiverClass is the class that owns the target `super` implementation for
    * static superclass \p staticSuperType (handles generic template vs specialization). */
-  [[nodiscard]] auto superMethodReceiverMatchesFormal(Type* formalReceiverClass, Type* staticSuperType)
-      -> bool;
+  [[nodiscard]] auto superMethodReceiverMatchesFormal(Type* formalReceiverClass,
+                                                      Type* staticSuperType) -> bool;
 
   /** Import alias (e.g. "import_math") -> absolute path, for resolving return types of
    * import_math.func(). */
@@ -226,6 +226,9 @@ class Typechecker final : public ASTVisitor {
                                               const std::vector<Type*>& lookupArgs) -> std::string;
   /** Stable class-vtable slot key for a resolved method symbol. */
   [[nodiscard]] auto vtableMethodKey(const Value* methodSymbol) -> std::string;
+  [[nodiscard]] auto classLexicalScopeMatchesForPrivate(Type* contextClass, Type* declaredIn)
+      -> bool;
+  auto enforcePrivateMemberReadable(llvm::SMRange span, Value* member) -> void;
   /** Move all owning Type nodes from an import analysis tree into \p dest so \c
    * SymbolTable typeRefs remain valid after \c importedModuleCache is cleared. */
   void mergeImportedAnalysisTypeCachesInto(std::vector<std::unique_ptr<Type>>& dest,
@@ -270,7 +273,8 @@ public:
   /** Per-specialized-class and trait-existential generic bindings (e.g. T -> int), for codegen. */
   auto takeSpecializedTypeEnv()
       -> std::unordered_map<Type*, std::unordered_map<std::string, Type*>>;
-  /** Specialized class type → its generic template (for substituting through `Base<T>`-style supers).
+  /** Specialized class type → its generic template (for substituting through `Base<T>`-style
+   * supers).
    */
   auto takeSpecializedTypeToTemplate() -> std::unordered_map<Type*, Type*>;
   /** Stable registry key -> canonical specialized class type from typecheck. */

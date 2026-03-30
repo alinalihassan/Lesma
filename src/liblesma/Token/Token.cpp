@@ -57,6 +57,8 @@ static const std::unordered_map<std::string_view, TokenType> KEYWORDS = {
     {"from", TokenType::FROM},
     {"trait", TokenType::TRAIT},
     {"impl", TokenType::IMPL},
+    {"private", TokenType::PRIVATE},
+    {"overload", TokenType::OVERLOAD},
     // Type keywords
     {"int", TokenType::INT_TYPE},
     {"int64", TokenType::INT_TYPE},
