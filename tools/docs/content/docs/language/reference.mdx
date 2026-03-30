@@ -16,6 +16,8 @@ Reserved identifiers come from the compiler’s keyword table (everything below 
 
 **Bindings and declarations:** `let`, `var`, `def`, `func`, `class`, `enum`, `trait`, `impl`.
 
+**Class members:** `private` (field or method visible only in the class that declares it—subclasses and outside code cannot read or call it), `overload` (mark a method that **replaces** a superclass method with the same name; without `overload`, reusing the name is an error). See [Classes → Private and overload](/docs/language/classes#private-and-overload).
+
 **Modules:** `import`, `from`, `export`, `extern`.
 
 **Types:** `void`, `bool`, `int`, `int8`, `int16`, `int32`, `int64`, `uint`, `uint8`, `uint16`, `uint32`, `uint64`, `float`, `float32`, `float64`, `cstr`. (`int`/`int64` and `uint`/`uint64` and `float`/`float64` are aliases.)

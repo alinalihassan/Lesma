@@ -44,6 +44,56 @@ class Derived: Base
 var d = Derived(7)
 ```
 
+## Private and overload
+
+### `private`
+
+Put **`private`** before a field or method so it is only usable **inside the same class body** where it is declared. Subclasses do not inherit access (they need their own fields or protected-style patterns), and code outside the class cannot use the member.
+
+```les
+class Wallet
+    private var balance: int
+
+    def new(initial: int)
+        self.balance = initial
+
+    def spend(amount: int) -> bool
+        if amount > self.balance
+            return false
+        self.balance = self.balance - amount
+        return true
+```
+
+### `overload`
+
+If a subclass defines a method with the **same name** as one on its base class, Lesma requires the **`overload`** keyword. That makes the replacement explicit and keeps accidental shadowing from compiling.
+
+```les
+class Base
+    var tag: int
+
+    def new(t: int)
+        self.tag = t
+
+    def bump() -> int
+        return self.tag + 1
+
+class Child: Base
+    private var extra: int
+
+    def new(t: int, e: int)
+        super.new(self, t)
+        self.extra = e
+
+    overload def bump() -> int
+        return self.tag + self.extra + 10
+
+var c = Child(2, 3)
+# c.bump() uses Child’s overload; Base.bump is not called for a Child receiver.
+```
+
+Deeper inheritance works the same way: each subclass that redefines `bump` uses **`overload def bump()`**. Method lookup picks the **most specific** receiver type that matches the call.
+
 ## Next steps
 
 - [Comments](/docs/language/comments) for how leading `#` lines become LSP documentation on declarations.
