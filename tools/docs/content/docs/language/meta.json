@@ -12,6 +12,7 @@
     "comments",
     "traits-generics",
     "modules",
-    "stdlib-overview"
+    "stdlib-overview",
+    "reference"
   ]
 }
