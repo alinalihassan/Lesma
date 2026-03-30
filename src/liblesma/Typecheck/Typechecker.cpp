@@ -337,6 +337,10 @@ auto Typechecker::resolveMethodReturnType(Type* baseType, const std::string& met
   if (!methodTypeEnv.empty() && retType != nullptr) {
     retType = substituteInType(retType, methodTypeEnv);
   }
+  if (method->getDeclarationKind() == ValueDeclarationKind::METHOD ||
+      method->getDeclarationKind() == ValueDeclarationKind::FUNCTION) {
+    method->setUsed(true);
+  }
   if (importedMethod && retType != nullptr) {
     return materializeImportedType(retType);
   }
