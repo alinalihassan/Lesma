@@ -1,0 +1,30 @@
+---
+title: Enums
+description: |
+  Declaring and using enumeration types in Lesma.
+category: Language
+---
+
+## Enumerations
+
+An **`enum`** declares a set of named constants. Cases are referenced as **`EnumName.CASE`**.
+
+```les
+enum Color
+    RED
+    BLUE
+    GREEN
+
+var paint: Color = Color.RED
+
+if Color.BLUE == Color.BLUE and Color.GREEN != Color.RED
+    print("ok")
+```
+
+Enums can be used as parameter and return types like any other nominal type.
+
+## Next steps
+
+- [Tuples](/docs/language/tuples) for tuple types and unpacking.
+- [Types](/docs/language/types) for annotations, `is` / `is not`, and `as`.
+- [Classes](/docs/language/classes) and [Traits & Generics](/docs/language/traits-generics) for larger type patterns.

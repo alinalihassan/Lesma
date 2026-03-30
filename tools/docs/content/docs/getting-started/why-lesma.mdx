@@ -1,0 +1,44 @@
+---
+title: Why Lesma
+description: |
+  What the language optimizes for: LLVM-native code, static typing with familiar OOP, script-style
+  entry and the base standard library, FFI, and CLI or editor workflows.
+category: First steps
+---
+
+Lesma is a **compiled**, **statically typed**, **imperative** language with **classes** and an
+**LLVM** backend. This page is a short orientation before you install or work through the tour.
+
+## Native code via LLVM
+
+The compiler lowers to **LLVM IR**, then **`lesma run`** can JIT and **`lesma compile`** can emit an
+object file. Optimization levels **`-O0`** through **`-O3`** are available on the CLI ([CLI
+reference](/docs/tooling/cli)). You get predictable performance for typical loops and data structures
+without a Lesma-owned VM in the hot path.
+
+## Static types and familiar OOP
+
+Types are checked **before** codegen. You get **functions**, **classes** with explicit **`self`**,
+**enums**, **tuples**, **generics**, and **traits** ([Classes](/docs/language/classes), [Traits &
+Generics](/docs/language/traits-generics)). Many operators can be overloaded as methods where the
+typechecker allows it. **`is`** / **`is not`** and **`as`** handle runtime type tests and casts ([Types](/docs/language/types)).
+
+## Scripts, no `main`, and `base.les`
+
+The file you **run** executes **top-level statements** in order—no required **`main`** ([Tour](/docs/getting-started/tour)). Every program **implicitly** loads **`base.les`**: names like **`print`**, **`range`**, **`list`**, **`str`**, and **`input`** are available without an import ([Standard library overview](/docs/language/stdlib-overview), [Language reference](/docs/language/reference) for details).
+
+Other stdlib modules (**`math`**, **`time`**, …) still use **`from … import`**.
+
+## FFI and the platform
+
+**`def extern`** declares C functions; **`cstr`** and pointer types (**`*T`**) match the usual C ABI ([FFI](/docs/language/ffi)). The standard library uses this for the OS and libc—FFI is the escape hatch when something is not wrapped yet.
+
+## CLI, playground, and editors
+
+**`lesma run`** and **`lesma compile`** are the day-to-day commands. The docs site can host a **playground** that talks to the same compiler over the network ([Playground](/docs/getting-started/playground)). **`lesma-lsp`** provides diagnostics, completion, and navigation for editors ([Editor & LSP](/docs/getting-started/editor-lsp)).
+
+## Next steps
+
+- [Install Lesma](/docs/getting-started/install) or [build from source](/docs/getting-started/build-from-source).
+- [A Tour of Lesma](/docs/getting-started/tour) for one commented example.
+- [Language reference](/docs/language/reference) for keywords, precedence, and imports in one place.

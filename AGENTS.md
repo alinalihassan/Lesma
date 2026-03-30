@@ -69,8 +69,8 @@ When reporting errors, the Driver and Codegen use `showInline()` in `Common/Util
 
 ## How to compile the project
 
-- **Prerequisites:** CMake 3.24+, Ninja, a C++ compiler (Clang from the same LLVM generation as the libraries is recommended), and vcpkg (with Lesma’s `vcpkg.json`) for manifest dependencies (fmt, nameof, cli11, libgit2, etc.). **LLVM and LLD** are discovered by CMake (`find_package(LLVM)` / `find_package(LLD)`); they are **not** pulled in by the default manifest. The project targets **LLVM 21** (for example Homebrew `llvm@21` and `lld@21` with `CMAKE_PREFIX_PATH` as in CI, or Linux packages from [apt.llvm.org](https://apt.llvm.org/) with `-DLLVM_DIR=…` and `-DLLD_DIR=…`). Optional: `-DLESMA_BUILD_LLVM=ON` enables the vcpkg `build-llvm` feature and builds LLVM from source (slow). vcpkg is typically used as a submodule; bootstrap it and use the vcpkg toolchain when configuring.
-- **Configure (example):** From the repo root, using the vcpkg toolchain and a build directory such as `build` or `build/Debug`:
+- **Prerequisites:** A **C++23** compiler (Clang from the same LLVM generation as the libraries is recommended), **CMake 3.24+**, **Ninja**, **LLVM 21**, and **LLD**. On macOS, `brew install cmake ninja llvm@21 lld@21` and set `LLVM_DIR` / `LLD_DIR` to those prefixes’ CMake config paths (see [apt.llvm.org](https://apt.llvm.org/) or your distro for Linux). Lesma vendors **vcpkg** under `vcpkg/`; clone with submodules and run `./bootstrap-vcpkg.sh` inside `vcpkg` once so CMake can use `vcpkg.json` (fmt, nameof, CLI11, libgit2 for LSP, etc.). **LLVM and LLD** are discovered with `find_package` and are **not** supplied by that manifest. Optional: `-DLESMA_BUILD_LLVM=ON` enables the vcpkg `build-llvm` feature and builds LLVM from source (slow).
+- **Configure (example):** From the repo root, prefer **`cmake --preset Debug`** (uses the in-tree vcpkg toolchain). Alternatively, pass the toolchain explicitly:
   ```bash
   cmake -B build -S . \
     -DCMAKE_TOOLCHAIN_FILE="$(pwd)/vcpkg/scripts/buildsystems/vcpkg.cmake" \
@@ -164,7 +164,7 @@ The codebase follows consistent C++ style. Respect it when editing.
 
 - **Pipeline:** Source → Lexer → Parser → Codegen (Driver + SourceMgr, then Lexer, Parser, Backend).
 - **Buffer IDs:** LLVM `SourceMgr` uses 1-based buffer IDs; use `getNumBuffers()` as the ID for the last-added buffer; store `AddNewSourceBuffer()`’s return value for the main file in error reporting.
-- **Build:** CMake + vcpkg toolchain; build the `lesma` target.
+- **Build:** CMake (presets use the in-tree vcpkg toolchain); build the `lesma` target.
 - **Validation:** Always run `scripts/run_tests.sh <path-to-lesma>` and ensure 0 failures.
 - **Wall-clock benchmark:** With `LESMA_BUILD_BENCHMARKS`, `./build/Debug/benchmark suite … --json-out` / `--vega-lite-out`; timings in JSON are **milliseconds**; SVG via `npx -p vega-lite vl2svg suite.vl.json > chart.svg`.
 - **Memory:** Use the **Debug_Asan** preset (AddressSanitizer + LeakSanitizer) on macOS and Linux; Valgrind is Linux-only and not supported on Apple Silicon.

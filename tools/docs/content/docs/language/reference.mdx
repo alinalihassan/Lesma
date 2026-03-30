@@ -1,0 +1,85 @@
+---
+title: Language reference
+description: |
+  One-page lookup: reserved keywords, operator precedence, implicit prelude from base.les, import
+  forms, and how names resolve—alongside the narrative tutorials.
+category: Language
+---
+
+Use the [language tutorials](/docs/language/literals) to learn features; use this page when you need a **compact fact**.
+
+## Keywords
+
+Reserved identifiers come from the compiler’s keyword table (everything below is always a keyword, not a user-chosen name).
+
+**Control flow:** `if`, `else` (and **`else if`** as two tokens), `while`, `for`, `break`, `continue`, `return`, `pass`, `defer` (deferred statements run when the enclosing function or module finishes, **LIFO**—last `defer` first—before the `return` value is evaluated). Example with C **`fopen`/`fclose`**: [Control flow → Defer](/docs/language/control-flow#defer).
+
+**Bindings and declarations:** `let`, `var`, `def`, `func`, `class`, `enum`, `trait`, `impl`.
+
+**Modules:** `import`, `from`, `export`, `extern`.
+
+**Types:** `void`, `bool`, `int`, `int8`, `int16`, `int32`, `int64`, `uint`, `uint8`, `uint16`, `uint32`, `uint64`, `float`, `float32`, `float64`, `cstr`. (`int`/`int64` and `uint`/`uint64` and `float`/`float64` are aliases.)
+
+**Literals / values:** `true`, `false`, `null`.
+
+**Expressions:** `and`, `or`, `not`, `in`, `is`, **`is not`** (after `is`), `as`, `operator`, `super`. **`this`** is reserved; ordinary methods and operators use **`self`** for the receiver ([Classes](/docs/language/classes)).
+
+**User names:** Any other identifier spelling is yours. Types like **`str`** come from the prelude, not the keyword list.
+
+## Operators and precedence
+
+From tight binding to loose (see `Parser.cpp`):
+
+| Level | Operators |
+| --- | --- |
+| Postfix | **`.`** (member), **`[]`** (subscript). A call **`f(args)`** parses with the callee, then postfix can follow. |
+| Unary | **`-`**, **`!`**, **`not`**, **`*`**, **`&`** (prefix; chains inward). |
+| Cast | **`as`** (chains left-to-right). |
+| Power | **`**`** |
+| Multiplicative | **`*`**, **`/`**, **`%`** |
+| Additive | **`+`**, **`-`** |
+| Comparison | **`==`**, **`!=`**, **`<`**, **`<=`**, **`>`**, **`>=`** |
+| Type test | **`is`**, **`is not`** (right-hand side is a **type**). |
+| Logical | **`and`**, then **`or`** |
+
+**`=`** and compound assignments (**`+=`**, **`-=`**, …) are statements, not expression operators ([Variables](/docs/language/variables)).
+
+**`..`** is the integer **range** literal token.
+
+Comparison and arithmetic operators may resolve to **instance methods** (`__operator_*`) when the typechecker allows it ([Traits & Generics](/docs/language/traits-generics)).
+
+## Built-ins and prelude
+
+Except when compiling **`base.les` itself**, every module **implicitly** loads **`base.les`**. All **exported** names from that file are in scope without **import**.
+
+Common prelude items include: **`print`** (overloads), **`input`**, **`exit`**, **`range`**, generic **`list`**, **`str`**, **`dict`**, **`file`**, **`Iterator`**, **`Iterable`**. The source of truth is **`src/stdlib/base.les`** in the repository.
+
+**`range`:** **`range(stop)`** is **`range(1, stop, 1)`** (default start is **1**). Two- and three-argument forms use an **exclusive** stop and optional step; **step 0** yields no iterations.
+
+Some list and string behavior lowers to **compiler intrinsics** (`__buffer_*`, `__str_*`, …). Prefer **`list`** and **`str`** APIs in normal code.
+
+## Imports
+
+```les
+import "path.les"
+from "helpers.les" import foo, bar
+from math import sqrt
+from time import sleep as delay
+from "helpers.les" import *
+```
+
+- Quoted paths resolve relative to the **importing file** (or stdlib roots for bundled modules).
+- **`from math import …`** uses a **module name** for stdlib discovery.
+
+Only **exported** declarations are visible to importers. Star imports bring every export into scope—watch for name clashes ([Modules & Imports](/docs/language/modules)).
+
+## Name lookup
+
+- **Module scope** holds top-level bindings and imports; **function** / **method** bodies add inner scopes.
+- **Class** fields and methods belong to the class; use **`self`** inside methods.
+- From **`base.les`**, exported **classes** are registered so **`str`**, **`list`**, etc. work in **type** and **value** positions.
+
+## See also
+
+- [Why Lesma](/docs/getting-started/why-lesma) for design context.
+- [Modules & Imports](/docs/language/modules), [Types](/docs/language/types), [FFI](/docs/language/ffi).

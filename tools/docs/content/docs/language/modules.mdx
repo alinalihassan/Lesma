@@ -1,0 +1,42 @@
+---
+title: Modules & Imports
+description: |
+  import and from forms, exports, and organizing programs into multiple files.
+category: Language
+---
+
+Lesma programs split across **modules** (typically one `.les` file per unit of compilation, plus imports).
+
+## Import a file
+
+```les
+import "other.les"
+```
+
+Paths are resolved relative to the file doing the import (and the compiler’s standard-library roots for bundled modules).
+
+## Import symbols
+
+Selective imports:
+
+```les
+from time import sleep as sleep_test
+from "class.les" import Animal
+```
+
+## Star imports
+
+Import every exported name from a module:
+
+```les
+from "helpers.les" import *
+```
+
+## Export
+
+Mark declarations **export** when other modules should see them (`export class`, `export def`, …).
+
+## Next steps
+
+- [Standard Library Overview](/docs/language/stdlib-overview)
+- [CLI Reference](/docs/tooling/cli) for compiling multi-file programs.

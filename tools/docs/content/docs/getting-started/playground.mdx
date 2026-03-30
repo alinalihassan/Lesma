@@ -1,0 +1,23 @@
+---
+title: Playground
+description: |
+  Try Lesma in the browser: editor, LSP, and API-backed execution from the same site as these docs.
+category: First steps
+---
+
+The **Lesma playground** is a web UI (Monaco editor + terminal) backed by a small API server that runs the compiler. On the main deployment it is served **under `/playground/`** on the same origin as this documentation, and linked from the header as [**Playground**](/playground) (embedded in the docs chrome).
+
+## Open the playground
+
+Use the **Playground** item in the site header, or open [**/playground**](/playground) from the hub.
+
+For **local development**, clone the Lesma repository and follow the README to run the documentation
+dev server and the playground API together so **`/playground`** and **`/api`** work on the same origin.
+
+In production, documentation and the playground are served from the **same origin** (docs at `/` and
+the playground under `/playground/`), sharing the **`/api`** routes that run the compiler.
+
+## Next steps
+
+- [Hello World](/docs/getting-started/first-program) for local CLI workflow.
+- [CLI Reference](/docs/tooling/cli).

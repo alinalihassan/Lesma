@@ -1,0 +1,23 @@
+---
+title: Editor & Language Server
+description: |
+  Use the VS Code extension and lesma-lsp for diagnostics, completion, and go-to-definition in .les files.
+category: First steps
+---
+
+## VS Code extension
+
+The Lesma VS Code extension starts the native **`lesma-lsp`** executable and talks to it over the
+standard Language Server Protocol (stdio).
+
+1. Build or install **`lesma-lsp`** (enable the LSP target when you configure CMake) and ensure the
+   binary is on your `PATH`.
+2. Install the Lesma extension in VS Code (from the marketplace when available, or from a `.vsix`
+   supplied with your Lesma install), then open a folder with `.les` files.
+
+You should see diagnostics, completion, and navigation features as you edit.
+
+## Next steps
+
+- [CLI Reference](/docs/tooling/cli) for running programs from the terminal.
+- [Standard Library Overview](/docs/language/stdlib-overview) for modules you can import.

@@ -1,0 +1,11 @@
+{
+  "pages": [
+    "why-lesma",
+    "install",
+    "build-from-source",
+    "tour",
+    "first-program",
+    "editor-lsp",
+    "playground"
+  ]
+}

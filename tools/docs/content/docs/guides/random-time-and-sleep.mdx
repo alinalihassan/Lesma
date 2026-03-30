@@ -1,0 +1,51 @@
+---
+title: Random Numbers, Time, and Sleep
+description: |
+  Inclusive integer ranges with `random`, wall-clock seconds with `time`, and pauses with `sleep` from the `time` module.
+category: Guides
+---
+
+## Random integers in a range
+
+The standard library defines **`random(bound1, bound2)`** with **inclusive** endpoints. The
+arguments may be given in either order; the implementation normalizes the min and max for you.
+
+```les
+let roll: int = random(1, 6)
+print("rolled ${roll}")
+```
+
+Each call re-seeds using the wall clock (`time(0)`), so consecutive rolls in a tight loop still
+vary. If you need reproducible sequences for tests, seed explicitly via the C runtime (for example
+`srand` / `rand`) using `def extern` declarations.
+
+## Wall-clock seconds
+
+Lesma’s **`base`** module exposes C **`time`** for a coarse timestamp. Typical usage passes **`0`**
+to mean “now”, matching the usual C convention:
+
+```les
+def extern time(timer: int) -> int
+
+let t: int = time(0)
+print("epoch seconds: ${t}")
+```
+
+## Sleep
+
+Pauses live in the small **`time`** standard library module. Import **`sleep`** and pass either a
+**`float`** (fractional seconds) or an **`int`** (whole seconds).
+
+```les
+from time import sleep
+
+sleep(0.25)
+print("awake")
+sleep(2)
+print("done")
+```
+
+## Next steps
+
+- [Using Math](/docs/guides/using-math) for `abs`, trig, rounding, and related helpers.
+- [Standard Library Overview](/docs/language/stdlib-overview) for how modules are organized.

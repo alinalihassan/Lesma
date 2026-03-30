@@ -615,10 +615,7 @@ auto Codegen::run() -> void {
   auto instrs = deferStack.top();
   deferStack.pop();
 
-  // Visit all statements
-  for (auto* inst : instrs) {
-    inst->accept(*this);
-  }
+  runDeferredStatements(instrs);
 
   // Define the function bodies (index-based: specializeFunction may append
   // new prototypes while we iterate, e.g. when combine<int> triggers add<int>)

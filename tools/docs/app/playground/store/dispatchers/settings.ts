@@ -1,0 +1,79 @@
+import { setLesmaChromeTheme } from '@/lib/lesma-theme-bridge'
+import config from '@/playground/services/config/config'
+
+import { type Dispatcher } from './utils'
+import { type PanelState, type SettingsState } from '../state'
+import { type StateProvider, type DispatchFn } from '../helpers'
+import {
+  type MonacoParamsChanges,
+  newMonacoParamsChangeAction,
+  newPanelStateChangeAction,
+  newSettingsChangeAction,
+  newToggleThemeAction,
+} from '../actions/settings'
+import { saveWorkspaceState, truncateWorkspaceState } from '../workspace/config'
+
+export function newMonacoParamsChangeDispatcher(changes: MonacoParamsChanges): Dispatcher {
+  return (dispatch: DispatchFn, _: StateProvider) => {
+    const current = config.monacoSettings
+    config.monacoSettings = Object.assign(current, changes)
+    dispatch(newMonacoParamsChangeAction(changes))
+  }
+}
+
+export const newSettingsChangeDispatcher =
+  (changes: Partial<SettingsState>): Dispatcher =>
+  (dispatch: DispatchFn, getState: StateProvider) => {
+    if ('darkMode' in changes) {
+      config.darkThemeEnabled = !!changes.darkMode
+    }
+
+    if ('enableVimMode' in changes) {
+      config.enableVimMode = !!changes.enableVimMode
+    }
+
+    if ('autoSave' in changes) {
+      config.autoSave = !!changes.autoSave
+
+      // Immediately save workspace
+      if (changes.autoSave) {
+        const { workspace } = getState()
+        if (!workspace.snippet?.id) {
+          saveWorkspaceState(workspace)
+        }
+      } else {
+        truncateWorkspaceState()
+      }
+    }
+
+    if ('compilerDebugLexer' in changes) {
+      config.compilerDebugLexer = !!changes.compilerDebugLexer
+    }
+    if ('compilerDebugAst' in changes) {
+      config.compilerDebugAst = !!changes.compilerDebugAst
+    }
+    if ('compilerDebugIr' in changes) {
+      config.compilerDebugIr = !!changes.compilerDebugIr
+    }
+    if ('compilerTimer' in changes) {
+      config.compilerTimer = !!changes.compilerTimer
+    }
+
+    dispatch(newSettingsChangeAction(changes))
+  }
+
+export const dispatchToggleTheme: Dispatcher = (dispatch: DispatchFn, getState: StateProvider) => {
+  const { darkMode } = getState().settings
+  const next = !darkMode
+  setLesmaChromeTheme(next ? 'dark' : 'light')
+  config.darkThemeEnabled = next
+  dispatch(newToggleThemeAction())
+}
+
+export const dispatchPanelLayoutChange =
+  (changes: Partial<PanelState>): Dispatcher =>
+  (dispatch: DispatchFn, getState: StateProvider) => {
+    const { panel } = getState()
+    config.panelLayout = { ...panel, ...changes }
+    dispatch(newPanelStateChangeAction(changes))
+  }

@@ -558,6 +558,8 @@ public:
 class FuncDecl : public Statement {
   std::string name;
   llvm::SMRange nameSpan;
+  /** Span of overload tokens only (`+`, `[]`, …), excluding the `operator` keyword; invalid if N/A. */
+  llvm::SMRange overloadGlyphSpan{};
   std::vector<GenericParamDecl> genericParams;
   std::unique_ptr<TypeExpr> returnType;
   std::vector<std::unique_ptr<Parameter>> parameters;
@@ -570,17 +572,18 @@ class FuncDecl : public Statement {
 
 public:
   FuncDecl(llvm::SMRange loc, std::string name, llvm::SMRange nameSpan,
-           std::vector<GenericParamDecl> genericParams, std::unique_ptr<TypeExpr> returnType,
-           std::vector<std::unique_ptr<Parameter>> parameters, std::unique_ptr<Compound> body,
-           bool varargs, bool exported)
+           llvm::SMRange overloadGlyphSpan, std::vector<GenericParamDecl> genericParams,
+           std::unique_ptr<TypeExpr> returnType, std::vector<std::unique_ptr<Parameter>> parameters,
+           std::unique_ptr<Compound> body, bool varargs, bool exported)
       : Statement(loc), name(std::move(name)), nameSpan(nameSpan),
-        genericParams(std::move(genericParams)), returnType(std::move(returnType)),
-        parameters(std::move(parameters)), body(std::move(body)), varargs(varargs),
-        exported(exported) {}
+        overloadGlyphSpan(overloadGlyphSpan), genericParams(std::move(genericParams)),
+        returnType(std::move(returnType)), parameters(std::move(parameters)), body(std::move(body)),
+        varargs(varargs), exported(exported) {}
   void accept(ASTVisitor& visitor) const override { visitor.visit(this); }
 
   [[nodiscard]] [[maybe_unused]] auto getName() const -> std::string { return name; }
   [[nodiscard]] [[maybe_unused]] auto getNameSpan() const -> llvm::SMRange { return nameSpan; }
+  [[nodiscard]] auto getOverloadGlyphSpan() const -> llvm::SMRange { return overloadGlyphSpan; }
   [[nodiscard]] [[maybe_unused]] auto getGenericParams() const -> std::vector<std::string> {
     std::vector<std::string> result;
     result.reserve(genericParams.size());

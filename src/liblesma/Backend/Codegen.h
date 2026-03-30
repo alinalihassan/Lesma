@@ -251,6 +251,8 @@ protected:
   auto visit(const Pass* node) -> void override;
   auto visit(const Return* node) -> void override;
   auto visit(const Defer* node) -> void override;
+  /** Emit deferred statements in LIFO order (last \c defer registered runs first). */
+  auto runDeferredStatements(std::vector<Statement*> const& stmts) -> void;
   auto visit(const UnimplementedStatement* node) -> void override;
   auto visit(const ExpressionStatement* node) -> void override;
 

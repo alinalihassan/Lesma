@@ -1,0 +1,40 @@
+---
+title: Console Input and Output
+description: |
+  Use `print` for standard output and `input` for line-based reads; use the FFI when you need C library formatting.
+category: Guides
+---
+
+## Printing values
+
+The standard library provides overloaded **`print`** for common types (`str`, `int`, `float`,
+`bool`, and others). Each call adds a trailing newline, similar to many scripting languages.
+
+```les
+let n: int = 42
+print("n is ${n}")
+print(n)
+```
+
+Use **`${expression}`** inside string literals for interpolation.
+
+## Reading a line from the terminal
+
+**`input()`** reads a line from standard input. An optional prompt string is printed first (without
+a newline), matching the usual “prompt then read” pattern.
+
+```les
+let name: str = input("Your name: ")
+print("Hello, ${name}!")
+```
+
+## Formatted output
+
+**`print`** is the usual choice. When you need C-style format strings (fixed width, hex, and so on),
+declare the C function and call it through the [Foreign Function Interface](/docs/language/ffi)—for
+example `printf` with a format string and matching arguments.
+
+## Next steps
+
+- [Reading and Writing Files](/docs/guides/working-with-files) for disk I/O with the `file` type.
+- [Literals & Expressions](/docs/language/literals) for strings and interpolation details.

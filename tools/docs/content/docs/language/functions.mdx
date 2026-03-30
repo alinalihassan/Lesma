@@ -1,0 +1,63 @@
+---
+title: Functions
+description: |
+  Defining and calling functions, parameters, return types, and recursion.
+category: Language
+---
+
+Functions bundle behavior with a typed interface.
+
+## Definition
+
+Define a function with `def`, parameters, an optional return type, and a body:
+
+```les
+def add(a: int, b: int) -> int
+    return a + b
+```
+
+## Calls
+
+Call with parentheses and comma-separated arguments. Calls can nest:
+
+```les
+print("${add(1, add(2, 3))}")
+```
+
+## Recursion
+
+Functions may call themselves:
+
+```les
+def countdown(n: int) -> void
+    if n <= 0
+        return
+    print(n)
+    countdown(n - 1)
+```
+
+## Default arguments
+
+Parameters may provide defaults (the default must match the declared type):
+
+```les
+def bump(n: int = 0) -> int
+    return n + 1
+
+print("${bump()}")
+print("${bump(5)}")
+```
+
+## `pass`
+
+**`pass`** is a no-op statement. It is useful as a placeholder where the grammar requires a body (for example an empty branch, a stub method, or a temporary definition).
+
+```les
+def todo()
+    pass
+```
+
+## Next steps
+
+- [Control Flow](/docs/language/control-flow)
+- [Modules](/docs/language/modules) to split functions across files.

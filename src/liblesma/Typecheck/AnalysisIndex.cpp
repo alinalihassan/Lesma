@@ -131,7 +131,8 @@ auto appendIndexedOccurrence(AnalysisIndex& index, const std::string& name,
                              bool isTypePosition, bool isMemberAccess, unsigned modifiers,
                              std::optional<IndexedTokenKind> fallbackTokenKind,
                              const Value* resolvedSymbol = nullptr,
-                             std::optional<IndexedDeclarationIdentity> declaration = std::nullopt)
+                             std::optional<IndexedDeclarationIdentity> declaration = std::nullopt,
+                             std::optional<llvm::SMRange> semanticHighlightSpan = std::nullopt)
     -> void {
   if (!span.isValid()) {
     return;
@@ -139,10 +140,14 @@ auto appendIndexedOccurrence(AnalysisIndex& index, const std::string& name,
   if (!declaration.has_value()) {
     declaration = declarationIdentityFromValue(resolvedSymbol);
   }
+  if (semanticHighlightSpan.has_value() && !semanticHighlightSpan->isValid()) {
+    semanticHighlightSpan = std::nullopt;
+  }
   index.symbolOccurrences.push_back(IndexedSymbolOccurrence{
       .name = name,
       .dotBase = std::move(dotBase),
       .span = span,
+      .semanticHighlightSpan = std::move(semanticHighlightSpan),
       .declaration = std::move(declaration),
       .isTypePosition = isTypePosition,
       .isMemberAccess = isMemberAccess,
@@ -255,10 +260,17 @@ auto collectIndexFromFuncLike(const FuncLike* node, AnalysisIndex& index, bool i
     return;
   }
   FuncLikeDeclView const view = makeFuncLikeDeclView(node);
+  std::optional<llvm::SMRange> semanticHighlightSpan;
+  if (auto const* funcDecl = dynamic_cast<const FuncDecl*>(node)) {
+    llvm::SMRange const g = funcDecl->getOverloadGlyphSpan();
+    if (g.isValid()) {
+      semanticHighlightSpan = g;
+    }
+  }
   appendIndexedOccurrence(index, view.name, std::nullopt, view.nameSpan, false, false,
                           analysis_index_modifier::DECLARATION,
                           inClass ? IndexedTokenKind::Method : IndexedTokenKind::Function,
-                          view.resolvedSymbol);
+                          view.resolvedSymbol, std::nullopt, semanticHighlightSpan);
   if (view.genericParams != nullptr) {
     for (const GenericParamDecl& genericParam : *view.genericParams) {
       appendIndexedOccurrence(

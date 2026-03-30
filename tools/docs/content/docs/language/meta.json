@@ -1,0 +1,18 @@
+{
+  "pages": [
+    "literals",
+    "variables",
+    "types",
+    "ffi",
+    "enums",
+    "tuples",
+    "functions",
+    "control-flow",
+    "classes",
+    "comments",
+    "traits-generics",
+    "modules",
+    "stdlib-overview",
+    "reference"
+  ]
+}

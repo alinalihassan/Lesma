@@ -1032,6 +1032,7 @@ auto Parser::parseFunctionDeclaration() -> std::unique_ptr<Statement> {
 
   std::string functionName;
   llvm::SMRange functionNameSpan;
+  llvm::SMRange overloadGlyphSpan{};
   std::optional<TokenType> pendingOverloadOperatorToken;
   if (advanceIfMatchAny<TokenType::OPERATOR>()) {
     if (!inClass) {
@@ -1041,11 +1042,14 @@ auto Parser::parseFunctionDeclaration() -> std::unique_ptr<Statement> {
     llvm::SMLoc operatorStart = previous()->getStart();
     llvm::SMLoc operatorEnd = previous()->getEnd();
     if (advanceIfMatchAny<TokenType::LEFT_SQUARE>()) {
+      llvm::SMLoc const bracketStart = previous()->getStart();
       consume(TokenType::RIGHT_SQUARE, "Expected ']' after operator '['");
       operatorEnd = previous()->getEnd();
+      overloadGlyphSpan = llvm::SMRange{bracketStart, operatorEnd};
       functionName = std::string{OperatorUtils::SUBSCRIPT_GET_NAME};
       if (advanceIfMatchAny<TokenType::EQUAL>()) {
         operatorEnd = previous()->getEnd();
+        overloadGlyphSpan = llvm::SMRange{bracketStart, operatorEnd};
         functionName = std::string{OperatorUtils::SUBSCRIPT_SET_NAME};
       }
     } else {
@@ -1056,6 +1060,7 @@ auto Parser::parseFunctionDeclaration() -> std::unique_ptr<Statement> {
         return nullptr;
       }
       operatorEnd = opToken->getEnd();
+      overloadGlyphSpan = opToken->span;
       pendingOverloadOperatorToken = opToken->type;
     }
     functionNameSpan = llvm::SMRange{operatorStart, operatorEnd};
@@ -1124,9 +1129,10 @@ auto Parser::parseFunctionDeclaration() -> std::unique_ptr<Statement> {
   isExported = savedExported;
   auto funcEnd = body ? body->getEnd() : returnType->getEnd();
 
-  return std::make_unique<FuncDecl>(
-      llvm::SMRange{loc.Start, funcEnd}, functionName, functionNameSpan, std::move(genericParams),
-      std::move(returnType), std::move(parameters), std::move(body), false, funcExported);
+  return std::make_unique<FuncDecl>(llvm::SMRange{loc.Start, funcEnd}, functionName,
+                                    functionNameSpan, overloadGlyphSpan, std::move(genericParams),
+                                    std::move(returnType), std::move(parameters), std::move(body),
+                                    false, funcExported);
 }
 
 auto Parser::parseExport() -> std::unique_ptr<Statement> {
@@ -1394,9 +1400,9 @@ auto Parser::parseTraitMethodDeclaration() -> std::unique_ptr<FuncDecl> {
     funcEndLoc = returnType->getEnd();
   }
   return std::make_unique<FuncDecl>(llvm::SMRange{loc.Start, funcEndLoc}, functionName,
-                                    functionNameSpan, std::vector<GenericParamDecl>{},
-                                    std::move(returnType), std::move(parameters), std::move(body),
-                                    false, false);
+                                    functionNameSpan, llvm::SMRange{},
+                                    std::vector<GenericParamDecl>{}, std::move(returnType),
+                                    std::move(parameters), std::move(body), false, false);
 }
 
 auto Parser::parseTrait() -> std::unique_ptr<Statement> {

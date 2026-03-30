@@ -388,8 +388,13 @@ auto formatHoverContent(lesma::Value* value, lesma::SymbolTable* rootScope) -> s
   }
 
   switch (value->getCategory()) {
-  case lesma::ValueCategory::CALLABLE_SYMBOL:
-    return "**" + name + "**\n\nType: `" + formatCallableHoverType(type, rootScope) + "`";
+  case lesma::ValueCategory::CALLABLE_SYMBOL: {
+    std::string headline = name;
+    if (auto spell = lesma::OperatorUtils::surfaceSpellingForMangledOperator(name)) {
+      headline = std::string(*spell);
+    }
+    return "**" + headline + "**\n\nType: `" + formatCallableHoverType(type, rootScope) + "`";
+  }
   case lesma::ValueCategory::TYPE_SYMBOL: {
     if (type != nullptr && type->is(lesma::BaseType::TY_GENERIC)) {
       return "type parameter `" + name + "`";
@@ -2263,20 +2268,26 @@ auto collectSemanticTokens(AnalysisResult& analysisResult, unsigned bufferId)
                                      occurrence.isTypePosition, occurrence.dotBase);
     if (std::optional<ResolvedSymbol> resolved = resolveCanonicalSymbolAtCursor(
             analysisResult, range.start.line, range.start.character, id)) {
+      llvm::SMRange const highlightSpan =
+          occurrence.semanticHighlightSpan.value_or(occurrence.span);
       appendRawTokenFromSpan(
-          occurrence.span,
+          highlightSpan,
           semanticTokenTypeForResolved(*resolved, id.isTypePosition, occurrence.isMemberAccess),
           semanticTokenModifiersForResolved(*resolved, range, occurrence.modifiers));
       continue;
     }
     if (occurrence.fallbackTokenKind == lesma::IndexedTokenKind::EnumMember) {
-      appendRawTokenFromSpan(occurrence.span, SemanticTokenType::EnumMember, occurrence.modifiers);
+      llvm::SMRange const highlightSpan =
+          occurrence.semanticHighlightSpan.value_or(occurrence.span);
+      appendRawTokenFromSpan(highlightSpan, SemanticTokenType::EnumMember, occurrence.modifiers);
       continue;
     }
     if (occurrence.fallbackTokenKind.has_value()) {
-      appendRawTokenFromSpan(occurrence.span,
-                             semanticTokenTypeFromIndexedKind(*occurrence.fallbackTokenKind),
-                             occurrence.modifiers);
+      llvm::SMRange const highlightSpan =
+          occurrence.semanticHighlightSpan.value_or(occurrence.span);
+      appendRawTokenFromSpan(
+          highlightSpan, semanticTokenTypeFromIndexedKind(*occurrence.fallbackTokenKind),
+          occurrence.modifiers);
     }
   }
 
@@ -2495,8 +2506,12 @@ auto collectDocumentSymbols(const AnalysisResult& result) -> std::vector<::lsp::
     }
     if (auto* func = dynamic_cast<lesma::FuncDecl*>(stmt)) {
       lesma::Value* value = func->getResolvedSymbol();
+      std::string symName = func->getName();
+      if (auto spell = lesma::OperatorUtils::surfaceSpellingForMangledOperator(symName)) {
+        symName = std::string(*spell);
+      }
       symbols.push_back(makeDocumentSymbol(
-          func->getName(), ::lsp::SymbolKind::Function,
+          symName, ::lsp::SymbolKind::Function,
           smRangeToLspRange(result.sourceMgr.get(), result.mainBufferId, funcDeclFullSpan(func)),
           smRangeToLspRange(result.sourceMgr.get(), result.mainBufferId, func->getNameSpan()),
           value != nullptr && value->getType() != nullptr &&
@@ -2555,8 +2570,12 @@ auto collectDocumentSymbols(const AnalysisResult& result) -> std::vector<::lsp::
       }
       for (lesma::FuncDecl* method : klass->getMethods()) {
         lesma::Value* value = method->getResolvedSymbol();
+        std::string methodName = method->getName();
+        if (auto spell = lesma::OperatorUtils::surfaceSpellingForMangledOperator(methodName)) {
+          methodName = std::string(*spell);
+        }
         children.push_back(makeDocumentSymbol(
-            method->getName(), ::lsp::SymbolKind::Method,
+            methodName, ::lsp::SymbolKind::Method,
             smRangeToLspRange(result.sourceMgr.get(), result.mainBufferId,
                               funcDeclFullSpan(method)),
             smRangeToLspRange(result.sourceMgr.get(), result.mainBufferId, method->getNameSpan()),
@@ -2713,8 +2732,12 @@ auto main() -> int {
           ::lsp::OneOf<bool, ::lsp::DeclarationOptions, ::lsp::DeclarationRegistrationOptions>>(
           ::lsp::OneOf<bool, ::lsp::DeclarationOptions, ::lsp::DeclarationRegistrationOptions>{
               true});
+      // Letters are not listed here: listing a–z would request completion on every identifier
+      // keystroke. Import paths live in strings; VS Code/Cursor need editor.quickSuggestions.strings
+      // (defaults in tools/vscode/package.json) so typing inside "…" still triggers completion.
       caps.completionProvider = ::lsp::Opt<::lsp::CompletionOptions>(::lsp::CompletionOptions{
-          .triggerCharacters = ::lsp::Opt<::lsp::Array<::lsp::String>>({std::string(".")}),
+          .triggerCharacters = ::lsp::Opt<::lsp::Array<::lsp::String>>(
+              {std::string("\""), std::string("/"), std::string(".")}),
       });
       caps.signatureHelpProvider =
           ::lsp::Opt<::lsp::SignatureHelpOptions>(::lsp::SignatureHelpOptions{
@@ -2943,12 +2966,16 @@ auto main() -> int {
           return withAnalyzedDocument<::lsp::TextDocument_CompletionResult>(
               params.textDocument.uri, docStore, analysisCache,
               [&](AnalysisResult& result) -> ::lsp::TextDocument_CompletionResult {
-                std::vector<::lsp::CompletionItem> items = lesma::lsp_srv::completionItems(
+                lesma::lsp_srv::CompletionOutcome outcome = lesma::lsp_srv::completionItems(
                     result, params.position.line, params.position.character);
-                if (items.empty()) {
+                if (outcome.items.empty() && !outcome.isIncomplete) {
                   return {};
                 }
-                return {items};
+                if (outcome.isIncomplete) {
+                  return ::lsp::CompletionList{.isIncomplete = true,
+                                               .items = std::move(outcome.items)};
+                }
+                return {outcome.items};
               });
         });
 

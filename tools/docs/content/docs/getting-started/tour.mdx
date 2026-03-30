@@ -1,0 +1,85 @@
+---
+title: A Tour of Lesma
+description: |
+  A single, commented example that shows how a Lesma program is structured: no main entry point,
+  scripts, types, classes, imports, and control flow.
+category: First steps
+---
+
+Lesma feels familiar if you have used imperative or object-oriented languages before. The biggest
+mental shift is **how a program starts**: there is **no `main` function**. The statements and
+declarations at the **top level of the file you run** execute in order, and that is your program’s
+entry.
+
+Below is one file that ties together several ideas. You can paste it into the
+[Playground](/docs/getting-started/playground) or save it as `demo.les` and run `lesma run demo.les`.
+
+## Example: a small script
+
+```les
+# Standard library modules ship with the compiler. Pull in only what you need.
+from math import ceil
+from time import sleep
+
+# `let` is an immutable binding; `var` is mutable (see Variables in the language section).
+let title: str = "Lesma"
+var total: int = 0
+
+# Functions use `def`, parameters, and an optional return type. `void` means no meaningful value.
+def greet(who: str) -> void
+    print("Hello, ${who}!")
+
+# Classes group state and methods. `self` refers to the current instance.
+class Counter
+    var n: int = 0
+
+    def new()
+        pass
+
+    def add(amount: int)
+        self.n = self.n + amount
+
+    def value() -> int
+        return self.n
+
+# --- Top-level execution starts here (no main). ---
+
+greet(title)
+
+var c = Counter()
+# `range` is from the built-in environment (same family of helpers as `print`).
+for i in range(1, 4)
+    c.add(i)
+    total = total + i
+
+print("Loop ran; counter holds ${c.value()}, sum of indices is ${total}")
+
+# Stdlib `math` wraps common numeric helpers from the C runtime.
+let x: float = 3.7
+print("ceil(${x}) = ${ceil(x)}")
+
+# `sleep` comes from the `time` module (seconds as float or int).
+sleep(0.001)
+print("Done.")
+```
+
+## What to notice
+
+- **No `main`.** Running a file runs its top-level code. You usually put setup, then calls, then
+  checks in one flow—like a script.
+- **Types.** You can annotate bindings and function signatures (`str`, `int`, `float`, `void`, …).
+  The compiler checks them before generating code.
+- **Strings.** Double-quoted literals support **`${expression}`** interpolation, as in
+  `"Hello, ${name}!"`.
+- **Imports.** `from math import ceil` and `from time import sleep` bring symbols from stdlib
+  modules into scope. You can also use `import "other.les"` for your own files (see
+  [Modules & Imports](/docs/language/modules)).
+- **Classes.** Methods take an explicit `self` parameter in the source; `new()` is the constructor
+  pattern used across the language docs and tests.
+- **Control flow.** `for i in range(...)` iterates over integer ranges; `if` / `while` / `else` work
+  as you would expect ([Control Flow](/docs/language/control-flow)).
+
+## Next steps
+
+- [Hello World](/docs/getting-started/first-program) for the smallest CLI workflow.
+- [Literals & Expressions](/docs/language/literals) and [Functions](/docs/language/functions) to go deeper.

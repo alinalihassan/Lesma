@@ -1,0 +1,40 @@
+.app-Console {
+  flex: 1 1 0%;
+  min-width: 0;
+  min-height: 0;
+  width: 100%;
+  position: relative;
+  box-sizing: border-box;
+  overflow: hidden;
+
+  --terminal-padding-x: 15px;
+}
+
+.app-Console__xterm {
+  position: absolute;
+  inset: 0;
+}
+
+/** Fix white background in viewport **/
+.app-Console__xterm .xterm-screen {
+  background: var(--terminal-bg);
+}
+
+.app-Console .terminal > * {
+  padding: 0 var(--terminal-padding-x);
+}
+
+/**
+Copy button for touch devices
+ */
+.app-Console__copy {
+  position: absolute;
+  display: block;
+  z-index: 999;
+  top: 0;
+  right: var(--terminal-padding-x);
+}
+
+.app-Console__copy[hidden] {
+  display: none;
+}

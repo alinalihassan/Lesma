@@ -1,0 +1,30 @@
+---
+title: Standard Library Overview
+description: |
+  Core modules that ship with the compiler: base, math, and time.
+category: Language
+---
+
+The **standard library** ships with the toolchain as Lesma modules. You load them with the same `import` / `from` syntax you use for your own files.
+
+## Core modules
+
+- **`base`** — built-in types and helpers (`list`, `dict`, `str`, `range`, `print`, `file`, `random`, …).
+- **`math`** — numeric helpers (`abs`, `sin`, `ceil`, …).
+- **`time`** — `sleep` (seconds as `int` or `float`).
+
+## Typical imports
+
+```les
+from time import sleep
+from math import ceil
+
+print("${ceil(3.2)}")
+sleep(0.01)
+```
+
+## Next steps
+
+- [Reading and Writing Files](/docs/guides/working-with-files), [Console Input and Output](/docs/guides/console-io), [Using Math](/docs/guides/using-math), and [Random, Time, and Sleep](/docs/guides/random-time-and-sleep) for hands-on recipes.
+- [Modules & Imports](/docs/language/modules) for paths and exports.
+- [CLI Reference](/docs/tooling/cli) to run programs that import stdlib modules.

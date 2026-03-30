@@ -1,0 +1,98 @@
+---
+title: Control Flow
+description: |
+  Conditionals, loops, break and continue, `defer`, and terminal nodes (`return`, `exit`).
+category: Language
+---
+
+## Conditionals
+
+`if` / `else` chains pick a branch. You can return early from a function:
+
+```les
+def sign(n: int) -> str
+    if n < 0
+        return "neg"
+    else if n > 0
+        return "pos"
+    return "zero"
+```
+
+## Loops
+
+`while` runs while a condition holds. `for` / `in` iterates any **iterable** (for example `range` or a `list`):
+
+```les
+var i: int = 0
+while i < 3
+    print(i)
+    i = i + 1
+
+for j in range(1, 4)
+    print("${j}")
+```
+
+## Break and continue
+
+`break` leaves the innermost loop; `continue` skips to the next iteration:
+
+```les
+for k in range(1, 10)
+    if k == 3
+        continue
+    if k == 7
+        break
+    print("${k}")
+```
+
+## Terminal nodes
+
+A **terminal node** is a statement that **ends execution along the current path**. The two you will use most often are **`return`**, which leaves the **current function** (and yields a value when the function’s return type is not `void`), and **`exit(code)`**, which stops the **whole process** and sets the program’s exit status for the shell.
+
+`return` is what makes early exits in `if` branches work (see [Conditionals](#conditionals)). In a `void` function you can write a bare `return` to leave immediately:
+
+```les
+def setup() -> void
+    if not ready
+        return
+    run()
+```
+
+Call **`exit(code)`** when the program should signal success or failure to the environment (conventionally `0` for success, non-zero for failure):
+
+```les
+if bad_condition
+    exit(1)
+```
+
+## Defer
+
+**`defer`** takes a single statement and schedules it when the **current function** exits (every `return` path and fall-through). You can **`defer`** at **module** top level too; it runs when that initial codegen pass finishes (see the [language reference](/docs/language/reference)).
+
+Deferred statements run in **LIFO** order (the **last** `defer` registered runs **first**). They run **before** the **`return`** expression is evaluated, so cleanup still sees the function’s locals.
+
+A common pattern with C APIs is to acquire a handle, **`defer`** the matching release, then **`return`** early on errors without leaking. The standard library treats `FILE *` from `fopen` as an opaque **`\*int8`** handle—the same representation used in **`base.les`** for file I/O:
+
+```les
+def extern fopen(path: cstr, mode: cstr) -> *int8
+def extern fclose(stream: *int8) -> int
+def extern fgetc(stream: *int8) -> int
+
+def first_byte(path: cstr) -> int
+    var fp: *int8 = fopen(path, "rb")
+    if fp == 0
+        return -1
+    defer fclose(fp)
+    let b: int = fgetc(fp)
+    return b
+```
+
+Only register **`defer fclose(fp)`** after **`fopen`** succeeds (`fp != 0`); closing a null pointer is undefined behavior in C.
+
+See [Foreign Function Interface](/docs/language/ffi) for **`def extern`** details, and the [language reference](/docs/language/reference) keyword list for a short summary of **`defer`** semantics.
+
+## Next steps
+
+- [Functions](/docs/language/functions)
+- [Classes](/docs/language/classes)
+- [Foreign Function Interface](/docs/language/ffi)

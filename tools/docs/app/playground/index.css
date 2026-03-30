@@ -1,0 +1,13 @@
+/* Scoped to `.lesma-playground-root` only so client-side navigation back to docs does not keep
+   playground body/html typography or layout overrides on the rest of the site. */
+.lesma-playground-root {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+}
+
+.lesma-playground-root code {
+  font-family: 'Source Code Pro', Menlo, Monaco, Consolas, 'Courier New', monospace;
+}

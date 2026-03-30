@@ -353,9 +353,7 @@ auto Codegen::defineFunction(lesma::Value* value, const FuncDecl* node, Value* c
   deferStack.pop();
 
   if (!isReturn) {
-    for (auto* inst : instrs) {
-      inst->accept(*this);
-    }
+    runDeferredStatements(instrs);
   }
 
   // Check for well-formness of all BBs. In particular, look for
@@ -1182,9 +1180,7 @@ auto Codegen::defineSynthesizedClassConstructor(lesma::Value* ctorSym, const Cla
   auto instrs = deferStack.top();
   deferStack.pop();
 
-  for (auto* inst : instrs) {
-    inst->accept(*this);
-  }
+  runDeferredStatements(instrs);
 
   for (BasicBlock& bb : *f) {
     Instruction* terminator = bb.getTerminator();
@@ -1730,10 +1726,7 @@ auto Codegen::visit(const Return* node) -> void {
     throw CodegenError(node->getSpan(), "Return statements are not allowed at top-level");
   }
 
-  // Execute all deferred statements
-  for (auto* inst : deferStack.top()) {
-    inst->accept(*this);
-  }
+  runDeferredStatements(deferStack.top());
 
   isReturn = true;
 
@@ -1782,6 +1775,12 @@ auto Codegen::visit(const Return* node) -> void {
 }
 
 auto Codegen::visit(const Defer* node) -> void { deferStack.top().push_back(node->getStatement()); }
+
+auto Codegen::runDeferredStatements(std::vector<Statement*> const& stmts) -> void {
+  for (auto it = stmts.rbegin(); it != stmts.rend(); ++it) {
+    (*it)->accept(*this);
+  }
+}
 
 auto Codegen::visit(const UnimplementedStatement* node) -> void {
   throw CodegenError(node->getSpan(), "{}", node->getMessage());

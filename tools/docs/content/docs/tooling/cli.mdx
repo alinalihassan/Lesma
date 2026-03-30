@@ -1,0 +1,70 @@
+---
+title: CLI Reference
+description: |
+  lesma run, lesma compile, flags, optimization, and debugging options.
+category: Tooling
+---
+
+The **`lesma`** executable is the user-facing compiler driver. Every invocation uses a **subcommand** (`run` or `compile`).
+
+## Global flags
+
+These apply before the subcommand:
+
+| Flag | Description |
+| --- | --- |
+| `-h`, `--help` | Print help and exit (also available on each subcommand). |
+| `-v`, `--version` | Print the Lesma version and exit. |
+| `-s`, `--subcommands` | Expand help to include each subcommand’s flags (use with `--help`). |
+
+Example:
+
+```bash
+lesma --help
+lesma -s run --help
+```
+
+## `lesma run`
+
+JIT-compile and run a `.les` file (typical development flow).
+
+**Usage:** `lesma run [options] <file>`
+
+| Option | Description |
+| --- | --- |
+| `<file>` | Lesma source file (required). |
+| `-O`, `--opt <n>` | LLVM optimization level **`0`–`3`** (default **`3`**). |
+| `-g`, `--debug-info` | Emit LLVM debug metadata (use with `-d ir` to print IR with debug; best with **`-O0`**). |
+| `--no-warnings` | Do not print compiler warnings to **stderr**. |
+| `-d`, `--debug [what…]` | Compiler debug output. Values: **`lexer`**, **`ast`**, **`ir`**, **`all`**. May be repeated; if `-d` is given with **no** values, it defaults to **`all`**. |
+| `-t`, `--timer` | Enable compiler timing output. |
+
+```bash
+lesma run path/to/file.les
+lesma run -O0 path/to/file.les
+```
+
+## `lesma compile`
+
+Emit an object file for linking.
+
+**Usage:** `lesma compile [options] <file>`
+
+| Option | Description |
+| --- | --- |
+| `<file>` | Lesma source file (required). |
+| `-o`, `--output <path>` | Output object filename (default **`output`**). |
+| `-O`, `--opt <n>` | LLVM optimization level **`0`–`3`** (default **`3`**). |
+| `-g`, `--debug-info` | Emit **DWARF** debug info in the object file (and LLVM debug metadata; use with **`-O0`** for sensible debugging). |
+| `--no-warnings` | Do not print compiler warnings to **stderr**. |
+| `-d`, `--debug [what…]` | Same as **`run`**: **`lexer`**, **`ast`**, **`ir`**, **`all`**; bare **`-d`** means **`all`**. |
+| `-t`, `--timer` | Enable compiler timing output. |
+
+```bash
+lesma compile path/to/file.les -o out.o
+```
+
+## Next steps
+
+- [Build From Source](/docs/getting-started/build-from-source) if you are compiling Lesma yourself.
+- [Hello World](/docs/getting-started/first-program) for a minimal edit–run loop.

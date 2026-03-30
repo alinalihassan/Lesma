@@ -1,0 +1,68 @@
+---
+title: Build From Source
+description: |
+  Install toolchain dependencies, clone Lesma, configure with CMake, and build the CLI, tests, and lesma-lsp.
+category: First steps
+---
+
+You need a **C++23** toolchain (Clang from the same generation as your **LLVM** libraries is recommended). Lesma targets **LLVM 21**.
+
+## Install dependencies
+
+**macOS (Homebrew):**
+
+```bash
+brew install cmake ninja llvm@21 lld@21
+export LLVM_DIR="$(brew --prefix llvm@21)/lib/cmake/llvm"
+export LLD_DIR="$(brew --prefix lld@21)/lib/cmake/lld"
+```
+
+**Linux:** Install **CMake 3.24+**, **Ninja**, **LLVM 21**, and **LLD** from your distribution or [apt.llvm.org](https://apt.llvm.org/). Set **`LLVM_DIR`** and **`LLD_DIR`** to the CMake package config directories for those installs if `find_package` does not locate them on its own.
+
+## Clone the repository
+
+CMake presets use **vcpkg** from the **`vcpkg/`** directory in this repo (for libraries such as **fmt** and **CLI11**—nothing extra to install beyond cloning). Clone with submodules so that tree is present, then bootstrap it once:
+
+```bash
+git clone --recurse-submodules https://github.com/alinalihassan/Lesma
+cd Lesma
+```
+
+If you already cloned without submodules:
+
+```bash
+git submodule update --init --recursive
+cd vcpkg && ./bootstrap-vcpkg.sh && cd ..
+```
+
+## Configure and build
+
+Using the Debug preset (recommended):
+
+```bash
+cmake --preset Debug
+cmake --build --preset Debug
+```
+
+Enable the CLI, tests, and LSP as needed with CMake cache variables such as `LESMA_BUILD_CLI`,
+`LESMA_BUILD_TESTS`, and `LESMA_BUILD_LSP`.
+
+Typical binaries:
+
+- `build/Debug/lesma` (or `build/lesma` depending on generator)
+- `build/Debug/lesma-lsp` when the LSP target is enabled
+
+## Validate
+
+After building, check that the tools are on your path:
+
+```bash
+lesma --version
+```
+
+The CMake presets also include an optional **AddressSanitizer** configuration (`Debug_Asan`) if you need
+memory-error checking while developing the toolchain.
+
+## Next steps
+
+- [CLI Reference](/docs/tooling/cli) for `lesma run` / `compile`.

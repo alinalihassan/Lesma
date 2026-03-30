@@ -1,0 +1,37 @@
+---
+title: Hello World
+description: |
+  Create a minimal Lesma source file and run it with the lesma CLI.
+category: First steps
+---
+
+## Create and run
+
+Create `hello.les`:
+
+```les
+print("Hello World")
+```
+
+Run it:
+
+```bash
+lesma run hello.les
+```
+
+`print` is part of the standard environment loaded for every program.
+
+## Compile to an object file
+
+To emit LLVM-backed object code instead of using the JIT:
+
+```bash
+lesma compile hello.les -o hello.o
+```
+
+Exact linking steps depend on your platform; the compiler focuses on generating objects and driving LLVM.
+
+## Next steps
+
+- [Variables](/docs/language/variables) and [Functions](/docs/language/functions).
+- [Playground](/docs/getting-started/playground) to try snippets in the browser.

@@ -1,0 +1,50 @@
+---
+title: Literals & Expressions
+description: |
+  Numeric, string, and boolean literals, operators, and expression-oriented evaluation.
+category: Language
+---
+
+Lesma programs are built from **expressions** that evaluate to typed values. Literals are the simplest expressions.
+
+## Numbers
+
+Integer and floating-point literals behave as you would expect; types are inferred in context or annotated explicitly (see [Types](/docs/language/types)).
+
+## Strings
+
+String literals use double quotes. You can splice values into a string with **`${…}`**:
+
+```les
+let name: str = "Lesma"
+print("Hello, ${name}!")
+let n: int = 7
+print("n=${n}")
+```
+
+For calling C libraries and using nul-terminated string parameters, see [Foreign Function Interface](/docs/language/ffi).
+
+## Booleans
+
+Boolean literals `true` and `false` participate in logical operators (see [Control Flow](/docs/language/control-flow)).
+
+## Operators
+
+Arithmetic (`+`, `-`, `*`, `/`, `%`), comparison (`==`, `!=`, `<`, `>`), and logical combinations (`and`, `or`, `not`) combine expressions as you would expect.
+
+## List and dict literals
+
+You can construct **`list<T>`** and **`dict<K, V>`** values with bracket literals; the compiler infers element types when possible.
+
+```les
+let nums = [1, 2, 3]
+let table: dict<str, int> = {"a": 1, "b": 2}
+```
+
+See the [standard library overview](/docs/language/stdlib-overview) for types like `list` and `dict` and how they are used in practice.
+
+## Next steps
+
+- [Variables](/docs/language/variables) to bind names to values.
+- [Tuples](/docs/language/tuples) for fixed-size heterogeneous bundles.
+- [Functions](/docs/language/functions) to abstract computation.

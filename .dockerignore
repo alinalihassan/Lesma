@@ -15,7 +15,7 @@ build/
 **/Debug/
 **/Release/
 tools/playground/node_modules/
-tools/playground/apps/client/node_modules/
+tools/playground/dist/
 **/.DS_Store
 
 # vcpkg host caches (large; not needed in the image — vcpkg populates these in-container)

@@ -39,7 +39,7 @@
         },
         {
           "name": "keyword.control.lesma",
-          "match": "\\b(if|else|while|for|in|break|continue|pass|return|defer|let|var)\\b"
+          "match": "\\b(if|else|while|for|in|break|continue|pass|return|defer|let|var|operator)\\b"
         },
         {
           "name": "keyword.module.lesma",
@@ -47,7 +47,7 @@
         },
         {
           "name": "keyword.other.lesma",
-          "match": "\\b(export|class|enum|type|def|extern|operator|trait|impl)\\b"
+          "match": "\\b(export|class|enum|type|def|extern|trait|impl)\\b"
         },
         {
           "name": "keyword.implicit.lesma",

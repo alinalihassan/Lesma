@@ -1,0 +1,51 @@
+---
+title: Classes & OOP
+description: |
+  Classes, constructors, fields, methods, inheritance, and object construction.
+category: Language
+---
+
+Lesma is **object-oriented**: you model state and behavior with **classes**, construct instances with **`new`**, and call methods on **objects**.
+
+## Minimal class
+
+```les
+export class Animal
+    var x: int
+
+    def new()
+        self.x = 101
+
+    def getX() -> int
+        return self.x
+
+var z = Animal()
+```
+
+## Fields and methods
+
+Classes hold **fields** (`var`) and **methods** (`def`). `self` refers to the receiver.
+
+## Inheritance
+
+A subclass lists its base class after a colon. Call **`super.new(self, …)`** from the subclass constructor when the base type defines `new`:
+
+```les
+class Base
+    var k: int
+
+    def new(n: int)
+        self.k = n
+
+class Derived: Base
+    def new(n: int)
+        super.new(self, n)
+
+var d = Derived(7)
+```
+
+## Next steps
+
+- [Comments](/docs/language/comments) for how leading `#` lines become LSP documentation on declarations.
+- [Traits & Generics](/docs/language/traits-generics)
+- [Modules](/docs/language/modules)

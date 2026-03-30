@@ -3,10 +3,13 @@
 #include <algorithm>
 #include <array>
 #include <cctype>
+#include <filesystem>
 #include <optional>
 #include <sstream>
 #include <string_view>
 #include <unordered_set>
+
+#include <lsp/types.h>
 
 #include "llvm/ADT/StringRef.h"
 #include "llvm/Support/SourceMgr.h"
@@ -63,6 +66,288 @@ auto isIdentChar(char c) -> bool {
 
 auto startsWith(const std::string& text, const std::string& prefix) -> bool {
   return prefix.empty() || text.rfind(prefix, 0) == 0;
+}
+
+auto isWordCharForImportContext(char c) -> bool {
+  return std::isalnum(static_cast<unsigned char>(c)) != 0 || c == '_';
+}
+
+/** True if \p before (trimmed on the right) ends with \p keyword as a whole word. */
+auto endsWithImportKeyword(llvm::StringRef before, llvm::StringRef keyword) -> bool {
+  before = before.rtrim(" \t\r");
+  if (before.size() < keyword.size()) {
+    return false;
+  }
+  if (!before.ends_with(keyword)) {
+    return false;
+  }
+  if (before.size() == keyword.size()) {
+    return true;
+  }
+  return !isWordCharForImportContext(before[before.size() - keyword.size() - 1U]);
+}
+
+/** True if \p offset is inside a double-quoted string (handles \\ and \"). */
+auto isInsideDoubleQuotedString(llvm::StringRef text, unsigned offset) -> bool {
+  bool inString = false;
+  bool escape = false;
+  for (unsigned i = 0; i < offset && i < text.size(); ++i) {
+    char const c = text[i];
+    if (escape) {
+      escape = false;
+      continue;
+    }
+    if (inString) {
+      if (c == '\\') {
+        escape = true;
+        continue;
+      }
+      if (c == '"') {
+        inString = false;
+      }
+      continue;
+    }
+    if (c == '"') {
+      inString = true;
+    }
+  }
+  return inString;
+}
+
+/** If \p offset is inside a string, index of the opening `"` (byte offset). */
+auto openingDoubleQuoteBefore(llvm::StringRef text, unsigned offset) -> std::optional<unsigned> {
+  if (offset == 0U || !isInsideDoubleQuotedString(text, offset)) {
+    return std::nullopt;
+  }
+  bool inString = false;
+  bool escape = false;
+  std::optional<unsigned> currentOpen;
+  for (unsigned i = 0; i < offset && i < text.size(); ++i) {
+    char const c = text[i];
+    if (escape) {
+      escape = false;
+      continue;
+    }
+    if (inString) {
+      if (c == '\\') {
+        escape = true;
+        continue;
+      }
+      if (c == '"') {
+        inString = false;
+        currentOpen = std::nullopt;
+      }
+      continue;
+    }
+    if (c == '"') {
+      inString = true;
+      currentOpen = i;
+    }
+  }
+  return currentOpen;
+}
+
+auto lineStartOffsetAt(llvm::StringRef text, unsigned pos) -> unsigned {
+  unsigned start = 0U;
+  for (unsigned i = 0; i < pos && i < text.size(); ++i) {
+    if (text[i] == '\n') {
+      start = i + 1U;
+    }
+  }
+  return start;
+}
+
+/** True if a `#` line comment begins before \p openQuoteIdx on the same line (outside strings). */
+auto hashCommentBeforeOnSameLine(llvm::StringRef text, unsigned lineStart, unsigned openQuoteIdx)
+    -> bool {
+  bool inString = false;
+  bool escape = false;
+  for (unsigned i = lineStart; i < openQuoteIdx && i < text.size(); ++i) {
+    char const c = text[i];
+    if (escape) {
+      escape = false;
+      continue;
+    }
+    if (inString) {
+      if (c == '\\') {
+        escape = true;
+        continue;
+      }
+      if (c == '"') {
+        inString = false;
+      }
+      continue;
+    }
+    if (c == '"') {
+      inString = true;
+      continue;
+    }
+    if (c == '#') {
+      return true;
+    }
+  }
+  return false;
+}
+
+/** True if the string starting at \p openQuoteIdx is an import path (`from "…"` or `import "…"`). */
+auto isImportPathStringContext(llvm::StringRef text, unsigned openQuoteIdx) -> bool {
+  if (openQuoteIdx == 0U) {
+    return false;
+  }
+  unsigned const lineStart = lineStartOffsetAt(text, openQuoteIdx);
+  if (hashCommentBeforeOnSameLine(text, lineStart, openQuoteIdx)) {
+    return false;
+  }
+  llvm::StringRef const before = text.slice(0, openQuoteIdx);
+  return endsWithImportKeyword(before, "from") || endsWithImportKeyword(before, "import");
+}
+
+auto lspPositionAtBufferOffset(llvm::StringRef utf8Text, unsigned offset) -> ::lsp::Position {
+  offset = std::min(offset, static_cast<unsigned>(utf8Text.size()));
+  unsigned line = 0U;
+  std::size_t lineStart = 0U;
+  for (unsigned i = 0; i < offset; ++i) {
+    if (utf8Text[i] == '\n') {
+      ++line;
+      lineStart = static_cast<std::size_t>(i) + 1U;
+    }
+  }
+  return ::lsp::Position{
+      .line = line,
+      .character = static_cast<unsigned>(static_cast<std::size_t>(offset) - lineStart),
+  };
+}
+
+auto resolveImportPathScanDirectory(const std::string& mainFilePath, llvm::StringRef dirSuffix)
+    -> std::optional<std::filesystem::path> {
+  if (mainFilePath.empty()) {
+    return std::nullopt;
+  }
+  std::filesystem::path scanDir = std::filesystem::path(mainFilePath).parent_path();
+  llvm::StringRef rest = dirSuffix;
+  while (!rest.empty()) {
+    llvm::StringRef part;
+    std::size_t const slash = rest.find('/');
+    if (slash == llvm::StringRef::npos) {
+      part = rest;
+      rest = {};
+    } else {
+      part = rest.take_front(slash);
+      rest = rest.drop_front(slash + 1U);
+    }
+    if (part.empty() || part == ".") {
+      continue;
+    }
+    if (part == "..") {
+      scanDir = scanDir.parent_path();
+      continue;
+    }
+    scanDir /= std::string(part);
+  }
+  std::error_code ec;
+  if (!std::filesystem::is_directory(scanDir, ec)) {
+    return std::nullopt;
+  }
+  return scanDir;
+}
+
+auto importPathCompletionItems(llvm::StringRef text, unsigned offset,
+                               const std::string& mainFilePath)
+    -> std::vector<::lsp::CompletionItem> {
+  std::vector<::lsp::CompletionItem> items;
+  if (mainFilePath.empty()) {
+    return items;
+  }
+  std::optional<unsigned> const openQ = openingDoubleQuoteBefore(text, offset);
+  if (!openQ.has_value()) {
+    return items;
+  }
+  if (!isImportPathStringContext(text, *openQ)) {
+    return items;
+  }
+  unsigned const pathStart = *openQ + 1U;
+  if (pathStart > offset) {
+    return items;
+  }
+  llvm::StringRef const partial = text.slice(pathStart, offset);
+  llvm::StringRef dirSuffix;
+  llvm::StringRef namePrefix;
+  std::size_t const lastSlash = partial.rfind('/');
+  if (lastSlash == llvm::StringRef::npos) {
+    dirSuffix = {};
+    namePrefix = partial;
+  } else {
+    dirSuffix = partial.take_front(lastSlash);
+    namePrefix = partial.drop_front(lastSlash + 1U);
+  }
+  std::optional<std::filesystem::path> const scanDir =
+      resolveImportPathScanDirectory(mainFilePath, dirSuffix);
+  if (!scanDir.has_value()) {
+    return items;
+  }
+
+  std::vector<std::pair<std::string, bool>> matches;
+  try {
+    for (std::filesystem::directory_entry const& ent :
+         std::filesystem::directory_iterator(*scanDir)) {
+      std::filesystem::path const& p = ent.path();
+      std::string const name = p.filename().string();
+      if (!name.empty() && name[0] == '.') {
+        continue;
+      }
+      bool isDir = false;
+      std::string label;
+      if (ent.is_directory()) {
+        isDir = true;
+        label = name + "/";
+      } else if (p.extension() == ".les") {
+        label = name;
+      } else {
+        continue;
+      }
+      if (!namePrefix.empty() && !startsWith(label, std::string(namePrefix))) {
+        continue;
+      }
+      matches.push_back({std::move(label), isDir});
+    }
+  } catch (const std::filesystem::filesystem_error&) {
+    return items;
+  }
+  std::sort(matches.begin(), matches.end(),
+            [](const std::pair<std::string, bool>& a, const std::pair<std::string, bool>& b) -> bool {
+              if (a.second != b.second) {
+                return a.second;
+              }
+              return a.first < b.first;
+            });
+
+  ::lsp::Position const rangeStart = lspPositionAtBufferOffset(text, pathStart);
+  ::lsp::Position const rangeEnd = lspPositionAtBufferOffset(text, offset);
+  ::lsp::Range const replaceRange{.start = rangeStart, .end = rangeEnd};
+
+  for (auto const& [label, isDir] : matches) {
+    std::string newPath;
+    if (dirSuffix.empty()) {
+      newPath = label;
+    } else {
+      newPath = std::string(dirSuffix);
+      newPath.push_back('/');
+      newPath += label;
+    }
+    ::lsp::CompletionItem item;
+    item.label = label;
+    // Clients filter against filterText using the text between the replace range start and the
+    // cursor (often the full partial path). Using only `label` (e.g. `class.les`) makes
+    // `nested/clas` match nothing after a backspace; full path keeps prefix filtering correct.
+    item.filterText = ::lsp::Opt<::lsp::String>(std::string(newPath));
+    item.kind = ::lsp::Opt<::lsp::CompletionItemKindEnum>(
+        isDir ? ::lsp::CompletionItemKind::Folder : ::lsp::CompletionItemKind::File);
+    item.sortText = ::lsp::Opt<::lsp::String>(std::string(isDir ? "0" : "1") + label);
+    item.textEdit = ::lsp::Opt<::lsp::OneOf<::lsp::TextEdit, ::lsp::InsertReplaceEdit>>(
+        ::lsp::TextEdit{.range = replaceRange, .newText = std::move(newPath)});
+    items.push_back(std::move(item));
+  }
+  return items;
 }
 
 auto splitChain(const std::string& chain) -> std::vector<std::string> {
@@ -718,23 +1003,30 @@ auto toCompletionItems(const std::vector<CompletionCandidate>& candidates,
   return items;
 }
 
+[[nodiscard]] auto cursorInImportPathString(llvm::StringRef text, unsigned offset) -> bool {
+  std::optional<unsigned> const openQ = openingDoubleQuoteBefore(text, offset);
+  return openQ.has_value() && isImportPathStringContext(text, *openQ);
+}
+
 } // namespace
 
-auto completionItems(AnalysisResult& result, unsigned line, unsigned character)
-    -> std::vector<::lsp::CompletionItem> {
-  std::vector<::lsp::CompletionItem> items;
+auto completionItems(AnalysisResult& result, unsigned line, unsigned character) -> CompletionOutcome {
   if (result.sourceMgr == nullptr) {
-    return items;
+    return CompletionOutcome{};
   }
   llvm::SourceMgr* srcMgr = result.sourceMgr.get();
   unsigned const bufferId = result.mainBufferId;
   auto const* buf = srcMgr->getMemoryBuffer(bufferId);
   if (buf == nullptr) {
-    return items;
+    return CompletionOutcome{};
   }
 
   llvm::StringRef text = buf->getBuffer();
   unsigned const offset = positionToOffset(text, line, character);
+  if (cursorInImportPathString(text, offset)) {
+    return CompletionOutcome{.items = importPathCompletionItems(text, offset, result.mainFilePath),
+                             .isIncomplete = true};
+  }
   CompletionContext ctx = extractCompletionContext(text, offset);
 
   AnalysisResult patchedResult;
@@ -747,11 +1039,11 @@ auto completionItems(AnalysisResult& result, unsigned line, unsigned character)
   }
 
   if (activeResult->parser == nullptr || activeResult->rootScope == nullptr) {
-    return items;
+    return CompletionOutcome{};
   }
   Compound* ast = activeResult->parser->getAst();
   if (ast == nullptr) {
-    return items;
+    return CompletionOutcome{};
   }
 
   SymbolTable* activeScope = activeScopeForOffset(*activeResult, offset);
@@ -777,7 +1069,7 @@ auto completionItems(AnalysisResult& result, unsigned line, unsigned character)
     appendKeywords(candidates, seen);
   }
 
-  return toCompletionItems(candidates, ctx.prefix);
+  return CompletionOutcome{.items = toCompletionItems(candidates, ctx.prefix), .isIncomplete = false};
 }
 
 } // namespace lesma::lsp_srv

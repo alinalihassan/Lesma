@@ -1,0 +1,32 @@
+---
+title: Variables & Assignment
+description: |
+  Mutable bindings, assignment, and working with updatable state in Lesma.
+category: Language
+---
+
+Lesma supports imperative programming: you can introduce **mutable** storage and update it with assignment.
+
+## `var` and `let`
+
+Use **`let`** when the binding should not be reassigned, and **`var`** when you plan to assign to it again:
+
+```les
+let message: str = "hi"
+var total: int = 0
+total = total + 1
+```
+
+## Assignment
+
+Ordinary `=` updates a `var`. Compound assignment operators work too:
+
+```les
+var y: int = 100
+y += 1
+```
+
+## Next steps
+
+- [Types](/docs/language/types) for annotations, inference, `is` / `is not`, and `as`.
+- [Control Flow](/docs/language/control-flow) for loops and conditionals.

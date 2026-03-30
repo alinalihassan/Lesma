@@ -1,5 +1,8 @@
-# docker build -f tools/playground/Dockerfile -t lesma-playground .
+# docker build -f tools/playground/Dockerfile -t lesma-web .
 # Needs vcpkg submodule in context (.dockerignore keeps .git but includes vcpkg).
+#
+# Single SPA from tools/docs (`build/client`) + Bun `/api` on the same origin.
+# Cloudflare: Workers + Containers from tools/playground (wrangler.jsonc); image_build_context is repo root.
 
 FROM debian:bookworm-slim AS lesma-build
 ENV DEBIAN_FRONTEND=noninteractive
@@ -32,15 +35,27 @@ RUN LLVM_CMAKE="$(llvm-config-21 --cmakedir)" \
         -DLESMA_BUILD_TESTS=OFF -DLESMA_BUILD_BENCHMARKS=OFF -DLESMA_BUILD_DIST=OFF \
     && cmake --build build/Release --target lesma lesma-lsp -j"$(nproc)"
 
-FROM oven/bun:1-debian AS bun-workspace
+# Node runs the React Router prerender; Bun is only for `bun install` (lockfile + postinstall).
+FROM node:22-bookworm-slim AS docs-build
+WORKDIR /repo
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends curl unzip ca-certificates \
+  && rm -rf /var/lib/apt/lists/* \
+  && curl -fsSL https://bun.sh/install | bash
+ENV PATH="/root/.bun/bin:$PATH"
+# Preserve `tools/docs` + `tools/vscode/syntaxes` layout: `lib/lesma-textmate-grammar.ts` imports the extension grammar.
+COPY tools/docs ./tools/docs
+COPY tools/vscode/syntaxes/lesma.tmLanguage.json ./tools/vscode/syntaxes/lesma.tmLanguage.json
+WORKDIR /repo/tools/docs
+RUN bun install --frozen-lockfile
+RUN node ./node_modules/@react-router/dev/bin.js build
+
+FROM oven/bun:1-debian AS server-workspace
 WORKDIR /app
 COPY tools/playground/package.json tools/playground/bun.lock ./
-COPY tools/playground/apps/server/package.json ./apps/server/
-COPY tools/playground/apps/client/package.json ./apps/client/
 RUN bun install --frozen-lockfile
-COPY tools/playground/apps/server ./apps/server
-COPY tools/playground/apps/client ./apps/client
-RUN bun run --cwd apps/client build
+COPY tools/playground/src ./src
+COPY tools/playground/tsconfig.json ./
 
 FROM debian:bookworm-slim
 ENV DEBIAN_FRONTEND=noninteractive
@@ -57,7 +72,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && apt-get autoremove -y \
     && rm -rf /var/lib/apt/lists/*
 
-COPY --from=bun-workspace /usr/local/bin/bun /usr/local/bin/bun
+COPY --from=server-workspace /usr/local/bin/bun /usr/local/bin/bun
 
 RUN useradd --create-home --home-dir /opt/lesma --shell /usr/sbin/nologin playground
 
@@ -65,15 +80,15 @@ COPY --from=lesma-build /src/build/Release/lesma /usr/local/bin/lesma
 COPY --from=lesma-build /src/build/Release/lesma-lsp /usr/local/bin/lesma-lsp
 COPY --from=lesma-build /src/src/stdlib /opt/lesma/.lesma/stdlib/
 
-COPY --from=bun-workspace /app /app
-RUN rm -rf /app/apps/client/node_modules 2>/dev/null || true \
-    && chown -R playground:playground /opt/lesma /app
+COPY --from=server-workspace /app /app
+COPY --from=docs-build /repo/tools/docs/build/client /app/site-static
+RUN chown -R playground:playground /opt/lesma /app
 
 USER playground
 WORKDIR /app
 ENV HOME=/opt/lesma
-ENV APP_ASSETS_DIR=/app/public
+ENV APP_ASSETS_DIR=/app/site-static
 
 EXPOSE 8080
-ENTRYPOINT ["bun", "run", "--cwd", "/app/apps/server", "start"]
-CMD ["--addr=:8080", "--static-dir=/app/apps/client/build"]
+ENTRYPOINT ["bun", "run", "start"]
+CMD ["--addr=:8080", "--static-dir=/app/site-static"]
