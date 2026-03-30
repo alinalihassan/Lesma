@@ -60,3 +60,39 @@ export async function serveStatic(rootDir: string, req: Request): Promise<Respon
   const url = new URL(req.url)
   return serveStaticDocumentRoot(rootDir, url.pathname, req)
 }
+
+/**
+ * Serve one file under `rootDir` if it exists — no directory or SPA `index.html` fallback.
+ * Used for prerendered assets like `/api/search` that must not fall through to `/index.html`.
+ */
+export async function serveStaticFileIfExists(
+  rootDir: string,
+  urlPath: string,
+  req: Request,
+): Promise<Response | null> {
+  if (req.method !== "GET" && req.method !== "HEAD") {
+    return null
+  }
+
+  let p = decodeURIComponent(urlPath)
+  if (!p.startsWith("/")) p = "/" + p
+  p = path.posix.normalize(p)
+  if (hasDotDot(p)) {
+    return null
+  }
+
+  const rel = p === "/" ? INDEX : p.slice(1)
+  const filePath = path.join(rootDir, rel)
+  const file = Bun.file(filePath)
+  const exists = await file.exists()
+  if (!exists) return null
+  const st = await file.stat()
+  if (!st.isFile) return null
+
+  if (req.method === "HEAD") {
+    return new Response(null, {
+      headers: { "Content-Type": file.type || "application/octet-stream" },
+    })
+  }
+  return new Response(file)
+}

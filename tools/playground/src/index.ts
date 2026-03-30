@@ -2,7 +2,7 @@
 import { Hono } from "hono"
 import { loadConfig } from "./config"
 import { createApiApp } from "./routes"
-import { serveStatic } from "./static"
+import { serveStatic, serveStaticFileIfExists } from "./static"
 import { startLspSession } from "./lsp"
 
 function parseAddr(addr: string): { hostname: string; port: number } {
@@ -34,7 +34,7 @@ root.route("/api", apiApp)
 Bun.serve<WsData>({
   hostname,
   port,
-  fetch(req, server) {
+  async fetch(req, server) {
     const url = new URL(req.url)
 
     if (url.pathname === "/api/v2/lsp" && req.method === "GET") {
@@ -43,6 +43,18 @@ Bun.serve<WsData>({
       })
       if (ok) return
       return new Response("WebSocket upgrade failed", { status: 500 })
+    }
+
+    // Fumadocs static search index (prerendered under `build/client/api/search`).
+    // Hono owns `/api/*` for the playground; without this branch Cloudflare/production
+    // would never serve the JSON and ⌘K search would fail.
+    if (url.pathname === "/api/search" || url.pathname === "/api/search.data") {
+      const docSearch = await serveStaticFileIfExists(
+        cfg.assetsDir,
+        url.pathname,
+        req,
+      )
+      if (docSearch !== null) return docSearch
     }
 
     if (url.pathname.startsWith("/api")) {
