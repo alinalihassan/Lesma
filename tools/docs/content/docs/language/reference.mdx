@@ -12,7 +12,7 @@ Use the [language tutorials](/docs/language/literals) to learn features; use thi
 
 Reserved identifiers come from the compiler’s keyword table (everything below is always a keyword, not a user-chosen name).
 
-**Control flow:** `if`, `else` (and **`else if`** as two tokens), `while`, `for`, `break`, `continue`, `return`, `pass`, `defer` (deferred statements run when the enclosing function or module finishes, **LIFO**—last `defer` first—before the `return` value is evaluated).
+**Control flow:** `if`, `else` (and **`else if`** as two tokens), `while`, `for`, `break`, `continue`, `return`, `pass`, `defer` (deferred statements run when the enclosing function or module finishes, **LIFO**—last `defer` first—before the `return` value is evaluated). Example with C **`fopen`/`fclose`**: [Control flow → Defer](/docs/language/control-flow#defer).
 
 **Bindings and declarations:** `let`, `var`, `def`, `func`, `class`, `enum`, `trait`, `impl`.
 
@@ -50,7 +50,7 @@ Comparison and arithmetic operators may resolve to **instance methods** (`__oper
 
 ## Built-ins and prelude
 
-Except when compiling **`base.les` itself**, every module **implicitly** loads **`base.les`**. All **`export`**ed names from that file are in scope without **`import`**.
+Except when compiling **`base.les` itself**, every module **implicitly** loads **`base.les`**. All **exported** names from that file are in scope without **import**.
 
 Common prelude items include: **`print`** (overloads), **`input`**, **`exit`**, **`range`**, generic **`list`**, **`str`**, **`dict`**, **`file`**, **`Iterator`**, **`Iterable`**. The source of truth is **`src/stdlib/base.les`** in the repository.
 
@@ -71,7 +71,7 @@ from "helpers.les" import *
 - Quoted paths resolve relative to the **importing file** (or stdlib roots for bundled modules).
 - **`from math import …`** uses a **module name** for stdlib discovery.
 
-Only **`export`**ed declarations are visible to importers. Star imports bring every export into scope—watch for name clashes ([Modules & Imports](/docs/language/modules)).
+Only **exported** declarations are visible to importers. Star imports bring every export into scope—watch for name clashes ([Modules & Imports](/docs/language/modules)).
 
 ## Name lookup
 
