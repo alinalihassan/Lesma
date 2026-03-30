@@ -69,7 +69,12 @@
     "configurationDefaults": {
       "[lesma]": {
         "editor.bracketPairColorization.independentColorPoolPerBracketType": true,
-        "editor.positionEncoding": "utf8"
+        "editor.positionEncoding": "utf8",
+        "editor.quickSuggestions": {
+          "other": true,
+          "comments": false,
+          "strings": true
+        }
       }
     },
     "commands": [

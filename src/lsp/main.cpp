@@ -2713,8 +2713,12 @@ auto main() -> int {
           ::lsp::OneOf<bool, ::lsp::DeclarationOptions, ::lsp::DeclarationRegistrationOptions>>(
           ::lsp::OneOf<bool, ::lsp::DeclarationOptions, ::lsp::DeclarationRegistrationOptions>{
               true});
+      // Letters are not listed here: listing a–z would request completion on every identifier
+      // keystroke. Import paths live in strings; VS Code/Cursor need editor.quickSuggestions.strings
+      // (defaults in tools/vscode/package.json) so typing inside "…" still triggers completion.
       caps.completionProvider = ::lsp::Opt<::lsp::CompletionOptions>(::lsp::CompletionOptions{
-          .triggerCharacters = ::lsp::Opt<::lsp::Array<::lsp::String>>({std::string(".")}),
+          .triggerCharacters = ::lsp::Opt<::lsp::Array<::lsp::String>>(
+              {std::string("\""), std::string("/"), std::string(".")}),
       });
       caps.signatureHelpProvider =
           ::lsp::Opt<::lsp::SignatureHelpOptions>(::lsp::SignatureHelpOptions{
@@ -2943,12 +2947,16 @@ auto main() -> int {
           return withAnalyzedDocument<::lsp::TextDocument_CompletionResult>(
               params.textDocument.uri, docStore, analysisCache,
               [&](AnalysisResult& result) -> ::lsp::TextDocument_CompletionResult {
-                std::vector<::lsp::CompletionItem> items = lesma::lsp_srv::completionItems(
+                lesma::lsp_srv::CompletionOutcome outcome = lesma::lsp_srv::completionItems(
                     result, params.position.line, params.position.character);
-                if (items.empty()) {
+                if (outcome.items.empty() && !outcome.isIncomplete) {
                   return {};
                 }
-                return {items};
+                if (outcome.isIncomplete) {
+                  return ::lsp::CompletionList{.isIncomplete = true,
+                                               .items = std::move(outcome.items)};
+                }
+                return {outcome.items};
               });
         });
 
