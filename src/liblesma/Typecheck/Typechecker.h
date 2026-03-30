@@ -116,6 +116,10 @@ class Typechecker final : public ASTVisitor {
   void emitWarning(llvm::SMRange span, std::string message);
   void recoverFromTypeError(const TypeCheckError& err);
   void markValueRead(Value* sym);
+  /** After resolving `alias.exportedName` via importAliasToPath, mark the corresponding
+   * `import *` / `from` TY_IMPORT stub (if any) as used. */
+  void markImportNameStubUsedForQualifiedAccess(const std::string& modulePath,
+                                                const std::string& exportedName);
   void checkUnusedBindingsInScope(SymbolTable* blockScope);
   void warnShadowingFromEnclosing(const std::string& name, llvm::SMRange span);
   [[nodiscard]] static auto tryGetLiteralBool(const Expression* e, bool& outValue) -> bool;

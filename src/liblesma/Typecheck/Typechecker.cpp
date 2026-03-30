@@ -2130,6 +2130,24 @@ void Typechecker::markValueRead(Value* sym) {
   }
 }
 
+void Typechecker::markImportNameStubUsedForQualifiedAccess(const std::string& modulePath,
+                                                          const std::string& exportedName) {
+  if (declarationPass) {
+    return;
+  }
+  for (const auto& [localName, src] : importedNameToSource) {
+    if (src.first != modulePath || src.second != exportedName) {
+      continue;
+    }
+    Value* stub = scope->lookup(localName);
+    if (stub != nullptr && stub->getCategory() == ValueCategory::MODULE_SYMBOL &&
+        stub->getType() != nullptr && stub->getType()->is(BaseType::TY_IMPORT)) {
+      markValueRead(stub);
+    }
+    return;
+  }
+}
+
 void Typechecker::checkUnusedBindingsInScope(SymbolTable* blockScope) {
   if (warningDiagnostics == nullptr || blockScope == nullptr || declarationPass) {
     return;
@@ -4116,6 +4134,7 @@ auto Typechecker::visit(const DotOp* node) -> void {
           Value* member = importScope->lookup(idLit->getValue());
           if (member != nullptr && member->getDeclarationKind() == ValueDeclarationKind::VARIABLE &&
               member->isExported()) {
+            markImportNameStubUsedForQualifiedAccess(pathIt->second, idLit->getValue());
             idLit->setResolvedSymbol(member);
             Type* vt = materializeImportedType(member->getType());
             auto out = std::make_unique<Value>(*member);
@@ -4193,6 +4212,7 @@ auto Typechecker::visit(const DotOp* node) -> void {
                 }
                 Type* specialized =
                     getOrCreateSpecializedClassType(classType, genericParamNames, env);
+                markImportNameStubUsedForQualifiedAccess(pathIt->second, fc->getName());
                 result = std::make_unique<Value>(specialized);
                 fc->setAllocatedClassMonomorph(specialized);
                 return;
@@ -4216,19 +4236,23 @@ auto Typechecker::visit(const DotOp* node) -> void {
                   Type* specialized =
                       getOrCreateSpecializedClassType(classType, genericParamNames, env);
                   Type* valueType = specialized;
+                  markImportNameStubUsedForQualifiedAccess(pathIt->second, fc->getName());
                   result = std::make_unique<Value>(valueType);
                   fc->setAllocatedClassMonomorph(valueType);
                   return;
                 }
               }
+              markImportNameStubUsedForQualifiedAccess(pathIt->second, fc->getName());
               result = std::make_unique<Value>(materializeImportedType(classType));
               return;
             } else if (sym != nullptr && sym->getType()->is(BaseType::TY_ENUM)) {
+              markImportNameStubUsedForQualifiedAccess(pathIt->second, fc->getName());
               result = std::make_unique<Value>(materializeImportedType(sym->getType()));
               return;
             }
           }
           if (func != nullptr) {
+            markImportNameStubUsedForQualifiedAccess(pathIt->second, fc->getName());
             fc->setResolvedSymbol(func);
             Type* retType = func->getType()->getReturnType();
             result = std::make_unique<Value>(
