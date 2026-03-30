@@ -19,6 +19,20 @@ class Child: Base
     overload def bump() -> int
         return self.tag + self.extra + 10
 
+class Grandchild: Child
+    var bonus: int
+
+    def new(t: int, e: int, b: int)
+        super.new(self, t, e)
+        self.bonus = b
+
+    overload def bump() -> int
+        return self.tag + self.bonus + 100
+
 var c = Child(2, 3)
 if c.bump() != 15
+    exit(1)
+
+var g = Grandchild(2, 3, 5)
+if g.bump() != 107
     exit(1)
