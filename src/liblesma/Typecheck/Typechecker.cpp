@@ -3471,6 +3471,7 @@ auto Typechecker::visit(const FuncCall* node) -> void {
   Value* callee = scope->lookupFunction(node->getName(), argTypes);
   bool funcCallResolvedViaImportedNameBinding = false;
   if (callee == nullptr) {
+    Value* importStubForCalleeName = nullptr;
     Value* sym = scope->lookup(node->getName());
     std::string importedName;
     if (auto importedIt = importedNameToSource.find(node->getName());
@@ -3479,6 +3480,9 @@ auto Typechecker::visit(const FuncCall* node) -> void {
       importedName = importedIt->second.second;
     }
     if (sym == nullptr || sym->getType()->is(BaseType::TY_IMPORT)) {
+      if (sym != nullptr && sym->getType()->is(BaseType::TY_IMPORT)) {
+        importStubForCalleeName = sym;
+      }
       if (importedScope != nullptr) {
         sym = importedScope->lookup(importedName);
         callee = importedScope->lookupFunction(importedName, argTypes);
@@ -3487,6 +3491,11 @@ auto Typechecker::visit(const FuncCall* node) -> void {
         }
       }
     }
+    auto markImportStubIfCalleeWasNamedImport = [&]() {
+      if (importStubForCalleeName != nullptr) {
+        markValueRead(importStubForCalleeName);
+      }
+    };
     if (callee == nullptr && sym != nullptr) {
       node->setResolvedSymbol(sym);
       if (sym->getType()->is(BaseType::TY_CLASS)) {
@@ -3543,6 +3552,7 @@ auto Typechecker::visit(const FuncCall* node) -> void {
           if (constructorForMark != nullptr) {
             markValueRead(constructorForMark);
           }
+          markImportStubIfCalleeWasNamedImport();
           Type* valueType = specialized;
           result = std::make_unique<Value>(valueType);
           node->setAllocatedClassMonomorph(valueType);
@@ -3570,6 +3580,7 @@ auto Typechecker::visit(const FuncCall* node) -> void {
             }
             Type* specialized = getOrCreateSpecializedClassType(classType, genericParamNames, env);
             markValueRead(constructor);
+            markImportStubIfCalleeWasNamedImport();
             Type* valueType = specialized;
             result = std::make_unique<Value>(valueType);
             node->setAllocatedClassMonomorph(valueType);
@@ -3592,11 +3603,13 @@ auto Typechecker::visit(const FuncCall* node) -> void {
           if (constructor != nullptr) {
             markValueRead(constructor);
           }
+          markImportStubIfCalleeWasNamedImport();
           result = std::make_unique<Value>(classType);
           return;
         }
       }
       if (sym->getType()->is(BaseType::TY_ENUM)) {
+        markImportStubIfCalleeWasNamedImport();
         result = std::make_unique<Value>(
             importedScope != nullptr ? materializeImportedType(sym->getType()) : sym->getType());
         return;
