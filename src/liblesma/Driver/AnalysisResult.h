@@ -48,6 +48,8 @@ struct IndexedSymbolOccurrence {
   std::string name;
   std::optional<std::string> dotBase;
   llvm::SMRange span;
+  /** When set, semantic tokens use this range instead of \c span (e.g. operator glyphs only). */
+  std::optional<llvm::SMRange> semanticHighlightSpan;
   std::optional<IndexedDeclarationIdentity> declaration;
   bool isTypePosition = false;
   bool isMemberAccess = false;

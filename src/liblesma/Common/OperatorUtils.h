@@ -74,4 +74,52 @@ inline auto isOverloadableDeclarationToken(TokenType op) -> bool {
   return isOverloadableBinaryOperator(op) || isOverloadableUnaryOperator(op);
 }
 
+/** Source spelling for a mangled operator method name (for LSP / docs). */
+[[nodiscard]] inline auto surfaceSpellingForMangledOperator(std::string_view mangled)
+    -> std::optional<std::string_view> {
+  if (mangled == SUBSCRIPT_GET_NAME) {
+    return "operator []";
+  }
+  if (mangled == SUBSCRIPT_SET_NAME) {
+    return "operator []=";
+  }
+  if (mangled == "__operator_plus") {
+    return "operator +";
+  }
+  if (mangled == "__operator_minus") {
+    return "operator -";
+  }
+  if (mangled == "__operator_multiply") {
+    return "operator *";
+  }
+  if (mangled == "__operator_divide") {
+    return "operator /";
+  }
+  if (mangled == "__operator_modulo") {
+    return "operator %";
+  }
+  if (mangled == "__operator_equal") {
+    return "operator ==";
+  }
+  if (mangled == "__operator_not_equal") {
+    return "operator !=";
+  }
+  if (mangled == "__operator_greater") {
+    return "operator >";
+  }
+  if (mangled == "__operator_greater_equal") {
+    return "operator >=";
+  }
+  if (mangled == "__operator_less") {
+    return "operator <";
+  }
+  if (mangled == "__operator_less_equal") {
+    return "operator <=";
+  }
+  if (mangled == "__operator_not") {
+    return "operator not";
+  }
+  return std::nullopt;
+}
+
 } // namespace lesma::OperatorUtils
