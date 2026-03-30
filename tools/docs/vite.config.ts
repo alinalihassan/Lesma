@@ -57,6 +57,14 @@ export default defineConfig({
         target: playgroundApiProxyTarget(),
         changeOrigin: true,
         ws: true,
+        // Docs search is served by this app at `/api/search` (Fumadocs + `routes/search.ts`).
+        // Do not forward it to the playground API (also mounted at `/api`).
+        bypass(req) {
+          const path = (req.url ?? '').split('?')[0] ?? '';
+          if (path === '/api/search' || path.startsWith('/api/search/')) {
+            return req.url;
+          }
+        },
       },
     },
   },

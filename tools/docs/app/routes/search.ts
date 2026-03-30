@@ -5,6 +5,7 @@ const server = createFromSource(source, {
   language: 'english',
 });
 
-export async function clientLoader() {
+/** Serves the static Orama export for `useDocsSearch({ type: 'static' })` (`fetch('/api/search')`). */
+export async function loader() {
   return server.staticGET();
 }
