@@ -3589,6 +3589,7 @@ auto Typechecker::visit(const FuncCall* node) -> void {
                                "Constructor not found for {} with given type arguments",
                                node->getName());
         }
+        enforcePrivateMemberReadable(node->getSpan(), constructor);
         constructorForMark = constructor;
         auto ctorParams = constructor->getType()->getFields();
         for (size_t i = 1; i < ctorParams.size() && i - 1 < argTypes.size(); ++i) {
@@ -3680,6 +3681,7 @@ auto Typechecker::visit(const FuncCall* node) -> void {
                                    "Constructor not found for {} with given type arguments",
                                    node->getName());
             }
+            enforcePrivateMemberReadable(node->getSpan(), constructor);
             constructorForMark = constructor;
             auto ctorParams = constructor->getType()->getFields();
             for (size_t i = 1; i < ctorParams.size() && i - 1 < argTypes.size(); ++i) {
@@ -3715,6 +3717,7 @@ auto Typechecker::visit(const FuncCall* node) -> void {
                                                        classType)
                   : lookupConstructorForAllocatedClass(scope, constructorParamTypes, classType);
           if (constructor != nullptr) {
+            enforcePrivateMemberReadable(node->getSpan(), constructor);
             std::unordered_map<std::string, Type*> env;
             auto* funcType = constructor->getType();
             auto ctorParams = funcType->getFields();
@@ -3744,6 +3747,7 @@ auto Typechecker::visit(const FuncCall* node) -> void {
                   : scope->lookupFunction("new", ctorParamTypes,
                                           FunctionLookupKind::OVERLOAD_IDENTITY);
           if (constructor != nullptr) {
+            enforcePrivateMemberReadable(node->getSpan(), constructor);
             markValueRead(constructor);
           }
           markImportStubIfCalleeWasNamedImport();
@@ -3810,6 +3814,9 @@ auto Typechecker::visit(const FuncCall* node) -> void {
             constructorParamTypes.insert(constructorParamTypes.end(), argTypes.begin(),
                                          argTypes.end());
             callee = lookupConstructorForAllocatedClass(scope, constructorParamTypes, classType);
+            if (callee != nullptr) {
+              enforcePrivateMemberReadable(node->getSpan(), callee);
+            }
             if (callee == nullptr) {
               auto ctorImportedIt = importedNameToSource.find(node->getName());
               if (ctorImportedIt != importedNameToSource.end()) {
@@ -3819,6 +3826,7 @@ auto Typechecker::visit(const FuncCall* node) -> void {
                       lookupConstructorForAllocatedClass(imp, constructorParamTypes, classType);
                   if (callee != nullptr) {
                     funcCallResolvedViaImportedNameBinding = true;
+                    enforcePrivateMemberReadable(node->getSpan(), callee);
                   }
                 }
               }
@@ -4378,6 +4386,7 @@ auto Typechecker::visit(const DotOp* node) -> void {
                                          "Constructor not found for {} with given type arguments",
                                          fc->getName());
                   }
+                  enforcePrivateMemberReadable(node->getSpan(), constructor);
                   auto ctorParams = constructor->getType()->getFields();
                   for (size_t i = 1; i < ctorParams.size() && i - 1 < argTypes.size(); ++i) {
                     Type* expected = substituteInType(ctorParams[i]->type, env);
@@ -4405,6 +4414,7 @@ auto Typechecker::visit(const DotOp* node) -> void {
                 Value* constructor = lookupConstructorForAllocatedClass(
                     importScope, constructorParamTypes, classType);
                 if (constructor != nullptr) {
+                  enforcePrivateMemberReadable(node->getSpan(), constructor);
                   std::unordered_map<std::string, Type*> env;
                   auto* funcType = constructor->getType();
                   auto ctorParams = funcType->getFields();
