@@ -7,6 +7,7 @@
 #include <optional>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <vector>
 #include <unordered_map>
 #include <unordered_set>
@@ -2649,44 +2650,48 @@ auto tryResolveUnionMultiMethodDefinitionLocations(AnalysisResult& result, unsig
   if (receiverType == nullptr || !receiverType->is(lesma::BaseType::TY_UNION)) {
     return {};
   }
-  std::vector<::lsp::Location> out;
-  std::unordered_set<std::string> seen;
+  std::vector<std::pair<CallableCandidate, AnalysisView>> aggregated;
   for (const AnalysisView& candidateAnalysis : collectAnalysisViews(result)) {
     if (!isUsableAnalysis(candidateAnalysis) || candidateAnalysis.rootScope == nullptr) {
       continue;
     }
-    std::vector<CallableCandidate> candidates = collectCallableCandidates(
+    std::vector<CallableCandidate> perView = collectCallableCandidates(
         candidateAnalysis.rootScope, id->name, receiverType, argTypes);
-    if (candidates.size() <= 1U) {
+    for (const CallableCandidate& cand : perView) {
+      aggregated.emplace_back(cand, candidateAnalysis);
+    }
+  }
+  if (aggregated.size() <= 1U) {
+    return {};
+  }
+  std::vector<::lsp::Location> out;
+  std::unordered_set<std::string> seen;
+  for (const auto& [cand, candidateAnalysis] : aggregated) {
+    if (cand.value == nullptr) {
       continue;
     }
-    for (const CallableCandidate& cand : candidates) {
-      if (cand.value == nullptr) {
-        continue;
-      }
-      std::string declPath = cand.value->getDeclarationFilePath();
-      if (declPath.empty() && candidateAnalysis.mainFilePath != nullptr) {
-        declPath = *candidateAnalysis.mainFilePath;
-      }
-      if (declPath.empty()) {
-        continue;
-      }
-      std::optional<::lsp::Range> mappedRange =
-          lspRangeForValueDeclaration(result, cand.value, candidateAnalysis);
-      if (!mappedRange) {
-        continue;
-      }
-      std::string const key = normalizePath(declPath) + "#" +
-                              std::to_string(mappedRange->start.line) + ":" +
-                              std::to_string(mappedRange->start.character);
-      if (!seen.insert(key).second) {
-        continue;
-      }
-      out.push_back(::lsp::Location{
-          .uri = uriFromPath(declPath),
-          .range = *mappedRange,
-      });
+    std::string declPath = cand.value->getDeclarationFilePath();
+    if (declPath.empty() && candidateAnalysis.mainFilePath != nullptr) {
+      declPath = *candidateAnalysis.mainFilePath;
     }
+    if (declPath.empty()) {
+      continue;
+    }
+    std::optional<::lsp::Range> mappedRange =
+        lspRangeForValueDeclaration(result, cand.value, candidateAnalysis);
+    if (!mappedRange) {
+      continue;
+    }
+    std::string const key = normalizePath(declPath) + "#" +
+                            std::to_string(mappedRange->start.line) + ":" +
+                            std::to_string(mappedRange->start.character);
+    if (!seen.insert(key).second) {
+      continue;
+    }
+    out.push_back(::lsp::Location{
+        .uri = uriFromPath(declPath),
+        .range = *mappedRange,
+    });
   }
   return out;
 }
