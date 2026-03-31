@@ -188,11 +188,16 @@ auto matchGenericParameter(Type* formalTy, Type* argTy,
     }
     for (Type* m : formalTy->getUnionMembers()) {
       if (m != nullptr && m->is(BaseType::TY_CLASS) && argTy != nullptr &&
-          argTy->is(BaseType::TY_PTR) && argTy->getElementType() != nullptr &&
-          matchGenericParameter(m, argTy->getElementType(), genericBindings, lookupKind)) {
-        return true;
+          argTy->is(BaseType::TY_PTR) && argTy->getElementType() != nullptr) {
+        auto probeBindings = genericBindings;
+        if (matchGenericParameter(m, argTy->getElementType(), probeBindings, lookupKind)) {
+          genericBindings = std::move(probeBindings);
+          return true;
+        }
       }
-      if (matchGenericParameter(m, argTy, genericBindings, lookupKind)) {
+      auto probeBindings = genericBindings;
+      if (matchGenericParameter(m, argTy, probeBindings, lookupKind)) {
+        genericBindings = std::move(probeBindings);
         return true;
       }
     }
