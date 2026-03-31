@@ -152,8 +152,7 @@ void insertGenericParamSymbols(SymbolTable* genericsScope,
 struct TypecheckImportActiveGuard {
   std::string key;
 
-  explicit TypecheckImportActiveGuard(std::string normalizedPath)
-      : key(std::move(normalizedPath)) {
+  explicit TypecheckImportActiveGuard(std::string normalizedPath) : key(std::move(normalizedPath)) {
     if (!typecheckingImportPathsInProgress().insert(key).second) {
       throw TypeCheckError(llvm::SMRange(), "Circular import detected: {}", key);
     }
@@ -2413,7 +2412,7 @@ void Typechecker::markValueRead(Value* sym) {
 }
 
 void Typechecker::markImportNameStubUsedForQualifiedAccess(const std::string& modulePath,
-                                                          const std::string& exportedName) {
+                                                           const std::string& exportedName) {
   if (declarationPass) {
     return;
   }
@@ -2753,6 +2752,37 @@ auto Typechecker::lookupUnionNarrowedType(Value* sym) const -> Type* {
   return nullptr;
 }
 
+void Typechecker::invalidateUnionNarrowingForSymbol(Value* sym) {
+  if (sym == nullptr) {
+    return;
+  }
+  for (auto& frame : unionNarrowingStack) {
+    frame.erase(sym);
+  }
+}
+
+auto Typechecker::rootStorageSymbolForAssignmentLhs(Expression* lhs) -> Value* {
+  if (lhs == nullptr) {
+    return nullptr;
+  }
+  if (auto const* lit = dynamic_cast<Literal*>(lhs)) {
+    if (lit->getType() != TokenType::IDENTIFIER) {
+      return nullptr;
+    }
+    if (Value* rs = lit->getResolvedSymbol()) {
+      return rs;
+    }
+    return scope->lookup(lit->getValue());
+  }
+  if (auto* dot = dynamic_cast<DotOp*>(lhs)) {
+    return rootStorageSymbolForAssignmentLhs(dot->getLeft());
+  }
+  if (auto* sub = dynamic_cast<SubscriptOp*>(lhs)) {
+    return rootStorageSymbolForAssignmentLhs(sub->getLeft());
+  }
+  return nullptr;
+}
+
 namespace {
 
 auto tryGetIsOpVarSymbol(const IsOp* is, SymbolTable* scope) -> Value* {
@@ -2770,8 +2800,8 @@ auto tryGetIsOpVarSymbol(const IsOp* is, SymbolTable* scope) -> Value* {
 }
 } // namespace
 
-auto Typechecker::narrowUnionByExcludingMembers(Type* unionTy,
-                                                const std::vector<Type*>& toExclude) -> Type* {
+auto Typechecker::narrowUnionByExcludingMembers(Type* unionTy, const std::vector<Type*>& toExclude)
+    -> Type* {
   if (unionTy == nullptr || !unionTy->is(BaseType::TY_UNION)) {
     return nullptr;
   }
@@ -2781,8 +2811,8 @@ auto Typechecker::narrowUnionByExcludingMembers(Type* unionTy,
     if (ex == nullptr) {
       continue;
     }
-    auto it = std::ranges::find_if(remainder,
-                                   [ex](Type* m) { return m != nullptr && m->isEqual(ex); });
+    auto it =
+        std::ranges::find_if(remainder, [ex](Type* m) { return m != nullptr && m->isEqual(ex); });
     if (it != remainder.end()) {
       remainder.erase(it);
       ++removed;
@@ -3128,7 +3158,8 @@ auto Typechecker::visit(const Import* node) -> void {
     }
   };
   if (node->getImportAll() && node->getImportScope() && getExports) {
-    ExportDiscoveryResult const discovery = getExports(node->getFilePath(), node->isStd(), mainFilePath);
+    ExportDiscoveryResult const discovery =
+        getExports(node->getFilePath(), node->isStd(), mainFilePath);
     if (!discovery.failureMessage.empty()) {
       std::string const msg = fmt::format("Import * failed: {}", discovery.failureMessage);
       if (warningDiagnostics == nullptr) {
@@ -3881,6 +3912,7 @@ auto Typechecker::visit(const Assignment* node) -> void {
                              rhsType->toString(), lhsType->toString());
       }
     }
+    invalidateUnionNarrowingForSymbol(sym);
     return;
   }
   if (dynamic_cast<DotOp*>(node->getLeftHandSide()) != nullptr) {
@@ -3928,6 +3960,7 @@ auto Typechecker::visit(const Assignment* node) -> void {
                              rhsType->toString(), targetType->toString());
       }
     }
+    invalidateUnionNarrowingForSymbol(rootStorageSymbolForAssignmentLhs(node->getLeftHandSide()));
     return;
   }
   if (auto* subscript = dynamic_cast<SubscriptOp*>(node->getLeftHandSide())) {
@@ -3966,6 +3999,7 @@ auto Typechecker::visit(const Assignment* node) -> void {
                                rhsType->toString(), lhsType->toString());
         }
       }
+      invalidateUnionNarrowingForSymbol(rootStorageSymbolForAssignmentLhs(node->getLeftHandSide()));
       return;
     }
 
@@ -3994,11 +4028,11 @@ auto Typechecker::visit(const Assignment* node) -> void {
         throw TypeCheckError(node->getSpan(), "Operator []= not found for assignment target");
       }
     }
+    invalidateUnionNarrowingForSymbol(rootStorageSymbolForAssignmentLhs(node->getLeftHandSide()));
     return;
   }
   throw TypeCheckError(node->getSpan(), "Invalid assignment target");
 }
-
 auto Typechecker::visit(const Break* node) -> void {
   (void) node;
   // We don't track break targets in typecheck; Codegen will enforce.
@@ -4574,7 +4608,8 @@ auto Typechecker::visit(const LambdaExpr* node) -> void {
     scope = genericsScope->getParent();
     currentGenericTypes = std::move(savedGenerics);
   }
-  if (!node->getGenericParamDecls().empty() && !lambdaSymbolPtr->getClosureCaptureOuters().empty()) {
+  if (!node->getGenericParamDecls().empty() &&
+      !lambdaSymbolPtr->getClosureCaptureOuters().empty()) {
     throw TypeCheckError(node->getSpan(),
                          "Generic lambdas that capture outer variables are not supported yet");
   }
@@ -5001,7 +5036,7 @@ auto Typechecker::visit(const DotOp* node) -> void {
       result = std::make_unique<Value>(retType);
       return;
     }
-      throw TypeCheckError(node->getSpan(), "Expected method call after dot on trait value");
+    throw TypeCheckError(node->getSpan(), "Expected method call after dot on trait value");
   }
   if (base->is(BaseType::TY_UNION)) {
     auto* fc = dynamic_cast<FuncCall*>(node->getRight());

@@ -196,6 +196,11 @@ class Typechecker final : public ASTVisitor {
   [[nodiscard]] auto lookupUnionNarrowedType(Value* sym) const -> Type*;
   auto fillUnionNarrowingForIfBlock(const If* node, unsigned blockIndex,
                                     std::unordered_map<Value*, Type*>& out) -> void;
+  /** Drop \p sym from every active union-narrowing frame (e.g. after assignment through it). */
+  void invalidateUnionNarrowingForSymbol(Value* sym);
+  /** Outermost identifier-like storage for an assignment LHS (for invalidating narrowing on `a.b`
+   *  or `a[i]`). */
+  [[nodiscard]] auto rootStorageSymbolForAssignmentLhs(Expression* lhs) -> Value*;
   /** Remove union arms equal to types in \p toExclude (each match removes at most one arm).
    *  Returns nullptr if no arm was removed or no arm would remain. */
   auto narrowUnionByExcludingMembers(Type* unionTy, const std::vector<Type*>& toExclude) -> Type*;
