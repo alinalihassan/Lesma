@@ -447,6 +447,8 @@ protected:
 
   /** Ensure \p type has an LLVM type (fill in when from typechecker). */
   auto getOrCreateLlvmType(lesma::Type* type) -> llvm::Type*;
+  /** LLVM integer tag type for \c TY_UNION (first struct field); requires \p unionTy to be a union. */
+  [[nodiscard]] auto getOrCreateUnionTagLlvmType(lesma::Type* unionTy) -> llvm::Type*;
   /** LLVM storage type for aggregate fields/slots after ABI lowering. */
   [[nodiscard]] auto getStoredAggregateFieldLlvmType(lesma::Type* fieldType) -> llvm::Type*;
   /** Load an aggregate field/slot value using the ABI-lowered storage type. */

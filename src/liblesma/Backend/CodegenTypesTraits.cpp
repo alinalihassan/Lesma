@@ -1,4 +1,5 @@
 #include <algorithm>
+#include <cstddef>
 #include <string>
 #include <vector>
 
@@ -26,6 +27,32 @@ auto traitExistentialBaseName(const std::string& displayName) -> std::string {
     return displayName.substr(0U, pos);
   }
   return displayName;
+}
+
+/** Minimum tag bits: ceil(log2(memberCount)), at least 1 (memberCount must be > 0). */
+auto unionDiscriminantMinBits(std::size_t memberCount) -> unsigned {
+  unsigned bits = 0;
+  for (std::size_t x = memberCount - 1; x != 0; x >>= 1) {
+    ++bits;
+  }
+  return std::max(1U, bits);
+}
+
+/** Round up to a whole number of bytes (8, 16, 32, 64); 0 if \p minBits > 64. */
+auto roundUnionTagToSupportedBitWidth(unsigned minBits) -> unsigned {
+  if (minBits <= 8) {
+    return 8;
+  }
+  if (minBits <= 16) {
+    return 16;
+  }
+  if (minBits <= 32) {
+    return 32;
+  }
+  if (minBits <= 64) {
+    return 64;
+  }
+  return 0;
 }
 
 } // namespace
@@ -343,6 +370,9 @@ auto Codegen::getOrCreateLlvmType(lesma::Type* type) -> llvm::Type* {
   }
   case BaseType::TY_UNION: {
     const std::vector<Type*>& mem = type->getUnionMembers();
+    if (mem.empty()) {
+      throw CodegenError({}, "Internal error: union type has no members");
+    }
     for (Type* m : mem) {
       getOrCreateLlvmType(m);
     }
@@ -358,8 +388,15 @@ auto Codegen::getOrCreateLlvmType(lesma::Type* type) -> llvm::Type* {
     unsigned const payloadBytes = llvm::alignTo(maxAlloc, maxAbiAlign);
     unsigned const numI64 = std::max(1U, (payloadBytes + 7U) / 8U);
     llvm::Type* const payloadTy = llvm::ArrayType::get(builder->getInt64Ty(), numI64);
-    llvm::StructType* const st = llvm::StructType::get(theModule->getContext(),
-                                                       {builder->getInt8Ty(), payloadTy});
+    unsigned const minTagBits = unionDiscriminantMinBits(mem.size());
+    unsigned const tagBitWidth = roundUnionTagToSupportedBitWidth(minTagBits);
+    if (tagBitWidth == 0) {
+      throw CodegenError(
+          {},
+          "Union has too many members for the discriminant (tag width would exceed 64 bits)");
+    }
+    llvm::Type* const tagTy = builder->getIntNTy(tagBitWidth);
+    llvm::StructType* const st = llvm::StructType::get(theModule->getContext(), {tagTy, payloadTy});
     type->setLlvmType(st);
     break;
   }
@@ -407,6 +444,15 @@ auto Codegen::getOrCreateLlvmType(lesma::Type* type) -> llvm::Type* {
     break;
   }
   return type->getLlvmType();
+}
+
+auto Codegen::getOrCreateUnionTagLlvmType(lesma::Type* unionTy) -> llvm::Type* {
+  if (unionTy == nullptr || !unionTy->is(BaseType::TY_UNION)) {
+    throw CodegenError({}, "Internal error: getOrCreateUnionTagLlvmType expects a union type");
+  }
+  getOrCreateLlvmType(unionTy);
+  auto* st = llvm::cast<llvm::StructType>(unionTy->getLlvmType());
+  return st->getElementType(0U);
 }
 
 auto Codegen::getStoredAggregateFieldLlvmType(lesma::Type* fieldType) -> llvm::Type* {

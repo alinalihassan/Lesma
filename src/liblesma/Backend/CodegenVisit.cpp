@@ -1011,7 +1011,8 @@ auto Codegen::emitUnionWrapValue(llvm::SMRange /*span*/, lesma::Value* val, lesm
   llvm::Function* f = builder->GetInsertBlock()->getParent();
   llvm::AllocaInst* slot = createAllocaInEntry(f, st, "union.wrap.slot");
   llvm::Value* tagPtr = builder->CreateStructGEP(st, slot, 0U, "union.tag.ptr");
-  builder->CreateStore(builder->getInt8(static_cast<uint8_t>(variantIndex)), tagPtr);
+  llvm::Type* tagTy = getOrCreateUnionTagLlvmType(unionTy);
+  builder->CreateStore(llvm::ConstantInt::get(tagTy, variantIndex), tagPtr);
   llvm::Value* payPtr = builder->CreateStructGEP(st, slot, 1U, "union.pay.ptr");
   llvm::Type* memLt = val->getType()->getLlvmType();
   llvm::Value* typedPtr = builder->CreateBitCast(
@@ -3572,8 +3573,8 @@ auto Codegen::visit(const IsOp* node) -> void {
     getOrCreateLlvmType(leftType);
     llvm::Value* agg = leftOwner->getLlvmValue();
     llvm::Value* tagVal = builder->CreateExtractValue(agg, {0U}, "union.tag");
-    llvm::Value* cmp =
-        builder->CreateICmpEQ(tagVal, builder->getInt8(static_cast<uint8_t>(*idxOpt)));
+    llvm::Value* cmp = builder->CreateICmpEQ(
+        tagVal, llvm::ConstantInt::get(tagVal->getType(), static_cast<uint64_t>(*idxOpt)));
     llvm::Value* val = nullptr;
     if (node->getOperator() == TokenType::IS) {
       val = cmp;
@@ -5068,7 +5069,8 @@ auto Codegen::emitUnionClassMethodDispatch(llvm::SMRange span, lesma::Value* uni
   }
 
   llvm::Value* tagPtr = builder->CreateStructGEP(structTy, unionPtr, 0U, "union.dispatch.tag.ptr");
-  llvm::Value* tagVal = builder->CreateLoad(builder->getInt8Ty(), tagPtr, "union.dispatch.tag");
+  llvm::Type* tagTy = getOrCreateUnionTagLlvmType(unionTy);
+  llvm::Value* tagVal = builder->CreateLoad(tagTy, tagPtr, "union.dispatch.tag");
 
   llvm::BasicBlock* mergeBB =
       llvm::BasicBlock::Create(theModule->getContext(), "union.m.merge", parent);
@@ -5085,7 +5087,7 @@ auto Codegen::emitUnionClassMethodDispatch(llvm::SMRange span, lesma::Value* uni
   for (unsigned i = 0; i < members.size(); ++i) {
     llvm::BasicBlock* caseBB =
         llvm::BasicBlock::Create(theModule->getContext(), "union.m.case", parent);
-    sw->addCase(builder->getInt8(static_cast<uint8_t>(i)), caseBB);
+    sw->addCase(llvm::cast<llvm::ConstantInt>(llvm::ConstantInt::get(tagTy, i)), caseBB);
     builder->SetInsertPoint(caseBB);
     llvm::Value* payloadVal = emitUnionPayloadLoadFromSlot(unionPtr, unionTy, members[i]);
     auto recv = std::make_unique<lesma::Value>("", members[i], payloadVal);
