@@ -34,6 +34,11 @@
     "keywords": {
       "patterns": [
         {
+          "name": "storage.type.function.lesma",
+          "comment": "Function declaration keyword (themes usually color storage.type like other languages' function keyword)",
+          "match": "\\bfunc\\b"
+        },
+        {
           "name": "keyword.vardecl.lesma",
           "match": "\\b(let|var)\\b"
         },
@@ -47,7 +52,7 @@
         },
         {
           "name": "keyword.other.lesma",
-          "match": "\\b(export|class|enum|type|func|extern|trait|impl|private|overload)\\b"
+          "match": "\\b(export|class|enum|type|extern|trait|impl|private|overload)\\b"
         },
         {
           "name": "keyword.implicit.lesma",
@@ -289,7 +294,7 @@
         {
           "comment": "Catch the function call and function definition",
           "name": "support.function.lesma",
-          "match": "(?=[a-zA-Z0-9_]+(?:<[^>\\n]+>)?\\()[a-zA-Z0-9_]+"
+          "match": "(?=[a-zA-Z0-9_]+(?:<[^>\\n]+>)?\\()(?!func\\b)[a-zA-Z0-9_]+"
         },
         {
           "comment": "Class/Enum/Trait declaration",

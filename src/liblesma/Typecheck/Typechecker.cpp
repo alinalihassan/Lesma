@@ -1719,7 +1719,7 @@ auto Typechecker::resolveType(const TypeExpr* node) -> Type* {
     if (typ == nullptr && sym == nullptr) {
       throw TypeCheckError(node->getSpan(),
                            "Type '{}' not found. If you meant a generic type parameter, add it "
-                           "to the generic parameter list (e.g. def foo<T>(x: T) -> T).",
+                           "to the generic parameter list (e.g. func foo<T>(x: T) -> T).",
                            node->getName());
     }
     if (sym == nullptr) {
@@ -1731,7 +1731,7 @@ auto Typechecker::resolveType(const TypeExpr* node) -> Type* {
     if (typ == nullptr && sym == nullptr) {
       throw TypeCheckError(node->getSpan(),
                            "Type '{}' not found. If you meant a generic type parameter, add it "
-                           "to the generic parameter list (e.g. def foo<T>(x: T) -> T).",
+                           "to the generic parameter list (e.g. func foo<T>(x: T) -> T).",
                            node->getName());
     }
     node->setResolvedSymbol(sym);
@@ -2813,7 +2813,7 @@ void Typechecker::mergeClassVtableOrder(const Class* node, Type* classTy) {
       if (!m->getDeclaresOverload()) {
         throw TypeCheckError(m->getNameSpan(),
                              "Method overrides an inherited method; add the `overload` keyword "
-                             "before `def`");
+                             "before `func`");
       }
       continue;
     }
@@ -2979,7 +2979,7 @@ auto Typechecker::visit(const Class* node) -> void {
     }
     if (classTypePtr->getClassSuperclass() != nullptr && !hasExplicitNew) {
       throw TypeCheckError(node->getNameSpan(),
-                           "Class with a superclass must define `def new` (call super.new to "
+                           "Class with a superclass must define `func new` (call super.new to "
                            "initialize the base)");
     }
     if (!hasExplicitNew) {

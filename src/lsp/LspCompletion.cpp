@@ -944,8 +944,8 @@ void appendScopeSymbols(AnalysisResult& result, SymbolTable* scope, SymbolTable*
 
 void appendKeywords(std::vector<CompletionCandidate>& out, std::unordered_set<std::string>& seen) {
   static constexpr std::array<std::string_view, 28> keywords = {
-      "and",    "as",      "break",  "class",  "continue", "def",  "defer",
-      "else",   "enum",    "export", "extern", "for",      "from", "if",
+      "and",    "as",      "break",  "class",  "continue", "defer",
+      "else",   "enum",    "export", "extern", "for",      "func", "from", "if",
       "import", "in",      "is",     "let",    "not",      "or",   "overload",
       "pass",   "private", "return", "super",  "this",     "var",  "while",
   };

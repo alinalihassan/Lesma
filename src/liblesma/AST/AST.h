@@ -628,7 +628,7 @@ public:
   [[nodiscard]] auto getGenericScope() const -> SymbolTable* { return genericScope; }
   auto setGenericScope(SymbolTable* scopePtr) const -> void { genericScope = scopePtr; }
   /** Trait method with a body is a default implementation; signature-only (no body) is a
-   * requirement (same shape as `def extern`). */
+   * requirement (same shape as `func extern`). */
   [[nodiscard]] auto hasTraitDefaultImplementation() const -> bool { return body != nullptr; }
 
   auto toString(llvm::SourceMgr* srcMgr, const std::string& prefix, bool isTail) const
