@@ -132,8 +132,8 @@ auto appendIndexedOccurrence(AnalysisIndex& index, const std::string& name,
                              std::optional<IndexedTokenKind> fallbackTokenKind,
                              const Value* resolvedSymbol = nullptr,
                              std::optional<IndexedDeclarationIdentity> declaration = std::nullopt,
-                             std::optional<llvm::SMRange> semanticHighlightSpan = std::nullopt)
-    -> void {
+                             std::optional<llvm::SMRange> semanticHighlightSpan = std::nullopt,
+                             Type* flowSensitiveType = nullptr) -> void {
   if (!span.isValid()) {
     return;
   }
@@ -147,6 +147,7 @@ auto appendIndexedOccurrence(AnalysisIndex& index, const std::string& name,
       .name = name,
       .dotBase = std::move(dotBase),
       .span = span,
+      .flowSensitiveType = flowSensitiveType,
       .semanticHighlightSpan = std::move(semanticHighlightSpan),
       .declaration = std::move(declaration),
       .isTypePosition = isTypePosition,
@@ -161,6 +162,9 @@ auto resolvedTypeForExpr(const Expression* expr) -> Type* {
     return nullptr;
   }
   if (auto const* lit = dynamic_cast<const Literal*>(expr)) {
+    if (lit->getLspFlowSensitiveType() != nullptr) {
+      return lit->getLspFlowSensitiveType();
+    }
     Value* const resolvedSymbol = lit->getResolvedSymbol();
     return resolvedSymbol != nullptr ? resolvedSymbol->getType() : nullptr;
   }
@@ -361,7 +365,8 @@ auto collectIndexFromExpr(const Expression* expr, AnalysisIndex& index) -> void 
                               0U,
                               indexedTokenKindFromResolvedSymbol(resolvedSymbol, false, false,
                                                                  IndexedTokenKind::Variable),
-                              resolvedSymbol);
+                              resolvedSymbol, std::nullopt, std::nullopt,
+                              lit->getLspFlowSensitiveType());
     }
     return;
   }

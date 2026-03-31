@@ -5630,8 +5630,10 @@ auto Typechecker::visit(const Literal* node) -> void {
           markValueRead(sym);
           node->setResolvedSymbol(shadow);
           result = std::make_unique<Value>(*shadow);
+          node->setLspFlowSensitiveType(nullptr);
           if (Type* n = lookupUnionNarrowedType(shadow)) {
             result->setType(n);
+            node->setLspFlowSensitiveType(n);
           }
           break;
         }
@@ -5640,8 +5642,10 @@ auto Typechecker::visit(const Literal* node) -> void {
     node->setResolvedSymbol(sym);
     markValueRead(sym);
     result = std::make_unique<Value>(*sym);
+    node->setLspFlowSensitiveType(nullptr);
     if (Type* n = lookupUnionNarrowedType(sym)) {
       result->setType(n);
+      node->setLspFlowSensitiveType(n);
     }
     break;
   }
