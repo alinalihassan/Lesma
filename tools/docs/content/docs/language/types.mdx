@@ -1,7 +1,7 @@
 ---
 title: Types
 description: |
-  Static typing, type annotations, inference, runtime checks, casts, and common built-in types in Lesma.
+  Static typing, annotations, inference, unions, narrowing, casts, built-ins, and runtime `is` checks.
 category: Language
 ---
 
@@ -69,9 +69,73 @@ let printer: func(int) = func(n: int) {
 
 Use **`func(T1, T2) -> R`** in annotations; [lambda expressions](/docs/language/functions#lambdas) produce values of these types.
 
+## Union types (`|`)
+
+A **union type** **`T1 | T2 | …`** is a single value type: at runtime each value remembers which variant it holds (a tag) and stores a payload large enough for the largest member. Use **`|`** between types in annotations (and anywhere a type is written):
+
+```les
+var u: int | float = 7
+var v: float | int = 3.5
+```
+
+The compiler **normalizes** unions: member types are **deduplicated** and sorted into a **canonical order** (stable in a given compiler version). So **`int | float`** and **`float | int`** are the **same** type, with the same tag assignment and layout.
+
+**Supported members** today are the scalar primitives **`int`**, **`float`**, **`float32`**, **`bool`**, and **class** types (classes are passed by value in the ABI; the union stores the class layout). Other forms (generic unions, arbitrary pointer unions as a single tagged union, etc.) may be rejected.
+
+A value of type **`T`** is assignable to **`T | U | …`** when it is assignable to **at least one** member: the compiler **wraps** it with the correct tag. Calls and assignments use the same rules.
+
+## Flow narrowing (`if` + `is`)
+
+When a variable’s static type is a **union** and you branch on **`x is SomeType`** or **`x is not SomeType`**, the checker **narrows** the type of **`x`** inside certain blocks:
+
+- **`if x is T { … }`**: inside the **then** block, **`x`** has type **`T`** (when **`T`** is a member of the union).
+- **`else`** attached to **`if x is T`** when the union has **exactly two** members: in the **else** block, **`x`** has the **other** member type.
+- After the full **`if`** (or when code is **not** inside such a branch), **`x`** is again the **full** union.
+
+Narrowing applies to **simple variable references** (locals and parameters) the checker can tie to storage.
+
+**Important:** narrowing applies to code **inside** the **`if` / `else` blocks**. A statement that comes **after** the closing brace of **`if x is T { … }`** but is **not** inside an **`else { … }`** is still in the outer scope, so **`x`** is **not** narrowed there. Use an explicit **`else { … }`** when you need the complement type:
+
+```les
+func f(x: int | float) -> int {
+    if x is float {
+        return 0
+    } else {
+        return x + 1
+    }
+}
+```
+
+For **`is not`** with a two-member union, the checker narrows analogously (then-branch to “not that member”, else-branch to that member when applicable).
+
+## Shared methods on class unions
+
+If **every** class member of a union defines a method with the **same name** and **compatible** signatures (including the same return type), you can call that method **without** narrowing:
+
+```les
+class A {
+    func new() {}
+    func id() -> int { return 1 }
+}
+class B {
+    func new() {}
+    func id() -> int { return 2 }
+}
+
+func pick() -> int {
+    var x: A | B = A()
+    return x.id()
+}
+```
+
+The same idea applies when both classes **implement a trait** and you call a **required** method: **`x.say()`** can type-check on **`Frog | Toad`** when both implement **`Speaker`**.
+
 ## `is` and `is not`
 
-**`is`** and **`is not`** compare a value’s **runtime type** to a type expression. They are useful after generic or pointer-heavy code where you need a clear type check.
+**`is`** and **`is not`** compare a value to a type and produce **`bool`**.
+
+- If the left-hand expression has a **union** type, the check uses the **runtime tag**: **`x is int`** is true exactly when the stored variant is **`int`** (per the canonical member list).
+- For **non-union** values (for example pointers and classes in the usual **`p is *T`** style), the compiler keeps the existing **static** comparison behavior.
 
 ```les
 var x: int = 5
@@ -82,7 +146,7 @@ if p is not *int {
 }
 ```
 
-You can test built-ins, generics, and other type forms the compiler accepts in that position (for example **`list<int>`**).
+The right-hand side must be a **type** the compiler accepts in that position. For a union **`x`**, **`x is U`** requires **`U`** to be one of the union’s members (after normalization). You can still test other type forms where the checker allows them (for example **`list<int>`**) when the left-hand type is not a union.
 
 ## `as` casts
 
@@ -93,9 +157,17 @@ let y: float = 101.5
 let z: int = y as int
 ```
 
+## IDE support (LSP)
+
+When **`lesma-lsp`** is enabled, **hover** on an identifier can show the **flow-narrowed** type (for example **`int`** on **`x`** inside an **`else`** branch after **`x is float`**), not only the declared **`int | float`**.
+
+**Go to definition** on a method name called on a **class union** (for example **`x.id()`** on **`A | B`**) may return **multiple locations**—one per implementing class—so you can jump to **`A::id`** or **`B::id`**.
+
 ## Next steps
 
+- [Control flow](/docs/language/control-flow) for **`if` / `else`** structure used with narrowing.
 - [Enums](/docs/language/enums) and [Tuples](/docs/language/tuples) for more type forms.
 - [Foreign Function Interface](/docs/language/ffi) for `func extern` and C-compatible types.
 - [Functions](/docs/language/functions)
 - [Classes](/docs/language/classes)
+- [Traits & Generics](/docs/language/traits-generics) for trait methods on union receivers.
