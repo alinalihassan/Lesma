@@ -1716,6 +1716,21 @@ auto Typechecker::isAssignableTo(Type* from, Type* to) -> bool {
     return true;
   }
   if (to->is(BaseType::TY_UNION)) {
+    if (from->is(BaseType::TY_UNION)) {
+      for (Type* fm : from->getUnionMembers()) {
+        bool memberOk = false;
+        for (Type* tm : to->getUnionMembers()) {
+          if (isAssignableTo(fm, tm)) {
+            memberOk = true;
+            break;
+          }
+        }
+        if (!memberOk) {
+          return false;
+        }
+      }
+      return true;
+    }
     for (Type* m : to->getUnionMembers()) {
       if (isAssignableTo(from, m)) {
         return true;
@@ -1900,11 +1915,19 @@ auto Typechecker::resolveType(const TypeExpr* node) -> Type* {
       }
     }
     for (Type* t : unique) {
-      if (!isSupportedUnionMemberType(t)) {
-        throw TypeCheckError(node->getSpan(),
-                             "Union member type `{}` is not supported (only int, float, float32, "
-                             "bool, and class variants are allowed)",
-                             t->toString());
+      if (t->is(BaseType::TY_ARRAY)) {
+        if (!isStdlibSourcePath(mainFilePath)) {
+          throw TypeCheckError(node->getSpan(),
+                               "`__buffer<…>` is not allowed as a union member outside the "
+                               "standard library (use `list<…>` or another class type instead)",
+                               t->toString());
+        }
+      } else if (!isSupportedUnionMemberType(t)) {
+        throw TypeCheckError(
+            node->getSpan(),
+            "Union member type `{}` is not supported (allowed: int, float, float32, bool, and "
+            "class types — e.g. str, list<U>, or your own classes)",
+            t->toString());
       }
     }
     std::ranges::sort(unique, [](Type* a, Type* b) { return a->toString() < b->toString(); });

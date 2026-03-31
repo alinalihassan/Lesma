@@ -4225,6 +4225,75 @@ auto Codegen::cast(llvm::SMRange span, lesma::Value* val, lesma::Type* type)
   if (type != nullptr && type->is(BaseType::TY_UNION) && val != nullptr &&
       val->getType() != nullptr) {
     const auto& mem = type->getUnionMembers();
+    if (val->getType()->is(BaseType::TY_UNION)) {
+      lesma::Type* fromU = val->getType();
+      const auto& fromMembers = fromU->getUnionMembers();
+      std::vector<unsigned> destIdxPerFrom;
+      destIdxPerFrom.reserve(fromMembers.size());
+      bool canWidenWithMatchingArms = !fromMembers.empty();
+      for (Type* fm : fromMembers) {
+        std::optional<unsigned> dest;
+        for (unsigned j = 0; j < mem.size(); ++j) {
+          if (mem[j] != nullptr && mem[j]->isEqual(fm)) {
+            dest = j;
+            break;
+          }
+        }
+        if (!dest.has_value()) {
+          canWidenWithMatchingArms = false;
+          break;
+        }
+        destIdxPerFrom.push_back(*dest);
+      }
+      if (canWidenWithMatchingArms) {
+        getOrCreateLlvmType(fromU);
+        getOrCreateLlvmType(type);
+        llvm::Value* agg = val->getLlvmValue();
+        llvm::Function* func = builder->GetInsertBlock()->getParent();
+        auto* fromSt = llvm::cast<llvm::StructType>(fromU->getLlvmType());
+        llvm::AllocaInst* srcSlot = createAllocaInEntry(func, fromSt, "union.widen.src");
+        builder->CreateStore(agg, srcSlot);
+
+        llvm::BasicBlock* mergeBB =
+            llvm::BasicBlock::Create(theModule->getContext(), "union.widen.merge", func);
+        llvm::BasicBlock* defaultBB =
+            llvm::BasicBlock::Create(theModule->getContext(), "union.widen.badtag", func);
+
+        llvm::Value* tagVal = builder->CreateExtractValue(agg, {0U}, "union.widen.tag");
+        llvm::Type* fromTagTy = getOrCreateUnionTagLlvmType(fromU);
+        auto* sw = builder->CreateSwitch(tagVal, defaultBB,
+                                         static_cast<unsigned>(fromMembers.size()));
+        std::vector<std::pair<llvm::Value*, llvm::BasicBlock*>> phiIncomings;
+        phiIncomings.reserve(fromMembers.size());
+
+        for (unsigned i = 0; i < fromMembers.size(); ++i) {
+          llvm::BasicBlock* caseBB = llvm::BasicBlock::Create(
+              theModule->getContext(), "union.widen.case." + std::to_string(i), func);
+          sw->addCase(llvm::cast<llvm::ConstantInt>(llvm::ConstantInt::get(fromTagTy, i)), caseBB);
+          builder->SetInsertPoint(caseBB);
+          Type* memTy = fromMembers[i];
+          llvm::Value* loaded = emitUnionPayloadLoadFromSlot(srcSlot, fromU, memTy);
+          auto tmp = std::make_unique<lesma::Value>("", memTy, loaded);
+          std::unique_ptr<lesma::Value> wrapped =
+              emitUnionWrapValue(span, tmp.get(), type, destIdxPerFrom[i]);
+          llvm::Value* outAgg = wrapped->getLlvmValue();
+          builder->CreateBr(mergeBB);
+          phiIncomings.emplace_back(outAgg, caseBB);
+        }
+
+        builder->SetInsertPoint(defaultBB);
+        builder->CreateUnreachable();
+
+        builder->SetInsertPoint(mergeBB);
+        llvm::PHINode* phi =
+            builder->CreatePHI(type->getLlvmType(),
+                               static_cast<unsigned>(phiIncomings.size()), "union.widen.out");
+        for (auto const& pr : phiIncomings) {
+          phi->addIncoming(pr.first, pr.second);
+        }
+        return std::make_unique<lesma::Value>("", type, phi);
+      }
+    }
     for (unsigned i = 0; i < mem.size(); ++i) {
       if (val->getType()->isEqual(mem[i])) {
         return emitUnionWrapValue(span, val, type, i);

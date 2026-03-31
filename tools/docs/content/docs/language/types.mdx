@@ -80,7 +80,7 @@ var v: float | int = 3.5
 
 The compiler **normalizes** unions: member types are **deduplicated** and sorted into a **canonical order** (stable in a given compiler version). So **`int | float`** and **`float | int`** are the **same** type, with the same tag assignment and layout.
 
-**Supported members** today are the scalar primitives **`int`**, **`float`**, **`float32`**, **`bool`**, and **class** types (classes are passed by value in the ABI; the union stores the class layout). Other forms (generic unions, arbitrary pointer unions as a single tagged union, etc.) may be rejected.
+**Supported members** in normal code are the scalar primitives **`int`**, **`float`**, **`float32`**, **`bool`**, and **class** types — including stdlib **`str`**, generic classes like **`list<T>`**, and your own classes (classes are passed by value in the ABI; the union stores the class layout). Other forms (arbitrary pointer unions as a single tagged union, tuples in unions, stdlib-internal type forms in unions, etc.) may be rejected.
 
 A value of type **`T`** is assignable to **`T | U | …`** when it is assignable to **at least one** member: the compiler **wraps** it with the correct tag. Calls and assignments use the same rules.
 
