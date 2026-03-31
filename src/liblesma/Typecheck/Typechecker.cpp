@@ -1169,22 +1169,48 @@ auto Typechecker::substituteInType(Type* t, const std::unordered_map<std::string
     return cacheType(std::move(tupleType));
   }
   if (t->is(BaseType::TY_UNION)) {
-    std::vector<Type*> members;
-    members.reserve(t->getUnionMembers().size());
+    std::vector<Type*> flat;
+    flat.reserve(t->getUnionMembers().size());
+    auto appendFlattened = [&](Type* cur, auto&& self) -> void {
+      if (cur == nullptr) {
+        return;
+      }
+      if (cur->is(BaseType::TY_UNION)) {
+        for (Type* inner : cur->getUnionMembers()) {
+          self(inner, self);
+        }
+      } else {
+        flat.push_back(cur);
+      }
+    };
     for (Type* m : t->getUnionMembers()) {
-      members.push_back(substituteInType(m, env));
+      Type* substituted = substituteInType(m, env);
+      appendFlattened(substituted, appendFlattened);
     }
-    std::ranges::sort(members, [](Type* a, Type* b) { return a->toString() < b->toString(); });
+    std::vector<Type*> unique;
+    for (Type* arm : flat) {
+      bool dup = false;
+      for (Type* u : unique) {
+        if (arm->isEqual(u)) {
+          dup = true;
+          break;
+        }
+      }
+      if (!dup) {
+        unique.push_back(arm);
+      }
+    }
+    std::ranges::sort(unique, [](Type* a, Type* b) { return a->toString() < b->toString(); });
     std::string dn;
-    for (size_t i = 0; i < members.size(); ++i) {
+    for (size_t i = 0; i < unique.size(); ++i) {
       if (i > 0) {
         dn += " | ";
       }
-      dn += members[i]->toString();
+      dn += unique[i]->toString();
     }
     auto u = std::make_unique<Type>(BaseType::TY_UNION);
     u->setDisplayName(dn);
-    u->setUnionMembers(std::move(members));
+    u->setUnionMembers(std::move(unique));
     return cacheType(std::move(u));
   }
   if (t->is(BaseType::TY_CLASS)) {
