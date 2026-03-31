@@ -1,0 +1,9 @@
+var xs = list<int>()
+xs.push(1)
+xs.push(2)
+xs.push(3)
+
+var doubled = xs.map(func(x: int) => x * 2)
+if doubled.len() != 3 or doubled[0] != 2 or doubled[1] != 4 or doubled[2] != 6 {
+    exit(1)
+}

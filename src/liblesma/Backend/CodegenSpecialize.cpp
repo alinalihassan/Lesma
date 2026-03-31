@@ -468,6 +468,7 @@ auto Codegen::specializeFunction(const FuncDecl* node, const std::vector<lesma::
                                  const std::vector<lesma::Type*>& explicitTypeArgs,
                                  const std::unordered_map<std::string, lesma::Type*>* bindingEnvHint)
     -> lesma::Value* {
+  Value* templateSym = node->getResolvedSymbol();
   auto saved = currentGenericTypes;
   auto env = bindingEnvHint != nullptr
                  ? *bindingEnvHint
@@ -495,8 +496,12 @@ auto Codegen::specializeFunction(const FuncDecl* node, const std::vector<lesma::
   std::vector<std::unique_ptr<Field>> fields;
   std::vector<lesma::Type*> concreteParamTypes;
   if (selfSymbol != nullptr) {
-    fields.push_back(std::make_unique<Field>("self", selfSymbol->getType()));
-    concreteParamTypes.push_back(selfSymbol->getType());
+    Type* selfType = selfSymbol->getType();
+    if (selfType != nullptr && selfType->is(BaseType::TY_CLASS)) {
+      selfType = cacheType(std::make_unique<Type>(BaseType::TY_PTR, nullptr, selfType));
+    }
+    fields.push_back(std::make_unique<Field>("self", selfType));
+    concreteParamTypes.push_back(selfType);
   }
   for (auto* param : node->getParameters()) {
     param->type->accept(*this);
@@ -526,6 +531,13 @@ auto Codegen::specializeFunction(const FuncDecl* node, const std::vector<lesma::
   const bool specializationKeysMatch = (mangledName == key);
   auto func = std::make_unique<Value>(node->getName(), typePtr);
   func->setCategory(ValueCategory::CALLABLE_SYMBOL);
+  if (templateSym != nullptr) {
+    func->setDeclarationKind(templateSym->getDeclarationKind());
+    func->setBodyScope(templateSym->getBodyScope());
+  } else {
+    func->setDeclarationKind(selfSymbol != nullptr ? ValueDeclarationKind::METHOD
+                                                   : ValueDeclarationKind::FUNCTION);
+  }
   func->setMangledName(mangledName);
   func->setExported(node->isExported());
   auto linkage = node->isExported() ? Function::ExternalLinkage : Function::PrivateLinkage;
