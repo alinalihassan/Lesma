@@ -264,7 +264,29 @@ auto Codegen::defineFunction(lesma::Value* value, const FuncDecl* node, Value* c
     }
   }
   SymbolTable* savedScope = scope;
-  scope = value->getBodyScope();
+  SymbolTable* templateBodyScope = value->getBodyScope();
+  scope = templateBodyScope;
+  if (scope != nullptr && specializationEnvs.contains(value)) {
+    scope = savedScope->createChildBlock(node->getName() + ".specialized");
+    std::vector<std::string> paramNames;
+    paramNames.reserve(node->getParameters().size() + 1U);
+    paramNames.push_back("self");
+    for (auto* param : node->getParameters()) {
+      paramNames.push_back(param->name);
+    }
+    for (auto* symbol : templateBodyScope->getSymbols()) {
+      if (symbol == nullptr) {
+        continue;
+      }
+      if (std::find(paramNames.begin(), paramNames.end(), symbol->getName()) == paramNames.end()) {
+        continue;
+      }
+      auto seeded = std::make_unique<Value>(*symbol);
+      seeded->setLlvmValue(nullptr);
+      seeded->setCategory(ValueCategory::ADDRESSABLE_STORAGE);
+      scope->insertSymbol(std::move(seeded));
+    }
+  }
   if (scope == nullptr) {
     scope = savedScope->createChildBlock(node->getName());
   }
@@ -319,6 +341,7 @@ auto Codegen::defineFunction(lesma::Value* value, const FuncDecl* node, Value* c
     Value* existingParam = lookupInCurrentScope(paramName);
     if (field->type != nullptr && field->type->is(BaseType::TY_FUNCTION) && existingParam != nullptr &&
         existingParam->getStoresFuncValuePair()) {
+      existingParam->setType(field->type);
       existingParam->setLlvmValue(param);
       existingParam->setCategory(ValueCategory::ADDRESSABLE_STORAGE);
       emitParameterDebugDeclare(f, param, paramName, static_cast<unsigned>(fieldIndex + 1), declFile,
@@ -333,6 +356,7 @@ auto Codegen::defineFunction(lesma::Value* value, const FuncDecl* node, Value* c
                               declLine, param->getType(), storeParam);
 
     if (existingParam != nullptr && existingParam->getLlvmValue() == nullptr) {
+      existingParam->setType(field->type);
       existingParam->setLlvmValue(ptr);
       existingParam->setCategory(ValueCategory::ADDRESSABLE_STORAGE);
     } else {
@@ -3013,8 +3037,8 @@ auto Codegen::visit(const DotOp* node) -> void {
                                                                   : receiverType->getDisplayName());
       }
       if (!field.empty()) {
-        auto index = TypeUtils::findIndexInFields(receiverType, field);
-        auto* type = TypeUtils::findTypeInFields(receiverType, field);
+        auto index = TypeUtils::findIndexInFields(cls->getType(), field);
+        auto* type = TypeUtils::findTypeInFields(cls->getType(), field);
         if (index == -1) {
           throw CodegenError(node->getRight()->getSpan(), "Could not find field {} in {}", field,
                              receiverType->getLlvmType()->getStructName().str());
@@ -3024,13 +3048,13 @@ auto Codegen::visit(const DotOp* node) -> void {
         if (!fieldBasePtr->getType()->isPointerTy()) {
           auto* parentFn = builder->GetInsertBlock()->getParent();
           auto* tempAlloca =
-              createAllocaInEntry(parentFn, receiverType->getLlvmType(), field + ".field.tmp");
+              createAllocaInEntry(parentFn, cls->getType()->getLlvmType(), field + ".field.tmp");
           builder->CreateStore(fieldBasePtr, tempAlloca);
           fieldBasePtr = tempAlloca;
         }
         unsigned const structIdx =
-            TypeUtils::classDataFieldStructIndex(receiverType, static_cast<unsigned>(index));
-        auto* ptr = builder->CreateStructGEP(receiverType->getLlvmType(), fieldBasePtr, structIdx);
+            TypeUtils::classDataFieldStructIndex(cls->getType(), static_cast<unsigned>(index));
+        auto* ptr = builder->CreateStructGEP(cls->getType()->getLlvmType(), fieldBasePtr, structIdx);
         if (isAssignment) {
           result = std::make_unique<Value>(
               "", cacheType(std::make_unique<Type>(BaseType::TY_PTR, builder->getPtrTy(), type)),
@@ -4338,11 +4362,6 @@ auto Codegen::callNamedFunction(llvm::SMRange span, const std::string& functionN
     throw CodegenError(span, "{} {} not in current scope.",
                        classSym != nullptr ? "Constructor for" : "Function", functionName);
   }
-  Type* callableLesmaType = symbol->getType();
-  if (callableLesmaType != nullptr && !currentGenericTypes.empty() &&
-      typeContainsUnboundGeneric(callableLesmaType)) {
-    callableLesmaType = substituteTypeForSpecializationEnv(callableLesmaType, currentGenericTypes);
-  }
   if (symbol->getLlvmValue() == nullptr) {
     std::string moduleLookupName =
         getMangledName(span, functionName, localParamTypes, selfSymbol != nullptr);
@@ -4408,6 +4427,12 @@ auto Codegen::callNamedFunction(llvm::SMRange span, const std::string& functionN
         }
       }
     }
+  }
+
+  Type* callableLesmaType = symbol->getType();
+  if (callableLesmaType != nullptr && !currentGenericTypes.empty() &&
+      typeContainsUnboundGeneric(callableLesmaType)) {
+    callableLesmaType = substituteTypeForSpecializationEnv(callableLesmaType, currentGenericTypes);
   }
 
   if (callableLesmaType == nullptr ||
