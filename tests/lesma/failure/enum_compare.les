@@ -1,12 +1,14 @@
-enum Color
+enum Color {
     RED
     BLUE
     GREEN
 
-enum Color2
+}
+enum Color2 {
     RED
     BLUE
     GREEN
 
-if Color.RED != Color2.RED
-    let error = true
+}
+if Color.RED != Color2.RED {
+    let error = true}

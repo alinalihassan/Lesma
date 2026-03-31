@@ -14,7 +14,9 @@ Reserved identifiers come from the compiler’s keyword table (everything below 
 
 **Control flow:** `if`, `else` (and **`else if`** as two tokens), `while`, `for`, `break`, `continue`, `return`, `pass`, `defer` (deferred statements run when the enclosing function or module finishes, **LIFO**—last `defer` first—before the `return` value is evaluated). Example with C **`fopen`/`fclose`**: [Control flow → Defer](/docs/language/control-flow#defer).
 
-**Bindings and declarations:** `let`, `var`, `def`, `func`, `class`, `enum`, `trait`, `impl`.
+**Bindings and declarations:** `let`, `var`, `func` (named functions, **`func(...)`** function types, and **`func(`**…**`) =>`** / **`func(`**…**`) {`** … **`}`** [lambdas](/docs/language/functions#lambdas)), `class`, `enum`, `trait`, `impl`.
+
+**Class members:** `private` (field or method visible only in the class that declares it—subclasses and outside code cannot read or call it), `overload` (mark a method that **replaces** a superclass method with the same name; without `overload`, reusing the name is an error). See [Classes → Private and overload](/docs/language/classes#private-and-overload).
 
 **Modules:** `import`, `from`, `export`, `extern`.
 
@@ -22,7 +24,7 @@ Reserved identifiers come from the compiler’s keyword table (everything below 
 
 **Literals / values:** `true`, `false`, `null`.
 
-**Expressions:** `and`, `or`, `not`, `in`, `is`, **`is not`** (after `is`), `as`, `operator`, `super`. **`this`** is reserved; ordinary methods and operators use **`self`** for the receiver ([Classes](/docs/language/classes)).
+**Expressions:** `and`, `or`, `not`, `in`, `is`, **`is not`** (after `is`), `as`, **`=>`** (lambda expression body after `func(...)`), `operator`, `super`. **`this`** is reserved; ordinary methods and operators use **`self`** for the receiver ([Classes](/docs/language/classes)).
 
 **User names:** Any other identifier spelling is yours. Types like **`str`** come from the prelude, not the keyword list.
 

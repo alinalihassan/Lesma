@@ -7,9 +7,11 @@ import "import_generics_module.les"
 var intBox = import_generics_module.Box(42)
 var floatBox = import_generics_module.Box(3.14)
 
-if intBox.getVal() != 42
+if intBox.getVal() != 42 {
     exit(1)
-if floatBox.getVal() != 3.14
+}
+if floatBox.getVal() != 3.14 {
     exit(1)
 
+}
 exit(0)

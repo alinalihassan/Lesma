@@ -26,11 +26,12 @@ class LexerError : public LesmaErrorWithExitCode<EX_DATAERR> {
 class Lexer {
 public:
   explicit Lexer(const std::shared_ptr<llvm::SourceMgr>& srcMgr,
-                 std::vector<AnalysisDiagnostic>* diagnosticSink = nullptr)
+                 std::vector<AnalysisDiagnostic>* diagnosticSink = nullptr,
+                 std::string diagnosticFilePath = {})
       : curBuffer(srcMgr->getMemoryBuffer(srcMgr->getNumBuffers())),
         beginLoc(llvm::SMLoc::getFromPointer(curBuffer->getBufferStart())),
         loc(llvm::SMLoc::getFromPointer(curBuffer->getBufferStart())), srcMgr(srcMgr),
-        diagnosticSink(diagnosticSink) {}
+        diagnosticSink(diagnosticSink), diagnosticFilePath(std::move(diagnosticFilePath)) {}
   ~Lexer() = default;
 
   Lexer(const Lexer&) = delete;
@@ -74,9 +75,6 @@ private:
   /** Consume until after the next `\n`, or EOF. Updates line/col. */
   auto skipRestOfPhysicalLine() -> void;
 
-  /** Emit DEDENTs for open indent levels and reset stacks (after a structural lex error). */
-  auto emitDedentsAndResetIndent() -> void;
-
   auto isAtEnd() -> bool { return curPos >= curBuffer->getBufferSize(); }
 
   // Helper to get pointer at current position for SMLoc (isolates pointer
@@ -119,12 +117,10 @@ private:
   std::vector<std::unique_ptr<Token>> tokens;
   std::shared_ptr<llvm::SourceMgr> srcMgr;
   std::vector<AnalysisDiagnostic>* diagnosticSink = nullptr;
+  std::string diagnosticFilePath;
 
   std::optional<char> firstIndentChar;
   int level = 0;
-  int indent = 0;
-  std::vector<int> indentStack = {0};
-  std::vector<int> altIndentStack = {0};
 
   std::deque<std::unique_ptr<Token>> pendingTokens;
   /** Nested `${ ... }`; incremented on `${`, decremented on closing `}`. */

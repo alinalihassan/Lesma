@@ -1,4 +1,5 @@
 import "import_alias_collides_with_export_mod.les"
 
-if import_alias_collides_with_export_mod.helper() != 3
+if import_alias_collides_with_export_mod.helper() != 3 {
     exit(1)
+}

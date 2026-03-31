@@ -1,24 +1,32 @@
-# Generic class without explicit `def new`: synthesized ctor + inference.
+# Generic class without explicit `func new`: synthesized ctor + inference.
 
-class GBox<T>
+class GBox<T> {
     var val: T
-    def getVal() -> T
+    func getVal() -> T {
         return self.val
 
+    }
+}
 var ib = GBox(100)
-if ib.getVal() != 100
+if ib.getVal() != 100 {
     exit(1)
 
-class GPair<T, U>
+}
+class GPair<T, U> {
     var a: T
     var b: U
-    def getA() -> T
+    func getA() -> T {
         return self.a
-    def getB() -> U
+    }
+    func getB() -> U {
         return self.b
 
+    }
+}
 var pr = GPair(7, 2.5)
-if pr.getA() != 7
+if pr.getA() != 7 {
     exit(1)
-if pr.getB() != 2.5
+}
+if pr.getB() != 2.5 {
     exit(1)
+}

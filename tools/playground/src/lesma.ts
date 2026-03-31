@@ -69,7 +69,7 @@ export async function runLesma(
     const mainPath = path.join(tmpDir, assertSafeRel(mainRel, tmpDir))
 
     const controller = new AbortController()
-    const timer =
+    const abortTimer =
       timeoutMs > 0
         ? setTimeout(() => {
             controller.abort()
@@ -118,7 +118,7 @@ export async function runLesma(
         runErr = e instanceof Error ? e : new Error(String(e))
       }
     } finally {
-      if (timer) clearTimeout(timer)
+      if (abortTimer) clearTimeout(abortTimer)
     }
 
     const events: RunEvent[] = []

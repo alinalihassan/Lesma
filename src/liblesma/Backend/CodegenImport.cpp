@@ -43,8 +43,8 @@ namespace {
 } // namespace
 
 auto Codegen::getExportsFromFile(const std::string& filepath, bool isStd,
-                                 const std::string& mainFilePath) -> std::vector<std::string> {
-  return getExportedTopLevelNamesFromFile(filepath, isStd, mainFilePath);
+                                 const std::string& mainFilePath) -> ExportDiscoveryResult {
+  return discoverExportedTopLevelNames(filepath, isStd, mainFilePath);
 }
 
 auto Codegen::typecheckModule(const Compound* ast, const std::string& modulePath)
@@ -220,17 +220,18 @@ auto Codegen::compileModule(llvm::SMRange span, const std::string& filepath, boo
                             const std::string& moduleAlias, bool importAll, bool importToScope,
                             const std::vector<ImportedNameBinding>& importedNames) -> void {
   (void) isStd;
-  const std::string absolutePath = normalizeModuleImportPath(filename, filepath);
+  const std::string resolvedPath = normalizeModuleImportPath(filename, filepath);
+  const std::string canonicalPath = normalizeResolvedFilesystemPath(resolvedPath);
 
   static thread_local std::unordered_set<std::string> compiling;
-  if (compiling.contains(absolutePath)) {
+  if (compiling.contains(canonicalPath)) {
     throw CodegenError(span, "Circular import detected: {}", filepath);
   }
 
   // If this codegen already compiled this module, only merge its symbols (no
   // recompilation). Only skip when we have the scope (same codegen compiled
   // it); otherwise a child may see the path in the list but not have the scope.
-  auto it = std::find(importedModules->begin(), importedModules->end(), absolutePath);
+  auto it = std::find(importedModules->begin(), importedModules->end(), canonicalPath);
   if (it != importedModules->end()) {
     auto existingIdx = static_cast<size_t>(it - importedModules->begin());
     if (existingIdx >= importedScopes->size() || !importedScopes->at(existingIdx)) {
@@ -247,9 +248,9 @@ auto Codegen::compileModule(llvm::SMRange span, const std::string& filepath, boo
         importedSpecializationStates->at(existingIdx);
     mergeImportedSpecializationState(importedState);
     mergeImportedTraitMetadata(importedState);
-    insertImportAlias(moduleAlias, importToScope, absolutePath);
+    insertImportAlias(moduleAlias, importToScope, canonicalPath);
     if (!importToScope && !moduleAlias.empty()) {
-      importAliasToModulePath[moduleAlias] = absolutePath;
+      importAliasToModulePath[moduleAlias] = canonicalPath;
     }
     exposeImportedSymbols(span, existingScope, importAll, importToScope, importedNames);
     return;
@@ -264,16 +265,16 @@ auto Codegen::compileModule(llvm::SMRange span, const std::string& filepath, boo
                        "import): {}",
                        filepath);
   }
-  compiling.insert(absolutePath);
+  compiling.insert(canonicalPath);
 
-  auto buffer = MemoryBuffer::getFile(absolutePath);
+  auto buffer = MemoryBuffer::getFile(canonicalPath);
   if (std::error_code ec = buffer.getError()) {
-    compiling.erase(absolutePath);
-    throw LesmaError(llvm::SMRange(), "Could not read file: {}", absolutePath);
+    compiling.erase(canonicalPath);
+    throw LesmaError(llvm::SMRange(), "Could not read file: {}", canonicalPath);
   }
 
   auto fileId = sourceManager->AddNewSourceBuffer(std::move(*buffer), llvm::SMLoc());
-  importedModules->push_back(absolutePath);
+  importedModules->push_back(canonicalPath);
   auto importIdx = importedModules->size() - 1U;
   if (importedScopes->size() <= importIdx) {
     importedScopes->resize(importIdx + 1U);
@@ -296,10 +297,10 @@ auto Codegen::compileModule(llvm::SMRange span, const std::string& filepath, boo
     }
 
     auto [preScope, preTypeCache, preSpecEnv, preTemplateOf, preSpecializedClassTypes] =
-        typecheckModule(ast, absolutePath);
+        typecheckModule(ast, canonicalPath);
 
     auto codegen = std::make_unique<Codegen>(
-        std::move(parser), sourceManager, absolutePath, std::vector<std::string>{}, isJit, false,
+        std::move(parser), sourceManager, canonicalPath, std::vector<std::string>{}, isJit, false,
         !importToScope ? moduleAlias : "", theContext, importedModules, importedScopes,
         importedSpecializationStates,
         std::move(preScope), std::move(preTypeCache), std::move(preSpecEnv),
@@ -315,9 +316,9 @@ auto Codegen::compileModule(llvm::SMRange span, const std::string& filepath, boo
     codegen->optimize(OptimizationLevel::O0);
     codegen->theModule->setModuleIdentifier(filepath);
 
-    insertImportAlias(moduleAlias, importToScope, absolutePath);
+    insertImportAlias(moduleAlias, importToScope, canonicalPath);
     if (!importToScope && !moduleAlias.empty()) {
-      importAliasToModulePath[moduleAlias] = absolutePath;
+      importAliasToModulePath[moduleAlias] = canonicalPath;
     }
     exposeImportedSymbols(span, codegen->rootScope.get(), importAll, importToScope, importedNames);
 
@@ -334,7 +335,7 @@ auto Codegen::compileModule(llvm::SMRange span, const std::string& filepath, boo
       codegen->verifyIrModuleOrThrow(fmt::format("import {}", filepath));
       if (llvm::Function* importMain = codegen->theModule->getFunction("main");
           importMain != nullptr && importMain->hasInternalLinkage()) {
-        jitModuleInitSymbol = MangleUtils::getImportedModuleInitSymbolName(absolutePath);
+        jitModuleInitSymbol = MangleUtils::getImportedModuleInitSymbolName(canonicalPath);
         importMain->setName(jitModuleInitSymbol);
         importMain->setLinkage(llvm::GlobalValue::ExternalLinkage);
         importMain->setVisibility(llvm::GlobalValue::HiddenVisibility);
@@ -350,7 +351,7 @@ auto Codegen::compileModule(llvm::SMRange span, const std::string& filepath, boo
       llvm::Error jitErr =
           theJit->addIRModule(ThreadSafeModule(std::move(codegen->theModule), *theContext));
       if (jitErr) {
-        throw CodegenError(span, std::string("Failed adding import to JIT: ") + absolutePath +
+        throw CodegenError(span, std::string("Failed adding import to JIT: ") + canonicalPath +
                                      ": " + jitErrorToString(std::move(jitErr)));
       }
       if (!jitModuleInitSymbol.empty() && pendingJitModuleInits != nullptr) {
@@ -367,14 +368,14 @@ auto Codegen::compileModule(llvm::SMRange span, const std::string& filepath, boo
     // valid
     importedCodegens.push_back(std::move(codegen));
   } catch (const LesmaError& err) {
-    compiling.erase(absolutePath);
+    compiling.erase(canonicalPath);
     if (!err.getSpan().isValid()) {
       lesma::print(LogType::ERROR, err.what());
     } else {
-      showInline(sourceManager.get(), fileId, err.getSpan(), absolutePath, true, err.what());
+      showInline(sourceManager.get(), fileId, err.getSpan(), canonicalPath, true, err.what());
     }
 
     throw CodegenError(span, "Unable to import {} due to errors", filepath);
   }
-  compiling.erase(absolutePath);
+  compiling.erase(canonicalPath);
 }

@@ -10,9 +10,10 @@ category: Language
 Tuple types are written with parentheses and comma-separated element types. A single-element tuple keeps a trailing comma: **`(int,)`**.
 
 ```les
-def sumAndMul(x: int, y: int) -> (int, int)
+func sumAndMul(x: int, y: int) -> (int, int) {
     return (x + y, x * y)
 
+}
 let sumRes, mulRes = sumAndMul(5, 10)
 let both = sumAndMul(5, 10)
 print(both[0])

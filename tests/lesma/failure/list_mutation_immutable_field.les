@@ -1,8 +1,10 @@
 # Mutating a list through an immutable class field must be rejected.
-class Holder
+class Holder {
     let nums: list<int> = [1]
-    def tryMutate()
+    func tryMutate() {
         self.nums.push(2)
 
+    }
+}
 var h = Holder()
 h.tryMutate()

@@ -3,7 +3,8 @@ import "import_generic_inheritance_module.les"
 
 var leaf = import_generic_inheritance_module.Leaf(7, 9)
 
-if leaf.a != 7 or leaf.b != 9
+if leaf.a != 7 or leaf.b != 9 {
     exit(1)
 
+}
 exit(0)

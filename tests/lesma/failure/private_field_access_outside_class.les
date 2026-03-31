@@ -1,0 +1,10 @@
+class Box {
+    private var secret: int
+
+    func new(v: int) {
+        self.secret = v
+
+    }
+}
+var b = Box(1)
+var x = b.secret

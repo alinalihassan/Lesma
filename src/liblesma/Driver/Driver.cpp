@@ -20,6 +20,7 @@
 #include "liblesma/Common/ExportDiscovery.h"
 #include "liblesma/Common/LesmaError.h"
 #include "liblesma/Common/Utils.h"
+#include "liblesma/Driver/AnalysisDiagnostic.h"
 #include "liblesma/Driver/AnalysisResult.h"
 #include "liblesma/Frontend/Lexer.h"
 #include "liblesma/Frontend/Parser.h"
@@ -46,12 +47,7 @@ void displayWarnings(const lesma::AnalysisResult& result) {
     if (d.severity != lesma::AnalysisDiagnosticSeverity::Warning) {
       continue;
     }
-    if (d.span.isValid()) {
-      lesma::showInline(result.sourceMgr.get(), result.mainBufferId, d.span, result.mainFilePath,
-                        false, d.message);
-    } else {
-      lesma::print(lesma::LogType::WARNING, "{}\n", std::string_view(d.message));
-    }
+    lesma::showAnalysisDiagnostic(result, d, false);
   }
 }
 
@@ -76,7 +72,10 @@ auto lesma::analyze(std::unique_ptr<Options> options, Timer* phaseTimer) -> Anal
         auto buffer = llvm::MemoryBuffer::getFileAsStream(options->source);
         if (!buffer) {
           result.diagnostics.push_back(AnalysisDiagnostic{
-              .message = "Could not read file: " + options->source, .span = llvm::SMRange()});
+              .message = "Could not read file: " + options->source,
+              .span = llvm::SMRange(),
+              .severity = AnalysisDiagnosticSeverity::Error,
+          });
           readFailed = true;
           return;
         }
@@ -93,7 +92,13 @@ auto lesma::analyze(std::unique_ptr<Options> options, Timer* phaseTimer) -> Anal
     }
   } catch (const LesmaError& err) {
     result.diagnostics.push_back(AnalysisDiagnostic{
-        .message = err.what(), .span = err.getSpan().isValid() ? err.getSpan() : llvm::SMRange()});
+        .message = err.what(),
+        .span = err.getSpan().isValid() ? err.getSpan() : llvm::SMRange(),
+        .severity = AnalysisDiagnosticSeverity::Error,
+        .spanSourceMgr = mainBufferId != 0U ? srcMgr : nullptr,
+        .spanBufferId = mainBufferId,
+        .spanDisplayPath = result.mainFilePath,
+    });
     result.sourceMgr = std::move(srcMgr);
     result.mainBufferId = mainBufferId;
     return result;
@@ -102,7 +107,7 @@ auto lesma::analyze(std::unique_ptr<Options> options, Timer* phaseTimer) -> Anal
   std::unique_ptr<Lexer> lexer;
   try {
     maybeTimed(phaseTimer, "Lexing", [&]() -> void {
-      lexer = std::make_unique<Lexer>(srcMgr, &result.diagnostics);
+      lexer = std::make_unique<Lexer>(srcMgr, &result.diagnostics, result.mainFilePath);
       lexer->scanAll();
       if ((options->debug & Debug::LEXER) != Debug::NONE) {
         lesma::print(LogType::DEBUG, "Lexer tokens:\n");
@@ -117,7 +122,13 @@ auto lesma::analyze(std::unique_ptr<Options> options, Timer* phaseTimer) -> Anal
     });
   } catch (const LesmaError& err) {
     result.diagnostics.push_back(AnalysisDiagnostic{
-        .message = err.what(), .span = err.getSpan().isValid() ? err.getSpan() : llvm::SMRange()});
+        .message = err.what(),
+        .span = err.getSpan().isValid() ? err.getSpan() : llvm::SMRange(),
+        .severity = AnalysisDiagnosticSeverity::Error,
+        .spanSourceMgr = srcMgr,
+        .spanBufferId = mainBufferId,
+        .spanDisplayPath = result.mainFilePath,
+    });
     result.sourceMgr = std::move(srcMgr);
     result.mainBufferId = mainBufferId;
     return result;
@@ -126,7 +137,8 @@ auto lesma::analyze(std::unique_ptr<Options> options, Timer* phaseTimer) -> Anal
   std::unique_ptr<Parser> parser;
   try {
     maybeTimed(phaseTimer, "Parsing", [&]() -> void {
-      parser = std::make_unique<Parser>(lexer->getTokens(), &result.diagnostics);
+      parser = std::make_unique<Parser>(lexer->getTokens(), &result.diagnostics, srcMgr,
+                                       mainBufferId, result.mainFilePath);
       parser->parse();
       if ((options->debug & Debug::AST) != Debug::NONE) {
         Compound* ast = parser->getAst();
@@ -137,8 +149,14 @@ auto lesma::analyze(std::unique_ptr<Options> options, Timer* phaseTimer) -> Anal
       }
     });
   } catch (const LesmaError& err) {
-    result.diagnostics.push_back(
-        AnalysisDiagnostic{err.what(), err.getSpan().isValid() ? err.getSpan() : llvm::SMRange()});
+    result.diagnostics.push_back(AnalysisDiagnostic{
+        .message = err.what(),
+        .span = err.getSpan().isValid() ? err.getSpan() : llvm::SMRange(),
+        .severity = AnalysisDiagnosticSeverity::Error,
+        .spanSourceMgr = srcMgr,
+        .spanBufferId = mainBufferId,
+        .spanDisplayPath = result.mainFilePath,
+    });
     result.sourceMgr = std::move(srcMgr);
     result.mainBufferId = mainBufferId;
     return result;
@@ -147,9 +165,9 @@ auto lesma::analyze(std::unique_ptr<Options> options, Timer* phaseTimer) -> Anal
   Typechecker typechecker(
       result.mainFilePath,
       [&](const std::string& path, bool isStd, const std::string& main) {
-        return getExportedTopLevelNamesFromFile(path, isStd, main);
+        return discoverExportedTopLevelNames(path, isStd, main);
       },
-      &result.diagnostics);
+      &result.diagnostics, srcMgr, mainBufferId);
   try {
     maybeTimed(phaseTimer, "Typecheck", [&]() -> void { typechecker.run(parser->getAst()); });
     result.sourceMgr = std::move(srcMgr);
@@ -167,8 +185,14 @@ auto lesma::analyze(std::unique_ptr<Options> options, Timer* phaseTimer) -> Anal
                                       result.sourceMgr.get(), result.mainBufferId);
     return result;
   } catch (const LesmaError& err) {
-    result.diagnostics.push_back(
-        AnalysisDiagnostic{err.what(), err.getSpan().isValid() ? err.getSpan() : llvm::SMRange()});
+    result.diagnostics.push_back(AnalysisDiagnostic{
+        .message = err.what(),
+        .span = err.getSpan().isValid() ? err.getSpan() : llvm::SMRange(),
+        .severity = AnalysisDiagnosticSeverity::Error,
+        .spanSourceMgr = srcMgr,
+        .spanBufferId = mainBufferId,
+        .spanDisplayPath = result.mainFilePath,
+    });
     result.sourceMgr = std::move(srcMgr);
     result.mainBufferId = mainBufferId;
     result.parser = std::move(parser);
@@ -202,12 +226,7 @@ auto Driver::baseCompile(std::unique_ptr<lesma::Options> options, bool jit) -> i
       if (d.severity != AnalysisDiagnosticSeverity::Error) {
         continue;
       }
-      if (d.span.isValid()) {
-        showInline(result.sourceMgr.get(), result.mainBufferId, d.span, result.mainFilePath, true,
-                   d.message);
-      } else {
-        lesma::print(LogType::ERROR, "{}", std::string_view(d.message));
-      }
+      showAnalysisDiagnostic(result, d, true);
     }
     displayWarnings(result);
     return 1;

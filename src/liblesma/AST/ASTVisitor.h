@@ -24,6 +24,7 @@ class UnimplementedStatement;
 class Expression;
 class Literal;
 class StringInterpolation;
+class LambdaExpr;
 class FuncCall;
 class SuperExpr;
 class BinaryOp;
@@ -69,6 +70,7 @@ public:
   virtual auto visit(const Expression* node) -> void = 0;
   virtual auto visit(const Literal* node) -> void = 0;
   virtual auto visit(const StringInterpolation* node) -> void = 0;
+  virtual auto visit(const LambdaExpr* node) -> void = 0;
   virtual auto visit(const FuncCall* node) -> void = 0;
   virtual auto visit(const SuperExpr* node) -> void = 0;
   virtual auto visit(const BinaryOp* node) -> void = 0;

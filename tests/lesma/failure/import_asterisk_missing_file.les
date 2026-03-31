@@ -1,0 +1,2 @@
+# import * must fail when the target module cannot be read
+from "nonexistent_module_for_import_star_test.les" import *

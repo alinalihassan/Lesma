@@ -1,8 +1,12 @@
-trait NeedFloat
-    def f() -> float
+trait NeedFloat {
+    func f() -> float
 
-class Bad impl NeedFloat
-    def new()
+}
+class Bad impl NeedFloat {
+    func new() {
         var _ = 0
-    def f() -> int
+    }
+    func f() -> int {
         return 1
+    }
+}

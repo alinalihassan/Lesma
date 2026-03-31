@@ -1,0 +1,2 @@
+# Mutual import cycle with import_circular_ab_b.les
+import "import_circular_ab_b.les"

@@ -1,19 +1,24 @@
-class Foo
+class Foo {
     var value: int
 
-    def new(value: int)
+    func new(value: int) {
         self.value = value
 
-class Bar
+    }
+}
+class Bar {
     var value: int
 
-    def new(value: int)
+    func new(value: int) {
         self.value = value
 
+    }
+}
 var foo = Foo(1)
 var bar = Bar(1)
 
-if foo < bar
+if foo < bar {
     let error = true
-else if foo > bar
-    let error = true
+}
+else if foo > bar {
+    let error = true}

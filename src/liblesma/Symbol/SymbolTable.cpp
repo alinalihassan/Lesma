@@ -87,6 +87,9 @@ namespace {
 // ties; then shorter vector wins).
 constexpr int RANK_EXACT = 3;     // concrete-typed parameter match
 constexpr int RANK_GENERIC = 2;   // formal is generic (with consistent binding)
+/// \c *Derived actual vs \c *Base formal (still a valid VALUE lookup, but less specific than
+/// matching the same class under the pointer).
+constexpr int RANK_PTR_SUBCLASS = 2;
 constexpr int RANK_DEFAULTED = 1; // caller omitted, default applies
 constexpr int RANK_VARARG = 0;    // extra args absorbed by vararg
 
@@ -156,6 +159,21 @@ auto typeContainsGeneric(Type* type) -> bool {
     return typeContainsGeneric(type->getReturnType());
   }
   return false;
+}
+
+[[nodiscard]] auto rankForMatchedOverloadParam(Type* formalTy, Type* argTy) -> int {
+  if (formalTy != nullptr && argTy != nullptr && formalTy->is(BaseType::TY_PTR) &&
+      argTy->is(BaseType::TY_PTR) && formalTy->getElementType() != nullptr &&
+      argTy->getElementType() != nullptr && formalTy->getElementType()->is(BaseType::TY_CLASS) &&
+      argTy->getElementType()->is(BaseType::TY_CLASS)) {
+    Type* formalCls = formalTy->getElementType();
+    Type* argCls = argTy->getElementType();
+    if (!argCls->isEqual(formalCls)) {
+      return RANK_PTR_SUBCLASS;
+    }
+    return RANK_EXACT;
+  }
+  return typeContainsGeneric(formalTy) ? RANK_GENERIC : RANK_EXACT;
 }
 
 auto matchGenericParameter(Type* formalTy, Type* argTy,
@@ -271,7 +289,7 @@ auto selectBestFunctionTypeMatchImpl(const std::vector<Type*>& candidateFunction
           paramsMatch = false;
           break;
         }
-        candidateRanks.push_back(typeContainsGeneric(formalTy) ? RANK_GENERIC : RANK_EXACT);
+        candidateRanks.push_back(rankForMatchedOverloadParam(formalTy, argTy));
       } else if (i < funcParamFields.size() && funcParamFields[i]->defaultValue != nullptr) {
         candidateRanks.push_back(RANK_DEFAULTED);
       } else if (i >= funcParamFields.size()) {
@@ -335,7 +353,7 @@ auto selectBestFunctionTypeMatchTailImpl(const std::vector<Type*>& candidateFunc
           paramsMatch = false;
           break;
         }
-        candidateRanks.push_back(typeContainsGeneric(formalTy) ? RANK_GENERIC : RANK_EXACT);
+        candidateRanks.push_back(rankForMatchedOverloadParam(formalTy, argTy));
       } else if (i < funcParamFields.size() && funcParamFields[i]->defaultValue != nullptr) {
         candidateRanks.push_back(RANK_DEFAULTED);
       } else if (i >= funcParamFields.size()) {
@@ -416,7 +434,7 @@ auto SymbolTable::lookupFunction(const std::string& name, std::vector<lesma::Typ
           paramsMatch = false;
           break;
         }
-        candidateRanks.push_back(typeContainsGeneric(formalTy) ? RANK_GENERIC : RANK_EXACT);
+        candidateRanks.push_back(rankForMatchedOverloadParam(formalTy, argTy));
       } else if (i < funcParamTypes.size() && funcParamTypes[i]->defaultValue != nullptr) {
         candidateRanks.push_back(RANK_DEFAULTED);
       } else if (i >= funcParamTypes.size()) {
@@ -501,14 +519,14 @@ auto SymbolTable::lookupSuperClassMethod(
         }
         if (i == 0 && staticSuperclassType != nullptr &&
             superCallSelfPointerMatches(formalTy, argTy, staticSuperclassType)) {
-          candidateRanks.push_back(typeContainsGeneric(formalTy) ? RANK_GENERIC : RANK_EXACT);
+          candidateRanks.push_back(rankForMatchedOverloadParam(formalTy, argTy));
           continue;
         }
         if (!matchGenericParameter(formalTy, argTy, genericBindings, FunctionLookupKind::VALUE)) {
           paramsMatch = false;
           break;
         }
-        candidateRanks.push_back(typeContainsGeneric(formalTy) ? RANK_GENERIC : RANK_EXACT);
+        candidateRanks.push_back(rankForMatchedOverloadParam(formalTy, argTy));
       } else if (i < funcParamTypes.size() && funcParamTypes[i]->defaultValue != nullptr) {
         candidateRanks.push_back(RANK_DEFAULTED);
       } else if (i >= funcParamTypes.size()) {
@@ -578,14 +596,14 @@ auto SymbolTable::lookupSuperClassMethod(
           }
           if (i == 0 && staticSuperclassType != nullptr &&
               superCallSelfPointerMatches(formalTy, argTy, staticSuperclassType)) {
-            candidateRanks2.push_back(typeContainsGeneric(formalTy) ? RANK_GENERIC : RANK_EXACT);
+            candidateRanks2.push_back(rankForMatchedOverloadParam(formalTy, argTy));
             continue;
           }
           if (!matchGenericParameter(formalTy, argTy, genericBindings2, FunctionLookupKind::VALUE)) {
             paramsMatch2 = false;
             break;
           }
-          candidateRanks2.push_back(typeContainsGeneric(formalTy) ? RANK_GENERIC : RANK_EXACT);
+          candidateRanks2.push_back(rankForMatchedOverloadParam(formalTy, argTy));
         } else if (i < funcParamTypes2.size() && funcParamTypes2[i]->defaultValue != nullptr) {
           candidateRanks2.push_back(RANK_DEFAULTED);
         } else if (i >= funcParamTypes2.size()) {
@@ -687,6 +705,36 @@ auto SymbolTable::lookup(const std::string& name) -> Value* {
   }
 
   return parent->lookup(name);
+}
+
+auto SymbolTable::lookupImportModuleSymbol(const std::string& name) -> Value* {
+  auto [it, end] = symbols.equal_range(name);
+  for (auto i = it; i != end; ++i) {
+    Value* v = i->second.get();
+    if (v->getCategory() == ValueCategory::MODULE_SYMBOL && v->getType() != nullptr &&
+        v->getType()->is(BaseType::TY_IMPORT)) {
+      return v;
+    }
+  }
+  if (parent == nullptr) {
+    return nullptr;
+  }
+  return parent->lookupImportModuleSymbol(name);
+}
+
+auto SymbolTable::lookupShallow(const std::string& name) -> Value* {
+  auto [it, end] = symbols.equal_range(name);
+  Value* fallback = nullptr;
+  for (auto i = it; i != end; ++i) {
+    Value* v = i->second.get();
+    if (v->getLlvmValue() != nullptr) {
+      return v;
+    }
+    if (fallback == nullptr) {
+      fallback = v;
+    }
+  }
+  return fallback;
 }
 
 /**

@@ -1,7 +1,7 @@
 ---
 title: Functions
 description: |
-  Defining and calling functions, parameters, return types, and recursion.
+  Defining and calling functions, lambdas, parameters, return types, and recursion.
 category: Language
 ---
 
@@ -9,11 +9,12 @@ Functions bundle behavior with a typed interface.
 
 ## Definition
 
-Define a function with `def`, parameters, an optional return type, and a body:
+Define a function with `func`, parameters, an optional return type, and a braced body:
 
 ```les
-def add(a: int, b: int) -> int
+func add(a: int, b: int) -> int {
     return a + b
+}
 ```
 
 ## Calls
@@ -29,11 +30,13 @@ print("${add(1, add(2, 3))}")
 Functions may call themselves:
 
 ```les
-def countdown(n: int) -> void
-    if n <= 0
+func countdown(n: int) -> void {
+    if n <= 0 {
         return
+    }
     print(n)
     countdown(n - 1)
+}
 ```
 
 ## Default arguments
@@ -41,9 +44,10 @@ def countdown(n: int) -> void
 Parameters may provide defaults (the default must match the declared type):
 
 ```les
-def bump(n: int = 0) -> int
+func bump(n: int = 0) -> int {
     return n + 1
 
+}
 print("${bump()}")
 print("${bump(5)}")
 ```
@@ -53,9 +57,71 @@ print("${bump(5)}")
 **`pass`** is a no-op statement. It is useful as a placeholder where the grammar requires a body (for example an empty branch, a stub method, or a temporary definition).
 
 ```les
-def todo()
+func todo() {
     pass
+}
 ```
+
+## Lambdas
+
+A **lambda** (anonymous function) is a function **value** written as an expression. It uses the same `func` keyword as a named definition, but the next token must be **`(`** so the parser knows it is a lambda, not a top-level `func name(...)` declaration.
+
+Lambdas have the same **function type** as named functions: `func(parameterTypes...) -> returnType` (see [Types → Function types](/docs/language/types#function-types)).
+
+### Expression body (`=>`)
+
+Use **`=>`** for a single expression whose value is the lambda’s result. The return type is **inferred** from that expression unless you add an explicit **`-> T`** before **`=>`**:
+
+```les
+let inc: func(int) -> int = func(x: int) => x + 1
+let doubled = inc(21)
+```
+
+Explicit return type (optional, checked against the expression):
+
+```les
+let add: func(int, int) -> int = func(a: int, b: int) -> int => a + b
+```
+
+### Block body (`{` … `}`)
+
+Use a normal braced body when you need statements, `return`, `defer`, or multiple steps. If you omit **`-> T`**, the return type defaults to **`void`** (same rule as named functions):
+
+```les
+let log_pos: func(int) = func(n: int) {
+    if n >= 0 {
+        print("${n}")
+    }
+}
+
+let producer = func() -> int {
+    return 7
+}
+```
+
+`return` inside the block returns from the **lambda**, not from an enclosing function.
+
+### Passing lambdas to other functions
+
+Anywhere a value of type `func(...)` is expected, you can pass a lambda or a named function with a matching signature:
+
+```les
+func apply(f: func(int) -> int, x: int) -> int {
+    return f(x)
+}
+
+let triple: func(int) -> int = func(x: int) => x * 3
+if apply(triple, 5) != 15 {
+    exit(1)
+}
+```
+
+### Limitations (current language)
+
+- **No closures yet:** a lambda may use its **own parameters** and names from **module / import** scope. It **cannot** read or mutate **locals** or **parameters** of an enclosing function (capturing is rejected by the type checker).
+- **No parameter defaults** on lambdas (each parameter needs an explicit type; use a named `func` if you need defaults).
+- **No generic lambdas** (`func<T>(...)`) in this form; use a named generic function instead.
+- **`let f = func(...) => f(...)`** does not work: the initializer does not see `f` yet (same as other `let` bindings).
 
 ## Next steps
 

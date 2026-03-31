@@ -468,6 +468,7 @@ auto Codegen::specializeFunction(const FuncDecl* node, const std::vector<lesma::
                                  const std::vector<lesma::Type*>& explicitTypeArgs,
                                  const std::unordered_map<std::string, lesma::Type*>* bindingEnvHint)
     -> lesma::Value* {
+  Value* templateSym = node->getResolvedSymbol();
   auto saved = currentGenericTypes;
   auto env = bindingEnvHint != nullptr
                  ? *bindingEnvHint
@@ -495,8 +496,12 @@ auto Codegen::specializeFunction(const FuncDecl* node, const std::vector<lesma::
   std::vector<std::unique_ptr<Field>> fields;
   std::vector<lesma::Type*> concreteParamTypes;
   if (selfSymbol != nullptr) {
-    fields.push_back(std::make_unique<Field>("self", selfSymbol->getType()));
-    concreteParamTypes.push_back(selfSymbol->getType());
+    Type* selfType = selfSymbol->getType();
+    if (selfType != nullptr && selfType->is(BaseType::TY_CLASS)) {
+      selfType = cacheType(std::make_unique<Type>(BaseType::TY_PTR, nullptr, selfType));
+    }
+    fields.push_back(std::make_unique<Field>("self", selfType));
+    concreteParamTypes.push_back(selfType);
   }
   for (auto* param : node->getParameters()) {
     param->type->accept(*this);
@@ -526,6 +531,13 @@ auto Codegen::specializeFunction(const FuncDecl* node, const std::vector<lesma::
   const bool specializationKeysMatch = (mangledName == key);
   auto func = std::make_unique<Value>(node->getName(), typePtr);
   func->setCategory(ValueCategory::CALLABLE_SYMBOL);
+  if (templateSym != nullptr) {
+    func->setDeclarationKind(templateSym->getDeclarationKind());
+    func->setBodyScope(templateSym->getBodyScope());
+  } else {
+    func->setDeclarationKind(selfSymbol != nullptr ? ValueDeclarationKind::METHOD
+                                                   : ValueDeclarationKind::FUNCTION);
+  }
   func->setMangledName(mangledName);
   func->setExported(node->isExported());
   auto linkage = node->isExported() ? Function::ExternalLinkage : Function::PrivateLinkage;
@@ -543,6 +555,124 @@ auto Codegen::specializeFunction(const FuncDecl* node, const std::vector<lesma::
   auto* funcPtr = func.get();
   scope->insertSymbol(std::move(func));
   prototypes.emplace_back(funcPtr, node, selfSymbol);
+  specializedFunctions.emplace(std::move(key), funcPtr);
+  if (!specializationKeysMatch) {
+    specializedFunctions[mangledName] = funcPtr;
+  }
+  specializationEnvs.emplace(funcPtr, currentGenericTypes);
+  currentGenericTypes = std::move(saved);
+  return funcPtr;
+}
+
+auto Codegen::computeGenericLambdaBindingEnv(const LambdaExpr* node,
+                                             const std::vector<lesma::Type*>& paramTypes,
+                                             const std::vector<std::string>& genericNames,
+                                             const std::vector<lesma::Type*>& explicitTypeArgs)
+    -> std::unordered_map<std::string, lesma::Type*> {
+  std::unordered_map<std::string, lesma::Type*> env = currentGenericTypes;
+  if (!explicitTypeArgs.empty()) {
+    if (explicitTypeArgs.size() != genericNames.size()) {
+      throw CodegenError(
+          node->getSpan(),
+          "Explicit type argument count {} does not match generic parameter count {}",
+          explicitTypeArgs.size(), genericNames.size());
+    }
+    for (size_t i = 0; i < genericNames.size(); ++i) {
+      env[genericNames[i]] = explicitTypeArgs[i];
+    }
+  }
+  std::unordered_set<std::string> genericNameSet(genericNames.begin(), genericNames.end());
+  for (size_t i = 0; i < node->getParameters().size() && i < paramTypes.size(); ++i) {
+    TypeExpr* declType = node->getParameters()[i]->type.get();
+    if (declType != nullptr) {
+      bindGenericsFromTypePair(declType, paramTypes[i], genericNameSet, env);
+    }
+  }
+  return env;
+}
+
+auto Codegen::specializeLambda(const LambdaExpr* node, const std::vector<lesma::Type*>& paramTypes,
+                               const std::vector<std::string>& genericNames,
+                               const std::vector<lesma::Type*>& explicitTypeArgs,
+                               const std::unordered_map<std::string, lesma::Type*>* bindingEnvHint)
+    -> lesma::Value* {
+  Value* templateSym = node->getResolvedSymbol();
+  if (templateSym == nullptr) {
+    throw CodegenError(node->getSpan(), "Generic lambda is missing its template symbol");
+  }
+  auto saved = currentGenericTypes;
+  auto env = bindingEnvHint != nullptr
+                 ? *bindingEnvHint
+                 : computeGenericLambdaBindingEnv(node, paramTypes, genericNames, explicitTypeArgs);
+  currentGenericTypes = env;
+
+  for (auto* paramType : paramTypes) {
+    if (paramType != nullptr) {
+      getOrCreateLlvmType(paramType);
+    }
+  }
+  for (auto* explicitTypeArg : explicitTypeArgs) {
+    if (explicitTypeArg != nullptr) {
+      getOrCreateLlvmType(explicitTypeArg);
+    }
+  }
+  std::string key = templateSym->getName();
+  appendGenericBindingSuffix(node->getSpan(), key, genericNames, env);
+  if (auto it = specializedFunctions.find(key); it != specializedFunctions.end()) {
+    currentGenericTypes = std::move(saved);
+    return it->second;
+  }
+
+  std::vector<std::unique_ptr<Field>> fields;
+  std::vector<lesma::Type*> concreteParamTypes;
+  for (auto* param : node->getParameters()) {
+    param->type->accept(*this);
+    Type* paramT = result->getType();
+    if (paramT != nullptr && paramT->is(BaseType::TY_CLASS)) {
+      paramT = cacheType(std::make_unique<Type>(BaseType::TY_PTR, nullptr, paramT));
+    }
+    fields.push_back(std::make_unique<Field>(param->name, paramT));
+    concreteParamTypes.push_back(paramT);
+  }
+  Type* returnType = nullptr;
+  if (node->getReturnType() != nullptr) {
+    node->getReturnType()->accept(*this);
+    returnType = wrapNominalReturnAsPointer(result->getType());
+  } else {
+    returnType = substituteTypeForSpecializationEnv(templateSym->getType()->getReturnType(), env);
+  }
+  std::vector<llvm::Type*> paramLLVMTypes;
+  for (auto* t : concreteParamTypes) {
+    getOrCreateLlvmType(t);
+    paramLLVMTypes.push_back(t->getLlvmType());
+  }
+  getOrCreateLlvmType(returnType);
+  auto funcType =
+      std::make_unique<Type>(BaseType::TY_FUNCTION, builder->getPtrTy(), std::move(fields));
+  funcType->setReturnType(returnType);
+  auto* typePtr = cacheType(std::move(funcType));
+  std::string mangledName = templateSym->getName();
+  appendGenericBindingSuffix(node->getSpan(), mangledName, genericNames, env);
+  const bool specializationKeysMatch = (mangledName == key);
+  auto func = std::make_unique<Value>(templateSym->getName(), typePtr);
+  func->setCategory(ValueCategory::CALLABLE_SYMBOL);
+  func->setDeclarationKind(ValueDeclarationKind::FUNCTION);
+  func->setMangledName(mangledName);
+  llvm::Type* llvmReturnType = nullptr;
+  if (returnType->is(BaseType::TY_PTR) || returnType->is(BaseType::TY_CLASS)) {
+    llvmReturnType = builder->getPtrTy();
+  } else {
+    llvmReturnType = returnType->getLlvmType();
+  }
+  auto* llvmFuncType = FunctionType::get(llvmReturnType, paramLLVMTypes, false);
+  auto* llvmFunc =
+      Function::Create(llvmFuncType, Function::PrivateLinkage, mangledName, *theModule);
+  typePtr->setLlvmType(llvmFuncType);
+  func->setLlvmValue(llvmFunc);
+  func->setBodyScope(templateSym->getBodyScope());
+  auto* funcPtr = func.get();
+  scope->insertSymbol(std::move(func));
+  lambdaPrototypes.emplace_back(funcPtr, node);
   specializedFunctions.emplace(std::move(key), funcPtr);
   if (!specializationKeysMatch) {
     specializedFunctions[mangledName] = funcPtr;

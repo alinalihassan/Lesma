@@ -1,2 +1,3 @@
-class Broken
+class Broken {
     let value: int = "x"
+}

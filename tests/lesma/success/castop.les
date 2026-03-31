@@ -1,5 +1,6 @@
 let y: float = 101.5
 let z: int = y as int
 
-if z != 101
+if z != 101 {
 	exit(1)
+}

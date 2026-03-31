@@ -1,66 +1,84 @@
-class CountUpIter impl Iterator<int>
+class CountUpIter impl Iterator<int> {
     var i: int
     var last: int
 
-    def new(start: int, last: int)
+    func new(start: int, last: int) {
         self.i = start
         self.last = last
 
-    def has_next() -> bool
+    }
+    func has_next() -> bool {
         return self.i < self.last
 
-    def next() -> int
+    }
+    func next() -> int {
         var v = self.i
         self.i = self.i + 1
         return v
 
-class CountUp impl Iterable<int>
+    }
+}
+class CountUp impl Iterable<int> {
     var start: int
     var last: int
 
-    def new(start: int, last: int)
+    func new(start: int, last: int) {
         self.start = start
         self.last = last
 
-    def iter() -> CountUpIter
+    }
+    func iter() -> CountUpIter {
         return CountUpIter(self.start, self.last)
 
+    }
+}
 var total = 0
 var c = CountUp(1, 4)
-for x in c
+for x in c {
     total = total + x
 
-if total != 6
+}
+if total != 6 {
     exit(1)
 
-class OnceIter<T> impl Iterator<T>
+}
+class OnceIter<T> impl Iterator<T> {
     var one: T
     var done: bool = false
 
-    def new(v: T)
+    func new(v: T) {
         self.one = v
         self.done = false
 
-    def has_next() -> bool
+    }
+    func has_next() -> bool {
         return not self.done
 
-    def next() -> T
+    }
+    func next() -> T {
         self.done = true
         return self.one
 
-class Once<T> impl Iterable<T>
+    }
+}
+class Once<T> impl Iterable<T> {
     var one: T
 
-    def new(v: T)
+    func new(v: T) {
         self.one = v
 
-    def iter() -> OnceIter<T>
+    }
+    func iter() -> OnceIter<T> {
         return OnceIter<T>(self.one)
 
+    }
+}
 var onceSum = 0
 var once = Once<int>(7)
-for v in once
+for v in once {
     onceSum = onceSum + v
 
-if onceSum != 7
+}
+if onceSum != 7 {
     exit(1)
+}

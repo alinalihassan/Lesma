@@ -1,0 +1,11 @@
+class Base {
+    func id() -> int {
+        return 1
+
+    }
+}
+class Child: Base {
+    func id() -> int {
+        return 2
+    }
+}

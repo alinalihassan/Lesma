@@ -364,15 +364,17 @@ class VarDecl : public Statement {
   std::unique_ptr<Expression> expr;
   bool isMutable;
   bool exported = false;
+  /** Class body only: field is visible only inside methods of the declaring class. */
+  bool isPrivate = false;
   /** Set by typechecker: one entry per `vars` (unpack) or one for a simple `let`. */
   mutable std::vector<Value*> resolvedSymbols;
 
 public:
   VarDecl(llvm::SMRange loc, std::vector<std::unique_ptr<Literal>> vars,
           std::unique_ptr<TypeExpr> type, std::unique_ptr<Expression> expr, bool isMutable,
-          bool exportedArg = false)
+          bool exportedArg = false, bool privateField = false)
       : Statement(loc), vars(std::move(vars)), type(std::move(type)), expr(std::move(expr)),
-        isMutable(isMutable), exported(exportedArg) {}
+        isMutable(isMutable), exported(exportedArg), isPrivate(privateField) {}
   void accept(ASTVisitor& visitor) const override { visitor.visit(this); }
 
   [[nodiscard]] [[maybe_unused]] auto getIdentifier() const -> Literal* {
@@ -394,6 +396,7 @@ public:
   [[nodiscard]] [[maybe_unused]] auto getValue() const -> Expression* { return expr.get(); }
   [[nodiscard]] [[maybe_unused]] auto getMutability() const -> bool { return isMutable; }
   [[nodiscard]] auto isExported() const -> bool { return exported; }
+  [[nodiscard]] auto getIsPrivate() const -> bool { return isPrivate; }
   [[nodiscard]] auto getResolvedSymbol() const -> Value* {
     if (resolvedSymbols.empty()) {
       return nullptr;
@@ -558,7 +561,8 @@ public:
 class FuncDecl : public Statement {
   std::string name;
   llvm::SMRange nameSpan;
-  /** Span of overload tokens only (`+`, `[]`, …), excluding the `operator` keyword; invalid if N/A. */
+  /** Span of overload tokens only (`+`, `[]`, …), excluding the `operator` keyword; invalid if N/A.
+   */
   llvm::SMRange overloadGlyphSpan{};
   std::vector<GenericParamDecl> genericParams;
   std::unique_ptr<TypeExpr> returnType;
@@ -566,6 +570,10 @@ class FuncDecl : public Statement {
   std::unique_ptr<Compound> body;
   bool varargs;
   bool exported;
+  /** Class body only: method is visible only inside methods of the declaring class. */
+  bool isPrivate = false;
+  /** Class body: must be true to override an inherited instance method (same name + parameters). */
+  bool declaresOverload = false;
   /** Set by typechecker: the symbol for this overload (used by LSP for hover/definition). */
   mutable Value* resolvedSymbol = nullptr;
   mutable SymbolTable* genericScope = nullptr;
@@ -574,15 +582,19 @@ public:
   FuncDecl(llvm::SMRange loc, std::string name, llvm::SMRange nameSpan,
            llvm::SMRange overloadGlyphSpan, std::vector<GenericParamDecl> genericParams,
            std::unique_ptr<TypeExpr> returnType, std::vector<std::unique_ptr<Parameter>> parameters,
-           std::unique_ptr<Compound> body, bool varargs, bool exported)
+           std::unique_ptr<Compound> body, bool varargs, bool exported, bool methodPrivate = false,
+           bool inheritanceOverload = false)
       : Statement(loc), name(std::move(name)), nameSpan(nameSpan),
         overloadGlyphSpan(overloadGlyphSpan), genericParams(std::move(genericParams)),
         returnType(std::move(returnType)), parameters(std::move(parameters)), body(std::move(body)),
-        varargs(varargs), exported(exported) {}
+        varargs(varargs), exported(exported), isPrivate(methodPrivate),
+        declaresOverload(inheritanceOverload) {}
   void accept(ASTVisitor& visitor) const override { visitor.visit(this); }
 
   [[nodiscard]] [[maybe_unused]] auto getName() const -> std::string { return name; }
   [[nodiscard]] [[maybe_unused]] auto getNameSpan() const -> llvm::SMRange { return nameSpan; }
+  [[nodiscard]] auto getIsPrivate() const -> bool { return isPrivate; }
+  [[nodiscard]] auto getDeclaresOverload() const -> bool { return declaresOverload; }
   [[nodiscard]] auto getOverloadGlyphSpan() const -> llvm::SMRange { return overloadGlyphSpan; }
   [[nodiscard]] [[maybe_unused]] auto getGenericParams() const -> std::vector<std::string> {
     std::vector<std::string> result;
@@ -616,7 +628,7 @@ public:
   [[nodiscard]] auto getGenericScope() const -> SymbolTable* { return genericScope; }
   auto setGenericScope(SymbolTable* scopePtr) const -> void { genericScope = scopePtr; }
   /** Trait method with a body is a default implementation; signature-only (no body) is a
-   * requirement (same shape as `def extern`). */
+   * requirement (same shape as `func extern`). */
   [[nodiscard]] auto hasTraitDefaultImplementation() const -> bool { return body != nullptr; }
 
   auto toString(llvm::SourceMgr* srcMgr, const std::string& prefix, bool isTail) const
@@ -791,6 +803,79 @@ public:
       ret += ", ...";
     }
     ret += fmt::format(") -> {}\n", returnType->toString(srcMgr, prefix, isTail));
+    return ret;
+  }
+};
+
+class LambdaExpr : public Expression {
+  std::vector<GenericParamDecl> genericParams;
+  std::vector<std::unique_ptr<Parameter>> parameters;
+  std::unique_ptr<TypeExpr> returnType;
+  std::unique_ptr<Expression> expressionBody;
+  std::unique_ptr<Compound> blockBody;
+  mutable Value* resolvedSymbol = nullptr;
+
+public:
+  LambdaExpr(llvm::SMRange loc, std::vector<GenericParamDecl> genericParams,
+             std::vector<std::unique_ptr<Parameter>> parameters,
+             std::unique_ptr<TypeExpr> returnType, std::unique_ptr<Expression> expressionBody,
+             std::unique_ptr<Compound> blockBody)
+      : Expression(loc), genericParams(std::move(genericParams)),
+        parameters(std::move(parameters)), returnType(std::move(returnType)),
+        expressionBody(std::move(expressionBody)), blockBody(std::move(blockBody)) {}
+  void accept(ASTVisitor& visitor) const override { visitor.visit(this); }
+
+  [[nodiscard]] auto getGenericParamDecls() const -> const std::vector<GenericParamDecl>& {
+    return genericParams;
+  }
+  [[nodiscard]] auto getGenericParams() const -> std::vector<std::string> {
+    std::vector<std::string> names;
+    names.reserve(genericParams.size());
+    for (const auto& p : genericParams) {
+      names.push_back(p.name);
+    }
+    return names;
+  }
+
+  [[nodiscard]] auto getParameters() const -> std::vector<Parameter*> {
+    std::vector<Parameter*> result;
+    result.reserve(parameters.size());
+    for (const auto& param : parameters) {
+      result.push_back(param.get());
+    }
+    return result;
+  }
+  [[nodiscard]] auto getReturnType() const -> TypeExpr* { return returnType.get(); }
+  [[nodiscard]] auto isExpressionBody() const -> bool { return expressionBody != nullptr; }
+  [[nodiscard]] auto getExpressionBody() const -> Expression* { return expressionBody.get(); }
+  [[nodiscard]] auto getBlockBody() const -> Compound* { return blockBody.get(); }
+  [[nodiscard]] auto getResolvedSymbol() const -> Value* { return resolvedSymbol; }
+  auto setResolvedSymbol(Value* v) const -> void { resolvedSymbol = v; }
+
+  auto toString(llvm::SourceMgr* srcMgr, const std::string& prefix, bool isTail) const
+      -> std::string override {
+    std::string ret = fmt::format("{}{}LambdaExpr[Line({}-{}):Col({}-{})]: func(", prefix,
+                                  isTail ? "└──" : "├──",
+                                  srcMgr->getLineAndColumn(getStart()).first,
+                                  srcMgr->getLineAndColumn(getEnd()).first,
+                                  srcMgr->getLineAndColumn(getStart()).second,
+                                  srcMgr->getLineAndColumn(getEnd()).second);
+    for (size_t i = 0; i < parameters.size(); ++i) {
+      Parameter* p = parameters[i].get();
+      ret += p->name + ": " + (p->type != nullptr ? p->type->toString(srcMgr, prefix, isTail) : "?");
+      if (i + 1U < parameters.size()) {
+        ret += ", ";
+      }
+    }
+    ret += ")";
+    if (returnType != nullptr) {
+      ret += " -> " + returnType->toString(srcMgr, prefix, isTail);
+    }
+    if (expressionBody != nullptr) {
+      ret += " => " + expressionBody->toString(srcMgr, prefix, true);
+    } else if (blockBody != nullptr) {
+      ret += "\n" + blockBody->toString(srcMgr, prefix + (isTail ? "    " : "│   "), true);
+    }
     return ret;
   }
 };
@@ -1301,8 +1386,8 @@ public:
         std::vector<llvm::SMRange> implTraitSpans,
         std::vector<std::vector<std::unique_ptr<TypeExpr>>> implTraitTypeArgs,
         std::unique_ptr<TypeExpr> baseType, llvm::SMRange baseTypeSpan,
-        std::vector<std::unique_ptr<VarDecl>> fields, std::vector<std::unique_ptr<FuncDecl>> methods,
-        bool exported)
+        std::vector<std::unique_ptr<VarDecl>> fields,
+        std::vector<std::unique_ptr<FuncDecl>> methods, bool exported)
       : Statement(loc), identifier(std::move(identifier)), nameSpan(nameSpan),
         genericParams(std::move(genericParams)), implTraitNames(std::move(implTraitNames)),
         implTraitSpans(std::move(implTraitSpans)), implTraitTypeArgs(std::move(implTraitTypeArgs)),

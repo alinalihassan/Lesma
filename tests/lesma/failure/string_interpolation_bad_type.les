@@ -1,5 +1,6 @@
-class C
+class C {
     var x: int = 0
 
+}
 let o: C = C()
 print("x=${o}")

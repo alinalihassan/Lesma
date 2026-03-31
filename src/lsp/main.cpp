@@ -26,6 +26,7 @@
 
 #include "liblesma/AST/AST.h"
 #include "liblesma/Common/OperatorUtils.h"
+#include "liblesma/Common/Utils.h"
 #include "liblesma/Driver/AnalysisResult.h"
 #include "liblesma/Driver/Driver.h"
 #include "liblesma/Symbol/SymbolTable.h"
@@ -275,10 +276,10 @@ auto declarationBelongsToAnalysis(const AnalysisView& analysis,
          normalizePath(*analysis.mainFilePath) == normalizePath(declaration.filePath);
 }
 
-/** `Value::declarationSpan` lives in `getDeclarationFilePath()`; `ResolvedSymbol::owner` is often the
- * referring document. Map the span using the defining file's SourceMgr buffer. When the declaration
- * path is known but that module has no usable AnalysisView, returns std::nullopt so callers do not pair
- * `uriFromPath(declPath)` with coordinates from the referring buffer. */
+/** `Value::declarationSpan` lives in `getDeclarationFilePath()`; `ResolvedSymbol::owner` is often
+ * the referring document. Map the span using the defining file's SourceMgr buffer. When the
+ * declaration path is known but that module has no usable AnalysisView, returns std::nullopt so
+ * callers do not pair `uriFromPath(declPath)` with coordinates from the referring buffer. */
 auto lspRangeForValueDeclaration(AnalysisResult& result, lesma::Value* value,
                                  const AnalysisView& fallbackOwner) -> std::optional<::lsp::Range> {
   if (value == nullptr) {
@@ -318,58 +319,62 @@ auto runAnalyzeAndPublish(const ::lsp::DocumentUri& uri,
   DocumentAnalysisSnapshot& snapshot = analysisCache.getOrAnalyze(uri, docStore, content, version);
   AnalysisResult& result = snapshot.result;
 
-  std::vector<::lsp::Diagnostic> lspDiagnostics;
+  std::optional<std::string> const analyzedPathOpt = docStore.getPath(uri);
+  std::string const primaryNorm =
+      analyzedPathOpt ? normalizePath(*analyzedPathOpt) : std::string{};
+
+  std::vector<::lsp::Diagnostic> primaryDiags;
+  std::unordered_map<std::string, std::vector<::lsp::Diagnostic>> otherDiags;
+
   for (const auto& d : result.diagnostics) {
-    ::lsp::Range range = smRangeToLspRange(result.sourceMgr.get(), result.mainBufferId, d.span);
+    llvm::SourceMgr* mgr = nullptr;
+    unsigned bufId = 0;
+    std::string displayPath;
+    resolveAnalysisDiagnosticSource(result, d, mgr, bufId, displayPath);
+
     ::lsp::DiagnosticSeverity const sev = d.severity == lesma::AnalysisDiagnosticSeverity::Warning
                                               ? ::lsp::DiagnosticSeverity::Warning
                                               : ::lsp::DiagnosticSeverity::Error;
-    lspDiagnostics.push_back(::lsp::Diagnostic{
-        .range = range,
-        .message = d.message,
-        .severity = ::lsp::Opt<::lsp::DiagnosticSeverityEnum>(sev),
-    });
+    ::lsp::Range const range = smRangeToLspRange(mgr, bufId, d.span);
+
+    std::string dNorm;
+    if (!displayPath.empty()) {
+      dNorm = normalizePath(displayPath);
+    }
+    if (dNorm.empty() && !result.mainFilePath.empty()) {
+      dNorm = normalizePath(result.mainFilePath);
+    }
+
+    ::lsp::Diagnostic lspDiag{.range = range,
+                              .message = d.message,
+                              .severity = ::lsp::Opt<::lsp::DiagnosticSeverityEnum>(sev)};
+
+    if (!primaryNorm.empty() && dNorm == primaryNorm) {
+      primaryDiags.push_back(std::move(lspDiag));
+    } else if (!primaryNorm.empty() && !dNorm.empty() && dNorm != primaryNorm) {
+      otherDiags[dNorm].push_back(std::move(lspDiag));
+    } else {
+      primaryDiags.push_back(std::move(lspDiag));
+    }
   }
 
   messageHandler.sendNotification<::lsp::notifications::TextDocument_PublishDiagnostics>(
       ::lsp::PublishDiagnosticsParams{
           .uri = uri,
-          .diagnostics = std::move(lspDiagnostics),
+          .diagnostics = std::move(primaryDiags),
       });
+
+  for (auto& entry : otherDiags) {
+    messageHandler.sendNotification<::lsp::notifications::TextDocument_PublishDiagnostics>(
+        ::lsp::PublishDiagnosticsParams{
+            .uri = uriFromPath(entry.first),
+            .diagnostics = std::move(entry.second),
+        });
+  }
 }
 
 auto formatCallableHoverType(lesma::Type* type, lesma::SymbolTable* rootScope) -> std::string {
-  if (type == nullptr || !type->is(lesma::BaseType::TY_FUNCTION)) {
-    return formatTypeName(type, rootScope);
-  }
-  std::string out = "Function(";
-  std::vector<lesma::Field*> fields = type->getFields();
-  bool first = true;
-  size_t paramOffset =
-      (!fields.empty() && fields[0] != nullptr && fields[0]->name == "self") ? 1U : 0U;
-  for (size_t i = paramOffset; i < fields.size(); ++i) {
-    lesma::Field* field = fields[i];
-    if (field == nullptr) {
-      continue;
-    }
-    if (!first) {
-      out += ", ";
-    }
-    first = false;
-    out += field->name + ": " + formatTypeName(field->type, rootScope);
-  }
-  if (type->isVarArgs()) {
-    if (!first) {
-      out += ", ";
-    }
-    out += "...";
-  }
-  out += ")";
-  if (lesma::Type* returnType = type->getReturnType();
-      returnType != nullptr && !returnType->is(lesma::BaseType::TY_VOID)) {
-    out += " -> " + formatTypeName(returnType, rootScope);
-  }
-  return out;
+  return formatTypeName(type, rootScope);
 }
 
 /** Build hover text from a symbol: name, kind, and type in readable Markdown. */
@@ -439,7 +444,7 @@ using InnermostFunc =
 }
 
 /** Find function (or method) whose signature contains the cursor (name or any parameter).
- * Used so parameter names in "def foo(x: Int)" resolve to the parameter symbol. */
+ * Used so parameter names in "func foo(x: int)" resolve to the parameter symbol. */
 InnermostFunc findFuncWithCursorInSignature(lesma::Compound* ast, unsigned targetOffset,
                                             llvm::SourceMgr* sm, unsigned bid) {
   InnermostFunc out;
@@ -1595,8 +1600,7 @@ auto appendCallParameterInlayHints(const AnalysisResult& analysisResult, unsigne
       return;
     }
     unsigned const callStartOffset = getOffsetFromSMLoc(srcMgr, bufferId, callSpan.Start);
-    lesma::SymbolTable* scope =
-        activeScopeForOffset(ast, root, srcMgr, bufferId, callStartOffset);
+    lesma::SymbolTable* scope = activeScopeForOffset(ast, root, srcMgr, bufferId, callStartOffset);
     if (scope == nullptr) {
       scope = root;
     }
@@ -1616,8 +1620,8 @@ auto appendCallParameterInlayHints(const AnalysisResult& analysisResult, unsigne
       std::vector<lesma::Type*> argTypes;
       argTypes.reserve(args.size());
       for (lesma::Expression* arg : args) {
-        lesma::Type* argType = resolveExpressionTypeAtOffset(arg, ast, root, srcMgr, bufferId,
-                                                            callStartOffset);
+        lesma::Type* argType =
+            resolveExpressionTypeAtOffset(arg, ast, root, srcMgr, bufferId, callStartOffset);
         if (argType == nullptr) {
           return;
         }
@@ -1625,12 +1629,11 @@ auto appendCallParameterInlayHints(const AnalysisResult& analysisResult, unsigne
       }
       lesma::Type* receiverType = nullptr;
       if (receiver != nullptr) {
-        receiverType = resolveExpressionTypeAtOffset(receiver, ast, root, srcMgr, bufferId,
-                                                    callStartOffset);
+        receiverType =
+            resolveExpressionTypeAtOffset(receiver, ast, root, srcMgr, bufferId, callStartOffset);
       }
       if (receiver == nullptr || receiverType != nullptr) {
-        candidates =
-            collectCallableCandidates(scope, call->getName(), receiverType, argTypes);
+        candidates = collectCallableCandidates(scope, call->getName(), receiverType, argTypes);
       }
       if (resolvedSym != nullptr) {
         std::vector<CallableCandidate> narrowed;
@@ -1752,7 +1755,8 @@ auto appendCallParameterInlayHints(const AnalysisResult& analysisResult, unsigne
     }
   };
 
-  std::function<void(const lesma::Statement*)> walkStmt = [&](const lesma::Statement* stmt) -> void {
+  std::function<void(const lesma::Statement*)> walkStmt =
+      [&](const lesma::Statement* stmt) -> void {
     if (stmt == nullptr) {
       return;
     }
@@ -2285,9 +2289,9 @@ auto collectSemanticTokens(AnalysisResult& analysisResult, unsigned bufferId)
     if (occurrence.fallbackTokenKind.has_value()) {
       llvm::SMRange const highlightSpan =
           occurrence.semanticHighlightSpan.value_or(occurrence.span);
-      appendRawTokenFromSpan(
-          highlightSpan, semanticTokenTypeFromIndexedKind(*occurrence.fallbackTokenKind),
-          occurrence.modifiers);
+      appendRawTokenFromSpan(highlightSpan,
+                             semanticTokenTypeFromIndexedKind(*occurrence.fallbackTokenKind),
+                             occurrence.modifiers);
     }
   }
 
@@ -2733,8 +2737,9 @@ auto main() -> int {
           ::lsp::OneOf<bool, ::lsp::DeclarationOptions, ::lsp::DeclarationRegistrationOptions>{
               true});
       // Letters are not listed here: listing a–z would request completion on every identifier
-      // keystroke. Import paths live in strings; VS Code/Cursor need editor.quickSuggestions.strings
-      // (defaults in tools/vscode/package.json) so typing inside "…" still triggers completion.
+      // keystroke. Import paths live in strings; VS Code/Cursor need
+      // editor.quickSuggestions.strings (defaults in tools/vscode/package.json) so typing inside
+      // "…" still triggers completion.
       caps.completionProvider = ::lsp::Opt<::lsp::CompletionOptions>(::lsp::CompletionOptions{
           .triggerCharacters = ::lsp::Opt<::lsp::Array<::lsp::String>>(
               {std::string("\""), std::string("/"), std::string(".")}),
@@ -2754,9 +2759,9 @@ auto main() -> int {
               .legend =
                   ::lsp::SemanticTokensLegend{
                       .tokenTypes =
-                          ::lsp::Array<::lsp::String>{"namespace", "class", "enum", "enumMember",
-                                                      "type", "typeParameter", "function", "method",
-                                                      "parameter", "variable", "property"},
+                          ::lsp::Array<::lsp::String>{
+                              "namespace", "class", "enum", "enumMember", "type", "typeParameter",
+                              "function", "method", "parameter", "variable", "property"},
                       .tokenModifiers =
                           ::lsp::Array<::lsp::String>{"declaration", "defaultLibrary"},
                   },

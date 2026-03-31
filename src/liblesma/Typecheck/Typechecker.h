@@ -8,8 +8,10 @@
 #include <vector>
 
 #include "llvm/Support/SMLoc.h"
+#include "llvm/Support/SourceMgr.h"
 
 #include "liblesma/AST/ASTVisitor.h"
+#include "liblesma/Common/ExportDiscovery.h"
 #include "liblesma/Driver/AnalysisResult.h"
 #include "liblesma/Symbol/SymbolTable.h"
 #include "liblesma/Symbol/Type.h"
@@ -22,10 +24,9 @@ class Class;
 class TraitDecl;
 class TypeCheckError;
 
-/** Callback to resolve import *: (filepath, isStd, mainFilePath) -> exported
- * names. */
+/** Callback to resolve import *: (filepath, isStd, mainFilePath) -> exported names or failure. */
 using GetExportsFn =
-    std::function<std::vector<std::string>(const std::string&, bool, const std::string&)>;
+    std::function<ExportDiscoveryResult(const std::string&, bool, const std::string&)>;
 
 /**
  * Semantic typecheck pass. Runs after parsing, before codegen.
@@ -57,6 +58,8 @@ class Typechecker final : public ASTVisitor {
   bool inTopLevel = true;
   bool declarationPass = false;
   std::unordered_map<std::string, Type*> currentGenericTypes;
+  std::size_t lambdaCounter = 0U;
+  std::vector<SymbolTable*> functionScopeStack;
   /** Specialized class types: key = template toString + "|" + concrete types,
    * value = Type* with concrete fields. */
   std::unordered_map<std::string, Type*> specializedClassTypes;
@@ -95,8 +98,8 @@ class Typechecker final : public ASTVisitor {
   auto getDeclaredGenericParams(Type* type) const -> const std::vector<std::string>&;
   /** Whether \p formalReceiverClass is the class that owns the target `super` implementation for
    * static superclass \p staticSuperType (handles generic template vs specialization). */
-  [[nodiscard]] auto superMethodReceiverMatchesFormal(Type* formalReceiverClass, Type* staticSuperType)
-      -> bool;
+  [[nodiscard]] auto superMethodReceiverMatchesFormal(Type* formalReceiverClass,
+                                                      Type* staticSuperType) -> bool;
 
   /** Import alias (e.g. "import_math") -> absolute path, for resolving return types of
    * import_math.func(). */
@@ -112,10 +115,19 @@ class Typechecker final : public ASTVisitor {
   /** When non-null, unreachable-code and other warnings are appended here (severity Warning).
    *  Type errors are also recorded (severity Error) and typecheck continues where possible. */
   std::vector<AnalysisDiagnostic>* warningDiagnostics = nullptr;
+  /** Source buffer for diagnostics emitted during this unit (main or one imported file). */
+  std::shared_ptr<llvm::SourceMgr> diagnosticUnitSourceMgr;
+  unsigned diagnosticUnitBufferId = 0;
 
+  void appendSemanticDiagnostic(llvm::SMRange span, std::string message,
+                                AnalysisDiagnosticSeverity severity);
   void emitWarning(llvm::SMRange span, std::string message);
   void recoverFromTypeError(const TypeCheckError& err);
   void markValueRead(Value* sym);
+  /** After resolving `alias.exportedName` via importAliasToPath, mark the corresponding
+   * `import *` / `from` TY_IMPORT stub (if any) as used. */
+  void markImportNameStubUsedForQualifiedAccess(const std::string& modulePath,
+                                                const std::string& exportedName);
   void checkUnusedBindingsInScope(SymbolTable* blockScope);
   void warnShadowingFromEnclosing(const std::string& name, llvm::SMRange span);
   [[nodiscard]] static auto tryGetLiteralBool(const Expression* e, bool& outValue) -> bool;
@@ -139,6 +151,9 @@ class Typechecker final : public ASTVisitor {
   auto insertImportedVariableAlias(const std::string& resolvedPath, const std::string& exportedName,
                                    const std::string& localName) -> void;
   void validateParameterDefaultOrdering(llvm::SMRange span, const std::vector<Parameter*>& params);
+  [[nodiscard]] auto currentFunctionRootScope() const -> SymbolTable*;
+  auto getOrCreateLambdaCaptureShadow(Value* outerSym, const std::string& name, llvm::SMRange span)
+      -> Value*;
   /** Get or create a specialized class type by substituting env into template's
    * fields. */
   auto getOrCreateSpecializedClassType(Type* classTemplate,
@@ -226,6 +241,9 @@ class Typechecker final : public ASTVisitor {
                                               const std::vector<Type*>& lookupArgs) -> std::string;
   /** Stable class-vtable slot key for a resolved method symbol. */
   [[nodiscard]] auto vtableMethodKey(const Value* methodSymbol) -> std::string;
+  [[nodiscard]] auto classLexicalScopeMatchesForPrivate(Type* contextClass, Type* declaredIn)
+      -> bool;
+  auto enforcePrivateMemberReadable(llvm::SMRange span, Value* member) -> void;
   /** Move all owning Type nodes from an import analysis tree into \p dest so \c
    * SymbolTable typeRefs remain valid after \c importedModuleCache is cleared. */
   void mergeImportedAnalysisTypeCachesInto(std::vector<std::unique_ptr<Type>>& dest,
@@ -237,11 +255,16 @@ class Typechecker final : public ASTVisitor {
   [[nodiscard]] static auto findVarDeclWithName(const std::vector<VarDecl*>& fields,
                                                 const std::string& name) -> VarDecl*;
 
-  /** When a class has no `def new`, register a constructor taking each field without a default. */
+  /** When a class has no `func new`, register a constructor taking each field without a default. */
   void registerSynthesizedClassConstructor(const Class* node, Type* classTypePtr,
                                            SymbolTable* outerScope);
   /** Merge superclass vtable slots with methods declared on \p classTy (see \c Class). */
-  void mergeClassVtableOrder(const Class* node, Type* classTy);
+  void mergeClassVtableOrder(const Class* node, Type* classTy, SymbolTable* methodLookupScope);
+  /** Resolve an inherited method symbol for the same logical overload as \p derivedSym (walks
+   *  superclasses; receiver type varies, tail parameter types must match OVERLOAD_IDENTITY). */
+  [[nodiscard]] auto findInheritedVirtualMethodSymbol(SymbolTable* moduleScope, Type* subclassTy,
+                                                      std::string const& name, Value* derivedSym)
+      -> Value*;
 
 public:
   /** Typecheck with no import * resolution. */
@@ -249,7 +272,9 @@ public:
   /** Typecheck with import * resolution; mainFilePath used for relative
    * imports. */
   Typechecker(std::string mainFilePath, GetExportsFn getExports,
-              std::vector<AnalysisDiagnostic>* warningDiagnosticsOut = nullptr);
+              std::vector<AnalysisDiagnostic>* warningDiagnosticsOut = nullptr,
+              std::shared_ptr<llvm::SourceMgr> diagnosticUnitSourceMgr = nullptr,
+              unsigned diagnosticUnitBufferId = 0);
   ~Typechecker() override = default;
 
   Typechecker(const Typechecker&) = delete;
@@ -270,7 +295,8 @@ public:
   /** Per-specialized-class and trait-existential generic bindings (e.g. T -> int), for codegen. */
   auto takeSpecializedTypeEnv()
       -> std::unordered_map<Type*, std::unordered_map<std::string, Type*>>;
-  /** Specialized class type → its generic template (for substituting through `Base<T>`-style supers).
+  /** Specialized class type → its generic template (for substituting through `Base<T>`-style
+   * supers).
    */
   auto takeSpecializedTypeToTemplate() -> std::unordered_map<Type*, Type*>;
   /** Stable registry key -> canonical specialized class type from typecheck. */
@@ -303,6 +329,7 @@ public:
 
   auto visit(const Expression* node) -> void override;
   auto visit(const FuncCall* node) -> void override;
+  auto visit(const LambdaExpr* node) -> void override;
   auto visit(const BinaryOp* node) -> void override;
   auto visit(const SubscriptOp* node) -> void override;
   auto visit(const DotOp* node) -> void override;

@@ -1,0 +1,4 @@
+let id = func<T>(x: T) => x
+if id(42) != 42 {
+    exit(1)
+}

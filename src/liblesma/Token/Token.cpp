@@ -30,7 +30,6 @@ static const std::unordered_map<std::string_view, TokenType> KEYWORDS = {
     {"else", TokenType::ELSE},
     {"false", TokenType::FALSE_},
     {"for", TokenType::FOR},
-    {"def", TokenType::DEF},
     {"defer", TokenType::DEFER},
     {"func", TokenType::FUNC},
     {"if", TokenType::IF},
@@ -57,6 +56,8 @@ static const std::unordered_map<std::string_view, TokenType> KEYWORDS = {
     {"from", TokenType::FROM},
     {"trait", TokenType::TRAIT},
     {"impl", TokenType::IMPL},
+    {"private", TokenType::PRIVATE},
+    {"overload", TokenType::OVERLOAD},
     // Type keywords
     {"int", TokenType::INT_TYPE},
     {"int64", TokenType::INT_TYPE},

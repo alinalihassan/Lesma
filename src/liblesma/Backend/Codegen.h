@@ -36,6 +36,7 @@ class AllocaInst;
 #include <sysexits.h>
 
 #include "liblesma/AST/ASTVisitor.h"
+#include "liblesma/Common/ExportDiscovery.h"
 #include "liblesma/Backend/MangleUtils.h"
 #include "liblesma/Frontend/Parser.h"
 #include "liblesma/Symbol/SymbolTable.h"
@@ -52,6 +53,7 @@ using MainFnTy = int();
 class Class;
 class TraitDecl;
 class FuncDecl;
+class LambdaExpr;
 
 struct ImportedSpecializationState {
   std::unordered_map<std::string, const Class*> genericClasses;
@@ -90,6 +92,8 @@ class Codegen final : public ASTVisitor {
   std::stack<llvm::BasicBlock*> breakBlocks;
   std::stack<llvm::BasicBlock*> continueBlocks;
   std::stack<std::vector<Statement*>> deferStack;
+  /** \c deferStack.size() after \c deferStack.emplace() for the current module/callable unit. */
+  std::stack<size_t> deferBaselineStack;
   lesma::Value* currentFunction = nullptr;
 
   std::vector<std::string> objectFiles;
@@ -107,6 +111,9 @@ class Codegen final : public ASTVisitor {
   /** Class AST + constructor symbol for default `new` bodies (no FuncDecl). */
   std::vector<std::pair<lesma::Value*, const Class*>> syntheticConstructorBodies;
   std::unordered_map<std::string, const FuncDecl*> genericFunctions;
+  std::unordered_map<std::string, const LambdaExpr*> genericLambdas;
+  std::vector<std::pair<lesma::Value*, const LambdaExpr*>> lambdaPrototypes;
+  llvm::StructType* funcValuePairLlvmType = nullptr;
   std::unordered_map<std::string, std::unordered_map<std::string, const FuncDecl*>> genericMethods;
   std::unordered_map<std::string, const Class*> genericClasses;
   std::unordered_map<std::string, lesma::Type*> currentGenericTypes;
@@ -140,6 +147,7 @@ class Codegen final : public ASTVisitor {
   bool isJit = false;
   bool isMain = true;
   bool emitDebugInfo = false;
+  std::size_t lambdaCounter = 0U;
   llvm::OptimizationLevel optimizationLevelForDebug = llvm::OptimizationLevel::O3;
 
   std::unique_ptr<llvm::DIBuilder> diBuilder;
@@ -217,7 +225,7 @@ protected:
                      const std::string& alias, bool importAll, bool importToScope,
                      const std::vector<ImportedNameBinding>& importedNames) -> void;
   auto getExportsFromFile(const std::string& filepath, bool isStd, const std::string& mainFilePath)
-      -> std::vector<std::string>;
+      -> ExportDiscoveryResult;
   auto typecheckModule(const Compound* ast, const std::string& modulePath)
       -> std::tuple<std::unique_ptr<SymbolTable>, std::vector<std::unique_ptr<lesma::Type>>,
                     std::unordered_map<lesma::Type*, std::unordered_map<std::string, lesma::Type*>>,
@@ -253,11 +261,18 @@ protected:
   auto visit(const Defer* node) -> void override;
   /** Emit deferred statements in LIFO order (last \c defer registered runs first). */
   auto runDeferredStatements(std::vector<Statement*> const& stmts) -> void;
+  /** Call after \c deferStack.emplace() for module / function / lambda / ctor bodies. */
+  auto pushDeferBaseline() -> void;
+  /** Run defers for all active loop frames, then this callable's defer list (for \c return). */
+  auto flushDeferredFramesForReturn() -> void;
+  /** End of loop iteration / \c break / \c continue: run and pop one loop defer frame if any. */
+  auto finishLoopDeferFrameIfAny() -> void;
   auto visit(const UnimplementedStatement* node) -> void override;
   auto visit(const ExpressionStatement* node) -> void override;
 
   auto visit(const Expression* node) -> void override;
   auto visit(const FuncCall* node) -> void override;
+  auto visit(const LambdaExpr* node) -> void override;
   auto visit(const BinaryOp* node) -> void override;
   auto visit(const SubscriptOp* node) -> void override;
   auto visit(const DotOp* node) -> void override;
@@ -319,6 +334,11 @@ protected:
                                         const std::vector<std::string>& genericNames,
                                         const std::vector<lesma::Type*>& explicitTypeArgs)
       -> std::unordered_map<std::string, lesma::Type*>;
+  auto computeGenericLambdaBindingEnv(const LambdaExpr* node,
+                                      const std::vector<lesma::Type*>& paramTypes,
+                                      const std::vector<std::string>& genericNames,
+                                      const std::vector<lesma::Type*>& explicitTypeArgs)
+      -> std::unordered_map<std::string, lesma::Type*>;
   auto appendGenericBindingSuffix(llvm::SMRange span, std::string& base,
                                   const std::vector<std::string>& genericNames,
                                   const std::unordered_map<std::string, lesma::Type*>& env) -> void;
@@ -327,6 +347,13 @@ protected:
                           const std::vector<lesma::Type*>& explicitTypeArgs = {},
                           const std::unordered_map<std::string, lesma::Type*>* bindingEnvHint = nullptr)
       -> lesma::Value*;
+  auto specializeLambda(const LambdaExpr* node, const std::vector<lesma::Type*>& paramTypes,
+                        const std::vector<std::string>& genericNames,
+                        const std::vector<lesma::Type*>& explicitTypeArgs = {},
+                        const std::unordered_map<std::string, lesma::Type*>* bindingEnvHint = nullptr)
+      -> lesma::Value*;
+  auto defineLambdaFunction(lesma::Value* value, const LambdaExpr* node) -> void;
+  [[nodiscard]] auto getFuncValuePairLlvmType() -> llvm::StructType*;
   auto specializeClass(const Class* node, const std::vector<lesma::Type*>& constructorArgTypes,
                        const std::vector<lesma::Type*>& explicitTypeArgs = {}) -> lesma::Value*;
   auto emitClassMonomorph(lesma::Type* specialized, const Class* templateAst) -> lesma::Value*;

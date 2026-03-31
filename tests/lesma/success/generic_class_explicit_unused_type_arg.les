@@ -1,9 +1,12 @@
-class Phantom<T, U>
+class Phantom<T, U> {
     var value: U
-    def new(value: U)
+    func new(value: U) {
         self.value = value
 
+    }
+}
 var phantom = Phantom<int, bool>(true)
 
-if not phantom.value
+if not phantom.value {
     exit(1)
+}

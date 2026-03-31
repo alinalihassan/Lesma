@@ -21,6 +21,7 @@
 #include "liblesma/Common/OperatorUtils.h"
 #include "liblesma/Common/TypeCheckError.h"
 #include "liblesma/Common/Utils.h"
+#include "liblesma/Driver/AnalysisDiagnostic.h"
 #include "liblesma/Frontend/Lexer.h"
 #include "liblesma/Frontend/Parser.h"
 #include "liblesma/Symbol/TypeUtils.h"
@@ -102,6 +103,70 @@ void insertGenericParamSymbols(SymbolTable* genericsScope,
                              dynamic_cast<const Continue*>(stmt) != nullptr);
 }
 
+/** Compares override soundness for a vtable slot: same trailing parameters and return type as the
+ *  inherited callable; receiver (field 0) may differ structurally (subclass `self`). */
+[[nodiscard]] auto virtualOverrideSignaturesMatch(Type* derivedFn, Type* baseFn) -> bool {
+  if (derivedFn == nullptr || baseFn == nullptr) {
+    return false;
+  }
+  if (!derivedFn->is(BaseType::TY_FUNCTION) || !baseFn->is(BaseType::TY_FUNCTION)) {
+    return false;
+  }
+  if (!derivedFn->functionGenericSignatureEqual(baseFn)) {
+    return false;
+  }
+  auto df = derivedFn->getFields();
+  auto bf = baseFn->getFields();
+  if (df.size() != bf.size()) {
+    return false;
+  }
+  for (size_t i = 1; i < df.size(); ++i) {
+    Type* dt = df[i]->type;
+    Type* bt = bf[i]->type;
+    if (dt == nullptr || bt == nullptr) {
+      if (dt != bt) {
+        return false;
+      }
+      continue;
+    }
+    if (!dt->isEqual(bt)) {
+      return false;
+    }
+  }
+  Type* dr = derivedFn->getReturnType();
+  Type* br = baseFn->getReturnType();
+  if (dr == nullptr && br == nullptr) {
+    return true;
+  }
+  if (dr == nullptr || br == nullptr) {
+    return false;
+  }
+  return dr->isEqual(br);
+}
+
+[[nodiscard]] auto typecheckingImportPathsInProgress() -> std::unordered_set<std::string>& {
+  thread_local std::unordered_set<std::string> paths;
+  return paths;
+}
+
+struct TypecheckImportActiveGuard {
+  std::string key;
+
+  explicit TypecheckImportActiveGuard(std::string normalizedPath)
+      : key(std::move(normalizedPath)) {
+    if (!typecheckingImportPathsInProgress().insert(key).second) {
+      throw TypeCheckError(llvm::SMRange(), "Circular import detected: {}", key);
+    }
+  }
+
+  ~TypecheckImportActiveGuard() { typecheckingImportPathsInProgress().erase(key); }
+
+  TypecheckImportActiveGuard(TypecheckImportActiveGuard const&) = delete;
+  auto operator=(TypecheckImportActiveGuard const&) -> TypecheckImportActiveGuard& = delete;
+  TypecheckImportActiveGuard(TypecheckImportActiveGuard&&) = delete;
+  auto operator=(TypecheckImportActiveGuard&&) -> TypecheckImportActiveGuard& = delete;
+};
+
 } // namespace
 
 auto Typechecker::traitExistentialBaseName(const std::string& displayName) -> std::string {
@@ -140,6 +205,73 @@ auto Typechecker::vtableMethodKey(const Value* methodSymbol) -> std::string {
     key += "|" + (field != nullptr && field->type != nullptr ? field->type->toString() : "?");
   }
   return key;
+}
+
+auto Typechecker::findInheritedVirtualMethodSymbol(SymbolTable* moduleScope, Type* subclassTy,
+                                                   std::string const& name, Value* derivedSym)
+    -> Value* {
+  if (moduleScope == nullptr || subclassTy == nullptr || derivedSym == nullptr) {
+    return nullptr;
+  }
+  Type* derivedFnTy = derivedSym->getType();
+  if (derivedFnTy == nullptr || !derivedFnTy->is(BaseType::TY_FUNCTION)) {
+    return nullptr;
+  }
+  std::vector<Field*> const fields = derivedFnTy->getFields();
+  if (fields.empty()) {
+    return nullptr;
+  }
+  std::vector<Type*> tailParams;
+  tailParams.reserve(fields.size() > 1U ? fields.size() - 1U : 0U);
+  for (size_t i = 1; i < fields.size(); ++i) {
+    tailParams.push_back(fields[i]->type);
+  }
+  for (Type* walk = subclassTy->getClassSuperclass(); walk != nullptr;
+       walk = walk->getClassSuperclass()) {
+    Type* selfPtr = cacheType(std::make_unique<Type>(BaseType::TY_PTR, nullptr, walk));
+    std::vector<Type*> lookupTypes;
+    lookupTypes.reserve(1U + tailParams.size());
+    lookupTypes.push_back(selfPtr);
+    lookupTypes.insert(lookupTypes.end(), tailParams.begin(), tailParams.end());
+    if (Value* hit =
+            moduleScope->lookupFunction(name, lookupTypes, FunctionLookupKind::OVERLOAD_IDENTITY)) {
+      return hit;
+    }
+  }
+  return nullptr;
+}
+
+auto Typechecker::classLexicalScopeMatchesForPrivate(Type* contextClass, Type* declaredIn) -> bool {
+  if (contextClass == nullptr || declaredIn == nullptr) {
+    return false;
+  }
+  if (contextClass->isEqual(declaredIn)) {
+    return true;
+  }
+  Type* ctxTpl = contextClass;
+  if (auto it = specializedTypeToTemplate.find(contextClass);
+      it != specializedTypeToTemplate.end()) {
+    ctxTpl = it->second;
+  }
+  Type* declTpl = declaredIn;
+  if (auto it = specializedTypeToTemplate.find(declaredIn); it != specializedTypeToTemplate.end()) {
+    declTpl = it->second;
+  }
+  return ctxTpl->isEqual(declTpl);
+}
+
+auto Typechecker::enforcePrivateMemberReadable(llvm::SMRange span, Value* member) -> void {
+  if (member == nullptr || !member->isPrivateMember()) {
+    return;
+  }
+  Type* declaredIn = member->getMemberDeclaredInClass();
+  if (declaredIn == nullptr) {
+    return;
+  }
+  if (!classLexicalScopeMatchesForPrivate(currentClassType, declaredIn)) {
+    throw TypeCheckError(span, "Cannot access private member '{}' from this context",
+                         member->getName());
+  }
 }
 
 void Typechecker::mergeImportedAnalysisTypeCachesInto(
@@ -239,6 +371,37 @@ auto Typechecker::currentExpectedType() const -> Type* {
   return expectedTypes.back();
 }
 
+auto Typechecker::currentFunctionRootScope() const -> SymbolTable* {
+  if (functionScopeStack.empty()) {
+    return nullptr;
+  }
+  return functionScopeStack.back();
+}
+
+auto Typechecker::getOrCreateLambdaCaptureShadow(Value* outerSym, const std::string& name,
+                                                 llvm::SMRange span) -> Value* {
+  if (currentFunction == nullptr || currentFunction->getBodyScope() == nullptr) {
+    throw TypeCheckError(span, "Internal error: lambda capture outside lambda");
+  }
+  SymbolTable* body = currentFunction->getBodyScope();
+  if (Value* shallow = body->lookupShallow(name); shallow != nullptr) {
+    if (shallow->getClosureSlotOuter() != nullptr) {
+      return shallow;
+    }
+    throw TypeCheckError(span, "Lambda capture '{}' conflicts with a parameter or local", name);
+  }
+  currentFunction->pushClosureCaptureOuterIfNew(outerSym);
+  auto shadow = std::make_unique<Value>(name, outerSym->getType());
+  shadow->setCategory(ValueCategory::ADDRESSABLE_STORAGE);
+  shadow->setDeclarationKind(ValueDeclarationKind::VARIABLE);
+  shadow->setClosureSlotOuter(outerSym);
+  shadow->setDeclarationSpan(span);
+  shadow->setDeclarationFilePath(mainFilePath);
+  Value* raw = shadow.get();
+  body->insertSymbol(std::move(shadow));
+  return raw;
+}
+
 auto Typechecker::resolveMethodReturnType(Type* baseType, const std::string& methodName,
                                           const std::vector<Type*>& argTypes, llvm::SMRange span)
     -> Type* {
@@ -328,6 +491,8 @@ auto Typechecker::resolveMethodReturnType(Type* baseType, const std::string& met
   if (method == nullptr || !method->getType()->is(BaseType::TY_FUNCTION)) {
     return nullptr;
   }
+
+  enforcePrivateMemberReadable(span, method);
 
   auto fields = method->getType()->getFields();
   for (size_t i = 0; i < fields.size() && i < methodArgTypes.size(); ++i) {
@@ -806,14 +971,17 @@ auto Typechecker::materializeImportedType(Type* type) -> Type* {
         symbolCopy->setDeclarationSpan(declarationSymbol->getDeclarationSpan());
         symbolCopy->setDeclarationFilePath(declarationSymbol->getDeclarationFilePath());
         symbolCopy->setMutable(declarationSymbol->getMutability());
+        symbolCopy->setPrivateMember(declarationSymbol->isPrivateMember());
+        if (Type* declCls = declarationSymbol->getMemberDeclaredInClass(); declCls != nullptr) {
+          symbolCopy->setMemberDeclaredInClass(materializeImportedType(declCls));
+        }
         fieldCopy->setDeclarationSymbol(std::move(symbolCopy));
       }
       copy->addField(std::move(fieldCopy));
     }
     if (type->is(BaseType::TY_CLASS)) {
       copy->setClassSuperclass(materializeImportedType(type->getClassSuperclass()));
-      copy->setClassVtableMethodOrder(
-          std::vector<std::string>(type->getClassVtableMethodOrder()));
+      copy->setClassVtableMethodOrder(std::vector<std::string>(type->getClassVtableMethodOrder()));
       copy->setClassHasDerivedClass(type->getClassHasDerivedClass());
     }
     if (auto tmplIt = specializedTypeToTemplate.find(type);
@@ -824,7 +992,8 @@ auto Typechecker::materializeImportedType(Type* type) -> Type* {
           envCopy[name] = materializeImportedType(envType);
         }
       }
-      registerSpecializedClassType(copy, materializeImportedType(tmplIt->second), std::move(envCopy));
+      registerSpecializedClassType(copy, materializeImportedType(tmplIt->second),
+                                   std::move(envCopy));
     }
     return copy;
   }
@@ -855,6 +1024,10 @@ auto Typechecker::materializeImportedType(Type* type) -> Type* {
         symbolCopy->setDeclarationSpan(declarationSymbol->getDeclarationSpan());
         symbolCopy->setDeclarationFilePath(declarationSymbol->getDeclarationFilePath());
         symbolCopy->setMutable(declarationSymbol->getMutability());
+        symbolCopy->setPrivateMember(declarationSymbol->isPrivateMember());
+        if (Type* declCls = declarationSymbol->getMemberDeclaredInClass(); declCls != nullptr) {
+          symbolCopy->setMemberDeclaredInClass(materializeImportedType(declCls));
+        }
         fieldCopy->setDeclarationSymbol(std::move(symbolCopy));
       }
       fields.push_back(std::move(fieldCopy));
@@ -883,6 +1056,10 @@ auto Typechecker::materializeImportedType(Type* type) -> Type* {
         symbolCopy->setDeclarationSpan(declarationSymbol->getDeclarationSpan());
         symbolCopy->setDeclarationFilePath(declarationSymbol->getDeclarationFilePath());
         symbolCopy->setMutable(declarationSymbol->getMutability());
+        symbolCopy->setPrivateMember(declarationSymbol->isPrivateMember());
+        if (Type* declCls = declarationSymbol->getMemberDeclaredInClass(); declCls != nullptr) {
+          symbolCopy->setMemberDeclaredInClass(materializeImportedType(declCls));
+        }
         fieldCopy->setDeclarationSymbol(std::move(symbolCopy));
       }
       fields.push_back(std::move(fieldCopy));
@@ -989,7 +1166,8 @@ auto Typechecker::substituteInType(Type* t, const std::unordered_map<std::string
       return t;
     }
     std::unordered_map<std::string, Type*> classEnv;
-    if (auto specTmpl = specializedTypeToTemplate.find(t); specTmpl != specializedTypeToTemplate.end()) {
+    if (auto specTmpl = specializedTypeToTemplate.find(t);
+        specTmpl != specializedTypeToTemplate.end()) {
       if (auto envIt = specializedTypeEnv.find(t); envIt != specializedTypeEnv.end()) {
         for (const auto& name : genericParamNames) {
           auto b = envIt->second.find(name);
@@ -1096,8 +1274,7 @@ auto Typechecker::superMethodReceiverMatchesFormal(Type* formalReceiverClass, Ty
     return true;
   }
   if (auto specIt = specializedTypeToTemplate.find(staticSuperType);
-      specIt != specializedTypeToTemplate.end() &&
-      formalReceiverClass->isEqual(specIt->second)) {
+      specIt != specializedTypeToTemplate.end() && formalReceiverClass->isEqual(specIt->second)) {
     return true;
   }
   return false;
@@ -1110,8 +1287,8 @@ auto Typechecker::lookupConstructorForAllocatedClass(SymbolTable* tab,
     return nullptr;
   }
   if (classType != nullptr && getDeclaredGenericParams(classType).empty()) {
-    if (Value* exact = tab->lookupFunction("new", ctorParamTypes,
-                                           FunctionLookupKind::OVERLOAD_IDENTITY);
+    if (Value* exact =
+            tab->lookupFunction("new", ctorParamTypes, FunctionLookupKind::OVERLOAD_IDENTITY);
         exact != nullptr) {
       return exact;
     }
@@ -1134,8 +1311,8 @@ void Typechecker::registerSpecializedClassType(Type* specialized, Type* classTem
   specialized->setClassVtableMethodOrder(
       std::vector<std::string>(classTemplate->getClassVtableMethodOrder()));
   specialized->setClassHasDerivedClass(classTemplate->getClassHasDerivedClass());
-  specialized->setDisplayName(
-      makeSpecializedDisplayName(classTemplate, genericParamNames, specializedTypeEnv[specialized]));
+  specialized->setDisplayName(makeSpecializedDisplayName(classTemplate, genericParamNames,
+                                                         specializedTypeEnv[specialized]));
   specializedClassTypes[TypeUtils::makeSpecializedClassKey(
       classTemplate, genericParamNames, specializedTypeEnv[specialized])] = specialized;
 }
@@ -1179,7 +1356,15 @@ auto Typechecker::getOrCreateSpecializedClassType(Type* classTemplate,
   std::vector<std::unique_ptr<Field>> newFields;
   for (Field* f : classTemplate->getFields()) {
     Type* subst = substituteInType(f->type, env);
-    newFields.push_back(std::make_unique<Field>(f->name, subst));
+    auto nf = std::make_unique<Field>(f->name, subst);
+    nf->setDeclarationSpan(f->getDeclarationSpan());
+    nf->setDeclarationFilePath(f->getDeclarationFilePath());
+    if (Value* ds = f->getDeclarationSymbol()) {
+      auto symCopy = std::make_unique<Value>(*ds);
+      symCopy->setType(subst);
+      nf->setDeclarationSymbol(std::move(symCopy));
+    }
+    newFields.push_back(std::move(nf));
   }
   ptr->replaceFields(std::move(newFields));
   return ptr;
@@ -1202,7 +1387,15 @@ void Typechecker::finalizeSpecializedTypesForTemplate(Type* classTemplate) {
     std::vector<std::unique_ptr<Field>> newFields;
     for (Field* f : classTemplate->getFields()) {
       Type* subst = substituteInType(f->type, env);
-      newFields.push_back(std::make_unique<Field>(f->name, subst));
+      auto nf = std::make_unique<Field>(f->name, subst);
+      nf->setDeclarationSpan(f->getDeclarationSpan());
+      nf->setDeclarationFilePath(f->getDeclarationFilePath());
+      if (Value* ds = f->getDeclarationSymbol()) {
+        auto symCopy = std::make_unique<Value>(*ds);
+        symCopy->setType(subst);
+        nf->setDeclarationSymbol(std::move(symCopy));
+      }
+      newFields.push_back(std::move(nf));
     }
     specPtr->replaceFields(std::move(newFields));
     specPtr->setDisplayName(makeSpecializedDisplayName(classTemplate, genericParamNames, env));
@@ -1385,9 +1578,9 @@ auto Typechecker::isAssignableTo(Type* from, Type* to) -> bool {
   if (from->isEqual(to)) {
     return true;
   }
-  if (from->is(BaseType::TY_PTR) && from->getElementType() != nullptr &&
-      to->is(BaseType::TY_PTR) && to->getElementType() != nullptr &&
-      from->getElementType()->is(BaseType::TY_CLASS) && to->getElementType()->is(BaseType::TY_CLASS)) {
+  if (from->is(BaseType::TY_PTR) && from->getElementType() != nullptr && to->is(BaseType::TY_PTR) &&
+      to->getElementType() != nullptr && from->getElementType()->is(BaseType::TY_CLASS) &&
+      to->getElementType()->is(BaseType::TY_CLASS)) {
     Type* fromCls = from->getElementType();
     Type* toCls = to->getElementType();
     if (fromCls->isEqual(toCls)) {
@@ -1656,7 +1849,7 @@ auto Typechecker::resolveType(const TypeExpr* node) -> Type* {
     if (typ == nullptr && sym == nullptr) {
       throw TypeCheckError(node->getSpan(),
                            "Type '{}' not found. If you meant a generic type parameter, add it "
-                           "to the generic parameter list (e.g. def foo<T>(x: T) -> T).",
+                           "to the generic parameter list (e.g. func foo<T>(x: T) -> T).",
                            node->getName());
     }
     if (sym == nullptr) {
@@ -1668,7 +1861,7 @@ auto Typechecker::resolveType(const TypeExpr* node) -> Type* {
     if (typ == nullptr && sym == nullptr) {
       throw TypeCheckError(node->getSpan(),
                            "Type '{}' not found. If you meant a generic type parameter, add it "
-                           "to the generic parameter list (e.g. def foo<T>(x: T) -> T).",
+                           "to the generic parameter list (e.g. func foo<T>(x: T) -> T).",
                            node->getName());
     }
     node->setResolvedSymbol(sym);
@@ -1728,10 +1921,14 @@ Typechecker::Typechecker()
     : rootScope(std::make_unique<SymbolTable>(nullptr)), scope(rootScope.get()) {}
 
 Typechecker::Typechecker(std::string mainFilePath, GetExportsFn getExports,
-                         std::vector<AnalysisDiagnostic>* warningDiagnosticsOut)
+                         std::vector<AnalysisDiagnostic>* warningDiagnosticsOut,
+                         std::shared_ptr<llvm::SourceMgr> diagnosticUnitSourceMgrIn,
+                         unsigned diagnosticUnitBufferIdIn)
     : rootScope(std::make_unique<SymbolTable>(nullptr)), scope(rootScope.get()),
       mainFilePath(std::move(mainFilePath)), getExports(std::move(getExports)),
-      warningDiagnostics(warningDiagnosticsOut) {}
+      warningDiagnostics(warningDiagnosticsOut),
+      diagnosticUnitSourceMgr(std::move(diagnosticUnitSourceMgrIn)),
+      diagnosticUnitBufferId(diagnosticUnitBufferIdIn) {}
 
 void Typechecker::loadImplicitStdModule(const std::string& moduleFilename) {
   const auto basePath =
@@ -1848,11 +2045,13 @@ auto Typechecker::resolveImportPath(const std::string& filepath, bool isStd) con
 }
 
 auto Typechecker::getOrTypecheckImport(const std::string& absolutePath) -> SymbolTable* {
-  auto it = importedModuleCache.find(absolutePath);
+  const std::string normPath = normalizeResolvedFilesystemPath(absolutePath);
+  auto it = importedModuleCache.find(normPath);
   if (it != importedModuleCache.end()) {
     return it->second != nullptr ? it->second->rootScope.get() : nullptr;
   }
-  auto buffer = llvm::MemoryBuffer::getFile(absolutePath);
+  TypecheckImportActiveGuard const activeGuard(normPath);
+  auto buffer = llvm::MemoryBuffer::getFile(normPath);
   if (!buffer) {
     return nullptr;
   }
@@ -1866,12 +2065,12 @@ auto Typechecker::getOrTypecheckImport(const std::string& absolutePath) -> Symbo
   if (ast == nullptr) {
     return nullptr;
   }
-  Typechecker sub(absolutePath, getExports);
+  Typechecker sub(normPath, getExports, warningDiagnostics, srcMgr, bufferId);
   sub.run(ast);
   auto imported = std::make_shared<ImportedModuleAnalysis>();
   imported->sourceMgr = std::move(srcMgr);
   imported->mainBufferId = bufferId;
-  imported->mainFilePath = absolutePath;
+  imported->mainFilePath = normPath;
   imported->parser = std::move(parser);
   imported->typeCache = sub.takeTypeCache();
   imported->rootScope = sub.takeRootScope();
@@ -1900,7 +2099,7 @@ auto Typechecker::getOrTypecheckImport(const std::string& absolutePath) -> Symbo
   imported->importedNameToSource = sub.takeImportedNameToSource();
   imported->importedModules = sub.takeImportedModules();
   SymbolTable* scopePtr = imported->rootScope.get();
-  importedModuleCache[absolutePath] = std::move(imported);
+  importedModuleCache[normPath] = std::move(imported);
   return scopePtr;
 }
 
@@ -2007,6 +2206,19 @@ auto Typechecker::visit(const Compound* node) -> void {
 // Not implemented here: deprecated_use; trailing_semicolon
 // style.
 
+void Typechecker::appendSemanticDiagnostic(llvm::SMRange span, std::string message,
+                                           AnalysisDiagnosticSeverity severity) {
+  if (warningDiagnostics == nullptr) {
+    return;
+  }
+  warningDiagnostics->push_back(AnalysisDiagnostic{.message = std::move(message),
+                                                   .span = span,
+                                                   .severity = severity,
+                                                   .spanSourceMgr = diagnosticUnitSourceMgr,
+                                                   .spanBufferId = diagnosticUnitBufferId,
+                                                   .spanDisplayPath = mainFilePath});
+}
+
 void Typechecker::emitWarning(llvm::SMRange span, std::string message) {
   if (warningDiagnostics == nullptr || !span.isValid()) {
     return;
@@ -2014,10 +2226,7 @@ void Typechecker::emitWarning(llvm::SMRange span, std::string message) {
   if (!mainFilePath.empty() && isStdlibSourcePath(mainFilePath)) {
     return;
   }
-  warningDiagnostics->push_back(
-      AnalysisDiagnostic{.message = std::move(message),
-                         .span = span,
-                         .severity = AnalysisDiagnosticSeverity::Warning});
+  appendSemanticDiagnostic(span, std::move(message), AnalysisDiagnosticSeverity::Warning);
 }
 
 void Typechecker::recoverFromTypeError(const TypeCheckError& err) {
@@ -2032,12 +2241,13 @@ void Typechecker::recoverFromTypeError(const TypeCheckError& err) {
   for (const AnalysisDiagnostic& existing : *warningDiagnostics) {
     if (existing.severity == AnalysisDiagnosticSeverity::Error && existing.message == message &&
         existing.span.Start.getPointer() == span.Start.getPointer() &&
-        existing.span.End.getPointer() == span.End.getPointer()) {
+        existing.span.End.getPointer() == span.End.getPointer() &&
+        existing.spanSourceMgr.get() == diagnosticUnitSourceMgr.get() &&
+        existing.spanBufferId == diagnosticUnitBufferId) {
       return;
     }
   }
-  warningDiagnostics->push_back(AnalysisDiagnostic{
-      .message = message, .span = span, .severity = AnalysisDiagnosticSeverity::Error});
+  appendSemanticDiagnostic(span, message, AnalysisDiagnosticSeverity::Error);
 }
 
 void Typechecker::markValueRead(Value* sym) {
@@ -2064,6 +2274,23 @@ void Typechecker::markValueRead(Value* sym) {
   if (sym->getCategory() == ValueCategory::MODULE_SYMBOL && sym->getType() != nullptr &&
       sym->getType()->is(BaseType::TY_IMPORT)) {
     sym->setUsed(true);
+  }
+}
+
+void Typechecker::markImportNameStubUsedForQualifiedAccess(const std::string& modulePath,
+                                                          const std::string& exportedName) {
+  if (declarationPass) {
+    return;
+  }
+  for (const auto& [localName, src] : importedNameToSource) {
+    if (src.first != modulePath || src.second != exportedName) {
+      continue;
+    }
+    Value* stub = scope->lookupImportModuleSymbol(localName);
+    if (stub != nullptr) {
+      markValueRead(stub);
+    }
+    return;
   }
 }
 
@@ -2359,6 +2586,12 @@ auto Typechecker::visit(const VarDecl* node) -> void {
   symbol->setExported(node->isExported());
   symbol->setDeclarationSpan(node->getIdentifier()->getSpan());
   symbol->setDeclarationFilePath(mainFilePath);
+  if (declType != nullptr && declType->is(BaseType::TY_FUNCTION)) {
+    symbol->setStoresFuncValuePair(true);
+  }
+  if (auto* lam = dynamic_cast<LambdaExpr*>(node->getValue())) {
+    symbol->setOriginLambdaExpr(lam);
+  }
   node->setResolvedSymbol(symbol.get());
   warnShadowingFromEnclosing(node->getIdentifier()->getValue(), node->getIdentifier()->getSpan());
   scope->insertSymbol(std::move(symbol));
@@ -2481,8 +2714,9 @@ auto Typechecker::registerTraitsFromImportedModule(const std::string& absolutePa
   if (absolutePath.empty()) {
     return;
   }
-  (void) getOrTypecheckImport(absolutePath);
-  auto it = importedModuleCache.find(absolutePath);
+  const std::string normPath = normalizeResolvedFilesystemPath(absolutePath);
+  (void) getOrTypecheckImport(normPath);
+  auto it = importedModuleCache.find(normPath);
   if (it == importedModuleCache.end() || it->second == nullptr || it->second->parser == nullptr) {
     return;
   }
@@ -2543,9 +2777,22 @@ auto Typechecker::visit(const Import* node) -> void {
       scope->insertSymbol(std::move(symbol));
     }
   };
-  if (node->getImportAll() && getExports) {
-    std::vector<std::string> names = getExports(node->getFilePath(), node->isStd(), mainFilePath);
-    for (const std::string& name : names) {
+  if (node->getImportAll() && node->getImportScope() && getExports) {
+    ExportDiscoveryResult const discovery = getExports(node->getFilePath(), node->isStd(), mainFilePath);
+    if (!discovery.failureMessage.empty()) {
+      std::string const msg = fmt::format("Import * failed: {}", discovery.failureMessage);
+      if (warningDiagnostics == nullptr) {
+        throw TypeCheckError(node->getSpan(), msg);
+      }
+      recoverFromTypeError(TypeCheckError(node->getSpan(), msg));
+      return;
+    }
+    for (const std::string& name : discovery.names) {
+      if (importedNameToSource.contains(name)) {
+        throw TypeCheckError(node->getSpan(),
+                             "Import * conflicts: `{}` is already imported from another module",
+                             name);
+      }
       addImportSymbol(name, node->getSpan());
       importedNameToSource[name] = std::make_pair(resolvedPath, name);
       insertImportedVariableAlias(resolvedPath, name, name);
@@ -2707,7 +2954,8 @@ void Typechecker::registerSynthesizedClassConstructor(const Class* node, Type* c
   }
 }
 
-void Typechecker::mergeClassVtableOrder(const Class* node, Type* classTy) {
+void Typechecker::mergeClassVtableOrder(const Class* node, Type* classTy,
+                                        SymbolTable* methodLookupScope) {
   std::vector<std::string> order;
   std::unordered_map<std::string, size_t> slotIndex;
   if (Type* sup = classTy->getClassSuperclass()) {
@@ -2728,7 +2976,28 @@ void Typechecker::mergeClassVtableOrder(const Class* node, Type* classTy) {
     if (methodKey.empty()) {
       methodKey = m->getName();
     }
-    if (slotIndex.count(methodKey) != 0U) {
+    if (slotIndex.contains(methodKey)) {
+      if (!m->getDeclaresOverload()) {
+        throw TypeCheckError(m->getNameSpan(),
+                             "Method overrides an inherited method; add the `overload` keyword "
+                             "before `func`");
+      }
+      Value* derivedSym = m->getResolvedSymbol();
+      if (derivedSym != nullptr && methodLookupScope != nullptr) {
+        Value* baseSym =
+            findInheritedVirtualMethodSymbol(methodLookupScope, classTy, m->getName(), derivedSym);
+        if (baseSym != nullptr) {
+          Type* derivedTy = derivedSym->getType();
+          Type* baseTy = baseSym->getType();
+          if (!virtualOverrideSignaturesMatch(derivedTy, baseTy)) {
+            throw TypeCheckError(m->getNameSpan(),
+                                 "Method override must match inherited signature (parameters after "
+                                 "`self` and return type); inherited {}, overriding {}",
+                                 baseTy != nullptr ? baseTy->toString() : std::string("?"),
+                                 derivedTy != nullptr ? derivedTy->toString() : std::string("?"));
+          }
+        }
+      }
       continue;
     }
     slotIndex[methodKey] = order.size();
@@ -2843,6 +3112,8 @@ auto Typechecker::visit(const Class* node) -> void {
       fieldSymbol->setCategory(ValueCategory::ADDRESSABLE_STORAGE);
       fieldSymbol->setDeclarationKind(ValueDeclarationKind::PROPERTY);
       fieldSymbol->setMutable(field->getMutability());
+      fieldSymbol->setPrivateMember(field->getIsPrivate());
+      fieldSymbol->setMemberDeclaredInClass(classTypePtr);
       fieldSymbol->setDeclarationSpan(field->getIdentifier()->getSpan());
       fieldSymbol->setDeclarationFilePath(mainFilePath);
       field->setResolvedSymbol(fieldSymbol.get());
@@ -2881,7 +3152,7 @@ auto Typechecker::visit(const Class* node) -> void {
   currentMethodInsertScope = savedMethodInsertScope;
 
   if (declarationPass) {
-    mergeClassVtableOrder(node, classTypePtr);
+    mergeClassVtableOrder(node, classTypePtr, outerScope);
     bool hasExplicitNew = false;
     for (FuncDecl* m : node->getMethods()) {
       if (m->getName() == "new") {
@@ -2891,7 +3162,7 @@ auto Typechecker::visit(const Class* node) -> void {
     }
     if (classTypePtr->getClassSuperclass() != nullptr && !hasExplicitNew) {
       throw TypeCheckError(node->getNameSpan(),
-                           "Class with a superclass must define `def new` (call super.new to "
+                           "Class with a superclass must define `func new` (call super.new to "
                            "initialize the base)");
     }
     if (!hasExplicitNew) {
@@ -2988,8 +3259,8 @@ auto Typechecker::visit(const FuncDecl* node) -> void {
   }
   SymbolTable* insertScope =
       currentMethodInsertScope != nullptr ? currentMethodInsertScope : scope->getParent();
-  Value* funcSymbol =
-      insertScope->lookupFunction(node->getName(), paramTypes, FunctionLookupKind::OVERLOAD_IDENTITY);
+  Value* funcSymbol = insertScope->lookupFunction(node->getName(), paramTypes,
+                                                  FunctionLookupKind::OVERLOAD_IDENTITY);
   bool const effectiveFuncExported =
       currentClassType != nullptr ? currentClassExported : node->isExported();
 
@@ -3001,6 +3272,10 @@ auto Typechecker::visit(const FuncDecl* node) -> void {
                                            ? ValueDeclarationKind::METHOD
                                            : ValueDeclarationKind::FUNCTION);
       declaredFunc->setExported(effectiveFuncExported);
+      if (currentClassType != nullptr) {
+        declaredFunc->setPrivateMember(node->getIsPrivate());
+        declaredFunc->setMemberDeclaredInClass(currentClassType);
+      }
       declaredFunc->setDeclarationSpan(node->getNameSpan());
       declaredFunc->setDeclarationFilePath(mainFilePath);
       insertScope->insertSymbol(std::move(declaredFunc));
@@ -3015,6 +3290,10 @@ auto Typechecker::visit(const FuncDecl* node) -> void {
       funcSymbol->setDeclarationKind(currentClassType != nullptr ? ValueDeclarationKind::METHOD
                                                                  : ValueDeclarationKind::FUNCTION);
       funcSymbol->setExported(effectiveFuncExported);
+      if (currentClassType != nullptr) {
+        funcSymbol->setPrivateMember(node->getIsPrivate());
+        funcSymbol->setMemberDeclaredInClass(currentClassType);
+      }
       funcSymbol->setDeclarationSpan(node->getNameSpan());
       funcSymbol->setDeclarationFilePath(mainFilePath);
       // Set resolvedSymbol for existing symbol (this exact overload)
@@ -3034,6 +3313,10 @@ auto Typechecker::visit(const FuncDecl* node) -> void {
         paramSymbol->setDeclarationKind(ValueDeclarationKind::PARAMETER);
         paramSymbol->setDeclarationSpan(param->nameSpan);
         paramSymbol->setDeclarationFilePath(mainFilePath);
+        if (paramTypes[paramOffset + i] != nullptr &&
+            paramTypes[paramOffset + i]->is(BaseType::TY_FUNCTION)) {
+          paramSymbol->setStoresFuncValuePair(true);
+        }
         param->setResolvedSymbol(paramSymbol.get());
         warnShadowingFromEnclosing(param->name, param->nameSpan);
         scope->insertSymbol(std::move(paramSymbol));
@@ -3050,6 +3333,7 @@ auto Typechecker::visit(const FuncDecl* node) -> void {
     // it)
     node->setResolvedSymbol(currentFunction);
     scope = currentFunction->getBodyScope();
+    functionScopeStack.push_back(scope);
     inTopLevel = false;
     auto savedTraitBounds = currentGenericParamTraitBounds;
     currentGenericParamTraitBounds.clear();
@@ -3068,6 +3352,7 @@ auto Typechecker::visit(const FuncDecl* node) -> void {
     }
     scope = scope->getParent();
     currentFunction = nullptr;
+    functionScopeStack.pop_back();
     inTopLevel = true;
   }
   scope = scope->getParent(); // pop generics scope so generic param names are not visible to outer
@@ -3450,6 +3735,7 @@ auto Typechecker::visit(const FuncCall* node) -> void {
                                "Constructor not found for {} with given type arguments",
                                node->getName());
         }
+        enforcePrivateMemberReadable(node->getSpan(), constructor);
         constructorForMark = constructor;
         auto ctorParams = constructor->getType()->getFields();
         for (size_t i = 1; i < ctorParams.size() && i - 1 < argTypes.size(); ++i) {
@@ -3541,6 +3827,7 @@ auto Typechecker::visit(const FuncCall* node) -> void {
                                    "Constructor not found for {} with given type arguments",
                                    node->getName());
             }
+            enforcePrivateMemberReadable(node->getSpan(), constructor);
             constructorForMark = constructor;
             auto ctorParams = constructor->getType()->getFields();
             for (size_t i = 1; i < ctorParams.size() && i - 1 < argTypes.size(); ++i) {
@@ -3576,6 +3863,7 @@ auto Typechecker::visit(const FuncCall* node) -> void {
                                                        classType)
                   : lookupConstructorForAllocatedClass(scope, constructorParamTypes, classType);
           if (constructor != nullptr) {
+            enforcePrivateMemberReadable(node->getSpan(), constructor);
             std::unordered_map<std::string, Type*> env;
             auto* funcType = constructor->getType();
             auto ctorParams = funcType->getFields();
@@ -3605,6 +3893,7 @@ auto Typechecker::visit(const FuncCall* node) -> void {
                   : scope->lookupFunction("new", ctorParamTypes,
                                           FunctionLookupKind::OVERLOAD_IDENTITY);
           if (constructor != nullptr) {
+            enforcePrivateMemberReadable(node->getSpan(), constructor);
             markValueRead(constructor);
           }
           markImportStubIfCalleeWasNamedImport();
@@ -3671,14 +3960,19 @@ auto Typechecker::visit(const FuncCall* node) -> void {
             constructorParamTypes.insert(constructorParamTypes.end(), argTypes.begin(),
                                          argTypes.end());
             callee = lookupConstructorForAllocatedClass(scope, constructorParamTypes, classType);
+            if (callee != nullptr) {
+              enforcePrivateMemberReadable(node->getSpan(), callee);
+            }
             if (callee == nullptr) {
               auto ctorImportedIt = importedNameToSource.find(node->getName());
               if (ctorImportedIt != importedNameToSource.end()) {
                 SymbolTable* imp = getOrTypecheckImport(ctorImportedIt->second.first);
                 if (imp != nullptr) {
-                  callee = lookupConstructorForAllocatedClass(imp, constructorParamTypes, classType);
+                  callee =
+                      lookupConstructorForAllocatedClass(imp, constructorParamTypes, classType);
                   if (callee != nullptr) {
                     funcCallResolvedViaImportedNameBinding = true;
+                    enforcePrivateMemberReadable(node->getSpan(), callee);
                   }
                 }
               }
@@ -3801,6 +4095,142 @@ auto Typechecker::visit(const FuncCall* node) -> void {
   verifyGenericTraitBounds(callee, localGenericTypes, node->getSpan());
 }
 
+auto Typechecker::visit(const LambdaExpr* node) -> void {
+  auto savedGenerics = currentGenericTypes;
+  SymbolTable* genericsScope = nullptr;
+  SymbolTable* savedScopeBeforeGenerics = scope;
+  if (!node->getGenericParamDecls().empty()) {
+    genericsScope = scope->createChildBlock("lambda_generics");
+    scope = genericsScope;
+    for (const auto& param : node->getGenericParamDecls()) {
+      auto* genericType = cacheType(std::make_unique<Type>(param.name));
+      currentGenericTypes[param.name] = genericType;
+    }
+    insertGenericParamSymbols(genericsScope, node->getGenericParamDecls(), currentGenericTypes,
+                              mainFilePath);
+  }
+
+  std::vector<std::unique_ptr<Field>> paramFields;
+  std::vector<Type*> paramTypes;
+  for (Parameter* param : node->getParameters()) {
+    if (param->defaultVal != nullptr) {
+      throw TypeCheckError(param->nameSpan, "Lambda parameters cannot have default values");
+    }
+    if (param->type == nullptr) {
+      throw TypeCheckError(param->nameSpan, "Lambda parameter {} requires an explicit type",
+                           param->name);
+    }
+    param->type->accept(*this);
+    Type* paramType = result->getType();
+    if (paramType->is(BaseType::TY_CLASS)) {
+      paramType = cacheType(std::make_unique<Type>(BaseType::TY_PTR, nullptr, paramType));
+    }
+    paramTypes.push_back(paramType);
+    paramFields.push_back(std::make_unique<Field>(param->name, paramType));
+  }
+
+  Type* returnType = nullptr;
+  if (node->getReturnType() != nullptr) {
+    node->getReturnType()->accept(*this);
+    returnType = wrapReturnTypeIfNominal(result->getType());
+  }
+
+  auto funcType = std::make_unique<Type>(BaseType::TY_FUNCTION, nullptr, std::move(paramFields));
+  if (returnType != nullptr) {
+    funcType->setReturnType(returnType);
+  }
+  Type* funcTypePtr = cacheType(std::move(funcType));
+  funcTypePtr->setGenericParams(node->getGenericParams());
+  if (!node->getGenericParamDecls().empty()) {
+    std::vector<std::vector<std::string>> tb;
+    tb.reserve(node->getGenericParamDecls().size());
+    for (const auto& p : node->getGenericParamDecls()) {
+      tb.push_back(p.traitBounds);
+    }
+    funcTypePtr->setGenericParamTraitBounds(std::move(tb));
+  }
+
+  auto lambdaName = fmt::format("__lambda_{}", lambdaCounter++);
+  auto lambdaSymbol = std::make_unique<Value>(lambdaName, funcTypePtr);
+  lambdaSymbol->setCategory(ValueCategory::CALLABLE_SYMBOL);
+  lambdaSymbol->setDeclarationKind(ValueDeclarationKind::FUNCTION);
+  lambdaSymbol->setDeclarationSpan(node->getSpan());
+  lambdaSymbol->setDeclarationFilePath(mainFilePath);
+  SymbolTable* lambdaBodyScope = scope->createChildBlock("lambda");
+  lambdaSymbol->setBodyScope(lambdaBodyScope);
+  lambdaSymbol->clearClosureCaptureOuters();
+  savedScopeBeforeGenerics->insertSymbol(std::move(lambdaSymbol));
+  Value* lambdaSymbolPtr = savedScopeBeforeGenerics->lookup(lambdaName);
+  if (lambdaSymbolPtr == nullptr) {
+    throw TypeCheckError(node->getSpan(), "Internal error creating lambda symbol");
+  }
+  node->setResolvedSymbol(lambdaSymbolPtr);
+
+  SymbolTable* savedScope = scope;
+  scope = lambdaBodyScope;
+  for (size_t i = 0; i < node->getParameters().size(); ++i) {
+    Parameter* param = node->getParameters()[i];
+    auto paramSymbol = std::make_unique<Value>(param->name, paramTypes[i]);
+    paramSymbol->setCategory(ValueCategory::ADDRESSABLE_STORAGE);
+    paramSymbol->setDeclarationKind(ValueDeclarationKind::PARAMETER);
+    paramSymbol->setDeclarationSpan(param->nameSpan);
+    paramSymbol->setDeclarationFilePath(mainFilePath);
+    if (paramTypes[i] != nullptr && paramTypes[i]->is(BaseType::TY_FUNCTION)) {
+      paramSymbol->setStoresFuncValuePair(true);
+    }
+    param->setResolvedSymbol(paramSymbol.get());
+    scope->insertSymbol(std::move(paramSymbol));
+  }
+
+  Value* savedFunction = currentFunction;
+  bool const savedTopLevel = inTopLevel;
+  currentFunction = lambdaSymbolPtr;
+  functionScopeStack.push_back(scope);
+  inTopLevel = false;
+  auto savedTraitBounds = currentGenericParamTraitBounds;
+  currentGenericParamTraitBounds.clear();
+  for (const auto& p : node->getGenericParamDecls()) {
+    currentGenericParamTraitBounds[p.name] = p.traitBounds;
+  }
+  if (node->isExpressionBody()) {
+    if (returnType != nullptr) {
+      visitExprWithExpectedType(node->getExpressionBody(), returnType);
+    } else {
+      node->getExpressionBody()->accept(*this);
+      returnType = wrapReturnTypeIfNominal(result->getType());
+      lambdaSymbolPtr->getType()->setReturnType(returnType);
+    }
+  } else if (!declarationPass && node->getBlockBody() != nullptr) {
+    if (returnType == nullptr) {
+      returnType = cacheType(std::make_unique<Type>(BaseType::TY_VOID));
+      lambdaSymbolPtr->getType()->setReturnType(returnType);
+    }
+    node->getBlockBody()->accept(*this);
+    if (returnType != nullptr && !returnType->is(BaseType::TY_VOID) &&
+        !blockAlwaysReturns(node->getBlockBody())) {
+      throw TypeCheckError(node->getSpan(), "Non-void lambda may reach end without returning");
+    }
+  } else if (returnType == nullptr) {
+    returnType = cacheType(std::make_unique<Type>(BaseType::TY_VOID));
+    lambdaSymbolPtr->getType()->setReturnType(returnType);
+  }
+
+  currentGenericParamTraitBounds = std::move(savedTraitBounds);
+  functionScopeStack.pop_back();
+  currentFunction = savedFunction;
+  inTopLevel = savedTopLevel;
+  scope = savedScope;
+  if (genericsScope != nullptr) {
+    scope = genericsScope->getParent();
+    currentGenericTypes = std::move(savedGenerics);
+  }
+  if (!node->getGenericParamDecls().empty() && !lambdaSymbolPtr->getClosureCaptureOuters().empty()) {
+    throw TypeCheckError(node->getSpan(),
+                         "Generic lambdas that capture outer variables are not supported yet");
+  }
+  result = std::make_unique<Value>(*lambdaSymbolPtr);
+}
+
 auto Typechecker::visit(const BinaryOp* node) -> void {
   node->getLeft()->accept(*this);
   std::unique_ptr<Value> left = std::move(result);
@@ -3808,6 +4238,18 @@ auto Typechecker::visit(const BinaryOp* node) -> void {
   std::unique_ptr<Value> right = std::move(result);
   Type* resultType = typecheckBinaryOpResult(node->getOperator(), left->getType(), right->getType(),
                                              node->getSpan());
+  if ((node->getOperator() == TokenType::SLASH || node->getOperator() == TokenType::MOD) &&
+      left->getType() != nullptr && right->getType() != nullptr &&
+      !left->getType()->is(BaseType::TY_GENERIC) && !right->getType()->is(BaseType::TY_GENERIC)) {
+    auto* zeroLit = dynamic_cast<Literal*>(node->getRight());
+    if (zeroLit != nullptr && zeroLit->getType() == TokenType::INTEGER &&
+        zeroLit->getValue() == "0") {
+      Type* unified = getExtendedType(left->getType(), right->getType());
+      if (unified != nullptr && unified->is(BaseType::TY_INT)) {
+        throw TypeCheckError(node->getSpan(), "Division or remainder by zero");
+      }
+    }
+  }
   result = std::make_unique<Value>(resultType);
 }
 
@@ -3848,6 +4290,18 @@ auto Typechecker::visit(const SubscriptOp* node) -> void {
     if (indexType == nullptr || !indexType->is(BaseType::TY_INT)) {
       throw TypeCheckError(node->getIndex()->getSpan(), "List index must be int, got {}",
                            indexType != nullptr ? indexType->toString() : "unknown");
+    }
+    if (auto* idxLit = dynamic_cast<Literal*>(node->getIndex());
+        idxLit != nullptr && idxLit->getType() == TokenType::INTEGER) {
+      long long idxVal = 0;
+      try {
+        idxVal = std::stoll(idxLit->getValue());
+      } catch (...) {
+        throw TypeCheckError(node->getIndex()->getSpan(), "Invalid list index literal");
+      }
+      if (idxVal < 0) {
+        throw TypeCheckError(node->getIndex()->getSpan(), "List index must be non-negative");
+      }
     }
     result = std::make_unique<Value>(baseType->getElementType());
     return;
@@ -3894,7 +4348,9 @@ auto Typechecker::visit(const DotOp* node) -> void {
     }
     Value* method = insertScope->lookupSuperClassMethod(
         fc->getName(), methodArgTypes,
-        [this, superTy](Type* recvCls) { return superMethodReceiverMatchesFormal(recvCls, superTy); },
+        [this, superTy](Type* recvCls) {
+          return superMethodReceiverMatchesFormal(recvCls, superTy);
+        },
         superTy, superSeed);
     if (method == nullptr) {
       method = insertScope->lookupFunction(fc->getName(), methodArgTypes, FunctionLookupKind::VALUE,
@@ -3912,9 +4368,8 @@ auto Typechecker::visit(const DotOp* node) -> void {
             },
             superTy, superSeed);
         if (method == nullptr) {
-          method = cachedModule->rootScope->lookupFunction(fc->getName(), methodArgTypes,
-                                                           FunctionLookupKind::VALUE,
-                                                           currentClassType);
+          method = cachedModule->rootScope->lookupFunction(
+              fc->getName(), methodArgTypes, FunctionLookupKind::VALUE, currentClassType);
         }
         if (method != nullptr) {
           break;
@@ -3926,6 +4381,7 @@ auto Typechecker::visit(const DotOp* node) -> void {
     }
     fc->setResolvedSymbol(method);
     fc->setSuperDispatch(true);
+    enforcePrivateMemberReadable(node->getSpan(), method);
     markValueRead(method);
     auto* methodType = method->getType();
     std::unordered_map<std::string, Type*> methodTypeEnv;
@@ -4035,6 +4491,7 @@ auto Typechecker::visit(const DotOp* node) -> void {
           Value* member = importScope->lookup(idLit->getValue());
           if (member != nullptr && member->getDeclarationKind() == ValueDeclarationKind::VARIABLE &&
               member->isExported()) {
+            markImportNameStubUsedForQualifiedAccess(pathIt->second, idLit->getValue());
             idLit->setResolvedSymbol(member);
             Type* vt = materializeImportedType(member->getType());
             auto out = std::make_unique<Value>(*member);
@@ -4099,6 +4556,7 @@ auto Typechecker::visit(const DotOp* node) -> void {
                                          "Constructor not found for {} with given type arguments",
                                          fc->getName());
                   }
+                  enforcePrivateMemberReadable(node->getSpan(), constructor);
                   auto ctorParams = constructor->getType()->getFields();
                   for (size_t i = 1; i < ctorParams.size() && i - 1 < argTypes.size(); ++i) {
                     Type* expected = substituteInType(ctorParams[i]->type, env);
@@ -4112,6 +4570,7 @@ auto Typechecker::visit(const DotOp* node) -> void {
                 }
                 Type* specialized =
                     getOrCreateSpecializedClassType(classType, genericParamNames, env);
+                markImportNameStubUsedForQualifiedAccess(pathIt->second, fc->getName());
                 result = std::make_unique<Value>(specialized);
                 fc->setAllocatedClassMonomorph(specialized);
                 return;
@@ -4125,6 +4584,7 @@ auto Typechecker::visit(const DotOp* node) -> void {
                 Value* constructor = lookupConstructorForAllocatedClass(
                     importScope, constructorParamTypes, classType);
                 if (constructor != nullptr) {
+                  enforcePrivateMemberReadable(node->getSpan(), constructor);
                   std::unordered_map<std::string, Type*> env;
                   auto* funcType = constructor->getType();
                   auto ctorParams = funcType->getFields();
@@ -4135,19 +4595,23 @@ auto Typechecker::visit(const DotOp* node) -> void {
                   Type* specialized =
                       getOrCreateSpecializedClassType(classType, genericParamNames, env);
                   Type* valueType = specialized;
+                  markImportNameStubUsedForQualifiedAccess(pathIt->second, fc->getName());
                   result = std::make_unique<Value>(valueType);
                   fc->setAllocatedClassMonomorph(valueType);
                   return;
                 }
               }
+              markImportNameStubUsedForQualifiedAccess(pathIt->second, fc->getName());
               result = std::make_unique<Value>(materializeImportedType(classType));
               return;
             } else if (sym != nullptr && sym->getType()->is(BaseType::TY_ENUM)) {
+              markImportNameStubUsedForQualifiedAccess(pathIt->second, fc->getName());
               result = std::make_unique<Value>(materializeImportedType(sym->getType()));
               return;
             }
           }
           if (func != nullptr) {
+            markImportNameStubUsedForQualifiedAccess(pathIt->second, fc->getName());
             fc->setResolvedSymbol(func);
             Type* retType = func->getType()->getReturnType();
             result = std::make_unique<Value>(
@@ -4299,6 +4763,7 @@ auto Typechecker::visit(const DotOp* node) -> void {
       throw TypeCheckError(node->getSpan(), "Function not found: {}", fc->getName());
     }
     fc->setResolvedSymbol(method);
+    enforcePrivateMemberReadable(node->getSpan(), method);
     markValueRead(method);
     auto* methodType = method->getType();
     if (!fc->getExplicitTypeArgs().empty()) {
@@ -4364,6 +4829,7 @@ auto Typechecker::visit(const DotOp* node) -> void {
   }
   if (field->getDeclarationSymbol() != nullptr) {
     rightLit->setResolvedSymbol(field->getDeclarationSymbol());
+    enforcePrivateMemberReadable(node->getSpan(), field->getDeclarationSymbol());
     markValueRead(field->getDeclarationSymbol());
   }
   result = std::make_unique<Value>(field->type);
@@ -4865,6 +5331,36 @@ auto Typechecker::visit(const Literal* node) -> void {
     if (sym == nullptr) {
       throw TypeCheckError(node->getSpan(), "Unknown name: {}", node->getValue());
     }
+    if (currentFunction != nullptr && currentFunction->getName().starts_with("__lambda_")) {
+      SymbolTable* foundScope = nullptr;
+      for (SymbolTable* s = scope; s != nullptr && foundScope == nullptr; s = s->getParent()) {
+        for (Value* candidate : s->getSymbols()) {
+          if (candidate == sym) {
+            foundScope = s;
+            break;
+          }
+        }
+      }
+      if (foundScope != nullptr &&
+          (sym->getDeclarationKind() == ValueDeclarationKind::VARIABLE ||
+           sym->getDeclarationKind() == ValueDeclarationKind::PARAMETER) &&
+          foundScope->getParent() != nullptr) {
+        bool declaredInsideLambda = false;
+        for (SymbolTable* s = foundScope; s != nullptr; s = s->getParent()) {
+          if (s == currentFunctionRootScope()) {
+            declaredInsideLambda = true;
+            break;
+          }
+        }
+        if (!declaredInsideLambda) {
+          Value* shadow = getOrCreateLambdaCaptureShadow(sym, node->getValue(), node->getSpan());
+          markValueRead(sym);
+          node->setResolvedSymbol(shadow);
+          result = std::make_unique<Value>(*shadow);
+          break;
+        }
+      }
+    }
     node->setResolvedSymbol(sym);
     markValueRead(sym);
     result = std::make_unique<Value>(*sym);
@@ -5032,8 +5528,7 @@ auto Typechecker::registerTraitDefaultMethodSymbol(SymbolTable* insertScope, Typ
     }
   }
   if (insertScope->lookupFunction(req->getName(), lookupArgs,
-                                  FunctionLookupKind::OVERLOAD_IDENTITY) !=
-      nullptr) {
+                                  FunctionLookupKind::OVERLOAD_IDENTITY) != nullptr) {
     return;
   }
   Type* funcTypePtr = buildMethodFunctionType(req, classType);
@@ -5157,6 +5652,7 @@ auto Typechecker::typecheckTraitDefaultBodies(const Class* classNode, Type* clas
       }
       currentFunction = funcSym;
       scope = funcSym->getBodyScope();
+      functionScopeStack.push_back(scope);
       inTopLevel = false;
       auto savedTraitBounds = currentGenericParamTraitBounds;
       currentGenericParamTraitBounds.clear();
@@ -5170,6 +5666,7 @@ auto Typechecker::typecheckTraitDefaultBodies(const Class* classNode, Type* clas
       }
       scope = savedListScope;
       currentFunction = nullptr;
+      functionScopeStack.pop_back();
       inTopLevel = true;
     }
     currentGenericTypes = std::move(savedTraitGenerics);

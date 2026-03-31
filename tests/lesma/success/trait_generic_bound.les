@@ -1,16 +1,22 @@
-trait Twice
-    def val() -> int
+trait Twice {
+    func val() -> int
 
-class A impl Twice
+}
+class A impl Twice {
     var x: int
-    def new(v: int)
+    func new(v: int) {
         self.x = v
-    def val() -> int
+    }
+    func val() -> int {
         return self.x * 2
 
-def get_val<T: Twice>(o: T) -> int
+    }
+}
+func get_val<T: Twice>(o: T) -> int {
     return o.val()
 
+}
 var a = A(3)
-if get_val(a) != 6
+if get_val(a) != 6 {
     exit(1)
+}

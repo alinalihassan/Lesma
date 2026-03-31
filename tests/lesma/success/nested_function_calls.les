@@ -1,26 +1,33 @@
 # Test nested function calls
-def add(a: int, b: int) -> int
+func add(a: int, b: int) -> int {
     return a + b
 
-def multiply(a: int, b: int) -> int
+}
+func multiply(a: int, b: int) -> int {
     return a * b
 
-def subtract(a: int, b: int) -> int
+}
+func subtract(a: int, b: int) -> int {
     return a - b
 
+}
 # Nested calls: subtract(multiply(add(2, 3), 20), -1) = subtract(100, -1) = 101
 var result = subtract(multiply(add(2, 3), 20), -1)
 
-if result != 101
+if result != 101 {
     exit(1)
 
+}
 # Multiple levels of nesting
-def double(x: int) -> int
+func double(x: int) -> int {
     return x * 2
 
-def increment(x: int) -> int
+}
+func increment(x: int) -> int {
     return x + 1
 
+}
 # double(double(increment(increment(24)))) = double(double(26)) = double(52) = 104
-if double(double(increment(increment(24)))) != 104
+if double(double(increment(increment(24)))) != 104 {
     exit(1)
+}
