@@ -18,7 +18,7 @@
 - [x] Dataclasses (implicit constructors)
 - [ ] Add optional types
 - [x] Add dictionaries
-- [ ] Add lambda functions
+- [x] Add lambda functions
 - [ ] Add try catch
 - [ ] Add multithreading using pthread for now (async/await? ala Spice)
 - [x] Add comments above classes and functions as documentation in LSP
