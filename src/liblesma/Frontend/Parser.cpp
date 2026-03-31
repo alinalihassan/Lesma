@@ -370,6 +370,9 @@ auto Parser::parseTypeAt(unsigned long& off) -> bool {
   }
   while (index + off < tokens.size() && peek(off)->type == TokenType::PIPE) {
     off++;
+    while (index + off < tokens.size() && peek(off)->type == TokenType::NEWLINE) {
+      off++;
+    }
     if (!parseTypePrimaryAt(off)) {
       return false;
     }
