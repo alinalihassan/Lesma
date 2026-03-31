@@ -146,6 +146,8 @@ class Typechecker final : public ASTVisitor {
                                    const std::string& localName) -> void;
   void validateParameterDefaultOrdering(llvm::SMRange span, const std::vector<Parameter*>& params);
   [[nodiscard]] auto currentFunctionRootScope() const -> SymbolTable*;
+  auto getOrCreateLambdaCaptureShadow(Value* outerSym, const std::string& name, llvm::SMRange span)
+      -> Value*;
   /** Get or create a specialized class type by substituting env into template's
    * fields. */
   auto getOrCreateSpecializedClassType(Type* classTemplate,

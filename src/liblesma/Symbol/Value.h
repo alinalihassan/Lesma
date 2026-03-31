@@ -6,6 +6,7 @@
 #include <memory>
 #include <string>
 #include <utility>
+#include <vector>
 
 #include <llvm/IR/Type.h>
 #include <llvm/IR/Value.h>
@@ -16,6 +17,7 @@
 
 namespace lesma {
 class SymbolTable;
+class LambdaExpr;
 
 enum class SymbolState : std::uint8_t { DECLARED, INITIALIZED };
 enum class ValueCategory : std::uint8_t {
@@ -84,7 +86,11 @@ public:
         constructor(other.constructor), genericClassTemplate(other.genericClassTemplate),
         bodyScope(other.bodyScope), declarationKind(other.declarationKind),
         declarationSpan(other.declarationSpan), declarationFilePath(other.declarationFilePath),
-        privateMember(other.privateMember), memberDeclaredInClass(other.memberDeclaredInClass) {}
+        privateMember(other.privateMember), memberDeclaredInClass(other.memberDeclaredInClass),
+        closureCaptureOuters(other.closureCaptureOuters),
+        closureSlotOuter(other.closureSlotOuter), storesFuncValuePair(other.storesFuncValuePair),
+        originLambdaExpr(other.originLambdaExpr),
+        closureCalleeUsesEnvParameter(other.closureCalleeUsesEnvParameter) {}
 
   ~Value() = default;
   auto operator=(const Value& other) -> Value& {
@@ -108,6 +114,11 @@ public:
       declarationFilePath = other.declarationFilePath;
       privateMember = other.privateMember;
       memberDeclaredInClass = other.memberDeclaredInClass;
+      closureCaptureOuters = other.closureCaptureOuters;
+      closureSlotOuter = other.closureSlotOuter;
+      storesFuncValuePair = other.storesFuncValuePair;
+      originLambdaExpr = other.originLambdaExpr;
+      closureCalleeUsesEnvParameter = other.closureCalleeUsesEnvParameter;
     }
     return *this;
   }
@@ -165,6 +176,38 @@ public:
   }
   [[nodiscard]] auto usesDirectLlvmValue() const -> bool { return !usesAddressableStorage(); }
 
+  /** Outer bindings captured by a lambda (synthetic __lambda_N symbol); order matches env layout. */
+  [[nodiscard]] auto getClosureCaptureOuters() const -> const std::vector<Value*>& {
+    return closureCaptureOuters;
+  }
+  auto clearClosureCaptureOuters() -> void { closureCaptureOuters.clear(); }
+  auto pushClosureCaptureOuterIfNew(Value* outer) -> void {
+    if (outer == nullptr) {
+      return;
+    }
+    for (Value* v : closureCaptureOuters) {
+      if (v == outer) {
+        return;
+      }
+    }
+    closureCaptureOuters.push_back(outer);
+  }
+  /** Lambda body shadow slot; non-null ⇒ load this binding from the closure env. */
+  [[nodiscard]] auto getClosureSlotOuter() const -> Value* { return closureSlotOuter; }
+  auto setClosureSlotOuter(Value* outer) -> void { closureSlotOuter = outer; }
+  /** Function values stored as `{ code*, env* }` (env null when no captures). */
+  [[nodiscard]] auto getStoresFuncValuePair() const -> bool { return storesFuncValuePair; }
+  auto setStoresFuncValuePair(bool v) -> void { storesFuncValuePair = v; }
+  /** Variable initialized from a lambda AST; used to specialize generic lambdas at call sites. */
+  [[nodiscard]] auto getOriginLambdaExpr() const -> const LambdaExpr* { return originLambdaExpr; }
+  auto setOriginLambdaExpr(const LambdaExpr* expr) -> void { originLambdaExpr = expr; }
+
+  /** Indirect call must pass closure env as first argument (lambda with captures). */
+  [[nodiscard]] auto getClosureCalleeUsesEnvParameter() const -> bool {
+    return closureCalleeUsesEnvParameter;
+  }
+  auto setClosureCalleeUsesEnvParameter(bool v) -> void { closureCalleeUsesEnvParameter = v; }
+
   [[nodiscard]] auto toString() const -> std::string {
     std::string typeStr;
     std::string valueStr;
@@ -207,5 +250,10 @@ private:
   std::string declarationFilePath;
   bool privateMember = false;
   Type* memberDeclaredInClass = nullptr;
+  std::vector<Value*> closureCaptureOuters;
+  Value* closureSlotOuter = nullptr;
+  bool storesFuncValuePair = false;
+  const LambdaExpr* originLambdaExpr = nullptr;
+  bool closureCalleeUsesEnvParameter = false;
 };
 } // namespace lesma

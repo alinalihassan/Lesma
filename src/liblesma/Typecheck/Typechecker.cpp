@@ -279,6 +279,30 @@ auto Typechecker::currentFunctionRootScope() const -> SymbolTable* {
   return functionScopeStack.back();
 }
 
+auto Typechecker::getOrCreateLambdaCaptureShadow(Value* outerSym, const std::string& name,
+                                                 llvm::SMRange span) -> Value* {
+  if (currentFunction == nullptr || currentFunction->getBodyScope() == nullptr) {
+    throw TypeCheckError(span, "Internal error: lambda capture outside lambda");
+  }
+  SymbolTable* body = currentFunction->getBodyScope();
+  if (Value* shallow = body->lookupShallow(name); shallow != nullptr) {
+    if (shallow->getClosureSlotOuter() != nullptr) {
+      return shallow;
+    }
+    throw TypeCheckError(span, "Lambda capture '{}' conflicts with a parameter or local", name);
+  }
+  currentFunction->pushClosureCaptureOuterIfNew(outerSym);
+  auto shadow = std::make_unique<Value>(name, outerSym->getType());
+  shadow->setCategory(ValueCategory::ADDRESSABLE_STORAGE);
+  shadow->setDeclarationKind(ValueDeclarationKind::VARIABLE);
+  shadow->setClosureSlotOuter(outerSym);
+  shadow->setDeclarationSpan(span);
+  shadow->setDeclarationFilePath(mainFilePath);
+  Value* raw = shadow.get();
+  body->insertSymbol(std::move(shadow));
+  return raw;
+}
+
 auto Typechecker::resolveMethodReturnType(Type* baseType, const std::string& methodName,
                                           const std::vector<Type*>& argTypes, llvm::SMRange span)
     -> Type* {
@@ -2447,6 +2471,12 @@ auto Typechecker::visit(const VarDecl* node) -> void {
   symbol->setExported(node->isExported());
   symbol->setDeclarationSpan(node->getIdentifier()->getSpan());
   symbol->setDeclarationFilePath(mainFilePath);
+  if (declType != nullptr && declType->is(BaseType::TY_FUNCTION)) {
+    symbol->setStoresFuncValuePair(true);
+  }
+  if (auto* lam = dynamic_cast<LambdaExpr*>(node->getValue())) {
+    symbol->setOriginLambdaExpr(lam);
+  }
   node->setResolvedSymbol(symbol.get());
   warnShadowingFromEnclosing(node->getIdentifier()->getValue(), node->getIdentifier()->getSpan());
   scope->insertSymbol(std::move(symbol));
@@ -3137,6 +3167,10 @@ auto Typechecker::visit(const FuncDecl* node) -> void {
         paramSymbol->setDeclarationKind(ValueDeclarationKind::PARAMETER);
         paramSymbol->setDeclarationSpan(param->nameSpan);
         paramSymbol->setDeclarationFilePath(mainFilePath);
+        if (paramTypes[paramOffset + i] != nullptr &&
+            paramTypes[paramOffset + i]->is(BaseType::TY_FUNCTION)) {
+          paramSymbol->setStoresFuncValuePair(true);
+        }
         param->setResolvedSymbol(paramSymbol.get());
         warnShadowingFromEnclosing(param->name, param->nameSpan);
         scope->insertSymbol(std::move(paramSymbol));
@@ -3908,6 +3942,20 @@ auto Typechecker::visit(const FuncCall* node) -> void {
 }
 
 auto Typechecker::visit(const LambdaExpr* node) -> void {
+  auto savedGenerics = currentGenericTypes;
+  SymbolTable* genericsScope = nullptr;
+  SymbolTable* savedScopeBeforeGenerics = scope;
+  if (!node->getGenericParamDecls().empty()) {
+    genericsScope = scope->createChildBlock("lambda_generics");
+    scope = genericsScope;
+    for (const auto& param : node->getGenericParamDecls()) {
+      auto* genericType = cacheType(std::make_unique<Type>(param.name));
+      currentGenericTypes[param.name] = genericType;
+    }
+    insertGenericParamSymbols(genericsScope, node->getGenericParamDecls(), currentGenericTypes,
+                              mainFilePath);
+  }
+
   std::vector<std::unique_ptr<Field>> paramFields;
   std::vector<Type*> paramTypes;
   for (Parameter* param : node->getParameters()) {
@@ -3938,6 +3986,15 @@ auto Typechecker::visit(const LambdaExpr* node) -> void {
     funcType->setReturnType(returnType);
   }
   Type* funcTypePtr = cacheType(std::move(funcType));
+  funcTypePtr->setGenericParams(node->getGenericParams());
+  if (!node->getGenericParamDecls().empty()) {
+    std::vector<std::vector<std::string>> tb;
+    tb.reserve(node->getGenericParamDecls().size());
+    for (const auto& p : node->getGenericParamDecls()) {
+      tb.push_back(p.traitBounds);
+    }
+    funcTypePtr->setGenericParamTraitBounds(std::move(tb));
+  }
 
   auto lambdaName = fmt::format("__lambda_{}", lambdaCounter++);
   auto lambdaSymbol = std::make_unique<Value>(lambdaName, funcTypePtr);
@@ -3947,8 +4004,9 @@ auto Typechecker::visit(const LambdaExpr* node) -> void {
   lambdaSymbol->setDeclarationFilePath(mainFilePath);
   SymbolTable* lambdaBodyScope = scope->createChildBlock("lambda");
   lambdaSymbol->setBodyScope(lambdaBodyScope);
-  scope->insertSymbol(std::move(lambdaSymbol));
-  Value* lambdaSymbolPtr = scope->lookup(lambdaName);
+  lambdaSymbol->clearClosureCaptureOuters();
+  savedScopeBeforeGenerics->insertSymbol(std::move(lambdaSymbol));
+  Value* lambdaSymbolPtr = savedScopeBeforeGenerics->lookup(lambdaName);
   if (lambdaSymbolPtr == nullptr) {
     throw TypeCheckError(node->getSpan(), "Internal error creating lambda symbol");
   }
@@ -3963,6 +4021,9 @@ auto Typechecker::visit(const LambdaExpr* node) -> void {
     paramSymbol->setDeclarationKind(ValueDeclarationKind::PARAMETER);
     paramSymbol->setDeclarationSpan(param->nameSpan);
     paramSymbol->setDeclarationFilePath(mainFilePath);
+    if (paramTypes[i] != nullptr && paramTypes[i]->is(BaseType::TY_FUNCTION)) {
+      paramSymbol->setStoresFuncValuePair(true);
+    }
     param->setResolvedSymbol(paramSymbol.get());
     scope->insertSymbol(std::move(paramSymbol));
   }
@@ -3972,6 +4033,11 @@ auto Typechecker::visit(const LambdaExpr* node) -> void {
   currentFunction = lambdaSymbolPtr;
   functionScopeStack.push_back(scope);
   inTopLevel = false;
+  auto savedTraitBounds = currentGenericParamTraitBounds;
+  currentGenericParamTraitBounds.clear();
+  for (const auto& p : node->getGenericParamDecls()) {
+    currentGenericParamTraitBounds[p.name] = p.traitBounds;
+  }
   if (node->isExpressionBody()) {
     if (returnType != nullptr) {
       visitExprWithExpectedType(node->getExpressionBody(), returnType);
@@ -3995,10 +4061,19 @@ auto Typechecker::visit(const LambdaExpr* node) -> void {
     lambdaSymbolPtr->getType()->setReturnType(returnType);
   }
 
+  currentGenericParamTraitBounds = std::move(savedTraitBounds);
   functionScopeStack.pop_back();
   currentFunction = savedFunction;
   inTopLevel = savedTopLevel;
   scope = savedScope;
+  if (genericsScope != nullptr) {
+    scope = genericsScope->getParent();
+    currentGenericTypes = std::move(savedGenerics);
+  }
+  if (!node->getGenericParamDecls().empty() && !lambdaSymbolPtr->getClosureCaptureOuters().empty()) {
+    throw TypeCheckError(node->getSpan(),
+                         "Generic lambdas that capture outer variables are not supported yet");
+  }
   result = std::make_unique<Value>(*lambdaSymbolPtr);
 }
 
@@ -5098,9 +5173,11 @@ auto Typechecker::visit(const Literal* node) -> void {
           }
         }
         if (!declaredInsideLambda) {
-          throw TypeCheckError(node->getSpan(),
-                               "Lambda captures are not supported yet (captured '{}')",
-                               node->getValue());
+          Value* shadow = getOrCreateLambdaCaptureShadow(sym, node->getValue(), node->getSpan());
+          markValueRead(sym);
+          node->setResolvedSymbol(shadow);
+          result = std::make_unique<Value>(*shadow);
+          break;
         }
       }
     }

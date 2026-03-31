@@ -3,4 +3,7 @@ func make_adder() -> func(int) -> int {
     return func(x: int) -> int => x + base
 }
 
-make_adder()
+let f = make_adder()
+if f(5) != 7 {
+    exit(1)
+}

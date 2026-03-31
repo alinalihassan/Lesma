@@ -707,6 +707,21 @@ auto SymbolTable::lookup(const std::string& name) -> Value* {
   return parent->lookup(name);
 }
 
+auto SymbolTable::lookupShallow(const std::string& name) -> Value* {
+  auto [it, end] = symbols.equal_range(name);
+  Value* fallback = nullptr;
+  for (auto i = it; i != end; ++i) {
+    Value* v = i->second.get();
+    if (v->getLlvmValue() != nullptr) {
+      return v;
+    }
+    if (fallback == nullptr) {
+      fallback = v;
+    }
+  }
+  return fallback;
+}
+
 /**
  * Check if a symbol exists in the current or any parent scope and return it if
  * possible

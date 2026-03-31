@@ -57,6 +57,8 @@ public:
       Type* staticSuperclassType,
       const std::unordered_map<std::string, Type*>* seedGenericBindings) -> Value*;
   auto lookup(const std::string& name) -> Value*;
+  /** Symbols in this table only (no parent); for lambda capture shadows vs outer names. */
+  auto lookupShallow(const std::string& name) -> Value*;
   auto lookupStruct(const std::string& name) -> Value*;
   auto lookupType(const std::string& symbolName) -> Type*;
   auto insertSymbol(std::unique_ptr<Value> symbol) -> void;

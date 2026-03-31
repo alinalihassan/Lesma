@@ -57,6 +57,7 @@
 #include <llvm/Transforms/Vectorize/LoopVectorize.h>
 
 #include "Codegen.h"
+#include "liblesma/AST/AST.h"
 #include <lld/Common/Driver.h>
 
 #ifdef __APPLE__
@@ -644,6 +645,17 @@ auto Codegen::run() -> void {
       }
     }
     defineFunction(fn, std::get<1>(prototypes[pi]), std::get<2>(prototypes[pi]));
+    currentGenericTypes = std::move(savedGenerics);
+  }
+
+  for (size_t li = 0; li < lambdaPrototypes.size(); ++li) {
+    auto* fn = lambdaPrototypes[li].first;
+    const LambdaExpr* lam = lambdaPrototypes[li].second;
+    auto savedGenerics = currentGenericTypes;
+    if (auto env = specializationEnvs.find(fn); env != specializationEnvs.end()) {
+      currentGenericTypes = env->second;
+    }
+    defineLambdaFunction(fn, lam);
     currentGenericTypes = std::move(savedGenerics);
   }
 

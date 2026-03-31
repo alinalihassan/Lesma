@@ -808,6 +808,7 @@ public:
 };
 
 class LambdaExpr : public Expression {
+  std::vector<GenericParamDecl> genericParams;
   std::vector<std::unique_ptr<Parameter>> parameters;
   std::unique_ptr<TypeExpr> returnType;
   std::unique_ptr<Expression> expressionBody;
@@ -815,12 +816,26 @@ class LambdaExpr : public Expression {
   mutable Value* resolvedSymbol = nullptr;
 
 public:
-  LambdaExpr(llvm::SMRange loc, std::vector<std::unique_ptr<Parameter>> parameters,
+  LambdaExpr(llvm::SMRange loc, std::vector<GenericParamDecl> genericParams,
+             std::vector<std::unique_ptr<Parameter>> parameters,
              std::unique_ptr<TypeExpr> returnType, std::unique_ptr<Expression> expressionBody,
              std::unique_ptr<Compound> blockBody)
-      : Expression(loc), parameters(std::move(parameters)), returnType(std::move(returnType)),
+      : Expression(loc), genericParams(std::move(genericParams)),
+        parameters(std::move(parameters)), returnType(std::move(returnType)),
         expressionBody(std::move(expressionBody)), blockBody(std::move(blockBody)) {}
   void accept(ASTVisitor& visitor) const override { visitor.visit(this); }
+
+  [[nodiscard]] auto getGenericParamDecls() const -> const std::vector<GenericParamDecl>& {
+    return genericParams;
+  }
+  [[nodiscard]] auto getGenericParams() const -> std::vector<std::string> {
+    std::vector<std::string> names;
+    names.reserve(genericParams.size());
+    for (const auto& p : genericParams) {
+      names.push_back(p.name);
+    }
+    return names;
+  }
 
   [[nodiscard]] auto getParameters() const -> std::vector<Parameter*> {
     std::vector<Parameter*> result;

@@ -52,6 +52,7 @@ using MainFnTy = int();
 class Class;
 class TraitDecl;
 class FuncDecl;
+class LambdaExpr;
 
 struct ImportedSpecializationState {
   std::unordered_map<std::string, const Class*> genericClasses;
@@ -107,6 +108,9 @@ class Codegen final : public ASTVisitor {
   /** Class AST + constructor symbol for default `new` bodies (no FuncDecl). */
   std::vector<std::pair<lesma::Value*, const Class*>> syntheticConstructorBodies;
   std::unordered_map<std::string, const FuncDecl*> genericFunctions;
+  std::unordered_map<std::string, const LambdaExpr*> genericLambdas;
+  std::vector<std::pair<lesma::Value*, const LambdaExpr*>> lambdaPrototypes;
+  llvm::StructType* funcValuePairLlvmType = nullptr;
   std::unordered_map<std::string, std::unordered_map<std::string, const FuncDecl*>> genericMethods;
   std::unordered_map<std::string, const Class*> genericClasses;
   std::unordered_map<std::string, lesma::Type*> currentGenericTypes;
@@ -321,6 +325,11 @@ protected:
                                         const std::vector<std::string>& genericNames,
                                         const std::vector<lesma::Type*>& explicitTypeArgs)
       -> std::unordered_map<std::string, lesma::Type*>;
+  auto computeGenericLambdaBindingEnv(const LambdaExpr* node,
+                                      const std::vector<lesma::Type*>& paramTypes,
+                                      const std::vector<std::string>& genericNames,
+                                      const std::vector<lesma::Type*>& explicitTypeArgs)
+      -> std::unordered_map<std::string, lesma::Type*>;
   auto appendGenericBindingSuffix(llvm::SMRange span, std::string& base,
                                   const std::vector<std::string>& genericNames,
                                   const std::unordered_map<std::string, lesma::Type*>& env) -> void;
@@ -329,6 +338,13 @@ protected:
                           const std::vector<lesma::Type*>& explicitTypeArgs = {},
                           const std::unordered_map<std::string, lesma::Type*>* bindingEnvHint = nullptr)
       -> lesma::Value*;
+  auto specializeLambda(const LambdaExpr* node, const std::vector<lesma::Type*>& paramTypes,
+                        const std::vector<std::string>& genericNames,
+                        const std::vector<lesma::Type*>& explicitTypeArgs = {},
+                        const std::unordered_map<std::string, lesma::Type*>* bindingEnvHint = nullptr)
+      -> lesma::Value*;
+  auto defineLambdaFunction(lesma::Value* value, const LambdaExpr* node) -> void;
+  [[nodiscard]] auto getFuncValuePairLlvmType() -> llvm::StructType*;
   auto specializeClass(const Class* node, const std::vector<lesma::Type*>& constructorArgTypes,
                        const std::vector<lesma::Type*>& explicitTypeArgs = {}) -> lesma::Value*;
   auto emitClassMonomorph(lesma::Type* specialized, const Class* templateAst) -> lesma::Value*;

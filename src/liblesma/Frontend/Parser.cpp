@@ -509,12 +509,17 @@ auto Parser::parseDictLiteral() -> std::unique_ptr<Expression> {
 
 auto Parser::parseTerm() -> std::unique_ptr<Expression> {
   switch (peek()->type) {
-  case TokenType::FUNC:
-    if (check(TokenType::LEFT_PAREN, 1)) {
+  case TokenType::FUNC: {
+    size_t i = 1;
+    while (check(TokenType::NEWLINE, i)) {
+      ++i;
+    }
+    if (check(TokenType::LESS, i) || check(TokenType::LEFT_PAREN, i)) {
       return parseLambda();
     }
-    error(peek(), "Lambda must start with 'func('");
+    error(peek(), "Expected 'func<' or 'func(' to start a lambda");
     return nullptr;
+  }
   case TokenType::STRING_TEMPLATE_CHUNK:
     return parseStringInterpolation();
   case TokenType::STRING:
@@ -585,6 +590,7 @@ auto Parser::parseTerm() -> std::unique_ptr<Expression> {
 
 auto Parser::parseLambda() -> std::unique_ptr<Expression> {
   auto* start = consume(TokenType::FUNC);
+  std::vector<GenericParamDecl> genericParams = parseGenericParamList();
   consume(TokenType::LEFT_PAREN);
   auto paramList = parseParameterList(false);
   std::vector<std::unique_ptr<Parameter>> parameters = std::move(paramList.parameters);
@@ -602,8 +608,8 @@ auto Parser::parseLambda() -> std::unique_ptr<Expression> {
       return nullptr;
     }
     return std::make_unique<LambdaExpr>(llvm::SMRange{start->getStart(), bodyExpr->getEnd()},
-                                        std::move(parameters), std::move(returnType),
-                                        std::move(bodyExpr), nullptr);
+                                        std::move(genericParams), std::move(parameters),
+                                        std::move(returnType), std::move(bodyExpr), nullptr);
   }
 
   if (returnType == nullptr) {
@@ -612,8 +618,8 @@ auto Parser::parseLambda() -> std::unique_ptr<Expression> {
   auto block = parseBlock();
   auto lambdaEnd = block != nullptr ? block->getEnd() : returnType->getEnd();
   return std::make_unique<LambdaExpr>(llvm::SMRange{start->getStart(), lambdaEnd},
-                                      std::move(parameters), std::move(returnType), nullptr,
-                                      std::move(block));
+                                      std::move(genericParams), std::move(parameters),
+                                      std::move(returnType), nullptr, std::move(block));
 }
 
 auto Parser::parseStringInterpolation() -> std::unique_ptr<Expression> {
