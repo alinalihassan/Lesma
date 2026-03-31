@@ -283,10 +283,31 @@ auto Codegen::substituteTypeForSpecializationEnv(
     return cacheType(std::move(tupleType));
   }
   if (t->is(BaseType::TY_UNION)) {
-    std::vector<Type*> members;
-    members.reserve(t->getUnionMembers().size());
+    std::vector<Type*> flat;
+    flat.reserve(t->getUnionMembers().size());
+    auto appendFlattened = [&](Type* cur, auto&& self) -> void {
+      if (cur == nullptr) {
+        return;
+      }
+      if (cur->is(BaseType::TY_UNION)) {
+        for (Type* inner : cur->getUnionMembers()) {
+          self(inner, self);
+        }
+      } else {
+        flat.push_back(cur);
+      }
+    };
     for (Type* m : t->getUnionMembers()) {
-      members.push_back(substituteTypeForSpecializationEnv(m, env));
+      Type* substituted = substituteTypeForSpecializationEnv(m, env);
+      appendFlattened(substituted, appendFlattened);
+    }
+    std::unordered_set<Type*> seen;
+    std::vector<Type*> members;
+    members.reserve(flat.size());
+    for (Type* m : flat) {
+      if (seen.insert(m).second) {
+        members.push_back(m);
+      }
     }
     std::ranges::sort(members, [](Type* a, Type* b) { return a->toString() < b->toString(); });
     std::string dn;
