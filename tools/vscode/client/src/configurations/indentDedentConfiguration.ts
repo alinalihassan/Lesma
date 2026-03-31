@@ -8,6 +8,22 @@ function verboseRegExp(pattern: string, flags?: string): RegExp {
 
 export function getIndentDedentConfiguration(): LanguageConfiguration {
     return {
+        comments: {
+            lineComment: '#',
+        },
+        brackets: [
+            ['{', '}'],
+            ['[', ']'],
+            ['(', ')'],
+            ['<', '>'],
+        ],
+        autoClosingPairs: [
+            { open: '{', close: '}' },
+            { open: '[', close: ']' },
+            { open: '(', close: ')' },
+            { open: '"', close: '"' },
+            { open: "'", close: "'" },
+        ],
         onEnterRules: [
             // multi-line separator
             {

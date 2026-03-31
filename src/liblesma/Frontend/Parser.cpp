@@ -166,10 +166,12 @@ auto Parser::parseGenericParamList() -> std::vector<GenericParamDecl> {
       auto* boundId = consume(TokenType::IDENTIFIER);
       bounds.push_back(boundId->lexeme);
       boundSpans.push_back(boundId->span);
+      parseIgnoredTypeArgList();
       while (advanceIfMatchAny<TokenType::AMPERSAND>()) {
         boundId = consume(TokenType::IDENTIFIER);
         bounds.push_back(boundId->lexeme);
         boundSpans.push_back(boundId->span);
+        parseIgnoredTypeArgList();
       }
     }
     genericParams.push_back(GenericParamDecl{
@@ -184,6 +186,28 @@ auto Parser::parseGenericParamList() -> std::vector<GenericParamDecl> {
   }
   consume(TokenType::GREATER);
   return genericParams;
+}
+
+auto Parser::parseIgnoredTypeArgList() -> void {
+  if (!check(TokenType::LESS)) {
+    return;
+  }
+
+  consume(TokenType::LESS);
+  while (!check(TokenType::GREATER)) {
+    while (check(TokenType::NEWLINE)) {
+      advance();
+    }
+
+    std::ignore = parseType();
+    while (check(TokenType::NEWLINE)) {
+      advance();
+    }
+    if (!check(TokenType::GREATER)) {
+      consume(TokenType::COMMA);
+    }
+  }
+  consume(TokenType::GREATER);
 }
 
 auto Parser::parseType() -> std::unique_ptr<TypeExpr> {

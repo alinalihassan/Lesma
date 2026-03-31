@@ -63,12 +63,33 @@
           "keyword.operator.arrow",
           "string.quoted.double.lesma",
           "constant.character.escape.lesma"
-        ]
+        ],
+        "tokenTypes": {
+          "meta.type.parameters.lesma": "other",
+          "meta.generic.arguments.lesma": "other",
+          "punctuation.definition.typeparameters.begin.lesma": "other",
+          "punctuation.definition.typeparameters.end.lesma": "other",
+          "punctuation.definition.type-arguments.begin.lesma": "other",
+          "punctuation.definition.type-arguments.end.lesma": "other"
+        }
       }
     ],
     "configurationDefaults": {
       "[lesma]": {
+        "editor.bracketPairColorization.enabled": true,
         "editor.bracketPairColorization.independentColorPoolPerBracketType": true,
+        "editor.language.brackets": [
+          ["{", "}"],
+          ["[", "]"],
+          ["(", ")"],
+          ["<", ">"]
+        ],
+        "editor.language.colorizedBracketPairs": [
+          ["(", ")"],
+          ["[", "]"],
+          ["{", "}"],
+          ["<", ">"]
+        ],
         "editor.positionEncoding": "utf8",
         "editor.quickSuggestions": {
           "other": true,
