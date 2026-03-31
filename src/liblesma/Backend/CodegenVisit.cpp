@@ -4739,6 +4739,7 @@ auto Codegen::callNamedFunction(llvm::SMRange span, const std::string& functionN
             functionName);
       }
       localParamsLLVM.push_back(field->defaultValue->getLlvmValue());
+      localParamTypes.push_back(field->type);
     }
   }
 
