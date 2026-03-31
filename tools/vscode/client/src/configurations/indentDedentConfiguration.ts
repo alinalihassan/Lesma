@@ -35,8 +35,8 @@ export function getIndentDedentConfiguration(): LanguageConfiguration {
             {
                 /**
                  * Match parser-driven block starters for Lesma.
-                 * Notably, `def extern ...` is excluded because the parser consumes only a newline there,
-                 * not an indented block.
+                 * Notably, `func extern ...` is excluded because the parser consumes only a newline there,
+                 * not a braced body.
                  */
                 beforeText: verboseRegExp(`
                     ^
@@ -57,7 +57,7 @@ export function getIndentDedentConfiguration(): LanguageConfiguration {
                         (?:
                             export \\s+
                         )?
-                        def
+                        func
                         \\b
                         (?! \\s+ extern \\b )
                         .*

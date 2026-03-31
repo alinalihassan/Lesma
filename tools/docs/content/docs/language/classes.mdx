@@ -10,37 +10,44 @@ Lesma is **object-oriented**: you model state and behavior with **classes**, con
 ## Minimal class
 
 ```les
-export class Animal
+export class Animal {
     var x: int
 
-    def new()
+    func new() {
         self.x = 101
 
-    def getX() -> int
+    }
+    func getX() -> int {
         return self.x
 
+    }
+}
 var z = Animal()
 ```
 
 ## Fields and methods
 
-Classes hold **fields** (`var`) and **methods** (`def`). `self` refers to the receiver.
+Classes hold **fields** (`var`) and **methods** (`func`). `self` refers to the receiver.
 
 ## Inheritance
 
 A subclass lists its base class after a colon. Call **`super.new(self, …)`** from the subclass constructor when the base type defines `new`:
 
 ```les
-class Base
+class Base {
     var k: int
 
-    def new(n: int)
+    func new(n: int) {
         self.k = n
 
-class Derived: Base
-    def new(n: int)
+    }
+}
+class Derived: Base {
+    func new(n: int) {
         super.new(self, n)
 
+    }
+}
 var d = Derived(7)
 ```
 
@@ -51,17 +58,21 @@ var d = Derived(7)
 Put **`private`** before a field or method so it is only usable **inside the same class body** where it is declared. Subclasses do not inherit access (they need their own fields or protected-style patterns), and code outside the class cannot use the member.
 
 ```les
-class Wallet
+class Wallet {
     private var balance: int
 
-    def new(initial: int)
+    func new(initial: int) {
         self.balance = initial
 
-    def spend(amount: int) -> bool
-        if amount > self.balance
+    }
+    func spend(amount: int) -> bool {
+        if amount > self.balance {
             return false
+        }
         self.balance = self.balance - amount
         return true
+    }
+}
 ```
 
 ### `overload`
@@ -69,30 +80,35 @@ class Wallet
 If a subclass defines a method with the **same name** as one on its base class, Lesma requires the **`overload`** keyword. That makes the replacement explicit and keeps accidental shadowing from compiling.
 
 ```les
-class Base
+class Base {
     var tag: int
 
-    def new(t: int)
+    func new(t: int) {
         self.tag = t
 
-    def bump() -> int
+    }
+    func bump() -> int {
         return self.tag + 1
 
-class Child: Base
+    }
+}
+class Child: Base {
     private var extra: int
 
-    def new(t: int, e: int)
+    func new(t: int, e: int) {
         super.new(self, t)
         self.extra = e
 
-    overload def bump() -> int
+    }
+    overload func bump() -> int
         return self.tag + self.extra + 10
 
+}
 var c = Child(2, 3)
 # c.bump() uses Child’s overload; Base.bump is not called for a Child receiver.
 ```
 
-Deeper inheritance works the same way: each subclass that redefines `bump` uses **`overload def bump()`**. Method lookup picks the **most specific** receiver type that matches the call.
+Deeper inheritance works the same way: each subclass that redefines `bump` uses **`overload func bump()`**. Method lookup picks the **most specific** receiver type that matches the call.
 
 ## Next steps
 

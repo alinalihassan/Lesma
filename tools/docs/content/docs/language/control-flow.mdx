@@ -10,12 +10,15 @@ category: Language
 `if` / `else` chains pick a branch. You can return early from a function:
 
 ```les
-def sign(n: int) -> str
-    if n < 0
+func sign(n: int) -> str {
+    if n < 0 {
         return "neg"
-    else if n > 0
+    }
+    else if n > 0 {
         return "pos"
+    }
     return "zero"
+}
 ```
 
 ## Loops
@@ -24,12 +27,14 @@ def sign(n: int) -> str
 
 ```les
 var i: int = 0
-while i < 3
+while i < 3 {
     print(i)
     i = i + 1
 
-for j in range(1, 4)
+}
+for j in range(1, 4) {
     print("${j}")
+}
 ```
 
 ## Break and continue
@@ -37,12 +42,15 @@ for j in range(1, 4)
 `break` leaves the innermost loop; `continue` skips to the next iteration:
 
 ```les
-for k in range(1, 10)
-    if k == 3
+for k in range(1, 10) {
+    if k == 3 {
         continue
-    if k == 7
+    }
+    if k == 7 {
         break
+    }
     print("${k}")
+}
 ```
 
 ## Terminal nodes
@@ -52,17 +60,20 @@ A **terminal node** is a statement that **ends execution along the current path*
 `return` is what makes early exits in `if` branches work (see [Conditionals](#conditionals)). In a `void` function you can write a bare `return` to leave immediately:
 
 ```les
-def setup() -> void
-    if not ready
+func setup() -> void {
+    if not ready {
         return
+    }
     run()
+}
 ```
 
 Call **`exit(code)`** when the program should signal success or failure to the environment (conventionally `0` for success, non-zero for failure):
 
 ```les
-if bad_condition
+if bad_condition {
     exit(1)
+}
 ```
 
 ## Defer
@@ -74,22 +85,24 @@ Deferred statements run in **LIFO** order (the **last** `defer` registered runs 
 A common pattern with C APIs is to acquire a handle, **`defer`** the matching release, then **`return`** early on errors without leaking. The standard library treats `FILE *` from `fopen` as an opaque **`\*int8`** handle—the same representation used in **`base.les`** for file I/O:
 
 ```les
-def extern fopen(path: cstr, mode: cstr) -> *int8
-def extern fclose(stream: *int8) -> int
-def extern fgetc(stream: *int8) -> int
+func extern fopen(path: cstr, mode: cstr) -> *int8
+func extern fclose(stream: *int8) -> int
+func extern fgetc(stream: *int8) -> int
 
-def first_byte(path: cstr) -> int
+func first_byte(path: cstr) -> int {
     var fp: *int8 = fopen(path, "rb")
-    if fp == 0
+    if fp == 0 {
         return -1
+    }
     defer fclose(fp)
     let b: int = fgetc(fp)
     return b
+}
 ```
 
 Only register **`defer fclose(fp)`** after **`fopen`** succeeds (`fp != 0`); closing a null pointer is undefined behavior in C.
 
-See [Foreign Function Interface](/docs/language/ffi) for **`def extern`** details, and the [language reference](/docs/language/reference) keyword list for a short summary of **`defer`** semantics.
+See [Foreign Function Interface](/docs/language/ffi) for **`func extern`** details, and the [language reference](/docs/language/reference) keyword list for a short summary of **`defer`** semantics.
 
 ## Next steps
 

@@ -1,8 +1,11 @@
-class Wrapper
-    def new()
+class Wrapper {
+    func new() {
         pass
-    def id<T>(v: T) -> T
+    }
+    func id<T>(v: T) -> T {
         return v
 
+    }
+}
 var w = Wrapper()
 w.id<int>(true)

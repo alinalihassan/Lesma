@@ -244,7 +244,7 @@ class Typechecker final : public ASTVisitor {
   [[nodiscard]] static auto findVarDeclWithName(const std::vector<VarDecl*>& fields,
                                                 const std::string& name) -> VarDecl*;
 
-  /** When a class has no `def new`, register a constructor taking each field without a default. */
+  /** When a class has no `func new`, register a constructor taking each field without a default. */
   void registerSynthesizedClassConstructor(const Class* node, Type* classTypePtr,
                                            SymbolTable* outerScope);
   /** Merge superclass vtable slots with methods declared on \p classTy (see \c Class). */

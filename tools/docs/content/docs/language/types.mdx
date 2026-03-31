@@ -14,12 +14,15 @@ Lesma is **statically typed**: every expression has a type known at compile time
 Function parameters, return types, fields, and locals can carry explicit types:
 
 ```les
-def clamp(value: int, lo: int, hi: int) -> int
-    if value < lo
+func clamp(value: int, lo: int, hi: int) -> int {
+    if value < lo {
         return lo
-    if value > hi
+    }
+    if value > hi {
         return hi
+    }
     return value
+}
 ```
 
 When types can be inferred reliably, you can omit annotations on locals:
@@ -42,8 +45,9 @@ let x_ptr: *int = &x
 Functions and classes can take type parameters. A minimal generic function:
 
 ```les
-def identity<T>(x: T) -> T
+func identity<T>(x: T) -> T {
     return x
+}
 ```
 
 See [Traits & Generics](/docs/language/traits-generics) for traits, bounds, and class-level generics.
@@ -56,8 +60,9 @@ See [Traits & Generics](/docs/language/traits-generics) for traits, bounds, and 
 var x: int = 5
 let p: *int = &x
 
-if p is not *int
+if p is not *int {
     exit(1)
+}
 ```
 
 You can test built-ins, generics, and other type forms the compiler accepts in that position (for example **`list<int>`**).
@@ -74,6 +79,6 @@ let z: int = y as int
 ## Next steps
 
 - [Enums](/docs/language/enums) and [Tuples](/docs/language/tuples) for more type forms.
-- [Foreign Function Interface](/docs/language/ffi) for `def extern` and C-compatible types.
+- [Foreign Function Interface](/docs/language/ffi) for `func extern` and C-compatible types.
 - [Functions](/docs/language/functions)
 - [Classes](/docs/language/classes)

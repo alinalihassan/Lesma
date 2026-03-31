@@ -151,9 +151,7 @@ auto Lexer::scanOne(bool continuation) -> std::unique_ptr<Token> {
   }
   case '#': {
     // A comment goes until the end of the line.
-    bool const commentOnlyLine = tokens.empty() || tokens.back()->type == TokenType::NEWLINE ||
-                                 tokens.back()->type == TokenType::INDENT ||
-                                 tokens.back()->type == TokenType::DEDENT;
+    bool const commentOnlyLine = tokens.empty() || tokens.back()->type == TokenType::NEWLINE;
     while (peek() != '\n' && !isAtEnd()) {
       advance();
     }
@@ -208,7 +206,9 @@ auto Lexer::scanOne(bool continuation) -> std::unique_ptr<Token> {
   case '\n':
     line++;
     col = 1;
-    if (!continuation && level == 0) {
+    // Emit NEWLINE at every physical line break (including inside `{` … `}` blocks) so the
+    // parser can separate statements. INDENT/DEDENT are no longer used at brace depth 0.
+    if (!continuation) {
       tokens.push_back(
           std::make_unique<Token>(TokenType::NEWLINE, "NEWLINE", llvm::SMRange{beginLoc, loc}));
     }
@@ -232,15 +232,17 @@ auto Lexer::scanOne(bool continuation) -> std::unique_ptr<Token> {
 }
 
 auto Lexer::handleWhitespace(char c) -> bool {
-  if (!firstIndentChar.has_value()) {
-    firstIndentChar = c;
-  }
-  if (firstIndentChar != c) {
-    lexError(currentSpan(), fmt::format("Mixed indentation, first indentation character is: {}",
-                                        firstIndentChar.value()));
-    skipRestOfPhysicalLine();
-    firstIndentChar.reset();
-    return false;
+  if (level != 0) {
+    if (!firstIndentChar.has_value()) {
+      firstIndentChar = c;
+    }
+    if (firstIndentChar != c) {
+      lexError(currentSpan(), fmt::format("Mixed indentation, first indentation character is: {}",
+                                          firstIndentChar.value()));
+      skipRestOfPhysicalLine();
+      firstIndentChar.reset();
+      return false;
+    }
   }
   if (c == '\t') {
     col += 7;
@@ -250,11 +252,7 @@ auto Lexer::handleWhitespace(char c) -> bool {
 
 // NOLINTNEXTLINE(readability-function-cognitive-complexity)
 auto Lexer::handleIndentation(bool continuation) -> bool {
-  const int tabSize = 8;
-  int col = 0;
-  int altCol = 0;
   char c = 0;
-  int changes = 0;
   bool advanced = false;
   for (;;) {
     if (isAtEnd()) {
@@ -262,13 +260,7 @@ auto Lexer::handleIndentation(bool continuation) -> bool {
     }
     c = advance();
     advanced = true;
-    if (c == ' ') {
-      ++col;
-      ++altCol;
-    } else if (c == '\t') {
-      col = (col / tabSize + 1) * tabSize;
-      altCol += 1;
-    } else {
+    if (c != ' ' && c != '\t') {
       break;
     }
   }
@@ -278,8 +270,9 @@ auto Lexer::handleIndentation(bool continuation) -> bool {
   }
 
   if (continuation || level != 0 || c == '#' || c == '\n' || c == '\r') {
-    if (c == '#' || c == '\n') {
-      // If this line is a commented line or an empty line, don't emit NewLine
+    // Collapse blank/comment-only lines into a single NEWLINE at brace depth 0 only; inside `{`
+    // … `}` we keep every emitted NEWLINE so statements stay separated.
+    if (level == 0 && (c == '#' || c == '\n')) {
       if (!tokens.empty() && tokens.back()->type == TokenType::NEWLINE) {
         tokens.pop_back();
       }
@@ -287,59 +280,8 @@ auto Lexer::handleIndentation(bool continuation) -> bool {
     return true;
   }
 
-  if (col == indentStack[indent]) {
-    if (altCol != altIndentStack[indent]) {
-      lexError(currentSpan(), "Indentation error");
-      skipRestOfPhysicalLine();
-      emitDedentsAndResetIndent();
-      firstIndentChar.reset();
-      return true;
-    }
-  } else if (col > indentStack[indent]) {
-    if (altCol <= altIndentStack[indent]) {
-      lexError(currentSpan(), "Indentation error");
-      skipRestOfPhysicalLine();
-      emitDedentsAndResetIndent();
-      firstIndentChar.reset();
-      return true;
-    }
-    ++indent;
-    ++changes;
-    assert(indentStack.size() >= size_t(indent));
-    if (indentStack.size() == size_t(indent)) {
-      altIndentStack.push_back(altCol);
-      indentStack.push_back(col);
-    } else {
-      altIndentStack[indent] = altCol;
-      indentStack[indent] = col;
-    }
-  } else {
-    while (indent > 0 && col < indentStack[indent]) {
-      --changes;
-      --indent;
-    }
-    if (col != indentStack[indent]) {
-      lexError(currentSpan(), "Dedentation error");
-      skipRestOfPhysicalLine();
-      emitDedentsAndResetIndent();
-      firstIndentChar.reset();
-      return true;
-    }
-    if (altCol != altIndentStack[indent]) {
-      lexError(currentSpan(), "Indentation error");
-      skipRestOfPhysicalLine();
-      emitDedentsAndResetIndent();
-      firstIndentChar.reset();
-      return true;
-    }
-  }
-
-  while (changes != 0) {
-    tokens.push_back(std::make_unique<Token>(changes > 0 ? TokenType::INDENT : TokenType::DEDENT,
-                                             changes > 0 ? "INDENT" : "DEDENT",
-                                             llvm::SMRange{beginLoc, loc}));
-    changes += changes > 0 ? -1 : 1;
-  }
+  // At brace depth 0, leading spaces/tabs are not significant; brace blocks use `{}`.
+  firstIndentChar.reset();
   return true;
 }
 
@@ -589,11 +531,3 @@ auto Lexer::skipRestOfPhysicalLine() -> void {
   }
 }
 
-auto Lexer::emitDedentsAndResetIndent() -> void {
-  while (indent > 0) {
-    tokens.push_back(std::make_unique<Token>(TokenType::DEDENT, "DEDENT", llvm::SMRange{loc, loc}));
-    --indent;
-  }
-  indentStack = {0};
-  altIndentStack = {0};
-}

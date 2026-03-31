@@ -1,3 +1,5 @@
-def foo() -> int
-    if true
+func foo() -> int {
+    if true {
         return 1
+    }
+}

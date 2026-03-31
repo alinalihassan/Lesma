@@ -1,15 +1,20 @@
 # Generic base class and generic subclass sharing type parameter T (super.new + inherited field).
 
-class GBase<T>
+class GBase<T> {
     var x: T
 
-    def new(v: T)
+    func new(v: T) {
         self.x = v
 
-class GChild<T>: GBase<T>
-    def new(v: T)
+    }
+}
+class GChild<T>: GBase<T> {
+    func new(v: T) {
         super.new(self, v)
 
+    }
+}
 var c = GChild(99)
-if c.x != 99
+if c.x != 99 {
     exit(1)
+}

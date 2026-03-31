@@ -439,7 +439,7 @@ using InnermostFunc =
 }
 
 /** Find function (or method) whose signature contains the cursor (name or any parameter).
- * Used so parameter names in "def foo(x: Int)" resolve to the parameter symbol. */
+ * Used so parameter names in "func foo(x: int)" resolve to the parameter symbol. */
 InnermostFunc findFuncWithCursorInSignature(lesma::Compound* ast, unsigned targetOffset,
                                             llvm::SourceMgr* sm, unsigned bid) {
   InnermostFunc out;

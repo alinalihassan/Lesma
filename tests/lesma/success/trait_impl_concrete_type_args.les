@@ -1,16 +1,21 @@
 # `impl Trait<int>` binds the trait's type parameter to a concrete type (not only `impl Trait<T>`).
-trait Boxed<T>
-    def read() -> T
+trait Boxed<T> {
+    func read() -> T
 
-class Cell impl Boxed<int>
+}
+class Cell impl Boxed<int> {
     var x: int
 
-    def new()
+    func new() {
         self.x = 7
 
-    def read() -> int
+    }
+    func read() -> int {
         return self.x
 
+    }
+}
 var c = Cell()
-if c.read() != 7
+if c.read() != 7 {
     exit(1)
+}

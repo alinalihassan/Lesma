@@ -74,9 +74,6 @@ private:
   /** Consume until after the next `\n`, or EOF. Updates line/col. */
   auto skipRestOfPhysicalLine() -> void;
 
-  /** Emit DEDENTs for open indent levels and reset stacks (after a structural lex error). */
-  auto emitDedentsAndResetIndent() -> void;
-
   auto isAtEnd() -> bool { return curPos >= curBuffer->getBufferSize(); }
 
   // Helper to get pointer at current position for SMLoc (isolates pointer
@@ -122,9 +119,6 @@ private:
 
   std::optional<char> firstIndentChar;
   int level = 0;
-  int indent = 0;
-  std::vector<int> indentStack = {0};
-  std::vector<int> altIndentStack = {0};
 
   std::deque<std::unique_ptr<Token>> pendingTokens;
   /** Nested `${ ... }`; incremented on `${`, decremented on closing `}`. */

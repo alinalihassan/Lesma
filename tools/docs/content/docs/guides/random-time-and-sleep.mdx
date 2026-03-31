@@ -17,7 +17,7 @@ print("rolled ${roll}")
 
 Each call re-seeds using the wall clock (`time(0)`), so consecutive rolls in a tight loop still
 vary. If you need reproducible sequences for tests, seed explicitly via the C runtime (for example
-`srand` / `rand`) using `def extern` declarations.
+`srand` / `rand`) using `func extern` declarations.
 
 ## Wall-clock seconds
 
@@ -25,7 +25,7 @@ Lesma’s **`base`** module exposes C **`time`** for a coarse timestamp. Typical
 to mean “now”, matching the usual C convention:
 
 ```les
-def extern time(timer: int) -> int
+func extern time(timer: int) -> int
 
 let t: int = time(0)
 print("epoch seconds: ${t}")

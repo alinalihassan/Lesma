@@ -1,6 +1,7 @@
-def sumAndMul(x: int, y: int) -> (int, int)
+func sumAndMul(x: int, y: int) -> (int, int) {
     return (x + y, x * y)
 
+}
 let sumRes, mulRes = sumAndMul(5, 10)
 let combined = sumAndMul(5, 10)
 print(combined[0])
@@ -10,12 +11,14 @@ print(mulRes)
 
 let one: (int,) = (1,)
 let floatTest: (float,) = (1,)
-if floatTest[0] < 0.99 or floatTest[0] > 1.01
+if floatTest[0] < 0.99 or floatTest[0] > 1.01 {
     exit(1)
+}
 print(one[0])
 
-def local_pair(a: int, b: int) -> (int, int)
+func local_pair(a: int, b: int) -> (int, int) {
     return (a, b)
 
+}
 print(local_pair(3, 4)[0])
 print(local_pair(3, 4)[1])

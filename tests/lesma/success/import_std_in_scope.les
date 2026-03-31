@@ -4,5 +4,5 @@ from "class.les" import Animal
 let y = Animal()
 sleep_test(0.001)
 
-if y.getX() != 101
-	exit(1)
+if y.getX() != 101 {
+	exit(1)}

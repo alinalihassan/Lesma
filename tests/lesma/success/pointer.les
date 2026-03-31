@@ -6,5 +6,5 @@ let x_ptr: *int = &x
 # if *x_ptr != x
 # 	  exit(1)
 
-if x_ptr is not *int
-	exit(1)
+if x_ptr is not *int {
+	exit(1)}

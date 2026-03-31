@@ -1,9 +1,12 @@
 var x: int = 5
 
-while true
-    if x == 101
+while true {
+    if x == 101 {
         break
+    }
     x = x + 1
 
-if x != 101
+}
+if x != 101 {
 	exit(1)
+}

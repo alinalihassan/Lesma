@@ -1,10 +1,14 @@
 # Non-exported trait; exported class still satisfies it locally
-trait InternalSeal
-    def seal() -> int
+trait InternalSeal {
+    func seal() -> int
 
-export class Pub impl InternalSeal
+}
+export class Pub impl InternalSeal {
     var k: int
-    def new(v: int)
+    func new(v: int) {
         self.k = v
-    def seal() -> int
+    }
+    func seal() -> int {
         return self.k
+    }
+}

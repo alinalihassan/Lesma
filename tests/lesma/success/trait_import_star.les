@@ -1,12 +1,16 @@
 # import * exposes exported trait names (ExportDiscovery includes TraitDecl)
 from "trait_export_mod.les" import *
 
-class C impl ExportedTrait
-    def new()
+class C impl ExportedTrait {
+    func new() {
         var _x = 0
-    def foo() -> int
+    }
+    func foo() -> int {
         return 7
 
+    }
+}
 var c = C()
-if c.foo() != 7
+if c.foo() != 7 {
     exit(1)
+}

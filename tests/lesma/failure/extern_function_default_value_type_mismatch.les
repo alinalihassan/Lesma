@@ -1,1 +1,1 @@
-def extern abs(x: int = "x") -> int
+func extern abs(x: int = "x") -> int

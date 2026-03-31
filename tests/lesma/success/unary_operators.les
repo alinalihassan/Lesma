@@ -2,24 +2,29 @@
 var x = 50
 var y = -x + 151
 
-if y != 101
+if y != 101 {
     exit(1)
 
+}
 # Test chained unary minus (double negation)
 var z = - -x
-if z != 50
+if z != 50 {
     exit(1)
 
+}
 # Test logical not
 var a = true
 var b = not a
 
-if b
+if b {
     exit(1)
 
-if not true
+}
+if not true {
     exit(1)
 
+}
 var c = false
-if not not c
+if not not c {
     exit(1)
+}

@@ -1,5 +1,6 @@
 var y: int = 100
 y = 101
 
-if y != 101
+if y != 101 {
 	exit(1)
+}
