@@ -1042,6 +1042,19 @@ auto Typechecker::materializeImportedType(Type* type) -> Type* {
     importedTypeCopies[type] = copy;
     return copy;
   }
+  if (type->is(BaseType::TY_UNION)) {
+    std::vector<Type*> members;
+    members.reserve(type->getUnionMembers().size());
+    for (Type* m : type->getUnionMembers()) {
+      members.push_back(materializeImportedType(m));
+    }
+    auto u = std::make_unique<Type>(BaseType::TY_UNION);
+    u->setDisplayName(type->getDisplayName());
+    u->setUnionMembers(std::move(members));
+    Type* copy = cacheType(std::move(u));
+    importedTypeCopies[type] = copy;
+    return copy;
+  }
   if (type->is(BaseType::TY_TUPLE)) {
     std::vector<std::unique_ptr<Field>> fields;
     for (Field* field : type->getFields()) {
@@ -1154,6 +1167,25 @@ auto Typechecker::substituteInType(Type* t, const std::unordered_map<std::string
     auto tupleType = std::make_unique<Type>(BaseType::TY_TUPLE, nullptr, std::move(fields));
     tupleType->setDisplayName(t->getDisplayName());
     return cacheType(std::move(tupleType));
+  }
+  if (t->is(BaseType::TY_UNION)) {
+    std::vector<Type*> members;
+    members.reserve(t->getUnionMembers().size());
+    for (Type* m : t->getUnionMembers()) {
+      members.push_back(substituteInType(m, env));
+    }
+    std::ranges::sort(members, [](Type* a, Type* b) { return a->toString() < b->toString(); });
+    std::string dn;
+    for (size_t i = 0; i < members.size(); ++i) {
+      if (i > 0) {
+        dn += " | ";
+      }
+      dn += members[i]->toString();
+    }
+    auto u = std::make_unique<Type>(BaseType::TY_UNION);
+    u->setDisplayName(dn);
+    u->setUnionMembers(std::move(members));
+    return cacheType(std::move(u));
   }
   if (t->is(BaseType::TY_CLASS)) {
     Type* classTemplate = t;
@@ -1657,6 +1689,14 @@ auto Typechecker::isAssignableTo(Type* from, Type* to) -> bool {
     }
     return true;
   }
+  if (to->is(BaseType::TY_UNION)) {
+    for (Type* m : to->getUnionMembers()) {
+      if (isAssignableTo(from, m)) {
+        return true;
+      }
+    }
+    return false;
+  }
   return false;
 }
 
@@ -1807,6 +1847,52 @@ auto Typechecker::resolveType(const TypeExpr* node) -> Type* {
     auto tup = std::make_unique<Type>(BaseType::TY_TUPLE, nullptr, std::move(fields));
     tup->setDisplayName(displayName);
     return cacheType(std::move(tup));
+  }
+  if (node->getType() == TokenType::UNION_TYPE) {
+    std::vector<Type*> flat;
+    for (TypeExpr* arm : node->getParams()) {
+      Type* t = resolveType(arm);
+      if (t->is(BaseType::TY_UNION)) {
+        for (Type* inner : t->getUnionMembers()) {
+          flat.push_back(inner);
+        }
+      } else {
+        flat.push_back(t);
+      }
+    }
+    std::vector<Type*> unique;
+    for (Type* t : flat) {
+      bool dup = false;
+      for (Type* u : unique) {
+        if (t->isEqual(u)) {
+          dup = true;
+          break;
+        }
+      }
+      if (!dup) {
+        unique.push_back(t);
+      }
+    }
+    for (Type* t : unique) {
+      if (!isSupportedUnionMemberType(t)) {
+        throw TypeCheckError(node->getSpan(),
+                             "Union member type `{}` is not supported (only int, float, float32, "
+                             "bool, and class variants are allowed)",
+                             t->toString());
+      }
+    }
+    std::ranges::sort(unique, [](Type* a, Type* b) { return a->toString() < b->toString(); });
+    std::string displayName;
+    for (size_t i = 0; i < unique.size(); ++i) {
+      if (i > 0) {
+        displayName += " | ";
+      }
+      displayName += unique[i]->toString();
+    }
+    auto u = std::make_unique<Type>(BaseType::TY_UNION);
+    u->setUnionMembers(std::move(unique));
+    u->setDisplayName(displayName);
+    return cacheType(std::move(u));
   }
   if (node->getType() == TokenType::CUSTOM_TYPE) {
     const std::string lookupName = node->getLookupName();
@@ -2597,6 +2683,126 @@ auto Typechecker::visit(const VarDecl* node) -> void {
   scope->insertSymbol(std::move(symbol));
 }
 
+auto Typechecker::isSupportedUnionMemberType(Type* t) -> bool {
+  if (t == nullptr) {
+    return false;
+  }
+  return t->is(BaseType::TY_INT) || t->isFloatingPoint() || t->is(BaseType::TY_BOOL) ||
+         t->is(BaseType::TY_CLASS);
+}
+
+auto Typechecker::lookupUnionNarrowedType(Value* sym) const -> Type* {
+  if (sym == nullptr) {
+    return nullptr;
+  }
+  for (auto it = unionNarrowingStack.rbegin(); it != unionNarrowingStack.rend(); ++it) {
+    auto j = it->find(sym);
+    if (j != it->end()) {
+      return j->second;
+    }
+  }
+  return nullptr;
+}
+
+namespace {
+auto unionComplementMember(Type* unionTy, Type* excluded) -> Type* {
+  if (unionTy == nullptr || !unionTy->is(BaseType::TY_UNION) || excluded == nullptr) {
+    return nullptr;
+  }
+  const auto& mem = unionTy->getUnionMembers();
+  if (mem.size() != 2U) {
+    return nullptr;
+  }
+  for (Type* m : mem) {
+    if (!m->isEqual(excluded)) {
+      return m;
+    }
+  }
+  return nullptr;
+}
+
+auto tryGetIsOpVarSymbol(const IsOp* is, SymbolTable* scope) -> Value* {
+  if (is == nullptr) {
+    return nullptr;
+  }
+  auto* lit = dynamic_cast<const Literal*>(is->getLeft());
+  if (lit == nullptr || lit->getType() != TokenType::IDENTIFIER) {
+    return nullptr;
+  }
+  if (Value* rs = lit->getResolvedSymbol()) {
+    return rs;
+  }
+  return scope->lookup(lit->getValue());
+}
+} // namespace
+
+auto Typechecker::fillUnionNarrowingForIfBlock(const If* node, unsigned blockIndex,
+                                               std::unordered_map<Value*, Type*>& out) -> void {
+  if (blockIndex >= node->getBlocks().size()) {
+    return;
+  }
+  Expression* cond = node->getConds()[blockIndex];
+  if (dynamic_cast<const Else*>(cond) != nullptr) {
+    if (blockIndex == 0) {
+      return;
+    }
+    auto* is0 = dynamic_cast<const IsOp*>(node->getConds()[0]);
+    if (is0 == nullptr) {
+      return;
+    }
+    Value* sym = tryGetIsOpVarSymbol(is0, scope);
+    if (sym == nullptr || sym->getType() == nullptr || !sym->getType()->is(BaseType::TY_UNION)) {
+      return;
+    }
+    Type* rhsTy = nullptr;
+    try {
+      rhsTy = resolveType(is0->getRight());
+    } catch (const TypeCheckError&) {
+      return;
+    }
+    if (is0->getOperator() == TokenType::IS) {
+      Type* narrowed = unionComplementMember(sym->getType(), rhsTy);
+      if (narrowed != nullptr) {
+        out[sym] = narrowed;
+      }
+    } else if (is0->getOperator() == TokenType::IS_NOT) {
+      out[sym] = rhsTy;
+    }
+    return;
+  }
+  auto* is = dynamic_cast<const IsOp*>(cond);
+  if (is == nullptr) {
+    return;
+  }
+  Value* sym = tryGetIsOpVarSymbol(is, scope);
+  if (sym == nullptr || sym->getType() == nullptr || !sym->getType()->is(BaseType::TY_UNION)) {
+    return;
+  }
+  Type* rhsTy = nullptr;
+  try {
+    rhsTy = resolveType(is->getRight());
+  } catch (const TypeCheckError&) {
+    return;
+  }
+  if (is->getOperator() == TokenType::IS) {
+    bool member = false;
+    for (Type* m : sym->getType()->getUnionMembers()) {
+      if (m->isEqual(rhsTy)) {
+        member = true;
+        break;
+      }
+    }
+    if (member) {
+      out[sym] = rhsTy;
+    }
+  } else if (is->getOperator() == TokenType::IS_NOT) {
+    Type* narrowed = unionComplementMember(sym->getType(), rhsTy);
+    if (narrowed != nullptr) {
+      out[sym] = narrowed;
+    }
+  }
+}
+
 auto Typechecker::visit(const If* node) -> void {
   for (Expression* cond : node->getConds()) {
     try {
@@ -2611,12 +2817,22 @@ auto Typechecker::visit(const If* node) -> void {
       recoverFromTypeError(err);
     }
   }
-  for (Compound* block : node->getBlocks()) {
+  std::vector<Compound*> const blocks = node->getBlocks();
+  for (unsigned bi = 0; bi < blocks.size(); ++bi) {
+    std::unordered_map<Value*, Type*> narrowMap;
+    fillUnionNarrowingForIfBlock(node, bi, narrowMap);
+    bool const pushedNarrowing = !narrowMap.empty();
+    if (pushedNarrowing) {
+      unionNarrowingStack.push_back(std::move(narrowMap));
+    }
     try {
-      warnIfEmptyCompoundBody(block, "if/else branch");
-      block->accept(*this);
+      warnIfEmptyCompoundBody(blocks[bi], "if/else branch");
+      blocks[bi]->accept(*this);
     } catch (const TypeCheckError& err) {
       recoverFromTypeError(err);
+    }
+    if (pushedNarrowing) {
+      unionNarrowingStack.pop_back();
     }
   }
 }
@@ -4651,7 +4867,50 @@ auto Typechecker::visit(const DotOp* node) -> void {
       result = std::make_unique<Value>(retType);
       return;
     }
-    throw TypeCheckError(node->getSpan(), "Expected method call after dot on trait value");
+      throw TypeCheckError(node->getSpan(), "Expected method call after dot on trait value");
+  }
+  if (base->is(BaseType::TY_UNION)) {
+    auto* fc = dynamic_cast<FuncCall*>(node->getRight());
+    if (fc == nullptr) {
+      throw TypeCheckError(node->getSpan(),
+                           "Dot on a union requires a method call (fields are not supported)");
+    }
+    if (!fc->getExplicitTypeArgs().empty()) {
+      throw TypeCheckError(node->getSpan(),
+                           "Explicit type arguments are not supported on union method calls");
+    }
+    std::vector<Type*> argTypes;
+    for (Expression* arg : fc->getArguments()) {
+      arg->accept(*this);
+      Type* t = result->getType();
+      if (t != nullptr && t->is(BaseType::TY_CLASS)) {
+        t = cacheType(std::make_unique<Type>(BaseType::TY_PTR, nullptr, t));
+      }
+      argTypes.push_back(t);
+    }
+    Type* commonRet = nullptr;
+    for (Type* mem : base->getUnionMembers()) {
+      if (mem == nullptr || !mem->is(BaseType::TY_CLASS)) {
+        throw TypeCheckError(node->getSpan(),
+                             "Calling a method on a union requires every variant to be a class "
+                             "type");
+      }
+      Type* r = resolveMethodReturnType(mem, fc->getName(), argTypes, node->getSpan());
+      if (r == nullptr) {
+        throw TypeCheckError(node->getSpan(), "Method '{}' is not available on all union members",
+                             fc->getName());
+      }
+      if (commonRet == nullptr) {
+        commonRet = r;
+      } else if (!commonRet->isEqual(r)) {
+        throw TypeCheckError(node->getSpan(),
+                             "Method '{}' has incompatible return types across union members",
+                             fc->getName());
+      }
+    }
+    fc->setResolvedSymbol(nullptr);
+    result = std::make_unique<Value>(commonRet);
+    return;
   }
   if (base->is(BaseType::TY_ARRAY)) {
     if (auto* call = dynamic_cast<FuncCall*>(node->getRight())) {
@@ -4849,7 +5108,21 @@ auto Typechecker::visit(const CastOp* node) -> void {
 
 auto Typechecker::visit(const IsOp* node) -> void {
   node->getLeft()->accept(*this);
-  node->getRight()->accept(*this);
+  Type* lhsTy = result->getType();
+  Type* rhsTy = resolveType(node->getRight());
+  if (lhsTy != nullptr && lhsTy->is(BaseType::TY_UNION)) {
+    bool found = false;
+    for (Type* m : lhsTy->getUnionMembers()) {
+      if (m->isEqual(rhsTy)) {
+        found = true;
+        break;
+      }
+    }
+    if (!found) {
+      throw TypeCheckError(node->getSpan(), "`is` type {} is not a member of union {}",
+                           rhsTy->toString(), lhsTy->toString());
+    }
+  }
   result = std::make_unique<Value>(cacheType(std::make_unique<Type>(BaseType::TY_BOOL)));
 }
 
@@ -5357,6 +5630,9 @@ auto Typechecker::visit(const Literal* node) -> void {
           markValueRead(sym);
           node->setResolvedSymbol(shadow);
           result = std::make_unique<Value>(*shadow);
+          if (Type* n = lookupUnionNarrowedType(shadow)) {
+            result->setType(n);
+          }
           break;
         }
       }
@@ -5364,6 +5640,9 @@ auto Typechecker::visit(const Literal* node) -> void {
     node->setResolvedSymbol(sym);
     markValueRead(sym);
     result = std::make_unique<Value>(*sym);
+    if (Type* n = lookupUnionNarrowedType(sym)) {
+      result->setType(n);
+    }
     break;
   }
   default:

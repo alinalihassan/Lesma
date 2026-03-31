@@ -1,3 +1,4 @@
+#include <algorithm>
 #include <string>
 #include <vector>
 
@@ -135,6 +136,55 @@ auto Codegen::visit(const TypeExpr* node) -> void {
     auto tup = std::make_unique<Type>(BaseType::TY_TUPLE, nullptr, std::move(fields));
     tup->setDisplayName(displayName);
     Type* cached = cacheType(std::move(tup));
+    getOrCreateLlvmType(cached);
+    result = std::make_unique<Value>(cached);
+  } else if (node->getType() == TokenType::UNION_TYPE) {
+    std::vector<Type*> members;
+    std::string displayName;
+    for (TypeExpr* param : node->getParams()) {
+      param->accept(*this);
+      Type* elemTy = result->getType();
+      if (!members.empty()) {
+        displayName += " | ";
+      }
+      displayName += elemTy->toString();
+      members.push_back(elemTy);
+    }
+    std::vector<Type*> flat;
+    for (Type* t : members) {
+      if (t->is(BaseType::TY_UNION)) {
+        for (Type* inner : t->getUnionMembers()) {
+          flat.push_back(inner);
+        }
+      } else {
+        flat.push_back(t);
+      }
+    }
+    std::vector<Type*> unique;
+    for (Type* t : flat) {
+      bool dup = false;
+      for (Type* u : unique) {
+        if (t->isEqual(u)) {
+          dup = true;
+          break;
+        }
+      }
+      if (!dup) {
+        unique.push_back(t);
+      }
+    }
+    std::ranges::sort(unique, [](Type* a, Type* b) { return a->toString() < b->toString(); });
+    displayName.clear();
+    for (size_t i = 0; i < unique.size(); ++i) {
+      if (i > 0) {
+        displayName += " | ";
+      }
+      displayName += unique[i]->toString();
+    }
+    auto u = std::make_unique<Type>(BaseType::TY_UNION);
+    u->setUnionMembers(std::move(unique));
+    u->setDisplayName(displayName);
+    Type* cached = cacheType(std::move(u));
     getOrCreateLlvmType(cached);
     result = std::make_unique<Value>(cached);
   } else if (node->getType() == TokenType::CUSTOM_TYPE) {
@@ -288,6 +338,28 @@ auto Codegen::getOrCreateLlvmType(lesma::Type* type) -> llvm::Type* {
         st = llvm::StructType::create(theModule->getContext(), elementTypes);
       }
     }
+    type->setLlvmType(st);
+    break;
+  }
+  case BaseType::TY_UNION: {
+    const std::vector<Type*>& mem = type->getUnionMembers();
+    for (Type* m : mem) {
+      getOrCreateLlvmType(m);
+    }
+    const llvm::DataLayout& dl = theModule->getDataLayout();
+    unsigned maxAlloc = 0;
+    unsigned maxAbiAlign = 1;
+    for (Type* m : mem) {
+      llvm::Type* lt = m->getLlvmType();
+      maxAlloc = std::max(maxAlloc, static_cast<unsigned>(dl.getTypeAllocSize(lt).getFixedValue()));
+      maxAbiAlign =
+          std::max(maxAbiAlign, static_cast<unsigned>(dl.getABITypeAlign(lt).value()));
+    }
+    unsigned const payloadBytes = llvm::alignTo(maxAlloc, maxAbiAlign);
+    unsigned const numI64 = std::max(1U, (payloadBytes + 7U) / 8U);
+    llvm::Type* const payloadTy = llvm::ArrayType::get(builder->getInt64Ty(), numI64);
+    llvm::StructType* const st = llvm::StructType::get(theModule->getContext(),
+                                                       {builder->getInt8Ty(), payloadTy});
     type->setLlvmType(st);
     break;
   }

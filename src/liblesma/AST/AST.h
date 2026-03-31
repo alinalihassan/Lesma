@@ -219,6 +219,13 @@ public:
     return std::make_unique<TypeExpr>(loc, std::move(displayName), TokenType::TUPLE_TYPE,
                                       std::move(elements), std::unique_ptr<TypeExpr>(nullptr));
   }
+  /** Union type `T1 | T2 | ...`: `params` are arms, `ret` is null. */
+  static auto makeUnionType(llvm::SMRange loc, std::string displayName,
+                            std::vector<std::unique_ptr<TypeExpr>> arms)
+      -> std::unique_ptr<TypeExpr> {
+    return std::make_unique<TypeExpr>(loc, std::move(displayName), TokenType::UNION_TYPE,
+                                      std::move(arms), std::unique_ptr<TypeExpr>(nullptr));
+  }
   void accept(ASTVisitor& visitor) const override { visitor.visit(this); }
 
   [[nodiscard]] [[maybe_unused]] auto getName() const -> std::string { return name; }

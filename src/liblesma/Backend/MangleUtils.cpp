@@ -104,6 +104,16 @@ auto getTypeMangledName(llvm::SMRange span, Type* type) -> std::string {
     }
     return "(" + s + ")";
   }
+  if (type->is(BaseType::TY_UNION)) {
+    std::string s = "union_";
+    for (Type* m : type->getUnionMembers()) {
+      if (m == nullptr) {
+        throw CodegenError(span, "unresolved union member in {}", type->toString());
+      }
+      s += getTypeMangledName(span, m) + "_";
+    }
+    return "(" + s + ")";
+  }
 
   throw CodegenError(span, "Unknown type found during mangling");
 }

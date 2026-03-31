@@ -83,6 +83,8 @@ class Typechecker final : public ASTVisitor {
   /** Imported types materialized into this typechecker's cache so they outlive imported scopes. */
   std::unordered_map<Type*, Type*> importedTypeCopies;
   std::vector<Type*> expectedTypes;
+  /** Per `if` branch: symbol → narrowed type when discriminating a union with `is` / `is not`. */
+  std::vector<std::unordered_map<Value*, Type*>> unionNarrowingStack;
 
   /** Registered traits (name → AST) for impl checks and existential method lookup. */
   std::unordered_map<std::string, const TraitDecl*> traitRegistry;
@@ -190,6 +192,10 @@ class Typechecker final : public ASTVisitor {
   auto getExtendedType(Type* left, Type* right) -> Type*;
   /** Whether a value of type 'from' can be assigned/cast to type 'to'. */
   auto isAssignableTo(Type* from, Type* to) -> bool;
+  [[nodiscard]] static auto isSupportedUnionMemberType(Type* t) -> bool;
+  [[nodiscard]] auto lookupUnionNarrowedType(Value* sym) const -> Type*;
+  auto fillUnionNarrowingForIfBlock(const If* node, unsigned blockIndex,
+                                    std::unordered_map<Value*, Type*>& out) -> void;
   [[nodiscard]] auto functionTypesMatchForTraitImpl(Type* actualFn, Type* expectedFn) -> bool;
   [[nodiscard]] auto wrapReturnTypeIfNominal(Type* returnType) -> Type*;
   /** Result type of a binary operator (arithmetic, comparison, logical). Throws on unsupported op.

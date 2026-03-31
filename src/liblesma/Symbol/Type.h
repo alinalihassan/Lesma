@@ -35,6 +35,8 @@ enum class BaseType : std::uint8_t {
   TY_TRAIT_EXISTENTIAL,
   /** Structural product type `(T1, T2, ...)` lowered to LLVM struct. */
   TY_TUPLE,
+  /** Tagged union `T1 | T2 | ...` (canonical member order). */
+  TY_UNION,
 };
 
 class Type;
@@ -98,6 +100,8 @@ class Type {
   bool signedInt = true;
   /** For TY_INT when LLVM type is not yet set: 0 means default width (64). */
   std::uint16_t intWidth = 0;
+  /** For TY_UNION: variant types in tag order (non-owning; same lifetime as type cache). */
+  std::vector<Type*> unionMembers;
 
 public:
   explicit Type(BaseType baseType)
@@ -218,6 +222,9 @@ public:
   auto replaceFields(std::vector<std::unique_ptr<Field>> newFields) -> void {
     fields = std::move(newFields);
   }
+
+  [[nodiscard]] auto getUnionMembers() const -> const std::vector<Type*>& { return unionMembers; }
+  auto setUnionMembers(std::vector<Type*> members) -> void { unionMembers = std::move(members); }
 
   auto isEqual(Type* rhs) const -> bool {
     std::set<std::pair<Type const*, Type const*>> active;
@@ -434,6 +441,27 @@ private:
       }
       return true;
     }
+    case BaseType::TY_UNION: {
+      const auto& lu = getUnionMembers();
+      const auto& ru = rhs->getUnionMembers();
+      if (lu.size() != ru.size()) {
+        return false;
+      }
+      for (size_t i = 0; i < lu.size(); ++i) {
+        Type* lt = lu[i];
+        Type* rt = ru[i];
+        if (lt == nullptr || rt == nullptr) {
+          if (lt != rt) {
+            return false;
+          }
+          continue;
+        }
+        if (!lt->isEqualImpl(rt, active)) {
+          return false;
+        }
+      }
+      return true;
+    }
     case BaseType::TY_CLASS:
     case BaseType::TY_ENUM:
       // Handled above; unreachable but required for switch completeness.
@@ -514,13 +542,27 @@ public:
       result += ">";
       break;
     }
+    case BaseType::TY_UNION: {
+      if (!displayName.empty()) {
+        result = displayName;
+        break;
+      }
+      for (size_t i = 0; i < unionMembers.size(); ++i) {
+        if (i > 0) {
+          result += " | ";
+        }
+        result += unionMembers[i] != nullptr ? unionMembers[i]->toString() : "?";
+      }
+      break;
+    }
     }
 
     if (elementType != nullptr && baseType != BaseType::TY_PTR) {
       result += "<" + elementType->toString() + ">";
     }
 
-    if (!fields.empty() && !isOneOf({BaseType::TY_CLASS, BaseType::TY_ENUM, BaseType::TY_TUPLE})) {
+    if (!fields.empty() &&
+        !isOneOf({BaseType::TY_CLASS, BaseType::TY_ENUM, BaseType::TY_TUPLE, BaseType::TY_UNION})) {
       result += baseType == BaseType::TY_FUNCTION ? " ( " : " { ";
       for (const auto& field : fields) {
         result += field->name + ": " + field->type->toString() + "; ";

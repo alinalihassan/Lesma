@@ -134,6 +134,8 @@ private:
   auto parseReturn() -> std::unique_ptr<Statement>;
   auto parseDefer() -> std::unique_ptr<Statement>;
   auto parseType() -> std::unique_ptr<TypeExpr>;
+  /** One union arm: no top-level `|` (inner `parseType` still allows unions in parens / ptr). */
+  auto parseTypePrimary() -> std::unique_ptr<TypeExpr>;
   auto parseExpression() -> std::unique_ptr<Expression>;
   auto parseOr() -> std::unique_ptr<Expression>;
   auto parseAnd() -> std::unique_ptr<Expression>;
@@ -157,6 +159,7 @@ private:
   // GREATER LEFT_PAREN (so parsing as call with explicit type args is valid).
   auto hasExplicitTypeArgsAndParen() -> bool;
   auto parseTypeAt(unsigned long& off) -> bool;
+  auto parseTypePrimaryAt(unsigned long& off) -> bool;
   auto skipOneTypeAt(unsigned long& off) -> bool;
 };
 } // namespace lesma

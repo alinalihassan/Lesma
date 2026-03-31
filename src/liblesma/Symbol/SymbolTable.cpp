@@ -182,6 +182,22 @@ auto matchGenericParameter(Type* formalTy, Type* argTy,
   if (formalTy == nullptr || argTy == nullptr) {
     return formalTy == argTy;
   }
+  if (formalTy->is(BaseType::TY_UNION)) {
+    if (argTy->is(BaseType::TY_UNION)) {
+      return formalTy->isEqual(argTy);
+    }
+    for (Type* m : formalTy->getUnionMembers()) {
+      if (m != nullptr && m->is(BaseType::TY_CLASS) && argTy != nullptr &&
+          argTy->is(BaseType::TY_PTR) && argTy->getElementType() != nullptr &&
+          matchGenericParameter(m, argTy->getElementType(), genericBindings, lookupKind)) {
+        return true;
+      }
+      if (matchGenericParameter(m, argTy, genericBindings, lookupKind)) {
+        return true;
+      }
+    }
+    return false;
+  }
   if (formalTy->is(BaseType::TY_TRAIT_EXISTENTIAL)) {
     const std::string& want = formalTy->getDisplayName();
     Type* cls = argTy;

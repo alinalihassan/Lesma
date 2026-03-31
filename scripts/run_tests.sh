@@ -14,17 +14,44 @@ fi
 fail_count=0
 success_count=0
 
+# Wall-clock limit per compiler invocation (seconds). Use 0 to disable. Override with LESMA_TEST_TIMEOUT.
+LESMA_TEST_TIMEOUT="${LESMA_TEST_TIMEOUT:-2}"
+case "${LESMA_TEST_TIMEOUT}" in
+'' | *[!0-9]*) LESMA_TEST_TIMEOUT=2 ;;
+esac
+
 test_compiler() {
   local file="$1"
   local mode="$2"
   local compiler_path="$3"
   local quiet="${4:-}"
-  if [ -n "${quiet}" ]; then
-    "${compiler_path}" "${mode}" --no-warnings "${file}" >/dev/null 2>&1
-  else
-    "${compiler_path}" "${mode}" --no-warnings "${file}"
+  local cpid kpid ret
+
+  if [ "${LESMA_TEST_TIMEOUT}" -eq 0 ]; then
+    if [ -n "${quiet}" ]; then
+      "${compiler_path}" "${mode}" --no-warnings "${file}" >/dev/null 2>&1
+    else
+      "${compiler_path}" "${mode}" --no-warnings "${file}"
+    fi
+    return $?
   fi
-  return $?
+
+  if [ -n "${quiet}" ]; then
+    "${compiler_path}" "${mode}" --no-warnings "${file}" >/dev/null 2>&1 &
+  else
+    "${compiler_path}" "${mode}" --no-warnings "${file}" &
+  fi
+  cpid=$!
+  (
+    sleep "${LESMA_TEST_TIMEOUT}"
+    kill "${cpid}" 2>/dev/null || true
+  ) &
+  kpid=$!
+  wait "${cpid}"
+  ret=$?
+  kill "${kpid}" 2>/dev/null || true
+  wait "${kpid}" 2>/dev/null || true
+  return "${ret}"
 }
 
 # Writes one status line to result_file only (stdout stays free for compiler output).

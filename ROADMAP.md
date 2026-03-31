@@ -23,6 +23,8 @@
 - [ ] Add multithreading using pthread for now (async/await? ala Spice)
 - [x] Add comments above classes and functions as documentation in LSP
 - [x] Check dictionaries for multiline support
+- [x] Type unions
+- [x] Type narrowing
 
 ## LSP
 - [ ] rename + prepareRename

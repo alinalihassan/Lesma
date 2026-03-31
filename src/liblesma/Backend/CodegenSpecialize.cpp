@@ -1,3 +1,4 @@
+#include <algorithm>
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
@@ -68,6 +69,14 @@ auto Codegen::isTypeFullyConcrete(Type* t) const -> bool {
     case BaseType::TY_ENUM:
       for (Field* field : cur->getFields()) {
         if (!self(self, field->type)) {
+          isConcrete = false;
+          break;
+        }
+      }
+      break;
+    case BaseType::TY_UNION:
+      for (Type* m : cur->getUnionMembers()) {
+        if (!self(self, m)) {
           isConcrete = false;
           break;
         }
@@ -272,6 +281,25 @@ auto Codegen::substituteTypeForSpecializationEnv(
     auto tupleType = std::make_unique<Type>(BaseType::TY_TUPLE, nullptr, std::move(fields));
     tupleType->setDisplayName(t->getDisplayName());
     return cacheType(std::move(tupleType));
+  }
+  if (t->is(BaseType::TY_UNION)) {
+    std::vector<Type*> members;
+    members.reserve(t->getUnionMembers().size());
+    for (Type* m : t->getUnionMembers()) {
+      members.push_back(substituteTypeForSpecializationEnv(m, env));
+    }
+    std::ranges::sort(members, [](Type* a, Type* b) { return a->toString() < b->toString(); });
+    std::string dn;
+    for (size_t i = 0; i < members.size(); ++i) {
+      if (i > 0) {
+        dn += " | ";
+      }
+      dn += members[i]->toString();
+    }
+    auto u = std::make_unique<Type>(BaseType::TY_UNION);
+    u->setUnionMembers(std::move(members));
+    u->setDisplayName(dn);
+    return cacheType(std::move(u));
   }
   if (t->is(BaseType::TY_CLASS)) {
     Type* classTemplate = t;

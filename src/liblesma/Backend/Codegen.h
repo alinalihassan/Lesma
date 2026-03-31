@@ -2,6 +2,7 @@
 
 #include <deque>
 #include <memory>
+#include <optional>
 #include <stack>
 #include <string>
 #include <tuple>
@@ -149,6 +150,8 @@ class Codegen final : public ASTVisitor {
   bool emitDebugInfo = false;
   std::size_t lambdaCounter = 0U;
   llvm::OptimizationLevel optimizationLevelForDebug = llvm::OptimizationLevel::O3;
+  /** `if x is T` / else: maps parameter/local symbol → union variant index for narrowed loads. */
+  std::vector<std::unordered_map<lesma::Value*, unsigned>> unionNarrowVariantStack;
 
   std::unique_ptr<llvm::DIBuilder> diBuilder;
   llvm::DICompileUnit* diCompileUnit = nullptr;
@@ -218,6 +221,16 @@ protected:
   /** Alloca in \p fn's entry block (after PHIs) so LLVM mem2reg can promote loop/stack slots. */
   auto createAllocaInEntry(llvm::Function* fn, llvm::Type* elemTy, const std::string& name)
       -> llvm::AllocaInst*;
+
+  [[nodiscard]] auto lookupUnionNarrowVariant(lesma::Value* sym) const -> std::optional<unsigned>;
+  auto fillCodegenUnionNarrowVariantMap(const If* node, unsigned blockIndex,
+                                        std::unordered_map<lesma::Value*, unsigned>& out) -> void;
+  auto emitUnionWrapValue(llvm::SMRange span, lesma::Value* val, lesma::Type* unionTy,
+                          unsigned variantIndex) -> std::unique_ptr<lesma::Value>;
+  [[nodiscard]] auto unionVariantIndexOf(lesma::Type* unionTy, lesma::Type* memberTy) const
+      -> std::optional<unsigned>;
+  auto emitUnionPayloadLoadFromSlot(llvm::Value* unionAllocaPtr, lesma::Type* unionTy,
+                                    lesma::Type* memberTy) -> llvm::Value*;
 
   auto linkObjectFileWithLld(const std::string& objFilename) -> void;
 
@@ -318,6 +331,12 @@ protected:
   [[nodiscard]] auto isBuiltinListBuiltinMethodName(const std::string& methodName) const -> bool;
   /** True when class layout matches stdlib list (single __buffer field; not dict keys+vals). */
   [[nodiscard]] auto classHasSingleBufferStorageField(lesma::Type* classTy) const -> bool;
+  /** `unionValue.method(...)` when every union member is a class with a compatible method. */
+  auto emitUnionClassMethodDispatch(llvm::SMRange span, lesma::Value* unionValue,
+                                    const std::string& methodName,
+                                    const std::vector<lesma::Value*>& args,
+                                    const std::vector<lesma::Type*>& explicitTypeArgs)
+      -> std::unique_ptr<lesma::Value>;
   auto callMethodByName(llvm::SMRange span, lesma::Value* receiver, const std::string& methodName,
                         const std::vector<lesma::Value*>& args = {},
                         const std::vector<lesma::Type*>& explicitTypeArgs = {})

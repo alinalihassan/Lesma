@@ -320,7 +320,8 @@ auto collectIndexFromTypeExpr(const TypeExpr* typeExpr, AnalysisIndex& index) ->
     return;
   }
   if (typeExpr->getType() != TokenType::PTR_TYPE && typeExpr->getType() != TokenType::FUNC_TYPE &&
-      typeExpr->getType() != TokenType::TUPLE_TYPE) {
+      typeExpr->getType() != TokenType::TUPLE_TYPE &&
+      typeExpr->getType() != TokenType::UNION_TYPE) {
     Value* const resolvedSymbol = typeExpr->getResolvedSymbol();
     llvm::SMRange span = typeExpr->getSpan();
     std::string name = typeExpr->getName();
