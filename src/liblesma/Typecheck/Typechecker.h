@@ -196,6 +196,9 @@ class Typechecker final : public ASTVisitor {
   [[nodiscard]] auto lookupUnionNarrowedType(Value* sym) const -> Type*;
   auto fillUnionNarrowingForIfBlock(const If* node, unsigned blockIndex,
                                     std::unordered_map<Value*, Type*>& out) -> void;
+  /** Remove union arms equal to types in \p toExclude (each match removes at most one arm).
+   *  Returns nullptr if no arm was removed or no arm would remain. */
+  auto narrowUnionByExcludingMembers(Type* unionTy, const std::vector<Type*>& toExclude) -> Type*;
   [[nodiscard]] auto functionTypesMatchForTraitImpl(Type* actualFn, Type* expectedFn) -> bool;
   [[nodiscard]] auto wrapReturnTypeIfNominal(Type* returnType) -> Type*;
   /** Result type of a binary operator (arithmetic, comparison, logical). Throws on unsupported op.

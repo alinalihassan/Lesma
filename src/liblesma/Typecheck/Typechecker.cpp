@@ -2754,21 +2754,6 @@ auto Typechecker::lookupUnionNarrowedType(Value* sym) const -> Type* {
 }
 
 namespace {
-auto unionComplementMember(Type* unionTy, Type* excluded) -> Type* {
-  if (unionTy == nullptr || !unionTy->is(BaseType::TY_UNION) || excluded == nullptr) {
-    return nullptr;
-  }
-  const auto& mem = unionTy->getUnionMembers();
-  if (mem.size() != 2U) {
-    return nullptr;
-  }
-  for (Type* m : mem) {
-    if (!m->isEqual(excluded)) {
-      return m;
-    }
-  }
-  return nullptr;
-}
 
 auto tryGetIsOpVarSymbol(const IsOp* is, SymbolTable* scope) -> Value* {
   if (is == nullptr) {
@@ -2785,6 +2770,44 @@ auto tryGetIsOpVarSymbol(const IsOp* is, SymbolTable* scope) -> Value* {
 }
 } // namespace
 
+auto Typechecker::narrowUnionByExcludingMembers(Type* unionTy,
+                                                const std::vector<Type*>& toExclude) -> Type* {
+  if (unionTy == nullptr || !unionTy->is(BaseType::TY_UNION)) {
+    return nullptr;
+  }
+  std::vector<Type*> remainder = unionTy->getUnionMembers();
+  unsigned removed = 0U;
+  for (Type* ex : toExclude) {
+    if (ex == nullptr) {
+      continue;
+    }
+    auto it = std::ranges::find_if(remainder,
+                                   [ex](Type* m) { return m != nullptr && m->isEqual(ex); });
+    if (it != remainder.end()) {
+      remainder.erase(it);
+      ++removed;
+    }
+  }
+  if (removed == 0U || remainder.empty()) {
+    return nullptr;
+  }
+  if (remainder.size() == 1U) {
+    return remainder.front();
+  }
+  std::ranges::sort(remainder, [](Type* a, Type* b) { return a->toString() < b->toString(); });
+  std::string displayName;
+  for (size_t i = 0; i < remainder.size(); ++i) {
+    if (i > 0U) {
+      displayName += " | ";
+    }
+    displayName += remainder[i]->toString();
+  }
+  auto u = std::make_unique<Type>(BaseType::TY_UNION);
+  u->setDisplayName(displayName);
+  u->setUnionMembers(std::move(remainder));
+  return cacheType(std::move(u));
+}
+
 auto Typechecker::fillUnionNarrowingForIfBlock(const If* node, unsigned blockIndex,
                                                std::unordered_map<Value*, Type*>& out) -> void {
   if (blockIndex >= node->getBlocks().size()) {
@@ -2795,12 +2818,50 @@ auto Typechecker::fillUnionNarrowingForIfBlock(const If* node, unsigned blockInd
     if (blockIndex == 0) {
       return;
     }
-    auto* is0 = dynamic_cast<const IsOp*>(node->getConds()[0]);
+    const auto* is0 = dynamic_cast<const IsOp*>(node->getConds()[0]);
     if (is0 == nullptr) {
       return;
     }
     Value* sym = tryGetIsOpVarSymbol(is0, scope);
     if (sym == nullptr || sym->getType() == nullptr || !sym->getType()->is(BaseType::TY_UNION)) {
+      return;
+    }
+    Type* unionTy = sym->getType();
+    auto isUnionMember = [unionTy](Type* rhs) -> bool {
+      if (rhs == nullptr) {
+        return false;
+      }
+      for (Type* m : unionTy->getUnionMembers()) {
+        if (m->isEqual(rhs)) {
+          return true;
+        }
+      }
+      return false;
+    };
+    std::vector<Type*> excluded;
+    for (unsigned i = 0; i < blockIndex; ++i) {
+      const auto* isPrev = dynamic_cast<const IsOp*>(node->getConds()[i]);
+      if (isPrev == nullptr || isPrev->getOperator() != TokenType::IS) {
+        continue;
+      }
+      if (tryGetIsOpVarSymbol(isPrev, scope) != sym) {
+        continue;
+      }
+      Type* rhsPrev = nullptr;
+      try {
+        rhsPrev = resolveType(isPrev->getRight());
+      } catch (const TypeCheckError&) {
+        continue;
+      }
+      if (isUnionMember(rhsPrev)) {
+        excluded.push_back(rhsPrev);
+      }
+    }
+    if (!excluded.empty()) {
+      Type* narrowed = narrowUnionByExcludingMembers(unionTy, excluded);
+      if (narrowed != nullptr) {
+        out[sym] = narrowed;
+      }
       return;
     }
     Type* rhsTy = nullptr;
@@ -2809,17 +2870,12 @@ auto Typechecker::fillUnionNarrowingForIfBlock(const If* node, unsigned blockInd
     } catch (const TypeCheckError&) {
       return;
     }
-    if (is0->getOperator() == TokenType::IS) {
-      Type* narrowed = unionComplementMember(sym->getType(), rhsTy);
-      if (narrowed != nullptr) {
-        out[sym] = narrowed;
-      }
-    } else if (is0->getOperator() == TokenType::IS_NOT) {
+    if (is0->getOperator() == TokenType::IS_NOT && isUnionMember(rhsTy)) {
       out[sym] = rhsTy;
     }
     return;
   }
-  auto* is = dynamic_cast<const IsOp*>(cond);
+  const auto* is = dynamic_cast<const IsOp*>(cond);
   if (is == nullptr) {
     return;
   }
@@ -2827,6 +2883,18 @@ auto Typechecker::fillUnionNarrowingForIfBlock(const If* node, unsigned blockInd
   if (sym == nullptr || sym->getType() == nullptr || !sym->getType()->is(BaseType::TY_UNION)) {
     return;
   }
+  Type* unionTy = sym->getType();
+  auto isUnionMember = [unionTy](Type* rhs) -> bool {
+    if (rhs == nullptr) {
+      return false;
+    }
+    for (Type* m : unionTy->getUnionMembers()) {
+      if (m->isEqual(rhs)) {
+        return true;
+      }
+    }
+    return false;
+  };
   Type* rhsTy = nullptr;
   try {
     rhsTy = resolveType(is->getRight());
@@ -2834,20 +2902,37 @@ auto Typechecker::fillUnionNarrowingForIfBlock(const If* node, unsigned blockInd
     return;
   }
   if (is->getOperator() == TokenType::IS) {
-    bool member = false;
-    for (Type* m : sym->getType()->getUnionMembers()) {
-      if (m->isEqual(rhsTy)) {
-        member = true;
-        break;
-      }
-    }
-    if (member) {
+    if (isUnionMember(rhsTy)) {
       out[sym] = rhsTy;
     }
   } else if (is->getOperator() == TokenType::IS_NOT) {
-    Type* narrowed = unionComplementMember(sym->getType(), rhsTy);
-    if (narrowed != nullptr) {
-      out[sym] = narrowed;
+    std::vector<Type*> excluded;
+    for (unsigned i = 0; i < blockIndex; ++i) {
+      const auto* isPrev = dynamic_cast<const IsOp*>(node->getConds()[i]);
+      if (isPrev == nullptr || isPrev->getOperator() != TokenType::IS) {
+        continue;
+      }
+      if (tryGetIsOpVarSymbol(isPrev, scope) != sym) {
+        continue;
+      }
+      Type* rhsPrev = nullptr;
+      try {
+        rhsPrev = resolveType(isPrev->getRight());
+      } catch (const TypeCheckError&) {
+        continue;
+      }
+      if (isUnionMember(rhsPrev)) {
+        excluded.push_back(rhsPrev);
+      }
+    }
+    if (isUnionMember(rhsTy)) {
+      excluded.push_back(rhsTy);
+    }
+    if (!excluded.empty()) {
+      Type* narrowed = narrowUnionByExcludingMembers(unionTy, excluded);
+      if (narrowed != nullptr) {
+        out[sym] = narrowed;
+      }
     }
   }
 }
