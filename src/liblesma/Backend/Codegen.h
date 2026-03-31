@@ -140,6 +140,7 @@ class Codegen final : public ASTVisitor {
   bool isJit = false;
   bool isMain = true;
   bool emitDebugInfo = false;
+  std::size_t lambdaCounter = 0U;
   llvm::OptimizationLevel optimizationLevelForDebug = llvm::OptimizationLevel::O3;
 
   std::unique_ptr<llvm::DIBuilder> diBuilder;
@@ -258,6 +259,7 @@ protected:
 
   auto visit(const Expression* node) -> void override;
   auto visit(const FuncCall* node) -> void override;
+  auto visit(const LambdaExpr* node) -> void override;
   auto visit(const BinaryOp* node) -> void override;
   auto visit(const SubscriptOp* node) -> void override;
   auto visit(const DotOp* node) -> void override;

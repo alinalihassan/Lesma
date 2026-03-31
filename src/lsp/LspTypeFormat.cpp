@@ -2,6 +2,7 @@
 
 #include <functional>
 #include <string>
+#include <vector>
 
 #include "liblesma/Symbol/SymbolTable.h"
 #include "liblesma/Symbol/Type.h"
@@ -9,6 +10,10 @@
 
 namespace lesma::lsp_srv {
 using namespace lesma;
+
+namespace {
+auto formatFunctionTypeAsLesma(Type* type, SymbolTable* rootScope) -> std::string;
+}
 
 auto getTypeName(Type* type, SymbolTable* rootScope) -> std::string {
   if (type == nullptr || rootScope == nullptr) {
@@ -48,6 +53,9 @@ auto formatTypeName(Type* type, SymbolTable* rootScope) -> std::string {
   if (type == nullptr) {
     return "?";
   }
+  if (type->is(BaseType::TY_FUNCTION)) {
+    return formatFunctionTypeAsLesma(type, rootScope);
+  }
   std::string namedType = getTypeName(type, rootScope);
   if (!namedType.empty()) {
     return namedType;
@@ -86,6 +94,44 @@ auto formatTypeName(Type* type, SymbolTable* rootScope) -> std::string {
   }
   return type->toString();
 }
+
+namespace {
+
+auto formatFunctionTypeAsLesma(Type* type, SymbolTable* rootScope) -> std::string {
+  if (type == nullptr || !type->is(BaseType::TY_FUNCTION)) {
+    return {};
+  }
+  std::string out = "func(";
+  std::vector<Field*> const fields = type->getFields();
+  size_t const paramOffset =
+      (!fields.empty() && fields[0] != nullptr && fields[0]->name == "self") ? 1U : 0U;
+  bool first = true;
+  for (size_t i = paramOffset; i < fields.size(); ++i) {
+    Field* field = fields[i];
+    if (field == nullptr || field->type == nullptr) {
+      continue;
+    }
+    if (!first) {
+      out += ", ";
+    }
+    first = false;
+    out += formatTypeName(field->type, rootScope);
+  }
+  if (type->isVarArgs()) {
+    if (!first) {
+      out += ", ";
+    }
+    out += "...";
+  }
+  out += ")";
+  Type* const ret = type->getReturnType();
+  if (ret != nullptr && !ret->is(BaseType::TY_VOID)) {
+    out += " -> " + formatTypeName(ret, rootScope);
+  }
+  return out;
+}
+
+} // namespace
 
 auto formatBufferArrayTypeName(Type* arrayType, SymbolTable* rootScope) -> std::string {
   if (arrayType == nullptr || !arrayType->is(BaseType::TY_ARRAY) ||

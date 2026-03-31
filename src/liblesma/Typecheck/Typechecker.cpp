@@ -272,6 +272,13 @@ auto Typechecker::currentExpectedType() const -> Type* {
   return expectedTypes.back();
 }
 
+auto Typechecker::currentFunctionRootScope() const -> SymbolTable* {
+  if (functionScopeStack.empty()) {
+    return nullptr;
+  }
+  return functionScopeStack.back();
+}
+
 auto Typechecker::resolveMethodReturnType(Type* baseType, const std::string& methodName,
                                           const std::vector<Type*>& argTypes, llvm::SMRange span)
     -> Type* {
@@ -3146,6 +3153,7 @@ auto Typechecker::visit(const FuncDecl* node) -> void {
     // it)
     node->setResolvedSymbol(currentFunction);
     scope = currentFunction->getBodyScope();
+    functionScopeStack.push_back(scope);
     inTopLevel = false;
     auto savedTraitBounds = currentGenericParamTraitBounds;
     currentGenericParamTraitBounds.clear();
@@ -3164,6 +3172,7 @@ auto Typechecker::visit(const FuncDecl* node) -> void {
     }
     scope = scope->getParent();
     currentFunction = nullptr;
+    functionScopeStack.pop_back();
     inTopLevel = true;
   }
   scope = scope->getParent(); // pop generics scope so generic param names are not visible to outer
@@ -3896,6 +3905,101 @@ auto Typechecker::visit(const FuncCall* node) -> void {
     node->setGenericBindingEnv(localGenericTypes);
   }
   verifyGenericTraitBounds(callee, localGenericTypes, node->getSpan());
+}
+
+auto Typechecker::visit(const LambdaExpr* node) -> void {
+  std::vector<std::unique_ptr<Field>> paramFields;
+  std::vector<Type*> paramTypes;
+  for (Parameter* param : node->getParameters()) {
+    if (param->defaultVal != nullptr) {
+      throw TypeCheckError(param->nameSpan, "Lambda parameters cannot have default values");
+    }
+    if (param->type == nullptr) {
+      throw TypeCheckError(param->nameSpan, "Lambda parameter {} requires an explicit type",
+                           param->name);
+    }
+    param->type->accept(*this);
+    Type* paramType = result->getType();
+    if (paramType->is(BaseType::TY_CLASS)) {
+      paramType = cacheType(std::make_unique<Type>(BaseType::TY_PTR, nullptr, paramType));
+    }
+    paramTypes.push_back(paramType);
+    paramFields.push_back(std::make_unique<Field>(param->name, paramType));
+  }
+
+  Type* returnType = nullptr;
+  if (node->getReturnType() != nullptr) {
+    node->getReturnType()->accept(*this);
+    returnType = wrapReturnTypeIfNominal(result->getType());
+  }
+
+  auto funcType = std::make_unique<Type>(BaseType::TY_FUNCTION, nullptr, std::move(paramFields));
+  if (returnType != nullptr) {
+    funcType->setReturnType(returnType);
+  }
+  Type* funcTypePtr = cacheType(std::move(funcType));
+
+  auto lambdaName = fmt::format("__lambda_{}", lambdaCounter++);
+  auto lambdaSymbol = std::make_unique<Value>(lambdaName, funcTypePtr);
+  lambdaSymbol->setCategory(ValueCategory::CALLABLE_SYMBOL);
+  lambdaSymbol->setDeclarationKind(ValueDeclarationKind::FUNCTION);
+  lambdaSymbol->setDeclarationSpan(node->getSpan());
+  lambdaSymbol->setDeclarationFilePath(mainFilePath);
+  SymbolTable* lambdaBodyScope = scope->createChildBlock("lambda");
+  lambdaSymbol->setBodyScope(lambdaBodyScope);
+  scope->insertSymbol(std::move(lambdaSymbol));
+  Value* lambdaSymbolPtr = scope->lookup(lambdaName);
+  if (lambdaSymbolPtr == nullptr) {
+    throw TypeCheckError(node->getSpan(), "Internal error creating lambda symbol");
+  }
+  node->setResolvedSymbol(lambdaSymbolPtr);
+
+  SymbolTable* savedScope = scope;
+  scope = lambdaBodyScope;
+  for (size_t i = 0; i < node->getParameters().size(); ++i) {
+    Parameter* param = node->getParameters()[i];
+    auto paramSymbol = std::make_unique<Value>(param->name, paramTypes[i]);
+    paramSymbol->setCategory(ValueCategory::ADDRESSABLE_STORAGE);
+    paramSymbol->setDeclarationKind(ValueDeclarationKind::PARAMETER);
+    paramSymbol->setDeclarationSpan(param->nameSpan);
+    paramSymbol->setDeclarationFilePath(mainFilePath);
+    param->setResolvedSymbol(paramSymbol.get());
+    scope->insertSymbol(std::move(paramSymbol));
+  }
+
+  Value* savedFunction = currentFunction;
+  bool const savedTopLevel = inTopLevel;
+  currentFunction = lambdaSymbolPtr;
+  functionScopeStack.push_back(scope);
+  inTopLevel = false;
+  if (node->isExpressionBody()) {
+    if (returnType != nullptr) {
+      visitExprWithExpectedType(node->getExpressionBody(), returnType);
+    } else {
+      node->getExpressionBody()->accept(*this);
+      returnType = wrapReturnTypeIfNominal(result->getType());
+      lambdaSymbolPtr->getType()->setReturnType(returnType);
+    }
+  } else if (!declarationPass && node->getBlockBody() != nullptr) {
+    if (returnType == nullptr) {
+      returnType = cacheType(std::make_unique<Type>(BaseType::TY_VOID));
+      lambdaSymbolPtr->getType()->setReturnType(returnType);
+    }
+    node->getBlockBody()->accept(*this);
+    if (returnType != nullptr && !returnType->is(BaseType::TY_VOID) &&
+        !blockAlwaysReturns(node->getBlockBody())) {
+      throw TypeCheckError(node->getSpan(), "Non-void lambda may reach end without returning");
+    }
+  } else if (returnType == nullptr) {
+    returnType = cacheType(std::make_unique<Type>(BaseType::TY_VOID));
+    lambdaSymbolPtr->getType()->setReturnType(returnType);
+  }
+
+  functionScopeStack.pop_back();
+  currentFunction = savedFunction;
+  inTopLevel = savedTopLevel;
+  scope = savedScope;
+  result = std::make_unique<Value>(*lambdaSymbolPtr);
 }
 
 auto Typechecker::visit(const BinaryOp* node) -> void {
@@ -4972,6 +5076,34 @@ auto Typechecker::visit(const Literal* node) -> void {
     if (sym == nullptr) {
       throw TypeCheckError(node->getSpan(), "Unknown name: {}", node->getValue());
     }
+    if (currentFunction != nullptr && currentFunction->getName().starts_with("__lambda_")) {
+      SymbolTable* foundScope = nullptr;
+      for (SymbolTable* s = scope; s != nullptr && foundScope == nullptr; s = s->getParent()) {
+        for (Value* candidate : s->getSymbols()) {
+          if (candidate == sym) {
+            foundScope = s;
+            break;
+          }
+        }
+      }
+      if (foundScope != nullptr &&
+          (sym->getDeclarationKind() == ValueDeclarationKind::VARIABLE ||
+           sym->getDeclarationKind() == ValueDeclarationKind::PARAMETER) &&
+          foundScope->getParent() != nullptr) {
+        bool declaredInsideLambda = false;
+        for (SymbolTable* s = foundScope; s != nullptr; s = s->getParent()) {
+          if (s == currentFunctionRootScope()) {
+            declaredInsideLambda = true;
+            break;
+          }
+        }
+        if (!declaredInsideLambda) {
+          throw TypeCheckError(node->getSpan(),
+                               "Lambda captures are not supported yet (captured '{}')",
+                               node->getValue());
+        }
+      }
+    }
     node->setResolvedSymbol(sym);
     markValueRead(sym);
     result = std::make_unique<Value>(*sym);
@@ -5263,6 +5395,7 @@ auto Typechecker::typecheckTraitDefaultBodies(const Class* classNode, Type* clas
       }
       currentFunction = funcSym;
       scope = funcSym->getBodyScope();
+      functionScopeStack.push_back(scope);
       inTopLevel = false;
       auto savedTraitBounds = currentGenericParamTraitBounds;
       currentGenericParamTraitBounds.clear();
@@ -5276,6 +5409,7 @@ auto Typechecker::typecheckTraitDefaultBodies(const Class* classNode, Type* clas
       }
       scope = savedListScope;
       currentFunction = nullptr;
+      functionScopeStack.pop_back();
       inTopLevel = true;
     }
     currentGenericTypes = std::move(savedTraitGenerics);

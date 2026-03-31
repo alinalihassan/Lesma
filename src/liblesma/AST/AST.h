@@ -807,6 +807,64 @@ public:
   }
 };
 
+class LambdaExpr : public Expression {
+  std::vector<std::unique_ptr<Parameter>> parameters;
+  std::unique_ptr<TypeExpr> returnType;
+  std::unique_ptr<Expression> expressionBody;
+  std::unique_ptr<Compound> blockBody;
+  mutable Value* resolvedSymbol = nullptr;
+
+public:
+  LambdaExpr(llvm::SMRange loc, std::vector<std::unique_ptr<Parameter>> parameters,
+             std::unique_ptr<TypeExpr> returnType, std::unique_ptr<Expression> expressionBody,
+             std::unique_ptr<Compound> blockBody)
+      : Expression(loc), parameters(std::move(parameters)), returnType(std::move(returnType)),
+        expressionBody(std::move(expressionBody)), blockBody(std::move(blockBody)) {}
+  void accept(ASTVisitor& visitor) const override { visitor.visit(this); }
+
+  [[nodiscard]] auto getParameters() const -> std::vector<Parameter*> {
+    std::vector<Parameter*> result;
+    result.reserve(parameters.size());
+    for (const auto& param : parameters) {
+      result.push_back(param.get());
+    }
+    return result;
+  }
+  [[nodiscard]] auto getReturnType() const -> TypeExpr* { return returnType.get(); }
+  [[nodiscard]] auto isExpressionBody() const -> bool { return expressionBody != nullptr; }
+  [[nodiscard]] auto getExpressionBody() const -> Expression* { return expressionBody.get(); }
+  [[nodiscard]] auto getBlockBody() const -> Compound* { return blockBody.get(); }
+  [[nodiscard]] auto getResolvedSymbol() const -> Value* { return resolvedSymbol; }
+  auto setResolvedSymbol(Value* v) const -> void { resolvedSymbol = v; }
+
+  auto toString(llvm::SourceMgr* srcMgr, const std::string& prefix, bool isTail) const
+      -> std::string override {
+    std::string ret = fmt::format("{}{}LambdaExpr[Line({}-{}):Col({}-{})]: func(", prefix,
+                                  isTail ? "└──" : "├──",
+                                  srcMgr->getLineAndColumn(getStart()).first,
+                                  srcMgr->getLineAndColumn(getEnd()).first,
+                                  srcMgr->getLineAndColumn(getStart()).second,
+                                  srcMgr->getLineAndColumn(getEnd()).second);
+    for (size_t i = 0; i < parameters.size(); ++i) {
+      Parameter* p = parameters[i].get();
+      ret += p->name + ": " + (p->type != nullptr ? p->type->toString(srcMgr, prefix, isTail) : "?");
+      if (i + 1U < parameters.size()) {
+        ret += ", ";
+      }
+    }
+    ret += ")";
+    if (returnType != nullptr) {
+      ret += " -> " + returnType->toString(srcMgr, prefix, isTail);
+    }
+    if (expressionBody != nullptr) {
+      ret += " => " + expressionBody->toString(srcMgr, prefix, true);
+    } else if (blockBody != nullptr) {
+      ret += "\n" + blockBody->toString(srcMgr, prefix + (isTail ? "    " : "│   "), true);
+    }
+    return ret;
+  }
+};
+
 class FuncCall : public Expression {
   std::string name;
   std::vector<std::unique_ptr<TypeExpr>> explicitTypeArgs;

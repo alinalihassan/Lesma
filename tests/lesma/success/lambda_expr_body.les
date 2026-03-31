@@ -1,0 +1,8 @@
+func apply(callback: func(int) -> int, value: int) -> int {
+    return callback(value)
+}
+
+let inc = func(x: int) => x + 1
+if apply(inc, 41) != 42 {
+    exit(1)
+}

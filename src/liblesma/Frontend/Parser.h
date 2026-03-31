@@ -134,6 +134,7 @@ private:
   auto parseUnary() -> std::unique_ptr<Expression>;
   auto parseTerm() -> std::unique_ptr<Expression>;
   auto parseStringInterpolation() -> std::unique_ptr<Expression>;
+  auto parseLambda() -> std::unique_ptr<Expression>;
   auto parseFunctionCall() -> std::unique_ptr<Expression>;
   auto parseListLiteral() -> std::unique_ptr<Expression>;
   auto parseDictLiteral() -> std::unique_ptr<Expression>;

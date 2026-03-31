@@ -178,6 +178,10 @@ auto resolvedTypeForExpr(const Expression* expr) -> Type* {
                ? resolvedSymbol->getType()->getReturnType()
                : nullptr;
   }
+  if (auto const* lambda = dynamic_cast<const LambdaExpr*>(expr)) {
+    Value* const resolvedSymbol = lambda->getResolvedSymbol();
+    return resolvedSymbol != nullptr ? resolvedSymbol->getType() : nullptr;
+  }
   if (auto const* castOp = dynamic_cast<const CastOp*>(expr)) {
     return resolvedTypeForExpr(castOp->getType());
   }
@@ -375,6 +379,21 @@ auto collectIndexFromExpr(const Expression* expr, AnalysisIndex& index) -> void 
     }
     for (Expression* arg : call->getArguments()) {
       collectIndexFromExpr(arg, index);
+    }
+    return;
+  }
+  if (auto const* lambda = dynamic_cast<const LambdaExpr*>(expr)) {
+    for (Parameter* param : lambda->getParameters()) {
+      appendIndexedOccurrence(index, param->name, std::nullopt, param->nameSpan, false, false,
+                              analysis_index_modifier::DECLARATION, IndexedTokenKind::Parameter,
+                              param->getResolvedSymbol());
+      collectIndexFromTypeExpr(param->type.get(), index);
+    }
+    collectIndexFromTypeExpr(lambda->getReturnType(), index);
+    if (lambda->isExpressionBody()) {
+      collectIndexFromExpr(lambda->getExpressionBody(), index);
+    } else {
+      collectIndexFromStmt(lambda->getBlockBody(), index, false);
     }
     return;
   }

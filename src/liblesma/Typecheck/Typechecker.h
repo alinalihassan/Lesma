@@ -57,6 +57,8 @@ class Typechecker final : public ASTVisitor {
   bool inTopLevel = true;
   bool declarationPass = false;
   std::unordered_map<std::string, Type*> currentGenericTypes;
+  std::size_t lambdaCounter = 0U;
+  std::vector<SymbolTable*> functionScopeStack;
   /** Specialized class types: key = template toString + "|" + concrete types,
    * value = Type* with concrete fields. */
   std::unordered_map<std::string, Type*> specializedClassTypes;
@@ -143,6 +145,7 @@ class Typechecker final : public ASTVisitor {
   auto insertImportedVariableAlias(const std::string& resolvedPath, const std::string& exportedName,
                                    const std::string& localName) -> void;
   void validateParameterDefaultOrdering(llvm::SMRange span, const std::vector<Parameter*>& params);
+  [[nodiscard]] auto currentFunctionRootScope() const -> SymbolTable*;
   /** Get or create a specialized class type by substituting env into template's
    * fields. */
   auto getOrCreateSpecializedClassType(Type* classTemplate,
@@ -311,6 +314,7 @@ public:
 
   auto visit(const Expression* node) -> void override;
   auto visit(const FuncCall* node) -> void override;
+  auto visit(const LambdaExpr* node) -> void override;
   auto visit(const BinaryOp* node) -> void override;
   auto visit(const SubscriptOp* node) -> void override;
   auto visit(const DotOp* node) -> void override;

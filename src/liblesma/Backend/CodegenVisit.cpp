@@ -1914,6 +1914,96 @@ auto Codegen::visit(const FuncCall* node) -> void {
   result = genFuncCall(node, {});
 }
 
+auto Codegen::visit(const LambdaExpr* node) -> void {
+  setDebugLoc(node->getSpan());
+  Value* resolved = node->getResolvedSymbol();
+  if (resolved == nullptr || resolved->getType() == nullptr ||
+      !resolved->getType()->is(BaseType::TY_FUNCTION)) {
+    throw CodegenError(node->getSpan(), "Lambda has no resolved function type");
+  }
+  auto* fnType = resolved->getType();
+  std::vector<Field*> fields = fnType->getFields();
+  std::vector<llvm::Type*> paramLLVMTypes;
+  paramLLVMTypes.reserve(fields.size());
+  for (Field* field : fields) {
+    getOrCreateLlvmType(field->type);
+    paramLLVMTypes.push_back(field->type->getLlvmType());
+  }
+  Type* retType = fnType->getReturnType();
+  if (retType == nullptr) {
+    retType = cacheType(std::make_unique<Type>(BaseType::TY_VOID, builder->getVoidTy()));
+    fnType->setReturnType(retType);
+  }
+  getOrCreateLlvmType(retType);
+  llvm::Type* llvmReturnType =
+      retType->is(BaseType::TY_CLASS) || retType->is(BaseType::TY_PTR) ? builder->getPtrTy()
+                                                                        : retType->getLlvmType();
+  auto lambdaName = fmt::format("__lambda_{}_{}", lambdaCounter++, sourceManager->getLineAndColumn(
+                                                               node->getSpan().Start)
+                                                               .first);
+  llvm::FunctionType* llvmFnType = FunctionType::get(llvmReturnType, paramLLVMTypes, false);
+  Function* f =
+      Function::Create(llvmFnType, llvm::GlobalValue::PrivateLinkage, lambdaName, *theModule);
+  resolved->setLlvmValue(f);
+  resolved->setMangledName(lambdaName);
+
+  SymbolTable* savedScope = scope;
+  Value* savedCurrentFunction = currentFunction;
+  scope = resolved->getBodyScope() != nullptr ? resolved->getBodyScope() : savedScope;
+  currentFunction = resolved;
+  deferStack.emplace();
+  BasicBlock* entry = BasicBlock::Create(theModule->getContext(), "entry", f);
+  builder->SetInsertPoint(entry);
+  setDebugLoc(node->getSpan());
+
+  for (size_t i = 0; i < fields.size(); ++i) {
+    Field* field = fields[i];
+    auto* arg = f->getArg(static_cast<unsigned>(i));
+    Value* paramSymbol = scope->lookup(field->name);
+    if (paramSymbol == nullptr) {
+      continue;
+    }
+    llvm::Function* parentFct = builder->GetInsertBlock()->getParent();
+    llvm::AllocaInst* alloca = createAllocaInEntry(parentFct, arg->getType(), field->name);
+    builder->CreateStore(arg, alloca);
+    paramSymbol->setLlvmValue(alloca);
+  }
+
+  if (node->isExpressionBody()) {
+    node->getExpressionBody()->accept(*this);
+    llvm::Value* rv = result != nullptr ? result->getLlvmValue() : nullptr;
+    if (retType->is(BaseType::TY_VOID)) {
+      builder->CreateRetVoid();
+    } else {
+      if (rv == nullptr) {
+        throw CodegenError(node->getSpan(), "Lambda expression body did not produce a value");
+      }
+      builder->CreateRet(rv);
+    }
+  } else if (node->getBlockBody() != nullptr) {
+    node->getBlockBody()->accept(*this);
+    if (builder->GetInsertBlock()->getTerminator() == nullptr) {
+      if (retType->is(BaseType::TY_VOID)) {
+        builder->CreateRetVoid();
+      } else {
+        throw CodegenError(node->getSpan(), "Non-void lambda may reach end without returning");
+      }
+    }
+  }
+
+  std::string verifyOutput;
+  llvm::raw_string_ostream oss(verifyOutput);
+  if (llvm::verifyFunction(*f, &oss)) {
+    throw CodegenError(node->getSpan(), "Invalid lambda function {}\n{}", lambdaName, verifyOutput);
+  }
+  scope = savedScope;
+  currentFunction = savedCurrentFunction;
+  deferStack.pop();
+  builder->SetInsertPoint(&topLevelFunc->back());
+  builder->SetCurrentDebugLocation(llvm::DebugLoc());
+  result = std::make_unique<Value>(*resolved);
+}
+
 auto Codegen::visit(const BinaryOp* node) -> void {
   setDebugLoc(node->getSpan());
   node->getLeft()->accept(*this);
@@ -3943,16 +4033,44 @@ auto Codegen::callNamedFunction(llvm::SMRange span, const std::string& functionN
     }
     callableValue = symbol->getLlvmValue();
   }
-  auto* func = llvm::cast<Function>(callableValue);
+  auto emitIndirectCall = [&](llvm::Value* calleePtr) -> llvm::CallInst* {
+    std::vector<llvm::Type*> callParamTypes;
+    callParamTypes.reserve(localParamTypes.size());
+    for (auto* t : localParamTypes) {
+      getOrCreateLlvmType(t);
+      callParamTypes.push_back(t->getLlvmType());
+    }
+    Type* retType = symbol->getType()->getReturnType();
+    if (retType == nullptr) {
+      retType = cacheType(std::make_unique<Type>(BaseType::TY_VOID, builder->getVoidTy()));
+      symbol->getType()->setReturnType(retType);
+    }
+    getOrCreateLlvmType(retType);
+    llvm::Type* llvmRetType =
+        retType->is(BaseType::TY_CLASS) || retType->is(BaseType::TY_PTR) ? builder->getPtrTy()
+                                                                          : retType->getLlvmType();
+    llvm::FunctionType* callTy = llvm::FunctionType::get(llvmRetType, callParamTypes, false);
+    return builder->CreateCall(callTy, calleePtr, localParamsLLVM);
+  };
+
+  llvm::CallInst* callInst = nullptr;
+  if (auto* func = llvm::dyn_cast<Function>(callableValue)) {
+    callInst = builder->CreateCall(func, localParamsLLVM);
+  } else {
+    llvm::Value* calleePtr = callableValue;
+    if (symbol->getCategory() == ValueCategory::ADDRESSABLE_STORAGE) {
+      calleePtr = builder->CreateLoad(builder->getPtrTy(), callableValue, functionName + ".fn");
+    }
+    callInst = emitIndirectCall(calleePtr);
+  }
+
   if (classSym != nullptr && classSym->getType()->is(BaseType::TY_CLASS)) {
-    builder->CreateCall(func, localParamsLLVM);
     selfSymbol = selfSymbolTmp;
     return std::make_unique<Value>("", classSym->getType(), classPtr);
   }
 
   selfSymbol = selfSymbolTmp;
-  return std::make_unique<Value>("", symbol->getType()->getReturnType(),
-                                 builder->CreateCall(func, localParamsLLVM));
+  return std::make_unique<Value>("", symbol->getType()->getReturnType(), callInst);
 }
 
 auto Codegen::isBuiltinListBuiltinMethodName(const std::string& methodName) const -> bool {
