@@ -102,6 +102,47 @@ void insertGenericParamSymbols(SymbolTable* genericsScope,
                              dynamic_cast<const Continue*>(stmt) != nullptr);
 }
 
+/** Compares override soundness for a vtable slot: same trailing parameters and return type as the
+ *  inherited callable; receiver (field 0) may differ structurally (subclass `self`). */
+[[nodiscard]] auto virtualOverrideSignaturesMatch(Type* derivedFn, Type* baseFn) -> bool {
+  if (derivedFn == nullptr || baseFn == nullptr) {
+    return false;
+  }
+  if (!derivedFn->is(BaseType::TY_FUNCTION) || !baseFn->is(BaseType::TY_FUNCTION)) {
+    return false;
+  }
+  if (!derivedFn->functionGenericSignatureEqual(baseFn)) {
+    return false;
+  }
+  auto df = derivedFn->getFields();
+  auto bf = baseFn->getFields();
+  if (df.size() != bf.size()) {
+    return false;
+  }
+  for (size_t i = 1; i < df.size(); ++i) {
+    Type* dt = df[i]->type;
+    Type* bt = bf[i]->type;
+    if (dt == nullptr || bt == nullptr) {
+      if (dt != bt) {
+        return false;
+      }
+      continue;
+    }
+    if (!dt->isEqual(bt)) {
+      return false;
+    }
+  }
+  Type* dr = derivedFn->getReturnType();
+  Type* br = baseFn->getReturnType();
+  if (dr == nullptr && br == nullptr) {
+    return true;
+  }
+  if (dr == nullptr || br == nullptr) {
+    return false;
+  }
+  return dr->isEqual(br);
+}
+
 } // namespace
 
 auto Typechecker::traitExistentialBaseName(const std::string& displayName) -> std::string {
@@ -140,6 +181,40 @@ auto Typechecker::vtableMethodKey(const Value* methodSymbol) -> std::string {
     key += "|" + (field != nullptr && field->type != nullptr ? field->type->toString() : "?");
   }
   return key;
+}
+
+auto Typechecker::findInheritedVirtualMethodSymbol(SymbolTable* moduleScope, Type* subclassTy,
+                                                   std::string const& name, Value* derivedSym)
+    -> Value* {
+  if (moduleScope == nullptr || subclassTy == nullptr || derivedSym == nullptr) {
+    return nullptr;
+  }
+  Type* derivedFnTy = derivedSym->getType();
+  if (derivedFnTy == nullptr || !derivedFnTy->is(BaseType::TY_FUNCTION)) {
+    return nullptr;
+  }
+  std::vector<Field*> const fields = derivedFnTy->getFields();
+  if (fields.empty()) {
+    return nullptr;
+  }
+  std::vector<Type*> tailParams;
+  tailParams.reserve(fields.size() > 1U ? fields.size() - 1U : 0U);
+  for (size_t i = 1; i < fields.size(); ++i) {
+    tailParams.push_back(fields[i]->type);
+  }
+  for (Type* walk = subclassTy->getClassSuperclass(); walk != nullptr;
+       walk = walk->getClassSuperclass()) {
+    Type* selfPtr = cacheType(std::make_unique<Type>(BaseType::TY_PTR, nullptr, walk));
+    std::vector<Type*> lookupTypes;
+    lookupTypes.reserve(1U + tailParams.size());
+    lookupTypes.push_back(selfPtr);
+    lookupTypes.insert(lookupTypes.end(), tailParams.begin(), tailParams.end());
+    if (Value* hit =
+            moduleScope->lookupFunction(name, lookupTypes, FunctionLookupKind::OVERLOAD_IDENTITY)) {
+      return hit;
+    }
+  }
+  return nullptr;
 }
 
 auto Typechecker::classLexicalScopeMatchesForPrivate(Type* contextClass, Type* declaredIn) -> bool {
@@ -2824,7 +2899,8 @@ void Typechecker::registerSynthesizedClassConstructor(const Class* node, Type* c
   }
 }
 
-void Typechecker::mergeClassVtableOrder(const Class* node, Type* classTy) {
+void Typechecker::mergeClassVtableOrder(const Class* node, Type* classTy,
+                                        SymbolTable* methodLookupScope) {
   std::vector<std::string> order;
   std::unordered_map<std::string, size_t> slotIndex;
   if (Type* sup = classTy->getClassSuperclass()) {
@@ -2845,11 +2921,27 @@ void Typechecker::mergeClassVtableOrder(const Class* node, Type* classTy) {
     if (methodKey.empty()) {
       methodKey = m->getName();
     }
-    if (slotIndex.count(methodKey) != 0U) {
+    if (slotIndex.contains(methodKey)) {
       if (!m->getDeclaresOverload()) {
         throw TypeCheckError(m->getNameSpan(),
                              "Method overrides an inherited method; add the `overload` keyword "
                              "before `func`");
+      }
+      Value* derivedSym = m->getResolvedSymbol();
+      if (derivedSym != nullptr && methodLookupScope != nullptr) {
+        Value* baseSym =
+            findInheritedVirtualMethodSymbol(methodLookupScope, classTy, m->getName(), derivedSym);
+        if (baseSym != nullptr) {
+          Type* derivedTy = derivedSym->getType();
+          Type* baseTy = baseSym->getType();
+          if (!virtualOverrideSignaturesMatch(derivedTy, baseTy)) {
+            throw TypeCheckError(m->getNameSpan(),
+                                 "Method override must match inherited signature (parameters after "
+                                 "`self` and return type); inherited {}, overriding {}",
+                                 baseTy != nullptr ? baseTy->toString() : std::string("?"),
+                                 derivedTy != nullptr ? derivedTy->toString() : std::string("?"));
+          }
+        }
       }
       continue;
     }
@@ -3005,7 +3097,7 @@ auto Typechecker::visit(const Class* node) -> void {
   currentMethodInsertScope = savedMethodInsertScope;
 
   if (declarationPass) {
-    mergeClassVtableOrder(node, classTypePtr);
+    mergeClassVtableOrder(node, classTypePtr, outerScope);
     bool hasExplicitNew = false;
     for (FuncDecl* m : node->getMethods()) {
       if (m->getName() == "new") {

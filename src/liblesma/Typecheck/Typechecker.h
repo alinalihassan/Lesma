@@ -253,7 +253,12 @@ class Typechecker final : public ASTVisitor {
   void registerSynthesizedClassConstructor(const Class* node, Type* classTypePtr,
                                            SymbolTable* outerScope);
   /** Merge superclass vtable slots with methods declared on \p classTy (see \c Class). */
-  void mergeClassVtableOrder(const Class* node, Type* classTy);
+  void mergeClassVtableOrder(const Class* node, Type* classTy, SymbolTable* methodLookupScope);
+  /** Resolve an inherited method symbol for the same logical overload as \p derivedSym (walks
+   *  superclasses; receiver type varies, tail parameter types must match OVERLOAD_IDENTITY). */
+  [[nodiscard]] auto findInheritedVirtualMethodSymbol(SymbolTable* moduleScope, Type* subclassTy,
+                                                      std::string const& name, Value* derivedSym)
+      -> Value*;
 
 public:
   /** Typecheck with no import * resolution. */
