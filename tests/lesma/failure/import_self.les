@@ -1,0 +1,2 @@
+# Self-import must be rejected (circular import)
+import "import_self.les"

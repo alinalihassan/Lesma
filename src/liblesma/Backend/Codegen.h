@@ -92,6 +92,8 @@ class Codegen final : public ASTVisitor {
   std::stack<llvm::BasicBlock*> breakBlocks;
   std::stack<llvm::BasicBlock*> continueBlocks;
   std::stack<std::vector<Statement*>> deferStack;
+  /** \c deferStack.size() after \c deferStack.emplace() for the current module/callable unit. */
+  std::stack<size_t> deferBaselineStack;
   lesma::Value* currentFunction = nullptr;
 
   std::vector<std::string> objectFiles;
@@ -259,6 +261,12 @@ protected:
   auto visit(const Defer* node) -> void override;
   /** Emit deferred statements in LIFO order (last \c defer registered runs first). */
   auto runDeferredStatements(std::vector<Statement*> const& stmts) -> void;
+  /** Call after \c deferStack.emplace() for module / function / lambda / ctor bodies. */
+  auto pushDeferBaseline() -> void;
+  /** Run defers for all active loop frames, then this callable's defer list (for \c return). */
+  auto flushDeferredFramesForReturn() -> void;
+  /** End of loop iteration / \c break / \c continue: run and pop one loop defer frame if any. */
+  auto finishLoopDeferFrameIfAny() -> void;
   auto visit(const UnimplementedStatement* node) -> void override;
   auto visit(const ExpressionStatement* node) -> void override;
 

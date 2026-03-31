@@ -300,6 +300,7 @@ auto Codegen::defineFunction(lesma::Value* value, const FuncDecl* node, Value* c
   };
   currentFunction = value;
   deferStack.emplace();
+  pushDeferBaseline();
 
   if (value->getLlvmValue() == nullptr) {
     throw CodegenError(node->getSpan(), "Function {} is declared but has no LLVM body",
@@ -386,6 +387,7 @@ auto Codegen::defineFunction(lesma::Value* value, const FuncDecl* node, Value* c
 
   auto instrs = deferStack.top();
   deferStack.pop();
+  deferBaselineStack.pop();
 
   if (!isReturn) {
     runDeferredStatements(instrs);
@@ -445,6 +447,7 @@ auto Codegen::defineLambdaFunction(lesma::Value* value, const LambdaExpr* node) 
   };
   currentFunction = value;
   deferStack.emplace();
+  pushDeferBaseline();
 
   if (value->getLlvmValue() == nullptr) {
     throw CodegenError(node->getSpan(), "Lambda specialization has no LLVM function");
@@ -509,6 +512,7 @@ auto Codegen::defineLambdaFunction(lesma::Value* value, const LambdaExpr* node) 
     node->getExpressionBody()->accept(*this);
     llvm::Value* rv = result != nullptr ? result->getLlvmValue() : nullptr;
     Type* rt = value->getType()->getReturnType();
+    flushDeferredFramesForReturn();
     if (rt != nullptr && rt->is(BaseType::TY_VOID)) {
       builder->CreateRetVoid();
     } else {
@@ -522,6 +526,7 @@ auto Codegen::defineLambdaFunction(lesma::Value* value, const LambdaExpr* node) 
     if (builder->GetInsertBlock()->getTerminator() == nullptr) {
       Type* rt = value->getType()->getReturnType();
       if (rt != nullptr && rt->is(BaseType::TY_VOID)) {
+        flushDeferredFramesForReturn();
         builder->CreateRetVoid();
       } else {
         throw CodegenError(node->getSpan(), "Non-void lambda may reach end without returning");
@@ -529,11 +534,8 @@ auto Codegen::defineLambdaFunction(lesma::Value* value, const LambdaExpr* node) 
     }
   }
 
-  auto instrs = deferStack.top();
   deferStack.pop();
-  if (!isReturn) {
-    runDeferredStatements(instrs);
-  }
+  deferBaselineStack.pop();
 
   for (BasicBlock& bb : *f) {
     if (bb.getTerminator() != nullptr) {
@@ -905,9 +907,9 @@ auto Codegen::visit(const If* node) -> void {
 
   if (!isBreak) {
     builder->SetInsertPoint(bEnd);
-  } else {
-    isBreak = false;
   }
+  // Do not clear `isBreak` here: break/continue set it so the enclosing loop skips its tail
+  // (e.g. a second `finishLoopDeferFrameIfAny`). While/ForIn reset the flag.
 }
 
 auto Codegen::visit(const While* node) -> void {
@@ -934,13 +936,18 @@ auto Codegen::visit(const While* node) -> void {
   // Fill while body block
   bLoop->insertInto(parentFct);
   builder->SetInsertPoint(bLoop);
+  size_t const deferDepthBeforeLoop = deferStack.size();
+  deferStack.emplace();
   node->getBlock()->accept(*this);
 
-  if (!isBreak) {
+  // Fall-through paths (e.g. an if's false branch followed by i++) still need the per-iteration
+  // defer flush and the back-edge; break/continue already terminated their block.
+  if (builder->GetInsertBlock() != nullptr &&
+      builder->GetInsertBlock()->getTerminator() == nullptr) {
+    finishLoopDeferFrameIfAny();
     builder->CreateBr(bCond);
-  } else {
-    isBreak = false;
   }
+  isBreak = false;
 
   // Fill loop end block
   bEnd->insertInto(parentFct);
@@ -948,6 +955,10 @@ auto Codegen::visit(const While* node) -> void {
 
   breakBlocks.pop();
   continueBlocks.pop();
+
+  while (deferStack.size() > deferDepthBeforeLoop) {
+    deferStack.pop();
+  }
 }
 
 auto Codegen::classTypeDeclaresIterable(lesma::Type* classTy) const -> bool {
@@ -1032,6 +1043,8 @@ auto Codegen::visit(const ForIn* node) -> void {
   continueBlocks.push(bInc);
   builder->CreateBr(bCond);
 
+  size_t const deferDepthBeforeLoop = deferStack.size();
+
   if (useArrayIndex) {
     bCond->insertInto(parentFct);
     builder->SetInsertPoint(bCond);
@@ -1045,14 +1058,16 @@ auto Codegen::visit(const ForIn* node) -> void {
     auto* elemVal = builder->CreateLoad(getListStoredElementType(listType), elemPtr);
     builder->CreateStore(elemVal, loopVar->getLlvmValue());
     scope = node->getBodyScope() != nullptr ? node->getBodyScope() : scope;
+    deferStack.emplace();
     node->getBlock()->accept(*this);
     scope = savedScope;
 
-    if (!isBreak) {
+    if (builder->GetInsertBlock() != nullptr &&
+        builder->GetInsertBlock()->getTerminator() == nullptr) {
+      finishLoopDeferFrameIfAny();
       builder->CreateBr(bInc);
-    } else {
-      isBreak = false;
     }
+    isBreak = false;
 
     bInc->insertInto(parentFct);
     builder->SetInsertPoint(bInc);
@@ -1071,14 +1086,16 @@ auto Codegen::visit(const ForIn* node) -> void {
     auto nextValue = callMethodByName(node->getSpan(), iteratorValue.get(), "next");
     builder->CreateStore(nextValue->getLlvmValue(), loopVar->getLlvmValue());
     scope = node->getBodyScope() != nullptr ? node->getBodyScope() : scope;
+    deferStack.emplace();
     node->getBlock()->accept(*this);
     scope = savedScope;
 
-    if (!isBreak) {
+    if (builder->GetInsertBlock() != nullptr &&
+        builder->GetInsertBlock()->getTerminator() == nullptr) {
+      finishLoopDeferFrameIfAny();
       builder->CreateBr(bInc);
-    } else {
-      isBreak = false;
     }
+    isBreak = false;
 
     bInc->insertInto(parentFct);
     builder->SetInsertPoint(bInc);
@@ -1089,6 +1106,10 @@ auto Codegen::visit(const ForIn* node) -> void {
   builder->SetInsertPoint(bEnd);
   breakBlocks.pop();
   continueBlocks.pop();
+
+  while (deferStack.size() > deferDepthBeforeLoop) {
+    deferStack.pop();
+  }
 }
 
 auto Codegen::buildClassMethodParamTypesForLookup(const FuncDecl* node)
@@ -1294,6 +1315,7 @@ auto Codegen::defineSynthesizedClassConstructor(lesma::Value* ctorSym, const Cla
   }
   currentFunction = ctorSym;
   deferStack.emplace();
+  pushDeferBaseline();
 
   if (ctorSym->getLlvmValue() == nullptr) {
     throw CodegenError(astNode->getSpan(), "Synthesized constructor has no LLVM function");
@@ -1389,12 +1411,11 @@ auto Codegen::defineSynthesizedClassConstructor(lesma::Value* ctorSym, const Cla
     }
   }
 
+  flushDeferredFramesForReturn();
   builder->CreateRetVoid();
 
-  auto instrs = deferStack.top();
   deferStack.pop();
-
-  runDeferredStatements(instrs);
+  deferBaselineStack.pop();
 
   for (BasicBlock& bb : *f) {
     Instruction* terminator = bb.getTerminator();
@@ -1943,6 +1964,7 @@ auto Codegen::visit(const Break* node) -> void {
   auto* block = breakBlocks.top();
   isBreak = true;
 
+  finishLoopDeferFrameIfAny();
   builder->CreateBr(block);
 }
 
@@ -1955,6 +1977,7 @@ auto Codegen::visit(const Continue* node) -> void {
   auto* block = continueBlocks.top();
   isBreak = true;
 
+  finishLoopDeferFrameIfAny();
   builder->CreateBr(block);
 }
 
@@ -1967,7 +1990,7 @@ auto Codegen::visit(const Return* node) -> void {
     throw CodegenError(node->getSpan(), "Return statements are not allowed at top-level");
   }
 
-  runDeferredStatements(deferStack.top());
+  flushDeferredFramesForReturn();
 
   isReturn = true;
 
@@ -2029,6 +2052,34 @@ auto Codegen::visit(const Defer* node) -> void { deferStack.top().push_back(node
 auto Codegen::runDeferredStatements(std::vector<Statement*> const& stmts) -> void {
   for (auto it = stmts.rbegin(); it != stmts.rend(); ++it) {
     (*it)->accept(*this);
+  }
+}
+
+auto Codegen::pushDeferBaseline() -> void { deferBaselineStack.push(deferStack.size()); }
+
+auto Codegen::flushDeferredFramesForReturn() -> void {
+  if (deferBaselineStack.empty()) {
+    runDeferredStatements(deferStack.top());
+    return;
+  }
+  size_t const baseline = deferBaselineStack.top();
+  while (deferStack.size() > baseline) {
+    runDeferredStatements(deferStack.top());
+    deferStack.pop();
+  }
+  runDeferredStatements(deferStack.top());
+}
+
+auto Codegen::finishLoopDeferFrameIfAny() -> void {
+  if (deferBaselineStack.empty()) {
+    return;
+  }
+  size_t const baseline = deferBaselineStack.top();
+  if (deferStack.size() > baseline) {
+    // Loop defer vectors are registered once during codegen but must run after every dynamic
+    // iteration; the frame is popped when leaving visit(While)/visit(ForIn), or by
+    // flushDeferredFramesForReturn on return.
+    runDeferredStatements(deferStack.top());
   }
 }
 
@@ -2226,6 +2277,7 @@ auto Codegen::visit(const LambdaExpr* node) -> void {
   scope = resolved->getBodyScope() != nullptr ? resolved->getBodyScope() : savedScope;
   currentFunction = resolved;
   deferStack.emplace();
+  pushDeferBaseline();
   BasicBlock* entry = BasicBlock::Create(theModule->getContext(), "entry", f);
   builder->SetInsertPoint(entry);
   setDebugLoc(node->getSpan());
@@ -2277,6 +2329,7 @@ auto Codegen::visit(const LambdaExpr* node) -> void {
   if (node->isExpressionBody()) {
     node->getExpressionBody()->accept(*this);
     llvm::Value* rv = result != nullptr ? result->getLlvmValue() : nullptr;
+    flushDeferredFramesForReturn();
     if (retType->is(BaseType::TY_VOID)) {
       builder->CreateRetVoid();
     } else {
@@ -2288,6 +2341,7 @@ auto Codegen::visit(const LambdaExpr* node) -> void {
   } else if (node->getBlockBody() != nullptr) {
     node->getBlockBody()->accept(*this);
     if (builder->GetInsertBlock()->getTerminator() == nullptr) {
+      flushDeferredFramesForReturn();
       if (retType->is(BaseType::TY_VOID)) {
         builder->CreateRetVoid();
       } else {
@@ -2304,6 +2358,7 @@ auto Codegen::visit(const LambdaExpr* node) -> void {
   scope = savedScope;
   currentFunction = savedCurrentFunction;
   deferStack.pop();
+  deferBaselineStack.pop();
   builder->SetInsertPoint(resumeBlock);
   builder->SetCurrentDebugLocation(llvm::DebugLoc());
 

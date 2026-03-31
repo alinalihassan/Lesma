@@ -144,6 +144,29 @@ void insertGenericParamSymbols(SymbolTable* genericsScope,
   return dr->isEqual(br);
 }
 
+[[nodiscard]] auto typecheckingImportPathsInProgress() -> std::unordered_set<std::string>& {
+  thread_local std::unordered_set<std::string> paths;
+  return paths;
+}
+
+struct TypecheckImportActiveGuard {
+  std::string key;
+
+  explicit TypecheckImportActiveGuard(std::string normalizedPath)
+      : key(std::move(normalizedPath)) {
+    if (!typecheckingImportPathsInProgress().insert(key).second) {
+      throw TypeCheckError(llvm::SMRange(), "Circular import detected: {}", key);
+    }
+  }
+
+  ~TypecheckImportActiveGuard() { typecheckingImportPathsInProgress().erase(key); }
+
+  TypecheckImportActiveGuard(TypecheckImportActiveGuard const&) = delete;
+  auto operator=(TypecheckImportActiveGuard const&) -> TypecheckImportActiveGuard& = delete;
+  TypecheckImportActiveGuard(TypecheckImportActiveGuard&&) = delete;
+  auto operator=(TypecheckImportActiveGuard&&) -> TypecheckImportActiveGuard& = delete;
+};
+
 } // namespace
 
 auto Typechecker::traitExistentialBaseName(const std::string& displayName) -> std::string {
@@ -2022,11 +2045,13 @@ auto Typechecker::resolveImportPath(const std::string& filepath, bool isStd) con
 }
 
 auto Typechecker::getOrTypecheckImport(const std::string& absolutePath) -> SymbolTable* {
-  auto it = importedModuleCache.find(absolutePath);
+  const std::string normPath = normalizeResolvedFilesystemPath(absolutePath);
+  auto it = importedModuleCache.find(normPath);
   if (it != importedModuleCache.end()) {
     return it->second != nullptr ? it->second->rootScope.get() : nullptr;
   }
-  auto buffer = llvm::MemoryBuffer::getFile(absolutePath);
+  TypecheckImportActiveGuard const activeGuard(normPath);
+  auto buffer = llvm::MemoryBuffer::getFile(normPath);
   if (!buffer) {
     return nullptr;
   }
@@ -2040,12 +2065,12 @@ auto Typechecker::getOrTypecheckImport(const std::string& absolutePath) -> Symbo
   if (ast == nullptr) {
     return nullptr;
   }
-  Typechecker sub(absolutePath, getExports, warningDiagnostics, srcMgr, bufferId);
+  Typechecker sub(normPath, getExports, warningDiagnostics, srcMgr, bufferId);
   sub.run(ast);
   auto imported = std::make_shared<ImportedModuleAnalysis>();
   imported->sourceMgr = std::move(srcMgr);
   imported->mainBufferId = bufferId;
-  imported->mainFilePath = absolutePath;
+  imported->mainFilePath = normPath;
   imported->parser = std::move(parser);
   imported->typeCache = sub.takeTypeCache();
   imported->rootScope = sub.takeRootScope();
@@ -2074,7 +2099,7 @@ auto Typechecker::getOrTypecheckImport(const std::string& absolutePath) -> Symbo
   imported->importedNameToSource = sub.takeImportedNameToSource();
   imported->importedModules = sub.takeImportedModules();
   SymbolTable* scopePtr = imported->rootScope.get();
-  importedModuleCache[absolutePath] = std::move(imported);
+  importedModuleCache[normPath] = std::move(imported);
   return scopePtr;
 }
 
@@ -2689,8 +2714,9 @@ auto Typechecker::registerTraitsFromImportedModule(const std::string& absolutePa
   if (absolutePath.empty()) {
     return;
   }
-  (void) getOrTypecheckImport(absolutePath);
-  auto it = importedModuleCache.find(absolutePath);
+  const std::string normPath = normalizeResolvedFilesystemPath(absolutePath);
+  (void) getOrTypecheckImport(normPath);
+  auto it = importedModuleCache.find(normPath);
   if (it == importedModuleCache.end() || it->second == nullptr || it->second->parser == nullptr) {
     return;
   }
@@ -2751,7 +2777,7 @@ auto Typechecker::visit(const Import* node) -> void {
       scope->insertSymbol(std::move(symbol));
     }
   };
-  if (node->getImportAll() && getExports) {
+  if (node->getImportAll() && node->getImportScope() && getExports) {
     ExportDiscoveryResult const discovery = getExports(node->getFilePath(), node->isStd(), mainFilePath);
     if (!discovery.failureMessage.empty()) {
       std::string const msg = fmt::format("Import * failed: {}", discovery.failureMessage);
@@ -2762,6 +2788,11 @@ auto Typechecker::visit(const Import* node) -> void {
       return;
     }
     for (const std::string& name : discovery.names) {
+      if (importedNameToSource.contains(name)) {
+        throw TypeCheckError(node->getSpan(),
+                             "Import * conflicts: `{}` is already imported from another module",
+                             name);
+      }
       addImportSymbol(name, node->getSpan());
       importedNameToSource[name] = std::make_pair(resolvedPath, name);
       insertImportedVariableAlias(resolvedPath, name, name);
@@ -4207,6 +4238,18 @@ auto Typechecker::visit(const BinaryOp* node) -> void {
   std::unique_ptr<Value> right = std::move(result);
   Type* resultType = typecheckBinaryOpResult(node->getOperator(), left->getType(), right->getType(),
                                              node->getSpan());
+  if ((node->getOperator() == TokenType::SLASH || node->getOperator() == TokenType::MOD) &&
+      left->getType() != nullptr && right->getType() != nullptr &&
+      !left->getType()->is(BaseType::TY_GENERIC) && !right->getType()->is(BaseType::TY_GENERIC)) {
+    auto* zeroLit = dynamic_cast<Literal*>(node->getRight());
+    if (zeroLit != nullptr && zeroLit->getType() == TokenType::INTEGER &&
+        zeroLit->getValue() == "0") {
+      Type* unified = getExtendedType(left->getType(), right->getType());
+      if (unified != nullptr && unified->is(BaseType::TY_INT)) {
+        throw TypeCheckError(node->getSpan(), "Division or remainder by zero");
+      }
+    }
+  }
   result = std::make_unique<Value>(resultType);
 }
 
@@ -4247,6 +4290,18 @@ auto Typechecker::visit(const SubscriptOp* node) -> void {
     if (indexType == nullptr || !indexType->is(BaseType::TY_INT)) {
       throw TypeCheckError(node->getIndex()->getSpan(), "List index must be int, got {}",
                            indexType != nullptr ? indexType->toString() : "unknown");
+    }
+    if (auto* idxLit = dynamic_cast<Literal*>(node->getIndex());
+        idxLit != nullptr && idxLit->getType() == TokenType::INTEGER) {
+      long long idxVal = 0;
+      try {
+        idxVal = std::stoll(idxLit->getValue());
+      } catch (...) {
+        throw TypeCheckError(node->getIndex()->getSpan(), "Invalid list index literal");
+      }
+      if (idxVal < 0) {
+        throw TypeCheckError(node->getIndex()->getSpan(), "List index must be non-negative");
+      }
     }
     result = std::make_unique<Value>(baseType->getElementType());
     return;

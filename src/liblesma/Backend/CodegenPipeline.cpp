@@ -608,6 +608,7 @@ auto Codegen::run() -> void {
   }
 
   deferStack.emplace();
+  pushDeferBaseline();
   if (parser->getAst() != nullptr) {
     setDebugLoc(parser->getAst()->getSpan());
   }
@@ -615,6 +616,7 @@ auto Codegen::run() -> void {
 
   auto instrs = deferStack.top();
   deferStack.pop();
+  deferBaselineStack.pop();
 
   runDeferredStatements(instrs);
 
