@@ -7,6 +7,8 @@
 #include <string>
 
 #include "liblesma/AST/AST.h"
+#include "liblesma/Driver/AnalysisDiagnostic.h"
+#include "liblesma/Driver/AnalysisResult.h"
 #include "liblesma/Symbol/Value.h"
 
 #include <llvm/Support/SMLoc.h>
@@ -194,5 +196,32 @@ auto expressionCallsStdlibBaseLesExit(Expression* expr) -> bool {
     call = dynamic_cast<FuncCall*>(dot->getRight());
   }
   return resolvedFuncCallIsStdlibBaseLesExit(call);
+}
+
+auto resolveAnalysisDiagnosticSource(const AnalysisResult& result, const AnalysisDiagnostic& d,
+                                     llvm::SourceMgr*& outMgr, unsigned& outBufferId,
+                                     std::string& outDisplayPath) -> void {
+  if (d.spanSourceMgr != nullptr) {
+    outMgr = d.spanSourceMgr.get();
+    outBufferId = d.spanBufferId;
+    outDisplayPath = d.spanDisplayPath;
+    return;
+  }
+  outMgr = result.sourceMgr.get();
+  outBufferId = result.mainBufferId;
+  outDisplayPath = result.mainFilePath;
+}
+
+auto showAnalysisDiagnostic(const AnalysisResult& result, const AnalysisDiagnostic& d, bool isError)
+    -> void {
+  llvm::SourceMgr* mgr = nullptr;
+  unsigned bufId = 0;
+  std::string displayPath;
+  resolveAnalysisDiagnosticSource(result, d, mgr, bufId, displayPath);
+  if (d.span.isValid() && mgr != nullptr && bufId != 0U) {
+    showInline(mgr, bufId, d.span, displayPath, isError, d.message);
+  } else {
+    print(isError ? LogType::ERROR : LogType::WARNING, "{}\n", std::string_view(d.message));
+  }
 }
 } // namespace lesma

@@ -5,6 +5,8 @@
 #include <utility>
 #include <vector>
 
+#include <llvm/Support/SourceMgr.h>
+
 #include <sysexits.h>
 
 #include "liblesma/AST/AST.h"
@@ -22,8 +24,14 @@ public:
 class Parser {
 public:
   explicit Parser(std::vector<Token*> tokens,
-                  std::vector<AnalysisDiagnostic>* diagnosticSink = nullptr)
-      : tokens(std::move(tokens)), diagnosticsOut(diagnosticSink) {}
+                  std::vector<AnalysisDiagnostic>* diagnosticSink = nullptr,
+                  std::shared_ptr<llvm::SourceMgr> diagnosticSpanSrcMgr = nullptr,
+                  unsigned diagnosticSpanBufferId = 0,
+                  std::string diagnosticSpanDisplayPath = {})
+      : tokens(std::move(tokens)), diagnosticsOut(diagnosticSink),
+        diagnosticSpanSrcMgr(std::move(diagnosticSpanSrcMgr)),
+        diagnosticSpanBufferId(diagnosticSpanBufferId),
+        diagnosticSpanDisplayPath(std::move(diagnosticSpanDisplayPath)) {}
   ~Parser() = default;
 
   Parser(const Parser&) = delete;
@@ -80,6 +88,11 @@ private:
   std::unique_ptr<Compound> tree;
   /** When non-null, parse errors are recorded here and parsing continues where possible. */
   std::vector<AnalysisDiagnostic>* diagnosticsOut = nullptr;
+  std::shared_ptr<llvm::SourceMgr> diagnosticSpanSrcMgr;
+  unsigned diagnosticSpanBufferId = 0;
+  std::string diagnosticSpanDisplayPath;
+
+  auto pushParserDiagnostic(llvm::SMRange span, std::string message) -> void;
 
   auto error(Token* token, const std::string& errorMessage) -> void;
   auto error(llvm::SMRange span, const std::string& errorMessage) -> void;

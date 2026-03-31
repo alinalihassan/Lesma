@@ -8,8 +8,10 @@
 #include <vector>
 
 #include "llvm/Support/SMLoc.h"
+#include "llvm/Support/SourceMgr.h"
 
 #include "liblesma/AST/ASTVisitor.h"
+#include "liblesma/Common/ExportDiscovery.h"
 #include "liblesma/Driver/AnalysisResult.h"
 #include "liblesma/Symbol/SymbolTable.h"
 #include "liblesma/Symbol/Type.h"
@@ -22,10 +24,9 @@ class Class;
 class TraitDecl;
 class TypeCheckError;
 
-/** Callback to resolve import *: (filepath, isStd, mainFilePath) -> exported
- * names. */
+/** Callback to resolve import *: (filepath, isStd, mainFilePath) -> exported names or failure. */
 using GetExportsFn =
-    std::function<std::vector<std::string>(const std::string&, bool, const std::string&)>;
+    std::function<ExportDiscoveryResult(const std::string&, bool, const std::string&)>;
 
 /**
  * Semantic typecheck pass. Runs after parsing, before codegen.
@@ -114,7 +115,12 @@ class Typechecker final : public ASTVisitor {
   /** When non-null, unreachable-code and other warnings are appended here (severity Warning).
    *  Type errors are also recorded (severity Error) and typecheck continues where possible. */
   std::vector<AnalysisDiagnostic>* warningDiagnostics = nullptr;
+  /** Source buffer for diagnostics emitted during this unit (main or one imported file). */
+  std::shared_ptr<llvm::SourceMgr> diagnosticUnitSourceMgr;
+  unsigned diagnosticUnitBufferId = 0;
 
+  void appendSemanticDiagnostic(llvm::SMRange span, std::string message,
+                                AnalysisDiagnosticSeverity severity);
   void emitWarning(llvm::SMRange span, std::string message);
   void recoverFromTypeError(const TypeCheckError& err);
   void markValueRead(Value* sym);
@@ -266,7 +272,9 @@ public:
   /** Typecheck with import * resolution; mainFilePath used for relative
    * imports. */
   Typechecker(std::string mainFilePath, GetExportsFn getExports,
-              std::vector<AnalysisDiagnostic>* warningDiagnosticsOut = nullptr);
+              std::vector<AnalysisDiagnostic>* warningDiagnosticsOut = nullptr,
+              std::shared_ptr<llvm::SourceMgr> diagnosticUnitSourceMgr = nullptr,
+              unsigned diagnosticUnitBufferId = 0);
   ~Typechecker() override = default;
 
   Typechecker(const Typechecker&) = delete;

@@ -26,11 +26,12 @@ class LexerError : public LesmaErrorWithExitCode<EX_DATAERR> {
 class Lexer {
 public:
   explicit Lexer(const std::shared_ptr<llvm::SourceMgr>& srcMgr,
-                 std::vector<AnalysisDiagnostic>* diagnosticSink = nullptr)
+                 std::vector<AnalysisDiagnostic>* diagnosticSink = nullptr,
+                 std::string diagnosticFilePath = {})
       : curBuffer(srcMgr->getMemoryBuffer(srcMgr->getNumBuffers())),
         beginLoc(llvm::SMLoc::getFromPointer(curBuffer->getBufferStart())),
         loc(llvm::SMLoc::getFromPointer(curBuffer->getBufferStart())), srcMgr(srcMgr),
-        diagnosticSink(diagnosticSink) {}
+        diagnosticSink(diagnosticSink), diagnosticFilePath(std::move(diagnosticFilePath)) {}
   ~Lexer() = default;
 
   Lexer(const Lexer&) = delete;
@@ -116,6 +117,7 @@ private:
   std::vector<std::unique_ptr<Token>> tokens;
   std::shared_ptr<llvm::SourceMgr> srcMgr;
   std::vector<AnalysisDiagnostic>* diagnosticSink = nullptr;
+  std::string diagnosticFilePath;
 
   std::optional<char> firstIndentChar;
   int level = 0;

@@ -516,7 +516,12 @@ auto Lexer::lexError(llvm::SMRange span, const std::string& msg) -> void {
     throw LexerError(span, msg);
   }
   llvm::SMRange const useSpan = span.isValid() ? span : llvm::SMRange{beginLoc, loc};
-  diagnosticSink->push_back(AnalysisDiagnostic{.message = msg, .span = useSpan});
+  diagnosticSink->push_back(AnalysisDiagnostic{.message = msg,
+                                               .span = useSpan,
+                                               .severity = AnalysisDiagnosticSeverity::Error,
+                                               .spanSourceMgr = srcMgr,
+                                               .spanBufferId = srcMgr->getNumBuffers(),
+                                               .spanDisplayPath = diagnosticFilePath});
 }
 
 auto Lexer::skipRestOfPhysicalLine() -> void {

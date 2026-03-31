@@ -26,6 +26,7 @@
 
 #include "liblesma/AST/AST.h"
 #include "liblesma/Common/OperatorUtils.h"
+#include "liblesma/Common/Utils.h"
 #include "liblesma/Driver/AnalysisResult.h"
 #include "liblesma/Driver/Driver.h"
 #include "liblesma/Symbol/SymbolTable.h"
@@ -318,24 +319,58 @@ auto runAnalyzeAndPublish(const ::lsp::DocumentUri& uri,
   DocumentAnalysisSnapshot& snapshot = analysisCache.getOrAnalyze(uri, docStore, content, version);
   AnalysisResult& result = snapshot.result;
 
-  std::vector<::lsp::Diagnostic> lspDiagnostics;
+  std::optional<std::string> const analyzedPathOpt = docStore.getPath(uri);
+  std::string const primaryNorm =
+      analyzedPathOpt ? normalizePath(*analyzedPathOpt) : std::string{};
+
+  std::vector<::lsp::Diagnostic> primaryDiags;
+  std::unordered_map<std::string, std::vector<::lsp::Diagnostic>> otherDiags;
+
   for (const auto& d : result.diagnostics) {
-    ::lsp::Range range = smRangeToLspRange(result.sourceMgr.get(), result.mainBufferId, d.span);
+    llvm::SourceMgr* mgr = nullptr;
+    unsigned bufId = 0;
+    std::string displayPath;
+    resolveAnalysisDiagnosticSource(result, d, mgr, bufId, displayPath);
+
     ::lsp::DiagnosticSeverity const sev = d.severity == lesma::AnalysisDiagnosticSeverity::Warning
                                               ? ::lsp::DiagnosticSeverity::Warning
                                               : ::lsp::DiagnosticSeverity::Error;
-    lspDiagnostics.push_back(::lsp::Diagnostic{
-        .range = range,
-        .message = d.message,
-        .severity = ::lsp::Opt<::lsp::DiagnosticSeverityEnum>(sev),
-    });
+    ::lsp::Range const range = smRangeToLspRange(mgr, bufId, d.span);
+
+    std::string dNorm;
+    if (!displayPath.empty()) {
+      dNorm = normalizePath(displayPath);
+    }
+    if (dNorm.empty() && !result.mainFilePath.empty()) {
+      dNorm = normalizePath(result.mainFilePath);
+    }
+
+    ::lsp::Diagnostic lspDiag{.range = range,
+                              .message = d.message,
+                              .severity = ::lsp::Opt<::lsp::DiagnosticSeverityEnum>(sev)};
+
+    if (!primaryNorm.empty() && dNorm == primaryNorm) {
+      primaryDiags.push_back(std::move(lspDiag));
+    } else if (!primaryNorm.empty() && !dNorm.empty() && dNorm != primaryNorm) {
+      otherDiags[dNorm].push_back(std::move(lspDiag));
+    } else {
+      primaryDiags.push_back(std::move(lspDiag));
+    }
   }
 
   messageHandler.sendNotification<::lsp::notifications::TextDocument_PublishDiagnostics>(
       ::lsp::PublishDiagnosticsParams{
           .uri = uri,
-          .diagnostics = std::move(lspDiagnostics),
+          .diagnostics = std::move(primaryDiags),
       });
+
+  for (auto& entry : otherDiags) {
+    messageHandler.sendNotification<::lsp::notifications::TextDocument_PublishDiagnostics>(
+        ::lsp::PublishDiagnosticsParams{
+            .uri = uriFromPath(entry.first),
+            .diagnostics = std::move(entry.second),
+        });
+  }
 }
 
 auto formatCallableHoverType(lesma::Type* type, lesma::SymbolTable* rootScope) -> std::string {

@@ -21,6 +21,7 @@
 #include "liblesma/Common/OperatorUtils.h"
 #include "liblesma/Common/TypeCheckError.h"
 #include "liblesma/Common/Utils.h"
+#include "liblesma/Driver/AnalysisDiagnostic.h"
 #include "liblesma/Frontend/Lexer.h"
 #include "liblesma/Frontend/Parser.h"
 #include "liblesma/Symbol/TypeUtils.h"
@@ -1897,10 +1898,14 @@ Typechecker::Typechecker()
     : rootScope(std::make_unique<SymbolTable>(nullptr)), scope(rootScope.get()) {}
 
 Typechecker::Typechecker(std::string mainFilePath, GetExportsFn getExports,
-                         std::vector<AnalysisDiagnostic>* warningDiagnosticsOut)
+                         std::vector<AnalysisDiagnostic>* warningDiagnosticsOut,
+                         std::shared_ptr<llvm::SourceMgr> diagnosticUnitSourceMgrIn,
+                         unsigned diagnosticUnitBufferIdIn)
     : rootScope(std::make_unique<SymbolTable>(nullptr)), scope(rootScope.get()),
       mainFilePath(std::move(mainFilePath)), getExports(std::move(getExports)),
-      warningDiagnostics(warningDiagnosticsOut) {}
+      warningDiagnostics(warningDiagnosticsOut),
+      diagnosticUnitSourceMgr(std::move(diagnosticUnitSourceMgrIn)),
+      diagnosticUnitBufferId(diagnosticUnitBufferIdIn) {}
 
 void Typechecker::loadImplicitStdModule(const std::string& moduleFilename) {
   const auto basePath =
@@ -2035,7 +2040,7 @@ auto Typechecker::getOrTypecheckImport(const std::string& absolutePath) -> Symbo
   if (ast == nullptr) {
     return nullptr;
   }
-  Typechecker sub(absolutePath, getExports);
+  Typechecker sub(absolutePath, getExports, warningDiagnostics, srcMgr, bufferId);
   sub.run(ast);
   auto imported = std::make_shared<ImportedModuleAnalysis>();
   imported->sourceMgr = std::move(srcMgr);
@@ -2176,6 +2181,19 @@ auto Typechecker::visit(const Compound* node) -> void {
 // Not implemented here: deprecated_use; trailing_semicolon
 // style.
 
+void Typechecker::appendSemanticDiagnostic(llvm::SMRange span, std::string message,
+                                           AnalysisDiagnosticSeverity severity) {
+  if (warningDiagnostics == nullptr) {
+    return;
+  }
+  warningDiagnostics->push_back(AnalysisDiagnostic{.message = std::move(message),
+                                                   .span = span,
+                                                   .severity = severity,
+                                                   .spanSourceMgr = diagnosticUnitSourceMgr,
+                                                   .spanBufferId = diagnosticUnitBufferId,
+                                                   .spanDisplayPath = mainFilePath});
+}
+
 void Typechecker::emitWarning(llvm::SMRange span, std::string message) {
   if (warningDiagnostics == nullptr || !span.isValid()) {
     return;
@@ -2183,10 +2201,7 @@ void Typechecker::emitWarning(llvm::SMRange span, std::string message) {
   if (!mainFilePath.empty() && isStdlibSourcePath(mainFilePath)) {
     return;
   }
-  warningDiagnostics->push_back(
-      AnalysisDiagnostic{.message = std::move(message),
-                         .span = span,
-                         .severity = AnalysisDiagnosticSeverity::Warning});
+  appendSemanticDiagnostic(span, std::move(message), AnalysisDiagnosticSeverity::Warning);
 }
 
 void Typechecker::recoverFromTypeError(const TypeCheckError& err) {
@@ -2201,12 +2216,13 @@ void Typechecker::recoverFromTypeError(const TypeCheckError& err) {
   for (const AnalysisDiagnostic& existing : *warningDiagnostics) {
     if (existing.severity == AnalysisDiagnosticSeverity::Error && existing.message == message &&
         existing.span.Start.getPointer() == span.Start.getPointer() &&
-        existing.span.End.getPointer() == span.End.getPointer()) {
+        existing.span.End.getPointer() == span.End.getPointer() &&
+        existing.spanSourceMgr.get() == diagnosticUnitSourceMgr.get() &&
+        existing.spanBufferId == diagnosticUnitBufferId) {
       return;
     }
   }
-  warningDiagnostics->push_back(AnalysisDiagnostic{
-      .message = message, .span = span, .severity = AnalysisDiagnosticSeverity::Error});
+  appendSemanticDiagnostic(span, message, AnalysisDiagnosticSeverity::Error);
 }
 
 void Typechecker::markValueRead(Value* sym) {
@@ -2736,8 +2752,16 @@ auto Typechecker::visit(const Import* node) -> void {
     }
   };
   if (node->getImportAll() && getExports) {
-    std::vector<std::string> names = getExports(node->getFilePath(), node->isStd(), mainFilePath);
-    for (const std::string& name : names) {
+    ExportDiscoveryResult const discovery = getExports(node->getFilePath(), node->isStd(), mainFilePath);
+    if (!discovery.failureMessage.empty()) {
+      std::string const msg = fmt::format("Import * failed: {}", discovery.failureMessage);
+      if (warningDiagnostics == nullptr) {
+        throw TypeCheckError(node->getSpan(), msg);
+      }
+      recoverFromTypeError(TypeCheckError(node->getSpan(), msg));
+      return;
+    }
+    for (const std::string& name : discovery.names) {
       addImportSymbol(name, node->getSpan());
       importedNameToSource[name] = std::make_pair(resolvedPath, name);
       insertImportedVariableAlias(resolvedPath, name, name);

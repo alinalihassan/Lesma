@@ -36,6 +36,7 @@ class AllocaInst;
 #include <sysexits.h>
 
 #include "liblesma/AST/ASTVisitor.h"
+#include "liblesma/Common/ExportDiscovery.h"
 #include "liblesma/Backend/MangleUtils.h"
 #include "liblesma/Frontend/Parser.h"
 #include "liblesma/Symbol/SymbolTable.h"
@@ -222,7 +223,7 @@ protected:
                      const std::string& alias, bool importAll, bool importToScope,
                      const std::vector<ImportedNameBinding>& importedNames) -> void;
   auto getExportsFromFile(const std::string& filepath, bool isStd, const std::string& mainFilePath)
-      -> std::vector<std::string>;
+      -> ExportDiscoveryResult;
   auto typecheckModule(const Compound* ast, const std::string& modulePath)
       -> std::tuple<std::unique_ptr<SymbolTable>, std::vector<std::unique_ptr<lesma::Type>>,
                     std::unordered_map<lesma::Type*, std::unordered_map<std::string, lesma::Type*>>,

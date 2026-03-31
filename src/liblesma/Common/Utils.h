@@ -14,6 +14,8 @@
 #include "plf_nanotimer.h"
 
 namespace lesma {
+struct AnalysisDiagnostic;
+struct AnalysisResult;
 class Expression;
 class FuncCall;
 // CLEAR = no log prefix (plain output); use for version, help, etc.
@@ -103,6 +105,13 @@ public:
 
 auto showInline(llvm::SourceMgr* srcMgr, unsigned int bufferId, llvm::SMRange span,
                 const std::string& file, bool isError, const std::string& reason) -> void;
+/** Resolve which \c SourceMgr and buffer own \p d.span; fills \p outDisplayPath for labels. */
+auto resolveAnalysisDiagnosticSource(const AnalysisResult& result, const AnalysisDiagnostic& d,
+                                     llvm::SourceMgr*& outMgr, unsigned& outBufferId,
+                                     std::string& outDisplayPath) -> void;
+/** Print one analysis diagnostic (CLI), using the correct source buffer when set on \p d. */
+auto showAnalysisDiagnostic(const AnalysisResult& result, const AnalysisDiagnostic& d, bool isError)
+    -> void;
 auto getBasename(const std::string& filePath) -> std::string;
 auto getStdDir() -> std::string;
 /** True if \p path resolves under the stdlib root directory ([getStdDir]()). */

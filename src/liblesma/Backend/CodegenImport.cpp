@@ -43,8 +43,8 @@ namespace {
 } // namespace
 
 auto Codegen::getExportsFromFile(const std::string& filepath, bool isStd,
-                                 const std::string& mainFilePath) -> std::vector<std::string> {
-  return getExportedTopLevelNamesFromFile(filepath, isStd, mainFilePath);
+                                 const std::string& mainFilePath) -> ExportDiscoveryResult {
+  return discoverExportedTopLevelNames(filepath, isStd, mainFilePath);
 }
 
 auto Codegen::typecheckModule(const Compound* ast, const std::string& modulePath)

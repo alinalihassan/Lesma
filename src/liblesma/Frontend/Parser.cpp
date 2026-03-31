@@ -131,9 +131,21 @@ auto Parser::synchronizeToNextLine() -> void {
   }
 }
 
+auto Parser::pushParserDiagnostic(llvm::SMRange span, std::string message) -> void {
+  if (diagnosticsOut == nullptr) {
+    return;
+  }
+  diagnosticsOut->push_back(AnalysisDiagnostic{.message = std::move(message),
+                                                 .span = span,
+                                                 .severity = AnalysisDiagnosticSeverity::Error,
+                                                 .spanSourceMgr = diagnosticSpanSrcMgr,
+                                                 .spanBufferId = diagnosticSpanBufferId,
+                                                 .spanDisplayPath = diagnosticSpanDisplayPath});
+}
+
 auto Parser::recoverFromParserError(const ParserError& err) -> void {
   llvm::SMRange const span = err.getSpan().isValid() ? err.getSpan() : llvm::SMRange();
-  diagnosticsOut->push_back(AnalysisDiagnostic{.message = std::string(err.what()), .span = span});
+  pushParserDiagnostic(span, std::string(err.what()));
   synchronizeToNextLine();
 }
 
@@ -1463,9 +1475,8 @@ auto Parser::parseClass() -> std::unique_ptr<Statement> {
       } else if (check(TokenType::NEWLINE)) {
         consume(TokenType::NEWLINE);
       } else if (diagnosticsOut != nullptr) {
-        diagnosticsOut->push_back(
-            AnalysisDiagnostic{.message = "Expected field, method, or newline in class body",
-                               .span = peek()->span.isValid() ? peek()->span : llvm::SMRange()});
+        pushParserDiagnostic(peek()->span.isValid() ? peek()->span : llvm::SMRange(),
+                             "Expected field, method, or newline in class body");
         synchronizeToNextLine();
       } else {
         error(peek(), "Expected field, method, or newline in class body");
