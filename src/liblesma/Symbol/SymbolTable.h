@@ -57,6 +57,9 @@ public:
       Type* staticSuperclassType,
       const std::unordered_map<std::string, Type*>* seedGenericBindings) -> Value*;
   auto lookup(const std::string& name) -> Value*;
+  /** Like \c lookup, but returns the \c MODULE_SYMBOL with \c TY_IMPORT if present for \p name,
+   *  even when \c lookup would prefer another binding (e.g. an imported variable alias). */
+  auto lookupImportModuleSymbol(const std::string& name) -> Value*;
   /** Symbols in this table only (no parent); for lambda capture shadows vs outer names. */
   auto lookupShallow(const std::string& name) -> Value*;
   auto lookupStruct(const std::string& name) -> Value*;

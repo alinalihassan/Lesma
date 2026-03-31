@@ -707,6 +707,21 @@ auto SymbolTable::lookup(const std::string& name) -> Value* {
   return parent->lookup(name);
 }
 
+auto SymbolTable::lookupImportModuleSymbol(const std::string& name) -> Value* {
+  auto [it, end] = symbols.equal_range(name);
+  for (auto i = it; i != end; ++i) {
+    Value* v = i->second.get();
+    if (v->getCategory() == ValueCategory::MODULE_SYMBOL && v->getType() != nullptr &&
+        v->getType()->is(BaseType::TY_IMPORT)) {
+      return v;
+    }
+  }
+  if (parent == nullptr) {
+    return nullptr;
+  }
+  return parent->lookupImportModuleSymbol(name);
+}
+
 auto SymbolTable::lookupShallow(const std::string& name) -> Value* {
   auto [it, end] = symbols.equal_range(name);
   Value* fallback = nullptr;

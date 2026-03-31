@@ -2170,9 +2170,8 @@ void Typechecker::markImportNameStubUsedForQualifiedAccess(const std::string& mo
     if (src.first != modulePath || src.second != exportedName) {
       continue;
     }
-    Value* stub = scope->lookup(localName);
-    if (stub != nullptr && stub->getCategory() == ValueCategory::MODULE_SYMBOL &&
-        stub->getType() != nullptr && stub->getType()->is(BaseType::TY_IMPORT)) {
+    Value* stub = scope->lookupImportModuleSymbol(localName);
+    if (stub != nullptr) {
       markValueRead(stub);
     }
     return;
