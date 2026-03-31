@@ -4,6 +4,7 @@
 #include <array>
 #include <cctype>
 #include <filesystem>
+#include <limits>
 #include <optional>
 #include <sstream>
 #include <string_view>
@@ -57,6 +58,83 @@ auto positionToOffset(llvm::StringRef ref, unsigned line, unsigned character) ->
     -> InnermostFunc {
   return findInnermostFuncContainingAst<lesma::FuncDecl, lesma::Class>(ast, targetOffset, srcMgr,
                                                                        bufferId);
+}
+
+void scanCompoundForInnermostTrait(Compound* compound, unsigned targetOffset,
+                                   llvm::SourceMgr* srcMgr, unsigned bufferId, TraitDecl*& best,
+                                   unsigned& bestLen);
+
+void scanStatementForInnermostTrait(Statement* stmt, unsigned targetOffset, llvm::SourceMgr* srcMgr,
+                                    unsigned bufferId, TraitDecl*& best, unsigned& bestLen) {
+  if (stmt == nullptr) {
+    return;
+  }
+  if (auto* tr = dynamic_cast<TraitDecl*>(stmt)) {
+    llvm::SMRange const span = tr->getSpan();
+    if (span.isValid()) {
+      unsigned const start = getOffsetFromSMLoc(srcMgr, bufferId, span.Start);
+      unsigned const end = getOffsetFromSMLoc(srcMgr, bufferId, span.End);
+      if (targetOffset >= start && targetOffset < end) {
+        unsigned const len = end - start;
+        if (best == nullptr || len < bestLen) {
+          best = tr;
+          bestLen = len;
+        }
+      }
+    }
+    return;
+  }
+  if (auto* compound = dynamic_cast<Compound*>(stmt)) {
+    scanCompoundForInnermostTrait(compound, targetOffset, srcMgr, bufferId, best, bestLen);
+    return;
+  }
+  if (auto* klass = dynamic_cast<Class*>(stmt)) {
+    for (FuncDecl* method : klass->getMethods()) {
+      scanCompoundForInnermostTrait(method->getBody(), targetOffset, srcMgr, bufferId, best,
+                                    bestLen);
+    }
+    return;
+  }
+  if (auto* func = dynamic_cast<FuncDecl*>(stmt)) {
+    scanCompoundForInnermostTrait(func->getBody(), targetOffset, srcMgr, bufferId, best, bestLen);
+    return;
+  }
+  if (auto* ifStmt = dynamic_cast<If*>(stmt)) {
+    for (Compound* block : ifStmt->getBlocks()) {
+      scanCompoundForInnermostTrait(block, targetOffset, srcMgr, bufferId, best, bestLen);
+    }
+    return;
+  }
+  if (auto* whileStmt = dynamic_cast<While*>(stmt)) {
+    scanCompoundForInnermostTrait(whileStmt->getBlock(), targetOffset, srcMgr, bufferId, best,
+                                  bestLen);
+    return;
+  }
+  if (auto* forIn = dynamic_cast<ForIn*>(stmt)) {
+    scanCompoundForInnermostTrait(forIn->getBlock(), targetOffset, srcMgr, bufferId, best, bestLen);
+  }
+}
+
+void scanCompoundForInnermostTrait(Compound* compound, unsigned targetOffset,
+                                   llvm::SourceMgr* srcMgr, unsigned bufferId, TraitDecl*& best,
+                                   unsigned& bestLen) {
+  if (compound == nullptr) {
+    return;
+  }
+  for (Statement* stmt : compound->getChildren()) {
+    scanStatementForInnermostTrait(stmt, targetOffset, srcMgr, bufferId, best, bestLen);
+  }
+}
+
+/** Innermost `trait` declaration whose source span contains \p targetOffset (for private req
+ * filtering). */
+[[nodiscard]] auto findInnermostTraitDeclContaining(Compound* ast, unsigned targetOffset,
+                                                    llvm::SourceMgr* srcMgr, unsigned bufferId)
+    -> TraitDecl* {
+  TraitDecl* best = nullptr;
+  unsigned bestLen = std::numeric_limits<unsigned>::max();
+  scanCompoundForInnermostTrait(ast, targetOffset, srcMgr, bufferId, best, bestLen);
+  return best;
 }
 
 auto isIdentChar(char c) -> bool {
@@ -744,14 +822,17 @@ auto findClassDeclarationForType(AnalysisResult& result, Type* classType, Compou
 }
 
 void appendMethodsForClass(AnalysisResult& result, Class* klass, SymbolTable* root,
-                           std::vector<CompletionCandidate>& out,
+                           Class* completionEnclosingClass, std::vector<CompletionCandidate>& out,
                            std::unordered_set<std::string>& seen) {
   if (klass == nullptr) {
     return;
   }
   AnalysisView const mainView = makeAnalysisView(result);
   for (FuncDecl* method : klass->getMethods()) {
-    if (method == nullptr || method->getName() == "new" || method->getIsPrivate()) {
+    if (method == nullptr || method->getName() == "new") {
+      continue;
+    }
+    if (method->getIsPrivate() && klass != completionEnclosingClass) {
       continue;
     }
     Value* methodValue = method->getResolvedSymbol();
@@ -804,7 +885,8 @@ void addCandidate(std::vector<CompletionCandidate>& out, std::unordered_set<std:
 }
 
 void appendTraitRequirementMethods(AnalysisResult& result, Type* classType, Compound* mainAst,
-                                   SymbolTable* root, std::vector<CompletionCandidate>& out,
+                                   SymbolTable* root, TraitDecl* completionEnclosingTrait,
+                                   std::vector<CompletionCandidate>& out,
                                    std::unordered_set<std::string>& seen) {
   if (classType == nullptr || root == nullptr) {
     return;
@@ -824,7 +906,10 @@ void appendTraitRequirementMethods(AnalysisResult& result, Type* classType, Comp
       continue;
     }
     for (FuncDecl* req : tr->getRequirements()) {
-      if (req == nullptr || req->getName() == "new" || req->getIsPrivate()) {
+      if (req == nullptr || req->getName() == "new") {
+        continue;
+      }
+      if (req->getIsPrivate() && tr != completionEnclosingTrait) {
         continue;
       }
       Value* methodValue = req->getResolvedSymbol();
@@ -878,7 +963,7 @@ void appendBuiltinBufferListMethodCandidates(Type* bufferType, SymbolTable* root
 }
 
 void appendMembersForType(AnalysisResult& result, Type* baseType, Compound* ast, SymbolTable* root,
-                          std::vector<CompletionCandidate>& out,
+                          Class* completionEnclosingClass, std::vector<CompletionCandidate>& out,
                           std::unordered_set<std::string>& seen) {
   if (baseType == nullptr) {
     return;
@@ -916,7 +1001,7 @@ void appendMembersForType(AnalysisResult& result, Type* baseType, Compound* ast,
   // Walk inheritance chain so subclass completion includes superclass methods (deduped by `seen`).
   for (Type* ty = baseType; ty != nullptr; ty = ty->getClassSuperclass()) {
     if (Class* klass = findClassDeclarationForType(result, ty, ast, root)) {
-      appendMethodsForClass(result, klass, root, out, seen);
+      appendMethodsForClass(result, klass, root, completionEnclosingClass, out, seen);
     }
   }
 }
@@ -944,10 +1029,10 @@ void appendScopeSymbols(AnalysisResult& result, SymbolTable* scope, SymbolTable*
 
 void appendKeywords(std::vector<CompletionCandidate>& out, std::unordered_set<std::string>& seen) {
   static constexpr std::array<std::string_view, 28> keywords = {
-      "and",    "as",      "break",  "class",  "continue", "defer",
-      "else",   "enum",    "export", "extern", "for",      "func", "from", "if",
-      "import", "in",      "is",     "let",    "not",      "or",   "overload",
-      "pass",   "private", "return", "super",  "this",     "var",  "while",
+      "and",    "as",      "break",  "class", "continue", "defer", "else",
+      "enum",   "export",  "extern", "for",   "func",     "from",  "if",
+      "import", "in",      "is",     "let",   "not",      "or",    "overload",
+      "pass",   "private", "return", "super", "this",     "var",   "while",
   };
   static constexpr std::array<std::string_view, 3> literals = {"false", "null", "true"};
   static constexpr std::array<std::string_view, 11> builtinTypes = {
@@ -1051,6 +1136,11 @@ auto completionItems(AnalysisResult& result, unsigned line, unsigned character)
   SymbolTable* activeScope = activeScopeForOffset(*activeResult, offset);
   SymbolTable* root = activeResult->rootScope.get();
 
+  InnermostFunc const cursorContext = findInnermostFuncContaining(ast, offset, srcMgr, bufferId);
+  Class* const completionEnclosingClass = cursorContext.enclosingClass;
+  TraitDecl* const completionEnclosingTrait =
+      findInnermostTraitDeclContaining(ast, offset, srcMgr, bufferId);
+
   std::vector<CompletionCandidate> candidates;
   std::unordered_set<std::string> seen;
 
@@ -1063,8 +1153,10 @@ auto completionItems(AnalysisResult& result, unsigned line, unsigned character)
     if (parts.size() == 1U && activeResult->importAliasToPath.contains(parts.front())) {
       appendModuleMembersForAlias(*activeResult, parts.front(), candidates, seen);
     }
-    appendMembersForType(*activeResult, baseType, ast, root, candidates, seen);
-    appendTraitRequirementMethods(*activeResult, baseType, ast, root, candidates, seen);
+    appendMembersForType(*activeResult, baseType, ast, root, completionEnclosingClass, candidates,
+                         seen);
+    appendTraitRequirementMethods(*activeResult, baseType, ast, root, completionEnclosingTrait,
+                                  candidates, seen);
   } else {
     appendScopeSymbols(*activeResult, activeScope != nullptr ? activeScope : root, root, candidates,
                        seen);
