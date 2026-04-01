@@ -175,7 +175,7 @@ class Codegen final : public ASTVisitor {
       }
     }
     UnionNarrowingScope(const UnionNarrowingScope&) = delete;
-    auto operator=(const UnionNarrowingScope&) = delete;
+    auto operator=(const UnionNarrowingScope&) -> UnionNarrowingScope& = delete;
     UnionNarrowingScope(UnionNarrowingScope&&) = delete;
     auto operator=(UnionNarrowingScope&&) -> UnionNarrowingScope& = delete;
 

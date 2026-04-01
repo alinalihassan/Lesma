@@ -4,6 +4,8 @@
 #include <cstddef>
 #include <memory>
 #include <optional>
+#include <ranges>
+#include <set>
 #include <string>
 #include <string_view>
 #include <unordered_map>
@@ -883,7 +885,7 @@ auto Codegen::cgUnionTryGetIsOpVarSymbol(const IsOp* is, SymbolTable* scope) -> 
   if (is == nullptr) {
     return nullptr;
   }
-  auto* lit = dynamic_cast<const Literal*>(is->getLeft());
+  const auto* lit = dynamic_cast<const Literal*>(is->getLeft());
   if (lit == nullptr || lit->getType() != TokenType::IDENTIFIER) {
     return nullptr;
   }
@@ -953,33 +955,57 @@ auto Codegen::fillCodegenUnionNarrowVariantMap(
     if (blockIndex == 0U) {
       return;
     }
-    auto* is0 = dynamic_cast<const IsOp*>(node->getConds()[0]);
-    lesma::Value* sym = cgUnionTryGetIsOpVarSymbol(is0, scope);
-    if (sym == nullptr || sym->getType() == nullptr || !sym->getType()->is(BaseType::TY_UNION)) {
-      return;
-    }
-    lesma::Type* rhsTy = is0->getResolvedRhsType();
-    if (rhsTy == nullptr) {
-      return;
-    }
-    if (is0->getOperator() == TokenType::IS) {
-      if (auto idx = cgUnionComplementMemberIndex(sym->getType(), rhsTy)) {
-        const UnionNarrowingStableKey key = unionNarrowingStableKeyForSymbol(sym);
-        if (key.declarationSpan.isValid() || key.fallbackAnchor != nullptr) {
-          out[key] = *idx;
+    const std::vector<Expression*> conds = node->getConds();
+    lesma::Value* sym = nullptr;
+    std::set<unsigned> possible;
+    for (unsigned j = 0; j < blockIndex; ++j) {
+      const auto* isJ = dynamic_cast<const IsOp*>(conds[j]);
+      if (isJ == nullptr) {
+        continue;
+      }
+      lesma::Value* symJ = cgUnionTryGetIsOpVarSymbol(isJ, scope);
+      if (symJ == nullptr || symJ->getType() == nullptr ||
+          !symJ->getType()->is(BaseType::TY_UNION)) {
+        continue;
+      }
+      if (sym == nullptr) {
+        sym = symJ;
+        const auto& mem = sym->getType()->getUnionMembers();
+        for (unsigned vi = 0; vi < mem.size(); ++vi) {
+          possible.insert(vi);
+        }
+      } else if (symJ != sym) {
+        continue;
+      }
+      lesma::Type* unionTy = sym->getType();
+      lesma::Type* rhsTy = isJ->getResolvedRhsType();
+      if (rhsTy == nullptr) {
+        continue;
+      }
+      if (isJ->getOperator() == TokenType::IS) {
+        if (auto idx = unionVariantIndexOf(unionTy, rhsTy)) {
+          possible.erase(*idx);
+        }
+      } else if (isJ->getOperator() == TokenType::IS_NOT) {
+        if (auto idx = unionVariantIndexOf(unionTy, rhsTy)) {
+          if (possible.contains(*idx)) {
+            possible = {*idx};
+          } else {
+            possible.clear();
+          }
         }
       }
-    } else if (is0->getOperator() == TokenType::IS_NOT) {
-      if (auto idx = unionVariantIndexOf(sym->getType(), rhsTy)) {
-        const UnionNarrowingStableKey key = unionNarrowingStableKeyForSymbol(sym);
-        if (key.declarationSpan.isValid() || key.fallbackAnchor != nullptr) {
-          out[key] = *idx;
-        }
-      }
+    }
+    if (sym == nullptr || possible.size() != 1U) {
+      return;
+    }
+    const UnionNarrowingStableKey key = unionNarrowingStableKeyForSymbol(sym);
+    if (key.declarationSpan.isValid() || key.fallbackAnchor != nullptr) {
+      out[key] = *possible.begin();
     }
     return;
   }
-  auto* is = dynamic_cast<const IsOp*>(cond);
+  const auto* is = dynamic_cast<const IsOp*>(cond);
   if (is == nullptr) {
     return;
   }
@@ -1384,6 +1410,7 @@ auto Codegen::declareSynthesizedClassConstructor(const Class* astNode, lesma::Ty
   auto linkage = shouldExport ? Function::ExternalLinkage : Function::PrivateLinkage;
 
   std::vector<llvm::Type*> paramLLVMTypes;
+  paramLLVMTypes.reserve(paramTypes.size());
   for (auto* pt : paramTypes) {
     paramLLVMTypes.push_back(pt->getLlvmType());
   }
@@ -4641,13 +4668,11 @@ auto Codegen::callNamedFunction(
         if (it == specializedClassTypeEnvs.end()) {
           return false;
         }
-        for (const auto& [name, ty] : it->second) {
-          (void) name;
-          if (ty != nullptr && ty->is(BaseType::TY_GENERIC)) {
-            return false;
-          }
-        }
-        return true;
+        return std::ranges::all_of(
+            it->second, [](const std::pair<const std::string, lesma::Type*>& e) {
+              lesma::Type* ty = e.second;
+              return ty == nullptr || !ty->is(BaseType::TY_GENERIC);
+            });
       };
       if (allocatedClassMonomorph != nullptr && monomorphEnvIsConcrete(allocatedClassMonomorph)) {
         classSym = emitClassMonomorph(allocatedClassMonomorph, templateClass);

@@ -3019,12 +3019,8 @@ auto Typechecker::fillUnionNarrowingForIfBlock(
     if (rhs == nullptr) {
       return false;
     }
-    for (Type* m : unionTy->getUnionMembers()) {
-      if (m->isEqual(rhs)) {
-        return true;
-      }
-    }
-    return false;
+    return std::ranges::any_of(unionTy->getUnionMembers(),
+                               [rhs](Type* m) -> bool { return m->isEqual(rhs); });
   };
   Type* rhsTy = nullptr;
   try {

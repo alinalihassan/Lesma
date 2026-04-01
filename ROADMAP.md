@@ -25,6 +25,7 @@
 - [x] Check dictionaries for multiline support
 - [x] Type unions
 - [x] Type narrowing
+- [ ] Enums v2 (in type unions, enums with methods, and associated values)
 
 ## LSP
 - [ ] rename + prepareRename
