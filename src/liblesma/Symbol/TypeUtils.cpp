@@ -1,6 +1,10 @@
 #include "TypeUtils.h"
 
+#include <algorithm>
 #include <sstream>
+#include <string>
+#include <utility>
+#include <vector>
 
 #include "liblesma/Symbol/Type.h"
 
@@ -67,5 +71,49 @@ auto makeSpecializedClassKey(Type* classTemplate, const std::vector<std::string>
     key << "<unbound:" << name << ">";
   }
   return key.str();
+}
+
+auto canonicalizeUnionMembers(std::vector<Type*> arms)
+    -> std::pair<std::vector<Type*>, std::string> {
+  std::vector<Type*> flat;
+  flat.reserve(arms.size());
+  auto appendFlattened = [&](Type* cur, auto&& self) -> void {
+    if (cur == nullptr) {
+      return;
+    }
+    if (cur->is(BaseType::TY_UNION)) {
+      for (Type* inner : cur->getUnionMembers()) {
+        self(inner, self);
+      }
+    } else {
+      flat.push_back(cur);
+    }
+  };
+  for (Type* a : arms) {
+    appendFlattened(a, appendFlattened);
+  }
+  std::vector<Type*> unique;
+  unique.reserve(flat.size());
+  for (Type* m : flat) {
+    bool duplicate = false;
+    for (Type* u : unique) {
+      if (m->isEqual(u)) {
+        duplicate = true;
+        break;
+      }
+    }
+    if (!duplicate) {
+      unique.push_back(m);
+    }
+  }
+  std::ranges::sort(unique, [](Type* a, Type* b) { return a->toString() < b->toString(); });
+  std::string displayName;
+  for (size_t i = 0; i < unique.size(); ++i) {
+    if (i > 0U) {
+      displayName += " | ";
+    }
+    displayName += unique[i]->toString();
+  }
+  return {std::move(unique), std::move(displayName)};
 }
 } // namespace lesma::TypeUtils

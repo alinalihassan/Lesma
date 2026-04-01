@@ -1071,9 +1071,15 @@ auto Typechecker::materializeImportedType(Type* type) -> Type* {
     for (Type* m : type->getUnionMembers()) {
       members.push_back(materializeImportedType(m));
     }
+    auto [canonical, displayName] = TypeUtils::canonicalizeUnionMembers(std::move(members));
+    if (canonical.size() == 1U) {
+      Type* single = canonical.front();
+      importedTypeCopies[type] = single;
+      return single;
+    }
     auto u = std::make_unique<Type>(BaseType::TY_UNION);
-    u->setDisplayName(type->getDisplayName());
-    u->setUnionMembers(std::move(members));
+    u->setUnionMembers(std::move(canonical));
+    u->setDisplayName(displayName);
     u->setDeclarationSpan(type->getDeclarationSpan());
     Type* copy = cacheType(std::move(u));
     importedTypeCopies[type] = copy;
@@ -1193,49 +1199,16 @@ auto Typechecker::substituteInType(Type* t, const std::unordered_map<std::string
     return cacheType(std::move(tupleType));
   }
   if (t->is(BaseType::TY_UNION)) {
-    std::vector<Type*> flat;
-    flat.reserve(t->getUnionMembers().size());
-    auto appendFlattened = [&](Type* cur, auto&& self) -> void {
-      if (cur == nullptr) {
-        return;
-      }
-      if (cur->is(BaseType::TY_UNION)) {
-        for (Type* inner : cur->getUnionMembers()) {
-          self(inner, self);
-        }
-      } else {
-        flat.push_back(cur);
-      }
-    };
+    std::vector<Type*> arms;
+    arms.reserve(t->getUnionMembers().size());
     for (Type* m : t->getUnionMembers()) {
-      Type* substituted = substituteInType(m, env);
-      appendFlattened(substituted, appendFlattened);
+      arms.push_back(substituteInType(m, env));
     }
-    std::vector<Type*> unique;
-    for (Type* arm : flat) {
-      bool dup = false;
-      for (Type* u : unique) {
-        if (arm->isEqual(u)) {
-          dup = true;
-          break;
-        }
-      }
-      if (!dup) {
-        unique.push_back(arm);
-      }
-    }
+    auto [unique, dn] = TypeUtils::canonicalizeUnionMembers(std::move(arms));
     // Match Codegen::substituteTypeForSpecializationEnv: a single arm is the arm type itself, not a
     // tagged singleton union (avoids reintroducing union layout after specialization).
     if (unique.size() == 1U) {
       return unique.front();
-    }
-    std::ranges::sort(unique, [](Type* a, Type* b) { return a->toString() < b->toString(); });
-    std::string dn;
-    for (size_t i = 0; i < unique.size(); ++i) {
-      if (i > 0) {
-        dn += " | ";
-      }
-      dn += unique[i]->toString();
     }
     auto u = std::make_unique<Type>(BaseType::TY_UNION);
     u->setDisplayName(dn);
@@ -2013,16 +1986,9 @@ auto Typechecker::resolveType(const TypeExpr* node) -> Type* {
             t->toString());
       }
     }
-    std::ranges::sort(unique, [](Type* a, Type* b) { return a->toString() < b->toString(); });
-    std::string displayName;
-    for (size_t i = 0; i < unique.size(); ++i) {
-      if (i > 0) {
-        displayName += " | ";
-      }
-      displayName += unique[i]->toString();
-    }
+    auto [canonicalMembers, displayName] = TypeUtils::canonicalizeUnionMembers(std::move(unique));
     auto u = std::make_unique<Type>(BaseType::TY_UNION);
-    u->setUnionMembers(std::move(unique));
+    u->setUnionMembers(std::move(canonicalMembers));
     u->setDisplayName(displayName);
     u->setDeclarationSpan(node->getSpan());
     return cacheType(std::move(u));
@@ -2914,20 +2880,16 @@ auto Typechecker::narrowUnionByExcludingMembers(Type* unionTy, const std::vector
   if (removed == 0U || remainder.empty()) {
     return nullptr;
   }
-  if (remainder.size() == 1U) {
-    return remainder.front();
+  auto [canonical, displayName] = TypeUtils::canonicalizeUnionMembers(std::move(remainder));
+  if (canonical.size() == 1U) {
+    return canonical.front();
   }
-  std::ranges::sort(remainder, [](Type* a, Type* b) { return a->toString() < b->toString(); });
-  std::string displayName;
-  for (size_t i = 0; i < remainder.size(); ++i) {
-    if (i > 0U) {
-      displayName += " | ";
-    }
-    displayName += remainder[i]->toString();
+  if (canonical.empty()) {
+    return nullptr;
   }
   auto u = std::make_unique<Type>(BaseType::TY_UNION);
   u->setDisplayName(displayName);
-  u->setUnionMembers(std::move(remainder));
+  u->setUnionMembers(std::move(canonical));
   u->setDeclarationSpan(unionTy->getDeclarationSpan());
   return cacheType(std::move(u));
 }

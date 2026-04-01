@@ -82,8 +82,6 @@ test_compiler() {
       fi
     fi
   ) &
-    fi
-  ) &
   kpid=$!
 
   # Hard ceiling so wait on cpid cannot block without bound if signal delivery misbehaves.

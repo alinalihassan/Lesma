@@ -165,52 +165,17 @@ auto Codegen::visit(const TypeExpr* node) -> void {
     result = std::make_unique<Value>(cached);
   } else if (node->getType() == TokenType::UNION_TYPE) {
     std::vector<Type*> members;
-    std::string displayName;
+    members.reserve(node->getParams().size());
     for (TypeExpr* param : node->getParams()) {
       param->accept(*this);
-      Type* elemTy = result->getType();
-      if (!members.empty()) {
-        displayName += " | ";
-      }
-      displayName += elemTy->toString();
-      members.push_back(elemTy);
+      members.push_back(result->getType());
     }
-    std::vector<Type*> flat;
-    for (Type* t : members) {
-      if (t->is(BaseType::TY_UNION)) {
-        for (Type* inner : t->getUnionMembers()) {
-          flat.push_back(inner);
-        }
-      } else {
-        flat.push_back(t);
-      }
-    }
-    std::vector<Type*> unique;
-    for (Type* t : flat) {
-      bool dup = false;
-      for (Type* u : unique) {
-        if (t->isEqual(u)) {
-          dup = true;
-          break;
-        }
-      }
-      if (!dup) {
-        unique.push_back(t);
-      }
-    }
-    std::ranges::sort(unique, [](Type* a, Type* b) { return a->toString() < b->toString(); });
+    auto [unique, displayName] = TypeUtils::canonicalizeUnionMembers(std::move(members));
     if (unique.size() == 1U) {
       Type* cached = unique[0];
       getOrCreateLlvmType(cached);
       result = std::make_unique<Value>(cached);
     } else {
-      displayName.clear();
-      for (size_t i = 0; i < unique.size(); ++i) {
-        if (i > 0) {
-          displayName += " | ";
-        }
-        displayName += unique[i]->toString();
-      }
       auto u = std::make_unique<Type>(BaseType::TY_UNION);
       u->setUnionMembers(std::move(unique));
       u->setDisplayName(displayName);

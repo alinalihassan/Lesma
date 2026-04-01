@@ -321,53 +321,14 @@ auto Codegen::substituteTypeForSpecializationEnv(Type* t,
     return cacheType(std::move(tupleType));
   }
   if (t->is(BaseType::TY_UNION)) {
-    std::vector<Type*> flat;
-    flat.reserve(t->getUnionMembers().size());
-    auto appendFlattened = [&](Type* cur, auto&& self) -> void {
-      if (cur == nullptr) {
-        return;
-      }
-      if (cur->is(BaseType::TY_UNION)) {
-        for (Type* inner : cur->getUnionMembers()) {
-          self(inner, self);
-        }
-      } else {
-        flat.push_back(cur);
-      }
-    };
+    std::vector<Type*> arms;
+    arms.reserve(t->getUnionMembers().size());
     for (Type* m : t->getUnionMembers()) {
-      Type* substituted = substituteTypeForSpecializationEnv(m, env);
-      appendFlattened(substituted, appendFlattened);
+      arms.push_back(substituteTypeForSpecializationEnv(m, env));
     }
-    std::vector<Type*> members;
-    members.reserve(flat.size());
-    for (Type* m : flat) {
-      bool duplicate = false;
-      for (Type* existing : members) {
-        if (m == nullptr) {
-          if (existing == nullptr) {
-            duplicate = true;
-            break;
-          }
-        } else if (existing != nullptr && m->isEqual(existing)) {
-          duplicate = true;
-          break;
-        }
-      }
-      if (!duplicate) {
-        members.push_back(m);
-      }
-    }
+    auto [members, dn] = TypeUtils::canonicalizeUnionMembers(std::move(arms));
     if (members.size() == 1U) {
       return members.front();
-    }
-    std::ranges::sort(members, [](Type* a, Type* b) { return a->toString() < b->toString(); });
-    std::string dn;
-    for (size_t i = 0; i < members.size(); ++i) {
-      if (i > 0) {
-        dn += " | ";
-      }
-      dn += members[i]->toString();
     }
     auto u = std::make_unique<Type>(BaseType::TY_UNION);
     u->setUnionMembers(std::move(members));
