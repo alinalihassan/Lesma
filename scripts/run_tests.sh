@@ -22,12 +22,15 @@ case "${LESMA_TEST_TIMEOUT}" in
 '' | *[!0-9]*) LESMA_TEST_TIMEOUT=2 ;;
 esac
 
+# Distinct exit status when the per-invocation watchdog stops the compiler (GNU timeout uses 124).
+LESMA_TEST_TIMEOUT_EXIT=124
+
 test_compiler() {
   local file="$1"
   local mode="$2"
   local compiler_path="$3"
   local quiet="${4:-}"
-  local cpid kpid ret
+  local cpid kpid hard_pid ret timeout_flag
 
   if [ "${LESMA_TEST_TIMEOUT}" -eq 0 ]; then
     case "${quiet}" in
@@ -56,15 +59,50 @@ test_compiler() {
     ;;
   esac
   cpid=$!
+
+  timeout_flag=$(mktemp "${TMPDIR:-/tmp}/lesma-test-timeout.XXXXXX") || return 1
+
+  # Watchdog: after LESMA_TEST_TIMEOUT, SIGTERM then SIGKILL after ~1s if still alive.
   (
     sleep "${LESMA_TEST_TIMEOUT}"
-    kill "${cpid}" 2>/dev/null || true
+    if kill -0 "${cpid}" 2>/dev/null; then
+      kill -TERM "${cpid}" 2>/dev/null || true
+      i=0
+      while [ "${i}" -lt 10 ] && kill -0 "${cpid}" 2>/dev/null; do
+        sleep 0.1
+        i=$((i + 1))
+      done
+      if kill -0 "${cpid}" 2>/dev/null; then
+        kill -KILL "${cpid}" 2>/dev/null || true
+      fi
+      printf '1' >"${timeout_flag}"
+    fi
   ) &
   kpid=$!
+
+  # Hard ceiling so wait on cpid cannot block without bound if signal delivery misbehaves.
+  (
+    sleep $((LESMA_TEST_TIMEOUT + 5))
+    if kill -0 "${cpid}" 2>/dev/null; then
+      kill -KILL "${cpid}" 2>/dev/null || true
+      printf '1' >"${timeout_flag}"
+    fi
+  ) &
+  hard_pid=$!
+
   wait "${cpid}"
   ret=$?
+
   kill "${kpid}" 2>/dev/null || true
   wait "${kpid}" 2>/dev/null || true
+  kill "${hard_pid}" 2>/dev/null || true
+  wait "${hard_pid}" 2>/dev/null || true
+
+  if [ -s "${timeout_flag}" ]; then
+    ret="${LESMA_TEST_TIMEOUT_EXIT}"
+  fi
+  rm -f "${timeout_flag}"
+
   return "${ret}"
 }
 
@@ -91,7 +129,9 @@ run_single_test() {
     test_jit_ret_value=$?
   fi
 
-  if [ "${test_jit_ret_value}" -ne "${test_expected_ret_value}" ] && [ "${expected_to_fail}" -eq 0 ]; then
+  if [ "${test_jit_ret_value}" -eq "${LESMA_TEST_TIMEOUT_EXIT}" ]; then
+    printf 'fail-timeout %s\n' "${name}" >"${result_file}"
+  elif [ "${test_jit_ret_value}" -ne "${test_expected_ret_value}" ] && [ "${expected_to_fail}" -eq 0 ]; then
     printf 'fail-run %s %s %s\n' "${name}" "${test_expected_ret_value}" "${test_jit_ret_value}" >"${result_file}"
   elif [ "${expected_to_fail}" -eq 1 ] && [ "${test_jit_ret_value}" -eq "${test_expected_ret_value}" ]; then
     printf 'fail-expect %s\n' "${name}" >"${result_file}"
@@ -130,6 +170,11 @@ process_result_line() {
     fail_count=$((fail_count + 1))
     printf 'Testing %s\n' "$2"
     printf '  Run succeeded but was expected to fail\n'
+    ;;
+  fail-timeout)
+    fail_count=$((fail_count + 1))
+    printf 'Testing %s\n' "$2"
+    printf '  Timed out after %ss (LESMA_TEST_TIMEOUT)\n' "${LESMA_TEST_TIMEOUT}"
     ;;
   *)
     printf 'Internal error: bad result line: %s\n' "${line}" >&2
