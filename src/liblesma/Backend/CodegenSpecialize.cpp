@@ -401,6 +401,56 @@ auto Codegen::bindGenericsFromTypePair(const TypeExpr* declared, lesma::Type* ac
       }
     }
     return;
+  case TokenType::INT8_TYPE:
+    if (!actual->is(BaseType::TY_INT) || actual->getIntWidth() != 8U || !actual->isSigned()) {
+      if (bindingConflict != nullptr) {
+        *bindingConflict = true;
+      }
+    }
+    return;
+  case TokenType::INT16_TYPE:
+    if (!actual->is(BaseType::TY_INT) || actual->getIntWidth() != 16U || !actual->isSigned()) {
+      if (bindingConflict != nullptr) {
+        *bindingConflict = true;
+      }
+    }
+    return;
+  case TokenType::INT32_TYPE:
+    if (!actual->is(BaseType::TY_INT) || actual->getIntWidth() != 32U || !actual->isSigned()) {
+      if (bindingConflict != nullptr) {
+        *bindingConflict = true;
+      }
+    }
+    return;
+  case TokenType::UINT_TYPE:
+    // `uint` / `uint64`: 64-bit unsigned TY_INT in Codegen::visit(const TypeExpr*).
+    if (!actual->is(BaseType::TY_INT) || actual->getIntWidth() != 64U || actual->isSigned()) {
+      if (bindingConflict != nullptr) {
+        *bindingConflict = true;
+      }
+    }
+    return;
+  case TokenType::UINT8_TYPE:
+    if (!actual->is(BaseType::TY_INT) || actual->getIntWidth() != 8U || actual->isSigned()) {
+      if (bindingConflict != nullptr) {
+        *bindingConflict = true;
+      }
+    }
+    return;
+  case TokenType::UINT16_TYPE:
+    if (!actual->is(BaseType::TY_INT) || actual->getIntWidth() != 16U || actual->isSigned()) {
+      if (bindingConflict != nullptr) {
+        *bindingConflict = true;
+      }
+    }
+    return;
+  case TokenType::UINT32_TYPE:
+    if (!actual->is(BaseType::TY_INT) || actual->getIntWidth() != 32U || actual->isSigned()) {
+      if (bindingConflict != nullptr) {
+        *bindingConflict = true;
+      }
+    }
+    return;
   case TokenType::BOOL_TYPE:
     if (!actual->is(BaseType::TY_BOOL)) {
       if (bindingConflict != nullptr) {
