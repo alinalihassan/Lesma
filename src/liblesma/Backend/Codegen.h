@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstddef>
 #include <deque>
 #include <memory>
 #include <optional>
@@ -509,6 +510,11 @@ protected:
       lesma::Type* t, const std::unordered_map<std::string, lesma::Type*>& env) -> lesma::Type*;
 
 private:
+  /** Minimum tag bits: ceil(log2(memberCount)), at least 1 (memberCount must be > 0). */
+  [[nodiscard]] static auto unionDiscriminantMinBits(std::size_t memberCount) -> unsigned;
+  /** Round up to a whole number of bytes (8, 16, 32, 64); 0 if \p minBits > 64. */
+  [[nodiscard]] static auto roundUnionTagToSupportedBitWidth(unsigned minBits) -> unsigned;
+
   [[nodiscard]] auto cgUnionTryGetIsOpVarSymbol(const IsOp* is, SymbolTable* scope) -> lesma::Value*;
   [[nodiscard]] auto cgUnionComplementMemberIndex(lesma::Type* unionTy, lesma::Type* excluded)
       -> std::optional<unsigned>;

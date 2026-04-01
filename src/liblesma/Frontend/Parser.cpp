@@ -247,7 +247,8 @@ auto Parser::parseTypePrimary() -> std::unique_ptr<TypeExpr> {
       advance();
     }
     std::unique_ptr<TypeExpr> innerFirst = parseType();
-    if (advanceIfMatchAny<TokenType::COMMA>()) {
+    const bool hadTrailingComma = advanceIfMatchAny<TokenType::COMMA>();
+    if (hadTrailingComma) {
       std::vector<std::unique_ptr<TypeExpr>> elems;
       elems.push_back(std::move(innerFirst));
       while (!check(TokenType::RIGHT_PAREN)) {
@@ -267,6 +268,9 @@ auto Parser::parseTypePrimary() -> std::unique_ptr<TypeExpr> {
         }
         lexeme += elems[i]->getName();
       }
+      if (elems.size() == 1U) {
+        lexeme += ",";
+      }
       lexeme += ")";
       return TypeExpr::makeTupleType(llvm::SMRange{left->getStart(), right->getEnd()},
                                      std::move(lexeme), std::move(elems));
@@ -276,7 +280,7 @@ auto Parser::parseTypePrimary() -> std::unique_ptr<TypeExpr> {
   }
   if (check(TokenType::STAR)) {
     advance();
-    auto elementType = parseType();
+    auto elementType = parseTypePrimary();
     return std::make_unique<TypeExpr>(llvm::SMRange{type->getStart(), elementType->getEnd()},
                                       "*" + elementType->getName(), TokenType::PTR_TYPE,
                                       std::move(elementType));
@@ -387,7 +391,7 @@ auto Parser::parseTypePrimaryAt(unsigned long& off) -> bool {
 
   if (check(TokenType::STAR, off)) {
     off++;
-    return parseTypeAt(off);
+    return parseTypePrimaryAt(off);
   }
 
   if (check(TokenType::LEFT_PAREN, off)) {

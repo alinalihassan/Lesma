@@ -29,8 +29,12 @@ auto traitExistentialBaseName(const std::string& displayName) -> std::string {
   return displayName;
 }
 
-/** Minimum tag bits: ceil(log2(memberCount)), at least 1 (memberCount must be > 0). */
-auto unionDiscriminantMinBits(std::size_t memberCount) -> unsigned {
+} // namespace
+
+using namespace lesma;
+using namespace llvm;
+
+auto Codegen::unionDiscriminantMinBits(std::size_t memberCount) -> unsigned {
   unsigned bits = 0;
   for (std::size_t x = memberCount - 1; x != 0; x >>= 1) {
     ++bits;
@@ -38,8 +42,7 @@ auto unionDiscriminantMinBits(std::size_t memberCount) -> unsigned {
   return std::max(1U, bits);
 }
 
-/** Round up to a whole number of bytes (8, 16, 32, 64); 0 if \p minBits > 64. */
-auto roundUnionTagToSupportedBitWidth(unsigned minBits) -> unsigned {
+auto Codegen::roundUnionTagToSupportedBitWidth(unsigned minBits) -> unsigned {
   if (minBits <= 8) {
     return 8;
   }
@@ -54,11 +57,6 @@ auto roundUnionTagToSupportedBitWidth(unsigned minBits) -> unsigned {
   }
   return 0;
 }
-
-} // namespace
-
-using namespace lesma;
-using namespace llvm;
 
 auto Codegen::visit(const TypeExpr* node) -> void {
   // For primitive types, cache them so they survive beyond result's lifetime
