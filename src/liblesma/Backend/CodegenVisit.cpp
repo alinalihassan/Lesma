@@ -5159,13 +5159,18 @@ auto Codegen::emitUnionClassMethodDispatch(llvm::SMRange span, lesma::Value* uni
     auto recv = std::make_unique<lesma::Value>("", members[i], payloadVal);
     std::unique_ptr<lesma::Value> out =
         callMethodByName(span, recv.get(), methodName, args, explicitTypeArgs);
+    llvm::BasicBlock* currentBB = builder->GetInsertBlock();
+    if (currentBB == nullptr) {
+      currentBB = caseBB;
+    }
+    builder->SetInsertPoint(currentBB);
     if (commonRetTy != nullptr && commonRetTy->is(BaseType::TY_VOID)) {
       builder->CreateBr(mergeBB);
     } else {
       llvm::Value* rv = out->getLlvmValue();
       builder->CreateBr(mergeBB);
       phiVals.push_back(rv);
-      phiBBs.push_back(caseBB);
+      phiBBs.push_back(currentBB);
     }
   }
 
