@@ -998,9 +998,7 @@ auto Codegen::emitUnionPayloadLoadFromSlot(llvm::Value* unionAllocaPtr, lesma::T
   llvm::Value* payloadPtr =
       builder->CreateStructGEP(st, unionAllocaPtr, 1U, "union.payload.ptr");
   llvm::Type* memLt = getStoredAggregateFieldLlvmType(memberTy);
-  llvm::Value* typedPtr = builder->CreateBitCast(
-      payloadPtr, llvm::PointerType::getUnqual(memLt->getContext()));
-  return builder->CreateLoad(memLt, typedPtr, "union.payload");
+  return builder->CreateLoad(memLt, payloadPtr, "union.payload");
 }
 
 auto Codegen::emitUnionWrapValue(llvm::SMRange /*span*/, lesma::Value* val, lesma::Type* unionTy,
@@ -1014,10 +1012,7 @@ auto Codegen::emitUnionWrapValue(llvm::SMRange /*span*/, lesma::Value* val, lesm
   llvm::Type* tagTy = getOrCreateUnionTagLlvmType(unionTy);
   builder->CreateStore(llvm::ConstantInt::get(tagTy, variantIndex), tagPtr);
   llvm::Value* payPtr = builder->CreateStructGEP(st, slot, 1U, "union.pay.ptr");
-  llvm::Type* memLt = getStoredAggregateFieldLlvmType(val->getType());
-  llvm::Value* typedPtr = builder->CreateBitCast(
-      payPtr, llvm::PointerType::getUnqual(memLt->getContext()));
-  builder->CreateStore(val->getLlvmValue(), typedPtr);
+  builder->CreateStore(val->getLlvmValue(), payPtr);
   llvm::Value* agg = builder->CreateLoad(st, slot, "union.val");
   return std::make_unique<lesma::Value>("", unionTy, agg);
 }
