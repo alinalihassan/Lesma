@@ -401,11 +401,11 @@ auto Typechecker::getOrCreateLambdaCaptureShadow(Value* outerSym, const std::str
   return raw;
 }
 
-auto Typechecker::resolveMethodReturnType(Type* baseType, const std::string& methodName,
-                                          const std::vector<Type*>& argTypes, llvm::SMRange span)
-    -> Type* {
+auto Typechecker::resolveMethodWithTraitEnv(Type* baseType, const std::string& methodName,
+                                            const std::vector<Type*>& argTypes, llvm::SMRange span)
+    -> ResolvedMethodCallInfo {
   if (baseType == nullptr) {
-    return nullptr;
+    return {};
   }
   Type* base = baseType;
   if (base->is(BaseType::TY_PTR) && base->getElementType() != nullptr) {
@@ -415,11 +415,11 @@ auto Typechecker::resolveMethodReturnType(Type* baseType, const std::string& met
     const std::string traitKey = traitExistentialBaseName(base->getDisplayName());
     auto trIt = traitMethodSignatures.find(traitKey);
     if (trIt == traitMethodSignatures.end()) {
-      return nullptr;
+      return {};
     }
     auto methIt = trIt->second.find(methodName);
     if (methIt == trIt->second.end() || methIt->second.empty()) {
-      return nullptr;
+      return {};
     }
     Type* selfType = base->is(BaseType::TY_PTR)
                          ? base
@@ -435,17 +435,17 @@ auto Typechecker::resolveMethodReturnType(Type* baseType, const std::string& met
     }
     Type* matched = selectBestFunctionTypeMatch(methIt->second, methodArgTypes);
     if (matched == nullptr) {
-      return nullptr;
+      return {};
     }
     Type* ret = matched->getReturnType();
     if (auto envIt = specializedTraitExistentialEnv.find(base);
         envIt != specializedTraitExistentialEnv.end() && ret != nullptr) {
       ret = substituteInType(ret, envIt->second);
     }
-    return ret;
+    return {ret, nullptr, {}};
   }
   if (!base->is(BaseType::TY_CLASS) && !base->is(BaseType::TY_ENUM)) {
-    return nullptr;
+    return {};
   }
 
   Type* receiverForLookup = base;
@@ -488,27 +488,51 @@ auto Typechecker::resolveMethodReturnType(Type* baseType, const std::string& met
     }
   }
   if (method == nullptr || !method->getType()->is(BaseType::TY_FUNCTION)) {
-    return nullptr;
+    return {};
   }
 
   enforcePrivateMemberReadable(span, method);
 
-  auto fields = method->getType()->getFields();
+  auto* methodType = method->getType();
+  auto fields = methodType->getFields();
   for (size_t i = 0; i < fields.size() && i < methodArgTypes.size(); ++i) {
     inferGenericBindings(fields[i]->type, methodArgTypes[i], methodTypeEnv, span);
   }
-  Type* retType = method->getType()->getReturnType();
+  Type* retType = methodType->getReturnType();
   if (!methodTypeEnv.empty() && retType != nullptr) {
     retType = substituteInType(retType, methodTypeEnv);
   }
+
+  std::unordered_map<std::string, Type*> traitBoundSubs = methodTypeEnv;
+  const auto& methodGenericNames = methodType->getGenericParams();
+  if (!methodGenericNames.empty()) {
+    std::unordered_map<std::string, Type*> extraInferred;
+    for (size_t i = 0; i < fields.size() && i < methodArgTypes.size(); ++i) {
+      inferGenericBindings(fields[i]->type, methodArgTypes[i], extraInferred, span);
+    }
+    for (const auto& kv : extraInferred) {
+      if (std::find(methodGenericNames.begin(), methodGenericNames.end(), kv.first) ==
+          methodGenericNames.end()) {
+        continue;
+      }
+      traitBoundSubs[kv.first] = kv.second;
+    }
+  }
+
   if (method->getDeclarationKind() == ValueDeclarationKind::METHOD ||
       method->getDeclarationKind() == ValueDeclarationKind::FUNCTION) {
     method->setUsed(true);
   }
   if (importedMethod && retType != nullptr) {
-    return materializeImportedType(retType);
+    retType = materializeImportedType(retType);
   }
-  return retType;
+  return {retType, method, std::move(traitBoundSubs)};
+}
+
+auto Typechecker::resolveMethodReturnType(Type* baseType, const std::string& methodName,
+                                          const std::vector<Type*>& argTypes, llvm::SMRange span)
+    -> Type* {
+  return resolveMethodWithTraitEnv(baseType, methodName, argTypes, span).returnType;
 }
 
 auto Typechecker::isMutableListReceiver(const Expression* expr) -> bool {
@@ -5144,26 +5168,30 @@ auto Typechecker::visit(const DotOp* node) -> void {
       argTypes.push_back(t);
     }
     Type* commonRet = nullptr;
+    Value* resolvedSymbol = nullptr;
     for (Type* mem : base->getUnionMembers()) {
       if (mem == nullptr || !mem->is(BaseType::TY_CLASS)) {
         throw TypeCheckError(node->getSpan(),
                              "Calling a method on a union requires every variant to be a class "
                              "type");
       }
-      Type* r = resolveMethodReturnType(mem, fc->getName(), argTypes, node->getSpan());
-      if (r == nullptr) {
+      ResolvedMethodCallInfo resolved =
+          resolveMethodWithTraitEnv(mem, fc->getName(), argTypes, node->getSpan());
+      if (resolved.returnType == nullptr) {
         throw TypeCheckError(node->getSpan(), "Method '{}' is not available on all union members",
                              fc->getName());
       }
+      verifyGenericTraitBounds(resolved.method, resolved.traitBoundSubs, node->getSpan());
       if (commonRet == nullptr) {
-        commonRet = r;
-      } else if (!commonRet->isEqual(r)) {
+        commonRet = resolved.returnType;
+      } else if (!commonRet->isEqual(resolved.returnType)) {
         throw TypeCheckError(node->getSpan(),
                              "Method '{}' has incompatible return types across union members",
                              fc->getName());
       }
+      resolvedSymbol = resolved.method;
     }
-    fc->setResolvedSymbol(nullptr);
+    fc->setResolvedSymbol(resolvedSymbol);
     result = std::make_unique<Value>(commonRet);
     return;
   }

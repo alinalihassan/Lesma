@@ -29,6 +29,13 @@ class TypeCheckError;
 using GetExportsFn =
     std::function<ExportDiscoveryResult(const std::string&, bool, const std::string&)>;
 
+/** Concrete return type plus callee and substitution map for generic trait bound checks. */
+struct ResolvedMethodCallInfo {
+  Type* returnType = nullptr;
+  Value* method = nullptr;
+  std::unordered_map<std::string, Type*> traitBoundSubs;
+};
+
 /**
  * Semantic typecheck pass. Runs after parsing, before codegen.
  * Resolves types (without LLVM), builds symbol table, and checks:
@@ -217,6 +224,9 @@ class Typechecker final : public ASTVisitor {
       -> Type*;
   auto visitExprWithExpectedType(const Expression* node, Type* expected) -> void;
   [[nodiscard]] auto currentExpectedType() const -> Type*;
+  [[nodiscard]] auto resolveMethodWithTraitEnv(Type* baseType, const std::string& methodName,
+                                               const std::vector<Type*>& argTypes,
+                                               llvm::SMRange span) -> ResolvedMethodCallInfo;
   auto resolveMethodReturnType(Type* baseType, const std::string& methodName,
                                const std::vector<Type*>& argTypes, llvm::SMRange span) -> Type*;
   auto isMutableListReceiver(const Expression* expr) -> bool;
