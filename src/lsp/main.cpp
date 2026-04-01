@@ -9,7 +9,9 @@
 #include <string_view>
 #include <unordered_map>
 #include <unordered_set>
+#include <utility>
 #include <variant>
+#include <vector>
 
 #include <llvm/Support/SourceMgr.h>
 
@@ -62,15 +64,16 @@ public:
     // Recompute
     std::string implicitPath = docStore.getAnalyzeMainFilePath(uri).value_or("");
     auto options = std::make_unique<Options>(Options{
-        SourceType::STRING,
-        content,
-        Debug::NONE,
-        "output",
-        false,
-        std::move(implicitPath),
+        .sourceType = SourceType::STRING,
+        .source = content,
+        .debug = Debug::NONE,
+        .outputFilename = "output",
+        .timer = false,
+        .implicitFilePath = std::move(implicitPath),
     });
     AnalysisResult result = lesma::analyze(std::move(options));
-    DocumentAnalysisSnapshot snapshot{content, version, std::move(result)};
+    DocumentAnalysisSnapshot snapshot{
+        .content = content, .version = version, .result = std::move(result)};
     cache[key] = std::move(snapshot);
     return cache[key];
   }
@@ -320,8 +323,7 @@ auto runAnalyzeAndPublish(const ::lsp::DocumentUri& uri,
   AnalysisResult& result = snapshot.result;
 
   std::optional<std::string> const analyzedPathOpt = docStore.getPath(uri);
-  std::string const primaryNorm =
-      analyzedPathOpt ? normalizePath(*analyzedPathOpt) : std::string{};
+  std::string const primaryNorm = analyzedPathOpt ? normalizePath(*analyzedPathOpt) : std::string{};
 
   std::vector<::lsp::Diagnostic> primaryDiags;
   std::unordered_map<std::string, std::vector<::lsp::Diagnostic>> otherDiags;
@@ -378,11 +380,12 @@ auto formatCallableHoverType(lesma::Type* type, lesma::SymbolTable* rootScope) -
 }
 
 /** Build hover text from a symbol: name, kind, and type in readable Markdown. */
-auto formatHoverContent(lesma::Value* value, lesma::SymbolTable* rootScope) -> std::string {
+auto formatHoverContent(lesma::Value* value, lesma::SymbolTable* rootScope,
+                        lesma::Type* typeDisplayOverride = nullptr) -> std::string {
   if (value == nullptr) {
     return "";
   }
-  lesma::Type* type = value->getType();
+  lesma::Type* type = typeDisplayOverride != nullptr ? typeDisplayOverride : value->getType();
   std::string typeStr = type != nullptr ? type->toString() : "?";
   std::string const& name = value->getName();
 
@@ -768,18 +771,11 @@ auto makeCursorIdentifierFromSpan(const std::string& name, llvm::SMRange span,
                               isTypePosition);
 }
 
-auto findIndexedSymbolOccurrenceAtCursor(const AnalysisView& analysis, unsigned line,
-                                         unsigned character)
+auto findIndexedSymbolOccurrenceAtBufferOffset(const AnalysisView& analysis, unsigned targetOffset)
     -> const lesma::IndexedSymbolOccurrence* {
   if (!isUsableAnalysis(analysis) || analysis.index == nullptr) {
     return nullptr;
   }
-  auto const* buf = analysis.sourceMgr->getMemoryBuffer(analysis.bufferId);
-  if (buf == nullptr) {
-    return nullptr;
-  }
-  unsigned const targetOffset = static_cast<unsigned>(
-      lesma::lsp_srv::bufferByteOffsetFromLspUtf8Position(buf->getBuffer(), line, character));
   const lesma::IndexedSymbolOccurrence* best = nullptr;
   unsigned bestLen = 0U;
   bool bestContains = false;
@@ -805,6 +801,21 @@ auto findIndexedSymbolOccurrenceAtCursor(const AnalysisView& analysis, unsigned 
     }
   }
   return best;
+}
+
+auto findIndexedSymbolOccurrenceAtCursor(const AnalysisView& analysis, unsigned line,
+                                         unsigned character)
+    -> const lesma::IndexedSymbolOccurrence* {
+  if (!isUsableAnalysis(analysis) || analysis.index == nullptr) {
+    return nullptr;
+  }
+  auto const* buf = analysis.sourceMgr->getMemoryBuffer(analysis.bufferId);
+  if (buf == nullptr) {
+    return nullptr;
+  }
+  unsigned const targetOffset = static_cast<unsigned>(
+      lesma::lsp_srv::bufferByteOffsetFromLspUtf8Position(buf->getBuffer(), line, character));
+  return findIndexedSymbolOccurrenceAtBufferOffset(analysis, targetOffset);
 }
 
 /** Find identifier at cursor position by walking AST to find the identifier token. */
@@ -1385,6 +1396,11 @@ struct CallableCandidate {
 auto receiverMatchesSelf(lesma::Type* receiverType, lesma::Type* selfType) -> bool {
   if (receiverType == nullptr || selfType == nullptr) {
     return false;
+  }
+  if (receiverType->is(lesma::BaseType::TY_UNION)) {
+    return std::ranges::any_of(receiverType->getUnionMembers(), [selfType](lesma::Type* m) -> bool {
+      return receiverMatchesSelf(m, selfType);
+    });
   }
   if (receiverType->isEqual(selfType)) {
     return true;
@@ -2598,6 +2614,111 @@ auto collectDocumentSymbols(const AnalysisResult& result) -> std::vector<::lsp::
   return symbols;
 }
 
+/** When the receiver is a class union and multiple methods match, return every definition. */
+auto tryResolveUnionMultiMethodDefinitionLocations(AnalysisResult& result, unsigned line,
+                                                   unsigned character)
+    -> std::vector<::lsp::Location> {
+  if (result.parser == nullptr || result.sourceMgr == nullptr) {
+    return {};
+  }
+  AnalysisView analysis = makeAnalysisView(result);
+  if (!isUsableAnalysis(analysis) || analysis.ast == nullptr || analysis.rootScope == nullptr) {
+    return {};
+  }
+  std::optional<CursorIdentifier> id = findIdentifierAtCursor(analysis, line, character);
+  if (!id) {
+    return {};
+  }
+  std::optional<ActiveCallSite> activeCall = findActiveCallSite(analysis, line, character);
+  if (!activeCall || activeCall->call == nullptr || activeCall->receiver == nullptr ||
+      activeCall->call->getName() != id->name) {
+    return {};
+  }
+  auto const* buf = analysis.sourceMgr->getMemoryBuffer(analysis.bufferId);
+  if (buf == nullptr) {
+    return {};
+  }
+  unsigned const targetOffset = static_cast<unsigned>(
+      lesma::lsp_srv::bufferByteOffsetFromLspUtf8Position(buf->getBuffer(), line, character));
+  std::vector<lesma::Type*> argTypes;
+  for (lesma::Expression* arg : activeCall->call->getArguments()) {
+    lesma::Type* argType = resolveExpressionTypeAtOffset(
+        arg, analysis.ast, analysis.rootScope, analysis.sourceMgr, analysis.bufferId, targetOffset);
+    if (argType == nullptr) {
+      return {};
+    }
+    argTypes.push_back(argType);
+  }
+  lesma::Type* receiverType =
+      resolveExpressionTypeAtOffset(activeCall->receiver, analysis.ast, analysis.rootScope,
+                                    analysis.sourceMgr, analysis.bufferId, targetOffset);
+  llvm::SMRange const receiverSpan = activeCall->receiver->getSpan();
+  if (receiverSpan.isValid()) {
+    unsigned const recvStart =
+        getOffsetFromSMLoc(analysis.sourceMgr, analysis.bufferId, receiverSpan.Start);
+    unsigned const recvEnd =
+        getOffsetFromSMLoc(analysis.sourceMgr, analysis.bufferId, receiverSpan.End);
+    if (const lesma::IndexedSymbolOccurrence* recvOcc =
+            findIndexedSymbolOccurrenceAtBufferOffset(analysis, recvStart);
+        recvOcc != nullptr && recvOcc->flowSensitiveType != nullptr) {
+      unsigned const occStart =
+          getOffsetFromSMLoc(analysis.sourceMgr, analysis.bufferId, recvOcc->span.Start);
+      unsigned const occEnd =
+          getOffsetFromSMLoc(analysis.sourceMgr, analysis.bufferId, recvOcc->span.End);
+      if (occStart >= recvStart && occEnd <= recvEnd) {
+        receiverType = recvOcc->flowSensitiveType;
+      }
+    }
+  }
+  if (receiverType == nullptr || !receiverType->is(lesma::BaseType::TY_UNION)) {
+    return {};
+  }
+  std::vector<std::pair<CallableCandidate, AnalysisView>> aggregated;
+  for (const AnalysisView& candidateAnalysis : collectAnalysisViews(result)) {
+    if (!isUsableAnalysis(candidateAnalysis) || candidateAnalysis.rootScope == nullptr) {
+      continue;
+    }
+    std::vector<CallableCandidate> perView =
+        collectCallableCandidates(candidateAnalysis.rootScope, id->name, receiverType, argTypes);
+    for (const CallableCandidate& cand : perView) {
+      aggregated.emplace_back(cand, candidateAnalysis);
+    }
+  }
+  if (aggregated.size() <= 1U) {
+    return {};
+  }
+  std::vector<::lsp::Location> out;
+  std::unordered_set<std::string> seen;
+  for (const auto& [cand, candidateAnalysis] : aggregated) {
+    if (cand.value == nullptr) {
+      continue;
+    }
+    std::string declPath = cand.value->getDeclarationFilePath();
+    if (declPath.empty() && candidateAnalysis.mainFilePath != nullptr) {
+      declPath = *candidateAnalysis.mainFilePath;
+    }
+    if (declPath.empty()) {
+      continue;
+    }
+    std::optional<::lsp::Range> mappedRange =
+        lspRangeForValueDeclaration(result, cand.value, candidateAnalysis);
+    if (!mappedRange) {
+      continue;
+    }
+    std::string const key = normalizePath(declPath) + "#" +
+                            std::to_string(mappedRange->start.line) + ":" +
+                            std::to_string(mappedRange->start.character);
+    if (!seen.insert(key).second) {
+      continue;
+    }
+    out.push_back(::lsp::Location{
+        .uri = uriFromPath(declPath),
+        .range = *mappedRange,
+    });
+  }
+  return out;
+}
+
 /** Resolve definition location using compiler metadata from Value. */
 auto tryResolveDefinitionLocation(AnalysisResult& result, unsigned line, unsigned character)
     -> std::optional<::lsp::Location> {
@@ -2759,9 +2880,9 @@ auto main() -> int {
               .legend =
                   ::lsp::SemanticTokensLegend{
                       .tokenTypes =
-                          ::lsp::Array<::lsp::String>{
-                              "namespace", "class", "enum", "enumMember", "type", "typeParameter",
-                              "function", "method", "parameter", "variable", "property"},
+                          ::lsp::Array<::lsp::String>{"namespace", "class", "enum", "enumMember",
+                                                      "type", "typeParameter", "function", "method",
+                                                      "parameter", "variable", "property"},
                       .tokenModifiers =
                           ::lsp::Array<::lsp::String>{"declaration", "defaultLibrary"},
                   },
@@ -2855,8 +2976,14 @@ auto main() -> int {
                     resolveCanonicalSymbolAtCursor(result, line, character, *id);
                 if (resolved && resolved->value != nullptr &&
                     resolved->value->getType() != nullptr) {
+                  lesma::Type* flowTy = nullptr;
+                  if (const lesma::IndexedSymbolOccurrence* occ =
+                          findIndexedSymbolOccurrenceAtCursor(analysis, line, character);
+                      occ != nullptr && occ->flowSensitiveType != nullptr) {
+                    flowTy = occ->flowSensitiveType;
+                  }
                   std::string hoverText =
-                      formatHoverContent(resolved->value, resolved->owner.rootScope);
+                      formatHoverContent(resolved->value, resolved->owner.rootScope, flowTy);
                   if (std::string doc = documentationCommentAboveDeclaration(
                           result, resolved->value, resolved->owner);
                       !doc.empty()) {
@@ -3006,6 +3133,13 @@ auto main() -> int {
           return withAnalyzedDocument<::lsp::TextDocument_DefinitionResult>(
               params.textDocument.uri, docStore, analysisCache,
               [&](AnalysisResult& result) -> ::lsp::TextDocument_DefinitionResult {
+                std::vector<::lsp::Location> const multiLocs =
+                    tryResolveUnionMultiMethodDefinitionLocations(result, params.position.line,
+                                                                  params.position.character);
+                if (multiLocs.size() > 1U) {
+                  return {::lsp::Definition(
+                      ::lsp::Array<::lsp::Location>(multiLocs.begin(), multiLocs.end()))};
+                }
                 auto loc = tryResolveDefinitionLocation(result, params.position.line,
                                                         params.position.character);
                 if (!loc) {
@@ -3021,6 +3155,13 @@ auto main() -> int {
           return withAnalyzedDocument<::lsp::TextDocument_DeclarationResult>(
               params.textDocument.uri, docStore, analysisCache,
               [&](AnalysisResult& result) -> ::lsp::TextDocument_DeclarationResult {
+                std::vector<::lsp::Location> const multiDecls =
+                    tryResolveUnionMultiMethodDefinitionLocations(result, params.position.line,
+                                                                  params.position.character);
+                if (multiDecls.size() > 1U) {
+                  return {::lsp::Declaration(
+                      ::lsp::Array<::lsp::Location>(multiDecls.begin(), multiDecls.end()))};
+                }
                 auto loc = tryResolveDeclarationLocation(result, params.position.line,
                                                          params.position.character);
                 if (!loc) {

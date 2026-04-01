@@ -68,6 +68,8 @@ class Literal : public Expression {
   mutable Value* resolvedSymbol = nullptr;
   /** If non-null for STRING literals, codegen emits a boxed stdlib str instance. */
   mutable Type* resolvedStrClassType = nullptr;
+  /** Flow-narrowed type for IDENTIFIER (e.g. `int` inside `else` after `x is float`); LSP hover. */
+  mutable Type* lspFlowSensitiveType = nullptr;
 
 public:
   Literal(llvm::SMRange loc, std::string value, TokenType type)
@@ -80,6 +82,8 @@ public:
   auto setResolvedSymbol(Value* v) const -> void { resolvedSymbol = v; }
   [[nodiscard]] auto getResolvedStrClassType() const -> Type* { return resolvedStrClassType; }
   auto setResolvedStrClassType(Type* t) const -> void { resolvedStrClassType = t; }
+  [[nodiscard]] auto getLspFlowSensitiveType() const -> Type* { return lspFlowSensitiveType; }
+  auto setLspFlowSensitiveType(Type* t) const -> void { lspFlowSensitiveType = t; }
 
   auto toString(llvm::SourceMgr* /*srcMgr*/, const std::string& /*prefix*/, bool /*isTail*/) const
       -> std::string override {
@@ -218,6 +222,13 @@ public:
       -> std::unique_ptr<TypeExpr> {
     return std::make_unique<TypeExpr>(loc, std::move(displayName), TokenType::TUPLE_TYPE,
                                       std::move(elements), std::unique_ptr<TypeExpr>(nullptr));
+  }
+  /** Union type `T1 | T2 | ...`: `params` are arms, `ret` is null. */
+  static auto makeUnionType(llvm::SMRange loc, std::string displayName,
+                            std::vector<std::unique_ptr<TypeExpr>> arms)
+      -> std::unique_ptr<TypeExpr> {
+    return std::make_unique<TypeExpr>(loc, std::move(displayName), TokenType::UNION_TYPE,
+                                      std::move(arms), std::unique_ptr<TypeExpr>(nullptr));
   }
   void accept(ASTVisitor& visitor) const override { visitor.visit(this); }
 
@@ -1052,6 +1063,8 @@ class IsOp : public Expression {
   std::unique_ptr<Expression> left;
   TokenType op;
   std::unique_ptr<TypeExpr> right;
+  /** Filled by typechecker; used by codegen without re-visiting the RHS `TypeExpr`. */
+  mutable Type* resolvedRhsType = nullptr;
 
 public:
   IsOp(llvm::SMRange loc, std::unique_ptr<Expression> left, TokenType op,
@@ -1062,6 +1075,8 @@ public:
   [[nodiscard]] [[maybe_unused]] auto getLeft() const -> Expression* { return left.get(); }
   [[nodiscard]] [[maybe_unused]] auto getOperator() const -> TokenType { return op; }
   [[nodiscard]] [[maybe_unused]] auto getRight() const -> TypeExpr* { return right.get(); }
+  [[nodiscard]] auto getResolvedRhsType() const -> Type* { return resolvedRhsType; }
+  auto setResolvedRhsType(Type* t) const -> void { resolvedRhsType = t; }
 
   auto toString(llvm::SourceMgr* srcMgr, const std::string& prefix, bool isTail) const
       -> std::string override {

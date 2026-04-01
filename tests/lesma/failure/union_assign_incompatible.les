@@ -1,0 +1,2 @@
+# Values must be assignable to at least one union member.
+var x: int | float = "nope"

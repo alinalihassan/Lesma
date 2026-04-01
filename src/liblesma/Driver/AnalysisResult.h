@@ -48,6 +48,8 @@ struct IndexedSymbolOccurrence {
   std::string name;
   std::optional<std::string> dotBase;
   llvm::SMRange span;
+  /** Non-owning; if set, hover uses this type instead of the resolved symbol's declared type. */
+  Type* flowSensitiveType = nullptr;
   /** When set, semantic tokens use this range instead of \c span (e.g. operator glyphs only). */
   std::optional<llvm::SMRange> semanticHighlightSpan;
   std::optional<IndexedDeclarationIdentity> declaration;
@@ -112,7 +114,7 @@ struct AnalysisResult {
   std::unordered_map<std::string, std::shared_ptr<ImportedModuleAnalysis>> importedModules;
 
   [[nodiscard]] auto hasErrors() const -> bool {
-    for (const AnalysisDiagnostic& d : diagnostics) {
+    for (const auto& d : diagnostics) {
       if (d.severity == AnalysisDiagnosticSeverity::Error) {
         return true;
       }

@@ -1,3 +1,5 @@
+#include <algorithm>
+#include <cstddef>
 #include <string>
 #include <vector>
 
@@ -31,6 +33,30 @@ auto traitExistentialBaseName(const std::string& displayName) -> std::string {
 
 using namespace lesma;
 using namespace llvm;
+
+auto Codegen::unionDiscriminantMinBits(std::size_t memberCount) -> unsigned {
+  unsigned bits = 0;
+  for (std::size_t x = memberCount - 1; x != 0; x >>= 1) {
+    ++bits;
+  }
+  return std::max(1U, bits);
+}
+
+auto Codegen::roundUnionTagToSupportedBitWidth(unsigned minBits) -> unsigned {
+  if (minBits <= 8) {
+    return 8;
+  }
+  if (minBits <= 16) {
+    return 16;
+  }
+  if (minBits <= 32) {
+    return 32;
+  }
+  if (minBits <= 64) {
+    return 64;
+  }
+  return 0;
+}
 
 auto Codegen::visit(const TypeExpr* node) -> void {
   // For primitive types, cache them so they survive beyond result's lifetime
@@ -137,6 +163,27 @@ auto Codegen::visit(const TypeExpr* node) -> void {
     Type* cached = cacheType(std::move(tup));
     getOrCreateLlvmType(cached);
     result = std::make_unique<Value>(cached);
+  } else if (node->getType() == TokenType::UNION_TYPE) {
+    std::vector<Type*> members;
+    members.reserve(node->getParams().size());
+    for (TypeExpr* param : node->getParams()) {
+      param->accept(*this);
+      members.push_back(result->getType());
+    }
+    auto [unique, displayName] = TypeUtils::canonicalizeUnionMembers(std::move(members));
+    if (unique.size() == 1U) {
+      Type* cached = unique[0];
+      getOrCreateLlvmType(cached);
+      result = std::make_unique<Value>(cached);
+    } else {
+      auto u = std::make_unique<Type>(BaseType::TY_UNION);
+      u->setUnionMembers(std::move(unique));
+      u->setDisplayName(displayName);
+      u->setDeclarationSpan(node->getSpan());
+      Type* cached = cacheType(std::move(u));
+      getOrCreateLlvmType(cached);
+      result = std::make_unique<Value>(cached);
+    }
   } else if (node->getType() == TokenType::CUSTOM_TYPE) {
     const std::string lookupName = node->getLookupName();
     auto git = currentGenericTypes.find(lookupName);
@@ -291,6 +338,38 @@ auto Codegen::getOrCreateLlvmType(lesma::Type* type) -> llvm::Type* {
     type->setLlvmType(st);
     break;
   }
+  case BaseType::TY_UNION: {
+    llvm::SMRange const unionDeclSpan = type->getDeclarationSpan();
+    const std::vector<Type*>& mem = type->getUnionMembers();
+    if (mem.empty()) {
+      throw CodegenError(unionDeclSpan, "Internal error: union type has no members");
+    }
+    for (Type* m : mem) {
+      getOrCreateLlvmType(m);
+    }
+    const llvm::DataLayout& dl = theModule->getDataLayout();
+    unsigned maxAlloc = 0;
+    unsigned maxAbiAlign = 1;
+    for (Type* m : mem) {
+      llvm::Type* const lt = getStoredAggregateFieldLlvmType(m);
+      maxAlloc = std::max(maxAlloc, static_cast<unsigned>(dl.getTypeAllocSize(lt).getFixedValue()));
+      maxAbiAlign = std::max(maxAbiAlign, static_cast<unsigned>(dl.getABITypeAlign(lt).value()));
+    }
+    unsigned const payloadBytes = llvm::alignTo(maxAlloc, maxAbiAlign);
+    unsigned const numI64 = std::max(1U, (payloadBytes + 7U) / 8U);
+    llvm::Type* const payloadTy = llvm::ArrayType::get(builder->getInt64Ty(), numI64);
+    unsigned const minTagBits = unionDiscriminantMinBits(mem.size());
+    unsigned const tagBitWidth = roundUnionTagToSupportedBitWidth(minTagBits);
+    if (tagBitWidth == 0) {
+      throw CodegenError(
+          unionDeclSpan,
+          "Union has too many members for the discriminant (tag width would exceed 64 bits)");
+    }
+    llvm::Type* const tagTy = builder->getIntNTy(tagBitWidth);
+    llvm::StructType* const st = llvm::StructType::get(theModule->getContext(), {tagTy, payloadTy});
+    type->setLlvmType(st);
+    break;
+  }
   case BaseType::TY_CLASS: {
     // Create opaque struct first to break recursion (e.g. class with field
     // *Self). Leading slot: vtable pointer (single inheritance, dynamic dispatch).
@@ -337,6 +416,16 @@ auto Codegen::getOrCreateLlvmType(lesma::Type* type) -> llvm::Type* {
   return type->getLlvmType();
 }
 
+auto Codegen::getOrCreateUnionTagLlvmType(lesma::Type* unionTy) -> llvm::Type* {
+  if (unionTy == nullptr || !unionTy->is(BaseType::TY_UNION)) {
+    llvm::SMRange const span = unionTy != nullptr ? unionTy->getDeclarationSpan() : llvm::SMRange{};
+    throw CodegenError(span, "Internal error: getOrCreateUnionTagLlvmType expects a union type");
+  }
+  getOrCreateLlvmType(unionTy);
+  auto* st = llvm::cast<llvm::StructType>(unionTy->getLlvmType());
+  return st->getElementType(0U);
+}
+
 auto Codegen::getStoredAggregateFieldLlvmType(lesma::Type* fieldType) -> llvm::Type* {
   if (fieldType == nullptr) {
     return nullptr;
@@ -349,7 +438,7 @@ auto Codegen::getStoredAggregateFieldLlvmType(lesma::Type* fieldType) -> llvm::T
 }
 
 auto Codegen::loadStoredAggregateFieldValue(llvm::Value* slotPtr, lesma::Type* fieldType,
-                                           const llvm::Twine& name) -> llvm::Value* {
+                                            const llvm::Twine& name) -> llvm::Value* {
   return builder->CreateLoad(getStoredAggregateFieldLlvmType(fieldType), slotPtr, name);
 }
 
@@ -400,7 +489,8 @@ auto Codegen::captureImportedSpecializationState() const -> ImportedSpecializati
   return importedState;
 }
 
-auto Codegen::mergeImportedSpecializationState(ImportedSpecializationState const& imported) -> void {
+auto Codegen::mergeImportedSpecializationState(ImportedSpecializationState const& imported)
+    -> void {
   for (const auto& entry : imported.genericClasses) {
     genericClasses.insert(entry);
   }
@@ -485,7 +575,7 @@ auto Codegen::emitErasedThunkForTraitMethod(lesma::Type* classType, const std::s
 
   std::string thunkName = "lesma.trait.thunk." + cacheKey;
   for (char& c : thunkName) {
-    if (!(std::isalnum(static_cast<unsigned char>(c)) != 0 || c == '.' || c == '_')) {
+    if (std::isalnum(static_cast<unsigned char>(c)) == 0 && c != '.' && c != '_') {
       c = '_';
     }
   }
@@ -542,7 +632,7 @@ auto Codegen::getOrEmitWitnessTable(lesma::Type* classType, const std::string& t
   llvm::Constant* init = llvm::ConstantArray::get(at, constants);
   std::string gname = "lesma.witness." + cacheKey;
   for (char& c : gname) {
-    if (!(std::isalnum(static_cast<unsigned char>(c)) != 0 || c == '.' || c == '_')) {
+    if (std::isalnum(static_cast<unsigned char>(c)) == 0 && c != '.' && c != '_') {
       c = '_';
     }
   }

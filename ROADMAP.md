@@ -16,13 +16,17 @@
 - [x] Add string interpolation
 - [x] Add multiple value return without having to make structs
 - [x] Dataclasses (implicit constructors)
-- [ ] Add optional types
 - [x] Add dictionaries
 - [x] Add lambda functions
-- [ ] Add try catch
-- [ ] Add multithreading using pthread for now (async/await? ala Spice)
 - [x] Add comments above classes and functions as documentation in LSP
 - [x] Check dictionaries for multiline support
+- [x] Type unions
+- [x] Type narrowing
+- [ ] Add optional types
+- [ ] Enums v2 (in type unions, enums with methods, traits and associated values)
+- [ ] Multithreading with LLVM coroutines (async await)
+- [ ] Try catch and Errors
+- [ ] Formatter
 
 ## LSP
 - [ ] rename + prepareRename

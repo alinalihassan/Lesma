@@ -211,6 +211,35 @@ auto Parser::parseIgnoredTypeArgList() -> void {
 }
 
 auto Parser::parseType() -> std::unique_ptr<TypeExpr> {
+  std::vector<std::unique_ptr<TypeExpr>> arms;
+  arms.push_back(parseTypePrimary());
+  if (arms[0] == nullptr) {
+    return nullptr;
+  }
+  while (advanceIfMatchAny<TokenType::PIPE>()) {
+    while (check(TokenType::NEWLINE)) {
+      advance();
+    }
+    std::unique_ptr<TypeExpr> next = parseTypePrimary();
+    if (next == nullptr) {
+      return nullptr;
+    }
+    arms.push_back(std::move(next));
+  }
+  if (arms.size() == 1U) {
+    return std::move(arms[0]);
+  }
+  std::string lexeme = arms[0]->getName();
+  for (size_t i = 1; i < arms.size(); ++i) {
+    lexeme += " | ";
+    lexeme += arms[i]->getName();
+  }
+  return TypeExpr::makeUnionType(
+      llvm::SMRange{arms.front()->getStart(), arms.back()->getEnd()}, std::move(lexeme),
+      std::move(arms));
+}
+
+auto Parser::parseTypePrimary() -> std::unique_ptr<TypeExpr> {
   auto* type = peek();
   if (check(TokenType::LEFT_PAREN)) {
     auto* left = consume(TokenType::LEFT_PAREN);
@@ -218,7 +247,8 @@ auto Parser::parseType() -> std::unique_ptr<TypeExpr> {
       advance();
     }
     std::unique_ptr<TypeExpr> innerFirst = parseType();
-    if (advanceIfMatchAny<TokenType::COMMA>()) {
+    const bool hadTrailingComma = advanceIfMatchAny<TokenType::COMMA>();
+    if (hadTrailingComma) {
       std::vector<std::unique_ptr<TypeExpr>> elems;
       elems.push_back(std::move(innerFirst));
       while (!check(TokenType::RIGHT_PAREN)) {
@@ -238,6 +268,9 @@ auto Parser::parseType() -> std::unique_ptr<TypeExpr> {
         }
         lexeme += elems[i]->getName();
       }
+      if (elems.size() == 1U) {
+        lexeme += ",";
+      }
       lexeme += ")";
       return TypeExpr::makeTupleType(llvm::SMRange{left->getStart(), right->getEnd()},
                                      std::move(lexeme), std::move(elems));
@@ -247,7 +280,7 @@ auto Parser::parseType() -> std::unique_ptr<TypeExpr> {
   }
   if (check(TokenType::STAR)) {
     advance();
-    auto elementType = parseType();
+    auto elementType = parseTypePrimary();
     return std::make_unique<TypeExpr>(llvm::SMRange{type->getStart(), elementType->getEnd()},
                                       "*" + elementType->getName(), TokenType::PTR_TYPE,
                                       std::move(elementType));
@@ -336,13 +369,29 @@ auto Parser::parseType() -> std::unique_ptr<TypeExpr> {
 }
 
 auto Parser::parseTypeAt(unsigned long& off) -> bool {
+  if (!parseTypePrimaryAt(off)) {
+    return false;
+  }
+  while (index + off < tokens.size() && peek(off)->type == TokenType::PIPE) {
+    off++;
+    while (index + off < tokens.size() && peek(off)->type == TokenType::NEWLINE) {
+      off++;
+    }
+    if (!parseTypePrimaryAt(off)) {
+      return false;
+    }
+  }
+  return true;
+}
+
+auto Parser::parseTypePrimaryAt(unsigned long& off) -> bool {
   if (index + off >= tokens.size()) {
     return false;
   }
 
   if (check(TokenType::STAR, off)) {
     off++;
-    return parseTypeAt(off);
+    return parseTypePrimaryAt(off);
   }
 
   if (check(TokenType::LEFT_PAREN, off)) {

@@ -35,6 +35,7 @@ expressiveness, elegance, and simplicity without sacrificing performance.
 
 - [Official Documentation](https://lesma-lang.com/)
 - [Examples](https://github.com/alinalihassan/Lesma/blob/main/tests/lesma)
+- In-repo docs source: `tools/docs/content/docs/` (e.g. [language/types.mdx](tools/docs/content/docs/language/types.mdx))
 
 ## Installation
 

@@ -60,7 +60,6 @@ auto indexedTokenKindFromDeclarationKind(ValueDeclarationKind declarationKind)
   case ValueDeclarationKind::ENUM_MEMBER:
     return IndexedTokenKind::EnumMember;
   case ValueDeclarationKind::TYPE:
-    return IndexedTokenKind::Type;
   case ValueDeclarationKind::TRAIT:
     return IndexedTokenKind::Type;
   case ValueDeclarationKind::TYPE_PARAMETER:
@@ -132,8 +131,8 @@ auto appendIndexedOccurrence(AnalysisIndex& index, const std::string& name,
                              std::optional<IndexedTokenKind> fallbackTokenKind,
                              const Value* resolvedSymbol = nullptr,
                              std::optional<IndexedDeclarationIdentity> declaration = std::nullopt,
-                             std::optional<llvm::SMRange> semanticHighlightSpan = std::nullopt)
-    -> void {
+                             std::optional<llvm::SMRange> semanticHighlightSpan = std::nullopt,
+                             Type* flowSensitiveType = nullptr) -> void {
   if (!span.isValid()) {
     return;
   }
@@ -147,7 +146,8 @@ auto appendIndexedOccurrence(AnalysisIndex& index, const std::string& name,
       .name = name,
       .dotBase = std::move(dotBase),
       .span = span,
-      .semanticHighlightSpan = std::move(semanticHighlightSpan),
+      .flowSensitiveType = flowSensitiveType,
+      .semanticHighlightSpan = semanticHighlightSpan,
       .declaration = std::move(declaration),
       .isTypePosition = isTypePosition,
       .isMemberAccess = isMemberAccess,
@@ -161,6 +161,9 @@ auto resolvedTypeForExpr(const Expression* expr) -> Type* {
     return nullptr;
   }
   if (auto const* lit = dynamic_cast<const Literal*>(expr)) {
+    if (lit->getLspFlowSensitiveType() != nullptr) {
+      return lit->getLspFlowSensitiveType();
+    }
     Value* const resolvedSymbol = lit->getResolvedSymbol();
     return resolvedSymbol != nullptr ? resolvedSymbol->getType() : nullptr;
   }
@@ -320,15 +323,15 @@ auto collectIndexFromTypeExpr(const TypeExpr* typeExpr, AnalysisIndex& index) ->
     return;
   }
   if (typeExpr->getType() != TokenType::PTR_TYPE && typeExpr->getType() != TokenType::FUNC_TYPE &&
-      typeExpr->getType() != TokenType::TUPLE_TYPE) {
+      typeExpr->getType() != TokenType::TUPLE_TYPE &&
+      typeExpr->getType() != TokenType::UNION_TYPE) {
     Value* const resolvedSymbol = typeExpr->getResolvedSymbol();
     llvm::SMRange span = typeExpr->getSpan();
     std::string name = typeExpr->getName();
     if (typeExpr->getType() == TokenType::LIST_TYPE) {
       name = "list";
       span = makeNameSpan(typeExpr->getStart(), name);
-    } else if (typeExpr->getType() == TokenType::CUSTOM_TYPE &&
-               !typeExpr->getTypeArgs().empty()) {
+    } else if (typeExpr->getType() == TokenType::CUSTOM_TYPE && !typeExpr->getTypeArgs().empty()) {
       // `dict<K,V>` / `Box<T>`: index only the constructor name so hover/definition match
       // `root->lookup("dict")`, not the full spelling `dict<...>`.
       name = typeExpr->getLookupName();
@@ -356,11 +359,11 @@ auto collectIndexFromExpr(const Expression* expr, AnalysisIndex& index) -> void 
   if (auto const* lit = dynamic_cast<const Literal*>(expr)) {
     if (lit->getType() == TokenType::IDENTIFIER) {
       Value* const resolvedSymbol = lit->getResolvedSymbol();
-      appendIndexedOccurrence(index, lit->getValue(), std::nullopt, lit->getSpan(), false, false,
-                              0U,
-                              indexedTokenKindFromResolvedSymbol(resolvedSymbol, false, false,
-                                                                 IndexedTokenKind::Variable),
-                              resolvedSymbol);
+      appendIndexedOccurrence(
+          index, lit->getValue(), std::nullopt, lit->getSpan(), false, false, 0U,
+          indexedTokenKindFromResolvedSymbol(resolvedSymbol, false, false,
+                                             IndexedTokenKind::Variable),
+          resolvedSymbol, std::nullopt, std::nullopt, lit->getLspFlowSensitiveType());
     }
     return;
   }

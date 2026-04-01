@@ -178,9 +178,80 @@ auto typeContainsGeneric(Type* type) -> bool {
 
 auto matchGenericParameter(Type* formalTy, Type* argTy,
                            std::unordered_map<std::string, Type*>& genericBindings,
+                           FunctionLookupKind lookupKind) -> bool;
+
+// Union-vs-union: pair formal and arg members (any bijection); commit genericBindings only on
+// full success (probes + backtrack like the non-union union branch).
+[[nodiscard]] auto
+matchGenericUnionAgainstUnion(const std::vector<Type*>& formalMembers, size_t formalIndex,
+                              const std::vector<Type*>& argMembers, std::vector<bool>& usedArg,
+                              std::unordered_map<std::string, Type*> trialBindings,
+                              std::unordered_map<std::string, Type*>& genericBindings,
+                              FunctionLookupKind lookupKind) -> bool {
+  if (formalIndex == formalMembers.size()) {
+    genericBindings = std::move(trialBindings);
+    return true;
+  }
+  Type* fm = formalMembers[formalIndex];
+  if (fm == nullptr) {
+    return false;
+  }
+  for (size_t aj = 0; aj < argMembers.size(); ++aj) {
+    if (usedArg[aj]) {
+      continue;
+    }
+    Type* am = argMembers[aj];
+    if (am == nullptr) {
+      continue;
+    }
+    auto probeBindings = trialBindings;
+    if (!matchGenericParameter(fm, am, probeBindings, lookupKind)) {
+      continue;
+    }
+    usedArg[aj] = true;
+    if (matchGenericUnionAgainstUnion(formalMembers, formalIndex + 1, argMembers, usedArg,
+                                      std::move(probeBindings), genericBindings, lookupKind)) {
+      return true;
+    }
+    usedArg[aj] = false;
+  }
+  return false;
+}
+
+auto matchGenericParameter(Type* formalTy, Type* argTy,
+                           std::unordered_map<std::string, Type*>& genericBindings,
                            FunctionLookupKind lookupKind) -> bool {
   if (formalTy == nullptr || argTy == nullptr) {
     return formalTy == argTy;
+  }
+  if (formalTy->is(BaseType::TY_UNION)) {
+    if (argTy->is(BaseType::TY_UNION)) {
+      const std::vector<Type*>& formalMembers = formalTy->getUnionMembers();
+      const std::vector<Type*>& argMembers = argTy->getUnionMembers();
+      if (formalMembers.size() != argMembers.size()) {
+        return false;
+      }
+      std::vector<bool> usedArg(argMembers.size(), false);
+      std::unordered_map<std::string, Type*> trialBindings = genericBindings;
+      return matchGenericUnionAgainstUnion(formalMembers, 0, argMembers, usedArg,
+                                           std::move(trialBindings), genericBindings, lookupKind);
+    }
+    for (Type* m : formalTy->getUnionMembers()) {
+      if (m != nullptr && m->is(BaseType::TY_CLASS) && argTy != nullptr &&
+          argTy->is(BaseType::TY_PTR) && argTy->getElementType() != nullptr) {
+        auto probeBindings = genericBindings;
+        if (matchGenericParameter(m, argTy->getElementType(), probeBindings, lookupKind)) {
+          genericBindings = std::move(probeBindings);
+          return true;
+        }
+      }
+      auto probeBindings = genericBindings;
+      if (matchGenericParameter(m, argTy, probeBindings, lookupKind)) {
+        genericBindings = std::move(probeBindings);
+        return true;
+      }
+    }
+    return false;
   }
   if (formalTy->is(BaseType::TY_TRAIT_EXISTENTIAL)) {
     const std::string& want = formalTy->getDisplayName();
@@ -256,7 +327,7 @@ auto matchGenericParameter(Type* formalTy, Type* argTy,
       }
     }
     return matchGenericParameter(formalTy->getReturnType(), argTy->getReturnType(), genericBindings,
-                               lookupKind);
+                                 lookupKind);
   }
   return formalTy->isEqual(argTy);
 }
@@ -399,8 +470,8 @@ auto selectBestFunctionTypeMatchTail(const std::vector<Type*>& candidateFunction
 } // namespace lesma
 
 auto SymbolTable::lookupFunction(const std::string& name, std::vector<lesma::Type*> paramTypes,
-                                 FunctionLookupKind lookupKind,
-                                 Type* excludeFormalReceiverClass) -> Value* {
+                                 FunctionLookupKind lookupKind, Type* excludeFormalReceiverClass)
+    -> Value* {
   auto range = symbols.equal_range(name);
   Value* bestCandidate = nullptr;
   std::vector<int> bestRanks;
@@ -485,8 +556,8 @@ auto SymbolTable::lookupFunction(const std::string& name, std::vector<lesma::Typ
 auto SymbolTable::lookupSuperClassMethod(
     const std::string& name, std::vector<lesma::Type*> paramTypes,
     const std::function<bool(Type* formalReceiverClass)>& receiverMatches,
-    Type* staticSuperclassType,
-    const std::unordered_map<std::string, Type*>* seedGenericBindings) -> Value* {
+    Type* staticSuperclassType, const std::unordered_map<std::string, Type*>* seedGenericBindings)
+    -> Value* {
   auto range = symbols.equal_range(name);
   Value* bestCandidate = nullptr;
   std::vector<int> bestRanks;
@@ -599,7 +670,8 @@ auto SymbolTable::lookupSuperClassMethod(
             candidateRanks2.push_back(rankForMatchedOverloadParam(formalTy, argTy));
             continue;
           }
-          if (!matchGenericParameter(formalTy, argTy, genericBindings2, FunctionLookupKind::VALUE)) {
+          if (!matchGenericParameter(formalTy, argTy, genericBindings2,
+                                     FunctionLookupKind::VALUE)) {
             paramsMatch2 = false;
             break;
           }
@@ -627,8 +699,7 @@ auto SymbolTable::lookupSuperClassMethod(
         withLlvm = cand;
       }
     }
-    if (withLlvm != nullptr &&
-        !rankVectorBetter(bestRanks, withLlvmRanks) &&
+    if (withLlvm != nullptr && !rankVectorBetter(bestRanks, withLlvmRanks) &&
         !rankVectorBetter(withLlvmRanks, bestRanks)) {
       bestCandidate = withLlvm;
     }

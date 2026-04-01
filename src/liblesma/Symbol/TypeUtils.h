@@ -2,6 +2,7 @@
 
 #include <string>
 #include <unordered_map>
+#include <utility>
 #include <vector>
 
 namespace lesma {
@@ -23,5 +24,10 @@ auto findFieldInFields(Type* structType, const std::string& field) -> Field*;
 /** Stable specialization registry key shared by typecheck and codegen. */
 auto makeSpecializedClassKey(Type* classTemplate, const std::vector<std::string>& genericParamNames,
                              const std::unordered_map<std::string, Type*>& env) -> std::string;
+/** Flatten nested \c TY_UNION arms (null arms skipped, matching prior substitution behavior),
+ *  dedupe with \c Type::isEqual, sort by \c toString(), and build the `a | b` display string.
+ *  Used everywhere \c setUnionMembers runs so mangling and specialization caches stay stable. */
+[[nodiscard]] auto canonicalizeUnionMembers(std::vector<Type*> arms)
+    -> std::pair<std::vector<Type*>, std::string>;
 } // namespace TypeUtils
 } // namespace lesma

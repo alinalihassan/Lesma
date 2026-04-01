@@ -1,0 +1,2 @@
+# __buffer may not appear as a union member outside the standard library.
+var x: int | __buffer<int> = 1

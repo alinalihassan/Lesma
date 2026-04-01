@@ -7,7 +7,9 @@ category: Language
 
 ## Conditionals
 
-`if` / `else` chains pick a branch. You can return early from a function:
+`if` / `else` chains pick a branch. You can return early from a function.
+
+When the condition uses **`x is SomeType`** on a **union** variable, the checker **narrows** the type of **`x`** inside the matching branch; see [Types](/docs/language/types) (sections *Union types* and *Flow narrowing*).
 
 ```les
 func sign(n: int) -> str {

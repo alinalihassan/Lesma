@@ -1,7 +1,9 @@
 #pragma once
 
+#include <cstddef>
 #include <deque>
 #include <memory>
+#include <optional>
 #include <stack>
 #include <string>
 #include <tuple>
@@ -36,12 +38,13 @@ class AllocaInst;
 #include <sysexits.h>
 
 #include "liblesma/AST/ASTVisitor.h"
-#include "liblesma/Common/ExportDiscovery.h"
 #include "liblesma/Backend/MangleUtils.h"
+#include "liblesma/Common/ExportDiscovery.h"
 #include "liblesma/Frontend/Parser.h"
 #include "liblesma/Symbol/SymbolTable.h"
 #include "liblesma/Symbol/Type.h"
 #include "liblesma/Symbol/TypeUtils.h"
+#include "liblesma/Symbol/UnionNarrowingStableKey.h"
 #include "liblesma/Symbol/Value.h"
 
 using namespace llvm;
@@ -149,6 +152,37 @@ class Codegen final : public ASTVisitor {
   bool emitDebugInfo = false;
   std::size_t lambdaCounter = 0U;
   llvm::OptimizationLevel optimizationLevelForDebug = llvm::OptimizationLevel::O3;
+  /** `if x is T` / else: maps parameter/local symbol → union variant index for narrowed loads. */
+  std::vector<std::unordered_map<UnionNarrowingStableKey, unsigned, UnionNarrowingStableKeyHash,
+                                 UnionNarrowingStableKeyEq>>
+      unionNarrowVariantStack;
+
+  /** Pushes a non-empty narrow map onto \c unionNarrowVariantStack in the ctor and pops in the
+   * dtor so the stack stays balanced if nested codegen throws (e.g. \c CodegenError). */
+  struct UnionNarrowingScope {
+    using MapTy =
+        std::unordered_map<UnionNarrowingStableKey, unsigned, UnionNarrowingStableKeyHash,
+                           UnionNarrowingStableKeyEq>;
+    UnionNarrowingScope(std::vector<MapTy>& stackRef, MapTy&& map)
+        : stack(stackRef), pushed(!map.empty()) {
+      if (pushed) {
+        stack.push_back(std::move(map));
+      }
+    }
+    ~UnionNarrowingScope() {
+      if (pushed) {
+        stack.pop_back();
+      }
+    }
+    UnionNarrowingScope(const UnionNarrowingScope&) = delete;
+    auto operator=(const UnionNarrowingScope&) -> UnionNarrowingScope& = delete;
+    UnionNarrowingScope(UnionNarrowingScope&&) = delete;
+    auto operator=(UnionNarrowingScope&&) -> UnionNarrowingScope& = delete;
+
+  private:
+    std::vector<MapTy>& stack;
+    bool pushed;
+  };
 
   std::unique_ptr<llvm::DIBuilder> diBuilder;
   llvm::DICompileUnit* diCompileUnit = nullptr;
@@ -218,6 +252,23 @@ protected:
   /** Alloca in \p fn's entry block (after PHIs) so LLVM mem2reg can promote loop/stack slots. */
   auto createAllocaInEntry(llvm::Function* fn, llvm::Type* elemTy, const std::string& name)
       -> llvm::AllocaInst*;
+
+  [[nodiscard]] auto lookupUnionNarrowVariant(lesma::Value* sym) const -> std::optional<unsigned>;
+  auto fillCodegenUnionNarrowVariantMap(
+      const If* node, unsigned blockIndex,
+      std::unordered_map<UnionNarrowingStableKey, unsigned, UnionNarrowingStableKeyHash,
+                         UnionNarrowingStableKeyEq>& out) -> void;
+  auto emitUnionWrapValue(llvm::SMRange span, lesma::Value* val, lesma::Type* unionTy,
+                          unsigned variantIndex) -> std::unique_ptr<lesma::Value>;
+  /** Wrap \p val into \p unionTy at \p variantIndex using existing alloca \p destSlot (union
+   * struct). */
+  auto emitUnionWrapValueToSlot(llvm::SMRange span, lesma::Value* val, lesma::Type* unionTy,
+                                unsigned variantIndex, llvm::Value* destSlot)
+      -> std::unique_ptr<lesma::Value>;
+  [[nodiscard]] auto unionVariantIndexOf(lesma::Type* unionTy, lesma::Type* memberTy) const
+      -> std::optional<unsigned>;
+  auto emitUnionPayloadLoadFromSlot(llvm::Value* unionAllocaPtr, lesma::Type* unionTy,
+                                    lesma::Type* memberTy) -> llvm::Value*;
 
   auto linkObjectFileWithLld(const std::string& objFilename) -> void;
 
@@ -300,14 +351,12 @@ protected:
       -> std::unique_ptr<lesma::Value>;
   auto appendCallableArgument(lesma::Value* arg, std::vector<lesma::Type*>& paramTypes,
                               std::vector<llvm::Value*>& paramsLLVM) -> void;
-  auto callNamedFunction(llvm::SMRange span, const std::string& functionName,
-                         const std::vector<lesma::Type*>& paramTypes,
-                         const std::vector<llvm::Value*>& paramsLLVM,
-                         const std::vector<lesma::Type*>& explicitTypeArgs = {},
-                         Value* typecheckCalleeFallback = nullptr,
-                         lesma::Type* allocatedClassMonomorph = nullptr,
-                         const std::vector<std::pair<std::string, lesma::Type*>>*
-                             genericBindingHint = nullptr)
+  auto callNamedFunction(
+      llvm::SMRange span, const std::string& functionName,
+      const std::vector<lesma::Type*>& paramTypes, const std::vector<llvm::Value*>& paramsLLVM,
+      const std::vector<lesma::Type*>& explicitTypeArgs = {},
+      Value* typecheckCalleeFallback = nullptr, lesma::Type* allocatedClassMonomorph = nullptr,
+      const std::vector<std::pair<std::string, lesma::Type*>>* genericBindingHint = nullptr)
       -> std::unique_ptr<lesma::Value>;
   auto callListMethodByName(llvm::SMRange span, lesma::Value* receiver,
                             const std::string& methodName,
@@ -318,6 +367,12 @@ protected:
   [[nodiscard]] auto isBuiltinListBuiltinMethodName(const std::string& methodName) const -> bool;
   /** True when class layout matches stdlib list (single __buffer field; not dict keys+vals). */
   [[nodiscard]] auto classHasSingleBufferStorageField(lesma::Type* classTy) const -> bool;
+  /** `unionValue.method(...)` when every union member is a class with a compatible method. */
+  auto emitUnionClassMethodDispatch(llvm::SMRange span, lesma::Value* unionValue,
+                                    const std::string& methodName,
+                                    const std::vector<lesma::Value*>& args,
+                                    const std::vector<lesma::Type*>& explicitTypeArgs)
+      -> std::unique_ptr<lesma::Value>;
   auto callMethodByName(llvm::SMRange span, lesma::Value* receiver, const std::string& methodName,
                         const std::vector<lesma::Value*>& args = {},
                         const std::vector<lesma::Type*>& explicitTypeArgs = {})
@@ -342,15 +397,17 @@ protected:
   auto appendGenericBindingSuffix(llvm::SMRange span, std::string& base,
                                   const std::vector<std::string>& genericNames,
                                   const std::unordered_map<std::string, lesma::Type*>& env) -> void;
-  auto specializeFunction(const FuncDecl* node, const std::vector<lesma::Type*>& paramTypes,
-                          const std::vector<std::string>& genericNames,
-                          const std::vector<lesma::Type*>& explicitTypeArgs = {},
-                          const std::unordered_map<std::string, lesma::Type*>* bindingEnvHint = nullptr)
+  auto
+  specializeFunction(const FuncDecl* node, const std::vector<lesma::Type*>& paramTypes,
+                     const std::vector<std::string>& genericNames,
+                     const std::vector<lesma::Type*>& explicitTypeArgs = {},
+                     const std::unordered_map<std::string, lesma::Type*>* bindingEnvHint = nullptr)
       -> lesma::Value*;
-  auto specializeLambda(const LambdaExpr* node, const std::vector<lesma::Type*>& paramTypes,
-                        const std::vector<std::string>& genericNames,
-                        const std::vector<lesma::Type*>& explicitTypeArgs = {},
-                        const std::unordered_map<std::string, lesma::Type*>* bindingEnvHint = nullptr)
+  auto
+  specializeLambda(const LambdaExpr* node, const std::vector<lesma::Type*>& paramTypes,
+                   const std::vector<std::string>& genericNames,
+                   const std::vector<lesma::Type*>& explicitTypeArgs = {},
+                   const std::unordered_map<std::string, lesma::Type*>* bindingEnvHint = nullptr)
       -> lesma::Value*;
   auto defineLambdaFunction(lesma::Value* value, const LambdaExpr* node) -> void;
   [[nodiscard]] auto getFuncValuePairLlvmType() -> llvm::StructType*;
@@ -428,6 +485,9 @@ protected:
 
   /** Ensure \p type has an LLVM type (fill in when from typechecker). */
   auto getOrCreateLlvmType(lesma::Type* type) -> llvm::Type*;
+  /** LLVM integer tag type for \c TY_UNION (first struct field); requires \p unionTy to be a union.
+   */
+  [[nodiscard]] auto getOrCreateUnionTagLlvmType(lesma::Type* unionTy) -> llvm::Type*;
   /** LLVM storage type for aggregate fields/slots after ABI lowering. */
   [[nodiscard]] auto getStoredAggregateFieldLlvmType(lesma::Type* fieldType) -> llvm::Type*;
   /** Load an aggregate field/slot value using the ABI-lowered storage type. */
@@ -480,7 +540,23 @@ protected:
   [[nodiscard]] auto isTypeFullyConcrete(lesma::Type* t) const -> bool;
   /** Substitute generic parameters (and nested specialized classes) for lowering a template field
    * or superclass type. */
-  auto substituteTypeForSpecializationEnv(
-      lesma::Type* t, const std::unordered_map<std::string, lesma::Type*>& env) -> lesma::Type*;
+  auto substituteTypeForSpecializationEnv(lesma::Type* t,
+                                          const std::unordered_map<std::string, lesma::Type*>& env)
+      -> lesma::Type*;
+  /** Peel singleton TY_UNION chains and rebuild ptr/array when the element changes (types from
+   *  Typechecker::substituteInType before singleton collapse, or imports) so emitClassMonomorph
+   *  matches substituteTypeForSpecializationEnv lowering. */
+  auto typeWithSingletonUnionsCollapsed(lesma::Type* t) -> lesma::Type*;
+
+private:
+  /** Minimum tag bits: ceil(log2(memberCount)), at least 1 (memberCount must be > 0). */
+  [[nodiscard]] static auto unionDiscriminantMinBits(std::size_t memberCount) -> unsigned;
+  /** Round up to a whole number of bytes (8, 16, 32, 64); 0 if \p minBits > 64. */
+  [[nodiscard]] static auto roundUnionTagToSupportedBitWidth(unsigned minBits) -> unsigned;
+
+  [[nodiscard]] auto cgUnionTryGetIsOpVarSymbol(const IsOp* is, SymbolTable* scope)
+      -> lesma::Value*;
+  [[nodiscard]] auto cgUnionComplementMemberIndex(lesma::Type* unionTy, lesma::Type* excluded)
+      -> std::optional<unsigned>;
 };
 } // namespace lesma

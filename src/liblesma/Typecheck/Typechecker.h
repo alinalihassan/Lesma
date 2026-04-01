@@ -15,6 +15,7 @@
 #include "liblesma/Driver/AnalysisResult.h"
 #include "liblesma/Symbol/SymbolTable.h"
 #include "liblesma/Symbol/Type.h"
+#include "liblesma/Symbol/UnionNarrowingStableKey.h"
 #include "liblesma/Symbol/Value.h"
 #include "liblesma/Token/TokenType.h"
 
@@ -27,6 +28,13 @@ class TypeCheckError;
 /** Callback to resolve import *: (filepath, isStd, mainFilePath) -> exported names or failure. */
 using GetExportsFn =
     std::function<ExportDiscoveryResult(const std::string&, bool, const std::string&)>;
+
+/** Concrete return type plus callee and substitution map for generic trait bound checks. */
+struct ResolvedMethodCallInfo {
+  Type* returnType = nullptr;
+  Value* method = nullptr;
+  std::unordered_map<std::string, Type*> traitBoundSubs;
+};
 
 /**
  * Semantic typecheck pass. Runs after parsing, before codegen.
@@ -83,6 +91,10 @@ class Typechecker final : public ASTVisitor {
   /** Imported types materialized into this typechecker's cache so they outlive imported scopes. */
   std::unordered_map<Type*, Type*> importedTypeCopies;
   std::vector<Type*> expectedTypes;
+  /** Per `if` branch: stable storage identity → narrowed type for `is` / `is not` on unions. */
+  std::vector<std::unordered_map<UnionNarrowingStableKey, Type*, UnionNarrowingStableKeyHash,
+                                 UnionNarrowingStableKeyEq>>
+      unionNarrowingStack;
 
   /** Registered traits (name → AST) for impl checks and existential method lookup. */
   std::unordered_map<std::string, const TraitDecl*> traitRegistry;
@@ -190,6 +202,20 @@ class Typechecker final : public ASTVisitor {
   auto getExtendedType(Type* left, Type* right) -> Type*;
   /** Whether a value of type 'from' can be assigned/cast to type 'to'. */
   auto isAssignableTo(Type* from, Type* to) -> bool;
+  [[nodiscard]] static auto isSupportedUnionMemberType(Type* t) -> bool;
+  [[nodiscard]] auto lookupUnionNarrowedType(Value* sym) const -> Type*;
+  auto fillUnionNarrowingForIfBlock(
+      const If* node, unsigned blockIndex,
+      std::unordered_map<UnionNarrowingStableKey, Type*, UnionNarrowingStableKeyHash,
+                         UnionNarrowingStableKeyEq>& out) -> void;
+  /** Drop \p sym from every active union-narrowing frame (e.g. after assignment through it). */
+  void invalidateUnionNarrowingForSymbol(Value* sym);
+  /** Outermost identifier-like storage for an assignment LHS (for invalidating narrowing on `a.b`
+   *  or `a[i]`). */
+  [[nodiscard]] auto rootStorageSymbolForAssignmentLhs(Expression* lhs) -> Value*;
+  /** Remove union arms equal to types in \p toExclude (each match removes at most one arm).
+   *  Returns nullptr if no arm was removed or no arm would remain. */
+  auto narrowUnionByExcludingMembers(Type* unionTy, const std::vector<Type*>& toExclude) -> Type*;
   [[nodiscard]] auto functionTypesMatchForTraitImpl(Type* actualFn, Type* expectedFn) -> bool;
   [[nodiscard]] auto wrapReturnTypeIfNominal(Type* returnType) -> Type*;
   /** Result type of a binary operator (arithmetic, comparison, logical). Throws on unsupported op.
@@ -198,6 +224,9 @@ class Typechecker final : public ASTVisitor {
       -> Type*;
   auto visitExprWithExpectedType(const Expression* node, Type* expected) -> void;
   [[nodiscard]] auto currentExpectedType() const -> Type*;
+  [[nodiscard]] auto resolveMethodWithTraitEnv(Type* baseType, const std::string& methodName,
+                                               const std::vector<Type*>& argTypes,
+                                               llvm::SMRange span) -> ResolvedMethodCallInfo;
   auto resolveMethodReturnType(Type* baseType, const std::string& methodName,
                                const std::vector<Type*>& argTypes, llvm::SMRange span) -> Type*;
   auto isMutableListReceiver(const Expression* expr) -> bool;

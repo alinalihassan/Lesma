@@ -58,7 +58,7 @@ Common prelude items include: **`print`** (overloads), **`input`**, **`exit`**, 
 
 **`range`:** **`range(stop)`** is **`range(1, stop, 1)`** (default start is **1**). Two- and three-argument forms use an **exclusive** stop and optional step; **step 0** yields no iterations.
 
-Some list and string behavior lowers to **compiler intrinsics** (`__buffer_*`, `__str_*`, …). Prefer **`list`** and **`str`** APIs in normal code.
+Some list and string behavior lowers to **compiler intrinsics** that are not part of the everyday language surface. Prefer **`list`** and **`str`** APIs in normal code.
 
 ## Imports
 
