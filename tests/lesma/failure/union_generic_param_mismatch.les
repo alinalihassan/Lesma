@@ -1,0 +1,8 @@
+# No pairing binds `T` for `T | int` vs `str | bool`.
+
+func g<T>(x: T | int) -> int {
+    return 0
+}
+
+var bad: str | bool = true
+var _ = g(bad)

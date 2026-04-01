@@ -1283,6 +1283,48 @@ auto Typechecker::inferGenericBindings(Type* pattern, Type* actual,
     }
     return;
   }
+  if (pattern->is(BaseType::TY_UNION) && actual->is(BaseType::TY_UNION)) {
+    const auto& pmem = pattern->getUnionMembers();
+    const auto& amem = actual->getUnionMembers();
+    if (pmem.size() != amem.size()) {
+      return;
+    }
+    std::vector<bool> used(amem.size(), false);
+    std::unordered_map<std::string, Type*> const emptyAcc;
+    auto tryInfer = [&](auto&& self, size_t fi,
+                        const std::unordered_map<std::string, Type*>& acc) -> bool {
+      if (fi == pmem.size()) {
+        for (const auto& kv : acc) {
+          auto it = bindings.find(kv.first);
+          if (it == bindings.end()) {
+            bindings[kv.first] = kv.second;
+          } else if (!it->second->isEqual(kv.second)) {
+            throw TypeCheckError(span,
+                                 "Conflicting inferred types for generic parameter {}: {} and {}",
+                                 kv.first, it->second->toString(), kv.second->toString());
+          }
+        }
+        return true;
+      }
+      for (size_t aj = 0; aj < amem.size(); ++aj) {
+        if (used[aj]) {
+          continue;
+        }
+        auto probe = acc;
+        inferGenericBindings(pmem[fi], amem[aj], probe, span);
+        used[aj] = true;
+        if (self(self, fi + 1, probe)) {
+          return true;
+        }
+        used[aj] = false;
+      }
+      return false;
+    };
+    if (!tryInfer(tryInfer, 0, emptyAcc)) {
+      return;
+    }
+    return;
+  }
   if (pattern->getBaseType() != actual->getBaseType()) {
     return;
   }
@@ -1922,6 +1964,14 @@ auto Typechecker::resolveType(const TypeExpr* node) -> Type* {
                                "`__buffer<…>` is not allowed as a union member outside the "
                                "standard library (use `list<…>` or another class type instead)",
                                t->toString());
+        }
+      } else if (t->is(BaseType::TY_GENERIC)) {
+        if (!currentGenericTypes.contains(t->getGenericName())) {
+          throw TypeCheckError(
+              node->getSpan(),
+              "Union member `{}` is not a class or primitive; only type parameters of the "
+              "enclosing generic declaration may appear here",
+              t->toString());
         }
       } else if (!isSupportedUnionMemberType(t)) {
         throw TypeCheckError(

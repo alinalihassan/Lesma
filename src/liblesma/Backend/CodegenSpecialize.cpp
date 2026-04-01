@@ -27,8 +27,7 @@ auto Codegen::findGenericClassAstForTemplateType(Type* classTemplateTy) const ->
   }
   for (const auto& [id, ast] : genericClasses) {
     lesma::Value* sym = rootScope->lookupStruct(id);
-    if (sym != nullptr && sym->getType() != nullptr &&
-        sym->getType()->isEqual(classTemplateTy)) {
+    if (sym != nullptr && sym->getType() != nullptr && sym->getType()->isEqual(classTemplateTy)) {
       return ast;
     }
   }
@@ -83,7 +82,8 @@ auto Codegen::isTypeFullyConcrete(Type* t) const -> bool {
       }
       break;
     case BaseType::TY_CLASS:
-      if (auto envIt = specializedClassTypeEnvs.find(cur); envIt != specializedClassTypeEnvs.end()) {
+      if (auto envIt = specializedClassTypeEnvs.find(cur);
+          envIt != specializedClassTypeEnvs.end()) {
         for (const auto& [name, boundType] : envIt->second) {
           (void) name;
           if (!self(self, boundType)) {
@@ -127,8 +127,7 @@ auto Codegen::emitClassMonomorph(Type* specialized, const Class* templateAst) ->
 
   auto envIt = specializedClassTypeEnvs.find(specialized);
   if (envIt == specializedClassTypeEnvs.end()) {
-    throw CodegenError(templateAst->getSpan(),
-                       "Internal error: missing specialization env for {}",
+    throw CodegenError(templateAst->getSpan(), "Internal error: missing specialization env for {}",
                        specialized->getDisplayName());
   }
 
@@ -169,7 +168,8 @@ auto Codegen::emitClassMonomorph(Type* specialized, const Class* templateAst) ->
   std::string specializationKey =
       (alias.empty() ? "" : "&" + alias + "=>") + templateAst->getIdentifier();
   for (const auto& name : genericNames) {
-    specializationKey += "|" + MangleUtils::getTypeMangledName(templateAst->getSpan(), env.at(name));
+    specializationKey +=
+        "|" + MangleUtils::getTypeMangledName(templateAst->getSpan(), env.at(name));
   }
   specializedClasses[specializationKey] = structSymbolPtr;
 
@@ -194,7 +194,8 @@ auto Codegen::emitClassMonomorph(Type* specialized, const Class* templateAst) ->
   if (Type* superTy = specialized->getClassSuperclass();
       superTy != nullptr && superTy->is(BaseType::TY_CLASS)) {
     Type* superTemplate = superTy;
-    if (auto it = specializedClassTemplateOf.find(superTy); it != specializedClassTemplateOf.end()) {
+    if (auto it = specializedClassTemplateOf.find(superTy);
+        it != specializedClassTemplateOf.end()) {
       superTemplate = it->second;
     }
     if (const Class* superAst = findGenericClassAstForTemplateType(superTemplate);
@@ -236,8 +237,9 @@ auto Codegen::emitClassMonomorph(Type* specialized, const Class* templateAst) ->
   return structSymbolPtr;
 }
 
-auto Codegen::substituteTypeForSpecializationEnv(
-    Type* t, const std::unordered_map<std::string, Type*>& env) -> Type* {
+auto Codegen::substituteTypeForSpecializationEnv(Type* t,
+                                                 const std::unordered_map<std::string, Type*>& env)
+    -> Type* {
   if (t == nullptr) {
     return nullptr;
   }
@@ -371,7 +373,8 @@ auto Codegen::substituteTypeForSpecializationEnv(
     if (allBound) {
       const std::string registryKey =
           TypeUtils::makeSpecializedClassKey(classTemplate, genericParamNames, classEnv);
-      if (auto it = specializedClassTypesByKey.find(registryKey); it != specializedClassTypesByKey.end()) {
+      if (auto it = specializedClassTypesByKey.find(registryKey);
+          it != specializedClassTypesByKey.end()) {
         return it->second;
       }
     }
@@ -384,6 +387,80 @@ auto Codegen::bindGenericsFromTypePair(const TypeExpr* declared, lesma::Type* ac
                                        std::unordered_map<std::string, lesma::Type*>& env,
                                        bool* bindingConflict) -> void {
   if (declared == nullptr || actual == nullptr) {
+    return;
+  }
+  switch (declared->getType()) {
+  case TokenType::INT_TYPE:
+    if (!actual->is(BaseType::TY_INT)) {
+      if (bindingConflict != nullptr) {
+        *bindingConflict = true;
+      }
+    }
+    return;
+  case TokenType::BOOL_TYPE:
+    if (!actual->is(BaseType::TY_BOOL)) {
+      if (bindingConflict != nullptr) {
+        *bindingConflict = true;
+      }
+    }
+    return;
+  case TokenType::FLOAT_TYPE:
+  case TokenType::FLOAT32_TYPE:
+    if (!actual->isFloatingPoint()) {
+      if (bindingConflict != nullptr) {
+        *bindingConflict = true;
+      }
+    }
+    return;
+  case TokenType::STRING_TYPE:
+    if (!actual->is(BaseType::TY_CLASS) || actual->getDisplayName() != "str") {
+      if (bindingConflict != nullptr) {
+        *bindingConflict = true;
+      }
+    }
+    return;
+  default:
+    break;
+  }
+  if (declared->getType() == TokenType::UNION_TYPE && actual->is(BaseType::TY_UNION)) {
+    const auto declArms = declared->getParams();
+    const auto& actualMem = actual->getUnionMembers();
+    if (declArms.size() != actualMem.size()) {
+      if (bindingConflict != nullptr) {
+        *bindingConflict = true;
+      }
+      return;
+    }
+    std::vector<bool> used(actualMem.size(), false);
+    auto tryBind = [&](auto&& self, size_t fi,
+                       std::unordered_map<std::string, lesma::Type*> trial) -> bool {
+      if (fi == declArms.size()) {
+        env = std::move(trial);
+        return true;
+      }
+      for (size_t aj = 0; aj < actualMem.size(); ++aj) {
+        if (used[aj]) {
+          continue;
+        }
+        auto probe = trial;
+        bool c = false;
+        bindGenericsFromTypePair(declArms[fi], actualMem[aj], genericNameSet, probe, &c);
+        if (c) {
+          continue;
+        }
+        used[aj] = true;
+        if (self(self, fi + 1, std::move(probe))) {
+          return true;
+        }
+        used[aj] = false;
+      }
+      return false;
+    };
+    if (!tryBind(tryBind, 0, env)) {
+      if (bindingConflict != nullptr) {
+        *bindingConflict = true;
+      }
+    }
     return;
   }
   if (declared->getType() == TokenType::CUSTOM_TYPE) {
@@ -524,16 +601,16 @@ auto Codegen::appendGenericBindingSuffix(llvm::SMRange span, std::string& base,
   }
 }
 
-auto Codegen::specializeFunction(const FuncDecl* node, const std::vector<lesma::Type*>& paramTypes,
-                                 const std::vector<std::string>& genericNames,
-                                 const std::vector<lesma::Type*>& explicitTypeArgs,
-                                 const std::unordered_map<std::string, lesma::Type*>* bindingEnvHint)
-    -> lesma::Value* {
+auto Codegen::specializeFunction(
+    const FuncDecl* node, const std::vector<lesma::Type*>& paramTypes,
+    const std::vector<std::string>& genericNames, const std::vector<lesma::Type*>& explicitTypeArgs,
+    const std::unordered_map<std::string, lesma::Type*>* bindingEnvHint) -> lesma::Value* {
   Value* templateSym = node->getResolvedSymbol();
   auto saved = currentGenericTypes;
-  auto env = bindingEnvHint != nullptr
-                 ? *bindingEnvHint
-                 : computeGenericFunctionBindingEnv(node, paramTypes, genericNames, explicitTypeArgs);
+  auto env =
+      bindingEnvHint != nullptr
+          ? *bindingEnvHint
+          : computeGenericFunctionBindingEnv(node, paramTypes, genericNames, explicitTypeArgs);
   currentGenericTypes = env;
 
   for (auto* paramType : paramTypes) {
@@ -847,9 +924,8 @@ auto Codegen::specializeClass(const Class* node,
     }
   }
 
-  auto envIsFullyConcrete = [this](
-                                const std::unordered_map<std::string, lesma::Type*>& bindings)
-      -> bool {
+  auto envIsFullyConcrete =
+      [this](const std::unordered_map<std::string, lesma::Type*>& bindings) -> bool {
     for (const auto& [name, ty] : bindings) {
       (void) name;
       if (!isTypeFullyConcrete(ty)) {
@@ -864,7 +940,8 @@ auto Codegen::specializeClass(const Class* node,
   std::string registryKey;
   if (templateType != nullptr && !genericNames.empty()) {
     registryKey = TypeUtils::makeSpecializedClassKey(templateType, genericNames, env);
-    if (auto it = specializedClassTypesByKey.find(registryKey); it != specializedClassTypesByKey.end()) {
+    if (auto it = specializedClassTypesByKey.find(registryKey);
+        it != specializedClassTypesByKey.end()) {
       if (envIsFullyConcrete(env)) {
         return emitClassMonomorph(it->second, node);
       }
@@ -942,8 +1019,7 @@ auto Codegen::specializeClass(const Class* node,
   std::vector<llvm::Type*> elementLLVMTypes;
   elementLLVMTypes.push_back(builder->getPtrTy());
   lesma::Value* tmplSymForFields = scope->lookupStruct(node->getIdentifier());
-  Type* tmplTyForFields =
-      tmplSymForFields != nullptr ? tmplSymForFields->getType() : nullptr;
+  Type* tmplTyForFields = tmplSymForFields != nullptr ? tmplSymForFields->getType() : nullptr;
 
   if (!node->getGenericParams().empty() && tmplTyForFields != nullptr) {
     for (Field* f : tmplTyForFields->getFields()) {
@@ -972,8 +1048,8 @@ auto Codegen::specializeClass(const Class* node,
           result = std::make_unique<Value>(*defaultVal);
         }
       }
-      typePtr->addField(std::make_unique<Field>(field->getIdentifier()->getValue(), result->getType(),
-                                                std::move(defaultVal)));
+      typePtr->addField(std::make_unique<Field>(field->getIdentifier()->getValue(),
+                                                result->getType(), std::move(defaultVal)));
     }
   }
 
