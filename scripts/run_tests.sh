@@ -16,6 +16,8 @@ success_count=0
 
 # Wall-clock limit per compiler invocation (seconds). Use 0 to disable. Override with LESMA_TEST_TIMEOUT.
 LESMA_TEST_TIMEOUT="${LESMA_TEST_TIMEOUT:-2}"
+# Success tests hide JIT program stdout by default. Set LESMA_TEST_VERBOSE=1 to print it.
+LESMA_TEST_VERBOSE="${LESMA_TEST_VERBOSE:-0}"
 case "${LESMA_TEST_TIMEOUT}" in
 '' | *[!0-9]*) LESMA_TEST_TIMEOUT=2 ;;
 esac
@@ -28,19 +30,31 @@ test_compiler() {
   local cpid kpid ret
 
   if [ "${LESMA_TEST_TIMEOUT}" -eq 0 ]; then
-    if [ -n "${quiet}" ]; then
+    case "${quiet}" in
+    all)
       "${compiler_path}" "${mode}" --no-warnings "${file}" >/dev/null 2>&1
-    else
+      ;;
+    out)
+      "${compiler_path}" "${mode}" --no-warnings "${file}" >/dev/null
+      ;;
+    *)
       "${compiler_path}" "${mode}" --no-warnings "${file}"
-    fi
+      ;;
+    esac
     return $?
   fi
 
-  if [ -n "${quiet}" ]; then
+  case "${quiet}" in
+  all)
     "${compiler_path}" "${mode}" --no-warnings "${file}" >/dev/null 2>&1 &
-  else
+    ;;
+  out)
+    "${compiler_path}" "${mode}" --no-warnings "${file}" >/dev/null &
+    ;;
+  *)
     "${compiler_path}" "${mode}" --no-warnings "${file}" &
-  fi
+    ;;
+  esac
   cpid=$!
   (
     sleep "${LESMA_TEST_TIMEOUT}"
@@ -54,7 +68,8 @@ test_compiler() {
   return "${ret}"
 }
 
-# Writes one status line to result_file only (stdout stays free for compiler output).
+# Writes one status line to result_file only.
+# quiet modes: "out" = drop subprocess stdout (JIT program output); "all" = drop stdout+stderr.
 # Lines: pass NAME EXPECT_FAIL | fail-run NAME EXPECT GOT | fail-expect NAME
 run_single_test() {
   local file="$1"
@@ -66,10 +81,13 @@ run_single_test() {
   name=$(basename -s .les "${file}")
 
   if [ "${expected_to_fail}" -eq 1 ]; then
-    test_compiler "${file}" "run" "${compiler_path}" quiet
+    test_compiler "${file}" "run" "${compiler_path}" all
+    test_jit_ret_value=$?
+  elif [ "${LESMA_TEST_VERBOSE}" -eq 1 ]; then
+    test_compiler "${file}" "run" "${compiler_path}"
     test_jit_ret_value=$?
   else
-    test_compiler "${file}" "run" "${compiler_path}"
+    test_compiler "${file}" "run" "${compiler_path}" out
     test_jit_ret_value=$?
   fi
 

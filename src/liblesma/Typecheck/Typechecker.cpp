@@ -2796,8 +2796,12 @@ auto Typechecker::lookupUnionNarrowedType(Value* sym) const -> Type* {
   if (sym == nullptr) {
     return nullptr;
   }
+  const UnionNarrowingStableKey key = unionNarrowingStableKeyForSymbol(sym);
+  if (!key.declarationSpan.isValid() && key.fallbackAnchor == nullptr) {
+    return nullptr;
+  }
   for (auto it = unionNarrowingStack.rbegin(); it != unionNarrowingStack.rend(); ++it) {
-    auto j = it->find(sym);
+    auto j = it->find(key);
     if (j != it->end()) {
       return j->second;
     }
@@ -2809,8 +2813,12 @@ void Typechecker::invalidateUnionNarrowingForSymbol(Value* sym) {
   if (sym == nullptr) {
     return;
   }
+  const UnionNarrowingStableKey key = unionNarrowingStableKeyForSymbol(sym);
+  if (!key.declarationSpan.isValid() && key.fallbackAnchor == nullptr) {
+    return;
+  }
   for (auto& frame : unionNarrowingStack) {
-    frame.erase(sym);
+    frame.erase(key);
   }
 }
 
@@ -2892,8 +2900,10 @@ auto Typechecker::narrowUnionByExcludingMembers(Type* unionTy, const std::vector
   return cacheType(std::move(u));
 }
 
-auto Typechecker::fillUnionNarrowingForIfBlock(const If* node, unsigned blockIndex,
-                                               std::unordered_map<Value*, Type*>& out) -> void {
+auto Typechecker::fillUnionNarrowingForIfBlock(
+    const If* node, unsigned blockIndex,
+    std::unordered_map<UnionNarrowingStableKey, Type*, UnionNarrowingStableKeyHash,
+                       UnionNarrowingStableKeyEq>& out) -> void {
   if (blockIndex >= node->getBlocks().size()) {
     return;
   }
@@ -2928,7 +2938,8 @@ auto Typechecker::fillUnionNarrowingForIfBlock(const If* node, unsigned blockInd
       if (isPrev == nullptr || isPrev->getOperator() != TokenType::IS) {
         continue;
       }
-      if (tryGetIsOpVarSymbol(isPrev, scope) != sym) {
+      if (unionNarrowingStableKeyForSymbol(tryGetIsOpVarSymbol(isPrev, scope)) !=
+          unionNarrowingStableKeyForSymbol(sym)) {
         continue;
       }
       Type* rhsPrev = nullptr;
@@ -2944,7 +2955,10 @@ auto Typechecker::fillUnionNarrowingForIfBlock(const If* node, unsigned blockInd
     if (!excluded.empty()) {
       Type* narrowed = narrowUnionByExcludingMembers(unionTy, excluded);
       if (narrowed != nullptr) {
-        out[sym] = narrowed;
+        const UnionNarrowingStableKey key = unionNarrowingStableKeyForSymbol(sym);
+        if (key.declarationSpan.isValid() || key.fallbackAnchor != nullptr) {
+          out[key] = narrowed;
+        }
       }
       return;
     }
@@ -2955,7 +2969,10 @@ auto Typechecker::fillUnionNarrowingForIfBlock(const If* node, unsigned blockInd
       return;
     }
     if (is0->getOperator() == TokenType::IS_NOT && isUnionMember(rhsTy)) {
-      out[sym] = rhsTy;
+      const UnionNarrowingStableKey key = unionNarrowingStableKeyForSymbol(sym);
+      if (key.declarationSpan.isValid() || key.fallbackAnchor != nullptr) {
+        out[key] = rhsTy;
+      }
     }
     return;
   }
@@ -2987,7 +3004,10 @@ auto Typechecker::fillUnionNarrowingForIfBlock(const If* node, unsigned blockInd
   }
   if (is->getOperator() == TokenType::IS) {
     if (isUnionMember(rhsTy)) {
-      out[sym] = rhsTy;
+      const UnionNarrowingStableKey key = unionNarrowingStableKeyForSymbol(sym);
+      if (key.declarationSpan.isValid() || key.fallbackAnchor != nullptr) {
+        out[key] = rhsTy;
+      }
     }
   } else if (is->getOperator() == TokenType::IS_NOT) {
     std::vector<Type*> excluded;
@@ -2996,7 +3016,8 @@ auto Typechecker::fillUnionNarrowingForIfBlock(const If* node, unsigned blockInd
       if (isPrev == nullptr || isPrev->getOperator() != TokenType::IS) {
         continue;
       }
-      if (tryGetIsOpVarSymbol(isPrev, scope) != sym) {
+      if (unionNarrowingStableKeyForSymbol(tryGetIsOpVarSymbol(isPrev, scope)) !=
+          unionNarrowingStableKeyForSymbol(sym)) {
         continue;
       }
       Type* rhsPrev = nullptr;
@@ -3015,7 +3036,10 @@ auto Typechecker::fillUnionNarrowingForIfBlock(const If* node, unsigned blockInd
     if (!excluded.empty()) {
       Type* narrowed = narrowUnionByExcludingMembers(unionTy, excluded);
       if (narrowed != nullptr) {
-        out[sym] = narrowed;
+        const UnionNarrowingStableKey key = unionNarrowingStableKeyForSymbol(sym);
+        if (key.declarationSpan.isValid() || key.fallbackAnchor != nullptr) {
+          out[key] = narrowed;
+        }
       }
     }
   }
@@ -3037,7 +3061,9 @@ auto Typechecker::visit(const If* node) -> void {
   }
   std::vector<Compound*> const blocks = node->getBlocks();
   for (unsigned bi = 0; bi < blocks.size(); ++bi) {
-    std::unordered_map<Value*, Type*> narrowMap;
+    std::unordered_map<UnionNarrowingStableKey, Type*, UnionNarrowingStableKeyHash,
+                       UnionNarrowingStableKeyEq>
+        narrowMap;
     fillUnionNarrowingForIfBlock(node, bi, narrowMap);
     bool const pushedNarrowing = !narrowMap.empty();
     if (pushedNarrowing) {

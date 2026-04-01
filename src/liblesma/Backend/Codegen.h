@@ -38,12 +38,13 @@ class AllocaInst;
 #include <sysexits.h>
 
 #include "liblesma/AST/ASTVisitor.h"
-#include "liblesma/Common/ExportDiscovery.h"
 #include "liblesma/Backend/MangleUtils.h"
+#include "liblesma/Common/ExportDiscovery.h"
 #include "liblesma/Frontend/Parser.h"
 #include "liblesma/Symbol/SymbolTable.h"
 #include "liblesma/Symbol/Type.h"
 #include "liblesma/Symbol/TypeUtils.h"
+#include "liblesma/Symbol/UnionNarrowingStableKey.h"
 #include "liblesma/Symbol/Value.h"
 
 using namespace llvm;
@@ -152,7 +153,9 @@ class Codegen final : public ASTVisitor {
   std::size_t lambdaCounter = 0U;
   llvm::OptimizationLevel optimizationLevelForDebug = llvm::OptimizationLevel::O3;
   /** `if x is T` / else: maps parameter/local symbol → union variant index for narrowed loads. */
-  std::vector<std::unordered_map<lesma::Value*, unsigned>> unionNarrowVariantStack;
+  std::vector<std::unordered_map<UnionNarrowingStableKey, unsigned, UnionNarrowingStableKeyHash,
+                                 UnionNarrowingStableKeyEq>>
+      unionNarrowVariantStack;
 
   std::unique_ptr<llvm::DIBuilder> diBuilder;
   llvm::DICompileUnit* diCompileUnit = nullptr;
@@ -224,11 +227,14 @@ protected:
       -> llvm::AllocaInst*;
 
   [[nodiscard]] auto lookupUnionNarrowVariant(lesma::Value* sym) const -> std::optional<unsigned>;
-  auto fillCodegenUnionNarrowVariantMap(const If* node, unsigned blockIndex,
-                                        std::unordered_map<lesma::Value*, unsigned>& out) -> void;
+  auto fillCodegenUnionNarrowVariantMap(
+      const If* node, unsigned blockIndex,
+      std::unordered_map<UnionNarrowingStableKey, unsigned, UnionNarrowingStableKeyHash,
+                         UnionNarrowingStableKeyEq>& out) -> void;
   auto emitUnionWrapValue(llvm::SMRange span, lesma::Value* val, lesma::Type* unionTy,
                           unsigned variantIndex) -> std::unique_ptr<lesma::Value>;
-  /** Wrap \p val into \p unionTy at \p variantIndex using existing alloca \p destSlot (union struct). */
+  /** Wrap \p val into \p unionTy at \p variantIndex using existing alloca \p destSlot (union
+   * struct). */
   auto emitUnionWrapValueToSlot(llvm::SMRange span, lesma::Value* val, lesma::Type* unionTy,
                                 unsigned variantIndex, llvm::Value* destSlot)
       -> std::unique_ptr<lesma::Value>;
@@ -318,14 +324,12 @@ protected:
       -> std::unique_ptr<lesma::Value>;
   auto appendCallableArgument(lesma::Value* arg, std::vector<lesma::Type*>& paramTypes,
                               std::vector<llvm::Value*>& paramsLLVM) -> void;
-  auto callNamedFunction(llvm::SMRange span, const std::string& functionName,
-                         const std::vector<lesma::Type*>& paramTypes,
-                         const std::vector<llvm::Value*>& paramsLLVM,
-                         const std::vector<lesma::Type*>& explicitTypeArgs = {},
-                         Value* typecheckCalleeFallback = nullptr,
-                         lesma::Type* allocatedClassMonomorph = nullptr,
-                         const std::vector<std::pair<std::string, lesma::Type*>>*
-                             genericBindingHint = nullptr)
+  auto callNamedFunction(
+      llvm::SMRange span, const std::string& functionName,
+      const std::vector<lesma::Type*>& paramTypes, const std::vector<llvm::Value*>& paramsLLVM,
+      const std::vector<lesma::Type*>& explicitTypeArgs = {},
+      Value* typecheckCalleeFallback = nullptr, lesma::Type* allocatedClassMonomorph = nullptr,
+      const std::vector<std::pair<std::string, lesma::Type*>>* genericBindingHint = nullptr)
       -> std::unique_ptr<lesma::Value>;
   auto callListMethodByName(llvm::SMRange span, lesma::Value* receiver,
                             const std::string& methodName,
@@ -366,15 +370,17 @@ protected:
   auto appendGenericBindingSuffix(llvm::SMRange span, std::string& base,
                                   const std::vector<std::string>& genericNames,
                                   const std::unordered_map<std::string, lesma::Type*>& env) -> void;
-  auto specializeFunction(const FuncDecl* node, const std::vector<lesma::Type*>& paramTypes,
-                          const std::vector<std::string>& genericNames,
-                          const std::vector<lesma::Type*>& explicitTypeArgs = {},
-                          const std::unordered_map<std::string, lesma::Type*>* bindingEnvHint = nullptr)
+  auto
+  specializeFunction(const FuncDecl* node, const std::vector<lesma::Type*>& paramTypes,
+                     const std::vector<std::string>& genericNames,
+                     const std::vector<lesma::Type*>& explicitTypeArgs = {},
+                     const std::unordered_map<std::string, lesma::Type*>* bindingEnvHint = nullptr)
       -> lesma::Value*;
-  auto specializeLambda(const LambdaExpr* node, const std::vector<lesma::Type*>& paramTypes,
-                        const std::vector<std::string>& genericNames,
-                        const std::vector<lesma::Type*>& explicitTypeArgs = {},
-                        const std::unordered_map<std::string, lesma::Type*>* bindingEnvHint = nullptr)
+  auto
+  specializeLambda(const LambdaExpr* node, const std::vector<lesma::Type*>& paramTypes,
+                   const std::vector<std::string>& genericNames,
+                   const std::vector<lesma::Type*>& explicitTypeArgs = {},
+                   const std::unordered_map<std::string, lesma::Type*>* bindingEnvHint = nullptr)
       -> lesma::Value*;
   auto defineLambdaFunction(lesma::Value* value, const LambdaExpr* node) -> void;
   [[nodiscard]] auto getFuncValuePairLlvmType() -> llvm::StructType*;
@@ -452,7 +458,8 @@ protected:
 
   /** Ensure \p type has an LLVM type (fill in when from typechecker). */
   auto getOrCreateLlvmType(lesma::Type* type) -> llvm::Type*;
-  /** LLVM integer tag type for \c TY_UNION (first struct field); requires \p unionTy to be a union. */
+  /** LLVM integer tag type for \c TY_UNION (first struct field); requires \p unionTy to be a union.
+   */
   [[nodiscard]] auto getOrCreateUnionTagLlvmType(lesma::Type* unionTy) -> llvm::Type*;
   /** LLVM storage type for aggregate fields/slots after ABI lowering. */
   [[nodiscard]] auto getStoredAggregateFieldLlvmType(lesma::Type* fieldType) -> llvm::Type*;
@@ -506,8 +513,9 @@ protected:
   [[nodiscard]] auto isTypeFullyConcrete(lesma::Type* t) const -> bool;
   /** Substitute generic parameters (and nested specialized classes) for lowering a template field
    * or superclass type. */
-  auto substituteTypeForSpecializationEnv(
-      lesma::Type* t, const std::unordered_map<std::string, lesma::Type*>& env) -> lesma::Type*;
+  auto substituteTypeForSpecializationEnv(lesma::Type* t,
+                                          const std::unordered_map<std::string, lesma::Type*>& env)
+      -> lesma::Type*;
 
 private:
   /** Minimum tag bits: ceil(log2(memberCount)), at least 1 (memberCount must be > 0). */
@@ -515,7 +523,8 @@ private:
   /** Round up to a whole number of bytes (8, 16, 32, 64); 0 if \p minBits > 64. */
   [[nodiscard]] static auto roundUnionTagToSupportedBitWidth(unsigned minBits) -> unsigned;
 
-  [[nodiscard]] auto cgUnionTryGetIsOpVarSymbol(const IsOp* is, SymbolTable* scope) -> lesma::Value*;
+  [[nodiscard]] auto cgUnionTryGetIsOpVarSymbol(const IsOp* is, SymbolTable* scope)
+      -> lesma::Value*;
   [[nodiscard]] auto cgUnionComplementMemberIndex(lesma::Type* unionTy, lesma::Type* excluded)
       -> std::optional<unsigned>;
 };

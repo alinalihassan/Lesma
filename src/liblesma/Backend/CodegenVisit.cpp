@@ -29,8 +29,8 @@
 #include <llvm/IR/GlobalVariable.h>
 #include <llvm/IR/IRBuilder.h>
 #include <llvm/IR/Instructions.h>
-#include <llvm/IR/Module.h>
 #include <llvm/IR/LLVMContext.h>
+#include <llvm/IR/Module.h>
 #include <llvm/IR/Value.h>
 #include <llvm/IR/Verifier.h>
 #include <llvm/MC/TargetRegistry.h>
@@ -76,8 +76,7 @@ LLD_HAS_DRIVER(elf)
 namespace {
 
 [[nodiscard]] auto makeCallableSignatureKey(const std::string& name,
-                                            const std::vector<lesma::Type*>& types)
-    -> std::string {
+                                            const std::vector<lesma::Type*>& types) -> std::string {
   std::string key = name;
   for (lesma::Type* type : types) {
     key += "|" + (type != nullptr ? type->toString() : "?");
@@ -106,8 +105,9 @@ namespace {
 
 /** Vtable initializers must reference Function* in the emitting module; imported codegen may still
  *  hold pointers into a module that was already moved to the JIT. */
-[[nodiscard]] auto materializeVtableFunctionPointer(llvm::Module* mod, llvm::PointerType* ptrTyTyped,
-                                                    lesma::Value* rs) -> llvm::Constant* {
+[[nodiscard]] auto materializeVtableFunctionPointer(llvm::Module* mod,
+                                                    llvm::PointerType* ptrTyTyped, lesma::Value* rs)
+    -> llvm::Constant* {
   if (rs == nullptr) {
     return nullptr;
   }
@@ -177,21 +177,20 @@ namespace {
 
 using namespace lesma;
 
-Codegen::Codegen(std::shared_ptr<Parser> parser, std::shared_ptr<SourceMgr> srcMgr,
-                 const std::string& filename, std::vector<std::string> imports, bool jit, bool main,
-                 std::string alias, const std::shared_ptr<ThreadSafeContext>& context,
-                 std::shared_ptr<std::vector<std::string>> sharedModules,
-                 std::shared_ptr<std::vector<std::unique_ptr<SymbolTable>>> sharedScopes,
-                 std::shared_ptr<std::vector<ImportedSpecializationState>>
-                     sharedImportedSpecializationStates,
-                 std::unique_ptr<SymbolTable> preScope,
-                 std::vector<std::unique_ptr<lesma::Type>> preTypeCache,
-                 std::unordered_map<lesma::Type*, std::unordered_map<std::string, lesma::Type*>>
-                     preSpecializedClassTypeEnvs,
-                 std::unordered_map<lesma::Type*, lesma::Type*> preSpecializedClassTemplateOf,
-                 std::unordered_map<std::string, lesma::Type*> preSpecializedClassTypesByKey,
-                 bool emitDebug, llvm::OptimizationLevel optimizationLevelForDebugArg,
-                 std::shared_ptr<std::vector<std::string>> sharedPendingJitModuleInits) {
+Codegen::Codegen(
+    std::shared_ptr<Parser> parser, std::shared_ptr<SourceMgr> srcMgr, const std::string& filename,
+    std::vector<std::string> imports, bool jit, bool main, std::string alias,
+    const std::shared_ptr<ThreadSafeContext>& context,
+    std::shared_ptr<std::vector<std::string>> sharedModules,
+    std::shared_ptr<std::vector<std::unique_ptr<SymbolTable>>> sharedScopes,
+    std::shared_ptr<std::vector<ImportedSpecializationState>> sharedImportedSpecializationStates,
+    std::unique_ptr<SymbolTable> preScope, std::vector<std::unique_ptr<lesma::Type>> preTypeCache,
+    std::unordered_map<lesma::Type*, std::unordered_map<std::string, lesma::Type*>>
+        preSpecializedClassTypeEnvs,
+    std::unordered_map<lesma::Type*, lesma::Type*> preSpecializedClassTemplateOf,
+    std::unordered_map<std::string, lesma::Type*> preSpecializedClassTypesByKey, bool emitDebug,
+    llvm::OptimizationLevel optimizationLevelForDebugArg,
+    std::shared_ptr<std::vector<std::string>> sharedPendingJitModuleInits) {
   InitializeNativeTarget();
   InitializeNativeTargetAsmPrinter();
   InitializeNativeTargetAsmParser();
@@ -234,9 +233,10 @@ Codegen::Codegen(std::shared_ptr<Parser> parser, std::shared_ptr<SourceMgr> srcM
   if (sharedModules && sharedScopes) {
     importedModules = std::move(sharedModules);
     importedScopes = std::move(sharedScopes);
-    importedSpecializationStates = sharedImportedSpecializationStates != nullptr
-                                       ? std::move(sharedImportedSpecializationStates)
-                                       : std::make_shared<std::vector<ImportedSpecializationState>>();
+    importedSpecializationStates =
+        sharedImportedSpecializationStates != nullptr
+            ? std::move(sharedImportedSpecializationStates)
+            : std::make_shared<std::vector<ImportedSpecializationState>>();
   } else {
     importedModules = std::make_shared<std::vector<std::string>>(std::move(imports));
     importedScopes = std::make_shared<std::vector<std::unique_ptr<SymbolTable>>>();
@@ -341,13 +341,13 @@ auto Codegen::defineFunction(lesma::Value* value, const FuncDecl* node, Value* c
     param->setName(paramName);
 
     Value* existingParam = lookupInCurrentScope(paramName);
-    if (field->type != nullptr && field->type->is(BaseType::TY_FUNCTION) && existingParam != nullptr &&
-        existingParam->getStoresFuncValuePair()) {
+    if (field->type != nullptr && field->type->is(BaseType::TY_FUNCTION) &&
+        existingParam != nullptr && existingParam->getStoresFuncValuePair()) {
       existingParam->setType(field->type);
       existingParam->setLlvmValue(param);
       existingParam->setCategory(ValueCategory::ADDRESSABLE_STORAGE);
-      emitParameterDebugDeclare(f, param, paramName, static_cast<unsigned>(fieldIndex + 1), declFile,
-                                declLine, param->getType(), nullptr);
+      emitParameterDebugDeclare(f, param, paramName, static_cast<unsigned>(fieldIndex + 1),
+                                declFile, declLine, param->getType(), nullptr);
       fieldIndex++;
       continue;
     }
@@ -457,9 +457,8 @@ auto Codegen::defineLambdaFunction(lesma::Value* value, const LambdaExpr* node) 
 
   BasicBlock* entry = BasicBlock::Create(theModule->getContext(), "entry", f);
   builder->SetInsertPoint(entry);
-  llvm::SMRange const bodySpan = node->isExpressionBody()
-                                     ? node->getExpressionBody()->getSpan()
-                                     : node->getBlockBody()->getSpan();
+  llvm::SMRange const bodySpan = node->isExpressionBody() ? node->getExpressionBody()->getSpan()
+                                                          : node->getBlockBody()->getSpan();
   setDebugLoc(bodySpan);
 
   llvm::DIFile* declFile = moduleDiFile;
@@ -482,12 +481,12 @@ auto Codegen::defineLambdaFunction(lesma::Value* value, const LambdaExpr* node) 
     param->setName(paramName);
 
     Value* existingParam = lookupInCurrentScope(paramName);
-    if (field->type != nullptr && field->type->is(BaseType::TY_FUNCTION) && existingParam != nullptr &&
-        existingParam->getStoresFuncValuePair()) {
+    if (field->type != nullptr && field->type->is(BaseType::TY_FUNCTION) &&
+        existingParam != nullptr && existingParam->getStoresFuncValuePair()) {
       existingParam->setLlvmValue(param);
       existingParam->setCategory(ValueCategory::ADDRESSABLE_STORAGE);
-      emitParameterDebugDeclare(f, param, paramName, static_cast<unsigned>(fieldIndex + 1), declFile,
-                                declLine, param->getType(), nullptr);
+      emitParameterDebugDeclare(f, param, paramName, static_cast<unsigned>(fieldIndex + 1),
+                                declFile, declLine, param->getType(), nullptr);
       fieldIndex++;
       continue;
     }
@@ -566,8 +565,8 @@ auto Codegen::defineLambdaFunction(lesma::Value* value, const LambdaExpr* node) 
 auto Codegen::getFuncValuePairLlvmType() -> llvm::StructType* {
   if (funcValuePairLlvmType == nullptr) {
     funcValuePairLlvmType = llvm::StructType::create(
-        theModule->getContext(), std::array<llvm::Type*, 2>{builder->getPtrTy(), builder->getPtrTy()},
-        "lesma.funcval");
+        theModule->getContext(),
+        std::array<llvm::Type*, 2>{builder->getPtrTy(), builder->getPtrTy()}, "lesma.funcval");
   }
   return funcValuePairLlvmType;
 }
@@ -798,14 +797,14 @@ auto Codegen::visit(const VarDecl* node) -> void {
     existing->setMutable(node->getMutability());
     if (valueResult != nullptr) {
       llvm::Instruction* st = nullptr;
-      if (valueResult->getLlvmValue() == nullptr &&
-          storedType->is(BaseType::TY_FUNCTION) && !storedType->getGenericParams().empty()) {
-        st = builder->CreateStore(llvm::ConstantAggregateZero::get(getFuncValuePairLlvmType()), ptr);
+      if (valueResult->getLlvmValue() == nullptr && storedType->is(BaseType::TY_FUNCTION) &&
+          !storedType->getGenericParams().empty()) {
+        st =
+            builder->CreateStore(llvm::ConstantAggregateZero::get(getFuncValuePairLlvmType()), ptr);
       } else if (storedType->is(BaseType::TY_FUNCTION) && valueResult->getLlvmValue() != nullptr &&
                  valueResult->getLlvmValue()->getType() == getFuncValuePairLlvmType()) {
         st = builder->CreateStore(valueResult->getLlvmValue(), ptr);
-      } else if (valueResult->getStoresFuncValuePair() &&
-                 storedType->is(BaseType::TY_FUNCTION)) {
+      } else if (valueResult->getStoresFuncValuePair() && storedType->is(BaseType::TY_FUNCTION)) {
         llvm::StructType* pt = getFuncValuePairLlvmType();
         llvm::Value* loaded =
             builder->CreateLoad(pt, valueResult->getLlvmValue(), name + ".fnpair.load");
@@ -915,8 +914,12 @@ auto Codegen::lookupUnionNarrowVariant(lesma::Value* sym) const -> std::optional
   if (sym == nullptr) {
     return std::nullopt;
   }
+  const UnionNarrowingStableKey key = unionNarrowingStableKeyForSymbol(sym);
+  if (!key.declarationSpan.isValid() && key.fallbackAnchor == nullptr) {
+    return std::nullopt;
+  }
   for (auto it = unionNarrowVariantStack.rbegin(); it != unionNarrowVariantStack.rend(); ++it) {
-    auto j = it->find(sym);
+    auto j = it->find(key);
     if (j != it->end()) {
       return j->second;
     }
@@ -938,9 +941,10 @@ auto Codegen::unionVariantIndexOf(lesma::Type* unionTy, lesma::Type* memberTy) c
   return std::nullopt;
 }
 
-auto Codegen::fillCodegenUnionNarrowVariantMap(const If* node, unsigned blockIndex,
-                                               std::unordered_map<lesma::Value*, unsigned>& out)
-    -> void {
+auto Codegen::fillCodegenUnionNarrowVariantMap(
+    const If* node, unsigned blockIndex,
+    std::unordered_map<UnionNarrowingStableKey, unsigned, UnionNarrowingStableKeyHash,
+                       UnionNarrowingStableKeyEq>& out) -> void {
   if (blockIndex >= node->getBlocks().size()) {
     return;
   }
@@ -960,11 +964,17 @@ auto Codegen::fillCodegenUnionNarrowVariantMap(const If* node, unsigned blockInd
     }
     if (is0->getOperator() == TokenType::IS) {
       if (auto idx = cgUnionComplementMemberIndex(sym->getType(), rhsTy)) {
-        out[sym] = *idx;
+        const UnionNarrowingStableKey key = unionNarrowingStableKeyForSymbol(sym);
+        if (key.declarationSpan.isValid() || key.fallbackAnchor != nullptr) {
+          out[key] = *idx;
+        }
       }
     } else if (is0->getOperator() == TokenType::IS_NOT) {
       if (auto idx = unionVariantIndexOf(sym->getType(), rhsTy)) {
-        out[sym] = *idx;
+        const UnionNarrowingStableKey key = unionNarrowingStableKeyForSymbol(sym);
+        if (key.declarationSpan.isValid() || key.fallbackAnchor != nullptr) {
+          out[key] = *idx;
+        }
       }
     }
     return;
@@ -983,11 +993,17 @@ auto Codegen::fillCodegenUnionNarrowVariantMap(const If* node, unsigned blockInd
   }
   if (is->getOperator() == TokenType::IS) {
     if (auto idx = unionVariantIndexOf(sym->getType(), rhsTy)) {
-      out[sym] = *idx;
+      const UnionNarrowingStableKey key = unionNarrowingStableKeyForSymbol(sym);
+      if (key.declarationSpan.isValid() || key.fallbackAnchor != nullptr) {
+        out[key] = *idx;
+      }
     }
   } else if (is->getOperator() == TokenType::IS_NOT) {
     if (auto idx = cgUnionComplementMemberIndex(sym->getType(), rhsTy)) {
-      out[sym] = *idx;
+      const UnionNarrowingStableKey key = unionNarrowingStableKeyForSymbol(sym);
+      if (key.declarationSpan.isValid() || key.fallbackAnchor != nullptr) {
+        out[key] = *idx;
+      }
     }
   }
 }
@@ -997,8 +1013,7 @@ auto Codegen::emitUnionPayloadLoadFromSlot(llvm::Value* unionAllocaPtr, lesma::T
   getOrCreateLlvmType(unionTy);
   getOrCreateLlvmType(memberTy);
   auto* st = llvm::cast<llvm::StructType>(unionTy->getLlvmType());
-  llvm::Value* payloadPtr =
-      builder->CreateStructGEP(st, unionAllocaPtr, 1U, "union.payload.ptr");
+  llvm::Value* payloadPtr = builder->CreateStructGEP(st, unionAllocaPtr, 1U, "union.payload.ptr");
   llvm::Type* memLt = getStoredAggregateFieldLlvmType(memberTy);
   return builder->CreateLoad(memLt, payloadPtr, "union.payload");
 }
@@ -1051,7 +1066,9 @@ auto Codegen::visit(const If* node) -> void {
     builder->CreateCondBr(result->getLlvmValue(), bIfTrue, bIfFalse);
     builder->SetInsertPoint(bIfTrue);
 
-    std::unordered_map<lesma::Value*, unsigned> narrowMap;
+    std::unordered_map<UnionNarrowingStableKey, unsigned, UnionNarrowingStableKeyHash,
+                       UnionNarrowingStableKeyEq>
+        narrowMap;
     fillCodegenUnionNarrowVariantMap(node, static_cast<unsigned>(i), narrowMap);
     bool const pushedNarrowing = !narrowMap.empty();
     if (pushedNarrowing) {
@@ -1150,8 +1167,7 @@ auto Codegen::visit(const ForIn* node) -> void {
     auto fields = listType->getFields();
     if (!fields.empty() && fields.front()->type != nullptr &&
         fields.front()->type->is(BaseType::TY_ARRAY)) {
-      unsigned const bufIdx =
-          TypeUtils::classDataFieldStructIndex(listType, 0U);
+      unsigned const bufIdx = TypeUtils::classDataFieldStructIndex(listType, 0U);
       auto* storagePtr =
           builder->CreateStructGEP(cast<llvm::StructType>(getOrCreateLlvmType(listType)),
                                    iterable->getLlvmValue(), bufIdx, "list.storage.ptr");
@@ -1555,10 +1571,10 @@ auto Codegen::defineSynthesizedClassConstructor(lesma::Value* ctorSym, const Cla
       break;
     }
     Type* storageTy = layoutFields[layoutIdx]->type;
-    unsigned const structIdx = TypeUtils::classDataFieldStructIndex(classType, static_cast<unsigned>(layoutIdx));
-    llvm::Value* slotPtr =
-        builder->CreateStructGEP(structTy, selfPtr, structIdx,
-                                 v->getIdentifier()->getValue() + ".ptr");
+    unsigned const structIdx =
+        TypeUtils::classDataFieldStructIndex(classType, static_cast<unsigned>(layoutIdx));
+    llvm::Value* slotPtr = builder->CreateStructGEP(structTy, selfPtr, structIdx,
+                                                    v->getIdentifier()->getValue() + ".ptr");
     layoutIdx++;
     if (v->getValue() != nullptr) {
       v->getValue()->accept(*this);
@@ -1571,8 +1587,9 @@ auto Codegen::defineSynthesizedClassConstructor(lesma::Value* ctorSym, const Cla
                            v->getIdentifier()->getValue());
       }
       getOrCreateLlvmType(storageTy);
-      llvm::Value* loaded = loadStoredAggregateFieldValue(
-          ps->getLlvmValue(), storageTy, llvm::Twine(v->getIdentifier()->getValue()).concat(".arg"));
+      llvm::Value* loaded =
+          loadStoredAggregateFieldValue(ps->getLlvmValue(), storageTy,
+                                        llvm::Twine(v->getIdentifier()->getValue()).concat(".arg"));
       builder->CreateStore(loaded, slotPtr);
     }
   }
@@ -1633,8 +1650,7 @@ auto Codegen::getOrEmitClassVtableGlobal(lesma::Type* classTy, const Class* astN
   }
 
   auto* arrTy = llvm::ArrayType::get(ptrTy, order.size());
-  std::vector<llvm::Constant*> elems(order.size(),
-                                     llvm::ConstantPointerNull::get(ptrTyTyped));
+  std::vector<llvm::Constant*> elems(order.size(), llvm::ConstantPointerNull::get(ptrTyTyped));
 
   if (Type* sup = classTy->getClassSuperclass()) {
     const Class* supAst = nullptr;
@@ -1678,8 +1694,8 @@ auto Codegen::getOrEmitClassVtableGlobal(lesma::Type* classTy, const Class* astN
   llvm::Constant* init = llvm::ConstantArray::get(arrTy, elems);
   // LinkOnceODR + hidden keeps one definition across ORC JIT modules and survives GlobalDCE better
   // than private linkage when stores reference the vtable by symbol name after inlining.
-  auto* gv = new llvm::GlobalVariable(*theModule, arrTy, true, llvm::GlobalValue::LinkOnceODRLinkage,
-                                      init, vn);
+  auto* gv = new llvm::GlobalVariable(*theModule, arrTy, true,
+                                      llvm::GlobalValue::LinkOnceODRLinkage, init, vn);
   gv->setVisibility(llvm::GlobalValue::HiddenVisibility);
   llvm::appendToCompilerUsed(*theModule, {gv});
   classVtableGlobals[classTy] = gv;
@@ -1789,8 +1805,8 @@ auto Codegen::visit(const FuncDecl* node) -> void {
   lesma::Type* returnType = wrapNominalReturnAsPointer(result->getType());
   getOrCreateLlvmType(returnType);
 
-  lesma::Value* existingFunc = scope->lookupFunction(node->getName(), paramTypes,
-                                                     FunctionLookupKind::OVERLOAD_IDENTITY);
+  lesma::Value* existingFunc =
+      scope->lookupFunction(node->getName(), paramTypes, FunctionLookupKind::OVERLOAD_IDENTITY);
   if (existingFunc == nullptr) {
     auto normalizeFunctionParamType = [](lesma::Type* type) -> lesma::Type* {
       if (type != nullptr && type->is(BaseType::TY_PTR) && type->getElementType() != nullptr &&
@@ -1853,9 +1869,9 @@ auto Codegen::visit(const FuncDecl* node) -> void {
     appendGenericBindingSuffix(node->getSpan(), signatureKey, bindingOrder, currentGenericTypes);
   }
   if (selfSymbol != nullptr && !currentGenericTypes.empty()) {
-    if (auto it = specializedFunctions.find(mangledName);
-        it != specializedFunctions.end() && it->second != nullptr &&
-        it->second->getLlvmValue() != nullptr) {
+    if (auto it = specializedFunctions.find(mangledName); it != specializedFunctions.end() &&
+                                                          it->second != nullptr &&
+                                                          it->second->getLlvmValue() != nullptr) {
       result = std::make_unique<Value>(*it->second);
       return;
     }
@@ -1980,8 +1996,8 @@ auto Codegen::visit(const ExternFuncDecl* node) -> void {
     getOrCreateLlvmType(retType);
   }
 
-  lesma::Value* existingFunc = scope->lookupFunction(node->getName(), paramTypes,
-                                                     FunctionLookupKind::OVERLOAD_IDENTITY);
+  lesma::Value* existingFunc =
+      scope->lookupFunction(node->getName(), paramTypes, FunctionLookupKind::OVERLOAD_IDENTITY);
   if (existingFunc == nullptr) {
     throw CodegenError(node->getSpan(), "Missing typechecked extern symbol for {}",
                        node->getName());
@@ -2172,7 +2188,8 @@ auto Codegen::visit(const Return* node) -> void {
   } else {
     node->getValue()->accept(*this);
     getOrCreateLlvmType(result->getType());
-    if (result != nullptr && result->getStoresFuncValuePair() && result->getLlvmValue() != nullptr) {
+    if (result != nullptr && result->getStoresFuncValuePair() &&
+        result->getLlvmValue() != nullptr) {
       llvm::StructType* pt = getFuncValuePairLlvmType();
       llvm::Value* toRet = result->getLlvmValue();
       if (result->getCategory() == ValueCategory::ADDRESSABLE_STORAGE) {
@@ -2427,12 +2444,13 @@ auto Codegen::visit(const LambdaExpr* node) -> void {
     fnType->setReturnType(retType);
   }
   getOrCreateLlvmType(retType);
-  llvm::Type* llvmReturnType =
-      retType->is(BaseType::TY_CLASS) || retType->is(BaseType::TY_PTR) ? builder->getPtrTy()
-                                                                        : retType->getLlvmType();
+  llvm::Type* llvmReturnType = retType->is(BaseType::TY_CLASS) || retType->is(BaseType::TY_PTR)
+                                   ? builder->getPtrTy()
+                                   : retType->getLlvmType();
   std::string const lambdaName = resolved->getName();
   llvm::FunctionType* llvmFnType = FunctionType::get(llvmReturnType, paramLLVMTypes, false);
-  Function* f = Function::Create(llvmFnType, llvm::GlobalValue::PrivateLinkage, lambdaName, *theModule);
+  Function* f =
+      Function::Create(llvmFnType, llvm::GlobalValue::PrivateLinkage, lambdaName, *theModule);
   resolved->setLlvmValue(f);
   resolved->setMangledName(lambdaName);
   resolved->setClosureCalleeUsesEnvParameter(!caps.empty());
@@ -2452,8 +2470,8 @@ auto Codegen::visit(const LambdaExpr* node) -> void {
   if (!caps.empty()) {
     llvm::Argument* envArg = f->getArg(argIdx++);
     envArg->setName("__env");
-    llvm::Value* typedEnv =
-        builder->CreateBitCast(envArg, envStructTy->getPointerTo(), "env.ptr");
+    llvm::Value* typedEnv = builder->CreateBitCast(
+        envArg, llvm::PointerType::get(envStructTy->getContext(), 0U), "env.ptr");
     SymbolTable* body = resolved->getBodyScope();
     for (size_t i = 0; i < caps.size(); ++i) {
       Value* outer = caps[i];
@@ -2465,8 +2483,8 @@ auto Codegen::visit(const LambdaExpr* node) -> void {
         throw CodegenError(node->getSpan(), "Internal error: missing capture shadow for {}",
                            outer->getName());
       }
-      llvm::Value* slot =
-          builder->CreateStructGEP(envStructTy, typedEnv, static_cast<unsigned>(i), outer->getName());
+      llvm::Value* slot = builder->CreateStructGEP(envStructTy, typedEnv, static_cast<unsigned>(i),
+                                                   outer->getName());
       Type* outerTy = outer->getType();
       getOrCreateLlvmType(outerTy);
       llvm::Value* loaded = builder->CreateLoad(outerTy->getLlvmType(), slot);
@@ -2538,7 +2556,8 @@ auto Codegen::visit(const LambdaExpr* node) -> void {
     llvm::Value* envSize = llvm::ConstantInt::get(
         i64Ty, theModule->getDataLayout().getTypeAllocSize(envStructTy).getFixedValue());
     envStoreVal = emitMalloc(envSize, lambdaName + ".env");
-    llvm::Value* typedEnv = builder->CreateBitCast(envStoreVal, envStructTy->getPointerTo());
+    llvm::Value* typedEnv =
+        builder->CreateBitCast(envStoreVal, llvm::PointerType::get(envStructTy->getContext(), 0U));
     for (size_t i = 0; i < caps.size(); ++i) {
       Value* outer = caps[i];
       if (outer->getLlvmValue() == nullptr) {
@@ -2547,8 +2566,8 @@ auto Codegen::visit(const LambdaExpr* node) -> void {
       }
       Type* outerTy = outer->getType();
       getOrCreateLlvmType(outerTy);
-      llvm::Value* v =
-          builder->CreateLoad(outerTy->getLlvmType(), outer->getLlvmValue(), outer->getName() + ".v");
+      llvm::Value* v = builder->CreateLoad(outerTy->getLlvmType(), outer->getLlvmValue(),
+                                           outer->getName() + ".v");
       llvm::Value* slot =
           builder->CreateStructGEP(envStructTy, typedEnv, static_cast<unsigned>(i), "cap.slot");
       builder->CreateStore(v, slot);
@@ -3044,8 +3063,7 @@ auto Codegen::superMethodReceiverMatchesFormalCodegen(Type* formalReceiverClass,
     return true;
   }
   if (auto specIt = specializedClassTemplateOf.find(staticSuperType);
-      specIt != specializedClassTemplateOf.end() &&
-      formalReceiverClass->isEqual(specIt->second)) {
+      specIt != specializedClassTemplateOf.end() && formalReceiverClass->isEqual(specIt->second)) {
     return true;
   }
   return false;
@@ -3063,7 +3081,8 @@ auto Codegen::visit(const DotOp* node) -> void {
       if (auto* curFn = builder->GetInsertBlock()->getParent()) {
         if (resolved != nullptr && resolved->getLlvmValue() != nullptr &&
             resolved->getLlvmValue() == curFn) {
-          // `super.new` must never lower to the ctor currently being emitted (mis-resolved overload).
+          // `super.new` must never lower to the ctor currently being emitted (mis-resolved
+          // overload).
           resolved = nullptr;
         }
       }
@@ -3080,8 +3099,7 @@ auto Codegen::visit(const DotOp* node) -> void {
     // Instance methods take implicit `self` as fields[0]. Constructor chaining uses
     // `super.new(self, ...)` so the receiver is already the first explicit argument.
     std::unique_ptr<lesma::Value> implicitSelfValue;
-    bool const chainingCtorWithExplicitReceiver =
-        method->getName() == "new" && !args.empty();
+    bool const chainingCtorWithExplicitReceiver = method->getName() == "new" && !args.empty();
     if (!chainingCtorWithExplicitReceiver) {
       Value* selfSym = scope->lookup("self");
       if (selfSym == nullptr) {
@@ -3299,7 +3317,8 @@ auto Codegen::visit(const DotOp* node) -> void {
         }
         unsigned const structIdx =
             TypeUtils::classDataFieldStructIndex(cls->getType(), static_cast<unsigned>(index));
-        auto* ptr = builder->CreateStructGEP(cls->getType()->getLlvmType(), fieldBasePtr, structIdx);
+        auto* ptr =
+            builder->CreateStructGEP(cls->getType()->getLlvmType(), fieldBasePtr, structIdx);
         if (isAssignment) {
           result = std::make_unique<Value>(
               "", cacheType(std::make_unique<Type>(BaseType::TY_PTR, builder->getPtrTy(), type)),
@@ -3705,7 +3724,8 @@ auto Codegen::visit(const ListLiteral* node) -> void {
     auto* classHandle = emitMalloc(classSize, "list.obj");
     emitInitClassVtablePointer(listType, classHandle);
     unsigned const bufIdx = TypeUtils::classDataFieldStructIndex(listType, 0U);
-    auto* storagePtr = builder->CreateStructGEP(structType, classHandle, bufIdx, "list.storage.ptr");
+    auto* storagePtr =
+        builder->CreateStructGEP(structType, classHandle, bufIdx, "list.storage.ptr");
 
     auto* listStructTy = getOrCreateListStructType(bufferType);
     auto* headerSize = builder->getInt64(
@@ -4271,8 +4291,8 @@ auto Codegen::cast(llvm::SMRange span, lesma::Value* val, lesma::Type* type)
 
         llvm::Value* tagVal = builder->CreateExtractValue(agg, {0U}, "union.widen.tag");
         llvm::Type* fromTagTy = getOrCreateUnionTagLlvmType(fromU);
-        auto* sw = builder->CreateSwitch(tagVal, defaultBB,
-                                         static_cast<unsigned>(fromMembers.size()));
+        auto* sw =
+            builder->CreateSwitch(tagVal, defaultBB, static_cast<unsigned>(fromMembers.size()));
         std::vector<std::pair<llvm::Value*, llvm::BasicBlock*>> phiIncomings;
         phiIncomings.reserve(fromMembers.size());
 
@@ -4295,9 +4315,8 @@ auto Codegen::cast(llvm::SMRange span, lesma::Value* val, lesma::Type* type)
         builder->CreateUnreachable();
 
         builder->SetInsertPoint(mergeBB);
-        llvm::PHINode* phi =
-            builder->CreatePHI(type->getLlvmType(),
-                               static_cast<unsigned>(phiIncomings.size()), "union.widen.out");
+        llvm::PHINode* phi = builder->CreatePHI(
+            type->getLlvmType(), static_cast<unsigned>(phiIncomings.size()), "union.widen.out");
         for (auto const& pr : phiIncomings) {
           phi->addIncoming(pr.first, pr.second);
         }
@@ -4340,8 +4359,7 @@ auto Codegen::materializeSymbolValue(lesma::Value* symbol) -> std::unique_ptr<le
   }
 
   Type* lesmaTy = symbol->getType();
-  if (lesmaTy != nullptr && !currentGenericTypes.empty() &&
-      typeContainsUnboundGeneric(lesmaTy)) {
+  if (lesmaTy != nullptr && !currentGenericTypes.empty() && typeContainsUnboundGeneric(lesmaTy)) {
     lesmaTy = substituteTypeForSpecializationEnv(lesmaTy, currentGenericTypes);
   }
   if (lesmaTy == nullptr) {
@@ -4352,8 +4370,7 @@ auto Codegen::materializeSymbolValue(lesma::Value* symbol) -> std::unique_ptr<le
     if (std::optional<unsigned> const idx = lookupUnionNarrowVariant(symbol)) {
       Type* memTy = lesmaTy->getUnionMembers().at(*idx);
       getOrCreateLlvmType(memTy);
-      llvm::Value* v =
-          emitUnionPayloadLoadFromSlot(symbol->getLlvmValue(), lesmaTy, memTy);
+      llvm::Value* v = emitUnionPayloadLoadFromSlot(symbol->getLlvmValue(), lesmaTy, memTy);
       return std::make_unique<Value>("", memTy, v);
     }
   }
@@ -4530,14 +4547,13 @@ auto Codegen::appendCallableArgument(lesma::Value* arg, std::vector<lesma::Type*
   paramsLLVM.push_back(llvmArg);
 }
 
-auto Codegen::callNamedFunction(llvm::SMRange span, const std::string& functionName,
-                                const std::vector<lesma::Type*>& paramTypes,
-                                const std::vector<llvm::Value*>& paramsLLVM,
-                                const std::vector<lesma::Type*>& explicitTypeArgs,
-                                Value* typecheckCalleeFallback,
-                                Type* allocatedClassMonomorph,
-                                const std::vector<std::pair<std::string, lesma::Type*>>*
-                                    genericBindingHint) -> std::unique_ptr<lesma::Value> {
+auto Codegen::callNamedFunction(
+    llvm::SMRange span, const std::string& functionName,
+    const std::vector<lesma::Type*>& paramTypes, const std::vector<llvm::Value*>& paramsLLVM,
+    const std::vector<lesma::Type*>& explicitTypeArgs, Value* typecheckCalleeFallback,
+    Type* allocatedClassMonomorph,
+    const std::vector<std::pair<std::string, lesma::Type*>>* genericBindingHint)
+    -> std::unique_ptr<lesma::Value> {
   std::vector<lesma::Type*> localParamTypes = paramTypes;
   std::vector<llvm::Value*> localParamsLLVM = paramsLLVM;
   auto hintedGenericBindings = [&]() -> std::unordered_map<std::string, lesma::Type*> {
@@ -4582,12 +4598,12 @@ auto Codegen::callNamedFunction(llvm::SMRange span, const std::string& functionN
     auto env = (selfSymbol == nullptr && genericBindingHint != nullptr)
                    ? hintedGenericBindings()
                    : computeGenericFunctionBindingEnv(genericFuncTemplateForLookup, localParamTypes,
-                                                     genericNames, explicitTypeArgs);
+                                                      genericNames, explicitTypeArgs);
     appendGenericBindingSuffix(span, out, genericNames, env);
   };
-  auto buildFunctionSpecializationEnv =
-      [&](const FuncDecl* templateDecl,
-          const std::vector<std::string>& genericNames) -> std::unordered_map<std::string, lesma::Type*> {
+  auto buildFunctionSpecializationEnv = [&](const FuncDecl* templateDecl,
+                                            const std::vector<std::string>& genericNames)
+      -> std::unordered_map<std::string, lesma::Type*> {
     std::unordered_map<std::string, lesma::Type*> env;
     if (selfSymbol != nullptr && selfSymbol->getType() != nullptr) {
       lesma::Type* selfTy = selfSymbol->getType();
@@ -4600,8 +4616,8 @@ auto Codegen::callNamedFunction(llvm::SMRange span, const std::string& functionN
     } else if (genericBindingHint != nullptr) {
       env = hintedGenericBindings();
     }
-    auto inferred =
-        computeGenericFunctionBindingEnv(templateDecl, localParamTypes, genericNames, explicitTypeArgs);
+    auto inferred = computeGenericFunctionBindingEnv(templateDecl, localParamTypes, genericNames,
+                                                     explicitTypeArgs);
     env.insert(inferred.begin(), inferred.end());
     for (const auto& [name, ty] : inferred) {
       env[name] = ty;
@@ -4775,11 +4791,11 @@ auto Codegen::callNamedFunction(llvm::SMRange span, const std::string& functionN
       if (lamSym != nullptr && lamSym->getType() != nullptr &&
           !lamSym->getType()->getGenericParams().empty()) {
         std::vector<std::string> genericNames = lamSym->getType()->getGenericParams();
-        auto bindingEnv =
-            (selfSymbol == nullptr && genericBindingHint != nullptr) ? hintedGenericBindings()
-                                                                     : std::unordered_map<std::string, lesma::Type*>{};
+        auto bindingEnv = (selfSymbol == nullptr && genericBindingHint != nullptr)
+                              ? hintedGenericBindings()
+                              : std::unordered_map<std::string, lesma::Type*>{};
         symbol = specializeLambda(lamNode, localParamTypes, genericNames, explicitTypeArgs,
-                                bindingEnv.empty() ? nullptr : &bindingEnv);
+                                  bindingEnv.empty() ? nullptr : &bindingEnv);
       }
     }
   }
@@ -4832,8 +4848,7 @@ auto Codegen::callNamedFunction(llvm::SMRange span, const std::string& functionN
     if (fields.size() == localParamsLLVM.size()) {
       callParamsLLVM.clear();
       for (size_t i = 0; i < fields.size(); ++i) {
-        auto holder =
-            std::make_unique<Value>("", localParamTypes[i], localParamsLLVM[i]);
+        auto holder = std::make_unique<Value>("", localParamTypes[i], localParamsLLVM[i]);
         auto casted = cast(span, holder.get(), fields[i]->type);
         callParamsLLVM.push_back(casted->getLlvmValue());
       }
@@ -4857,10 +4872,8 @@ auto Codegen::callNamedFunction(llvm::SMRange span, const std::string& functionN
       llvm::Value* pairPtr = symbol->getLlvmValue();
       llvm::Value* fnSlot = builder->CreateStructGEP(pairTy, pairPtr, 0U);
       llvm::Value* envSlot = builder->CreateStructGEP(pairTy, pairPtr, 1U);
-      callableValue =
-          builder->CreateLoad(builder->getPtrTy(), fnSlot, functionName + ".code");
-      loadedClosureEnv =
-          builder->CreateLoad(builder->getPtrTy(), envSlot, functionName + ".env");
+      callableValue = builder->CreateLoad(builder->getPtrTy(), fnSlot, functionName + ".code");
+      loadedClosureEnv = builder->CreateLoad(builder->getPtrTy(), envSlot, functionName + ".env");
     } else {
       if (symbol->getLlvmValue() == nullptr) {
         throw CodegenError(span, "Function {} is declared but not defined", functionName);
@@ -4993,8 +5006,7 @@ auto Codegen::callListMethodByName(llvm::SMRange span, lesma::Value* receiver,
           fields.front()->type->is(BaseType::TY_ARRAY)) {
         listClassType = receiverType;
         bufferType = fields.front()->type;
-        unsigned const bufIdx =
-            TypeUtils::classDataFieldStructIndex(listClassType, 0U);
+        unsigned const bufIdx = TypeUtils::classDataFieldStructIndex(listClassType, 0U);
         auto* storagePtr =
             builder->CreateStructGEP(cast<llvm::StructType>(getOrCreateLlvmType(listClassType)),
                                      receiver->getLlvmValue(), bufIdx, "list.storage.ptr");
@@ -5197,7 +5209,8 @@ auto Codegen::emitUnionClassMethodDispatch(llvm::SMRange span, lesma::Value* uni
   }
   getOrCreateLlvmType(commonRetTy);
   llvm::Type* retLt = commonRetTy->getLlvmType();
-  llvm::PHINode* phi = builder->CreatePHI(retLt, static_cast<unsigned>(phiVals.size()), "union.m.phi");
+  llvm::PHINode* phi =
+      builder->CreatePHI(retLt, static_cast<unsigned>(phiVals.size()), "union.m.phi");
   for (unsigned j = 0; j < phiVals.size(); ++j) {
     phi->addIncoming(phiVals[j], phiBBs[j]);
   }
@@ -5245,8 +5258,7 @@ auto Codegen::callMethodByName(llvm::SMRange span, lesma::Value* receiver,
       receiver->getType()->getElementType() != nullptr) {
     lesma::Type* elemTy = receiver->getType()->getElementType();
     if (Value* structSym = lookupClassStructSymbol(elemTy);
-        structSym != nullptr && structSym->getType() != nullptr &&
-        structSym->getType() != elemTy) {
+        structSym != nullptr && structSym->getType() != nullptr && structSym->getType() != elemTy) {
       lesma::Type* specClassTy = structSym->getType();
       lesma::Type* ptrToSpec =
           cacheType(std::make_unique<Type>(BaseType::TY_PTR, builder->getPtrTy(), specClassTy));
@@ -5293,7 +5305,8 @@ auto Codegen::callMethodByName(llvm::SMRange span, lesma::Value* receiver,
         finalParams.push_back(castVal->getLlvmValue());
       }
       lesma::Type* returnTy = directMethod->getType()->getReturnType();
-      if (returnTy != nullptr && !currentGenericTypes.empty() && typeContainsUnboundGeneric(returnTy)) {
+      if (returnTy != nullptr && !currentGenericTypes.empty() &&
+          typeContainsUnboundGeneric(returnTy)) {
         returnTy = substituteTypeForSpecializationEnv(returnTy, currentGenericTypes);
       }
       if (returnTy != nullptr) {
@@ -5311,10 +5324,10 @@ auto Codegen::callMethodByName(llvm::SMRange span, lesma::Value* receiver,
         }
       }
       unsigned vtableArrayLen = static_cast<unsigned>(vtOrder.size());
-      const bool canUseVirtual =
-          methodName != "new" && vtableSlot != ~0U && !vtOrder.empty() && vtableSlot < vtableArrayLen &&
-          (receiverType->getClassSuperclass() != nullptr ||
-           receiverType->getClassHasDerivedClass());
+      const bool canUseVirtual = methodName != "new" && vtableSlot != ~0U && !vtOrder.empty() &&
+                                 vtableSlot < vtableArrayLen &&
+                                 (receiverType->getClassSuperclass() != nullptr ||
+                                  receiverType->getClassHasDerivedClass());
       if (canUseVirtual) {
         llvm::Type* const ptrTy = builder->getPtrTy();
         auto* st = llvm::cast<llvm::StructType>(getOrCreateLlvmType(receiverType));
@@ -5322,14 +5335,12 @@ auto Codegen::callMethodByName(llvm::SMRange span, lesma::Value* receiver,
         llvm::Value* vtablePtrAddr = builder->CreateStructGEP(st, recvPtr, 0, "vtable.ptr.ptr");
         llvm::Value* vtablePtr = builder->CreateLoad(ptrTy, vtablePtrAddr, "vtable.ptr");
         auto* arrTy = llvm::ArrayType::get(ptrTy, vtableArrayLen);
-        llvm::Value* fnPtrSlot =
-            builder->CreateGEP(arrTy, vtablePtr,
-                               {builder->getInt64(0), builder->getInt64(vtableSlot)}, "vt.fn.ptr");
+        llvm::Value* fnPtrSlot = builder->CreateGEP(
+            arrTy, vtablePtr, {builder->getInt64(0), builder->getInt64(vtableSlot)}, "vt.fn.ptr");
         llvm::Value* fnPtrVal = builder->CreateLoad(ptrTy, fnPtrSlot, "vt.fn");
         auto* calleeFn = llvm::cast<llvm::Function>(directMethod->getLlvmValue());
         llvm::FunctionType* ft = calleeFn->getFunctionType();
-        llvm::Value* useVirtual =
-            builder->CreateIsNotNull(fnPtrVal, "vt.fn.has.target");
+        llvm::Value* useVirtual = builder->CreateIsNotNull(fnPtrVal, "vt.fn.has.target");
         llvm::Value* directFnPtr =
             builder->CreateBitCast(directMethod->getLlvmValue(), ptrTy, "direct.fn.ptr");
         llvm::Value* selectedFnPtr =
@@ -5348,8 +5359,7 @@ auto Codegen::callMethodByName(llvm::SMRange span, lesma::Value* receiver,
     }
   }
   selfSymbol = cls;
-  auto resultValue =
-      callNamedFunction(span, methodName, paramTypes, paramsLLVM, explicitTypeArgs);
+  auto resultValue = callNamedFunction(span, methodName, paramTypes, paramsLLVM, explicitTypeArgs);
   selfSymbol = savedSelfSymbol;
   return resultValue;
 }

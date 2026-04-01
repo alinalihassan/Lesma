@@ -15,6 +15,7 @@
 #include "liblesma/Driver/AnalysisResult.h"
 #include "liblesma/Symbol/SymbolTable.h"
 #include "liblesma/Symbol/Type.h"
+#include "liblesma/Symbol/UnionNarrowingStableKey.h"
 #include "liblesma/Symbol/Value.h"
 #include "liblesma/Token/TokenType.h"
 
@@ -83,8 +84,10 @@ class Typechecker final : public ASTVisitor {
   /** Imported types materialized into this typechecker's cache so they outlive imported scopes. */
   std::unordered_map<Type*, Type*> importedTypeCopies;
   std::vector<Type*> expectedTypes;
-  /** Per `if` branch: symbol → narrowed type when discriminating a union with `is` / `is not`. */
-  std::vector<std::unordered_map<Value*, Type*>> unionNarrowingStack;
+  /** Per `if` branch: stable storage identity → narrowed type for `is` / `is not` on unions. */
+  std::vector<std::unordered_map<UnionNarrowingStableKey, Type*, UnionNarrowingStableKeyHash,
+                                 UnionNarrowingStableKeyEq>>
+      unionNarrowingStack;
 
   /** Registered traits (name → AST) for impl checks and existential method lookup. */
   std::unordered_map<std::string, const TraitDecl*> traitRegistry;
@@ -194,8 +197,10 @@ class Typechecker final : public ASTVisitor {
   auto isAssignableTo(Type* from, Type* to) -> bool;
   [[nodiscard]] static auto isSupportedUnionMemberType(Type* t) -> bool;
   [[nodiscard]] auto lookupUnionNarrowedType(Value* sym) const -> Type*;
-  auto fillUnionNarrowingForIfBlock(const If* node, unsigned blockIndex,
-                                    std::unordered_map<Value*, Type*>& out) -> void;
+  auto fillUnionNarrowingForIfBlock(
+      const If* node, unsigned blockIndex,
+      std::unordered_map<UnionNarrowingStableKey, Type*, UnionNarrowingStableKeyHash,
+                         UnionNarrowingStableKeyEq>& out) -> void;
   /** Drop \p sym from every active union-narrowing frame (e.g. after assignment through it). */
   void invalidateUnionNarrowingForSymbol(Value* sym);
   /** Outermost identifier-like storage for an assignment LHS (for invalidating narrowing on `a.b`
