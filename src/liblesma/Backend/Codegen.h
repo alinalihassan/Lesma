@@ -157,6 +157,33 @@ class Codegen final : public ASTVisitor {
                                  UnionNarrowingStableKeyEq>>
       unionNarrowVariantStack;
 
+  /** Pushes a non-empty narrow map onto \c unionNarrowVariantStack in the ctor and pops in the
+   * dtor so the stack stays balanced if nested codegen throws (e.g. \c CodegenError). */
+  struct UnionNarrowingScope {
+    using MapTy =
+        std::unordered_map<UnionNarrowingStableKey, unsigned, UnionNarrowingStableKeyHash,
+                           UnionNarrowingStableKeyEq>;
+    UnionNarrowingScope(std::vector<MapTy>& stackRef, MapTy&& map)
+        : stack(stackRef), pushed(!map.empty()) {
+      if (pushed) {
+        stack.push_back(std::move(map));
+      }
+    }
+    ~UnionNarrowingScope() {
+      if (pushed) {
+        stack.pop_back();
+      }
+    }
+    UnionNarrowingScope(const UnionNarrowingScope&) = delete;
+    auto operator=(const UnionNarrowingScope&) = delete;
+    UnionNarrowingScope(UnionNarrowingScope&&) = delete;
+    auto operator=(UnionNarrowingScope&&) -> UnionNarrowingScope& = delete;
+
+  private:
+    std::vector<MapTy>& stack;
+    bool pushed;
+  };
+
   std::unique_ptr<llvm::DIBuilder> diBuilder;
   llvm::DICompileUnit* diCompileUnit = nullptr;
   llvm::DIFile* moduleDiFile = nullptr;

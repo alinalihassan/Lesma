@@ -1070,14 +1070,8 @@ auto Codegen::visit(const If* node) -> void {
                        UnionNarrowingStableKeyEq>
         narrowMap;
     fillCodegenUnionNarrowVariantMap(node, static_cast<unsigned>(i), narrowMap);
-    bool const pushedNarrowing = !narrowMap.empty();
-    if (pushedNarrowing) {
-      unionNarrowVariantStack.push_back(std::move(narrowMap));
-    }
+    UnionNarrowingScope const unionNarrowScope{unionNarrowVariantStack, std::move(narrowMap)};
     node->getBlocks().at(i)->accept(*this);
-    if (pushedNarrowing) {
-      unionNarrowVariantStack.pop_back();
-    }
 
     if (!isBreak && builder->GetInsertBlock()->getTerminator() == nullptr) {
       builder->CreateBr(bEnd);
