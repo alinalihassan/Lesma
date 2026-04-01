@@ -4290,14 +4290,20 @@ auto Codegen::cast(llvm::SMRange span, lesma::Value* val, lesma::Type* type)
       }
     }
     for (unsigned i = 0; i < mem.size(); ++i) {
-      if (val->getType()->isEqual(mem[i])) {
+      Type* memI = mem[i];
+      if (memI == nullptr) {
+        continue;
+      }
+      if (val->getType()->isEqual(memI)) {
         return emitUnionWrapValue(span, val, type, i);
       }
-      if (mem[i] != nullptr && mem[i]->is(BaseType::TY_CLASS) && val->getType() != nullptr &&
+      if (memI->is(BaseType::TY_CLASS) && val->getType() != nullptr &&
           val->getType()->is(BaseType::TY_PTR) && val->getType()->getElementType() != nullptr &&
-          val->getType()->getElementType()->isEqual(mem[i])) {
-        getOrCreateLlvmType(mem[i]);
-        auto tmp = std::make_unique<lesma::Value>("", mem[i], val->getLlvmValue());
+          val->getType()->getElementType()->isEqual(memI)) {
+        // Class union arms use pointer ABI; *T rvalues already carry the same handle the union
+        // stores for T (no LLVM load—val is the handle, not a slot address).
+        getOrCreateLlvmType(memI);
+        auto tmp = std::make_unique<lesma::Value>("", memI, val->getLlvmValue());
         return emitUnionWrapValue(span, tmp.get(), type, i);
       }
     }
