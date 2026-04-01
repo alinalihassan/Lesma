@@ -227,6 +227,10 @@ protected:
                                         std::unordered_map<lesma::Value*, unsigned>& out) -> void;
   auto emitUnionWrapValue(llvm::SMRange span, lesma::Value* val, lesma::Type* unionTy,
                           unsigned variantIndex) -> std::unique_ptr<lesma::Value>;
+  /** Wrap \p val into \p unionTy at \p variantIndex using existing alloca \p destSlot (union struct). */
+  auto emitUnionWrapValueToSlot(llvm::SMRange span, lesma::Value* val, lesma::Type* unionTy,
+                                unsigned variantIndex, llvm::Value* destSlot)
+      -> std::unique_ptr<lesma::Value>;
   [[nodiscard]] auto unionVariantIndexOf(lesma::Type* unionTy, lesma::Type* memberTy) const
       -> std::optional<unsigned>;
   auto emitUnionPayloadLoadFromSlot(llvm::Value* unionAllocaPtr, lesma::Type* unionTy,
@@ -503,5 +507,10 @@ protected:
    * or superclass type. */
   auto substituteTypeForSpecializationEnv(
       lesma::Type* t, const std::unordered_map<std::string, lesma::Type*>& env) -> lesma::Type*;
+
+private:
+  [[nodiscard]] auto cgUnionTryGetIsOpVarSymbol(const IsOp* is, SymbolTable* scope) -> lesma::Value*;
+  [[nodiscard]] auto cgUnionComplementMemberIndex(lesma::Type* unionTy, lesma::Type* excluded)
+      -> std::optional<unsigned>;
 };
 } // namespace lesma

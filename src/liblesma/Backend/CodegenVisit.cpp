@@ -880,8 +880,7 @@ auto Codegen::visit(const VarDecl* node) -> void {
   }
 }
 
-namespace {
-auto cgUnionTryGetIsOpVarSymbol(const IsOp* is, SymbolTable* scope) -> lesma::Value* {
+auto Codegen::cgUnionTryGetIsOpVarSymbol(const IsOp* is, SymbolTable* scope) -> lesma::Value* {
   if (is == nullptr) {
     return nullptr;
   }
@@ -895,7 +894,7 @@ auto cgUnionTryGetIsOpVarSymbol(const IsOp* is, SymbolTable* scope) -> lesma::Va
   return scope->lookup(lit->getValue());
 }
 
-auto cgUnionComplementMemberIndex(lesma::Type* unionTy, lesma::Type* excluded)
+auto Codegen::cgUnionComplementMemberIndex(lesma::Type* unionTy, lesma::Type* excluded)
     -> std::optional<unsigned> {
   if (unionTy == nullptr || !unionTy->is(BaseType::TY_UNION) || excluded == nullptr) {
     return std::nullopt;
@@ -911,7 +910,6 @@ auto cgUnionComplementMemberIndex(lesma::Type* unionTy, lesma::Type* excluded)
   }
   return std::nullopt;
 }
-} // namespace
 
 auto Codegen::lookupUnionNarrowVariant(lesma::Value* sym) const -> std::optional<unsigned> {
   if (sym == nullptr) {
@@ -956,8 +954,10 @@ auto Codegen::fillCodegenUnionNarrowVariantMap(const If* node, unsigned blockInd
     if (sym == nullptr || sym->getType() == nullptr || !sym->getType()->is(BaseType::TY_UNION)) {
       return;
     }
-    is0->getRight()->accept(*this);
-    lesma::Type* rhsTy = result->getType();
+    lesma::Type* rhsTy = is0->getResolvedRhsType();
+    if (rhsTy == nullptr) {
+      return;
+    }
     if (is0->getOperator() == TokenType::IS) {
       if (auto idx = cgUnionComplementMemberIndex(sym->getType(), rhsTy)) {
         out[sym] = *idx;
@@ -977,8 +977,10 @@ auto Codegen::fillCodegenUnionNarrowVariantMap(const If* node, unsigned blockInd
   if (sym == nullptr || sym->getType() == nullptr || !sym->getType()->is(BaseType::TY_UNION)) {
     return;
   }
-  is->getRight()->accept(*this);
-  lesma::Type* rhsTy = result->getType();
+  lesma::Type* rhsTy = is->getResolvedRhsType();
+  if (rhsTy == nullptr) {
+    return;
+  }
   if (is->getOperator() == TokenType::IS) {
     if (auto idx = unionVariantIndexOf(sym->getType(), rhsTy)) {
       out[sym] = *idx;
@@ -1001,20 +1003,29 @@ auto Codegen::emitUnionPayloadLoadFromSlot(llvm::Value* unionAllocaPtr, lesma::T
   return builder->CreateLoad(memLt, payloadPtr, "union.payload");
 }
 
-auto Codegen::emitUnionWrapValue(llvm::SMRange /*span*/, lesma::Value* val, lesma::Type* unionTy,
+auto Codegen::emitUnionWrapValueToSlot(llvm::SMRange /*span*/, lesma::Value* val,
+                                       lesma::Type* unionTy, unsigned variantIndex,
+                                       llvm::Value* destSlot) -> std::unique_ptr<lesma::Value> {
+  getOrCreateLlvmType(unionTy);
+  getOrCreateLlvmType(val->getType());
+  auto* st = llvm::cast<llvm::StructType>(unionTy->getLlvmType());
+  llvm::Value* tagPtr = builder->CreateStructGEP(st, destSlot, 0U, "union.tag.ptr");
+  llvm::Type* tagTy = getOrCreateUnionTagLlvmType(unionTy);
+  builder->CreateStore(llvm::ConstantInt::get(tagTy, variantIndex), tagPtr);
+  llvm::Value* payPtr = builder->CreateStructGEP(st, destSlot, 1U, "union.pay.ptr");
+  builder->CreateStore(val->getLlvmValue(), payPtr);
+  llvm::Value* agg = builder->CreateLoad(st, destSlot, "union.val");
+  return std::make_unique<lesma::Value>("", unionTy, agg);
+}
+
+auto Codegen::emitUnionWrapValue(llvm::SMRange span, lesma::Value* val, lesma::Type* unionTy,
                                  unsigned variantIndex) -> std::unique_ptr<lesma::Value> {
   getOrCreateLlvmType(unionTy);
   getOrCreateLlvmType(val->getType());
   auto* st = llvm::cast<llvm::StructType>(unionTy->getLlvmType());
   llvm::Function* f = builder->GetInsertBlock()->getParent();
   llvm::AllocaInst* slot = createAllocaInEntry(f, st, "union.wrap.slot");
-  llvm::Value* tagPtr = builder->CreateStructGEP(st, slot, 0U, "union.tag.ptr");
-  llvm::Type* tagTy = getOrCreateUnionTagLlvmType(unionTy);
-  builder->CreateStore(llvm::ConstantInt::get(tagTy, variantIndex), tagPtr);
-  llvm::Value* payPtr = builder->CreateStructGEP(st, slot, 1U, "union.pay.ptr");
-  builder->CreateStore(val->getLlvmValue(), payPtr);
-  llvm::Value* agg = builder->CreateLoad(st, slot, "union.val");
-  return std::make_unique<lesma::Value>("", unionTy, agg);
+  return emitUnionWrapValueToSlot(span, val, unionTy, variantIndex, slot);
 }
 
 auto Codegen::visit(const If* node) -> void {
@@ -3557,8 +3568,10 @@ auto Codegen::visit(const IsOp* node) -> void {
   node->getLeft()->accept(*this);
   auto leftOwner = std::move(result);
   Type* leftType = leftOwner->getType();
-  node->getRight()->accept(*this);
-  Type* rightType = result->getType();
+  Type* rightType = node->getResolvedRhsType();
+  if (rightType == nullptr) {
+    throw CodegenError(node->getSpan(), "Internal: `is` expression missing resolved RHS type");
+  }
 
   if (leftType != nullptr && leftType->is(BaseType::TY_UNION)) {
     auto idxOpt = unionVariantIndexOf(leftType, rightType);
@@ -4248,6 +4261,8 @@ auto Codegen::cast(llvm::SMRange span, lesma::Value* val, lesma::Type* type)
         auto* fromSt = llvm::cast<llvm::StructType>(fromU->getLlvmType());
         llvm::AllocaInst* srcSlot = createAllocaInEntry(func, fromSt, "union.widen.src");
         builder->CreateStore(agg, srcSlot);
+        auto* destSt = llvm::cast<llvm::StructType>(type->getLlvmType());
+        llvm::AllocaInst* wrapSlot = createAllocaInEntry(func, destSt, "union.widen.wrap");
 
         llvm::BasicBlock* mergeBB =
             llvm::BasicBlock::Create(theModule->getContext(), "union.widen.merge", func);
@@ -4270,7 +4285,7 @@ auto Codegen::cast(llvm::SMRange span, lesma::Value* val, lesma::Type* type)
           llvm::Value* loaded = emitUnionPayloadLoadFromSlot(srcSlot, fromU, memTy);
           auto tmp = std::make_unique<lesma::Value>("", memTy, loaded);
           std::unique_ptr<lesma::Value> wrapped =
-              emitUnionWrapValue(span, tmp.get(), type, destIdxPerFrom[i]);
+              emitUnionWrapValueToSlot(span, tmp.get(), type, destIdxPerFrom[i], wrapSlot);
           llvm::Value* outAgg = wrapped->getLlvmValue();
           builder->CreateBr(mergeBB);
           phiIncomings.emplace_back(outAgg, caseBB);

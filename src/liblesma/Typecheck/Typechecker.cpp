@@ -5333,6 +5333,7 @@ auto Typechecker::visit(const IsOp* node) -> void {
   node->getLeft()->accept(*this);
   Type* lhsTy = result->getType();
   Type* rhsTy = resolveType(node->getRight());
+  node->setResolvedRhsType(rhsTy);
   if (lhsTy != nullptr && lhsTy->is(BaseType::TY_UNION)) {
     bool found = false;
     for (Type* m : lhsTy->getUnionMembers()) {

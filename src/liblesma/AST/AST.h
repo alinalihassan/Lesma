@@ -1063,6 +1063,8 @@ class IsOp : public Expression {
   std::unique_ptr<Expression> left;
   TokenType op;
   std::unique_ptr<TypeExpr> right;
+  /** Filled by typechecker; used by codegen without re-visiting the RHS `TypeExpr`. */
+  mutable Type* resolvedRhsType = nullptr;
 
 public:
   IsOp(llvm::SMRange loc, std::unique_ptr<Expression> left, TokenType op,
@@ -1073,6 +1075,8 @@ public:
   [[nodiscard]] [[maybe_unused]] auto getLeft() const -> Expression* { return left.get(); }
   [[nodiscard]] [[maybe_unused]] auto getOperator() const -> TokenType { return op; }
   [[nodiscard]] [[maybe_unused]] auto getRight() const -> TypeExpr* { return right.get(); }
+  [[nodiscard]] auto getResolvedRhsType() const -> Type* { return resolvedRhsType; }
+  auto setResolvedRhsType(Type* t) const -> void { resolvedRhsType = t; }
 
   auto toString(llvm::SourceMgr* srcMgr, const std::string& prefix, bool isTail) const
       -> std::string override {
