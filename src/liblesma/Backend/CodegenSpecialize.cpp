@@ -322,6 +322,9 @@ auto Codegen::substituteTypeForSpecializationEnv(Type* t,
         members.push_back(m);
       }
     }
+    if (members.size() == 1U) {
+      return members.front();
+    }
     std::ranges::sort(members, [](Type* a, Type* b) { return a->toString() < b->toString(); });
     std::string dn;
     for (size_t i = 0; i < members.size(); ++i) {
