@@ -201,19 +201,25 @@ auto Codegen::visit(const TypeExpr* node) -> void {
       }
     }
     std::ranges::sort(unique, [](Type* a, Type* b) { return a->toString() < b->toString(); });
-    displayName.clear();
-    for (size_t i = 0; i < unique.size(); ++i) {
-      if (i > 0) {
-        displayName += " | ";
+    if (unique.size() == 1U) {
+      Type* cached = unique[0];
+      getOrCreateLlvmType(cached);
+      result = std::make_unique<Value>(cached);
+    } else {
+      displayName.clear();
+      for (size_t i = 0; i < unique.size(); ++i) {
+        if (i > 0) {
+          displayName += " | ";
+        }
+        displayName += unique[i]->toString();
       }
-      displayName += unique[i]->toString();
+      auto u = std::make_unique<Type>(BaseType::TY_UNION);
+      u->setUnionMembers(std::move(unique));
+      u->setDisplayName(displayName);
+      Type* cached = cacheType(std::move(u));
+      getOrCreateLlvmType(cached);
+      result = std::make_unique<Value>(cached);
     }
-    auto u = std::make_unique<Type>(BaseType::TY_UNION);
-    u->setUnionMembers(std::move(unique));
-    u->setDisplayName(displayName);
-    Type* cached = cacheType(std::move(u));
-    getOrCreateLlvmType(cached);
-    result = std::make_unique<Value>(cached);
   } else if (node->getType() == TokenType::CUSTOM_TYPE) {
     const std::string lookupName = node->getLookupName();
     auto git = currentGenericTypes.find(lookupName);
