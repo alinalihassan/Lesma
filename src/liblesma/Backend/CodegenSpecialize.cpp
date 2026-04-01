@@ -116,6 +116,33 @@ auto Codegen::isTypeFullyConcrete(Type* t) const -> bool {
   return isTypeFullyConcreteImpl(isTypeFullyConcreteImpl, t);
 }
 
+auto Codegen::typeWithSingletonUnionsCollapsed(Type* t) -> Type* {
+  if (t == nullptr) {
+    return nullptr;
+  }
+  while (t->is(BaseType::TY_UNION) && t->getUnionMembers().size() == 1U) {
+    Type* inner = t->getUnionMembers()[0];
+    if (inner == nullptr) {
+      break;
+    }
+    t = inner;
+  }
+  if (t->is(BaseType::TY_PTR) && t->getElementType() != nullptr) {
+    Type* inner = typeWithSingletonUnionsCollapsed(t->getElementType());
+    if (inner != t->getElementType()) {
+      return cacheType(std::make_unique<Type>(BaseType::TY_PTR, nullptr, inner));
+    }
+  } else if (t->is(BaseType::TY_ARRAY) && t->getElementType() != nullptr) {
+    Type* inner = typeWithSingletonUnionsCollapsed(t->getElementType());
+    if (inner != t->getElementType()) {
+      auto* arr = cacheType(std::make_unique<Type>(BaseType::TY_ARRAY, nullptr, inner));
+      arr->setDisplayName(t->getDisplayName());
+      return arr;
+    }
+  }
+  return t;
+}
+
 auto Codegen::emitClassMonomorph(Type* specialized, const Class* templateAst) -> lesma::Value* {
   if (specialized == nullptr || templateAst == nullptr) {
     throw CodegenError({}, "Internal error: emitClassMonomorph requires specialized class input");
@@ -129,6 +156,15 @@ auto Codegen::emitClassMonomorph(Type* specialized, const Class* templateAst) ->
   if (envIt == specializedClassTypeEnvs.end()) {
     throw CodegenError(templateAst->getSpan(), "Internal error: missing specialization env for {}",
                        specialized->getDisplayName());
+  }
+
+  for (auto& nameAndTy : envIt->second) {
+    nameAndTy.second = typeWithSingletonUnionsCollapsed(nameAndTy.second);
+  }
+  for (Field* field : specialized->getFields()) {
+    if (field->type != nullptr) {
+      field->type = typeWithSingletonUnionsCollapsed(field->type);
+    }
   }
 
   const auto& env = envIt->second;
@@ -493,6 +529,10 @@ auto Codegen::bindGenericsFromTypePair(const TypeExpr* declared, lesma::Type* ac
       }
       return;
     }
+    std::unordered_map<std::string, lesma::Type*> genericPlaceholders;
+    for (const auto& name : genericNameSet) {
+      genericPlaceholders.emplace(name, cacheType(std::make_unique<lesma::Type>(name)));
+    }
     std::vector<bool> used(actualMem.size(), false);
     auto tryBind = [&](auto&& self, size_t fi,
                        std::unordered_map<std::string, lesma::Type*> trial) -> bool {
@@ -502,6 +542,40 @@ auto Codegen::bindGenericsFromTypePair(const TypeExpr* declared, lesma::Type* ac
       }
       for (size_t aj = 0; aj < actualMem.size(); ++aj) {
         if (used[aj]) {
+          continue;
+        }
+        // Match Typechecker::inferGenericBindings: only pair arms with pmem[fi]->isEqual(amem[aj])
+        // before inferring. Lower the declared arm under trial + TY_GENERIC placeholders for
+        // unbound params (same idea as resolveType with currentGenericTypes).
+        auto savedGenerics = currentGenericTypes;
+        auto savedResult = std::move(result);
+        std::unordered_map<std::string, lesma::Type*> merged = savedGenerics;
+        for (const auto& kv : trial) {
+          merged[kv.first] = kv.second;
+        }
+        for (const auto& name : genericNameSet) {
+          if (merged.find(name) == merged.end()) {
+            merged[name] = genericPlaceholders.at(name);
+          }
+        }
+        currentGenericTypes = std::move(merged);
+        lesma::Type* declArmTy = nullptr;
+        try {
+          declArms[fi]->accept(*this);
+          declArmTy = result != nullptr ? result->getType() : nullptr;
+        } catch (const CodegenError&) {
+          declArmTy = nullptr;
+        }
+        result = std::move(savedResult);
+        currentGenericTypes = std::move(savedGenerics);
+        if (declArmTy == nullptr) {
+          continue;
+        }
+        // Typechecker::inferGenericBindings tests pmem[fi]->isEqual(amem[aj]) before recursing; that
+        // is false for TY_GENERIC vs concrete, so viable pairings are discovered via infer, not
+        // structural equality on the open arm. Require isEqual only when the declared arm is already
+        // concrete so we do not pair e.g. `int` with `str` before bindGenericsFromTypePair runs.
+        if (!declArmTy->is(BaseType::TY_GENERIC) && !declArmTy->isEqual(actualMem[aj])) {
           continue;
         }
         auto probe = trial;

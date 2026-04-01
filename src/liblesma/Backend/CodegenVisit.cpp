@@ -1054,7 +1054,24 @@ auto Codegen::emitUnionWrapValueToSlot(llvm::SMRange /*span*/, lesma::Value* val
   llvm::Type* tagTy = getOrCreateUnionTagLlvmType(unionTy);
   builder->CreateStore(llvm::ConstantInt::get(tagTy, variantIndex), tagPtr);
   llvm::Value* payPtr = builder->CreateStructGEP(st, destSlot, 1U, "union.pay.ptr");
-  builder->CreateStore(val->getLlvmValue(), payPtr);
+  llvm::Type* payStoredTy = getStoredAggregateFieldLlvmType(val->getType());
+  llvm::Value* v = val->getLlvmValue();
+  if (v->getType() != payStoredTy) {
+    if (v->getType()->isIntegerTy() && payStoredTy->isIntegerTy()) {
+      v = builder->CreateIntCast(v, payStoredTy, /*isSigned=*/true, "union.pay.ic");
+    } else if (v->getType()->isFloatingPointTy() && payStoredTy->isFloatingPointTy()) {
+      v = builder->CreateFPCast(v, payStoredTy, "union.pay.fc");
+    } else if (theModule->getDataLayout().getTypeSizeInBits(v->getType()) ==
+               theModule->getDataLayout().getTypeSizeInBits(payStoredTy)) {
+      v = builder->CreateBitCast(v, payStoredTy, "union.pay.cast");
+    } else {
+      throw CodegenError({}, "Internal error: union payload store type mismatch");
+    }
+  }
+  llvm::Value* typedPayPtr =
+      builder->CreateBitCast(payPtr, llvm::PointerType::get(theModule->getContext(), 0U),
+                             "union.pay.tptr");
+  builder->CreateStore(v, typedPayPtr);
   llvm::Value* agg = builder->CreateLoad(st, destSlot, "union.val");
   return std::make_unique<lesma::Value>("", unionTy, agg);
 }

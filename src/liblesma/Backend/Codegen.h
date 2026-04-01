@@ -543,6 +543,10 @@ protected:
   auto substituteTypeForSpecializationEnv(lesma::Type* t,
                                           const std::unordered_map<std::string, lesma::Type*>& env)
       -> lesma::Type*;
+  /** Peel singleton TY_UNION chains and rebuild ptr/array when the element changes (types from
+   *  Typechecker::substituteInType before singleton collapse, or imports) so emitClassMonomorph
+   *  matches substituteTypeForSpecializationEnv lowering. */
+  auto typeWithSingletonUnionsCollapsed(lesma::Type* t) -> lesma::Type*;
 
 private:
   /** Minimum tag bits: ceil(log2(memberCount)), at least 1 (memberCount must be > 0). */

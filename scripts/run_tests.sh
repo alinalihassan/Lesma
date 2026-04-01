@@ -22,8 +22,10 @@ case "${LESMA_TEST_TIMEOUT}" in
 '' | *[!0-9]*) LESMA_TEST_TIMEOUT=2 ;;
 esac
 
-# Distinct exit status when the per-invocation watchdog stops the compiler (GNU timeout uses 124).
-LESMA_TEST_TIMEOUT_EXIT=124
+# Watchdog timeout must not reuse a process exit code. The old LESMA_TEST_TIMEOUT_EXIT=124 matched
+# GNU timeout but collided with forwarded codes: Driver returns LesmaError::getExitCode() (uint8_t,
+# LesmaError.h) from Driver.cpp; src/cli/main.cpp forwards that to std::_Exit. Any 0–255 can be a
+# real JIT/compiler exit. Timeouts are indicated only by LESMA_WATCHDOG_TIMED_OUT=1 (see test_compiler).
 
 test_compiler() {
   local file="$1"
@@ -31,6 +33,8 @@ test_compiler() {
   local compiler_path="$3"
   local quiet="${4:-}"
   local cpid kpid hard_pid ret timeout_flag
+
+  LESMA_WATCHDOG_TIMED_OUT=0
 
   if [ "${LESMA_TEST_TIMEOUT}" -eq 0 ]; then
     case "${quiet}" in
@@ -47,6 +51,8 @@ test_compiler() {
     return $?
   fi
 
+  timeout_flag=$(mktemp "${TMPDIR:-/tmp}/lesma-test-timeout.XXXXXX") || return 1
+
   case "${quiet}" in
   all)
     "${compiler_path}" "${mode}" --no-warnings "${file}" >/dev/null 2>&1 &
@@ -59,8 +65,6 @@ test_compiler() {
     ;;
   esac
   cpid=$!
-
-  timeout_flag=$(mktemp "${TMPDIR:-/tmp}/lesma-test-timeout.XXXXXX") || return 1
 
   # Watchdog: after LESMA_TEST_TIMEOUT, SIGTERM then SIGKILL after ~1s if still alive.
   (
@@ -99,7 +103,7 @@ test_compiler() {
   wait "${hard_pid}" 2>/dev/null || true
 
   if [ -s "${timeout_flag}" ]; then
-    ret="${LESMA_TEST_TIMEOUT_EXIT}"
+    LESMA_WATCHDOG_TIMED_OUT=1
   fi
   rm -f "${timeout_flag}"
 
@@ -129,7 +133,7 @@ run_single_test() {
     test_jit_ret_value=$?
   fi
 
-  if [ "${test_jit_ret_value}" -eq "${LESMA_TEST_TIMEOUT_EXIT}" ]; then
+  if [ "${LESMA_WATCHDOG_TIMED_OUT}" -eq 1 ]; then
     printf 'fail-timeout %s\n' "${name}" >"${result_file}"
   elif [ "${test_jit_ret_value}" -ne "${test_expected_ret_value}" ] && [ "${expected_to_fail}" -eq 0 ]; then
     printf 'fail-run %s %s %s\n' "${name}" "${test_expected_ret_value}" "${test_jit_ret_value}" >"${result_file}"

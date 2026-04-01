@@ -1224,6 +1224,11 @@ auto Typechecker::substituteInType(Type* t, const std::unordered_map<std::string
         unique.push_back(arm);
       }
     }
+    // Match Codegen::substituteTypeForSpecializationEnv: a single arm is the arm type itself, not a
+    // tagged singleton union (avoids reintroducing union layout after specialization).
+    if (unique.size() == 1U) {
+      return unique.front();
+    }
     std::ranges::sort(unique, [](Type* a, Type* b) { return a->toString() < b->toString(); });
     std::string dn;
     for (size_t i = 0; i < unique.size(); ++i) {
