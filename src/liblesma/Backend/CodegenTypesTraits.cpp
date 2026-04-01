@@ -388,7 +388,7 @@ auto Codegen::getOrCreateLlvmType(lesma::Type* type) -> llvm::Type* {
     unsigned maxAlloc = 0;
     unsigned maxAbiAlign = 1;
     for (Type* m : mem) {
-      llvm::Type* lt = m->getLlvmType();
+      llvm::Type* const lt = getStoredAggregateFieldLlvmType(m);
       maxAlloc = std::max(maxAlloc, static_cast<unsigned>(dl.getTypeAllocSize(lt).getFixedValue()));
       maxAbiAlign =
           std::max(maxAbiAlign, static_cast<unsigned>(dl.getABITypeAlign(lt).value()));
