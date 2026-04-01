@@ -301,11 +301,22 @@ auto Codegen::substituteTypeForSpecializationEnv(
       Type* substituted = substituteTypeForSpecializationEnv(m, env);
       appendFlattened(substituted, appendFlattened);
     }
-    std::unordered_set<Type*> seen;
     std::vector<Type*> members;
     members.reserve(flat.size());
     for (Type* m : flat) {
-      if (seen.insert(m).second) {
+      bool duplicate = false;
+      for (Type* existing : members) {
+        if (m == nullptr) {
+          if (existing == nullptr) {
+            duplicate = true;
+            break;
+          }
+        } else if (existing != nullptr && m->isEqual(existing)) {
+          duplicate = true;
+          break;
+        }
+      }
+      if (!duplicate) {
         members.push_back(m);
       }
     }
