@@ -1050,6 +1050,7 @@ auto Typechecker::materializeImportedType(Type* type) -> Type* {
     auto u = std::make_unique<Type>(BaseType::TY_UNION);
     u->setDisplayName(type->getDisplayName());
     u->setUnionMembers(std::move(members));
+    u->setDeclarationSpan(type->getDeclarationSpan());
     Type* copy = cacheType(std::move(u));
     importedTypeCopies[type] = copy;
     return copy;
@@ -1210,6 +1211,7 @@ auto Typechecker::substituteInType(Type* t, const std::unordered_map<std::string
     auto u = std::make_unique<Type>(BaseType::TY_UNION);
     u->setDisplayName(dn);
     u->setUnionMembers(std::move(unique));
+    u->setDeclarationSpan(t->getDeclarationSpan());
     return cacheType(std::move(u));
   }
   if (t->is(BaseType::TY_CLASS)) {
@@ -1940,6 +1942,7 @@ auto Typechecker::resolveType(const TypeExpr* node) -> Type* {
     auto u = std::make_unique<Type>(BaseType::TY_UNION);
     u->setUnionMembers(std::move(unique));
     u->setDisplayName(displayName);
+    u->setDeclarationSpan(node->getSpan());
     return cacheType(std::move(u));
   }
   if (node->getType() == TokenType::CUSTOM_TYPE) {
@@ -2835,6 +2838,7 @@ auto Typechecker::narrowUnionByExcludingMembers(Type* unionTy, const std::vector
   auto u = std::make_unique<Type>(BaseType::TY_UNION);
   u->setDisplayName(displayName);
   u->setUnionMembers(std::move(remainder));
+  u->setDeclarationSpan(unionTy->getDeclarationSpan());
   return cacheType(std::move(u));
 }
 

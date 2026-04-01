@@ -216,6 +216,7 @@ auto Codegen::visit(const TypeExpr* node) -> void {
       auto u = std::make_unique<Type>(BaseType::TY_UNION);
       u->setUnionMembers(std::move(unique));
       u->setDisplayName(displayName);
+      u->setDeclarationSpan(node->getSpan());
       Type* cached = cacheType(std::move(u));
       getOrCreateLlvmType(cached);
       result = std::make_unique<Value>(cached);
@@ -375,9 +376,10 @@ auto Codegen::getOrCreateLlvmType(lesma::Type* type) -> llvm::Type* {
     break;
   }
   case BaseType::TY_UNION: {
+    llvm::SMRange const unionDeclSpan = type->getDeclarationSpan();
     const std::vector<Type*>& mem = type->getUnionMembers();
     if (mem.empty()) {
-      throw CodegenError({}, "Internal error: union type has no members");
+      throw CodegenError(unionDeclSpan, "Internal error: union type has no members");
     }
     for (Type* m : mem) {
       getOrCreateLlvmType(m);
@@ -398,7 +400,7 @@ auto Codegen::getOrCreateLlvmType(lesma::Type* type) -> llvm::Type* {
     unsigned const tagBitWidth = roundUnionTagToSupportedBitWidth(minTagBits);
     if (tagBitWidth == 0) {
       throw CodegenError(
-          {},
+          unionDeclSpan,
           "Union has too many members for the discriminant (tag width would exceed 64 bits)");
     }
     llvm::Type* const tagTy = builder->getIntNTy(tagBitWidth);
@@ -454,7 +456,9 @@ auto Codegen::getOrCreateLlvmType(lesma::Type* type) -> llvm::Type* {
 
 auto Codegen::getOrCreateUnionTagLlvmType(lesma::Type* unionTy) -> llvm::Type* {
   if (unionTy == nullptr || !unionTy->is(BaseType::TY_UNION)) {
-    throw CodegenError({}, "Internal error: getOrCreateUnionTagLlvmType expects a union type");
+    llvm::SMRange const span =
+        unionTy != nullptr ? unionTy->getDeclarationSpan() : llvm::SMRange{};
+    throw CodegenError(span, "Internal error: getOrCreateUnionTagLlvmType expects a union type");
   }
   getOrCreateLlvmType(unionTy);
   auto* st = llvm::cast<llvm::StructType>(unionTy->getLlvmType());
