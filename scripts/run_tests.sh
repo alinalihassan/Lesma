@@ -70,6 +70,7 @@ test_compiler() {
   (
     sleep "${LESMA_TEST_TIMEOUT}"
     if kill -0 "${cpid}" 2>/dev/null; then
+      printf '1' >"${timeout_flag}"
       kill -TERM "${cpid}" 2>/dev/null || true
       i=0
       while [ "${i}" -lt 10 ] && kill -0 "${cpid}" 2>/dev/null; do
@@ -79,7 +80,8 @@ test_compiler() {
       if kill -0 "${cpid}" 2>/dev/null; then
         kill -KILL "${cpid}" 2>/dev/null || true
       fi
-      printf '1' >"${timeout_flag}"
+    fi
+  ) &
     fi
   ) &
   kpid=$!
