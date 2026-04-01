@@ -21,6 +21,11 @@ LESMA_TEST_VERBOSE="${LESMA_TEST_VERBOSE:-0}"
 case "${LESMA_TEST_TIMEOUT}" in
 '' | *[!0-9]*) LESMA_TEST_TIMEOUT=2 ;;
 esac
+case "${LESMA_TEST_VERBOSE}" in
+'' | *[!0-9]*) LESMA_TEST_VERBOSE=0 ;;
+esac
+LESMA_TEST_TIMEOUT=$((10#${LESMA_TEST_TIMEOUT}))
+LESMA_TEST_VERBOSE=$((10#${LESMA_TEST_VERBOSE}))
 
 # Watchdog timeout must not reuse a process exit code. The old LESMA_TEST_TIMEOUT_EXIT=124 matched
 # GNU timeout but collided with forwarded codes: Driver returns LesmaError::getExitCode() (uint8_t,
