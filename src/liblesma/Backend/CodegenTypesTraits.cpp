@@ -388,8 +388,7 @@ auto Codegen::getOrCreateLlvmType(lesma::Type* type) -> llvm::Type* {
     for (Type* m : mem) {
       llvm::Type* const lt = getStoredAggregateFieldLlvmType(m);
       maxAlloc = std::max(maxAlloc, static_cast<unsigned>(dl.getTypeAllocSize(lt).getFixedValue()));
-      maxAbiAlign =
-          std::max(maxAbiAlign, static_cast<unsigned>(dl.getABITypeAlign(lt).value()));
+      maxAbiAlign = std::max(maxAbiAlign, static_cast<unsigned>(dl.getABITypeAlign(lt).value()));
     }
     unsigned const payloadBytes = llvm::alignTo(maxAlloc, maxAbiAlign);
     unsigned const numI64 = std::max(1U, (payloadBytes + 7U) / 8U);
@@ -454,8 +453,7 @@ auto Codegen::getOrCreateLlvmType(lesma::Type* type) -> llvm::Type* {
 
 auto Codegen::getOrCreateUnionTagLlvmType(lesma::Type* unionTy) -> llvm::Type* {
   if (unionTy == nullptr || !unionTy->is(BaseType::TY_UNION)) {
-    llvm::SMRange const span =
-        unionTy != nullptr ? unionTy->getDeclarationSpan() : llvm::SMRange{};
+    llvm::SMRange const span = unionTy != nullptr ? unionTy->getDeclarationSpan() : llvm::SMRange{};
     throw CodegenError(span, "Internal error: getOrCreateUnionTagLlvmType expects a union type");
   }
   getOrCreateLlvmType(unionTy);
@@ -475,7 +473,7 @@ auto Codegen::getStoredAggregateFieldLlvmType(lesma::Type* fieldType) -> llvm::T
 }
 
 auto Codegen::loadStoredAggregateFieldValue(llvm::Value* slotPtr, lesma::Type* fieldType,
-                                           const llvm::Twine& name) -> llvm::Value* {
+                                            const llvm::Twine& name) -> llvm::Value* {
   return builder->CreateLoad(getStoredAggregateFieldLlvmType(fieldType), slotPtr, name);
 }
 
@@ -526,7 +524,8 @@ auto Codegen::captureImportedSpecializationState() const -> ImportedSpecializati
   return importedState;
 }
 
-auto Codegen::mergeImportedSpecializationState(ImportedSpecializationState const& imported) -> void {
+auto Codegen::mergeImportedSpecializationState(ImportedSpecializationState const& imported)
+    -> void {
   for (const auto& entry : imported.genericClasses) {
     genericClasses.insert(entry);
   }
@@ -611,7 +610,7 @@ auto Codegen::emitErasedThunkForTraitMethod(lesma::Type* classType, const std::s
 
   std::string thunkName = "lesma.trait.thunk." + cacheKey;
   for (char& c : thunkName) {
-    if (!(std::isalnum(static_cast<unsigned char>(c)) != 0 || c == '.' || c == '_')) {
+    if (std::isalnum(static_cast<unsigned char>(c)) == 0 && c != '.' && c != '_') {
       c = '_';
     }
   }
@@ -668,7 +667,7 @@ auto Codegen::getOrEmitWitnessTable(lesma::Type* classType, const std::string& t
   llvm::Constant* init = llvm::ConstantArray::get(at, constants);
   std::string gname = "lesma.witness." + cacheKey;
   for (char& c : gname) {
-    if (!(std::isalnum(static_cast<unsigned char>(c)) != 0 || c == '.' || c == '_')) {
+    if (std::isalnum(static_cast<unsigned char>(c)) == 0 && c != '.' && c != '_') {
       c = '_';
     }
   }

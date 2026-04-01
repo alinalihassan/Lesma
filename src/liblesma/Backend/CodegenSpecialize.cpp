@@ -938,13 +938,9 @@ auto Codegen::specializeClass(const Class* node,
 
   auto envIsFullyConcrete =
       [this](const std::unordered_map<std::string, lesma::Type*>& bindings) -> bool {
-    for (const auto& [name, ty] : bindings) {
-      (void) name;
-      if (!isTypeFullyConcrete(ty)) {
-        return false;
-      }
-    }
-    return true;
+    return std::ranges::all_of(bindings, [this](const auto& nameAndTy) {
+      return isTypeFullyConcrete(nameAndTy.second);
+    });
   };
 
   Value* templateSymbol = scope->lookupStruct(node->getIdentifier());

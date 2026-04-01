@@ -114,7 +114,7 @@ struct AnalysisResult {
   std::unordered_map<std::string, std::shared_ptr<ImportedModuleAnalysis>> importedModules;
 
   [[nodiscard]] auto hasErrors() const -> bool {
-    for (const AnalysisDiagnostic& d : diagnostics) {
+    for (const auto& d : diagnostics) {
       if (d.severity == AnalysisDiagnosticSeverity::Error) {
         return true;
       }

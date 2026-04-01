@@ -1774,12 +1774,8 @@ auto Typechecker::isAssignableTo(Type* from, Type* to) -> bool {
       }
       return true;
     }
-    for (Type* m : to->getUnionMembers()) {
-      if (isAssignableTo(from, m)) {
-        return true;
-      }
-    }
-    return false;
+    return std::ranges::any_of(to->getUnionMembers(),
+                               [this, from](Type* m) -> bool { return isAssignableTo(from, m); });
   }
   return false;
 }
@@ -2850,7 +2846,7 @@ auto tryGetIsOpVarSymbol(const IsOp* is, SymbolTable* scope) -> Value* {
   if (is == nullptr) {
     return nullptr;
   }
-  auto* lit = dynamic_cast<const Literal*>(is->getLeft());
+  const auto* lit = dynamic_cast<const Literal*>(is->getLeft());
   if (lit == nullptr || lit->getType() != TokenType::IDENTIFIER) {
     return nullptr;
   }
@@ -2925,12 +2921,9 @@ auto Typechecker::fillUnionNarrowingForIfBlock(
       if (rhs == nullptr) {
         return false;
       }
-      for (Type* m : unionTy->getUnionMembers()) {
-        if (m->isEqual(rhs)) {
-          return true;
-        }
-      }
-      return false;
+
+      return std::ranges::any_of(unionTy->getUnionMembers(),
+                                 [rhs](Type* m) -> bool { return m->isEqual(rhs); });
     };
     std::vector<Type*> excluded;
     for (unsigned i = 0; i < blockIndex; ++i) {
