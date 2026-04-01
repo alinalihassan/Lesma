@@ -2923,7 +2923,10 @@ auto Typechecker::fillUnionNarrowingForIfBlock(
     if (sym == nullptr || sym->getType() == nullptr || !sym->getType()->is(BaseType::TY_UNION)) {
       return;
     }
-    Type* unionTy = sym->getType();
+    Type* unionTy = lookupUnionNarrowedType(sym);
+    if (unionTy == nullptr) {
+      unionTy = sym->getType();
+    }
     auto isUnionMember = [unionTy](Type* rhs) -> bool {
       if (rhs == nullptr) {
         return false;
@@ -2984,7 +2987,10 @@ auto Typechecker::fillUnionNarrowingForIfBlock(
   if (sym == nullptr || sym->getType() == nullptr || !sym->getType()->is(BaseType::TY_UNION)) {
     return;
   }
-  Type* unionTy = sym->getType();
+  Type* unionTy = lookupUnionNarrowedType(sym);
+  if (unionTy == nullptr) {
+    unionTy = sym->getType();
+  }
   auto isUnionMember = [unionTy](Type* rhs) -> bool {
     if (rhs == nullptr) {
       return false;
