@@ -1310,8 +1310,15 @@ auto Typechecker::inferGenericBindings(Type* pattern, Type* actual,
         if (used[aj]) {
           continue;
         }
+        if (!pmem[fi]->isEqual(amem[aj])) {
+          continue;
+        }
         auto probe = acc;
-        inferGenericBindings(pmem[fi], amem[aj], probe, span);
+        try {
+          inferGenericBindings(pmem[fi], amem[aj], probe, span);
+        } catch (const TypeCheckError&) {
+          continue;
+        }
         used[aj] = true;
         if (self(self, fi + 1, probe)) {
           return true;
