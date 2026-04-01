@@ -394,7 +394,8 @@ auto Codegen::bindGenericsFromTypePair(const TypeExpr* declared, lesma::Type* ac
   }
   switch (declared->getType()) {
   case TokenType::INT_TYPE:
-    if (!actual->is(BaseType::TY_INT)) {
+    // Plain `int` / `int64`: Codegen::visit(TypeExpr*) lowers to 64-bit signed TY_INT only.
+    if (!actual->is(BaseType::TY_INT) || actual->getIntWidth() != 64U || !actual->isSigned()) {
       if (bindingConflict != nullptr) {
         *bindingConflict = true;
       }
@@ -408,15 +409,23 @@ auto Codegen::bindGenericsFromTypePair(const TypeExpr* declared, lesma::Type* ac
     }
     return;
   case TokenType::FLOAT_TYPE:
+    if (!actual->is(BaseType::TY_FLOAT)) {
+      if (bindingConflict != nullptr) {
+        *bindingConflict = true;
+      }
+    }
+    return;
   case TokenType::FLOAT32_TYPE:
-    if (!actual->isFloatingPoint()) {
+    if (!actual->is(BaseType::TY_FLOAT32)) {
       if (bindingConflict != nullptr) {
         *bindingConflict = true;
       }
     }
     return;
   case TokenType::STRING_TYPE:
-    if (!actual->is(BaseType::TY_CLASS) || actual->getDisplayName() != "str") {
+    // `cstr` in type position is TY_STRING in Codegen::visit(const TypeExpr*), not the stdlib str
+    // class (that path uses CUSTOM_TYPE + lookup name "str").
+    if (!actual->is(BaseType::TY_STRING)) {
       if (bindingConflict != nullptr) {
         *bindingConflict = true;
       }
