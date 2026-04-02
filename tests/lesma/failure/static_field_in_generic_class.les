@@ -1,7 +1,0 @@
-class Box<T> {
-  static let tag: int = 1
-}
-
-func main() -> int {
-  return 0
-}

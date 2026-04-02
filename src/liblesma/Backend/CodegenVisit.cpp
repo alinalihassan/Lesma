@@ -2374,6 +2374,9 @@ auto Codegen::visit(const Class* node) -> void {
     auto* genericSymbol = scope->lookupStruct(node->getIdentifier());
     if (genericSymbol != nullptr) {
       genericSymbol->setGenericClassTemplate(node);
+      if (genericSymbol->getType() != nullptr) {
+        emitClassStaticFieldGlobals(genericSymbol->getType(), node);
+      }
     }
     return;
   }
@@ -2464,8 +2467,18 @@ auto Codegen::emitClassStaticFieldGlobals(lesma::Type* classTy, const Class* ast
                fieldTy->getElementType()->is(BaseType::TY_CLASS)) {
       storageTy = builder->getPtrTy();
     }
-    std::string const gvName = std::string{"lesma.sfs."} +
-                               MangleUtils::getTypeMangledName(span, classTy) + "." + sym->getName();
+    std::string classManglePart;
+    if (classTy->is(BaseType::TY_CLASS) && !classTy->getGenericParams().empty()) {
+      std::string const& dn = classTy->getDisplayName();
+      if (dn.empty()) {
+        throw CodegenError(span, "Internal error: generic class template missing display name");
+      }
+      classManglePart = "(tmpl_" + dn + ")";
+    } else {
+      classManglePart = MangleUtils::getTypeMangledName(span, classTy);
+    }
+    std::string const gvName =
+        std::string{"lesma.sfs."} + classManglePart + "." + sym->getName();
     if (theModule->getGlobalVariable(gvName, true) != nullptr) {
       continue;
     }
@@ -2480,6 +2493,21 @@ auto Codegen::emitClassStaticFieldGlobals(lesma::Type* classTy, const Class* ast
       builder->CreateStore(rhs->getLlvmValue(), gv);
     }
   }
+}
+
+auto Codegen::llvmGlobalForClassStaticField(lesma::Type* classTy, const std::string& fieldName)
+    -> llvm::Value* {
+  // Globals are emitted once on the class template; specialized codegen shells may omit static
+  // Field entries, so always resolve storage from the template type.
+  Type* templateTy = classTy;
+  if (auto it = specializedClassTemplateOf.find(classTy); it != specializedClassTemplateOf.end()) {
+    templateTy = it->second;
+  }
+  Field* tf = TypeUtils::findStaticFieldInClass(templateTy, fieldName);
+  if (tf == nullptr || tf->getDeclarationSymbol() == nullptr) {
+    return nullptr;
+  }
+  return tf->getDeclarationSymbol()->getLlvmValue();
 }
 
 auto Codegen::visit(const Enum* node) -> void {
@@ -3407,9 +3435,14 @@ auto Codegen::visit(const DotOp* node) -> void {
       if (leftValue->getCategory() == ValueCategory::TYPE_SYMBOL) {
         if (!field.empty()) {
           Field* sf = TypeUtils::findStaticFieldInClass(receiverType, field);
+          if (sf == nullptr) {
+            if (auto it = specializedClassTemplateOf.find(receiverType);
+                it != specializedClassTemplateOf.end()) {
+              sf = TypeUtils::findStaticFieldInClass(it->second, field);
+            }
+          }
           if (sf != nullptr) {
-            Value* declSym = sf->getDeclarationSymbol();
-            llvm::Value* gv = declSym != nullptr ? declSym->getLlvmValue() : nullptr;
+            llvm::Value* gv = llvmGlobalForClassStaticField(receiverType, field);
             if (gv == nullptr) {
               throw CodegenError(node->getSpan(), "Static field {} has no lowered storage", field);
             }
@@ -3689,9 +3722,14 @@ auto Codegen::visit(const DotOp* node) -> void {
         if (result->getCategory() == ValueCategory::TYPE_SYMBOL) {
           if (!field.empty()) {
             Field* sf = TypeUtils::findStaticFieldInClass(lesmaType, field);
+            if (sf == nullptr) {
+              if (auto it = specializedClassTemplateOf.find(lesmaType);
+                  it != specializedClassTemplateOf.end()) {
+                sf = TypeUtils::findStaticFieldInClass(it->second, field);
+              }
+            }
             if (sf != nullptr) {
-              Value* declSym = sf->getDeclarationSymbol();
-              llvm::Value* gv = declSym != nullptr ? declSym->getLlvmValue() : nullptr;
+              llvm::Value* gv = llvmGlobalForClassStaticField(lesmaType, field);
               if (gv == nullptr) {
                 throw CodegenError(node->getSpan(), "Static field {} has no lowered storage", field);
               }

@@ -381,6 +381,9 @@ protected:
                         const FuncCall* callSiteForGenericEnv = nullptr)
       -> std::unique_ptr<lesma::Value>;
   auto emitClassStaticFieldGlobals(lesma::Type* classTy, const Class* astNode) -> void;
+  /** LLVM global for a static field; uses the class template symbol when \p classTy is specialized. */
+  [[nodiscard]] auto llvmGlobalForClassStaticField(lesma::Type* classTy, const std::string& fieldName)
+      -> llvm::Value*;
   auto defineFunction(lesma::Value* value, const FuncDecl* node, Value* clsSymbol) -> void;
   auto declareSynthesizedClassConstructor(const Class* astNode, lesma::Type* classType,
                                           lesma::Value* classStructSym) -> lesma::Value*;

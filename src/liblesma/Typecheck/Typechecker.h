@@ -5,6 +5,7 @@
 #include <optional>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 #include "llvm/Support/SMLoc.h"
@@ -190,6 +191,9 @@ class Typechecker final : public ASTVisitor {
       -> Type*;
   /** Substitute env into type (for fields); returns cached type. */
   auto substituteInType(Type* t, const std::unordered_map<std::string, Type*>& env) -> Type*;
+  /** True if \p t mentions any name in \p classParamNames (enclosing class type parameters). */
+  [[nodiscard]] auto typeUsesClassTypeParameter(
+      Type* t, const std::unordered_set<std::string>& classParamNames) const -> bool;
   /** Infer generic bindings from a parameter/argument type pair. */
   auto inferGenericBindings(Type* pattern, Type* actual,
                             std::unordered_map<std::string, Type*>& bindings, llvm::SMRange span)

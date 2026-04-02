@@ -1257,6 +1257,67 @@ auto Typechecker::substituteInType(Type* t, const std::unordered_map<std::string
   return t;
 }
 
+auto Typechecker::typeUsesClassTypeParameter(
+    Type* t, const std::unordered_set<std::string>& classParamNames) const -> bool {
+  if (t == nullptr) {
+    return false;
+  }
+  if (t->is(BaseType::TY_GENERIC)) {
+    return classParamNames.contains(t->getGenericName());
+  }
+  if (t->is(BaseType::TY_PTR) || t->is(BaseType::TY_ARRAY)) {
+    return typeUsesClassTypeParameter(t->getElementType(), classParamNames);
+  }
+  if (t->is(BaseType::TY_FUNCTION)) {
+    for (Field* field : t->getFields()) {
+      if (typeUsesClassTypeParameter(field->type, classParamNames)) {
+        return true;
+      }
+    }
+    return typeUsesClassTypeParameter(t->getReturnType(), classParamNames);
+  }
+  if (t->is(BaseType::TY_TUPLE)) {
+    for (Field* field : t->getFields()) {
+      if (typeUsesClassTypeParameter(field->type, classParamNames)) {
+        return true;
+      }
+    }
+    return false;
+  }
+  if (t->is(BaseType::TY_UNION)) {
+    for (Type* m : t->getUnionMembers()) {
+      if (typeUsesClassTypeParameter(m, classParamNames)) {
+        return true;
+      }
+    }
+    return false;
+  }
+  if (t->is(BaseType::TY_CLASS)) {
+    for (Field* f : t->getFields()) {
+      if (typeUsesClassTypeParameter(f->type, classParamNames)) {
+        return true;
+      }
+    }
+    for (Field* f : t->getStaticFields()) {
+      if (typeUsesClassTypeParameter(f->type, classParamNames)) {
+        return true;
+      }
+    }
+    return false;
+  }
+  if (t->is(BaseType::TY_TRAIT_EXISTENTIAL)) {
+    if (auto it = specializedTraitExistentialEnv.find(t); it != specializedTraitExistentialEnv.end()) {
+      for (const auto& kv : it->second) {
+        if (typeUsesClassTypeParameter(kv.second, classParamNames)) {
+          return true;
+        }
+      }
+    }
+    return false;
+  }
+  return false;
+}
+
 auto Typechecker::inferGenericBindings(Type* pattern, Type* actual,
                                        std::unordered_map<std::string, Type*>& bindings,
                                        llvm::SMRange span) -> void {
@@ -1477,6 +1538,22 @@ auto Typechecker::getOrCreateSpecializedClassType(Type* classTemplate,
     newFields.push_back(std::move(nf));
   }
   ptr->replaceFields(std::move(newFields));
+  {
+    std::vector<std::unique_ptr<Field>> newStaticFields;
+    for (Field* f : classTemplate->getStaticFields()) {
+      Type* subst = substituteInType(f->type, env);
+      auto nf = std::make_unique<Field>(f->name, subst);
+      nf->setDeclarationSpan(f->getDeclarationSpan());
+      nf->setDeclarationFilePath(f->getDeclarationFilePath());
+      if (Value* ds = f->getDeclarationSymbol()) {
+        auto symCopy = std::make_unique<Value>(*ds);
+        symCopy->setType(subst);
+        nf->setDeclarationSymbol(std::move(symCopy));
+      }
+      newStaticFields.push_back(std::move(nf));
+    }
+    ptr->replaceStaticFields(std::move(newStaticFields));
+  }
   return ptr;
 }
 
@@ -1508,6 +1585,22 @@ void Typechecker::finalizeSpecializedTypesForTemplate(Type* classTemplate) {
       newFields.push_back(std::move(nf));
     }
     specPtr->replaceFields(std::move(newFields));
+    {
+      std::vector<std::unique_ptr<Field>> newStaticFields;
+      for (Field* f : classTemplate->getStaticFields()) {
+        Type* subst = substituteInType(f->type, env);
+        auto nf = std::make_unique<Field>(f->name, subst);
+        nf->setDeclarationSpan(f->getDeclarationSpan());
+        nf->setDeclarationFilePath(f->getDeclarationFilePath());
+        if (Value* ds = f->getDeclarationSymbol()) {
+          auto symCopy = std::make_unique<Value>(*ds);
+          symCopy->setType(subst);
+          nf->setDeclarationSymbol(std::move(symCopy));
+        }
+        newStaticFields.push_back(std::move(nf));
+      }
+      specPtr->replaceStaticFields(std::move(newStaticFields));
+    }
     specPtr->setDisplayName(makeSpecializedDisplayName(classTemplate, genericParamNames, env));
     if (classTemplate->getClassSuperclass() != nullptr) {
       specPtr->setClassSuperclass(substituteInType(classTemplate->getClassSuperclass(), env));
@@ -3533,10 +3626,6 @@ auto Typechecker::visit(const Class* node) -> void {
     }
 
     for (VarDecl* field : node->getFields()) {
-      if (!node->getGenericParamDecls().empty() && field->getIsStatic()) {
-        throw TypeCheckError(field->getSpan(),
-                             "Static fields are not supported in generic classes yet");
-      }
       std::string const fname = field->getIdentifier()->getValue();
       for (Field* existing : classTypePtr->getFields()) {
         if (existing->name == fname) {
@@ -3551,13 +3640,14 @@ auto Typechecker::visit(const Class* node) -> void {
         }
       }
       Type* fieldType = nullptr;
+      Type* initType = nullptr;
       if (field->getType() != nullptr) {
         field->getType()->accept(*this);
         fieldType = result->getType();
       }
       if (field->getValue() != nullptr) {
         field->getValue()->accept(*this);
-        Type* initType = result->getType();
+        initType = result->getType();
         if (fieldType != nullptr) {
           if (!isAssignableTo(initType, fieldType)) {
             throw TypeCheckError(
@@ -3571,6 +3661,22 @@ auto Typechecker::visit(const Class* node) -> void {
       }
       if (fieldType == nullptr) {
         throw TypeCheckError(field->getSpan(), "Class field has no type");
+      }
+      if (!node->getGenericParamDecls().empty() && field->getIsStatic()) {
+        std::unordered_set<std::string> classParamNames;
+        classParamNames.reserve(node->getGenericParamDecls().size());
+        for (const auto& p : node->getGenericParamDecls()) {
+          classParamNames.insert(p.name);
+        }
+        if (typeUsesClassTypeParameter(fieldType, classParamNames)) {
+          throw TypeCheckError(field->getSpan(),
+                               "Static field type cannot use the class's generic parameters");
+        }
+        if (initType != nullptr && typeUsesClassTypeParameter(initType, classParamNames)) {
+          throw TypeCheckError(
+              field->getSpan(),
+              "Static field initializer type cannot use the class's generic parameters");
+        }
       }
       auto fieldEntry = std::make_unique<Field>(field->getIdentifier()->getValue(), fieldType);
       fieldEntry->setDeclarationSpan(field->getIdentifier()->getSpan());
