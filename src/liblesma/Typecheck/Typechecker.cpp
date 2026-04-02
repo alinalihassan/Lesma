@@ -1306,7 +1306,8 @@ auto Typechecker::typeUsesClassTypeParameter(
     return false;
   }
   if (t->is(BaseType::TY_TRAIT_EXISTENTIAL)) {
-    if (auto it = specializedTraitExistentialEnv.find(t); it != specializedTraitExistentialEnv.end()) {
+    if (auto it = specializedTraitExistentialEnv.find(t);
+        it != specializedTraitExistentialEnv.end()) {
       for (const auto& kv : it->second) {
         if (typeUsesClassTypeParameter(kv.second, classParamNames)) {
           return true;
@@ -3690,6 +3691,9 @@ auto Typechecker::visit(const Class* node) -> void {
       fieldSymbol->setMemberDeclaredInClass(classTypePtr);
       fieldSymbol->setDeclarationSpan(field->getIdentifier()->getSpan());
       fieldSymbol->setDeclarationFilePath(mainFilePath);
+      if (fieldType != nullptr && fieldType->is(BaseType::TY_FUNCTION)) {
+        fieldSymbol->setStoresFuncValuePair(true);
+      }
       field->setResolvedSymbol(fieldSymbol.get());
       fieldEntry->setDeclarationSymbol(std::move(fieldSymbol));
       if (field->getIsStatic()) {
@@ -3890,8 +3894,7 @@ auto Typechecker::visit(const FuncDecl* node) -> void {
       funcSymbol->setBodyScope(child);
       SymbolTable* savedScopePtr = scope;
       scope = child;
-      const size_t paramOffset =
-          (currentClassType != nullptr) && !node->getIsStatic() ? 1U : 0U;
+      const size_t paramOffset = (currentClassType != nullptr) && !node->getIsStatic() ? 1U : 0U;
       for (size_t i = 0; i < node->getParameters().size(); ++i) {
         Parameter* param = node->getParameters()[i];
         auto paramSymbol = std::make_unique<Value>(param->name, paramTypes[paramOffset + i]);
@@ -5464,15 +5467,14 @@ auto Typechecker::visit(const DotOp* node) -> void {
             if (inferredIt != inferredFromArgs.end() &&
                 !existingIt->second->isEqual(inferredIt->second)) {
               throw TypeCheckError(node->getSpan(),
-                                   "Conflicting types for class type parameter `{}`: {} vs {}",
-                                   gn, existingIt->second->toString(),
-                                   inferredIt->second->toString());
+                                   "Conflicting types for class type parameter `{}`: {} vs {}", gn,
+                                   existingIt->second->toString(), inferredIt->second->toString());
             }
             continue;
           }
           if (inferredIt == inferredFromArgs.end()) {
-            // Swift-style: `var x: Cell<int> = Cell.wrap_int(3)` — args may not mention `T`, but the
-            // enclosing expected type specializes the same class template.
+            // Swift-style: `var x: Cell<int> = Cell.wrap_int(3)` — args may not mention `T`, but
+            // the enclosing expected type specializes the same class template.
             Type* ctxClass = nullptr;
             if (Type* exp = currentExpectedType(); exp != nullptr) {
               Type* shape = exp;
@@ -5489,8 +5491,7 @@ auto Typechecker::visit(const DotOp* node) -> void {
               }
             }
             if (ctxClass != nullptr) {
-              if (auto eit = specializedTypeEnv.find(ctxClass);
-                  eit != specializedTypeEnv.end()) {
+              if (auto eit = specializedTypeEnv.find(ctxClass); eit != specializedTypeEnv.end()) {
                 auto cit = eit->second.find(gn);
                 if (cit != eit->second.end()) {
                   traitBoundSubs[gn] = cit->second;

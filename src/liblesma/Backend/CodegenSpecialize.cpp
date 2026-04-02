@@ -674,7 +674,7 @@ auto Codegen::computeGenericFunctionBindingEnv(const FuncDecl* node,
   }
   std::unordered_set<std::string> genericNameSet(genericNames.begin(), genericNames.end());
   auto templateParams = node->getParameters();
-  size_t offset = (selfSymbol != nullptr) ? 1U : 0U;
+  size_t offset = (selfSymbol != nullptr && !node->getIsStatic()) ? 1U : 0U;
   for (size_t i = 0; i < templateParams.size() && (i + offset) < paramTypes.size(); ++i) {
     TypeExpr* declType = templateParams[i]->type.get();
     if (declType != nullptr) {

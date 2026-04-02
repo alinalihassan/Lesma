@@ -255,9 +255,9 @@ Codegen::Codegen(
 auto Codegen::defineFunction(lesma::Value* value, const FuncDecl* node, Value* clsSymbol) -> void {
   bool const isMethod = value->getDeclarationKind() == ValueDeclarationKind::METHOD;
   auto const fieldsForParams = value->getType()->getFields();
-  bool const usesImplicitSelfParam =
-      isMethod && !value->isStaticMethod() && !fieldsForParams.empty() &&
-      fieldsForParams.front()->name == "self";
+  bool const usesImplicitSelfParam = isMethod && !value->isStaticMethod() &&
+                                     !fieldsForParams.empty() &&
+                                     fieldsForParams.front()->name == "self";
   if (clsSymbol == nullptr && isMethod) {
     auto fields = value->getType()->getFields();
     if (!fields.empty() && fields.front()->type != nullptr &&
@@ -1082,9 +1082,8 @@ auto Codegen::emitUnionWrapValueToSlot(llvm::SMRange /*span*/, lesma::Value* val
       throw CodegenError({}, "Internal error: union payload store type mismatch");
     }
   }
-  llvm::Value* typedPayPtr =
-      builder->CreateBitCast(payPtr, llvm::PointerType::get(theModule->getContext(), 0U),
-                             "union.pay.tptr");
+  llvm::Value* typedPayPtr = builder->CreateBitCast(
+      payPtr, llvm::PointerType::get(theModule->getContext(), 0U), "union.pay.tptr");
   builder->CreateStore(v, typedPayPtr);
   llvm::Value* agg = builder->CreateLoad(st, destSlot, "union.val");
   return std::make_unique<lesma::Value>("", unionTy, agg);
@@ -1911,7 +1910,7 @@ auto Codegen::visit(const FuncDecl* node) -> void {
   }
 
   auto mangledName = getMangledName(node->getSpan(), node->getName(), paramTypes,
-                                     selfSymbol != nullptr && !node->getIsStatic());
+                                    selfSymbol != nullptr && !node->getIsStatic());
   std::string signatureKey = makeCallableSignatureKey(node->getName(), paramTypes);
   if (!currentGenericTypes.empty()) {
     std::vector<std::string> bindingOrder;
@@ -2374,6 +2373,7 @@ auto Codegen::visit(const Class* node) -> void {
     auto* genericSymbol = scope->lookupStruct(node->getIdentifier());
     if (genericSymbol != nullptr) {
       genericSymbol->setGenericClassTemplate(node);
+      // Globals must exist before `Box.tag`-style use that precedes any specialization.
       if (genericSymbol->getType() != nullptr) {
         emitClassStaticFieldGlobals(genericSymbol->getType(), node);
       }
@@ -2395,8 +2395,6 @@ auto Codegen::visit(const Class* node) -> void {
   if (type->getLlvmType() == nullptr) {
     getOrCreateLlvmType(type);
   }
-
-  emitClassStaticFieldGlobals(type, node);
 
   auto* selfType = cacheType(std::make_unique<Type>(BaseType::TY_PTR, builder->getPtrTy(), type));
   methodSelfSymbols.push_back(std::make_unique<Value>(node->getIdentifier(), selfType));
@@ -2440,6 +2438,8 @@ auto Codegen::visit(const Class* node) -> void {
     existingStruct->setConstructor(synthCtor);
   }
 
+  emitClassStaticFieldGlobals(type, node);
+
   getOrEmitClassVtableGlobal(type, node);
 
   selfSymbol = nullptr;
@@ -2466,6 +2466,8 @@ auto Codegen::emitClassStaticFieldGlobals(lesma::Type* classTy, const Class* ast
     } else if (fieldTy->is(BaseType::TY_PTR) && fieldTy->getElementType() != nullptr &&
                fieldTy->getElementType()->is(BaseType::TY_CLASS)) {
       storageTy = builder->getPtrTy();
+    } else if (fieldTy->is(BaseType::TY_FUNCTION) && sym->getStoresFuncValuePair()) {
+      storageTy = getFuncValuePairLlvmType();
     }
     std::string classManglePart;
     if (classTy->is(BaseType::TY_CLASS) && !classTy->getGenericParams().empty()) {
@@ -2477,20 +2479,47 @@ auto Codegen::emitClassStaticFieldGlobals(lesma::Type* classTy, const Class* ast
     } else {
       classManglePart = MangleUtils::getTypeMangledName(span, classTy);
     }
-    std::string const gvName =
-        std::string{"lesma.sfs."} + classManglePart + "." + sym->getName();
+    std::string const gvName = std::string{"lesma.sfs."} + classManglePart + "." + sym->getName();
     if (theModule->getGlobalVariable(gvName, true) != nullptr) {
       continue;
     }
     llvm::Constant* init = llvm::Constant::getNullValue(storageTy);
     auto* gv = new llvm::GlobalVariable(*theModule, storageTy, false,
-                                         llvm::GlobalValue::PrivateLinkage, init, gvName);
+                                        llvm::GlobalValue::PrivateLinkage, init, gvName);
     sym->setLlvmValue(gv);
     sym->setCategory(ValueCategory::ADDRESSABLE_STORAGE);
     if (vd->getValue() != nullptr) {
       vd->getValue()->accept(*this);
-      auto rhs = cast(vd->getValue()->getSpan(), result.get(), fieldTy);
-      builder->CreateStore(rhs->getLlvmValue(), gv);
+      auto* valueResult = result.get();
+      const bool funcPairStorage =
+          fieldTy->is(BaseType::TY_FUNCTION) && sym->getStoresFuncValuePair();
+      if (funcPairStorage) {
+        if (valueResult->getLlvmValue() == nullptr && !fieldTy->getGenericParams().empty()) {
+          builder->CreateStore(llvm::ConstantAggregateZero::get(getFuncValuePairLlvmType()), gv);
+        } else if (valueResult->getLlvmValue() != nullptr &&
+                   valueResult->getLlvmValue()->getType() == getFuncValuePairLlvmType()) {
+          builder->CreateStore(valueResult->getLlvmValue(), gv);
+        } else if (valueResult->getStoresFuncValuePair()) {
+          llvm::StructType* pt = getFuncValuePairLlvmType();
+          llvm::Value* loaded = builder->CreateLoad(pt, valueResult->getLlvmValue(),
+                                                    sym->getName() + ".sfnpair.init");
+          builder->CreateStore(loaded, gv);
+        } else {
+          auto rhs = cast(vd->getValue()->getSpan(), valueResult, fieldTy);
+          builder->CreateStore(rhs->getLlvmValue(), gv);
+        }
+        if (auto* le = dynamic_cast<LambdaExpr*>(vd->getValue())) {
+          if (Value* rs = le->getResolvedSymbol(); rs != nullptr) {
+            sym->setClosureCalleeUsesEnvParameter(rs->getClosureCalleeUsesEnvParameter());
+          }
+        } else if (dynamic_cast<FuncCall*>(vd->getValue()) != nullptr &&
+                   fieldTy->is(BaseType::TY_FUNCTION)) {
+          sym->setClosureCalleeUsesEnvParameter(true);
+        }
+      } else {
+        auto rhs = cast(vd->getValue()->getSpan(), valueResult, fieldTy);
+        builder->CreateStore(rhs->getLlvmValue(), gv);
+      }
     }
   }
 }
@@ -3451,14 +3480,30 @@ auto Codegen::visit(const DotOp* node) -> void {
             if (isAssignment) {
               lesma::Type* ptrToVal = ft;
               if (ft->is(BaseType::TY_CLASS)) {
-                ptrToVal = cacheType(
-                    std::make_unique<Type>(BaseType::TY_PTR, builder->getPtrTy(), ft));
+                ptrToVal =
+                    cacheType(std::make_unique<Type>(BaseType::TY_PTR, builder->getPtrTy(), ft));
               } else if (ft->is(BaseType::TY_PTR) && ft->getElementType() != nullptr &&
                          ft->getElementType()->is(BaseType::TY_CLASS)) {
-                ptrToVal = cacheType(
-                    std::make_unique<Type>(BaseType::TY_PTR, builder->getPtrTy(), ft));
+                ptrToVal =
+                    cacheType(std::make_unique<Type>(BaseType::TY_PTR, builder->getPtrTy(), ft));
               }
               result = std::make_unique<Value>("", ptrToVal, gv);
+              if (ft->is(BaseType::TY_FUNCTION) && sf->getDeclarationSymbol() != nullptr &&
+                  sf->getDeclarationSymbol()->getStoresFuncValuePair()) {
+                result->setStoresFuncValuePair(true);
+                result->setClosureCalleeUsesEnvParameter(
+                    sf->getDeclarationSymbol()->getClosureCalleeUsesEnvParameter());
+              }
+              return;
+            }
+            if (ft->is(BaseType::TY_FUNCTION) && sf->getDeclarationSymbol() != nullptr &&
+                sf->getDeclarationSymbol()->getStoresFuncValuePair()) {
+              auto slot = std::make_unique<Value>("", ft, gv);
+              slot->setCategory(ValueCategory::ADDRESSABLE_STORAGE);
+              slot->setStoresFuncValuePair(true);
+              slot->setClosureCalleeUsesEnvParameter(
+                  sf->getDeclarationSymbol()->getClosureCalleeUsesEnvParameter());
+              result = std::move(slot);
               return;
             }
             llvm::Type* storageTy = ft->getLlvmType();
@@ -3731,21 +3776,38 @@ auto Codegen::visit(const DotOp* node) -> void {
             if (sf != nullptr) {
               llvm::Value* gv = llvmGlobalForClassStaticField(lesmaType, field);
               if (gv == nullptr) {
-                throw CodegenError(node->getSpan(), "Static field {} has no lowered storage", field);
+                throw CodegenError(node->getSpan(), "Static field {} has no lowered storage",
+                                   field);
               }
               lesma::Type* ft = sf->type;
               getOrCreateLlvmType(ft);
               if (isAssignment) {
                 lesma::Type* ptrToVal = ft;
                 if (ft->is(BaseType::TY_CLASS)) {
-                  ptrToVal = cacheType(
-                      std::make_unique<Type>(BaseType::TY_PTR, builder->getPtrTy(), ft));
+                  ptrToVal =
+                      cacheType(std::make_unique<Type>(BaseType::TY_PTR, builder->getPtrTy(), ft));
                 } else if (ft->is(BaseType::TY_PTR) && ft->getElementType() != nullptr &&
                            ft->getElementType()->is(BaseType::TY_CLASS)) {
-                  ptrToVal = cacheType(
-                      std::make_unique<Type>(BaseType::TY_PTR, builder->getPtrTy(), ft));
+                  ptrToVal =
+                      cacheType(std::make_unique<Type>(BaseType::TY_PTR, builder->getPtrTy(), ft));
                 }
                 result = std::make_unique<Value>("", ptrToVal, gv);
+                if (ft->is(BaseType::TY_FUNCTION) && sf->getDeclarationSymbol() != nullptr &&
+                    sf->getDeclarationSymbol()->getStoresFuncValuePair()) {
+                  result->setStoresFuncValuePair(true);
+                  result->setClosureCalleeUsesEnvParameter(
+                      sf->getDeclarationSymbol()->getClosureCalleeUsesEnvParameter());
+                }
+                return;
+              }
+              if (ft->is(BaseType::TY_FUNCTION) && sf->getDeclarationSymbol() != nullptr &&
+                  sf->getDeclarationSymbol()->getStoresFuncValuePair()) {
+                auto slot = std::make_unique<Value>("", ft, gv);
+                slot->setCategory(ValueCategory::ADDRESSABLE_STORAGE);
+                slot->setStoresFuncValuePair(true);
+                slot->setClosureCalleeUsesEnvParameter(
+                    sf->getDeclarationSymbol()->getClosureCalleeUsesEnvParameter());
+                result = std::move(slot);
                 return;
               }
               llvm::Type* storageTy = ft->getLlvmType();
@@ -4811,10 +4873,11 @@ auto Codegen::appendCallableArgument(lesma::Value* arg, std::vector<lesma::Type*
   paramsLLVM.push_back(llvmArg);
 }
 
-// `genericBindingHint` is the typechecker’s per-call binding list (e.g. class `T` for `Cell.of(7)`).
-// It feeds mangling, class monomorph of the template `selfSymbol`, and lowering of the callee’s
-// Lesma function type. Constructor resolution uses scope → rootScope → `getConstructor()` so normal
-// calls like `list<str>()` still match overloads with defaults before falling back to the struct’s ctor.
+// `genericBindingHint` is the typechecker’s per-call binding list (e.g. class `T` for
+// `Cell.of(7)`). It feeds mangling, class monomorph of the template `selfSymbol`, and lowering of
+// the callee’s Lesma function type. Constructor resolution uses scope → rootScope →
+// `getConstructor()` so normal calls like `list<str>()` still match overloads with defaults before
+// falling back to the struct’s ctor.
 auto Codegen::callNamedFunction(
     llvm::SMRange span, const std::string& functionName,
     const std::vector<lesma::Type*>& paramTypes, const std::vector<llvm::Value*>& paramsLLVM,
@@ -4845,7 +4908,8 @@ auto Codegen::callNamedFunction(
   if (selfSymbol != nullptr && functionName != "new" && genericBindingHint != nullptr &&
       !genericBindingHint->empty()) {
     lesma::Type* recvTy = selfSymbol->getType();
-    if (recvTy != nullptr && recvTy->is(BaseType::TY_CLASS) && !recvTy->getGenericParams().empty()) {
+    if (recvTy != nullptr && recvTy->is(BaseType::TY_CLASS) &&
+        !recvTy->getGenericParams().empty()) {
       if (auto git = genericClasses.find(selfSymbol->getName()); git != genericClasses.end()) {
         std::unordered_map<std::string, lesma::Type*> envFromHint = hintedGenericBindings();
         bool complete = true;
@@ -4944,11 +5008,11 @@ auto Codegen::callNamedFunction(
         if (it == specializedClassTypeEnvs.end()) {
           return false;
         }
-        return std::ranges::all_of(
-            it->second, [](const std::pair<const std::string, lesma::Type*>& e) {
-              lesma::Type* ty = e.second;
-              return ty == nullptr || !ty->is(BaseType::TY_GENERIC);
-            });
+        return std::ranges::all_of(it->second,
+                                   [](const std::pair<const std::string, lesma::Type*>& e) {
+                                     lesma::Type* ty = e.second;
+                                     return ty == nullptr || !ty->is(BaseType::TY_GENERIC);
+                                   });
       };
       if (allocatedClassMonomorph != nullptr && monomorphEnvIsConcrete(allocatedClassMonomorph)) {
         classSym = emitClassMonomorph(allocatedClassMonomorph, templateClass);
@@ -4965,8 +5029,8 @@ auto Codegen::callNamedFunction(
     classPtr = emitMalloc(classSize, functionName + ".obj");
     emitInitClassVtablePointer(classSym->getType(), classPtr);
     localParamsLLVM.insert(localParamsLLVM.begin(), classPtr);
-    lesma::Type* selfArgTy =
-        cacheType(std::make_unique<Type>(BaseType::TY_PTR, builder->getPtrTy(), classSym->getType()));
+    lesma::Type* selfArgTy = cacheType(
+        std::make_unique<Type>(BaseType::TY_PTR, builder->getPtrTy(), classSym->getType()));
     localParamTypes.insert(localParamTypes.begin(), selfArgTy);
 
     selfSymbol = classSym;
@@ -5125,7 +5189,8 @@ auto Codegen::callNamedFunction(
       callableLesmaType =
           substituteTypeForSpecializationEnv(callableLesmaType, hintedGenericBindings());
     } else if (!currentGenericTypes.empty() && typeContainsUnboundGeneric(callableLesmaType)) {
-      callableLesmaType = substituteTypeForSpecializationEnv(callableLesmaType, currentGenericTypes);
+      callableLesmaType =
+          substituteTypeForSpecializationEnv(callableLesmaType, currentGenericTypes);
     }
   }
 
@@ -5527,8 +5592,7 @@ auto Codegen::callMethodByName(llvm::SMRange span, lesma::Value* receiver,
                                const std::string& methodName,
                                const std::vector<lesma::Value*>& args,
                                const std::vector<lesma::Type*>& explicitTypeArgs,
-                               lesma::Value* resolvedCallee,
-                               const FuncCall* callSiteForGenericEnv)
+                               lesma::Value* resolvedCallee, const FuncCall* callSiteForGenericEnv)
     -> std::unique_ptr<lesma::Value> {
   if (receiver->getType()->is(BaseType::TY_ARRAY)) {
     return callListMethodByName(span, receiver, methodName, args, explicitTypeArgs);
@@ -5578,8 +5642,9 @@ auto Codegen::callMethodByName(llvm::SMRange span, lesma::Value* receiver,
     if (receiver->getType()->is(BaseType::TY_PTR) &&
         receiver->getType()->getElementType() != nullptr) {
       lesma::Type* elemTy = receiver->getType()->getElementType();
-      if (Value* structSym = lookupClassStructSymbol(elemTy);
-          structSym != nullptr && structSym->getType() != nullptr && structSym->getType() != elemTy) {
+      if (Value* structSym = lookupClassStructSymbol(elemTy); structSym != nullptr &&
+                                                              structSym->getType() != nullptr &&
+                                                              structSym->getType() != elemTy) {
         lesma::Type* specClassTy = structSym->getType();
         lesma::Type* ptrToSpec =
             cacheType(std::make_unique<Type>(BaseType::TY_PTR, builder->getPtrTy(), specClassTy));
@@ -5688,9 +5753,8 @@ auto Codegen::callMethodByName(llvm::SMRange span, lesma::Value* receiver,
     }
   }
   selfSymbol = cls;
-  auto resultValue =
-      callNamedFunction(span, methodName, paramTypes, paramsLLVM, explicitTypeArgs, resolvedCallee,
-                        nullptr, callSiteGenericBindings);
+  auto resultValue = callNamedFunction(span, methodName, paramTypes, paramsLLVM, explicitTypeArgs,
+                                       resolvedCallee, nullptr, callSiteGenericBindings);
   selfSymbol = savedSelfSymbol;
   return resultValue;
 }
