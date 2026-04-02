@@ -4887,6 +4887,34 @@ auto Codegen::callNamedFunction(
     -> std::unique_ptr<lesma::Value> {
   std::vector<lesma::Type*> localParamTypes = paramTypes;
   std::vector<llvm::Value*> localParamsLLVM = paramsLLVM;
+  std::unordered_map<std::string, lesma::Type*> callSiteGenericFallbackStorage;
+  if (genericBindingHint != nullptr) {
+    for (const auto& kv : *genericBindingHint) {
+      if (kv.second != nullptr) {
+        callSiteGenericFallbackStorage[kv.first] = kv.second;
+      }
+    }
+  }
+  struct ScopedCallSiteGenericFallback {
+    Codegen* cg;
+    bool const on;
+    ScopedCallSiteGenericFallback(Codegen* code, std::unordered_map<std::string, lesma::Type*>* map)
+        : cg(code), on(map != nullptr && !map->empty()) {
+      if (on) {
+        code->pushGenericTypeFallback(map);
+      }
+    }
+    ~ScopedCallSiteGenericFallback() {
+      if (on) {
+        cg->popGenericTypeFallback();
+      }
+    }
+    ScopedCallSiteGenericFallback(const ScopedCallSiteGenericFallback&) = delete;
+    auto operator=(const ScopedCallSiteGenericFallback&) -> ScopedCallSiteGenericFallback& = delete;
+    ScopedCallSiteGenericFallback(ScopedCallSiteGenericFallback&&) = delete;
+    auto operator=(ScopedCallSiteGenericFallback&&) -> ScopedCallSiteGenericFallback& = delete;
+  } scopedCallSiteFallback(this, &callSiteGenericFallbackStorage);
+
   auto hintedGenericBindings = [&]() -> std::unordered_map<std::string, lesma::Type*> {
     std::unordered_map<std::string, lesma::Type*> env;
     if (genericBindingHint != nullptr) {

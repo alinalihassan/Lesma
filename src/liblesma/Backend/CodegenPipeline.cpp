@@ -647,10 +647,34 @@ auto Codegen::run() -> void {
         }
       }
     }
-    // Prototypes store the owning class symbol in slot 2. Instance methods get `self` as the first
-    // LLVM parameter, but static methods do not—yet nested codegen (e.g. `Cell(v)` inside
-    // `static func of`) still needs that symbol on `selfSymbol` so constructor lookup and
-    // `genericBindingHint`-driven paths in `callNamedFunction` see the monomorphized class.
+    // `specializationEnvs` may only store a function's own generic parameters; merge class type
+    // params (e.g. `T` on `Cell<T>`) from the formal receiver (`self` or `cls`) for method bodies.
+    Type* mergeClassTy = nullptr;
+    if (auto* clsSym = std::get<2>(prototypes[pi]);
+        clsSym != nullptr && clsSym->getType() != nullptr && clsSym->getType()->is(BaseType::TY_PTR) &&
+        clsSym->getType()->getElementType() != nullptr) {
+      mergeClassTy = clsSym->getType()->getElementType();
+    }
+    if (mergeClassTy == nullptr) {
+      auto fields = fn->getType()->getFields();
+      if (!fields.empty() && fields.front()->type != nullptr &&
+          fields.front()->type->is(BaseType::TY_PTR) &&
+          fields.front()->type->getElementType() != nullptr) {
+        mergeClassTy = fields.front()->type->getElementType();
+      }
+    }
+    if (mergeClassTy != nullptr) {
+      if (auto clsEnv = specializedClassTypeEnvs.find(mergeClassTy);
+          clsEnv != specializedClassTypeEnvs.end()) {
+        for (const auto& kv : clsEnv->second) {
+          currentGenericTypes[kv.first] = kv.second;
+        }
+      }
+    }
+    // Prototypes store the owning class symbol in slot 2. Instance methods use `self` as the first
+    // LLVM parameter; static methods use `cls` for overload identity—nested codegen still needs
+    // `selfSymbol` set to the owning class so constructor lookup and `genericBindingHint` paths in
+    // `callNamedFunction` see the monomorphized class.
     if (auto* cls = std::get<2>(prototypes[pi]); cls != nullptr) {
       selfSymbol = cls;
     }
