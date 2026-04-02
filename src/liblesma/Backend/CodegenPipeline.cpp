@@ -1,3 +1,5 @@
+#include <array>
+#include <cstdlib>
 #include <filesystem>
 #include <memory>
 #include <string>
@@ -6,6 +8,7 @@
 
 #include <llvm/ADT/ArrayRef.h>
 #include <llvm/ADT/SmallString.h>
+#include <llvm/ADT/StringRef.h>
 #include <llvm/Analysis/CGSCCPassManager.h>
 #include <llvm/Analysis/LoopAnalysisManager.h>
 #include <llvm/BinaryFormat/Dwarf.h>
@@ -44,6 +47,7 @@
 #include <llvm/Target/TargetOptions.h>
 #include <llvm/TargetParser/Host.h>
 #include <llvm/TargetParser/SubtargetFeature.h>
+#include <llvm/TargetParser/Triple.h>
 #include <llvm/Transforms/IPO/GlobalDCE.h>
 #include <llvm/Transforms/IPO/Inliner.h>
 #include <llvm/Transforms/IPO/StripDeadPrototypes.h>
@@ -57,8 +61,9 @@
 #include <llvm/Transforms/Vectorize/LoopVectorize.h>
 
 #include "Codegen.h"
-#include "liblesma/AST/AST.h"
 #include <lld/Common/Driver.h>
+
+#include "liblesma/AST/AST.h"
 
 #ifdef __APPLE__
 LLD_HAS_DRIVER(macho)
@@ -481,45 +486,174 @@ auto Codegen::writeToObjectFile(const std::string& output) -> void {
   out.close();
 }
 
-void Codegen::linkObjectFileWithLld(const std::string& objFilename) {
-  std::string output = getBasename(objFilename);
+auto Codegen::resolveAppleSdkUsrLib() const -> std::string {
+  if (const char* explicitDir = std::getenv("LESMA_APPLE_SDK_LIB")) {
+    StringRef const ev(explicitDir);
+    if (!ev.empty() && sys::fs::exists(explicitDir)) {
+      return std::string(explicitDir);
+    }
+  }
+  if (const char* sdkRoot = std::getenv("SDKROOT")) {
+    StringRef const sdkRef(sdkRoot);
+    if (!sdkRef.empty()) {
+      SmallString<512> usrLib(sdkRoot);
+      sys::path::append(usrLib, "usr", "lib");
+      if (sys::fs::exists(usrLib)) {
+        return std::string(usrLib.str());
+      }
+    }
+  }
+  static constexpr std::array<StringRef, 2> fallbacks = {
+      StringRef("/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/lib"),
+      StringRef(
+          "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/"
+          "MacOSX.sdk/usr/lib"),
+  };
+  for (StringRef path : fallbacks) {
+    if (sys::fs::exists(path)) {
+      return std::string(path.str());
+    }
+  }
+  throw CodegenError(
+      {}, "Could not locate macOS SDK usr/lib for linking. Set SDKROOT, LESMA_APPLE_SDK_LIB, or "
+          "install Xcode / Command Line Tools.");
+}
 
-  std::vector<const char*> args;
+auto Codegen::darwinLinkerArch() const -> std::string {
+  llvm::Triple const triple = targetMachine->getTargetTriple();
+  switch (triple.getArch()) {
+  case llvm::Triple::aarch64:
+    return "arm64";
+  case llvm::Triple::x86_64:
+    return "x86_64";
+  default:
+    throw CodegenError({}, "Unsupported Darwin architecture for native linking");
+  }
+}
 
-  // First arg determines linker flavor: ld.lld (ELF), ld64.lld (MachO),
-  // lld-link (COFF)
-#ifdef __APPLE__
-  args.push_back("ld64.lld");
-#elif defined(_WIN32)
-  args.push_back("lld-link");
-#else
-  args.push_back("ld.lld");
-#endif
+auto Codegen::appendDarwinLinkArgs(std::vector<const char*>& args, std::vector<std::string>& owned,
+                                   const std::string& outputBase,
+                                   const std::string& objFilename) const -> void {
+  auto pushOwned = [&args, &owned](std::string s) {
+    owned.push_back(std::move(s));
+    args.push_back(owned.back().c_str());
+  };
 
-  // Suppress linker warnings
   args.push_back("-w");
-  // Files
-  args.push_back("-o");
-  args.push_back(output.c_str());
+  pushOwned("-o");
+  pushOwned(outputBase);
   args.push_back(objFilename.c_str());
   for (const auto& obj : objectFiles) {
     args.push_back(obj.c_str());
   }
+  pushOwned("-arch");
+  pushOwned(darwinLinkerArch());
+  pushOwned("-platform_version");
+  pushOwned("macos");
+  const char* minVer = std::getenv("LESMA_MACOS_MIN_VERSION");
+  const char* sdkVer = std::getenv("LESMA_MACOS_SDK_VERSION");
+  StringRef const minRef(minVer != nullptr ? minVer : "");
+  StringRef const sdkRef(sdkVer != nullptr ? sdkVer : "");
+  pushOwned(!minRef.empty() ? minRef.str() : std::string("11.0"));
+  pushOwned(!sdkRef.empty() ? sdkRef.str() : std::string("11.0"));
+  pushOwned("-L");
+  pushOwned(resolveAppleSdkUsrLib());
+  pushOwned("-lSystem");
+}
+
+auto Codegen::appendElfLinkArgs(std::vector<const char*>& args, std::vector<std::string>& owned,
+                                const std::string& outputBase, const std::string& objFilename) const
+    -> void {
+  auto pushOwned = [&args, &owned](std::string s) {
+    owned.push_back(std::move(s));
+    args.push_back(owned.back().c_str());
+  };
+
+  const char* muslRt = std::getenv("LESMA_MUSL_RUNTIME");
+  StringRef const muslRef(muslRt != nullptr ? muslRt : "");
+  const bool muslDirSet = muslRt != nullptr && !muslRef.empty();
+  const bool useMuslStatic = muslDirSet && linkMode != LinkMode::Dynamic;
+  const bool elfStaticFlag =
+      linkMode == LinkMode::Static && !useMuslStatic; // plain -static when no musl bundle
+
+  if (useMuslStatic) {
+    auto objectPath = [muslRt](const char* name) {
+      SmallString<512> path(muslRt);
+      sys::path::append(path, name);
+      return std::string(path.str());
+    };
+    std::string crt1 = objectPath("crt1.o");
+    std::string crti = objectPath("crti.o");
+    std::string crtn = objectPath("crtn.o");
+    std::string libcA = objectPath("libc.a");
+    if (!sys::fs::exists(crt1) || !sys::fs::exists(crti) || !sys::fs::exists(crtn) ||
+        !sys::fs::exists(libcA)) {
+      throw CodegenError(
+          {}, "LESMA_MUSL_RUNTIME must be a directory containing crt1.o, crti.o, crtn.o, and "
+              "libc.a for static musl linking.");
+    }
+    args.push_back("-w");
+    pushOwned("-static");
+    pushOwned(std::move(crt1));
+    pushOwned(std::move(crti));
+    args.push_back(objFilename.c_str());
+    for (const auto& obj : objectFiles) {
+      args.push_back(obj.c_str());
+    }
+    pushOwned(std::move(libcA));
+    pushOwned(std::move(crtn));
+    pushOwned("-o");
+    pushOwned(outputBase);
+    return;
+  }
+
+  args.push_back("-w");
+  if (elfStaticFlag) {
+    pushOwned("-static");
+  }
+  pushOwned("-o");
+  pushOwned(outputBase);
+  args.push_back(objFilename.c_str());
+  for (const auto& obj : objectFiles) {
+    args.push_back(obj.c_str());
+  }
+}
+
+auto Codegen::appendCoffLinkArgs(std::vector<const char*>& args, std::vector<std::string>& owned,
+                                 const std::string& outputBase,
+                                 const std::string& objFilename) const -> void {
+  auto pushOwned = [&args, &owned](std::string s) {
+    owned.push_back(std::move(s));
+    args.push_back(owned.back().c_str());
+  };
+
+  args.push_back("-w");
+  pushOwned("-o");
+  pushOwned(outputBase);
+  args.push_back(objFilename.c_str());
+  for (const auto& obj : objectFiles) {
+    args.push_back(obj.c_str());
+  }
+}
+
+void Codegen::linkObjectFileWithLld(const std::string& objFilename) {
+  std::string const output = getBasename(objFilename);
+
+  std::vector<std::string> owned;
+  owned.reserve(32U);
+  std::vector<const char*> args;
 
 #ifdef __APPLE__
-  // Add macOS-specific linker arguments
-  args.push_back("-arch");
-  args.push_back("arm64");
-  args.push_back("-platform_version");
-  args.push_back("macos"); // platform
-  args.push_back("11.0");  // min version
-  args.push_back("11.0");  // sdk version
-  args.push_back("-L");
-  args.push_back("/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/lib");
-  args.push_back("-lSystem");
+  args.push_back("ld64.lld");
+  appendDarwinLinkArgs(args, owned, output, objFilename);
+#elif defined(_WIN32)
+  args.push_back("lld-link");
+  appendCoffLinkArgs(args, owned, output, objFilename);
+#else
+  args.push_back("ld.lld");
+  appendElfLinkArgs(args, owned, output, objFilename);
 #endif
 
-  // Run the LLD linker using lldMain
 #ifdef __APPLE__
   lld::Result result =
       lld::lldMain(args, llvm::outs(), llvm::errs(), {{.f = lld::Darwin, .d = &lld::macho::link}});

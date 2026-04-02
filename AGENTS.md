@@ -62,6 +62,14 @@ npx -p vega-lite vl2svg suite.vl.json > chart.svg
 2. **Lexer** — Scans the buffer into tokens. Uses LLVM `SourceMgr`; **buffer IDs are 1-based**: the “current” buffer ID is `srcMgr->getNumBuffers()` (not `getNumBuffers() - 1`).
 3. **Parser** — Builds an AST from tokens (visitor-style).
 4. **Codegen** — Walks the AST and emits LLVM IR; handles imports by compiling other modules and merging symbols. Can output object files or run via JIT.
+5. **Linking** (`Backend/CodegenPipeline.cpp`) — For `lesma compile`, Lesma writes a host object file with LLVM, then links an executable using **in-process LLD** (`lld::lldMain`). No `llc` subprocess; the linker flavor matches the host (Mach-O, ELF, or COFF).
+
+**Link mode and static executables**
+
+- **CLI:** `lesma compile --link=default|static|dynamic` (default is `default`). JIT `run` ignores link mode.
+- **macOS:** The produced binary links against the system C runtime **dynamically** (`-lSystem`). Lesma discovers `usr/lib` via `LESMA_APPLE_SDK_LIB`, then `SDKROOT/usr/lib`, then common Xcode / Command Line Tools paths. Override **minimum and SDK version** strings passed to the linker with `LESMA_MACOS_MIN_VERSION` and `LESMA_MACOS_SDK_VERSION` (default `11.0`). The linker **architecture** follows the host triple (`arm64` or `x86_64`).
+- **Linux (ELF):** By default, linking matches the previous behavior (dynamic-friendly object list). For **fully static** musl-style binaries, point `LESMA_MUSL_RUNTIME` at a directory containing `crt1.o`, `crti.o`, `crtn.o`, and `libc.a` (same layout as a single-target musl runtime bundle). That directory is used when link mode is **not** `dynamic` (including `default` if the env var is set). With `--link=static` and **no** `LESMA_MUSL_RUNTIME`, Lesma passes `-static` to `ld.lld` (success depends on your system libc/toolchain). With `--link=dynamic`, musl static linking is disabled even if `LESMA_MUSL_RUNTIME` is set.
+- **Windows:** Link line remains minimal today; fully static console linking would require a vendored MinGW-style runtime (not bundled in-tree yet).
 
 When reporting errors, the Driver and Codegen use `showInline()` in `Common/Utils.cpp` with a **buffer ID**: the main file’s ID is the value returned by `AddNewSourceBuffer()` (stored in Driver as `mainBufferId`). For imported modules, Codegen uses the `fileId` returned when that module’s buffer was added. Using the wrong ID (e.g. 0 when IDs are 1-based) triggers LLVM’s `isValidBufferID` assertion in `getMemoryBuffer()`.
 

@@ -138,7 +138,7 @@ auto lesma::analyze(std::unique_ptr<Options> options, Timer* phaseTimer) -> Anal
   try {
     maybeTimed(phaseTimer, "Parsing", [&]() -> void {
       parser = std::make_unique<Parser>(lexer->getTokens(), &result.diagnostics, srcMgr,
-                                       mainBufferId, result.mainFilePath);
+                                        mainBufferId, result.mainFilePath);
       parser->parse();
       if ((options->debug & Debug::AST) != Debug::NONE) {
         Compound* ast = parser->getAst();
@@ -218,6 +218,7 @@ auto Driver::baseCompile(std::unique_ptr<lesma::Options> options, bool jit) -> i
   llvm::OptimizationLevel const optLevel = options->optimizationLevel;
   bool const emitDebugInfo = options->emitDebugInfo;
   bool const timerEnabled = options->timer;
+  LinkMode const linkMode = options->linkMode;
 
   auto result = analyze(std::move(options), timerEnabled ? &timer : nullptr);
 
@@ -242,11 +243,9 @@ auto Driver::baseCompile(std::unique_ptr<lesma::Options> options, bool jit) -> i
         auto cg = std::make_unique<Codegen>(
             std::move(result.parser), result.sourceMgr,
             result.mainFilePath.empty() ? "" : result.mainFilePath, modules, jit, true, "", nullptr,
-            nullptr, nullptr,             nullptr, std::move(result.rootScope),
-            std::move(result.typeCache),
+            nullptr, nullptr, nullptr, std::move(result.rootScope), std::move(result.typeCache),
             std::move(result.specializedTypeEnv), std::move(result.specializedTypeToTemplate),
-            std::move(result.specializedClassTypes),
-            emitDebugInfo, optLevel);
+            std::move(result.specializedClassTypes), emitDebugInfo, optLevel, nullptr, linkMode);
         cg->run();
         return cg;
       });

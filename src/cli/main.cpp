@@ -3,6 +3,7 @@
 #include <filesystem>
 #include <memory>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -17,6 +18,16 @@
 using namespace lesma;
 
 namespace {
+
+[[nodiscard]] auto linkModeFromCliString(std::string_view s) -> LinkMode {
+  if (s == "static") {
+    return LinkMode::Static;
+  }
+  if (s == "dynamic") {
+    return LinkMode::Dynamic;
+  }
+  return LinkMode::Default;
+}
 
 [[nodiscard]] auto optimizationLevelFromCli(int level) -> llvm::OptimizationLevel {
   switch (level) {
@@ -56,6 +67,7 @@ auto parseCli(int argc, char** argv) -> std::unique_ptr<CLIOptions> {
   int optimizationLevel = 3;
   bool emitDebugInfo = false;
   bool suppressWarnings = false;
+  std::string linkModeCli = "default";
 
   CLI::App app{"Lesma programming language", "lesma"};
   app.set_version_flag("-v,--version", LESMA_VERSION, "Print the Lesma version");
@@ -73,6 +85,12 @@ auto parseCli(int argc, char** argv) -> std::unique_ptr<CLIOptions> {
   run->add_option("file", file, "Lesma source filename")->required();
   compile->add_option("file", file, "Lesma source filename")->required();
   compile->add_option("-o,--output", output, "Output filename");
+  compile
+      ->add_option(
+          "--link", linkModeCli,
+          "Executable link mode: default, static, or dynamic (Linux: see LESMA_MUSL_RUNTIME; macOS "
+          "remains dynamic)")
+      ->check(CLI::IsMember({"default", "static", "dynamic"}));
   run->add_option("-O,--opt", optimizationLevel, "Optimization level (0–3)")
       ->check(CLI::Range(0, 3));
   compile->add_option("-O,--opt", optimizationLevel, "Optimization level (0–3)")
@@ -125,7 +143,8 @@ auto parseCli(int argc, char** argv) -> std::unique_ptr<CLIOptions> {
                                                  .jit = run->parsed(),
                                                  .optimizationLevel = optimizationLevel,
                                                  .emitDebugInfo = emitDebugInfo,
-                                                 .suppressWarnings = suppressWarnings});
+                                                 .suppressWarnings = suppressWarnings,
+                                                 .linkModeCli = std::move(linkModeCli)});
 }
 
 } // namespace
@@ -144,6 +163,7 @@ auto main(int argc, char** argv) -> int {
       .optimizationLevel = optimizationLevelFromCli(options->optimizationLevel),
       .emitDebugInfo = options->emitDebugInfo,
       .suppressWarnings = options->suppressWarnings,
+      .linkMode = linkModeFromCliString(options->linkModeCli),
   });
   int const exitCode = options->jit ? Driver::run(std::move(driverOptions))
                                     : Driver::compile(std::move(driverOptions));

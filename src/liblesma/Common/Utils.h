@@ -33,6 +33,8 @@ struct CLIOptions {
   bool emitDebugInfo = false;
   /** When true, do not print compiler warnings to stderr. */
   bool suppressWarnings = false;
+  /** \c compile only: \c default, \c static, or \c dynamic (see AGENTS.md linking). */
+  std::string linkModeCli = "default";
 };
 
 template <typename S, typename... Args>

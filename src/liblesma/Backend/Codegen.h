@@ -40,6 +40,7 @@ class AllocaInst;
 #include "liblesma/AST/ASTVisitor.h"
 #include "liblesma/Backend/MangleUtils.h"
 #include "liblesma/Common/ExportDiscovery.h"
+#include "liblesma/Driver/Driver.h"
 #include "liblesma/Frontend/Parser.h"
 #include "liblesma/Symbol/SymbolTable.h"
 #include "liblesma/Symbol/Type.h"
@@ -153,6 +154,7 @@ class Codegen final : public ASTVisitor {
   bool emitDebugInfo = false;
   std::size_t lambdaCounter = 0U;
   llvm::OptimizationLevel optimizationLevelForDebug = llvm::OptimizationLevel::O3;
+  LinkMode linkMode = LinkMode::Default;
   /** `if x is T` / else: maps parameter/local symbol → union variant index for narrowed loads. */
   std::vector<std::unordered_map<UnionNarrowingStableKey, unsigned, UnionNarrowingStableKeyHash,
                                  UnionNarrowingStableKeyEq>>
@@ -208,7 +210,8 @@ public:
           std::unordered_map<std::string, lesma::Type*> preSpecializedClassTypesByKey = {},
           bool emitDebug = false,
           llvm::OptimizationLevel optimizationLevelForDebugArg = llvm::OptimizationLevel::O3,
-          std::shared_ptr<std::vector<std::string>> sharedPendingJitModuleInits = nullptr);
+          std::shared_ptr<std::vector<std::string>> sharedPendingJitModuleInits = nullptr,
+          LinkMode linkModeArg = LinkMode::Default);
   ~Codegen() override;
 
   Codegen(const Codegen&) = delete;
@@ -271,6 +274,17 @@ protected:
                                     lesma::Type* memberTy) -> llvm::Value*;
 
   auto linkObjectFileWithLld(const std::string& objFilename) -> void;
+  [[nodiscard]] auto resolveAppleSdkUsrLib() const -> std::string;
+  [[nodiscard]] auto darwinLinkerArch() const -> std::string;
+  auto appendDarwinLinkArgs(std::vector<const char*>& args, std::vector<std::string>& owned,
+                            const std::string& outputBase, const std::string& objFilename) const
+      -> void;
+  auto appendElfLinkArgs(std::vector<const char*>& args, std::vector<std::string>& owned,
+                         const std::string& outputBase, const std::string& objFilename) const
+      -> void;
+  auto appendCoffLinkArgs(std::vector<const char*>& args, std::vector<std::string>& owned,
+                          const std::string& outputBase, const std::string& objFilename) const
+      -> void;
 
   auto compileModule(llvm::SMRange span, const std::string& filepath, bool isStd,
                      const std::string& alias, bool importAll, bool importToScope,

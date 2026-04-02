@@ -192,7 +192,7 @@ Codegen::Codegen(
     std::unordered_map<lesma::Type*, lesma::Type*> preSpecializedClassTemplateOf,
     std::unordered_map<std::string, lesma::Type*> preSpecializedClassTypesByKey, bool emitDebug,
     llvm::OptimizationLevel optimizationLevelForDebugArg,
-    std::shared_ptr<std::vector<std::string>> sharedPendingJitModuleInits) {
+    std::shared_ptr<std::vector<std::string>> sharedPendingJitModuleInits, LinkMode linkModeArg) {
   InitializeNativeTarget();
   InitializeNativeTargetAsmPrinter();
   InitializeNativeTargetAsmParser();
@@ -246,6 +246,7 @@ Codegen::Codegen(
   }
   emitDebugInfo = emitDebug;
   optimizationLevelForDebug = optimizationLevelForDebugArg;
+  linkMode = linkModeArg;
   initializeDebugMetadata();
   topLevelFunc = initializeTopLevel();
   // base.les is loaded at the start of run() so we don't load it during

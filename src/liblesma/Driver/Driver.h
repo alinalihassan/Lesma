@@ -12,6 +12,16 @@ enum class SourceType : std::uint8_t {
   STRING,
 };
 
+/** Final executable link mode for \c lesma compile (in-process LLD). */
+enum class LinkMode : std::uint8_t {
+  /** Platform default (typically dynamic libc on macOS/ELF; see AGENTS.md). */
+  Default,
+  /** Static where supported (ELF: \c LESMA_MUSL_RUNTIME or \c -static; macOS still dynamic). */
+  Static,
+  /** Prefer dynamic linking on ELF (no \c -static / musl bundle). */
+  Dynamic,
+};
+
 enum Debug : std::uint8_t {
   NONE = 0x00,  // 00000000
   LEXER = 0x01, // 00000001
@@ -46,6 +56,8 @@ struct Options {
   bool emitDebugInfo = false;
   /** When true, Driver does not print warnings to stderr (diagnostics still collected). */
   bool suppressWarnings = false;
+  /** Used when emitting a native executable (non-JIT). */
+  LinkMode linkMode = LinkMode::Default;
 };
 
 class Driver {
