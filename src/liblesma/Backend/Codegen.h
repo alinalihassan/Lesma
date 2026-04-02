@@ -161,9 +161,8 @@ class Codegen final : public ASTVisitor {
   /** Pushes a non-empty narrow map onto \c unionNarrowVariantStack in the ctor and pops in the
    * dtor so the stack stays balanced if nested codegen throws (e.g. \c CodegenError). */
   struct UnionNarrowingScope {
-    using MapTy =
-        std::unordered_map<UnionNarrowingStableKey, unsigned, UnionNarrowingStableKeyHash,
-                           UnionNarrowingStableKeyEq>;
+    using MapTy = std::unordered_map<UnionNarrowingStableKey, unsigned, UnionNarrowingStableKeyHash,
+                                     UnionNarrowingStableKeyEq>;
     UnionNarrowingScope(std::vector<MapTy>& stackRef, MapTy&& map)
         : stack(stackRef), pushed(!map.empty()) {
       if (pushed) {
@@ -381,9 +380,10 @@ protected:
                         const FuncCall* callSiteForGenericEnv = nullptr)
       -> std::unique_ptr<lesma::Value>;
   auto emitClassStaticFieldGlobals(lesma::Type* classTy, const Class* astNode) -> void;
-  /** LLVM global for a static field; uses the class template symbol when \p classTy is specialized. */
-  [[nodiscard]] auto llvmGlobalForClassStaticField(lesma::Type* classTy, const std::string& fieldName)
-      -> llvm::Value*;
+  /** LLVM global for a static field; uses the class template symbol when \p classTy is specialized.
+   */
+  [[nodiscard]] auto llvmGlobalForClassStaticField(lesma::Type* classTy,
+                                                   const std::string& fieldName) -> llvm::Value*;
   auto defineFunction(lesma::Value* value, const FuncDecl* node, Value* clsSymbol) -> void;
   auto declareSynthesizedClassConstructor(const Class* astNode, lesma::Type* classType,
                                           lesma::Value* classStructSym) -> lesma::Value*;
@@ -418,9 +418,10 @@ protected:
       -> lesma::Value*;
   auto defineLambdaFunction(lesma::Value* value, const LambdaExpr* node) -> void;
   [[nodiscard]] auto getFuncValuePairLlvmType() -> llvm::StructType*;
-  auto specializeClass(const Class* node, const std::vector<lesma::Type*>& constructorArgTypes,
-                       const std::vector<lesma::Type*>& explicitTypeArgs = {},
-                       const std::unordered_map<std::string, lesma::Type*>* prebuiltClassEnv = nullptr)
+  auto
+  specializeClass(const Class* node, const std::vector<lesma::Type*>& constructorArgTypes,
+                  const std::vector<lesma::Type*>& explicitTypeArgs = {},
+                  const std::unordered_map<std::string, lesma::Type*>* prebuiltClassEnv = nullptr)
       -> lesma::Value*;
   auto emitClassMonomorph(lesma::Type* specialized, const Class* templateAst) -> lesma::Value*;
   [[nodiscard]] auto wrapNominalReturnAsPointer(Type* t) -> Type*;
@@ -558,6 +559,14 @@ protected:
   auto typeWithSingletonUnionsCollapsed(lesma::Type* t) -> lesma::Type*;
 
 private:
+  [[nodiscard]] auto classStaticFieldGlobalName(lesma::Type* classTy, const std::string& fieldName,
+                                                llvm::SMRange reportSpan) const -> std::string;
+  [[nodiscard]] auto llvmStorageTypeForClassStaticField(lesma::Type* fieldTy, Value* fieldSym)
+      -> llvm::Type*;
+  [[nodiscard]] auto materializeClassStaticFieldGlobalInCurrentModule(lesma::Type* templateClassTy,
+                                                                      Field* tf)
+      -> llvm::GlobalVariable*;
+
   /** Minimum tag bits: ceil(log2(memberCount)), at least 1 (memberCount must be > 0). */
   [[nodiscard]] static auto unionDiscriminantMinBits(std::size_t memberCount) -> unsigned;
   /** Round up to a whole number of bytes (8, 16, 32, 64); 0 if \p minBits > 64. */

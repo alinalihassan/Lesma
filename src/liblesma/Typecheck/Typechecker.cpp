@@ -1259,6 +1259,13 @@ auto Typechecker::substituteInType(Type* t, const std::unordered_map<std::string
 
 auto Typechecker::typeUsesClassTypeParameter(
     Type* t, const std::unordered_set<std::string>& classParamNames) const -> bool {
+  std::unordered_set<Type*> visitedNominalClasses;
+  return typeUsesClassTypeParameter(t, classParamNames, visitedNominalClasses);
+}
+
+auto Typechecker::typeUsesClassTypeParameter(
+    Type* t, const std::unordered_set<std::string>& classParamNames,
+    std::unordered_set<Type*>& visitedNominalClasses) const -> bool {
   if (t == nullptr) {
     return false;
   }
@@ -1266,19 +1273,19 @@ auto Typechecker::typeUsesClassTypeParameter(
     return classParamNames.contains(t->getGenericName());
   }
   if (t->is(BaseType::TY_PTR) || t->is(BaseType::TY_ARRAY)) {
-    return typeUsesClassTypeParameter(t->getElementType(), classParamNames);
+    return typeUsesClassTypeParameter(t->getElementType(), classParamNames, visitedNominalClasses);
   }
   if (t->is(BaseType::TY_FUNCTION)) {
     for (Field* field : t->getFields()) {
-      if (typeUsesClassTypeParameter(field->type, classParamNames)) {
+      if (typeUsesClassTypeParameter(field->type, classParamNames, visitedNominalClasses)) {
         return true;
       }
     }
-    return typeUsesClassTypeParameter(t->getReturnType(), classParamNames);
+    return typeUsesClassTypeParameter(t->getReturnType(), classParamNames, visitedNominalClasses);
   }
   if (t->is(BaseType::TY_TUPLE)) {
     for (Field* field : t->getFields()) {
-      if (typeUsesClassTypeParameter(field->type, classParamNames)) {
+      if (typeUsesClassTypeParameter(field->type, classParamNames, visitedNominalClasses)) {
         return true;
       }
     }
@@ -1286,30 +1293,35 @@ auto Typechecker::typeUsesClassTypeParameter(
   }
   if (t->is(BaseType::TY_UNION)) {
     for (Type* m : t->getUnionMembers()) {
-      if (typeUsesClassTypeParameter(m, classParamNames)) {
+      if (typeUsesClassTypeParameter(m, classParamNames, visitedNominalClasses)) {
         return true;
       }
     }
     return false;
   }
   if (t->is(BaseType::TY_CLASS)) {
-    for (Field* f : t->getFields()) {
-      if (typeUsesClassTypeParameter(f->type, classParamNames)) {
+    auto envIt = specializedTypeEnv.find(t);
+    if (envIt == specializedTypeEnv.end()) {
+      return false;
+    }
+    if (visitedNominalClasses.contains(t)) {
+      return false;
+    }
+    visitedNominalClasses.insert(t);
+    for (const auto& kv : envIt->second) {
+      if (typeUsesClassTypeParameter(kv.second, classParamNames, visitedNominalClasses)) {
+        visitedNominalClasses.erase(t);
         return true;
       }
     }
-    for (Field* f : t->getStaticFields()) {
-      if (typeUsesClassTypeParameter(f->type, classParamNames)) {
-        return true;
-      }
-    }
+    visitedNominalClasses.erase(t);
     return false;
   }
   if (t->is(BaseType::TY_TRAIT_EXISTENTIAL)) {
     if (auto it = specializedTraitExistentialEnv.find(t);
         it != specializedTraitExistentialEnv.end()) {
       for (const auto& kv : it->second) {
-        if (typeUsesClassTypeParameter(kv.second, classParamNames)) {
+        if (typeUsesClassTypeParameter(kv.second, classParamNames, visitedNominalClasses)) {
           return true;
         }
       }
@@ -5037,8 +5049,28 @@ auto Typechecker::visit(const DotOp* node) -> void {
   }
 
   node->getLeft()->accept(*this);
-  bool const dotLeftDenotesTypeName = (result->getCategory() == ValueCategory::TYPE_SYMBOL);
+  bool dotLeftDenotesTypeName = result->getCategory() == ValueCategory::TYPE_SYMBOL;
   Type* base = result->getType();
+  // `from "m" import C` binds `C` as MODULE_SYMBOL + TY_IMPORT; peel to the nominal type so static
+  // members use the same path as TYPE_SYMBOL receivers (and we do not fall through the module-dot
+  // handler that only keys off importAliasToPath).
+  if (auto* leftLit = dynamic_cast<Literal*>(node->getLeft());
+      leftLit != nullptr && leftLit->getType() == TokenType::IDENTIFIER &&
+      result->getCategory() == ValueCategory::MODULE_SYMBOL && base != nullptr &&
+      base->is(BaseType::TY_IMPORT)) {
+    if (auto srcIt = importedNameToSource.find(leftLit->getValue());
+        srcIt != importedNameToSource.end()) {
+      if (SymbolTable* imp = getOrTypecheckImport(srcIt->second.first)) {
+        if (Value* exported = imp->lookup(srcIt->second.second);
+            exported != nullptr && exported->getType() != nullptr &&
+            exported->getType()->isOneOf(
+                {BaseType::TY_CLASS, BaseType::TY_ENUM, BaseType::TY_TRAIT_EXISTENTIAL})) {
+          base = materializeImportedType(exported->getType());
+          dotLeftDenotesTypeName = true;
+        }
+      }
+    }
+  }
   auto isStdListClassType = [this](Type* type) -> bool {
     if (type == nullptr) {
       return false;

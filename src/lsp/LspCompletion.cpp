@@ -590,48 +590,69 @@ auto resolveMemberFieldType(Type* baseType, const std::string& name) -> Type* {
     return t;
   }
   if (baseType->is(BaseType::TY_CLASS)) {
-    if (Field* sf = TypeUtils::findStaticFieldInClass(baseType, name); sf != nullptr) {
-      return sf->type;
+    for (Type* currentType = baseType; currentType != nullptr;
+         currentType = currentType->getClassSuperclass()) {
+      if (Field* sf = TypeUtils::findStaticFieldInClass(currentType, name); sf != nullptr) {
+        return sf->type;
+      }
     }
   }
   return nullptr;
 }
 
-/** True when completing after `TypeName.` where `TypeName` is a type symbol (static members). */
-[[nodiscard]] auto memberCompletionUsesTypeNameContext(SymbolTable* scope, SymbolTable* root,
-                                                     const std::string& memberChain) -> bool {
-  std::vector<std::string> parts = splitChain(memberChain);
-  if (parts.size() != 1U) {
-    return false;
+/** Resolves the type denoted by `chain` before a member-completion dot: local/root `lookupName`,
+ *  qualified imports (`alias.ExportedName` via \p result), nested type fields, and repeated
+ *  `TY_IMPORT` steps when an import alias is bound in scope. */
+[[nodiscard]] auto resolveCompletionMemberChainType(const AnalysisResult& result,
+                                                  const std::string& chain, SymbolTable* scope,
+                                                  SymbolTable* root) -> Type* {
+  std::vector<std::string> const parts = splitChain(chain);
+  if (parts.empty()) {
+    return nullptr;
   }
-  Value* leaf = lookupName(scope, root, parts.front());
-  return leaf != nullptr && leaf->getCategory() == ValueCategory::TYPE_SYMBOL;
+  Value* v = lookupName(scope, root, parts[0]);
+  size_t idx = 1U;
+  if (v == nullptr && parts.size() >= 2U) {
+    v = lookupImportedModuleSymbol(result, parts[0], parts[1]);
+    if (v != nullptr) {
+      idx = 2U;
+    }
+  }
+  if (v == nullptr) {
+    return nullptr;
+  }
+  Type* ty = v->getType();
+  while (idx < parts.size()) {
+    if (ty != nullptr && ty->is(BaseType::TY_IMPORT)) {
+      v = lookupImportedModuleSymbol(result, v->getName(), parts[idx]);
+      if (v == nullptr) {
+        return nullptr;
+      }
+      ty = v->getType();
+      ++idx;
+      continue;
+    }
+    ty = resolveMemberFieldType(ty, parts[idx]);
+    if (ty == nullptr) {
+      return nullptr;
+    }
+    ++idx;
+  }
+  return ty;
+}
+
+/** True when completing after `ClassName.` / `mod.Class.` where the receiver denotes a class type
+ *  (static members and `new`), not other type symbols (e.g. enums) or instance chains. */
+[[nodiscard]] auto memberCompletionUsesTypeNameContext(const AnalysisResult& result,
+                                                       SymbolTable* scope, SymbolTable* root,
+                                                       const std::string& memberChain) -> bool {
+  Type* const ty = resolveCompletionMemberChainType(result, memberChain, scope, root);
+  return ty != nullptr && ty->is(BaseType::TY_CLASS);
 }
 
 auto resolveChainType(const AnalysisResult& result, const std::string& chain, SymbolTable* scope,
                       SymbolTable* root) -> Type* {
-  std::vector<std::string> parts = splitChain(chain);
-  if (parts.empty()) {
-    return nullptr;
-  }
-  Value* current = lookupName(scope, root, parts.front());
-  size_t nextPartIdx = 1U;
-  if (current == nullptr) {
-    current = lookupImportedModuleSymbol(result, parts.front(),
-                                         parts.size() > 1U ? parts[1U] : std::string{});
-    nextPartIdx = current != nullptr ? 2U : 1U;
-  }
-  if (current == nullptr) {
-    return nullptr;
-  }
-  Type* type = current->getType();
-  for (size_t i = nextPartIdx; i < parts.size(); ++i) {
-    type = resolveMemberFieldType(type, parts[i]);
-    if (type == nullptr) {
-      return nullptr;
-    }
-  }
-  return type;
+  return resolveCompletionMemberChainType(result, chain, scope, root);
 }
 
 /** When the receiver is `self`, resolve the class instance type from the innermost enclosing
@@ -1213,7 +1234,7 @@ auto completionItems(AnalysisResult& result, unsigned line, unsigned character)
       appendModuleMembersForAlias(*activeResult, parts.front(), candidates, seen);
     }
     bool const completingOnTypeName =
-        memberCompletionUsesTypeNameContext(activeScope, root, ctx.memberChain);
+        memberCompletionUsesTypeNameContext(*activeResult, activeScope, root, ctx.memberChain);
     appendMembersForType(*activeResult, baseType, ast, root, completionEnclosingClass,
                          completingOnTypeName, candidates, seen);
     appendTraitRequirementMethods(*activeResult, baseType, ast, root, completionEnclosingTrait,
