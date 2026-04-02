@@ -90,7 +90,8 @@ public:
         closureCaptureOuters(other.closureCaptureOuters),
         closureSlotOuter(other.closureSlotOuter), storesFuncValuePair(other.storesFuncValuePair),
         originLambdaExpr(other.originLambdaExpr),
-        closureCalleeUsesEnvParameter(other.closureCalleeUsesEnvParameter) {}
+        closureCalleeUsesEnvParameter(other.closureCalleeUsesEnvParameter),
+        staticMethod(other.staticMethod) {}
 
   ~Value() = default;
   auto operator=(const Value& other) -> Value& {
@@ -119,6 +120,7 @@ public:
       storesFuncValuePair = other.storesFuncValuePair;
       originLambdaExpr = other.originLambdaExpr;
       closureCalleeUsesEnvParameter = other.closureCalleeUsesEnvParameter;
+      staticMethod = other.staticMethod;
     }
     return *this;
   }
@@ -208,6 +210,9 @@ public:
   }
   auto setClosureCalleeUsesEnvParameter(bool v) -> void { closureCalleeUsesEnvParameter = v; }
 
+  [[nodiscard]] auto isStaticMethod() const -> bool { return staticMethod; }
+  auto setStaticMethod(bool v) -> void { staticMethod = v; }
+
   [[nodiscard]] auto toString() const -> std::string {
     std::string typeStr;
     std::string valueStr;
@@ -255,5 +260,6 @@ private:
   bool storesFuncValuePair = false;
   const LambdaExpr* originLambdaExpr = nullptr;
   bool closureCalleeUsesEnvParameter = false;
+  bool staticMethod = false;
 };
 } // namespace lesma

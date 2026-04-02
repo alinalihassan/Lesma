@@ -1,0 +1,44 @@
+# Static `let` fields are read-only class-scoped values; use them like named constants.
+class Limits {
+  static let min: int = 0
+  static let max: int = 100
+  static let step: int = 5
+
+  static func clamp(v: int) -> int {
+    if v < Limits.min {
+      return Limits.min
+    }
+    if v > Limits.max {
+      return Limits.max
+    }
+    return v
+  }
+}
+
+class Offsets {
+  static let a: int = 10
+  static let b: int = 20
+}
+
+func main() -> int {
+  if Limits.min != 0 {
+    return 1
+  }
+  if Limits.max != 100 {
+    return 2
+  }
+  if Limits.clamp(150) != 100 {
+    return 3
+  }
+  if Limits.clamp(-5) != 0 {
+    return 4
+  }
+  if Limits.clamp(42) != 42 {
+    return 5
+  }
+  var s: int = Offsets.a + Offsets.b + Limits.step
+  if s != 35 {
+    return 6
+  }
+  return 0
+}

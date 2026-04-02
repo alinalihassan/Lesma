@@ -1003,6 +1003,27 @@ auto Typechecker::materializeImportedType(Type* type) -> Type* {
       copy->addField(std::move(fieldCopy));
     }
     if (type->is(BaseType::TY_CLASS)) {
+      for (Field* field : type->getStaticFields()) {
+        auto fieldCopy =
+            std::make_unique<Field>(field->name, materializeImportedType(field->type));
+        fieldCopy->setDeclarationSpan(field->getDeclarationSpan());
+        fieldCopy->setDeclarationFilePath(field->getDeclarationFilePath());
+        if (Value* declarationSymbol = field->getDeclarationSymbol()) {
+          auto symbolCopy = std::make_unique<Value>(declarationSymbol->getName(),
+                                                    materializeImportedType(field->type));
+          symbolCopy->setCategory(declarationSymbol->getCategory());
+          symbolCopy->setDeclarationKind(declarationSymbol->getDeclarationKind());
+          symbolCopy->setDeclarationSpan(declarationSymbol->getDeclarationSpan());
+          symbolCopy->setDeclarationFilePath(declarationSymbol->getDeclarationFilePath());
+          symbolCopy->setMutable(declarationSymbol->getMutability());
+          symbolCopy->setPrivateMember(declarationSymbol->isPrivateMember());
+          if (Type* declCls = declarationSymbol->getMemberDeclaredInClass(); declCls != nullptr) {
+            symbolCopy->setMemberDeclaredInClass(materializeImportedType(declCls));
+          }
+          fieldCopy->setDeclarationSymbol(std::move(symbolCopy));
+        }
+        copy->addStaticField(std::move(fieldCopy));
+      }
       copy->setClassSuperclass(materializeImportedType(type->getClassSuperclass()));
       copy->setClassVtableMethodOrder(std::vector<std::string>(type->getClassVtableMethodOrder()));
       copy->setClassHasDerivedClass(type->getClassHasDerivedClass());
@@ -1257,6 +1278,86 @@ auto Typechecker::substituteInType(Type* t, const std::unordered_map<std::string
   return t;
 }
 
+auto Typechecker::typeUsesClassTypeParameter(
+    Type* t, const std::unordered_set<std::string>& classParamNames) const -> bool {
+  std::unordered_set<Type*> visitedNominalClasses;
+  return typeUsesClassTypeParameter(t, classParamNames, visitedNominalClasses);
+}
+
+auto Typechecker::typeUsesClassTypeParameter(
+    Type* t, const std::unordered_set<std::string>& classParamNames,
+    std::unordered_set<Type*>& visitedNominalClasses) const -> bool {
+  if (t == nullptr) {
+    return false;
+  }
+  if (t->is(BaseType::TY_GENERIC)) {
+    return classParamNames.contains(t->getGenericName());
+  }
+  if (t->is(BaseType::TY_PTR) || t->is(BaseType::TY_ARRAY)) {
+    return typeUsesClassTypeParameter(t->getElementType(), classParamNames, visitedNominalClasses);
+  }
+  if (t->is(BaseType::TY_FUNCTION)) {
+    for (Field* field : t->getFields()) {
+      if (typeUsesClassTypeParameter(field->type, classParamNames, visitedNominalClasses)) {
+        return true;
+      }
+    }
+    return typeUsesClassTypeParameter(t->getReturnType(), classParamNames, visitedNominalClasses);
+  }
+  if (t->is(BaseType::TY_TUPLE)) {
+    for (Field* field : t->getFields()) {
+      if (typeUsesClassTypeParameter(field->type, classParamNames, visitedNominalClasses)) {
+        return true;
+      }
+    }
+    return false;
+  }
+  if (t->is(BaseType::TY_UNION)) {
+    for (Type* m : t->getUnionMembers()) {
+      if (typeUsesClassTypeParameter(m, classParamNames, visitedNominalClasses)) {
+        return true;
+      }
+    }
+    return false;
+  }
+  if (t->is(BaseType::TY_CLASS)) {
+    auto envIt = specializedTypeEnv.find(t);
+    if (envIt == specializedTypeEnv.end()) {
+      // Unspecialized generic class template (declaration type) is not in specializedTypeEnv;
+      // treat it as using type parameters for static-field / similar restrictions.
+      Type* classTemplate = t;
+      if (auto tmplIt = specializedTypeToTemplate.find(t); tmplIt != specializedTypeToTemplate.end()) {
+        classTemplate = tmplIt->second;
+      }
+      return !classTemplate->getGenericParams().empty();
+    }
+    if (visitedNominalClasses.contains(t)) {
+      return false;
+    }
+    visitedNominalClasses.insert(t);
+    for (const auto& kv : envIt->second) {
+      if (typeUsesClassTypeParameter(kv.second, classParamNames, visitedNominalClasses)) {
+        visitedNominalClasses.erase(t);
+        return true;
+      }
+    }
+    visitedNominalClasses.erase(t);
+    return false;
+  }
+  if (t->is(BaseType::TY_TRAIT_EXISTENTIAL)) {
+    if (auto it = specializedTraitExistentialEnv.find(t);
+        it != specializedTraitExistentialEnv.end()) {
+      for (const auto& kv : it->second) {
+        if (typeUsesClassTypeParameter(kv.second, classParamNames, visitedNominalClasses)) {
+          return true;
+        }
+      }
+    }
+    return false;
+  }
+  return false;
+}
+
 auto Typechecker::inferGenericBindings(Type* pattern, Type* actual,
                                        std::unordered_map<std::string, Type*>& bindings,
                                        llvm::SMRange span) -> void {
@@ -1477,6 +1578,22 @@ auto Typechecker::getOrCreateSpecializedClassType(Type* classTemplate,
     newFields.push_back(std::move(nf));
   }
   ptr->replaceFields(std::move(newFields));
+  {
+    std::vector<std::unique_ptr<Field>> newStaticFields;
+    for (Field* f : classTemplate->getStaticFields()) {
+      Type* subst = substituteInType(f->type, env);
+      auto nf = std::make_unique<Field>(f->name, subst);
+      nf->setDeclarationSpan(f->getDeclarationSpan());
+      nf->setDeclarationFilePath(f->getDeclarationFilePath());
+      if (Value* ds = f->getDeclarationSymbol()) {
+        auto symCopy = std::make_unique<Value>(*ds);
+        symCopy->setType(subst);
+        nf->setDeclarationSymbol(std::move(symCopy));
+      }
+      newStaticFields.push_back(std::move(nf));
+    }
+    ptr->replaceStaticFields(std::move(newStaticFields));
+  }
   return ptr;
 }
 
@@ -1508,6 +1625,22 @@ void Typechecker::finalizeSpecializedTypesForTemplate(Type* classTemplate) {
       newFields.push_back(std::move(nf));
     }
     specPtr->replaceFields(std::move(newFields));
+    {
+      std::vector<std::unique_ptr<Field>> newStaticFields;
+      for (Field* f : classTemplate->getStaticFields()) {
+        Type* subst = substituteInType(f->type, env);
+        auto nf = std::make_unique<Field>(f->name, subst);
+        nf->setDeclarationSpan(f->getDeclarationSpan());
+        nf->setDeclarationFilePath(f->getDeclarationFilePath());
+        if (Value* ds = f->getDeclarationSymbol()) {
+          auto symCopy = std::make_unique<Value>(*ds);
+          symCopy->setType(subst);
+          nf->setDeclarationSymbol(std::move(symCopy));
+        }
+        newStaticFields.push_back(std::move(nf));
+      }
+      specPtr->replaceStaticFields(std::move(newStaticFields));
+    }
     specPtr->setDisplayName(makeSpecializedDisplayName(classTemplate, genericParamNames, env));
     if (classTemplate->getClassSuperclass() != nullptr) {
       specPtr->setClassSuperclass(substituteInType(classTemplate->getClassSuperclass(), env));
@@ -3423,7 +3556,7 @@ void Typechecker::mergeClassVtableOrder(const Class* node, Type* classTy,
     }
   }
   for (FuncDecl* m : node->getMethods()) {
-    if (m->getName() == "new") {
+    if (m->getName() == "new" || m->getIsStatic()) {
       continue;
     }
     std::string methodKey = vtableMethodKey(m->getResolvedSymbol());
@@ -3525,7 +3658,12 @@ auto Typechecker::visit(const Class* node) -> void {
     }
 
     classTemplateBeingDeclared = classTypePtr;
-    classFieldCountExpected = node->getFields().size();
+    classFieldCountExpected = classTypePtr->getFields().size();
+    for (VarDecl* f : node->getFields()) {
+      if (!f->getIsStatic()) {
+        classFieldCountExpected++;
+      }
+    }
 
     for (VarDecl* field : node->getFields()) {
       std::string const fname = field->getIdentifier()->getValue();
@@ -3536,14 +3674,20 @@ auto Typechecker::visit(const Class* node) -> void {
               "Field '{}' conflicts with a superclass field or duplicate declaration", fname);
         }
       }
+      for (Field* existing : classTypePtr->getStaticFields()) {
+        if (existing->name == fname) {
+          throw TypeCheckError(field->getSpan(), "Duplicate static field '{}'", fname);
+        }
+      }
       Type* fieldType = nullptr;
+      Type* initType = nullptr;
       if (field->getType() != nullptr) {
         field->getType()->accept(*this);
         fieldType = result->getType();
       }
       if (field->getValue() != nullptr) {
         field->getValue()->accept(*this);
-        Type* initType = result->getType();
+        initType = result->getType();
         if (fieldType != nullptr) {
           if (!isAssignableTo(initType, fieldType)) {
             throw TypeCheckError(
@@ -3558,6 +3702,22 @@ auto Typechecker::visit(const Class* node) -> void {
       if (fieldType == nullptr) {
         throw TypeCheckError(field->getSpan(), "Class field has no type");
       }
+      if (!node->getGenericParamDecls().empty() && field->getIsStatic()) {
+        std::unordered_set<std::string> classParamNames;
+        classParamNames.reserve(node->getGenericParamDecls().size());
+        for (const auto& p : node->getGenericParamDecls()) {
+          classParamNames.insert(p.name);
+        }
+        if (typeUsesClassTypeParameter(fieldType, classParamNames)) {
+          throw TypeCheckError(field->getSpan(),
+                               "Static field type cannot use the class's generic parameters");
+        }
+        if (initType != nullptr && typeUsesClassTypeParameter(initType, classParamNames)) {
+          throw TypeCheckError(
+              field->getSpan(),
+              "Static field initializer type cannot use the class's generic parameters");
+        }
+      }
       auto fieldEntry = std::make_unique<Field>(field->getIdentifier()->getValue(), fieldType);
       fieldEntry->setDeclarationSpan(field->getIdentifier()->getSpan());
       fieldEntry->setDeclarationFilePath(mainFilePath);
@@ -3570,9 +3730,16 @@ auto Typechecker::visit(const Class* node) -> void {
       fieldSymbol->setMemberDeclaredInClass(classTypePtr);
       fieldSymbol->setDeclarationSpan(field->getIdentifier()->getSpan());
       fieldSymbol->setDeclarationFilePath(mainFilePath);
+      if (fieldType != nullptr && fieldType->is(BaseType::TY_FUNCTION)) {
+        fieldSymbol->setStoresFuncValuePair(true);
+      }
       field->setResolvedSymbol(fieldSymbol.get());
       fieldEntry->setDeclarationSymbol(std::move(fieldSymbol));
-      classTypePtr->addField(std::move(fieldEntry));
+      if (field->getIsStatic()) {
+        classTypePtr->addStaticField(std::move(fieldEntry));
+      } else {
+        classTypePtr->addField(std::move(fieldEntry));
+      }
     }
 
     finalizeSpecializedTypesForTemplate(classTypePtr);
@@ -3595,9 +3762,11 @@ auto Typechecker::visit(const Class* node) -> void {
     currentMethodInsertScope = outerScope;
     SymbolTable* methodScope = scope->createChildBlock("method");
     scope = methodScope;
-    auto selfSymbol = std::make_unique<Value>("self", selfPtrType);
-    selfSymbol->setCategory(ValueCategory::ADDRESSABLE_STORAGE);
-    scope->insertSymbol(std::move(selfSymbol));
+    if (!func->getIsStatic()) {
+      auto selfSym = std::make_unique<Value>("self", selfPtrType);
+      selfSym->setCategory(ValueCategory::ADDRESSABLE_STORAGE);
+      scope->insertSymbol(std::move(selfSym));
+    }
     func->accept(*this);
     scope = scope->getParent();
     currentClassType = nullptr;
@@ -3652,11 +3821,14 @@ auto Typechecker::visit(const FuncDecl* node) -> void {
   }
   insertGenericParamSymbols(genericsScope, node->getGenericParamDecls(), currentGenericTypes,
                             mainFilePath);
+  if (node->getIsStatic() && node->getName() == "new") {
+    throw TypeCheckError(node->getNameSpan(), "Constructor `new` cannot be declared `static`");
+  }
   node->getReturnType()->accept(*this);
   Type* returnType = wrapReturnTypeIfNominal(result->getType());
   std::vector<std::unique_ptr<Field>> paramFields;
   std::vector<Type*> paramTypes;
-  if (currentClassType != nullptr) {
+  if (currentClassType != nullptr && !node->getIsStatic()) {
     Type* selfPtr = cacheType(std::make_unique<Type>(BaseType::TY_PTR, nullptr, currentClassType));
     paramFields.push_back(std::make_unique<Field>("self", selfPtr));
     paramTypes.push_back(selfPtr);
@@ -3732,6 +3904,7 @@ auto Typechecker::visit(const FuncDecl* node) -> void {
       }
       declaredFunc->setDeclarationSpan(node->getNameSpan());
       declaredFunc->setDeclarationFilePath(mainFilePath);
+      declaredFunc->setStaticMethod(node->getIsStatic());
       insertScope->insertSymbol(std::move(declaredFunc));
       funcSymbol = insertScope->lookupFunction(node->getName(), paramTypes,
                                                FunctionLookupKind::OVERLOAD_IDENTITY);
@@ -3748,6 +3921,7 @@ auto Typechecker::visit(const FuncDecl* node) -> void {
         funcSymbol->setPrivateMember(node->getIsPrivate());
         funcSymbol->setMemberDeclaredInClass(currentClassType);
       }
+      funcSymbol->setStaticMethod(node->getIsStatic());
       funcSymbol->setDeclarationSpan(node->getNameSpan());
       funcSymbol->setDeclarationFilePath(mainFilePath);
       // Set resolvedSymbol for existing symbol (this exact overload)
@@ -3759,7 +3933,7 @@ auto Typechecker::visit(const FuncDecl* node) -> void {
       funcSymbol->setBodyScope(child);
       SymbolTable* savedScopePtr = scope;
       scope = child;
-      const size_t paramOffset = (currentClassType != nullptr) ? 1U : 0U;
+      const size_t paramOffset = (currentClassType != nullptr) && !node->getIsStatic() ? 1U : 0U;
       for (size_t i = 0; i < node->getParameters().size(); ++i) {
         Parameter* param = node->getParameters()[i];
         auto paramSymbol = std::make_unique<Value>(param->name, paramTypes[paramOffset + i]);
@@ -4902,7 +5076,42 @@ auto Typechecker::visit(const DotOp* node) -> void {
   }
 
   node->getLeft()->accept(*this);
+  bool dotLeftDenotesTypeName = result->getCategory() == ValueCategory::TYPE_SYMBOL;
   Type* base = result->getType();
+  // `from "m" import C` binds `C` as MODULE_SYMBOL + TY_IMPORT; peel to the nominal type so static
+  // members use the same path as TYPE_SYMBOL receivers (and we do not fall through the module-dot
+  // handler that only keys off importAliasToPath).
+  if (auto* leftLit = dynamic_cast<Literal*>(node->getLeft());
+      leftLit != nullptr && leftLit->getType() == TokenType::IDENTIFIER &&
+      result->getCategory() == ValueCategory::MODULE_SYMBOL && base != nullptr &&
+      base->is(BaseType::TY_IMPORT)) {
+    if (auto srcIt = importedNameToSource.find(leftLit->getValue());
+        srcIt != importedNameToSource.end()) {
+      if (SymbolTable* imp = getOrTypecheckImport(srcIt->second.first)) {
+        if (Value* exported = imp->lookup(srcIt->second.second);
+            exported != nullptr && exported->getType() != nullptr &&
+            exported->getType()->isOneOf(
+                {BaseType::TY_CLASS, BaseType::TY_ENUM, BaseType::TY_TRAIT_EXISTENTIAL})) {
+          base = materializeImportedType(exported->getType());
+          dotLeftDenotesTypeName = true;
+        }
+      }
+    } else if (auto pathIt = importAliasToPath.find(leftLit->getValue());
+               pathIt != importAliasToPath.end()) {
+      if (SymbolTable* imp = getOrTypecheckImport(pathIt->second)) {
+        if (auto* rightId = dynamic_cast<Literal*>(node->getRight());
+            rightId != nullptr && rightId->getType() == TokenType::IDENTIFIER) {
+          if (Value* exported = imp->lookup(rightId->getValue());
+              exported != nullptr && exported->getType() != nullptr &&
+              exported->getType()->isOneOf(
+                  {BaseType::TY_CLASS, BaseType::TY_ENUM, BaseType::TY_TRAIT_EXISTENTIAL})) {
+            base = materializeImportedType(exported->getType());
+            dotLeftDenotesTypeName = true;
+          }
+        }
+      }
+    }
+  }
   auto isStdListClassType = [this](Type* type) -> bool {
     if (type == nullptr) {
       return false;
@@ -5230,12 +5439,19 @@ auto Typechecker::visit(const DotOp* node) -> void {
     if (templateIt != specializedTypeToTemplate.end()) {
       receiverForLookup = templateIt->second;
     }
-    Type* selfType =
-        receiverForLookup->is(BaseType::TY_PTR)
-            ? receiverForLookup
-            : cacheType(std::make_unique<Type>(BaseType::TY_PTR, nullptr, receiverForLookup));
-    std::vector<Type*> methodArgTypes = {selfType};
-    methodArgTypes.insert(methodArgTypes.end(), argTypes.begin(), argTypes.end());
+    std::vector<Type*> methodArgTypes;
+    bool const typeNameReceiver =
+        dotLeftDenotesTypeName && receiverForLookup->is(BaseType::TY_CLASS);
+    if (typeNameReceiver && fc->getName() != "new") {
+      methodArgTypes = argTypes;
+    } else {
+      Type* selfType =
+          receiverForLookup->is(BaseType::TY_PTR)
+              ? receiverForLookup
+              : cacheType(std::make_unique<Type>(BaseType::TY_PTR, nullptr, receiverForLookup));
+      methodArgTypes.push_back(selfType);
+      methodArgTypes.insert(methodArgTypes.end(), argTypes.begin(), argTypes.end());
+    }
     std::unordered_map<std::string, Type*> methodTypeEnv;
     auto specializedIt = specializedTypeEnv.find(base);
     if (specializedIt != specializedTypeEnv.end()) {
@@ -5261,11 +5477,22 @@ auto Typechecker::visit(const DotOp* node) -> void {
           if (SymbolTable* imp = getOrTypecheckImport(srcIt->second.first)) {
             method = imp->lookupFunction(fc->getName(), methodArgTypes);
           }
+        } else if (auto ap = importAliasToPath.find(leftLit->getValue());
+                   ap != importAliasToPath.end()) {
+          if (SymbolTable* imp = getOrTypecheckImport(ap->second)) {
+            method = imp->lookupFunction(fc->getName(), methodArgTypes);
+          }
         }
       }
     }
     if (method == nullptr) {
       throw TypeCheckError(node->getSpan(), "Function not found: {}", fc->getName());
+    }
+    if (typeNameReceiver && fc->getName() != "new" && !method->isStaticMethod()) {
+      throw TypeCheckError(node->getSpan(),
+                           "Cannot call instance method `{}` on a type name; call it on a value, "
+                           "or declare the method `static`",
+                           fc->getName());
     }
     fc->setResolvedSymbol(method);
     enforcePrivateMemberReadable(node->getSpan(), method);
@@ -5299,6 +5526,68 @@ auto Typechecker::visit(const DotOp* node) -> void {
       }
     }
     std::unordered_map<std::string, Type*> traitBoundSubs = methodTypeEnv;
+    // Infer class type parameters for `GenericClass.staticMethod(...)` when the dot receiver is the
+    // unspecialized class template (Swift-style: `Cell.of(7)` fixes `T` to `int`).
+    if (typeNameReceiver && fc->getName() != "new" && method->isStaticMethod() &&
+        receiverForLookup->is(BaseType::TY_CLASS)) {
+      const auto& classGenParams = getDeclaredGenericParams(receiverForLookup);
+      if (!classGenParams.empty()) {
+        std::unordered_map<std::string, Type*> inferredFromArgs;
+        std::vector<Field*> const& mtFields = methodType->getFields();
+        for (size_t i = 0; i < methodArgTypes.size() && i < mtFields.size(); ++i) {
+          inferGenericBindings(mtFields[i]->type, methodArgTypes[i], inferredFromArgs,
+                               node->getSpan());
+        }
+        for (const std::string& gn : classGenParams) {
+          auto inferredIt = inferredFromArgs.find(gn);
+          auto existingIt = traitBoundSubs.find(gn);
+          if (existingIt != traitBoundSubs.end()) {
+            if (inferredIt != inferredFromArgs.end() &&
+                !existingIt->second->isEqual(inferredIt->second)) {
+              throw TypeCheckError(node->getSpan(),
+                                   "Conflicting types for class type parameter `{}`: {} vs {}", gn,
+                                   existingIt->second->toString(), inferredIt->second->toString());
+            }
+            continue;
+          }
+          if (inferredIt == inferredFromArgs.end()) {
+            // Swift-style: `var x: Cell<int> = Cell.wrap_int(3)` — args may not mention `T`, but
+            // the enclosing expected type specializes the same class template.
+            Type* ctxClass = nullptr;
+            if (Type* exp = currentExpectedType(); exp != nullptr) {
+              Type* shape = exp;
+              if (shape->is(BaseType::TY_PTR) && shape->getElementType() != nullptr &&
+                  shape->getElementType()->is(BaseType::TY_CLASS)) {
+                shape = shape->getElementType();
+              }
+              if (shape->is(BaseType::TY_CLASS)) {
+                if (auto tit = specializedTypeToTemplate.find(shape);
+                    tit != specializedTypeToTemplate.end() &&
+                    tit->second->isEqual(receiverForLookup)) {
+                  ctxClass = shape;
+                }
+              }
+            }
+            if (ctxClass != nullptr) {
+              if (auto eit = specializedTypeEnv.find(ctxClass); eit != specializedTypeEnv.end()) {
+                auto cit = eit->second.find(gn);
+                if (cit != eit->second.end()) {
+                  traitBoundSubs[gn] = cit->second;
+                  continue;
+                }
+              }
+            }
+            throw TypeCheckError(
+                node->getSpan(),
+                "Cannot infer class type parameter `{}` from this static method call; use "
+                "arguments that determine `{}`, a contextual type (e.g. variable annotation), or "
+                "call through a specialized type",
+                gn, gn);
+          }
+          traitBoundSubs[gn] = inferredIt->second;
+        }
+      }
+    }
     if (fc->getExplicitTypeArgs().empty()) {
       const auto& methodGenericNames = methodType->getGenericParams();
       if (!methodGenericNames.empty()) {
@@ -5321,6 +5610,9 @@ auto Typechecker::visit(const DotOp* node) -> void {
     if (!traitBoundSubs.empty() && retType != nullptr) {
       retType = substituteInType(retType, traitBoundSubs);
     }
+    if (!traitBoundSubs.empty()) {
+      fc->setGenericBindingEnv(traitBoundSubs);
+    }
     result = std::make_unique<Value>(retType);
     return;
   }
@@ -5328,9 +5620,22 @@ auto Typechecker::visit(const DotOp* node) -> void {
     throw TypeCheckError(node->getSpan(), "Expected field name or method call after dot");
   }
   auto* rightLit = dynamic_cast<Literal*>(node->getRight());
-  Field* field = TypeUtils::findFieldInFields(base, rightLit->getValue());
+  Field* field = nullptr;
+  if (base->is(BaseType::TY_CLASS) && dotLeftDenotesTypeName) {
+    field = TypeUtils::findStaticFieldInClass(base, rightLit->getValue());
+  }
+  if (field == nullptr) {
+    field = TypeUtils::findFieldInFields(base, rightLit->getValue());
+  }
   if (field == nullptr || field->type == nullptr) {
     throw TypeCheckError(node->getSpan(), "Unknown field: {}", rightLit->getValue());
+  }
+  if (dotLeftDenotesTypeName && base->is(BaseType::TY_CLASS) &&
+      TypeUtils::findStaticFieldInClass(base, rightLit->getValue()) == nullptr) {
+    throw TypeCheckError(node->getSpan(),
+                         "Cannot access instance field `{}` on a type name; use a value, "
+                         "or declare the field `static`",
+                         rightLit->getValue());
   }
   if (field->getDeclarationSymbol() != nullptr) {
     rightLit->setResolvedSymbol(field->getDeclarationSymbol());

@@ -377,15 +377,17 @@ class VarDecl : public Statement {
   bool exported = false;
   /** Class body only: field is visible only inside methods of the declaring class. */
   bool isPrivate = false;
+  /** Class body only: one shared storage for the class (`static let` / `static var`). */
+  bool isStatic = false;
   /** Set by typechecker: one entry per `vars` (unpack) or one for a simple `let`. */
   mutable std::vector<Value*> resolvedSymbols;
 
 public:
   VarDecl(llvm::SMRange loc, std::vector<std::unique_ptr<Literal>> vars,
           std::unique_ptr<TypeExpr> type, std::unique_ptr<Expression> expr, bool isMutable,
-          bool exportedArg = false, bool privateField = false)
+          bool exportedArg = false, bool privateField = false, bool staticField = false)
       : Statement(loc), vars(std::move(vars)), type(std::move(type)), expr(std::move(expr)),
-        isMutable(isMutable), exported(exportedArg), isPrivate(privateField) {}
+        isMutable(isMutable), exported(exportedArg), isPrivate(privateField), isStatic(staticField) {}
   void accept(ASTVisitor& visitor) const override { visitor.visit(this); }
 
   [[nodiscard]] [[maybe_unused]] auto getIdentifier() const -> Literal* {
@@ -408,6 +410,7 @@ public:
   [[nodiscard]] [[maybe_unused]] auto getMutability() const -> bool { return isMutable; }
   [[nodiscard]] auto isExported() const -> bool { return exported; }
   [[nodiscard]] auto getIsPrivate() const -> bool { return isPrivate; }
+  [[nodiscard]] auto getIsStatic() const -> bool { return isStatic; }
   [[nodiscard]] auto getResolvedSymbol() const -> Value* {
     if (resolvedSymbols.empty()) {
       return nullptr;
@@ -585,6 +588,8 @@ class FuncDecl : public Statement {
   bool isPrivate = false;
   /** Class body: must be true to override an inherited instance method (same name + parameters). */
   bool declaresOverload = false;
+  /** Class body: no implicit `self` (`static func`). */
+  bool isStatic = false;
   /** Set by typechecker: the symbol for this overload (used by LSP for hover/definition). */
   mutable Value* resolvedSymbol = nullptr;
   mutable SymbolTable* genericScope = nullptr;
@@ -594,18 +599,19 @@ public:
            llvm::SMRange overloadGlyphSpan, std::vector<GenericParamDecl> genericParams,
            std::unique_ptr<TypeExpr> returnType, std::vector<std::unique_ptr<Parameter>> parameters,
            std::unique_ptr<Compound> body, bool varargs, bool exported, bool methodPrivate = false,
-           bool inheritanceOverload = false)
+           bool inheritanceOverload = false, bool methodStatic = false)
       : Statement(loc), name(std::move(name)), nameSpan(nameSpan),
         overloadGlyphSpan(overloadGlyphSpan), genericParams(std::move(genericParams)),
         returnType(std::move(returnType)), parameters(std::move(parameters)), body(std::move(body)),
         varargs(varargs), exported(exported), isPrivate(methodPrivate),
-        declaresOverload(inheritanceOverload) {}
+        declaresOverload(inheritanceOverload), isStatic(methodStatic) {}
   void accept(ASTVisitor& visitor) const override { visitor.visit(this); }
 
   [[nodiscard]] [[maybe_unused]] auto getName() const -> std::string { return name; }
   [[nodiscard]] [[maybe_unused]] auto getNameSpan() const -> llvm::SMRange { return nameSpan; }
   [[nodiscard]] auto getIsPrivate() const -> bool { return isPrivate; }
   [[nodiscard]] auto getDeclaresOverload() const -> bool { return declaresOverload; }
+  [[nodiscard]] auto getIsStatic() const -> bool { return isStatic; }
   [[nodiscard]] auto getOverloadGlyphSpan() const -> llvm::SMRange { return overloadGlyphSpan; }
   [[nodiscard]] [[maybe_unused]] auto getGenericParams() const -> std::vector<std::string> {
     std::vector<std::string> result;

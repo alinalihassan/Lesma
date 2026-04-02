@@ -585,33 +585,74 @@ auto resolveMemberFieldType(Type* baseType, const std::string& name) -> Type* {
   if (!baseType->is(BaseType::TY_CLASS) && !baseType->is(BaseType::TY_ENUM)) {
     return nullptr;
   }
-  return TypeUtils::findTypeInFields(baseType, name);
+  Type* t = TypeUtils::findTypeInFields(baseType, name);
+  if (t != nullptr) {
+    return t;
+  }
+  if (baseType->is(BaseType::TY_CLASS)) {
+    for (Type* currentType = baseType; currentType != nullptr;
+         currentType = currentType->getClassSuperclass()) {
+      if (Field* sf = TypeUtils::findStaticFieldInClass(currentType, name); sf != nullptr) {
+        return sf->type;
+      }
+    }
+  }
+  return nullptr;
+}
+
+/** Resolves the type denoted by `chain` before a member-completion dot: local/root `lookupName`,
+ *  qualified imports (`alias.ExportedName` via \p result), nested type fields, and repeated
+ *  `TY_IMPORT` steps when an import alias is bound in scope. */
+[[nodiscard]] auto resolveCompletionMemberChainType(const AnalysisResult& result,
+                                                  const std::string& chain, SymbolTable* scope,
+                                                  SymbolTable* root) -> Type* {
+  std::vector<std::string> const parts = splitChain(chain);
+  if (parts.empty()) {
+    return nullptr;
+  }
+  Value* v = lookupName(scope, root, parts[0]);
+  size_t idx = 1U;
+  if (v == nullptr && parts.size() >= 2U) {
+    v = lookupImportedModuleSymbol(result, parts[0], parts[1]);
+    if (v != nullptr) {
+      idx = 2U;
+    }
+  }
+  if (v == nullptr) {
+    return nullptr;
+  }
+  Type* ty = v->getType();
+  while (idx < parts.size()) {
+    if (ty != nullptr && ty->is(BaseType::TY_IMPORT)) {
+      v = lookupImportedModuleSymbol(result, v->getName(), parts[idx]);
+      if (v == nullptr) {
+        return nullptr;
+      }
+      ty = v->getType();
+      ++idx;
+      continue;
+    }
+    ty = resolveMemberFieldType(ty, parts[idx]);
+    if (ty == nullptr) {
+      return nullptr;
+    }
+    ++idx;
+  }
+  return ty;
+}
+
+/** True when completing after `ClassName.` / `mod.Class.` where the receiver denotes a class type
+ *  (static members and `new`), not other type symbols (e.g. enums) or instance chains. */
+[[nodiscard]] auto memberCompletionUsesTypeNameContext(const AnalysisResult& result,
+                                                       SymbolTable* scope, SymbolTable* root,
+                                                       const std::string& memberChain) -> bool {
+  Type* const ty = resolveCompletionMemberChainType(result, memberChain, scope, root);
+  return ty != nullptr && ty->is(BaseType::TY_CLASS);
 }
 
 auto resolveChainType(const AnalysisResult& result, const std::string& chain, SymbolTable* scope,
                       SymbolTable* root) -> Type* {
-  std::vector<std::string> parts = splitChain(chain);
-  if (parts.empty()) {
-    return nullptr;
-  }
-  Value* current = lookupName(scope, root, parts.front());
-  size_t nextPartIdx = 1U;
-  if (current == nullptr) {
-    current = lookupImportedModuleSymbol(result, parts.front(),
-                                         parts.size() > 1U ? parts[1U] : std::string{});
-    nextPartIdx = current != nullptr ? 2U : 1U;
-  }
-  if (current == nullptr) {
-    return nullptr;
-  }
-  Type* type = current->getType();
-  for (size_t i = nextPartIdx; i < parts.size(); ++i) {
-    type = resolveMemberFieldType(type, parts[i]);
-    if (type == nullptr) {
-      return nullptr;
-    }
-  }
-  return type;
+  return resolveCompletionMemberChainType(result, chain, scope, root);
 }
 
 /** When the receiver is `self`, resolve the class instance type from the innermost enclosing
@@ -822,14 +863,26 @@ auto findClassDeclarationForType(AnalysisResult& result, Type* classType, Compou
 }
 
 void appendMethodsForClass(AnalysisResult& result, Class* klass, SymbolTable* root,
-                           Class* completionEnclosingClass, std::vector<CompletionCandidate>& out,
+                           Class* completionEnclosingClass, bool completingOnTypeName,
+                           std::vector<CompletionCandidate>& out,
                            std::unordered_set<std::string>& seen) {
   if (klass == nullptr) {
     return;
   }
   AnalysisView const mainView = makeAnalysisView(result);
   for (FuncDecl* method : klass->getMethods()) {
-    if (method == nullptr || method->getName() == "new") {
+    if (method == nullptr) {
+      continue;
+    }
+    if (method->getName() == "new") {
+      if (!completingOnTypeName) {
+        continue;
+      }
+    } else if (method->getIsStatic()) {
+      if (!completingOnTypeName) {
+        continue;
+      }
+    } else if (completingOnTypeName) {
       continue;
     }
     if (method->getIsPrivate() && klass != completionEnclosingClass) {
@@ -886,9 +939,13 @@ void addCandidate(std::vector<CompletionCandidate>& out, std::unordered_set<std:
 
 void appendTraitRequirementMethods(AnalysisResult& result, Type* classType, Compound* mainAst,
                                    SymbolTable* root, TraitDecl* completionEnclosingTrait,
+                                   bool completingOnTypeName,
                                    std::vector<CompletionCandidate>& out,
                                    std::unordered_set<std::string>& seen) {
   if (classType == nullptr || root == nullptr) {
+    return;
+  }
+  if (completingOnTypeName) {
     return;
   }
   AnalysisView const mainView = makeAnalysisView(result);
@@ -963,7 +1020,8 @@ void appendBuiltinBufferListMethodCandidates(Type* bufferType, SymbolTable* root
 }
 
 void appendMembersForType(AnalysisResult& result, Type* baseType, Compound* ast, SymbolTable* root,
-                          Class* completionEnclosingClass, std::vector<CompletionCandidate>& out,
+                          Class* completionEnclosingClass, bool completingOnTypeName,
+                          std::vector<CompletionCandidate>& out,
                           std::unordered_set<std::string>& seen) {
   if (baseType == nullptr) {
     return;
@@ -979,29 +1037,50 @@ void appendMembersForType(AnalysisResult& result, Type* baseType, Compound* ast,
     return;
   }
 
-  for (Field* field : baseType->getFields()) {
-    if (field == nullptr) {
-      continue;
+  if (!completingOnTypeName) {
+    for (Field* field : baseType->getFields()) {
+      if (field == nullptr) {
+        continue;
+      }
+      if (Value* decl = field->getDeclarationSymbol(); decl != nullptr && decl->isPrivateMember()) {
+        continue;
+      }
+      addCandidate(out, seen,
+                   CompletionCandidate{.label = field->name,
+                                       .kind = baseType->is(BaseType::TY_ENUM)
+                                                   ? ::lsp::CompletionItemKind::EnumMember
+                                                   : ::lsp::CompletionItemKind::Field,
+                                       .detail = formatTypeName(field->type, root),
+                                       .documentation = {}});
     }
-    if (Value* decl = field->getDeclarationSymbol(); decl != nullptr && decl->isPrivateMember()) {
-      continue;
-    }
-    addCandidate(out, seen,
-                 CompletionCandidate{.label = field->name,
-                                     .kind = baseType->is(BaseType::TY_ENUM)
-                                                 ? ::lsp::CompletionItemKind::EnumMember
-                                                 : ::lsp::CompletionItemKind::Field,
-                                     .detail = formatTypeName(field->type, root),
-                                     .documentation = {}});
   }
 
   if (!baseType->is(BaseType::TY_CLASS) || root == nullptr) {
     return;
   }
+  if (completingOnTypeName) {
+    for (Type* ty = baseType; ty != nullptr; ty = ty->getClassSuperclass()) {
+      for (Field* sf : ty->getStaticFields()) {
+        if (sf == nullptr) {
+          continue;
+        }
+        if (Value* decl = sf->getDeclarationSymbol();
+            decl != nullptr && decl->isPrivateMember()) {
+          continue;
+        }
+        addCandidate(out, seen,
+                     CompletionCandidate{.label = sf->name,
+                                         .kind = ::lsp::CompletionItemKind::Field,
+                                         .detail = formatTypeName(sf->type, root),
+                                         .documentation = {}});
+      }
+    }
+  }
   // Walk inheritance chain so subclass completion includes superclass methods (deduped by `seen`).
   for (Type* ty = baseType; ty != nullptr; ty = ty->getClassSuperclass()) {
     if (Class* klass = findClassDeclarationForType(result, ty, ast, root)) {
-      appendMethodsForClass(result, klass, root, completionEnclosingClass, out, seen);
+      appendMethodsForClass(result, klass, root, completionEnclosingClass, completingOnTypeName, out,
+                            seen);
     }
   }
 }
@@ -1028,11 +1107,12 @@ void appendScopeSymbols(AnalysisResult& result, SymbolTable* scope, SymbolTable*
 }
 
 void appendKeywords(std::vector<CompletionCandidate>& out, std::unordered_set<std::string>& seen) {
-  static constexpr std::array<std::string_view, 28> keywords = {
+  static constexpr std::array<std::string_view, 29> keywords = {
       "and",    "as",      "break",  "class", "continue", "defer", "else",
       "enum",   "export",  "extern", "for",   "func",     "from",  "if",
       "import", "in",      "is",     "let",   "not",      "or",    "overload",
-      "pass",   "private", "return", "super", "this",     "var",   "while",
+      "pass",   "private", "return", "static", "super",   "this",  "var",
+      "while",
   };
   static constexpr std::array<std::string_view, 3> literals = {"false", "null", "true"};
   static constexpr std::array<std::string_view, 11> builtinTypes = {
@@ -1128,6 +1208,11 @@ auto completionItems(AnalysisResult& result, unsigned line, unsigned character)
   if (activeResult->parser == nullptr || activeResult->rootScope == nullptr) {
     return CompletionOutcome{};
   }
+  llvm::SourceMgr* activeSrcMgr = activeResult->sourceMgr.get();
+  unsigned const activeBufferId = activeResult->mainBufferId;
+  if (activeSrcMgr == nullptr) {
+    return CompletionOutcome{};
+  }
   Compound* ast = activeResult->parser->getAst();
   if (ast == nullptr) {
     return CompletionOutcome{};
@@ -1136,10 +1221,11 @@ auto completionItems(AnalysisResult& result, unsigned line, unsigned character)
   SymbolTable* activeScope = activeScopeForOffset(*activeResult, offset);
   SymbolTable* root = activeResult->rootScope.get();
 
-  InnermostFunc const cursorContext = findInnermostFuncContaining(ast, offset, srcMgr, bufferId);
+  InnermostFunc const cursorContext =
+      findInnermostFuncContaining(ast, offset, activeSrcMgr, activeBufferId);
   Class* const completionEnclosingClass = cursorContext.enclosingClass;
   TraitDecl* const completionEnclosingTrait =
-      findInnermostTraitDeclContaining(ast, offset, srcMgr, bufferId);
+      findInnermostTraitDeclContaining(ast, offset, activeSrcMgr, activeBufferId);
 
   std::vector<CompletionCandidate> candidates;
   std::unordered_set<std::string> seen;
@@ -1148,15 +1234,17 @@ auto completionItems(AnalysisResult& result, unsigned line, unsigned character)
     std::vector<std::string> parts = splitChain(ctx.memberChain);
     Type* baseType = resolveChainType(*activeResult, ctx.memberChain, activeScope, root);
     if (baseType == nullptr && parts.size() == 1U && parts.front() == "self") {
-      baseType = resolveSelfReceiverType(ast, offset, srcMgr, bufferId, root);
+      baseType = resolveSelfReceiverType(ast, offset, activeSrcMgr, activeBufferId, root);
     }
     if (parts.size() == 1U && activeResult->importAliasToPath.contains(parts.front())) {
       appendModuleMembersForAlias(*activeResult, parts.front(), candidates, seen);
     }
-    appendMembersForType(*activeResult, baseType, ast, root, completionEnclosingClass, candidates,
-                         seen);
+    bool const completingOnTypeName =
+        memberCompletionUsesTypeNameContext(*activeResult, activeScope, root, ctx.memberChain);
+    appendMembersForType(*activeResult, baseType, ast, root, completionEnclosingClass,
+                         completingOnTypeName, candidates, seen);
     appendTraitRequirementMethods(*activeResult, baseType, ast, root, completionEnclosingTrait,
-                                  candidates, seen);
+                                  completingOnTypeName, candidates, seen);
   } else {
     appendScopeSymbols(*activeResult, activeScope != nullptr ? activeScope : root, root, candidates,
                        seen);

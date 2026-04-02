@@ -248,6 +248,32 @@ auto Codegen::visit(const TypeExpr* node) -> void {
   }
 }
 
+auto Codegen::pushGenericTypeFallback(const std::unordered_map<std::string, lesma::Type*>* env)
+    -> void {
+  if (env != nullptr && !env->empty()) {
+    genericTypeFallbackStack.push_back(env);
+  }
+}
+
+auto Codegen::popGenericTypeFallback() -> void {
+  if (!genericTypeFallbackStack.empty()) {
+    genericTypeFallbackStack.pop_back();
+  }
+}
+
+auto Codegen::lookupGenericTypeFallback(const std::string& name) const -> lesma::Type* {
+  for (auto it = genericTypeFallbackStack.rbegin(); it != genericTypeFallbackStack.rend(); ++it) {
+    if (*it == nullptr) {
+      continue;
+    }
+    auto found = (*it)->find(name);
+    if (found != (*it)->end()) {
+      return found->second;
+    }
+  }
+  return nullptr;
+}
+
 auto Codegen::getOrCreateLlvmType(lesma::Type* type) -> llvm::Type* {
   if (type->getLlvmType() != nullptr) {
     return type->getLlvmType();
@@ -256,6 +282,9 @@ auto Codegen::getOrCreateLlvmType(lesma::Type* type) -> llvm::Type* {
   case BaseType::TY_GENERIC: {
     auto it = currentGenericTypes.find(type->getGenericName());
     if (it == currentGenericTypes.end()) {
+      if (lesma::Type* fb = lookupGenericTypeFallback(type->getGenericName()); fb != nullptr) {
+        return getOrCreateLlvmType(fb);
+      }
       throw CodegenError({}, "Unknown generic type {}", type->getGenericName());
     }
     return getOrCreateLlvmType(it->second);

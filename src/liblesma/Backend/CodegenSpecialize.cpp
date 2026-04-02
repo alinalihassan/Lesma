@@ -674,7 +674,7 @@ auto Codegen::computeGenericFunctionBindingEnv(const FuncDecl* node,
   }
   std::unordered_set<std::string> genericNameSet(genericNames.begin(), genericNames.end());
   auto templateParams = node->getParameters();
-  size_t offset = (selfSymbol != nullptr) ? 1U : 0U;
+  size_t offset = (selfSymbol != nullptr && !node->getIsStatic()) ? 1U : 0U;
   for (size_t i = 0; i < templateParams.size() && (i + offset) < paramTypes.size(); ++i) {
     TypeExpr* declType = templateParams[i]->type.get();
     if (declType != nullptr) {
@@ -720,8 +720,8 @@ auto Codegen::specializeFunction(
       getOrCreateLlvmType(explicitTypeArg);
     }
   }
-  std::string key =
-      getMangledName(node->getSpan(), node->getName(), paramTypes, selfSymbol != nullptr);
+  std::string key = getMangledName(node->getSpan(), node->getName(), paramTypes,
+                                   selfSymbol != nullptr && !node->getIsStatic());
   appendGenericBindingSuffix(node->getSpan(), key, genericNames, env);
   if (auto it = specializedFunctions.find(key); it != specializedFunctions.end()) {
     currentGenericTypes = std::move(saved);
@@ -730,13 +730,13 @@ auto Codegen::specializeFunction(
 
   std::vector<std::unique_ptr<Field>> fields;
   std::vector<lesma::Type*> concreteParamTypes;
-  if (selfSymbol != nullptr) {
-    Type* selfType = selfSymbol->getType();
-    if (selfType != nullptr && selfType->is(BaseType::TY_CLASS)) {
-      selfType = cacheType(std::make_unique<Type>(BaseType::TY_PTR, nullptr, selfType));
+  if (selfSymbol != nullptr && !node->getIsStatic()) {
+    Type* recvType = selfSymbol->getType();
+    if (recvType != nullptr && recvType->is(BaseType::TY_CLASS)) {
+      recvType = cacheType(std::make_unique<Type>(BaseType::TY_PTR, nullptr, recvType));
     }
-    fields.push_back(std::make_unique<Field>("self", selfType));
-    concreteParamTypes.push_back(selfType);
+    fields.push_back(std::make_unique<Field>("self", recvType));
+    concreteParamTypes.push_back(recvType);
   }
   for (auto* param : node->getParameters()) {
     param->type->accept(*this);
@@ -760,8 +760,8 @@ auto Codegen::specializeFunction(
   funcType->setReturnType(returnType);
   funcType->setVarArgs(node->getVarArgs());
   auto* typePtr = cacheType(std::move(funcType));
-  auto mangledName =
-      getMangledName(node->getSpan(), node->getName(), concreteParamTypes, selfSymbol != nullptr);
+  auto mangledName = getMangledName(node->getSpan(), node->getName(), concreteParamTypes,
+                                    selfSymbol != nullptr && !node->getIsStatic());
   appendGenericBindingSuffix(node->getSpan(), mangledName, genericNames, env);
   const bool specializationKeysMatch = (mangledName == key);
   auto func = std::make_unique<Value>(node->getName(), typePtr);
@@ -773,6 +773,7 @@ auto Codegen::specializeFunction(
     func->setDeclarationKind(selfSymbol != nullptr ? ValueDeclarationKind::METHOD
                                                    : ValueDeclarationKind::FUNCTION);
   }
+  func->setStaticMethod(node->getIsStatic());
   func->setMangledName(mangledName);
   func->setExported(node->isExported());
   auto linkage = node->isExported() ? Function::ExternalLinkage : Function::PrivateLinkage;
@@ -919,7 +920,9 @@ auto Codegen::specializeLambda(const LambdaExpr* node, const std::vector<lesma::
 
 auto Codegen::specializeClass(const Class* node,
                               const std::vector<lesma::Type*>& constructorArgTypes,
-                              const std::vector<lesma::Type*>& explicitTypeArgs) -> lesma::Value* {
+                              const std::vector<lesma::Type*>& explicitTypeArgs,
+                              const std::unordered_map<std::string, lesma::Type*>* prebuiltClassEnv)
+    -> lesma::Value* {
   auto genericNames = node->getGenericParams();
 
   const FuncDecl* constructorDecl = nullptr;
@@ -931,7 +934,19 @@ auto Codegen::specializeClass(const Class* node,
   }
 
   std::unordered_map<std::string, lesma::Type*> env;
-  if (!explicitTypeArgs.empty()) {
+  std::unordered_set<std::string> genericNameSet(genericNames.begin(), genericNames.end());
+
+  if (prebuiltClassEnv != nullptr) {
+    env = *prebuiltClassEnv;
+    for (const auto& gn : genericNames) {
+      auto it = env.find(gn);
+      if (it == env.end() || it->second == nullptr) {
+        throw CodegenError(node->getSpan(),
+                           "Internal error: incomplete specialization env for class {} parameter {}",
+                           node->getIdentifier(), gn);
+      }
+    }
+  } else if (!explicitTypeArgs.empty()) {
     if (explicitTypeArgs.size() != genericNames.size()) {
       throw CodegenError(node->getSpan(),
                          "Explicit type argument count {} does not match generic class parameter "
@@ -941,8 +956,15 @@ auto Codegen::specializeClass(const Class* node,
     for (size_t i = 0; i < genericNames.size(); ++i) {
       env[genericNames[i]] = explicitTypeArgs[i];
     }
-  }
-  std::unordered_set<std::string> genericNameSet(genericNames.begin(), genericNames.end());
+    for (const auto& gn : genericNames) {
+      if (!env.contains(gn)) {
+        throw CodegenError(node->getSpan(),
+                           "Generic class {} requires type arguments for all parameters; "
+                           "could not infer {} from constructor",
+                           node->getIdentifier(), gn);
+      }
+    }
+  } else {
   const bool needsConstructorInference = explicitTypeArgs.empty();
   bool constructorEnvResolved = false;
   if (needsConstructorInference && constructorDecl != nullptr) {
@@ -993,6 +1015,9 @@ auto Codegen::specializeClass(const Class* node,
   if (!constructorEnvResolved && needsConstructorInference && constructorDecl == nullptr) {
     std::vector<VarDecl*> requiredFields;
     for (VarDecl* fd : node->getFields()) {
+      if (fd->getIsStatic()) {
+        continue;
+      }
       if (fd->getValue() == nullptr) {
         requiredFields.push_back(fd);
       }
@@ -1019,6 +1044,7 @@ auto Codegen::specializeClass(const Class* node,
                          "could not infer {} from constructor",
                          node->getIdentifier(), gn);
     }
+  }
   }
 
   auto envIsFullyConcrete =
@@ -1126,6 +1152,9 @@ auto Codegen::specializeClass(const Class* node,
     }
   } else {
     for (auto* field : node->getFields()) {
+      if (field->getIsStatic()) {
+        continue;
+      }
       if (field->getType() != nullptr) {
         field->getType()->accept(*this);
       } else {

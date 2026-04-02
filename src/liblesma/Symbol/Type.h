@@ -94,6 +94,8 @@ class Type {
   std::vector<std::string> classVtableMethodOrder;
   // Owned collection of Fields
   std::vector<std::unique_ptr<Field>> fields;
+  /** For TY_CLASS: static `let`/`var` (not part of instance layout). */
+  std::vector<std::unique_ptr<Field>> staticFields;
   llvm::SMRange declarationSpan;
   std::string declarationFilePath;
   bool varArgs = false;
@@ -181,6 +183,15 @@ public:
     return result;
   }
 
+  [[nodiscard]] auto getStaticFields() const -> std::vector<Field*> {
+    std::vector<Field*> result;
+    result.reserve(staticFields.size());
+    for (const auto& field : staticFields) {
+      result.push_back(field.get());
+    }
+    return result;
+  }
+
   auto setLlvmType(llvm::Type* type) -> void { llvmType = type; }
   auto setBaseType(BaseType type) -> void { baseType = type; }
   auto setElementType(Type* type) -> void { elementType = type; }
@@ -217,10 +228,16 @@ public:
   auto setDeclarationFilePath(std::string path) -> void { declarationFilePath = std::move(path); }
   auto setVarArgs(bool value) -> void { varArgs = value; }
   auto addField(std::unique_ptr<Field> field) -> void { fields.push_back(std::move(field)); }
+  auto addStaticField(std::unique_ptr<Field> field) -> void {
+    staticFields.push_back(std::move(field));
+  }
   /** Replace all fields (e.g. refresh a placeholder specialization after the template is complete).
    */
   auto replaceFields(std::vector<std::unique_ptr<Field>> newFields) -> void {
     fields = std::move(newFields);
+  }
+  auto replaceStaticFields(std::vector<std::unique_ptr<Field>> newFields) -> void {
+    staticFields = std::move(newFields);
   }
 
   [[nodiscard]] auto getUnionMembers() const -> const std::vector<Type*>& { return unionMembers; }
@@ -338,6 +355,27 @@ private:
         }
         Type* lt = lf[i]->type;
         Type* rt = rf[i]->type;
+        if (lt == nullptr || rt == nullptr) {
+          if (lt != rt) {
+            return false;
+          }
+          continue;
+        }
+        if (!lt->isEqualImpl(rt, active)) {
+          return false;
+        }
+      }
+      auto lsf = getStaticFields();
+      auto rsf = rhs->getStaticFields();
+      if (lsf.size() != rsf.size()) {
+        return false;
+      }
+      for (size_t i = 0; i < lsf.size(); ++i) {
+        if (lsf[i]->name != rsf[i]->name) {
+          return false;
+        }
+        Type* lt = lsf[i]->type;
+        Type* rt = rsf[i]->type;
         if (lt == nullptr || rt == nullptr) {
           if (lt != rt) {
             return false;

@@ -1,0 +1,8 @@
+class C {
+  static func new() -> void {
+  }
+}
+
+func main() -> int {
+  return 0
+}
