@@ -1208,6 +1208,11 @@ auto completionItems(AnalysisResult& result, unsigned line, unsigned character)
   if (activeResult->parser == nullptr || activeResult->rootScope == nullptr) {
     return CompletionOutcome{};
   }
+  llvm::SourceMgr* activeSrcMgr = activeResult->sourceMgr.get();
+  unsigned const activeBufferId = activeResult->mainBufferId;
+  if (activeSrcMgr == nullptr) {
+    return CompletionOutcome{};
+  }
   Compound* ast = activeResult->parser->getAst();
   if (ast == nullptr) {
     return CompletionOutcome{};
@@ -1216,10 +1221,11 @@ auto completionItems(AnalysisResult& result, unsigned line, unsigned character)
   SymbolTable* activeScope = activeScopeForOffset(*activeResult, offset);
   SymbolTable* root = activeResult->rootScope.get();
 
-  InnermostFunc const cursorContext = findInnermostFuncContaining(ast, offset, srcMgr, bufferId);
+  InnermostFunc const cursorContext =
+      findInnermostFuncContaining(ast, offset, activeSrcMgr, activeBufferId);
   Class* const completionEnclosingClass = cursorContext.enclosingClass;
   TraitDecl* const completionEnclosingTrait =
-      findInnermostTraitDeclContaining(ast, offset, srcMgr, bufferId);
+      findInnermostTraitDeclContaining(ast, offset, activeSrcMgr, activeBufferId);
 
   std::vector<CompletionCandidate> candidates;
   std::unordered_set<std::string> seen;
@@ -1228,7 +1234,7 @@ auto completionItems(AnalysisResult& result, unsigned line, unsigned character)
     std::vector<std::string> parts = splitChain(ctx.memberChain);
     Type* baseType = resolveChainType(*activeResult, ctx.memberChain, activeScope, root);
     if (baseType == nullptr && parts.size() == 1U && parts.front() == "self") {
-      baseType = resolveSelfReceiverType(ast, offset, srcMgr, bufferId, root);
+      baseType = resolveSelfReceiverType(ast, offset, activeSrcMgr, activeBufferId, root);
     }
     if (parts.size() == 1U && activeResult->importAliasToPath.contains(parts.front())) {
       appendModuleMembersForAlias(*activeResult, parts.front(), candidates, seen);

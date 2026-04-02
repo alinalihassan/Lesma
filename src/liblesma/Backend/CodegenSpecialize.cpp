@@ -731,12 +731,12 @@ auto Codegen::specializeFunction(
   std::vector<std::unique_ptr<Field>> fields;
   std::vector<lesma::Type*> concreteParamTypes;
   if (selfSymbol != nullptr && !node->getIsStatic()) {
-    Type* selfType = selfSymbol->getType();
-    if (selfType != nullptr && selfType->is(BaseType::TY_CLASS)) {
-      selfType = cacheType(std::make_unique<Type>(BaseType::TY_PTR, nullptr, selfType));
+    Type* recvType = selfSymbol->getType();
+    if (recvType != nullptr && recvType->is(BaseType::TY_CLASS)) {
+      recvType = cacheType(std::make_unique<Type>(BaseType::TY_PTR, nullptr, recvType));
     }
-    fields.push_back(std::make_unique<Field>("self", selfType));
-    concreteParamTypes.push_back(selfType);
+    fields.push_back(std::make_unique<Field>("self", recvType));
+    concreteParamTypes.push_back(recvType);
   }
   for (auto* param : node->getParameters()) {
     param->type->accept(*this);
@@ -761,7 +761,7 @@ auto Codegen::specializeFunction(
   funcType->setVarArgs(node->getVarArgs());
   auto* typePtr = cacheType(std::move(funcType));
   auto mangledName = getMangledName(node->getSpan(), node->getName(), concreteParamTypes,
-                                     selfSymbol != nullptr && !node->getIsStatic());
+                                    selfSymbol != nullptr && !node->getIsStatic());
   appendGenericBindingSuffix(node->getSpan(), mangledName, genericNames, env);
   const bool specializationKeysMatch = (mangledName == key);
   auto func = std::make_unique<Value>(node->getName(), typePtr);

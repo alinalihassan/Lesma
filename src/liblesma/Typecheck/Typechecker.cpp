@@ -1003,6 +1003,27 @@ auto Typechecker::materializeImportedType(Type* type) -> Type* {
       copy->addField(std::move(fieldCopy));
     }
     if (type->is(BaseType::TY_CLASS)) {
+      for (Field* field : type->getStaticFields()) {
+        auto fieldCopy =
+            std::make_unique<Field>(field->name, materializeImportedType(field->type));
+        fieldCopy->setDeclarationSpan(field->getDeclarationSpan());
+        fieldCopy->setDeclarationFilePath(field->getDeclarationFilePath());
+        if (Value* declarationSymbol = field->getDeclarationSymbol()) {
+          auto symbolCopy = std::make_unique<Value>(declarationSymbol->getName(),
+                                                    materializeImportedType(field->type));
+          symbolCopy->setCategory(declarationSymbol->getCategory());
+          symbolCopy->setDeclarationKind(declarationSymbol->getDeclarationKind());
+          symbolCopy->setDeclarationSpan(declarationSymbol->getDeclarationSpan());
+          symbolCopy->setDeclarationFilePath(declarationSymbol->getDeclarationFilePath());
+          symbolCopy->setMutable(declarationSymbol->getMutability());
+          symbolCopy->setPrivateMember(declarationSymbol->isPrivateMember());
+          if (Type* declCls = declarationSymbol->getMemberDeclaredInClass(); declCls != nullptr) {
+            symbolCopy->setMemberDeclaredInClass(materializeImportedType(declCls));
+          }
+          fieldCopy->setDeclarationSymbol(std::move(symbolCopy));
+        }
+        copy->addStaticField(std::move(fieldCopy));
+      }
       copy->setClassSuperclass(materializeImportedType(type->getClassSuperclass()));
       copy->setClassVtableMethodOrder(std::vector<std::string>(type->getClassVtableMethodOrder()));
       copy->setClassHasDerivedClass(type->getClassHasDerivedClass());
@@ -1302,7 +1323,13 @@ auto Typechecker::typeUsesClassTypeParameter(
   if (t->is(BaseType::TY_CLASS)) {
     auto envIt = specializedTypeEnv.find(t);
     if (envIt == specializedTypeEnv.end()) {
-      return false;
+      // Unspecialized generic class template (declaration type) is not in specializedTypeEnv;
+      // treat it as using type parameters for static-field / similar restrictions.
+      Type* classTemplate = t;
+      if (auto tmplIt = specializedTypeToTemplate.find(t); tmplIt != specializedTypeToTemplate.end()) {
+        classTemplate = tmplIt->second;
+      }
+      return !classTemplate->getGenericParams().empty();
     }
     if (visitedNominalClasses.contains(t)) {
       return false;
@@ -3631,7 +3658,7 @@ auto Typechecker::visit(const Class* node) -> void {
     }
 
     classTemplateBeingDeclared = classTypePtr;
-    classFieldCountExpected = 0;
+    classFieldCountExpected = classTypePtr->getFields().size();
     for (VarDecl* f : node->getFields()) {
       if (!f->getIsStatic()) {
         classFieldCountExpected++;
@@ -5069,6 +5096,20 @@ auto Typechecker::visit(const DotOp* node) -> void {
           dotLeftDenotesTypeName = true;
         }
       }
+    } else if (auto pathIt = importAliasToPath.find(leftLit->getValue());
+               pathIt != importAliasToPath.end()) {
+      if (SymbolTable* imp = getOrTypecheckImport(pathIt->second)) {
+        if (auto* rightId = dynamic_cast<Literal*>(node->getRight());
+            rightId != nullptr && rightId->getType() == TokenType::IDENTIFIER) {
+          if (Value* exported = imp->lookup(rightId->getValue());
+              exported != nullptr && exported->getType() != nullptr &&
+              exported->getType()->isOneOf(
+                  {BaseType::TY_CLASS, BaseType::TY_ENUM, BaseType::TY_TRAIT_EXISTENTIAL})) {
+            base = materializeImportedType(exported->getType());
+            dotLeftDenotesTypeName = true;
+          }
+        }
+      }
     }
   }
   auto isStdListClassType = [this](Type* type) -> bool {
@@ -5434,6 +5475,11 @@ auto Typechecker::visit(const DotOp* node) -> void {
         if (auto srcIt = importedNameToSource.find(leftLit->getValue());
             srcIt != importedNameToSource.end()) {
           if (SymbolTable* imp = getOrTypecheckImport(srcIt->second.first)) {
+            method = imp->lookupFunction(fc->getName(), methodArgTypes);
+          }
+        } else if (auto ap = importAliasToPath.find(leftLit->getValue());
+                   ap != importAliasToPath.end()) {
+          if (SymbolTable* imp = getOrTypecheckImport(ap->second)) {
             method = imp->lookupFunction(fc->getName(), methodArgTypes);
           }
         }

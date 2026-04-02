@@ -122,6 +122,9 @@ class Codegen final : public ASTVisitor {
   std::unordered_map<std::string, std::unordered_map<std::string, const FuncDecl*>> genericMethods;
   std::unordered_map<std::string, const Class*> genericClasses;
   std::unordered_map<std::string, lesma::Type*> currentGenericTypes;
+  /** Stack of call-site binding maps for `getOrCreateLlvmType` when `currentGenericTypes` is empty
+   * (e.g. `Cell.of(7)` nested inside `main`). */
+  std::vector<const std::unordered_map<std::string, lesma::Type*>*> genericTypeFallbackStack;
   std::unordered_map<std::string, lesma::Value*> specializedFunctions;
   std::unordered_map<std::string, lesma::Value*> specializedClasses;
   std::unordered_map<lesma::Type*, lesma::Value*> specializedClassSymbolsByType;
@@ -509,6 +512,9 @@ protected:
 
   /** Ensure \p type has an LLVM type (fill in when from typechecker). */
   auto getOrCreateLlvmType(lesma::Type* type) -> llvm::Type*;
+  auto pushGenericTypeFallback(const std::unordered_map<std::string, lesma::Type*>* env) -> void;
+  auto popGenericTypeFallback() -> void;
+  [[nodiscard]] auto lookupGenericTypeFallback(const std::string& name) const -> lesma::Type*;
   /** LLVM integer tag type for \c TY_UNION (first struct field); requires \p unionTy to be a union.
    */
   [[nodiscard]] auto getOrCreateUnionTagLlvmType(lesma::Type* unionTy) -> llvm::Type*;
