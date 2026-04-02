@@ -1,0 +1,29 @@
+# Swift-style static methods on a generic class: T is the class type parameter.
+class Cell<T> {
+  var x: T
+
+  func new(v: T) {
+    self.x = v
+  }
+
+  static func of(v: T) -> Cell<T> {
+    return Cell(v)
+  }
+
+  static func wrap_int(n: int) -> Cell<int> {
+    return Cell(n)
+  }
+}
+
+
+func main() -> int {
+  var a = Cell.of(7)
+  if a.x != 7 {
+    return 1
+  }
+  var b: Cell<int> = Cell.wrap_int(3)
+  if b.x != 3 {
+    return 2
+  }
+  return 0
+}

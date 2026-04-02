@@ -56,6 +56,7 @@ using MainFnTy = int();
 class Class;
 class TraitDecl;
 class FuncDecl;
+class FuncCall;
 class LambdaExpr;
 
 struct ImportedSpecializationState {
@@ -376,7 +377,9 @@ protected:
   auto callMethodByName(llvm::SMRange span, lesma::Value* receiver, const std::string& methodName,
                         const std::vector<lesma::Value*>& args = {},
                         const std::vector<lesma::Type*>& explicitTypeArgs = {},
-                        lesma::Value* resolvedCallee = nullptr) -> std::unique_ptr<lesma::Value>;
+                        lesma::Value* resolvedCallee = nullptr,
+                        const FuncCall* callSiteForGenericEnv = nullptr)
+      -> std::unique_ptr<lesma::Value>;
   auto emitClassStaticFieldGlobals(lesma::Type* classTy, const Class* astNode) -> void;
   auto defineFunction(lesma::Value* value, const FuncDecl* node, Value* clsSymbol) -> void;
   auto declareSynthesizedClassConstructor(const Class* astNode, lesma::Type* classType,
@@ -413,7 +416,9 @@ protected:
   auto defineLambdaFunction(lesma::Value* value, const LambdaExpr* node) -> void;
   [[nodiscard]] auto getFuncValuePairLlvmType() -> llvm::StructType*;
   auto specializeClass(const Class* node, const std::vector<lesma::Type*>& constructorArgTypes,
-                       const std::vector<lesma::Type*>& explicitTypeArgs = {}) -> lesma::Value*;
+                       const std::vector<lesma::Type*>& explicitTypeArgs = {},
+                       const std::unordered_map<std::string, lesma::Type*>* prebuiltClassEnv = nullptr)
+      -> lesma::Value*;
   auto emitClassMonomorph(lesma::Type* specialized, const Class* templateAst) -> lesma::Value*;
   [[nodiscard]] auto wrapNominalReturnAsPointer(Type* t) -> Type*;
   /** Match `super` callee receiver type (mirrors Typechecker::superMethodReceiverMatchesFormal). */

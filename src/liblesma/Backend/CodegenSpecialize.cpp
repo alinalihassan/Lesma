@@ -920,7 +920,9 @@ auto Codegen::specializeLambda(const LambdaExpr* node, const std::vector<lesma::
 
 auto Codegen::specializeClass(const Class* node,
                               const std::vector<lesma::Type*>& constructorArgTypes,
-                              const std::vector<lesma::Type*>& explicitTypeArgs) -> lesma::Value* {
+                              const std::vector<lesma::Type*>& explicitTypeArgs,
+                              const std::unordered_map<std::string, lesma::Type*>* prebuiltClassEnv)
+    -> lesma::Value* {
   auto genericNames = node->getGenericParams();
 
   const FuncDecl* constructorDecl = nullptr;
@@ -932,7 +934,19 @@ auto Codegen::specializeClass(const Class* node,
   }
 
   std::unordered_map<std::string, lesma::Type*> env;
-  if (!explicitTypeArgs.empty()) {
+  std::unordered_set<std::string> genericNameSet(genericNames.begin(), genericNames.end());
+
+  if (prebuiltClassEnv != nullptr) {
+    env = *prebuiltClassEnv;
+    for (const auto& gn : genericNames) {
+      auto it = env.find(gn);
+      if (it == env.end() || it->second == nullptr) {
+        throw CodegenError(node->getSpan(),
+                           "Internal error: incomplete specialization env for class {} parameter {}",
+                           node->getIdentifier(), gn);
+      }
+    }
+  } else if (!explicitTypeArgs.empty()) {
     if (explicitTypeArgs.size() != genericNames.size()) {
       throw CodegenError(node->getSpan(),
                          "Explicit type argument count {} does not match generic class parameter "
@@ -942,8 +956,15 @@ auto Codegen::specializeClass(const Class* node,
     for (size_t i = 0; i < genericNames.size(); ++i) {
       env[genericNames[i]] = explicitTypeArgs[i];
     }
-  }
-  std::unordered_set<std::string> genericNameSet(genericNames.begin(), genericNames.end());
+    for (const auto& gn : genericNames) {
+      if (!env.contains(gn)) {
+        throw CodegenError(node->getSpan(),
+                           "Generic class {} requires type arguments for all parameters; "
+                           "could not infer {} from constructor",
+                           node->getIdentifier(), gn);
+      }
+    }
+  } else {
   const bool needsConstructorInference = explicitTypeArgs.empty();
   bool constructorEnvResolved = false;
   if (needsConstructorInference && constructorDecl != nullptr) {
@@ -1023,6 +1044,7 @@ auto Codegen::specializeClass(const Class* node,
                          "could not infer {} from constructor",
                          node->getIdentifier(), gn);
     }
+  }
   }
 
   auto envIsFullyConcrete =

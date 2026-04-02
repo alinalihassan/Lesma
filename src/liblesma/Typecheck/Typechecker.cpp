@@ -5339,6 +5339,70 @@ auto Typechecker::visit(const DotOp* node) -> void {
       }
     }
     std::unordered_map<std::string, Type*> traitBoundSubs = methodTypeEnv;
+    // Infer class type parameters for `GenericClass.staticMethod(...)` when the dot receiver is the
+    // unspecialized class template (Swift-style: `Cell.of(7)` fixes `T` to `int`).
+    if (typeNameReceiver && fc->getName() != "new" && method->isStaticMethod() &&
+        receiverForLookup->is(BaseType::TY_CLASS)) {
+      const auto& classGenParams = getDeclaredGenericParams(receiverForLookup);
+      if (!classGenParams.empty()) {
+        std::unordered_map<std::string, Type*> inferredFromArgs;
+        std::vector<Field*> const& mtFields = methodType->getFields();
+        for (size_t i = 0; i < methodArgTypes.size() && i < mtFields.size(); ++i) {
+          inferGenericBindings(mtFields[i]->type, methodArgTypes[i], inferredFromArgs,
+                               node->getSpan());
+        }
+        for (const std::string& gn : classGenParams) {
+          auto inferredIt = inferredFromArgs.find(gn);
+          auto existingIt = traitBoundSubs.find(gn);
+          if (existingIt != traitBoundSubs.end()) {
+            if (inferredIt != inferredFromArgs.end() &&
+                !existingIt->second->isEqual(inferredIt->second)) {
+              throw TypeCheckError(node->getSpan(),
+                                   "Conflicting types for class type parameter `{}`: {} vs {}",
+                                   gn, existingIt->second->toString(),
+                                   inferredIt->second->toString());
+            }
+            continue;
+          }
+          if (inferredIt == inferredFromArgs.end()) {
+            // Swift-style: `var x: Cell<int> = Cell.wrap_int(3)` — args may not mention `T`, but the
+            // enclosing expected type specializes the same class template.
+            Type* ctxClass = nullptr;
+            if (Type* exp = currentExpectedType(); exp != nullptr) {
+              Type* shape = exp;
+              if (shape->is(BaseType::TY_PTR) && shape->getElementType() != nullptr &&
+                  shape->getElementType()->is(BaseType::TY_CLASS)) {
+                shape = shape->getElementType();
+              }
+              if (shape->is(BaseType::TY_CLASS)) {
+                if (auto tit = specializedTypeToTemplate.find(shape);
+                    tit != specializedTypeToTemplate.end() &&
+                    tit->second->isEqual(receiverForLookup)) {
+                  ctxClass = shape;
+                }
+              }
+            }
+            if (ctxClass != nullptr) {
+              if (auto eit = specializedTypeEnv.find(ctxClass);
+                  eit != specializedTypeEnv.end()) {
+                auto cit = eit->second.find(gn);
+                if (cit != eit->second.end()) {
+                  traitBoundSubs[gn] = cit->second;
+                  continue;
+                }
+              }
+            }
+            throw TypeCheckError(
+                node->getSpan(),
+                "Cannot infer class type parameter `{}` from this static method call; use "
+                "arguments that determine `{}`, a contextual type (e.g. variable annotation), or "
+                "call through a specialized type",
+                gn, gn);
+          }
+          traitBoundSubs[gn] = inferredIt->second;
+        }
+      }
+    }
     if (fc->getExplicitTypeArgs().empty()) {
       const auto& methodGenericNames = methodType->getGenericParams();
       if (!methodGenericNames.empty()) {
@@ -5360,6 +5424,9 @@ auto Typechecker::visit(const DotOp* node) -> void {
     Type* retType = methodType->getReturnType();
     if (!traitBoundSubs.empty() && retType != nullptr) {
       retType = substituteInType(retType, traitBoundSubs);
+    }
+    if (!traitBoundSubs.empty()) {
+      fc->setGenericBindingEnv(traitBoundSubs);
     }
     result = std::make_unique<Value>(retType);
     return;

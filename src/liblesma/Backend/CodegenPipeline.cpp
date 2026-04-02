@@ -625,6 +625,7 @@ auto Codegen::run() -> void {
   for (size_t pi = 0; pi < prototypes.size(); ++pi) {
     auto* fn = std::get<0>(prototypes[pi]);
     auto savedGenerics = currentGenericTypes;
+    auto* savedSelfForFnBody = selfSymbol;
     if (auto env = specializationEnvs.find(fn); env != specializationEnvs.end()) {
       currentGenericTypes = env->second;
     } else if (auto* cls = std::get<2>(prototypes[pi]);
@@ -646,7 +647,15 @@ auto Codegen::run() -> void {
         }
       }
     }
+    // Prototypes store the owning class symbol in slot 2. Instance methods get `self` as the first
+    // LLVM parameter, but static methods do not—yet nested codegen (e.g. `Cell(v)` inside
+    // `static func of`) still needs that symbol on `selfSymbol` so constructor lookup and
+    // `genericBindingHint`-driven paths in `callNamedFunction` see the monomorphized class.
+    if (auto* cls = std::get<2>(prototypes[pi]); cls != nullptr) {
+      selfSymbol = cls;
+    }
     defineFunction(fn, std::get<1>(prototypes[pi]), std::get<2>(prototypes[pi]));
+    selfSymbol = savedSelfForFnBody;
     currentGenericTypes = std::move(savedGenerics);
   }
 

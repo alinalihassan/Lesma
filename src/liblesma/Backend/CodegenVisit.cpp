@@ -3458,7 +3458,7 @@ auto Codegen::visit(const DotOp* node) -> void {
           }
           setDebugLoc(node->getSpan());
           result = callMethodByName(node->getSpan(), recvHolder.get(), method->getName(), args,
-                                    explicitTypeArgs, method->getResolvedSymbol());
+                                    explicitTypeArgs, method->getResolvedSymbol(), method);
           return;
         }
       }
@@ -3740,7 +3740,7 @@ auto Codegen::visit(const DotOp* node) -> void {
             }
             setDebugLoc(node->getSpan());
             result = callMethodByName(node->getSpan(), recvHolder.get(), method->getName(), args,
-                                      explicitTypeArgs, method->getResolvedSymbol());
+                                      explicitTypeArgs, method->getResolvedSymbol(), method);
             return;
           }
         }
@@ -4201,6 +4201,11 @@ auto Codegen::visit(const Literal* node) -> void {
       wrapped->setStoresFuncValuePair(true);
       wrapped->setClosureCalleeUsesEnvParameter(false);
       result = std::move(wrapped);
+    } else if (val->getCategory() == ValueCategory::TYPE_SYMBOL) {
+      // Type names in value position (`Cell.method`, `Foo.bar`) are not storage; avoid lowering a
+      // generic class template to LLVM when materializing.
+      result = std::make_unique<Value>(val->getName(), val->getType(), nullptr);
+      result->setCategory(ValueCategory::TYPE_SYMBOL);
     } else {
       result = materializeSymbolValue(val);
     }
@@ -4768,6 +4773,10 @@ auto Codegen::appendCallableArgument(lesma::Value* arg, std::vector<lesma::Type*
   paramsLLVM.push_back(llvmArg);
 }
 
+// `genericBindingHint` is the typechecker’s per-call binding list (e.g. class `T` for `Cell.of(7)`).
+// It feeds mangling, class monomorph of the template `selfSymbol`, and lowering of the callee’s
+// Lesma function type. Constructor resolution uses scope → rootScope → `getConstructor()` so normal
+// calls like `list<str>()` still match overloads with defaults before falling back to the struct’s ctor.
 auto Codegen::callNamedFunction(
     llvm::SMRange span, const std::string& functionName,
     const std::vector<lesma::Type*>& paramTypes, const std::vector<llvm::Value*>& paramsLLVM,
@@ -4786,6 +4795,35 @@ auto Codegen::callNamedFunction(
     }
     return env;
   };
+  // No `self` at the call site: use the hint for free/generic calls instead of inferring only from
+  // parameter types (mirrors `buildFunctionSpecializationEnv` when there is no class receiver).
+  auto freeCallGenericEnvFromHint = [&]() -> std::unordered_map<std::string, lesma::Type*> {
+    if (selfSymbol != nullptr || genericBindingHint == nullptr || genericBindingHint->empty()) {
+      return {};
+    }
+    return hintedGenericBindings();
+  };
+  // Monomorphize generic class template when typechecker fixed class parameters (e.g. Cell.of(7)).
+  if (selfSymbol != nullptr && functionName != "new" && genericBindingHint != nullptr &&
+      !genericBindingHint->empty()) {
+    lesma::Type* recvTy = selfSymbol->getType();
+    if (recvTy != nullptr && recvTy->is(BaseType::TY_CLASS) && !recvTy->getGenericParams().empty()) {
+      if (auto git = genericClasses.find(selfSymbol->getName()); git != genericClasses.end()) {
+        std::unordered_map<std::string, lesma::Type*> envFromHint = hintedGenericBindings();
+        bool complete = true;
+        for (const auto& gn : git->second->getGenericParams()) {
+          auto it = envFromHint.find(gn);
+          if (it == envFromHint.end() || it->second == nullptr) {
+            complete = false;
+            break;
+          }
+        }
+        if (complete) {
+          selfSymbol = specializeClass(git->second, {}, {}, &envFromHint);
+        }
+      }
+    }
+  }
   for (auto* explicitTypeArg : explicitTypeArgs) {
     if (explicitTypeArg != nullptr) {
       getOrCreateLlvmType(explicitTypeArg);
@@ -4816,10 +4854,11 @@ auto Codegen::callNamedFunction(
     if (genericNames.empty()) {
       return;
     }
-    auto env = (selfSymbol == nullptr && genericBindingHint != nullptr)
-                   ? hintedGenericBindings()
-                   : computeGenericFunctionBindingEnv(genericFuncTemplateForLookup, localParamTypes,
-                                                      genericNames, explicitTypeArgs);
+    std::unordered_map<std::string, lesma::Type*> env = freeCallGenericEnvFromHint();
+    if (env.empty()) {
+      env = computeGenericFunctionBindingEnv(genericFuncTemplateForLookup, localParamTypes,
+                                             genericNames, explicitTypeArgs);
+    }
     appendGenericBindingSuffix(span, out, genericNames, env);
   };
   auto buildFunctionSpecializationEnv = [&](const FuncDecl* templateDecl,
@@ -4849,7 +4888,6 @@ auto Codegen::callNamedFunction(
   auto* selfSymbolTmp = selfSymbol;
   auto* classSym = scope->lookupStruct(functionName);
   llvm::Value* classPtr = nullptr;
-  std::unique_ptr<Type> selfParamType;
 
   if (classSym == nullptr || (classSym->getType()->is(BaseType::TY_CLASS) &&
                               classSym->getType()->getLlvmType() == nullptr)) {
@@ -4889,12 +4927,19 @@ auto Codegen::callNamedFunction(
     classPtr = emitMalloc(classSize, functionName + ".obj");
     emitInitClassVtablePointer(classSym->getType(), classPtr);
     localParamsLLVM.insert(localParamsLLVM.begin(), classPtr);
-    selfParamType =
-        std::make_unique<Type>(BaseType::TY_PTR, builder->getPtrTy(), classSym->getType());
-    localParamTypes.insert(localParamTypes.begin(), selfParamType.get());
+    lesma::Type* selfArgTy =
+        cacheType(std::make_unique<Type>(BaseType::TY_PTR, builder->getPtrTy(), classSym->getType()));
+    localParamTypes.insert(localParamTypes.begin(), selfArgTy);
 
     selfSymbol = classSym;
     symbol = scope->lookupFunction("new", localParamTypes);
+    if (symbol == nullptr && rootScope != nullptr) {
+      // Method/template body scopes may not chain to the table where monomorph constructors live.
+      symbol = rootScope->lookupFunction("new", localParamTypes);
+    }
+    if (symbol == nullptr) {
+      symbol = classSym->getConstructor();
+    }
   } else {
     auto directSignatureKey = makeCallableSignatureKey(functionName, localParamTypes);
     std::string directMangledLookup =
@@ -5010,9 +5055,7 @@ auto Codegen::callNamedFunction(
       if (lamSym != nullptr && lamSym->getType() != nullptr &&
           !lamSym->getType()->getGenericParams().empty()) {
         std::vector<std::string> genericNames = lamSym->getType()->getGenericParams();
-        auto bindingEnv = (selfSymbol == nullptr && genericBindingHint != nullptr)
-                              ? hintedGenericBindings()
-                              : std::unordered_map<std::string, lesma::Type*>{};
+        std::unordered_map<std::string, lesma::Type*> bindingEnv = freeCallGenericEnvFromHint();
         symbol = specializeLambda(lamNode, localParamTypes, genericNames, explicitTypeArgs,
                                   bindingEnv.empty() ? nullptr : &bindingEnv);
       }
@@ -5037,9 +5080,15 @@ auto Codegen::callNamedFunction(
   }
 
   Type* callableLesmaType = symbol->getType();
-  if (callableLesmaType != nullptr && !currentGenericTypes.empty() &&
-      typeContainsUnboundGeneric(callableLesmaType)) {
-    callableLesmaType = substituteTypeForSpecializationEnv(callableLesmaType, currentGenericTypes);
+  if (callableLesmaType != nullptr) {
+    if (genericBindingHint != nullptr && !genericBindingHint->empty()) {
+      // Call-site env from typecheck (e.g. `T = int` for `Cell.of(7)`); apply even when the stored
+      // callee type does not trip `typeContainsUnboundGeneric`.
+      callableLesmaType =
+          substituteTypeForSpecializationEnv(callableLesmaType, hintedGenericBindings());
+    } else if (!currentGenericTypes.empty() && typeContainsUnboundGeneric(callableLesmaType)) {
+      callableLesmaType = substituteTypeForSpecializationEnv(callableLesmaType, currentGenericTypes);
+    }
   }
 
   if (callableLesmaType == nullptr ||
@@ -5440,7 +5489,8 @@ auto Codegen::callMethodByName(llvm::SMRange span, lesma::Value* receiver,
                                const std::string& methodName,
                                const std::vector<lesma::Value*>& args,
                                const std::vector<lesma::Type*>& explicitTypeArgs,
-                               lesma::Value* resolvedCallee)
+                               lesma::Value* resolvedCallee,
+                               const FuncCall* callSiteForGenericEnv)
     -> std::unique_ptr<lesma::Value> {
   if (receiver->getType()->is(BaseType::TY_ARRAY)) {
     return callListMethodByName(span, receiver, methodName, args, explicitTypeArgs);
@@ -5467,6 +5517,11 @@ auto Codegen::callMethodByName(llvm::SMRange span, lesma::Value* receiver,
                        receiverType->getDisplayName().empty() ? "(unknown)"
                                                               : receiverType->getDisplayName());
   }
+  const auto* receiverClassEnv = specializedClassEnvFor(receiverType);
+  const std::vector<std::pair<std::string, lesma::Type*>>* callSiteGenericBindings =
+      (callSiteForGenericEnv != nullptr && !callSiteForGenericEnv->getGenericBindingEnv().empty())
+          ? &callSiteForGenericEnv->getGenericBindingEnv()
+          : nullptr;
   auto* savedSelfSymbol = selfSymbol;
   std::vector<lesma::Type*> paramTypes;
   std::vector<llvm::Value*> paramsLLVM;
@@ -5510,19 +5565,25 @@ auto Codegen::callMethodByName(llvm::SMRange span, lesma::Value* receiver,
         }
       }
     }
-    if (specializedClassEnvFor(receiverType) != nullptr) {
+    if (receiverClassEnv != nullptr) {
       directMethod = nullptr;
     }
   }
   if (directMethod != nullptr && directMethod->getLlvmValue() != nullptr) {
     // Method symbols may retain template types with TY_GENERIC; call sites are not inside
-    // defineFunction(), so currentGenericTypes is empty. Restore the specialization env so
-    // getOrCreateLlvmType (e.g. on return types) can resolve T.
+    // defineFunction(), so currentGenericTypes is often empty. Prefer the env recorded for this
+    // specialization, else the receiver’s class env, else the FuncCall’s binding list (static
+    // generic methods), so getOrCreateLlvmType / return substitution see concrete `T`.
     auto savedGenerics = currentGenericTypes;
     if (auto genIt = specializationEnvs.find(directMethod); genIt != specializationEnvs.end()) {
       currentGenericTypes = genIt->second;
-    } else if (const auto* envPtr = specializedClassEnvFor(receiverType); envPtr != nullptr) {
-      currentGenericTypes = *envPtr;
+    } else if (receiverClassEnv != nullptr) {
+      currentGenericTypes = *receiverClassEnv;
+    } else if (callSiteGenericBindings != nullptr) {
+      currentGenericTypes.clear();
+      for (const auto& binding : *callSiteGenericBindings) {
+        currentGenericTypes[binding.first] = binding.second;
+      }
     }
     try {
       std::vector<llvm::Value*> finalParams;
@@ -5589,7 +5650,9 @@ auto Codegen::callMethodByName(llvm::SMRange span, lesma::Value* receiver,
     }
   }
   selfSymbol = cls;
-  auto resultValue = callNamedFunction(span, methodName, paramTypes, paramsLLVM, explicitTypeArgs);
+  auto resultValue =
+      callNamedFunction(span, methodName, paramTypes, paramsLLVM, explicitTypeArgs, resolvedCallee,
+                        nullptr, callSiteGenericBindings);
   selfSymbol = savedSelfSymbol;
   return resultValue;
 }
