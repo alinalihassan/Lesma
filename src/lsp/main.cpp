@@ -2115,6 +2115,7 @@ enum class SemanticTokenType : std::uint8_t {
 namespace semantic_token_modifier {
 constexpr unsigned DECLARATION = 1U << 0U;
 constexpr unsigned DEFAULT_LIBRARY = 1U << 1U;
+constexpr unsigned STATIC = 1U << 2U;
 } // namespace semantic_token_modifier
 
 struct RawSemanticToken {
@@ -2270,6 +2271,14 @@ auto collectSemanticTokens(AnalysisResult& analysisResult, unsigned bufferId)
     }
     if (isDefaultLibraryType(resolved.value->getType())) {
       modifiers |= semantic_token_modifier::DEFAULT_LIBRARY;
+    }
+    if (resolved.value->isStaticMethod()) {
+      modifiers |= semantic_token_modifier::STATIC;
+    } else if (lesma::Type* declCls = resolved.value->getMemberDeclaredInClass();
+               declCls != nullptr &&
+               lesma::TypeUtils::findStaticFieldInClass(declCls, resolved.value->getName()) !=
+                   nullptr) {
+      modifiers |= semantic_token_modifier::STATIC;
     }
     return modifiers;
   };
@@ -2579,14 +2588,23 @@ auto collectDocumentSymbols(const AnalysisResult& result) -> std::vector<::lsp::
       std::vector<::lsp::DocumentSymbol> children;
       for (lesma::VarDecl* field : klass->getFields()) {
         lesma::Value* value = field->getResolvedSymbol();
+        std::optional<std::string> fieldDetail = std::nullopt;
+        if (value != nullptr) {
+          fieldDetail = formatTypeName(value->getType(), result.rootScope.get());
+          if (field->getIsStatic()) {
+            fieldDetail = fieldDetail.has_value() && !fieldDetail->empty()
+                              ? *fieldDetail + " (static)"
+                              : std::optional<std::string>("static");
+          }
+        } else if (field->getIsStatic()) {
+          fieldDetail = "static";
+        }
         children.push_back(makeDocumentSymbol(
             field->getIdentifier()->getValue(), ::lsp::SymbolKind::Field,
             smRangeToLspRange(result.sourceMgr.get(), result.mainBufferId, field->getSpan()),
             smRangeToLspRange(result.sourceMgr.get(), result.mainBufferId,
                               field->getIdentifier()->getSpan()),
-            value != nullptr ? std::optional<std::string>(
-                                   formatTypeName(value->getType(), result.rootScope.get()))
-                             : std::nullopt));
+            fieldDetail));
       }
       for (lesma::FuncDecl* method : klass->getMethods()) {
         lesma::Value* value = method->getResolvedSymbol();
@@ -2594,16 +2612,23 @@ auto collectDocumentSymbols(const AnalysisResult& result) -> std::vector<::lsp::
         if (auto spell = lesma::OperatorUtils::surfaceSpellingForMangledOperator(methodName)) {
           methodName = std::string(*spell);
         }
+        std::optional<std::string> methodDetail =
+            value != nullptr && value->getType() != nullptr &&
+                    value->getType()->getReturnType() != nullptr
+                ? std::optional<std::string>(
+                      formatTypeName(value->getType()->getReturnType(), result.rootScope.get()))
+                : std::nullopt;
+        if (method->getIsStatic()) {
+          methodDetail = methodDetail.has_value() && !methodDetail->empty()
+                             ? *methodDetail + " (static)"
+                             : std::optional<std::string>("static");
+        }
         children.push_back(makeDocumentSymbol(
             methodName, ::lsp::SymbolKind::Method,
             smRangeToLspRange(result.sourceMgr.get(), result.mainBufferId,
                               funcDeclFullSpan(method)),
             smRangeToLspRange(result.sourceMgr.get(), result.mainBufferId, method->getNameSpan()),
-            value != nullptr && value->getType() != nullptr &&
-                    value->getType()->getReturnType() != nullptr
-                ? std::optional<std::string>(
-                      formatTypeName(value->getType()->getReturnType(), result.rootScope.get()))
-                : std::nullopt));
+            methodDetail));
       }
       symbol.children = ::lsp::Opt<::lsp::Array<::lsp::DocumentSymbol>>(
           ::lsp::Array<::lsp::DocumentSymbol>(children.begin(), children.end()));
@@ -2884,7 +2909,7 @@ auto main() -> int {
                                                       "type", "typeParameter", "function", "method",
                                                       "parameter", "variable", "property"},
                       .tokenModifiers =
-                          ::lsp::Array<::lsp::String>{"declaration", "defaultLibrary"},
+                          ::lsp::Array<::lsp::String>{"declaration", "defaultLibrary", "static"},
                   },
               .full = ::lsp::Opt<::lsp::OneOf<bool, ::lsp::SemanticTokensOptionsFull>>(true),
           });

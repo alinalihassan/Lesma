@@ -112,7 +112,7 @@ private:
   auto parseParameterList(bool allowVarargsEllipsis) -> ParameterListParseResult;
 
   auto parseFunctionDeclaration(bool methodIsPrivate = false,
-                                bool declaresInheritanceOverload = false)
+                                bool declaresInheritanceOverload = false, bool methodIsStatic = false)
       -> std::unique_ptr<Statement>;
   auto parseExport() -> std::unique_ptr<Statement>;
   auto parseImport() -> std::unique_ptr<Statement>;
@@ -126,7 +126,8 @@ private:
   auto parseIf() -> std::unique_ptr<Statement>;
   auto parseWhile() -> std::unique_ptr<Statement>;
   auto parseFor() -> std::unique_ptr<Statement>;
-  auto parseVarDecl(bool fieldIsPrivate = false) -> std::unique_ptr<Statement>;
+  auto parseVarDecl(bool fieldIsPrivate = false, bool fieldIsStatic = false)
+      -> std::unique_ptr<Statement>;
   auto parseAssignment() -> std::unique_ptr<Statement>;
   auto parseBreak() -> std::unique_ptr<Statement>;
   auto parseContinue() -> std::unique_ptr<Statement>;

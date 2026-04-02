@@ -51,6 +51,10 @@
           "match": "\\b(from|import)\\b"
         },
         {
+          "name": "storage.modifier.static.lesma",
+          "match": "\\bstatic\\b"
+        },
+        {
           "name": "keyword.other.lesma",
           "match": "\\b(export|class|enum|type|extern|trait|impl|private|overload)\\b"
         },

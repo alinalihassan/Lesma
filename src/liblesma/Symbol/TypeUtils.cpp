@@ -43,6 +43,18 @@ auto findFieldInFields(Type* structType, const std::string& field) -> Field* {
   return nullptr;
 }
 
+auto findStaticFieldInClass(Type* classType, const std::string& field) -> Field* {
+  if (classType == nullptr || !classType->is(BaseType::TY_CLASS)) {
+    return nullptr;
+  }
+  for (Field* candidate : classType->getStaticFields()) {
+    if (candidate != nullptr && candidate->name == field) {
+      return candidate;
+    }
+  }
+  return nullptr;
+}
+
 auto isNominalTypeForIdentity(Type const* t) -> bool {
   return t != nullptr && (t->isNominal() || t->is(BaseType::TY_ARRAY));
 }

@@ -863,7 +863,7 @@ auto Parser::parseOr() -> std::unique_ptr<Expression> {
 auto Parser::parseExpression() -> std::unique_ptr<Expression> { return parseOr(); }
 
 // Statements
-auto Parser::parseVarDecl(bool fieldIsPrivate) -> std::unique_ptr<Statement> {
+auto Parser::parseVarDecl(bool fieldIsPrivate, bool fieldIsStatic) -> std::unique_ptr<Statement> {
   bool isMutable = false;
   Token const* startTok = nullptr;
   if (advanceIfMatchAny<TokenType::LET>()) {
@@ -921,7 +921,7 @@ auto Parser::parseVarDecl(bool fieldIsPrivate) -> std::unique_ptr<Statement> {
   }
   return std::make_unique<VarDecl>(llvm::SMRange{startTok->getStart(), endLoc}, std::move(vars),
                                    std::move(type), std::move(expr), isMutable, isExported,
-                                   fieldIsPrivate);
+                                   fieldIsPrivate, fieldIsStatic);
 }
 
 auto Parser::parseIf() -> std::unique_ptr<Statement> {
@@ -1063,6 +1063,9 @@ auto Parser::parseStatement(bool isTopLevel) -> std::unique_ptr<Statement> {
   if (check(TokenType::PRIVATE) || check(TokenType::OVERLOAD)) {
     error(peek(), "`private` and `overload` are only valid on class fields and methods");
   }
+  if (check(TokenType::STATIC)) {
+    error(peek(), "`static` is only valid on class fields and methods");
+  }
   if (check(TokenType::FUNC)) {
     return parseFunctionDeclaration();
   }
@@ -1200,9 +1203,13 @@ auto Parser::parseParameterList(bool allowVarargsEllipsis) -> ParameterListParse
   return result;
 }
 
-auto Parser::parseFunctionDeclaration(bool methodIsPrivate, bool declaresInheritanceOverload)
-    -> std::unique_ptr<Statement> {
+auto Parser::parseFunctionDeclaration(bool methodIsPrivate, bool declaresInheritanceOverload,
+                                      bool methodIsStatic) -> std::unique_ptr<Statement> {
   auto loc = isExported ? previous()->span : peek()->span;
+  if (methodIsStatic && !inClass) {
+    error(peek(), "`static func` is only allowed inside class bodies");
+    return nullptr;
+  }
   consume(TokenType::FUNC);
   // `export class` / `export func` leave isExported set; locals inside the body must not inherit it.
   bool const funcExported = isExported;
@@ -1222,6 +1229,10 @@ auto Parser::parseFunctionDeclaration(bool methodIsPrivate, bool declaresInherit
   llvm::SMRange overloadGlyphSpan{};
   std::optional<TokenType> pendingOverloadOperatorToken;
   if (advanceIfMatchAny<TokenType::OPERATOR>()) {
+    if (methodIsStatic) {
+      error(previous(), "`static` cannot be used with `operator` declarations");
+      return nullptr;
+    }
     if (!inClass) {
       error(previous(), "Operator declarations are only allowed in class definition.");
       return nullptr;
@@ -1319,7 +1330,7 @@ auto Parser::parseFunctionDeclaration(bool methodIsPrivate, bool declaresInherit
   return std::make_unique<FuncDecl>(
       llvm::SMRange{loc.Start, funcEnd}, functionName, functionNameSpan, overloadGlyphSpan,
       std::move(genericParams), std::move(returnType), std::move(parameters), std::move(body),
-      false, funcExported, methodIsPrivate, declaresInheritanceOverload);
+      false, funcExported, methodIsPrivate, declaresInheritanceOverload, methodIsStatic);
 }
 
 auto Parser::parseExport() -> std::unique_ptr<Statement> {
@@ -1494,16 +1505,23 @@ auto Parser::parseClass() -> std::unique_ptr<Statement> {
   inClass = true;
   while (!checkAny<TokenType::RIGHT_BRACE, TokenType::EOF_TOKEN>()) {
     try {
-      if (checkAny<TokenType::PRIVATE, TokenType::OVERLOAD, TokenType::LET, TokenType::VAR,
-                   TokenType::FUNC>()) {
+      if (checkAny<TokenType::PRIVATE, TokenType::OVERLOAD, TokenType::STATIC, TokenType::LET,
+                   TokenType::VAR, TokenType::FUNC>()) {
         bool memberPrivate = false;
         bool inheritanceOverload = false;
-        while (check(TokenType::PRIVATE) || check(TokenType::OVERLOAD)) {
+        bool memberStatic = false;
+        while (check(TokenType::PRIVATE) || check(TokenType::OVERLOAD) ||
+               check(TokenType::STATIC)) {
           if (advanceIfMatchAny<TokenType::PRIVATE>()) {
             if (memberPrivate) {
               error(previous(), "Duplicate `private`");
             }
             memberPrivate = true;
+          } else if (advanceIfMatchAny<TokenType::STATIC>()) {
+            if (memberStatic) {
+              error(previous(), "Duplicate `static`");
+            }
+            memberStatic = true;
           } else {
             if (inheritanceOverload) {
               error(peek(), "Duplicate `overload`");
@@ -1511,6 +1529,9 @@ auto Parser::parseClass() -> std::unique_ptr<Statement> {
             consume(TokenType::OVERLOAD);
             inheritanceOverload = true;
           }
+        }
+        if (inheritanceOverload && memberStatic) {
+          error(peek(), "`overload` cannot be used with `static` methods");
         }
         if (checkAny<TokenType::LET, TokenType::VAR>()) {
           if (inheritanceOverload) {
@@ -1521,7 +1542,7 @@ auto Parser::parseClass() -> std::unique_ptr<Statement> {
           isExported = false;
           auto restoreExported =
               llvm::make_scope_exit([this, savedExported] { isExported = savedExported; });
-          auto stmt = parseVarDecl(memberPrivate);
+          auto stmt = parseVarDecl(memberPrivate, memberStatic);
           auto* varDecl = dynamic_cast<VarDecl*>(stmt.get());
           if (varDecl != nullptr) {
             endLoc = varDecl->getEnd();
@@ -1535,7 +1556,7 @@ auto Parser::parseClass() -> std::unique_ptr<Statement> {
           isExported = false;
           auto restoreExported =
               llvm::make_scope_exit([this, savedExported] { isExported = savedExported; });
-          auto stmt = parseFunctionDeclaration(memberPrivate, inheritanceOverload);
+          auto stmt = parseFunctionDeclaration(memberPrivate, inheritanceOverload, memberStatic);
           auto* funcDecl = dynamic_cast<FuncDecl*>(stmt.get());
           if (funcDecl != nullptr) {
             endLoc = funcDecl->getEnd();
@@ -1543,7 +1564,7 @@ auto Parser::parseClass() -> std::unique_ptr<Statement> {
             methods.push_back(std::unique_ptr<FuncDecl>(funcDecl));
           }
         } else {
-          error(peek(), "Expected field or method after `private` / `overload`");
+          error(peek(), "Expected field or method after `private` / `overload` / `static`");
         }
       } else if (check(TokenType::NEWLINE)) {
         consume(TokenType::NEWLINE);

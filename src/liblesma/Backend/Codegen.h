@@ -375,8 +375,9 @@ protected:
       -> std::unique_ptr<lesma::Value>;
   auto callMethodByName(llvm::SMRange span, lesma::Value* receiver, const std::string& methodName,
                         const std::vector<lesma::Value*>& args = {},
-                        const std::vector<lesma::Type*>& explicitTypeArgs = {})
-      -> std::unique_ptr<lesma::Value>;
+                        const std::vector<lesma::Type*>& explicitTypeArgs = {},
+                        lesma::Value* resolvedCallee = nullptr) -> std::unique_ptr<lesma::Value>;
+  auto emitClassStaticFieldGlobals(lesma::Type* classTy, const Class* astNode) -> void;
   auto defineFunction(lesma::Value* value, const FuncDecl* node, Value* clsSymbol) -> void;
   auto declareSynthesizedClassConstructor(const Class* astNode, lesma::Type* classType,
                                           lesma::Value* classStructSym) -> lesma::Value*;

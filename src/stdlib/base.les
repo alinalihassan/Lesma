@@ -596,8 +596,7 @@ export class file {
         return result
 
     }
-    # Static-style: file.write(path, data). self is unused (null this at call site).
-    func write(path: cstr, data: str) {
+    static func write(path: cstr, data: str) {
         var fp: *int8 = fopen(path, "wb")
         if fp == 0 {
             return
@@ -609,8 +608,8 @@ export class file {
         fclose(fp)
 
     }
-    func write(path: cstr, src: file) {
-        self.write(path, src.text())
+    static func write(path: cstr, src: file) {
+        file.write(path, src.text())
 
     }
     func delete() {

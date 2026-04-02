@@ -720,8 +720,8 @@ auto Codegen::specializeFunction(
       getOrCreateLlvmType(explicitTypeArg);
     }
   }
-  std::string key =
-      getMangledName(node->getSpan(), node->getName(), paramTypes, selfSymbol != nullptr);
+  std::string key = getMangledName(node->getSpan(), node->getName(), paramTypes,
+                                   selfSymbol != nullptr && !node->getIsStatic());
   appendGenericBindingSuffix(node->getSpan(), key, genericNames, env);
   if (auto it = specializedFunctions.find(key); it != specializedFunctions.end()) {
     currentGenericTypes = std::move(saved);
@@ -730,7 +730,7 @@ auto Codegen::specializeFunction(
 
   std::vector<std::unique_ptr<Field>> fields;
   std::vector<lesma::Type*> concreteParamTypes;
-  if (selfSymbol != nullptr) {
+  if (selfSymbol != nullptr && !node->getIsStatic()) {
     Type* selfType = selfSymbol->getType();
     if (selfType != nullptr && selfType->is(BaseType::TY_CLASS)) {
       selfType = cacheType(std::make_unique<Type>(BaseType::TY_PTR, nullptr, selfType));
@@ -760,8 +760,8 @@ auto Codegen::specializeFunction(
   funcType->setReturnType(returnType);
   funcType->setVarArgs(node->getVarArgs());
   auto* typePtr = cacheType(std::move(funcType));
-  auto mangledName =
-      getMangledName(node->getSpan(), node->getName(), concreteParamTypes, selfSymbol != nullptr);
+  auto mangledName = getMangledName(node->getSpan(), node->getName(), concreteParamTypes,
+                                     selfSymbol != nullptr && !node->getIsStatic());
   appendGenericBindingSuffix(node->getSpan(), mangledName, genericNames, env);
   const bool specializationKeysMatch = (mangledName == key);
   auto func = std::make_unique<Value>(node->getName(), typePtr);
@@ -773,6 +773,7 @@ auto Codegen::specializeFunction(
     func->setDeclarationKind(selfSymbol != nullptr ? ValueDeclarationKind::METHOD
                                                    : ValueDeclarationKind::FUNCTION);
   }
+  func->setStaticMethod(node->getIsStatic());
   func->setMangledName(mangledName);
   func->setExported(node->isExported());
   auto linkage = node->isExported() ? Function::ExternalLinkage : Function::PrivateLinkage;
@@ -993,6 +994,9 @@ auto Codegen::specializeClass(const Class* node,
   if (!constructorEnvResolved && needsConstructorInference && constructorDecl == nullptr) {
     std::vector<VarDecl*> requiredFields;
     for (VarDecl* fd : node->getFields()) {
+      if (fd->getIsStatic()) {
+        continue;
+      }
       if (fd->getValue() == nullptr) {
         requiredFields.push_back(fd);
       }
@@ -1126,6 +1130,9 @@ auto Codegen::specializeClass(const Class* node,
     }
   } else {
     for (auto* field : node->getFields()) {
+      if (field->getIsStatic()) {
+        continue;
+      }
       if (field->getType() != nullptr) {
         field->getType()->accept(*this);
       } else {

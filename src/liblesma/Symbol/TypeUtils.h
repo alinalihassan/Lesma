@@ -15,6 +15,8 @@ auto findIndexInFields(Type* structType, const std::string& field) -> int;
 auto classDataFieldStructIndex(Type* classTy, unsigned logicalIndex) -> unsigned;
 auto findTypeInFields(Type* structType, const std::string& field) -> Type*;
 auto findFieldInFields(Type* structType, const std::string& field) -> Field*;
+/** Class static `let`/`var` only (not instance fields). */
+auto findStaticFieldInClass(Type* classType, const std::string& field) -> Field*;
 /** Class, enum, or array (buffer): types compared by `is` using display-name fallback when
  * `isEqual` is false. */
 [[nodiscard]] auto isNominalTypeForIdentity(Type const* t) -> bool;
