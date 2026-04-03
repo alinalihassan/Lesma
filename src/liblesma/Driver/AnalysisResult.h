@@ -130,4 +130,8 @@ auto analyze(std::unique_ptr<Options> options, Timer* phaseTimer = nullptr) -> A
 auto buildAnalysisIndex(const Compound* ast, llvm::SourceMgr* srcMgr, unsigned bufferId)
     -> AnalysisIndex;
 
+[[nodiscard]] auto indexedTokenKindFromResolvedSymbol(const Value* resolvedSymbol,
+                                                      bool isTypePosition, bool isMemberAccess,
+                                                      IndexedTokenKind fallbackKind) -> IndexedTokenKind;
+
 } // namespace lesma

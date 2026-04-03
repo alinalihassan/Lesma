@@ -426,12 +426,7 @@ auto Typechecker::resolveMethodWithTraitEnv(Type* baseType, const std::string& m
                          : cacheType(std::make_unique<Type>(BaseType::TY_PTR, nullptr, base));
     std::vector<Type*> methodArgTypes = {selfType};
     for (Type* argType : argTypes) {
-      if (argType != nullptr && argType->is(BaseType::TY_CLASS)) {
-        methodArgTypes.push_back(
-            cacheType(std::make_unique<Type>(BaseType::TY_PTR, nullptr, argType)));
-      } else {
-        methodArgTypes.push_back(argType);
-      }
+      methodArgTypes.push_back(typeAsPtrIfClassForOverload(argType));
     }
     Type* matched = selectBestFunctionTypeMatch(methIt->second, methodArgTypes);
     if (matched == nullptr) {
@@ -459,12 +454,7 @@ auto Typechecker::resolveMethodWithTraitEnv(Type* baseType, const std::string& m
           : cacheType(std::make_unique<Type>(BaseType::TY_PTR, nullptr, receiverForLookup));
   std::vector<Type*> methodArgTypes = {selfType};
   for (Type* argType : argTypes) {
-    if (argType != nullptr && argType->is(BaseType::TY_CLASS)) {
-      methodArgTypes.push_back(
-          cacheType(std::make_unique<Type>(BaseType::TY_PTR, nullptr, argType)));
-    } else {
-      methodArgTypes.push_back(argType);
-    }
+    methodArgTypes.push_back(typeAsPtrIfClassForOverload(argType));
   }
 
   std::unordered_map<std::string, Type*> methodTypeEnv;
@@ -962,6 +952,41 @@ auto Typechecker::visitListMethodCall(Type* listType, const DotOp* node, const F
 auto Typechecker::cacheType(std::unique_ptr<Type> type) -> Type* {
   typeCache.push_back(std::move(type));
   return typeCache.back().get();
+}
+
+auto Typechecker::typeAsPtrIfClassForOverload(Type* t) -> Type* {
+  if (t != nullptr && t->is(BaseType::TY_CLASS)) {
+    return cacheType(std::make_unique<Type>(BaseType::TY_PTR, nullptr, t));
+  }
+  return t;
+}
+
+auto Typechecker::overloadArgTypesFromCall(const FuncCall* fc) -> std::vector<Type*> {
+  std::vector<Type*> argTypes;
+  if (fc == nullptr) {
+    return argTypes;
+  }
+  argTypes.reserve(fc->getArguments().size());
+  for (Expression* arg : fc->getArguments()) {
+    arg->accept(*this);
+    argTypes.push_back(typeAsPtrIfClassForOverload(result->getType()));
+  }
+  return argTypes;
+}
+
+auto Typechecker::traitRequirementParamLookupTypes(Type* selfPtr, const FuncDecl* req)
+    -> std::vector<Type*> {
+  std::vector<Type*> lookupArgs = {selfPtr};
+  if (req == nullptr) {
+    return lookupArgs;
+  }
+  for (Parameter* p : req->getParameters()) {
+    if (p->type != nullptr) {
+      p->type->accept(*this);
+      lookupArgs.push_back(typeAsPtrIfClassForOverload(result->getType()));
+    }
+  }
+  return lookupArgs;
 }
 
 auto Typechecker::materializeImportedType(Type* type) -> Type* {
@@ -2517,13 +2542,6 @@ auto Typechecker::visit(const Compound* node) -> void {
   }
 }
 
-// Semantic warnings (compiler warning catalog):
-// unreachable_code; unused variable/parameter/import; shadowing (incl. import_shadows);
-// empty if/while/for-in body; trivial bool condition; lossy implicit conversion;
-// unused non-exported class field/method; unimplemented (before error).
-// Not implemented here: deprecated_use; trailing_semicolon
-// style.
-
 void Typechecker::appendSemanticDiagnostic(llvm::SMRange span, std::string message,
                                            AnalysisDiagnosticSeverity severity) {
   if (warningDiagnostics == nullptr) {
@@ -3489,10 +3507,7 @@ void Typechecker::registerSynthesizedClassConstructor(const Class* node, Type* c
       continue;
     }
     Type* storageTy = tf->type;
-    Type* paramType = storageTy;
-    if (paramType != nullptr && paramType->is(BaseType::TY_CLASS)) {
-      paramType = cacheType(std::make_unique<Type>(BaseType::TY_PTR, nullptr, paramType));
-    }
+    Type* paramType = typeAsPtrIfClassForOverload(storageTy);
     if (paramType == nullptr) {
       throw TypeCheckError(node->getNameSpan(),
                            "Synthesized constructor cannot infer type for field '{}'", tf->name);
@@ -3851,11 +3866,7 @@ auto Typechecker::visit(const FuncDecl* node) -> void {
       throw TypeCheckError(node->getSpan(), "Parameter {} has no type and no default value",
                            param->name);
     }
-    Type* paramType = nominalParamType;
-    // Match codegen: function params use pointer-to-class so lookup matches
-    if (paramType->is(BaseType::TY_CLASS)) {
-      paramType = cacheType(std::make_unique<Type>(BaseType::TY_PTR, nullptr, paramType));
-    }
+    Type* paramType = typeAsPtrIfClassForOverload(nominalParamType);
     if (param->defaultVal != nullptr && !isAssignableTo(result->getType(), paramType)) {
       throw TypeCheckError(param->defaultVal->getSpan(),
                            "Default value type {} is not assignable to parameter type {}",
@@ -4031,10 +4042,7 @@ auto Typechecker::visit(const ExternFuncDecl* node) -> void {
       throw TypeCheckError(node->getSpan(), "Parameter {} has no type and no default value",
                            param->name);
     }
-    Type* paramType = nominalParamType;
-    if (paramType->is(BaseType::TY_CLASS)) {
-      paramType = cacheType(std::make_unique<Type>(BaseType::TY_PTR, nullptr, paramType));
-    }
+    Type* paramType = typeAsPtrIfClassForOverload(nominalParamType);
     if (param->defaultVal != nullptr && !isAssignableTo(result->getType(), paramType)) {
       throw TypeCheckError(param->defaultVal->getSpan(),
                            "Default value type {} is not assignable to parameter type {}",
@@ -4321,15 +4329,7 @@ auto Typechecker::visit(const ExpressionStatement* node) -> void {
 
 auto Typechecker::visit(const FuncCall* node) -> void {
   node->clearGenericBindingEnv();
-  std::vector<Type*> argTypes;
-  for (Expression* arg : node->getArguments()) {
-    arg->accept(*this);
-    Type* t = result->getType();
-    if (t->is(BaseType::TY_CLASS)) {
-      t = cacheType(std::make_unique<Type>(BaseType::TY_PTR, nullptr, t));
-    }
-    argTypes.push_back(t);
-  }
+  std::vector<Type*> argTypes = overloadArgTypesFromCall(node);
   if (visitListIntrinsicCall(node, argTypes)) {
     return;
   }
@@ -4356,7 +4356,7 @@ auto Typechecker::visit(const FuncCall* node) -> void {
       }
       Value* constructorForMark = nullptr;
       if (!argTypes.empty()) {
-        Type* ptrToClass = cacheType(std::make_unique<Type>(BaseType::TY_PTR, nullptr, classType));
+        Type* ptrToClass = typeAsPtrIfClassForOverload(classType);
         std::vector<Type*> constructorParamTypes = {ptrToClass};
         constructorParamTypes.insert(constructorParamTypes.end(), argTypes.begin(), argTypes.end());
         Value* constructor =
@@ -4443,8 +4443,7 @@ auto Typechecker::visit(const FuncCall* node) -> void {
           }
           Value* constructorForMark = nullptr;
           if (!argTypes.empty()) {
-            Type* ptrToClass =
-                cacheType(std::make_unique<Type>(BaseType::TY_PTR, nullptr, classType));
+            Type* ptrToClass = typeAsPtrIfClassForOverload(classType);
             std::vector<Type*> constructorParamTypes = {ptrToClass};
             constructorParamTypes.insert(constructorParamTypes.end(), argTypes.begin(),
                                          argTypes.end());
@@ -4482,8 +4481,7 @@ auto Typechecker::visit(const FuncCall* node) -> void {
         }
         if (!node->getArguments().empty()) {
           const std::vector<std::string>& genericParamNames = getDeclaredGenericParams(classType);
-          Type* ptrToClass =
-              cacheType(std::make_unique<Type>(BaseType::TY_PTR, nullptr, classType));
+          Type* ptrToClass = typeAsPtrIfClassForOverload(classType);
           std::vector<Type*> constructorParamTypes = {ptrToClass};
           for (Type* t : argTypes) {
             constructorParamTypes.push_back(t);
@@ -4514,8 +4512,7 @@ auto Typechecker::visit(const FuncCall* node) -> void {
         // constructor lookup failed (e.g. str("x") with a string literal typed as str first), fall
         // through so the string-literal repair below can re-type literals as cstr and find new().
         if (node->getArguments().empty()) {
-          Type* ptrToClass =
-              cacheType(std::make_unique<Type>(BaseType::TY_PTR, nullptr, classType));
+          Type* ptrToClass = typeAsPtrIfClassForOverload(classType);
           std::vector<Type*> ctorParamTypes = {ptrToClass};
           Value* constructor =
               importedScope != nullptr
@@ -4563,11 +4560,7 @@ auto Typechecker::visit(const FuncCall* node) -> void {
           } else {
             arg->accept(*this);
           }
-          Type* t = result->getType();
-          if (t->is(BaseType::TY_CLASS)) {
-            t = cacheType(std::make_unique<Type>(BaseType::TY_PTR, nullptr, t));
-          }
-          argTypes.push_back(t);
+          argTypes.push_back(typeAsPtrIfClassForOverload(result->getType()));
         }
         callee = scope->lookupFunction(node->getName(), argTypes);
         if (callee == nullptr) {
@@ -4585,8 +4578,7 @@ auto Typechecker::visit(const FuncCall* node) -> void {
             Type* classType = importedScope != nullptr
                                   ? materializeImportedType(classSym->getType())
                                   : classSym->getType();
-            Type* ptrToClass =
-                cacheType(std::make_unique<Type>(BaseType::TY_PTR, nullptr, classType));
+            Type* ptrToClass = typeAsPtrIfClassForOverload(classType);
             std::vector<Type*> constructorParamTypes = {ptrToClass};
             constructorParamTypes.insert(constructorParamTypes.end(), argTypes.begin(),
                                          argTypes.end());
@@ -4752,10 +4744,7 @@ auto Typechecker::visit(const LambdaExpr* node) -> void {
                            param->name);
     }
     param->type->accept(*this);
-    Type* paramType = result->getType();
-    if (paramType->is(BaseType::TY_CLASS)) {
-      paramType = cacheType(std::make_unique<Type>(BaseType::TY_PTR, nullptr, paramType));
-    }
+    Type* paramType = typeAsPtrIfClassForOverload(result->getType());
     paramTypes.push_back(paramType);
     paramFields.push_back(std::make_unique<Field>(param->name, paramType));
   }
@@ -4958,15 +4947,7 @@ auto Typechecker::visit(const DotOp* node) -> void {
       throw TypeCheckError(node->getSpan(), "`super` must be used in a call: super.method(...)");
     }
     Type* superTy = currentClassType->getClassSuperclass();
-    std::vector<Type*> argTypes;
-    for (Expression* arg : fc->getArguments()) {
-      arg->accept(*this);
-      Type* t = result->getType();
-      if (t != nullptr && t->is(BaseType::TY_CLASS)) {
-        t = cacheType(std::make_unique<Type>(BaseType::TY_PTR, nullptr, t));
-      }
-      argTypes.push_back(t);
-    }
+    std::vector<Type*> argTypes = overloadArgTypesFromCall(fc);
     // `super.new(self, ...)` passes the receiver explicitly; mirror codegen lookup exactly.
     std::vector<Type*> methodArgTypes = argTypes;
     SymbolTable* insertScope =
@@ -5175,15 +5156,7 @@ auto Typechecker::visit(const DotOp* node) -> void {
       if (pathIt != importAliasToPath.end()) {
         SymbolTable* importScope = getOrTypecheckImport(pathIt->second);
         if (importScope != nullptr) {
-          std::vector<Type*> argTypes;
-          for (Expression* arg : fc->getArguments()) {
-            arg->accept(*this);
-            Type* t = result->getType();
-            if (t != nullptr && t->is(BaseType::TY_CLASS)) {
-              t = cacheType(std::make_unique<Type>(BaseType::TY_PTR, nullptr, t));
-            }
-            argTypes.push_back(t);
-          }
+          std::vector<Type*> argTypes = overloadArgTypesFromCall(fc);
           Value* func = importScope->lookupFunction(fc->getName(), argTypes);
           if (func == nullptr) {
             Value* sym = importScope->lookup(fc->getName());
@@ -5211,8 +5184,7 @@ auto Typechecker::visit(const DotOp* node) -> void {
                   env[genericParamNames[i]] = explicitTypes[i];
                 }
                 if (!argTypes.empty()) {
-                  Type* ptrToClass =
-                      cacheType(std::make_unique<Type>(BaseType::TY_PTR, nullptr, classType));
+                  Type* ptrToClass = typeAsPtrIfClassForOverload(classType);
                   std::vector<Type*> constructorParamTypes = {ptrToClass};
                   constructorParamTypes.insert(constructorParamTypes.end(), argTypes.begin(),
                                                argTypes.end());
@@ -5243,8 +5215,7 @@ auto Typechecker::visit(const DotOp* node) -> void {
                 return;
               }
               if (!fc->getArguments().empty()) {
-                Type* ptrToClass =
-                    cacheType(std::make_unique<Type>(BaseType::TY_PTR, nullptr, classType));
+                Type* ptrToClass = typeAsPtrIfClassForOverload(classType);
                 std::vector<Type*> constructorParamTypes = {ptrToClass};
                 constructorParamTypes.insert(constructorParamTypes.end(), argTypes.begin(),
                                              argTypes.end());
@@ -5300,15 +5271,7 @@ auto Typechecker::visit(const DotOp* node) -> void {
   }
   if (base->is(BaseType::TY_TRAIT_EXISTENTIAL)) {
     if (auto* fc = dynamic_cast<FuncCall*>(node->getRight())) {
-      std::vector<Type*> argTypes;
-      for (Expression* arg : fc->getArguments()) {
-        arg->accept(*this);
-        Type* t = result->getType();
-        if (t != nullptr && t->is(BaseType::TY_CLASS)) {
-          t = cacheType(std::make_unique<Type>(BaseType::TY_PTR, nullptr, t));
-        }
-        argTypes.push_back(t);
-      }
+      std::vector<Type*> argTypes = overloadArgTypesFromCall(fc);
       Type* retType = resolveMethodReturnType(base, fc->getName(), argTypes, node->getSpan());
       if (retType == nullptr) {
         throw TypeCheckError(node->getSpan(), "Method '{}' not found on trait '{}'", fc->getName(),
@@ -5330,15 +5293,7 @@ auto Typechecker::visit(const DotOp* node) -> void {
       throw TypeCheckError(node->getSpan(),
                            "Explicit type arguments are not supported on union method calls");
     }
-    std::vector<Type*> argTypes;
-    for (Expression* arg : fc->getArguments()) {
-      arg->accept(*this);
-      Type* t = result->getType();
-      if (t != nullptr && t->is(BaseType::TY_CLASS)) {
-        t = cacheType(std::make_unique<Type>(BaseType::TY_PTR, nullptr, t));
-      }
-      argTypes.push_back(t);
-    }
+    std::vector<Type*> argTypes = overloadArgTypesFromCall(fc);
     Type* commonRet = nullptr;
     Value* resolvedSymbol = nullptr;
     for (Type* mem : base->getUnionMembers()) {
@@ -5380,15 +5335,7 @@ auto Typechecker::visit(const DotOp* node) -> void {
       const std::string& gname = base->getGenericName();
       auto bit = currentGenericParamTraitBounds.find(gname);
       if (bit != currentGenericParamTraitBounds.end()) {
-        std::vector<Type*> argTypes;
-        for (Expression* arg : fc->getArguments()) {
-          arg->accept(*this);
-          Type* t = result->getType();
-          if (t != nullptr && t->is(BaseType::TY_CLASS)) {
-            t = cacheType(std::make_unique<Type>(BaseType::TY_PTR, nullptr, t));
-          }
-          argTypes.push_back(t);
-        }
+        std::vector<Type*> argTypes = overloadArgTypesFromCall(fc);
         for (const std::string& traitName : bit->second) {
           auto trIt = traitMethodSignatures.find(traitName);
           if (trIt == traitMethodSignatures.end()) {
@@ -5411,8 +5358,6 @@ auto Typechecker::visit(const DotOp* node) -> void {
                              fc->getName(), gname);
       }
     }
-    throw TypeCheckError(node->getSpan(), "Dot operator requires class or enum type, got {}",
-                         base->toString());
   }
   if (!base->is(BaseType::TY_CLASS) && !base->is(BaseType::TY_ENUM)) {
     throw TypeCheckError(node->getSpan(), "Dot operator requires class or enum type, got {}",
@@ -5424,16 +5369,7 @@ auto Typechecker::visit(const DotOp* node) -> void {
       throw TypeCheckError(node->getSpan(),
                            "Cannot call mutating list method {} on immutable value", fc->getName());
     }
-    std::vector<Type*> argTypes;
-    for (Expression* arg : fc->getArguments()) {
-      arg->accept(*this);
-      Type* t = result->getType();
-      // Match FuncCall + FuncDecl: class-typed arguments use pointer-to-class for overload lookup.
-      if (t != nullptr && t->is(BaseType::TY_CLASS)) {
-        t = cacheType(std::make_unique<Type>(BaseType::TY_PTR, nullptr, t));
-      }
-      argTypes.push_back(t);
-    }
+    std::vector<Type*> argTypes = overloadArgTypesFromCall(fc);
     Type* receiverForLookup = base;
     auto templateIt = specializedTypeToTemplate.find(base);
     if (templateIt != specializedTypeToTemplate.end()) {
@@ -5616,22 +5552,22 @@ auto Typechecker::visit(const DotOp* node) -> void {
     result = std::make_unique<Value>(retType);
     return;
   }
-  if (dynamic_cast<Literal*>(node->getRight()) == nullptr) {
+  auto* rightLit = dynamic_cast<Literal*>(node->getRight());
+  if (rightLit == nullptr || rightLit->getType() != TokenType::IDENTIFIER) {
     throw TypeCheckError(node->getSpan(), "Expected field name or method call after dot");
   }
-  auto* rightLit = dynamic_cast<Literal*>(node->getRight());
-  Field* field = nullptr;
+  Field* staticPart = nullptr;
   if (base->is(BaseType::TY_CLASS) && dotLeftDenotesTypeName) {
-    field = TypeUtils::findStaticFieldInClass(base, rightLit->getValue());
+    staticPart = TypeUtils::findStaticFieldInClass(base, rightLit->getValue());
   }
+  Field* field = staticPart;
   if (field == nullptr) {
     field = TypeUtils::findFieldInFields(base, rightLit->getValue());
   }
   if (field == nullptr || field->type == nullptr) {
     throw TypeCheckError(node->getSpan(), "Unknown field: {}", rightLit->getValue());
   }
-  if (dotLeftDenotesTypeName && base->is(BaseType::TY_CLASS) &&
-      TypeUtils::findStaticFieldInClass(base, rightLit->getValue()) == nullptr) {
+  if (dotLeftDenotesTypeName && base->is(BaseType::TY_CLASS) && staticPart == nullptr) {
     throw TypeCheckError(node->getSpan(),
                          "Cannot access instance field `{}` on a type name; use a value, "
                          "or declare the field `static`",
@@ -6335,10 +6271,7 @@ auto Typechecker::buildMethodFunctionType(FuncDecl* decl, Type* classType) -> Ty
     } else {
       throw TypeCheckError(decl->getSpan(), "Parameter {} has no type", param->name);
     }
-    Type* paramType = result->getType();
-    if (paramType->is(BaseType::TY_CLASS)) {
-      paramType = cacheType(std::make_unique<Type>(BaseType::TY_PTR, nullptr, paramType));
-    }
+    Type* paramType = typeAsPtrIfClassForOverload(result->getType());
     paramFields.push_back(std::make_unique<Field>(param->name, paramType));
   }
   decl->getReturnType()->accept(*this);
@@ -6350,18 +6283,8 @@ auto Typechecker::buildMethodFunctionType(FuncDecl* decl, Type* classType) -> Ty
 
 auto Typechecker::registerTraitDefaultMethodSymbol(SymbolTable* insertScope, Type* classType,
                                                    FuncDecl* req) -> void {
-  Type* selfPtr = cacheType(std::make_unique<Type>(BaseType::TY_PTR, nullptr, classType));
-  std::vector<Type*> lookupArgs = {selfPtr};
-  for (Parameter* p : req->getParameters()) {
-    if (p->type != nullptr) {
-      p->type->accept(*this);
-      Type* pt = result->getType();
-      if (pt->is(BaseType::TY_CLASS)) {
-        pt = cacheType(std::make_unique<Type>(BaseType::TY_PTR, nullptr, pt));
-      }
-      lookupArgs.push_back(pt);
-    }
-  }
+  Type* selfPtr = typeAsPtrIfClassForOverload(classType);
+  std::vector<Type*> lookupArgs = traitRequirementParamLookupTypes(selfPtr, req);
   if (insertScope->lookupFunction(req->getName(), lookupArgs,
                                   FunctionLookupKind::OVERLOAD_IDENTITY) != nullptr) {
     return;
@@ -6465,18 +6388,8 @@ auto Typechecker::typecheckTraitDefaultBodies(const Class* classNode, Type* clas
       if (req->getBody() == nullptr) {
         continue;
       }
-      Type* selfPtr = cacheType(std::make_unique<Type>(BaseType::TY_PTR, nullptr, classType));
-      std::vector<Type*> lookupArgs = {selfPtr};
-      for (Parameter* p : req->getParameters()) {
-        if (p->type != nullptr) {
-          p->type->accept(*this);
-          Type* pt = result->getType();
-          if (pt->is(BaseType::TY_CLASS)) {
-            pt = cacheType(std::make_unique<Type>(BaseType::TY_PTR, nullptr, pt));
-          }
-          lookupArgs.push_back(pt);
-        }
-      }
+      Type* selfPtr = typeAsPtrIfClassForOverload(classType);
+      std::vector<Type*> lookupArgs = traitRequirementParamLookupTypes(selfPtr, req);
       if (explicitSignatureKeys.contains(methodLookupSignatureKey(req->getName(), lookupArgs))) {
         continue;
       }
@@ -6526,18 +6439,8 @@ auto Typechecker::checkTraitImplementation(const Class* classNode, Type* classTy
     mergeTraitImplTypeArgsIntoCurrentGenericEnv(classNode, ti, trait);
     for (FuncDecl* req : trait->getRequirements()) {
       Type* expected = buildMethodFunctionType(req, classType);
-      Type* selfPtr = cacheType(std::make_unique<Type>(BaseType::TY_PTR, nullptr, classType));
-      std::vector<Type*> lookupArgs = {selfPtr};
-      for (Parameter* p : req->getParameters()) {
-        if (p->type != nullptr) {
-          p->type->accept(*this);
-          Type* pt = result->getType();
-          if (pt->is(BaseType::TY_CLASS)) {
-            pt = cacheType(std::make_unique<Type>(BaseType::TY_PTR, nullptr, pt));
-          }
-          lookupArgs.push_back(pt);
-        }
-      }
+      Type* selfPtr = typeAsPtrIfClassForOverload(classType);
+      std::vector<Type*> lookupArgs = traitRequirementParamLookupTypes(selfPtr, req);
       Value* methodSym = methodInsertScope->lookupFunction(req->getName(), lookupArgs,
                                                            FunctionLookupKind::OVERLOAD_IDENTITY);
       if (methodSym == nullptr && req->getBody() != nullptr) {

@@ -247,6 +247,11 @@ class Typechecker final : public ASTVisitor {
    * compound. */
   auto compoundToBinaryOp(TokenType op) -> std::optional<TokenType>;
 
+  [[nodiscard]] auto typeAsPtrIfClassForOverload(Type* t) -> Type*;
+  [[nodiscard]] auto overloadArgTypesFromCall(const FuncCall* fc) -> std::vector<Type*>;
+  [[nodiscard]] auto traitRequirementParamLookupTypes(Type* selfPtr, const FuncDecl* req)
+      -> std::vector<Type*>;
+
   /** Returns true if some path through the statements reaches end of block without a return. */
   auto pathLeadsToEndWithoutReturn(const std::vector<Statement*>& statements, size_t index) -> bool;
   /** Returns true if the block always returns on every path. */
