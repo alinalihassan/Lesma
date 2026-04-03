@@ -354,6 +354,12 @@ protected:
       -> std::unique_ptr<lesma::Value>;
   auto appendCallableArgument(lesma::Value* arg, std::vector<lesma::Type*>& paramTypes,
                               std::vector<llvm::Value*>& paramsLLVM) -> void;
+  /** Visit positional args; \p storage owns values, \p argsOut holds raw pointers into it. */
+  auto evaluateCallArgValues(const FuncCall* call,
+                             std::vector<std::unique_ptr<lesma::Value>>& storage,
+                             std::vector<lesma::Value*>& argsOut) -> void;
+  auto evaluateCallExplicitTypeArgs(const FuncCall* call, std::vector<lesma::Type*>& typesOut)
+      -> void;
   auto callNamedFunction(
       llvm::SMRange span, const std::string& functionName,
       const std::vector<lesma::Type*>& paramTypes, const std::vector<llvm::Value*>& paramsLLVM,

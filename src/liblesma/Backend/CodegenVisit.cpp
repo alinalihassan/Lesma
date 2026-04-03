@@ -3251,11 +3251,7 @@ auto Codegen::visit(const DotOp* node) -> void {
     }
     std::vector<std::unique_ptr<lesma::Value>> argStorage;
     std::vector<lesma::Value*> args;
-    for (auto* arg : method->getArguments()) {
-      arg->accept(*this);
-      argStorage.push_back(std::move(result));
-      args.push_back(argStorage.back().get());
-    }
+    evaluateCallArgValues(method, argStorage, args);
     std::vector<lesma::Type*> paramTypes;
     std::vector<llvm::Value*> paramsLLVM;
     // Instance methods take implicit `self` as fields[0]. Constructor chaining uses
@@ -3361,16 +3357,9 @@ auto Codegen::visit(const DotOp* node) -> void {
     }
     std::vector<std::unique_ptr<lesma::Value>> argStorage;
     std::vector<lesma::Value*> args;
-    for (auto* arg : call->getArguments()) {
-      arg->accept(*this);
-      argStorage.push_back(std::move(result));
-      args.push_back(argStorage.back().get());
-    }
+    evaluateCallArgValues(call, argStorage, args);
     std::vector<lesma::Type*> explicitTypeArgs;
-    for (auto* explicitTypeArg : call->getExplicitTypeArgs()) {
-      explicitTypeArg->accept(*this);
-      explicitTypeArgs.push_back(result->getType());
-    }
+    evaluateCallExplicitTypeArgs(call, explicitTypeArgs);
     setDebugLoc(node->getSpan());
     result =
         callMethodByName(node->getSpan(), leftValue.get(), call->getName(), args, explicitTypeArgs);
@@ -3385,16 +3374,9 @@ auto Codegen::visit(const DotOp* node) -> void {
     }
     std::vector<std::unique_ptr<lesma::Value>> argStorage;
     std::vector<lesma::Value*> args;
-    for (auto* arg : method->getArguments()) {
-      arg->accept(*this);
-      argStorage.push_back(std::move(result));
-      args.push_back(argStorage.back().get());
-    }
+    evaluateCallArgValues(method, argStorage, args);
     std::vector<lesma::Type*> explicitTypeArgs;
-    for (auto* explicitTypeArg : method->getExplicitTypeArgs()) {
-      explicitTypeArg->accept(*this);
-      explicitTypeArgs.push_back(result->getType());
-    }
+    evaluateCallExplicitTypeArgs(method, explicitTypeArgs);
     setDebugLoc(node->getSpan());
     result = emitUnionClassMethodDispatch(node->getSpan(), leftValue.get(), method->getName(), args,
                                           explicitTypeArgs);
@@ -3413,16 +3395,9 @@ auto Codegen::visit(const DotOp* node) -> void {
       }
       std::vector<std::unique_ptr<lesma::Value>> argStorage;
       std::vector<lesma::Value*> args;
-      for (auto* arg : call->getArguments()) {
-        arg->accept(*this);
-        argStorage.push_back(std::move(result));
-        args.push_back(argStorage.back().get());
-      }
+      evaluateCallArgValues(call, argStorage, args);
       std::vector<lesma::Type*> explicitTypeArgs;
-      for (auto* explicitTypeArg : call->getExplicitTypeArgs()) {
-        explicitTypeArg->accept(*this);
-        explicitTypeArgs.push_back(result->getType());
-      }
+      evaluateCallExplicitTypeArgs(call, explicitTypeArgs);
       setDebugLoc(node->getSpan());
       result = callMethodByName(node->getSpan(), leftValue.get(), call->getName(), args,
                                 explicitTypeArgs, call->getResolvedSymbol());
@@ -3524,16 +3499,9 @@ auto Codegen::visit(const DotOp* node) -> void {
               std::make_unique<lesma::Value>("", receiverType, static_cast<llvm::Value*>(nullptr));
           std::vector<std::unique_ptr<lesma::Value>> argStorage;
           std::vector<lesma::Value*> args;
-          for (auto* arg : method->getArguments()) {
-            arg->accept(*this);
-            argStorage.push_back(std::move(result));
-            args.push_back(argStorage.back().get());
-          }
+          evaluateCallArgValues(method, argStorage, args);
           std::vector<lesma::Type*> explicitTypeArgs;
-          for (auto* ta : method->getExplicitTypeArgs()) {
-            ta->accept(*this);
-            explicitTypeArgs.push_back(result->getType());
-          }
+          evaluateCallExplicitTypeArgs(method, explicitTypeArgs);
           setDebugLoc(node->getSpan());
           result = callMethodByName(node->getSpan(), recvHolder.get(), method->getName(), args,
                                     explicitTypeArgs, method->getResolvedSymbol(), method);
@@ -3573,16 +3541,9 @@ auto Codegen::visit(const DotOp* node) -> void {
         auto receiverValue = std::move(leftValue);
         std::vector<std::unique_ptr<lesma::Value>> argStorage;
         std::vector<lesma::Value*> args;
-        for (auto* arg : method->getArguments()) {
-          arg->accept(*this);
-          argStorage.push_back(std::move(result));
-          args.push_back(argStorage.back().get());
-        }
+        evaluateCallArgValues(method, argStorage, args);
         std::vector<lesma::Type*> explicitTypeArgs;
-        for (auto* explicitTypeArg : method->getExplicitTypeArgs()) {
-          explicitTypeArg->accept(*this);
-          explicitTypeArgs.push_back(result->getType());
-        }
+        evaluateCallExplicitTypeArgs(method, explicitTypeArgs);
         setDebugLoc(node->getSpan());
         result = callMethodByName(node->getSpan(), receiverValue.get(), method->getName(), args,
                                   explicitTypeArgs, method->getResolvedSymbol());
@@ -3828,16 +3789,9 @@ auto Codegen::visit(const DotOp* node) -> void {
                 std::make_unique<lesma::Value>("", lesmaType, static_cast<llvm::Value*>(nullptr));
             std::vector<std::unique_ptr<lesma::Value>> argStorage;
             std::vector<lesma::Value*> args;
-            for (auto* arg : method->getArguments()) {
-              arg->accept(*this);
-              argStorage.push_back(std::move(result));
-              args.push_back(argStorage.back().get());
-            }
+            evaluateCallArgValues(method, argStorage, args);
             std::vector<lesma::Type*> explicitTypeArgs;
-            for (auto* ta : method->getExplicitTypeArgs()) {
-              ta->accept(*this);
-              explicitTypeArgs.push_back(result->getType());
-            }
+            evaluateCallExplicitTypeArgs(method, explicitTypeArgs);
             setDebugLoc(node->getSpan());
             result = callMethodByName(node->getSpan(), recvHolder.get(), method->getName(), args,
                                       explicitTypeArgs, method->getResolvedSymbol(), method);
@@ -3871,16 +3825,9 @@ auto Codegen::visit(const DotOp* node) -> void {
           auto receiverValue = std::move(result);
           std::vector<std::unique_ptr<lesma::Value>> argStorage;
           std::vector<lesma::Value*> args;
-          for (auto* arg : method->getArguments()) {
-            arg->accept(*this);
-            argStorage.push_back(std::move(result));
-            args.push_back(argStorage.back().get());
-          }
+          evaluateCallArgValues(method, argStorage, args);
           std::vector<lesma::Type*> explicitTypeArgs;
-          for (auto* explicitTypeArg : method->getExplicitTypeArgs()) {
-            explicitTypeArg->accept(*this);
-            explicitTypeArgs.push_back(result->getType());
-          }
+          evaluateCallExplicitTypeArgs(method, explicitTypeArgs);
           setDebugLoc(node->getSpan());
           result = callMethodByName(node->getSpan(), receiverValue.get(), method->getName(), args,
                                     explicitTypeArgs, method->getResolvedSymbol());
@@ -4873,6 +4820,35 @@ auto Codegen::appendCallableArgument(lesma::Value* arg, std::vector<lesma::Type*
   paramsLLVM.push_back(llvmArg);
 }
 
+auto Codegen::evaluateCallArgValues(const FuncCall* call,
+                                    std::vector<std::unique_ptr<lesma::Value>>& storage,
+                                    std::vector<lesma::Value*>& argsOut) -> void {
+  storage.clear();
+  argsOut.clear();
+  if (call == nullptr) {
+    return;
+  }
+  std::vector<Expression*> const operands = call->getArguments();
+  storage.reserve(operands.size());
+  for (Expression* arg : operands) {
+    arg->accept(*this);
+    storage.push_back(std::move(result));
+    argsOut.push_back(storage.back().get());
+  }
+}
+
+auto Codegen::evaluateCallExplicitTypeArgs(const FuncCall* call,
+                                           std::vector<lesma::Type*>& typesOut) -> void {
+  typesOut.clear();
+  if (call == nullptr) {
+    return;
+  }
+  for (TypeExpr* ta : call->getExplicitTypeArgs()) {
+    ta->accept(*this);
+    typesOut.push_back(result->getType());
+  }
+}
+
 // `genericBindingHint` is the typechecker’s per-call binding list (e.g. class `T` for
 // `Cell.of(7)`). It feeds mangling, class monomorph of the template `selfSymbol`, and lowering of
 // the callee’s Lesma function type. Constructor resolution uses scope → rootScope →
@@ -5797,15 +5773,14 @@ auto Codegen::genFuncCall(const FuncCall* node, const std::vector<lesma::Value*>
     appendCallableArgument(arg, paramTypes, paramsLLVM);
   }
 
-  for (auto* arg : node->getArguments()) {
-    arg->accept(*this);
-    appendCallableArgument(result.get(), paramTypes, paramsLLVM);
+  std::vector<std::unique_ptr<lesma::Value>> posArgStorage;
+  std::vector<lesma::Value*> posArgs;
+  evaluateCallArgValues(node, posArgStorage, posArgs);
+  for (auto* arg : posArgs) {
+    appendCallableArgument(arg, paramTypes, paramsLLVM);
   }
 
-  for (auto* explicitTypeArg : node->getExplicitTypeArgs()) {
-    explicitTypeArg->accept(*this);
-    explicitTypeArgs.push_back(result->getType());
-  }
+  evaluateCallExplicitTypeArgs(node, explicitTypeArgs);
 
   setDebugLoc(node->getSpan());
   if (isListIntrinsicName(node->getName())) {
