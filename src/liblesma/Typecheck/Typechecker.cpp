@@ -903,10 +903,7 @@ auto Typechecker::visitListMethodCall(Type* listType, const DotOp* node, const F
   auto fields = funcType->getFields();
   if (!call->getExplicitTypeArgs().empty()) {
     std::vector<Type*> explicitTypes;
-    for (TypeExpr* texpr : call->getExplicitTypeArgs()) {
-      texpr->accept(*this);
-      explicitTypes.push_back(result->getType());
-    }
+    collectExplicitTypesFromCallByVisit(call, explicitTypes);
     const std::vector<std::string>& genericParamNames = getDeclaredGenericParams(funcType);
     if (explicitTypes.size() != genericParamNames.size()) {
       throw TypeCheckError(
@@ -974,16 +971,158 @@ auto Typechecker::overloadArgTypesFromCall(const FuncCall* fc) -> std::vector<Ty
   return argTypes;
 }
 
+void Typechecker::collectExplicitTypesFromCallByVisit(const FuncCall* call,
+                                                      std::vector<Type*>& out) {
+  out.clear();
+  for (TypeExpr* texpr : call->getExplicitTypeArgs()) {
+    texpr->accept(*this);
+    out.push_back(result->getType());
+  }
+}
+
+auto Typechecker::lookupFunctionInScopeThenImportedModuleCaches(
+    const std::string& name, const std::vector<Type*>& methodArgTypes) -> Value* {
+  Value* method = scope->lookupFunction(name, methodArgTypes);
+  if (method != nullptr) {
+    return method;
+  }
+  for (auto& [_, cachedModule] : importedModuleCache) {
+    if (cachedModule == nullptr || cachedModule->rootScope == nullptr) {
+      continue;
+    }
+    method = cachedModule->rootScope->lookupFunction(name, methodArgTypes);
+    if (method != nullptr) {
+      return method;
+    }
+  }
+  return nullptr;
+}
+
+auto Typechecker::tryLookupFunctionViaDotImportLiterals(
+    const DotOp* node, const std::string& name, const std::vector<Type*>& methodArgTypes) -> Value* {
+  auto* leftLit = dynamic_cast<Literal*>(node->getLeft());
+  if (leftLit == nullptr || leftLit->getType() != TokenType::IDENTIFIER) {
+    return nullptr;
+  }
+  if (auto srcIt = importedNameToSource.find(leftLit->getValue());
+      srcIt != importedNameToSource.end()) {
+    if (SymbolTable* imp = getOrTypecheckImport(srcIt->second.first)) {
+      return imp->lookupFunction(name, methodArgTypes);
+    }
+    return nullptr;
+  }
+  if (auto ap = importAliasToPath.find(leftLit->getValue()); ap != importAliasToPath.end()) {
+    if (SymbolTable* imp = getOrTypecheckImport(ap->second)) {
+      return imp->lookupFunction(name, methodArgTypes);
+    }
+  }
+  return nullptr;
+}
+
+void Typechecker::inferClassTemplateParamsForStaticMethodCallOnTemplate(
+    llvm::SMRange span, Type* receiverForLookup, Type* methodType,
+    const std::vector<Type*>& methodArgTypes,
+    std::unordered_map<std::string, Type*>& traitBoundSubs) {
+  const auto& classGenParams = getDeclaredGenericParams(receiverForLookup);
+  if (classGenParams.empty()) {
+    return;
+  }
+  std::unordered_map<std::string, Type*> inferredFromArgs;
+  std::vector<Field*> const& mtFields = methodType->getFields();
+  for (size_t i = 0; i < methodArgTypes.size() && i < mtFields.size(); ++i) {
+    inferGenericBindings(mtFields[i]->type, methodArgTypes[i], inferredFromArgs, span);
+  }
+  for (const std::string& gn : classGenParams) {
+    auto inferredIt = inferredFromArgs.find(gn);
+    auto existingIt = traitBoundSubs.find(gn);
+    if (existingIt != traitBoundSubs.end()) {
+      if (inferredIt != inferredFromArgs.end() &&
+          !existingIt->second->isEqual(inferredIt->second)) {
+        throw TypeCheckError(span, "Conflicting types for class type parameter `{}`: {} vs {}", gn,
+                             existingIt->second->toString(), inferredIt->second->toString());
+      }
+      continue;
+    }
+    if (inferredIt == inferredFromArgs.end()) {
+      Type* ctxClass = nullptr;
+      if (Type* exp = currentExpectedType(); exp != nullptr) {
+        Type* shape = exp;
+        if (shape->is(BaseType::TY_PTR) && shape->getElementType() != nullptr &&
+            shape->getElementType()->is(BaseType::TY_CLASS)) {
+          shape = shape->getElementType();
+        }
+        if (shape->is(BaseType::TY_CLASS)) {
+          if (auto tit = specializedTypeToTemplate.find(shape);
+              tit != specializedTypeToTemplate.end() && tit->second->isEqual(receiverForLookup)) {
+            ctxClass = shape;
+          }
+        }
+      }
+      if (ctxClass != nullptr) {
+        if (auto eit = specializedTypeEnv.find(ctxClass); eit != specializedTypeEnv.end()) {
+          auto cit = eit->second.find(gn);
+          if (cit != eit->second.end()) {
+            traitBoundSubs[gn] = cit->second;
+            continue;
+          }
+        }
+      }
+      throw TypeCheckError(
+          span,
+          "Cannot infer class type parameter `{}` from this static method call; use "
+          "arguments that determine `{}`, a contextual type (e.g. variable annotation), or "
+          "call through a specialized type",
+          gn, gn);
+    }
+    traitBoundSubs[gn] = inferredIt->second;
+  }
+}
+
+auto Typechecker::isStdListClassType(Type* type) const -> bool {
+  if (type == nullptr) {
+    return false;
+  }
+  if (type->is(BaseType::TY_PTR) && type->getElementType() != nullptr) {
+    type = type->getElementType();
+  }
+  if (!type->is(BaseType::TY_CLASS)) {
+    return false;
+  }
+  Type* baseType = type;
+  if (auto it = specializedTypeToTemplate.find(type); it != specializedTypeToTemplate.end()) {
+    baseType = it->second;
+  }
+  const std::string& displayName = baseType->getDisplayName();
+  return displayName == "list<T>" || displayName == "list";
+}
+
+auto Typechecker::getStdListElementType(Type* type) const -> Type* {
+  if (type == nullptr) {
+    return nullptr;
+  }
+  Type* cls = type;
+  if (cls->is(BaseType::TY_PTR) && cls->getElementType() != nullptr) {
+    cls = cls->getElementType();
+  }
+  if (!isStdListClassType(type)) {
+    return nullptr;
+  }
+  if (auto it = specializedTypeEnv.find(cls); it != specializedTypeEnv.end()) {
+    auto envIt = it->second.find("T");
+    if (envIt != it->second.end()) {
+      return envIt->second;
+    }
+  }
+  return nullptr;
+}
+
 void Typechecker::finishGenericClassCallWithExplicitTypeArgs(
     const FuncCall* callSite, Type* classType, const std::vector<Type*>& argTypes,
     SymbolTable* ctorLookupScope, bool markConstructorSymbolRead,
     const std::function<void()>& afterSpecialize) {
   const std::vector<std::string>& genericParamNames = getDeclaredGenericParams(classType);
   std::vector<Type*> explicitTypes;
-  for (TypeExpr* texpr : callSite->getExplicitTypeArgs()) {
-    texpr->accept(*this);
-    explicitTypes.push_back(result->getType());
-  }
+  collectExplicitTypesFromCallByVisit(callSite, explicitTypes);
   if (explicitTypes.size() != genericParamNames.size()) {
     throw TypeCheckError(callSite->getSpan(),
                          "Explicit type argument count {} does not match "
@@ -4671,10 +4810,7 @@ auto Typechecker::visit(const FuncCall* node) -> void {
 
   if (!node->getExplicitTypeArgs().empty()) {
     std::vector<Type*> explicitTypes;
-    for (TypeExpr* texpr : node->getExplicitTypeArgs()) {
-      texpr->accept(*this);
-      explicitTypes.push_back(result->getType());
-    }
+    collectExplicitTypesFromCallByVisit(node, explicitTypes);
     const std::vector<std::string>& genericParamNames = getDeclaredGenericParams(funcType);
     if (explicitTypes.size() != genericParamNames.size()) {
       throw TypeCheckError(node->getSpan(),
@@ -5084,23 +5220,6 @@ auto Typechecker::visit(const DotOp* node) -> void {
       }
     }
   }
-  auto isStdListClassType = [this](Type* type) -> bool {
-    if (type == nullptr) {
-      return false;
-    }
-    if (type->is(BaseType::TY_PTR) && type->getElementType() != nullptr) {
-      type = type->getElementType();
-    }
-    if (!type->is(BaseType::TY_CLASS)) {
-      return false;
-    }
-    Type* baseType = type;
-    if (auto it = specializedTypeToTemplate.find(type); it != specializedTypeToTemplate.end()) {
-      baseType = it->second;
-    }
-    const std::string& displayName = baseType->getDisplayName();
-    return displayName == "list<T>" || displayName == "list";
-  };
   if (base == nullptr) {
     throw TypeCheckError(node->getSpan(), "Dot operator on unknown type");
   }
@@ -5325,33 +5444,9 @@ auto Typechecker::visit(const DotOp* node) -> void {
     if (specializedIt != specializedTypeEnv.end()) {
       methodTypeEnv = specializedIt->second;
     }
-    Value* method = scope->lookupFunction(fc->getName(), methodArgTypes);
+    Value* method = lookupFunctionInScopeThenImportedModuleCaches(fc->getName(), methodArgTypes);
     if (method == nullptr) {
-      for (auto& [_, cachedModule] : importedModuleCache) {
-        if (cachedModule == nullptr || cachedModule->rootScope == nullptr) {
-          continue;
-        }
-        method = cachedModule->rootScope->lookupFunction(fc->getName(), methodArgTypes);
-        if (method != nullptr) {
-          break;
-        }
-      }
-    }
-    if (method == nullptr) {
-      if (auto* leftLit = dynamic_cast<Literal*>(node->getLeft());
-          leftLit != nullptr && leftLit->getType() == TokenType::IDENTIFIER) {
-        if (auto srcIt = importedNameToSource.find(leftLit->getValue());
-            srcIt != importedNameToSource.end()) {
-          if (SymbolTable* imp = getOrTypecheckImport(srcIt->second.first)) {
-            method = imp->lookupFunction(fc->getName(), methodArgTypes);
-          }
-        } else if (auto ap = importAliasToPath.find(leftLit->getValue());
-                   ap != importAliasToPath.end()) {
-          if (SymbolTable* imp = getOrTypecheckImport(ap->second)) {
-            method = imp->lookupFunction(fc->getName(), methodArgTypes);
-          }
-        }
-      }
+      method = tryLookupFunctionViaDotImportLiterals(node, fc->getName(), methodArgTypes);
     }
     if (method == nullptr) {
       throw TypeCheckError(node->getSpan(), "Function not found: {}", fc->getName());
@@ -5369,67 +5464,11 @@ auto Typechecker::visit(const DotOp* node) -> void {
     typecheckExplicitResolvedMethodTypeArgsIfPresent(fc, methodType, methodTypeEnv, methodArgTypes,
                                                      node->getSpan());
     std::unordered_map<std::string, Type*> traitBoundSubs = methodTypeEnv;
-    // Infer class type parameters for `GenericClass.staticMethod(...)` when the dot receiver is the
-    // unspecialized class template (Swift-style: `Cell.of(7)` fixes `T` to `int`).
     if (typeNameReceiver && fc->getName() != "new" && method->isStaticMethod() &&
         receiverForLookup->is(BaseType::TY_CLASS)) {
-      const auto& classGenParams = getDeclaredGenericParams(receiverForLookup);
-      if (!classGenParams.empty()) {
-        std::unordered_map<std::string, Type*> inferredFromArgs;
-        std::vector<Field*> const& mtFields = methodType->getFields();
-        for (size_t i = 0; i < methodArgTypes.size() && i < mtFields.size(); ++i) {
-          inferGenericBindings(mtFields[i]->type, methodArgTypes[i], inferredFromArgs,
-                               node->getSpan());
-        }
-        for (const std::string& gn : classGenParams) {
-          auto inferredIt = inferredFromArgs.find(gn);
-          auto existingIt = traitBoundSubs.find(gn);
-          if (existingIt != traitBoundSubs.end()) {
-            if (inferredIt != inferredFromArgs.end() &&
-                !existingIt->second->isEqual(inferredIt->second)) {
-              throw TypeCheckError(node->getSpan(),
-                                   "Conflicting types for class type parameter `{}`: {} vs {}", gn,
-                                   existingIt->second->toString(), inferredIt->second->toString());
-            }
-            continue;
-          }
-          if (inferredIt == inferredFromArgs.end()) {
-            // Swift-style: `var x: Cell<int> = Cell.wrap_int(3)` — args may not mention `T`, but
-            // the enclosing expected type specializes the same class template.
-            Type* ctxClass = nullptr;
-            if (Type* exp = currentExpectedType(); exp != nullptr) {
-              Type* shape = exp;
-              if (shape->is(BaseType::TY_PTR) && shape->getElementType() != nullptr &&
-                  shape->getElementType()->is(BaseType::TY_CLASS)) {
-                shape = shape->getElementType();
-              }
-              if (shape->is(BaseType::TY_CLASS)) {
-                if (auto tit = specializedTypeToTemplate.find(shape);
-                    tit != specializedTypeToTemplate.end() &&
-                    tit->second->isEqual(receiverForLookup)) {
-                  ctxClass = shape;
-                }
-              }
-            }
-            if (ctxClass != nullptr) {
-              if (auto eit = specializedTypeEnv.find(ctxClass); eit != specializedTypeEnv.end()) {
-                auto cit = eit->second.find(gn);
-                if (cit != eit->second.end()) {
-                  traitBoundSubs[gn] = cit->second;
-                  continue;
-                }
-              }
-            }
-            throw TypeCheckError(
-                node->getSpan(),
-                "Cannot infer class type parameter `{}` from this static method call; use "
-                "arguments that determine `{}`, a contextual type (e.g. variable annotation), or "
-                "call through a specialized type",
-                gn, gn);
-          }
-          traitBoundSubs[gn] = inferredIt->second;
-        }
-      }
+      inferClassTemplateParamsForStaticMethodCallOnTemplate(node->getSpan(), receiverForLookup,
+                                                              methodType, methodArgTypes,
+                                                              traitBoundSubs);
     }
     mergeMethodGenericParamsFromArgumentsWhenNoExplicitTypeArgs(fc, methodType, methodArgTypes,
                                                                 traitBoundSubs, node->getSpan());
@@ -5571,29 +5610,6 @@ auto Typechecker::visit(const UnaryOp* node) -> void {
 
 auto Typechecker::visit(const ListLiteral* node) -> void {
   Type* expectedType = currentExpectedType();
-  auto isStdListClassType = [this](Type* type) -> bool {
-    if (type == nullptr || !type->is(BaseType::TY_CLASS)) {
-      return false;
-    }
-    Type* baseType = type;
-    if (auto it = specializedTypeToTemplate.find(type); it != specializedTypeToTemplate.end()) {
-      baseType = it->second;
-    }
-    const std::string& displayName = baseType->getDisplayName();
-    return displayName == "list<T>" || displayName == "list";
-  };
-  auto getStdListElementType = [this, &isStdListClassType](Type* type) -> Type* {
-    if (!isStdListClassType(type)) {
-      return nullptr;
-    }
-    if (auto it = specializedTypeEnv.find(type); it != specializedTypeEnv.end()) {
-      auto envIt = it->second.find("T");
-      if (envIt != it->second.end()) {
-        return envIt->second;
-      }
-    }
-    return nullptr;
-  };
   auto getStdListType = [this, node](Type* elementType) -> Type* {
     const auto listPath = std::filesystem::absolute(std::filesystem::path(getStdDir()) / "base.les")
                               .lexically_normal();

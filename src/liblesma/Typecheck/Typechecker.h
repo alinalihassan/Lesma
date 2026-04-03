@@ -240,6 +240,8 @@ class Typechecker final : public ASTVisitor {
                                const std::vector<Type*>& argTypes, llvm::SMRange span) -> Type*;
   auto isMutableListReceiver(const Expression* expr) -> bool;
   [[nodiscard]] auto isMutatingListFunction(const std::string& functionName) const -> bool;
+  [[nodiscard]] auto isStdListClassType(Type* type) const -> bool;
+  [[nodiscard]] auto getStdListElementType(Type* type) const -> Type*;
   [[nodiscard]] auto isListIntrinsicName(const std::string& functionName) const -> bool;
   auto visitListIntrinsicCall(const FuncCall* node, const std::vector<Type*>& argTypes) -> bool;
   auto visitListMethodCall(Type* listType, const DotOp* node, const FuncCall* call) -> bool;
@@ -249,6 +251,16 @@ class Typechecker final : public ASTVisitor {
 
   [[nodiscard]] auto typeAsPtrIfClassForOverload(Type* t) -> Type*;
   [[nodiscard]] auto overloadArgTypesFromCall(const FuncCall* fc) -> std::vector<Type*>;
+  void collectExplicitTypesFromCallByVisit(const FuncCall* call, std::vector<Type*>& out);
+  [[nodiscard]] auto lookupFunctionInScopeThenImportedModuleCaches(
+      const std::string& name, const std::vector<Type*>& methodArgTypes) -> Value*;
+  [[nodiscard]] auto tryLookupFunctionViaDotImportLiterals(
+      const DotOp* node, const std::string& name, const std::vector<Type*>& methodArgTypes)
+      -> Value*;
+  void inferClassTemplateParamsForStaticMethodCallOnTemplate(
+      llvm::SMRange span, Type* receiverForLookup, Type* methodType,
+      const std::vector<Type*>& methodArgTypes,
+      std::unordered_map<std::string, Type*>& traitBoundSubs);
   void finishGenericClassCallWithExplicitTypeArgs(const FuncCall* callSite, Type* classType,
                                                   const std::vector<Type*>& argTypes,
                                                   SymbolTable* ctorLookupScope,
