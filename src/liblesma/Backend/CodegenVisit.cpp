@@ -48,6 +48,7 @@
 #include <llvm/Target/TargetOptions.h>
 #include <llvm/TargetParser/Host.h>
 #include <llvm/Transforms/Utils/ModuleUtils.h>
+#include <llvm/Transforms/Utils/ValueMapper.h>
 
 #include "Codegen.h"
 #include <lld/Common/Driver.h>
@@ -3241,10 +3242,24 @@ auto Codegen::emitClassStaticFieldValue(Type* classTy, const std::string& field,
     llvm::StringRef const gname = gvVar->getName();
     llvm::GlobalVariable* localGv = theModule->getGlobalVariable(gname, true);
     if (localGv == nullptr) {
-      // Imported/JIT modules own the definition in another llvm::Module; reference it from this
-      // module via a same-named global so IR stays single-module consistent for the builder.
-      localGv = new llvm::GlobalVariable(*theModule, gvVar->getValueType(), gvVar->isConstant(),
-                                         llvm::GlobalValue::ExternalLinkage, nullptr, gname);
+      // Imported/JIT modules may define storage in another llvm::Module. Private/internal defs
+      // cannot be referenced as ExternalLinkage stubs from this module (JIT/link); rematerialize
+      // the global here when it carries an initializer. Pure declarations stay external.
+      if (gvVar->hasInitializer()) {
+        llvm::ValueToValueMapTy vmap;
+        auto* mappedInit = llvm::MapValue(gvVar->getInitializer(), vmap);
+        if (mappedInit == nullptr) {
+          throw CodegenError(storageDiagSpan,
+                             "Cannot rematerialize static field initializer across modules");
+        }
+        localGv = new llvm::GlobalVariable(*theModule, gvVar->getValueType(), gvVar->isConstant(),
+                                           gvVar->getLinkage(), mappedInit, gname, nullptr,
+                                           gvVar->getThreadLocalMode(), gvVar->getAddressSpace(),
+                                           gvVar->isExternallyInitialized());
+      } else {
+        localGv = new llvm::GlobalVariable(*theModule, gvVar->getValueType(), gvVar->isConstant(),
+                                             llvm::GlobalValue::ExternalLinkage, nullptr, gname);
+      }
       localGv->setVisibility(gvVar->getVisibility());
       localGv->setThreadLocalMode(gvVar->getThreadLocalMode());
       localGv->copyAttributesFrom(gvVar);
@@ -3425,6 +3440,9 @@ void Codegen::lowerDotOpSuperMethodCall(const DotOp* node) {
     }
   }
   for (const auto& binding : method->getGenericBindingEnv()) {
+    if (binding.second == nullptr || typeContainsUnboundGeneric(binding.second)) {
+      continue;
+    }
     currentGenericTypes[binding.first] = binding.second;
   }
   try {
