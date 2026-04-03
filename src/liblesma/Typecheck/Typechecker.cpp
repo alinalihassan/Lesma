@@ -903,7 +903,10 @@ auto Typechecker::visitListMethodCall(Type* listType, const DotOp* node, const F
   auto fields = funcType->getFields();
   if (!call->getExplicitTypeArgs().empty()) {
     std::vector<Type*> explicitTypes;
-    collectExplicitTypesFromCallByVisit(call, explicitTypes);
+    for (TypeExpr* texpr : call->getExplicitTypeArgs()) {
+      texpr->accept(*this);
+      explicitTypes.push_back(result->getType());
+    }
     const std::vector<std::string>& genericParamNames = getDeclaredGenericParams(funcType);
     if (explicitTypes.size() != genericParamNames.size()) {
       throw TypeCheckError(
@@ -971,37 +974,16 @@ auto Typechecker::overloadArgTypesFromCall(const FuncCall* fc) -> std::vector<Ty
   return argTypes;
 }
 
-void Typechecker::collectExplicitTypesFromCallByVisit(const FuncCall* call, std::vector<Type*>& out) {
-  out.clear();
-  if (call == nullptr) {
-    return;
-  }
-  for (TypeExpr* texpr : call->getExplicitTypeArgs()) {
-    texpr->accept(*this);
-    out.push_back(result->getType());
-  }
-}
-
-void Typechecker::collectExplicitTypesFromCallByResolve(const FuncCall* call,
-                                                         std::vector<Type*>& out) {
-  out.clear();
-  if (call == nullptr) {
-    return;
-  }
-  std::vector<TypeExpr*> const tas = call->getExplicitTypeArgs();
-  out.reserve(tas.size());
-  for (TypeExpr* texpr : tas) {
-    out.push_back(resolveType(texpr));
-  }
-}
-
 void Typechecker::finishGenericClassCallWithExplicitTypeArgs(
     const FuncCall* callSite, Type* classType, const std::vector<Type*>& argTypes,
     SymbolTable* ctorLookupScope, bool markConstructorSymbolRead,
     const std::function<void()>& afterSpecialize) {
   const std::vector<std::string>& genericParamNames = getDeclaredGenericParams(classType);
   std::vector<Type*> explicitTypes;
-  collectExplicitTypesFromCallByVisit(callSite, explicitTypes);
+  for (TypeExpr* texpr : callSite->getExplicitTypeArgs()) {
+    texpr->accept(*this);
+    explicitTypes.push_back(result->getType());
+  }
   if (explicitTypes.size() != genericParamNames.size()) {
     throw TypeCheckError(callSite->getSpan(),
                          "Explicit type argument count {} does not match "
@@ -1090,7 +1072,11 @@ void Typechecker::typecheckExplicitResolvedMethodTypeArgsIfPresent(
     return;
   }
   std::vector<Type*> explicitTypes;
-  collectExplicitTypesFromCallByResolve(fc, explicitTypes);
+  std::vector<TypeExpr*> const tas = fc->getExplicitTypeArgs();
+  explicitTypes.reserve(tas.size());
+  for (TypeExpr* texpr : tas) {
+    explicitTypes.push_back(resolveType(texpr));
+  }
   const std::vector<std::string>& genericParamNames = getDeclaredGenericParams(methodType);
   if (explicitTypes.size() != genericParamNames.size()) {
     throw TypeCheckError(span, "Explicit type argument count {} does not match "
@@ -4685,7 +4671,10 @@ auto Typechecker::visit(const FuncCall* node) -> void {
 
   if (!node->getExplicitTypeArgs().empty()) {
     std::vector<Type*> explicitTypes;
-    collectExplicitTypesFromCallByVisit(node, explicitTypes);
+    for (TypeExpr* texpr : node->getExplicitTypeArgs()) {
+      texpr->accept(*this);
+      explicitTypes.push_back(result->getType());
+    }
     const std::vector<std::string>& genericParamNames = getDeclaredGenericParams(funcType);
     if (explicitTypes.size() != genericParamNames.size()) {
       throw TypeCheckError(node->getSpan(),
@@ -4992,8 +4981,6 @@ auto Typechecker::visit(const DotOp* node) -> void {
     }
     Type* superTy = currentClassType->getClassSuperclass();
     std::vector<Type*> argTypes = overloadArgTypesFromCall(fc);
-    // `super.new(self, ...)` passes the receiver explicitly; mirror codegen lookup exactly.
-    std::vector<Type*> methodArgTypes = argTypes;
     SymbolTable* insertScope =
         currentMethodInsertScope != nullptr ? currentMethodInsertScope : scope->getParent();
     if (insertScope == nullptr) {
@@ -5004,13 +4991,13 @@ auto Typechecker::visit(const DotOp* node) -> void {
       superSeed = &envIt->second;
     }
     Value* method = insertScope->lookupSuperClassMethod(
-        fc->getName(), methodArgTypes,
+        fc->getName(), argTypes,
         [this, superTy](Type* recvCls) {
           return superMethodReceiverMatchesFormal(recvCls, superTy);
         },
         superTy, superSeed);
     if (method == nullptr) {
-      method = insertScope->lookupFunction(fc->getName(), methodArgTypes, FunctionLookupKind::VALUE,
+      method = insertScope->lookupFunction(fc->getName(), argTypes, FunctionLookupKind::VALUE,
                                            currentClassType);
     }
     if (method == nullptr) {
@@ -5019,14 +5006,14 @@ auto Typechecker::visit(const DotOp* node) -> void {
           continue;
         }
         method = cachedModule->rootScope->lookupSuperClassMethod(
-            fc->getName(), methodArgTypes,
+            fc->getName(), argTypes,
             [this, superTy](Type* recvCls) {
               return superMethodReceiverMatchesFormal(recvCls, superTy);
             },
             superTy, superSeed);
         if (method == nullptr) {
           method = cachedModule->rootScope->lookupFunction(
-              fc->getName(), methodArgTypes, FunctionLookupKind::VALUE, currentClassType);
+              fc->getName(), argTypes, FunctionLookupKind::VALUE, currentClassType);
         }
         if (method != nullptr) {
           break;
@@ -5046,10 +5033,10 @@ auto Typechecker::visit(const DotOp* node) -> void {
     if (specializedIt != specializedTypeEnv.end()) {
       methodTypeEnv = specializedIt->second;
     }
-    typecheckExplicitResolvedMethodTypeArgsIfPresent(fc, methodType, methodTypeEnv, methodArgTypes,
+    typecheckExplicitResolvedMethodTypeArgsIfPresent(fc, methodType, methodTypeEnv, argTypes,
                                                      node->getSpan());
     std::unordered_map<std::string, Type*> traitBoundSubs = methodTypeEnv;
-    mergeMethodGenericParamsFromArgumentsWhenNoExplicitTypeArgs(fc, methodType, methodArgTypes,
+    mergeMethodGenericParamsFromArgumentsWhenNoExplicitTypeArgs(fc, methodType, argTypes,
                                                                 traitBoundSubs, node->getSpan());
     verifyGenericTraitBounds(method, traitBoundSubs, node->getSpan());
     Type* retType = methodType->getReturnType();

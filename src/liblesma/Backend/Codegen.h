@@ -388,6 +388,17 @@ protected:
                         lesma::Value* resolvedCallee = nullptr,
                         const FuncCall* callSiteForGenericEnv = nullptr)
       -> std::unique_ptr<lesma::Value>;
+  /** Lower a static class field (TYPE_SYMBOL receiver); uses \c isAssignment. */
+  auto emitClassStaticFieldValue(Type* classTy, const std::string& field,
+                                 llvm::SMRange unknownFieldSpan, llvm::SMRange storageDiagSpan)
+      -> std::unique_ptr<lesma::Value>;
+  /** Instance data field GEP; \p classStructSym from \c lookupClassStructSymbol. */
+  auto emitClassInstanceDataField(Value* classStructSym, llvm::Value* objectBase,
+                                  const std::string& field, llvm::SMRange span,
+                                  bool baseMayBeNonPointer) -> std::unique_ptr<lesma::Value>;
+  void emitClassStaticMethodCall(const DotOp* node, Type* classTy, const FuncCall* method);
+  void emitClassInstanceMethodCall(const DotOp* node, lesma::Value* receiver,
+                                   const FuncCall* method);
   auto emitClassStaticFieldGlobals(lesma::Type* classTy, const Class* astNode) -> void;
   /** LLVM global for a static field; uses the class template symbol when \p classTy is specialized.
    */

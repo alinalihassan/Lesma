@@ -249,8 +249,6 @@ class Typechecker final : public ASTVisitor {
 
   [[nodiscard]] auto typeAsPtrIfClassForOverload(Type* t) -> Type*;
   [[nodiscard]] auto overloadArgTypesFromCall(const FuncCall* fc) -> std::vector<Type*>;
-  void collectExplicitTypesFromCallByVisit(const FuncCall* call, std::vector<Type*>& out);
-  void collectExplicitTypesFromCallByResolve(const FuncCall* call, std::vector<Type*>& out);
   void finishGenericClassCallWithExplicitTypeArgs(const FuncCall* callSite, Type* classType,
                                                   const std::vector<Type*>& argTypes,
                                                   SymbolTable* ctorLookupScope,

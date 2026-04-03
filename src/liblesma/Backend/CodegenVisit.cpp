@@ -3231,6 +3231,115 @@ auto Codegen::superMethodReceiverMatchesFormalCodegen(Type* formalReceiverClass,
   return false;
 }
 
+auto Codegen::emitClassStaticFieldValue(Type* classTy, const std::string& field,
+                                        llvm::SMRange unknownFieldSpan,
+                                        llvm::SMRange storageDiagSpan)
+    -> std::unique_ptr<lesma::Value> {
+  Field* sf = TypeUtils::findStaticFieldInClass(classTy, field);
+  if (sf == nullptr) {
+    if (auto it = specializedClassTemplateOf.find(classTy); it != specializedClassTemplateOf.end()) {
+      sf = TypeUtils::findStaticFieldInClass(it->second, field);
+    }
+  }
+  if (sf == nullptr) {
+    throw CodegenError(unknownFieldSpan, "Unknown static field {} for class {}", field,
+                       classTy->getDisplayName().empty() ? "(unknown)" : classTy->getDisplayName());
+  }
+  llvm::Value* gv = llvmGlobalForClassStaticField(classTy, field);
+  if (gv == nullptr) {
+    throw CodegenError(storageDiagSpan, "Static field {} has no lowered storage", field);
+  }
+  lesma::Type* ft = sf->type;
+  getOrCreateLlvmType(ft);
+  if (isAssignment) {
+    lesma::Type* ptrToVal = ft;
+    if (ft->is(BaseType::TY_CLASS)) {
+      ptrToVal = cacheType(std::make_unique<Type>(BaseType::TY_PTR, builder->getPtrTy(), ft));
+    } else if (ft->is(BaseType::TY_PTR) && ft->getElementType() != nullptr &&
+               ft->getElementType()->is(BaseType::TY_CLASS)) {
+      ptrToVal = cacheType(std::make_unique<Type>(BaseType::TY_PTR, builder->getPtrTy(), ft));
+    }
+    auto out = std::make_unique<Value>("", ptrToVal, gv);
+    if (ft->is(BaseType::TY_FUNCTION) && sf->getDeclarationSymbol() != nullptr &&
+        sf->getDeclarationSymbol()->getStoresFuncValuePair()) {
+      out->setStoresFuncValuePair(true);
+      out->setClosureCalleeUsesEnvParameter(
+          sf->getDeclarationSymbol()->getClosureCalleeUsesEnvParameter());
+    }
+    return out;
+  }
+  if (ft->is(BaseType::TY_FUNCTION) && sf->getDeclarationSymbol() != nullptr &&
+      sf->getDeclarationSymbol()->getStoresFuncValuePair()) {
+    auto slot = std::make_unique<Value>("", ft, gv);
+    slot->setCategory(ValueCategory::ADDRESSABLE_STORAGE);
+    slot->setStoresFuncValuePair(true);
+    slot->setClosureCalleeUsesEnvParameter(
+        sf->getDeclarationSymbol()->getClosureCalleeUsesEnvParameter());
+    return slot;
+  }
+  llvm::Type* storageTy = ft->getLlvmType();
+  if (ft->is(BaseType::TY_CLASS)) {
+    storageTy = builder->getPtrTy();
+  } else if (ft->is(BaseType::TY_PTR) && ft->getElementType() != nullptr &&
+             ft->getElementType()->is(BaseType::TY_CLASS)) {
+    storageTy = builder->getPtrTy();
+  }
+  return std::make_unique<Value>("", ft, builder->CreateLoad(storageTy, gv));
+}
+
+auto Codegen::emitClassInstanceDataField(Value* classStructSym, llvm::Value* objectBase,
+                                         const std::string& field, llvm::SMRange span,
+                                         bool baseMayBeNonPointer) -> std::unique_ptr<lesma::Value> {
+  lesma::Type* structTy = classStructSym->getType();
+  auto index = TypeUtils::findIndexInFields(structTy, field);
+  auto* type = TypeUtils::findTypeInFields(structTy, field);
+  if (index == -1) {
+    throw CodegenError(span, "Could not find field {} in {}", field,
+                       structTy->getLlvmType()->getStructName().str());
+  }
+  llvm::Value* fieldBasePtr = objectBase;
+  if (baseMayBeNonPointer && !fieldBasePtr->getType()->isPointerTy()) {
+    auto* parentFn = builder->GetInsertBlock()->getParent();
+    auto* tempAlloca =
+        createAllocaInEntry(parentFn, structTy->getLlvmType(), field + ".field.tmp");
+    builder->CreateStore(fieldBasePtr, tempAlloca);
+    fieldBasePtr = tempAlloca;
+  }
+  unsigned const structIdx =
+      TypeUtils::classDataFieldStructIndex(structTy, static_cast<unsigned>(index));
+  auto* ptr = builder->CreateStructGEP(structTy->getLlvmType(), fieldBasePtr, structIdx);
+  if (isAssignment) {
+    return std::make_unique<Value>(
+        "", cacheType(std::make_unique<Type>(BaseType::TY_PTR, builder->getPtrTy(), type)), ptr);
+  }
+  return std::make_unique<Value>("", type, loadStoredAggregateFieldValue(ptr, type));
+}
+
+void Codegen::emitClassStaticMethodCall(const DotOp* node, Type* classTy, const FuncCall* method) {
+  auto recvHolder =
+      std::make_unique<lesma::Value>("", classTy, static_cast<llvm::Value*>(nullptr));
+  std::vector<std::unique_ptr<lesma::Value>> argStorage;
+  std::vector<lesma::Value*> args;
+  evaluateCallArgValues(method, argStorage, args);
+  std::vector<lesma::Type*> explicitTypeArgs;
+  evaluateCallExplicitTypeArgs(method, explicitTypeArgs);
+  setDebugLoc(node->getSpan());
+  result = callMethodByName(node->getSpan(), recvHolder.get(), method->getName(), args,
+                            explicitTypeArgs, method->getResolvedSymbol(), method);
+}
+
+void Codegen::emitClassInstanceMethodCall(const DotOp* node, lesma::Value* receiver,
+                                          const FuncCall* method) {
+  std::vector<std::unique_ptr<lesma::Value>> argStorage;
+  std::vector<lesma::Value*> args;
+  evaluateCallArgValues(method, argStorage, args);
+  std::vector<lesma::Type*> explicitTypeArgs;
+  evaluateCallExplicitTypeArgs(method, explicitTypeArgs);
+  setDebugLoc(node->getSpan());
+  result = callMethodByName(node->getSpan(), receiver, method->getName(), args, explicitTypeArgs,
+                            method->getResolvedSymbol());
+}
+
 auto Codegen::visit(const DotOp* node) -> void {
   setDebugLoc(node->getSpan());
   if (dynamic_cast<SuperExpr*>(node->getLeft()) != nullptr) {
@@ -3438,115 +3547,22 @@ auto Codegen::visit(const DotOp* node) -> void {
       }
       if (leftValue->getCategory() == ValueCategory::TYPE_SYMBOL) {
         if (!field.empty()) {
-          Field* sf = TypeUtils::findStaticFieldInClass(receiverType, field);
-          if (sf == nullptr) {
-            if (auto it = specializedClassTemplateOf.find(receiverType);
-                it != specializedClassTemplateOf.end()) {
-              sf = TypeUtils::findStaticFieldInClass(it->second, field);
-            }
-          }
-          if (sf != nullptr) {
-            llvm::Value* gv = llvmGlobalForClassStaticField(receiverType, field);
-            if (gv == nullptr) {
-              throw CodegenError(node->getSpan(), "Static field {} has no lowered storage", field);
-            }
-            lesma::Type* ft = sf->type;
-            getOrCreateLlvmType(ft);
-            if (isAssignment) {
-              lesma::Type* ptrToVal = ft;
-              if (ft->is(BaseType::TY_CLASS)) {
-                ptrToVal =
-                    cacheType(std::make_unique<Type>(BaseType::TY_PTR, builder->getPtrTy(), ft));
-              } else if (ft->is(BaseType::TY_PTR) && ft->getElementType() != nullptr &&
-                         ft->getElementType()->is(BaseType::TY_CLASS)) {
-                ptrToVal =
-                    cacheType(std::make_unique<Type>(BaseType::TY_PTR, builder->getPtrTy(), ft));
-              }
-              result = std::make_unique<Value>("", ptrToVal, gv);
-              if (ft->is(BaseType::TY_FUNCTION) && sf->getDeclarationSymbol() != nullptr &&
-                  sf->getDeclarationSymbol()->getStoresFuncValuePair()) {
-                result->setStoresFuncValuePair(true);
-                result->setClosureCalleeUsesEnvParameter(
-                    sf->getDeclarationSymbol()->getClosureCalleeUsesEnvParameter());
-              }
-              return;
-            }
-            if (ft->is(BaseType::TY_FUNCTION) && sf->getDeclarationSymbol() != nullptr &&
-                sf->getDeclarationSymbol()->getStoresFuncValuePair()) {
-              auto slot = std::make_unique<Value>("", ft, gv);
-              slot->setCategory(ValueCategory::ADDRESSABLE_STORAGE);
-              slot->setStoresFuncValuePair(true);
-              slot->setClosureCalleeUsesEnvParameter(
-                  sf->getDeclarationSymbol()->getClosureCalleeUsesEnvParameter());
-              result = std::move(slot);
-              return;
-            }
-            llvm::Type* storageTy = ft->getLlvmType();
-            if (ft->is(BaseType::TY_CLASS)) {
-              storageTy = builder->getPtrTy();
-            } else if (ft->is(BaseType::TY_PTR) && ft->getElementType() != nullptr &&
-                       ft->getElementType()->is(BaseType::TY_CLASS)) {
-              storageTy = builder->getPtrTy();
-            }
-            result = std::make_unique<Value>("", ft, builder->CreateLoad(storageTy, gv));
-            return;
-          }
-          throw CodegenError(node->getRight()->getSpan(), "Unknown static field {} for class {}",
-                             field, receiverType->getDisplayName());
+          result = emitClassStaticFieldValue(receiverType, field, node->getRight()->getSpan(),
+                                             node->getSpan());
+          return;
         }
         if (method != nullptr) {
-          auto recvHolder =
-              std::make_unique<lesma::Value>("", receiverType, static_cast<llvm::Value*>(nullptr));
-          std::vector<std::unique_ptr<lesma::Value>> argStorage;
-          std::vector<lesma::Value*> args;
-          evaluateCallArgValues(method, argStorage, args);
-          std::vector<lesma::Type*> explicitTypeArgs;
-          evaluateCallExplicitTypeArgs(method, explicitTypeArgs);
-          setDebugLoc(node->getSpan());
-          result = callMethodByName(node->getSpan(), recvHolder.get(), method->getName(), args,
-                                    explicitTypeArgs, method->getResolvedSymbol(), method);
+          emitClassStaticMethodCall(node, receiverType, method);
           return;
         }
       }
       if (!field.empty()) {
-        auto index = TypeUtils::findIndexInFields(cls->getType(), field);
-        auto* type = TypeUtils::findTypeInFields(cls->getType(), field);
-        if (index == -1) {
-          throw CodegenError(node->getRight()->getSpan(), "Could not find field {} in {}", field,
-                             receiverType->getLlvmType()->getStructName().str());
-        }
-
-        llvm::Value* fieldBasePtr = leftValue->getLlvmValue();
-        if (!fieldBasePtr->getType()->isPointerTy()) {
-          auto* parentFn = builder->GetInsertBlock()->getParent();
-          auto* tempAlloca =
-              createAllocaInEntry(parentFn, cls->getType()->getLlvmType(), field + ".field.tmp");
-          builder->CreateStore(fieldBasePtr, tempAlloca);
-          fieldBasePtr = tempAlloca;
-        }
-        unsigned const structIdx =
-            TypeUtils::classDataFieldStructIndex(cls->getType(), static_cast<unsigned>(index));
-        auto* ptr =
-            builder->CreateStructGEP(cls->getType()->getLlvmType(), fieldBasePtr, structIdx);
-        if (isAssignment) {
-          result = std::make_unique<Value>(
-              "", cacheType(std::make_unique<Type>(BaseType::TY_PTR, builder->getPtrTy(), type)),
-              ptr);
-          return;
-        }
-        result = std::make_unique<Value>("", type, loadStoredAggregateFieldValue(ptr, type));
+        result = emitClassInstanceDataField(cls, leftValue->getLlvmValue(), field,
+                                            node->getRight()->getSpan(), true);
         return;
       }
       if (method != nullptr) {
-        auto receiverValue = std::move(leftValue);
-        std::vector<std::unique_ptr<lesma::Value>> argStorage;
-        std::vector<lesma::Value*> args;
-        evaluateCallArgValues(method, argStorage, args);
-        std::vector<lesma::Type*> explicitTypeArgs;
-        evaluateCallExplicitTypeArgs(method, explicitTypeArgs);
-        setDebugLoc(node->getSpan());
-        result = callMethodByName(node->getSpan(), receiverValue.get(), method->getName(), args,
-                                  explicitTypeArgs, method->getResolvedSymbol());
+        emitClassInstanceMethodCall(node, leftValue.get(), method);
         return;
       }
     }
@@ -3727,110 +3743,22 @@ auto Codegen::visit(const DotOp* node) -> void {
       if (cls->getType()->is(BaseType::TY_CLASS)) {
         if (result->getCategory() == ValueCategory::TYPE_SYMBOL) {
           if (!field.empty()) {
-            Field* sf = TypeUtils::findStaticFieldInClass(lesmaType, field);
-            if (sf == nullptr) {
-              if (auto it = specializedClassTemplateOf.find(lesmaType);
-                  it != specializedClassTemplateOf.end()) {
-                sf = TypeUtils::findStaticFieldInClass(it->second, field);
-              }
-            }
-            if (sf != nullptr) {
-              llvm::Value* gv = llvmGlobalForClassStaticField(lesmaType, field);
-              if (gv == nullptr) {
-                throw CodegenError(node->getSpan(), "Static field {} has no lowered storage",
-                                   field);
-              }
-              lesma::Type* ft = sf->type;
-              getOrCreateLlvmType(ft);
-              if (isAssignment) {
-                lesma::Type* ptrToVal = ft;
-                if (ft->is(BaseType::TY_CLASS)) {
-                  ptrToVal =
-                      cacheType(std::make_unique<Type>(BaseType::TY_PTR, builder->getPtrTy(), ft));
-                } else if (ft->is(BaseType::TY_PTR) && ft->getElementType() != nullptr &&
-                           ft->getElementType()->is(BaseType::TY_CLASS)) {
-                  ptrToVal =
-                      cacheType(std::make_unique<Type>(BaseType::TY_PTR, builder->getPtrTy(), ft));
-                }
-                result = std::make_unique<Value>("", ptrToVal, gv);
-                if (ft->is(BaseType::TY_FUNCTION) && sf->getDeclarationSymbol() != nullptr &&
-                    sf->getDeclarationSymbol()->getStoresFuncValuePair()) {
-                  result->setStoresFuncValuePair(true);
-                  result->setClosureCalleeUsesEnvParameter(
-                      sf->getDeclarationSymbol()->getClosureCalleeUsesEnvParameter());
-                }
-                return;
-              }
-              if (ft->is(BaseType::TY_FUNCTION) && sf->getDeclarationSymbol() != nullptr &&
-                  sf->getDeclarationSymbol()->getStoresFuncValuePair()) {
-                auto slot = std::make_unique<Value>("", ft, gv);
-                slot->setCategory(ValueCategory::ADDRESSABLE_STORAGE);
-                slot->setStoresFuncValuePair(true);
-                slot->setClosureCalleeUsesEnvParameter(
-                    sf->getDeclarationSymbol()->getClosureCalleeUsesEnvParameter());
-                result = std::move(slot);
-                return;
-              }
-              llvm::Type* storageTy = ft->getLlvmType();
-              if (ft->is(BaseType::TY_CLASS)) {
-                storageTy = builder->getPtrTy();
-              } else if (ft->is(BaseType::TY_PTR) && ft->getElementType() != nullptr &&
-                         ft->getElementType()->is(BaseType::TY_CLASS)) {
-                storageTy = builder->getPtrTy();
-              }
-              result = std::make_unique<Value>("", ft, builder->CreateLoad(storageTy, gv));
-              return;
-            }
-            throw CodegenError(node->getRight()->getSpan(), "Unknown static field {} for class {}",
-                               field, lesmaType->getDisplayName());
+            result = emitClassStaticFieldValue(lesmaType, field, node->getRight()->getSpan(),
+                                               node->getSpan());
+            return;
           }
           if (method != nullptr) {
-            auto recvHolder =
-                std::make_unique<lesma::Value>("", lesmaType, static_cast<llvm::Value*>(nullptr));
-            std::vector<std::unique_ptr<lesma::Value>> argStorage;
-            std::vector<lesma::Value*> args;
-            evaluateCallArgValues(method, argStorage, args);
-            std::vector<lesma::Type*> explicitTypeArgs;
-            evaluateCallExplicitTypeArgs(method, explicitTypeArgs);
-            setDebugLoc(node->getSpan());
-            result = callMethodByName(node->getSpan(), recvHolder.get(), method->getName(), args,
-                                      explicitTypeArgs, method->getResolvedSymbol(), method);
+            emitClassStaticMethodCall(node, lesmaType, method);
             return;
           }
         }
         if (!field.empty()) {
-          auto index = TypeUtils::findIndexInFields(cls->getType(), field);
-          auto* type = TypeUtils::findTypeInFields(cls->getType(), field);
-          if (index == -1) {
-            throw CodegenError(
-                node->getRight()->getSpan(), "Could not find field {} in {}", field,
-                result->getType()->getElementType()->getLlvmType()->getStructName().str());
-          }
-
-          unsigned const structIdx2 =
-              TypeUtils::classDataFieldStructIndex(cls->getType(), static_cast<unsigned>(index));
-          auto* ptr = builder->CreateStructGEP(cls->getType()->getLlvmType(),
-                                               result->getLlvmValue(), structIdx2);
-          if (isAssignment) {
-            result = std::make_unique<Value>(
-                "", cacheType(std::make_unique<Type>(BaseType::TY_PTR, builder->getPtrTy(), type)),
-                ptr);
-            return;
-          }
-          //                    auto &x = cls->GetType()->GetFields()[index];
-          result = std::make_unique<Value>("", type, loadStoredAggregateFieldValue(ptr, type));
+          result = emitClassInstanceDataField(cls, result->getLlvmValue(), field,
+                                              node->getRight()->getSpan(), false);
           return;
         }
         if (method != nullptr) {
-          auto receiverValue = std::move(result);
-          std::vector<std::unique_ptr<lesma::Value>> argStorage;
-          std::vector<lesma::Value*> args;
-          evaluateCallArgValues(method, argStorage, args);
-          std::vector<lesma::Type*> explicitTypeArgs;
-          evaluateCallExplicitTypeArgs(method, explicitTypeArgs);
-          setDebugLoc(node->getSpan());
-          result = callMethodByName(node->getSpan(), receiverValue.get(), method->getName(), args,
-                                    explicitTypeArgs, method->getResolvedSymbol());
+          emitClassInstanceMethodCall(node, result.get(), method);
           return;
         }
       }
