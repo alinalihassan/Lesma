@@ -3408,10 +3408,6 @@ void Codegen::lowerDotOpSuperMethodCall(const DotOp* node) {
     if (superPick != nullptr) {
       resolved = superPick;
     }
-    if (resolved == nullptr || resolved->getLlvmValue() == nullptr) {
-      resolved =
-          scope->lookupFunction(method->getName(), paramTypes, FunctionLookupKind::VALUE, curCls);
-    }
   }
   if (resolved == nullptr || resolved->getLlvmValue() == nullptr) {
     throw CodegenError(node->getSpan(), "Internal error: super call has no lowered method");
