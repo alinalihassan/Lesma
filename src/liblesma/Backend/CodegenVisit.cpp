@@ -689,12 +689,19 @@ auto Codegen::emitSimpleClassPtrOrCastStore(llvm::SMRange span, llvm::Value* des
   lesma::Value* valueForStore = valueResult.get();
   if (valueResult->getStoresFuncValuePair()) {
     llvm::StructType* pairTy = getFuncValuePairLlvmType();
-    llvm::Value* payload =
-        builder->CreateLoad(pairTy, valueResult->getLlvmValue(), "fnpair.simplestore.unwrap");
-    unwrappedFnPair = std::make_unique<Value>("", valueResult->getType(), payload);
-    unwrappedFnPair->setStoresFuncValuePair(false);
-    unwrappedFnPair->setCategory(valueResult->getCategory());
-    valueForStore = unwrappedFnPair.get();
+    llvm::Value* lv = valueResult->getLlvmValue();
+    llvm::Value* payload = nullptr;
+    if (lv != nullptr && lv->getType()->isPointerTy()) {
+      payload = builder->CreateLoad(pairTy, lv, "fnpair.simplestore.unwrap");
+    } else if (lv != nullptr && lv->getType() == pairTy) {
+      payload = lv;
+    }
+    if (payload != nullptr) {
+      unwrappedFnPair = std::make_unique<Value>("", valueResult->getType(), payload);
+      unwrappedFnPair->setStoresFuncValuePair(false);
+      unwrappedFnPair->setCategory(valueResult->getCategory());
+      valueForStore = unwrappedFnPair.get();
+    }
   }
   const bool ptrToClass = isLesmaPtrToClass(storedType);
   if (ptrToClass && valueForStore->getType() != nullptr &&
@@ -839,7 +846,7 @@ auto Codegen::visit(const VarDecl* node) -> void {
           builder->CreateExtractValue(agg, static_cast<unsigned>(i), elemName + ".tup");
       lesma::Value* existing =
           i < resolvedUnpack.size() ? resolvedUnpack[i] : scope->lookup(elemName);
-      llvm::Type* allocaTy = llvmStorageTypeForVarSlot(elemTy, nullptr);
+      llvm::Type* allocaTy = llvmStorageTypeForVarSlot(elemTy, existing);
       llvm::AllocaInst* ptr = createAllocaInEntry(parentFct, allocaTy, elemName);
       if (elemTy->is(BaseType::TY_CLASS)) {
         lesma::Type* ptrType =
@@ -1348,7 +1355,7 @@ auto Codegen::visit(const ForIn* node) -> void {
       loopVar->setType(ptrType);
     }
     lesma::Type* storedType = loopVar->getType();
-    llvm::Type* allocaTy = llvmStorageTypeForVarSlot(storedType, nullptr);
+    llvm::Type* allocaTy = llvmStorageTypeForVarSlot(storedType, loopVar);
     llvm::AllocaInst* elemPtr = createAllocaInEntry(parentFct, allocaTy, loopVar->getName());
     loopVar->setLlvmValue(elemPtr);
     loopVar->setCategory(ValueCategory::ADDRESSABLE_STORAGE);
@@ -3229,6 +3236,24 @@ auto Codegen::emitClassStaticFieldValue(Type* classTy, const std::string& field,
   if (gv == nullptr) {
     throw CodegenError(storageDiagSpan, "Static field {} has no lowered storage", field);
   }
+  if (auto* gvVar = llvm::dyn_cast<llvm::GlobalVariable>(gv);
+      gvVar != nullptr && gvVar->getParent() != theModule.get()) {
+    llvm::StringRef const gname = gvVar->getName();
+    llvm::GlobalVariable* localGv = theModule->getGlobalVariable(gname, true);
+    if (localGv == nullptr) {
+      // Imported/JIT modules own the definition in another llvm::Module; reference it from this
+      // module via a same-named global so IR stays single-module consistent for the builder.
+      localGv = new llvm::GlobalVariable(*theModule, gvVar->getValueType(), gvVar->isConstant(),
+                                         llvm::GlobalValue::ExternalLinkage, nullptr, gname);
+      localGv->setVisibility(gvVar->getVisibility());
+      localGv->setThreadLocalMode(gvVar->getThreadLocalMode());
+      localGv->copyAttributesFrom(gvVar);
+      localGv->setAlignment(gvVar->getAlign());
+      localGv->setDSOLocal(gvVar->isDSOLocal());
+      localGv->setUnnamedAddr(gvVar->getUnnamedAddr());
+    }
+    gv = localGv;
+  }
   lesma::Type* ft = sf->type;
   getOrCreateLlvmType(ft);
   if (isAssignment) {
@@ -3403,6 +3428,9 @@ void Codegen::lowerDotOpSuperMethodCall(const DotOp* node) {
       currentGenericTypes = *envPtr;
     }
   }
+  for (const auto& binding : method->getGenericBindingEnv()) {
+    currentGenericTypes[binding.first] = binding.second;
+  }
   try {
     std::vector<llvm::Value*> finalParams;
     finalParams.reserve(paramsLLVM.size());
@@ -3412,6 +3440,10 @@ void Codegen::lowerDotOpSuperMethodCall(const DotOp* node) {
       finalParams.push_back(castVal->getLlvmValue());
     }
     lesma::Type* returnTy = resolved->getType()->getReturnType();
+    if (returnTy != nullptr && !currentGenericTypes.empty() &&
+        typeContainsUnboundGeneric(returnTy)) {
+      returnTy = substituteTypeForSpecializationEnv(returnTy, currentGenericTypes);
+    }
     if (returnTy != nullptr) {
       getOrCreateLlvmType(returnTy);
     }
