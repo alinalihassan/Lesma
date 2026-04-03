@@ -4849,11 +4849,6 @@ auto Codegen::evaluateCallExplicitTypeArgs(const FuncCall* call,
   }
 }
 
-// `genericBindingHint` is the typechecker’s per-call binding list (e.g. class `T` for
-// `Cell.of(7)`). It feeds mangling, class monomorph of the template `selfSymbol`, and lowering of
-// the callee’s Lesma function type. Constructor resolution uses scope → rootScope →
-// `getConstructor()` so normal calls like `list<str>()` still match overloads with defaults before
-// falling back to the struct’s ctor.
 auto Codegen::callNamedFunction(
     llvm::SMRange span, const std::string& functionName,
     const std::vector<lesma::Type*>& paramTypes, const std::vector<llvm::Value*>& paramsLLVM,

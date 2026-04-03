@@ -135,6 +135,8 @@ private:
   auto parseReturn() -> std::unique_ptr<Statement>;
   auto parseDefer() -> std::unique_ptr<Statement>;
   auto parseType() -> std::unique_ptr<TypeExpr>;
+  /** Parses `<` … `>` as a comma-separated list of types (caller ensures current token is `<`). */
+  auto parseAngleBracketTypeArgList() -> std::vector<std::unique_ptr<TypeExpr>>;
   /** One union arm: no top-level `|` (inner `parseType` still allows unions in parens / ptr). */
   auto parseTypePrimary() -> std::unique_ptr<TypeExpr>;
   auto parseExpression() -> std::unique_ptr<Expression>;

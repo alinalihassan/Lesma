@@ -903,10 +903,7 @@ auto Typechecker::visitListMethodCall(Type* listType, const DotOp* node, const F
   auto fields = funcType->getFields();
   if (!call->getExplicitTypeArgs().empty()) {
     std::vector<Type*> explicitTypes;
-    for (TypeExpr* texpr : call->getExplicitTypeArgs()) {
-      texpr->accept(*this);
-      explicitTypes.push_back(result->getType());
-    }
+    collectExplicitTypesFromCallByVisit(call, explicitTypes);
     const std::vector<std::string>& genericParamNames = getDeclaredGenericParams(funcType);
     if (explicitTypes.size() != genericParamNames.size()) {
       throw TypeCheckError(
@@ -972,6 +969,170 @@ auto Typechecker::overloadArgTypesFromCall(const FuncCall* fc) -> std::vector<Ty
     argTypes.push_back(typeAsPtrIfClassForOverload(result->getType()));
   }
   return argTypes;
+}
+
+void Typechecker::collectExplicitTypesFromCallByVisit(const FuncCall* call, std::vector<Type*>& out) {
+  out.clear();
+  if (call == nullptr) {
+    return;
+  }
+  for (TypeExpr* texpr : call->getExplicitTypeArgs()) {
+    texpr->accept(*this);
+    out.push_back(result->getType());
+  }
+}
+
+void Typechecker::collectExplicitTypesFromCallByResolve(const FuncCall* call,
+                                                         std::vector<Type*>& out) {
+  out.clear();
+  if (call == nullptr) {
+    return;
+  }
+  std::vector<TypeExpr*> const tas = call->getExplicitTypeArgs();
+  out.reserve(tas.size());
+  for (TypeExpr* texpr : tas) {
+    out.push_back(resolveType(texpr));
+  }
+}
+
+void Typechecker::finishGenericClassCallWithExplicitTypeArgs(
+    const FuncCall* callSite, Type* classType, const std::vector<Type*>& argTypes,
+    SymbolTable* ctorLookupScope, bool markConstructorSymbolRead,
+    const std::function<void()>& afterSpecialize) {
+  const std::vector<std::string>& genericParamNames = getDeclaredGenericParams(classType);
+  std::vector<Type*> explicitTypes;
+  collectExplicitTypesFromCallByVisit(callSite, explicitTypes);
+  if (explicitTypes.size() != genericParamNames.size()) {
+    throw TypeCheckError(callSite->getSpan(),
+                         "Explicit type argument count {} does not match "
+                         "generic class parameter count {}",
+                         explicitTypes.size(), genericParamNames.size());
+  }
+  std::unordered_map<std::string, Type*> env;
+  for (size_t i = 0; i < genericParamNames.size(); ++i) {
+    env[genericParamNames[i]] = explicitTypes[i];
+  }
+  Value* constructorForMark = nullptr;
+  if (!argTypes.empty()) {
+    Type* ptrToClass = typeAsPtrIfClassForOverload(classType);
+    std::vector<Type*> constructorParamTypes = {ptrToClass};
+    constructorParamTypes.insert(constructorParamTypes.end(), argTypes.begin(), argTypes.end());
+    Value* constructor =
+        lookupConstructorForAllocatedClass(ctorLookupScope, constructorParamTypes, classType);
+    if (constructor == nullptr) {
+      throw TypeCheckError(callSite->getSpan(),
+                           "Constructor not found for {} with given type arguments",
+                           callSite->getName());
+    }
+    enforcePrivateMemberReadable(callSite->getSpan(), constructor);
+    constructorForMark = constructor;
+    auto ctorParams = constructor->getType()->getFields();
+    for (size_t i = 1; i < ctorParams.size() && i - 1 < argTypes.size(); ++i) {
+      Type* expected = substituteInType(ctorParams[i]->type, env);
+      if (expected != nullptr && !argTypes[i - 1]->isEqual(expected)) {
+        throw TypeCheckError(callSite->getSpan(),
+                             "Argument type {} does not match explicit parameter type {}",
+                             argTypes[i - 1]->toString(), expected->toString());
+      }
+    }
+  }
+  Type* specialized = getOrCreateSpecializedClassType(classType, genericParamNames, env);
+  if (markConstructorSymbolRead && constructorForMark != nullptr) {
+    markValueRead(constructorForMark);
+  }
+  if (afterSpecialize) {
+    afterSpecialize();
+  }
+  result = std::make_unique<Value>(specialized);
+  callSite->setAllocatedClassMonomorph(specialized);
+}
+
+auto Typechecker::tryFinishGenericClassCallWithInferredTypeArgs(
+    const FuncCall* callSite, Type* classType, const std::vector<Type*>& argTypes,
+    SymbolTable* ctorLookupScope, bool markConstructorSymbolRead,
+    const std::function<void()>& afterSuccess) -> bool {
+  if (argTypes.empty()) {
+    return false;
+  }
+  const std::vector<std::string>& genericParamNames = getDeclaredGenericParams(classType);
+  Type* ptrToClass = typeAsPtrIfClassForOverload(classType);
+  std::vector<Type*> constructorParamTypes = {ptrToClass};
+  constructorParamTypes.insert(constructorParamTypes.end(), argTypes.begin(), argTypes.end());
+  Value* constructor =
+      lookupConstructorForAllocatedClass(ctorLookupScope, constructorParamTypes, classType);
+  if (constructor == nullptr) {
+    return false;
+  }
+  enforcePrivateMemberReadable(callSite->getSpan(), constructor);
+  std::unordered_map<std::string, Type*> env;
+  auto* funcType = constructor->getType();
+  auto ctorParams = funcType->getFields();
+  for (size_t i = 1; i < ctorParams.size() && i - 1 < argTypes.size(); ++i) {
+    inferGenericBindings(ctorParams[i]->type, argTypes[i - 1], env, callSite->getSpan());
+  }
+  Type* specialized = getOrCreateSpecializedClassType(classType, genericParamNames, env);
+  if (markConstructorSymbolRead) {
+    markValueRead(constructor);
+  }
+  if (afterSuccess) {
+    afterSuccess();
+  }
+  result = std::make_unique<Value>(specialized);
+  callSite->setAllocatedClassMonomorph(specialized);
+  return true;
+}
+
+void Typechecker::typecheckExplicitResolvedMethodTypeArgsIfPresent(
+    const FuncCall* fc, Type* methodType,
+    std::unordered_map<std::string, Type*>& methodTypeEnv,
+    const std::vector<Type*>& methodArgTypes, llvm::SMRange span) {
+  if (fc->getExplicitTypeArgs().empty()) {
+    return;
+  }
+  std::vector<Type*> explicitTypes;
+  collectExplicitTypesFromCallByResolve(fc, explicitTypes);
+  const std::vector<std::string>& genericParamNames = getDeclaredGenericParams(methodType);
+  if (explicitTypes.size() != genericParamNames.size()) {
+    throw TypeCheckError(span, "Explicit type argument count {} does not match "
+                                "generic parameter count {}",
+                         explicitTypes.size(), genericParamNames.size());
+  }
+  for (size_t i = 0; i < genericParamNames.size(); ++i) {
+    methodTypeEnv[genericParamNames[i]] = explicitTypes[i];
+  }
+  auto fields = methodType->getFields();
+  for (size_t i = 0; i < fields.size() && i < methodArgTypes.size(); ++i) {
+    Type* expected = substituteInType(fields[i]->type, methodTypeEnv);
+    if (expected != nullptr && !methodArgTypes[i]->isEqual(expected)) {
+      throw TypeCheckError(span, "Argument type {} does not match explicit "
+                                 "parameter type {}",
+                           methodArgTypes[i]->toString(), expected->toString());
+    }
+  }
+}
+
+void Typechecker::mergeMethodGenericParamsFromArgumentsWhenNoExplicitTypeArgs(
+    const FuncCall* fc, Type* methodType, const std::vector<Type*>& methodArgTypes,
+    std::unordered_map<std::string, Type*>& traitBoundSubs, llvm::SMRange span) {
+  if (!fc->getExplicitTypeArgs().empty()) {
+    return;
+  }
+  const auto& methodGenericNames = methodType->getGenericParams();
+  if (methodGenericNames.empty()) {
+    return;
+  }
+  std::unordered_map<std::string, Type*> extraInferred;
+  auto fields = methodType->getFields();
+  for (size_t i = 0; i < fields.size() && i < methodArgTypes.size(); ++i) {
+    inferGenericBindings(fields[i]->type, methodArgTypes[i], extraInferred, span);
+  }
+  for (const auto& kv : extraInferred) {
+    if (std::find(methodGenericNames.begin(), methodGenericNames.end(), kv.first) ==
+        methodGenericNames.end()) {
+      continue;
+    }
+    traitBoundSubs[kv.first] = kv.second;
+  }
 }
 
 auto Typechecker::traitRequirementParamLookupTypes(Type* selfPtr, const FuncDecl* req)
@@ -4338,52 +4499,7 @@ auto Typechecker::visit(const FuncCall* node) -> void {
     if (classSym != nullptr && classSym->getType()->is(BaseType::TY_CLASS)) {
       node->setResolvedSymbol(classSym);
       Type* classType = classSym->getType();
-      const std::vector<std::string>& genericParamNames = getDeclaredGenericParams(classType);
-      std::vector<Type*> explicitTypes;
-      for (TypeExpr* texpr : node->getExplicitTypeArgs()) {
-        texpr->accept(*this);
-        explicitTypes.push_back(result->getType());
-      }
-      if (explicitTypes.size() != genericParamNames.size()) {
-        throw TypeCheckError(node->getSpan(),
-                             "Explicit type argument count {} does not match "
-                             "generic class parameter count {}",
-                             explicitTypes.size(), genericParamNames.size());
-      }
-      std::unordered_map<std::string, Type*> env;
-      for (size_t i = 0; i < genericParamNames.size(); ++i) {
-        env[genericParamNames[i]] = explicitTypes[i];
-      }
-      Value* constructorForMark = nullptr;
-      if (!argTypes.empty()) {
-        Type* ptrToClass = typeAsPtrIfClassForOverload(classType);
-        std::vector<Type*> constructorParamTypes = {ptrToClass};
-        constructorParamTypes.insert(constructorParamTypes.end(), argTypes.begin(), argTypes.end());
-        Value* constructor =
-            lookupConstructorForAllocatedClass(scope, constructorParamTypes, classType);
-        if (constructor == nullptr) {
-          throw TypeCheckError(node->getSpan(),
-                               "Constructor not found for {} with given type arguments",
-                               node->getName());
-        }
-        enforcePrivateMemberReadable(node->getSpan(), constructor);
-        constructorForMark = constructor;
-        auto ctorParams = constructor->getType()->getFields();
-        for (size_t i = 1; i < ctorParams.size() && i - 1 < argTypes.size(); ++i) {
-          Type* expected = substituteInType(ctorParams[i]->type, env);
-          if (expected != nullptr && !argTypes[i - 1]->isEqual(expected)) {
-            throw TypeCheckError(node->getSpan(),
-                                 "Argument type {} does not match explicit parameter type {}",
-                                 argTypes[i - 1]->toString(), expected->toString());
-          }
-        }
-      }
-      Type* specialized = getOrCreateSpecializedClassType(classType, genericParamNames, env);
-      if (constructorForMark != nullptr) {
-        markValueRead(constructorForMark);
-      }
-      result = std::make_unique<Value>(specialized);
-      node->setAllocatedClassMonomorph(specialized);
+      finishGenericClassCallWithExplicitTypeArgs(node, classType, argTypes, scope, true, {});
       return;
     }
   }
@@ -4425,86 +4541,17 @@ auto Typechecker::visit(const FuncCall* node) -> void {
         // Imported generic classes (e.g. std list) are looked up here; explicit type args like
         // list<int>() must specialize even when the constructor has no value arguments.
         if (!node->getExplicitTypeArgs().empty()) {
-          const std::vector<std::string>& genericParamNames = getDeclaredGenericParams(classType);
-          std::vector<Type*> explicitTypes;
-          for (TypeExpr* texpr : node->getExplicitTypeArgs()) {
-            texpr->accept(*this);
-            explicitTypes.push_back(result->getType());
-          }
-          if (explicitTypes.size() != genericParamNames.size()) {
-            throw TypeCheckError(node->getSpan(),
-                                 "Explicit type argument count {} does not match "
-                                 "generic class parameter count {}",
-                                 explicitTypes.size(), genericParamNames.size());
-          }
-          std::unordered_map<std::string, Type*> env;
-          for (size_t i = 0; i < genericParamNames.size(); ++i) {
-            env[genericParamNames[i]] = explicitTypes[i];
-          }
-          Value* constructorForMark = nullptr;
-          if (!argTypes.empty()) {
-            Type* ptrToClass = typeAsPtrIfClassForOverload(classType);
-            std::vector<Type*> constructorParamTypes = {ptrToClass};
-            constructorParamTypes.insert(constructorParamTypes.end(), argTypes.begin(),
-                                         argTypes.end());
-            Value* constructor =
-                importedScope != nullptr
-                    ? lookupConstructorForAllocatedClass(importedScope, constructorParamTypes,
-                                                         classType)
-                    : lookupConstructorForAllocatedClass(scope, constructorParamTypes, classType);
-            if (constructor == nullptr) {
-              throw TypeCheckError(node->getSpan(),
-                                   "Constructor not found for {} with given type arguments",
-                                   node->getName());
-            }
-            enforcePrivateMemberReadable(node->getSpan(), constructor);
-            constructorForMark = constructor;
-            auto ctorParams = constructor->getType()->getFields();
-            for (size_t i = 1; i < ctorParams.size() && i - 1 < argTypes.size(); ++i) {
-              Type* expected = substituteInType(ctorParams[i]->type, env);
-              if (expected != nullptr && !argTypes[i - 1]->isEqual(expected)) {
-                throw TypeCheckError(node->getSpan(),
-                                     "Argument type {} does not match explicit parameter type {}",
-                                     argTypes[i - 1]->toString(), expected->toString());
-              }
-            }
-          }
-          Type* specialized = getOrCreateSpecializedClassType(classType, genericParamNames, env);
-          if (constructorForMark != nullptr) {
-            markValueRead(constructorForMark);
-          }
-          markImportStubIfCalleeWasNamedImport();
-          Type* valueType = specialized;
-          result = std::make_unique<Value>(valueType);
-          node->setAllocatedClassMonomorph(valueType);
+          SymbolTable* ctorScope = importedScope != nullptr ? importedScope : scope;
+          finishGenericClassCallWithExplicitTypeArgs(
+              node, classType, argTypes, ctorScope, true,
+              [&] { markImportStubIfCalleeWasNamedImport(); });
           return;
         }
         if (!node->getArguments().empty()) {
-          const std::vector<std::string>& genericParamNames = getDeclaredGenericParams(classType);
-          Type* ptrToClass = typeAsPtrIfClassForOverload(classType);
-          std::vector<Type*> constructorParamTypes = {ptrToClass};
-          for (Type* t : argTypes) {
-            constructorParamTypes.push_back(t);
-          }
-          Value* constructor =
-              importedScope != nullptr
-                  ? lookupConstructorForAllocatedClass(importedScope, constructorParamTypes,
-                                                       classType)
-                  : lookupConstructorForAllocatedClass(scope, constructorParamTypes, classType);
-          if (constructor != nullptr) {
-            enforcePrivateMemberReadable(node->getSpan(), constructor);
-            std::unordered_map<std::string, Type*> env;
-            auto* funcType = constructor->getType();
-            auto ctorParams = funcType->getFields();
-            for (size_t i = 1; i < ctorParams.size() && i - 1 < argTypes.size(); ++i) {
-              inferGenericBindings(ctorParams[i]->type, argTypes[i - 1], env, node->getSpan());
-            }
-            Type* specialized = getOrCreateSpecializedClassType(classType, genericParamNames, env);
-            markValueRead(constructor);
-            markImportStubIfCalleeWasNamedImport();
-            Type* valueType = specialized;
-            result = std::make_unique<Value>(valueType);
-            node->setAllocatedClassMonomorph(valueType);
+          SymbolTable* ctorScope = importedScope != nullptr ? importedScope : scope;
+          if (tryFinishGenericClassCallWithInferredTypeArgs(
+                  node, classType, argTypes, ctorScope, true,
+                  [&] { markImportStubIfCalleeWasNamedImport(); })) {
             return;
           }
         }
@@ -4638,10 +4685,7 @@ auto Typechecker::visit(const FuncCall* node) -> void {
 
   if (!node->getExplicitTypeArgs().empty()) {
     std::vector<Type*> explicitTypes;
-    for (TypeExpr* texpr : node->getExplicitTypeArgs()) {
-      texpr->accept(*this);
-      explicitTypes.push_back(result->getType());
-    }
+    collectExplicitTypesFromCallByVisit(node, explicitTypes);
     const std::vector<std::string>& genericParamNames = getDeclaredGenericParams(funcType);
     if (explicitTypes.size() != genericParamNames.size()) {
       throw TypeCheckError(node->getSpan(),
@@ -5002,51 +5046,11 @@ auto Typechecker::visit(const DotOp* node) -> void {
     if (specializedIt != specializedTypeEnv.end()) {
       methodTypeEnv = specializedIt->second;
     }
-    if (!fc->getExplicitTypeArgs().empty()) {
-      std::vector<Type*> explicitTypes;
-      explicitTypes.reserve(fc->getExplicitTypeArgs().size());
-      for (TypeExpr* texpr : fc->getExplicitTypeArgs()) {
-        explicitTypes.push_back(resolveType(texpr));
-      }
-      const std::vector<std::string>& genericParamNames = getDeclaredGenericParams(methodType);
-      if (explicitTypes.size() != genericParamNames.size()) {
-        throw TypeCheckError(node->getSpan(),
-                             "Explicit type argument count {} does not match "
-                             "generic parameter count {}",
-                             explicitTypes.size(), genericParamNames.size());
-      }
-      for (size_t i = 0; i < genericParamNames.size(); ++i) {
-        methodTypeEnv[genericParamNames[i]] = explicitTypes[i];
-      }
-      auto fields = methodType->getFields();
-      for (size_t i = 0; i < fields.size() && i < methodArgTypes.size(); ++i) {
-        Type* expected = substituteInType(fields[i]->type, methodTypeEnv);
-        if (expected != nullptr && !methodArgTypes[i]->isEqual(expected)) {
-          throw TypeCheckError(node->getSpan(),
-                               "Argument type {} does not match explicit "
-                               "parameter type {}",
-                               methodArgTypes[i]->toString(), expected->toString());
-        }
-      }
-    }
+    typecheckExplicitResolvedMethodTypeArgsIfPresent(fc, methodType, methodTypeEnv, methodArgTypes,
+                                                     node->getSpan());
     std::unordered_map<std::string, Type*> traitBoundSubs = methodTypeEnv;
-    if (fc->getExplicitTypeArgs().empty()) {
-      const auto& methodGenericNames = methodType->getGenericParams();
-      if (!methodGenericNames.empty()) {
-        std::unordered_map<std::string, Type*> extraInferred;
-        auto fields = methodType->getFields();
-        for (size_t i = 0; i < fields.size() && i < methodArgTypes.size(); ++i) {
-          inferGenericBindings(fields[i]->type, methodArgTypes[i], extraInferred, node->getSpan());
-        }
-        for (const auto& kv : extraInferred) {
-          if (std::find(methodGenericNames.begin(), methodGenericNames.end(), kv.first) ==
-              methodGenericNames.end()) {
-            continue;
-          }
-          traitBoundSubs[kv.first] = kv.second;
-        }
-      }
-    }
+    mergeMethodGenericParamsFromArgumentsWhenNoExplicitTypeArgs(fc, methodType, methodArgTypes,
+                                                                traitBoundSubs, node->getSpan());
     verifyGenericTraitBounds(method, traitBoundSubs, node->getSpan());
     Type* retType = methodType->getReturnType();
     if (!traitBoundSubs.empty() && retType != nullptr) {
@@ -5165,79 +5169,20 @@ auto Typechecker::visit(const DotOp* node) -> void {
             } else if (sym != nullptr && sym->getType()->is(BaseType::TY_CLASS)) {
               fc->setResolvedSymbol(sym);
               Type* classType = materializeImportedType(sym->getType());
-              const std::vector<std::string>& genericParamNames =
-                  getDeclaredGenericParams(classType);
               if (!fc->getExplicitTypeArgs().empty()) {
-                std::vector<Type*> explicitTypes;
-                for (TypeExpr* texpr : fc->getExplicitTypeArgs()) {
-                  texpr->accept(*this);
-                  explicitTypes.push_back(result->getType());
-                }
-                if (explicitTypes.size() != genericParamNames.size()) {
-                  throw TypeCheckError(node->getSpan(),
-                                       "Explicit type argument count {} does not match generic "
-                                       "class parameter count {}",
-                                       explicitTypes.size(), genericParamNames.size());
-                }
-                std::unordered_map<std::string, Type*> env;
-                for (size_t i = 0; i < genericParamNames.size(); ++i) {
-                  env[genericParamNames[i]] = explicitTypes[i];
-                }
-                if (!argTypes.empty()) {
-                  Type* ptrToClass = typeAsPtrIfClassForOverload(classType);
-                  std::vector<Type*> constructorParamTypes = {ptrToClass};
-                  constructorParamTypes.insert(constructorParamTypes.end(), argTypes.begin(),
-                                               argTypes.end());
-                  Value* constructor = lookupConstructorForAllocatedClass(
-                      importScope, constructorParamTypes, classType);
-                  if (constructor == nullptr) {
-                    throw TypeCheckError(node->getSpan(),
-                                         "Constructor not found for {} with given type arguments",
-                                         fc->getName());
-                  }
-                  enforcePrivateMemberReadable(node->getSpan(), constructor);
-                  auto ctorParams = constructor->getType()->getFields();
-                  for (size_t i = 1; i < ctorParams.size() && i - 1 < argTypes.size(); ++i) {
-                    Type* expected = substituteInType(ctorParams[i]->type, env);
-                    if (expected != nullptr && !argTypes[i - 1]->isEqual(expected)) {
-                      throw TypeCheckError(
-                          node->getSpan(),
-                          "Argument type {} does not match explicit parameter type {}",
-                          argTypes[i - 1]->toString(), expected->toString());
-                    }
-                  }
-                }
-                Type* specialized =
-                    getOrCreateSpecializedClassType(classType, genericParamNames, env);
-                markImportNameStubUsedForQualifiedAccess(pathIt->second, fc->getName());
-                result = std::make_unique<Value>(specialized);
-                fc->setAllocatedClassMonomorph(specialized);
+                finishGenericClassCallWithExplicitTypeArgs(
+                    fc, classType, argTypes, importScope, false,
+                    [&] {
+                      markImportNameStubUsedForQualifiedAccess(pathIt->second, fc->getName());
+                    });
                 return;
               }
-              if (!fc->getArguments().empty()) {
-                Type* ptrToClass = typeAsPtrIfClassForOverload(classType);
-                std::vector<Type*> constructorParamTypes = {ptrToClass};
-                constructorParamTypes.insert(constructorParamTypes.end(), argTypes.begin(),
-                                             argTypes.end());
-                Value* constructor = lookupConstructorForAllocatedClass(
-                    importScope, constructorParamTypes, classType);
-                if (constructor != nullptr) {
-                  enforcePrivateMemberReadable(node->getSpan(), constructor);
-                  std::unordered_map<std::string, Type*> env;
-                  auto* funcType = constructor->getType();
-                  auto ctorParams = funcType->getFields();
-                  for (size_t i = 1; i < ctorParams.size() && i - 1 < argTypes.size(); ++i) {
-                    inferGenericBindings(ctorParams[i]->type, argTypes[i - 1], env,
-                                         node->getSpan());
-                  }
-                  Type* specialized =
-                      getOrCreateSpecializedClassType(classType, genericParamNames, env);
-                  Type* valueType = specialized;
-                  markImportNameStubUsedForQualifiedAccess(pathIt->second, fc->getName());
-                  result = std::make_unique<Value>(valueType);
-                  fc->setAllocatedClassMonomorph(valueType);
-                  return;
-                }
+              if (tryFinishGenericClassCallWithInferredTypeArgs(
+                      fc, classType, argTypes, importScope, false,
+                      [&] {
+                        markImportNameStubUsedForQualifiedAccess(pathIt->second, fc->getName());
+                      })) {
+                return;
               }
               markImportNameStubUsedForQualifiedAccess(pathIt->second, fc->getName());
               result = std::make_unique<Value>(materializeImportedType(classType));
@@ -5434,33 +5379,8 @@ auto Typechecker::visit(const DotOp* node) -> void {
     enforcePrivateMemberReadable(node->getSpan(), method);
     markValueRead(method);
     auto* methodType = method->getType();
-    if (!fc->getExplicitTypeArgs().empty()) {
-      std::vector<Type*> explicitTypes;
-      explicitTypes.reserve(fc->getExplicitTypeArgs().size());
-      for (TypeExpr* texpr : fc->getExplicitTypeArgs()) {
-        explicitTypes.push_back(resolveType(texpr));
-      }
-      const std::vector<std::string>& genericParamNames = getDeclaredGenericParams(methodType);
-      if (explicitTypes.size() != genericParamNames.size()) {
-        throw TypeCheckError(node->getSpan(),
-                             "Explicit type argument count {} does not match "
-                             "generic parameter count {}",
-                             explicitTypes.size(), genericParamNames.size());
-      }
-      for (size_t i = 0; i < genericParamNames.size(); ++i) {
-        methodTypeEnv[genericParamNames[i]] = explicitTypes[i];
-      }
-      auto fields = methodType->getFields();
-      for (size_t i = 0; i < fields.size() && i < methodArgTypes.size(); ++i) {
-        Type* expected = substituteInType(fields[i]->type, methodTypeEnv);
-        if (expected != nullptr && !methodArgTypes[i]->isEqual(expected)) {
-          throw TypeCheckError(node->getSpan(),
-                               "Argument type {} does not match explicit "
-                               "parameter type {}",
-                               methodArgTypes[i]->toString(), expected->toString());
-        }
-      }
-    }
+    typecheckExplicitResolvedMethodTypeArgsIfPresent(fc, methodType, methodTypeEnv, methodArgTypes,
+                                                     node->getSpan());
     std::unordered_map<std::string, Type*> traitBoundSubs = methodTypeEnv;
     // Infer class type parameters for `GenericClass.staticMethod(...)` when the dot receiver is the
     // unspecialized class template (Swift-style: `Cell.of(7)` fixes `T` to `int`).
@@ -5524,23 +5444,8 @@ auto Typechecker::visit(const DotOp* node) -> void {
         }
       }
     }
-    if (fc->getExplicitTypeArgs().empty()) {
-      const auto& methodGenericNames = methodType->getGenericParams();
-      if (!methodGenericNames.empty()) {
-        std::unordered_map<std::string, Type*> extraInferred;
-        auto fields = methodType->getFields();
-        for (size_t i = 0; i < fields.size() && i < methodArgTypes.size(); ++i) {
-          inferGenericBindings(fields[i]->type, methodArgTypes[i], extraInferred, node->getSpan());
-        }
-        for (const auto& kv : extraInferred) {
-          if (std::find(methodGenericNames.begin(), methodGenericNames.end(), kv.first) ==
-              methodGenericNames.end()) {
-            continue;
-          }
-          traitBoundSubs[kv.first] = kv.second;
-        }
-      }
-    }
+    mergeMethodGenericParamsFromArgumentsWhenNoExplicitTypeArgs(fc, methodType, methodArgTypes,
+                                                                traitBoundSubs, node->getSpan());
     verifyGenericTraitBounds(method, traitBoundSubs, node->getSpan());
     Type* retType = methodType->getReturnType();
     if (!traitBoundSubs.empty() && retType != nullptr) {

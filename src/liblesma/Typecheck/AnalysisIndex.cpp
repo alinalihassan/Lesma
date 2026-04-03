@@ -264,6 +264,7 @@ auto fieldDeclarationFromMemberAccess(const Expression* expr, const std::string&
 
 auto collectIndexFromTypeExpr(const TypeExpr* typeExpr, AnalysisIndex& index) -> void;
 auto collectIndexFromExpr(const Expression* expr, AnalysisIndex& index) -> void;
+auto collectIndexFromCallOperands(const FuncCall* call, AnalysisIndex& index) -> void;
 auto collectIndexFromStmt(const Statement* stmt, AnalysisIndex& index, bool inClass) -> void;
 
 template <typename FuncLike>
@@ -382,12 +383,7 @@ auto collectIndexFromExpr(const Expression* expr, AnalysisIndex& index) -> void 
     appendIndexedOccurrence(index, call->getName(), std::nullopt,
                             makeNameSpan(call->getSpan().Start, call->getName()), false, false, 0U,
                             IndexedTokenKind::Function, call->getResolvedSymbol());
-    for (TypeExpr* typeArg : call->getExplicitTypeArgs()) {
-      collectIndexFromTypeExpr(typeArg, index);
-    }
-    for (Expression* arg : call->getArguments()) {
-      collectIndexFromExpr(arg, index);
-    }
+    collectIndexFromCallOperands(call, index);
     return;
   }
   if (auto const* lambda = dynamic_cast<const LambdaExpr*>(expr)) {
@@ -425,12 +421,7 @@ auto collectIndexFromExpr(const Expression* expr, AnalysisIndex& index) -> void 
       appendIndexedOccurrence(index, rightCall->getName(), dotBase,
                               makeNameSpan(rightCall->getSpan().Start, rightCall->getName()), false,
                               true, 0U, IndexedTokenKind::Method, rightCall->getResolvedSymbol());
-      for (TypeExpr* typeArg : rightCall->getExplicitTypeArgs()) {
-        collectIndexFromTypeExpr(typeArg, index);
-      }
-      for (Expression* arg : rightCall->getArguments()) {
-        collectIndexFromExpr(arg, index);
-      }
+      collectIndexFromCallOperands(rightCall, index);
       return;
     }
     collectIndexFromExpr(dot->getRight(), index);
@@ -479,6 +470,18 @@ auto collectIndexFromExpr(const Expression* expr, AnalysisIndex& index) -> void 
   if (auto const* isOp = dynamic_cast<const IsOp*>(expr)) {
     collectIndexFromExpr(isOp->getLeft(), index);
     collectIndexFromTypeExpr(isOp->getRight(), index);
+  }
+}
+
+auto collectIndexFromCallOperands(const FuncCall* call, AnalysisIndex& index) -> void {
+  if (call == nullptr) {
+    return;
+  }
+  for (TypeExpr* typeArg : call->getExplicitTypeArgs()) {
+    collectIndexFromTypeExpr(typeArg, index);
+  }
+  for (Expression* arg : call->getArguments()) {
+    collectIndexFromExpr(arg, index);
   }
 }
 

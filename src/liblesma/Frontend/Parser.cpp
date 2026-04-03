@@ -188,6 +188,25 @@ auto Parser::parseGenericParamList() -> std::vector<GenericParamDecl> {
   return genericParams;
 }
 
+auto Parser::parseAngleBracketTypeArgList() -> std::vector<std::unique_ptr<TypeExpr>> {
+  std::vector<std::unique_ptr<TypeExpr>> outs;
+  consume(TokenType::LESS);
+  while (true) {
+    while (check(TokenType::NEWLINE)) {
+      advance();
+    }
+    if (check(TokenType::GREATER)) {
+      break;
+    }
+    outs.push_back(parseType());
+    if (!advanceIfMatchAny<TokenType::COMMA>()) {
+      break;
+    }
+  }
+  consume(TokenType::GREATER, "Expected '>' after type arguments");
+  return outs;
+}
+
 auto Parser::parseIgnoredTypeArgList() -> void {
   if (!check(TokenType::LESS)) {
     return;
@@ -337,18 +356,8 @@ auto Parser::parseTypePrimary() -> std::unique_ptr<TypeExpr> {
   if (check(TokenType::IDENTIFIER)) {
     advance();
     if (check(TokenType::LESS)) {
-      consume(TokenType::LESS);
-      std::vector<std::unique_ptr<TypeExpr>> typeArgs;
-      while (true) {
-        while (check(TokenType::NEWLINE)) {
-          advance();
-        }
-        typeArgs.push_back(parseType());
-        if (!advanceIfMatchAny<TokenType::COMMA>()) {
-          break;
-        }
-      }
-      auto* greater = consume(TokenType::GREATER, "Expected '>' after generic type arguments");
+      std::vector<std::unique_ptr<TypeExpr>> typeArgs = parseAngleBracketTypeArgList();
+      Token* const greater = previous();
       std::string lexeme = type->lexeme + "<";
       for (size_t i = 0; i < typeArgs.size(); ++i) {
         lexeme += typeArgs[i]->getName();
@@ -519,14 +528,7 @@ auto Parser::parseFunctionCall() -> std::unique_ptr<Expression> {
 
   std::vector<std::unique_ptr<TypeExpr>> explicitTypeArgs;
   if (check(TokenType::LESS)) {
-    consume(TokenType::LESS);
-    while (!check(TokenType::GREATER)) {
-      explicitTypeArgs.push_back(parseType());
-      if (!check(TokenType::GREATER)) {
-        consume(TokenType::COMMA);
-      }
-    }
-    consume(TokenType::GREATER);
+    explicitTypeArgs = parseAngleBracketTypeArgList();
   }
 
   consume(TokenType::LEFT_PAREN);
