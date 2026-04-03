@@ -261,6 +261,25 @@ class Typechecker final : public ASTVisitor {
       llvm::SMRange span, Type* receiverForLookup, Type* methodType,
       const std::vector<Type*>& methodArgTypes,
       std::unordered_map<std::string, Type*>& traitBoundSubs);
+  [[nodiscard]] auto lookupSuperDispatchMethodInScopeThenImports(
+      SymbolTable* insertScope, Type* superTy, const std::string& methodName,
+      const std::vector<Type*>& argTypes,
+      const std::unordered_map<std::string, Type*>* superSeed) -> Value*;
+  void finalizeResolvedMethodCallTyping(
+      FuncCall* fc, Value* method, std::unordered_map<std::string, Type*>& methodTypeEnv,
+      const std::vector<Type*>& methodArgTypes, llvm::SMRange span,
+      const std::function<void(std::unordered_map<std::string, Type*>&)>& afterExplicitBindings =
+          {});
+  void handleDotOpTyImportReceiver(const DotOp* node);
+  void tryPeelDotReceiverFromNamedImportStub(const DotOp* node, Type*& base, bool& dotLeftDenotesTypeName);
+  void typecheckDotUnionMethodCall(Type* unionTy, const DotOp* node, FuncCall* fc);
+  [[nodiscard]] auto maybeRetypeCallArgsForStringLiteralOverload(const FuncCall* node,
+                                                                 std::vector<Type*>& argTypes)
+      -> bool;
+  [[nodiscard]] auto materializeForCallSite(Type* t, SymbolTable* importedScope) -> Type*;
+  void visitCallArgumentsIgnoringResult(const FuncCall* fc);
+  void completeOrdinaryFuncCallTyping(const FuncCall* node, Value* callee, SymbolTable* importedScope,
+                                       const std::vector<Type*>& argTypes);
   void finishGenericClassCallWithExplicitTypeArgs(const FuncCall* callSite, Type* classType,
                                                   const std::vector<Type*>& argTypes,
                                                   SymbolTable* ctorLookupScope,

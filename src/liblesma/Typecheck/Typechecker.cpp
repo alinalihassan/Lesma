@@ -926,8 +926,7 @@ auto Typechecker::visitListMethodCall(Type* listType, const DotOp* node, const F
     Type* retType = substituteInType(funcType->getReturnType(), explicitSubst);
     Type* finalType =
         retType != nullptr ? retType : cacheType(std::make_unique<Type>(BaseType::TY_VOID));
-    result = std::make_unique<Value>(importedScope != nullptr ? materializeImportedType(finalType)
-                                                              : finalType);
+    result = std::make_unique<Value>(materializeForCallSite(finalType, importedScope));
     return true;
   }
 
@@ -941,8 +940,7 @@ auto Typechecker::visitListMethodCall(Type* listType, const DotOp* node, const F
   }
   Type* finalType =
       retType != nullptr ? retType : cacheType(std::make_unique<Type>(BaseType::TY_VOID));
-  result = std::make_unique<Value>(importedScope != nullptr ? materializeImportedType(finalType)
-                                                            : finalType);
+  result = std::make_unique<Value>(materializeForCallSite(finalType, importedScope));
   return true;
 }
 
@@ -1114,6 +1112,257 @@ auto Typechecker::getStdListElementType(Type* type) const -> Type* {
     }
   }
   return nullptr;
+}
+
+auto Typechecker::lookupSuperDispatchMethodInScopeThenImports(
+    SymbolTable* insertScope, Type* superTy, const std::string& methodName,
+    const std::vector<Type*>& argTypes, const std::unordered_map<std::string, Type*>* superSeed)
+    -> Value* {
+  auto receiverMatches = [this, superTy](Type* recvCls) {
+    return superMethodReceiverMatchesFormal(recvCls, superTy);
+  };
+  Value* method =
+      insertScope->lookupSuperClassMethod(methodName, argTypes, receiverMatches, superTy, superSeed);
+  if (method == nullptr) {
+    method = insertScope->lookupFunction(methodName, argTypes, FunctionLookupKind::VALUE,
+                                         currentClassType);
+  }
+  if (method != nullptr) {
+    return method;
+  }
+  for (auto& [_, cachedModule] : importedModuleCache) {
+    if (cachedModule == nullptr || cachedModule->rootScope == nullptr) {
+      continue;
+    }
+    SymbolTable* root = cachedModule->rootScope.get();
+    method = root->lookupSuperClassMethod(methodName, argTypes, receiverMatches, superTy, superSeed);
+    if (method == nullptr) {
+      method = root->lookupFunction(methodName, argTypes, FunctionLookupKind::VALUE,
+                                    currentClassType);
+    }
+    if (method != nullptr) {
+      return method;
+    }
+  }
+  return nullptr;
+}
+
+void Typechecker::finalizeResolvedMethodCallTyping(
+    FuncCall* fc, Value* method, std::unordered_map<std::string, Type*>& methodTypeEnv,
+    const std::vector<Type*>& methodArgTypes, llvm::SMRange span,
+    const std::function<void(std::unordered_map<std::string, Type*>&)>& afterExplicitBindings) {
+  Type* methodType = method->getType();
+  typecheckExplicitResolvedMethodTypeArgsIfPresent(fc, methodType, methodTypeEnv, methodArgTypes,
+                                                   span);
+  if (static_cast<bool>(afterExplicitBindings)) {
+    afterExplicitBindings(methodTypeEnv);
+  }
+  mergeMethodGenericParamsFromArgumentsWhenNoExplicitTypeArgs(fc, methodType, methodArgTypes,
+                                                                methodTypeEnv, span);
+  verifyGenericTraitBounds(method, methodTypeEnv, span);
+  Type* retType = methodType->getReturnType();
+  if (!methodTypeEnv.empty() && retType != nullptr) {
+    retType = substituteInType(retType, methodTypeEnv);
+  }
+  if (!methodTypeEnv.empty()) {
+    fc->setGenericBindingEnv(methodTypeEnv);
+  }
+  result = std::make_unique<Value>(retType);
+}
+
+void Typechecker::handleDotOpTyImportReceiver(const DotOp* node) {
+  if (auto* leftLit = dynamic_cast<Literal*>(node->getLeft());
+      leftLit != nullptr && leftLit->getType() == TokenType::IDENTIFIER) {
+    if (Value* modSym = scope->lookup(leftLit->getValue())) {
+      markValueRead(modSym);
+    }
+  }
+  if (auto* idLit = dynamic_cast<Literal*>(node->getRight());
+      idLit != nullptr && idLit->getType() == TokenType::IDENTIFIER) {
+    std::string const alias = result->getName();
+    auto pathIt = importAliasToPath.find(alias);
+    if (pathIt != importAliasToPath.end()) {
+      SymbolTable* importScope = getOrTypecheckImport(pathIt->second);
+      if (importScope != nullptr) {
+        Value* member = importScope->lookup(idLit->getValue());
+        if (member != nullptr && member->getDeclarationKind() == ValueDeclarationKind::VARIABLE &&
+            member->isExported()) {
+          markImportNameStubUsedForQualifiedAccess(pathIt->second, idLit->getValue());
+          idLit->setResolvedSymbol(member);
+          Type* vt = materializeImportedType(member->getType());
+          auto out = std::make_unique<Value>(*member);
+          out->setType(vt);
+          result = std::move(out);
+          return;
+        }
+      }
+    }
+  }
+  if (auto* fc = dynamic_cast<FuncCall*>(node->getRight())) {
+    std::string alias = result->getName();
+    auto pathIt = importAliasToPath.find(alias);
+    if (pathIt != importAliasToPath.end()) {
+      SymbolTable* importScope = getOrTypecheckImport(pathIt->second);
+      if (importScope != nullptr) {
+        std::vector<Type*> argTypes = overloadArgTypesFromCall(fc);
+        Value* func = importScope->lookupFunction(fc->getName(), argTypes);
+        if (func == nullptr) {
+          Value* sym = importScope->lookup(fc->getName());
+          if (sym != nullptr && sym->getType()->is(BaseType::TY_FUNCTION)) {
+            func = sym;
+          } else if (sym != nullptr && sym->getType()->is(BaseType::TY_CLASS)) {
+            fc->setResolvedSymbol(sym);
+            Type* classType = materializeImportedType(sym->getType());
+            if (!fc->getExplicitTypeArgs().empty()) {
+              finishGenericClassCallWithExplicitTypeArgs(
+                  fc, classType, argTypes, importScope, false,
+                  [&] { markImportNameStubUsedForQualifiedAccess(pathIt->second, fc->getName()); });
+              return;
+            }
+            if (tryFinishGenericClassCallWithInferredTypeArgs(
+                    fc, classType, argTypes, importScope, false,
+                    [&] {
+                      markImportNameStubUsedForQualifiedAccess(pathIt->second, fc->getName());
+                    })) {
+              return;
+            }
+            markImportNameStubUsedForQualifiedAccess(pathIt->second, fc->getName());
+            result = std::make_unique<Value>(materializeImportedType(classType));
+            return;
+          } else if (sym != nullptr && sym->getType()->is(BaseType::TY_ENUM)) {
+            markImportNameStubUsedForQualifiedAccess(pathIt->second, fc->getName());
+            result = std::make_unique<Value>(materializeImportedType(sym->getType()));
+            return;
+          }
+        }
+        if (func != nullptr) {
+          markImportNameStubUsedForQualifiedAccess(pathIt->second, fc->getName());
+          fc->setResolvedSymbol(func);
+          Type* retType = func->getType()->getReturnType();
+          result = std::make_unique<Value>(
+              retType != nullptr ? materializeImportedType(retType)
+                                 : cacheType(std::make_unique<Type>(BaseType::TY_VOID)));
+          return;
+        }
+      }
+    }
+    visitCallArgumentsIgnoringResult(fc);
+  }
+  result = std::make_unique<Value>(cacheType(std::make_unique<Type>(BaseType::TY_VOID)));
+}
+
+auto Typechecker::maybeRetypeCallArgsForStringLiteralOverload(const FuncCall* node,
+                                                              std::vector<Type*>& argTypes) -> bool {
+  bool hasStringLit = false;
+  for (Expression* arg : node->getArguments()) {
+    if (auto* lit = dynamic_cast<Literal*>(arg);
+        lit != nullptr && lit->getType() == TokenType::STRING) {
+      hasStringLit = true;
+      break;
+    }
+  }
+  if (!hasStringLit) {
+    return false;
+  }
+  argTypes.clear();
+  for (Expression* arg : node->getArguments()) {
+    if (auto* lit = dynamic_cast<Literal*>(arg);
+        lit != nullptr && lit->getType() == TokenType::STRING) {
+      Type* cstrT = cacheType(std::make_unique<Type>(BaseType::TY_STRING));
+      visitExprWithExpectedType(lit, cstrT);
+      lit->setResolvedStrClassType(nullptr);
+    } else {
+      arg->accept(*this);
+    }
+    argTypes.push_back(typeAsPtrIfClassForOverload(result->getType()));
+  }
+  return true;
+}
+
+auto Typechecker::materializeForCallSite(Type* t, SymbolTable* importedScope) -> Type* {
+  if (t == nullptr) {
+    return nullptr;
+  }
+  return importedScope != nullptr ? materializeImportedType(t) : t;
+}
+
+void Typechecker::visitCallArgumentsIgnoringResult(const FuncCall* fc) {
+  if (fc == nullptr) {
+    return;
+  }
+  for (Expression* arg : fc->getArguments()) {
+    arg->accept(*this);
+  }
+}
+
+void Typechecker::tryPeelDotReceiverFromNamedImportStub(const DotOp* node, Type*& base,
+                                                        bool& dotLeftDenotesTypeName) {
+  auto* leftLit = dynamic_cast<Literal*>(node->getLeft());
+  if (leftLit == nullptr || leftLit->getType() != TokenType::IDENTIFIER ||
+      result->getCategory() != ValueCategory::MODULE_SYMBOL || base == nullptr ||
+      !base->is(BaseType::TY_IMPORT)) {
+    return;
+  }
+  if (auto srcIt = importedNameToSource.find(leftLit->getValue());
+      srcIt != importedNameToSource.end()) {
+    if (SymbolTable* imp = getOrTypecheckImport(srcIt->second.first)) {
+      if (Value* exported = imp->lookup(srcIt->second.second);
+          exported != nullptr && exported->getType() != nullptr &&
+          exported->getType()->isOneOf(
+              {BaseType::TY_CLASS, BaseType::TY_ENUM, BaseType::TY_TRAIT_EXISTENTIAL})) {
+        base = materializeImportedType(exported->getType());
+        dotLeftDenotesTypeName = true;
+      }
+    }
+  } else if (auto pathIt = importAliasToPath.find(leftLit->getValue());
+             pathIt != importAliasToPath.end()) {
+    if (SymbolTable* imp = getOrTypecheckImport(pathIt->second)) {
+      if (auto* rightId = dynamic_cast<Literal*>(node->getRight());
+          rightId != nullptr && rightId->getType() == TokenType::IDENTIFIER) {
+        if (Value* exported = imp->lookup(rightId->getValue());
+            exported != nullptr && exported->getType() != nullptr &&
+            exported->getType()->isOneOf(
+                {BaseType::TY_CLASS, BaseType::TY_ENUM, BaseType::TY_TRAIT_EXISTENTIAL})) {
+          base = materializeImportedType(exported->getType());
+          dotLeftDenotesTypeName = true;
+        }
+      }
+    }
+  }
+}
+
+void Typechecker::typecheckDotUnionMethodCall(Type* unionTy, const DotOp* node, FuncCall* fc) {
+  if (!fc->getExplicitTypeArgs().empty()) {
+    throw TypeCheckError(node->getSpan(),
+                         "Explicit type arguments are not supported on union method calls");
+  }
+  std::vector<Type*> argTypes = overloadArgTypesFromCall(fc);
+  Type* commonRet = nullptr;
+  Value* resolvedSymbol = nullptr;
+  for (Type* mem : unionTy->getUnionMembers()) {
+    if (mem == nullptr || !mem->is(BaseType::TY_CLASS)) {
+      throw TypeCheckError(node->getSpan(),
+                           "Calling a method on a union requires every variant to be a class "
+                           "type");
+    }
+    ResolvedMethodCallInfo resolved =
+        resolveMethodWithTraitEnv(mem, fc->getName(), argTypes, node->getSpan());
+    if (resolved.returnType == nullptr) {
+      throw TypeCheckError(node->getSpan(), "Method '{}' is not available on all union members",
+                           fc->getName());
+    }
+    verifyGenericTraitBounds(resolved.method, resolved.traitBoundSubs, node->getSpan());
+    if (commonRet == nullptr) {
+      commonRet = resolved.returnType;
+    } else if (!commonRet->isEqual(resolved.returnType)) {
+      throw TypeCheckError(node->getSpan(),
+                           "Method '{}' has incompatible return types across union members",
+                           fc->getName());
+    }
+    resolvedSymbol = resolved.method;
+  }
+  fc->setResolvedSymbol(resolvedSymbol);
+  result = std::make_unique<Value>(commonRet);
 }
 
 void Typechecker::finishGenericClassCallWithExplicitTypeArgs(
@@ -4661,8 +4910,7 @@ auto Typechecker::visit(const FuncCall* node) -> void {
     if (callee == nullptr && sym != nullptr) {
       node->setResolvedSymbol(sym);
       if (sym->getType()->is(BaseType::TY_CLASS)) {
-        Type* classType =
-            importedScope != nullptr ? materializeImportedType(sym->getType()) : sym->getType();
+        Type* classType = materializeForCallSite(sym->getType(), importedScope);
         // Imported generic classes (e.g. std list) are looked up here; explicit type args like
         // list<int>() must specialize even when the constructor has no value arguments.
         if (!node->getExplicitTypeArgs().empty()) {
@@ -4703,8 +4951,7 @@ auto Typechecker::visit(const FuncCall* node) -> void {
       }
       if (sym->getType()->is(BaseType::TY_ENUM)) {
         markImportStubIfCalleeWasNamedImport();
-        result = std::make_unique<Value>(
-            importedScope != nullptr ? materializeImportedType(sym->getType()) : sym->getType());
+        result = std::make_unique<Value>(materializeForCallSite(sym->getType(), importedScope));
         return;
       }
       if (sym->getType()->is(BaseType::TY_IMPORT)) {
@@ -4712,28 +4959,7 @@ auto Typechecker::visit(const FuncCall* node) -> void {
         return;
       }
     }
-    if (callee == nullptr) {
-      bool hasStringLit = false;
-      for (Expression* arg : node->getArguments()) {
-        if (auto* lit = dynamic_cast<Literal*>(arg);
-            lit != nullptr && lit->getType() == TokenType::STRING) {
-          hasStringLit = true;
-          break;
-        }
-      }
-      if (hasStringLit) {
-        argTypes.clear();
-        for (Expression* arg : node->getArguments()) {
-          if (auto* lit = dynamic_cast<Literal*>(arg);
-              lit != nullptr && lit->getType() == TokenType::STRING) {
-            Type* cstrT = cacheType(std::make_unique<Type>(BaseType::TY_STRING));
-            visitExprWithExpectedType(lit, cstrT);
-            lit->setResolvedStrClassType(nullptr);
-          } else {
-            arg->accept(*this);
-          }
-          argTypes.push_back(typeAsPtrIfClassForOverload(result->getType()));
-        }
+    if (callee == nullptr && maybeRetypeCallArgsForStringLiteralOverload(node, argTypes)) {
         callee = scope->lookupFunction(node->getName(), argTypes);
         if (callee == nullptr) {
           Value* classSym = scope->lookupStruct(node->getName());
@@ -4747,9 +4973,7 @@ auto Typechecker::visit(const FuncCall* node) -> void {
             }
           }
           if (classSym != nullptr && classSym->getType()->is(BaseType::TY_CLASS)) {
-            Type* classType = importedScope != nullptr
-                                  ? materializeImportedType(classSym->getType())
-                                  : classSym->getType();
+            Type* classType = materializeForCallSite(classSym->getType(), importedScope);
             Type* ptrToClass = typeAsPtrIfClassForOverload(classType);
             std::vector<Type*> constructorParamTypes = {ptrToClass};
             constructorParamTypes.insert(constructorParamTypes.end(), argTypes.begin(),
@@ -4787,9 +5011,8 @@ auto Typechecker::visit(const FuncCall* node) -> void {
           }
         }
       }
-      if (callee == nullptr) {
-        throw TypeCheckError(node->getSpan(), "Function not found: {}", node->getName());
-      }
+    if (callee == nullptr) {
+      throw TypeCheckError(node->getSpan(), "Function not found: {}", node->getName());
     }
   }
   if (!callee->getType()->is(BaseType::TY_FUNCTION)) {
@@ -4805,6 +5028,12 @@ auto Typechecker::visit(const FuncCall* node) -> void {
     }
   }
 
+  completeOrdinaryFuncCallTyping(node, callee, importedScope, argTypes);
+}
+
+void Typechecker::completeOrdinaryFuncCallTyping(const FuncCall* node, Value* callee,
+                                                 SymbolTable* importedScope,
+                                                 const std::vector<Type*>& argTypes) {
   auto* funcType = callee->getType();
   auto fields = funcType->getFields();
 
@@ -4849,8 +5078,7 @@ auto Typechecker::visit(const FuncCall* node) -> void {
       node->setAllocatedClassMonomorph(valueType);
     } else {
       Type* retType = substituteInType(funcType->getReturnType(), explicitSubst);
-      result = std::make_unique<Value>(importedScope != nullptr ? materializeImportedType(retType)
-                                                                : retType);
+      result = std::make_unique<Value>(materializeForCallSite(retType, importedScope));
     }
     if (callee->getName() != "new" && !funcType->getGenericParams().empty()) {
       node->setGenericBindingEnv(explicitSubst);
@@ -4863,7 +5091,6 @@ auto Typechecker::visit(const FuncCall* node) -> void {
   for (size_t i = 0; i < fields.size() && i < argTypes.size(); ++i) {
     inferGenericBindings(fields[i]->type, argTypes[i], localGenericTypes, node->getSpan());
   }
-  // Constructor call: result type is the specialized class type (receiver)
   if (callee->getName() == "new" && !funcType->getFields().empty() &&
       funcType->getFields()[0]->type->is(BaseType::TY_PTR)) {
     Type* classType = funcType->getFields()[0]->type->getElementType();
@@ -4878,8 +5105,7 @@ auto Typechecker::visit(const FuncCall* node) -> void {
     if (retType == nullptr) {
       retType = funcType->getReturnType();
     }
-    result = std::make_unique<Value>(importedScope != nullptr ? materializeImportedType(retType)
-                                                              : retType);
+    result = std::make_unique<Value>(materializeForCallSite(retType, importedScope));
   }
   if (callee->getName() != "new" && !funcType->getGenericParams().empty()) {
     node->setGenericBindingEnv(localGenericTypes);
@@ -5126,36 +5352,8 @@ auto Typechecker::visit(const DotOp* node) -> void {
     if (auto envIt = specializedTypeEnv.find(superTy); envIt != specializedTypeEnv.end()) {
       superSeed = &envIt->second;
     }
-    Value* method = insertScope->lookupSuperClassMethod(
-        fc->getName(), argTypes,
-        [this, superTy](Type* recvCls) {
-          return superMethodReceiverMatchesFormal(recvCls, superTy);
-        },
-        superTy, superSeed);
-    if (method == nullptr) {
-      method = insertScope->lookupFunction(fc->getName(), argTypes, FunctionLookupKind::VALUE,
-                                           currentClassType);
-    }
-    if (method == nullptr) {
-      for (auto& [_, cachedModule] : importedModuleCache) {
-        if (cachedModule == nullptr || cachedModule->rootScope == nullptr) {
-          continue;
-        }
-        method = cachedModule->rootScope->lookupSuperClassMethod(
-            fc->getName(), argTypes,
-            [this, superTy](Type* recvCls) {
-              return superMethodReceiverMatchesFormal(recvCls, superTy);
-            },
-            superTy, superSeed);
-        if (method == nullptr) {
-          method = cachedModule->rootScope->lookupFunction(
-              fc->getName(), argTypes, FunctionLookupKind::VALUE, currentClassType);
-        }
-        if (method != nullptr) {
-          break;
-        }
-      }
-    }
+    Value* method = lookupSuperDispatchMethodInScopeThenImports(insertScope, superTy, fc->getName(),
+                                                                argTypes, superSeed);
     if (method == nullptr) {
       throw TypeCheckError(node->getSpan(), "Super method not found: {}", fc->getName());
     }
@@ -5163,158 +5361,31 @@ auto Typechecker::visit(const DotOp* node) -> void {
     fc->setSuperDispatch(true);
     enforcePrivateMemberReadable(node->getSpan(), method);
     markValueRead(method);
-    auto* methodType = method->getType();
     std::unordered_map<std::string, Type*> methodTypeEnv;
-    auto specializedIt = specializedTypeEnv.find(superTy);
-    if (specializedIt != specializedTypeEnv.end()) {
+    if (auto specializedIt = specializedTypeEnv.find(superTy);
+        specializedIt != specializedTypeEnv.end()) {
       methodTypeEnv = specializedIt->second;
     }
-    typecheckExplicitResolvedMethodTypeArgsIfPresent(fc, methodType, methodTypeEnv, argTypes,
-                                                     node->getSpan());
-    std::unordered_map<std::string, Type*> traitBoundSubs = methodTypeEnv;
-    mergeMethodGenericParamsFromArgumentsWhenNoExplicitTypeArgs(fc, methodType, argTypes,
-                                                                traitBoundSubs, node->getSpan());
-    verifyGenericTraitBounds(method, traitBoundSubs, node->getSpan());
-    Type* retType = methodType->getReturnType();
-    if (!traitBoundSubs.empty() && retType != nullptr) {
-      retType = substituteInType(retType, traitBoundSubs);
-    }
-    result = std::make_unique<Value>(retType);
+    finalizeResolvedMethodCallTyping(fc, method, methodTypeEnv, argTypes, node->getSpan());
     return;
   }
 
   node->getLeft()->accept(*this);
   bool dotLeftDenotesTypeName = result->getCategory() == ValueCategory::TYPE_SYMBOL;
   Type* base = result->getType();
-  // `from "m" import C` binds `C` as MODULE_SYMBOL + TY_IMPORT; peel to the nominal type so static
-  // members use the same path as TYPE_SYMBOL receivers (and we do not fall through the module-dot
-  // handler that only keys off importAliasToPath).
-  if (auto* leftLit = dynamic_cast<Literal*>(node->getLeft());
-      leftLit != nullptr && leftLit->getType() == TokenType::IDENTIFIER &&
-      result->getCategory() == ValueCategory::MODULE_SYMBOL && base != nullptr &&
-      base->is(BaseType::TY_IMPORT)) {
-    if (auto srcIt = importedNameToSource.find(leftLit->getValue());
-        srcIt != importedNameToSource.end()) {
-      if (SymbolTable* imp = getOrTypecheckImport(srcIt->second.first)) {
-        if (Value* exported = imp->lookup(srcIt->second.second);
-            exported != nullptr && exported->getType() != nullptr &&
-            exported->getType()->isOneOf(
-                {BaseType::TY_CLASS, BaseType::TY_ENUM, BaseType::TY_TRAIT_EXISTENTIAL})) {
-          base = materializeImportedType(exported->getType());
-          dotLeftDenotesTypeName = true;
-        }
-      }
-    } else if (auto pathIt = importAliasToPath.find(leftLit->getValue());
-               pathIt != importAliasToPath.end()) {
-      if (SymbolTable* imp = getOrTypecheckImport(pathIt->second)) {
-        if (auto* rightId = dynamic_cast<Literal*>(node->getRight());
-            rightId != nullptr && rightId->getType() == TokenType::IDENTIFIER) {
-          if (Value* exported = imp->lookup(rightId->getValue());
-              exported != nullptr && exported->getType() != nullptr &&
-              exported->getType()->isOneOf(
-                  {BaseType::TY_CLASS, BaseType::TY_ENUM, BaseType::TY_TRAIT_EXISTENTIAL})) {
-            base = materializeImportedType(exported->getType());
-            dotLeftDenotesTypeName = true;
-          }
-        }
-      }
-    }
-  }
+  tryPeelDotReceiverFromNamedImportStub(node, base, dotLeftDenotesTypeName);
   if (base == nullptr) {
     throw TypeCheckError(node->getSpan(), "Dot operator on unknown type");
   }
   if (base->is(BaseType::TY_VOID)) {
     if (auto* fc = dynamic_cast<FuncCall*>(node->getRight())) {
-      for (Expression* arg : fc->getArguments()) {
-        arg->accept(*this);
-      }
+      visitCallArgumentsIgnoringResult(fc);
     }
     result = std::make_unique<Value>(cacheType(std::make_unique<Type>(BaseType::TY_VOID)));
     return;
   }
   if (base->is(BaseType::TY_IMPORT)) {
-    if (auto* leftLit = dynamic_cast<Literal*>(node->getLeft());
-        leftLit != nullptr && leftLit->getType() == TokenType::IDENTIFIER) {
-      if (Value* modSym = scope->lookup(leftLit->getValue())) {
-        markValueRead(modSym);
-      }
-    }
-    if (auto* idLit = dynamic_cast<Literal*>(node->getRight());
-        idLit != nullptr && idLit->getType() == TokenType::IDENTIFIER) {
-      std::string const alias = result->getName();
-      auto pathIt = importAliasToPath.find(alias);
-      if (pathIt != importAliasToPath.end()) {
-        SymbolTable* importScope = getOrTypecheckImport(pathIt->second);
-        if (importScope != nullptr) {
-          Value* member = importScope->lookup(idLit->getValue());
-          if (member != nullptr && member->getDeclarationKind() == ValueDeclarationKind::VARIABLE &&
-              member->isExported()) {
-            markImportNameStubUsedForQualifiedAccess(pathIt->second, idLit->getValue());
-            idLit->setResolvedSymbol(member);
-            Type* vt = materializeImportedType(member->getType());
-            auto out = std::make_unique<Value>(*member);
-            out->setType(vt);
-            result = std::move(out);
-            return;
-          }
-        }
-      }
-    }
-    if (auto* fc = dynamic_cast<FuncCall*>(node->getRight())) {
-      std::string alias = result->getName();
-      auto pathIt = importAliasToPath.find(alias);
-      if (pathIt != importAliasToPath.end()) {
-        SymbolTable* importScope = getOrTypecheckImport(pathIt->second);
-        if (importScope != nullptr) {
-          std::vector<Type*> argTypes = overloadArgTypesFromCall(fc);
-          Value* func = importScope->lookupFunction(fc->getName(), argTypes);
-          if (func == nullptr) {
-            Value* sym = importScope->lookup(fc->getName());
-            if (sym != nullptr && sym->getType()->is(BaseType::TY_FUNCTION)) {
-              func = sym;
-            } else if (sym != nullptr && sym->getType()->is(BaseType::TY_CLASS)) {
-              fc->setResolvedSymbol(sym);
-              Type* classType = materializeImportedType(sym->getType());
-              if (!fc->getExplicitTypeArgs().empty()) {
-                finishGenericClassCallWithExplicitTypeArgs(
-                    fc, classType, argTypes, importScope, false,
-                    [&] {
-                      markImportNameStubUsedForQualifiedAccess(pathIt->second, fc->getName());
-                    });
-                return;
-              }
-              if (tryFinishGenericClassCallWithInferredTypeArgs(
-                      fc, classType, argTypes, importScope, false,
-                      [&] {
-                        markImportNameStubUsedForQualifiedAccess(pathIt->second, fc->getName());
-                      })) {
-                return;
-              }
-              markImportNameStubUsedForQualifiedAccess(pathIt->second, fc->getName());
-              result = std::make_unique<Value>(materializeImportedType(classType));
-              return;
-            } else if (sym != nullptr && sym->getType()->is(BaseType::TY_ENUM)) {
-              markImportNameStubUsedForQualifiedAccess(pathIt->second, fc->getName());
-              result = std::make_unique<Value>(materializeImportedType(sym->getType()));
-              return;
-            }
-          }
-          if (func != nullptr) {
-            markImportNameStubUsedForQualifiedAccess(pathIt->second, fc->getName());
-            fc->setResolvedSymbol(func);
-            Type* retType = func->getType()->getReturnType();
-            result = std::make_unique<Value>(
-                retType != nullptr ? materializeImportedType(retType)
-                                   : cacheType(std::make_unique<Type>(BaseType::TY_VOID)));
-            return;
-          }
-        }
-      }
-      for (Expression* arg : fc->getArguments()) {
-        arg->accept(*this);
-      }
-    }
-    result = std::make_unique<Value>(cacheType(std::make_unique<Type>(BaseType::TY_VOID)));
+    handleDotOpTyImportReceiver(node);
     return;
   }
   if (base->is(BaseType::TY_PTR) && base->getElementType() != nullptr) {
@@ -5340,37 +5411,7 @@ auto Typechecker::visit(const DotOp* node) -> void {
       throw TypeCheckError(node->getSpan(),
                            "Dot on a union requires a method call (fields are not supported)");
     }
-    if (!fc->getExplicitTypeArgs().empty()) {
-      throw TypeCheckError(node->getSpan(),
-                           "Explicit type arguments are not supported on union method calls");
-    }
-    std::vector<Type*> argTypes = overloadArgTypesFromCall(fc);
-    Type* commonRet = nullptr;
-    Value* resolvedSymbol = nullptr;
-    for (Type* mem : base->getUnionMembers()) {
-      if (mem == nullptr || !mem->is(BaseType::TY_CLASS)) {
-        throw TypeCheckError(node->getSpan(),
-                             "Calling a method on a union requires every variant to be a class "
-                             "type");
-      }
-      ResolvedMethodCallInfo resolved =
-          resolveMethodWithTraitEnv(mem, fc->getName(), argTypes, node->getSpan());
-      if (resolved.returnType == nullptr) {
-        throw TypeCheckError(node->getSpan(), "Method '{}' is not available on all union members",
-                             fc->getName());
-      }
-      verifyGenericTraitBounds(resolved.method, resolved.traitBoundSubs, node->getSpan());
-      if (commonRet == nullptr) {
-        commonRet = resolved.returnType;
-      } else if (!commonRet->isEqual(resolved.returnType)) {
-        throw TypeCheckError(node->getSpan(),
-                             "Method '{}' has incompatible return types across union members",
-                             fc->getName());
-      }
-      resolvedSymbol = resolved.method;
-    }
-    fc->setResolvedSymbol(resolvedSymbol);
-    result = std::make_unique<Value>(commonRet);
+    typecheckDotUnionMethodCall(base, node, fc);
     return;
   }
   if (base->is(BaseType::TY_ARRAY)) {
@@ -5460,27 +5501,16 @@ auto Typechecker::visit(const DotOp* node) -> void {
     fc->setResolvedSymbol(method);
     enforcePrivateMemberReadable(node->getSpan(), method);
     markValueRead(method);
-    auto* methodType = method->getType();
-    typecheckExplicitResolvedMethodTypeArgsIfPresent(fc, methodType, methodTypeEnv, methodArgTypes,
-                                                     node->getSpan());
-    std::unordered_map<std::string, Type*> traitBoundSubs = methodTypeEnv;
-    if (typeNameReceiver && fc->getName() != "new" && method->isStaticMethod() &&
-        receiverForLookup->is(BaseType::TY_CLASS)) {
-      inferClassTemplateParamsForStaticMethodCallOnTemplate(node->getSpan(), receiverForLookup,
-                                                              methodType, methodArgTypes,
-                                                              traitBoundSubs);
-    }
-    mergeMethodGenericParamsFromArgumentsWhenNoExplicitTypeArgs(fc, methodType, methodArgTypes,
-                                                                traitBoundSubs, node->getSpan());
-    verifyGenericTraitBounds(method, traitBoundSubs, node->getSpan());
-    Type* retType = methodType->getReturnType();
-    if (!traitBoundSubs.empty() && retType != nullptr) {
-      retType = substituteInType(retType, traitBoundSubs);
-    }
-    if (!traitBoundSubs.empty()) {
-      fc->setGenericBindingEnv(traitBoundSubs);
-    }
-    result = std::make_unique<Value>(retType);
+    Type* methodType = method->getType();
+    finalizeResolvedMethodCallTyping(
+        fc, method, methodTypeEnv, methodArgTypes, node->getSpan(),
+        [&](std::unordered_map<std::string, Type*>& subs) {
+          if (typeNameReceiver && fc->getName() != "new" && method->isStaticMethod() &&
+              receiverForLookup->is(BaseType::TY_CLASS)) {
+            inferClassTemplateParamsForStaticMethodCallOnTemplate(node->getSpan(), receiverForLookup,
+                                                                  methodType, methodArgTypes, subs);
+          }
+        });
     return;
   }
   auto* rightLit = dynamic_cast<Literal*>(node->getRight());
