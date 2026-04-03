@@ -1,0 +1,25 @@
+# Narrowing a three-arm union with successive `is` checks (last arm implied).
+func tag(x: int | float | str) -> int {
+    if x is int {
+        return 1
+
+    }
+    if x is float {
+        return 2
+
+    }
+    return 3
+
+}
+if tag(42) != 1 {
+    exit(1)
+
+}
+if tag(1.0) != 2 {
+    exit(1)
+
+}
+if tag(str("z")) != 3 {
+    exit(1)
+
+}

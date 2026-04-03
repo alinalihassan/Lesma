@@ -1,0 +1,37 @@
+# Forward calls between two functions (no explicit forward declaration required).
+func even(n: int) -> bool {
+    if n == 0 {
+        return true
+
+    }
+    return odd(n - 1)
+
+}
+func odd(n: int) -> bool {
+    if n == 0 {
+        return false
+
+    }
+    return even(n - 1)
+
+}
+if not even(0) {
+    exit(1)
+
+}
+if odd(0) {
+    exit(1)
+
+}
+if not even(8) {
+    exit(1)
+
+}
+if not odd(7) {
+    exit(1)
+
+}
+if even(7) {
+    exit(1)
+
+}

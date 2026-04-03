@@ -1,0 +1,19 @@
+# Two independent type parameters specialized in one call site.
+func first<T, U>(a: T, b: U) -> T {
+    var _u = b
+    return a
+
+}
+func second<T, U>(a: T, b: U) -> U {
+    var _t = a
+    return b
+
+}
+if first(3, str("x")) != 3 {
+    exit(1)
+
+}
+if second(3, str("y")) != "y" {
+    exit(1)
+
+}

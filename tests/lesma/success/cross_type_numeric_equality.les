@@ -1,0 +1,18 @@
+# Mixed numeric types in `==` / `!=` use the usual arithmetic promotion rules.
+if not (1.0 == 1) {
+    exit(1)
+
+}
+if 2 != 2.0 {
+    exit(1)
+
+}
+let pi: float = 3.0
+if pi == 3 {
+    var ok = 1
+
+}
+else {
+    exit(1)
+
+}
