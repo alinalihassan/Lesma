@@ -685,13 +685,24 @@ auto Codegen::llvmStorageTypeForVarSlot(lesma::Type* storedType, lesma::Value* e
 auto Codegen::emitSimpleClassPtrOrCastStore(llvm::SMRange span, llvm::Value* destPtr,
                                             std::unique_ptr<lesma::Value>& valueResult,
                                             lesma::Type* storedType) -> llvm::Instruction* {
+  std::unique_ptr<lesma::Value> unwrappedFnPair;
+  lesma::Value* valueForStore = valueResult.get();
+  if (valueResult->getStoresFuncValuePair()) {
+    llvm::StructType* pairTy = getFuncValuePairLlvmType();
+    llvm::Value* payload =
+        builder->CreateLoad(pairTy, valueResult->getLlvmValue(), "fnpair.simplestore.unwrap");
+    unwrappedFnPair = std::make_unique<Value>("", valueResult->getType(), payload);
+    unwrappedFnPair->setStoresFuncValuePair(false);
+    unwrappedFnPair->setCategory(valueResult->getCategory());
+    valueForStore = unwrappedFnPair.get();
+  }
   const bool ptrToClass = isLesmaPtrToClass(storedType);
-  if (ptrToClass && valueResult->getType() != nullptr &&
-      valueResult->getType()->is(BaseType::TY_PTR)) {
-    return builder->CreateStore(valueResult->getLlvmValue(), destPtr);
+  if (ptrToClass && valueForStore->getType() != nullptr &&
+      valueForStore->getType()->is(BaseType::TY_PTR)) {
+    return builder->CreateStore(valueForStore->getLlvmValue(), destPtr);
   }
   lesma::Type* castTarget = ptrToClass ? storedType->getElementType() : storedType;
-  auto castVal = cast(span, valueResult.get(), castTarget);
+  auto castVal = cast(span, valueForStore, castTarget);
   return builder->CreateStore(castVal->getLlvmValue(), destPtr);
 }
 
@@ -783,16 +794,16 @@ auto Codegen::emitPromotedArithmetic(llvm::SMRange span, TokenType op,
 }
 
 void Codegen::emitForInLoopIteration(llvm::Function* parentFct, const ForIn* node,
-                                     SymbolTable* savedScope, llvm::BasicBlock* bLoop,
-                                     llvm::BasicBlock* bInc,
+                                     SymbolTable* outerScope, SymbolTable* loopBodyScope,
+                                     llvm::BasicBlock* bLoop, llvm::BasicBlock* bInc,
                                      const std::function<void()>& loadElementIntoLoopVar) {
   bLoop->insertInto(parentFct);
   builder->SetInsertPoint(bLoop);
   loadElementIntoLoopVar();
-  scope = node->getBodyScope() != nullptr ? node->getBodyScope() : scope;
+  scope = loopBodyScope;
   deferStack.emplace();
   node->getBlock()->accept(*this);
-  scope = savedScope;
+  scope = outerScope;
 
   if (builder->GetInsertBlock() != nullptr &&
       builder->GetInsertBlock()->getTerminator() == nullptr) {
@@ -1318,8 +1329,9 @@ auto Codegen::visit(const ForIn* node) -> void {
     }
   }
   SymbolTable* savedScope = scope;
-  scope =
+  SymbolTable* forBodyScope =
       node->getBodyScope() != nullptr ? node->getBodyScope() : savedScope->createChildBlock("for");
+  scope = forBodyScope;
   Value* loopVar = scope->lookup(node->getIdentifier()->getValue());
   if (loopVar == nullptr) {
     throw CodegenError(node->getSpan(), "Missing loop variable symbol for for-in");
@@ -1370,7 +1382,7 @@ auto Codegen::visit(const ForIn* node) -> void {
     auto* lenVal = emitListLength(listType, listHandle);
     builder->CreateCondBr(builder->CreateICmpSLT(idxVal, lenVal), bLoop, bEnd);
 
-    emitForInLoopIteration(parentFct, node, savedScope, bLoop, bInc, [&] {
+    emitForInLoopIteration(parentFct, node, savedScope, forBodyScope, bLoop, bInc, [&] {
       auto* elemPtr = emitListElementPointer(node->getSpan(), listType, listHandle, idxVal);
       auto* elemVal = builder->CreateLoad(getListStoredElementType(listType), elemPtr);
       builder->CreateStore(elemVal, loopVar->getLlvmValue());
@@ -1388,7 +1400,7 @@ auto Codegen::visit(const ForIn* node) -> void {
     auto hasNextValue = callMethodByName(node->getSpan(), iteratorValue.get(), "has_next");
     builder->CreateCondBr(hasNextValue->getLlvmValue(), bLoop, bEnd);
 
-    emitForInLoopIteration(parentFct, node, savedScope, bLoop, bInc, [&] {
+    emitForInLoopIteration(parentFct, node, savedScope, forBodyScope, bLoop, bInc, [&] {
       auto nextValue = callMethodByName(node->getSpan(), iteratorValue.get(), "next");
       builder->CreateStore(nextValue->getLlvmValue(), loopVar->getLlvmValue());
     });
@@ -3304,7 +3316,7 @@ void Codegen::emitClassInstanceMethodCall(const DotOp* node, lesma::Value* recei
   evaluateCallExplicitTypeArgs(method, explicitTypeArgs);
   setDebugLoc(node->getSpan());
   result = callMethodByName(node->getSpan(), receiver, method->getName(), args, explicitTypeArgs,
-                            method->getResolvedSymbol());
+                            method->getResolvedSymbol(), method);
 }
 
 void Codegen::lowerDotOpSuperMethodCall(const DotOp* node) {
@@ -3407,6 +3419,10 @@ void Codegen::lowerDotOpSuperMethodCall(const DotOp* node) {
     llvm::Value* callResult = builder->CreateCall(calleeFn, finalParams);
     currentGenericTypes = std::move(savedGenerics);
     result = std::make_unique<Value>("", returnTy, callResult);
+    if (returnTy != nullptr && returnTy->is(BaseType::TY_FUNCTION)) {
+      result->setStoresFuncValuePair(true);
+      result->setCategory(ValueCategory::DIRECT_VALUE);
+    }
   } catch (...) {
     currentGenericTypes = std::move(savedGenerics);
     throw;

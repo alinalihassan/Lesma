@@ -91,7 +91,7 @@ auto Parser::consumeNewlineOrBlockEnd() -> void {
     return;
   }
   error(peek(), fmt::format("Expected: NEWLINE, EOF, or RIGHT_BRACE, found: {}",
-                             NAMEOF_ENUM(peek()->type)));
+                            NAMEOF_ENUM(peek()->type)));
 }
 
 auto Parser::error(Token* token, const std::string& errorMessage) -> void {
@@ -136,11 +136,11 @@ auto Parser::pushParserDiagnostic(llvm::SMRange span, std::string message) -> vo
     return;
   }
   diagnosticsOut->push_back(AnalysisDiagnostic{.message = std::move(message),
-                                                 .span = span,
-                                                 .severity = AnalysisDiagnosticSeverity::Error,
-                                                 .spanSourceMgr = diagnosticSpanSrcMgr,
-                                                 .spanBufferId = diagnosticSpanBufferId,
-                                                 .spanDisplayPath = diagnosticSpanDisplayPath});
+                                               .span = span,
+                                               .severity = AnalysisDiagnosticSeverity::Error,
+                                               .spanSourceMgr = diagnosticSpanSrcMgr,
+                                               .spanBufferId = diagnosticSpanBufferId,
+                                               .spanDisplayPath = diagnosticSpanDisplayPath});
 }
 
 auto Parser::recoverFromParserError(const ParserError& err) -> void {
@@ -199,6 +199,9 @@ auto Parser::parseAngleBracketTypeArgList() -> std::vector<std::unique_ptr<TypeE
       break;
     }
     outs.push_back(parseType());
+    while (check(TokenType::NEWLINE)) {
+      advance();
+    }
     if (!advanceIfMatchAny<TokenType::COMMA>()) {
       break;
     }
@@ -253,9 +256,8 @@ auto Parser::parseType() -> std::unique_ptr<TypeExpr> {
     lexeme += " | ";
     lexeme += arms[i]->getName();
   }
-  return TypeExpr::makeUnionType(
-      llvm::SMRange{arms.front()->getStart(), arms.back()->getEnd()}, std::move(lexeme),
-      std::move(arms));
+  return TypeExpr::makeUnionType(llvm::SMRange{arms.front()->getStart(), arms.back()->getEnd()},
+                                 std::move(lexeme), std::move(arms));
 }
 
 auto Parser::parseTypePrimary() -> std::unique_ptr<TypeExpr> {
@@ -471,13 +473,25 @@ auto Parser::parseTypePrimaryAt(unsigned long& off) -> bool {
     off++;
     if (index + off < tokens.size() && peek(off)->type == TokenType::LESS) {
       off++;
+      while (index + off < tokens.size() && peek(off)->type == TokenType::NEWLINE) {
+        off++;
+      }
       if (!parseTypeAt(off)) {
         return false;
       }
+      while (index + off < tokens.size() && peek(off)->type == TokenType::NEWLINE) {
+        off++;
+      }
       while (index + off < tokens.size() && peek(off)->type == TokenType::COMMA) {
         off++;
+        while (index + off < tokens.size() && peek(off)->type == TokenType::NEWLINE) {
+          off++;
+        }
         if (!parseTypeAt(off)) {
           return false;
+        }
+        while (index + off < tokens.size() && peek(off)->type == TokenType::NEWLINE) {
+          off++;
         }
       }
       if (index + off >= tokens.size() || peek(off)->type != TokenType::GREATER) {
@@ -500,11 +514,20 @@ auto Parser::hasExplicitTypeArgsAndParen() -> bool {
   }
   unsigned long off = 2;
   while (index + off < tokens.size()) {
+    while (index + off < tokens.size() && peek(off)->type == TokenType::NEWLINE) {
+      off++;
+    }
+    if (index + off >= tokens.size()) {
+      return false;
+    }
     if (peek(off)->type == TokenType::GREATER) {
       return index + off + 1 < tokens.size() && peek(off + 1)->type == TokenType::LEFT_PAREN;
     }
     if (!skipOneTypeAt(off)) {
       return false;
+    }
+    while (index + off < tokens.size() && peek(off)->type == TokenType::NEWLINE) {
+      off++;
     }
     if (index + off >= tokens.size()) {
       return false;
@@ -1158,8 +1181,8 @@ auto Parser::parseBlock() -> std::unique_ptr<Compound> {
   }
 
   auto* closeBrace = consume(TokenType::RIGHT_BRACE);
-  return std::make_unique<Compound>(
-      llvm::SMRange{openBrace->getStart(), closeBrace->getEnd()}, std::move(statements));
+  return std::make_unique<Compound>(llvm::SMRange{openBrace->getStart(), closeBrace->getEnd()},
+                                    std::move(statements));
 }
 
 auto Parser::parseParameterList(bool allowVarargsEllipsis) -> ParameterListParseResult {
@@ -1213,7 +1236,8 @@ auto Parser::parseFunctionDeclaration(bool methodIsPrivate, bool declaresInherit
     return nullptr;
   }
   consume(TokenType::FUNC);
-  // `export class` / `export func` leave isExported set; locals inside the body must not inherit it.
+  // `export class` / `export func` leave isExported set; locals inside the body must not inherit
+  // it.
   bool const funcExported = isExported;
   bool externFunc = false;
 
@@ -1346,8 +1370,8 @@ auto Parser::parseExport() -> std::unique_ptr<Statement> {
     advance();
   }
 
-  if (!checkAny<TokenType::FUNC, TokenType::CLASS, TokenType::ENUM, TokenType::TRAIT, TokenType::LET,
-                TokenType::VAR>()) {
+  if (!checkAny<TokenType::FUNC, TokenType::CLASS, TokenType::ENUM, TokenType::TRAIT,
+                TokenType::LET, TokenType::VAR>()) {
     error(peek(), "Can only export functions, classes, enums, traits, and variables");
   }
 

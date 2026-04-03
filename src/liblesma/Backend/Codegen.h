@@ -605,8 +605,9 @@ private:
   emitPromotedArithmetic(llvm::SMRange span, TokenType op, std::unique_ptr<lesma::Value>& left,
                          std::unique_ptr<lesma::Value>& right, lesma::Type* finalType)
       -> std::unique_ptr<lesma::Value>;
-  void emitForInLoopIteration(llvm::Function* parentFct, const ForIn* node, SymbolTable* savedScope,
-                              llvm::BasicBlock* bLoop, llvm::BasicBlock* bInc,
+  void emitForInLoopIteration(llvm::Function* parentFct, const ForIn* node, SymbolTable* outerScope,
+                              SymbolTable* loopBodyScope, llvm::BasicBlock* bLoop,
+                              llvm::BasicBlock* bInc,
                               const std::function<void()>& loadElementIntoLoopVar);
 
   [[nodiscard]] auto classStaticFieldGlobalName(lesma::Type* classTy, const std::string& fieldName,

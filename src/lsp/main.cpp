@@ -2233,9 +2233,8 @@ auto collectSemanticTokens(AnalysisResult& analysisResult, unsigned bufferId)
     if (resolved.value->isStaticMethod()) {
       modifiers |= semantic_token_modifier::STATIC;
     } else if (lesma::Type* declCls = resolved.value->getMemberDeclaredInClass();
-               declCls != nullptr &&
-               lesma::TypeUtils::findStaticFieldInClass(declCls, resolved.value->getName()) !=
-                   nullptr) {
+               declCls != nullptr && lesma::TypeUtils::findStaticFieldInClass(
+                                         declCls, resolved.value->getName()) != nullptr) {
       modifiers |= semantic_token_modifier::STATIC;
     }
     return modifiers;
@@ -2249,8 +2248,7 @@ auto collectSemanticTokens(AnalysisResult& analysisResult, unsigned bufferId)
         !occurrence.dotBase.has_value() && occurrence.name == "self") {
       continue;
     }
-    llvm::SMRange const highlightSpan =
-        occurrence.semanticHighlightSpan.value_or(occurrence.span);
+    llvm::SMRange const highlightSpan = occurrence.semanticHighlightSpan.value_or(occurrence.span);
     ::lsp::Range const range = smRangeToLspRange(srcMgr, bufferId, occurrence.span);
     CursorIdentifier const id =
         makeCursorIdentifierFromSpan(occurrence.name, occurrence.span, srcMgr, bufferId,
@@ -2701,11 +2699,11 @@ auto tryResolveUnionMultiMethodDefinitionLocations(AnalysisResult& result, unsig
 auto analyzedModuleEntryLocation(AnalysisResult& result, const std::string& modulePath)
     -> std::optional<::lsp::Location> {
   std::optional<AnalysisView> imported = findAnalysisViewForPath(result, modulePath);
-  if (!imported || imported->mainFilePath == nullptr) {
-    return std::nullopt;
-  }
+  ::lsp::DocumentUri const uri = (imported && imported->mainFilePath != nullptr)
+                                     ? uriFromPath(*imported->mainFilePath)
+                                     : uriFromPath(modulePath);
   return ::lsp::Location{
-      .uri = uriFromPath(*imported->mainFilePath),
+      .uri = uri,
       .range =
           ::lsp::Range{
               .start = ::lsp::Position{.line = 0U, .character = 0U},
