@@ -692,9 +692,11 @@ auto Codegen::emitSimpleClassPtrOrCastStore(llvm::SMRange span, llvm::Value* des
     llvm::StructType* pairTy = getFuncValuePairLlvmType();
     llvm::Value* lv = valueResult->getLlvmValue();
     llvm::Value* payload = nullptr;
-    if (lv != nullptr && lv->getType()->isPointerTy()) {
+    if (lv == nullptr) {
+      payload = llvm::ConstantAggregateZero::get(pairTy);
+    } else if (lv->getType()->isPointerTy()) {
       payload = builder->CreateLoad(pairTy, lv, "fnpair.simplestore.unwrap");
-    } else if (lv != nullptr && lv->getType() == pairTy) {
+    } else if (lv->getType() == pairTy) {
       payload = lv;
     }
     if (payload != nullptr) {
@@ -3278,6 +3280,8 @@ auto Codegen::emitClassStaticFieldValue(Type* classTy, const std::string& field,
     } else if (ft->is(BaseType::TY_PTR) && ft->getElementType() != nullptr &&
                ft->getElementType()->is(BaseType::TY_CLASS)) {
       ptrToVal = cacheType(std::make_unique<Type>(BaseType::TY_PTR, builder->getPtrTy(), ft));
+    } else if (!ft->is(BaseType::TY_PTR)) {
+      ptrToVal = cacheType(std::make_unique<Type>(BaseType::TY_PTR, builder->getPtrTy(), ft));
     }
     auto out = std::make_unique<Value>("", ptrToVal, gv);
     if (ft->is(BaseType::TY_FUNCTION) && sf->getDeclarationSymbol() != nullptr &&
@@ -3314,6 +3318,7 @@ auto Codegen::emitClassInstanceDataField(Value* classStructSym, llvm::Value* obj
   lesma::Type* structTy = classStructSym->getType();
   auto index = TypeUtils::findIndexInFields(structTy, field);
   auto* type = TypeUtils::findTypeInFields(structTy, field);
+  Field* dataField = TypeUtils::findFieldInFields(structTy, field);
   if (index == -1) {
     throw CodegenError(span, "Could not find field {} in {}", field,
                        structTy->getLlvmType()->getStructName().str());
@@ -3329,8 +3334,17 @@ auto Codegen::emitClassInstanceDataField(Value* classStructSym, llvm::Value* obj
       TypeUtils::classDataFieldStructIndex(structTy, static_cast<unsigned>(index));
   auto* ptr = builder->CreateStructGEP(structTy->getLlvmType(), fieldBasePtr, structIdx);
   if (isAssignment) {
-    return std::make_unique<Value>(
-        "", cacheType(std::make_unique<Type>(BaseType::TY_PTR, builder->getPtrTy(), type)), ptr);
+    lesma::Type* ptrToField =
+        cacheType(std::make_unique<Type>(BaseType::TY_PTR, builder->getPtrTy(), type));
+    auto out = std::make_unique<Value>("", ptrToField, ptr);
+    if (type->is(BaseType::TY_FUNCTION) && dataField != nullptr &&
+        dataField->getDeclarationSymbol() != nullptr &&
+        dataField->getDeclarationSymbol()->getStoresFuncValuePair()) {
+      out->setStoresFuncValuePair(true);
+      out->setClosureCalleeUsesEnvParameter(
+          dataField->getDeclarationSymbol()->getClosureCalleeUsesEnvParameter());
+    }
+    return out;
   }
   return std::make_unique<Value>("", type, loadStoredAggregateFieldValue(ptr, type));
 }
@@ -3447,10 +3461,19 @@ void Codegen::lowerDotOpSuperMethodCall(const DotOp* node) {
   }
   try {
     std::vector<llvm::Value*> finalParams;
-    finalParams.reserve(paramsLLVM.size());
+    finalParams.reserve(fields.size());
     for (size_t i = 0; i < paramsLLVM.size(); ++i) {
       auto paramVal = std::make_unique<Value>("", paramTypes[i], paramsLLVM[i]);
       auto castVal = cast(node->getSpan(), paramVal.get(), fields[i]->type);
+      finalParams.push_back(castVal->getLlvmValue());
+    }
+    for (size_t i = paramsLLVM.size(); i < fields.size(); ++i) {
+      Field* pf = fields[i];
+      if (pf == nullptr || pf->defaultValue == nullptr) {
+        throw CodegenError(node->getSpan(),
+                           "Super call missing arguments without defaults for callee parameters");
+      }
+      auto castVal = cast(node->getSpan(), pf->defaultValue.get(), pf->type);
       finalParams.push_back(castVal->getLlvmValue());
     }
     lesma::Type* returnTy = resolved->getType()->getReturnType();
