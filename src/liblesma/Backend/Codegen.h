@@ -2,6 +2,7 @@
 
 #include <cstddef>
 #include <deque>
+#include <functional>
 #include <memory>
 #include <optional>
 #include <stack>
@@ -58,6 +59,9 @@ class TraitDecl;
 class FuncDecl;
 class FuncCall;
 class LambdaExpr;
+class VarDecl;
+class ForIn;
+class DotOp;
 
 struct ImportedSpecializationState {
   std::unordered_map<std::string, const Class*> genericClasses;
@@ -330,6 +334,7 @@ protected:
   auto visit(const BinaryOp* node) -> void override;
   auto visit(const SubscriptOp* node) -> void override;
   auto visit(const DotOp* node) -> void override;
+  void lowerDotOpSuperMethodCall(const DotOp* node);
   auto visit(const CastOp* node) -> void override;
   auto visit(const IsOp* node) -> void override;
   auto visit(const UnaryOp* node) -> void override;
@@ -354,6 +359,12 @@ protected:
       -> std::unique_ptr<lesma::Value>;
   auto appendCallableArgument(lesma::Value* arg, std::vector<lesma::Type*>& paramTypes,
                               std::vector<llvm::Value*>& paramsLLVM) -> void;
+  /** Visit positional args; \p storage owns values, \p argsOut holds raw pointers into it. */
+  auto evaluateCallArgValues(const FuncCall* call,
+                             std::vector<std::unique_ptr<lesma::Value>>& storage,
+                             std::vector<lesma::Value*>& argsOut) -> void;
+  auto evaluateCallExplicitTypeArgs(const FuncCall* call, std::vector<lesma::Type*>& typesOut)
+      -> void;
   auto callNamedFunction(
       llvm::SMRange span, const std::string& functionName,
       const std::vector<lesma::Type*>& paramTypes, const std::vector<llvm::Value*>& paramsLLVM,
@@ -382,6 +393,17 @@ protected:
                         lesma::Value* resolvedCallee = nullptr,
                         const FuncCall* callSiteForGenericEnv = nullptr)
       -> std::unique_ptr<lesma::Value>;
+  /** Lower a static class field (TYPE_SYMBOL receiver); uses \c isAssignment. */
+  auto emitClassStaticFieldValue(Type* classTy, const std::string& field,
+                                 llvm::SMRange unknownFieldSpan, llvm::SMRange storageDiagSpan)
+      -> std::unique_ptr<lesma::Value>;
+  /** Instance data field GEP; \p classStructSym from \c lookupClassStructSymbol. */
+  auto emitClassInstanceDataField(Value* classStructSym, llvm::Value* objectBase,
+                                  const std::string& field, llvm::SMRange span,
+                                  bool baseMayBeNonPointer) -> std::unique_ptr<lesma::Value>;
+  void emitClassStaticMethodCall(const DotOp* node, Type* classTy, const FuncCall* method);
+  void emitClassInstanceMethodCall(const DotOp* node, lesma::Value* receiver,
+                                   const FuncCall* method);
   auto emitClassStaticFieldGlobals(lesma::Type* classTy, const Class* astNode) -> void;
   /** LLVM global for a static field; uses the class template symbol when \p classTy is specialized.
    */
@@ -565,6 +587,29 @@ protected:
   auto typeWithSingletonUnionsCollapsed(lesma::Type* t) -> lesma::Type*;
 
 private:
+  [[nodiscard]] static auto isLesmaPtrToClass(lesma::Type* t) -> bool;
+  /** Stack/global slot LLVM type for a local or exported variable (class-as-ptr ABI, func pair). */
+  [[nodiscard]] auto llvmStorageTypeForVarSlot(lesma::Type* storedType, lesma::Value* existing)
+      -> llvm::Type*;
+  /** Ptr-to-class direct store vs cast-then-store (shared by globals and simple locals). */
+  auto emitSimpleClassPtrOrCastStore(llvm::SMRange span, llvm::Value* destPtr,
+                                     std::unique_ptr<lesma::Value>& valueResult,
+                                     lesma::Type* storedType) -> llvm::Instruction*;
+  /** Initial store when reusing a typecheck symbol (generic func pair, ptr-to-class, etc.). */
+  auto emitExistingVarSlotInitializerStore(const VarDecl* node, llvm::Value* destPtr,
+                                           std::unique_ptr<lesma::Value>& valueResult,
+                                           lesma::Type* storedType, const std::string& dbgName)
+      -> llvm::Instruction*;
+  [[nodiscard]] auto makeBoolCompareResult(llvm::Value* cmpVal) -> std::unique_ptr<lesma::Value>;
+  [[nodiscard]] auto
+  emitPromotedArithmetic(llvm::SMRange span, TokenType op, std::unique_ptr<lesma::Value>& left,
+                         std::unique_ptr<lesma::Value>& right, lesma::Type* finalType)
+      -> std::unique_ptr<lesma::Value>;
+  void emitForInLoopIteration(llvm::Function* parentFct, const ForIn* node, SymbolTable* outerScope,
+                              SymbolTable* loopBodyScope, llvm::BasicBlock* bLoop,
+                              llvm::BasicBlock* bInc,
+                              const std::function<void()>& loadElementIntoLoopVar);
+
   [[nodiscard]] auto classStaticFieldGlobalName(lesma::Type* classTy, const std::string& fieldName,
                                                 llvm::SMRange reportSpan) const -> std::string;
   [[nodiscard]] auto llvmStorageTypeForClassStaticField(lesma::Type* fieldTy, Value* fieldSym)

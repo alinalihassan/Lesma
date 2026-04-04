@@ -1,0 +1,24 @@
+# `break` exits only the innermost loop.
+var outerHits: int = 0
+var innerHits: int = 0
+var i: int = 0
+while i < 3 {
+    outerHits = outerHits + 1
+    var j: int = 0
+    while j < 10 {
+        innerHits = innerHits + 1
+        j = j + 1
+        break
+
+    }
+    i = i + 1
+
+}
+if outerHits != 3 {
+    exit(1)
+
+}
+if innerHits != 3 {
+    exit(1)
+
+}

@@ -10,42 +10,8 @@
 
 using namespace lesma;
 
-namespace {
-auto makeNameSpan(llvm::SMLoc start, const std::string& name) -> llvm::SMRange {
-  if (!start.isValid()) {
-    return {};
-  }
-  llvm::StringRef const text(start.getPointer(), name.size());
-  return llvm::SMRange{start, llvm::SMLoc::getFromPointer(text.end())};
-}
-
-auto declarationIdentityFromValue(const Value* resolvedSymbol)
-    -> std::optional<IndexedDeclarationIdentity> {
-  if (resolvedSymbol == nullptr) {
-    return std::nullopt;
-  }
-  llvm::SMRange const declarationSpan = resolvedSymbol->getDeclarationSpan();
-  std::string const& declarationFilePath = resolvedSymbol->getDeclarationFilePath();
-  if (!declarationSpan.isValid() || declarationFilePath.empty()) {
-    return std::nullopt;
-  }
-  return IndexedDeclarationIdentity{
-      .filePath = declarationFilePath,
-      .span = declarationSpan,
-  };
-}
-
-auto declarationIdentityFromField(const Field* field) -> std::optional<IndexedDeclarationIdentity> {
-  if (field == nullptr || !field->getDeclarationSpan().isValid() ||
-      field->getDeclarationFilePath().empty()) {
-    return std::nullopt;
-  }
-  return IndexedDeclarationIdentity{
-      .filePath = field->getDeclarationFilePath(),
-      .span = field->getDeclarationSpan(),
-  };
-}
-
+namespace lesma {
+namespace detail_index {
 auto indexedTokenKindFromDeclarationKind(ValueDeclarationKind declarationKind)
     -> std::optional<IndexedTokenKind> {
   switch (declarationKind) {
@@ -76,6 +42,7 @@ auto indexedTokenKindFromDeclarationKind(ValueDeclarationKind declarationKind)
     return IndexedTokenKind::Property;
   }
 }
+} // namespace detail_index
 
 auto indexedTokenKindFromResolvedSymbol(const Value* resolvedSymbol, bool isTypePosition,
                                         bool isMemberAccess, IndexedTokenKind fallbackKind)
@@ -84,7 +51,8 @@ auto indexedTokenKindFromResolvedSymbol(const Value* resolvedSymbol, bool isType
     return fallbackKind;
   }
   if (std::optional<IndexedTokenKind> declarationKind =
-          indexedTokenKindFromDeclarationKind(resolvedSymbol->getDeclarationKind())) {
+          detail_index::indexedTokenKindFromDeclarationKind(
+              resolvedSymbol->getDeclarationKind())) {
     return *declarationKind;
   }
   Type* const resolvedType = resolvedSymbol->getType();
@@ -123,6 +91,43 @@ auto indexedTokenKindFromResolvedSymbol(const Value* resolvedSymbol, bool isType
     return isMemberAccess ? IndexedTokenKind::Property : fallbackKind;
   }
   return fallbackKind;
+}
+} // namespace lesma
+
+namespace {
+auto makeNameSpan(llvm::SMLoc start, const std::string& name) -> llvm::SMRange {
+  if (!start.isValid()) {
+    return {};
+  }
+  llvm::StringRef const text(start.getPointer(), name.size());
+  return llvm::SMRange{start, llvm::SMLoc::getFromPointer(text.end())};
+}
+
+auto declarationIdentityFromValue(const Value* resolvedSymbol)
+    -> std::optional<IndexedDeclarationIdentity> {
+  if (resolvedSymbol == nullptr) {
+    return std::nullopt;
+  }
+  llvm::SMRange const declarationSpan = resolvedSymbol->getDeclarationSpan();
+  std::string const& declarationFilePath = resolvedSymbol->getDeclarationFilePath();
+  if (!declarationSpan.isValid() || declarationFilePath.empty()) {
+    return std::nullopt;
+  }
+  return IndexedDeclarationIdentity{
+      .filePath = declarationFilePath,
+      .span = declarationSpan,
+  };
+}
+
+auto declarationIdentityFromField(const Field* field) -> std::optional<IndexedDeclarationIdentity> {
+  if (field == nullptr || !field->getDeclarationSpan().isValid() ||
+      field->getDeclarationFilePath().empty()) {
+    return std::nullopt;
+  }
+  return IndexedDeclarationIdentity{
+      .filePath = field->getDeclarationFilePath(),
+      .span = field->getDeclarationSpan(),
+  };
 }
 
 auto appendIndexedOccurrence(AnalysisIndex& index, const std::string& name,
@@ -259,6 +264,7 @@ auto fieldDeclarationFromMemberAccess(const Expression* expr, const std::string&
 
 auto collectIndexFromTypeExpr(const TypeExpr* typeExpr, AnalysisIndex& index) -> void;
 auto collectIndexFromExpr(const Expression* expr, AnalysisIndex& index) -> void;
+auto collectIndexFromCallOperands(const FuncCall* call, AnalysisIndex& index) -> void;
 auto collectIndexFromStmt(const Statement* stmt, AnalysisIndex& index, bool inClass) -> void;
 
 template <typename FuncLike>
@@ -377,12 +383,7 @@ auto collectIndexFromExpr(const Expression* expr, AnalysisIndex& index) -> void 
     appendIndexedOccurrence(index, call->getName(), std::nullopt,
                             makeNameSpan(call->getSpan().Start, call->getName()), false, false, 0U,
                             IndexedTokenKind::Function, call->getResolvedSymbol());
-    for (TypeExpr* typeArg : call->getExplicitTypeArgs()) {
-      collectIndexFromTypeExpr(typeArg, index);
-    }
-    for (Expression* arg : call->getArguments()) {
-      collectIndexFromExpr(arg, index);
-    }
+    collectIndexFromCallOperands(call, index);
     return;
   }
   if (auto const* lambda = dynamic_cast<const LambdaExpr*>(expr)) {
@@ -420,12 +421,7 @@ auto collectIndexFromExpr(const Expression* expr, AnalysisIndex& index) -> void 
       appendIndexedOccurrence(index, rightCall->getName(), dotBase,
                               makeNameSpan(rightCall->getSpan().Start, rightCall->getName()), false,
                               true, 0U, IndexedTokenKind::Method, rightCall->getResolvedSymbol());
-      for (TypeExpr* typeArg : rightCall->getExplicitTypeArgs()) {
-        collectIndexFromTypeExpr(typeArg, index);
-      }
-      for (Expression* arg : rightCall->getArguments()) {
-        collectIndexFromExpr(arg, index);
-      }
+      collectIndexFromCallOperands(rightCall, index);
       return;
     }
     collectIndexFromExpr(dot->getRight(), index);
@@ -474,6 +470,18 @@ auto collectIndexFromExpr(const Expression* expr, AnalysisIndex& index) -> void 
   if (auto const* isOp = dynamic_cast<const IsOp*>(expr)) {
     collectIndexFromExpr(isOp->getLeft(), index);
     collectIndexFromTypeExpr(isOp->getRight(), index);
+  }
+}
+
+auto collectIndexFromCallOperands(const FuncCall* call, AnalysisIndex& index) -> void {
+  if (call == nullptr) {
+    return;
+  }
+  for (TypeExpr* typeArg : call->getExplicitTypeArgs()) {
+    collectIndexFromTypeExpr(typeArg, index);
+  }
+  for (Expression* arg : call->getArguments()) {
+    collectIndexFromExpr(arg, index);
   }
 }
 

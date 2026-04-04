@@ -1,0 +1,10 @@
+# Defer in a loop body is not scheduled if the body never runs.
+var x: int = 0
+while false {
+    defer x = x + 1
+
+}
+if x != 0 {
+    exit(1)
+
+}

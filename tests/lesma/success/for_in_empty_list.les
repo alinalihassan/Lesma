@@ -1,0 +1,19 @@
+# `for` over an empty list runs the body zero times (empty literal needs `list<T>` context).
+var n: int = 0
+var empty: list<int> = []
+for _ in empty {
+    n = n + 1
+
+}
+if n != 0 {
+    exit(1)
+
+}
+for _ in list<int>() {
+    n = n + 1
+
+}
+if n != 0 {
+    exit(1)
+
+}

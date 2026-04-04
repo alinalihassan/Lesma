@@ -41,6 +41,11 @@ namespace {
 using namespace lesma;
 using namespace lesma::lsp_srv;
 
+[[nodiscard]] auto vectorContainsString(const std::vector<std::string>& haystack,
+                                        const std::string& needle) -> bool {
+  return std::find(haystack.begin(), haystack.end(), needle) != haystack.end();
+}
+
 /** Cached analysis result for a document version. */
 struct DocumentAnalysisSnapshot {
   std::string content;
@@ -375,10 +380,6 @@ auto runAnalyzeAndPublish(const ::lsp::DocumentUri& uri,
   }
 }
 
-auto formatCallableHoverType(lesma::Type* type, lesma::SymbolTable* rootScope) -> std::string {
-  return formatTypeName(type, rootScope);
-}
-
 /** Build hover text from a symbol: name, kind, and type in readable Markdown. */
 auto formatHoverContent(lesma::Value* value, lesma::SymbolTable* rootScope,
                         lesma::Type* typeDisplayOverride = nullptr) -> std::string {
@@ -401,7 +402,7 @@ auto formatHoverContent(lesma::Value* value, lesma::SymbolTable* rootScope,
     if (auto spell = lesma::OperatorUtils::surfaceSpellingForMangledOperator(name)) {
       headline = std::string(*spell);
     }
-    return "**" + headline + "**\n\nType: `" + formatCallableHoverType(type, rootScope) + "`";
+    return "**" + headline + "**\n\nType: `" + formatTypeName(type, rootScope) + "`";
   }
   case lesma::ValueCategory::TYPE_SYMBOL: {
     if (type != nullptr && type->is(lesma::BaseType::TY_GENERIC)) {
@@ -430,11 +431,6 @@ auto formatHoverContent(lesma::Value* value, lesma::SymbolTable* rootScope,
 
 auto isBuiltinTypeName(const std::string& name) -> bool {
   return name == "int" || name == "float" || name == "bool" || name == "cstr" || name == "void";
-}
-
-auto containsGenericParam(const std::vector<std::string>& genericParams, const std::string& name)
-    -> bool {
-  return std::ranges::find(genericParams, name) != genericParams.end();
 }
 
 using InnermostFunc =
@@ -2208,46 +2204,8 @@ auto collectSemanticTokens(AnalysisResult& analysisResult, unsigned bufferId)
 
   auto semanticTokenTypeForResolved = [](const ResolvedSymbol& resolved, bool isTypePosition,
                                          bool isMemberAccess) -> SemanticTokenType {
-    lesma::Value* value = resolved.value;
-    lesma::Type* type = value != nullptr ? value->getType() : nullptr;
-    if (value == nullptr) {
-      return SemanticTokenType::Variable;
-    }
-    if (isTypePosition) {
-      if (type != nullptr && type->is(lesma::BaseType::TY_GENERIC)) {
-        return SemanticTokenType::TypeParameter;
-      }
-      if (value->getCategory() == lesma::ValueCategory::TYPE_SYMBOL && type != nullptr) {
-        if (type->is(lesma::BaseType::TY_CLASS)) {
-          return SemanticTokenType::Class;
-        }
-        if (type->is(lesma::BaseType::TY_ENUM)) {
-          return SemanticTokenType::Enum;
-        }
-      }
-      return SemanticTokenType::Type;
-    }
-    switch (value->getCategory()) {
-    case lesma::ValueCategory::MODULE_SYMBOL:
-      return SemanticTokenType::Namespace;
-    case lesma::ValueCategory::TYPE_SYMBOL:
-      if (type != nullptr && type->is(lesma::BaseType::TY_GENERIC)) {
-        return SemanticTokenType::TypeParameter;
-      }
-      if (type != nullptr && type->is(lesma::BaseType::TY_CLASS)) {
-        return SemanticTokenType::Class;
-      }
-      if (type != nullptr && type->is(lesma::BaseType::TY_ENUM)) {
-        return SemanticTokenType::Enum;
-      }
-      return SemanticTokenType::Type;
-    case lesma::ValueCategory::CALLABLE_SYMBOL:
-      return isMemberAccess ? SemanticTokenType::Method : SemanticTokenType::Function;
-    case lesma::ValueCategory::ADDRESSABLE_STORAGE:
-    case lesma::ValueCategory::DIRECT_VALUE:
-      return isMemberAccess ? SemanticTokenType::Property : SemanticTokenType::Variable;
-    }
-    return SemanticTokenType::Variable;
+    return semanticTokenTypeFromIndexedKind(lesma::indexedTokenKindFromResolvedSymbol(
+        resolved.value, isTypePosition, isMemberAccess, lesma::IndexedTokenKind::Variable));
   };
 
   auto semanticTokenModifiersForResolved = [&](const ResolvedSymbol& resolved,
@@ -2275,9 +2233,8 @@ auto collectSemanticTokens(AnalysisResult& analysisResult, unsigned bufferId)
     if (resolved.value->isStaticMethod()) {
       modifiers |= semantic_token_modifier::STATIC;
     } else if (lesma::Type* declCls = resolved.value->getMemberDeclaredInClass();
-               declCls != nullptr &&
-               lesma::TypeUtils::findStaticFieldInClass(declCls, resolved.value->getName()) !=
-                   nullptr) {
+               declCls != nullptr && lesma::TypeUtils::findStaticFieldInClass(
+                                         declCls, resolved.value->getName()) != nullptr) {
       modifiers |= semantic_token_modifier::STATIC;
     }
     return modifiers;
@@ -2291,14 +2248,13 @@ auto collectSemanticTokens(AnalysisResult& analysisResult, unsigned bufferId)
         !occurrence.dotBase.has_value() && occurrence.name == "self") {
       continue;
     }
+    llvm::SMRange const highlightSpan = occurrence.semanticHighlightSpan.value_or(occurrence.span);
     ::lsp::Range const range = smRangeToLspRange(srcMgr, bufferId, occurrence.span);
     CursorIdentifier const id =
         makeCursorIdentifierFromSpan(occurrence.name, occurrence.span, srcMgr, bufferId,
                                      occurrence.isTypePosition, occurrence.dotBase);
     if (std::optional<ResolvedSymbol> resolved = resolveCanonicalSymbolAtCursor(
             analysisResult, range.start.line, range.start.character, id)) {
-      llvm::SMRange const highlightSpan =
-          occurrence.semanticHighlightSpan.value_or(occurrence.span);
       appendRawTokenFromSpan(
           highlightSpan,
           semanticTokenTypeForResolved(*resolved, id.isTypePosition, occurrence.isMemberAccess),
@@ -2306,14 +2262,10 @@ auto collectSemanticTokens(AnalysisResult& analysisResult, unsigned bufferId)
       continue;
     }
     if (occurrence.fallbackTokenKind == lesma::IndexedTokenKind::EnumMember) {
-      llvm::SMRange const highlightSpan =
-          occurrence.semanticHighlightSpan.value_or(occurrence.span);
       appendRawTokenFromSpan(highlightSpan, SemanticTokenType::EnumMember, occurrence.modifiers);
       continue;
     }
     if (occurrence.fallbackTokenKind.has_value()) {
-      llvm::SMRange const highlightSpan =
-          occurrence.semanticHighlightSpan.value_or(occurrence.span);
       appendRawTokenFromSpan(highlightSpan,
                              semanticTokenTypeFromIndexedKind(*occurrence.fallbackTokenKind),
                              occurrence.modifiers);
@@ -2744,6 +2696,22 @@ auto tryResolveUnionMultiMethodDefinitionLocations(AnalysisResult& result, unsig
   return out;
 }
 
+auto analyzedModuleEntryLocation(AnalysisResult& result, const std::string& modulePath)
+    -> std::optional<::lsp::Location> {
+  std::optional<AnalysisView> imported = findAnalysisViewForPath(result, modulePath);
+  ::lsp::DocumentUri const uri = (imported && imported->mainFilePath != nullptr)
+                                     ? uriFromPath(*imported->mainFilePath)
+                                     : uriFromPath(modulePath);
+  return ::lsp::Location{
+      .uri = uri,
+      .range =
+          ::lsp::Range{
+              .start = ::lsp::Position{.line = 0U, .character = 0U},
+              .end = ::lsp::Position{.line = 0U, .character = 0U},
+          },
+  };
+}
+
 /** Resolve definition location using compiler metadata from Value. */
 auto tryResolveDefinitionLocation(AnalysisResult& result, unsigned line, unsigned character)
     -> std::optional<::lsp::Location> {
@@ -2777,30 +2745,16 @@ auto tryResolveDefinitionLocation(AnalysisResult& result, unsigned line, unsigne
   if (!declSpan.isValid()) {
     if (!id->dotBase) {
       AnalysisView mainAnalysis = makeAnalysisView(result);
-      if (std::optional<std::string> modulePath =
-              findModuleImportPathByAlias(mainAnalysis, id->name)) {
-        if (std::optional<AnalysisView> imported = findAnalysisViewForPath(result, *modulePath)) {
-          return ::lsp::Location{
-              .uri = uriFromPath(*imported->mainFilePath),
-              .range =
-                  ::lsp::Range{
-                      .start = ::lsp::Position{.line = 0U, .character = 0U},
-                      .end = ::lsp::Position{.line = 0U, .character = 0U},
-                  },
-          };
+      std::optional<std::string> modulePath = findModuleImportPathByAlias(mainAnalysis, id->name);
+      if (!modulePath) {
+        if (auto it = result.importAliasToPath.find(id->name);
+            it != result.importAliasToPath.end()) {
+          modulePath = it->second;
         }
       }
-      if (result.importAliasToPath.contains(id->name)) {
-        if (std::optional<AnalysisView> imported =
-                findAnalysisViewForPath(result, result.importAliasToPath.at(id->name))) {
-          return ::lsp::Location{
-              .uri = uriFromPath(*imported->mainFilePath),
-              .range =
-                  ::lsp::Range{
-                      .start = ::lsp::Position{.line = 0U, .character = 0U},
-                      .end = ::lsp::Position{.line = 0U, .character = 0U},
-                  },
-          };
+      if (modulePath) {
+        if (std::optional<::lsp::Location> loc = analyzedModuleEntryLocation(result, *modulePath)) {
+          return loc;
         }
       }
     }
@@ -2826,11 +2780,8 @@ auto tryResolveDefinitionLocation(AnalysisResult& result, unsigned line, unsigne
 
 auto tryResolveDeclarationLocation(AnalysisResult& result, unsigned line, unsigned character)
     -> std::optional<::lsp::Location> {
-  if (result.parser == nullptr || result.sourceMgr == nullptr) {
-    return std::nullopt;
-  }
-  lesma::Compound* ast = result.parser->getAst();
-  if (ast == nullptr) {
+  if (result.parser == nullptr || result.sourceMgr == nullptr ||
+      result.parser->getAst() == nullptr) {
     return std::nullopt;
   }
   AnalysisView analysis = makeAnalysisView(result);
@@ -3049,14 +3000,14 @@ auto main() -> int {
                         ast, targetOffset, result.sourceMgr.get(), result.mainBufferId);
                     bool inGenericScope =
                         (sigFunc.func != nullptr &&
-                         containsGenericParam(sigFunc.func->getGenericParams(), id->name)) ||
+                         vectorContainsString(sigFunc.func->getGenericParams(), id->name)) ||
                         (sigFunc.enclosingClass != nullptr &&
-                         containsGenericParam(sigFunc.enclosingClass->getGenericParams(),
+                         vectorContainsString(sigFunc.enclosingClass->getGenericParams(),
                                               id->name)) ||
                         (inner.func != nullptr &&
-                         containsGenericParam(inner.func->getGenericParams(), id->name)) ||
+                         vectorContainsString(inner.func->getGenericParams(), id->name)) ||
                         (inner.enclosingClass != nullptr &&
-                         containsGenericParam(inner.enclosingClass->getGenericParams(), id->name));
+                         vectorContainsString(inner.enclosingClass->getGenericParams(), id->name));
                     if (inGenericScope) {
                       ::lsp::Hover hover;
                       hover.contents = ::lsp::MarkupContent{

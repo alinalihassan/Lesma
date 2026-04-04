@@ -192,13 +192,14 @@ class Typechecker final : public ASTVisitor {
   /** Substitute env into type (for fields); returns cached type. */
   auto substituteInType(Type* t, const std::unordered_map<std::string, Type*>& env) -> Type*;
   /** True if \p t mentions any name in \p classParamNames (enclosing class type parameters). */
-  [[nodiscard]] auto typeUsesClassTypeParameter(
-      Type* t, const std::unordered_set<std::string>& classParamNames) const -> bool;
+  [[nodiscard]] auto
+  typeUsesClassTypeParameter(Type* t, const std::unordered_set<std::string>& classParamNames) const
+      -> bool;
   /** Same as the 2-arg overload; \p visitedNominalClasses breaks cycles on specialized class types
    *  (e.g. \c *Node<T> to \c Node<T>) while walking \c specializedTypeEnv argument types. */
-  [[nodiscard]] auto typeUsesClassTypeParameter(
-      Type* t, const std::unordered_set<std::string>& classParamNames,
-      std::unordered_set<Type*>& visitedNominalClasses) const -> bool;
+  [[nodiscard]] auto
+  typeUsesClassTypeParameter(Type* t, const std::unordered_set<std::string>& classParamNames,
+                             std::unordered_set<Type*>& visitedNominalClasses) const -> bool;
   /** Infer generic bindings from a parameter/argument type pair. */
   auto inferGenericBindings(Type* pattern, Type* actual,
                             std::unordered_map<std::string, Type*>& bindings, llvm::SMRange span)
@@ -206,6 +207,12 @@ class Typechecker final : public ASTVisitor {
 
   auto cacheType(std::unique_ptr<Type> type) -> Type*;
   auto materializeImportedType(Type* type) -> Type*;
+  /** Deep-copy a field graph for \c materializeImportedType (declaration symbols included). */
+  [[nodiscard]] auto cloneImportedField(Field* field) -> std::unique_ptr<Field>;
+  /** Primitive, pointer, function, tuple, and union type expressions; nullptr only for
+   *  \c CUSTOM_TYPE. */
+  [[nodiscard]] auto tryResolveNonCustomTypeExpr(const TypeExpr* node) -> Type*;
+  auto resolveCustomTypeExpr(const TypeExpr* node) -> Type*;
   auto resolveType(const TypeExpr* node) -> Type*;
   /** Returns the unified type for binary ops, or nullptr if incompatible. */
   auto getExtendedType(Type* left, Type* right) -> Type*;
@@ -217,6 +224,9 @@ class Typechecker final : public ASTVisitor {
       const If* node, unsigned blockIndex,
       std::unordered_map<UnionNarrowingStableKey, Type*, UnionNarrowingStableKeyHash,
                          UnionNarrowingStableKeyEq>& out) -> void;
+  [[nodiscard]] static auto rhsTypeIsUnionMember(Type* unionTy, Type* rhs) -> bool;
+  void appendExcludedTypesFromPriorIsArms(const If* node, unsigned blockIndex, Value* sym,
+                                          Type* unionTy, std::vector<Type*>& excluded);
   /** Drop \p sym from every active union-narrowing frame (e.g. after assignment through it). */
   void invalidateUnionNarrowingForSymbol(Value* sym);
   /** Outermost identifier-like storage for an assignment LHS (for invalidating narrowing on `a.b`
@@ -240,12 +250,75 @@ class Typechecker final : public ASTVisitor {
                                const std::vector<Type*>& argTypes, llvm::SMRange span) -> Type*;
   auto isMutableListReceiver(const Expression* expr) -> bool;
   [[nodiscard]] auto isMutatingListFunction(const std::string& functionName) const -> bool;
+  [[nodiscard]] auto isStdListClassType(Type* type) const -> bool;
+  [[nodiscard]] auto getStdListElementType(Type* type) const -> Type*;
   [[nodiscard]] auto isListIntrinsicName(const std::string& functionName) const -> bool;
   auto visitListIntrinsicCall(const FuncCall* node, const std::vector<Type*>& argTypes) -> bool;
   auto visitListMethodCall(Type* listType, const DotOp* node, const FuncCall* call) -> bool;
   /** Map compound-assignment operator to the corresponding binary operator; nullopt if not
    * compound. */
   auto compoundToBinaryOp(TokenType op) -> std::optional<TokenType>;
+
+  [[nodiscard]] auto typeAsPtrIfClassForOverload(Type* t) -> Type*;
+  [[nodiscard]] auto overloadArgTypesFromCall(const FuncCall* fc) -> std::vector<Type*>;
+  void collectExplicitTypesFromCallByVisit(const FuncCall* call, std::vector<Type*>& out);
+  [[nodiscard]] auto
+  lookupFunctionInScopeThenImportedModuleCaches(const std::string& name,
+                                                const std::vector<Type*>& methodArgTypes) -> Value*;
+  [[nodiscard]] auto tryLookupFunctionViaDotImportLiterals(const DotOp* node,
+                                                           const std::string& name,
+                                                           const std::vector<Type*>& methodArgTypes)
+      -> Value*;
+  void inferClassTemplateParamsForStaticMethodCallOnTemplate(
+      llvm::SMRange span, Type* receiverForLookup, Type* methodType,
+      const std::vector<Type*>& methodArgTypes,
+      std::unordered_map<std::string, Type*>& traitBoundSubs);
+  [[nodiscard]] auto lookupSuperDispatchMethodInScopeThenImports(
+      SymbolTable* insertScope, Type* superTy, const std::string& methodName,
+      const std::vector<Type*>& argTypes, const std::unordered_map<std::string, Type*>* superSeed)
+      -> Value*;
+  void finalizeResolvedMethodCallTyping(
+      FuncCall* fc, Value* method, std::unordered_map<std::string, Type*>& methodTypeEnv,
+      const std::vector<Type*>& methodArgTypes, llvm::SMRange span,
+      const std::function<void(std::unordered_map<std::string, Type*>&)>& afterExplicitBindings =
+          {});
+  void handleDotOpTyImportReceiver(const DotOp* node);
+  void typecheckDotOpSuperDispatch(const DotOp* node);
+  void typecheckDotOpClassOrEnumMemberAccess(const DotOp* node, Type* base,
+                                             bool dotLeftDenotesTypeName);
+  void tryPeelDotReceiverFromNamedImportStub(const DotOp* node, Type*& base,
+                                             bool& dotLeftDenotesTypeName);
+  void typecheckDotUnionMethodCall(Type* unionTy, const DotOp* node, FuncCall* fc);
+  [[nodiscard]] auto maybeRetypeCallArgsForStringLiteralOverload(const FuncCall* node,
+                                                                 std::vector<Type*>& argTypes)
+      -> bool;
+  [[nodiscard]] auto materializeForCallSite(Type* t, SymbolTable* importedScope) -> Type*;
+  void visitCallArgumentsIgnoringResult(const FuncCall* fc);
+  /** If lookup missed, resolve imports / class value / string-literal repair. Returns true if
+   *  \c visit(FuncCall) should return immediately (result may be set). */
+  auto resolveFuncCallCalleeOrEarlyReturn(const FuncCall* node, std::vector<Type*>& argTypes,
+                                          SymbolTable*& importedScope,
+                                          bool& funcCallResolvedViaImportedNameBinding,
+                                          Value*& callee) -> bool;
+  void completeOrdinaryFuncCallTyping(const FuncCall* node, Value* callee,
+                                      SymbolTable* importedScope,
+                                      const std::vector<Type*>& argTypes);
+  void finishGenericClassCallWithExplicitTypeArgs(
+      const FuncCall* callSite, Type* classType, const std::vector<Type*>& argTypes,
+      SymbolTable* ctorLookupScope, bool markConstructorSymbolRead,
+      const std::function<void()>& afterSpecialize = {});
+  [[nodiscard]] auto tryFinishGenericClassCallWithInferredTypeArgs(
+      const FuncCall* callSite, Type* classType, const std::vector<Type*>& argTypes,
+      SymbolTable* ctorLookupScope, bool markConstructorSymbolRead,
+      const std::function<void()>& afterSuccess) -> bool;
+  void typecheckExplicitResolvedMethodTypeArgsIfPresent(
+      const FuncCall* fc, Type* methodType, std::unordered_map<std::string, Type*>& methodTypeEnv,
+      const std::vector<Type*>& methodArgTypes, llvm::SMRange span);
+  void mergeMethodGenericParamsFromArgumentsWhenNoExplicitTypeArgs(
+      const FuncCall* fc, Type* methodType, const std::vector<Type*>& methodArgTypes,
+      std::unordered_map<std::string, Type*>& traitBoundSubs, llvm::SMRange span);
+  [[nodiscard]] auto traitRequirementParamLookupTypes(Type* selfPtr, const FuncDecl* req)
+      -> std::vector<Type*>;
 
   /** Returns true if some path through the statements reaches end of block without a return. */
   auto pathLeadsToEndWithoutReturn(const std::vector<Statement*>& statements, size_t index) -> bool;
