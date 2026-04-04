@@ -383,9 +383,9 @@ auto Parser::parseTypeAt(unsigned long& off) -> bool {
   if (!parseTypePrimaryAt(off)) {
     return false;
   }
-  while (index + off < tokens.size() && peek(off)->type == TokenType::PIPE) {
+  while (canPeek(off) && peek(off)->type == TokenType::PIPE) {
     off++;
-    while (index + off < tokens.size() && peek(off)->type == TokenType::NEWLINE) {
+    while (canPeek(off) && peek(off)->type == TokenType::NEWLINE) {
       off++;
     }
     if (!parseTypePrimaryAt(off)) {
@@ -396,7 +396,7 @@ auto Parser::parseTypeAt(unsigned long& off) -> bool {
 }
 
 auto Parser::parseTypePrimaryAt(unsigned long& off) -> bool {
-  if (index + off >= tokens.size()) {
+  if (!canPeek(off)) {
     return false;
   }
 
@@ -410,18 +410,18 @@ auto Parser::parseTypePrimaryAt(unsigned long& off) -> bool {
     if (!parseTypeAt(off)) {
       return false;
     }
-    if (index + off < tokens.size() && peek(off)->type == TokenType::COMMA) {
+    if (canPeek(off) && peek(off)->type == TokenType::COMMA) {
       off++;
-      while (index + off < tokens.size() && peek(off)->type != TokenType::RIGHT_PAREN) {
+      while (canPeek(off) && peek(off)->type != TokenType::RIGHT_PAREN) {
         if (!parseTypeAt(off)) {
           return false;
         }
-        if (index + off < tokens.size() && peek(off)->type == TokenType::COMMA) {
+        if (canPeek(off) && peek(off)->type == TokenType::COMMA) {
           off++;
         }
       }
     }
-    if (index + off >= tokens.size() || peek(off)->type != TokenType::RIGHT_PAREN) {
+    if (!canPeek(off) || peek(off)->type != TokenType::RIGHT_PAREN) {
       return false;
     }
     off++;
@@ -440,7 +440,7 @@ auto Parser::parseTypePrimaryAt(unsigned long& off) -> bool {
   if (check(TokenType::FUNC, off)) {
     off++;
 
-    if (index + off >= tokens.size() || peek(off)->type != TokenType::LEFT_PAREN) {
+    if (!canPeek(off) || peek(off)->type != TokenType::LEFT_PAREN) {
       return false;
     }
     off++;
@@ -449,19 +449,19 @@ auto Parser::parseTypePrimaryAt(unsigned long& off) -> bool {
       return false;
     }
 
-    while (index + off < tokens.size() && peek(off)->type == TokenType::COMMA) {
+    while (canPeek(off) && peek(off)->type == TokenType::COMMA) {
       off++;
       if (!parseTypeAt(off)) {
         return false;
       }
     }
 
-    if (index + off >= tokens.size() || peek(off)->type != TokenType::RIGHT_PAREN) {
+    if (!canPeek(off) || peek(off)->type != TokenType::RIGHT_PAREN) {
       return false;
     }
     off++;
 
-    if (index + off < tokens.size() && peek(off)->type == TokenType::ARROW) {
+    if (canPeek(off) && peek(off)->type == TokenType::ARROW) {
       off++;
       return parseTypeAt(off);
     }
@@ -471,30 +471,30 @@ auto Parser::parseTypePrimaryAt(unsigned long& off) -> bool {
 
   if (check(TokenType::IDENTIFIER, off) || check(TokenType::STRING_TYPE, off)) {
     off++;
-    if (index + off < tokens.size() && peek(off)->type == TokenType::LESS) {
+    if (canPeek(off) && peek(off)->type == TokenType::LESS) {
       off++;
-      while (index + off < tokens.size() && peek(off)->type == TokenType::NEWLINE) {
+      while (canPeek(off) && peek(off)->type == TokenType::NEWLINE) {
         off++;
       }
       if (!parseTypeAt(off)) {
         return false;
       }
-      while (index + off < tokens.size() && peek(off)->type == TokenType::NEWLINE) {
+      while (canPeek(off) && peek(off)->type == TokenType::NEWLINE) {
         off++;
       }
-      while (index + off < tokens.size() && peek(off)->type == TokenType::COMMA) {
+      while (canPeek(off) && peek(off)->type == TokenType::COMMA) {
         off++;
-        while (index + off < tokens.size() && peek(off)->type == TokenType::NEWLINE) {
+        while (canPeek(off) && peek(off)->type == TokenType::NEWLINE) {
           off++;
         }
         if (!parseTypeAt(off)) {
           return false;
         }
-        while (index + off < tokens.size() && peek(off)->type == TokenType::NEWLINE) {
+        while (canPeek(off) && peek(off)->type == TokenType::NEWLINE) {
           off++;
         }
       }
-      if (index + off >= tokens.size() || peek(off)->type != TokenType::GREATER) {
+      if (!canPeek(off) || peek(off)->type != TokenType::GREATER) {
         return false;
       }
       off++;
@@ -513,23 +513,23 @@ auto Parser::hasExplicitTypeArgsAndParen() -> bool {
     return false;
   }
   unsigned long off = 2;
-  while (index + off < tokens.size()) {
-    while (index + off < tokens.size() && peek(off)->type == TokenType::NEWLINE) {
+  while (canPeek(off)) {
+    while (canPeek(off) && peek(off)->type == TokenType::NEWLINE) {
       off++;
     }
-    if (index + off >= tokens.size()) {
+    if (!canPeek(off)) {
       return false;
     }
     if (peek(off)->type == TokenType::GREATER) {
-      return index + off + 1 < tokens.size() && peek(off + 1)->type == TokenType::LEFT_PAREN;
+      return canPeek(off + 1) && peek(off + 1)->type == TokenType::LEFT_PAREN;
     }
     if (!skipOneTypeAt(off)) {
       return false;
     }
-    while (index + off < tokens.size() && peek(off)->type == TokenType::NEWLINE) {
+    while (canPeek(off) && peek(off)->type == TokenType::NEWLINE) {
       off++;
     }
-    if (index + off >= tokens.size()) {
+    if (!canPeek(off)) {
       return false;
     }
     if (peek(off)->type == TokenType::COMMA) {

@@ -152,19 +152,10 @@ auto Lexer::scanOne(bool continuation) -> std::unique_ptr<Token> {
     return makeToken(TokenType::POWER);
   }
   case '#': {
-    // A comment goes until the end of the line.
-    bool const commentOnlyLine = tokens.empty() || tokens.back()->type == TokenType::NEWLINE;
     while (peek() != '\n' && !isAtEnd()) {
       advance();
     }
-    if (commentOnlyLine && !isAtEnd() && peek() == '\n') {
-      advance();
-      line++;
-      col = 1;
-      handleIndentation(continuation);
-      return scanOne(false);
-    }
-    return scanOne(continuation);
+    return makeToken(TokenType::LINE_COMMENT);
   }
   case '\\':
     c = advance();
@@ -271,10 +262,10 @@ auto Lexer::handleIndentation(bool continuation) -> bool {
     fallback();
   }
 
-  if (continuation || level != 0 || c == '#' || c == '\n' || c == '\r') {
-    // Collapse blank/comment-only lines into a single NEWLINE at brace depth 0 only; inside `{`
-    // … `}` we keep every emitted NEWLINE so statements stay separated.
-    if (level == 0 && (c == '#' || c == '\n')) {
+  if (continuation || level != 0 || c == '\n' || c == '\r') {
+    // Collapse repeated blank lines at brace depth 0 only; inside `{` … `}` we keep every emitted
+    // NEWLINE so statements stay separated.
+    if (level == 0 && c == '\n') {
       if (!tokens.empty() && tokens.back()->type == TokenType::NEWLINE) {
         tokens.pop_back();
       }

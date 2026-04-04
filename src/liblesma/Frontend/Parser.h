@@ -45,7 +45,37 @@ public:
 
 private:
   auto peek() -> Token* { return peek(0); }
-  auto peek(unsigned long i) -> Token* { return tokens.at(index + i); }
+  auto peek(unsigned long i) -> Token* { return tokens.at(visibleRawIndex(i)); }
+  [[nodiscard]] auto canPeek(unsigned long visibleOffset) const -> bool {
+    if (tokens.empty()) {
+      return false;
+    }
+    return visibleRawIndex(visibleOffset) < tokens.size();
+  }
+  [[nodiscard]] auto visibleRawIndex(unsigned long visibleOffset) const -> size_t {
+    size_t rawIndex = index;
+    unsigned long remaining = visibleOffset;
+    while (rawIndex < tokens.size()) {
+      if (tokens[rawIndex]->type != TokenType::LINE_COMMENT) {
+        if (remaining == 0U) {
+          return rawIndex;
+        }
+        remaining--;
+      }
+      rawIndex++;
+    }
+    return tokens.empty() ? 0U : tokens.size() - 1U;
+  }
+  [[nodiscard]] auto previous() -> Token* {
+    size_t rawIndex = index;
+    while (rawIndex > 0U) {
+      rawIndex--;
+      if (tokens[rawIndex]->type != TokenType::LINE_COMMENT) {
+        return tokens[rawIndex];
+      }
+    }
+    return nullptr;
+  }
 
   auto consume(TokenType type) -> Token*;
   auto consume(TokenType type, const std::string& errorMessage) -> Token*;
@@ -53,16 +83,14 @@ private:
   /** Like `consumeNewline` but allows closing `}` without a newline (last stmt in `{` … `}`). */
   auto consumeNewlineOrBlockEnd() -> void;
 
-  [[nodiscard]] auto previous() -> Token* { return (index > 0) ? tokens.at(index - 1) : nullptr; }
-
   auto isAtEnd() -> bool { return peek()->type == TokenType::EOF_TOKEN; }
 
   auto advance() -> Token* {
+    Token* current = peek();
     if (!isAtEnd()) {
-      index++;
+      index = visibleRawIndex(1);
     }
-
-    return peek(-1);
+    return current;
   }
 
   auto check(TokenType type) -> bool { return check(type, 0); }
@@ -82,7 +110,7 @@ private:
   auto checkAny(unsigned long pos) -> bool;
 
   std::vector<Token*> tokens;
-  unsigned long index = 0;
+  size_t index = 0;
   bool inClass = false;
   bool isExported = false;
   std::unique_ptr<Compound> tree;

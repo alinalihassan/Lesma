@@ -1,8 +1,10 @@
 #pragma once
 
 #include <cstdint>
+#include <filesystem>
 #include <memory>
 #include <string>
+#include <vector>
 
 #include <llvm/Passes/OptimizationLevel.h>
 
@@ -55,5 +57,6 @@ private:
 public:
   static auto run(std::unique_ptr<lesma::Options> options) -> int;
   static auto compile(std::unique_ptr<lesma::Options> options) -> int;
+  static auto formatPaths(const std::vector<std::filesystem::path>& paths, int width) -> int;
 };
 } // namespace lesma

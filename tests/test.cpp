@@ -1,5 +1,6 @@
 #include <cstddef>
 #include <filesystem>
+#include <fstream>
 #include <memory>
 #include <string>
 #include <utility>
@@ -16,6 +17,7 @@
 #include "liblesma/Backend/Codegen.h"
 #include "liblesma/Driver/AnalysisResult.h"
 #include "liblesma/Driver/Driver.h"
+#include "liblesma/Formatter/SourceFormatter.h"
 #include "liblesma/Frontend/Lexer.h"
 #include "liblesma/Frontend/Parser.h"
 #include "liblesma/Symbol/Type.h"
@@ -30,7 +32,7 @@ auto initializeSrcMgr(const std::string& src) -> std::shared_ptr<SourceMgr> {
   // Configure Source Manager
   auto sourceMgr = std::make_shared<SourceMgr>(SourceMgr());
 
-  auto buffer = MemoryBuffer::getMemBuffer(src);
+  auto buffer = MemoryBuffer::getMemBufferCopy(src);
   sourceMgr->AddNewSourceBuffer(std::move(buffer), llvm::SMLoc());
 
   return sourceMgr;
@@ -247,6 +249,19 @@ TEST(LexerTests, LexBoolean) {
   EXPECT_EQ(tokens[3]->lexeme, "true");
 }
 
+TEST(LexerTests, LexLineComments) {
+  auto srcMgr = initializeSrcMgr("var x = 1 # trailing\n# leading\nvar y = 2\n");
+  auto lexer = initializeLexer(srcMgr);
+  auto tokens = lexer->getTokens();
+
+  ASSERT_GE(tokens.size(), 11);
+  EXPECT_EQ(tokens[4]->type, TokenType::LINE_COMMENT);
+  EXPECT_EQ(tokens[4]->lexeme, "# trailing");
+  EXPECT_EQ(tokens[5]->type, TokenType::NEWLINE);
+  EXPECT_EQ(tokens[6]->type, TokenType::LINE_COMMENT);
+  EXPECT_EQ(tokens[6]->lexeme, "# leading");
+}
+
 TEST(LexerTests, LexArithmeticOperators) {
   auto srcMgr = initializeSrcMgr("var x = 1 + 2\n");
   auto lexer = initializeLexer(srcMgr);
@@ -307,6 +322,49 @@ TEST(ParserTests, ParseLetDecl) {
   ASSERT_EQ(parser->getAst()->getChildren().size(), 1);
   auto astStr = parser->getAst()->getChildren().at(0)->toString(srcMgr.get(), "", true);
   EXPECT_TRUE(astStr.find("VarDecl") != std::string::npos);
+}
+
+TEST(FormatterTests, FormatFilePreservesCommentsAndIsIdempotent) {
+  std::filesystem::path const path =
+      std::filesystem::temp_directory_path() / "lesma_fmt_preserves_comments.les";
+  std::ofstream(path) << "var  x=1 # inline\n# leading\nfunc  add(a:int,b:int)->int{\nreturn a+b\n}\n";
+
+  auto formatted = formatFile(path, 100);
+  ASSERT_TRUE(formatted.has_value()) << formatted.error().message;
+  std::string const expected = "var x = 1 # inline\n"
+                               "# leading\n"
+                               "func add(a: int, b: int) -> int {\n"
+                               "    return a + b\n"
+                               "}\n";
+  EXPECT_EQ(*formatted, expected);
+
+  std::ofstream(path) << expected;
+  auto formattedAgain = formatFile(path, 100);
+  ASSERT_TRUE(formattedAgain.has_value()) << formattedAgain.error().message;
+  EXPECT_EQ(*formattedAgain, expected);
+
+  std::filesystem::remove(path);
+}
+
+TEST(FormatterTests, DriverFormatsDirectoriesRecursively) {
+  std::filesystem::path const root =
+      std::filesystem::temp_directory_path() / "lesma_fmt_recursive_dir";
+  std::filesystem::path const nested = root / "nested";
+  std::filesystem::create_directories(nested);
+
+  std::filesystem::path const lesFile = nested / "sample.les";
+  std::filesystem::path const ignoredFile = nested / "ignore.txt";
+  std::ofstream(lesFile) << "let  y=2\n";
+  std::ofstream(ignoredFile) << "unchanged";
+
+  EXPECT_EQ(Driver::formatPaths({root}, 100), 0);
+
+  std::ifstream ifs(lesFile);
+  std::string formatted((std::istreambuf_iterator<char>(ifs)), std::istreambuf_iterator<char>());
+  EXPECT_EQ(formatted, "let y = 2\n");
+  EXPECT_TRUE(std::filesystem::exists(ignoredFile));
+
+  std::filesystem::remove_all(root);
 }
 
 // ============================================================================

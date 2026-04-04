@@ -49,10 +49,12 @@ auto parseDebugFlags(const std::vector<std::string>& debugOptions) -> Debug {
 
 auto parseCli(int argc, char** argv) -> std::unique_ptr<CLIOptions> {
   std::vector<std::string> debug;
+  std::vector<std::filesystem::path> fmtPaths;
   bool runTimer = false;
   bool compileTimer = false;
   std::string output = "output";
   std::string file;
+  int formatWidth = 100;
   int optimizationLevel = 3;
   bool emitDebugInfo = false;
   bool suppressWarnings = false;
@@ -63,6 +65,7 @@ auto parseCli(int argc, char** argv) -> std::unique_ptr<CLIOptions> {
 
   CLI::App* run = app.add_subcommand("run", "Run source code");
   CLI::App* compile = app.add_subcommand("compile", "Compile source code");
+  CLI::App* fmt = app.add_subcommand("fmt", "Format Lesma source files");
   app.require_subcommand();
 
   auto addDebugOption = [&](CLI::App* sub) -> CLI::Option* {
@@ -72,7 +75,10 @@ auto parseCli(int argc, char** argv) -> std::unique_ptr<CLIOptions> {
   };
   run->add_option("file", file, "Lesma source filename")->required();
   compile->add_option("file", file, "Lesma source filename")->required();
+  fmt->add_option("paths", fmtPaths, "Files or directories to format")->expected(0, -1);
   compile->add_option("-o,--output", output, "Output filename");
+  fmt->add_option("-w,--width", formatWidth, "Doc layout ribbon width")
+      ->check(CLI::PositiveNumber);
   run->add_option("-O,--opt", optimizationLevel, "Optimization level (0–3)")
       ->check(CLI::Range(0, 3));
   compile->add_option("-O,--opt", optimizationLevel, "Optimization level (0–3)")
@@ -117,15 +123,28 @@ auto parseCli(int argc, char** argv) -> std::unique_ptr<CLIOptions> {
     debug.emplace_back("all");
   }
 
+  if (fmt->parsed() && fmtPaths.empty()) {
+    fmtPaths.emplace_back(std::filesystem::current_path());
+  }
+  for (auto& path : fmtPaths) {
+    path = std::filesystem::absolute(path);
+  }
+
   bool const timer = runTimer || compileTimer;
-  return std::make_unique<CLIOptions>(CLIOptions{.file = std::filesystem::absolute(file),
-                                                 .output = output,
-                                                 .debug = debug,
-                                                 .timer = timer,
-                                                 .jit = run->parsed(),
-                                                 .optimizationLevel = optimizationLevel,
-                                                 .emitDebugInfo = emitDebugInfo,
-                                                 .suppressWarnings = suppressWarnings});
+  return std::make_unique<CLIOptions>(CLIOptions{
+      .command = fmt->parsed() ? CliCommand::Fmt
+                               : (run->parsed() ? CliCommand::Run : CliCommand::Compile),
+      .file = file.empty() ? std::string{} : std::filesystem::absolute(file).string(),
+      .output = output,
+      .fmtPaths = std::move(fmtPaths),
+      .debug = debug,
+      .timer = timer,
+      .jit = run->parsed(),
+      .formatWidth = formatWidth,
+      .optimizationLevel = optimizationLevel,
+      .emitDebugInfo = emitDebugInfo,
+      .suppressWarnings = suppressWarnings,
+  });
 }
 
 } // namespace
@@ -133,6 +152,13 @@ auto parseCli(int argc, char** argv) -> std::unique_ptr<CLIOptions> {
 auto main(int argc, char** argv) -> int {
   // CLI Parsing
   auto options = parseCli(argc, argv);
+  if (options->command == CliCommand::Fmt) {
+    int const exitCode = Driver::formatPaths(options->fmtPaths, options->formatWidth);
+    std::fflush(stdout);
+    std::fflush(stderr);
+    std::_Exit(exitCode);
+  }
+
   auto debugFlags = parseDebugFlags(options->debug);
   auto driverOptions = std::make_unique<Options>(Options{
       .sourceType = SourceType::FILE,
