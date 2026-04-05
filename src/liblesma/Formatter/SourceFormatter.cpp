@@ -31,6 +31,9 @@ using lesma::pretty::Doc;
 
 constexpr int INDENT_WIDTH = 2;
 constexpr int DEFAULT_MIN_WIDTH = 20;
+// Layout width for expressions inside string interpolation (${...}): intentionally large so the
+// pretty-printer keeps each fragment on one line (no breaks inside ${...}).
+constexpr int INTERPOLATION_FLAT_WIDTH = 10'000;
 
 [[nodiscard]] auto clampWidth(int width) -> int { return std::max(width, DEFAULT_MIN_WIDTH); }
 
@@ -1076,7 +1079,8 @@ private:
     for (size_t i = 0; i < exprs.size(); ++i) {
       rendered += escapeString(chunks[i]);
       rendered += "${";
-      rendered += lesma::pretty::layout(formatExpression(exprs[i]), clampWidth(1000));
+      rendered += lesma::pretty::layout(formatExpression(exprs[i]),
+                                        clampWidth(INTERPOLATION_FLAT_WIDTH));
       while (!rendered.empty() && rendered.back() == '\n') {
         rendered.pop_back();
       }
