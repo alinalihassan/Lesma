@@ -54,6 +54,8 @@ constexpr int DEFAULT_MIN_WIDTH = 20;
     return "%";
   case TokenType::POWER:
     return "^";
+  case TokenType::AMPERSAND:
+    return "&";
   case TokenType::EQUAL_EQUAL:
     return "==";
   case TokenType::BANG_EQUAL:
@@ -98,6 +100,10 @@ constexpr int DEFAULT_MIN_WIDTH = 20;
 }
 
 [[nodiscard]] auto unaryNeedsSpace(TokenType type) -> bool { return type == TokenType::NOT; }
+
+[[nodiscard]] auto isVoidType(const TypeExpr* type) -> bool {
+  return type != nullptr && type->getType() == TokenType::VOID_TYPE;
+}
 
 [[nodiscard]] auto precedence(const Expression* expr) -> int {
   if (dynamic_cast<const DotOp*>(expr) != nullptr ||
@@ -683,8 +689,10 @@ private:
     parts.push_back(formatFunctionName(node->getName(), node->getOverloadGlyphSpan().isValid()));
     parts.push_back(formatGenericParams(node->getGenericParamDecls()));
     parts.push_back(formatParameters(node->getParameters(), node->getVarArgs()));
-    parts.push_back(docText(" -> "));
-    parts.push_back(formatType(node->getReturnType()));
+    if (!isVoidType(node->getReturnType())) {
+      parts.push_back(docText(" -> "));
+      parts.push_back(formatType(node->getReturnType()));
+    }
     if (node->getBody() != nullptr) {
       parts.push_back(docText(" "));
       parts.push_back(formatBlock(node->getBody()));
@@ -701,8 +709,10 @@ private:
     parts.push_back(docText(node->getName()));
     parts.push_back(formatGenericParams(node->getGenericParamDecls()));
     parts.push_back(formatParameters(node->getParameters(), node->getVarArgs()));
-    parts.push_back(docText(" -> "));
-    parts.push_back(formatType(node->getReturnType()));
+    if (!isVoidType(node->getReturnType())) {
+      parts.push_back(docText(" -> "));
+      parts.push_back(formatType(node->getReturnType()));
+    }
     return docs(std::move(parts));
   }
 
@@ -783,8 +793,12 @@ private:
       for (TypeExpr* param : type->getParams()) {
         params.push_back(formatType(param));
       }
-      return docs({docText("func"), wrapDelimited("(", params, ")"), docText(" -> "),
-                   formatType(type->getReturnType())});
+      std::vector<Doc> parts{docText("func"), wrapDelimited("(", params, ")")};
+      if (!isVoidType(type->getReturnType())) {
+        parts.push_back(docText(" -> "));
+        parts.push_back(formatType(type->getReturnType()));
+      }
+      return docs(std::move(parts));
     }
     case TokenType::TUPLE_TYPE: {
       std::vector<Doc> elements;
@@ -915,8 +929,11 @@ private:
 
   [[nodiscard]] auto formatLambda(const LambdaExpr* node) -> Doc {
     std::vector<Doc> parts{docText("func"), formatGenericParams(node->getGenericParamDecls()),
-                           formatParameters(node->getParameters(), false), docText(" -> "),
-                           formatType(node->getReturnType())};
+                           formatParameters(node->getParameters(), false)};
+    if (node->getReturnType() != nullptr && !isVoidType(node->getReturnType())) {
+      parts.push_back(docText(" -> "));
+      parts.push_back(formatType(node->getReturnType()));
+    }
     if (node->isExpressionBody()) {
       parts.push_back(docText(" => "));
       parts.push_back(formatExpression(node->getExpressionBody()));

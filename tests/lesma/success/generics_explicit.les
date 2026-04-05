@@ -9,7 +9,7 @@ if identity<float>(1.5) != 1.5 {
 }
 class Box<T> {
   var val: T
-  func new(v: T) -> void {
+  func new(v: T) {
     self.val = v
   }
   func getVal() -> T {

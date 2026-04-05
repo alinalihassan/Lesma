@@ -382,6 +382,25 @@ TEST(FormatterTests, DriverFormatsDirectoriesRecursively) {
   std::filesystem::remove_all(root);
 }
 
+TEST(FormatterTests, DriverFormatsDirectoriesBestEffortWhenSomeFilesDoNotParse) {
+  std::filesystem::path const root =
+      std::filesystem::temp_directory_path() / "lesma_fmt_recursive_best_effort";
+  std::filesystem::create_directories(root);
+
+  std::filesystem::path const validFile = root / "valid.les";
+  std::filesystem::path const invalidFile = root / "invalid.les";
+  std::ofstream(validFile) << "let  y=2\n";
+  std::ofstream(invalidFile) << "let broken = {\n";
+
+  EXPECT_EQ(Driver::formatPaths({root}, 100), 0);
+
+  std::ifstream ifs(validFile);
+  std::string formatted((std::istreambuf_iterator<char>(ifs)), std::istreambuf_iterator<char>());
+  EXPECT_EQ(formatted, "let y = 2\n");
+
+  std::filesystem::remove_all(root);
+}
+
 TEST(FormatterTests, ParserAttachesStatementTriviaAndNormalizedBlankLines) {
   auto srcMgr =
       initializeSrcMgr("// file comment\nlet x = 1 // trailing\n\n// step\nlet y = 2\n");
@@ -405,7 +424,7 @@ TEST(FormatterTests, FormatSourceNormalizesOptionalBlankLines) {
   auto formatted = formatSource("func work() -> void {\nlet a = 1\n\n\nlet b = 2\n\n// step\nlet c = 3\n}\n",
                                 "blank_lines_test.les", 100);
   ASSERT_TRUE(formatted.has_value()) << formatted.error().message;
-  EXPECT_EQ(*formatted, "func work() -> void {\n"
+  EXPECT_EQ(*formatted, "func work() {\n"
                         "  let a = 1\n"
                         "\n"
                         "  let b = 2\n"
@@ -433,7 +452,7 @@ TEST(FormatterTests, FormatSourcePreservesBlockComments) {
       "func work() -> void {\n/* setup\n * step\n */\nlet x = 1\n}\n",
       "block_comment_test.les", 100);
   ASSERT_TRUE(formatted.has_value()) << formatted.error().message;
-  EXPECT_EQ(*formatted, "func work() -> void {\n"
+  EXPECT_EQ(*formatted, "func work() {\n"
                         "  /* setup\n * step\n */\n"
                         "  let x = 1\n"
                         "}\n");
@@ -452,6 +471,36 @@ TEST(FormatterTests, FormatSourceIsParseStable) {
   EXPECT_EQ(formattedAgain, *formatted);
 }
 
+TEST(FormatterTests, FormatSourcePreservesAddressOfUnaryOperator) {
+  auto formatted = formatSource("var x = 1\nlet p: *int = &x\n", "address_of_test.les", 100);
+  ASSERT_TRUE(formatted.has_value()) << formatted.error().message;
+  EXPECT_NE(formatted->find("&x"), std::string::npos);
+  EXPECT_EQ(formatted->find("?x"), std::string::npos);
+}
+
+TEST(FormatterTests, FormatSourcePreservesInferredExpressionLambdaReturnType) {
+  auto formatted = formatSource("let inc = func(x: int) => x + 1\n", "lambda_infer_test.les", 100);
+  ASSERT_TRUE(formatted.has_value()) << formatted.error().message;
+  EXPECT_NE(formatted->find("func(x: int) => x + 1"), std::string::npos);
+  EXPECT_EQ(formatted->find("-> void"), std::string::npos);
+}
+
+TEST(FormatterTests, FormatSourceOmitsExplicitVoidReturnTypesEverywhere) {
+  auto formatted = formatSource(
+      "func work() -> void {\n"
+      "  pass\n"
+      "}\n"
+      "func takes(callback: func(int) -> void) -> void {\n"
+      "  callback(1)\n"
+      "}\n"
+      "let handler: func(int) -> void = func(value: int) -> void {\n"
+      "  pass\n"
+      "}\n",
+      "void_return_style_test.les", 100);
+  ASSERT_TRUE(formatted.has_value()) << formatted.error().message;
+  EXPECT_EQ(formatted->find("-> void"), std::string::npos);
+}
+
 TEST(FormatterTests, NarrowWidthBreaksLongCalls) {
   auto formatted =
       formatSource("combine(alpha, beta, gamma, delta)\n", "width_test.les", 20);
@@ -468,9 +517,9 @@ TEST(FormatterTests, TopLevelMajorDeclarationsCapAtOneBlankLine) {
   auto formatted = formatSource("func a() -> void {}\n\n\nfunc b() -> void {}\n",
                                 "top_level_spacing_test.les", 100);
   ASSERT_TRUE(formatted.has_value()) << formatted.error().message;
-  EXPECT_EQ(*formatted, "func a() -> void {}\n"
+  EXPECT_EQ(*formatted, "func a() {}\n"
                         "\n"
-                        "func b() -> void {}\n");
+                        "func b() {}\n");
 }
 
 TEST(FormatterTests, NarrowWidthBreaksLongReturnExpressionAndReparses) {

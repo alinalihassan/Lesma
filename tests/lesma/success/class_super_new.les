@@ -2,13 +2,13 @@
 class Base {
   var x: int
 
-  func new() -> void {
+  func new() {
     self.x = 7
   }
 }
 
 class Child : Base {
-  func new() -> void {
+  func new() {
     super.new(self)
   }
 }

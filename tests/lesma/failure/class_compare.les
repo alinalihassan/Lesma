@@ -1,7 +1,7 @@
 class Foo {
   var value: int
 
-  func new(value: int) -> void {
+  func new(value: int) {
     self.value = value
   }
 }
@@ -9,7 +9,7 @@ class Foo {
 class Bar {
   var value: int
 
-  func new(value: int) -> void {
+  func new(value: int) {
     self.value = value
   }
 }

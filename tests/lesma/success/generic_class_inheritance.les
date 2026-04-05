@@ -2,13 +2,13 @@
 class GBase<T> {
   var x: T
 
-  func new(v: T) -> void {
+  func new(v: T) {
     self.x = v
   }
 }
 
 class GChild<T> : GBase<T> {
-  func new(v: T) -> void {
+  func new(v: T) {
     super.new(self, v)
   }
 }

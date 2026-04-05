@@ -1,12 +1,12 @@
 // Function types without an explicit return type should default to void.
-func accepts(callback: func(int) -> void) -> void {
+func accepts(callback: func(int)) {
   var seen = 1
 }
 
-func printer(value: int) -> void {
+func printer(value: int) {
   print(value)
 }
 accepts(printer)
 
-let callback: func(int) -> void = printer
+let callback: func(int) = printer
 accepts(callback)

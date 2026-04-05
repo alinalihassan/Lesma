@@ -7,7 +7,7 @@ trait Scalable {
 class ScaleBase {
   var k: int
 
-  func new(n: int) -> void {
+  func new(n: int) {
     self.k = n
   }
 }
@@ -15,7 +15,7 @@ class ScaleBase {
 class ScaleChild : ScaleBase impl Scalable {
   var bump: int
 
-  func new(n: int, b: int) -> void {
+  func new(n: int, b: int) {
     super.new(self, n)
     self.bump = b
   }
@@ -40,7 +40,7 @@ class PairBase {
   var u: int
   var v: int
 
-  func new(p: int, q: int) -> void {
+  func new(p: int, q: int) {
     self.u = p
     self.v = q
   }
@@ -48,7 +48,7 @@ class PairBase {
 
 class PairCombo : PairBase impl HasU,
 HasV {
-  func new(p: int, q: int) -> void {
+  func new(p: int, q: int) {
     super.new(self, p, q)
   }
   func u_val() -> int {
@@ -70,13 +70,13 @@ trait Tagged<T> {
 class TagBase {
   var n: int
 
-  func new(v: int) -> void {
+  func new(v: int) {
     self.n = v
   }
 }
 
 class TagCell : TagBase impl Tagged<int> {
-  func new(v: int) -> void {
+  func new(v: int) {
     super.new(self, v)
   }
   func tag() -> int {

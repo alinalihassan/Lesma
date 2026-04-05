@@ -3,9 +3,9 @@ xs.push(1)
 xs.push(2)
 xs.push(3)
 
-let mapper: func(int) -> int = func(x: int) -> void => x * 3
-let predicate: func(int) -> bool = func(x: int) -> void => x > 1
-let reducer: func(int, int) -> int = func(acc: int, x: int) -> void => acc + x
+let mapper: func(int) -> int = func(x: int) => x * 3
+let predicate: func(int) -> bool = func(x: int) => x > 1
+let reducer: func(int, int) -> int = func(acc: int, x: int) => acc + x
 
 var scaled = xs.map(mapper)
 if scaled.len() != 3 or scaled[0] != 3 or scaled[1] != 6 or scaled[2] != 9 {

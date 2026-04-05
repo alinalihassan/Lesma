@@ -1,5 +1,5 @@
 class Wrapper {
-  func new() -> void {
+  func new() {
     pass
   }
   func id<T>(v: T) -> T {

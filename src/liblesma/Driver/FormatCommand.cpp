@@ -102,6 +102,16 @@ auto Driver::formatPaths(const std::vector<fs::path>& paths, int width) -> int {
   bool ok = collectFiles(paths, files);
   std::sort(files.begin(), files.end());
   files.erase(std::unique(files.begin(), files.end()), files.end());
+  bool bestEffort = files.size() > 1U;
+  if (!bestEffort) {
+    for (const fs::path& inputPath : paths) {
+      std::error_code errorCode;
+      if (fs::is_directory(inputPath, errorCode) && !errorCode) {
+        bestEffort = true;
+        break;
+      }
+    }
+  }
 
   for (const fs::path& path : files) {
     auto formatted = formatFile(path, width);
@@ -112,7 +122,9 @@ auto Driver::formatPaths(const std::vector<fs::path>& paths, int width) -> int {
       } else {
         lesma::print(LogType::ERROR, "{}\n", error.message);
       }
-      ok = false;
+      if (!bestEffort) {
+        ok = false;
+      }
       continue;
     }
 

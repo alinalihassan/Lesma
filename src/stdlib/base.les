@@ -1,4 +1,4 @@
-func extern printf(fmt: cstr, ...) -> void
+func extern printf(fmt: cstr, ...)
 
 func extern scanf(fmt: cstr, ...) -> int
 
@@ -6,7 +6,7 @@ export func extern calloc(count: int, size: int) -> *int8
 
 func extern malloc(size: int) -> *int8
 
-func extern free(ptr: cstr) -> void
+func extern free(ptr: cstr)
 
 func extern strlen(s: cstr) -> int
 
@@ -16,7 +16,7 @@ func extern strtod(s: cstr) -> float
 
 func extern rand() -> int
 
-func extern srand(seed: int) -> void
+func extern srand(seed: int)
 
 // C `time(NULL)`; pass 0.
 func extern time(timer: int) -> int
@@ -72,7 +72,7 @@ class range_iter impl Iterator<int> {
   var stop: int
   var step: int
 
-  func new(start: int, stop: int, step: int) -> void {
+  func new(start: int, stop: int, step: int) {
     self.current = start
     self.stop = stop
     self.step = step
@@ -98,7 +98,7 @@ class range_values impl Iterable<int> {
   var stop: int
   var step: int
 
-  func new(start: int, stop: int, step: int) -> void {
+  func new(start: int, stop: int, step: int) {
     self.start = start
     self.stop = stop
     self.step = step
@@ -148,7 +148,7 @@ export class list_iter<T> impl Iterator<T> {
   var storage: __buffer<T>
   private var scan: int = 0
 
-  func new(buf: __buffer<T>) -> void {
+  func new(buf: __buffer<T>) {
     self.storage = buf
   }
   func has_next() -> bool {
@@ -167,10 +167,10 @@ export class list_iter<T> impl Iterator<T> {
 export class list<T> impl Iterable<T> {
   var storage: __buffer<T>
 
-  func new() -> void {
+  func new() {
     self.storage = __buffer_new<T>()
   }
-  func new(initial: __buffer<T>) -> void {
+  func new(initial: __buffer<T>) {
     self.storage = initial
   }
   func iter() -> list_iter<T> {
@@ -179,13 +179,13 @@ export class list<T> impl Iterable<T> {
   func len() -> int {
     return __buffer_len(self.storage)
   }
-  func push(value: T) -> void {
+  func push(value: T) {
     __buffer_push(self.storage, value)
   }
   func pop() -> T {
     return __buffer_pop(self.storage)
   }
-  func clear() -> void {
+  func clear() {
     __buffer_clear(self.storage)
   }
   func copy() -> list<T> {
@@ -194,7 +194,7 @@ export class list<T> impl Iterable<T> {
   func operator [](index: int) -> T {
     return __buffer_get(self.storage, index)
   }
-  func operator []=(index: int, value: T) -> void {
+  func operator []=(index: int, value: T) {
     __buffer_set(self.storage, index, value)
   }
   func map<U>(f: func(T) -> U) -> list<U> {
@@ -239,7 +239,7 @@ export class dict<K, V> {
   var keys: __buffer<K>
   var vals: __buffer<V>
 
-  func new() -> void {
+  func new() {
     self.keys = __buffer_new<K>()
     self.vals = __buffer_new<V>()
   }
@@ -269,7 +269,7 @@ export class dict<K, V> {
     exit(1)
     return __buffer_get(self.vals, 0)
   }
-  func set(key: K, value: V) -> void {
+  func set(key: K, value: V) {
     var i: int = 0
     let n = self.len()
     while i < n {
@@ -285,7 +285,7 @@ export class dict<K, V> {
   func operator [](key: K) -> V {
     return self.get(key)
   }
-  func operator []=(key: K, value: V) -> void {
+  func operator []=(key: K, value: V) {
     self.set(key, value)
   }
 }
@@ -298,7 +298,7 @@ export class str_iter impl Iterator<uint8> {
   private var scan: int = 0
   private var byte_len: int = 0
 
-  func new(s: cstr) -> void {
+  func new(s: cstr) {
     self.storage = s
     self.byte_len = strlen(self.storage)
   }
@@ -319,7 +319,7 @@ export class str impl Iterable<uint8> {
   var storage: cstr
 
   // Own a writable NUL-terminated copy; never retain arbitrary cstr (literals, borrowed buffers).
-  func new(s: cstr) -> void {
+  func new(s: cstr) {
     self.storage = strdup(s)
   }
   func cstr() -> cstr {
@@ -334,7 +334,7 @@ export class str impl Iterable<uint8> {
   func operator [](index: int) -> str {
     return str(__str_slice(self.storage, index, 1))
   }
-  func operator []=(index: int, value: str) -> void {
+  func operator []=(index: int, value: str) {
     if value.len() == 0 {
       return
     }
@@ -578,7 +578,7 @@ export class str impl Iterable<uint8> {
 export class file {
   var storage: cstr
 
-  func new(path: cstr) -> void {
+  func new(path: cstr) {
     self.storage = strdup(path)
   }
   func text() -> str {
@@ -610,7 +610,7 @@ export class file {
     free(buf)
     return result
   }
-  static func write(path: cstr, data: str) -> void {
+  static func write(path: cstr, data: str) {
     var fp: *int8 = fopen(path, "wb")
     if fp == 0 {
       return
@@ -621,10 +621,10 @@ export class file {
     }
     fclose(fp)
   }
-  static func write(path: cstr, src: file) -> void {
+  static func write(path: cstr, src: file) {
     file.write(path, src.text())
   }
-  func delete() -> void {
+  func delete() {
     remove(self.storage)
   }
 }
@@ -634,7 +634,7 @@ export class file {
  *
  * @param code Process exit status.
  */
-export func extern exit(code: int) -> void
+export func extern exit(code: int)
 
 /**
  * Reads a line from standard input with no prompt.
@@ -696,7 +696,7 @@ export func random(bound1: int, bound2: int) -> int {
  *
  * @param text String value to print.
  */
-export func print(text: str) -> void {
+export func print(text: str) {
   printf("%s\n", text.cstr())
 }
 
@@ -705,7 +705,7 @@ export func print(text: str) -> void {
  *
  * @param num Integer value to print.
  */
-export func print(num: int) -> void {
+export func print(num: int) {
   printf("%lld\n", num)
 }
 
@@ -714,7 +714,7 @@ export func print(num: int) -> void {
  *
  * @param char Character byte to print.
  */
-export func print(char: int8) -> void {
+export func print(char: int8) {
   printf("%c\n", char)
 }
 
@@ -723,7 +723,7 @@ export func print(char: int8) -> void {
  *
  * @param char Character byte to print.
  */
-export func print(char: uint8) -> void {
+export func print(char: uint8) {
   printf("%c\n", char)
 }
 
@@ -732,7 +732,7 @@ export func print(char: uint8) -> void {
  *
  * @param num Floating-point value to print.
  */
-export func print(num: float) -> void {
+export func print(num: float) {
   printf("%g\n", num)
 }
 
@@ -741,7 +741,7 @@ export func print(num: float) -> void {
  *
  * @param value The boolean value to print.
  */
-export func print(value: bool) -> void {
+export func print(value: bool) {
   if value {
     print("true")
   } else {

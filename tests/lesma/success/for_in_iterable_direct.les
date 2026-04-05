@@ -2,7 +2,7 @@ class CountUpIter impl Iterator<int> {
   var i: int
   var last: int
 
-  func new(start: int, last: int) -> void {
+  func new(start: int, last: int) {
     self.i = start
     self.last = last
   }
@@ -20,7 +20,7 @@ class CountUp impl Iterable<int> {
   var start: int
   var last: int
 
-  func new(start: int, last: int) -> void {
+  func new(start: int, last: int) {
     self.start = start
     self.last = last
   }
@@ -40,7 +40,7 @@ class OnceIter<T> impl Iterator<T> {
   var one: T
   var done: bool = false
 
-  func new(v: T) -> void {
+  func new(v: T) {
     self.one = v
     self.done = false
   }
@@ -56,7 +56,7 @@ class OnceIter<T> impl Iterator<T> {
 class Once<T> impl Iterable<T> {
   var one: T
 
-  func new(v: T) -> void {
+  func new(v: T) {
     self.one = v
   }
   func iter() -> OnceIter<T> {

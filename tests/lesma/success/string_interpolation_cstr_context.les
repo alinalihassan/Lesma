@@ -1,3 +1,3 @@
-func extern printf(fmt: cstr, ...) -> void
+func extern printf(fmt: cstr, ...)
 
 printf("%s", "v=${1}")

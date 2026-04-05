@@ -17,7 +17,6 @@ func narrowedCaptureVarArithmetic() -> int {
   return 0
 }
 
-
 // --- Variant 2: function parameter, `u + 1` in the lambda ---
 func narrowedCaptureParamArithmetic(u: int | float) -> int {
   if u is int {
@@ -29,12 +28,10 @@ func narrowedCaptureParamArithmetic(u: int | float) -> int {
   return 0
 }
 
-
 // --- Variant 3: `var` binding, narrowed `u` passed where `int` is required ---
 func idInt(x: int) -> int {
   return x
 }
-
 
 func narrowedCaptureVarIdInt() -> int {
   var u: int | float = 41
@@ -47,21 +44,18 @@ func narrowedCaptureVarIdInt() -> int {
   return 0
 }
 
-
 // --- Variant 4: class union; call method that exists only on `BoxA` ---
 class BoxA {
-  func new() -> void {}
+  func new() {}
 
   func onlyA() -> int {
     return 7
   }
 }
 
-
 class BoxB {
-  func new() -> void {}
+  func new() {}
 }
-
 
 func narrowedCaptureClassUnion(u: BoxA | BoxB) -> int {
   if u is BoxA {

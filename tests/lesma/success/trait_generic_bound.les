@@ -4,7 +4,7 @@ trait Twice {
 
 class A impl Twice {
   var x: int
-  func new(v: int) -> void {
+  func new(v: int) {
     self.x = v
   }
   func val() -> int {

@@ -1,5 +1,5 @@
 var x = 5
-let x_ptr: *int = ?x
+let x_ptr: *int = &x
 
 // Currently x_ptr is a separate pointer, it doesn't copy x's pointer
 // x = 7

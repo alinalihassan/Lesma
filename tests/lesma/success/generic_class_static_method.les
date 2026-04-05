@@ -2,7 +2,7 @@
 class Cell<T> {
   var x: T
 
-  func new(v: T) -> void {
+  func new(v: T) {
     self.x = v
   }
 
@@ -14,7 +14,6 @@ class Cell<T> {
     return Cell(n)
   }
 }
-
 
 func main() -> int {
   var a = Cell.of(7)

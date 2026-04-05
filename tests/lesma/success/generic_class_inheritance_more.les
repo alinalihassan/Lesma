@@ -2,21 +2,21 @@
 // parameter on the subclass, and a partially applied generic base (Mix<int, V>).
 class Root<T> {
   var a: T
-  func new(v: T) -> void {
+  func new(v: T) {
     self.a = v
   }
 }
 
 class Mid<T> : Root<T> {
   var b: T
-  func new(v: T, w: T) -> void {
+  func new(v: T, w: T) {
     super.new(self, v)
     self.b = w
   }
 }
 
 class Leaf<T> : Mid<T> {
-  func new(v: T, w: T) -> void {
+  func new(v: T, w: T) {
     super.new(self, v, w)
   }
 }
@@ -27,7 +27,7 @@ if l.a != 1 or l.b != 2 {
 class PBase<T, U> {
   var a: T
   var b: U
-  func new(x: T, y: U) -> void {
+  func new(x: T, y: U) {
     self.a = x
     self.b = y
   }
@@ -35,7 +35,7 @@ class PBase<T, U> {
 
 class PChild<T, U> : PBase<T, U> {
   var c: T
-  func new(x: T, y: U, z: T) -> void {
+  func new(x: T, y: U, z: T) {
     super.new(self, x, y)
     self.c = z
   }
@@ -46,13 +46,13 @@ if p.a != 1 or p.b != 2.5 or p.c != 3 {
 }
 class GBase<T> {
   var x: T
-  func new(v: T) -> void {
+  func new(v: T) {
     self.x = v
   }
 }
 
 class GChild<U> : GBase<U> {
-  func new(v: U) -> void {
+  func new(v: U) {
     super.new(self, v)
   }
 }
@@ -63,14 +63,14 @@ if gc.x != "hi" {
 class Mix<T, U> {
   var t: T
   var u: U
-  func new(a: T, b: U) -> void {
+  func new(a: T, b: U) {
     self.t = a
     self.u = b
   }
 }
 
 class MixChild<V> : Mix<int, V> {
-  func new(a: int, b: V) -> void {
+  func new(a: int, b: V) {
     super.new(self, a, b)
   }
 }

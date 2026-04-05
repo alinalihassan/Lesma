@@ -2,7 +2,6 @@ class G<T> {
   static var buf: list<T>
 }
 
-
 func main() -> int {
   return 0
 }

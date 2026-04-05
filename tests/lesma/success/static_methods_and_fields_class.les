@@ -2,7 +2,7 @@ class Counter {
   var n: int
   static var hits: int = 0
 
-  func new() -> void {
+  func new() {
     self.n = 0
   }
 
@@ -17,15 +17,14 @@ class Counter {
     return c
   }
 
-  static func bump_hits() -> void {
+  static func bump_hits() {
     Counter.hits = Counter.hits + 1
   }
 
-  func bump() -> void {
+  func bump() {
     self.n = self.n + 1
   }
 }
-
 
 func main() -> int {
   var a: Counter = Counter.zero()

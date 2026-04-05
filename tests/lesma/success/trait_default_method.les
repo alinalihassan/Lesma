@@ -9,7 +9,7 @@ trait WithDefault {
 }
 
 class C impl WithDefault {
-  func new() -> void {
+  func new() {
     var _x = 0
   }
 }

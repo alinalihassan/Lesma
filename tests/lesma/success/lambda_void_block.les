@@ -1,4 +1,4 @@
-let callback: func(int) -> void = func(value: int) -> void {
+let callback: func(int) = func(value: int) {
   print(value)
 }
 

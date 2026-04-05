@@ -3,7 +3,7 @@ import "trait_bounds_mod.les"
 class Both impl HasVal,
 HasDbl {
   var x: int
-  func new(v: int) -> void {
+  func new(v: int) {
     self.x = v
   }
   func val() -> int {

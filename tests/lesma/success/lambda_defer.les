@@ -10,7 +10,7 @@ func f() -> int {
 if f() != 5 {
   exit(1)
 }
-let h = func() -> void {
+let h = func() {
   var y = 0
   defer y = 1
 }

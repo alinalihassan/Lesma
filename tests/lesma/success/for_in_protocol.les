@@ -3,7 +3,7 @@ class RangeIter impl Iterator<int> {
   var current: int
   var last: int
 
-  func new(start: int, last: int) -> void {
+  func new(start: int, last: int) {
     self.current = start
     self.last = last
   }
@@ -21,7 +21,7 @@ class Range impl Iterable<int> {
   var start: int
   var last: int
 
-  func new(start: int, last: int) -> void {
+  func new(start: int, last: int) {
     self.start = start
     self.last = last
   }

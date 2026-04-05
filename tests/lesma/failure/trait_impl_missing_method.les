@@ -4,7 +4,7 @@ trait TwoMethods {
 }
 
 class Incomplete impl TwoMethods {
-  func new() -> void {
+  func new() {
     var _ = 0
   }
   func a() -> int {

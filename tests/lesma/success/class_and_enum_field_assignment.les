@@ -6,7 +6,7 @@ enum Status {
 class Payload {
   var value: int
 
-  func new(value: int) -> void {
+  func new(value: int) {
     self.value = value
   }
 }
@@ -15,14 +15,14 @@ class Holder {
   var payload: Payload
   var status: Status
 
-  func new(value: int) -> void {
+  func new(value: int) {
     self.payload = Payload(value)
     self.status = Status.READY
   }
   func isReady() -> bool {
     return self.status == Status.READY
   }
-  func markDone() -> void {
+  func markDone() {
     self.status = Status.DONE
   }
 }

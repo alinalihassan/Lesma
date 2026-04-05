@@ -1,7 +1,7 @@
 export class Animal {
   var x: int
 
-  func new() -> void {
+  func new() {
     self.x = 101
   }
   func getX() -> int {

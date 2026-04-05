@@ -5,7 +5,7 @@ trait Drawable {
 
 class Circle impl Drawable {
   var r: float
-  func new(radius: float) -> void {
+  func new(radius: float) {
     self.r = radius
   }
   func area() -> float {

@@ -2,7 +2,7 @@
 class Base {
   var tag: int
 
-  func new(t: int) -> void {
+  func new(t: int) {
     self.tag = t
   }
   func bump() -> int {
@@ -13,7 +13,7 @@ class Base {
 class Child : Base {
   private var extra: int
 
-  func new(t: int, e: int) -> void {
+  func new(t: int, e: int) {
     super.new(self, t)
     self.extra = e
   }
@@ -25,7 +25,7 @@ class Child : Base {
 class Grandchild : Child {
   var bonus: int
 
-  func new(t: int, e: int, b: int) -> void {
+  func new(t: int, e: int, b: int) {
     super.new(self, t, e)
     self.bonus = b
   }

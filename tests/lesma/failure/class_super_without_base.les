@@ -1,6 +1,6 @@
 // super requires a base class.
 class Solo {
-  func new() -> void {
+  func new() {
     super.new(self)
   }
 }

@@ -3,7 +3,6 @@ func exit(x: int) -> int {
   return x
 }
 
-
 func f() -> int {
   exit(1)
 }

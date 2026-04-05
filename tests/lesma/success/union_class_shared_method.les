@@ -2,7 +2,7 @@
 class BoxA {
   var v: int
 
-  func new() -> void {
+  func new() {
     self.v = 10
   }
   func id() -> int {
@@ -13,14 +13,13 @@ class BoxA {
 class BoxB {
   var v: int
 
-  func new() -> void {
+  func new() {
     self.v = 20
   }
   func id() -> int {
     return self.v + 1
   }
 }
-
 
 export func callId(x: BoxA | BoxB) -> int {
   return x.id()

@@ -1,7 +1,6 @@
 class C {
-  static func new() -> void {}
+  static func new() {}
 }
-
 
 func main() -> int {
   return 0

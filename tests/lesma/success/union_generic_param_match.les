@@ -7,7 +7,6 @@ func nonIntArm<T>(x: T | int) -> int {
   return 1
 }
 
-
 func pairBothNonInt<T>(a: T | int, b: T | int) -> int {
   if a is int {
     return 0

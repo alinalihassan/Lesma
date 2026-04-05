@@ -2,7 +2,7 @@ class Pair {
   var left: int
   var right: int
 
-  func new(left: int, right: int) -> void {
+  func new(left: int, right: int) {
     self.left = left
     self.right = right
   }
@@ -18,7 +18,7 @@ class Pair {
     }
     return self.right
   }
-  func operator []=(index: int, value: int) -> void {
+  func operator []=(index: int, value: int) {
     if index == 0 {
       self.left = value
       return

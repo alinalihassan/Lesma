@@ -6,13 +6,13 @@ trait NeedVal {
 
 class Plain {
   var x: int
-  func new(v: int) -> void {
+  func new(v: int) {
     self.x = v
   }
 }
 
 class A {
-  func new() -> void {
+  func new() {
     pass
   }
   func take<T: NeedVal>(o: T) -> int {
@@ -21,7 +21,7 @@ class A {
 }
 
 class B {
-  func new() -> void {
+  func new() {
     pass
   }
   func take<T: NeedVal>(o: T) -> int {

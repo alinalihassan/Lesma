@@ -4,7 +4,7 @@
 class SumBase {
   var total: int
 
-  func new(s: int) -> void {
+  func new(s: int) {
     self.total = s * 2
   }
 }
@@ -12,7 +12,7 @@ class SumBase {
 class SumChild : SumBase {
   var delta: int
 
-  func new(u: int, v: int) -> void {
+  func new(u: int, v: int) {
     super.new(self, u + v)
     self.delta = u - v
   }
@@ -21,7 +21,7 @@ class SumChild : SumBase {
 class SeedBase {
   var value: int
 
-  func new(k: int) -> void {
+  func new(k: int) {
     self.value = k + 100
   }
 }
@@ -29,7 +29,7 @@ class SeedBase {
 class SeedChild : SeedBase {
   var tag: int
 
-  func new(m: int, n: int) -> void {
+  func new(m: int, n: int) {
     super.new(self, m * n)
     self.tag = m - n
   }
@@ -38,13 +38,13 @@ class SeedChild : SeedBase {
 class Proto {
   var id: int
 
-  func new() -> void {
+  func new() {
     self.id = 42
   }
 }
 
 class Runner : Proto {
-  func new() -> void {
+  func new() {
     super.new(self)
   }
 }

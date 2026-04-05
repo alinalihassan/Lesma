@@ -10,7 +10,7 @@ func addOne(x: int) -> int {
 }
 
 // Void function that doesn't return anything
-func doNothing() -> void {
+func doNothing() {
   var x = 1
 }
 doNothing()

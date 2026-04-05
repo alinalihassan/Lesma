@@ -2,13 +2,12 @@
 class Holder {
   static var dbl: func(int) -> int = func(x: int) -> int => x * 2
 
-  static func init_adder(base: int) -> void {
+  static func init_adder(base: int) {
     Holder.adder = func(x: int) -> int => x + base
   }
 
   static var adder: func(int) -> int
 }
-
 
 func main() -> int {
   var d: func(int) -> int = Holder.dbl

@@ -1,10 +1,6 @@
 func score(a: int, b: int, c: int, d: int) -> int {
-  let total =
-    a + b
-    + c
-    + d
-  return
-    total
+  let total = a + b + c + d
+  return total
 }
 
 if score(1, 2, 3, 4) != 10 {
@@ -12,9 +8,7 @@ if score(1, 2, 3, 4) != 10 {
 }
 
 var value = 1
-value =
-  value + 4
-  + 5
+value = value + 4 + 5
 
 if value != 10 {
   exit(1)

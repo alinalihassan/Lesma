@@ -929,6 +929,9 @@ auto Parser::parseFunctionCall() -> std::unique_ptr<Expression> {
       advance();
     }
     auto param = parseExpression();
+    while (check(TokenType::NEWLINE)) {
+      advance();
+    }
 
     if (!check(TokenType::RIGHT_PAREN)) {
       consume(TokenType::COMMA);
@@ -1325,6 +1328,9 @@ auto Parser::parseVarDecl(bool fieldIsPrivate, bool fieldIsStatic) -> std::uniqu
   auto* firstId = consume(TokenType::IDENTIFIER);
   vars.push_back(std::make_unique<Literal>(firstId->span, firstId->lexeme, firstId->type));
   while (advanceIfMatchAny<TokenType::COMMA>()) {
+    while (check(TokenType::NEWLINE)) {
+      advance();
+    }
     auto* nextId = consume(TokenType::IDENTIFIER);
     vars.push_back(std::make_unique<Literal>(nextId->span, nextId->lexeme, nextId->type));
   }
@@ -1934,11 +1940,20 @@ auto Parser::parseClass() -> std::unique_ptr<Statement> {
   std::vector<std::vector<std::unique_ptr<TypeExpr>>> implTraitTypeArgs;
   if (advanceIfMatchAny<TokenType::IMPL>()) {
     while (true) {
+      while (check(TokenType::NEWLINE)) {
+        advance();
+      }
       auto* traitName = consume(TokenType::IDENTIFIER);
       std::vector<std::unique_ptr<TypeExpr>> traitArgs;
       if (advanceIfMatchAny<TokenType::LESS>()) {
         while (true) {
+          while (check(TokenType::NEWLINE)) {
+            advance();
+          }
           traitArgs.push_back(parseType());
+          while (check(TokenType::NEWLINE)) {
+            advance();
+          }
           if (!advanceIfMatchAny<TokenType::COMMA>()) {
             break;
           }

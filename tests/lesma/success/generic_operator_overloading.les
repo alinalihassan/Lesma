@@ -1,7 +1,7 @@
 class Holder<T> {
   var value: T
 
-  func new(value: T) -> void {
+  func new(value: T) {
     self.value = value
   }
   func operator [](index: int) -> T {

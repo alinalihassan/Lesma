@@ -1,7 +1,7 @@
 class Box {
   private var secret: int
 
-  func new(v: int) -> void {
+  func new(v: int) {
     self.secret = v
   }
 }

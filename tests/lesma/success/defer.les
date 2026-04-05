@@ -33,7 +33,7 @@ if early_branch(false) != 7 {
 class Counter {
   var n: int
 
-  func new() -> void {
+  func new() {
     self.n = 0
   }
   func run() -> int {
@@ -46,12 +46,12 @@ var c = Counter()
 if c.run() != 2 {
   exit(1)
 }
-func void_fallthrough() -> void {
+func void_fallthrough() {
   var x = 0
   defer x = 1
 }
 
-func void_via_return() -> void {
+func void_via_return() {
   var x = 0
   defer x = 2
   return

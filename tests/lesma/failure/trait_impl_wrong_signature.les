@@ -3,7 +3,7 @@ trait NeedFloat {
 }
 
 class Bad impl NeedFloat {
-  func new() -> void {
+  func new() {
     var _ = 0
   }
   func f() -> int {
