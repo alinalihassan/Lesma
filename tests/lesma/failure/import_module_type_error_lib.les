@@ -1,4 +1,4 @@
-# Library with a type error (used by import_module_type_error_main.les)
+// Library with a type error (used by import_module_type_error_main.les)
 export func bad_return() -> int {
-    return "not an int"
+  return "not an int"
 }

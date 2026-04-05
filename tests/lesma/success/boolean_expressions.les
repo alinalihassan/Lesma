@@ -1,65 +1,53 @@
-# Test complex boolean expressions
+// Test complex boolean expressions
 var a = true
 var b = false
 var c = true
 
-# Test and
+// Test and
 if not (a and c) {
-    exit(1)
-
+  exit(1)
 }
 if a and b {
-    exit(1)
-
+  exit(1)
 }
-# Test or
+// Test or
 if not (a or b) {
-    exit(1)
-
+  exit(1)
 }
 if not (b or c) {
-    exit(1)
-
+  exit(1)
 }
-# Test combined
+// Test combined
 if not (a and c or b) {
-    exit(1)
-
+  exit(1)
 }
 if not ((a or b) and (c or b)) {
-    exit(1)
-
+  exit(1)
 }
-# Test with comparisons
+// Test with comparisons
 var x = 10
 var y = 20
 
 if not (x < y and y > 15) {
-    exit(1)
-
+  exit(1)
 }
 if x > y or y < 10 {
-    exit(1)
-
+  exit(1)
 }
-# Nested not - double negation should give original value (now works without parens!)
-# not not true = true, so we should NOT exit
+// Nested not - double negation should give original value (now works without parens!)
+// not not true = true, so we should NOT exit
 if not not true {
-    var dummy = 1
+  var dummy = 1
+} else {
+  exit(1)
 }
-else {
-    exit(1)
-
-}
-# not not false = false, so we SHOULD enter the else
+// not not false = false, so we SHOULD enter the else
 if not not false {
-    exit(1)
-
+  exit(1)
 }
-# Triple not: not not not false = not not true = not false = true
+// Triple not: not not not false = not not true = not false = true
 if not not not false {
-    var dummy = 1
-}
-else {
-    exit(1)
+  var dummy = 1
+} else {
+  exit(1)
 }

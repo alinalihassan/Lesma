@@ -1,35 +1,33 @@
-# Union dot-calls must run verifyGenericTraitBounds per member; inferred type args must satisfy
-# each generic method's trait bounds (same as a non-union dot call).
+// Union dot-calls must run verifyGenericTraitBounds per member; inferred type args must satisfy
+// each generic method's trait bounds (same as a non-union dot call).
 trait NeedVal {
-    func val() -> int
-
+  func val() -> int
 }
+
 class Plain {
-    var x: int
-    func new(v: int) {
-        self.x = v
+  var x: int
 
-    }
+  func new(v: int) {
+    self.x = v
+  }
 }
+
 class A {
-    func new() {
-        pass
-
-    }
-    func take<T: NeedVal>(o: T) -> int {
-        return o.val()
-
-    }
+  func new() {
+    pass
+  }
+  func take<T: NeedVal>(o: T) -> int {
+    return o.val()
+  }
 }
+
 class B {
-    func new() {
-        pass
-
-    }
-    func take<T: NeedVal>(o: T) -> int {
-        return o.val()
-
-    }
+  func new() {
+    pass
+  }
+  func take<T: NeedVal>(o: T) -> int {
+    return o.val()
+  }
 }
 var u: A | B = A()
 var p = Plain(1)

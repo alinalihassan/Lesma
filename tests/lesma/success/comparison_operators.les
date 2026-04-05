@@ -1,66 +1,53 @@
-# Test all comparison operators
+// Test all comparison operators
 var x = 10
 var y = 20
 var z = 10
 
-# Equal
+// Equal
 if x == y {
-    exit(1)
-
+  exit(1)
 }
 if not (x == z) {
-    exit(1)
-
+  exit(1)
 }
-# Not equal
+// Not equal
 if not (x != y) {
-    exit(1)
-
+  exit(1)
 }
 if x != z {
-    exit(1)
-
+  exit(1)
 }
-# Less than
+// Less than
 if not (x < y) {
-    exit(1)
-
+  exit(1)
 }
 if x < z {
-    exit(1)
-
+  exit(1)
 }
-# Less than or equal
+// Less than or equal
 if not (x <= y) {
-    exit(1)
-
+  exit(1)
 }
 if not (x <= z) {
-    exit(1)
-
+  exit(1)
 }
 if y <= x {
-    exit(1)
-
+  exit(1)
 }
-# Greater than
+// Greater than
 if not (y > x) {
-    exit(1)
-
+  exit(1)
 }
 if x > z {
-    exit(1)
-
+  exit(1)
 }
-# Greater than or equal
+// Greater than or equal
 if not (y >= x) {
-    exit(1)
-
+  exit(1)
 }
 if not (x >= z) {
-    exit(1)
-
+  exit(1)
 }
 if x >= y {
-    exit(1)
+  exit(1)
 }

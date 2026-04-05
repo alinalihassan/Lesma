@@ -5,5 +5,5 @@ let intPtr: *int = &intValue
 let floatPtr: *float = &floatValue
 
 if intPtr == floatPtr {
-    let error = true
+  let error = true
 }

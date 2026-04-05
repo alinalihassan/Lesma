@@ -1,88 +1,86 @@
-# Extra generic inheritance coverage: multi-level chain, two type parameters, renamed type
-# parameter on the subclass, and a partially applied generic base (Mix<int, V>).
-
+// Extra generic inheritance coverage: multi-level chain, two type parameters, renamed type
+// parameter on the subclass, and a partially applied generic base (Mix<int, V>).
 class Root<T> {
-    var a: T
-    func new(v: T) {
-        self.a = v
+  var a: T
 
-    }
+  func new(v: T) {
+    self.a = v
+  }
 }
-class Mid<T>: Root<T> {
-    var b: T
-    func new(v: T, w: T) {
-        super.new(self, v)
-        self.b = w
 
-    }
+class Mid<T> : Root<T> {
+  var b: T
+
+  func new(v: T, w: T) {
+    super.new(self, v)
+    self.b = w
+  }
 }
-class Leaf<T>: Mid<T> {
-    func new(v: T, w: T) {
-        super.new(self, v, w)
 
-    }
+class Leaf<T> : Mid<T> {
+  func new(v: T, w: T) {
+    super.new(self, v, w)
+  }
 }
 var l = Leaf(1, 2)
 if l.a != 1 or l.b != 2 {
-    exit(1)
-
+  exit(1)
 }
 class PBase<T, U> {
-    var a: T
-    var b: U
-    func new(x: T, y: U) {
-        self.a = x
-        self.b = y
+  var a: T
+  var b: U
 
-    }
+  func new(x: T, y: U) {
+    self.a = x
+    self.b = y
+  }
 }
-class PChild<T, U>: PBase<T, U> {
-    var c: T
-    func new(x: T, y: U, z: T) {
-        super.new(self, x, y)
-        self.c = z
 
-    }
+class PChild<T, U> : PBase<T, U> {
+  var c: T
+
+  func new(x: T, y: U, z: T) {
+    super.new(self, x, y)
+    self.c = z
+  }
 }
 var p = PChild(1, 2.5, 3)
 if p.a != 1 or p.b != 2.5 or p.c != 3 {
-    exit(1)
-
+  exit(1)
 }
 class GBase<T> {
-    var x: T
-    func new(v: T) {
-        self.x = v
+  var x: T
 
-    }
+  func new(v: T) {
+    self.x = v
+  }
 }
-class GChild<U>: GBase<U> {
-    func new(v: U) {
-        super.new(self, v)
 
-    }
+class GChild<U> : GBase<U> {
+  func new(v: U) {
+    super.new(self, v)
+  }
 }
 var gc = GChild("hi")
 if gc.x != "hi" {
-    exit(1)
-
+  exit(1)
 }
 class Mix<T, U> {
-    var t: T
-    var u: U
-    func new(a: T, b: U) {
-        self.t = a
-        self.u = b
+  var t: T
+  var u: U
 
-    }
+  func new(a: T, b: U) {
+    self.t = a
+    self.u = b
+  }
 }
-class MixChild<V>: Mix<int, V> {
-    func new(a: int, b: V) {
-        super.new(self, a, b)
 
-    }
+class MixChild<V> : Mix<int, V> {
+  func new(a: int, b: V) {
+    super.new(self, a, b)
+  }
 }
 var m = MixChild(5, "x")
 if m.t != 5 or m.u != "x" {
-    exit(1)
+  exit(1)
 }

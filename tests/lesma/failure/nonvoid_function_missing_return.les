@@ -1,7 +1,6 @@
 func maybe(flag: bool) -> int {
-    if flag {
-        return 1
-
-    }
+  if flag {
+    return 1
+  }
 }
 maybe(true)

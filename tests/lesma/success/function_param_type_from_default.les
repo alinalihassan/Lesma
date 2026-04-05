@@ -1,11 +1,10 @@
-# Parameter type inferred from default when `: T` is omitted.
+// Parameter type inferred from default when `: T` is omitted.
 func twice(x = 21) -> int {
-	return x + x
-
+  return x + x
 }
 if twice() != 42 {
-	exit(1)
+  exit(1)
 }
 if twice(10) != 20 {
-	exit(1)
+  exit(1)
 }

@@ -1,0 +1,23 @@
+if true and true {
+  var ok = 1
+} else {
+  exit(1)
+}
+
+var sum = 0
+while sum < 3 {
+  sum += 1
+}
+
+if sum != 3 {
+  exit(1)
+}
+
+var total = 0
+for value in range(4) {
+  total += value
+}
+
+if total != 6 {
+  exit(1)
+}

@@ -1,4 +1,4 @@
-# str: comparison, concat, search, trim, subscript (mutable copy via strdup).
+// str: comparison, concat, search, trim, subscript (mutable copy via strdup).
 
 if str("a") + str("b") != "ab" {
     exit(1)
@@ -54,7 +54,7 @@ if str("ab")[0] != "a" {
 if str("ab")[1] != "b" {
     exit(16)
 }
-# Mutable subscript: str owns a strdup buffer (safe for in-place byte writes).
+// Mutable subscript: str owns a strdup buffer (safe for in-place byte writes).
 var mut = str("ab")
 mut[0] = "c"
 if mut != "cb" {
@@ -71,7 +71,7 @@ if str("a") != str("b") != true {
     exit(20)
 
 }
-# split / join
+// split / join
 var csv: list<str> = str("a,b,c").split(str(","))
 if csv.len() != 3 {
     exit(21)
@@ -103,7 +103,7 @@ if empty_csv[0] != "" {
     exit(28)
 
 }
-# substring
+// substring
 if str("abcdef").substring(2, 3) != "cde" {
     exit(29)
 }
@@ -117,7 +117,7 @@ if str("ab").substring(-5, 1) != "a" {
     exit(32)
 
 }
-# replace / repeat
+// replace / repeat
 if str("a.a.a").replace(str("."), str("_")) != "a_a_a" {
     exit(33)
 }
@@ -131,7 +131,7 @@ if str("x").repeat(0) != "" {
     exit(36)
 
 }
-# ASCII case
+// ASCII case
 if str("AbC").toLower() != "abc" {
     exit(37)
 }
@@ -139,7 +139,7 @@ if str("aBc").toUpper() != "ABC" {
     exit(38)
 
 }
-# pad / charAt
+// pad / charAt
 if str("7").padStart(4, str("0")) != "0007" {
     exit(39)
 }

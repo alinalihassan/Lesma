@@ -1,20 +1,18 @@
 class IntPtrBox {
-    var ptr: *int
+  var ptr: *int
 
-    func new(ptr: *int) {
-        self.ptr = ptr
-
-    }
+  func new(ptr: *int) {
+    self.ptr = ptr
+  }
 }
 var value = 101
 var box = IntPtrBox(&value)
 
 if box.ptr is not *int {
-    exit(1)
-
+  exit(1)
 }
 var other = 77
 box.ptr = &other
 if box.ptr is not *int {
-    exit(1)
+  exit(1)
 }

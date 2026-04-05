@@ -1,5 +1,5 @@
 func extern abs(x: int) -> int
 
 if abs(-1) != 1 {
-	exit(1)
+  exit(1)
 }

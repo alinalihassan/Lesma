@@ -1,11 +1,10 @@
 func keep_ptr<T>(value: *T) -> *T {
-    return value
-
+  return value
 }
 var number = 42
 var number_ptr = &number
 let same_ptr: *int = keep_ptr<int>(number_ptr)
 
 if same_ptr is not *int {
-    exit(1)
+  exit(1)
 }

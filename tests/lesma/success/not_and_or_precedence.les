@@ -1,21 +1,14 @@
-# `not` binds less tightly than `and` / `or`: `not a and b` means `(not a) and b`.
+// `not` binds less tightly than `and` / `or`: `not a and b` means `(not a) and b`.
 if not false and false {
-    exit(1)
-
+  exit(1)
 }
 if not (false and false) {
-    var ok = 1
-
-}
-else {
-    exit(1)
-
+  var ok = 1
+} else {
+  exit(1)
 }
 if not true or true {
-    var ok = 1
-
-}
-else {
-    exit(1)
-
+  var ok = 1
+} else {
+  exit(1)
 }

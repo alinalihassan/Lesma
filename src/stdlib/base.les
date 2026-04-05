@@ -1,691 +1,750 @@
 func extern printf(fmt: cstr, ...)
+
 func extern scanf(fmt: cstr, ...) -> int
+
 export func extern calloc(count: int, size: int) -> *int8
+
 func extern malloc(size: int) -> *int8
+
 func extern free(ptr: cstr)
+
 func extern strlen(s: cstr) -> int
+
 func extern atoll(s: cstr) -> int
+
 func extern strtod(s: cstr) -> float
+
 func extern rand() -> int
+
 func extern srand(seed: int)
-# C `time(NULL)`; pass 0.
+
+// C `time(NULL)`; pass 0.
 func extern time(timer: int) -> int
+
 func extern strcmp(a: cstr, b: cstr) -> int
+
 func extern strncmp(a: cstr, b: cstr, n: int) -> int
+
 func extern strdup(s: cstr) -> cstr
+
 func extern fopen(path: cstr, mode: cstr) -> *int8
+
 func extern fclose(stream: *int8) -> int
+
 func extern fread(dest: cstr, size: int, count: int, stream: *int8) -> int
+
 func extern fseek(stream: *int8, offset: int, whence: int) -> int
+
 func extern ftell(stream: *int8) -> int
+
 func extern fwrite(src: cstr, size: int, count: int, stream: *int8) -> int
+
 func extern remove(path: cstr) -> int
 
-# ASCII whitespace only (TAB, LF, VT, FF, CR, SPACE). uint8 avoids signed-byte pitfalls with UTF-8.
+// ASCII whitespace only (TAB, LF, VT, FF, CR, SPACE). uint8 avoids signed-byte pitfalls with UTF-8.
 func __str_byte_is_ascii_whitespace(b: uint8) -> bool {
-    return b == 9 as uint8 or b == 10 as uint8 or b == 11 as uint8 or b == 12 as uint8 or b == 13 as uint8 or b == 32 as uint8
-
+  return b == 9 as uint8 or b == 10 as uint8 or b == 11 as uint8 or b == 12 as uint8
+    or b == 13 as uint8
+    or b == 32 as uint8
 }
+
+/**
+ * Iterates a sequence one value at a time.
+ *
+ * @returns true from has_next() while a value can still be read.
+ */
 export trait Iterator<T> {
-    func has_next() -> bool
-    func next() -> T
-
+  func has_next() -> bool
+  func next() -> T
 }
+
+/**
+ * Produces a fresh iterator for a collection or sequence.
+ */
 export trait Iterable<T> {
-    func iter() -> Iterator<T>
-
+  func iter() -> Iterator<T>
 }
-# Integer sequence for `for i in range(...)`. Stop is exclusive. `range(n)` is `range(1, n)`.
-# Step may be negative; step 0 yields no values (Python raises on zero step).
+
+// Integer sequence for `for i in range(...)`. Stop is exclusive. `range(n)` is `range(1, n)`.
+// Step may be negative; step 0 yields no values (Python raises on zero step).
 class range_iter impl Iterator<int> {
-    var current: int
-    var stop: int
-    var step: int
+  var current: int
+  var stop: int
+  var step: int
 
-    func new(start: int, stop: int, step: int) {
-        self.current = start
-        self.stop = stop
-        self.step = step
-
+  func new(start: int, stop: int, step: int) {
+    self.current = start
+    self.stop = stop
+    self.step = step
+  }
+  func has_next() -> bool {
+    if self.step > 0 {
+      return self.current < self.stop
     }
-    func has_next() -> bool {
-        if self.step > 0 {
-            return self.current < self.stop
-        }
-        if self.step < 0 {
-            return self.current > self.stop
-        }
-        return false
-
+    if self.step < 0 {
+      return self.current > self.stop
     }
-    func next() -> int {
-        let v = self.current
-        self.current = self.current + self.step
-        return v
-
-    }
+    return false
+  }
+  func next() -> int {
+    let v = self.current
+    self.current = self.current + self.step
+    return v
+  }
 }
+
 class range_values impl Iterable<int> {
-    var start: int
-    var stop: int
-    var step: int
+  var start: int
+  var stop: int
+  var step: int
 
-    func new(start: int, stop: int, step: int) {
-        self.start = start
-        self.stop = stop
-        self.step = step
-
-    }
-    func iter() -> range_iter {
-        return range_iter(self.start, self.stop, self.step)
-
-    }
+  func new(start: int, stop: int, step: int) {
+    self.start = start
+    self.stop = stop
+    self.step = step
+  }
+  func iter() -> range_iter {
+    return range_iter(self.start, self.stop, self.step)
+  }
 }
+
+/**
+ * Builds an integer range from 1 up to, but not including, stop.
+ *
+ * @param stop Exclusive upper bound.
+ * @returns An iterable range of integers.
+ */
 export func range(stop: int) -> range_values {
-    return range_values(1, stop, 1)
-
+  return range_values(1, stop, 1)
 }
+
+/**
+ * Builds an integer range from start up to, but not including, stop.
+ *
+ * @param start Inclusive lower bound.
+ * @param stop Exclusive upper bound.
+ * @returns An iterable range of integers.
+ */
 export func range(start: int, stop: int) -> range_values {
-    return range_values(start, stop, 1)
-
+  return range_values(start, stop, 1)
 }
+
+/**
+ * Builds an integer range with an explicit step.
+ *
+ * @param start Inclusive lower bound.
+ * @param stop Exclusive upper bound.
+ * @param step Increment between values. Negative steps count down.
+ * @returns An iterable range of integers.
+ */
 export func range(start: int, stop: int, step: int) -> range_values {
-    return range_values(start, stop, step)
-
+  return range_values(start, stop, step)
 }
+
+/**
+ * Iterator implementation returned by list.iter().
+ */
 export class list_iter<T> impl Iterator<T> {
-    var storage: __buffer<T>
-    private var scan: int = 0
+  var storage: __buffer<T>
+  private var scan: int = 0
 
-    func new(buf: __buffer<T>) {
-        self.storage = buf
-
-    }
-    func has_next() -> bool {
-        return self.scan < __buffer_len(self.storage)
-
-    }
-    func next() -> T {
-        var v = __buffer_get(self.storage, self.scan)
-        self.scan += 1
-        return v
-
-    }
+  func new(buf: __buffer<T>) {
+    self.storage = buf
+  }
+  func has_next() -> bool {
+    return self.scan < __buffer_len(self.storage)
+  }
+  func next() -> T {
+    var v = __buffer_get(self.storage, self.scan)
+    self.scan += 1
+    return v
+  }
 }
+
+/**
+ * Growable ordered collection backed by the stdlib buffer runtime.
+ */
 export class list<T> impl Iterable<T> {
-    var storage: __buffer<T>
+  var storage: __buffer<T>
 
-    func new() {
-        self.storage = __buffer_new<T>()
-
+  func new() {
+    self.storage = __buffer_new<T>()
+  }
+  func new(initial: __buffer<T>) {
+    self.storage = initial
+  }
+  func iter() -> list_iter<T> {
+    return list_iter<T>(self.storage)
+  }
+  func len() -> int {
+    return __buffer_len(self.storage)
+  }
+  func push(value: T) {
+    __buffer_push(self.storage, value)
+  }
+  func pop() -> T {
+    return __buffer_pop(self.storage)
+  }
+  func clear() {
+    __buffer_clear(self.storage)
+  }
+  func copy() -> list<T> {
+    return list<T>(__buffer_copy(self.storage))
+  }
+  func operator [](index: int) -> T {
+    return __buffer_get(self.storage, index)
+  }
+  func operator []=(index: int, value: T) {
+    __buffer_set(self.storage, index, value)
+  }
+  func map<U>(f: func(T) -> U) -> list<U> {
+    var out: list<U> = []
+    var i: int = 0
+    let n = self.len()
+    while i < n {
+      __buffer_push(out.storage, f(self[i]))
+      i += 1
     }
-    func new(initial: __buffer<T>) {
-        self.storage = initial
-
+    return out
+  }
+  func filter(pred: func(T) -> bool) -> list<T> {
+    var out: list<T> = []
+    var i: int = 0
+    let n = self.len()
+    while i < n {
+      if pred(self[i]) {
+        __buffer_push(out.storage, self[i])
+      }
+      i += 1
     }
-    func iter() -> list_iter<T> {
-        return list_iter<T>(self.storage)
-
+    return out
+  }
+  func reduce<U>(f: func(U, T) -> U, init: U) -> U {
+    var acc: U = init
+    var i: int = 0
+    let n = self.len()
+    while i < n {
+      acc = f(acc, self[i])
+      i += 1
     }
-    func len() -> int {
-        return __buffer_len(self.storage)
-
-    }
-    func push(value: T) {
-        __buffer_push(self.storage, value)
-
-    }
-    func pop() -> T {
-        return __buffer_pop(self.storage)
-
-    }
-    func clear() {
-        __buffer_clear(self.storage)
-
-    }
-    func copy() -> list<T> {
-        return list<T>(__buffer_copy(self.storage))
-
-    }
-    func operator [](index: int) -> T {
-        return __buffer_get(self.storage, index)
-
-    }
-    func operator []=(index: int, value: T) {
-        __buffer_set(self.storage, index, value)
-
-    }
-    func map<U>(f: func(T) -> U) -> list<U> {
-        var out: list<U> = []
-        var i: int = 0
-        let n = self.len()
-        while i < n {
-            __buffer_push(out.storage, f(self[i]))
-            i += 1
-        }
-        return out
-
-    }
-    func filter(pred: func(T) -> bool) -> list<T> {
-        var out: list<T> = []
-        var i: int = 0
-        let n = self.len()
-        while i < n {
-            if pred(self[i]) {
-                __buffer_push(out.storage, self[i])
-            }
-            i += 1
-        }
-        return out
-
-    }
-    func reduce<U>(f: func(U, T) -> U, init: U) -> U {
-        var acc: U = init
-        var i: int = 0
-        let n = self.len()
-        while i < n {
-            acc = f(acc, self[i])
-            i += 1
-        }
-        return acc
-
-    }
+    return acc
+  }
 }
-# Parallel key/value buffers; lookup is linear. Field order keys then vals matches dict literal codegen.
+
+// Parallel key/value buffers; lookup is linear. Field order keys then vals matches dict literal codegen.
+/**
+ * Associative container backed by parallel key and value buffers.
+ */
 export class dict<K, V> {
-    var keys: __buffer<K>
-    var vals: __buffer<V>
+  var keys: __buffer<K>
+  var vals: __buffer<V>
 
-    func new() {
-        self.keys = __buffer_new<K>()
-        self.vals = __buffer_new<V>()
-
+  func new() {
+    self.keys = __buffer_new<K>()
+    self.vals = __buffer_new<V>()
+  }
+  func len() -> int {
+    return __buffer_len(self.keys)
+  }
+  func has(key: K) -> bool {
+    var i: int = 0
+    let n = self.len()
+    while i < n {
+      if __buffer_get(self.keys, i) == key {
+        return true
+      }
+      i += 1
     }
-    func len() -> int {
-        return __buffer_len(self.keys)
-
+    return false
+  }
+  func get(key: K) -> V {
+    var i: int = 0
+    let n = self.len()
+    while i < n {
+      if __buffer_get(self.keys, i) == key {
+        return __buffer_get(self.vals, i)
+      }
+      i += 1
     }
-    func has(key: K) -> bool {
-        var i: int = 0
-        let n = self.len()
-        while i < n {
-            if __buffer_get(self.keys, i) == key {
-                return true
-            }
-            i += 1
-        }
-        return false
-
+    exit(1)
+    return __buffer_get(self.vals, 0)
+  }
+  func set(key: K, value: V) {
+    var i: int = 0
+    let n = self.len()
+    while i < n {
+      if __buffer_get(self.keys, i) == key {
+        __buffer_set(self.vals, i, value)
+        return
+      }
+      i += 1
     }
-    func get(key: K) -> V {
-        var i: int = 0
-        let n = self.len()
-        while i < n {
-            if __buffer_get(self.keys, i) == key {
-                return __buffer_get(self.vals, i)
-            }
-            i += 1
-        }
-        exit(1)
-        return __buffer_get(self.vals, 0)
-
-    }
-    func set(key: K, value: V) {
-        var i: int = 0
-        let n = self.len()
-        while i < n {
-            if __buffer_get(self.keys, i) == key {
-                __buffer_set(self.vals, i, value)
-                return
-            }
-            i += 1
-        }
-        __buffer_push(self.keys, key)
-        __buffer_push(self.vals, value)
-
-    }
-    func operator [](key: K) -> V {
-        return self.get(key)
-
-    }
-    func operator []=(key: K, value: V) {
-        self.set(key, value)
-
-    }
+    __buffer_push(self.keys, key)
+    __buffer_push(self.vals, value)
+  }
+  func operator [](key: K) -> V {
+    return self.get(key)
+  }
+  func operator []=(key: K, value: V) {
+    self.set(key, value)
+  }
 }
+
+/**
+ * Iterates the raw UTF-8 bytes of a string.
+ */
 export class str_iter impl Iterator<uint8> {
-    var storage: cstr
-    private var scan: int = 0
-    private var byte_len: int = 0
+  var storage: cstr
+  private var scan: int = 0
+  private var byte_len: int = 0
 
-    func new(s: cstr) {
-        self.storage = s
-        self.byte_len = strlen(self.storage)
-
-    }
-    func has_next() -> bool {
-        return self.scan < self.byte_len
-
-    }
-    func next() -> uint8 {
-        var v = __cstr_byte_at(self.storage, self.scan)
-        self.scan += 1
-        return v
-
-    }
+  func new(s: cstr) {
+    self.storage = s
+    self.byte_len = strlen(self.storage)
+  }
+  func has_next() -> bool {
+    return self.scan < self.byte_len
+  }
+  func next() -> uint8 {
+    var v = __cstr_byte_at(self.storage, self.scan)
+    self.scan += 1
+    return v
+  }
 }
+
+/**
+ * Owned UTF-8 string with common slicing, searching, and formatting helpers.
+ */
 export class str impl Iterable<uint8> {
-    var storage: cstr
+  var storage: cstr
 
-    # Own a writable NUL-terminated copy; never retain arbitrary cstr (literals, borrowed buffers).
-    func new(s: cstr) {
-        self.storage = strdup(s)
-
+  // Own a writable NUL-terminated copy; never retain arbitrary cstr (literals, borrowed buffers).
+  func new(s: cstr) {
+    self.storage = strdup(s)
+  }
+  func cstr() -> cstr {
+    return self.storage
+  }
+  func len() -> int {
+    return strlen(self.storage)
+  }
+  func isEmpty() -> bool {
+    return self.len() == 0
+  }
+  func operator [](index: int) -> str {
+    return str(__str_slice(self.storage, index, 1))
+  }
+  func operator []=(index: int, value: str) {
+    if value.len() == 0 {
+      return
     }
-    func cstr() -> cstr {
-        return self.storage
-
+    __cstr_byte_set(self.storage, index, __cstr_byte_at(value.storage, 0))
+  }
+  func operator +(rhs: str) -> str {
+    return str(__str_concat(self.storage, rhs.storage))
+  }
+  func startsWith(prefix: str) -> bool {
+    let n = self.len()
+    let m = prefix.len()
+    if m > n {
+      return false
     }
-    func len() -> int {
-        return strlen(self.storage)
-
+    return strncmp(self.storage, prefix.storage, m) == 0
+  }
+  func endsWith(suffix: str) -> bool {
+    let n = self.len()
+    let m = suffix.len()
+    if m > n {
+      return false
     }
-    func isEmpty() -> bool {
-        return self.len() == 0
-
+    return strcmp(__cstr_offset(self.storage, n - m), suffix.storage) == 0
+  }
+  func contains(sub: str) -> bool {
+    return self.indexOf(sub) >= 0
+  }
+  func indexOf(needle: str) -> int {
+    return __cstr_index_of(self.storage, needle.storage)
+  }
+  func trimStart() -> str {
+    var i: int = 0
+    let n: int = self.len()
+    while i < n {
+      if not __str_byte_is_ascii_whitespace(__cstr_byte_at(self.storage, i)) {
+        break
+      }
+      i += 1
     }
-    func operator [](index: int) -> str {
-        return str(__str_slice(self.storage, index, 1))
-
+    return str(__str_slice(self.storage, i, n - i))
+  }
+  func trimEnd() -> str {
+    let n: int = self.len()
+    if n == 0 {
+      return str(__str_slice(self.storage, 0, 0))
     }
-    func operator []=(index: int, value: str) {
-        if value.len() == 0 {
-            return
-        }
-        __cstr_byte_set(self.storage, index, __cstr_byte_at(value.storage, 0))
-
+    var j: int = n - 1
+    while j >= 0 {
+      if not __str_byte_is_ascii_whitespace(__cstr_byte_at(self.storage, j)) {
+        break
+      }
+      j -= 1
     }
-    func operator +(rhs: str) -> str {
-        return str(__str_concat(self.storage, rhs.storage))
-
+    return str(__str_slice(self.storage, 0, j + 1))
+  }
+  func trim() -> str {
+    return self.trimStart().trimEnd()
+  }
+  // One code unit at index (same as self[index]; slice form matches operator []).
+  func charAt(index: int) -> str {
+    return str(__str_slice(self.storage, index, 1))
+  }
+  // start is clamped (negative -> 0); len <= 0 yields "". If start >= len(), yields "".
+  func substring(start: int, len: int) -> str {
+    let n: int = self.len()
+    var s: int = start
+    if s < 0 {
+      s = 0
     }
-    func startsWith(prefix: str) -> bool {
-        let n = self.len()
-        let m = prefix.len()
-        if m > n {
-            return false
-        }
-        return strncmp(self.storage, prefix.storage, m) == 0
-
+    if s >= n {
+      return str(__str_slice(self.storage, 0, 0))
     }
-    func endsWith(suffix: str) -> bool {
-        let n = self.len()
-        let m = suffix.len()
-        if m > n {
-            return false
-        }
-        return strcmp(__cstr_offset(self.storage, n - m), suffix.storage) == 0
-
+    if len <= 0 {
+      return str(__str_slice(self.storage, 0, 0))
     }
-    func contains(sub: str) -> bool {
-        return self.indexOf(sub) >= 0
-
+    var take: int = len
+    if s + take > n {
+      take = n - s
     }
-    func indexOf(needle: str) -> int {
-        return __cstr_index_of(self.storage, needle.storage)
-
+    return str(__str_slice(self.storage, s, take))
+  }
+  // Empty separator: one str per code unit. Otherwise splits on each non-overlapping occurrence.
+  func split(sep: str) -> list<str> {
+    var parts: list<str> = list<str>()
+    let n: int = self.len()
+    let m: int = sep.len()
+    if m == 0 {
+      var k: int = 0
+      while k < n {
+        parts.push(str(__str_slice(self.storage, k, 1)))
+        k += 1
+      }
+      return parts
     }
-    func trimStart() -> str {
-        var i: int = 0
-        let n: int = self.len()
-        while i < n {
-            if not __str_byte_is_ascii_whitespace(__cstr_byte_at(self.storage, i)) {
-                break
-            }
-            i += 1
-        }
-        return str(__str_slice(self.storage, i, n - i))
-
+    var start: int = 0
+    while start <= n {
+      let rel: int = __cstr_index_of(__cstr_offset(self.storage, start), sep.storage)
+      if rel < 0 {
+        parts.push(str(__str_slice(self.storage, start, n - start)))
+        break
+      }
+      let hit: int = start + rel
+      parts.push(str(__str_slice(self.storage, start, hit - start)))
+      start = hit + m
     }
-    func trimEnd() -> str {
-        let n: int = self.len()
-        if n == 0 {
-            return str(__str_slice(self.storage, 0, 0))
-        }
-        var j: int = n - 1
-        while j >= 0 {
-            if not __str_byte_is_ascii_whitespace(__cstr_byte_at(self.storage, j)) {
-                break
-            }
-            j -= 1
-        }
-        return str(__str_slice(self.storage, 0, j + 1))
-
+    return parts
+  }
+  // Separator is self (e.g. ",".join(parts)). Empty list -> "".
+  func join(parts: list<str>) -> str {
+    let pl: int = parts.len()
+    if pl == 0 {
+      return str(__str_slice(self.storage, 0, 0))
     }
-    func trim() -> str {
-        return self.trimStart().trimEnd()
-
+    var out: str = parts[0]
+    var j: int = 1
+    while j < pl {
+      out = out + self + parts[j]
+      j += 1
     }
-    # One code unit at index (same as self[index]; slice form matches operator []).
-    func charAt(index: int) -> str {
-        return str(__str_slice(self.storage, index, 1))
-
+    return out
+  }
+  // n <= 0 -> "". Concatenates n copies of self.
+  func repeat(n: int) -> str {
+    if n <= 0 {
+      return str(__str_slice(self.storage, 0, 0))
     }
-    # start is clamped (negative -> 0); len <= 0 yields "". If start >= len(), yields "".
-    func substring(start: int, len: int) -> str {
-        let n: int = self.len()
-        var s: int = start
-        if s < 0 {
-            s = 0
-        }
-        if s >= n {
-            return str(__str_slice(self.storage, 0, 0))
-        }
-        if len <= 0 {
-            return str(__str_slice(self.storage, 0, 0))
-        }
-        var take: int = len
-        if s + take > n {
-            take = n - s
-        }
-        return str(__str_slice(self.storage, s, take))
-
+    var out: str = str(__str_slice(self.storage, 0, 0))
+    var i: int = 0
+    while i < n {
+      out = out + self
+      i += 1
     }
-    # Empty separator: one str per code unit. Otherwise splits on each non-overlapping occurrence.
-    func split(sep: str) -> list<str> {
-        var parts: list<str> = list<str>()
-        let n: int = self.len()
-        let m: int = sep.len()
-        if m == 0 {
-            var k: int = 0
-            while k < n {
-                parts.push(str(__str_slice(self.storage, k, 1)))
-                k += 1
-            }
-            return parts
-        }
-        var start: int = 0
-        while start <= n {
-            let rel: int = __cstr_index_of(__cstr_offset(self.storage, start), sep.storage)
-            if rel < 0 {
-                parts.push(str(__str_slice(self.storage, start, n - start)))
-                break
-            }
-            let hit: int = start + rel
-            parts.push(str(__str_slice(self.storage, start, hit - start)))
-            start = hit + m
-        }
-        return parts
-
+    return out
+  }
+  // Empty needle: unchanged self. Otherwise replaces every non-overlapping occurrence.
+  func replace(needle: str, replacement: str) -> str {
+    let m: int = needle.len()
+    if m == 0 {
+      return self
     }
-    # Separator is self (e.g. ",".join(parts)). Empty list -> "".
-    func join(parts: list<str>) -> str {
-        let pl: int = parts.len()
-        if pl == 0 {
-            return str(__str_slice(self.storage, 0, 0))
-        }
-        var out: str = parts[0]
-        var j: int = 1
-        while j < pl {
-            out = out + self + parts[j]
-            j += 1
-        }
-        return out
-
+    var out: str = str(__str_slice(self.storage, 0, 0))
+    var start: int = 0
+    let n: int = self.len()
+    while start <= n {
+      let rel: int = __cstr_index_of(__cstr_offset(self.storage, start), needle.storage)
+      if rel < 0 {
+        out = out + str(__str_slice(self.storage, start, n - start))
+        break
+      }
+      let hit: int = start + rel
+      out = out + str(__str_slice(self.storage, start, hit - start)) + replacement
+      start = hit + m
     }
-    # n <= 0 -> "". Concatenates n copies of self.
-    func repeat(n: int) -> str {
-        if n <= 0 {
-            return str(__str_slice(self.storage, 0, 0))
-        }
-        var out: str = str(__str_slice(self.storage, 0, 0))
-        var i: int = 0
-        while i < n {
-            out = out + self
-            i += 1
-        }
-        return out
-
+    return out
+  }
+  // ASCII A–Z / a–z only; other bytes unchanged (not full Unicode case mapping).
+  func toLower() -> str {
+    let n: int = self.len()
+    if n == 0 {
+      return str(__str_slice(self.storage, 0, 0))
     }
-    # Empty needle: unchanged self. Otherwise replaces every non-overlapping occurrence.
-    func replace(needle: str, replacement: str) -> str {
-        let m: int = needle.len()
-        if m == 0 {
-            return self
-        }
-        var out: str = str(__str_slice(self.storage, 0, 0))
-        var start: int = 0
-        let n: int = self.len()
-        while start <= n {
-            let rel: int = __cstr_index_of(__cstr_offset(self.storage, start), needle.storage)
-            if rel < 0 {
-                out = out + str(__str_slice(self.storage, start, n - start))
-                break
-            }
-            let hit: int = start + rel
-            out = out + str(__str_slice(self.storage, start, hit - start)) + replacement
-            start = hit + m
-        }
-        return out
-
+    var buf: cstr = calloc(n + 1, 1) as cstr
+    var i: int = 0
+    while i < n {
+      var b: uint8 = __cstr_byte_at(self.storage, i)
+      if b >= 65 as uint8 and b <= 90 as uint8 {
+        b = b + 32 as uint8
+      }
+      __cstr_byte_set(buf, i, b)
+      i += 1
     }
-    # ASCII A–Z / a–z only; other bytes unchanged (not full Unicode case mapping).
-    func toLower() -> str {
-        let n: int = self.len()
-        if n == 0 {
-            return str(__str_slice(self.storage, 0, 0))
-        }
-        var buf: cstr = calloc(n + 1, 1) as cstr
-        var i: int = 0
-        while i < n {
-            var b: uint8 = __cstr_byte_at(self.storage, i)
-            if b >= 65 as uint8 and b <= 90 as uint8 {
-                b = b + 32 as uint8
-            }
-            __cstr_byte_set(buf, i, b)
-            i += 1
-        }
-        let out: str = str(buf)
-        free(buf)
-        return out
-
+    let out: str = str(buf)
+    free(buf)
+    return out
+  }
+  func toUpper() -> str {
+    let n: int = self.len()
+    if n == 0 {
+      return str(__str_slice(self.storage, 0, 0))
     }
-    func toUpper() -> str {
-        let n: int = self.len()
-        if n == 0 {
-            return str(__str_slice(self.storage, 0, 0))
-        }
-        var buf: cstr = calloc(n + 1, 1) as cstr
-        var i: int = 0
-        while i < n {
-            var b: uint8 = __cstr_byte_at(self.storage, i)
-            if b >= 97 as uint8 and b <= 122 as uint8 {
-                b = b - 32 as uint8
-            }
-            __cstr_byte_set(buf, i, b)
-            i += 1
-        }
-        let out: str = str(buf)
-        free(buf)
-        return out
-
+    var buf: cstr = calloc(n + 1, 1) as cstr
+    var i: int = 0
+    while i < n {
+      var b: uint8 = __cstr_byte_at(self.storage, i)
+      if b >= 97 as uint8 and b <= 122 as uint8 {
+        b = b - 32 as uint8
+      }
+      __cstr_byte_set(buf, i, b)
+      i += 1
     }
-    # pad must be non-empty; uses its first code unit repeated. width is target byte length.
-    func padStart(width: int, pad: str) -> str {
-        if pad.len() == 0 {
-            return self
-        }
-        let n: int = self.len()
-        if width <= n {
-            return self
-        }
-        let unit: str = str(__str_slice(pad.storage, 0, 1))
-        let need: int = width - n
-        return unit.repeat(need) + self
-
+    let out: str = str(buf)
+    free(buf)
+    return out
+  }
+  // pad must be non-empty; uses its first code unit repeated. width is target byte length.
+  func padStart(width: int, pad: str) -> str {
+    if pad.len() == 0 {
+      return self
     }
-    func padEnd(width: int, pad: str) -> str {
-        if pad.len() == 0 {
-            return self
-        }
-        let n: int = self.len()
-        if width <= n {
-            return self
-        }
-        let unit: str = str(__str_slice(pad.storage, 0, 1))
-        let need: int = width - n
-        return self + unit.repeat(need)
-
+    let n: int = self.len()
+    if width <= n {
+      return self
     }
-    func operator ==(rhs: str) -> bool {
-        return strcmp(self.storage, rhs.storage) == 0
-
+    let unit: str = str(__str_slice(pad.storage, 0, 1))
+    let need: int = width - n
+    return unit.repeat(need) + self
+  }
+  func padEnd(width: int, pad: str) -> str {
+    if pad.len() == 0 {
+      return self
     }
-    func operator !=(rhs: str) -> bool {
-        return strcmp(self.storage, rhs.storage) != 0
-
+    let n: int = self.len()
+    if width <= n {
+      return self
     }
-    func toInt() -> int {
-        return atoll(self.storage)
-
-    }
-    func toFloat() -> float {
-        return strtod(self.storage)
-
-    }
-    func iter() -> str_iter {
-        return str_iter(self.storage)
-
-    }
+    let unit: str = str(__str_slice(pad.storage, 0, 1))
+    let need: int = width - n
+    return self + unit.repeat(need)
+  }
+  func operator ==(rhs: str) -> bool {
+    return strcmp(self.storage, rhs.storage) == 0
+  }
+  func operator !=(rhs: str) -> bool {
+    return strcmp(self.storage, rhs.storage) != 0
+  }
+  func toInt() -> int {
+    return atoll(self.storage)
+  }
+  func toFloat() -> float {
+    return strtod(self.storage)
+  }
+  func iter() -> str_iter {
+    return str_iter(self.storage)
+  }
 }
-# Read path as UTF-8 bytes (no BOM handling). text() returns "" on open/read errors.
+
+// Read path as UTF-8 bytes (no BOM handling). text() returns "" on open/read errors.
+/**
+ * File handle wrapper for reading, writing, and deleting files.
+ */
 export class file {
-    var storage: cstr
+  var storage: cstr
 
-    func new(path: cstr) {
-        self.storage = strdup(path)
-
+  func new(path: cstr) {
+    self.storage = strdup(path)
+  }
+  func text() -> str {
+    var fp: *int8 = fopen(self.storage, "rb")
+    if fp == 0 {
+      return str(__str_slice(self.storage, 0, 0))
     }
-    func text() -> str {
-        var fp: *int8 = fopen(self.storage, "rb")
-        if fp == 0 {
-            return str(__str_slice(self.storage, 0, 0))
-        }
-        if fseek(fp, 0, 2) != 0 {
-            fclose(fp)
-            return str(__str_slice(self.storage, 0, 0))
-        }
-        var n: int = ftell(fp)
-        if n < 0 {
-            fclose(fp)
-            return str(__str_slice(self.storage, 0, 0))
-        }
-        if fseek(fp, 0, 0) != 0 {
-            fclose(fp)
-            return str(__str_slice(self.storage, 0, 0))
-        }
-        var buf: cstr = calloc(n + 1, 1) as cstr
-        var got: int = fread(buf, 1, n, fp)
-        fclose(fp)
-        if got != n {
-            free(buf)
-            return str(__str_slice(self.storage, 0, 0))
-        }
-        let result: str = str(buf)
-        free(buf)
-        return result
-
+    if fseek(fp, 0, 2) != 0 {
+      fclose(fp)
+      return str(__str_slice(self.storage, 0, 0))
     }
-    static func write(path: cstr, data: str) {
-        var fp: *int8 = fopen(path, "wb")
-        if fp == 0 {
-            return
-        }
-        let n: int = data.len()
-        if n > 0 {
-            fwrite(data.cstr(), 1, n, fp)
-        }
-        fclose(fp)
-
+    var n: int = ftell(fp)
+    if n < 0 {
+      fclose(fp)
+      return str(__str_slice(self.storage, 0, 0))
     }
-    static func write(path: cstr, src: file) {
-        file.write(path, src.text())
-
+    if fseek(fp, 0, 0) != 0 {
+      fclose(fp)
+      return str(__str_slice(self.storage, 0, 0))
     }
-    func delete() {
-        remove(self.storage)
-
+    var buf: cstr = calloc(n + 1, 1) as cstr
+    var got: int = fread(buf, 1, n, fp)
+    fclose(fp)
+    if got != n {
+      free(buf)
+      return str(__str_slice(self.storage, 0, 0))
     }
+    let result: str = str(buf)
+    free(buf)
+    return result
+  }
+  static func write(path: cstr, data: str) {
+    var fp: *int8 = fopen(path, "wb")
+    if fp == 0 {
+      return
+    }
+    let n: int = data.len()
+    if n > 0 {
+      fwrite(data.cstr(), 1, n, fp)
+    }
+    fclose(fp)
+  }
+  static func write(path: cstr, src: file) {
+    file.write(path, src.text())
+  }
+  func delete() {
+    remove(self.storage)
+  }
 }
+
+/**
+ * Terminates the current program with the given exit code.
+ *
+ * @param code Process exit status.
+ */
 export func extern exit(code: int)
 
+/**
+ * Reads a line from standard input with no prompt.
+ *
+ * @returns The entered text without the trailing newline.
+ */
 export func input() -> str {
-    return input("")
-
+  return input("")
 }
+
+/**
+ * Reads a line from standard input after printing a prompt.
+ *
+ * @param prompt Prompt text written before reading.
+ * @returns The entered text without the trailing newline.
+ */
 export func input(prompt: str) -> str {
-    if strlen(prompt.cstr()) > 0 {
-        printf("%s", prompt.cstr())
+  if strlen(prompt.cstr()) > 0 {
+    printf("%s", prompt.cstr())
+  }
+  var line: cstr = calloc(4096, 1) as cstr
+  var ignored: cstr = calloc(2, 1) as cstr
+  let read: int = scanf("%4095[^\n]", line)
 
-    }
-    var line: cstr = calloc(4096, 1) as cstr
-    var ignored: cstr = calloc(2, 1) as cstr
-    let read: int = scanf("%4095[^\n]", line)
-
-    if read == 0 {
-        scanf("%1c", ignored)
-
-    }
-    if read > 0 {
-        scanf("%1c", ignored)
-
-    }
-    let result: str = str(line)
-    free(line)
-    free(ignored)
-    return result
-
+  if read == 0 {
+    scanf("%1c", ignored)
+  }
+  if read > 0 {
+    scanf("%1c", ignored)
+  }
+  let result: str = str(line)
+  free(line)
+  free(ignored)
+  return result
 }
-# Inclusive integer in either order (min/max need not match argument order).
+
+// Inclusive integer in either order (min/max need not match argument order).
+/**
+ * Returns a pseudorandom integer between the two bounds, inclusive.
+ *
+ * @param bound1 One end of the range.
+ * @param bound2 The other end of the range.
+ * @returns A value in the inclusive range [min(bound1, bound2), max(bound1, bound2)].
+ */
 export func random(bound1: int, bound2: int) -> int {
-    srand(time(0))
+  srand(time(0))
 
-    if bound1 == bound2 {
-        return bound1
-
-    }
-    if bound1 < bound2 {
-        return bound1 + rand() % (bound2 - bound1 + 1)
-
-    }
-    return bound2 + rand() % (bound1 - bound2 + 1)
-
+  if bound1 == bound2 {
+    return bound1
+  }
+  if bound1 < bound2 {
+    return bound1 + rand() % (bound2 - bound1 + 1)
+  }
+  return bound2 + rand() % (bound1 - bound2 + 1)
 }
+
+/**
+ * Prints a string followed by a newline.
+ *
+ * @param text String value to print.
+ */
 export func print(text: str) {
-    printf("%s\n", text.cstr())
-
+  printf("%s\n", text.cstr())
 }
+
+/**
+ * Prints an integer followed by a newline.
+ *
+ * @param num Integer value to print.
+ */
 export func print(num: int) {
-    printf("%lld\n", num)
-
+  printf("%lld\n", num)
 }
+
+/**
+ * Prints an int8 as a character followed by a newline.
+ *
+ * @param char Character byte to print.
+ */
 export func print(char: int8) {
-    printf("%c\n", char)
-
+  printf("%c\n", char)
 }
+
+/**
+ * Prints a uint8 as a character followed by a newline.
+ *
+ * @param char Character byte to print.
+ */
 export func print(char: uint8) {
-    printf("%c\n", char)
-
+  printf("%c\n", char)
 }
+
+/**
+ * Prints a floating-point number followed by a newline.
+ *
+ * @param num Floating-point value to print.
+ */
 export func print(num: float) {
-    printf("%g\n", num)
-
+  printf("%g\n", num)
 }
+
+/**
+ * Prints the boolean value as "true" or "false".
+ *
+ * @param value The boolean value to print.
+ */
 export func print(value: bool) {
-    if value {
-        print("true")
-    }
-    else {
-        print("false")
-    }
+  if value {
+    print("true")
+  } else {
+    print("false")
+  }
 }

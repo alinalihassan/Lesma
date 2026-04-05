@@ -289,7 +289,8 @@ auto Codegen::compileModule(llvm::SMRange span, const std::string& filepath, boo
     lexer->scanAll();
 
     // Parser
-    auto parser = std::make_unique<Parser>(lexer->getTokens());
+    auto parser =
+        std::make_unique<Parser>(lexer->getTokens(), nullptr, sourceManager, fileId, canonicalPath);
     parser->parse();
     Compound* ast = parser->getAst();
     if (ast == nullptr) {

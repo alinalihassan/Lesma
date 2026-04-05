@@ -1,5 +1,5 @@
 let callback: func(int) = func(value: int) {
-    print(value)
+  print(value)
 }
 
 callback(10)

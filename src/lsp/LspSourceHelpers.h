@@ -25,10 +25,18 @@ namespace lesma::lsp_srv {
 [[nodiscard]] auto smRangesEqual(llvm::SourceMgr* srcMgr, unsigned bufferId, llvm::SMRange lhs,
                                  llvm::SMRange rhs) -> bool;
 
-/** Contiguous `#` line comments immediately above the declaration line (blank lines between the
- * comment block and the declaration are skipped). Each line's content is the text after `#` with
- * one optional leading space stripped. Lines are joined with Markdown hard breaks (`  \\n`) so
- * each `#` line renders on its own line in LSP Markdown (hover, completion docs). */
+/** Extracts a slash-star-star doc comment immediately above the declaration line (blank lines
+ * between the comment block and the declaration are skipped). Lines are normalized and joined
+ * with Markdown hard breaks (`  \\n`) so each source line renders on its own line in LSP
+ * Markdown (hover, completion docs). Plain non-doc block comments are ignored. */
+[[nodiscard]] auto extractBlockCommentDocumentationAboveDecl(llvm::StringRef buffer,
+                                                             std::size_t declarationByteOffset)
+    -> std::string;
+
+/** If there is no slash-star-star doc block, collects contiguous slash-slash line comments
+ * immediately above the declaration (blank lines between those comments and the declaration are
+ * skipped). Each line's comment prefix and one following space are stripped; lines are joined
+ * with Markdown hard breaks. */
 [[nodiscard]] auto extractLineCommentDocumentationAboveDecl(llvm::StringRef buffer,
                                                             std::size_t declarationByteOffset)
     -> std::string;

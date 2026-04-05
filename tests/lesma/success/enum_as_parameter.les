@@ -1,34 +1,31 @@
-# Test enum as function parameter and return type
+// Test enum as function parameter and return type
 enum Status {
-    OK
-    ERROR
-    PENDING
-
+  OK
+  ERROR
+  PENDING
 }
+
 func getStatus(code: int) -> Status {
-    if code == 0 {
-        return Status.OK
-    }
-    if code == 1 {
-        return Status.ERROR
-    }
-    return Status.PENDING
-
+  if code == 0 {
+    return Status.OK
+  }
+  if code == 1 {
+    return Status.ERROR
+  }
+  return Status.PENDING
 }
-func isOk(s: Status) -> bool {
-    return s == Status.OK
 
+func isOk(s: Status) -> bool {
+  return s == Status.OK
 }
 var s = getStatus(0)
 if not isOk(s) {
-    exit(1)
-
+  exit(1)
 }
 var s2 = getStatus(1)
 if isOk(s2) {
-    exit(1)
-
+  exit(1)
 }
 if getStatus(2) != Status.PENDING {
-    exit(1)
+  exit(1)
 }

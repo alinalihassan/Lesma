@@ -1,12 +1,11 @@
-# Mutable locals still narrow under `is`; reassignment clears narrowing (see failure
-# `union_narrowing_after_reassign.les` if that were skipped). Here we only check narrow-then-assign.
-
+// Mutable locals still narrow under `is`; reassignment clears narrowing (see failure
+// `union_narrowing_after_reassign.les` if that were skipped). Here we only check narrow-then-assign.
 var x: int | float = 1
 if x is int {
-    if x + 1 != 2 {
-        exit(1)
-    }
-    x = 3.5
-} else {
+  if x + 1 != 2 {
     exit(1)
+  }
+  x = 3.5
+} else {
+  exit(1)
 }

@@ -1,100 +1,95 @@
-# Union narrowing inside a lambda that captures the discriminated variable.
-# The capture shadow is a different `Value*` than the outer binding; typecheck and codegen must
-# key narrowing by stable storage identity (declaration site), not the shadow pointer.
-#
-# Variants: (1) local var + arithmetic (2) parameter + arithmetic (3) local var + idInt(u)
-#           (4) class union + method only on one arm
+// Union narrowing inside a lambda that captures the discriminated variable.
+// The capture shadow is a different `Value*` than the outer binding; typecheck and codegen must
+// key narrowing by stable storage identity (declaration site), not the shadow pointer.
+//
+// Variants: (1) local var + arithmetic (2) parameter + arithmetic (3) local var + idInt(u)
+//           (4) class union + method only on one arm
 
-# --- Variant 1: `var` binding, `u + 1` in the lambda ---
-
+// --- Variant 1: `var` binding, `u + 1` in the lambda ---
 func narrowedCaptureVarArithmetic() -> int {
-    var u: int | float = 41
-    if u is int {
-        let g = func() -> int {
-            return u + 1
-        }
-        return g()
+  var u: int | float = 41
+  if u is int {
+    let g = func() -> int {
+      return u + 1
     }
-    return 0
+    return g()
+  }
+  return 0
 }
 
-# --- Variant 2: function parameter, `u + 1` in the lambda ---
-
+// --- Variant 2: function parameter, `u + 1` in the lambda ---
 func narrowedCaptureParamArithmetic(u: int | float) -> int {
-    if u is int {
-        let g = func() -> int {
-            return u + 1
-        }
-        return g()
+  if u is int {
+    let g = func() -> int {
+      return u + 1
     }
-    return 0
+    return g()
+  }
+  return 0
 }
 
-# --- Variant 3: `var` binding, narrowed `u` passed where `int` is required ---
-
+// --- Variant 3: `var` binding, narrowed `u` passed where `int` is required ---
 func idInt(x: int) -> int {
-    return x
+  return x
 }
 
 func narrowedCaptureVarIdInt() -> int {
-    var u: int | float = 41
-    if u is int {
-        let g = func() -> int {
-            return idInt(u)
-        }
-        return g()
+  var u: int | float = 41
+  if u is int {
+    let g = func() -> int {
+      return idInt(u)
     }
-    return 0
+    return g()
+  }
+  return 0
 }
 
-# --- Variant 4: class union; call method that exists only on `BoxA` ---
-
+// --- Variant 4: class union; call method that exists only on `BoxA` ---
 class BoxA {
-    func new() {}
+  func new() {}
 
-    func onlyA() -> int {
-        return 7
-    }
+  func onlyA() -> int {
+    return 7
+  }
 }
 
 class BoxB {
-    func new() {}
+  func new() {}
 }
 
 func narrowedCaptureClassUnion(u: BoxA | BoxB) -> int {
-    if u is BoxA {
-        let g = func() -> int {
-            return u.onlyA()
-        }
-        return g()
+  if u is BoxA {
+    let g = func() -> int {
+      return u.onlyA()
     }
-    return 0
+    return g()
+  }
+  return 0
 }
 
-# --- Assertions ---
-
+// --- Assertions ---
 if narrowedCaptureVarArithmetic() != 42 {
-    exit(1)
+  exit(1)
 }
 
 if narrowedCaptureParamArithmetic(41) != 42 {
-    exit(1)
+  exit(1)
 }
 
 if narrowedCaptureParamArithmetic(3.5) != 0 {
-    exit(1)
+  exit(1)
 }
 
 if narrowedCaptureVarIdInt() != 41 {
-    exit(1)
+  exit(1)
 }
 
 var ba = BoxA()
 if narrowedCaptureClassUnion(ba) != 7 {
-    exit(1)
+  exit(1)
 }
 
 var bb = BoxB()
 if narrowedCaptureClassUnion(bb) != 0 {
-    exit(1)
+  exit(1)
 }

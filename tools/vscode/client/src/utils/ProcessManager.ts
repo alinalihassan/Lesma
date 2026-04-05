@@ -1,7 +1,7 @@
 import * as child_process from "child_process";
 
 type CommandResult = {
-  error: child_process.ExecException | null;
+  error: child_process.ExecFileException | null;
   stdout: string;
   stderr: string;
   exitCode: number;
@@ -14,12 +14,12 @@ export default class ProcessManager {
     options: child_process.ExecFileOptions = {}
   ): Promise<CommandResult> {
     return new Promise((resolve) => {
-      child_process.execFile(cmd, args, options, (error, stdout, stderr) => {
+      child_process.execFile(cmd, args, { ...options, encoding: "utf8" }, (error, stdout, stderr) => {
         resolve({
           error,
           stdout,
           stderr,
-          exitCode: error ? error.code : 0,
+          exitCode: typeof error?.code === "number" ? error.code : 0,
         });
       });
     });

@@ -1,23 +1,23 @@
-# Existential parameter: coerce implementing class to fat pointer, dynamic dispatch
+// Existential parameter: coerce implementing class to fat pointer, dynamic dispatch
 trait Drawable {
-    func area() -> float
-
+  func area() -> float
 }
+
 class Circle impl Drawable {
-    var r: float
-    func new(radius: float) {
-        self.r = radius
-    }
-    func area() -> float {
-        return 3.14 * self.r * self.r
+  var r: float
 
-    }
+  func new(radius: float) {
+    self.r = radius
+  }
+  func area() -> float {
+    return 3.14 * self.r * self.r
+  }
 }
-func render(d: Drawable) -> float {
-    return d.area()
 
+func render(d: Drawable) -> float {
+  return d.area()
 }
 var c = Circle(1.0)
 if render(c) < 3.0 {
-    exit(1)
+  exit(1)
 }

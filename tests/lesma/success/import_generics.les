@@ -1,17 +1,15 @@
-# Import a module that exports a generic class; use the class from the importer.
-# Confirms (1) the generic class is in scope so the import walker copies it,
-# (2) the importer can call the constructor Module.Box(args) and specialize
-# via the Class* stored on the symbol, and (3) methods on the result work.
+// Import a module that exports a generic class; use the class from the importer.
+// Confirms (1) the generic class is in scope so the import walker copies it,
+// (2) the importer can call the constructor Module.Box(args) and specialize
+// via the Class* stored on the symbol, and (3) methods on the result work.
 import "import_generics_module.les"
-
 var intBox = import_generics_module.Box(42)
 var floatBox = import_generics_module.Box(3.14)
 
 if intBox.getVal() != 42 {
-    exit(1)
+  exit(1)
 }
 if floatBox.getVal() != 3.14 {
-    exit(1)
-
+  exit(1)
 }
 exit(0)

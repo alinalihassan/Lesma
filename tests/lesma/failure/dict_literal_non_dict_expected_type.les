@@ -1,2 +1,2 @@
-# Dict literal cannot satisfy a non-dict expected type
+// Dict literal cannot satisfy a non-dict expected type
 let x: int = {"a": 1}

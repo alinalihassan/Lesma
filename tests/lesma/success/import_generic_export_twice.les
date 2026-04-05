@@ -1,9 +1,8 @@
-# Generic class reachable via module alias and direct import (mangling / merge sanity).
+// Generic class reachable via module alias and direct import (mangling / merge sanity).
 import "import_generics_module.les" as igm
 from "import_generics_module.les" import Box
-
 var a = igm.Box<int>(3)
 var b = Box<int>(4)
 if a.getVal() + b.getVal() != 7 {
-    exit(1)
+  exit(1)
 }

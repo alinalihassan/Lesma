@@ -137,6 +137,12 @@ auto Lexer::scanOne(bool continuation) -> std::unique_ptr<Token> {
     if (matchAndAdvance('=')) {
       return makeToken(TokenType::SLASH_EQUAL);
     }
+    if (matchAndAdvance('/')) {
+      return scanLineComment();
+    }
+    if (matchAndAdvance('*')) {
+      return scanBlockComment();
+    }
     return makeToken(TokenType::SLASH);
   }
   case '%': {
@@ -151,21 +157,6 @@ auto Lexer::scanOne(bool continuation) -> std::unique_ptr<Token> {
     }
     return makeToken(TokenType::POWER);
   }
-  case '#': {
-    // A comment goes until the end of the line.
-    bool const commentOnlyLine = tokens.empty() || tokens.back()->type == TokenType::NEWLINE;
-    while (peek() != '\n' && !isAtEnd()) {
-      advance();
-    }
-    if (commentOnlyLine && !isAtEnd() && peek() == '\n') {
-      advance();
-      line++;
-      col = 1;
-      handleIndentation(continuation);
-      return scanOne(false);
-    }
-    return scanOne(continuation);
-  }
   case '\\':
     c = advance();
     continuation = true;
@@ -173,7 +164,7 @@ auto Lexer::scanOne(bool continuation) -> std::unique_ptr<Token> {
     while (true) {
       if (c == ' ' || c == '\r' || c == '\t') {
         c = advance();
-      } else if (c == '#') {
+      } else if (c == '/' && peek() == '/') {
         while (peek() != '\n' && !isAtEnd()) {
           advance();
         }
@@ -271,10 +262,10 @@ auto Lexer::handleIndentation(bool continuation) -> bool {
     fallback();
   }
 
-  if (continuation || level != 0 || c == '#' || c == '\n' || c == '\r') {
-    // Collapse blank/comment-only lines into a single NEWLINE at brace depth 0 only; inside `{`
-    // … `}` we keep every emitted NEWLINE so statements stay separated.
-    if (level == 0 && (c == '#' || c == '\n')) {
+  if (continuation || level != 0 || c == '\n' || c == '\r') {
+    // Collapse repeated blank lines at brace depth 0 only; inside `{` … `}` we keep every emitted
+    // NEWLINE so statements stay separated.
+    if (level == 0 && c == '\n') {
       if (!tokens.empty() && tokens.back()->type == TokenType::NEWLINE) {
         tokens.pop_back();
       }
@@ -300,6 +291,25 @@ auto Lexer::makeToken(TokenType type, const std::string& value) -> std::unique_p
   return token;
 }
 
+auto Lexer::scanLineComment() -> std::unique_ptr<Token> {
+  while (peek() != '\n' && !isAtEnd()) {
+    advance();
+  }
+  return makeToken(TokenType::LINE_COMMENT);
+}
+
+auto Lexer::scanBlockComment() -> std::unique_ptr<Token> {
+  while (!isAtEnd()) {
+    char const c = advanceWithNewlineTracking();
+    if (c == '*' && peek() == '/') {
+      advance();
+      return makeToken(TokenType::BLOCK_COMMENT);
+    }
+  }
+  lexError(currentSpan(), "Unterminated block comment.");
+  return makeToken(TokenType::BLOCK_COMMENT);
+}
+
 auto Lexer::resetTokenBeg() -> void { beginLoc = loc; }
 
 auto Lexer::fallback() -> void {
@@ -314,6 +324,15 @@ auto Lexer::advance() -> char {
   loc = llvm::SMLoc::getFromPointer(getLocPointer());
   ++col;
   return ret;
+}
+
+auto Lexer::advanceWithNewlineTracking() -> char {
+  char const c = advance();
+  if (c == '\n') {
+    line++;
+    col = 1;
+  }
+  return c;
 }
 
 auto Lexer::matchAndAdvance(char expected) -> bool {

@@ -1,38 +1,91 @@
-# Base functions
 func extern llabs(n: int) -> int
+
 func extern fabs(x: float) -> float
 
+/**
+ * Returns the absolute value of an integer.
+ *
+ * @param value Integer input.
+ * @returns The non-negative magnitude of value.
+ */
 export func abs(value: int) -> int {
-	return llabs(value)
-
+  return llabs(value)
 }
+
+/**
+ * Returns the absolute value of a floating-point number.
+ *
+ * @param value Floating-point input.
+ * @returns The non-negative magnitude of value.
+ */
 export func abs(value: float) -> float {
-	return fabs(value)
-
+  return fabs(value)
 }
-# Nearest integer floating-point operations
+
 func extern ceil(x: float) -> float
+
 func extern llround(x: float) -> int
 
+/**
+ * Rounds a floating-point number down toward negative infinity.
+ *
+ * @param x Floating-point input.
+ * @returns The largest integral value not greater than x.
+ */
 export func extern floor(x: float) -> float
+
+/**
+ * Truncates a floating-point number toward zero.
+ *
+ * @param x Floating-point input.
+ * @returns x with any fractional part removed.
+ */
 export func extern trunc(x: float) -> float
 
+/**
+ * Rounds a floating-point number up toward positive infinity.
+ *
+ * @param x Floating-point input.
+ * @returns The smallest integral value not less than x.
+ */
 export func ceil(x: float) -> float {
-	return ceil(x)
-
+  return ceil(x)
 }
+
+/**
+ * Rounds a floating-point number down toward negative infinity.
+ *
+ * @param x Floating-point input.
+ * @returns The largest integral value not greater than x.
+ */
 export func floor(x: float) -> float {
-	return floor(x)
-
+  return floor(x)
 }
+
+/**
+ * Rounds a floating-point number to the nearest integer.
+ *
+ * @param x Floating-point input.
+ * @returns The nearest integer value.
+ */
 export func round(x: float) -> int {
-	return llround(x)
-
+  return llround(x)
 }
-# Trigonometric functions
+
+/** Returns the sine of x, where x is in radians. */
 export func extern sin(x: float) -> float
+
+/** Returns the cosine of x, where x is in radians. */
 export func extern cos(x: float) -> float
+
+/** Returns the tangent of x, where x is in radians. */
 export func extern tan(x: float) -> float
+
+/** Returns the arcsine of x in radians. */
 export func extern asin(x: float) -> float
+
+/** Returns the arccosine of x in radians. */
 export func extern acos(x: float) -> float
+
+/** Returns the arctangent of x in radians. */
 export func extern atan(x: float) -> float

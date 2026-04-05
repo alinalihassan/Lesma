@@ -76,6 +76,7 @@
     ],
     "configurationDefaults": {
       "[lesma]": {
+        "editor.defaultFormatter": "hassanalinali.lesma",
         "editor.bracketPairColorization.enabled": true,
         "editor.bracketPairColorization.independentColorPoolPerBracketType": true,
         "editor.language.brackets": [

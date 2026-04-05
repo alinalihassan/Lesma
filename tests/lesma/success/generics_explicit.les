@@ -1,25 +1,23 @@
 func identity<T>(x: T) -> T {
-    return x
-
+  return x
 }
 if identity<int>(42) != 42 {
-    exit(1)
+  exit(1)
 }
 if identity<float>(1.5) != 1.5 {
-    exit(1)
-
+  exit(1)
 }
 class Box<T> {
-    var val: T
-    func new(v: T) {
-        self.val = v
-    }
-    func getVal() -> T {
-        return self.val
+  var val: T
 
-    }
+  func new(v: T) {
+    self.val = v
+  }
+  func getVal() -> T {
+    return self.val
+  }
 }
 var b = Box<int>(42)
 if b.getVal() != 42 {
-    exit(1)
+  exit(1)
 }

@@ -1,24 +1,23 @@
-# Test void functions (no return value)
+// Test void functions (no return value)
 var result = 0
 
 func getHundred() -> int {
-    return 100
-
+  return 100
 }
+
 func addOne(x: int) -> int {
-    return x + 1
-
+  return x + 1
 }
-# Void function that doesn't return anything
-func doNothing() {
-    var x = 1
 
+// Void function that doesn't return anything
+func doNothing() {
+  var x = 1
 }
 doNothing()
 
-# Test that void functions can be called and other functions still work
+// Test that void functions can be called and other functions still work
 result = addOne(getHundred())
 
 if result != 101 {
-    exit(1)
+  exit(1)
 }

@@ -1,12 +1,12 @@
 trait NeedFloat {
-    func f() -> float
-
+  func f() -> float
 }
+
 class Bad impl NeedFloat {
-    func new() {
-        var _ = 0
-    }
-    func f() -> int {
-        return 1
-    }
+  func new() {
+    var _ = 0
+  }
+  func f() -> int {
+    return 1
+  }
 }

@@ -1,8 +1,8 @@
-# Static field stores a callable value as `{ code*, env* }` like other addressable slots.
+// Static field stores a callable value as `{ code*, env* }` like other addressable slots.
 class Holder {
   static var dbl: func(int) -> int = func(x: int) -> int => x * 2
 
-  static func init_adder(base: int) -> void {
+  static func init_adder(base: int) {
     Holder.adder = func(x: int) -> int => x + base
   }
 

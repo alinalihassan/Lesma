@@ -2,13 +2,12 @@ var x: int = 5
 var y: int = 0
 
 while x < 208 {
-    x = x + 1
-    if x % 2 == 0 {
-        continue
-    }
-    y = y + 1
-
+  x = x + 1
+  if x % 2 == 0 {
+    continue
+  }
+  y = y + 1
 }
 if y != 101 {
-	exit(1)
+  exit(1)
 }

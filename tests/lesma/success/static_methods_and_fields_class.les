@@ -17,11 +17,11 @@ class Counter {
     return c
   }
 
-  static func bump_hits() -> void {
+  static func bump_hits() {
     Counter.hits = Counter.hits + 1
   }
 
-  func bump() -> void {
+  func bump() {
     self.n = self.n + 1
   }
 }

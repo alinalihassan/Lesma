@@ -1,22 +1,22 @@
 trait Twice {
-    func val() -> int
-
+  func val() -> int
 }
+
 class A impl Twice {
-    var x: int
-    func new(v: int) {
-        self.x = v
-    }
-    func val() -> int {
-        return self.x * 2
+  var x: int
 
-    }
+  func new(v: int) {
+    self.x = v
+  }
+  func val() -> int {
+    return self.x * 2
+  }
 }
-func get_val<T: Twice>(o: T) -> int {
-    return o.val()
 
+func get_val<T: Twice>(o: T) -> int {
+  return o.val()
 }
 var a = A(3)
 if get_val(a) != 6 {
-    exit(1)
+  exit(1)
 }

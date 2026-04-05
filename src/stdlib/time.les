@@ -1,8 +1,19 @@
-func extern usleep(usec: int)
+func extern usleep(usec: int) -> void
 
-export func sleep(seconds: float) {
-    usleep((seconds * 1000000) as int)
-
+/**
+ * Suspends execution for a fractional number of seconds.
+ *
+ * @param seconds Delay in seconds.
+ */
+export func sleep(seconds: float) -> void {
+  usleep((seconds * 1000000) as int)
 }
-export func sleep(seconds: int) {
-    usleep(seconds * 1000000)}
+
+/**
+ * Suspends execution for a whole number of seconds.
+ *
+ * @param seconds Delay in seconds.
+ */
+export func sleep(seconds: int) -> void {
+  usleep(seconds * 1000000)
+}

@@ -1,0 +1,9 @@
+func applyTwice(f: func(int) -> int, x: int = 5 + 1) -> int {
+  return f(f(x))
+}
+
+let inc = func(x: int) -> int => x + 1
+
+if applyTwice(inc) != 8 {
+  exit(1)
+}

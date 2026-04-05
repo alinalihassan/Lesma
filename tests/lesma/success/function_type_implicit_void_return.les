@@ -1,11 +1,10 @@
-# Function types without an explicit return type should default to void.
+// Function types without an explicit return type should default to void.
 func accepts(callback: func(int)) {
-    var seen = 1
-
+  var seen = 1
 }
-func printer(value: int) {
-    print(value)
 
+func printer(value: int) {
+  print(value)
 }
 accepts(printer)
 

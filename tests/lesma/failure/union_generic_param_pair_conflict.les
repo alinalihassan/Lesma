@@ -1,8 +1,7 @@
-# Same `T` in two `T | int` parameters: `u` fixes `T` = str; `v` is `int | float` so the second
-# argument cannot match the same `T` (overload resolution fails: no viable `pairTag`).
-
+// Same `T` in two `T | int` parameters: `u` fixes `T` = str; `v` is `int | float` so the second
+// argument cannot match the same `T` (overload resolution fails: no viable `pairTag`).
 func pairTag<T>(a: T | int, b: T | int) -> int {
-    return 0
+  return 0
 }
 
 var u: str | int = "a"

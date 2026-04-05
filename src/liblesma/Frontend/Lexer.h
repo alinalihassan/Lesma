@@ -50,6 +50,9 @@ private:
   auto continueTemplateStringChunk() -> std::unique_ptr<Token>;
   enum class StringScanStep { Continue, ClosedQuote, StartInterpolation };
   auto scanStringContentUnit(std::string& acc) -> StringScanStep;
+  auto scanLineComment() -> std::unique_ptr<Token>;
+  auto scanBlockComment() -> std::unique_ptr<Token>;
+  auto advanceWithNewlineTracking() -> char;
 
   auto matchAndAdvance(char expected) -> bool;
 

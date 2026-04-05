@@ -1,2 +1,2 @@
-# Test that type mismatch in assignment fails
+// Test that type mismatch in assignment fails
 var x: int = "hello"

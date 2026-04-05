@@ -1,29 +1,25 @@
-# Compound assignment operators beyond `+=` / `-=`.
+// Compound assignment operators beyond `+=` / `-=`.
 var a: int = 17
 a %= 5
 
 if a != 2 {
-    exit(1)
-
+  exit(1)
 }
 var b: int = 3
 b *= 4
 
 if b != 12 {
-    exit(1)
-
+  exit(1)
 }
 var c: int = 21
 c /= 4
 
 if c != 5 {
-    exit(1)
-
+  exit(1)
 }
 var d: float = 2.5
 d *= 4.0
 
 if d < 9.99 or d > 10.01 {
-    exit(1)
-
+  exit(1)
 }

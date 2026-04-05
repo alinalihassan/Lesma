@@ -234,8 +234,8 @@ auto lineStartOffsetAt(llvm::StringRef text, unsigned pos) -> unsigned {
   return start;
 }
 
-/** True if a `#` line comment begins before \p openQuoteIdx on the same line (outside strings). */
-auto hashCommentBeforeOnSameLine(llvm::StringRef text, unsigned lineStart, unsigned openQuoteIdx)
+/** True if a `//` line comment begins before \p openQuoteIdx on the same line (outside strings). */
+auto lineCommentBeforeOnSameLine(llvm::StringRef text, unsigned lineStart, unsigned openQuoteIdx)
     -> bool {
   bool inString = false;
   bool escape = false;
@@ -259,7 +259,7 @@ auto hashCommentBeforeOnSameLine(llvm::StringRef text, unsigned lineStart, unsig
       inString = true;
       continue;
     }
-    if (c == '#') {
+    if (c == '/' && i + 1U < text.size() && text[i + 1U] == '/') {
       return true;
     }
   }
@@ -273,7 +273,7 @@ auto isImportPathStringContext(llvm::StringRef text, unsigned openQuoteIdx) -> b
     return false;
   }
   unsigned const lineStart = lineStartOffsetAt(text, openQuoteIdx);
-  if (hashCommentBeforeOnSameLine(text, lineStart, openQuoteIdx)) {
+  if (lineCommentBeforeOnSameLine(text, lineStart, openQuoteIdx)) {
     return false;
   }
   llvm::StringRef const before = text.slice(0, openQuoteIdx);

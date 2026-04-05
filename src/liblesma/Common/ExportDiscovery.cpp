@@ -34,7 +34,8 @@ auto discoverExportedTopLevelNames(const std::string& filepath, bool isStd,
   try {
     auto lexer = std::make_unique<Lexer>(srcMgr);
     lexer->scanAll();
-    auto pars = std::make_unique<Parser>(lexer->getTokens());
+    auto pars = std::make_unique<Parser>(lexer->getTokens(), nullptr, srcMgr,
+                                         srcMgr->getNumBuffers(), absolutePath);
     pars->parse();
     Compound* ast = pars->getAst();
     if (ast == nullptr) {

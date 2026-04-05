@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <filesystem>
 #include <string>
 #include <type_traits>
 #include <utility>
@@ -20,13 +21,17 @@ class Expression;
 class FuncCall;
 // CLEAR = no log prefix (plain output); use for version, help, etc.
 enum class LogType : std::uint8_t { ERROR, WARNING, DEBUG, SUCCESS, CLEAR };
+enum class CliCommand : std::uint8_t { Run, Compile, Fmt };
 
 struct CLIOptions {
+  CliCommand command = CliCommand::Run;
   std::string file;
   std::string output;
+  std::vector<std::filesystem::path> fmtPaths;
   std::vector<std::string> debug;
   bool timer;
   bool jit;
+  int formatWidth = 100;
   /** Optimization level 0–3 for compile and run. */
   int optimizationLevel = 3;
   /** Emit DWARF when compiling (compile subcommand -g). */

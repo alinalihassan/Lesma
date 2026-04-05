@@ -1,10 +1,9 @@
-# Module A: imports math and B; B also imports math (recursive import of math)
+// Module A: imports math and B; B also imports math (recursive import of math)
 import "import_math.les" as math
 import "import_B.les"
-
 if math.add(1, 2) != 3 {
-	exit(1)
+  exit(1)
 }
 if import_B.use_math(2, 3) != 5 {
-	exit(1)
+  exit(1)
 }

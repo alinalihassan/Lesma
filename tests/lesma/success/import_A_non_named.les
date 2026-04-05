@@ -1,10 +1,9 @@
-# Recursive import with non-named imports only (default alias = basename).
+// Recursive import with non-named imports only (default alias = basename).
 import "import_math.les"
 import "import_B.les"
-
 if import_math.add(1, 2) != 3 {
-	exit(1)
+  exit(1)
 }
 if import_B.use_math(2, 3) != 5 {
-	exit(1)
+  exit(1)
 }

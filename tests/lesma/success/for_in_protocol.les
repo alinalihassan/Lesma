@@ -1,55 +1,48 @@
-# Iterable: iter() -> Iterator impl. Nested loops get fresh iterators via iter().
+// Iterable: iter() -> Iterator impl. Nested loops get fresh iterators via iter().
 class RangeIter impl Iterator<int> {
-    var current: int
-    var last: int
+  var current: int
+  var last: int
 
-    func new(start: int, last: int) {
-        self.current = start
-        self.last = last
-
-    }
-    func has_next() -> bool {
-        return self.current < self.last
-
-    }
-    func next() -> int {
-        let value = self.current
-        self.current = self.current + 1
-        return value
-
-    }
+  func new(start: int, last: int) {
+    self.current = start
+    self.last = last
+  }
+  func has_next() -> bool {
+    return self.current < self.last
+  }
+  func next() -> int {
+    let value = self.current
+    self.current = self.current + 1
+    return value
+  }
 }
+
 class Range impl Iterable<int> {
-    var start: int
-    var last: int
+  var start: int
+  var last: int
 
-    func new(start: int, last: int) {
-        self.start = start
-        self.last = last
-
-    }
-    func iter() -> RangeIter {
-        return RangeIter(self.start, self.last)
-
-    }
+  func new(start: int, last: int) {
+    self.start = start
+    self.last = last
+  }
+  func iter() -> RangeIter {
+    return RangeIter(self.start, self.last)
+  }
 }
 var total = 0
 for value in Range(1, 4) {
-    total += value
-
+  total += value
 }
 if total != 6 {
-    exit(1)
-
+  exit(1)
 }
 var nestedCount = 0
 var r = Range(1, 3)
 for a in r {
-    for b in r {
-        nestedCount = nestedCount + 1
-
-    }
+  for b in r {
+    nestedCount = nestedCount + 1
+  }
 }
 if nestedCount != 4 {
-    exit(1)
+  exit(1)
 }

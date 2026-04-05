@@ -1,5 +1,5 @@
-# Typo in type name: 't' is not declared; only 'T' is in the generic parameter list.
-# Should error with message suggesting to add the type to the generic parameter list.
+// Typo in type name: 't' is not declared; only 'T' is in the generic parameter list.
+// Should error with message suggesting to add the type to the generic parameter list.
 func foo<T>(x: t) -> T {
-    return x
+  return x
 }

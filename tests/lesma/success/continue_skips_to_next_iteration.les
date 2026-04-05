@@ -1,18 +1,15 @@
-# `continue` skips the rest of the body but still runs `defer` for that iteration.
+// `continue` skips the rest of the body but still runs `defer` for that iteration.
 var sum: int = 0
 var i: int = 0
 while i < 4 {
-    defer sum = sum + 100
-    i = i + 1
-    if i == 2 {
-        continue
-
-    }
-    sum = sum + 1
-
+  defer sum = sum + 100
+  i = i + 1
+  if i == 2 {
+    continue
+  }
+  sum = sum + 1
 }
-# Three non-continued iterations add 1 each; all four iterations schedule defer (+100 each).
+// Three non-continued iterations add 1 each; all four iterations schedule defer (+100 each).
 if sum != 403 {
-    exit(1)
-
+  exit(1)
 }

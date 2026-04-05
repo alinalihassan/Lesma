@@ -1,17 +1,17 @@
-# Lambda runs deferred statements before return (expression and fallthrough void).
+// Lambda runs deferred statements before return (expression and fallthrough void).
 func f() -> int {
-    let g = func() -> int {
-        var x = 0
-        defer x = x + 5
-        return x
-    }
-    return g()
+  let g = func() -> int {
+    var x = 0
+    defer x = x + 5
+    return x
+  }
+  return g()
 }
 if f() != 5 {
-    exit(1)
+  exit(1)
 }
 let h = func() {
-    var y = 0
-    defer y = 1
+  var y = 0
+  defer y = 1
 }
 h()

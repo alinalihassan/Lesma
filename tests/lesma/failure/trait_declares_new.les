@@ -1,4 +1,4 @@
-# Constructors belong on classes; trait requirements may not use `new`.
+// Constructors belong on classes; trait requirements may not use `new`.
 trait Bad {
-    func new()
+  func new()
 }

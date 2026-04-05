@@ -1,4 +1,4 @@
-# Swift-style static methods on a generic class: T is the class type parameter.
+// Swift-style static methods on a generic class: T is the class type parameter.
 class Cell<T> {
   var x: T
 
@@ -14,7 +14,6 @@ class Cell<T> {
     return Cell(n)
   }
 }
-
 
 func main() -> int {
   var a = Cell.of(7)

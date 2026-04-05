@@ -1,5 +1,4 @@
 func identity<T>(x: T) -> T {
-    return x
-
+  return x
 }
 identity<int>(3.14)

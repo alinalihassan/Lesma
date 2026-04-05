@@ -1,36 +1,31 @@
-# Two classes implement the same trait; shared trait method on the union needs no narrowing.
-
+// Two classes implement the same trait; shared trait method on the union needs no narrowing.
 trait Speaker {
-    func say() -> int
-
+  func say() -> int
 }
+
 class Frog impl Speaker {
-    func new() {
-
-    }
-    func say() -> int {
-        return 3
-
-    }
+  func new() {}
+  func say() -> int {
+    return 3
+  }
 }
+
 class Toad impl Speaker {
-    func new() {
-
-    }
-    func say() -> int {
-        return 5
-
-    }
+  func new() {}
+  func say() -> int {
+    return 5
+  }
 }
+
 export func speakEither(x: Frog | Toad) -> int {
-    return x.say()
+  return x.say()
 }
 
 var f = Frog()
 var t = Toad()
 if speakEither(f) != 3 {
-    exit(1)
+  exit(1)
 }
 if speakEither(t) != 5 {
-    exit(1)
+  exit(1)
 }

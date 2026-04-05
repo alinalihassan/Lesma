@@ -1,5 +1,5 @@
-# Static fields on a generic class are allowed when their type (and initializer type) does not use
-# the class type parameters; storage is shared for all specializations (one global per template).
+// Static fields on a generic class are allowed when their type (and initializer type) does not use
+// the class type parameters; storage is shared for all specializations (one global per template).
 class Box<T> {
   static let tag: int = 42
   static var hits: int = 0
@@ -12,7 +12,7 @@ class Box<T> {
 }
 
 func main() -> int {
-  # `Box<int>.tag` would parse as `Box < int` (comparison); use the template name for static access.
+  // `Box<int>.tag` would parse as `Box < int` (comparison); use the template name for static access.
   if Box.tag != 42 {
     return 1
   }

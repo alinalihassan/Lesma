@@ -1,20 +1,19 @@
-# Default trait method bodies; class uses defaults (no explicit overrides)
+// Default trait method bodies; class uses defaults (no explicit overrides)
 trait WithDefault {
-    func base() -> int {
-        return 7
-    }
-    func extra() -> int {
-        return self.base() + 3
-
-    }
+  func base() -> int {
+    return 7
+  }
+  func extra() -> int {
+    return self.base() + 3
+  }
 }
-class C impl WithDefault {
-    func new() {
-        var _x = 0
 
-    }
+class C impl WithDefault {
+  func new() {
+    var _x = 0
+  }
 }
 var c = C()
 if c.extra() != 10 {
-    exit(1)
+  exit(1)
 }

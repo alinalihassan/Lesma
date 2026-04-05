@@ -1,4 +1,4 @@
-# stdlib range: exclusive stop; range(n) == range(1, n); optional step (default 1).
+// stdlib range: exclusive stop; range(n) == range(1, n); optional step (default 1).
 
 var total = 0
 for i in range(1, 4) {

@@ -1,9 +1,9 @@
 func make_adder() -> func(int) -> int {
-    let base: int = 2
-    return func(x: int) -> int => x + base
+  let base: int = 2
+  return func(x: int) -> int => x + base
 }
 
 let f = make_adder()
 if f(5) != 7 {
-    exit(1)
+  exit(1)
 }

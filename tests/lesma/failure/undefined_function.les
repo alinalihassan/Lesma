@@ -1,2 +1,2 @@
-# Test that undefined function call fails
+// Test that undefined function call fails
 var x = undefinedFunction()

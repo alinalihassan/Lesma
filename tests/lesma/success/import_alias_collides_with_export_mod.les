@@ -1,6 +1,6 @@
-# Basename matches an export name: module alias must win over the exported binding.
+// Basename matches an export name: module alias must win over the exported binding.
 export let import_alias_collides_with_export_mod = 100
 
 export func helper() -> int {
-    return 3
+  return 3
 }

@@ -1,6 +1,5 @@
 func f() -> (int, int) {
-    return (1, 2)
-
+  return (1, 2)
 }
 let t = f()
 print(t[2])

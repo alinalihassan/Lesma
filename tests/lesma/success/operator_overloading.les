@@ -1,47 +1,40 @@
 class Pair {
-    var left: int
-    var right: int
+  var left: int
+  var right: int
 
-    func new(left: int, right: int) {
-        self.left = left
-        self.right = right
-
+  func new(left: int, right: int) {
+    self.left = left
+    self.right = right
+  }
+  func operator +(rhs: Pair) -> int {
+    return self.left + self.right + rhs.left + rhs.right
+  }
+  func operator -() -> int {
+    return -(self.left + self.right)
+  }
+  func operator [](index: int) -> int {
+    if index == 0 {
+      return self.left
     }
-    func operator +(rhs: Pair) -> int {
-        return self.left + self.right + rhs.left + rhs.right
-
+    return self.right
+  }
+  func operator []=(index: int, value: int) {
+    if index == 0 {
+      self.left = value
+      return
     }
-    func operator -() -> int {
-        return -(self.left + self.right)
-
-    }
-    func operator [](index: int) -> int {
-        if index == 0 {
-            return self.left
-        }
-        return self.right
-
-    }
-    func operator []=(index: int, value: int) {
-        if index == 0 {
-            self.left = value
-            return
-        }
-        self.right = value
-
-    }
+    self.right = value
+  }
 }
 var a = Pair(1, 2)
 var b = Pair(3, 4)
 if a + b != 10 {
-    exit(1)
-
+  exit(1)
 }
 a[1] = 9
 if a[1] != 9 {
-    exit(2)
-
+  exit(2)
 }
 if -a != -10 {
-    exit(3)
+  exit(3)
 }

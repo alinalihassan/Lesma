@@ -1,6 +1,6 @@
 export func fib() -> int {
-    return 101
-
+  return 101
 }
 if fib() != 101 {
-	exit(1)}
+  exit(1)
+}

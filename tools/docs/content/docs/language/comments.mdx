@@ -9,18 +9,28 @@ Use comments to explain **why** non-obvious code exists; let types and names car
 
 ## Line comments
 
-`#` starts a line comment through the end of the line.
+`//` starts a line comment through the end of the line.
 
 ```les
-# Compute the next value
+// Compute the next value
 let n = x + 1
 ```
 
-For a short “block” of commentary, use several `#` lines in a row—the lexer only knows line comments, but this is the usual style in Lesma sources.
+## Block comments
+
+Lesma also supports JavaScript/TypeScript-style block comments:
+
+```les
+/*
+ * Explain a larger chunk of logic.
+ * These can span multiple lines.
+ */
+let n = x + 1
+```
 
 ## Documentation in the LSP
 
-When one or more `#` lines sit **immediately above** a declaration, with only blank lines between the comment block and the declaration, the Lesma language server treats that text as **Markdown documentation** for the symbol. It is shown in **hover** (and in completion detail where applicable), so editors can surface the same prose you keep in source.
+When a `/* ... */` block sits **immediately above** a declaration, with only blank lines between the comment block and the declaration, the Lesma language server treats that text as **Markdown documentation** for the symbol. It is shown in **hover** (and in completion detail where applicable), so editors can surface the same prose you keep in source.
 
 This applies to major declarations such as **functions**, **methods**, **classes**, **enums**, and **traits**—the same pattern you would use to document an API in-tree.
 

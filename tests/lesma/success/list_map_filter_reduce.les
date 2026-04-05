@@ -6,33 +6,35 @@ xs.push(4)
 
 var doubled = xs.map(func(x: int) => x * 2)
 if doubled.len() != 4 or doubled[0] != 2 or doubled[1] != 4 or doubled[2] != 6 or doubled[3] != 8 {
-    exit(1)
+  exit(1)
 }
 
 var gt_two = xs.filter(func(x: int) => x > 2)
 if gt_two.len() != 2 or gt_two[0] != 3 or gt_two[1] != 4 {
-    exit(1)
+  exit(1)
 }
 
 let sum = xs.reduce(func(acc: int, x: int) => acc + x, 0)
 if sum != 10 {
-    exit(1)
+  exit(1)
 }
 
 let any_gt_three = xs.reduce(func(acc: bool, x: int) => acc or x > 3, false)
 if any_gt_three != true {
-    exit(1)
+  exit(1)
 }
 
 var chained = xs.filter(func(x: int) => x > 1).map(func(x: int) => x + 10)
 if chained.len() != 3 or chained[0] != 12 or chained[1] != 13 or chained[2] != 14 {
-    exit(1)
+  exit(1)
 }
 
-let chain_total = xs.map(func(x: int) => x * 3).filter(func(x: int) => x > 6).reduce(
-    func(acc: int, x: int) => acc + x, 0)
+let chain_total = xs
+  .map(func(x: int) => x * 3)
+  .filter(func(x: int) => x > 6)
+  .reduce(func(acc: int, x: int) => acc + x, 0)
 if chain_total != 21 {
-    exit(1)
+  exit(1)
 }
 
 var empty: list<int> = []
@@ -40,5 +42,5 @@ var empty_mapped = empty.map(func(x: int) => x + 1)
 var empty_filtered = empty.filter(func(x: int) => x > 0)
 let empty_reduced = empty.reduce(func(acc: int, x: int) => acc + x, 42)
 if empty_mapped.len() != 0 or empty_filtered.len() != 0 or empty_reduced != 42 {
-    exit(1)
+  exit(1)
 }

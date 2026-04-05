@@ -16,6 +16,10 @@
 #include "liblesma/Token/TokenType.h"
 
 namespace lesma {
+[[nodiscard]] inline auto isCommentToken(TokenType type) -> bool {
+  return type == TokenType::LINE_COMMENT || type == TokenType::BLOCK_COMMENT;
+}
+
 class ParserError : public LesmaErrorWithExitCode<EX_DATAERR> {
 public:
   using LesmaErrorWithExitCode<EX_DATAERR>::LesmaErrorWithExitCode;
@@ -45,24 +49,68 @@ public:
 
 private:
   auto peek() -> Token* { return peek(0); }
-  auto peek(unsigned long i) -> Token* { return tokens.at(index + i); }
+  auto peek(unsigned long i) -> Token* { return tokens.at(visibleRawIndex(i)); }
+  [[nodiscard]] auto canPeek(unsigned long visibleOffset) const -> bool {
+    if (tokens.empty()) {
+      return false;
+    }
+    size_t rawIndex = index;
+    unsigned long remaining = visibleOffset;
+    while (rawIndex < tokens.size()) {
+      if (!isCommentToken(tokens[rawIndex]->type)) {
+        if (remaining == 0U) {
+          return true;
+        }
+        remaining--;
+      }
+      rawIndex++;
+    }
+    return false;
+  }
+  [[nodiscard]] auto visibleRawIndex(unsigned long visibleOffset) const -> size_t {
+    size_t rawIndex = index;
+    unsigned long remaining = visibleOffset;
+    while (rawIndex < tokens.size()) {
+      if (!isCommentToken(tokens[rawIndex]->type)) {
+        if (remaining == 0U) {
+          return rawIndex;
+        }
+        remaining--;
+      }
+      rawIndex++;
+    }
+    return tokens.empty() ? 0U : tokens.size() - 1U;
+  }
+  [[nodiscard]] auto previous() -> Token* {
+    size_t rawIndex = index;
+    while (rawIndex > 0U) {
+      rawIndex--;
+      if (!isCommentToken(tokens[rawIndex]->type)) {
+        return tokens[rawIndex];
+      }
+    }
+    return nullptr;
+  }
 
   auto consume(TokenType type) -> Token*;
   auto consume(TokenType type, const std::string& errorMessage) -> Token*;
   auto consumeNewline() -> Token*;
   /** Like `consumeNewline` but allows closing `}` without a newline (last stmt in `{` … `}`). */
   auto consumeNewlineOrBlockEnd() -> void;
-
-  [[nodiscard]] auto previous() -> Token* { return (index > 0) ? tokens.at(index - 1) : nullptr; }
+  [[nodiscard]] auto columnOf(llvm::SMLoc loc) const -> unsigned;
+  [[nodiscard]] auto columnOf(const Token* token) const -> unsigned;
+  auto consumeIndentedContinuationNewlines(unsigned anchorColumn) -> void;
+  auto consumeIndentedContinuationNewlines(llvm::SMLoc anchorLoc) -> void;
+  auto consumeOperandContinuationNewlines() -> void;
 
   auto isAtEnd() -> bool { return peek()->type == TokenType::EOF_TOKEN; }
 
   auto advance() -> Token* {
+    Token* current = peek();
     if (!isAtEnd()) {
-      index++;
+      index = visibleRawIndex(1);
     }
-
-    return peek(-1);
+    return current;
   }
 
   auto check(TokenType type) -> bool { return check(type, 0); }
@@ -82,7 +130,7 @@ private:
   auto checkAny(unsigned long pos) -> bool;
 
   std::vector<Token*> tokens;
-  unsigned long index = 0;
+  size_t index = 0;
   bool inClass = false;
   bool isExported = false;
   std::unique_ptr<Compound> tree;
@@ -99,6 +147,7 @@ private:
   /** Skip tokens until the next newline (or EOF) after a recovered parse error. */
   auto synchronizeToNextLine() -> void;
   auto recoverFromParserError(const ParserError& err) -> void;
+  auto attachTrivia() -> void;
 
   auto parseCompound() -> std::unique_ptr<Compound>;
   auto parseBlock() -> std::unique_ptr<Compound>;

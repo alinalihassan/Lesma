@@ -1,25 +1,22 @@
-# `pass` is a no-op statement (Python-style); valid as sole body in class, if, func, etc.
+// `pass` is a no-op statement (Python-style); valid as sole body in class, if, func, etc.
 pass
 
 class C {
-    func new() {
-        pass
-    }
-    func noop() {
-        pass
-
-    }
-}
-func noop_fn() {
+  func new() {
     pass
+  }
+  func noop() {
+    pass
+  }
+}
 
+func noop_fn() {
+  pass
 }
 if true {
-    pass
-}
-else {
-    pass
-
+  pass
+} else {
+  pass
 }
 var c = C()
 noop_fn()

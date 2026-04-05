@@ -1,7 +1,7 @@
-# Multi-byte UTF-8 in source (LSP/clients must use UTF-8 byte offsets for Position.character).
-# str.len() is byte length (strlen), not Unicode scalar count.
+// Multi-byte UTF-8 in source (LSP/clients must use UTF-8 byte offsets for Position.character).
+// str.len() is byte length (strlen), not Unicode scalar count.
 let s: str = "αβ"
 if s.len() != 4 {
-    exit(1)
+  exit(1)
 }
 print(s)

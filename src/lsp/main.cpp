@@ -31,6 +31,7 @@
 #include "liblesma/Common/Utils.h"
 #include "liblesma/Driver/AnalysisResult.h"
 #include "liblesma/Driver/Driver.h"
+#include "liblesma/Formatter/SourceFormatter.h"
 #include "liblesma/Symbol/SymbolTable.h"
 #include "liblesma/Symbol/Type.h"
 #include "liblesma/Symbol/TypeUtils.h"
@@ -44,6 +45,40 @@ using namespace lesma::lsp_srv;
 [[nodiscard]] auto vectorContainsString(const std::vector<std::string>& haystack,
                                         const std::string& needle) -> bool {
   return std::find(haystack.begin(), haystack.end(), needle) != haystack.end();
+}
+
+[[nodiscard]] auto endPositionForText(llvm::StringRef utf8Text) -> ::lsp::Position {
+  unsigned line = 0U;
+  unsigned character = 0U;
+  for (char ch : utf8Text) {
+    if (ch == '\n') {
+      ++line;
+      character = 0U;
+    } else {
+      ++character;
+    }
+  }
+  return ::lsp::Position{
+      .line = line,
+      .character = character,
+  };
+}
+
+[[nodiscard]] auto fullDocumentFormattingEdits(llvm::StringRef original, std::string replacement)
+    -> ::lsp::Nullable<std::vector<::lsp::TextEdit>> {
+  if (original == replacement) {
+    return {};
+  }
+  return ::lsp::Nullable<std::vector<::lsp::TextEdit>>(std::vector<::lsp::TextEdit>{
+      ::lsp::TextEdit{
+          .range =
+              ::lsp::Range{
+                  .start = ::lsp::Position{.line = 0U, .character = 0U},
+                  .end = endPositionForText(original),
+              },
+          .newText = std::move(replacement),
+      },
+  });
 }
 
 /** Cached analysis result for a document version. */
@@ -1463,6 +1498,146 @@ auto collectCallableCandidates(lesma::SymbolTable* scope, const std::string& nam
   return candidates;
 }
 
+/** Extract the base class name from a display name like "list<T>" or "list<int>" -> "list". */
+[[nodiscard]] auto extractClassBaseName(const std::string& displayName) -> std::string {
+  size_t const anglePos = displayName.find('<');
+  if (anglePos == std::string::npos) {
+    return displayName;
+  }
+  return displayName.substr(0, anglePos);
+}
+
+/** Find a Class AST node by name in a compound (top-level only). */
+[[nodiscard]] auto findClassInCompound(lesma::Compound* ast, std::string_view className)
+    -> lesma::Class* {
+  if (ast == nullptr) {
+    return nullptr;
+  }
+  for (lesma::Statement* stmt : ast->getChildren()) {
+    auto* klass = dynamic_cast<lesma::Class*>(stmt);
+    if (klass != nullptr && klass->getIdentifier() == className) {
+      return klass;
+    }
+  }
+  return nullptr;
+}
+
+/** Check if a receiver type is compatible with a class's self parameter type.
+ * For generic classes, this checks if the base class names match. */
+[[nodiscard]] auto receiverMatchesClassSelf(lesma::Type* receiverType, lesma::Class* klass)
+    -> bool {
+  if (receiverType == nullptr || klass == nullptr) {
+    return false;
+  }
+  // Strip pointer wrapper if present
+  lesma::Type* baseReceiver = receiverType;
+  if (baseReceiver->is(lesma::BaseType::TY_PTR) && baseReceiver->getElementType() != nullptr) {
+    baseReceiver = baseReceiver->getElementType();
+  }
+  // Only class types can have methods
+  if (!baseReceiver->is(lesma::BaseType::TY_CLASS)) {
+    return false;
+  }
+  // Compare base class names (e.g., "list" from "list<int>" matches "list" from "list<T>")
+  std::string const receiverClassName = extractClassBaseName(baseReceiver->getDisplayName());
+  std::string const klassName = klass->getIdentifier();
+  return receiverClassName == klassName;
+}
+
+/** Collect method candidates from a class and its superclasses. */
+[[nodiscard]] auto collectClassMethodCandidates(lesma::Class* klass, const std::string& methodName,
+                                                lesma::Type* receiverType)
+    -> std::vector<CallableCandidate> {
+  std::vector<CallableCandidate> candidates;
+  if (klass == nullptr) {
+    return candidates;
+  }
+  // First check if the receiver type matches this class
+  if (!receiverMatchesClassSelf(receiverType, klass)) {
+    return candidates;
+  }
+  for (lesma::FuncDecl* method : klass->getMethods()) {
+    if (method == nullptr || method->getName() != methodName) {
+      continue;
+    }
+    lesma::Value* sym = method->getResolvedSymbol();
+    if (sym == nullptr || sym->getType() == nullptr ||
+        !sym->getType()->is(lesma::BaseType::TY_FUNCTION)) {
+      continue;
+    }
+    // Verify the method has a self parameter
+    std::vector<lesma::Field*> fields = sym->getType()->getFields();
+    if (fields.empty() || fields[0] == nullptr || fields[0]->name != "self") {
+      continue;
+    }
+    candidates.push_back(CallableCandidate{.value = sym, .paramOffset = 1U});
+  }
+  return candidates;
+}
+
+/** Find method candidates for a receiver type by searching class ASTs. */
+[[nodiscard]] auto findMethodCandidatesForReceiverType(AnalysisResult& result,
+                                                       lesma::Type* receiverType,
+                                                       const std::string& methodName)
+    -> std::vector<CallableCandidate> {
+  std::vector<CallableCandidate> candidates;
+  if (receiverType == nullptr) {
+    return candidates;
+  }
+
+  // Get the base type (strip pointer if needed)
+  lesma::Type* baseType = receiverType;
+  if (baseType->is(lesma::BaseType::TY_PTR) && baseType->getElementType() != nullptr) {
+    baseType = baseType->getElementType();
+  }
+
+  // Only handle class types (including generics)
+  if (!baseType->is(lesma::BaseType::TY_CLASS) && !baseType->is(lesma::BaseType::TY_GENERIC)) {
+    return candidates;
+  }
+
+  // Get class name from display name (e.g., "list<T>" -> "list")
+  std::string const className = extractClassBaseName(baseType->getDisplayName());
+  if (className.empty()) {
+    return candidates;
+  }
+
+  // Get the declaration file path to find the right analysis view
+  std::string const declPath = baseType->getDeclarationFilePath();
+  if (!declPath.empty()) {
+    if (std::optional<AnalysisView> view = findAnalysisViewForPath(result, declPath)) {
+      if (isUsableAnalysis(*view) && view->ast != nullptr) {
+        if (lesma::Class* klass = findClassInCompound(view->ast, className)) {
+          auto fromClass = collectClassMethodCandidates(klass, methodName, receiverType);
+          candidates.insert(candidates.end(), fromClass.begin(), fromClass.end());
+        }
+      }
+    }
+  }
+
+  // Also search in all analysis views (in case the type is from an import)
+  for (const AnalysisView& view : collectAnalysisViews(result)) {
+    if (!isUsableAnalysis(view) || view.ast == nullptr) {
+      continue;
+    }
+    if (lesma::Class* klass = findClassInCompound(view.ast, className)) {
+      auto fromClass = collectClassMethodCandidates(klass, methodName, receiverType);
+      // Avoid duplicates
+      std::unordered_set<lesma::Value*> seen;
+      for (const auto& c : candidates) {
+        seen.insert(c.value);
+      }
+      for (const auto& c : fromClass) {
+        if (seen.insert(c.value).second) {
+          candidates.push_back(c);
+        }
+      }
+    }
+  }
+
+  return candidates;
+}
+
 auto resolveSubscriptResultType(lesma::Type* baseType, lesma::Type* indexType, lesma::Compound* ast,
                                 lesma::SymbolTable* root, llvm::SourceMgr* srcMgr,
                                 unsigned bufferId, unsigned targetOffset) -> lesma::Type* {
@@ -1526,6 +1701,12 @@ auto buildSignatureHelp(AnalysisResult& result, unsigned line, unsigned characte
 
   std::vector<CallableCandidate> candidates =
       collectCallableCandidates(scope, activeCall->call->getName(), receiverType, argTypes);
+
+  // Also search for class methods if no candidates found
+  if (candidates.empty() && receiverType != nullptr) {
+    candidates = findMethodCandidatesForReceiverType(result, receiverType, activeCall->call->getName());
+  }
+
   if (candidates.empty()) {
     return std::nullopt;
   }
@@ -1977,6 +2158,23 @@ auto resolveMethodSymbolAtCursor(AnalysisResult& result, const AnalysisView& ana
     }
   }
 
+  // Search for class methods in the receiver type's class AST
+  // This handles generic class methods that aren't in the symbol table
+  std::vector<CallableCandidate> classCandidates =
+      findMethodCandidatesForReceiverType(result, receiverType, id.name);
+  if (!classCandidates.empty() && classCandidates.front().value != nullptr) {
+    // Find the owning analysis view for the method's declaration
+    std::string const methodDeclPath = classCandidates.front().value->getDeclarationFilePath();
+    for (const AnalysisView& view : collectAnalysisViews(result)) {
+      if (isUsableAnalysis(view) && view.mainFilePath != nullptr &&
+          normalizePath(*view.mainFilePath) == normalizePath(methodDeclPath)) {
+        return ResolvedSymbol{.value = classCandidates.front().value, .owner = view};
+      }
+    }
+    // Fallback to the current analysis if we can't find the exact view
+    return ResolvedSymbol{.value = classCandidates.front().value, .owner = analysis};
+  }
+
   lesma::Type* bufferReceiver = receiverType;
   if (bufferReceiver != nullptr && bufferReceiver->is(lesma::BaseType::TY_PTR) &&
       bufferReceiver->getElementType() != nullptr) {
@@ -1985,6 +2183,43 @@ auto resolveMethodSymbolAtCursor(AnalysisResult& result, const AnalysisView& ana
   if (bufferReceiver != nullptr && bufferReceiver->is(lesma::BaseType::TY_ARRAY) &&
       isBuiltinBufferListMethodName(id.name)) {
     return findBuiltinBufferListMethodInStdlib(result, id.name);
+  }
+  return std::nullopt;
+}
+
+/** Try to resolve a method symbol directly from the class AST using the declaration identity.
+ * This is a fallback when resolveSymbolByDeclarationIdentity fails to find the symbol
+ * by walking the AST (e.g., for imported module methods). */
+[[nodiscard]] auto tryResolveMethodFromClassAst(AnalysisResult& result,
+                                                const lesma::IndexedDeclarationIdentity& declaration,
+                                                const std::string& methodName)
+    -> std::optional<ResolvedSymbol> {
+  // Find the analysis view for the file containing the declaration
+  std::optional<AnalysisView> view = findAnalysisViewForPath(result, declaration.filePath);
+  if (!view || !isUsableAnalysis(*view) || view->ast == nullptr) {
+    return std::nullopt;
+  }
+
+  // Look for a class that contains a method with this declaration span
+  for (lesma::Statement* stmt : view->ast->getChildren()) {
+    auto* klass = dynamic_cast<lesma::Class*>(stmt);
+    if (klass == nullptr) {
+      continue;
+    }
+    for (lesma::FuncDecl* method : klass->getMethods()) {
+      if (method == nullptr || method->getName() != methodName) {
+        continue;
+      }
+      // Check if this method's declaration span matches
+      llvm::SMRange methodSpan = method->getNameSpan();
+      if (methodSpan.Start.getPointer() == declaration.span.Start.getPointer() &&
+          methodSpan.End.getPointer() == declaration.span.End.getPointer()) {
+        lesma::Value* sym = method->getResolvedSymbol();
+        if (sym != nullptr) {
+          return ResolvedSymbol{.value = sym, .owner = *view};
+        }
+      }
+    }
   }
   return std::nullopt;
 }
@@ -2003,6 +2238,14 @@ auto resolveCanonicalSymbolAtCursor(AnalysisResult& result, const AnalysisView& 
             resolveSymbolByDeclarationIdentity(result, *occurrence->declaration)) {
       return resolved;
     }
+    // Fallback: try to resolve method directly from class AST
+    // This handles imported generic class methods where AST walk might fail
+    if (occurrence->isMemberAccess && occurrence->fallbackTokenKind == lesma::IndexedTokenKind::Method) {
+      if (std::optional<ResolvedSymbol> method =
+              tryResolveMethodFromClassAst(result, *occurrence->declaration, id.name)) {
+        return method;
+      }
+    }
   }
 
   if (id.dotBase.has_value()) {
@@ -2017,6 +2260,31 @@ auto resolveCanonicalSymbolAtCursor(AnalysisResult& result, const AnalysisView& 
   if (std::optional<ResolvedSymbol> method =
           resolveMethodSymbolAtCursor(result, analysis, line, character, id)) {
     return method;
+  }
+
+  // Fallback: try to resolve as a method by looking up the receiver type and searching class ASTs
+  // This is a more aggressive fallback when findActiveCallSite fails
+  if (id.dotBase.has_value()) {
+    // Try to find the receiver variable in scope and get its type
+    lesma::Value* receiverValue =
+        lookupValueForHover(analysis.ast, analysis.rootScope, analysis.sourceMgr, analysis.bufferId,
+                            line, character, *id.dotBase, false);
+    if (receiverValue != nullptr && receiverValue->getType() != nullptr) {
+      lesma::Type* receiverType = receiverValue->getType();
+      // Now search for the method in the receiver's class
+      std::vector<CallableCandidate> classCandidates =
+          findMethodCandidatesForReceiverType(result, receiverType, id.name);
+      if (!classCandidates.empty() && classCandidates.front().value != nullptr) {
+        std::string const methodDeclPath = classCandidates.front().value->getDeclarationFilePath();
+        for (const AnalysisView& view : collectAnalysisViews(result)) {
+          if (isUsableAnalysis(view) && view.mainFilePath != nullptr &&
+              normalizePath(*view.mainFilePath) == normalizePath(methodDeclPath)) {
+            return ResolvedSymbol{.value = classCandidates.front().value, .owner = view};
+          }
+        }
+        return ResolvedSymbol{.value = classCandidates.front().value, .owner = analysis};
+      }
+    }
   }
 
   lesma::Value* local =
@@ -2038,7 +2306,7 @@ auto resolveCanonicalSymbolAtCursor(AnalysisResult& result, const AnalysisView& 
     }
   }
 
-  if (local != nullptr) {
+  if (local != nullptr && local->getCategory() != lesma::ValueCategory::MODULE_SYMBOL) {
     return ResolvedSymbol{.value = local, .owner = analysis};
   }
   return std::nullopt;
@@ -2850,6 +3118,8 @@ auto main() -> int {
       caps.referencesProvider = ::lsp::Opt<::lsp::OneOf<bool, ::lsp::ReferenceOptions>>(true);
       caps.documentSymbolProvider =
           ::lsp::Opt<::lsp::OneOf<bool, ::lsp::DocumentSymbolOptions>>(true);
+      caps.documentFormattingProvider =
+          ::lsp::Opt<::lsp::OneOf<bool, ::lsp::DocumentFormattingOptions>>(true);
       caps.semanticTokensProvider = ::lsp::Opt<
           ::lsp::OneOf<::lsp::SemanticTokensOptions, ::lsp::SemanticTokensRegistrationOptions>>(
           ::lsp::SemanticTokensOptions{
@@ -2925,6 +3195,23 @@ auto main() -> int {
           analysisCache.invalidate(params.textDocument.uri, docStore);
           messageHandler.sendNotification<::lsp::notifications::TextDocument_PublishDiagnostics>(
               ::lsp::PublishDiagnosticsParams{.uri = params.textDocument.uri, .diagnostics = {}});
+        });
+
+    messageHandler.add<::lsp::requests::TextDocument_Formatting>(
+        [&docStore](const ::lsp::requests::TextDocument_Formatting::Params& params)
+            -> ::lsp::Nullable<std::vector<::lsp::TextEdit>> {
+          std::optional<lesma::lsp_srv::DocumentStore::Document> document =
+              docStore.getDocument(params.textDocument.uri);
+          if (!document.has_value()) {
+            return {};
+          }
+
+          std::string logicalPath = document->path.empty() ? "untitled.les" : document->path;
+          auto formatted = lesma::formatSource(document->text, std::move(logicalPath), 100);
+          if (!formatted.has_value()) {
+            return {};
+          }
+          return fullDocumentFormattingEdits(document->text, std::move(*formatted));
         });
 
     messageHandler.add<::lsp::requests::TextDocument_Hover>(

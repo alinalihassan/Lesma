@@ -1,9 +1,9 @@
 func eval_with(callback: func(int) -> int, value: int) -> int {
-    return callback(value)
+  return callback(value)
 }
 
 let triple: func(int) -> int = func(x: int) => x * 3
 
 if eval_with(triple, 5) != 15 {
-    exit(1)
+  exit(1)
 }

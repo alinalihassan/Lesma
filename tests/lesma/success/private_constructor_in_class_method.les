@@ -1,19 +1,19 @@
-# Private `new` overload is only callable from the class body; public no-arg `new` seeds instances.
+// Private `new` overload is only callable from the class body; public no-arg `new` seeds instances.
 class Box {
-    var v: int
+  var v: int
 
-    func new() {
-        self.v = 0
-    }
-    private func new(x: int) {
-        self.v = x
-    }
-    func bump() -> Box {
-        return Box(self.v + 1)
-    }
+  func new() {
+    self.v = 0
+  }
+  private func new(x: int) {
+    self.v = x
+  }
+  func bump() -> Box {
+    return Box(self.v + 1)
+  }
 }
 var b = Box()
 var c = b.bump()
 if c.v != 1 {
-    exit(1)
+  exit(1)
 }
