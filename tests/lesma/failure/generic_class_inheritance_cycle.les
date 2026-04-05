@@ -1,7 +1,6 @@
 # A class cannot inherit from itself (even with the same type argument).
-
-class C<T>: C<T> {
-    func new() {
-        pass
-    }
+class C<T> : C<T> {
+  func new() -> void {
+    pass
+  }
 }

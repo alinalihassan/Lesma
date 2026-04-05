@@ -3,14 +3,13 @@
 # caches a shell before substituting fields. Codegen registers an opaque LLVM struct before lowering
 # fields, and typeContainsUnboundGeneric must not recurse infinitely on cyclic class types.
 class Node<T> {
-    var value: T
-    var child: *Node<T>
-    func new(v: T) {
-        self.value = v
-
-    }
+  var value: T
+  var child: *Node<T>
+  func new(v: T) -> void {
+    self.value = v
+  }
 }
 var leaf = Node<int>(7)
 if leaf.value != 7 {
-    exit(1)
+  exit(1)
 }

@@ -9,6 +9,7 @@ class Holder {
   static var adder: func(int) -> int
 }
 
+
 func main() -> int {
   var d: func(int) -> int = Holder.dbl
   if d(4) != 8 {

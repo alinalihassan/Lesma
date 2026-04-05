@@ -1,18 +1,15 @@
 # Vtable slot keys ignore the return type; overrides must still match the full inherited signature.
-
 class Base {
-    func id() -> int {
-        return 1
-
-    }
+  func id() -> int {
+    return 1
+  }
 }
-class Child: Base {
-    func new() {
-        super.new(self)
 
-    }
-    overload func id() -> float {
-        return 1.0
-
-    }
+class Child : Base {
+  func new() -> void {
+    super.new(self)
+  }
+  overload func id() -> float {
+    return 1.0
+  }
 }

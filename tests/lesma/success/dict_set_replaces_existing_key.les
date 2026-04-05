@@ -2,16 +2,13 @@
 var d: dict<str, int> = {"k": 1}
 
 if d.len() != 1 {
-    exit(1)
-
+  exit(1)
 }
 d.set("k", 99)
 
 if d.len() != 1 {
-    exit(1)
-
+  exit(1)
 }
 if d.get("k") != 99 {
-    exit(1)
-
+  exit(1)
 }

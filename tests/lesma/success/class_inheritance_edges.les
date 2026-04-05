@@ -1,76 +1,70 @@
 # Two-level inheritance edge cases: `super.new(self, …)` argument forwarding, multiple unrelated
 # base/child pairs, zero/negative operands, and a child that only chains `super.new(self)` (no new
 # fields) so the base initializer still runs.
-
 class SumBase {
-    var total: int
+  var total: int
 
-    func new(s: int) {
-        self.total = s * 2
-
-    }
+  func new(s: int) -> void {
+    self.total = s * 2
+  }
 }
-class SumChild: SumBase {
-    var delta: int
 
-    func new(u: int, v: int) {
-        super.new(self, u + v)
-        self.delta = u - v
+class SumChild : SumBase {
+  var delta: int
 
-    }
+  func new(u: int, v: int) -> void {
+    super.new(self, u + v)
+    self.delta = u - v
+  }
 }
+
 class SeedBase {
-    var value: int
+  var value: int
 
-    func new(k: int) {
-        self.value = k + 100
-
-    }
+  func new(k: int) -> void {
+    self.value = k + 100
+  }
 }
-class SeedChild: SeedBase {
-    var tag: int
 
-    func new(m: int, n: int) {
-        super.new(self, m * n)
-        self.tag = m - n
+class SeedChild : SeedBase {
+  var tag: int
 
-    }
+  func new(m: int, n: int) -> void {
+    super.new(self, m * n)
+    self.tag = m - n
+  }
 }
+
 class Proto {
-    var id: int
+  var id: int
 
-    func new() {
-        self.id = 42
-
-    }
+  func new() -> void {
+    self.id = 42
+  }
 }
-class Runner: Proto {
-    func new() {
-        super.new(self)
 
-    }
+class Runner : Proto {
+  func new() -> void {
+    super.new(self)
+  }
 }
 var s = SumChild(10, 4)
 if s.total != 28 or s.delta != 6 {
-    exit(1)
-
+  exit(1)
 }
 var z = SumChild(0, 0)
 if z.total != 0 or z.delta != 0 {
-    exit(1)
-
+  exit(1)
 }
 var neg = SumChild(-2, 7)
 if neg.total != 10 or neg.delta != -9 {
-    exit(1)
-
+  exit(1)
 }
 var u = SeedChild(3, 4)
 if u.value != 112 or u.tag != -1 {
-    exit(1)
-
+  exit(1)
 }
 var r = Runner()
 if r.id != 42 {
-    exit(1)
+  exit(1)
 }

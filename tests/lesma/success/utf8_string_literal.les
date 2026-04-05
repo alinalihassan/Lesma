@@ -2,6 +2,6 @@
 # str.len() is byte length (strlen), not Unicode scalar count.
 let s: str = "αβ"
 if s.len() != 4 {
-    exit(1)
+  exit(1)
 }
 print(s)

@@ -1,6 +1,5 @@
 # Test that wrong argument count fails
 func add(a: int, b: int) -> int {
-    return a + b
-
+  return a + b
 }
 var result = add(1)

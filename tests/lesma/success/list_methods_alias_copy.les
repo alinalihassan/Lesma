@@ -5,41 +5,34 @@ ys.push(3)
 ys[0] = 9
 
 if xs.len() != 3 {
-    exit(1)
-
+  exit(1)
 }
 if xs[0] != 9 {
-    exit(1)
-
+  exit(1)
 }
 var zs = xs.copy()
 zs.push(4)
 zs[0] = 1
 
 if xs.len() != 3 {
-    exit(1)
-
+  exit(1)
 }
 if xs[0] != 9 {
-    exit(1)
-
+  exit(1)
 }
 if zs.len() != 4 {
-    exit(1)
-
+  exit(1)
 }
 if zs[0] != 1 {
-    exit(1)
-
+  exit(1)
 }
 var nested = [[1], [2, 3]]
 var nestedCopy = nested.copy()
 nestedCopy[0].push(9)
 
 if nested[0].len() != 1 {
-    exit(1)
-
+  exit(1)
 }
 if nestedCopy[0].len() != 2 {
-    exit(1)
+  exit(1)
 }

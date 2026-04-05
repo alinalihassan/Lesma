@@ -1,37 +1,36 @@
 # Call the same method on every class variant without narrowing when signatures match.
-
 class BoxA {
-    var v: int
+  var v: int
 
-    func new() {
-        self.v = 10
-
-    }
-    func id() -> int {
-        return self.v
-    }
+  func new() -> void {
+    self.v = 10
+  }
+  func id() -> int {
+    return self.v
+  }
 }
+
 class BoxB {
-    var v: int
+  var v: int
 
-    func new() {
-        self.v = 20
-
-    }
-    func id() -> int {
-        return self.v + 1
-    }
+  func new() -> void {
+    self.v = 20
+  }
+  func id() -> int {
+    return self.v + 1
+  }
 }
+
 
 export func callId(x: BoxA | BoxB) -> int {
-    return x.id()
+  return x.id()
 }
 
 var a = BoxA()
 var b = BoxB()
 if callId(a) != 10 {
-    exit(1)
+  exit(1)
 }
 if callId(b) != 21 {
-    exit(1)
+  exit(1)
 }

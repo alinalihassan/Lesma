@@ -1,17 +1,16 @@
 class Wrapper {
-    var x: int
-    func new(v: int) {
-        self.x = v
-    }
-    func id<T>(v: T) -> T {
-        return v
-
-    }
+  var x: int
+  func new(v: int) -> void {
+    self.x = v
+  }
+  func id<T>(v: T) -> T {
+    return v
+  }
 }
 var w = Wrapper(0)
 if w.id(42) != 42 {
-    exit(1)
+  exit(1)
 }
 if w.id(1.5) != 1.5 {
-    exit(1)
+  exit(1)
 }

@@ -6,10 +6,11 @@ class Box<T> {
 
   var x: T
 
-  func new(v: T) {
+  func new(v: T) -> void {
     self.x = v
   }
 }
+
 
 func main() -> int {
   # `Box<int>.tag` would parse as `Box < int` (comparison); use the template name for static access.

@@ -1,22 +1,21 @@
 trait NeedVal {
-    func val() -> int
-
+  func val() -> int
 }
+
 class B {
-    var x: int
-    func new(v: int) {
-        self.x = v
-    }
-    func val() -> int {
-        return self.x
-
-    }
+  var x: int
+  func new(v: int) -> void {
+    self.x = v
+  }
+  func val() -> int {
+    return self.x
+  }
 }
-func f<T: NeedVal>(o: T) -> int {
-    return o.val()
 
+func f<T: NeedVal>(o: T) -> int {
+  return o.val()
 }
 var b = B(1)
 if f(b) != 1 {
-    exit(1)
+  exit(1)
 }

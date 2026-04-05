@@ -2,60 +2,50 @@
 var w: int = 0
 var i: int = 0
 while i < 3 {
-    defer w = w + 1
-    i = i + 1
-
+  defer w = w + 1
+  i = i + 1
 }
 if w != 3 {
-    exit(1)
-
+  exit(1)
 }
 var f: int = 0
 for x in [1, 1, 1] {
-    defer f = f + 1
-
+  defer f = f + 1
 }
 if f != 3 {
-    exit(1)
-
+  exit(1)
 }
 var b: int = 0
 i = 0
 while i < 5 {
-    defer b = b + 10
-    i = i + 1
-    if i == 2 {
-        break
-    }
-
+  defer b = b + 10
+  i = i + 1
+  if i == 2 {
+    break
+  }
 }
 if b != 20 {
-    exit(1)
-
+  exit(1)
 }
 var c: int = 0
 i = 0
 while i < 3 {
-    defer c = c + 1
-    i = i + 1
-    if i == 2 {
-        continue
-    }
-
+  defer c = c + 1
+  i = i + 1
+  if i == 2 {
+    continue
+  }
 }
 if c != 3 {
-    exit(1)
-
+  exit(1)
 }
 var lifo: int = 0
 i = 0
 while i < 1 {
-    defer lifo = lifo * 10 + 2
-    defer lifo = lifo * 10 + 1
-    i = i + 1
-
+  defer lifo = lifo * 10 + 2
+  defer lifo = lifo * 10 + 1
+  i = i + 1
 }
 if lifo != 12 {
-    exit(1)
-
+  exit(1)
 }

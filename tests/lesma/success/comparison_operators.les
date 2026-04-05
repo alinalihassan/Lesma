@@ -5,62 +5,49 @@ var z = 10
 
 # Equal
 if x == y {
-    exit(1)
-
+  exit(1)
 }
 if not (x == z) {
-    exit(1)
-
+  exit(1)
 }
 # Not equal
 if not (x != y) {
-    exit(1)
-
+  exit(1)
 }
 if x != z {
-    exit(1)
-
+  exit(1)
 }
 # Less than
 if not (x < y) {
-    exit(1)
-
+  exit(1)
 }
 if x < z {
-    exit(1)
-
+  exit(1)
 }
 # Less than or equal
 if not (x <= y) {
-    exit(1)
-
+  exit(1)
 }
 if not (x <= z) {
-    exit(1)
-
+  exit(1)
 }
 if y <= x {
-    exit(1)
-
+  exit(1)
 }
 # Greater than
 if not (y > x) {
-    exit(1)
-
+  exit(1)
 }
 if x > z {
-    exit(1)
-
+  exit(1)
 }
 # Greater than or equal
 if not (y >= x) {
-    exit(1)
-
+  exit(1)
 }
 if not (x >= z) {
-    exit(1)
-
+  exit(1)
 }
 if x >= y {
-    exit(1)
+  exit(1)
 }

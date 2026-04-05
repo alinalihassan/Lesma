@@ -2,15 +2,12 @@
 var x: int = 10
 var i: int = 0
 while i < 1 {
-    var y: int = 20
-    if y != 20 {
-        exit(1)
-
-    }
-    i = i + 1
-
+  var y: int = 20
+  if y != 20 {
+    exit(1)
+  }
+  i = i + 1
 }
 if x != 10 {
-    exit(1)
-
+  exit(1)
 }

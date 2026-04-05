@@ -1,26 +1,25 @@
 trait Alpha {
-    func a() -> int
-
+  func a() -> int
 }
+
 trait Beta {
-    func b() -> int
-
+  func b() -> int
 }
+
 # Only Alpha — not valid for T: Alpha & Beta
 class OnlyA impl Alpha {
-    func new() {
-        var _ = 0
-    }
-    func a() -> int {
-        return 1
-
-    }
+  func new() -> void {
+    var _ = 0
+  }
+  func a() -> int {
+    return 1
+  }
 }
-func both<T: Alpha & Beta>(x: T) -> int {
-    return x.a() + x.b()
 
+func both<T: Alpha & Beta>(x: T) -> int {
+  return x.a() + x.b()
 }
 var o = OnlyA()
 if both(o) != 1 {
-    exit(1)
+  exit(1)
 }

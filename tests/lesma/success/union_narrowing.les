@@ -1,38 +1,37 @@
 # Union types, runtime `is`, and flow narrowing in branches.
-
 export func kind(x: int | float) -> int {
-    if x is int {
-        return x + 1
-    }
-    return 2
+  if x is int {
+    return x + 1
+  }
+  return 2
 }
 
 if kind(10) != 11 {
-    exit(1)
+  exit(1)
 }
 if kind(3.5) != 2 {
-    exit(1)
+  exit(1)
 }
 
 var u: float | int = 7
 if u is float {
-    exit(1)
+  exit(1)
 }
 if u is not int {
-    exit(1)
+  exit(1)
 }
 
 export func onlyIntElse(x: int | float) -> int {
-    if x is float {
-        return 0
-    } else {
-        return x + 1
-    }
+  if x is float {
+    return 0
+  } else {
+    return x + 1
+  }
 }
 
 if onlyIntElse(1.0) != 0 {
-    exit(1)
+  exit(1)
 }
 if onlyIntElse(3) != 4 {
-    exit(1)
+  exit(1)
 }

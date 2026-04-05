@@ -1,12 +1,10 @@
 # Pointers compare equal to integer zero (address as integer).
 var v: int = 101
-let p: *int = &v
+let p: *int = ?v
 
 if p == 0 {
-    exit(1)
-
+  exit(1)
 }
 if not (p != 0) {
-    exit(1)
-
+  exit(1)
 }

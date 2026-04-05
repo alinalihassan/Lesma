@@ -1,29 +1,28 @@
 # Trait with two methods; generic bound dispatches both
 trait PairOps {
-    func first() -> int
-    func second() -> int
-
+  func first() -> int
+  func second() -> int
 }
+
 class P impl PairOps {
-    var a: int
-    var b: int
-    func new(x: int, y: int) {
-        self.a = x
-        self.b = y
-    }
-    func first() -> int {
-        return self.a
-    }
-    func second() -> int {
-        return self.b
-
-    }
+  var a: int
+  var b: int
+  func new(x: int, y: int) -> void {
+    self.a = x
+    self.b = y
+  }
+  func first() -> int {
+    return self.a
+  }
+  func second() -> int {
+    return self.b
+  }
 }
-func total<T: PairOps>(p: T) -> int {
-    return p.first() + p.second()
 
+func total<T: PairOps>(p: T) -> int {
+  return p.first() + p.second()
 }
 var x = P(10, 32)
 if total(x) != 42 {
-    exit(1)
+  exit(1)
 }

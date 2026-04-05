@@ -1,6 +1,5 @@
 # Module B: imports math (non-named; same module A may import). Used by both A tests.
 import "import_math.les"
-
 export func use_math(x: int, y: int) -> int {
-    return import_math.add(x, y)
+  return import_math.add(x, y)
 }

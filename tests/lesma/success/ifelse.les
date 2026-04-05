@@ -2,25 +2,19 @@ var x: int = 5
 var y: int = 10
 
 if x == 6 {
-    x = 7
-}
-else if x == 5 {
-    x = 50
-}
-else {
-    x = 9
-
+  x = 7
+} else if x == 5 {
+  x = 50
+} else {
+  x = 9
 }
 if y == 9 {
-    y = 5
-}
-else if y == 11 {
-    y = 6
-}
-else {
-    y = 51
-
+  y = 5
+} else if y == 11 {
+  y = 6
+} else {
+  y = 51
 }
 if x + y != 101 {
-	exit(1)
+  exit(1)
 }

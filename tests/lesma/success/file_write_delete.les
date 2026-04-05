@@ -5,19 +5,17 @@ file.write(out_path.cstr(), "roundtrip\n")
 
 let r = file("tests/lesma/success/file_write_delete_out.txt")
 if r.text() != "roundtrip\n" {
-    exit(1)
-
+  exit(1)
 }
 file.write(out_path.cstr(), r)
 
 let r2 = file("tests/lesma/success/file_write_delete_out.txt")
 if r2.text() != "roundtrip\n" {
-    exit(2)
-
+  exit(2)
 }
 let h = file("tests/lesma/success/file_write_delete_out.txt")
 h.delete()
 
 if file("tests/lesma/success/file_write_delete_out.txt").text() != "" {
-    exit(3)
+  exit(3)
 }

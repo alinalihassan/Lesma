@@ -31,6 +31,7 @@
 #include "liblesma/Common/Utils.h"
 #include "liblesma/Driver/AnalysisResult.h"
 #include "liblesma/Driver/Driver.h"
+#include "liblesma/Formatter/SourceFormatter.h"
 #include "liblesma/Symbol/SymbolTable.h"
 #include "liblesma/Symbol/Type.h"
 #include "liblesma/Symbol/TypeUtils.h"
@@ -44,6 +45,40 @@ using namespace lesma::lsp_srv;
 [[nodiscard]] auto vectorContainsString(const std::vector<std::string>& haystack,
                                         const std::string& needle) -> bool {
   return std::find(haystack.begin(), haystack.end(), needle) != haystack.end();
+}
+
+[[nodiscard]] auto endPositionForText(llvm::StringRef utf8Text) -> ::lsp::Position {
+  unsigned line = 0U;
+  unsigned character = 0U;
+  for (char ch : utf8Text) {
+    if (ch == '\n') {
+      ++line;
+      character = 0U;
+    } else {
+      ++character;
+    }
+  }
+  return ::lsp::Position{
+      .line = line,
+      .character = character,
+  };
+}
+
+[[nodiscard]] auto fullDocumentFormattingEdits(llvm::StringRef original, std::string replacement)
+    -> ::lsp::Nullable<std::vector<::lsp::TextEdit>> {
+  if (original == replacement) {
+    return {};
+  }
+  return ::lsp::Nullable<std::vector<::lsp::TextEdit>>(std::vector<::lsp::TextEdit>{
+      ::lsp::TextEdit{
+          .range =
+              ::lsp::Range{
+                  .start = ::lsp::Position{.line = 0U, .character = 0U},
+                  .end = endPositionForText(original),
+              },
+          .newText = std::move(replacement),
+      },
+  });
 }
 
 /** Cached analysis result for a document version. */
@@ -2850,6 +2885,8 @@ auto main() -> int {
       caps.referencesProvider = ::lsp::Opt<::lsp::OneOf<bool, ::lsp::ReferenceOptions>>(true);
       caps.documentSymbolProvider =
           ::lsp::Opt<::lsp::OneOf<bool, ::lsp::DocumentSymbolOptions>>(true);
+      caps.documentFormattingProvider =
+          ::lsp::Opt<::lsp::OneOf<bool, ::lsp::DocumentFormattingOptions>>(true);
       caps.semanticTokensProvider = ::lsp::Opt<
           ::lsp::OneOf<::lsp::SemanticTokensOptions, ::lsp::SemanticTokensRegistrationOptions>>(
           ::lsp::SemanticTokensOptions{
@@ -2925,6 +2962,23 @@ auto main() -> int {
           analysisCache.invalidate(params.textDocument.uri, docStore);
           messageHandler.sendNotification<::lsp::notifications::TextDocument_PublishDiagnostics>(
               ::lsp::PublishDiagnosticsParams{.uri = params.textDocument.uri, .diagnostics = {}});
+        });
+
+    messageHandler.add<::lsp::requests::TextDocument_Formatting>(
+        [&docStore](const ::lsp::requests::TextDocument_Formatting::Params& params)
+            -> ::lsp::Nullable<std::vector<::lsp::TextEdit>> {
+          std::optional<lesma::lsp_srv::DocumentStore::Document> document =
+              docStore.getDocument(params.textDocument.uri);
+          if (!document.has_value()) {
+            return {};
+          }
+
+          std::string logicalPath = document->path.empty() ? "untitled.les" : document->path;
+          auto formatted = lesma::formatSource(document->text, std::move(logicalPath), 100);
+          if (!formatted.has_value()) {
+            return {};
+          }
+          return fullDocumentFormattingEdits(document->text, std::move(*formatted));
         });
 
     messageHandler.add<::lsp::requests::TextDocument_Hover>(

@@ -1,19 +1,17 @@
 func choose(n: int) -> int {
-    if n == 1 {
-        return 10
-    }
-    else if n == 2 {
-        return 20
-    }
-    return 30
-
+  if n == 1 {
+    return 10
+  } else if n == 2 {
+    return 20
+  }
+  return 30
 }
 if choose(1) != 10 {
-    exit(1)
+  exit(1)
 }
 if choose(2) != 20 {
-    exit(1)
+  exit(1)
 }
 if choose(3) != 30 {
-    exit(1)
+  exit(1)
 }

@@ -1,24 +1,23 @@
 # Traits from another module + intersection generic in this file
 import "trait_bounds_mod.les"
-
-class Both impl HasVal, HasDbl {
-    var x: int
-    func new(v: int) {
-        self.x = v
-    }
-    func val() -> int {
-        return self.x
-    }
-    func dbl() -> int {
-        return self.x * 2
-
-    }
+class Both impl HasVal,
+HasDbl {
+  var x: int
+  func new(v: int) -> void {
+    self.x = v
+  }
+  func val() -> int {
+    return self.x
+  }
+  func dbl() -> int {
+    return self.x * 2
+  }
 }
-func sum<T: HasVal & HasDbl>(o: T) -> int {
-    return o.val() + o.dbl()
 
+func sum<T: HasVal & HasDbl>(o: T) -> int {
+  return o.val() + o.dbl()
 }
 var b = Both(3)
 if sum(b) != 9 {
-    exit(1)
+  exit(1)
 }

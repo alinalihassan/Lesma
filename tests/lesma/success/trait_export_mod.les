@@ -1,4 +1,4 @@
 # Exported trait for import * tests
 export trait ExportedTrait {
-    func foo() -> int
+  func foo() -> int
 }

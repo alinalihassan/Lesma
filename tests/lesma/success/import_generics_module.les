@@ -1,10 +1,10 @@
 # Module exporting a generic class so import/export walker can see it.
 export class Box<T> {
-    var val: T
-    func new(v: T) {
-        self.val = v
-    }
-    func getVal() -> T {
-        return self.val
-    }
+  var val: T
+  func new(v: T) -> void {
+    self.val = v
+  }
+  func getVal() -> T {
+    return self.val
+  }
 }

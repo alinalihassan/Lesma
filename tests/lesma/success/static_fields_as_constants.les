@@ -15,10 +15,12 @@ class Limits {
   }
 }
 
+
 class Offsets {
   static let a: int = 10
   static let b: int = 20
 }
+
 
 func main() -> int {
   if Limits.min != 0 {

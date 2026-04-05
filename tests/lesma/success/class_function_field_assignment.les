@@ -1,23 +1,21 @@
-func accepts(callback: func(int)) {
-    var seen = 1
-
+func accepts(callback: func(int) -> void) -> void {
+  var seen = 1
 }
-func printer(value: int) {
-    print(value)
 
+func printer(value: int) -> void {
+  print(value)
 }
+
 class CallbackHolder {
-    var callback: func(int)
+  var callback: func(int) -> void
 
-    func new(callback: func(int)) {
-        self.callback = callback
-
-    }
+  func new(callback: func(int) -> void) -> void {
+    self.callback = callback
+  }
 }
 var holder = CallbackHolder(printer)
 
-if holder.callback is not func(int) {
-    exit(1)
-
+if holder.callback is not func(int) -> void {
+  exit(1)
 }
 accepts(holder.callback)

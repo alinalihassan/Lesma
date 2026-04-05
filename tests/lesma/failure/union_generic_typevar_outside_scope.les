@@ -1,7 +1,6 @@
 # Type parameter `T` is not in scope on a non-generic class method.
-
 class C {
-    func m(x: T | int) -> int {
-        return 0
-    }
+  func m(x: T | int) -> int {
+    return 0
+  }
 }

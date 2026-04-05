@@ -127,6 +127,7 @@ private:
   /** Skip tokens until the next newline (or EOF) after a recovered parse error. */
   auto synchronizeToNextLine() -> void;
   auto recoverFromParserError(const ParserError& err) -> void;
+  auto attachTrivia() -> void;
 
   auto parseCompound() -> std::unique_ptr<Compound>;
   auto parseBlock() -> std::unique_ptr<Compound>;

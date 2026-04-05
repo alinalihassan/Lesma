@@ -45,8 +45,12 @@ auto initializeLexer(const std::shared_ptr<SourceMgr>& sourceMgr) -> std::unique
   return curLexer;
 }
 
-auto initializeParser(std::unique_ptr<Lexer> lexer) -> std::unique_ptr<Parser> {
-  auto curParser = std::make_unique<Parser>(lexer->getTokens());
+auto initializeParser(std::unique_ptr<Lexer> lexer, const std::shared_ptr<SourceMgr>& srcMgr = nullptr)
+    -> std::unique_ptr<Parser> {
+  auto curParser =
+      srcMgr != nullptr ? std::make_unique<Parser>(lexer->getTokens(), nullptr, srcMgr,
+                                                   srcMgr->getNumBuffers(), "test.les")
+                        : std::make_unique<Parser>(lexer->getTokens());
   curParser->parse();
 
   return curParser;
@@ -334,7 +338,7 @@ TEST(FormatterTests, FormatFilePreservesCommentsAndIsIdempotent) {
   std::string const expected = "var x = 1 # inline\n"
                                "# leading\n"
                                "func add(a: int, b: int) -> int {\n"
-                               "    return a + b\n"
+                               "  return a + b\n"
                                "}\n";
   EXPECT_EQ(*formatted, expected);
 
@@ -365,6 +369,85 @@ TEST(FormatterTests, DriverFormatsDirectoriesRecursively) {
   EXPECT_TRUE(std::filesystem::exists(ignoredFile));
 
   std::filesystem::remove_all(root);
+}
+
+TEST(FormatterTests, ParserAttachesStatementTriviaAndNormalizedBlankLines) {
+  auto srcMgr = initializeSrcMgr("# file comment\nlet x = 1 # trailing\n\n# step\nlet y = 2\n");
+  auto lexer = initializeLexer(srcMgr);
+  auto parser = initializeParser(std::move(lexer), srcMgr);
+
+  std::vector<Statement*> const children = parser->getAst()->getChildren();
+  ASSERT_EQ(children.size(), 2U);
+
+  EXPECT_EQ(children[0]->getLeadingComments().size(), 1U);
+  EXPECT_EQ(children[0]->getLeadingComments()[0].text, "# file comment");
+  ASSERT_TRUE(children[0]->getTrailingComment().has_value());
+  EXPECT_EQ(children[0]->getTrailingComment()->text, "# trailing");
+
+  EXPECT_EQ(children[1]->getExtraBlankLinesBefore(), 1U);
+  ASSERT_EQ(children[1]->getLeadingComments().size(), 1U);
+  EXPECT_EQ(children[1]->getLeadingComments()[0].text, "# step");
+}
+
+TEST(FormatterTests, FormatSourceNormalizesOptionalBlankLines) {
+  auto formatted = formatSource("func work() -> void {\nlet a = 1\n\n\nlet b = 2\n\n# step\nlet c = 3\n}\n",
+                                "blank_lines_test.les", 100);
+  ASSERT_TRUE(formatted.has_value()) << formatted.error().message;
+  EXPECT_EQ(*formatted, "func work() -> void {\n"
+                        "  let a = 1\n"
+                        "\n"
+                        "  let b = 2\n"
+                        "\n"
+                        "  # step\n"
+                        "  let c = 3\n"
+                        "}\n");
+}
+
+TEST(FormatterTests, FormatSourcePreservesEnumValueComments) {
+  auto formatted =
+      formatSource("enum Status {\nREADY\n\n# transitional\nWAITING # trailing\n}\n",
+                   "enum_comments_test.les", 100);
+  ASSERT_TRUE(formatted.has_value()) << formatted.error().message;
+  EXPECT_EQ(*formatted, "enum Status {\n"
+                        "  READY\n"
+                        "\n"
+                        "  # transitional\n"
+                        "  WAITING # trailing\n"
+                        "}\n");
+}
+
+TEST(FormatterTests, FormatSourceIsParseStable) {
+  auto formatted = formatSource(
+      "# heading\nfunc add(a:int,b:int)->int{\nreturn a+b\n}\n\nlet result=add(1,2)\n",
+      "roundtrip_test.les", 100);
+  ASSERT_TRUE(formatted.has_value()) << formatted.error().message;
+
+  auto reparsed = parseSourceForFormatting(*formatted, "roundtrip_test.les");
+  ASSERT_TRUE(reparsed.has_value()) << reparsed.error().message;
+
+  std::string const formattedAgain = formatParsedFile(*reparsed, 100);
+  EXPECT_EQ(formattedAgain, *formatted);
+}
+
+TEST(FormatterTests, NarrowWidthBreaksLongCalls) {
+  auto formatted =
+      formatSource("combine(alpha, beta, gamma, delta)\n", "width_test.les", 20);
+  ASSERT_TRUE(formatted.has_value()) << formatted.error().message;
+  EXPECT_EQ(*formatted, "combine(\n"
+                        "  alpha,\n"
+                        "  beta,\n"
+                        "  gamma,\n"
+                        "  delta\n"
+                        ")\n");
+}
+
+TEST(FormatterTests, TopLevelMajorDeclarationsCapAtOneBlankLine) {
+  auto formatted = formatSource("func a() -> void {}\n\n\nfunc b() -> void {}\n",
+                                "top_level_spacing_test.les", 100);
+  ASSERT_TRUE(formatted.has_value()) << formatted.error().message;
+  EXPECT_EQ(*formatted, "func a() -> void {}\n"
+                        "\n"
+                        "func b() -> void {}\n");
 }
 
 // ============================================================================

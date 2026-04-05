@@ -1,13 +1,11 @@
 # `as int` from float truncates toward zero (not floor).
-let a: int = (-9.7) as int
+let a: int = -9.7 as int
 
 if a != -9 {
-    exit(1)
-
+  exit(1)
 }
-let b: int = (9.7) as int
+let b: int = 9.7 as int
 
 if b != 9 {
-    exit(1)
-
+  exit(1)
 }

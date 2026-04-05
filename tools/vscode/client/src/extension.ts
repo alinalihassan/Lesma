@@ -1,5 +1,3 @@
-import * as fs from "fs/promises";
-import * as os from "os";
 import * as path from "path";
 import { workspace, ExtensionContext } from "vscode";
 import * as vscode from "vscode";
@@ -13,8 +11,6 @@ import { getIndentDedentConfiguration } from "./configurations/indentDedentConfi
 import { checkForLesma, setLesmaCommands } from "./lesma/lesmaCommands";
 import { resolveWorkspaceConfigPath } from "./utils/configPath";
 import OutputConsole from "./utils/OutputConsole";
-import ProcessManager from "./utils/ProcessManager";
-import SystemCommands from "./utils/SystemCommands";
 
 let client: LanguageClient;
 
@@ -27,56 +23,6 @@ function getLspServerCommand(): string {
     return path.join(dir, exe);
   }
   return process.platform === "win32" ? "lesma-lsp.exe" : "lesma-lsp";
-}
-
-async function formatDocument(
-  document: vscode.TextDocument
-): Promise<vscode.TextEdit[]> {
-  if (document.languageId !== "lesma") {
-    return [];
-  }
-
-  const lesmaPath = await SystemCommands.getLesmaCommandPath();
-  if (lesmaPath === null) {
-    return [];
-  }
-
-  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "lesma-format-"));
-  const tempFilename =
-    document.fileName !== ""
-      ? path.basename(document.fileName)
-      : "untitled.les";
-  const tempPath = path.join(tempDir, tempFilename.endsWith(".les") ? tempFilename : `${tempFilename}.les`);
-  const originalText = document.getText();
-
-  try {
-    await fs.writeFile(tempPath, originalText, "utf8");
-    const { error, stderr, exitCode } = await ProcessManager.startCommand(lesmaPath, [
-      "fmt",
-      tempPath,
-    ]);
-
-    if (error || exitCode !== 0) {
-      if (stderr.trim() !== "") {
-        OutputConsole.println(stderr);
-        OutputConsole.show();
-      }
-      return [];
-    }
-
-    const formattedText = await fs.readFile(tempPath, "utf8");
-    if (formattedText === originalText) {
-      return [];
-    }
-
-    const wholeDocument = new vscode.Range(
-      document.positionAt(0),
-      document.positionAt(originalText.length)
-    );
-    return [vscode.TextEdit.replace(wholeDocument, formattedText)];
-  } finally {
-    await fs.rm(tempDir, { recursive: true, force: true });
-  }
 }
 
 export function activate(context: ExtensionContext) {
@@ -107,13 +53,6 @@ export function activate(context: ExtensionContext) {
     getIndentDedentConfiguration()
   );
 
-  context.subscriptions.push(
-    vscode.languages.registerDocumentFormattingEditProvider("lesma", {
-      provideDocumentFormattingEdits(document: vscode.TextDocument) {
-        return formatDocument(document);
-      },
-    })
-  );
   context.subscriptions.push(client);
   OutputConsole.println("Lesma extension started");
   void client.start().then(() => {

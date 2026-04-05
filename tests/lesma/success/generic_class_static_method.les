@@ -2,7 +2,7 @@
 class Cell<T> {
   var x: T
 
-  func new(v: T) {
+  func new(v: T) -> void {
     self.x = v
   }
 

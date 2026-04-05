@@ -1,5 +1,6 @@
 #include "liblesma/Formatter/PrettyDoc.h"
 
+#include <algorithm>
 #include <utility>
 
 namespace lesma::pretty {
@@ -33,6 +34,19 @@ auto flattenConcat(std::vector<Doc>& out, const Doc& doc) -> void {
     return;
   }
   out.push_back(doc);
+}
+
+auto trimWhitespaceOnlyCurrentLine(std::string& output) -> void {
+  size_t const lineStart = output.find_last_of('\n');
+  size_t const contentStart = lineStart == std::string::npos ? 0U : lineStart + 1U;
+  if (contentStart >= output.size()) {
+    return;
+  }
+  bool const onlySpaces = std::all_of(output.begin() + static_cast<std::ptrdiff_t>(contentStart),
+                                      output.end(), [](char ch) { return ch == ' '; });
+  if (onlySpaces) {
+    output.erase(contentStart);
+  }
 }
 
 auto fits(int remaining, std::vector<LayoutFrame> stack) -> bool {
@@ -182,12 +196,14 @@ auto layout(const Doc& doc, int width) -> std::string {
         output += node.text;
         column += static_cast<int>(node.text.size());
       } else {
+        trimWhitespaceOnlyCurrentLine(output);
         output.push_back('\n');
         output.append(static_cast<size_t>(frame.indent), ' ');
         column = frame.indent;
       }
       break;
     case DocKind::HardLine:
+      trimWhitespaceOnlyCurrentLine(output);
       output.push_back('\n');
       output.append(static_cast<size_t>(frame.indent), ' ');
       column = frame.indent;

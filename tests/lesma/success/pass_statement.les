@@ -2,24 +2,21 @@
 pass
 
 class C {
-    func new() {
-        pass
-    }
-    func noop() {
-        pass
-
-    }
-}
-func noop_fn() {
+  func new() -> void {
     pass
+  }
+  func noop() -> void {
+    pass
+  }
+}
 
+func noop_fn() -> void {
+  pass
 }
 if true {
-    pass
-}
-else {
-    pass
-
+  pass
+} else {
+  pass
 }
 var c = C()
 noop_fn()

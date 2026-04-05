@@ -3,8 +3,8 @@ var xs = list<int>()
 xs.push(3)
 var sum = 0
 for v in xs {
-    sum = sum + v
+  sum = sum + v
 }
 if sum != 3 {
-    exit(1)
+  exit(1)
 }

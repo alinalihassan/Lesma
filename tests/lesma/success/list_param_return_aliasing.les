@@ -1,6 +1,5 @@
 func echo(xs: list<int>) -> list<int> {
-    return xs
-
+  return xs
 }
 var xs = [10]
 var ys = echo(xs)
@@ -8,12 +7,11 @@ ys.push(20)
 ys[1] = 99
 
 if xs[1] != 99 {
-    exit(1)
-
+  exit(1)
 }
 var zs = ys.copy()
 zs[1] = 5
 
 if xs[1] != 99 {
-    exit(1)
+  exit(1)
 }

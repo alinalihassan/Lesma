@@ -1,4 +1,4 @@
-let id = func<T>(x: T) => x
+let id = func<T>(x: T) -> void => x
 if id(42) != 42 {
-    exit(1)
+  exit(1)
 }

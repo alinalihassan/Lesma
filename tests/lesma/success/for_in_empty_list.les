@@ -2,18 +2,14 @@
 var n: int = 0
 var empty: list<int> = []
 for _ in empty {
-    n = n + 1
-
+  n = n + 1
 }
 if n != 0 {
-    exit(1)
-
+  exit(1)
 }
 for _ in list<int>() {
-    n = n + 1
-
+  n = n + 1
 }
 if n != 0 {
-    exit(1)
-
+  exit(1)
 }

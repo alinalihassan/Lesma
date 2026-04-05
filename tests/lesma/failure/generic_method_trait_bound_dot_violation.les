@@ -1,27 +1,26 @@
 # Generic method `take<T: NeedVal>` must reject a class that does not declare `impl NeedVal`.
 # Dot-call resolution previously skipped verifyGenericTraitBounds on the callee.
 trait NeedVal {
-    func val() -> int
-
+  func val() -> int
 }
+
 class B {
-    var x: int
-    func new(v: int) {
-        self.x = v
-    }
-    func val() -> int {
-        return self.x
-
-    }
+  var x: int
+  func new(v: int) -> void {
+    self.x = v
+  }
+  func val() -> int {
+    return self.x
+  }
 }
-class Box {
-    func new() {
-        pass
-    }
-    func take<T: NeedVal>(o: T) -> int {
-        return o.val()
 
-    }
+class Box {
+  func new() -> void {
+    pass
+  }
+  func take<T: NeedVal>(o: T) -> int {
+    return o.val()
+  }
 }
 var b = B(1)
 var box = Box()

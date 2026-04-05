@@ -1,15 +1,11 @@
 # `and` / `or` skip the right-hand side when the result is fixed; RHS uses a runtime divisor (no const-fold).
 var z: int = 0
-if false and (1 / z == 0) {
-    exit(1)
-
+if false and 1 / z == 0 {
+  exit(1)
 }
 var z2: int = 0
-if true or (1 / z2 == 0) {
-    var _x = 1
-
-}
-else {
-    exit(1)
-
+if true or 1 / z2 == 0 {
+  var _x = 1
+} else {
+  exit(1)
 }

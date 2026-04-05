@@ -1,19 +1,23 @@
 # Deep monomorphized generic call chain (stress specialization cache).
 func step0<T>(x: T) -> T {
-    return x
+  return x
 }
+
 func step1<T>(x: T) -> T {
-    return step0(x)
+  return step0(x)
 }
+
 func step2<T>(x: T) -> T {
-    return step1(x)
+  return step1(x)
 }
+
 func step3<T>(x: T) -> T {
-    return step2(x)
+  return step2(x)
 }
+
 func step4<T>(x: T) -> T {
-    return step3(x)
+  return step3(x)
 }
 if step4(42) != 42 {
-    exit(1)
+  exit(1)
 }

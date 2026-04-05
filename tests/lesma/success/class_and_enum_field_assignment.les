@@ -1,41 +1,37 @@
 enum Status {
-    READY
-    DONE
-
+  READY
+  DONE
 }
+
 class Payload {
-    var value: int
+  var value: int
 
-    func new(value: int) {
-        self.value = value
-
-    }
+  func new(value: int) -> void {
+    self.value = value
+  }
 }
+
 class Holder {
-    var payload: Payload
-    var status: Status
+  var payload: Payload
+  var status: Status
 
-    func new(value: int) {
-        self.payload = Payload(value)
-        self.status = Status.READY
-
-    }
-    func isReady() -> bool {
-        return self.status == Status.READY
-
-    }
-    func markDone() {
-        self.status = Status.DONE
-
-    }
+  func new(value: int) -> void {
+    self.payload = Payload(value)
+    self.status = Status.READY
+  }
+  func isReady() -> bool {
+    return self.status == Status.READY
+  }
+  func markDone() -> void {
+    self.status = Status.DONE
+  }
 }
 var holder = Holder(101)
 
 if not holder.isReady() {
-    exit(1)
-
+  exit(1)
 }
 holder.markDone()
 if holder.isReady() {
-    exit(1)
+  exit(1)
 }

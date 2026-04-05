@@ -1,5 +1,4 @@
 class Box {
-    private func new(x: int) {
-    }
+  private func new(x: int) -> void {}
 }
 var b = Box(1)

@@ -1,13 +1,13 @@
 trait TwoMethods {
-    func a() -> int
-    func b() -> int
-
+  func a() -> int
+  func b() -> int
 }
+
 class Incomplete impl TwoMethods {
-    func new() {
-        var _ = 0
-    }
-    func a() -> int {
-        return 1
-    }
+  func new() -> void {
+    var _ = 0
+  }
+  func a() -> int {
+    return 1
+  }
 }

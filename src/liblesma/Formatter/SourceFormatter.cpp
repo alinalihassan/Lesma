@@ -32,19 +32,6 @@ constexpr int DEFAULT_MIN_WIDTH = 20;
 
 [[nodiscard]] auto clampWidth(int width) -> int { return std::max(width, DEFAULT_MIN_WIDTH); }
 
-[[nodiscard]] auto lineOf(llvm::SourceMgr* srcMgr, llvm::SMLoc loc) -> unsigned {
-  return srcMgr->getLineAndColumn(loc).first;
-}
-
-[[nodiscard]] auto lineOf(llvm::SourceMgr* srcMgr, const AST* node, bool useEnd = false)
-    -> unsigned {
-  return lineOf(srcMgr, useEnd ? node->getEnd() : node->getStart());
-}
-
-[[nodiscard]] auto lineOf(llvm::SourceMgr* srcMgr, const Token* token) -> unsigned {
-  return lineOf(srcMgr, token->getStart());
-}
-
 [[nodiscard]] auto isMajorDeclaration(const Statement* node) -> bool {
   return dynamic_cast<const FuncDecl*>(node) != nullptr ||
          dynamic_cast<const ExternFuncDecl*>(node) != nullptr ||
@@ -250,72 +237,51 @@ constexpr int DEFAULT_MIN_WIDTH = 20;
   }));
 }
 
-class CommentCursor {
-public:
-  CommentCursor(const std::vector<std::unique_ptr<Token>>& tokens, llvm::SourceMgr* srcMgr)
-      : tokens(tokens), srcMgr(srcMgr) {}
+[[nodiscard]] auto isNilDoc(const Doc& doc) -> bool {
+  return doc.node == nullptr || doc.node->kind == lesma::pretty::DocKind::Nil;
+}
 
-  [[nodiscard]] auto takeStandaloneBeforeLine(unsigned lineExclusive) -> Doc {
-    std::vector<Doc> out;
-    unsigned previousLine = 0;
-    bool sawComment = false;
-    advanceToNextComment();
-    while (commentIndex < tokens.size()) {
-      Token const* token = tokens[commentIndex].get();
-      unsigned const commentLine = lineOf(srcMgr, token);
-      if (commentLine >= lineExclusive) {
-        break;
-      }
-      if (sawComment) {
-        for (unsigned i = previousLine + 1; i < commentLine; ++i) {
-          out.push_back(hardLine());
-        }
-      }
-      out.push_back(docText(token->lexeme));
+[[nodiscard]] auto repeatHardLines(unsigned count) -> Doc {
+  std::vector<Doc> out;
+  out.reserve(count);
+  for (unsigned i = 0; i < count; ++i) {
+    out.push_back(hardLine());
+  }
+  return docs(std::move(out));
+}
+
+[[nodiscard]] auto formatCommentDocs(const std::vector<CommentTrivia>& comments) -> Doc {
+  std::vector<Doc> out;
+  bool first = true;
+  for (const CommentTrivia& comment : comments) {
+    if (!first) {
       out.push_back(hardLine());
-      previousLine = commentLine;
-      sawComment = true;
-      commentIndex++;
-      advanceToNextComment();
+      if (comment.blankLinesBefore > 0U) {
+        out.push_back(repeatHardLines(comment.blankLinesBefore));
+      }
     }
-    return docs(std::move(out));
+    out.push_back(docText(comment.text));
+    first = false;
   }
+  return docs(std::move(out));
+}
 
-  [[nodiscard]] auto takeTrailingForLine(unsigned line) -> Doc {
-    advanceToNextComment();
-    if (commentIndex >= tokens.size()) {
-      return lesma::pretty::nil();
-    }
-    Token const* token = tokens[commentIndex].get();
-    if (lineOf(srcMgr, token) != line) {
-      return lesma::pretty::nil();
-    }
-    commentIndex++;
-    return docText(" " + token->lexeme);
-  }
-
-private:
-  const std::vector<std::unique_ptr<Token>>& tokens;
-  llvm::SourceMgr* srcMgr = nullptr;
-  size_t commentIndex = 0;
-
-  auto advanceToNextComment() -> void {
-    while (commentIndex < tokens.size() && tokens[commentIndex]->type != TokenType::LINE_COMMENT) {
-      commentIndex++;
-    }
-  }
-};
+[[nodiscard]] auto formatGroupedInfix(Doc lhs, std::string op, Doc rhs) -> Doc {
+  return docGroup(docs({
+      std::move(lhs),
+      docNest(INDENT_WIDTH, docs({softLine(), docText(std::move(op)), docText(" "), std::move(rhs)})),
+  }));
+}
 
 class SourceFormatter {
 public:
   explicit SourceFormatter(const FormattingParseResult& parsed)
-      : parsed(parsed), srcMgr(parsed.sourceMgr.get()),
-        cursor(parsed.lexer->getOwnedTokens(), srcMgr) {}
+      : parsed(parsed), srcMgr(parsed.sourceMgr.get()) {}
 
   [[nodiscard]] auto format(int width) -> std::string {
     Compound* root = parsed.parser->getAst();
     Doc body = formatStatements(root != nullptr ? root->getChildren() : std::vector<Statement*>{},
-                                endOfFileLine() + 1U, true);
+                                root, true);
     std::string output = lesma::pretty::layout(body, clampWidth(width));
     if (output.empty() || output.back() != '\n') {
       output.push_back('\n');
@@ -326,15 +292,37 @@ public:
 private:
   const FormattingParseResult& parsed;
   llvm::SourceMgr* srcMgr = nullptr;
-  CommentCursor cursor;
 
-  [[nodiscard]] auto endOfFileLine() const -> unsigned {
-    auto const& tokens = parsed.lexer->getOwnedTokens();
-    return tokens.empty() ? 1U : lineOf(srcMgr, tokens.back().get());
+  [[nodiscard]] auto formatLeadingComments(const Statement* node) -> Doc {
+    return node == nullptr ? lesma::pretty::nil() : formatCommentDocs(node->getLeadingComments());
   }
 
+  [[nodiscard]] auto formatTrailingComment(const Statement* node) -> Doc {
+    if (node == nullptr || !node->getTrailingComment().has_value()) {
+      return lesma::pretty::nil();
+    }
+    return docText(" " + node->getTrailingComment()->text);
+  }
+
+  [[nodiscard]] auto formatTrailingDetachedComments(const Statement* node) -> Doc {
+    if (node == nullptr || node->getTrailingDetachedComments().empty()) {
+      return lesma::pretty::nil();
+    }
+    std::vector<Doc> out;
+    if (node->getExtraBlankLinesBeforeTrailingDetachedComments() > 0U) {
+      out.push_back(repeatHardLines(node->getExtraBlankLinesBeforeTrailingDetachedComments()));
+    }
+    out.push_back(formatCommentDocs(node->getTrailingDetachedComments()));
+    return docs(std::move(out));
+  }
+
+  // Canonical statement spacing:
+  // - one newline between statements
+  // - top-level major declarations keep at least one separating blank line
+  // - user-authored blank lines may request one extra blank line, but spacing is capped
+  // - comments stay attached to the following statement or trailing container position
   [[nodiscard]] auto formatStatements(const std::vector<Statement*>& statements,
-                                      unsigned closingLine, bool topLevel) -> Doc {
+                                      const Statement* container, bool topLevel) -> Doc {
     std::vector<Doc> out;
     Statement const* previous = nullptr;
     for (Statement* statement : statements) {
@@ -342,23 +330,22 @@ private:
         continue;
       }
       if (previous != nullptr) {
-        out.push_back(hardLine());
-        if (topLevel && isMajorDeclaration(previous) && isMajorDeclaration(statement)) {
-          out.push_back(hardLine());
-        }
+        unsigned const structuralExtraBlankLines =
+            topLevel && isMajorDeclaration(previous) && isMajorDeclaration(statement) ? 1U : 0U;
+        unsigned const totalHardLines =
+            1U + std::max(structuralExtraBlankLines, statement->getExtraBlankLinesBefore());
+        out.push_back(repeatHardLines(totalHardLines));
       }
-      Doc leadingComments = cursor.takeStandaloneBeforeLine(lineOf(srcMgr, statement));
-      if (leadingComments.node != nullptr &&
-          leadingComments.node->kind != lesma::pretty::DocKind::Nil) {
+      Doc leadingComments = formatLeadingComments(statement);
+      if (!isNilDoc(leadingComments)) {
         out.push_back(leadingComments);
+        out.push_back(hardLine());
       }
-      out.push_back(formatStatement(statement) +
-                    cursor.takeTrailingForLine(lineOf(srcMgr, statement, true)));
+      out.push_back(formatStatement(statement) + formatTrailingComment(statement));
       previous = statement;
     }
-    Doc trailingComments = cursor.takeStandaloneBeforeLine(closingLine);
-    if (trailingComments.node != nullptr &&
-        trailingComments.node->kind != lesma::pretty::DocKind::Nil) {
+    Doc trailingComments = formatTrailingDetachedComments(container);
+    if (!isNilDoc(trailingComments)) {
       if (previous != nullptr) {
         out.push_back(hardLine());
       }
@@ -399,9 +386,9 @@ private:
       return formatExternFuncDecl(externDecl);
     }
     if (auto const* assignment = dynamic_cast<const Assignment*>(node); assignment != nullptr) {
-      return docs({formatExpression(assignment->getLeftHandSide()), docText(" "),
-                   docText(std::string(operatorSpelling(assignment->getOperator()))), docText(" "),
-                   formatExpression(assignment->getRightHandSide())});
+      return formatGroupedInfix(formatExpression(assignment->getLeftHandSide()),
+                                std::string(operatorSpelling(assignment->getOperator())),
+                                formatExpression(assignment->getRightHandSide()));
     }
     if (auto const* exprStmt = dynamic_cast<const ExpressionStatement*>(node);
         exprStmt != nullptr) {
@@ -420,7 +407,8 @@ private:
       if (returnStmt->getValue() == nullptr) {
         return docText("return");
       }
-      return docs({docText("return "), formatExpression(returnStmt->getValue())});
+      return docGroup(docs(
+          {docText("return"), docNest(INDENT_WIDTH, docs({softLine(), formatExpression(returnStmt->getValue())}))}));
     }
     if (auto const* deferStmt = dynamic_cast<const Defer*>(node); deferStmt != nullptr) {
       return docs({docText("defer "), formatStatement(deferStmt->getStatement())});
@@ -435,8 +423,8 @@ private:
   [[nodiscard]] auto formatBlock(const Compound* block) -> Doc {
     std::vector<Statement*> children =
         block != nullptr ? block->getChildren() : std::vector<Statement*>{};
-    Doc body = formatStatements(children, lineOf(srcMgr, block, true), false);
-    if (body.node == nullptr || body.node->kind == lesma::pretty::DocKind::Nil) {
+    Doc body = formatStatements(children, block, false);
+    if (isNilDoc(body)) {
       return docText("{}");
     }
     return docs({
@@ -482,21 +470,33 @@ private:
     head.push_back(docText(node->getIdentifier()));
 
     std::vector<Doc> bodyDocs;
-    std::vector<std::string> const values = node->getValues();
-    std::vector<llvm::SMRange> const& spans = node->getValueSpans();
-    for (size_t i = 0; i < values.size() && i < spans.size(); ++i) {
+    std::vector<EnumValueDecl> const& values = node->getValueDecls();
+    for (size_t i = 0; i < values.size(); ++i) {
       if (i > 0U) {
         bodyDocs.push_back(hardLine());
+        if (values[i].extraBlankLinesBefore > 0U) {
+          bodyDocs.push_back(repeatHardLines(values[i].extraBlankLinesBefore));
+        }
       }
-      Doc leading = cursor.takeStandaloneBeforeLine(lineOf(srcMgr, spans[i].Start));
-      if (leading.node != nullptr && leading.node->kind != lesma::pretty::DocKind::Nil) {
+      Doc leading = formatCommentDocs(values[i].leadingComments);
+      if (!isNilDoc(leading)) {
         bodyDocs.push_back(leading);
+        bodyDocs.push_back(hardLine());
       }
-      bodyDocs.push_back(docText(values[i]));
-      bodyDocs.push_back(cursor.takeTrailingForLine(lineOf(srcMgr, spans[i].End)));
+      bodyDocs.push_back(docText(values[i].name));
+      if (values[i].trailingComment.has_value()) {
+        bodyDocs.push_back(docText(" " + values[i].trailingComment->text));
+      }
+    }
+    Doc detached = formatTrailingDetachedComments(node);
+    if (!isNilDoc(detached)) {
+      if (!bodyDocs.empty()) {
+        bodyDocs.push_back(hardLine());
+      }
+      bodyDocs.push_back(detached);
     }
     Doc body = docs(std::move(bodyDocs));
-    if (body.node == nullptr || body.node->kind == lesma::pretty::DocKind::Nil) {
+    if (isNilDoc(body)) {
       return docs({docs(std::move(head)), docText(" {}")});
     }
     return docs({
@@ -520,8 +520,8 @@ private:
     for (FuncDecl* requirement : node->getRequirements()) {
       requirements.push_back(requirement);
     }
-    Doc body = formatStatements(requirements, lineOf(srcMgr, node, true), false);
-    if (body.node == nullptr || body.node->kind == lesma::pretty::DocKind::Nil) {
+    Doc body = formatStatements(requirements, node, false);
+    if (isNilDoc(body)) {
       return docs({docs(std::move(head)), docText(" {}")});
     }
     return docs({
@@ -574,8 +574,8 @@ private:
     std::sort(members.begin(), members.end(), [](const Statement* lhs, const Statement* rhs) {
       return lhs->getStart().getPointer() < rhs->getStart().getPointer();
     });
-    Doc body = formatStatements(members, lineOf(srcMgr, node, true), false);
-    if (body.node == nullptr || body.node->kind == lesma::pretty::DocKind::Nil) {
+    Doc body = formatStatements(members, node, false);
+    if (isNilDoc(body)) {
       return docs({docs(std::move(head)), docText(" {}")});
     }
     return docs({
@@ -628,12 +628,21 @@ private:
         formatBlock(blocks[0]),
     };
     for (size_t i = 1; i < conds.size() && i < blocks.size(); ++i) {
-      Doc leading = cursor.takeStandaloneBeforeLine(lineOf(srcMgr, conds[i]));
-      if (leading.node != nullptr && leading.node->kind != lesma::pretty::DocKind::Nil) {
+      Doc leading = formatCommentDocs(node->getBranchLeadingComments(i));
+      bool const breakBeforeElse =
+          !isNilDoc(leading) || node->getBranchExtraBlankLinesBefore(i) > 0U;
+      if (!isNilDoc(leading)) {
         parts.push_back(hardLine());
+        if (node->getBranchExtraBlankLinesBefore(i) > 0U) {
+          parts.push_back(repeatHardLines(node->getBranchExtraBlankLinesBefore(i)));
+        }
         parts.push_back(leading);
+        parts.push_back(hardLine());
+      } else if (node->getBranchExtraBlankLinesBefore(i) > 0U) {
+        parts.push_back(hardLine());
+        parts.push_back(repeatHardLines(node->getBranchExtraBlankLinesBefore(i)));
       }
-      parts.push_back(docText(" else "));
+      parts.push_back(docText(breakBeforeElse ? "else " : " else "));
       if (dynamic_cast<Else*>(conds[i]) != nullptr) {
         parts.push_back(formatBlock(blocks[i]));
       } else {
@@ -818,9 +827,9 @@ private:
       result = docText("super");
     } else if (auto const* binary = dynamic_cast<const BinaryOp*>(expr); binary != nullptr) {
       int const currentPrecedence = precedence(expr);
-      result = docs({formatExpression(binary->getLeft(), currentPrecedence), docText(" "),
-                     docText(std::string(operatorSpelling(binary->getOperator()))), docText(" "),
-                     formatExpression(binary->getRight(), currentPrecedence + 1)});
+      result = formatGroupedInfix(formatExpression(binary->getLeft(), currentPrecedence),
+                                  std::string(operatorSpelling(binary->getOperator())),
+                                  formatExpression(binary->getRight(), currentPrecedence + 1));
     } else if (auto const* subscript = dynamic_cast<const SubscriptOp*>(expr);
                subscript != nullptr) {
       result = docs({formatExpression(subscript->getLeft(), precedence(expr)), docText("["),
@@ -830,13 +839,13 @@ private:
                      formatExpression(dot->getRight(), precedence(expr))});
     } else if (auto const* cast = dynamic_cast<const CastOp*>(expr); cast != nullptr) {
       int const currentPrecedence = precedence(expr);
-      result = docs({formatExpression(cast->getExpression(), currentPrecedence), docText(" as "),
-                     formatType(cast->getType())});
+      result = formatGroupedInfix(formatExpression(cast->getExpression(), currentPrecedence), "as",
+                                  formatType(cast->getType()));
     } else if (auto const* isOp = dynamic_cast<const IsOp*>(expr); isOp != nullptr) {
       int const currentPrecedence = precedence(expr);
-      result = docs({formatExpression(isOp->getLeft(), currentPrecedence), docText(" "),
-                     docText(std::string(operatorSpelling(isOp->getOperator()))), docText(" "),
-                     formatType(isOp->getRight())});
+      result = formatGroupedInfix(formatExpression(isOp->getLeft(), currentPrecedence),
+                                  std::string(operatorSpelling(isOp->getOperator())),
+                                  formatType(isOp->getRight()));
     } else if (auto const* unary = dynamic_cast<const UnaryOp*>(expr); unary != nullptr) {
       int const currentPrecedence = precedence(expr);
       std::string const op = std::string(operatorSpelling(unary->getOperator()));
@@ -994,6 +1003,49 @@ auto lesma::parseFileForFormatting(const std::filesystem::path& path)
   }
 }
 
+auto lesma::parseSourceForFormatting(std::string source, std::string logicalPath)
+    -> std::expected<FormattingParseResult, FormattingError> {
+  auto sourceMgr = std::make_shared<llvm::SourceMgr>();
+  unsigned mainBufferId = 0;
+
+  try {
+    auto buffer = llvm::MemoryBuffer::getMemBufferCopy(source, logicalPath);
+    mainBufferId = sourceMgr->AddNewSourceBuffer(std::move(buffer), llvm::SMLoc());
+  } catch (const LesmaError& err) {
+    return std::unexpected(FormattingError{
+        .message = err.what(),
+        .span = err.getSpan(),
+        .sourceMgr = sourceMgr,
+        .bufferId = mainBufferId,
+        .filePath = std::move(logicalPath),
+    });
+  }
+
+  try {
+    auto lexer = std::make_unique<Lexer>(sourceMgr, nullptr, logicalPath);
+    lexer->scanAll();
+
+    auto parser =
+        std::make_unique<Parser>(lexer->getTokens(), nullptr, sourceMgr, mainBufferId, logicalPath);
+    parser->parse();
+    return FormattingParseResult{
+        .sourceMgr = std::move(sourceMgr),
+        .mainBufferId = mainBufferId,
+        .filePath = std::move(logicalPath),
+        .lexer = std::move(lexer),
+        .parser = std::move(parser),
+    };
+  } catch (const LesmaError& err) {
+    return std::unexpected(FormattingError{
+        .message = err.what(),
+        .span = err.getSpan(),
+        .sourceMgr = sourceMgr,
+        .bufferId = mainBufferId,
+        .filePath = std::move(logicalPath),
+    });
+  }
+}
+
 auto lesma::formatParsedFile(const FormattingParseResult& parsed, int width) -> std::string {
   SourceFormatter formatter(parsed);
   return formatter.format(width);
@@ -1002,6 +1054,15 @@ auto lesma::formatParsedFile(const FormattingParseResult& parsed, int width) -> 
 auto lesma::formatFile(const std::filesystem::path& path, int width)
     -> std::expected<std::string, FormattingError> {
   auto parsed = parseFileForFormatting(path);
+  if (!parsed.has_value()) {
+    return std::unexpected(parsed.error());
+  }
+  return formatParsedFile(*parsed, width);
+}
+
+auto lesma::formatSource(std::string source, std::string logicalPath, int width)
+    -> std::expected<std::string, FormattingError> {
+  auto parsed = parseSourceForFormatting(std::move(source), std::move(logicalPath));
   if (!parsed.has_value()) {
     return std::unexpected(parsed.error());
   }

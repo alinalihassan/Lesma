@@ -1,19 +1,14 @@
 # `and` binds tighter than `or`: `a or b and c` parses as `a or (b and c)`.
 if true or false and false {
-    var _a = 1
-
-}
-else {
-    exit(1)
-
+  var _a = 1
+} else {
+  exit(1)
 }
 # `false or (true and false)` is false; would be true if `or` bound tighter than `and`.
 if false or true and false {
-    exit(1)
-
+  exit(1)
 }
 # With parentheses, `(false or true) and false` is false.
 if (false or true) and false {
-    exit(1)
-
+  exit(1)
 }

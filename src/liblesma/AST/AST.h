@@ -4,6 +4,7 @@
 #include <cassert>
 #include <iterator>
 #include <memory>
+#include <optional>
 #include <sstream>
 #include <string>
 #include <unordered_map>
@@ -56,10 +57,53 @@ public:
   void accept(ASTVisitor& visitor) const override { visitor.visit(this); }
 };
 
+struct CommentTrivia {
+  std::string text;
+  llvm::SMRange span;
+  unsigned blankLinesBefore = 0;
+};
+
 class Statement : public AST {
+  std::vector<CommentTrivia> leadingComments;
+  std::optional<CommentTrivia> trailingComment;
+  unsigned extraBlankLinesBefore = 0;
+  std::vector<CommentTrivia> trailingDetachedComments;
+  unsigned extraBlankLinesBeforeTrailingDetachedComments = 0;
+
 public:
   explicit Statement(llvm::SMRange loc) : AST(loc) {}
   void accept(ASTVisitor& visitor) const override { visitor.visit(this); }
+
+  [[nodiscard]] auto getLeadingComments() const -> const std::vector<CommentTrivia>& {
+    return leadingComments;
+  }
+  auto setLeadingComments(std::vector<CommentTrivia> comments) -> void {
+    leadingComments = std::move(comments);
+  }
+
+  [[nodiscard]] auto getTrailingComment() const -> const std::optional<CommentTrivia>& {
+    return trailingComment;
+  }
+  auto setTrailingComment(std::optional<CommentTrivia> comment) -> void {
+    trailingComment = std::move(comment);
+  }
+
+  [[nodiscard]] auto getExtraBlankLinesBefore() const -> unsigned { return extraBlankLinesBefore; }
+  auto setExtraBlankLinesBefore(unsigned blankLines) -> void { extraBlankLinesBefore = blankLines; }
+
+  [[nodiscard]] auto getTrailingDetachedComments() const -> const std::vector<CommentTrivia>& {
+    return trailingDetachedComments;
+  }
+  auto setTrailingDetachedComments(std::vector<CommentTrivia> comments) -> void {
+    trailingDetachedComments = std::move(comments);
+  }
+
+  [[nodiscard]] auto getExtraBlankLinesBeforeTrailingDetachedComments() const -> unsigned {
+    return extraBlankLinesBeforeTrailingDetachedComments;
+  }
+  auto setExtraBlankLinesBeforeTrailingDetachedComments(unsigned blankLines) -> void {
+    extraBlankLinesBeforeTrailingDetachedComments = blankLines;
+  }
 };
 
 class Literal : public Expression {
@@ -284,28 +328,59 @@ struct GenericParamDecl {
   std::vector<llvm::SMRange> traitBoundSpans;
 };
 
+struct EnumValueDecl {
+  std::string name;
+  llvm::SMRange span;
+  std::vector<CommentTrivia> leadingComments;
+  std::optional<CommentTrivia> trailingComment;
+  unsigned extraBlankLinesBefore = 0;
+};
+
 class Enum : public Statement {
   std::string identifier;
   llvm::SMRange nameSpan;
-  std::vector<std::string> values;
+  std::vector<EnumValueDecl> values;
   std::vector<llvm::SMRange> valueSpans;
   bool exported;
   mutable Value* resolvedSymbol = nullptr;
 
 public:
   Enum(llvm::SMRange loc, std::string identifier, llvm::SMRange nameSpan,
-       std::vector<std::string> values, std::vector<llvm::SMRange> valueSpans, bool exported)
+       std::vector<EnumValueDecl> values, bool exported)
       : Statement(loc), identifier(std::move(identifier)), nameSpan(nameSpan),
-        values(std::move(values)), valueSpans(std::move(valueSpans)), exported(exported) {};
+        values(std::move(values)), exported(exported) {
+    valueSpans.reserve(this->values.size());
+    for (const EnumValueDecl& value : this->values) {
+      valueSpans.push_back(value.span);
+    }
+  };
   void accept(ASTVisitor& visitor) const override { visitor.visit(this); }
 
   [[nodiscard]] [[maybe_unused]] auto getIdentifier() const -> std::string { return identifier; }
   [[nodiscard]] [[maybe_unused]] auto getNameSpan() const -> llvm::SMRange { return nameSpan; }
   [[nodiscard]] [[maybe_unused]] auto getValues() const -> std::vector<std::string> {
-    return values;
+    std::vector<std::string> out;
+    out.reserve(values.size());
+    for (const EnumValueDecl& value : values) {
+      out.push_back(value.name);
+    }
+    return out;
   }
   [[nodiscard]] [[maybe_unused]] auto getValueSpans() const -> const std::vector<llvm::SMRange>& {
     return valueSpans;
+  }
+  [[nodiscard]] auto getValueDecls() const -> const std::vector<EnumValueDecl>& {
+    return values;
+  }
+  auto setValueTrivia(size_t index, unsigned extraBlankLines,
+                      std::vector<CommentTrivia> leadingComments,
+                      std::optional<CommentTrivia> trailingComment) -> void {
+    if (index >= values.size()) {
+      return;
+    }
+    values[index].extraBlankLinesBefore = extraBlankLines;
+    values[index].leadingComments = std::move(leadingComments);
+    values[index].trailingComment = std::move(trailingComment);
   }
   [[nodiscard]] [[maybe_unused]] auto isExported() const -> bool { return exported; }
   [[nodiscard]] auto getResolvedSymbol() const -> Value* { return resolvedSymbol; }
@@ -314,7 +389,12 @@ public:
   auto toString(llvm::SourceMgr* srcMgr, const std::string& prefix, bool isTail) const
       -> std::string override {
     std::ostringstream imploded;
-    std::copy(values.begin(), values.end(), std::ostream_iterator<std::string>(imploded, ", "));
+    for (size_t i = 0; i < values.size(); ++i) {
+      imploded << values[i].name;
+      if (i + 1U < values.size()) {
+        imploded << ", ";
+      }
+    }
     return fmt::format("{}{}Enum[Line({}-{}):Col({}-{})]: {} with: {}\n", prefix,
                        isTail ? "└──" : "├──", srcMgr->getLineAndColumn(getStart()).first,
                        srcMgr->getLineAndColumn(getEnd()).first,
@@ -451,11 +531,15 @@ public:
 class If : public Statement {
   std::vector<std::unique_ptr<Expression>> conds;
   std::vector<std::unique_ptr<Compound>> blocks;
+  std::vector<std::vector<CommentTrivia>> branchLeadingComments;
+  std::vector<unsigned> branchExtraBlankLinesBefore;
 
 public:
   If(llvm::SMRange loc, std::vector<std::unique_ptr<Expression>> conds,
      std::vector<std::unique_ptr<Compound>> blocks)
-      : Statement(loc), conds(std::move(conds)), blocks(std::move(blocks)) {}
+      : Statement(loc), conds(std::move(conds)), blocks(std::move(blocks)),
+        branchLeadingComments(this->conds.size()),
+        branchExtraBlankLinesBefore(this->conds.size(), 0U) {}
   void accept(ASTVisitor& visitor) const override { visitor.visit(this); }
 
   [[nodiscard]] [[maybe_unused]] auto getConds() const -> std::vector<Expression*> {
@@ -473,6 +557,29 @@ public:
       result.push_back(block.get());
     }
     return result;
+  }
+
+  [[nodiscard]] auto getBranchLeadingComments(size_t index) const -> const std::vector<CommentTrivia>& {
+    static const std::vector<CommentTrivia> empty;
+    if (index >= branchLeadingComments.size()) {
+      return empty;
+    }
+    return branchLeadingComments[index];
+  }
+  [[nodiscard]] auto getBranchExtraBlankLinesBefore(size_t index) const -> unsigned {
+    if (index >= branchExtraBlankLinesBefore.size()) {
+      return 0;
+    }
+    return branchExtraBlankLinesBefore[index];
+  }
+  auto setBranchTrivia(size_t index, unsigned extraBlankLines, std::vector<CommentTrivia> comments)
+      -> void {
+    if (index >= branchLeadingComments.size()) {
+      branchLeadingComments.resize(index + 1U);
+      branchExtraBlankLinesBefore.resize(index + 1U, 0U);
+    }
+    branchLeadingComments[index] = std::move(comments);
+    branchExtraBlankLinesBefore[index] = extraBlankLines;
   }
 
   auto toString(llvm::SourceMgr* srcMgr, const std::string& prefix, bool isTail) const

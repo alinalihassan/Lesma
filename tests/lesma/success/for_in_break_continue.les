@@ -2,15 +2,14 @@ let xs = [1, 2, 3, 4, 5]
 var sum: int = 0
 
 for v in xs {
-    if v == 2 {
-        continue
-    }
-    if v == 5 {
-        break
-    }
-    sum = sum + v
-
+  if v == 2 {
+    continue
+  }
+  if v == 5 {
+    break
+  }
+  sum = sum + v
 }
 if sum != 8 {
-    exit(1)
+  exit(1)
 }
