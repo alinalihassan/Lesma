@@ -54,7 +54,18 @@ private:
     if (tokens.empty()) {
       return false;
     }
-    return visibleRawIndex(visibleOffset) < tokens.size();
+    size_t rawIndex = index;
+    unsigned long remaining = visibleOffset;
+    while (rawIndex < tokens.size()) {
+      if (!isCommentToken(tokens[rawIndex]->type)) {
+        if (remaining == 0U) {
+          return true;
+        }
+        remaining--;
+      }
+      rawIndex++;
+    }
+    return false;
   }
   [[nodiscard]] auto visibleRawIndex(unsigned long visibleOffset) const -> size_t {
     size_t rawIndex = index;

@@ -11,6 +11,7 @@
 #include <utility>
 #include <vector>
 
+#include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/MemoryBuffer.h"
 #include "llvm/Support/SourceMgr.h"
 
@@ -573,7 +574,7 @@ private:
         unimplemented != nullptr) {
       return docText(unimplemented->getMessage());
     }
-    return docText("pass");
+    llvm::report_fatal_error("SourceFormatter: unhandled Statement subclass");
   }
 
   [[nodiscard]] auto formatBlock(const Compound* block) -> Doc {
@@ -1052,7 +1053,7 @@ private:
     } else if (dynamic_cast<const Else*>(expr) != nullptr) {
       result = docText("else");
     } else {
-      result = docText("nil");
+      llvm::report_fatal_error("SourceFormatter: unhandled Expression subclass");
     }
 
     if (precedence(expr) < parentPrecedence) {

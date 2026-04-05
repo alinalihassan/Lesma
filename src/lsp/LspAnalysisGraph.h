@@ -54,8 +54,8 @@ auto collectReferenceAnalysisViews(AnalysisResult& result, bool includeWorkspace
 auto findAnalysisViewForPath(AnalysisResult& result, const std::string& path)
     -> std::optional<AnalysisView>;
 
-/** Leading slash-star block comment above a class or function-like declaration (see
- * `extractBlockCommentDocumentationAboveDecl`). */
+/** Leading slash-star-star doc block, or if absent contiguous slash-slash line comments, above a
+ * class or function-like declaration (see LspSourceHelpers). */
 [[nodiscard]] auto documentationCommentAboveDeclaration(AnalysisResult& result, lesma::Value* value,
                                                           const AnalysisView& fallbackOwner)
     -> std::string;

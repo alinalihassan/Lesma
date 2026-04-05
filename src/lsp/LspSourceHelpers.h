@@ -28,10 +28,17 @@ namespace lesma::lsp_srv {
 /** Extracts a slash-star-star doc comment immediately above the declaration line (blank lines
  * between the comment block and the declaration are skipped). Lines are normalized and joined
  * with Markdown hard breaks (`  \\n`) so each source line renders on its own line in LSP
- * Markdown (hover, completion docs). Plain non-doc block comments and `//` comments are
- * intentionally ignored. */
+ * Markdown (hover, completion docs). Plain non-doc block comments are ignored. */
 [[nodiscard]] auto extractBlockCommentDocumentationAboveDecl(llvm::StringRef buffer,
                                                              std::size_t declarationByteOffset)
+    -> std::string;
+
+/** If there is no slash-star-star doc block, collects contiguous slash-slash line comments
+ * immediately above the declaration (blank lines between those comments and the declaration are
+ * skipped). Each line's comment prefix and one following space are stripped; lines are joined
+ * with Markdown hard breaks. */
+[[nodiscard]] auto extractLineCommentDocumentationAboveDecl(llvm::StringRef buffer,
+                                                            std::size_t declarationByteOffset)
     -> std::string;
 
 template <typename FuncDeclT, typename ClassT>

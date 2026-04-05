@@ -66,6 +66,22 @@ namespace {
   return std::string(t);
 }
 
+[[nodiscard]] auto lineCommentBody(llvm::StringRef line) -> std::string {
+  llvm::StringRef t = line.ltrim(" \t\r");
+  if (!t.starts_with("//")) {
+    return {};
+  }
+  t = t.drop_front(2);
+  if (t.starts_with(" ")) {
+    t = t.drop_front(1);
+  }
+  return std::string(t);
+}
+
+[[nodiscard]] auto isLineCommentLine(llvm::StringRef line) -> bool {
+  return line.ltrim(" \t\r").starts_with("//");
+}
+
 } // namespace
 
 auto bufferByteOffsetFromLspUtf8Position(llvm::StringRef utf8Text, unsigned line,
@@ -188,6 +204,64 @@ auto extractBlockCommentDocumentationAboveDecl(llvm::StringRef buffer,
       }
       out += normalizeBlockCommentLine(linesBottomToTop[i], static_cast<int>(i) == 0,
                                        startLine + static_cast<int>(i) == scan);
+    }
+    return out;
+  }
+  return {};
+}
+
+auto extractLineCommentDocumentationAboveDecl(llvm::StringRef buffer,
+                                              std::size_t declarationByteOffset) -> std::string {
+  if (buffer.empty() || declarationByteOffset > buffer.size()) {
+    return {};
+  }
+  unsigned const declLine = lineIndexAtOffset(buffer, declarationByteOffset);
+  if (declLine == 0U) {
+    return {};
+  }
+  int scan = static_cast<int>(declLine) - 1;
+  while (scan >= 0) {
+    std::size_t lineStart = 0;
+    std::size_t lineEndExcl = 0;
+    if (!lineBoundsByIndex(buffer, static_cast<unsigned>(scan), lineStart, lineEndExcl)) {
+      return {};
+    }
+    llvm::StringRef const lineText = buffer.slice(lineStart, lineEndExcl);
+    if (lineText.trim().empty()) {
+      --scan;
+      continue;
+    }
+    if (!isLineCommentLine(lineText)) {
+      return {};
+    }
+    std::vector<std::string> linesBottomToTop;
+    int c = scan;
+    while (c >= 0) {
+      std::size_t ls = 0;
+      std::size_t le = 0;
+      if (!lineBoundsByIndex(buffer, static_cast<unsigned>(c), ls, le)) {
+        break;
+      }
+      llvm::StringRef const lt = buffer.slice(ls, le);
+      if (lt.trim().empty()) {
+        break;
+      }
+      if (!isLineCommentLine(lt)) {
+        break;
+      }
+      linesBottomToTop.push_back(lineCommentBody(lt));
+      --c;
+    }
+    if (linesBottomToTop.empty()) {
+      return {};
+    }
+    std::reverse(linesBottomToTop.begin(), linesBottomToTop.end());
+    std::string out;
+    for (size_t i = 0; i < linesBottomToTop.size(); ++i) {
+      if (i != 0U) {
+        out += "  \n";
+      }
+      out += linesBottomToTop[i];
     }
     return out;
   }

@@ -603,7 +603,12 @@ auto documentationCommentAboveDeclaration(AnalysisResult& result, lesma::Value* 
     return {};
   }
   unsigned const offset = getOffsetFromSMLoc(srcMgr, bufferId, declSpan.Start);
-  return extractBlockCommentDocumentationAboveDecl(memBuf->getBuffer(), offset);
+  llvm::StringRef const buf = memBuf->getBuffer();
+  std::string doc = extractBlockCommentDocumentationAboveDecl(buf, offset);
+  if (doc.empty()) {
+    doc = extractLineCommentDocumentationAboveDecl(buf, offset);
+  }
+  return doc;
 }
 
 } // namespace lesma::lsp_srv

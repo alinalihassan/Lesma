@@ -4,6 +4,7 @@
 #include <filesystem>
 #include <fstream>
 #include <string>
+#include <system_error>
 #include <unordered_set>
 #include <vector>
 
@@ -136,15 +137,31 @@ auto Driver::formatPaths(const std::vector<fs::path>& paths, int width) -> int {
       continue;
     }
 
-    std::ofstream ofs(path, std::ios::binary | std::ios::trunc);
-    if (!ofs) {
-      lesma::print(LogType::ERROR, "Could not write file: {}\n", path.string());
-      ok = false;
-      continue;
+    fs::path tmpPath = path;
+    tmpPath += ".lesmatmp";
+    {
+      std::ofstream ofs(tmpPath, std::ios::binary | std::ios::trunc);
+      if (!ofs) {
+        lesma::print(LogType::ERROR, "Could not write file: {}\n", tmpPath.string());
+        ok = false;
+        continue;
+      }
+      ofs << *formatted;
+      if (!ofs) {
+        lesma::print(LogType::ERROR, "Could not write file: {}\n", tmpPath.string());
+        std::error_code removeEc;
+        fs::remove(tmpPath, removeEc);
+        ok = false;
+        continue;
+      }
     }
-    ofs << *formatted;
-    if (!ofs) {
-      lesma::print(LogType::ERROR, "Could not write file: {}\n", path.string());
+    std::error_code renameEc;
+    fs::rename(tmpPath, path, renameEc);
+    if (renameEc) {
+      lesma::print(LogType::ERROR, "Could not replace file: {} ({})\n", path.string(),
+                   renameEc.message());
+      std::error_code removeTmpEc;
+      fs::remove(tmpPath, removeTmpEc);
       ok = false;
       continue;
     }
