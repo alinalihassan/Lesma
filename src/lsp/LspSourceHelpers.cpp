@@ -167,9 +167,13 @@ auto extractBlockCommentDocumentationAboveDecl(llvm::StringRef buffer,
       }
       llvm::StringRef const lt = buffer.slice(ls, le);
       linesBottomToTop.push_back(std::string(lt));
-      if (lt.ltrim(" \t\r").contains("/*")) {
+      llvm::StringRef const trimmed = lt.ltrim(" \t\r");
+      if (trimmed.contains("/**")) {
         startLine = c;
         break;
+      }
+      if (trimmed.contains("/*")) {
+        return {};
       }
       --c;
     }

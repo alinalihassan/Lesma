@@ -48,11 +48,19 @@ func __str_byte_is_ascii_whitespace(b: uint8) -> bool {
     or b == 32 as uint8
 }
 
+/**
+ * Iterates a sequence one value at a time.
+ *
+ * @returns true from has_next() while a value can still be read.
+ */
 export trait Iterator<T> {
   func has_next() -> bool
   func next() -> T
 }
 
+/**
+ * Produces a fresh iterator for a collection or sequence.
+ */
 export trait Iterable<T> {
   func iter() -> Iterator<T>
 }
@@ -100,18 +108,42 @@ class range_values impl Iterable<int> {
   }
 }
 
+/**
+ * Builds an integer range from 1 up to, but not including, stop.
+ *
+ * @param stop Exclusive upper bound.
+ * @returns An iterable range of integers.
+ */
 export func range(stop: int) -> range_values {
   return range_values(1, stop, 1)
 }
 
+/**
+ * Builds an integer range from start up to, but not including, stop.
+ *
+ * @param start Inclusive lower bound.
+ * @param stop Exclusive upper bound.
+ * @returns An iterable range of integers.
+ */
 export func range(start: int, stop: int) -> range_values {
   return range_values(start, stop, 1)
 }
 
+/**
+ * Builds an integer range with an explicit step.
+ *
+ * @param start Inclusive lower bound.
+ * @param stop Exclusive upper bound.
+ * @param step Increment between values. Negative steps count down.
+ * @returns An iterable range of integers.
+ */
 export func range(start: int, stop: int, step: int) -> range_values {
   return range_values(start, stop, step)
 }
 
+/**
+ * Iterator implementation returned by list.iter().
+ */
 export class list_iter<T> impl Iterator<T> {
   var storage: __buffer<T>
   private var scan: int = 0
@@ -129,6 +161,9 @@ export class list_iter<T> impl Iterator<T> {
   }
 }
 
+/**
+ * Growable ordered collection backed by the stdlib buffer runtime.
+ */
 export class list<T> impl Iterable<T> {
   var storage: __buffer<T>
 
@@ -197,6 +232,9 @@ export class list<T> impl Iterable<T> {
 }
 
 // Parallel key/value buffers; lookup is linear. Field order keys then vals matches dict literal codegen.
+/**
+ * Associative container backed by parallel key and value buffers.
+ */
 export class dict<K, V> {
   var keys: __buffer<K>
   var vals: __buffer<V>
@@ -252,6 +290,9 @@ export class dict<K, V> {
   }
 }
 
+/**
+ * Iterates the raw UTF-8 bytes of a string.
+ */
 export class str_iter impl Iterator<uint8> {
   var storage: cstr
   private var scan: int = 0
@@ -271,6 +312,9 @@ export class str_iter impl Iterator<uint8> {
   }
 }
 
+/**
+ * Owned UTF-8 string with common slicing, searching, and formatting helpers.
+ */
 export class str impl Iterable<uint8> {
   var storage: cstr
 
@@ -528,6 +572,9 @@ export class str impl Iterable<uint8> {
 }
 
 // Read path as UTF-8 bytes (no BOM handling). text() returns "" on open/read errors.
+/**
+ * File handle wrapper for reading, writing, and deleting files.
+ */
 export class file {
   var storage: cstr
 
@@ -582,12 +629,28 @@ export class file {
   }
 }
 
+/**
+ * Terminates the current program with the given exit code.
+ *
+ * @param code Process exit status.
+ */
 export func extern exit(code: int) -> void
 
+/**
+ * Reads a line from standard input with no prompt.
+ *
+ * @returns The entered text without the trailing newline.
+ */
 export func input() -> str {
   return input("")
 }
 
+/**
+ * Reads a line from standard input after printing a prompt.
+ *
+ * @param prompt Prompt text written before reading.
+ * @returns The entered text without the trailing newline.
+ */
 export func input(prompt: str) -> str {
   if strlen(prompt.cstr()) > 0 {
     printf("%s", prompt.cstr())
@@ -609,6 +672,13 @@ export func input(prompt: str) -> str {
 }
 
 // Inclusive integer in either order (min/max need not match argument order).
+/**
+ * Returns a pseudorandom integer between the two bounds, inclusive.
+ *
+ * @param bound1 One end of the range.
+ * @param bound2 The other end of the range.
+ * @returns A value in the inclusive range [min(bound1, bound2), max(bound1, bound2)].
+ */
 export func random(bound1: int, bound2: int) -> int {
   srand(time(0))
 
@@ -621,31 +691,55 @@ export func random(bound1: int, bound2: int) -> int {
   return bound2 + rand() % (bound1 - bound2 + 1)
 }
 
+/**
+ * Prints a string followed by a newline.
+ *
+ * @param text String value to print.
+ */
 export func print(text: str) -> void {
   printf("%s\n", text.cstr())
 }
 
+/**
+ * Prints an integer followed by a newline.
+ *
+ * @param num Integer value to print.
+ */
 export func print(num: int) -> void {
   printf("%lld\n", num)
 }
 
+/**
+ * Prints an int8 as a character followed by a newline.
+ *
+ * @param char Character byte to print.
+ */
 export func print(char: int8) -> void {
   printf("%c\n", char)
 }
 
+/**
+ * Prints a uint8 as a character followed by a newline.
+ *
+ * @param char Character byte to print.
+ */
 export func print(char: uint8) -> void {
   printf("%c\n", char)
 }
 
+/**
+ * Prints a floating-point number followed by a newline.
+ *
+ * @param num Floating-point value to print.
+ */
 export func print(num: float) -> void {
   printf("%g\n", num)
 }
 
-/*
+/**
  * Prints the boolean value as "true" or "false".
  *
  * @param value The boolean value to print.
- * @return void
  */
 export func print(value: bool) -> void {
   if value {

@@ -22,6 +22,7 @@ export function getIndentDedentConfiguration(): LanguageConfiguration {
             { open: '{', close: '}' },
             { open: '[', close: ']' },
             { open: '(', close: ')' },
+            { open: '/**', close: ' */' },
             { open: '/*', close: ' */' },
             { open: '"', close: '"' },
             { open: "'", close: "'" },
