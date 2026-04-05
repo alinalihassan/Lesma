@@ -27,7 +27,7 @@ namespace {
 
 using lesma::pretty::Doc;
 
-constexpr int INDENT_WIDTH = 4;
+constexpr int INDENT_WIDTH = 2;
 constexpr int DEFAULT_MIN_WIDTH = 20;
 
 [[nodiscard]] auto clampWidth(int width) -> int { return std::max(width, DEFAULT_MIN_WIDTH); }
@@ -36,7 +36,8 @@ constexpr int DEFAULT_MIN_WIDTH = 20;
   return srcMgr->getLineAndColumn(loc).first;
 }
 
-[[nodiscard]] auto lineOf(llvm::SourceMgr* srcMgr, const AST* node, bool useEnd = false) -> unsigned {
+[[nodiscard]] auto lineOf(llvm::SourceMgr* srcMgr, const AST* node, bool useEnd = false)
+    -> unsigned {
   return lineOf(srcMgr, useEnd ? node->getEnd() : node->getStart());
 }
 
@@ -45,8 +46,10 @@ constexpr int DEFAULT_MIN_WIDTH = 20;
 }
 
 [[nodiscard]] auto isMajorDeclaration(const Statement* node) -> bool {
-  return dynamic_cast<const FuncDecl*>(node) != nullptr || dynamic_cast<const ExternFuncDecl*>(node) != nullptr ||
-         dynamic_cast<const Class*>(node) != nullptr || dynamic_cast<const TraitDecl*>(node) != nullptr ||
+  return dynamic_cast<const FuncDecl*>(node) != nullptr ||
+         dynamic_cast<const ExternFuncDecl*>(node) != nullptr ||
+         dynamic_cast<const Class*>(node) != nullptr ||
+         dynamic_cast<const TraitDecl*>(node) != nullptr ||
          dynamic_cast<const Enum*>(node) != nullptr;
 }
 
@@ -110,7 +113,8 @@ constexpr int DEFAULT_MIN_WIDTH = 20;
 [[nodiscard]] auto unaryNeedsSpace(TokenType type) -> bool { return type == TokenType::NOT; }
 
 [[nodiscard]] auto precedence(const Expression* expr) -> int {
-  if (dynamic_cast<const DotOp*>(expr) != nullptr || dynamic_cast<const SubscriptOp*>(expr) != nullptr ||
+  if (dynamic_cast<const DotOp*>(expr) != nullptr ||
+      dynamic_cast<const SubscriptOp*>(expr) != nullptr ||
       dynamic_cast<const FuncCall*>(expr) != nullptr) {
     return 90;
   }
@@ -120,7 +124,8 @@ constexpr int DEFAULT_MIN_WIDTH = 20;
   if (dynamic_cast<const CastOp*>(expr) != nullptr) {
     return 70;
   }
-  if (dynamic_cast<const BinaryOp*>(expr) != nullptr || dynamic_cast<const IsOp*>(expr) != nullptr) {
+  if (dynamic_cast<const BinaryOp*>(expr) != nullptr ||
+      dynamic_cast<const IsOp*>(expr) != nullptr) {
     if (auto const* bin = dynamic_cast<const BinaryOp*>(expr); bin != nullptr) {
       switch (bin->getOperator()) {
       case TokenType::OR:
@@ -207,9 +212,13 @@ constexpr int DEFAULT_MIN_WIDTH = 20;
   return getBasename(node->getFilePath());
 }
 
-[[nodiscard]] auto docText(std::string value) -> Doc { return lesma::pretty::text(std::move(value)); }
+[[nodiscard]] auto docText(std::string value) -> Doc {
+  return lesma::pretty::text(std::move(value));
+}
 
-[[nodiscard]] auto docs(std::vector<Doc> values) -> Doc { return lesma::pretty::concat(std::move(values)); }
+[[nodiscard]] auto docs(std::vector<Doc> values) -> Doc {
+  return lesma::pretty::concat(std::move(values));
+}
 
 [[nodiscard]] auto softLine() -> Doc { return lesma::pretty::line(); }
 
@@ -299,8 +308,9 @@ private:
 
 class SourceFormatter {
 public:
-  explicit SourceFormatter(const FormattingParseResult& parsed) : parsed(parsed), srcMgr(parsed.sourceMgr.get()),
-                                                                  cursor(parsed.lexer->getOwnedTokens(), srcMgr) {}
+  explicit SourceFormatter(const FormattingParseResult& parsed)
+      : parsed(parsed), srcMgr(parsed.sourceMgr.get()),
+        cursor(parsed.lexer->getOwnedTokens(), srcMgr) {}
 
   [[nodiscard]] auto format(int width) -> std::string {
     Compound* root = parsed.parser->getAst();
@@ -323,8 +333,8 @@ private:
     return tokens.empty() ? 1U : lineOf(srcMgr, tokens.back().get());
   }
 
-  [[nodiscard]] auto formatStatements(const std::vector<Statement*>& statements, unsigned closingLine,
-                                      bool topLevel) -> Doc {
+  [[nodiscard]] auto formatStatements(const std::vector<Statement*>& statements,
+                                      unsigned closingLine, bool topLevel) -> Doc {
     std::vector<Doc> out;
     Statement const* previous = nullptr;
     for (Statement* statement : statements) {
@@ -342,7 +352,8 @@ private:
           leadingComments.node->kind != lesma::pretty::DocKind::Nil) {
         out.push_back(leadingComments);
       }
-      out.push_back(formatStatement(statement) + cursor.takeTrailingForLine(lineOf(srcMgr, statement, true)));
+      out.push_back(formatStatement(statement) +
+                    cursor.takeTrailingForLine(lineOf(srcMgr, statement, true)));
       previous = statement;
     }
     Doc trailingComments = cursor.takeStandaloneBeforeLine(closingLine);
@@ -392,7 +403,8 @@ private:
                    docText(std::string(operatorSpelling(assignment->getOperator()))), docText(" "),
                    formatExpression(assignment->getRightHandSide())});
     }
-    if (auto const* exprStmt = dynamic_cast<const ExpressionStatement*>(node); exprStmt != nullptr) {
+    if (auto const* exprStmt = dynamic_cast<const ExpressionStatement*>(node);
+        exprStmt != nullptr) {
       return formatExpression(exprStmt->getExpression());
     }
     if (dynamic_cast<const Break*>(node) != nullptr) {
@@ -421,7 +433,8 @@ private:
   }
 
   [[nodiscard]] auto formatBlock(const Compound* block) -> Doc {
-    std::vector<Statement*> children = block != nullptr ? block->getChildren() : std::vector<Statement*>{};
+    std::vector<Statement*> children =
+        block != nullptr ? block->getChildren() : std::vector<Statement*>{};
     Doc body = formatStatements(children, lineOf(srcMgr, block, true), false);
     if (body.node == nullptr || body.node->kind == lesma::pretty::DocKind::Nil) {
       return docText("{}");
@@ -640,7 +653,8 @@ private:
 
   [[nodiscard]] auto formatForIn(const ForIn* node) -> Doc {
     return docs({docText("for "), docText(node->getIdentifier()->getValue()), docText(" in "),
-                 formatExpression(node->getIterable()), docText(" "), formatBlock(node->getBlock())});
+                 formatExpression(node->getIterable()), docText(" "),
+                 formatBlock(node->getBlock())});
   }
 
   [[nodiscard]] auto formatFuncDecl(const FuncDecl* node) -> Doc {
@@ -686,14 +700,16 @@ private:
 
   [[nodiscard]] auto formatFunctionName(const std::string& name, bool overloadSpanValid) -> Doc {
     if (overloadSpanValid) {
-      if (auto surface = OperatorUtils::surfaceSpellingForMangledOperator(name); surface.has_value()) {
+      if (auto surface = OperatorUtils::surfaceSpellingForMangledOperator(name);
+          surface.has_value()) {
         return docText(std::string(*surface));
       }
     }
     return docText(name);
   }
 
-  [[nodiscard]] auto formatGenericParams(const std::vector<GenericParamDecl>& genericParams) -> Doc {
+  [[nodiscard]] auto formatGenericParams(const std::vector<GenericParamDecl>& genericParams)
+      -> Doc {
     if (genericParams.empty()) {
       return lesma::pretty::nil();
     }
@@ -702,6 +718,7 @@ private:
       std::vector<Doc> paramDocs{docText(param.name)};
       if (!param.traitBounds.empty()) {
         std::vector<Doc> bounds;
+        bounds.reserve(param.traitBounds.size());
         for (const std::string& bound : param.traitBounds) {
           bounds.push_back(docText(bound));
         }
@@ -713,7 +730,8 @@ private:
     return wrapDelimited("<", docsOut, ">");
   }
 
-  [[nodiscard]] auto formatParameters(const std::vector<Parameter*>& parameters, bool varargs) -> Doc {
+  [[nodiscard]] auto formatParameters(const std::vector<Parameter*>& parameters, bool varargs)
+      -> Doc {
     std::vector<Doc> docsOut;
     for (const Parameter* parameter : parameters) {
       std::vector<Doc> parts{docText(parameter->name)};
@@ -746,6 +764,7 @@ private:
         return docText(type->getName());
       }
       std::vector<Doc> argDocs;
+      argDocs.reserve(typeArgs.size());
       for (TypeExpr* typeArg : typeArgs) {
         argDocs.push_back(formatType(typeArg));
       }
@@ -802,7 +821,8 @@ private:
       result = docs({formatExpression(binary->getLeft(), currentPrecedence), docText(" "),
                      docText(std::string(operatorSpelling(binary->getOperator()))), docText(" "),
                      formatExpression(binary->getRight(), currentPrecedence + 1)});
-    } else if (auto const* subscript = dynamic_cast<const SubscriptOp*>(expr); subscript != nullptr) {
+    } else if (auto const* subscript = dynamic_cast<const SubscriptOp*>(expr);
+               subscript != nullptr) {
       result = docs({formatExpression(subscript->getLeft(), precedence(expr)), docText("["),
                      formatExpression(subscript->getIndex()), docText("]")});
     } else if (auto const* dot = dynamic_cast<const DotOp*>(expr); dot != nullptr) {
@@ -820,8 +840,8 @@ private:
     } else if (auto const* unary = dynamic_cast<const UnaryOp*>(expr); unary != nullptr) {
       int const currentPrecedence = precedence(expr);
       std::string const op = std::string(operatorSpelling(unary->getOperator()));
-      result = docs({docText(op), unaryNeedsSpace(unary->getOperator()) ? docText(" ")
-                                                                       : lesma::pretty::nil(),
+      result = docs({docText(op),
+                     unaryNeedsSpace(unary->getOperator()) ? docText(" ") : lesma::pretty::nil(),
                      formatExpression(unary->getExpression(), currentPrecedence)});
     } else if (auto const* list = dynamic_cast<const ListLiteral*>(expr); list != nullptr) {
       std::vector<Doc> elements;
@@ -834,7 +854,8 @@ private:
       std::vector<Expression*> keys = dict->getKeys();
       std::vector<Expression*> values = dict->getValues();
       for (size_t i = 0; i < keys.size() && i < values.size(); ++i) {
-        entries.push_back(docs({formatExpression(keys[i]), docText(": "), formatExpression(values[i])}));
+        entries.push_back(
+            docs({formatExpression(keys[i]), docText(": "), formatExpression(values[i])}));
       }
       result = wrapDelimited("{", entries, "}");
     } else if (auto const* tuple = dynamic_cast<const TupleLiteral*>(expr); tuple != nullptr) {
@@ -903,6 +924,7 @@ private:
     std::vector<TypeExpr*> explicitTypeArgs = node->getExplicitTypeArgs();
     if (!explicitTypeArgs.empty()) {
       std::vector<Doc> typeDocs;
+      typeDocs.reserve(explicitTypeArgs.size());
       for (TypeExpr* typeArg : explicitTypeArgs) {
         typeDocs.push_back(formatType(typeArg));
       }
@@ -951,7 +973,8 @@ auto lesma::parseFileForFormatting(const std::filesystem::path& path)
     auto lexer = std::make_unique<Lexer>(sourceMgr, nullptr, filePath);
     lexer->scanAll();
 
-    auto parser = std::make_unique<Parser>(lexer->getTokens(), nullptr, sourceMgr, mainBufferId, filePath);
+    auto parser =
+        std::make_unique<Parser>(lexer->getTokens(), nullptr, sourceMgr, mainBufferId, filePath);
     parser->parse();
     return FormattingParseResult{
         .sourceMgr = std::move(sourceMgr),

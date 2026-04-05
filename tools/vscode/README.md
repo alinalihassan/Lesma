@@ -8,6 +8,7 @@ compiler repository.
 - Syntax highlighting for `.les`
 - Language configuration for auto-close and indent/dedent behavior
 - Native LSP integration via `lesma-lsp`
+- Document formatting for `.les` via `lesma fmt`
 - Commands for installing Lesma and running the active file
 
 ## Native language server
@@ -15,6 +16,14 @@ compiler repository.
 The extension launches `lesma-lsp` over stdio. Set `lesma.compilerPath` to your
 `lesma` executable and the extension will resolve `lesma-lsp` from the same
 directory.
+
+The extension registers as the document formatter for `.les` files and uses
+`lesma fmt` under the hood. This makes **Format Document** work in VS Code.
+
+If you want automatic formatting on save, use the standard VS Code setting:
+
+- global: `"editor.formatOnSave": true`
+- Lesma-only: `"[lesma]": { "editor.formatOnSave": true }`
 
 Language features only apply to `.les` files. For C++ development in the
 compiler itself, use `clangd` or another C++ extension.
