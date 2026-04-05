@@ -1,4 +1,4 @@
-# Imported generic specialization should keep the full superclass chain and inherited fields.
+// Imported generic specialization should keep the full superclass chain and inherited fields.
 import "import_generic_inheritance_module.les"
 var leaf = import_generic_inheritance_module.Leaf(7, 9)
 

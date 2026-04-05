@@ -1,4 +1,4 @@
-# Static `let` fields are read-only class-scoped values; use them like named constants.
+// Static `let` fields are read-only class-scoped values; use them like named constants.
 class Limits {
   static let min: int = 0
   static let max: int = 100

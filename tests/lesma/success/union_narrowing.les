@@ -1,4 +1,4 @@
-# Union types, runtime `is`, and flow narrowing in branches.
+// Union types, runtime `is`, and flow narrowing in branches.
 export func kind(x: int | float) -> int {
   if x is int {
     return x + 1

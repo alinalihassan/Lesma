@@ -1,4 +1,4 @@
-# IEEE float edge cases (NaN, Inf): comparisons and print.
+// IEEE float edge cases (NaN, Inf): comparisons and print.
 var nanv = 0.0 / 0.0
 if nanv == nanv {
   exit(1)

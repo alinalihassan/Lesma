@@ -1,4 +1,4 @@
-# file.write / file.delete — run from repo root (cwd).
+// file.write / file.delete — run from repo root (cwd).
 let out_path: str = "tests/lesma/success/file_write_delete_out.txt"
 
 file.write(out_path.cstr(), "roundtrip\n")

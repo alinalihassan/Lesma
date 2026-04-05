@@ -1,4 +1,4 @@
-# `defer` in a loop body runs at the end of each iteration (and on break / continue), not only at function exit.
+// `defer` in a loop body runs at the end of each iteration (and on break / continue), not only at function exit.
 var w: int = 0
 var i: int = 0
 while i < 3 {

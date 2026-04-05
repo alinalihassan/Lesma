@@ -1,11 +1,11 @@
-# Union narrowing inside a lambda that captures the discriminated variable.
-# The capture shadow is a different `Value*` than the outer binding; typecheck and codegen must
-# key narrowing by stable storage identity (declaration site), not the shadow pointer.
-#
-# Variants: (1) local var + arithmetic (2) parameter + arithmetic (3) local var + idInt(u)
-#           (4) class union + method only on one arm
+// Union narrowing inside a lambda that captures the discriminated variable.
+// The capture shadow is a different `Value*` than the outer binding; typecheck and codegen must
+// key narrowing by stable storage identity (declaration site), not the shadow pointer.
+//
+// Variants: (1) local var + arithmetic (2) parameter + arithmetic (3) local var + idInt(u)
+//           (4) class union + method only on one arm
 
-# --- Variant 1: `var` binding, `u + 1` in the lambda ---
+// --- Variant 1: `var` binding, `u + 1` in the lambda ---
 func narrowedCaptureVarArithmetic() -> int {
   var u: int | float = 41
   if u is int {
@@ -18,7 +18,7 @@ func narrowedCaptureVarArithmetic() -> int {
 }
 
 
-# --- Variant 2: function parameter, `u + 1` in the lambda ---
+// --- Variant 2: function parameter, `u + 1` in the lambda ---
 func narrowedCaptureParamArithmetic(u: int | float) -> int {
   if u is int {
     let g = func() -> int {
@@ -30,7 +30,7 @@ func narrowedCaptureParamArithmetic(u: int | float) -> int {
 }
 
 
-# --- Variant 3: `var` binding, narrowed `u` passed where `int` is required ---
+// --- Variant 3: `var` binding, narrowed `u` passed where `int` is required ---
 func idInt(x: int) -> int {
   return x
 }
@@ -48,7 +48,7 @@ func narrowedCaptureVarIdInt() -> int {
 }
 
 
-# --- Variant 4: class union; call method that exists only on `BoxA` ---
+// --- Variant 4: class union; call method that exists only on `BoxA` ---
 class BoxA {
   func new() -> void {}
 
@@ -73,7 +73,7 @@ func narrowedCaptureClassUnion(u: BoxA | BoxB) -> int {
   return 0
 }
 
-# --- Assertions ---
+// --- Assertions ---
 if narrowedCaptureVarArithmetic() != 42 {
   exit(1)
 }

@@ -1,4 +1,4 @@
-# Call the same method on every class variant without narrowing when signatures match.
+// Call the same method on every class variant without narrowing when signatures match.
 class BoxA {
   var v: int
 

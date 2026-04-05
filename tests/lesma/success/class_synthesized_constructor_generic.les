@@ -1,4 +1,4 @@
-# Generic class without explicit `func new`: synthesized ctor + inference.
+// Generic class without explicit `func new`: synthesized ctor + inference.
 class GBox<T> {
   var val: T
   func getVal() -> T {

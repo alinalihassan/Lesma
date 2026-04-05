@@ -1,5 +1,5 @@
-# Tuple mixing a specialized generic class and an enum: exercises structural `TY_TUPLE`
-# with nominal class layout (pointer) and enum lowering in the same aggregate.
+// Tuple mixing a specialized generic class and an enum: exercises structural `TY_TUPLE`
+// with nominal class layout (pointer) and enum lowering in the same aggregate.
 enum Mode {
   ON
   OFF

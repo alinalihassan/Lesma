@@ -1,4 +1,4 @@
-# Nested `for … in` over the same `str` value: each loop walks UTF-8 code units (uint8), like `string_for_in.les`.
+// Nested `for … in` over the same `str` value: each loop walks UTF-8 code units (uint8), like `string_for_in.les`.
 func nestedSameString(s: str) -> (int, int) {
   var count: int = 0
   var sum: int = 0
@@ -14,18 +14,18 @@ let pair = nestedSameString(str("ab"))
 if pair[0] != 4 {
   exit(1)
 }
-# Bytes a=97, b=98: (97+97)+(97+98)+(98+97)+(98+98) = 780
+// Bytes a=97, b=98: (97+97)+(97+98)+(98+97)+(98+98) = 780
 if pair[1] != 780 {
   exit(1)
 }
-# Same string literal on outer and inner (same bytes; independent iterators).
+// Same string literal on outer and inner (same bytes; independent iterators).
 var countLit: int = 0
 for x in "α" {
   for y in "α" {
     countLit = countLit + 1
   }
 }
-# "α" is two UTF-8 bytes → 2×2 = 4
+// "α" is two UTF-8 bytes → 2×2 = 4
 if countLit != 4 {
   exit(1)
 }

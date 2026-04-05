@@ -1,4 +1,4 @@
-# std list: for-in over list<int> (implicit std); no iter() in user code
+// std list: for-in over list<int> (implicit std); no iter() in user code
 var xs = list<int>()
 xs.push(3)
 var sum = 0

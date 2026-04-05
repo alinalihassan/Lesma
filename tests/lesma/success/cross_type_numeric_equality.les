@@ -1,4 +1,4 @@
-# Mixed numeric types in `==` / `!=` use the usual arithmetic promotion rules.
+// Mixed numeric types in `==` / `!=` use the usual arithmetic promotion rules.
 if not (1.0 == 1) {
   exit(1)
 }

@@ -1,4 +1,4 @@
-# `impl Trait<int>` binds the trait's type parameter to a concrete type (not only `impl Trait<T>`).
+// `impl Trait<int>` binds the trait's type parameter to a concrete type (not only `impl Trait<T>`).
 trait Boxed<T> {
   func read() -> T
 }

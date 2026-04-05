@@ -1,4 +1,4 @@
-# Test that the same generic is instantiated correctly for different types
+// Test that the same generic is instantiated correctly for different types
 func square<T>(x: T, y: T) -> T {
   return x * y
 }

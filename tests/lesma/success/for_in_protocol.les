@@ -1,4 +1,4 @@
-# Iterable: iter() -> Iterator impl. Nested loops get fresh iterators via iter().
+// Iterable: iter() -> Iterator impl. Nested loops get fresh iterators via iter().
 class RangeIter impl Iterator<int> {
   var current: int
   var last: int

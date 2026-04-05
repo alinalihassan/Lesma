@@ -1,4 +1,4 @@
-# Trait with two methods; generic bound dispatches both
+// Trait with two methods; generic bound dispatches both
 trait PairOps {
   func first() -> int
   func second() -> int

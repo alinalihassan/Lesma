@@ -1,4 +1,4 @@
-# Compound assignment operators beyond `+=` / `-=`.
+// Compound assignment operators beyond `+=` / `-=`.
 var a: int = 17
 a %= 5
 

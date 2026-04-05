@@ -1,4 +1,4 @@
-# Two independent type parameters specialized in one call site.
+// Two independent type parameters specialized in one call site.
 func first<T, U>(a: T, b: U) -> T {
   var _u = b
   return a

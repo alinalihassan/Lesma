@@ -1,4 +1,4 @@
-# Generic with no value parameters: specialization must include T (not just param types).
+// Generic with no value parameters: specialization must include T (not just param types).
 func zero<T>() -> T {
   var z: T = 0 as T
   return z

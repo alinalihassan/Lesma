@@ -1,4 +1,4 @@
-# Parameter type inferred from default when `: T` is omitted.
+// Parameter type inferred from default when `: T` is omitted.
 func twice(x = 21) -> int {
   return x + x
 }

@@ -1,4 +1,4 @@
-# Deep monomorphized generic call chain (stress specialization cache).
+// Deep monomorphized generic call chain (stress specialization cache).
 func step0<T>(x: T) -> T {
   return x
 }

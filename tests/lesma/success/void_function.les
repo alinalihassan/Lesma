@@ -1,4 +1,4 @@
-# Test void functions (no return value)
+// Test void functions (no return value)
 var result = 0
 
 func getHundred() -> int {
@@ -9,13 +9,13 @@ func addOne(x: int) -> int {
   return x + 1
 }
 
-# Void function that doesn't return anything
+// Void function that doesn't return anything
 func doNothing() -> void {
   var x = 1
 }
 doNothing()
 
-# Test that void functions can be called and other functions still work
+// Test that void functions can be called and other functions still work
 result = addOne(getHundred())
 
 if result != 101 {

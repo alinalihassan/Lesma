@@ -1,5 +1,5 @@
-# After assigning into a mutable union local, flow narrowing must not still treat it as the old arm.
-# (Otherwise `x` would still look like `int` here and this would incorrectly typecheck.)
+// After assigning into a mutable union local, flow narrowing must not still treat it as the old arm.
+// (Otherwise `x` would still look like `int` here and this would incorrectly typecheck.)
 var x: int | str = 1
 if x is int {
   x = "hello"

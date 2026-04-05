@@ -1,4 +1,4 @@
-# `as int` from float truncates toward zero (not floor).
+// `as int` from float truncates toward zero (not floor).
 let a: int = -9.7 as int
 
 if a != -9 {

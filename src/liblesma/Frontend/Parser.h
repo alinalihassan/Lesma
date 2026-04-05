@@ -16,6 +16,10 @@
 #include "liblesma/Token/TokenType.h"
 
 namespace lesma {
+[[nodiscard]] inline auto isCommentToken(TokenType type) -> bool {
+  return type == TokenType::LINE_COMMENT || type == TokenType::BLOCK_COMMENT;
+}
+
 class ParserError : public LesmaErrorWithExitCode<EX_DATAERR> {
 public:
   using LesmaErrorWithExitCode<EX_DATAERR>::LesmaErrorWithExitCode;
@@ -56,7 +60,7 @@ private:
     size_t rawIndex = index;
     unsigned long remaining = visibleOffset;
     while (rawIndex < tokens.size()) {
-      if (tokens[rawIndex]->type != TokenType::LINE_COMMENT) {
+      if (!isCommentToken(tokens[rawIndex]->type)) {
         if (remaining == 0U) {
           return rawIndex;
         }
@@ -70,7 +74,7 @@ private:
     size_t rawIndex = index;
     while (rawIndex > 0U) {
       rawIndex--;
-      if (tokens[rawIndex]->type != TokenType::LINE_COMMENT) {
+      if (!isCommentToken(tokens[rawIndex]->type)) {
         return tokens[rawIndex];
       }
     }
@@ -82,6 +86,11 @@ private:
   auto consumeNewline() -> Token*;
   /** Like `consumeNewline` but allows closing `}` without a newline (last stmt in `{` … `}`). */
   auto consumeNewlineOrBlockEnd() -> void;
+  [[nodiscard]] auto columnOf(llvm::SMLoc loc) const -> unsigned;
+  [[nodiscard]] auto columnOf(const Token* token) const -> unsigned;
+  auto consumeIndentedContinuationNewlines(unsigned anchorColumn) -> void;
+  auto consumeIndentedContinuationNewlines(llvm::SMLoc anchorLoc) -> void;
+  auto consumeOperandContinuationNewlines() -> void;
 
   auto isAtEnd() -> bool { return peek()->type == TokenType::EOF_TOKEN; }
 

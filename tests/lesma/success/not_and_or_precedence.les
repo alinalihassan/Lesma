@@ -1,4 +1,4 @@
-# `not` binds less tightly than `and` / `or`: `not a and b` means `(not a) and b`.
+// `not` binds less tightly than `and` / `or`: `not a and b` means `(not a) and b`.
 if not false and false {
   exit(1)
 }

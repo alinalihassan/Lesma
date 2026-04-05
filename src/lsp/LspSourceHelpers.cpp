@@ -40,17 +40,29 @@ namespace {
   return false;
 }
 
-[[nodiscard]] auto trimmedLineIsHashComment(llvm::StringRef line) -> bool {
-  llvm::StringRef const t = line.ltrim(" \t\r");
-  return t.starts_with("#");
+[[nodiscard]] auto trimmedLineEndsBlockComment(llvm::StringRef line) -> bool {
+  return line.ltrim(" \t\r").contains("*/");
 }
 
-[[nodiscard]] auto stripHashCommentBody(llvm::StringRef line) -> std::string {
+[[nodiscard]] auto normalizeBlockCommentLine(llvm::StringRef line, bool isFirst, bool isLast)
+    -> std::string {
   llvm::StringRef t = line.ltrim(" \t\r");
-  if (!t.starts_with("#")) {
-    return std::string(t);
+  if (isFirst) {
+    size_t const start = t.find("/*");
+    if (start != llvm::StringRef::npos) {
+      t = t.drop_front(start + 2);
+    }
   }
-  t = t.drop_front(1).ltrim(" \t");
+  if (isLast) {
+    size_t const end = t.rfind("*/");
+    if (end != llvm::StringRef::npos) {
+      t = t.take_front(end);
+    }
+  }
+  t = t.ltrim(" \t");
+  if (t.starts_with("*")) {
+    t = t.drop_front(1).ltrim(" \t");
+  }
   return std::string(t);
 }
 
@@ -120,8 +132,8 @@ auto smRangesEqual(llvm::SourceMgr* srcMgr, unsigned bufferId, llvm::SMRange lhs
              getOffsetFromSMLoc(srcMgr, bufferId, rhs.End);
 }
 
-auto extractLineCommentDocumentationAboveDecl(llvm::StringRef buffer,
-                                                std::size_t declarationByteOffset) -> std::string {
+auto extractBlockCommentDocumentationAboveDecl(llvm::StringRef buffer,
+                                               std::size_t declarationByteOffset) -> std::string {
   if (buffer.empty() || declarationByteOffset > buffer.size()) {
     return {};
   }
@@ -141,11 +153,12 @@ auto extractLineCommentDocumentationAboveDecl(llvm::StringRef buffer,
       --scan;
       continue;
     }
-    if (!trimmedLineIsHashComment(lineText)) {
+    if (!trimmedLineEndsBlockComment(lineText)) {
       return {};
     }
     std::vector<std::string> linesBottomToTop;
     int c = scan;
+    int startLine = scan;
     while (c >= 0) {
       std::size_t ls = 0;
       std::size_t le = 0;
@@ -153,23 +166,24 @@ auto extractLineCommentDocumentationAboveDecl(llvm::StringRef buffer,
         break;
       }
       llvm::StringRef const lt = buffer.slice(ls, le);
-      if (lt.trim().empty()) {
+      linesBottomToTop.push_back(std::string(lt));
+      if (lt.ltrim(" \t\r").contains("/*")) {
+        startLine = c;
         break;
       }
-      if (!trimmedLineIsHashComment(lt)) {
-        break;
-      }
-      linesBottomToTop.push_back(stripHashCommentBody(lt));
       --c;
+    }
+    if (linesBottomToTop.empty()) {
+      return {};
     }
     std::reverse(linesBottomToTop.begin(), linesBottomToTop.end());
     std::string out;
     for (size_t i = 0; i < linesBottomToTop.size(); ++i) {
       if (i != 0U) {
-        // GFM/CommonMark: two spaces before newline = hard line break (single \n is a soft break).
         out += "  \n";
       }
-      out += linesBottomToTop[i];
+      out += normalizeBlockCommentLine(linesBottomToTop[i], static_cast<int>(i) == 0,
+                                       startLine + static_cast<int>(i) == scan);
     }
     return out;
   }

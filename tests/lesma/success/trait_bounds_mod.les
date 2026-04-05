@@ -1,4 +1,4 @@
-# Traits exported for cross-file intersection / impl tests
+// Traits exported for cross-file intersection / impl tests
 export trait HasVal {
   func val() -> int
 }

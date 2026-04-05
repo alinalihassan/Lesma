@@ -1,4 +1,4 @@
-# Stdlib exit is noreturn by resolved symbol (alias + module-qualified call sites).
+// Stdlib exit is noreturn by resolved symbol (alias + module-qualified call sites).
 from base import exit as quit_exit
 import base as bm
 func via_alias() -> int {

@@ -6,7 +6,7 @@ trait Beta {
   func b() -> int
 }
 
-# Only Alpha — not valid for T: Alpha & Beta
+// Only Alpha — not valid for T: Alpha & Beta
 class OnlyA impl Alpha {
   func new() -> void {
     var _ = 0

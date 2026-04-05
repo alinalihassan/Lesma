@@ -1,4 +1,4 @@
-# Existential parameter: coerce implementing class to fat pointer, dynamic dispatch
+// Existential parameter: coerce implementing class to fat pointer, dynamic dispatch
 trait Drawable {
   func area() -> float
 }

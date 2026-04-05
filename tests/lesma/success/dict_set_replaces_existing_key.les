@@ -1,4 +1,4 @@
-# `set` on an existing key updates the value without growing `len`.
+// `set` on an existing key updates the value without growing `len`.
 var d: dict<str, int> = {"k": 1}
 
 if d.len() != 1 {

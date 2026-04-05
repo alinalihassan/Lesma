@@ -1,4 +1,4 @@
-# Nested for-in over the same list (direct `for x in xs`).
+// Nested for-in over the same list (direct `for x in xs`).
 let xs = [1, 2, 3]
 
 var count: int = 0

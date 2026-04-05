@@ -1,5 +1,5 @@
-# Generic union formal `T | int` vs concrete unions: overload resolution pairs arms (canonical
-# sort) and binds `T` consistently.
+// Generic union formal `T | int` vs concrete unions: overload resolution pairs arms (canonical
+// sort) and binds `T` consistently.
 func nonIntArm<T>(x: T | int) -> int {
   if x is int {
     return 0

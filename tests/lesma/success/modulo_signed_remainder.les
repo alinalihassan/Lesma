@@ -1,4 +1,4 @@
-# LLVM `srem` / C99-style signed remainder: sign follows the dividend.
+// LLVM `srem` / C99-style signed remainder: sign follows the dividend.
 if -7 % 3 != -1 {
   exit(1)
 }

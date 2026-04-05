@@ -1,4 +1,4 @@
-# Test class with multiple fields and methods
+// Test class with multiple fields and methods
 class Point {
   var x: int
   var y: int

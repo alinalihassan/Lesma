@@ -1,4 +1,4 @@
-# `and` / `or` skip the right-hand side when the result is fixed; RHS uses a runtime divisor (no const-fold).
+// `and` / `or` skip the right-hand side when the result is fixed; RHS uses a runtime divisor (no const-fold).
 var z: int = 0
 if false and 1 / z == 0 {
   exit(1)

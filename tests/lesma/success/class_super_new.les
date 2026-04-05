@@ -1,4 +1,4 @@
-# Subclass constructor calls base `new` via super.
+// Subclass constructor calls base `new` via super.
 class Base {
   var x: int
 

@@ -1,5 +1,5 @@
-# Union dot-calls must run verifyGenericTraitBounds per member; inferred type args must satisfy
-# each generic method's trait bounds (same as a non-union dot call).
+// Union dot-calls must run verifyGenericTraitBounds per member; inferred type args must satisfy
+// each generic method's trait bounds (same as a non-union dot call).
 trait NeedVal {
   func val() -> int
 }

@@ -9,7 +9,8 @@ function verboseRegExp(pattern: string, flags?: string): RegExp {
 export function getIndentDedentConfiguration(): LanguageConfiguration {
     return {
         comments: {
-            lineComment: '#',
+            lineComment: '//',
+            blockComment: ['/*', '*/'],
         },
         brackets: [
             ['{', '}'],
@@ -21,6 +22,7 @@ export function getIndentDedentConfiguration(): LanguageConfiguration {
             { open: '{', close: '}' },
             { open: '[', close: ']' },
             { open: '(', close: ')' },
+            { open: '/*', close: ' */' },
             { open: '"', close: '"' },
             { open: "'", close: "'" },
         ],
@@ -38,13 +40,38 @@ export function getIndentDedentConfiguration(): LanguageConfiguration {
                     indentAction: IndentAction.Indent,
                 },
             },
-            // continue comments
+            // continue single-line comments
             {
-                beforeText: /^\s*#.*/,
+                beforeText: /^\s*\/\/.*/,
                 afterText: /.+$/,
                 action: {
                     indentAction: IndentAction.None,
-                    appendText: '# ',
+                    appendText: '// ',
+                },
+            },
+            // continue block comments between /* and */
+            {
+                beforeText: /^\s*\/\*(?!.*\*\/)\s*$/,
+                afterText: /^\s*\*\/\s*$/,
+                action: {
+                    indentAction: IndentAction.IndentOutdent,
+                    appendText: ' * ',
+                },
+            },
+            // continue block comments after the opening line
+            {
+                beforeText: /^\s*\/\*(?!.*\*\/).*$/,
+                action: {
+                    indentAction: IndentAction.None,
+                    appendText: ' * ',
+                },
+            },
+            // continue interior block comment lines
+            {
+                beforeText: /^\s*\*(?!\/).*$/,
+                action: {
+                    indentAction: IndentAction.None,
+                    appendText: '* ',
                 },
             },
             // indent on enter (block-beginning statements)
@@ -84,7 +111,7 @@ export function getIndentDedentConfiguration(): LanguageConfiguration {
                         )?
                     )
                     \\s*
-                    (?: [#] .* )?
+                    (?: \/\/ .* )?
                     $
                 `),
                 action: {
@@ -113,7 +140,7 @@ export function getIndentDedentConfiguration(): LanguageConfiguration {
                         )
                     )
                     \\s*
-                    (?: [#] .* )?
+                    (?: \/\/ .* )?
                     $
                 `),
                 action: {

@@ -1,4 +1,4 @@
-# super requires a base class.
+// super requires a base class.
 class Solo {
   func new() -> void {
     super.new(self)

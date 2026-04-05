@@ -1,4 +1,4 @@
-# Deferred bodies run in LIFO order (last defer first), before the return expression is evaluated.
+// Deferred bodies run in LIFO order (last defer first), before the return expression is evaluated.
 func lifo_order() -> int {
   var x = 0
   defer x = x * 10 + 2

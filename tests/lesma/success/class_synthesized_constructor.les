@@ -1,4 +1,4 @@
-# Default `new` from fields: required parameters are fields without initializers (in order).
+// Default `new` from fields: required parameters are fields without initializers (in order).
 class Animal {
   let type: str
   let name: str

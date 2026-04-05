@@ -1,4 +1,4 @@
-# Non-exported trait; exported class still satisfies it locally
+// Non-exported trait; exported class still satisfies it locally
 trait InternalSeal {
   func seal() -> int
 }

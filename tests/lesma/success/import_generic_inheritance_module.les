@@ -1,4 +1,4 @@
-# Export a multi-level generic inheritance chain so import materialization can preserve it.
+// Export a multi-level generic inheritance chain so import materialization can preserve it.
 export class Root<T> {
   var a: T
   func new(v: T) -> void {

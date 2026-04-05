@@ -1,4 +1,4 @@
-# Required parameter after defaulted parameter is invalid.
+// Required parameter after defaulted parameter is invalid.
 func bad(a: int = 1, b: int) -> int {
   return a + b
 }

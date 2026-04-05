@@ -7,6 +7,7 @@ enum class TokenType : std::uint8_t {
   // Whitespace
   NEWLINE,
   LINE_COMMENT,
+  BLOCK_COMMENT,
 
   // Single-character tokens.
   LEFT_PAREN,

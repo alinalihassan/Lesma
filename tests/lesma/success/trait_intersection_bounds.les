@@ -1,4 +1,4 @@
-# Intersection bound T: A & B — class must declare both traits
+// Intersection bound T: A & B — class must declare both traits
 trait HasVal {
   func val() -> int
 }

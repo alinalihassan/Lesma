@@ -1,4 +1,4 @@
-# `break` exits only the innermost loop.
+// `break` exits only the innermost loop.
 var outerHits: int = 0
 var innerHits: int = 0
 var i: int = 0

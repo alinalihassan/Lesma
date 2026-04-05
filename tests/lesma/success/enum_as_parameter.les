@@ -1,4 +1,4 @@
-# Test enum as function parameter and return type
+// Test enum as function parameter and return type
 enum Status {
   OK
   ERROR

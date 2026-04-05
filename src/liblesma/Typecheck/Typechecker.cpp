@@ -2906,7 +2906,7 @@ auto Typechecker::getOrTypecheckImport(const std::string& absolutePath) -> Symbo
   unsigned const bufferId = srcMgr->AddNewSourceBuffer(std::move(*buffer), llvm::SMLoc());
   auto lexer = std::make_unique<Lexer>(srcMgr);
   lexer->scanAll();
-  auto parser = std::make_unique<Parser>(lexer->getTokens());
+  auto parser = std::make_unique<Parser>(lexer->getTokens(), nullptr, srcMgr, bufferId, normPath);
   parser->parse();
   Compound* ast = parser->getAst();
   if (ast == nullptr) {

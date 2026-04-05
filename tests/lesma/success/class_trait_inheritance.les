@@ -1,5 +1,5 @@
-# Class inheritance plus traits: `class Derived: Base impl Trait`, trait methods using inherited
-# fields, generic bounds, `impl Trait<int>` on a subclass, and intersection impl on a subclass.
+// Class inheritance plus traits: `class Derived: Base impl Trait`, trait methods using inherited
+// fields, generic bounds, `impl Trait<int>` on a subclass, and intersection impl on a subclass.
 trait Scalable {
   func scale() -> int
 }

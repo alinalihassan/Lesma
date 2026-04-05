@@ -1,4 +1,4 @@
-# Vtable slot keys ignore the return type; overrides must still match the full inherited signature.
+// Vtable slot keys ignore the return type; overrides must still match the full inherited signature.
 class Base {
   func id() -> int {
     return 1

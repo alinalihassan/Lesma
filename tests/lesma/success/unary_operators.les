@@ -1,16 +1,16 @@
-# Test unary operators
+// Test unary operators
 var x = 50
 var y = -x + 151
 
 if y != 101 {
   exit(1)
 }
-# Test chained unary minus (double negation)
+// Test chained unary minus (double negation)
 var z = --x
 if z != 50 {
   exit(1)
 }
-# Test logical not
+// Test logical not
 var a = true
 var b = not a
 

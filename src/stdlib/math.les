@@ -1,4 +1,4 @@
-# Base functions
+// Base functions
 func extern llabs(n: int) -> int
 func extern fabs(x: float) -> float
 
@@ -10,7 +10,7 @@ export func abs(value: float) -> float {
 	return fabs(value)
 
 }
-# Nearest integer floating-point operations
+// Nearest integer floating-point operations
 func extern ceil(x: float) -> float
 func extern llround(x: float) -> int
 
@@ -29,7 +29,7 @@ export func round(x: float) -> int {
 	return llround(x)
 
 }
-# Trigonometric functions
+// Trigonometric functions
 export func extern sin(x: float) -> float
 export func extern cos(x: float) -> float
 export func extern tan(x: float) -> float

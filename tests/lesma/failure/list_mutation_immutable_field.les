@@ -1,4 +1,4 @@
-# Mutating a list through an immutable class field must be rejected.
+// Mutating a list through an immutable class field must be rejected.
 class Holder {
   let nums: list<int> = [1]
   func tryMutate() -> void {

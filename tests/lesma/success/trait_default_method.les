@@ -1,4 +1,4 @@
-# Default trait method bodies; class uses defaults (no explicit overrides)
+// Default trait method bodies; class uses defaults (no explicit overrides)
 trait WithDefault {
   func base() -> int {
     return 7

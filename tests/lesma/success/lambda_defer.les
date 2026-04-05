@@ -1,4 +1,4 @@
-# Lambda runs deferred statements before return (expression and fallthrough void).
+// Lambda runs deferred statements before return (expression and fallthrough void).
 func f() -> int {
   let g = func() -> int {
     var x = 0

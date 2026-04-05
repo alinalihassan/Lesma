@@ -1,4 +1,4 @@
-# Integer division truncates toward zero (not floor).
+// Integer division truncates toward zero (not floor).
 if -7 / 3 != -2 {
   exit(1)
 }

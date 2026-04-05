@@ -1,4 +1,4 @@
-# Narrowing a three-arm union with successive `is` checks (last arm implied).
+// Narrowing a three-arm union with successive `is` checks (last arm implied).
 func tag(x: int | float | str) -> int {
   if x is int {
     return 1

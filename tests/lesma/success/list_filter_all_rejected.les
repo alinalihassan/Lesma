@@ -1,4 +1,4 @@
-# `filter` may drop every element; result length is 0 but the combinator still type-checks.
+// `filter` may drop every element; result length is 0 but the combinator still type-checks.
 var xs = [1, 2, 3]
 var none = xs.filter(func(x: int) -> void => x > 10)
 

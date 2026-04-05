@@ -1,4 +1,4 @@
-# Generic base class and generic subclass sharing type parameter T (super.new + inherited field).
+// Generic base class and generic subclass sharing type parameter T (super.new + inherited field).
 class GBase<T> {
   var x: T
 

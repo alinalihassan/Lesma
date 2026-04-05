@@ -1,4 +1,4 @@
-# Forward calls between two functions (no explicit forward declaration required).
+// Forward calls between two functions (no explicit forward declaration required).
 func even(n: int) -> bool {
   if n == 0 {
     return true

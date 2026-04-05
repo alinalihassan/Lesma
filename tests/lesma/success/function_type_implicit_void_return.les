@@ -1,4 +1,4 @@
-# Function types without an explicit return type should default to void.
+// Function types without an explicit return type should default to void.
 func accepts(callback: func(int) -> void) -> void {
   var seen = 1
 }

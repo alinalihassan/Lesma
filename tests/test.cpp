@@ -254,16 +254,26 @@ TEST(LexerTests, LexBoolean) {
 }
 
 TEST(LexerTests, LexLineComments) {
-  auto srcMgr = initializeSrcMgr("var x = 1 # trailing\n# leading\nvar y = 2\n");
+  auto srcMgr = initializeSrcMgr("var x = 1 // trailing\n// leading\nvar y = 2\n");
   auto lexer = initializeLexer(srcMgr);
   auto tokens = lexer->getTokens();
 
   ASSERT_GE(tokens.size(), 11);
   EXPECT_EQ(tokens[4]->type, TokenType::LINE_COMMENT);
-  EXPECT_EQ(tokens[4]->lexeme, "# trailing");
+  EXPECT_EQ(tokens[4]->lexeme, "// trailing");
   EXPECT_EQ(tokens[5]->type, TokenType::NEWLINE);
   EXPECT_EQ(tokens[6]->type, TokenType::LINE_COMMENT);
-  EXPECT_EQ(tokens[6]->lexeme, "# leading");
+  EXPECT_EQ(tokens[6]->lexeme, "// leading");
+}
+
+TEST(LexerTests, LexBlockComments) {
+  auto srcMgr = initializeSrcMgr("var x = 1 /* block\n * comment\n */\nvar y = 2\n");
+  auto lexer = initializeLexer(srcMgr);
+  auto tokens = lexer->getTokens();
+
+  ASSERT_GE(tokens.size(), 10);
+  EXPECT_EQ(tokens[4]->type, TokenType::BLOCK_COMMENT);
+  EXPECT_EQ(tokens[4]->lexeme, "/* block\n * comment\n */");
 }
 
 TEST(LexerTests, LexArithmeticOperators) {
@@ -331,12 +341,13 @@ TEST(ParserTests, ParseLetDecl) {
 TEST(FormatterTests, FormatFilePreservesCommentsAndIsIdempotent) {
   std::filesystem::path const path =
       std::filesystem::temp_directory_path() / "lesma_fmt_preserves_comments.les";
-  std::ofstream(path) << "var  x=1 # inline\n# leading\nfunc  add(a:int,b:int)->int{\nreturn a+b\n}\n";
+  std::ofstream(path)
+      << "var  x=1 // inline\n// leading\nfunc  add(a:int,b:int)->int{\nreturn a+b\n}\n";
 
   auto formatted = formatFile(path, 100);
   ASSERT_TRUE(formatted.has_value()) << formatted.error().message;
-  std::string const expected = "var x = 1 # inline\n"
-                               "# leading\n"
+  std::string const expected = "var x = 1 // inline\n"
+                               "// leading\n"
                                "func add(a: int, b: int) -> int {\n"
                                "  return a + b\n"
                                "}\n";
@@ -372,7 +383,8 @@ TEST(FormatterTests, DriverFormatsDirectoriesRecursively) {
 }
 
 TEST(FormatterTests, ParserAttachesStatementTriviaAndNormalizedBlankLines) {
-  auto srcMgr = initializeSrcMgr("# file comment\nlet x = 1 # trailing\n\n# step\nlet y = 2\n");
+  auto srcMgr =
+      initializeSrcMgr("// file comment\nlet x = 1 // trailing\n\n// step\nlet y = 2\n");
   auto lexer = initializeLexer(srcMgr);
   auto parser = initializeParser(std::move(lexer), srcMgr);
 
@@ -380,17 +392,17 @@ TEST(FormatterTests, ParserAttachesStatementTriviaAndNormalizedBlankLines) {
   ASSERT_EQ(children.size(), 2U);
 
   EXPECT_EQ(children[0]->getLeadingComments().size(), 1U);
-  EXPECT_EQ(children[0]->getLeadingComments()[0].text, "# file comment");
+  EXPECT_EQ(children[0]->getLeadingComments()[0].text, "// file comment");
   ASSERT_TRUE(children[0]->getTrailingComment().has_value());
-  EXPECT_EQ(children[0]->getTrailingComment()->text, "# trailing");
+  EXPECT_EQ(children[0]->getTrailingComment()->text, "// trailing");
 
   EXPECT_EQ(children[1]->getExtraBlankLinesBefore(), 1U);
   ASSERT_EQ(children[1]->getLeadingComments().size(), 1U);
-  EXPECT_EQ(children[1]->getLeadingComments()[0].text, "# step");
+  EXPECT_EQ(children[1]->getLeadingComments()[0].text, "// step");
 }
 
 TEST(FormatterTests, FormatSourceNormalizesOptionalBlankLines) {
-  auto formatted = formatSource("func work() -> void {\nlet a = 1\n\n\nlet b = 2\n\n# step\nlet c = 3\n}\n",
+  auto formatted = formatSource("func work() -> void {\nlet a = 1\n\n\nlet b = 2\n\n// step\nlet c = 3\n}\n",
                                 "blank_lines_test.les", 100);
   ASSERT_TRUE(formatted.has_value()) << formatted.error().message;
   EXPECT_EQ(*formatted, "func work() -> void {\n"
@@ -398,27 +410,38 @@ TEST(FormatterTests, FormatSourceNormalizesOptionalBlankLines) {
                         "\n"
                         "  let b = 2\n"
                         "\n"
-                        "  # step\n"
+                        "  // step\n"
                         "  let c = 3\n"
                         "}\n");
 }
 
 TEST(FormatterTests, FormatSourcePreservesEnumValueComments) {
   auto formatted =
-      formatSource("enum Status {\nREADY\n\n# transitional\nWAITING # trailing\n}\n",
+      formatSource("enum Status {\nREADY\n\n// transitional\nWAITING // trailing\n}\n",
                    "enum_comments_test.les", 100);
   ASSERT_TRUE(formatted.has_value()) << formatted.error().message;
   EXPECT_EQ(*formatted, "enum Status {\n"
                         "  READY\n"
                         "\n"
-                        "  # transitional\n"
-                        "  WAITING # trailing\n"
+                        "  // transitional\n"
+                        "  WAITING // trailing\n"
+                        "}\n");
+}
+
+TEST(FormatterTests, FormatSourcePreservesBlockComments) {
+  auto formatted = formatSource(
+      "func work() -> void {\n/* setup\n * step\n */\nlet x = 1\n}\n",
+      "block_comment_test.les", 100);
+  ASSERT_TRUE(formatted.has_value()) << formatted.error().message;
+  EXPECT_EQ(*formatted, "func work() -> void {\n"
+                        "  /* setup\n * step\n */\n"
+                        "  let x = 1\n"
                         "}\n");
 }
 
 TEST(FormatterTests, FormatSourceIsParseStable) {
   auto formatted = formatSource(
-      "# heading\nfunc add(a:int,b:int)->int{\nreturn a+b\n}\n\nlet result=add(1,2)\n",
+      "// heading\nfunc add(a:int,b:int)->int{\nreturn a+b\n}\n\nlet result=add(1,2)\n",
       "roundtrip_test.les", 100);
   ASSERT_TRUE(formatted.has_value()) << formatted.error().message;
 
@@ -448,6 +471,225 @@ TEST(FormatterTests, TopLevelMajorDeclarationsCapAtOneBlankLine) {
   EXPECT_EQ(*formatted, "func a() -> void {}\n"
                         "\n"
                         "func b() -> void {}\n");
+}
+
+TEST(FormatterTests, NarrowWidthBreaksLongReturnExpressionAndReparses) {
+  auto formatted = formatSource(
+      "func check(b: uint8) -> bool {\nreturn b == 9 as uint8 or b == 32 as uint8\n}\n",
+      "return_expr_width_test.les", 20);
+  ASSERT_TRUE(formatted.has_value()) << formatted.error().message;
+  EXPECT_TRUE(formatted->find("return\n") == std::string::npos);
+  EXPECT_TRUE(formatted->find("return b == 9 as uint8 or b == 32 as uint8") == std::string::npos);
+
+  auto reparsed = parseSourceForFormatting(*formatted, "return_expr_width_test.les");
+  ASSERT_TRUE(reparsed.has_value()) << reparsed.error().message;
+}
+
+TEST(FormatterTests, NarrowWidthBreaksLongIfConditionAndReparses) {
+  auto formatted = formatSource(
+      "func check(flag: bool, other: bool, extra: bool) -> bool {\nif flag and other or extra { return true }\nreturn false\n}\n",
+      "if_condition_width_test.les", 24);
+  ASSERT_TRUE(formatted.has_value()) << formatted.error().message;
+  EXPECT_TRUE(formatted->find("flag and other or extra") == std::string::npos);
+
+  auto reparsed = parseSourceForFormatting(*formatted, "if_condition_width_test.les");
+  ASSERT_TRUE(reparsed.has_value()) << reparsed.error().message;
+}
+
+TEST(FormatterTests, NarrowWidthBreaksLongAssignmentAndReparses) {
+  auto formatted = formatSource(
+      "func work() -> void {\nvalue = alpha + beta + gamma + delta\n}\n",
+      "assignment_width_test.les", 20);
+  ASSERT_TRUE(formatted.has_value()) << formatted.error().message;
+  EXPECT_TRUE(formatted->find("value = alpha + beta + gamma + delta") == std::string::npos);
+
+  auto reparsed = parseSourceForFormatting(*formatted, "assignment_width_test.les");
+  ASSERT_TRUE(reparsed.has_value()) << reparsed.error().message;
+}
+
+TEST(FormatterTests, NarrowWidthBreaksLongWhileConditionAndReparses) {
+  auto formatted = formatSource(
+      "func work() -> void {\nwhile alpha and beta or gamma { break }\n}\n",
+      "while_condition_width_test.les", 20);
+  ASSERT_TRUE(formatted.has_value()) << formatted.error().message;
+  EXPECT_TRUE(formatted->find("while alpha and beta or gamma") == std::string::npos);
+
+  auto reparsed = parseSourceForFormatting(*formatted, "while_condition_width_test.les");
+  ASSERT_TRUE(reparsed.has_value()) << reparsed.error().message;
+}
+
+TEST(FormatterTests, NarrowWidthBreaksLongLambdaExpressionBodyAndReparses) {
+  auto formatted = formatSource(
+      "func work() -> void {\nlet f = func(x: int) -> int => alpha + beta + gamma + delta\n}\n",
+      "lambda_width_test.les", 24);
+  ASSERT_TRUE(formatted.has_value()) << formatted.error().message;
+  EXPECT_TRUE(formatted->find("=> alpha + beta + gamma + delta") == std::string::npos);
+
+  auto reparsed = parseSourceForFormatting(*formatted, "lambda_width_test.les");
+  ASSERT_TRUE(reparsed.has_value()) << reparsed.error().message;
+}
+
+TEST(FormatterTests, FormatSourceParsesIndentedContinuationInput) {
+  auto formatted = formatSource(
+      "func check(b: uint8) -> bool {\n"
+      "  return\n"
+      "    b == 9 as uint8 or b == 10 as uint8 or b == 11 as uint8 or b == 12 as uint8 or b == 13 as uint8\n"
+      "      or b == 32 as uint8\n"
+      "}\n",
+      "wrapped_return_input_test.les", 100);
+  ASSERT_TRUE(formatted.has_value()) << formatted.error().message;
+
+  auto reparsed = parseSourceForFormatting(*formatted, "wrapped_return_input_test.les");
+  ASSERT_TRUE(reparsed.has_value()) << reparsed.error().message;
+}
+
+TEST(ParserTests, ReturnExpressionAllowsIndentedContinuation) {
+  AnalysisResult const result = analyzeSource(
+      "func check(b: uint8) -> bool {\n"
+      "  return\n"
+      "    b == 9 as uint8 or b == 10 as uint8 or b == 11 as uint8 or b == 12 as uint8 or b == 13 as uint8\n"
+      "      or b == 32 as uint8\n"
+      "}\n");
+  ASSERT_FALSE(result.hasErrors())
+      << (result.diagnostics.empty() ? std::string("unknown analysis error")
+                                     : result.diagnostics.front().message);
+}
+
+TEST(ParserTests, LogicalExpressionAllowsIndentedContinuationInInitializer) {
+  AnalysisResult const result = analyzeSource(
+      "func check() -> bool {\n"
+      "  let result = true and\n"
+      "    false or\n"
+      "    true\n"
+      "  return result\n"
+      "}\n");
+  ASSERT_FALSE(result.hasErrors())
+      << (result.diagnostics.empty() ? std::string("unknown analysis error")
+                                     : result.diagnostics.front().message);
+}
+
+TEST(ParserTests, ArithmeticExpressionAllowsIndentedContinuation) {
+  AnalysisResult const result = analyzeSource(
+      "func calc() -> int {\n"
+      "  return 1 +\n"
+      "    2 * 3 -\n"
+      "    4\n"
+      "}\n");
+  ASSERT_FALSE(result.hasErrors())
+      << (result.diagnostics.empty() ? std::string("unknown analysis error")
+                                     : result.diagnostics.front().message);
+}
+
+TEST(ParserTests, ComparisonOperatorsAllowIndentedContinuationBeforeOperator) {
+  AnalysisResult const result = analyzeSource(
+      "func check(b: uint8) -> bool {\n"
+      "  return b\n"
+      "    == 9 as uint8\n"
+      "    or b\n"
+      "      == 32 as uint8\n"
+      "}\n");
+  ASSERT_FALSE(result.hasErrors())
+      << (result.diagnostics.empty() ? std::string("unknown analysis error")
+                                     : result.diagnostics.front().message);
+}
+
+TEST(ParserTests, ContinuationExpressionDoesNotConsumeFollowingStatement) {
+  AnalysisResult const result = analyzeSource(
+      "func calc() -> int {\n"
+      "  let total = 1 +\n"
+      "    2\n"
+      "  let extra = 3\n"
+      "  return total + extra\n"
+      "}\n");
+  ASSERT_FALSE(result.hasErrors())
+      << (result.diagnostics.empty() ? std::string("unknown analysis error")
+                                     : result.diagnostics.front().message);
+}
+
+TEST(ParserTests, InitializerAllowsIndentedContinuationAfterEquals) {
+  AnalysisResult const result = analyzeSource(
+      "func calc() -> int {\n"
+      "  let total =\n"
+      "    1 + 2\n"
+      "  return total\n"
+      "}\n");
+  ASSERT_FALSE(result.hasErrors())
+      << (result.diagnostics.empty() ? std::string("unknown analysis error")
+                                     : result.diagnostics.front().message);
+}
+
+TEST(ParserTests, UnaryOperatorAllowsIndentedContinuationAfterOperator) {
+  AnalysisResult const result = analyzeSource(
+      "func check(flag: bool) -> bool {\n"
+      "  return not\n"
+      "    flag\n"
+      "}\n");
+  ASSERT_FALSE(result.hasErrors())
+      << (result.diagnostics.empty() ? std::string("unknown analysis error")
+                                     : result.diagnostics.front().message);
+}
+
+TEST(ParserTests, IfConditionAllowsIndentedContinuationAfterKeyword) {
+  AnalysisResult const result = analyzeSource(
+      "func check(a: bool, b: bool) -> bool {\n"
+      "  if\n"
+      "    a or b {\n"
+      "    return true\n"
+      "  }\n"
+      "  return false\n"
+      "}\n");
+  ASSERT_FALSE(result.hasErrors())
+      << (result.diagnostics.empty() ? std::string("unknown analysis error")
+                                     : result.diagnostics.front().message);
+}
+
+TEST(ParserTests, WhileConditionAllowsIndentedContinuationAfterKeyword) {
+  AnalysisResult const result = analyzeSource(
+      "func spin(a: bool, b: bool) -> void {\n"
+      "  while\n"
+      "    a and b {\n"
+      "    break\n"
+      "  }\n"
+      "}\n");
+  ASSERT_FALSE(result.hasErrors())
+      << (result.diagnostics.empty() ? std::string("unknown analysis error")
+                                     : result.diagnostics.front().message);
+}
+
+TEST(ParserTests, ForIterableAllowsIndentedContinuationAfterIn) {
+  AnalysisResult const result = analyzeSource(
+      "func walk() -> void {\n"
+      "  for item in\n"
+      "    range(3) {\n"
+      "    print(item)\n"
+      "  }\n"
+      "}\n");
+  ASSERT_FALSE(result.hasErrors())
+      << (result.diagnostics.empty() ? std::string("unknown analysis error")
+                                     : result.diagnostics.front().message);
+}
+
+TEST(ParserTests, ParameterDefaultAllowsIndentedContinuationAfterEquals) {
+  AnalysisResult const result = analyzeSource(
+      "func check(flag: bool =\n"
+      "  true or false) -> bool {\n"
+      "  return flag\n"
+      "}\n");
+  ASSERT_FALSE(result.hasErrors())
+      << (result.diagnostics.empty() ? std::string("unknown analysis error")
+                                     : result.diagnostics.front().message);
+}
+
+TEST(ParserTests, LambdaExpressionBodyAllowsIndentedContinuationAfterFatArrow) {
+  AnalysisResult const result = analyzeSource(
+      "func check() -> int {\n"
+      "  let f = func(x: int) -> int =>\n"
+      "    x + 1\n"
+      "  return f(1)\n"
+      "}\n");
+  ASSERT_FALSE(result.hasErrors())
+      << (result.diagnostics.empty() ? std::string("unknown analysis error")
+                                     : result.diagnostics.front().message);
 }
 
 // ============================================================================

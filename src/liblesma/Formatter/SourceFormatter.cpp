@@ -250,6 +250,13 @@ constexpr int DEFAULT_MIN_WIDTH = 20;
   return docs(std::move(out));
 }
 
+[[nodiscard]] auto formatGroupedInfix(Doc lhs, std::string op, Doc rhs) -> Doc {
+  return docGroup(docs({
+      std::move(lhs),
+      docNest(INDENT_WIDTH, docs({softLine(), docText(std::move(op)), docText(" "), std::move(rhs)})),
+  }));
+}
+
 [[nodiscard]] auto formatCommentDocs(const std::vector<CommentTrivia>& comments) -> Doc {
   std::vector<Doc> out;
   bool first = true;
@@ -264,13 +271,6 @@ constexpr int DEFAULT_MIN_WIDTH = 20;
     first = false;
   }
   return docs(std::move(out));
-}
-
-[[nodiscard]] auto formatGroupedInfix(Doc lhs, std::string op, Doc rhs) -> Doc {
-  return docGroup(docs({
-      std::move(lhs),
-      docNest(INDENT_WIDTH, docs({softLine(), docText(std::move(op)), docText(" "), std::move(rhs)})),
-  }));
 }
 
 class SourceFormatter {
@@ -386,9 +386,9 @@ private:
       return formatExternFuncDecl(externDecl);
     }
     if (auto const* assignment = dynamic_cast<const Assignment*>(node); assignment != nullptr) {
-      return formatGroupedInfix(formatExpression(assignment->getLeftHandSide()),
-                                std::string(operatorSpelling(assignment->getOperator())),
-                                formatExpression(assignment->getRightHandSide()));
+      return docs({formatExpression(assignment->getLeftHandSide()), docText(" "),
+                   docText(std::string(operatorSpelling(assignment->getOperator()))), docText(" "),
+                   formatExpression(assignment->getRightHandSide())});
     }
     if (auto const* exprStmt = dynamic_cast<const ExpressionStatement*>(node);
         exprStmt != nullptr) {
@@ -407,8 +407,7 @@ private:
       if (returnStmt->getValue() == nullptr) {
         return docText("return");
       }
-      return docGroup(docs(
-          {docText("return"), docNest(INDENT_WIDTH, docs({softLine(), formatExpression(returnStmt->getValue())}))}));
+      return docs({docText("return "), formatExpression(returnStmt->getValue())});
     }
     if (auto const* deferStmt = dynamic_cast<const Defer*>(node); deferStmt != nullptr) {
       return docs({docText("defer "), formatStatement(deferStmt->getStatement())});

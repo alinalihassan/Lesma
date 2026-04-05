@@ -1,4 +1,4 @@
-# No pairing binds `T` for `T | int` vs `str | bool`.
+// No pairing binds `T` for `T | int` vs `str | bool`.
 func g<T>(x: T | int) -> int {
   return 0
 }

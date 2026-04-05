@@ -1,5 +1,5 @@
-# Generic method `take<T: NeedVal>` must reject a class that does not declare `impl NeedVal`.
-# Dot-call resolution previously skipped verifyGenericTraitBounds on the callee.
+// Generic method `take<T: NeedVal>` must reject a class that does not declare `impl NeedVal`.
+// Dot-call resolution previously skipped verifyGenericTraitBounds on the callee.
 trait NeedVal {
   func val() -> int
 }

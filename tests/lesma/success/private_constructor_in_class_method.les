@@ -1,4 +1,4 @@
-# Private `new` overload is only callable from the class body; public no-arg `new` seeds instances.
+// Private `new` overload is only callable from the class body; public no-arg `new` seeds instances.
 class Box {
   var v: int
 

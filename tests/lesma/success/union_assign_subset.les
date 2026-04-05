@@ -1,5 +1,5 @@
-# A narrower union is assignable to a wider union when each member fits some arm.
-# str and list<T> are classes.
+// A narrower union is assignable to a wider union when each member fits some arm.
+// str and list<T> are classes.
 var narrow: int | str = 1
 var wide: int | str | bool = narrow
 if wide is not int {

@@ -1,2 +1,2 @@
-# List literal cannot satisfy a non-list expected type
+// List literal cannot satisfy a non-list expected type
 let x: int = [1]

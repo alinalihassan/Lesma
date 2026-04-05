@@ -1,6 +1,6 @@
-# Two-level inheritance edge cases: `super.new(self, …)` argument forwarding, multiple unrelated
-# base/child pairs, zero/negative operands, and a child that only chains `super.new(self)` (no new
-# fields) so the base initializer still runs.
+// Two-level inheritance edge cases: `super.new(self, …)` argument forwarding, multiple unrelated
+// base/child pairs, zero/negative operands, and a child that only chains `super.new(self)` (no new
+// fields) so the base initializer still runs.
 class SumBase {
   var total: int
 

@@ -1,4 +1,4 @@
-# `private` fields and `overload` for intentional superclass method replacement.
+// `private` fields and `overload` for intentional superclass method replacement.
 class Base {
   var tag: int
 

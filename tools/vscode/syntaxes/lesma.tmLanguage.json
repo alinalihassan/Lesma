@@ -420,13 +420,29 @@
         {
           "comment": "Single line comment",
           "name": "comment.line.lesma",
-          "begin": "#",
+          "begin": "//",
           "beginCaptures": {
             "0": {
               "name": "punctuation.definition.comment.lesma"
             }
           },
           "end": "(?=$)"
+        },
+        {
+          "comment": "Block comment",
+          "name": "comment.block.lesma",
+          "begin": "/\\*",
+          "beginCaptures": {
+            "0": {
+              "name": "punctuation.definition.comment.begin.lesma"
+            }
+          },
+          "end": "\\*/",
+          "endCaptures": {
+            "0": {
+              "name": "punctuation.definition.comment.end.lesma"
+            }
+          }
         }
       ]
     },

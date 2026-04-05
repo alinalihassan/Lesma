@@ -1,7 +1,7 @@
-# Generic class constructor overload resolution: infer T from a later `new` when
-# an earlier overload does not mention T in its parameters (would not bind T).
-# The first overload uses a different parameter type than the call so overload
-# lookup is unambiguous.
+// Generic class constructor overload resolution: infer T from a later `new` when
+// an earlier overload does not mention T in its parameters (would not bind T).
+// The first overload uses a different parameter type than the call so overload
+// lookup is unambiguous.
 class Foo<T> {
   var x: T
   func new(_: str) -> void {

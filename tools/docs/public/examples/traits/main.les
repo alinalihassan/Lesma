@@ -1,4 +1,4 @@
-# 1) Default method bodies on a trait (class can use them without overrides)
+// 1) Default method bodies on a trait (class can use them without overrides)
 trait WithDefault {
     func base() -> int {
         return 7
@@ -14,7 +14,7 @@ class C impl WithDefault {
 
     }
 }
-# 2) Generic function with a trait bound: T must implement Twice
+// 2) Generic function with a trait bound: T must implement Twice
 trait Twice {
     func val() -> int
 

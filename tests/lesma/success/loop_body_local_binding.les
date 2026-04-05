@@ -1,4 +1,4 @@
-# A new `var` name inside a loop body does not overwrite an outer binding of a different name.
+// A new `var` name inside a loop body does not overwrite an outer binding of a different name.
 var x: int = 10
 var i: int = 0
 while i < 1 {

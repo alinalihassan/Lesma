@@ -137,6 +137,12 @@ auto Lexer::scanOne(bool continuation) -> std::unique_ptr<Token> {
     if (matchAndAdvance('=')) {
       return makeToken(TokenType::SLASH_EQUAL);
     }
+    if (matchAndAdvance('/')) {
+      return scanLineComment();
+    }
+    if (matchAndAdvance('*')) {
+      return scanBlockComment();
+    }
     return makeToken(TokenType::SLASH);
   }
   case '%': {
@@ -151,12 +157,6 @@ auto Lexer::scanOne(bool continuation) -> std::unique_ptr<Token> {
     }
     return makeToken(TokenType::POWER);
   }
-  case '#': {
-    while (peek() != '\n' && !isAtEnd()) {
-      advance();
-    }
-    return makeToken(TokenType::LINE_COMMENT);
-  }
   case '\\':
     c = advance();
     continuation = true;
@@ -164,7 +164,7 @@ auto Lexer::scanOne(bool continuation) -> std::unique_ptr<Token> {
     while (true) {
       if (c == ' ' || c == '\r' || c == '\t') {
         c = advance();
-      } else if (c == '#') {
+      } else if (c == '/' && peek() == '/') {
         while (peek() != '\n' && !isAtEnd()) {
           advance();
         }
@@ -291,6 +291,25 @@ auto Lexer::makeToken(TokenType type, const std::string& value) -> std::unique_p
   return token;
 }
 
+auto Lexer::scanLineComment() -> std::unique_ptr<Token> {
+  while (peek() != '\n' && !isAtEnd()) {
+    advance();
+  }
+  return makeToken(TokenType::LINE_COMMENT);
+}
+
+auto Lexer::scanBlockComment() -> std::unique_ptr<Token> {
+  while (!isAtEnd()) {
+    char const c = advanceWithNewlineTracking();
+    if (c == '*' && peek() == '/') {
+      advance();
+      return makeToken(TokenType::BLOCK_COMMENT);
+    }
+  }
+  lexError(currentSpan(), "Unterminated block comment.");
+  return makeToken(TokenType::BLOCK_COMMENT);
+}
+
 auto Lexer::resetTokenBeg() -> void { beginLoc = loc; }
 
 auto Lexer::fallback() -> void {
@@ -305,6 +324,15 @@ auto Lexer::advance() -> char {
   loc = llvm::SMLoc::getFromPointer(getLocPointer());
   ++col;
   return ret;
+}
+
+auto Lexer::advanceWithNewlineTracking() -> char {
+  char const c = advance();
+  if (c == '\n') {
+    line++;
+    col = 1;
+  }
+  return c;
 }
 
 auto Lexer::matchAndAdvance(char expected) -> bool {

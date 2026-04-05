@@ -1,5 +1,5 @@
-# Extra generic inheritance coverage: multi-level chain, two type parameters, renamed type
-# parameter on the subclass, and a partially applied generic base (Mix<int, V>).
+// Extra generic inheritance coverage: multi-level chain, two type parameters, renamed type
+// parameter on the subclass, and a partially applied generic base (Mix<int, V>).
 class Root<T> {
   var a: T
   func new(v: T) -> void {

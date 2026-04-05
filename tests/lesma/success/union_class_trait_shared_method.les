@@ -1,4 +1,4 @@
-# Two classes implement the same trait; shared trait method on the union needs no narrowing.
+// Two classes implement the same trait; shared trait method on the union needs no narrowing.
 trait Speaker {
   func say() -> int
 }
