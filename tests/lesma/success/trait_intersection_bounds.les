@@ -7,9 +7,9 @@ trait HasDbl {
   func dbl() -> int
 }
 
-class Both impl HasVal,
-HasDbl {
+class Both impl HasVal, HasDbl {
   var x: int
+
   func new(v: int) {
     self.x = v
   }

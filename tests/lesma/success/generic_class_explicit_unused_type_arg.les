@@ -1,5 +1,6 @@
 class Phantom<T, U> {
   var value: U
+
   func new(value: U) {
     self.value = value
   }

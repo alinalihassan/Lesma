@@ -1,6 +1,7 @@
 // Export a multi-level generic inheritance chain so import materialization can preserve it.
 export class Root<T> {
   var a: T
+
   func new(v: T) {
     self.a = v
   }
@@ -8,6 +9,7 @@ export class Root<T> {
 
 export class Mid<T> : Root<T> {
   var b: T
+
   func new(v: T, w: T) {
     super.new(self, v)
     self.b = w

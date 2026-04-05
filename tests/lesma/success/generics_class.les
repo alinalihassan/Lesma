@@ -1,5 +1,6 @@
 class Box<T> {
   var val: T
+
   func new(v: T) {
     self.val = v
   }
@@ -20,6 +21,7 @@ if floatBox.getVal() != 3.14 {
 class Pair<T, U> {
   var a: T
   var b: U
+
   func new(x: T, y: U) {
     self.a = x
     self.b = y

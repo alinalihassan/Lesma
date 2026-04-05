@@ -5,6 +5,7 @@
 class Node<T> {
   var value: T
   var child: *Node<T>
+
   func new(v: T) {
     self.value = v
   }

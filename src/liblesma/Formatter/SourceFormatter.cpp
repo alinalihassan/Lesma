@@ -1,6 +1,7 @@
 #include "liblesma/Formatter/SourceFormatter.h"
 
 #include <algorithm>
+#include <cctype>
 #include <expected>
 #include <filesystem>
 #include <memory>
@@ -221,6 +222,10 @@ constexpr int DEFAULT_MIN_WIDTH = 20;
 
 [[nodiscard]] auto docGroup(Doc value) -> Doc { return lesma::pretty::group(std::move(value)); }
 
+[[nodiscard]] auto docIfBreak(std::string breakText, std::string flatText = "") -> Doc {
+  return lesma::pretty::ifBreak(std::move(breakText), std::move(flatText));
+}
+
 [[nodiscard]] auto docNest(int indent, Doc value) -> Doc {
   return lesma::pretty::nest(indent, std::move(value));
 }
@@ -238,6 +243,7 @@ constexpr int DEFAULT_MIN_WIDTH = 20;
   return docGroup(docs({
       docText(open),
       docNest(INDENT_WIDTH, docs({emptySoftLine(), inner})),
+      docIfBreak(","),
       emptySoftLine(),
       docText(close),
   }));
@@ -263,6 +269,66 @@ constexpr int DEFAULT_MIN_WIDTH = 20;
   }));
 }
 
+[[nodiscard]] auto trimLeft(std::string_view value) -> std::string_view {
+  size_t offset = 0;
+  while (offset < value.size() &&
+         std::isspace(static_cast<unsigned char>(value[offset])) != 0) {
+    ++offset;
+  }
+  return value.substr(offset);
+}
+
+[[nodiscard]] auto trimRight(std::string_view value) -> std::string_view {
+  size_t end = value.size();
+  while (end > 0 &&
+         std::isspace(static_cast<unsigned char>(value[end - 1U])) != 0) {
+    --end;
+  }
+  return value.substr(0, end);
+}
+
+[[nodiscard]] auto splitLines(std::string_view value) -> std::vector<std::string> {
+  std::vector<std::string> lines;
+  size_t start = 0;
+  while (start <= value.size()) {
+    size_t end = value.find('\n', start);
+    if (end == std::string_view::npos) {
+      lines.emplace_back(value.substr(start));
+      break;
+    }
+    lines.emplace_back(value.substr(start, end - start));
+    start = end + 1U;
+  }
+  return lines;
+}
+
+[[nodiscard]] auto formatMultilineBlockComment(std::string_view text) -> Doc {
+  std::vector<std::string> lines = splitLines(text);
+  if (lines.size() <= 1U) {
+    return docText(std::string(text));
+  }
+
+  std::vector<Doc> out;
+  out.reserve(lines.size() * 2U);
+  out.push_back(docText(std::string(trimRight(lines.front()))));
+
+  for (size_t i = 1; i + 1U < lines.size(); ++i) {
+    std::string_view content = trimLeft(lines[i]);
+    if (!content.empty() && content.front() == '*') {
+      content.remove_prefix(1U);
+      if (!content.empty() && content.front() == ' ') {
+        content.remove_prefix(1U);
+      }
+    }
+    out.push_back(hardLine());
+    out.push_back(docText(content.empty() ? " *" : " * " + std::string(content)));
+  }
+
+  out.push_back(hardLine());
+  out.push_back(docText(" */"));
+  return docs(std::move(out));
+}
+
 [[nodiscard]] auto formatCommentDocs(const std::vector<CommentTrivia>& comments) -> Doc {
   std::vector<Doc> out;
   bool first = true;
@@ -273,7 +339,11 @@ constexpr int DEFAULT_MIN_WIDTH = 20;
         out.push_back(repeatHardLines(comment.blankLinesBefore));
       }
     }
-    out.push_back(docText(comment.text));
+    if (comment.text.starts_with("/*") && comment.text.find('\n') != std::string::npos) {
+      out.push_back(formatMultilineBlockComment(comment.text));
+    } else {
+      out.push_back(docText(comment.text));
+    }
     first = false;
   }
   return docs(std::move(out));
@@ -298,6 +368,83 @@ public:
 private:
   const FormattingParseResult& parsed;
   llvm::SourceMgr* srcMgr = nullptr;
+
+  auto collectDotChain(const Expression* expr, const Expression*& base,
+                       std::vector<const Expression*>& segments) const -> bool {
+    auto const* dot = dynamic_cast<const DotOp*>(expr);
+    if (dot == nullptr) {
+      base = expr;
+      return !segments.empty();
+    }
+    bool const isChain = collectDotChain(dot->getLeft(), base, segments);
+    segments.push_back(dot->getRight());
+    return isChain || !segments.empty();
+  }
+
+  [[nodiscard]] auto formatDotChain(const Expression* expr, int parentPrecedence) -> Doc {
+    const Expression* base = nullptr;
+    std::vector<const Expression*> segments;
+    collectDotChain(expr, base, segments);
+
+    std::vector<Doc> tailDocs;
+    tailDocs.reserve(segments.size() * 2U);
+    for (const Expression* segment : segments) {
+      tailDocs.push_back(emptySoftLine());
+      tailDocs.push_back(
+          docs({docText("."), formatExpression(segment, precedence(expr))}));
+    }
+
+    return docGroup(docs({
+        formatExpression(base, parentPrecedence),
+        docNest(INDENT_WIDTH, docs(std::move(tailDocs))),
+    }));
+  }
+
+  auto collectRepeatedBinaryOperands(const Expression* expr, TokenType op,
+                                     std::vector<const Expression*>& operands) const -> bool {
+    auto const* binary = dynamic_cast<const BinaryOp*>(expr);
+    if (binary == nullptr || binary->getOperator() != op || op == TokenType::POWER) {
+      operands.push_back(expr);
+      return false;
+    }
+
+    bool flattenedLeft = collectRepeatedBinaryOperands(binary->getLeft(), op, operands);
+    bool flattenedRight = collectRepeatedBinaryOperands(binary->getRight(), op, operands);
+    static_cast<void>(flattenedLeft);
+    static_cast<void>(flattenedRight);
+    return true;
+  }
+
+  [[nodiscard]] auto formatRepeatedBinaryChain(const BinaryOp* binary, int currentPrecedence) -> Doc {
+    std::vector<const Expression*> operands;
+    collectRepeatedBinaryOperands(binary, binary->getOperator(), operands);
+
+    std::vector<Doc> parts;
+    parts.reserve(operands.size() * 2U);
+    parts.push_back(formatExpression(operands.front(), currentPrecedence));
+    for (size_t i = 1; i < operands.size(); ++i) {
+      parts.push_back(docNest(
+          INDENT_WIDTH,
+          docs({softLine(), docText(std::string(operatorSpelling(binary->getOperator()))),
+                docText(" "), formatExpression(operands[i], currentPrecedence + 1)})));
+    }
+    return docGroup(docs(std::move(parts)));
+  }
+
+  [[nodiscard]] auto formatCommaSeparated(const std::vector<Doc>& items) -> Doc {
+    if (items.empty()) {
+      return lesma::pretty::nil();
+    }
+    return docGroup(docJoin(docs({docText(","), softLine()}), items));
+  }
+
+  [[nodiscard]] auto formatClassOrTraitHead(std::vector<Doc> head,
+                                            std::optional<Doc> wrappedSuffix = std::nullopt) -> Doc {
+    if (wrappedSuffix.has_value()) {
+      head.push_back(docNest(INDENT_WIDTH, docs({softLine(), *wrappedSuffix})));
+    }
+    return docGroup(docs(std::move(head)));
+  }
 
   [[nodiscard]] auto formatLeadingComments(const Statement* node) -> Doc {
     return node == nullptr ? lesma::pretty::nil() : formatCommentDocs(node->getLeadingComments());
@@ -336,8 +483,12 @@ private:
         continue;
       }
       if (previous != nullptr) {
-        unsigned const structuralExtraBlankLines =
+        unsigned structuralExtraBlankLines =
             topLevel && isMajorDeclaration(previous) && isMajorDeclaration(statement) ? 1U : 0U;
+        if (dynamic_cast<const VarDecl*>(previous) != nullptr &&
+            dynamic_cast<const FuncDecl*>(statement) != nullptr) {
+          structuralExtraBlankLines = std::max(structuralExtraBlankLines, 1U);
+        }
         unsigned const totalHardLines =
             1U + std::max(structuralExtraBlankLines, statement->getExtraBlankLinesBefore());
         out.push_back(repeatHardLines(totalHardLines));
@@ -521,16 +672,17 @@ private:
     head.push_back(docText("trait "));
     head.push_back(docText(node->getIdentifier()));
     head.push_back(formatGenericParams(node->getGenericParamDecls()));
+    Doc headDoc = formatClassOrTraitHead(std::move(head));
     std::vector<Statement*> requirements;
     for (FuncDecl* requirement : node->getRequirements()) {
       requirements.push_back(requirement);
     }
     Doc body = formatStatements(requirements, node, false);
     if (isNilDoc(body)) {
-      return docs({docs(std::move(head)), docText(" {}")});
+      return docs({headDoc, docText(" {}")});
     }
     return docs({
-        docs(std::move(head)),
+        headDoc,
         docText(" {"),
         docNest(INDENT_WIDTH, docs({hardLine(), body})),
         hardLine(),
@@ -550,8 +702,8 @@ private:
       head.push_back(docText(" : "));
       head.push_back(formatType(node->getBaseType()));
     }
+    std::optional<Doc> implSuffix;
     if (!node->getImplTraitNames().empty()) {
-      head.push_back(docText(" impl "));
       std::vector<Doc> implDocs;
       auto const& traitNames = node->getImplTraitNames();
       auto const& traitTypeArgs = node->getImplTraitTypeArgs();
@@ -566,8 +718,9 @@ private:
         }
         implDocs.push_back(docs(std::move(traitDoc)));
       }
-      head.push_back(docJoin(docs({docText(","), softLine()}), implDocs));
+      implSuffix = docs({docText("impl "), formatCommaSeparated(implDocs)});
     }
+    Doc headDoc = formatClassOrTraitHead(std::move(head), std::move(implSuffix));
 
     std::vector<Statement*> members;
     for (VarDecl* field : node->getFields()) {
@@ -581,10 +734,10 @@ private:
     });
     Doc body = formatStatements(members, node, false);
     if (isNilDoc(body)) {
-      return docs({docs(std::move(head)), docText(" {}")});
+      return docs({headDoc, docText(" {}")});
     }
     return docs({
-        docs(std::move(head)),
+        headDoc,
         docText(" {"),
         docNest(INDENT_WIDTH, docs({hardLine(), body})),
         hardLine(),
@@ -840,16 +993,22 @@ private:
       result = docText("super");
     } else if (auto const* binary = dynamic_cast<const BinaryOp*>(expr); binary != nullptr) {
       int const currentPrecedence = precedence(expr);
-      result = formatGroupedInfix(formatExpression(binary->getLeft(), currentPrecedence),
-                                  std::string(operatorSpelling(binary->getOperator())),
-                                  formatExpression(binary->getRight(), currentPrecedence + 1));
+      std::vector<const Expression*> operands;
+      bool const repeatedChain =
+          collectRepeatedBinaryOperands(binary, binary->getOperator(), operands);
+      if (repeatedChain && operands.size() > 2U) {
+        result = formatRepeatedBinaryChain(binary, currentPrecedence);
+      } else {
+        result = formatGroupedInfix(formatExpression(binary->getLeft(), currentPrecedence),
+                                    std::string(operatorSpelling(binary->getOperator())),
+                                    formatExpression(binary->getRight(), currentPrecedence + 1));
+      }
     } else if (auto const* subscript = dynamic_cast<const SubscriptOp*>(expr);
                subscript != nullptr) {
       result = docs({formatExpression(subscript->getLeft(), precedence(expr)), docText("["),
                      formatExpression(subscript->getIndex()), docText("]")});
     } else if (auto const* dot = dynamic_cast<const DotOp*>(expr); dot != nullptr) {
-      result = docs({formatExpression(dot->getLeft(), precedence(expr)), docText("."),
-                     formatExpression(dot->getRight(), precedence(expr))});
+      result = formatDotChain(dot, parentPrecedence);
     } else if (auto const* cast = dynamic_cast<const CastOp*>(expr); cast != nullptr) {
       int const currentPrecedence = precedence(expr);
       result = formatGroupedInfix(formatExpression(cast->getExpression(), currentPrecedence), "as",

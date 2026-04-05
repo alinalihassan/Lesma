@@ -17,6 +17,7 @@ enum class DocKind : std::uint8_t {
   Nil,
   Text,
   Line,
+  IfBreak,
   HardLine,
   Concat,
   Nest,
@@ -26,6 +27,7 @@ enum class DocKind : std::uint8_t {
 struct DocNode {
   DocKind kind = DocKind::Nil;
   std::string text;
+  std::string altText;
   int indent = 0;
   std::vector<Doc> children;
 };
@@ -33,6 +35,7 @@ struct DocNode {
 [[nodiscard]] auto nil() -> Doc;
 [[nodiscard]] auto text(std::string value) -> Doc;
 [[nodiscard]] auto line(std::string flatText = " ") -> Doc;
+[[nodiscard]] auto ifBreak(std::string breakText, std::string flatText = "") -> Doc;
 [[nodiscard]] auto hardLine() -> Doc;
 [[nodiscard]] auto concat(std::vector<Doc> docs) -> Doc;
 [[nodiscard]] auto nest(int indent, Doc doc) -> Doc;

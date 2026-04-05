@@ -5,6 +5,7 @@ trait InternalSeal {
 
 export class Pub impl InternalSeal {
   var k: int
+
   func new(v: int) {
     self.k = v
   }

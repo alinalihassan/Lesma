@@ -46,8 +46,7 @@ class PairBase {
   }
 }
 
-class PairCombo : PairBase impl HasU,
-HasV {
+class PairCombo : PairBase impl HasU, HasV {
   func new(p: int, q: int) {
     super.new(self, p, q)
   }

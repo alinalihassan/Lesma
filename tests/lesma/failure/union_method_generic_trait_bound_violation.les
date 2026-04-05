@@ -6,6 +6,7 @@ trait NeedVal {
 
 class Plain {
   var x: int
+
   func new(v: int) {
     self.x = v
   }

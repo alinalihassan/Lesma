@@ -1,6 +1,7 @@
 // Generic class without explicit `func new`: synthesized ctor + inference.
 class GBox<T> {
   var val: T
+
   func getVal() -> T {
     return self.val
   }
@@ -12,6 +13,7 @@ if ib.getVal() != 100 {
 class GPair<T, U> {
   var a: T
   var b: U
+
   func getA() -> T {
     return self.a
   }

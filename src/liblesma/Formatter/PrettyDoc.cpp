@@ -20,7 +20,8 @@ struct LayoutFrame {
 
 auto makeNode(DocKind kind) -> Doc {
   return Doc{
-      .node = std::make_shared<DocNode>(DocNode{.kind = kind, .text = "", .indent = 0, .children = {}})};
+      .node = std::make_shared<DocNode>(
+          DocNode{.kind = kind, .text = "", .altText = "", .indent = 0, .children = {}})};
 }
 
 auto flattenConcat(std::vector<Doc>& out, const Doc& doc) -> void {
@@ -70,6 +71,10 @@ auto fits(int remaining, std::vector<LayoutFrame> stack) -> bool {
         return true;
       }
       break;
+    case DocKind::IfBreak:
+      remaining -=
+          static_cast<int>((frame.mode == LayoutMode::Flat ? node.altText : node.text).size());
+      break;
     case DocKind::HardLine:
       return true;
     case DocKind::Concat:
@@ -113,6 +118,13 @@ auto text(std::string value) -> Doc {
 auto line(std::string flatText) -> Doc {
   Doc doc = makeNode(DocKind::Line);
   doc.node->text = std::move(flatText);
+  return doc;
+}
+
+auto ifBreak(std::string breakText, std::string flatText) -> Doc {
+  Doc doc = makeNode(DocKind::IfBreak);
+  doc.node->text = std::move(breakText);
+  doc.node->altText = std::move(flatText);
   return doc;
 }
 
@@ -202,6 +214,12 @@ auto layout(const Doc& doc, int width) -> std::string {
         column = frame.indent;
       }
       break;
+    case DocKind::IfBreak: {
+      std::string const& text = frame.mode == LayoutMode::Flat ? node.altText : node.text;
+      output += text;
+      column += static_cast<int>(text.size());
+      break;
+    }
     case DocKind::HardLine:
       trimWhitespaceOnlyCurrentLine(output);
       output.push_back('\n');

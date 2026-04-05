@@ -347,6 +347,7 @@ TEST(FormatterTests, FormatFilePreservesCommentsAndIsIdempotent) {
   auto formatted = formatFile(path, 100);
   ASSERT_TRUE(formatted.has_value()) << formatted.error().message;
   std::string const expected = "var x = 1 // inline\n"
+                               "\n"
                                "// leading\n"
                                "func add(a: int, b: int) -> int {\n"
                                "  return a + b\n"
@@ -453,8 +454,24 @@ TEST(FormatterTests, FormatSourcePreservesBlockComments) {
       "block_comment_test.les", 100);
   ASSERT_TRUE(formatted.has_value()) << formatted.error().message;
   EXPECT_EQ(*formatted, "func work() {\n"
-                        "  /* setup\n * step\n */\n"
+                        "  /* setup\n"
+                        "   * step\n"
+                        "   */\n"
                         "  let x = 1\n"
+                        "}\n");
+}
+
+TEST(FormatterTests, FormatSourceNormalizesDocComments) {
+  auto formatted = formatSource(
+      "/**\n* summary\n*details\n*/\nfunc work() -> int { return 1 }\n",
+      "doc_comment_test.les", 100);
+  ASSERT_TRUE(formatted.has_value()) << formatted.error().message;
+  EXPECT_EQ(*formatted, "/**\n"
+                        " * summary\n"
+                        " * details\n"
+                        " */\n"
+                        "func work() -> int {\n"
+                        "  return 1\n"
                         "}\n");
 }
 
@@ -509,8 +526,28 @@ TEST(FormatterTests, NarrowWidthBreaksLongCalls) {
                         "  alpha,\n"
                         "  beta,\n"
                         "  gamma,\n"
-                        "  delta\n"
+                        "  delta,\n"
                         ")\n");
+}
+
+TEST(FormatterTests, NarrowWidthBreaksChainedCallsOneSegmentPerLine) {
+  auto formatted = formatSource(
+      "let total = xs.map(func(x: int) => x + 1).filter(func(x: int) => x > 5).reduce(func(acc: int, x: int) => acc + x, 0)\n",
+      "chain_width_test.les", 32);
+  ASSERT_TRUE(formatted.has_value()) << formatted.error().message;
+  EXPECT_EQ(*formatted, "let total = xs\n"
+                        "  .map(func(x: int) => x + 1)\n"
+                        "  .filter(func(x: int) => x > 5)\n"
+                        "  .reduce(\n"
+                        "    func(\n"
+                        "      acc: int,\n"
+                        "      x: int,\n"
+                        "    ) => acc + x,\n"
+                        "    0,\n"
+                        "  )\n");
+
+  auto reparsed = parseSourceForFormatting(*formatted, "chain_width_test.les");
+  ASSERT_TRUE(reparsed.has_value()) << reparsed.error().message;
 }
 
 TEST(FormatterTests, TopLevelMajorDeclarationsCapAtOneBlankLine) {
@@ -532,6 +569,19 @@ TEST(FormatterTests, NarrowWidthBreaksLongReturnExpressionAndReparses) {
 
   auto reparsed = parseSourceForFormatting(*formatted, "return_expr_width_test.les");
   ASSERT_TRUE(reparsed.has_value()) << reparsed.error().message;
+}
+
+TEST(FormatterTests, NarrowWidthWrapsRepeatedBinaryOperatorsConsistently) {
+  auto formatted = formatSource(
+      "func calc() -> int {\nreturn alpha + beta + gamma + delta\n}\n",
+      "operator_chain_width_test.les", 22);
+  ASSERT_TRUE(formatted.has_value()) << formatted.error().message;
+  EXPECT_EQ(*formatted, "func calc() -> int {\n"
+                        "  return alpha\n"
+                        "    + beta\n"
+                        "    + gamma\n"
+                        "    + delta\n"
+                        "}\n");
 }
 
 TEST(FormatterTests, NarrowWidthBreaksLongIfConditionAndReparses) {
@@ -590,6 +640,48 @@ TEST(FormatterTests, FormatSourceParsesIndentedContinuationInput) {
 
   auto reparsed = parseSourceForFormatting(*formatted, "wrapped_return_input_test.les");
   ASSERT_TRUE(reparsed.has_value()) << reparsed.error().message;
+}
+
+TEST(FormatterTests, FormatSourcePreservesLogicalSectionsInsideBlocks) {
+  auto formatted = formatSource(
+      "func work() -> void {\n"
+      "let a = 1\n"
+      "\n"
+      "// phase two\n"
+      "let b = 2\n"
+      "\n"
+      "let c = 3\n"
+      "}\n",
+      "block_grouping_test.les", 100);
+  ASSERT_TRUE(formatted.has_value()) << formatted.error().message;
+  EXPECT_EQ(*formatted, "func work() {\n"
+                        "  let a = 1\n"
+                        "\n"
+                        "  // phase two\n"
+                        "  let b = 2\n"
+                        "\n"
+                        "  let c = 3\n"
+                        "}\n");
+}
+
+TEST(FormatterTests, FormatSourceWrapsClassHeadsAndSeparatesFieldsFromMethods) {
+  auto formatted = formatSource(
+      "class Widget : Base impl FirstTrait, SecondTrait, ThirdTrait {\n"
+      "var value: int\n"
+      "func read() -> int { return self.value }\n"
+      "}\n",
+      "class_layout_test.les", 36);
+  ASSERT_TRUE(formatted.has_value()) << formatted.error().message;
+  EXPECT_EQ(*formatted, "class Widget : Base\n"
+                        "  impl FirstTrait,\n"
+                        "  SecondTrait,\n"
+                        "  ThirdTrait {\n"
+                        "  var value: int\n"
+                        "\n"
+                        "  func read() -> int {\n"
+                        "    return self.value\n"
+                        "  }\n"
+                        "}\n");
 }
 
 TEST(ParserTests, ReturnExpressionAllowsIndentedContinuation) {

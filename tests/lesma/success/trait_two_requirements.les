@@ -7,6 +7,7 @@ trait PairOps {
 class P impl PairOps {
   var a: int
   var b: int
+
   func new(x: int, y: int) {
     self.a = x
     self.b = y

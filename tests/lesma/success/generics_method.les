@@ -1,5 +1,6 @@
 class Wrapper {
   var x: int
+
   func new(v: int) {
     self.x = v
   }

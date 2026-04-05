@@ -642,6 +642,9 @@ auto Parser::parseTypePrimary() -> std::unique_ptr<TypeExpr> {
         while (check(TokenType::NEWLINE)) {
           advance();
         }
+        if (check(TokenType::RIGHT_PAREN)) {
+          break;
+        }
         elems.push_back(parseType());
         if (!check(TokenType::RIGHT_PAREN)) {
           consume(TokenType::COMMA);
@@ -690,6 +693,9 @@ auto Parser::parseTypePrimary() -> std::unique_ptr<TypeExpr> {
     while (true) {
       while (check(TokenType::NEWLINE)) {
         advance();
+      }
+      if (check(TokenType::RIGHT_PAREN)) {
+        break;
       }
       if (!params.empty()) {
         lexeme += ", ";
@@ -928,6 +934,9 @@ auto Parser::parseFunctionCall() -> std::unique_ptr<Expression> {
     while (check(TokenType::NEWLINE)) {
       advance();
     }
+    if (check(TokenType::RIGHT_PAREN)) {
+      break;
+    }
     auto param = parseExpression();
     while (check(TokenType::NEWLINE)) {
       advance();
@@ -953,6 +962,9 @@ auto Parser::parseListLiteral() -> std::unique_ptr<Expression> {
     while (check(TokenType::NEWLINE)) {
       advance();
     }
+    if (check(TokenType::RIGHT_SQUARE)) {
+      break;
+    }
     elements.push_back(parseExpression());
     if (!check(TokenType::RIGHT_SQUARE)) {
       consume(TokenType::COMMA);
@@ -970,6 +982,9 @@ auto Parser::parseDictLiteral() -> std::unique_ptr<Expression> {
   while (!check(TokenType::RIGHT_BRACE)) {
     while (check(TokenType::NEWLINE)) {
       advance();
+    }
+    if (check(TokenType::RIGHT_BRACE)) {
+      break;
     }
     keyExprs.push_back(parseExpression());
     consume(TokenType::COLON);
@@ -1033,6 +1048,9 @@ auto Parser::parseTerm() -> std::unique_ptr<Expression> {
       while (!check(TokenType::RIGHT_PAREN)) {
         while (check(TokenType::NEWLINE)) {
           advance();
+        }
+        if (check(TokenType::RIGHT_PAREN)) {
+          break;
         }
         elems.push_back(parseExpression());
         if (!check(TokenType::RIGHT_PAREN)) {
@@ -1125,6 +1143,10 @@ auto Parser::parsePostfix() -> std::unique_ptr<Expression> {
   auto left = parseTerm();
 
   while (true) {
+    while (check(TokenType::NEWLINE) && canPeek(1) &&
+           checkAny<TokenType::DOT, TokenType::LEFT_SQUARE>(1)) {
+      consume(TokenType::NEWLINE);
+    }
     if (advanceIfMatchAny<TokenType::DOT>()) {
       auto* op = previous();
       auto expr = parseTerm();
@@ -1626,6 +1648,9 @@ auto Parser::parseParameterList(bool allowVarargsEllipsis) -> ParameterListParse
   while (!check(TokenType::RIGHT_PAREN)) {
     while (check(TokenType::NEWLINE)) {
       advance();
+    }
+    if (check(TokenType::RIGHT_PAREN)) {
+      break;
     }
     if (result.varargs) {
       error(peek(), "Varargs should be the last parameter");
