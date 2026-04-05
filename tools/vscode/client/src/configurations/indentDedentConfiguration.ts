@@ -112,7 +112,7 @@ export function getIndentDedentConfiguration(): LanguageConfiguration {
                         )?
                     )
                     \\s*
-                    (?: \/\/ .* )?
+                    (?: // .* )?
                     $
                 `),
                 action: {
@@ -141,7 +141,7 @@ export function getIndentDedentConfiguration(): LanguageConfiguration {
                         )
                     )
                     \\s*
-                    (?: \/\/ .* )?
+                    (?: // .* )?
                     $
                 `),
                 action: {
