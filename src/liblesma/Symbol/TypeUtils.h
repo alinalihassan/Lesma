@@ -1,5 +1,6 @@
 #pragma once
 
+#include <optional>
 #include <string>
 #include <unordered_map>
 #include <utility>
@@ -10,6 +11,11 @@ struct Field;
 class Type;
 
 namespace TypeUtils {
+struct OptionalPayloadMembers {
+  std::vector<Type*> members;
+  std::string displayName;
+};
+
 auto findIndexInFields(Type* structType, const std::string& field) -> int;
 /** LLVM struct index for the \p logicalIndex-th class data field (after the vtable pointer). */
 auto classDataFieldStructIndex(Type* classTy, unsigned logicalIndex) -> unsigned;
@@ -31,5 +37,8 @@ auto makeSpecializedClassKey(Type* classTemplate, const std::vector<std::string>
  *  Used everywhere \c setUnionMembers runs so mangling and specialization caches stay stable. */
 [[nodiscard]] auto canonicalizeUnionMembers(std::vector<Type*> arms)
     -> std::pair<std::vector<Type*>, std::string>;
+/** If \p type is an optional union (`T | null` or wider), return its canonical non-null payload
+ *  members and display name; otherwise return \c std::nullopt. */
+[[nodiscard]] auto computeOptionalPayloadMembers(Type* type) -> std::optional<OptionalPayloadMembers>;
 } // namespace TypeUtils
 } // namespace lesma

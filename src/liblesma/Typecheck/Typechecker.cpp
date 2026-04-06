@@ -2563,25 +2563,12 @@ auto Typechecker::getExtendedType(Type* left, Type* right) -> Type* {
 }
 
 auto Typechecker::getOptionalPayloadType(Type* type) -> Type* {
-  if (type == nullptr || !type->is(BaseType::TY_UNION)) {
+  auto payloadMembers = TypeUtils::computeOptionalPayloadMembers(type);
+  if (!payloadMembers.has_value()) {
     return nullptr;
   }
-  std::vector<Type*> payloadMembers;
-  bool sawNull = false;
-  for (Type* member : type->getUnionMembers()) {
-    if (member == nullptr) {
-      continue;
-    }
-    if (member->is(BaseType::TY_NULL)) {
-      sawNull = true;
-      continue;
-    }
-    payloadMembers.push_back(member);
-  }
-  if (!sawNull || payloadMembers.empty()) {
-    return nullptr;
-  }
-  auto [canonical, displayName] = TypeUtils::canonicalizeUnionMembers(std::move(payloadMembers));
+  auto& canonical = payloadMembers->members;
+  auto& displayName = payloadMembers->displayName;
   if (canonical.size() == 1U) {
     return canonical.front();
   }
