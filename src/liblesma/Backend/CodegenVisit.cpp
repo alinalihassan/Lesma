@@ -6240,8 +6240,12 @@ auto Codegen::callListMethodByName(llvm::SMRange span, lesma::Value* receiver,
     builder->SetInsertPoint(emptyBlock);
     auto* nullType = cacheType(std::make_unique<Type>(BaseType::TY_NULL, builder->getPtrTy()));
     Value nullValue("", nullType, llvm::ConstantPointerNull::getNullValue(builder->getPtrTy()));
+    auto nullIndex = unionVariantIndexOf(popType, nullType);
+    if (nullIndex == std::nullopt) {
+      throw CodegenError(span, "pop() could not resolve null union arm");
+    }
     auto nullWrapped =
-        emitUnionWrapValue(span, &nullValue, popType, *unionVariantIndexOf(popType, nullType));
+        emitUnionWrapValue(span, &nullValue, popType, *nullIndex);
     builder->CreateBr(mergeBlock);
 
     builder->SetInsertPoint(valueBlock);

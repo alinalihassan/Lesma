@@ -357,9 +357,12 @@ auto Codegen::genListIntrinsicCall(const FuncCall* node,
     builder->SetInsertPoint(emptyBlock);
     auto* nullType = cacheType(std::make_unique<Type>(BaseType::TY_NULL, builder->getPtrTy()));
     Value nullValue("", nullType, llvm::ConstantPointerNull::getNullValue(builder->getPtrTy()));
+    auto nullIndex = unionVariantIndexOf(popType, nullType);
+    if (nullIndex == std::nullopt) {
+      throw CodegenError(node->getSpan(), "pop() could not resolve null union arm");
+    }
     auto nullWrapped =
-        emitUnionWrapValue(node->getSpan(), &nullValue, popType,
-                           *unionVariantIndexOf(popType, nullType));
+        emitUnionWrapValue(node->getSpan(), &nullValue, popType, *nullIndex);
     builder->CreateBr(mergeBlock);
 
     builder->SetInsertPoint(valueBlock);
