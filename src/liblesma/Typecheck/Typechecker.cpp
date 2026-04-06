@@ -485,29 +485,17 @@ auto Typechecker::resolveMethodWithTraitEnv(Type* baseType, const std::string& m
 
   auto* methodType = method->getType();
   auto fields = methodType->getFields();
+  std::unordered_map<std::string, Type*> inferredFromArgs;
   for (size_t i = 0; i < fields.size() && i < methodArgTypes.size(); ++i) {
-    inferGenericBindings(fields[i]->type, methodArgTypes[i], methodTypeEnv, span);
+    inferGenericBindings(fields[i]->type, methodArgTypes[i], inferredFromArgs, span);
   }
+  mergeInferredGenericBindings(methodTypeEnv, inferredFromArgs, span);
   Type* retType = methodType->getReturnType();
   if (!methodTypeEnv.empty() && retType != nullptr) {
     retType = substituteInType(retType, methodTypeEnv);
   }
 
   std::unordered_map<std::string, Type*> traitBoundSubs = methodTypeEnv;
-  const auto& methodGenericNames = methodType->getGenericParams();
-  if (!methodGenericNames.empty()) {
-    std::unordered_map<std::string, Type*> extraInferred;
-    for (size_t i = 0; i < fields.size() && i < methodArgTypes.size(); ++i) {
-      inferGenericBindings(fields[i]->type, methodArgTypes[i], extraInferred, span);
-    }
-    for (const auto& kv : extraInferred) {
-      if (std::find(methodGenericNames.begin(), methodGenericNames.end(), kv.first) ==
-          methodGenericNames.end()) {
-        continue;
-      }
-      traitBoundSubs[kv.first] = kv.second;
-    }
-  }
 
   if (method->getDeclarationKind() == ValueDeclarationKind::METHOD ||
       method->getDeclarationKind() == ValueDeclarationKind::FUNCTION) {
@@ -1521,12 +1509,40 @@ void Typechecker::mergeMethodGenericParamsFromArgumentsWhenNoExplicitTypeArgs(
   for (size_t i = 0; i < fields.size() && i < methodArgTypes.size(); ++i) {
     inferGenericBindings(fields[i]->type, methodArgTypes[i], extraInferred, span);
   }
-  for (const auto& kv : extraInferred) {
-    if (std::find(methodGenericNames.begin(), methodGenericNames.end(), kv.first) ==
-        methodGenericNames.end()) {
+  mergeInferredGenericBindings(traitBoundSubs, extraInferred, span, &methodGenericNames);
+}
+
+void Typechecker::mergeInferredGenericBindings(
+    std::unordered_map<std::string, Type*>& targetBindings,
+    const std::unordered_map<std::string, Type*>& inferredBindings, llvm::SMRange span,
+    const std::vector<std::string>* allowedGenericNames) {
+  for (const auto& kv : inferredBindings) {
+    if (allowedGenericNames != nullptr &&
+        std::find(allowedGenericNames->begin(), allowedGenericNames->end(), kv.first) ==
+            allowedGenericNames->end()) {
       continue;
     }
-    traitBoundSubs[kv.first] = kv.second;
+    auto existingIt = targetBindings.find(kv.first);
+    if (existingIt == targetBindings.end()) {
+      targetBindings[kv.first] = kv.second;
+      continue;
+    }
+    if (existingIt->second == nullptr || kv.second == nullptr) {
+      if (existingIt->second == kv.second) {
+        continue;
+      }
+      throw TypeCheckError(span, "Conflicting inferred types for generic parameter {}: {} and {}",
+                           kv.first, existingIt->second != nullptr ? existingIt->second->toString()
+                                                                   : "void",
+                           kv.second != nullptr ? kv.second->toString() : "void");
+    }
+    if (existingIt->second->isEqual(kv.second) ||
+        (isAssignableTo(kv.second, existingIt->second) &&
+         !isLossyImplicitConversion(kv.second, existingIt->second))) {
+      continue;
+    }
+    throw TypeCheckError(span, "Conflicting inferred types for generic parameter {}: {} and {}",
+                         kv.first, existingIt->second->toString(), kv.second->toString());
   }
 }
 
@@ -3649,6 +3665,42 @@ auto Typechecker::rootStorageSymbolForAssignmentLhs(Expression* lhs) -> Value* {
   return nullptr;
 }
 
+auto Typechecker::assignmentStorageTypeForDotLhs(const DotOp* lhs, Type* fallbackType) -> Type* {
+  if (lhs == nullptr) {
+    return fallbackType;
+  }
+  auto* rightLit = dynamic_cast<Literal*>(lhs->getRight());
+  if (rightLit == nullptr || rightLit->getType() != TokenType::IDENTIFIER) {
+    return fallbackType;
+  }
+  if (Value* resolved = rightLit->getResolvedSymbol()) {
+    return resolved->getType();
+  }
+
+  lhs->getLeft()->accept(*this);
+  bool dotLeftDenotesTypeName =
+      result != nullptr && result->getCategory() == ValueCategory::TYPE_SYMBOL;
+  Type* base = result != nullptr ? result->getType() : nullptr;
+  tryPeelDotReceiverFromNamedImportStub(lhs, base, dotLeftDenotesTypeName);
+  if (base == nullptr) {
+    return fallbackType;
+  }
+  if (base->is(BaseType::TY_PTR) && base->getElementType() != nullptr) {
+    base = base->getElementType();
+  }
+  if (!base->is(BaseType::TY_CLASS) && !base->is(BaseType::TY_ENUM)) {
+    return fallbackType;
+  }
+
+  Field* staticPart = nullptr;
+  if (base->is(BaseType::TY_CLASS) && dotLeftDenotesTypeName) {
+    staticPart = TypeUtils::findStaticFieldInClass(base, rightLit->getValue());
+  }
+  Field* field =
+      staticPart != nullptr ? staticPart : TypeUtils::findFieldInFields(base, rightLit->getValue());
+  return field != nullptr && field->type != nullptr ? field->type : fallbackType;
+}
+
 namespace {
 
 auto appendUnionNarrowingExprKey(std::string& out, const Expression* expr) -> bool {
@@ -4964,6 +5016,7 @@ auto Typechecker::visit(const Assignment* node) -> void {
     return;
   }
   if (dynamic_cast<DotOp*>(node->getLeftHandSide()) != nullptr) {
+    auto* dotLhs = static_cast<DotOp*>(node->getLeftHandSide());
     if (auto* dot = dynamic_cast<DotOp*>(node->getLeftHandSide())) {
       if (auto* leftLit = dynamic_cast<Literal*>(dot->getLeft())) {
         if (leftLit->getType() == TokenType::IDENTIFIER &&
@@ -4987,7 +5040,7 @@ auto Typechecker::visit(const Assignment* node) -> void {
     }
     node->getLeftHandSide()->accept(*this);
     Type* lhsType = result->getType();
-    Type* targetType = lhsType;
+    Type* targetType = assignmentStorageTypeForDotLhs(dotLhs, lhsType);
     Type* rhsExpectedType = targetType;
     if (assignOp == TokenType::NULL_COALESCE_EQUAL) {
       rhsExpectedType = getOptionalPayloadType(targetType);
@@ -5036,10 +5089,10 @@ auto Typechecker::visit(const Assignment* node) -> void {
     if (baseType != nullptr && baseType->is(BaseType::TY_ARRAY) &&
         baseType->getElementType() != nullptr) {
       node->getLeftHandSide()->accept(*this);
-      Type* lhsType = result->getType();
-      Type* rhsExpectedType = lhsType;
+      Type* targetType = baseType->getElementType();
+      Type* rhsExpectedType = targetType;
       if (assignOp == TokenType::NULL_COALESCE_EQUAL) {
-        rhsExpectedType = getOptionalPayloadType(lhsType);
+        rhsExpectedType = getOptionalPayloadType(targetType);
         if (rhsExpectedType == nullptr) {
           throw TypeCheckError(node->getSpan(),
                                "Null-coalescing assignment requires list element type to be "
@@ -5049,22 +5102,22 @@ auto Typechecker::visit(const Assignment* node) -> void {
       visitExprWithExpectedType(node->getRightHandSide(), rhsExpectedType);
       Type* rhsType = result->getType();
       if (binaryOp.has_value()) {
-        Type* resultType = typecheckBinaryOpResult(*binaryOp, lhsType, rhsType, node->getSpan());
-        if (lhsType != nullptr && !isAssignableTo(resultType, lhsType)) {
+        Type* resultType = typecheckBinaryOpResult(*binaryOp, targetType, rhsType, node->getSpan());
+        if (targetType != nullptr && !isAssignableTo(resultType, targetType)) {
           throw TypeCheckError(
               node->getSpan(),
               "Compound assignment result type {} is not assignable to list element type {}",
-              resultType->toString(), lhsType->toString());
+              resultType->toString(), targetType->toString());
         }
       } else {
         if (assignOp == TokenType::NULL_COALESCE_EQUAL) {
-          validateNullCoalesceAssignment(lhsType, rhsType, "list element");
+          validateNullCoalesceAssignment(targetType, rhsType, "list element");
         } else if (assignOp != TokenType::EQUAL) {
           throw TypeCheckError(node->getSpan(), "Unsupported assignment operator: {}",
                                NAMEOF_ENUM(assignOp));
-        } else if (lhsType != nullptr && !isAssignableTo(rhsType, lhsType)) {
+        } else if (targetType != nullptr && !isAssignableTo(rhsType, targetType)) {
           throw TypeCheckError(node->getSpan(), "Cannot assign type {} to list element of type {}",
-                               rhsType->toString(), lhsType->toString());
+                               rhsType->toString(), targetType->toString());
         }
       }
       invalidateUnionNarrowingForSymbol(rootStorageSymbolForAssignmentLhs(node->getLeftHandSide()));

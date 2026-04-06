@@ -238,6 +238,8 @@ class Typechecker final : public ASTVisitor {
   /** Outermost identifier-like storage for an assignment LHS (for invalidating narrowing on `a.b`
    *  or `a[i]`). */
   [[nodiscard]] auto rootStorageSymbolForAssignmentLhs(Expression* lhs) -> Value*;
+  /** Declared/storage type for a dot-assignment target, not the flow-narrowed read type. */
+  [[nodiscard]] auto assignmentStorageTypeForDotLhs(const DotOp* lhs, Type* fallbackType) -> Type*;
   /** Remove union arms equal to types in \p toExclude (each match removes at most one arm).
    *  Returns nullptr if no arm was removed or no arm would remain. */
   auto narrowUnionByExcludingMembers(Type* unionTy, const std::vector<Type*>& toExclude) -> Type*;
@@ -323,6 +325,10 @@ class Typechecker final : public ASTVisitor {
   void mergeMethodGenericParamsFromArgumentsWhenNoExplicitTypeArgs(
       const FuncCall* fc, Type* methodType, const std::vector<Type*>& methodArgTypes,
       std::unordered_map<std::string, Type*>& traitBoundSubs, llvm::SMRange span);
+  void mergeInferredGenericBindings(
+      std::unordered_map<std::string, Type*>& targetBindings,
+      const std::unordered_map<std::string, Type*>& inferredBindings, llvm::SMRange span,
+      const std::vector<std::string>* allowedGenericNames = nullptr);
   [[nodiscard]] auto traitRequirementParamLookupTypes(Type* selfPtr, const FuncDecl* req)
       -> std::vector<Type*>;
 
