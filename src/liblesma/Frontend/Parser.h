@@ -117,6 +117,12 @@ private:
 
   auto check(TokenType type, unsigned long pos) -> bool { return peek(pos)->type == type; }
 
+  auto isTypeArgClose() -> bool;
+  auto consumeTypeArgClose(const std::string& errorMessage = "Expected '>' after type arguments")
+      -> void;
+  auto isTypeArgClose(unsigned long off, unsigned short pendingTypeArgClosers) -> bool;
+  auto consumeTypeArgClose(unsigned long& off, unsigned short& pendingTypeArgClosers) -> bool;
+
   template <TokenType type, TokenType... remaining_types>
   auto advanceIfMatchAny() -> bool;
 
@@ -131,6 +137,7 @@ private:
 
   std::vector<Token*> tokens;
   size_t index = 0;
+  unsigned short pendingTypeArgClosers = 0;
   bool inClass = false;
   bool isExported = false;
   std::unique_ptr<Compound> tree;
@@ -216,7 +223,10 @@ private:
   // GREATER LEFT_PAREN (so parsing as call with explicit type args is valid).
   auto hasExplicitTypeArgsAndParen() -> bool;
   auto parseTypeAt(unsigned long& off) -> bool;
+  auto parseTypeAt(unsigned long& off, unsigned short& pendingTypeArgClosers) -> bool;
   auto parseTypePrimaryAt(unsigned long& off) -> bool;
+  auto parseTypePrimaryAt(unsigned long& off, unsigned short& pendingTypeArgClosers) -> bool;
   auto skipOneTypeAt(unsigned long& off) -> bool;
+  auto skipOneTypeAt(unsigned long& off, unsigned short& pendingTypeArgClosers) -> bool;
 };
 } // namespace lesma

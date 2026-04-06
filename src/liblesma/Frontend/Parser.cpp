@@ -405,6 +405,53 @@ auto Parser::consume(TokenType type, const std::string& errorMessage) -> Token* 
   return nullptr;
 }
 
+auto Parser::isTypeArgClose() -> bool {
+  return pendingTypeArgClosers > 0U || check(TokenType::GREATER) || check(TokenType::SHIFT_RIGHT);
+}
+
+auto Parser::consumeTypeArgClose(const std::string& errorMessage) -> void {
+  if (pendingTypeArgClosers > 0U) {
+    pendingTypeArgClosers--;
+    return;
+  }
+  if (check(TokenType::GREATER)) {
+    advance();
+    return;
+  }
+  if (check(TokenType::SHIFT_RIGHT)) {
+    advance();
+    pendingTypeArgClosers++;
+    return;
+  }
+  error(peek(), errorMessage);
+}
+
+auto Parser::isTypeArgClose(unsigned long off, unsigned short pendingTypeArgClosers) -> bool {
+  return pendingTypeArgClosers > 0U ||
+         (canPeek(off) &&
+          (peek(off)->type == TokenType::GREATER || peek(off)->type == TokenType::SHIFT_RIGHT));
+}
+
+auto Parser::consumeTypeArgClose(unsigned long& off, unsigned short& pendingTypeArgClosers) -> bool {
+  if (pendingTypeArgClosers > 0U) {
+    pendingTypeArgClosers--;
+    return true;
+  }
+  if (!canPeek(off)) {
+    return false;
+  }
+  if (peek(off)->type == TokenType::GREATER) {
+    off++;
+    return true;
+  }
+  if (peek(off)->type == TokenType::SHIFT_RIGHT) {
+    off++;
+    pendingTypeArgClosers++;
+    return true;
+  }
+  return false;
+}
+
 auto Parser::consumeNewline() -> Token* {
   if (check(TokenType::NEWLINE) || peek()->type == TokenType::EOF_TOKEN) {
     return advance();
@@ -561,7 +608,7 @@ auto Parser::parseAngleBracketTypeArgList() -> std::vector<std::unique_ptr<TypeE
     while (check(TokenType::NEWLINE)) {
       advance();
     }
-    if (check(TokenType::GREATER)) {
+    if (isTypeArgClose()) {
       break;
     }
     outs.push_back(parseType());
@@ -572,7 +619,7 @@ auto Parser::parseAngleBracketTypeArgList() -> std::vector<std::unique_ptr<TypeE
       break;
     }
   }
-  consume(TokenType::GREATER, "Expected '>' after type arguments");
+  consumeTypeArgClose("Expected '>' after type arguments");
   return outs;
 }
 
@@ -582,7 +629,7 @@ auto Parser::parseIgnoredTypeArgList() -> void {
   }
 
   consume(TokenType::LESS);
-  while (!check(TokenType::GREATER)) {
+  while (!isTypeArgClose()) {
     while (check(TokenType::NEWLINE)) {
       advance();
     }
@@ -591,11 +638,11 @@ auto Parser::parseIgnoredTypeArgList() -> void {
     while (check(TokenType::NEWLINE)) {
       advance();
     }
-    if (!check(TokenType::GREATER)) {
+    if (!isTypeArgClose()) {
       consume(TokenType::COMMA);
     }
   }
-  consume(TokenType::GREATER);
+  consumeTypeArgClose();
 }
 
 auto Parser::parseType() -> std::unique_ptr<TypeExpr> {
@@ -769,7 +816,12 @@ auto Parser::parseTypePrimary() -> std::unique_ptr<TypeExpr> {
 }
 
 auto Parser::parseTypeAt(unsigned long& off) -> bool {
-  if (!parseTypePrimaryAt(off)) {
+  unsigned short pendingTypeArgClosers = 0;
+  return parseTypeAt(off, pendingTypeArgClosers);
+}
+
+auto Parser::parseTypeAt(unsigned long& off, unsigned short& pendingTypeArgClosers) -> bool {
+  if (!parseTypePrimaryAt(off, pendingTypeArgClosers)) {
     return false;
   }
   while (canPeek(off) && peek(off)->type == TokenType::PIPE) {
@@ -777,7 +829,7 @@ auto Parser::parseTypeAt(unsigned long& off) -> bool {
     while (canPeek(off) && peek(off)->type == TokenType::NEWLINE) {
       off++;
     }
-    if (!parseTypePrimaryAt(off)) {
+    if (!parseTypePrimaryAt(off, pendingTypeArgClosers)) {
       return false;
     }
   }
@@ -785,13 +837,18 @@ auto Parser::parseTypeAt(unsigned long& off) -> bool {
 }
 
 auto Parser::parseTypePrimaryAt(unsigned long& off) -> bool {
+  unsigned short pendingTypeArgClosers = 0;
+  return parseTypePrimaryAt(off, pendingTypeArgClosers);
+}
+
+auto Parser::parseTypePrimaryAt(unsigned long& off, unsigned short& pendingTypeArgClosers) -> bool {
   if (!canPeek(off)) {
     return false;
   }
 
   if (check(TokenType::STAR, off)) {
     off++;
-    if (!parseTypePrimaryAt(off)) {
+    if (!parseTypePrimaryAt(off, pendingTypeArgClosers)) {
       return false;
     }
     while (canPeek(off) && peek(off)->type == TokenType::QUESTION) {
@@ -802,13 +859,13 @@ auto Parser::parseTypePrimaryAt(unsigned long& off) -> bool {
 
   if (check(TokenType::LEFT_PAREN, off)) {
     off++;
-    if (!parseTypeAt(off)) {
+    if (!parseTypeAt(off, pendingTypeArgClosers)) {
       return false;
     }
     if (canPeek(off) && peek(off)->type == TokenType::COMMA) {
       off++;
       while (canPeek(off) && peek(off)->type != TokenType::RIGHT_PAREN) {
-        if (!parseTypeAt(off)) {
+        if (!parseTypeAt(off, pendingTypeArgClosers)) {
           return false;
         }
         if (canPeek(off) && peek(off)->type == TokenType::COMMA) {
@@ -846,13 +903,13 @@ auto Parser::parseTypePrimaryAt(unsigned long& off) -> bool {
     }
     off++;
 
-    if (!parseTypeAt(off)) {
+    if (!parseTypeAt(off, pendingTypeArgClosers)) {
       return false;
     }
 
     while (canPeek(off) && peek(off)->type == TokenType::COMMA) {
       off++;
-      if (!parseTypeAt(off)) {
+      if (!parseTypeAt(off, pendingTypeArgClosers)) {
         return false;
       }
     }
@@ -864,7 +921,7 @@ auto Parser::parseTypePrimaryAt(unsigned long& off) -> bool {
 
     if (canPeek(off) && peek(off)->type == TokenType::ARROW) {
       off++;
-      if (!parseTypeAt(off)) {
+      if (!parseTypeAt(off, pendingTypeArgClosers)) {
         return false;
       }
       while (canPeek(off) && peek(off)->type == TokenType::QUESTION) {
@@ -886,7 +943,7 @@ auto Parser::parseTypePrimaryAt(unsigned long& off) -> bool {
       while (canPeek(off) && peek(off)->type == TokenType::NEWLINE) {
         off++;
       }
-      if (!parseTypeAt(off)) {
+      if (!parseTypeAt(off, pendingTypeArgClosers)) {
         return false;
       }
       while (canPeek(off) && peek(off)->type == TokenType::NEWLINE) {
@@ -897,17 +954,16 @@ auto Parser::parseTypePrimaryAt(unsigned long& off) -> bool {
         while (canPeek(off) && peek(off)->type == TokenType::NEWLINE) {
           off++;
         }
-        if (!parseTypeAt(off)) {
+        if (!parseTypeAt(off, pendingTypeArgClosers)) {
           return false;
         }
         while (canPeek(off) && peek(off)->type == TokenType::NEWLINE) {
           off++;
         }
       }
-      if (!canPeek(off) || peek(off)->type != TokenType::GREATER) {
+      if (!consumeTypeArgClose(off, pendingTypeArgClosers)) {
         return false;
       }
-      off++;
     }
     while (canPeek(off) && peek(off)->type == TokenType::QUESTION) {
       off++;
@@ -918,7 +974,14 @@ auto Parser::parseTypePrimaryAt(unsigned long& off) -> bool {
   return false;
 }
 
-auto Parser::skipOneTypeAt(unsigned long& off) -> bool { return parseTypeAt(off); }
+auto Parser::skipOneTypeAt(unsigned long& off) -> bool {
+  unsigned short pendingTypeArgClosers = 0;
+  return skipOneTypeAt(off, pendingTypeArgClosers);
+}
+
+auto Parser::skipOneTypeAt(unsigned long& off, unsigned short& pendingTypeArgClosers) -> bool {
+  return parseTypeAt(off, pendingTypeArgClosers);
+}
 
 auto Parser::hasExplicitTypeArgsAndParen() -> bool {
   if (!(check(TokenType::IDENTIFIER) || check(TokenType::STRING_TYPE)) ||
@@ -926,28 +989,31 @@ auto Parser::hasExplicitTypeArgsAndParen() -> bool {
     return false;
   }
   unsigned long off = 2;
-  while (canPeek(off)) {
-    while (canPeek(off) && peek(off)->type == TokenType::NEWLINE) {
+  unsigned short pendingTypeArgClosers = 0;
+  while (canPeek(off) || pendingTypeArgClosers > 0U) {
+    while (pendingTypeArgClosers == 0U && canPeek(off) && peek(off)->type == TokenType::NEWLINE) {
       off++;
+    }
+    if (isTypeArgClose(off, pendingTypeArgClosers)) {
+      unsigned long closeOff = off;
+      unsigned short closePending = pendingTypeArgClosers;
+      if (!consumeTypeArgClose(closeOff, closePending)) {
+        return false;
+      }
+      return canPeek(closeOff) && peek(closeOff)->type == TokenType::LEFT_PAREN;
     }
     if (!canPeek(off)) {
       return false;
     }
-    if (peek(off)->type == TokenType::GREATER) {
-      return canPeek(off + 1) && peek(off + 1)->type == TokenType::LEFT_PAREN;
-    }
-    if (!skipOneTypeAt(off)) {
+    if (!skipOneTypeAt(off, pendingTypeArgClosers)) {
       return false;
     }
-    while (canPeek(off) && peek(off)->type == TokenType::NEWLINE) {
+    while (pendingTypeArgClosers == 0U && canPeek(off) && peek(off)->type == TokenType::NEWLINE) {
       off++;
     }
-    if (!canPeek(off)) {
-      return false;
-    }
-    if (peek(off)->type == TokenType::COMMA) {
+    if (pendingTypeArgClosers == 0U && canPeek(off) && peek(off)->type == TokenType::COMMA) {
       off++;
-    } else if (peek(off)->type != TokenType::GREATER) {
+    } else if (!isTypeArgClose(off, pendingTypeArgClosers)) {
       return false;
     }
   }
@@ -2116,7 +2182,7 @@ auto Parser::parseClass() -> std::unique_ptr<Statement> {
             break;
           }
         }
-        consume(TokenType::GREATER, "Expected '>' after trait type arguments");
+        consumeTypeArgClose("Expected '>' after trait type arguments");
       }
       implTraitNames.push_back(traitName->lexeme);
       implTraitSpans.push_back(traitName->span);
