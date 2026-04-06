@@ -5538,7 +5538,11 @@ auto Typechecker::visit(const BinaryOp* node) -> void {
   auto extractConstantShiftCount = [](const Expression* expr) -> std::optional<long long> {
     if (auto const* lit = dynamic_cast<const Literal*>(expr)) {
       if (lit->getType() == TokenType::INTEGER) {
-        return std::stoll(lit->getValue());
+        try {
+          return std::stoll(lit->getValue());
+        } catch (...) {
+          throw TypeCheckError(expr->getSpan(), "Invalid shift count literal");
+        }
       }
       return std::nullopt;
     }
@@ -5550,7 +5554,11 @@ auto Typechecker::visit(const BinaryOp* node) -> void {
       if (lit == nullptr || lit->getType() != TokenType::INTEGER) {
         return std::nullopt;
       }
-      return -std::stoll(lit->getValue());
+      try {
+        return -std::stoll(lit->getValue());
+      } catch (...) {
+        throw TypeCheckError(expr->getSpan(), "Invalid shift count literal");
+      }
     }
     return std::nullopt;
   };

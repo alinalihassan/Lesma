@@ -680,7 +680,6 @@ export class file {
     free(buf)
     fclose(in_fp)
     fclose(out_fp)
-    remove(path)
     if rename(temp_path.cstr(), path) != 0 {
       remove(temp_path.cstr())
     }

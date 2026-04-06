@@ -45,16 +45,27 @@ if absent ?? fallback() != 7 {
   exit(5)
 }
 
-var scores: dict<str, int> = {"one": 1}
-if scores.get("missing") ?? 0 != 0 {
+var missingA: int? = null
+var missingB: int? = null
+if missingA ?? missingB ?? 12 != 12 {
   exit(6)
 }
-if scores.get("one") ?? 0 != 1 {
+
+missingB = 6
+if missingA ?? missingB ?? 12 != 6 {
   exit(7)
+}
+
+var scores: dict<str, int> = {"one": 1}
+if scores.get("missing") ?? 0 != 0 {
+  exit(8)
+}
+if scores.get("one") ?? 0 != 1 {
+  exit(9)
 }
 
 var maybeBox: Box? = null
 let box = maybeBox ?? Box(11)
 if box.get() != 11 {
-  exit(8)
+  exit(10)
 }

@@ -24,12 +24,22 @@ if kept is float {
   exit(3)
 }
 
-var absent: int | float | null = null
-let defaulted = absent ?? 7.0
-if defaulted is float {
-  if defaulted < 6.99 or defaulted > 7.01 {
+var presentInt: int | float | null = 4
+let keptInt = presentInt ?? 7.0
+if keptInt is int {
+  if keptInt != 4 {
     exit(4)
   }
 } else {
   exit(4)
+}
+
+var absent: int | float | null = null
+let defaulted = absent ?? 7.0
+if defaulted is float {
+  if defaulted < 6.99 or defaulted > 7.01 {
+    exit(5)
+  }
+} else {
+  exit(5)
 }

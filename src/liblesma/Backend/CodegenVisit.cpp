@@ -1105,7 +1105,11 @@ auto Codegen::visit(const VarDecl* node) -> void {
       emitAutoVarDebugDeclare(llvm::cast<llvm::AllocaInst>(ptr), name, node->getSpan(), nullptr);
     }
     if (node->getValue() != nullptr) {
-      if (auto* le = dynamic_cast<LambdaExpr*>(node->getValue())) {
+      if (valueResult != nullptr && storedType->is(BaseType::TY_FUNCTION) &&
+          valueResult->getStoresFuncValuePair() &&
+          valueResult->getClosureCalleeUsesEnvParameter()) {
+        existing->setClosureCalleeUsesEnvParameter(valueResult->getClosureCalleeUsesEnvParameter());
+      } else if (auto* le = dynamic_cast<LambdaExpr*>(node->getValue())) {
         if (Value* rs = le->getResolvedSymbol(); rs != nullptr) {
           existing->setClosureCalleeUsesEnvParameter(rs->getClosureCalleeUsesEnvParameter());
         }
@@ -1364,8 +1368,54 @@ auto Codegen::materializeNarrowedUnionValue(lesma::Value* value, lesma::Type* na
     builder->CreateStore(storage, tempAlloca);
     storage = tempAlloca;
   }
+  if (narrowedType->is(BaseType::TY_UNION)) {
+    auto* parentFn = builder->GetInsertBlock()->getParent();
+    auto* narrowedStructTy = llvm::cast<llvm::StructType>(narrowedType->getLlvmType());
+    auto* narrowedSlot = createAllocaInEntry(parentFn, narrowedStructTy, tempName + ".slot");
+    auto* sourceStructTy = llvm::cast<llvm::StructType>(value->getType()->getLlvmType());
+    llvm::Value* tagPtr = builder->CreateStructGEP(sourceStructTy, storage, 0U, tempName + ".tag.ptr");
+    llvm::Type* tagTy = getOrCreateUnionTagLlvmType(value->getType());
+    llvm::Value* tagVal = builder->CreateLoad(tagTy, tagPtr, tempName + ".tag");
+    auto* invalidBlock = llvm::BasicBlock::Create(theModule->getContext(), tempName + ".invalid", parentFn);
+    auto* mergeBlock = llvm::BasicBlock::Create(theModule->getContext(), tempName + ".merge", parentFn);
+    auto* switchInst =
+        builder->CreateSwitch(tagVal, invalidBlock, narrowedType->getUnionMembers().size());
+    for (Type* memberTy : narrowedType->getUnionMembers()) {
+      if (memberTy == nullptr) {
+        continue;
+      }
+      auto sourceIndex = unionVariantIndexOf(value->getType(), memberTy);
+      auto narrowedIndex = unionVariantIndexOf(narrowedType, memberTy);
+      if (!sourceIndex.has_value() || !narrowedIndex.has_value()) {
+        continue;
+      }
+      auto* caseBlock =
+          llvm::BasicBlock::Create(theModule->getContext(), tempName + ".case", parentFn);
+      switchInst->addCase(llvm::cast<llvm::ConstantInt>(llvm::ConstantInt::get(tagTy, *sourceIndex)),
+                          caseBlock);
+      builder->SetInsertPoint(caseBlock);
+      llvm::Value* payload = emitUnionPayloadLoadFromSlot(storage, value->getType(), memberTy);
+      auto memberValue = std::make_unique<Value>("", memberTy, payload);
+      if (memberTy->is(BaseType::TY_FUNCTION)) {
+        memberValue->setStoresFuncValuePair(true);
+        memberValue->setCategory(ValueCategory::DIRECT_VALUE);
+      }
+      emitUnionWrapValueToSlot({}, memberValue.get(), narrowedType, *narrowedIndex, narrowedSlot);
+      builder->CreateBr(mergeBlock);
+    }
+    builder->SetInsertPoint(invalidBlock);
+    builder->CreateUnreachable();
+    builder->SetInsertPoint(mergeBlock);
+    llvm::Value* narrowedValue = builder->CreateLoad(narrowedStructTy, narrowedSlot, tempName);
+    return std::make_unique<Value>("", narrowedType, narrowedValue);
+  }
   llvm::Value* narrowedValue = emitUnionPayloadLoadFromSlot(storage, value->getType(), narrowedType);
-  return std::make_unique<Value>("", narrowedType, narrowedValue);
+  auto narrowed = std::make_unique<Value>("", narrowedType, narrowedValue);
+  if (narrowedType->is(BaseType::TY_FUNCTION)) {
+    narrowed->setStoresFuncValuePair(true);
+    narrowed->setCategory(ValueCategory::DIRECT_VALUE);
+  }
+  return narrowed;
 }
 
 auto Codegen::emitUnionWrapValueToSlot(llvm::SMRange /*span*/, lesma::Value* val,
@@ -2948,7 +2998,10 @@ auto Codegen::emitClassStaticFieldGlobals(lesma::Type* classTy, const Class* ast
           auto rhs = cast(vd->getValue()->getSpan(), valueResult, fieldTy);
           builder->CreateStore(rhs->getLlvmValue(), gv);
         }
-        if (auto* le = dynamic_cast<LambdaExpr*>(vd->getValue())) {
+        if (valueResult->getStoresFuncValuePair() &&
+            valueResult->getClosureCalleeUsesEnvParameter()) {
+          sym->setClosureCalleeUsesEnvParameter(valueResult->getClosureCalleeUsesEnvParameter());
+        } else if (auto* le = dynamic_cast<LambdaExpr*>(vd->getValue())) {
           if (Value* rs = le->getResolvedSymbol(); rs != nullptr) {
             sym->setClosureCalleeUsesEnvParameter(rs->getClosureCalleeUsesEnvParameter());
           }
@@ -3240,6 +3293,13 @@ auto Codegen::visit(const BinaryOp* node) -> void {
     if (right != nullptr && !right->getType()->isEqual(payloadType)) {
       right = cast(node->getSpan(), right.get(), payloadType);
     }
+    if (payloadType->is(BaseType::TY_FUNCTION) && right != nullptr &&
+        right->getStoresFuncValuePair() && right->getLlvmValue() != nullptr &&
+        right->getLlvmValue()->getType()->isPointerTy()) {
+      llvm::StructType* pairTy = getFuncValuePairLlvmType();
+      right->setLlvmValue(builder->CreateLoad(pairTy, right->getLlvmValue(), "coalesce.right.fn"));
+      right->setCategory(ValueCategory::DIRECT_VALUE);
+    }
     llvm::Value* rightValue = right->getLlvmValue();
     llvm::Type* phiType = leftValue->getType();
     if (rightValue->getType() != phiType) {
@@ -3264,6 +3324,13 @@ auto Codegen::visit(const BinaryOp* node) -> void {
     phi->addIncoming(leftValue, leftIncoming);
     phi->addIncoming(rightValue, rightIncoming);
     result = std::make_unique<Value>("", payloadType, phi);
+    if (payloadType->is(BaseType::TY_FUNCTION)) {
+      result->setStoresFuncValuePair(true);
+      result->setCategory(ValueCategory::DIRECT_VALUE);
+      result->setClosureCalleeUsesEnvParameter(
+          leftPayload->getClosureCalleeUsesEnvParameter() ||
+          (right != nullptr && right->getClosureCalleeUsesEnvParameter()));
+    }
     return;
   }
   node->getRight()->accept(*this);
@@ -3293,6 +3360,12 @@ auto Codegen::visit(const BinaryOp* node) -> void {
       return nullptr;
     }
 
+    Type* memberTy = unionTy->getUnionMembers().at(*memberIndex);
+    if (!(memberTy->is(BaseType::TY_NULL) || memberTy->isFloatingPoint() ||
+          memberTy->is(BaseType::TY_INT) || memberTy->is(BaseType::TY_BOOL) ||
+          memberTy->is(BaseType::TY_PTR))) {
+      return nullptr;
+    }
     llvm::Function* parent = builder->GetInsertBlock()->getParent();
     auto* unionStructTy = llvm::cast<llvm::StructType>(getOrCreateLlvmType(unionTy));
     llvm::Value* unionStorage = unionValue->getLlvmValue();
@@ -3308,6 +3381,9 @@ auto Codegen::visit(const BinaryOp* node) -> void {
     llvm::Value* tagVal = builder->CreateLoad(tagTy, tagPtr, "union.cmp.tag");
     llvm::Value* isActive =
         builder->CreateICmpEQ(tagVal, llvm::ConstantInt::get(tagTy, *memberIndex), "union.cmp.arm");
+    if (memberTy->is(BaseType::TY_NULL)) {
+      return makeBoolCompareResult(isEqual ? isActive : builder->CreateNot(isActive, "union.cmp.ne"));
+    }
     llvm::BasicBlock* const activeBlock =
         llvm::BasicBlock::Create(theModule->getContext(), "union.cmp.active", parent);
     llvm::BasicBlock* const inactiveBlock =
@@ -3317,17 +3393,13 @@ auto Codegen::visit(const BinaryOp* node) -> void {
     builder->CreateCondBr(isActive, activeBlock, inactiveBlock);
 
     builder->SetInsertPoint(activeBlock);
-    Type* memberTy = unionTy->getUnionMembers().at(*memberIndex);
     llvm::Value* payload = emitUnionPayloadLoadFromSlot(unionPtr, unionTy, memberTy);
     auto scalarCasted = cast(node->getSpan(), scalarValue, memberTy);
     llvm::Value* payloadEq = nullptr;
     if (memberTy->isFloatingPoint()) {
       payloadEq = builder->CreateFCmpOEQ(payload, scalarCasted->getLlvmValue());
-    } else if (memberTy->is(BaseType::TY_INT) || memberTy->is(BaseType::TY_BOOL) ||
-               memberTy->is(BaseType::TY_PTR)) {
-      payloadEq = builder->CreateICmpEQ(payload, scalarCasted->getLlvmValue());
     } else {
-      return nullptr;
+      payloadEq = builder->CreateICmpEQ(payload, scalarCasted->getLlvmValue());
     }
     llvm::BasicBlock* activeIncoming = builder->GetInsertBlock();
     builder->CreateBr(mergeBlock);

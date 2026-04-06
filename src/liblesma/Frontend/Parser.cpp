@@ -1328,20 +1328,17 @@ auto Parser::parseCompare() -> std::unique_ptr<Expression> {
 
 auto Parser::parseCoalesce() -> std::unique_ptr<Expression> {
   auto left = parseBitwiseOr();
-  while (true) {
-    while (check(TokenType::NEWLINE) && canPeek(1) && checkAny<TokenType::NULL_COALESCE>(1)) {
-      consume(TokenType::NEWLINE);
-    }
-    if (!advanceIfMatchAny<TokenType::NULL_COALESCE>()) {
-      break;
-    }
-    auto op = previous()->type;
-    consumeOperandContinuationNewlines();
-    auto right = parseBitwiseOr();
-    left = std::make_unique<BinaryOp>(llvm::SMRange{left->getStart(), right->getEnd()},
-                                      std::move(left), op, std::move(right));
+  while (check(TokenType::NEWLINE) && canPeek(1) && checkAny<TokenType::NULL_COALESCE>(1)) {
+    consume(TokenType::NEWLINE);
   }
-  return left;
+  if (!advanceIfMatchAny<TokenType::NULL_COALESCE>()) {
+    return left;
+  }
+  auto op = previous()->type;
+  consumeOperandContinuationNewlines();
+  auto right = parseCoalesce();
+  return std::make_unique<BinaryOp>(llvm::SMRange{left->getStart(), right->getEnd()},
+                                    std::move(left), op, std::move(right));
 }
 
 auto Parser::parseShift() -> std::unique_ptr<Expression> {
