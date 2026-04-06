@@ -61,6 +61,10 @@
         {
           "name": "keyword.implicit.lesma",
           "match": "\\b(self|super)\\b"
+        },
+        {
+          "name": "keyword.language.null.lesma",
+          "match": "\\bnull\\b"
         }
       ]
     },
@@ -84,7 +88,7 @@
         },
         {
           "name": "keyword.operator.expression.lesma",
-          "match": "\\b(and|or|not|is|as)\\b|\\?\\?|\\||\\?"
+          "match": "\\b(and|or|not|is|as)\\b|\\||\\?"
         },
         {
           "name": "keyword.operator.arithmetic.lesma",
@@ -489,7 +493,7 @@
         {
           "comment": "Boolean constants",
           "name": "constant.language.boolean.lesma",
-          "match": "\\b(true|false|null)\\b"
+          "match": "\\b(true|false)\\b"
         }
       ]
     },
