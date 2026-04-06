@@ -51,6 +51,7 @@ enum class TokenType : std::uint8_t {
   STAR_EQUAL,
   MOD_EQUAL,
   POWER_EQUAL,
+  NULL_COALESCE_EQUAL,
 
   // Literals.
   IDENTIFIER,

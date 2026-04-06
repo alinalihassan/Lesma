@@ -1535,7 +1535,7 @@ auto Parser::parseAssignment() -> std::unique_ptr<Statement> {
 
   if (advanceIfMatchAny<TokenType::EQUAL, TokenType::PLUS_EQUAL, TokenType::MINUS_EQUAL,
                         TokenType::STAR_EQUAL, TokenType::SLASH_EQUAL, TokenType::MOD_EQUAL,
-                        TokenType::POWER_EQUAL>()) {
+                        TokenType::POWER_EQUAL, TokenType::NULL_COALESCE_EQUAL>()) {
     auto op = previous()->type;
     consumeOperandContinuationNewlines();
     auto expr = parseExpression();
@@ -1655,7 +1655,7 @@ auto Parser::parseStatement(bool isTopLevel) -> std::unique_ptr<Statement> {
   }
   if (checkAnyInLine<TokenType::EQUAL, TokenType::PLUS_EQUAL, TokenType::MINUS_EQUAL,
                      TokenType::STAR_EQUAL, TokenType::SLASH_EQUAL, TokenType::MOD_EQUAL,
-                     TokenType::POWER_EQUAL>()) {
+                     TokenType::POWER_EQUAL, TokenType::NULL_COALESCE_EQUAL>()) {
     return parseAssignment();
   }
 

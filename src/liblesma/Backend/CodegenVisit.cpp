@@ -2303,6 +2303,65 @@ auto Codegen::visit(const Assignment* node) -> void {
                                   {indexValue.get(), newValue.get()});
         return;
       }
+      if (assignOp == TokenType::NULL_COALESCE_EQUAL) {
+        subscript->getIndex()->accept(*this);
+        auto indexValue = std::move(result);
+        result =
+            callMethodByName(node->getSpan(), baseValue.get(),
+                             std::string{OperatorUtils::SUBSCRIPT_GET_NAME}, {indexValue.get()});
+        auto currentElem = std::move(result);
+        lesma::Type* optionalType = currentElem != nullptr ? currentElem->getType() : nullptr;
+        lesma::Type* payloadType = getOptionalPayloadType(optionalType);
+        if (optionalType == nullptr || payloadType == nullptr || currentElem->getLlvmValue() == nullptr) {
+          throw CodegenError(node->getSpan(),
+                             "Null-coalescing assignment requires an optional subscript target");
+        }
+
+        lesma::Type* nullType = nullptr;
+        for (lesma::Type* member : optionalType->getUnionMembers()) {
+          if (member != nullptr && member->is(BaseType::TY_NULL)) {
+            nullType = member;
+            break;
+          }
+        }
+        auto nullIndex = unionVariantIndexOf(optionalType, nullType);
+        if (nullIndex == std::nullopt) {
+          throw CodegenError(node->getSpan(),
+                             "Null-coalescing assignment could not resolve null union arm");
+        }
+
+        getOrCreateLlvmType(optionalType);
+        llvm::Value* currentAgg = currentElem->getLlvmValue();
+        if (llvm::isa<llvm::PointerType>(currentAgg->getType())) {
+          currentAgg = builder->CreateLoad(optionalType->getLlvmType(), currentAgg,
+                                           "assign.coalesce.current");
+        }
+        llvm::Value* tagVal = builder->CreateExtractValue(currentAgg, {0U}, "assign.coalesce.tag");
+        llvm::Value* isNull =
+            builder->CreateICmpEQ(tagVal, llvm::ConstantInt::get(tagVal->getType(), *nullIndex));
+
+        llvm::Function* parentFunction = builder->GetInsertBlock()->getParent();
+        auto* assignBlock = llvm::BasicBlock::Create(theModule->getContext(), "assign.coalesce.set",
+                                                     parentFunction);
+        auto* mergeBlock = llvm::BasicBlock::Create(theModule->getContext(), "assign.coalesce.merge",
+                                                    parentFunction);
+        builder->CreateCondBr(isNull, assignBlock, mergeBlock);
+
+        builder->SetInsertPoint(assignBlock);
+        node->getRightHandSide()->accept(*this);
+        auto rhsValue = std::move(result);
+        auto valueToSet = cast(node->getSpan(), rhsValue.get(), optionalType);
+        result = callMethodByName(node->getSpan(), baseValue.get(),
+                                  std::string{OperatorUtils::SUBSCRIPT_SET_NAME},
+                                  {indexValue.get(), valueToSet.get()});
+        builder->CreateBr(mergeBlock);
+
+        builder->SetInsertPoint(mergeBlock);
+        result = std::make_unique<Value>(
+            "", cacheType(std::make_unique<Type>(BaseType::TY_VOID, builder->getVoidTy())),
+            nullptr);
+        return;
+      }
       if (assignOp == TokenType::POWER_EQUAL) {
         throw CodegenError(node->getSpan(), "Power operator not implemented yet.");
       }
@@ -2337,6 +2396,53 @@ auto Codegen::visit(const Assignment* node) -> void {
   }
   isAssignment = false;
 
+  if (node->getOperator() == TokenType::NULL_COALESCE_EQUAL) {
+    lesma::Type* targetType = isPtr ? lhs->getType()->getElementType() : lhs->getType();
+    lesma::Type* payloadType = getOptionalPayloadType(targetType);
+    if (targetType == nullptr || payloadType == nullptr) {
+      throw CodegenError(node->getSpan(),
+                         "Null-coalescing assignment requires an optional assignment target");
+    }
+
+    lesma::Type* nullType = nullptr;
+    for (lesma::Type* member : targetType->getUnionMembers()) {
+      if (member != nullptr && member->is(BaseType::TY_NULL)) {
+        nullType = member;
+        break;
+      }
+    }
+    auto nullIndex = unionVariantIndexOf(targetType, nullType);
+    if (nullIndex == std::nullopt) {
+      throw CodegenError(node->getSpan(),
+                         "Null-coalescing assignment could not resolve null union arm");
+    }
+
+    getOrCreateLlvmType(targetType);
+    llvm::Value* currentAgg =
+        builder->CreateLoad(targetType->getLlvmType(), lhs->getLlvmValue(), "assign.coalesce.cur");
+    llvm::Value* tagVal = builder->CreateExtractValue(currentAgg, {0U}, "assign.coalesce.tag");
+    llvm::Value* isNull =
+        builder->CreateICmpEQ(tagVal, llvm::ConstantInt::get(tagVal->getType(), *nullIndex));
+
+    llvm::Function* parentFunction = builder->GetInsertBlock()->getParent();
+    auto* assignBlock =
+        llvm::BasicBlock::Create(theModule->getContext(), "assign.coalesce.store", parentFunction);
+    auto* mergeBlock =
+        llvm::BasicBlock::Create(theModule->getContext(), "assign.coalesce.merge", parentFunction);
+    builder->CreateCondBr(isNull, assignBlock, mergeBlock);
+
+    builder->SetInsertPoint(assignBlock);
+    node->getRightHandSide()->accept(*this);
+    auto storedValue = cast(node->getSpan(), result.get(), targetType);
+    builder->CreateStore(storedValue->getLlvmValue(), lhs->getLlvmValue());
+    builder->CreateBr(mergeBlock);
+
+    builder->SetInsertPoint(mergeBlock);
+    result = std::make_unique<Value>(
+        "", cacheType(std::make_unique<Type>(BaseType::TY_VOID, builder->getVoidTy())), nullptr);
+    return;
+  }
+
   node->getRightHandSide()->accept(*this);
   if (lhs->getStoresFuncValuePair() && result != nullptr && result->getStoresFuncValuePair()) {
     llvm::StructType* pt = getFuncValuePairLlvmType();
@@ -2362,6 +2468,9 @@ auto Codegen::visit(const Assignment* node) -> void {
     break;
   case TokenType::POWER_EQUAL:
     throw CodegenError(node->getSpan(), "Power operator not implemented yet.");
+  case TokenType::NULL_COALESCE_EQUAL:
+    throw CodegenError(node->getSpan(),
+                       "Null-coalescing assignment should have been lowered earlier");
   default:
     throw CodegenError(node->getSpan(), "Invalid operator: {}", NAMEOF_ENUM(node->getOperator()));
   }

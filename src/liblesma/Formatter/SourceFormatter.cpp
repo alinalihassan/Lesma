@@ -101,6 +101,8 @@ constexpr int INTERPOLATION_FLAT_WIDTH = 10'000;
     return "%=";
   case TokenType::POWER_EQUAL:
     return "^=";
+  case TokenType::NULL_COALESCE_EQUAL:
+    return "?" "?=";
   default:
     return "?";
   }

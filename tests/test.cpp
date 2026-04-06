@@ -501,6 +501,13 @@ TEST(FormatterTests, FormatSourcePreservesNilCoalescingPrecedence) {
   EXPECT_EQ(*formatted, "let ok = maybe ?? 0 == 1\n");
 }
 
+TEST(FormatterTests, FormatSourcePreservesNullCoalescingAssignment) {
+  auto formatted = formatSource("var maybe: int? = null\nmaybe ?" "?= 1\n",
+                                "coalesce_assign_test.les", 100);
+  ASSERT_TRUE(formatted.has_value()) << formatted.error().message;
+  EXPECT_EQ(*formatted, "var maybe: int? = null\nmaybe ?" "?= 1\n");
+}
+
 TEST(FormatterTests, FormatSourcePreservesAddressOfUnaryOperator) {
   auto formatted = formatSource("var x = 1\nlet p: *int = &x\n", "address_of_test.les", 100);
   ASSERT_TRUE(formatted.has_value()) << formatted.error().message;

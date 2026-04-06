@@ -81,6 +81,9 @@ auto Lexer::scanOne(bool continuation) -> std::unique_ptr<Token> {
     return makeToken(TokenType::PIPE);
   case '?':
     if (matchAndAdvance('?')) {
+      if (matchAndAdvance('=')) {
+        return makeToken(TokenType::NULL_COALESCE_EQUAL);
+      }
       return makeToken(TokenType::NULL_COALESCE);
     }
     return makeToken(TokenType::QUESTION);

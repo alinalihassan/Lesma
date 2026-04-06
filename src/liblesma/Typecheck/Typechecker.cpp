@@ -4817,6 +4817,23 @@ auto Typechecker::compoundToBinaryOp(TokenType op) -> std::optional<TokenType> {
 auto Typechecker::visit(const Assignment* node) -> void {
   TokenType assignOp = node->getOperator();
   std::optional<TokenType> binaryOp = compoundToBinaryOp(assignOp);
+  auto validateNullCoalesceAssignment = [this, node](Type* targetType, Type* rhsType,
+                                                     std::string_view targetKind) {
+    Type* payloadType = getOptionalPayloadType(targetType);
+    if (payloadType == nullptr) {
+      throw TypeCheckError(node->getSpan(), "Null-coalescing assignment requires {} to have an "
+                                           "optional type",
+                           targetKind);
+    }
+    if (rhsType == nullptr || !isAssignableTo(rhsType, payloadType) ||
+        isLossyImplicitConversion(rhsType, payloadType)) {
+      throw TypeCheckError(node->getSpan(),
+                           "Null-coalescing assignment value type {} is not assignable to {} "
+                           "optional payload type {}",
+                           rhsType != nullptr ? rhsType->toString() : "void", targetKind,
+                           payloadType->toString());
+    }
+  };
 
   if (auto* lit = dynamic_cast<Literal*>(node->getLeftHandSide())) {
     Value* sym = scope->lookup(lit->getValue());
@@ -4831,7 +4848,17 @@ auto Typechecker::visit(const Assignment* node) -> void {
       markValueRead(sym);
     }
     Type* lhsType = sym->getType();
-    visitExprWithExpectedType(node->getRightHandSide(), lhsType);
+    Type* rhsExpectedType = lhsType;
+    if (assignOp == TokenType::NULL_COALESCE_EQUAL) {
+      rhsExpectedType = getOptionalPayloadType(lhsType);
+      if (rhsExpectedType == nullptr) {
+        throw TypeCheckError(node->getSpan(),
+                             "Null-coalescing assignment requires variable {} to have an optional "
+                             "type",
+                             lit->getValue());
+      }
+    }
+    visitExprWithExpectedType(node->getRightHandSide(), rhsExpectedType);
     Type* rhsType = result->getType();
     if (binaryOp.has_value()) {
       Type* resultType = typecheckBinaryOpResult(*binaryOp, lhsType, rhsType, node->getSpan());
@@ -4842,11 +4869,12 @@ auto Typechecker::visit(const Assignment* node) -> void {
             resultType->toString(), lhsType->toString());
       }
     } else {
-      if (assignOp != TokenType::EQUAL) {
+      if (assignOp == TokenType::NULL_COALESCE_EQUAL) {
+        validateNullCoalesceAssignment(lhsType, rhsType, "variable");
+      } else if (assignOp != TokenType::EQUAL) {
         throw TypeCheckError(node->getSpan(), "Unsupported assignment operator: {}",
                              NAMEOF_ENUM(assignOp));
-      }
-      if (!isAssignableTo(rhsType, lhsType)) {
+      } else if (!isAssignableTo(rhsType, lhsType)) {
         throw TypeCheckError(node->getSpan(), "Cannot assign type {} to variable of type {}",
                              rhsType->toString(), lhsType->toString());
       }
@@ -4879,7 +4907,16 @@ auto Typechecker::visit(const Assignment* node) -> void {
     node->getLeftHandSide()->accept(*this);
     Type* lhsType = result->getType();
     Type* targetType = lhsType;
-    visitExprWithExpectedType(node->getRightHandSide(), targetType);
+    Type* rhsExpectedType = targetType;
+    if (assignOp == TokenType::NULL_COALESCE_EQUAL) {
+      rhsExpectedType = getOptionalPayloadType(targetType);
+      if (rhsExpectedType == nullptr) {
+        throw TypeCheckError(node->getSpan(),
+                             "Null-coalescing assignment requires field target to have an "
+                             "optional type");
+      }
+    }
+    visitExprWithExpectedType(node->getRightHandSide(), rhsExpectedType);
     Type* rhsType = result->getType();
     if (binaryOp.has_value()) {
       Type* resultType = typecheckBinaryOpResult(*binaryOp, targetType, rhsType, node->getSpan());
@@ -4890,11 +4927,12 @@ auto Typechecker::visit(const Assignment* node) -> void {
             resultType->toString(), targetType->toString());
       }
     } else {
-      if (assignOp != TokenType::EQUAL) {
+      if (assignOp == TokenType::NULL_COALESCE_EQUAL) {
+        validateNullCoalesceAssignment(targetType, rhsType, "field");
+      } else if (assignOp != TokenType::EQUAL) {
         throw TypeCheckError(node->getSpan(), "Unsupported assignment operator: {}",
                              NAMEOF_ENUM(assignOp));
-      }
-      if (targetType != nullptr && !isAssignableTo(rhsType, targetType)) {
+      } else if (targetType != nullptr && !isAssignableTo(rhsType, targetType)) {
         throw TypeCheckError(node->getSpan(), "Cannot assign type {} to field of type {}",
                              rhsType->toString(), targetType->toString());
       }
@@ -4918,7 +4956,16 @@ auto Typechecker::visit(const Assignment* node) -> void {
         baseType->getElementType() != nullptr) {
       node->getLeftHandSide()->accept(*this);
       Type* lhsType = result->getType();
-      visitExprWithExpectedType(node->getRightHandSide(), lhsType);
+      Type* rhsExpectedType = lhsType;
+      if (assignOp == TokenType::NULL_COALESCE_EQUAL) {
+        rhsExpectedType = getOptionalPayloadType(lhsType);
+        if (rhsExpectedType == nullptr) {
+          throw TypeCheckError(node->getSpan(),
+                               "Null-coalescing assignment requires list element type to be "
+                               "optional");
+        }
+      }
+      visitExprWithExpectedType(node->getRightHandSide(), rhsExpectedType);
       Type* rhsType = result->getType();
       if (binaryOp.has_value()) {
         Type* resultType = typecheckBinaryOpResult(*binaryOp, lhsType, rhsType, node->getSpan());
@@ -4929,11 +4976,12 @@ auto Typechecker::visit(const Assignment* node) -> void {
               resultType->toString(), lhsType->toString());
         }
       } else {
-        if (assignOp != TokenType::EQUAL) {
+        if (assignOp == TokenType::NULL_COALESCE_EQUAL) {
+          validateNullCoalesceAssignment(lhsType, rhsType, "list element");
+        } else if (assignOp != TokenType::EQUAL) {
           throw TypeCheckError(node->getSpan(), "Unsupported assignment operator: {}",
                                NAMEOF_ENUM(assignOp));
-        }
-        if (lhsType != nullptr && !isAssignableTo(rhsType, lhsType)) {
+        } else if (lhsType != nullptr && !isAssignableTo(rhsType, lhsType)) {
           throw TypeCheckError(node->getSpan(), "Cannot assign type {} to list element of type {}",
                                rhsType->toString(), lhsType->toString());
         }
@@ -4956,15 +5004,35 @@ auto Typechecker::visit(const Assignment* node) -> void {
         throw TypeCheckError(node->getSpan(), "Operator []= not found for assignment target");
       }
     } else {
-      if (assignOp != TokenType::EQUAL) {
+      if (assignOp == TokenType::NULL_COALESCE_EQUAL) {
+        Type* lhsType = resolveMethodReturnType(
+            baseType, std::string{OperatorUtils::SUBSCRIPT_GET_NAME}, {indexType}, node->getSpan());
+        if (lhsType == nullptr) {
+          throw TypeCheckError(node->getSpan(), "Operator [] not found for assignment target");
+        }
+        Type* payloadType = getOptionalPayloadType(lhsType);
+        if (payloadType == nullptr) {
+          throw TypeCheckError(node->getSpan(),
+                               "Null-coalescing assignment requires subscript target to have an "
+                               "optional type");
+        }
+        visitExprWithExpectedType(node->getRightHandSide(), payloadType);
+        Type* rhsType = result->getType();
+        validateNullCoalesceAssignment(lhsType, rhsType, "subscript target");
+        if (resolveMethodReturnType(baseType, std::string{OperatorUtils::SUBSCRIPT_SET_NAME},
+                                    {indexType, lhsType}, node->getSpan()) == nullptr) {
+          throw TypeCheckError(node->getSpan(), "Operator []= not found for assignment target");
+        }
+      } else if (assignOp != TokenType::EQUAL) {
         throw TypeCheckError(node->getSpan(), "Unsupported assignment operator: {}",
                              NAMEOF_ENUM(assignOp));
-      }
-      node->getRightHandSide()->accept(*this);
-      Type* rhsType = result->getType();
-      if (resolveMethodReturnType(baseType, std::string{OperatorUtils::SUBSCRIPT_SET_NAME},
-                                  {indexType, rhsType}, node->getSpan()) == nullptr) {
-        throw TypeCheckError(node->getSpan(), "Operator []= not found for assignment target");
+      } else {
+        node->getRightHandSide()->accept(*this);
+        Type* rhsType = result->getType();
+        if (resolveMethodReturnType(baseType, std::string{OperatorUtils::SUBSCRIPT_SET_NAME},
+                                    {indexType, rhsType}, node->getSpan()) == nullptr) {
+          throw TypeCheckError(node->getSpan(), "Operator []= not found for assignment target");
+        }
       }
     }
     invalidateUnionNarrowingForSymbol(rootStorageSymbolForAssignmentLhs(node->getLeftHandSide()));
