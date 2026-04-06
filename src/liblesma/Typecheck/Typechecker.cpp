@@ -3566,11 +3566,6 @@ auto Typechecker::isSupportedUnionMemberType(Type* t) -> bool {
          t->is(BaseType::TY_CLASS) || t->is(BaseType::TY_ENUM) || t->is(BaseType::TY_NULL);
 }
 
-namespace {
-auto tryGetUnionNarrowingKey(const Expression* expr, SymbolTable* scope)
-    -> std::optional<UnionNarrowingStableKey>;
-}
-
 auto Typechecker::lookupUnionNarrowedType(Value* sym) const -> Type* {
   if (sym == nullptr) {
     return nullptr;
@@ -3589,7 +3584,7 @@ auto Typechecker::lookupUnionNarrowedType(Value* sym) const -> Type* {
 }
 
 auto Typechecker::lookupUnionNarrowedType(const Expression* expr) const -> Type* {
-  auto key = tryGetUnionNarrowingKey(expr, scope);
+  auto key = tryGetUnionNarrowingKey(expr);
   if (!key.has_value() || (!key->declarationSpan.isValid() && key->fallbackAnchor == nullptr)) {
     return nullptr;
   }
@@ -3620,15 +3615,13 @@ void Typechecker::invalidateUnionNarrowingForSymbol(Value* sym) {
   }
 }
 
-namespace {
-[[nodiscard]] auto isStableSubscriptNarrowingIndex(const Expression* expr) -> bool {
+auto Typechecker::isStableSubscriptNarrowingIndex(const Expression* expr) const -> bool {
   auto const* lit = dynamic_cast<const Literal*>(expr);
   if (lit == nullptr) {
     return false;
   }
   return lit->getType() != TokenType::IDENTIFIER;
 }
-} // namespace
 
 auto Typechecker::rootStorageSymbolForAssignmentLhs(Expression* lhs) -> Value* {
   if (lhs == nullptr) {
@@ -3738,7 +3731,10 @@ namespace {
   }
 }
 
-auto appendUnionNarrowingExprKey(std::string& out, const Expression* expr) -> bool {
+} // namespace
+
+auto Typechecker::appendUnionNarrowingExprKey(std::string& out, const Expression* expr) const
+    -> bool {
   if (expr == nullptr) {
     return false;
   }
@@ -3768,7 +3764,7 @@ auto appendUnionNarrowingExprKey(std::string& out, const Expression* expr) -> bo
   return false;
 }
 
-auto tryGetUnionNarrowingKey(const Expression* expr, SymbolTable* scope)
+auto Typechecker::tryGetUnionNarrowingKey(const Expression* expr) const
     -> std::optional<UnionNarrowingStableKey> {
   if (expr == nullptr) {
     return std::nullopt;
@@ -3787,7 +3783,7 @@ auto tryGetUnionNarrowingKey(const Expression* expr, SymbolTable* scope)
     return unionNarrowingStableKeyForSymbol(root);
   }
   if (auto const* dot = dynamic_cast<const DotOp*>(expr)) {
-    auto key = tryGetUnionNarrowingKey(dot->getLeft(), scope);
+    auto key = tryGetUnionNarrowingKey(dot->getLeft());
     auto const* right = dynamic_cast<const Literal*>(dot->getRight());
     if (!key.has_value() || right == nullptr || right->getType() != TokenType::IDENTIFIER) {
       return std::nullopt;
@@ -3796,7 +3792,7 @@ auto tryGetUnionNarrowingKey(const Expression* expr, SymbolTable* scope)
     return key;
   }
   if (auto const* sub = dynamic_cast<const SubscriptOp*>(expr)) {
-    auto key = tryGetUnionNarrowingKey(sub->getLeft(), scope);
+    auto key = tryGetUnionNarrowingKey(sub->getLeft());
     if (!key.has_value()) {
       return std::nullopt;
     }
@@ -3813,14 +3809,13 @@ auto tryGetUnionNarrowingKey(const Expression* expr, SymbolTable* scope)
   return std::nullopt;
 }
 
-auto tryGetIsOpUnionNarrowingKey(const IsOp* is, SymbolTable* scope)
+auto Typechecker::tryGetIsOpUnionNarrowingKey(const IsOp* is) const
     -> std::optional<UnionNarrowingStableKey> {
   if (is == nullptr) {
     return std::nullopt;
   }
-  return tryGetUnionNarrowingKey(is->getLeft(), scope);
+  return tryGetUnionNarrowingKey(is->getLeft());
 }
-} // namespace
 
 auto Typechecker::narrowUnionByExcludingMembers(Type* unionTy, const std::vector<Type*>& toExclude)
     -> Type* {
@@ -3873,7 +3868,7 @@ void Typechecker::appendExcludedTypesFromPriorIsArms(const If* node, unsigned bl
     if (isPrev == nullptr || isPrev->getOperator() != TokenType::IS) {
       continue;
     }
-    auto prevKey = tryGetIsOpUnionNarrowingKey(isPrev, scope);
+    auto prevKey = tryGetIsOpUnionNarrowingKey(isPrev);
     if (!prevKey.has_value() || *prevKey != key) {
       continue;
     }
@@ -3905,7 +3900,7 @@ auto Typechecker::fillUnionNarrowingForIfBlock(
     if (is0 == nullptr) {
       return;
     }
-    auto key = tryGetIsOpUnionNarrowingKey(is0, scope);
+    auto key = tryGetIsOpUnionNarrowingKey(is0);
     if (!key.has_value()) {
       return;
     }
@@ -3942,7 +3937,7 @@ auto Typechecker::fillUnionNarrowingForIfBlock(
   if (is == nullptr) {
     return;
   }
-  auto key = tryGetIsOpUnionNarrowingKey(is, scope);
+  auto key = tryGetIsOpUnionNarrowingKey(is);
   if (!key.has_value()) {
     return;
   }

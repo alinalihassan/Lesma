@@ -809,36 +809,43 @@ auto Codegen::emitPromotedBitwise(llvm::SMRange span, TokenType op,
                                   std::unique_ptr<lesma::Value>& right, lesma::Type* finalType)
     -> std::unique_ptr<lesma::Value> {
   left = cast(span, left.get(), finalType);
-  right = cast(span, right.get(), finalType);
   if (finalType == nullptr || !finalType->is(BaseType::TY_INT)) {
     return nullptr;
   }
   llvm::Value* const l = left->getLlvmValue();
-  llvm::Value* const r = right->getLlvmValue();
   switch (op) {
   case TokenType::AMPERSAND:
-    return std::make_unique<Value>("", finalType, builder->CreateAnd(l, r));
+    right = cast(span, right.get(), finalType);
+    return std::make_unique<Value>("", finalType, builder->CreateAnd(l, right->getLlvmValue()));
   case TokenType::PIPE:
-    return std::make_unique<Value>("", finalType, builder->CreateOr(l, r));
+    right = cast(span, right.get(), finalType);
+    return std::make_unique<Value>("", finalType, builder->CreateOr(l, right->getLlvmValue()));
   case TokenType::XOR:
-    return std::make_unique<Value>("", finalType, builder->CreateXor(l, r));
+    right = cast(span, right.get(), finalType);
+    return std::make_unique<Value>("", finalType, builder->CreateXor(l, right->getLlvmValue()));
   case TokenType::SHIFT_LEFT:
   case TokenType::SHIFT_RIGHT: {
+    llvm::Value* const originalR = right->getLlvmValue();
+    lesma::Type* const originalRightType = right->getType();
+    llvm::Type* const rangeType =
+        originalRightType != nullptr ? originalRightType->getLlvmType() : nullptr;
+    if (originalR == nullptr || rangeType == nullptr || !rangeType->isIntegerTy()) {
+      return nullptr;
+    }
     llvm::Function* parentFunction = builder->GetInsertBlock()->getParent();
     llvm::BasicBlock* const validBlock =
         llvm::BasicBlock::Create(theModule->getContext(), "shift.valid", parentFunction);
     llvm::BasicBlock* const invalidBlock =
         llvm::BasicBlock::Create(theModule->getContext(), "shift.invalid", parentFunction);
     llvm::Value* inRange = nullptr;
-    llvm::Value* const bitWidth =
-        llvm::ConstantInt::get(finalType->getLlvmType(), finalType->getIntWidth());
-    if (finalType->isSigned()) {
+    llvm::Value* const bitWidth = llvm::ConstantInt::get(rangeType, finalType->getIntWidth());
+    if (originalRightType->isSigned()) {
       llvm::Value* const nonNegative =
-          builder->CreateICmpSGE(r, llvm::ConstantInt::get(finalType->getLlvmType(), 0));
-      llvm::Value* const belowWidth = builder->CreateICmpSLT(r, bitWidth);
+          builder->CreateICmpSGE(originalR, llvm::ConstantInt::get(rangeType, 0));
+      llvm::Value* const belowWidth = builder->CreateICmpSLT(originalR, bitWidth);
       inRange = builder->CreateAnd(nonNegative, belowWidth, "shift.in.range");
     } else {
-      inRange = builder->CreateICmpULT(r, bitWidth, "shift.in.range");
+      inRange = builder->CreateICmpULT(originalR, bitWidth, "shift.in.range");
     }
     builder->CreateCondBr(inRange, validBlock, invalidBlock);
 
@@ -849,6 +856,8 @@ auto Codegen::emitPromotedBitwise(llvm::SMRange span, TokenType op,
     builder->CreateUnreachable();
 
     builder->SetInsertPoint(validBlock);
+    right = cast(span, right.get(), finalType);
+    llvm::Value* const r = right->getLlvmValue();
     llvm::Value* shift =
         op == TokenType::SHIFT_LEFT
             ? builder->CreateShl(l, r)
@@ -1387,6 +1396,8 @@ auto Codegen::materializeNarrowedUnionValue(lesma::Value* value, lesma::Type* na
       if (memberTy->is(BaseType::TY_FUNCTION)) {
         memberValue->setStoresFuncValuePair(true);
         memberValue->setCategory(ValueCategory::DIRECT_VALUE);
+        memberValue->setClosureCalleeUsesEnvParameter(
+            value->getClosureCalleeUsesEnvParameter());
       }
       emitUnionWrapValueToSlot({}, memberValue.get(), narrowedType, *narrowedIndex, narrowedSlot);
       builder->CreateBr(mergeBlock);
@@ -1403,6 +1414,7 @@ auto Codegen::materializeNarrowedUnionValue(lesma::Value* value, lesma::Type* na
   if (narrowedType->is(BaseType::TY_FUNCTION)) {
     narrowed->setStoresFuncValuePair(true);
     narrowed->setCategory(ValueCategory::DIRECT_VALUE);
+    narrowed->setClosureCalleeUsesEnvParameter(value->getClosureCalleeUsesEnvParameter());
   }
   return narrowed;
 }
@@ -5427,8 +5439,9 @@ auto Codegen::emitCompoundSubscriptNewValue(llvm::SMRange span, TokenType compou
     finalType = lhsTy;
   }
   auto left = cast(span, currentElem, finalType);
-  auto right = cast(span, rhs, finalType);
+  auto right = std::make_unique<Value>(*rhs);
   if (compoundOp == TokenType::POWER_EQUAL) {
+    right = cast(span, right.get(), finalType);
     auto power = emitPowerOperation(span, left, right, finalType);
     if (power != nullptr) {
       return power;
@@ -5441,6 +5454,7 @@ auto Codegen::emitCompoundSubscriptNewValue(llvm::SMRange span, TokenType compou
     case TokenType::STAR_EQUAL:
     case TokenType::SLASH_EQUAL:
     case TokenType::MOD_EQUAL:
+      right = cast(span, right.get(), finalType);
       return emitCompoundAssignArithmetic(span, compoundOp, left.get(), right.get());
     case TokenType::AMPERSAND_EQUAL:
     case TokenType::PIPE_EQUAL:

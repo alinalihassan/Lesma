@@ -225,6 +225,12 @@ class Typechecker final : public ASTVisitor {
   [[nodiscard]] static auto isSupportedUnionMemberType(Type* t) -> bool;
   [[nodiscard]] auto lookupUnionNarrowedType(Value* sym) const -> Type*;
   [[nodiscard]] auto lookupUnionNarrowedType(const Expression* expr) const -> Type*;
+  [[nodiscard]] auto isStableSubscriptNarrowingIndex(const Expression* expr) const -> bool;
+  auto appendUnionNarrowingExprKey(std::string& out, const Expression* expr) const -> bool;
+  [[nodiscard]] auto tryGetUnionNarrowingKey(const Expression* expr) const
+      -> std::optional<UnionNarrowingStableKey>;
+  [[nodiscard]] auto tryGetIsOpUnionNarrowingKey(const IsOp* is) const
+      -> std::optional<UnionNarrowingStableKey>;
   auto fillUnionNarrowingForIfBlock(
       const If* node, unsigned blockIndex,
       std::unordered_map<UnionNarrowingStableKey, Type*, UnionNarrowingStableKeyHash,
