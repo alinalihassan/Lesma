@@ -3703,27 +3703,60 @@ auto Typechecker::assignmentStorageTypeForDotLhs(const DotOp* lhs, Type* fallbac
 
 namespace {
 
+[[nodiscard]] auto normalizeUnionNarrowingIntegerLiteral(const std::string& value) -> std::string {
+  try {
+    return fmt::format("{}", std::stoll(value));
+  } catch (...) {
+    return value;
+  }
+}
+
+[[nodiscard]] auto normalizeUnionNarrowingFloatLiteral(const std::string& value) -> std::string {
+  try {
+    return fmt::format("{:.17g}", std::stod(value));
+  } catch (...) {
+    return value;
+  }
+}
+
+[[nodiscard]] auto appendUnionNarrowingLiteralKey(std::string& out, const Literal* lit) -> bool {
+  if (lit == nullptr) {
+    return false;
+  }
+  switch (lit->getType()) {
+  case TokenType::IDENTIFIER:
+    out += "$" + lit->getValue();
+    return true;
+  case TokenType::INTEGER:
+    out += "#i:" + normalizeUnionNarrowingIntegerLiteral(lit->getValue());
+    return true;
+  case TokenType::DOUBLE:
+    out += "#d:" + normalizeUnionNarrowingFloatLiteral(lit->getValue());
+    return true;
+  case TokenType::STRING:
+    out += fmt::format("#s:{}:{}", lit->getValue().size(), lit->getValue());
+    return true;
+  case TokenType::BOOL:
+  case TokenType::TRUE_:
+    out += "#b:true";
+    return true;
+  case TokenType::FALSE_:
+    out += "#b:false";
+    return true;
+  case TokenType::NIL:
+    out += "#n:nil";
+    return true;
+  default:
+    return false;
+  }
+}
+
 auto appendUnionNarrowingExprKey(std::string& out, const Expression* expr) -> bool {
   if (expr == nullptr) {
     return false;
   }
   if (auto const* lit = dynamic_cast<const Literal*>(expr)) {
-    switch (lit->getType()) {
-    case TokenType::IDENTIFIER:
-      out += "$" + lit->getValue();
-      return true;
-    case TokenType::INTEGER:
-    case TokenType::DOUBLE:
-    case TokenType::STRING:
-    case TokenType::BOOL:
-    case TokenType::TRUE_:
-    case TokenType::FALSE_:
-    case TokenType::NIL:
-      out += "#" + lit->getValue();
-      return true;
-    default:
-      return false;
-    }
+    return appendUnionNarrowingLiteralKey(out, lit);
   }
   if (auto const* dot = dynamic_cast<const DotOp*>(expr)) {
     auto const* right = dynamic_cast<const Literal*>(dot->getRight());

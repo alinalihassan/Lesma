@@ -1,0 +1,31 @@
+class Lookup {
+  func operator [](index: int) -> int | str {
+    if index == 1 {
+      return 1
+    }
+    return "bad"
+  }
+
+  func operator [](index: str) -> int | str {
+    if index == "1" {
+      return "one"
+    }
+    return 0
+  }
+}
+
+var lookup = Lookup()
+if lookup[1] is int {
+  if lookup["1"] is str {
+    if lookup[1] + 1 != 2 {
+      exit(1)
+    }
+    if lookup["1"] != "one" {
+      exit(2)
+    }
+  } else {
+    exit(2)
+  }
+} else {
+  exit(3)
+}
