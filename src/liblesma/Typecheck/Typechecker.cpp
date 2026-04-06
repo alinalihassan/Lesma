@@ -2579,7 +2579,7 @@ auto Typechecker::getOptionalPayloadType(Type* type) -> Type* {
 }
 
 auto Typechecker::isNullableType(Type* type) -> bool {
-  return getOptionalPayloadType(type) != nullptr;
+  return (type != nullptr && type->is(BaseType::TY_NULL)) || getOptionalPayloadType(type) != nullptr;
 }
 
 auto Typechecker::typecheckBinaryOpResult(TokenType op, Type* leftTy, Type* rightTy,
@@ -2641,7 +2641,7 @@ auto Typechecker::typecheckBinaryOpResult(TokenType op, Type* leftTy, Type* righ
   case TokenType::SHIFT_LEFT:
   case TokenType::SHIFT_RIGHT:
     if (hasGeneric) {
-      return leftTy->is(BaseType::TY_GENERIC) ? leftTy : rightTy;
+      return leftTy != nullptr ? leftTy : rightTy;
     }
     if (leftTy == nullptr || rightTy == nullptr || !leftTy->is(BaseType::TY_INT) ||
         !rightTy->is(BaseType::TY_INT)) {
