@@ -2745,8 +2745,7 @@ auto Codegen::visit(const Return* node) -> void {
     lesma::Type* actualType = result->getType();
     lesma::Type* declaredReturnType = currentFunction->getType()->getReturnType();
     if (declaredReturnType != nullptr && declaredReturnType->is(BaseType::TY_UNION) &&
-        actualType != nullptr && !actualType->is(BaseType::TY_UNION) &&
-        !actualType->isEqual(declaredReturnType)) {
+        actualType != nullptr && !actualType->isEqual(declaredReturnType)) {
       result = cast(node->getSpan(), result.get(), declaredReturnType);
       actualType = result != nullptr ? result->getType() : actualType;
     }
@@ -6249,14 +6248,14 @@ auto Codegen::callListMethodByName(llvm::SMRange span, lesma::Value* receiver,
     auto* poppedValue = builder->CreateLoad(getListStoredElementType(bufferType), elementPtr);
     emitStoreListLength(bufferType, bufferHandle, newLength);
     Value popped("", bufferType->getElementType(), poppedValue);
-    auto poppedWrapped = emitUnionWrapValue(span, &popped, popType,
-                                            *unionVariantIndexOf(popType, bufferType->getElementType()));
+    auto poppedWrapped = cast(span, &popped, popType);
+    llvm::BasicBlock* valueIncoming = builder->GetInsertBlock();
     builder->CreateBr(mergeBlock);
 
     builder->SetInsertPoint(mergeBlock);
     auto* phi = builder->CreatePHI(popType->getLlvmType(), 2, "list.pop.result");
     phi->addIncoming(nullWrapped->getLlvmValue(), emptyBlock);
-    phi->addIncoming(poppedWrapped->getLlvmValue(), valueBlock);
+    phi->addIncoming(poppedWrapped->getLlvmValue(), valueIncoming);
     return std::make_unique<Value>("", popType, phi);
   }
   if (methodName == "copy") {

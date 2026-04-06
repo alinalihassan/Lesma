@@ -370,15 +370,14 @@ auto Codegen::genListIntrinsicCall(const FuncCall* node,
     auto* poppedValue = builder->CreateLoad(getListStoredElementType(listType), elementPtr);
     emitStoreListLength(listType, listHandle, newLength);
     Value popped("", listType->getElementType(), poppedValue);
-    auto poppedWrapped =
-        emitUnionWrapValue(node->getSpan(), &popped, popType,
-                           *unionVariantIndexOf(popType, listType->getElementType()));
+    auto poppedWrapped = cast(node->getSpan(), &popped, popType);
+    llvm::BasicBlock* valueIncoming = builder->GetInsertBlock();
     builder->CreateBr(mergeBlock);
 
     builder->SetInsertPoint(mergeBlock);
     auto* phi = builder->CreatePHI(popType->getLlvmType(), 2, "list.pop.result");
     phi->addIncoming(nullWrapped->getLlvmValue(), emptyBlock);
-    phi->addIncoming(poppedWrapped->getLlvmValue(), valueBlock);
+    phi->addIncoming(poppedWrapped->getLlvmValue(), valueIncoming);
     return std::make_unique<Value>("", popType, phi);
   }
   default:

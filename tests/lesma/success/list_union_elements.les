@@ -1,0 +1,54 @@
+var xs: list<str | int | float> = [1, "two", 3.5]
+xs.push(4)
+xs.push("five")
+
+let first = xs[0]
+if first is int {
+  if first != 1 {
+    exit(1)
+  }
+} else {
+  exit(1)
+}
+
+let second = xs[1]
+if second is str {
+  if second != "two" {
+    exit(2)
+  }
+} else {
+  exit(2)
+}
+
+let third = xs[2]
+if third is float {
+  if third < 3.49 or third > 3.51 {
+    exit(3)
+  }
+} else {
+  exit(3)
+}
+
+let last = xs[4]
+if last is str {
+  if last != "five" {
+    exit(4)
+  }
+} else {
+  exit(4)
+}
+
+let popped = xs.pop()
+if popped is null {
+  exit(5)
+} else if popped is str {
+  if popped != "five" {
+    exit(5)
+  }
+} else {
+  exit(5)
+}
+
+if xs.len() != 4 {
+  exit(6)
+}
