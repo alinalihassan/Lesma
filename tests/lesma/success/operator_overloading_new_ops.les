@@ -1,0 +1,84 @@
+class Bits {
+  var value: int
+
+  func new(value: int) {
+    self.value = value
+  }
+
+  func raw() -> int {
+    return self.value
+  }
+
+  func operator **(rhs: Bits) -> Bits {
+    return Bits(self.value ** rhs.value)
+  }
+
+  func operator &(rhs: Bits) -> Bits {
+    return Bits(self.value & rhs.value)
+  }
+
+  func operator |(rhs: Bits) -> Bits {
+    return Bits(self.value | rhs.value)
+  }
+
+  func operator ^(rhs: Bits) -> Bits {
+    return Bits(self.value ^ rhs.value)
+  }
+
+  func operator <<(rhs: Bits) -> Bits {
+    return Bits(self.value << rhs.value)
+  }
+
+  func operator >>(rhs: Bits) -> Bits {
+    return Bits(self.value >> rhs.value)
+  }
+
+  func operator ~() -> Bits {
+    return Bits(~self.value)
+  }
+}
+
+let powRes = Bits(2) ** Bits(5)
+if powRes.raw() != 32 {
+  exit(1)
+}
+let andRes = Bits(6) & Bits(3)
+if andRes.raw() != 2 {
+  exit(2)
+}
+let orRes = Bits(10) | Bits(3)
+if orRes.raw() != 11 {
+  exit(3)
+}
+let xorRes = Bits(10) ^ Bits(3)
+if xorRes.raw() != 9 {
+  exit(4)
+}
+let shlRes = Bits(5) << Bits(2)
+if shlRes.raw() != 20 {
+  exit(5)
+}
+let shrRes = Bits(33) >> Bits(1)
+if shrRes.raw() != 16 {
+  exit(6)
+}
+let notRes = ~Bits(5)
+if notRes.raw() != -6 {
+  exit(7)
+}
+
+var a = Bits(3)
+a **= Bits(4)
+if a.raw() != 81 {
+  exit(8)
+}
+
+var b = Bits(12)
+b &= Bits(10)
+b |= Bits(3)
+b ^= Bits(6)
+b <<= Bits(2)
+b >>= Bits(1)
+if b.raw() != 26 {
+  exit(9)
+}

@@ -839,7 +839,8 @@ auto Codegen::emitPowerOperation(llvm::SMRange span, std::unique_ptr<lesma::Valu
     -> std::unique_ptr<lesma::Value> {
   left = cast(span, left.get(), finalType);
   right = cast(span, right.get(), finalType);
-  if (finalType == nullptr) {
+  if (finalType == nullptr ||
+      (!finalType->is(BaseType::TY_INT) && !finalType->isFloatingPoint())) {
     return nullptr;
   }
   llvm::Type* intrinsicType = finalType->isFloatingPoint() ? finalType->getLlvmType()
@@ -2512,14 +2513,15 @@ auto Codegen::visit(const Assignment* node) -> void {
     lhs->setClosureCalleeUsesEnvParameter(result->getClosureCalleeUsesEnvParameter());
     return;
   }
-  auto value = cast(node->getSpan(), result.get(),
-                    isPtr ? lhs->getType()->getElementType() : lhs->getType());
 
   setDebugLoc(node->getSpan());
   switch (node->getOperator()) {
-  case TokenType::EQUAL:
+  case TokenType::EQUAL: {
+    auto value = cast(node->getSpan(), result.get(),
+                      isPtr ? lhs->getType()->getElementType() : lhs->getType());
     builder->CreateStore(value->getLlvmValue(), lhs->getLlvmValue());
     break;
+  }
   case TokenType::PLUS_EQUAL:
   case TokenType::MINUS_EQUAL:
   case TokenType::SLASH_EQUAL:
@@ -2531,7 +2533,7 @@ auto Codegen::visit(const Assignment* node) -> void {
   case TokenType::XOR_EQUAL:
   case TokenType::SHIFT_LEFT_EQUAL:
   case TokenType::SHIFT_RIGHT_EQUAL:
-    emitCompoundAssign(node->getSpan(), node->getOperator(), lhs, value.get());
+    emitCompoundAssign(node->getSpan(), node->getOperator(), lhs, result.get());
     break;
   case TokenType::NULL_COALESCE_EQUAL:
     throw CodegenError(node->getSpan(),
@@ -5289,18 +5291,85 @@ auto Codegen::emitCompoundSubscriptNewValue(llvm::SMRange span, TokenType compou
 
 auto Codegen::emitCompoundAssign(llvm::SMRange span, TokenType op, lesma::Value* lhs,
                                  lesma::Value* value) -> void {
+  lesma::Type* originalLhsType = lhs->getType();
   lesma::Type* targetType = lhs->getType();
   if (targetType != nullptr && targetType->is(BaseType::TY_PTR) &&
       targetType->getElementType() != nullptr) {
     targetType = targetType->getElementType();
   }
-  if (targetType == nullptr ||
-      (!targetType->isFloatingPoint() && !targetType->is(BaseType::TY_INT))) {
+  if (targetType == nullptr) {
     throw CodegenError(span, "Invalid operator: {}", NAMEOF_ENUM(op));
   }
-  auto* varVal = builder->CreateLoad(targetType->getLlvmType(), lhs->getLlvmValue());
-  auto loaded = std::make_unique<Value>("", targetType, varVal);
-  auto newVal = emitCompoundAssignArithmetic(span, op, loaded.get(), value);
+  std::unique_ptr<lesma::Value> newVal;
+  if (targetType->isFloatingPoint() || targetType->is(BaseType::TY_INT)) {
+    auto* varVal = builder->CreateLoad(targetType->getLlvmType(), lhs->getLlvmValue());
+    auto loaded = std::make_unique<Value>("", targetType, varVal);
+    newVal = emitCompoundAssignArithmetic(span, op, loaded.get(), value);
+  } else {
+    TokenType binOp = TokenType::NULL_TOKEN;
+    switch (op) {
+    case TokenType::PLUS_EQUAL:
+      binOp = TokenType::PLUS;
+      break;
+    case TokenType::MINUS_EQUAL:
+      binOp = TokenType::MINUS;
+      break;
+    case TokenType::STAR_EQUAL:
+      binOp = TokenType::STAR;
+      break;
+    case TokenType::SLASH_EQUAL:
+      binOp = TokenType::SLASH;
+      break;
+    case TokenType::MOD_EQUAL:
+      binOp = TokenType::MOD;
+      break;
+    case TokenType::POWER_EQUAL:
+      binOp = TokenType::POWER;
+      break;
+    case TokenType::AMPERSAND_EQUAL:
+      binOp = TokenType::AMPERSAND;
+      break;
+    case TokenType::PIPE_EQUAL:
+      binOp = TokenType::PIPE;
+      break;
+    case TokenType::XOR_EQUAL:
+      binOp = TokenType::XOR;
+      break;
+    case TokenType::SHIFT_LEFT_EQUAL:
+      binOp = TokenType::SHIFT_LEFT;
+      break;
+    case TokenType::SHIFT_RIGHT_EQUAL:
+      binOp = TokenType::SHIFT_RIGHT;
+      break;
+    default:
+      break;
+    }
+    auto operatorName = OperatorUtils::getBinaryOperatorName(binOp);
+    if (!operatorName.has_value()) {
+      throw CodegenError(span, "Invalid operator: {}", NAMEOF_ENUM(op));
+    }
+    lesma::Value* receiver = nullptr;
+    std::unique_ptr<lesma::Value> receiverAdapter;
+    if (targetType->is(BaseType::TY_CLASS)) {
+      lesma::Type* ptrToClass =
+          cacheType(std::make_unique<Type>(BaseType::TY_PTR, builder->getPtrTy(), targetType));
+      llvm::Value* currentPtr = builder->CreateLoad(builder->getPtrTy(), lhs->getLlvmValue());
+      receiverAdapter = std::make_unique<lesma::Value>("", ptrToClass, currentPtr);
+      receiver = receiverAdapter.get();
+    } else if (originalLhsType != nullptr && originalLhsType->is(BaseType::TY_PTR) &&
+               originalLhsType->getElementType() != nullptr &&
+               originalLhsType->getElementType()->is(BaseType::TY_CLASS)) {
+      receiverAdapter = std::make_unique<lesma::Value>(
+          "", originalLhsType,
+          builder->CreateLoad(originalLhsType->getLlvmType(), lhs->getLlvmValue()));
+      receiver = receiverAdapter.get();
+    } else {
+      auto* varVal = builder->CreateLoad(targetType->getLlvmType(), lhs->getLlvmValue());
+      receiverAdapter = std::make_unique<lesma::Value>("", targetType, varVal);
+      receiver = receiverAdapter.get();
+    }
+    newVal = callMethodByName(span, receiver, std::string{*operatorName}, {value});
+  }
   builder->CreateStore(newVal->getLlvmValue(), lhs->getLlvmValue());
 }
 

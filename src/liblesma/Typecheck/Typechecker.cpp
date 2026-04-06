@@ -2610,7 +2610,17 @@ auto Typechecker::typecheckBinaryOpResult(TokenType op, Type* leftTy, Type* righ
     if (hasGeneric) {
       return leftTy->is(BaseType::TY_GENERIC) ? leftTy : rightTy;
     }
-    if (unified == nullptr || !unified->is(BaseType::TY_INT)) {
+    if (unified == nullptr) {
+      if (Type* overloadedType = tryOverload(); overloadedType != nullptr) {
+        return overloadedType;
+      }
+      throw TypeCheckError(span, "Operator {} not applicable to {} and {}", NAMEOF_ENUM(op),
+                           leftTy->toString(), rightTy->toString());
+    }
+    if (!unified->is(BaseType::TY_INT)) {
+      if (Type* overloadedType = tryOverload(); overloadedType != nullptr) {
+        return overloadedType;
+      }
       throw TypeCheckError(span, "Bitwise operator requires integer types");
     }
     return unified;
@@ -5919,6 +5929,10 @@ auto Typechecker::visit(const UnaryOp* node) -> void {
       break;
     }
     if (operand == nullptr || !operand->is(BaseType::TY_INT)) {
+      if (Type* overloadedType = tryOverload(); overloadedType != nullptr) {
+        result = std::make_unique<Value>(overloadedType);
+        break;
+      }
       throw TypeCheckError(node->getSpan(), "Bitwise not requires integer type");
     }
     result = std::make_unique<Value>(operand);
