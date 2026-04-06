@@ -2723,6 +2723,13 @@ auto Codegen::visit(const Return* node) -> void {
   } else {
     node->getValue()->accept(*this);
     getOrCreateLlvmType(result->getType());
+    lesma::Type* actualType = result->getType();
+    lesma::Type* declaredReturnType = currentFunction->getType()->getReturnType();
+    if (declaredReturnType != nullptr && declaredReturnType->is(BaseType::TY_UNION) &&
+        actualType != nullptr && !actualType->isEqual(declaredReturnType)) {
+      result = cast(node->getSpan(), result.get(), declaredReturnType);
+      actualType = result != nullptr ? result->getType() : actualType;
+    }
     if (result != nullptr && result->getStoresFuncValuePair() &&
         result->getLlvmValue() != nullptr) {
       llvm::StructType* pt = getFuncValuePairLlvmType();
@@ -2732,13 +2739,6 @@ auto Codegen::visit(const Return* node) -> void {
       }
       builder->CreateRet(toRet);
       return;
-    }
-    lesma::Type* actualType = result->getType();
-    lesma::Type* declaredReturnType = currentFunction->getType()->getReturnType();
-    if (declaredReturnType != nullptr && declaredReturnType->is(BaseType::TY_UNION) &&
-        actualType != nullptr && !actualType->isEqual(declaredReturnType)) {
-      result = cast(node->getSpan(), result.get(), declaredReturnType);
-      actualType = result != nullptr ? result->getType() : actualType;
     }
     if (actualType != nullptr && actualType->is(BaseType::TY_PTR) &&
         actualType->getElementType() != nullptr &&
