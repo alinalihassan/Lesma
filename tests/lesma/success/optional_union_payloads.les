@@ -1,0 +1,35 @@
+var maybeValue: int | float | null = null
+maybeValue ??= 9
+if maybeValue != 9 {
+  exit(1)
+}
+
+var maybeFloat: int | float | null = null
+maybeFloat ??= 2.5
+if maybeFloat is float {
+  if maybeFloat < 2.49 or maybeFloat > 2.51 {
+    exit(2)
+  }
+} else {
+  exit(2)
+}
+
+var present: int | float | null = 3.5
+let kept = present ?? 7.0
+if kept is float {
+  if kept < 3.49 or kept > 3.51 {
+    exit(3)
+  }
+} else {
+  exit(3)
+}
+
+var absent: int | float | null = null
+let defaulted = absent ?? 7.0
+if defaulted is float {
+  if defaulted < 6.99 or defaulted > 7.01 {
+    exit(4)
+  }
+} else {
+  exit(4)
+}

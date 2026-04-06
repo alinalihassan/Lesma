@@ -41,6 +41,8 @@ func extern fwrite(src: cstr, size: int, count: int, stream: *int8) -> int
 
 func extern remove(path: cstr) -> int
 
+func extern rename(old_path: cstr, new_path: cstr) -> int
+
 // ASCII whitespace only (TAB, LF, VT, FF, CR, SPACE). uint8 avoids signed-byte pitfalls with UTF-8.
 func __str_byte_is_ascii_whitespace(b: uint8) -> bool {
   return b == 9 as uint8 or b == 10 as uint8 or b == 11 as uint8 or b == 12 as uint8
@@ -657,7 +659,9 @@ export class file {
     if in_fp == 0 {
       return
     }
-    var out_fp: *int8 = fopen(path, "wb")
+    let temp_path: str = str(path) + ".tmp.${time(0)}.${rand()}"
+    remove(temp_path.cstr())
+    var out_fp: *int8 = fopen(temp_path.cstr(), "wb")
     if out_fp == 0 {
       fclose(in_fp)
       return
@@ -676,6 +680,10 @@ export class file {
     free(buf)
     fclose(in_fp)
     fclose(out_fp)
+    remove(path)
+    if rename(temp_path.cstr(), path) != 0 {
+      remove(temp_path.cstr())
+    }
   }
   func delete() {
     remove(self.storage)

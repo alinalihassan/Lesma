@@ -823,10 +823,36 @@ auto Codegen::emitPromotedBitwise(llvm::SMRange span, TokenType op,
   case TokenType::XOR:
     return std::make_unique<Value>("", finalType, builder->CreateXor(l, r));
   case TokenType::SHIFT_LEFT:
-    return std::make_unique<Value>("", finalType, builder->CreateShl(l, r));
   case TokenType::SHIFT_RIGHT: {
-    llvm::Value* shift =
-        finalType->isSigned() ? builder->CreateAShr(l, r) : builder->CreateLShr(l, r);
+    llvm::Function* parentFunction = builder->GetInsertBlock()->getParent();
+    llvm::BasicBlock* const validBlock =
+        llvm::BasicBlock::Create(theModule->getContext(), "shift.valid", parentFunction);
+    llvm::BasicBlock* const invalidBlock =
+        llvm::BasicBlock::Create(theModule->getContext(), "shift.invalid", parentFunction);
+    llvm::Value* inRange = nullptr;
+    llvm::Value* const bitWidth =
+        llvm::ConstantInt::get(finalType->getLlvmType(), finalType->getIntWidth());
+    if (finalType->isSigned()) {
+      llvm::Value* const nonNegative =
+          builder->CreateICmpSGE(r, llvm::ConstantInt::get(finalType->getLlvmType(), 0));
+      llvm::Value* const belowWidth = builder->CreateICmpSLT(r, bitWidth);
+      inRange = builder->CreateAnd(nonNegative, belowWidth, "shift.in.range");
+    } else {
+      inRange = builder->CreateICmpULT(r, bitWidth, "shift.in.range");
+    }
+    builder->CreateCondBr(inRange, validBlock, invalidBlock);
+
+    builder->SetInsertPoint(invalidBlock);
+    auto* trapFn =
+        llvm::Intrinsic::getOrInsertDeclaration(theModule.get(), llvm::Intrinsic::trap, {});
+    builder->CreateCall(trapFn, {});
+    builder->CreateUnreachable();
+
+    builder->SetInsertPoint(validBlock);
+    llvm::Value* shift = op == TokenType::SHIFT_LEFT
+                             ? builder->CreateShl(l, r)
+                             : (finalType->isSigned() ? builder->CreateAShr(l, r)
+                                                      : builder->CreateLShr(l, r));
     return std::make_unique<Value>("", finalType, shift);
   }
   default:
@@ -843,25 +869,83 @@ auto Codegen::emitPowerOperation(llvm::SMRange span, std::unique_ptr<lesma::Valu
       (!finalType->is(BaseType::TY_INT) && !finalType->isFloatingPoint())) {
     return nullptr;
   }
-  llvm::Type* intrinsicType = finalType->isFloatingPoint() ? finalType->getLlvmType()
-                                                           : builder->getDoubleTy();
+  if (finalType->is(BaseType::TY_INT)) {
+    llvm::Function* parentFunction = builder->GetInsertBlock()->getParent();
+    llvm::Type* llvmIntTy = finalType->getLlvmType();
+    llvm::Value* const zero = llvm::ConstantInt::get(llvmIntTy, 0);
+    llvm::Value* const one = llvm::ConstantInt::get(llvmIntTy, 1);
+    llvm::AllocaInst* resultSlot = createAllocaInEntry(parentFunction, llvmIntTy, "pow.result");
+    llvm::AllocaInst* baseSlot = createAllocaInEntry(parentFunction, llvmIntTy, "pow.base");
+    llvm::AllocaInst* expSlot = createAllocaInEntry(parentFunction, llvmIntTy, "pow.exp");
+    builder->CreateStore(one, resultSlot);
+    builder->CreateStore(left->getLlvmValue(), baseSlot);
+    builder->CreateStore(right->getLlvmValue(), expSlot);
+
+    llvm::BasicBlock* const validateBlock =
+        llvm::BasicBlock::Create(theModule->getContext(), "pow.int.validate", parentFunction);
+    llvm::BasicBlock* const invalidBlock =
+        llvm::BasicBlock::Create(theModule->getContext(), "pow.int.invalid", parentFunction);
+    llvm::BasicBlock* const loopBlock =
+        llvm::BasicBlock::Create(theModule->getContext(), "pow.int.loop", parentFunction);
+    llvm::BasicBlock* const maybeMultiplyBlock =
+        llvm::BasicBlock::Create(theModule->getContext(), "pow.int.maybe_mul", parentFunction);
+    llvm::BasicBlock* const multiplyBlock =
+        llvm::BasicBlock::Create(theModule->getContext(), "pow.int.mul", parentFunction);
+    llvm::BasicBlock* const updateBlock =
+        llvm::BasicBlock::Create(theModule->getContext(), "pow.int.update", parentFunction);
+    llvm::BasicBlock* const doneBlock =
+        llvm::BasicBlock::Create(theModule->getContext(), "pow.int.done", parentFunction);
+    builder->CreateBr(validateBlock);
+
+    builder->SetInsertPoint(validateBlock);
+    llvm::Value* exponentValue = builder->CreateLoad(llvmIntTy, expSlot, "pow.exp.cur");
+    llvm::Value* exponentValid = finalType->isSigned()
+                                     ? builder->CreateICmpSGE(exponentValue, zero)
+                                     : builder->getTrue();
+    builder->CreateCondBr(exponentValid, loopBlock, invalidBlock);
+
+    builder->SetInsertPoint(invalidBlock);
+    auto* trapFn =
+        llvm::Intrinsic::getOrInsertDeclaration(theModule.get(), llvm::Intrinsic::trap, {});
+    builder->CreateCall(trapFn, {});
+    builder->CreateUnreachable();
+
+    builder->SetInsertPoint(loopBlock);
+    exponentValue = builder->CreateLoad(llvmIntTy, expSlot, "pow.exp.loop");
+    llvm::Value* isDone = builder->CreateICmpEQ(exponentValue, zero, "pow.done");
+    builder->CreateCondBr(isDone, doneBlock, maybeMultiplyBlock);
+
+    builder->SetInsertPoint(maybeMultiplyBlock);
+    llvm::Value* multiplyNeeded =
+        builder->CreateICmpNE(builder->CreateAnd(exponentValue, one), zero, "pow.odd");
+    builder->CreateCondBr(multiplyNeeded, multiplyBlock, updateBlock);
+
+    builder->SetInsertPoint(multiplyBlock);
+    llvm::Value* resultValue = builder->CreateLoad(llvmIntTy, resultSlot, "pow.result.mul.cur");
+    llvm::Value* baseValue = builder->CreateLoad(llvmIntTy, baseSlot, "pow.base.mul.cur");
+    llvm::Value* multiplied = builder->CreateMul(resultValue, baseValue, "pow.result.mul");
+    builder->CreateStore(multiplied, resultSlot);
+    builder->CreateBr(updateBlock);
+
+    builder->SetInsertPoint(updateBlock);
+    baseValue = builder->CreateLoad(llvmIntTy, baseSlot, "pow.base.square.cur");
+    llvm::Value* squared = builder->CreateMul(baseValue, baseValue, "pow.base.square");
+    builder->CreateStore(squared, baseSlot);
+    exponentValue = builder->CreateLoad(llvmIntTy, expSlot, "pow.exp.square.cur");
+    llvm::Value* shifted = builder->CreateLShr(exponentValue, one, "pow.exp.shift");
+    builder->CreateStore(shifted, expSlot);
+    builder->CreateBr(loopBlock);
+
+    builder->SetInsertPoint(doneBlock);
+    llvm::Value* finalResult = builder->CreateLoad(llvmIntTy, resultSlot, "pow.result.out");
+    return std::make_unique<Value>("", finalType, finalResult);
+  }
+  llvm::Type* intrinsicType = finalType->getLlvmType();
   llvm::Value* base = left->getLlvmValue();
   llvm::Value* exponent = right->getLlvmValue();
-  if (finalType->is(BaseType::TY_INT)) {
-    base = finalType->isSigned() ? builder->CreateSIToFP(base, intrinsicType, "pow.base")
-                                 : builder->CreateUIToFP(base, intrinsicType, "pow.base");
-    exponent = finalType->isSigned() ? builder->CreateSIToFP(exponent, intrinsicType, "pow.exp")
-                                     : builder->CreateUIToFP(exponent, intrinsicType, "pow.exp");
-  }
   auto* powFn =
       llvm::Intrinsic::getOrInsertDeclaration(theModule.get(), llvm::Intrinsic::pow, {intrinsicType});
   llvm::Value* powVal = builder->CreateCall(powFn, {base, exponent}, "pow.tmp");
-  if (finalType->is(BaseType::TY_INT)) {
-    llvm::Value* intPow = finalType->isSigned()
-                              ? builder->CreateFPToSI(powVal, finalType->getLlvmType(), "pow.int")
-                              : builder->CreateFPToUI(powVal, finalType->getLlvmType(), "pow.int");
-    return std::make_unique<Value>("", finalType, intPow);
-  }
   return std::make_unique<Value>("", finalType, powVal);
 }
 
@@ -1236,7 +1320,7 @@ auto Codegen::getOptionalPayloadType(lesma::Type* type) const -> lesma::Type* {
   if (type == nullptr || !type->is(BaseType::TY_UNION)) {
     return nullptr;
   }
-  lesma::Type* payload = nullptr;
+  std::vector<lesma::Type*> payloadMembers;
   bool sawNull = false;
   for (lesma::Type* member : type->getUnionMembers()) {
     if (member == nullptr) {
@@ -1246,15 +1330,19 @@ auto Codegen::getOptionalPayloadType(lesma::Type* type) const -> lesma::Type* {
       sawNull = true;
       continue;
     }
-    if (payload != nullptr) {
-      return nullptr;
-    }
-    payload = member;
+    payloadMembers.push_back(member);
   }
-  if (!sawNull || payload == nullptr) {
+  if (!sawNull || payloadMembers.empty()) {
     return nullptr;
   }
-  return payload;
+  auto [canonical, displayName] = TypeUtils::canonicalizeUnionMembers(std::move(payloadMembers));
+  if (canonical.size() == 1U) {
+    return canonical.front();
+  }
+  auto payload = std::make_unique<Type>(BaseType::TY_UNION);
+  payload->setDisplayName(displayName);
+  payload->setUnionMembers(std::move(canonical));
+  return const_cast<Codegen*>(this)->cacheType(std::move(payload));
 }
 
 auto Codegen::materializeNarrowedUnionValue(lesma::Value* value, lesma::Type* narrowedType,
@@ -3143,6 +3231,7 @@ auto Codegen::visit(const BinaryOp* node) -> void {
     auto leftPayload =
         materializeNarrowedUnionValue(left.get(), payloadType, "coalesce.left.payload.tmp");
     llvm::Value* leftValue = leftPayload->getLlvmValue();
+    llvm::BasicBlock* leftIncoming = builder->GetInsertBlock();
     builder->CreateBr(mergeBlock);
 
     builder->SetInsertPoint(useDefaultBlock);
@@ -3167,12 +3256,13 @@ auto Codegen::visit(const BinaryOp* node) -> void {
         throw CodegenError(node->getSpan(), "Nil-coalescing operands lower to incompatible values");
       }
     }
+    llvm::BasicBlock* rightIncoming = builder->GetInsertBlock();
     builder->CreateBr(mergeBlock);
 
     builder->SetInsertPoint(mergeBlock);
     auto* phi = builder->CreatePHI(phiType, 2U, "coalesce.result");
-    phi->addIncoming(leftValue, useLeftBlock);
-    phi->addIncoming(rightValue, useDefaultBlock);
+    phi->addIncoming(leftValue, leftIncoming);
+    phi->addIncoming(rightValue, rightIncoming);
     result = std::make_unique<Value>("", payloadType, phi);
     return;
   }
@@ -3213,6 +3303,20 @@ auto Codegen::visit(const BinaryOp* node) -> void {
       unionPtr = tmpSlot;
     }
 
+    llvm::Value* tagPtr = builder->CreateStructGEP(unionStructTy, unionPtr, 0U, "union.cmp.tag.ptr");
+    llvm::Type* tagTy = getOrCreateUnionTagLlvmType(unionTy);
+    llvm::Value* tagVal = builder->CreateLoad(tagTy, tagPtr, "union.cmp.tag");
+    llvm::Value* isActive =
+        builder->CreateICmpEQ(tagVal, llvm::ConstantInt::get(tagTy, *memberIndex), "union.cmp.arm");
+    llvm::BasicBlock* const activeBlock =
+        llvm::BasicBlock::Create(theModule->getContext(), "union.cmp.active", parent);
+    llvm::BasicBlock* const inactiveBlock =
+        llvm::BasicBlock::Create(theModule->getContext(), "union.cmp.inactive", parent);
+    llvm::BasicBlock* const mergeBlock =
+        llvm::BasicBlock::Create(theModule->getContext(), "union.cmp.merge", parent);
+    builder->CreateCondBr(isActive, activeBlock, inactiveBlock);
+
+    builder->SetInsertPoint(activeBlock);
     Type* memberTy = unionTy->getUnionMembers().at(*memberIndex);
     llvm::Value* payload = emitUnionPayloadLoadFromSlot(unionPtr, unionTy, memberTy);
     auto scalarCasted = cast(node->getSpan(), scalarValue, memberTy);
@@ -3225,14 +3329,18 @@ auto Codegen::visit(const BinaryOp* node) -> void {
     } else {
       return nullptr;
     }
+    llvm::BasicBlock* activeIncoming = builder->GetInsertBlock();
+    builder->CreateBr(mergeBlock);
 
-    llvm::Value* tagPtr = builder->CreateStructGEP(unionStructTy, unionPtr, 0U, "union.cmp.tag.ptr");
-    llvm::Type* tagTy = getOrCreateUnionTagLlvmType(unionTy);
-    llvm::Value* tagVal = builder->CreateLoad(tagTy, tagPtr, "union.cmp.tag");
-    llvm::Value* isActive =
-        builder->CreateICmpEQ(tagVal, llvm::ConstantInt::get(tagTy, *memberIndex), "union.cmp.arm");
-    llvm::Value* eq = builder->CreateAnd(isActive, payloadEq, "union.cmp.eq");
-    return makeBoolCompareResult(isEqual ? eq : builder->CreateNot(eq, "union.cmp.ne"));
+    builder->SetInsertPoint(inactiveBlock);
+    llvm::BasicBlock* inactiveIncoming = builder->GetInsertBlock();
+    builder->CreateBr(mergeBlock);
+
+    builder->SetInsertPoint(mergeBlock);
+    llvm::PHINode* eqPhi = builder->CreatePHI(builder->getInt1Ty(), 2U, "union.cmp.eq");
+    eqPhi->addIncoming(payloadEq, activeIncoming);
+    eqPhi->addIncoming(builder->getFalse(), inactiveIncoming);
+    return makeBoolCompareResult(isEqual ? eqPhi : builder->CreateNot(eqPhi, "union.cmp.ne"));
   };
 
   switch (node->getOperator()) {

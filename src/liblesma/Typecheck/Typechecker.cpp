@@ -2545,7 +2545,7 @@ auto Typechecker::getOptionalPayloadType(Type* type) -> Type* {
   if (type == nullptr || !type->is(BaseType::TY_UNION)) {
     return nullptr;
   }
-  Type* payload = nullptr;
+  std::vector<Type*> payloadMembers;
   bool sawNull = false;
   for (Type* member : type->getUnionMembers()) {
     if (member == nullptr) {
@@ -2555,15 +2555,19 @@ auto Typechecker::getOptionalPayloadType(Type* type) -> Type* {
       sawNull = true;
       continue;
     }
-    if (payload != nullptr) {
-      return nullptr;
-    }
-    payload = member;
+    payloadMembers.push_back(member);
   }
-  if (!sawNull || payload == nullptr) {
+  if (!sawNull || payloadMembers.empty()) {
     return nullptr;
   }
-  return payload;
+  auto [canonical, displayName] = TypeUtils::canonicalizeUnionMembers(std::move(payloadMembers));
+  if (canonical.size() == 1U) {
+    return canonical.front();
+  }
+  auto payload = std::make_unique<Type>(BaseType::TY_UNION);
+  payload->setDisplayName(displayName);
+  payload->setUnionMembers(std::move(canonical));
+  return cacheType(std::move(payload));
 }
 
 auto Typechecker::typecheckBinaryOpResult(TokenType op, Type* leftTy, Type* rightTy,
@@ -2688,6 +2692,9 @@ auto Typechecker::isAssignableTo(Type* from, Type* to) -> bool {
     return false;
   }
   if (from->is(BaseType::TY_NULL)) {
+    if (to->is(BaseType::TY_NULL)) {
+      return true;
+    }
     if (to->is(BaseType::TY_UNION)) {
       return std::ranges::any_of(to->getUnionMembers(), [](Type* m) -> bool {
         return m != nullptr && m->is(BaseType::TY_NULL);
@@ -3590,6 +3597,16 @@ void Typechecker::invalidateUnionNarrowingForSymbol(Value* sym) {
   }
 }
 
+namespace {
+[[nodiscard]] auto isStableSubscriptNarrowingIndex(const Expression* expr) -> bool {
+  auto const* lit = dynamic_cast<const Literal*>(expr);
+  if (lit == nullptr) {
+    return false;
+  }
+  return lit->getType() != TokenType::IDENTIFIER;
+}
+} // namespace
+
 auto Typechecker::rootStorageSymbolForAssignmentLhs(Expression* lhs) -> Value* {
   if (lhs == nullptr) {
     return nullptr;
@@ -3689,6 +3706,9 @@ auto tryGetUnionNarrowingKey(const Expression* expr, SymbolTable* scope)
   if (auto const* sub = dynamic_cast<const SubscriptOp*>(expr)) {
     auto key = tryGetUnionNarrowingKey(sub->getLeft(), scope);
     if (!key.has_value()) {
+      return std::nullopt;
+    }
+    if (!isStableSubscriptNarrowingIndex(sub->getIndex())) {
       return std::nullopt;
     }
     std::string indexKey;
@@ -5051,8 +5071,15 @@ auto Typechecker::visit(const Assignment* node) -> void {
         visitExprWithExpectedType(node->getRightHandSide(), payloadType);
         Type* rhsType = result->getType();
         validateNullCoalesceAssignment(lhsType, rhsType, "subscript target");
-        if (resolveMethodReturnType(baseType, std::string{OperatorUtils::SUBSCRIPT_SET_NAME},
-                                    {indexType, lhsType}, node->getSpan()) == nullptr) {
+        auto hasSetter = [this, baseType, indexType, node](Type* valueType) -> bool {
+          try {
+            return resolveMethodReturnType(baseType, std::string{OperatorUtils::SUBSCRIPT_SET_NAME},
+                                           {indexType, valueType}, node->getSpan()) != nullptr;
+          } catch (const TypeCheckError&) {
+            return false;
+          }
+        };
+        if (!hasSetter(rhsType) && !hasSetter(lhsType)) {
           throw TypeCheckError(node->getSpan(), "Operator []= not found for assignment target");
         }
       } else if (assignOp != TokenType::EQUAL) {
@@ -5508,6 +5535,25 @@ auto Typechecker::visit(const BinaryOp* node) -> void {
   std::unique_ptr<Value> right = std::move(result);
   Type* resultType = typecheckBinaryOpResult(node->getOperator(), left->getType(), right->getType(),
                                              node->getSpan());
+  auto extractConstantShiftCount = [](const Expression* expr) -> std::optional<long long> {
+    if (auto const* lit = dynamic_cast<const Literal*>(expr)) {
+      if (lit->getType() == TokenType::INTEGER) {
+        return std::stoll(lit->getValue());
+      }
+      return std::nullopt;
+    }
+    if (auto const* unary = dynamic_cast<const UnaryOp*>(expr)) {
+      if (unary->getOperator() != TokenType::MINUS) {
+        return std::nullopt;
+      }
+      auto const* lit = dynamic_cast<const Literal*>(unary->getExpression());
+      if (lit == nullptr || lit->getType() != TokenType::INTEGER) {
+        return std::nullopt;
+      }
+      return -std::stoll(lit->getValue());
+    }
+    return std::nullopt;
+  };
   if ((node->getOperator() == TokenType::SLASH || node->getOperator() == TokenType::MOD) &&
       left->getType() != nullptr && right->getType() != nullptr &&
       !left->getType()->is(BaseType::TY_GENERIC) && !right->getType()->is(BaseType::TY_GENERIC)) {
@@ -5520,12 +5566,24 @@ auto Typechecker::visit(const BinaryOp* node) -> void {
       }
     }
   }
+  if ((node->getOperator() == TokenType::SHIFT_LEFT ||
+       node->getOperator() == TokenType::SHIFT_RIGHT) &&
+      resultType != nullptr && resultType->is(BaseType::TY_INT) &&
+      left->getType() != nullptr && right->getType() != nullptr &&
+      !left->getType()->is(BaseType::TY_GENERIC) && !right->getType()->is(BaseType::TY_GENERIC)) {
+    if (auto count = extractConstantShiftCount(node->getRight()); count.has_value()) {
+      if (*count < 0 || static_cast<unsigned long long>(*count) >= resultType->getIntWidth()) {
+        throw TypeCheckError(node->getSpan(), "Shift count {} is out of range for {}-bit integer",
+                             *count, resultType->getIntWidth());
+      }
+    }
+  }
   result = std::make_unique<Value>(resultType);
 }
 
 auto Typechecker::visit(const SubscriptOp* node) -> void {
+  node->setLspFlowSensitiveType(nullptr);
   auto applyFlowNarrowing = [this, node]() {
-    node->setLspFlowSensitiveType(nullptr);
     if (result != nullptr) {
       if (Type* narrowed = lookupUnionNarrowedType(node)) {
         result->setType(narrowed);
@@ -6711,36 +6769,14 @@ auto Typechecker::checkTraitImplementation(const Class* classNode, Type* classTy
           if (elemTy != nullptr && iterClass != nullptr && iterClass->is(BaseType::TY_CLASS)) {
             Type* iterPtr = cacheType(std::make_unique<Type>(BaseType::TY_PTR, nullptr, iterClass));
             Type* nextT = resolveMethodReturnType(iterPtr, "next", {}, classNode->getNameSpan());
-            auto iterableElemTypeFromNext = [this](Type* nextType) -> Type* {
-              if (nextType == nullptr || !nextType->is(BaseType::TY_UNION)) {
-                return nextType;
-              }
-              std::vector<Type*> nonNullMembers;
-              bool sawNull = false;
-              for (Type* member : nextType->getUnionMembers()) {
-                if (member != nullptr && member->is(BaseType::TY_NULL)) {
-                  sawNull = true;
-                  continue;
-                }
-                if (member != nullptr) {
-                  nonNullMembers.push_back(member);
-                }
-              }
-              if (!sawNull || nonNullMembers.empty()) {
-                return nextType;
-              }
-              auto [canonical, displayName] =
-                  TypeUtils::canonicalizeUnionMembers(std::move(nonNullMembers));
-              if (canonical.size() == 1U) {
-                return canonical.front();
-              }
-              auto out = std::make_unique<Type>(BaseType::TY_UNION);
-              out->setDisplayName(displayName);
-              out->setUnionMembers(std::move(canonical));
-              return cacheType(std::move(out));
-            };
-            Type* yielded = iterableElemTypeFromNext(nextT);
-            if (yielded != nullptr && !yielded->isEqual(elemTy)) {
+            Type* yielded = getOptionalPayloadType(nextT);
+            if (yielded == nullptr) {
+              throw TypeCheckError(classNode->getNameSpan(),
+                                   "Iterable: iter() must return an iterator whose next() returns "
+                                   "an optional value, got {}",
+                                   nextT != nullptr ? nextT->toString() : "void");
+            }
+            if (!yielded->isEqual(elemTy)) {
               throw TypeCheckError(classNode->getNameSpan(),
                                    "Iterable: iter() must return a type whose next() matches the "
                                    "Iterable type parameter (expected {}, got {})",

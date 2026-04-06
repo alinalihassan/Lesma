@@ -18,3 +18,9 @@ var root: float = 9.0 ** 0.5
 if root < 2.99 or root > 3.01 {
   exit(4)
 }
+
+var threePow19: int = 3 ** 19
+var bigPow: int = threePow19 ** 2
+if bigPow / threePow19 != threePow19 {
+  exit(5)
+}
