@@ -1,6 +1,25 @@
-var xs: list<str | int | float> = [1, "two", 3.5]
+enum Kind {
+  START
+  STOP
+}
+
+class Box {
+  var value: int
+
+  func new(value: int) {
+    self.value = value
+  }
+
+  func get() -> int {
+    return self.value
+  }
+}
+
+var xs: list<str | int | float | Box | Kind> = [1, "two", 3.5, Box(7), Kind.START]
 xs.push(4)
 xs.push("five")
+xs.push(Box(9))
+xs.push(Kind.STOP)
 
 let first = xs[0]
 if first is int {
@@ -29,26 +48,66 @@ if third is float {
   exit(3)
 }
 
-let last = xs[4]
-if last is str {
-  if last != "five" {
+let boxed = xs[3]
+if boxed is Box {
+  if boxed.get() != 7 {
     exit(4)
   }
 } else {
   exit(4)
 }
 
-let popped = xs.pop()
-if popped is null {
-  exit(5)
-} else if popped is str {
-  if popped != "five" {
+let started = xs[4]
+if started is Kind {
+  if started != Kind.START {
     exit(5)
   }
 } else {
   exit(5)
 }
 
-if xs.len() != 4 {
+let poppedTag = xs.pop()
+if poppedTag is null {
   exit(6)
+} else if poppedTag is Kind {
+  if poppedTag != Kind.STOP {
+    exit(6)
+  }
+} else {
+  exit(6)
+}
+
+let poppedBox = xs.pop()
+if poppedBox is null {
+  exit(7)
+} else if poppedBox is Box {
+  if poppedBox.get() != 9 {
+    exit(7)
+  }
+} else {
+  exit(7)
+}
+
+let poppedStr = xs.pop()
+if poppedStr is null {
+  exit(8)
+} else if poppedStr is str {
+  if poppedStr != "five" {
+    exit(8)
+  }
+} else {
+  exit(8)
+}
+
+let remaining = xs[5]
+if remaining is int {
+  if remaining != 4 {
+    exit(5)
+  }
+} else {
+  exit(9)
+}
+
+if xs.len() != 6 {
+  exit(10)
 }

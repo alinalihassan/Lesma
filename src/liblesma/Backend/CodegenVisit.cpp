@@ -849,10 +849,10 @@ auto Codegen::emitPromotedBitwise(llvm::SMRange span, TokenType op,
     builder->CreateUnreachable();
 
     builder->SetInsertPoint(validBlock);
-    llvm::Value* shift = op == TokenType::SHIFT_LEFT
-                             ? builder->CreateShl(l, r)
-                             : (finalType->isSigned() ? builder->CreateAShr(l, r)
-                                                      : builder->CreateLShr(l, r));
+    llvm::Value* shift =
+        op == TokenType::SHIFT_LEFT
+            ? builder->CreateShl(l, r)
+            : (finalType->isSigned() ? builder->CreateAShr(l, r) : builder->CreateLShr(l, r));
     return std::make_unique<Value>("", finalType, shift);
   }
   default:
@@ -865,8 +865,7 @@ auto Codegen::emitPowerOperation(llvm::SMRange span, std::unique_ptr<lesma::Valu
     -> std::unique_ptr<lesma::Value> {
   left = cast(span, left.get(), finalType);
   right = cast(span, right.get(), finalType);
-  if (finalType == nullptr ||
-      (!finalType->is(BaseType::TY_INT) && !finalType->isFloatingPoint())) {
+  if (finalType == nullptr || (!finalType->is(BaseType::TY_INT) && !finalType->isFloatingPoint())) {
     return nullptr;
   }
   if (finalType->is(BaseType::TY_INT)) {
@@ -899,9 +898,8 @@ auto Codegen::emitPowerOperation(llvm::SMRange span, std::unique_ptr<lesma::Valu
 
     builder->SetInsertPoint(validateBlock);
     llvm::Value* exponentValue = builder->CreateLoad(llvmIntTy, expSlot, "pow.exp.cur");
-    llvm::Value* exponentValid = finalType->isSigned()
-                                     ? builder->CreateICmpSGE(exponentValue, zero)
-                                     : builder->getTrue();
+    llvm::Value* exponentValid =
+        finalType->isSigned() ? builder->CreateICmpSGE(exponentValue, zero) : builder->getTrue();
     builder->CreateCondBr(exponentValid, loopBlock, invalidBlock);
 
     builder->SetInsertPoint(invalidBlock);
@@ -943,8 +941,8 @@ auto Codegen::emitPowerOperation(llvm::SMRange span, std::unique_ptr<lesma::Valu
   llvm::Type* intrinsicType = finalType->getLlvmType();
   llvm::Value* base = left->getLlvmValue();
   llvm::Value* exponent = right->getLlvmValue();
-  auto* powFn =
-      llvm::Intrinsic::getOrInsertDeclaration(theModule.get(), llvm::Intrinsic::pow, {intrinsicType});
+  auto* powFn = llvm::Intrinsic::getOrInsertDeclaration(theModule.get(), llvm::Intrinsic::pow,
+                                                        {intrinsicType});
   llvm::Value* powVal = builder->CreateCall(powFn, {base, exponent}, "pow.tmp");
   return std::make_unique<Value>("", finalType, powVal);
 }
@@ -1373,11 +1371,14 @@ auto Codegen::materializeNarrowedUnionValue(lesma::Value* value, lesma::Type* na
     auto* narrowedStructTy = llvm::cast<llvm::StructType>(narrowedType->getLlvmType());
     auto* narrowedSlot = createAllocaInEntry(parentFn, narrowedStructTy, tempName + ".slot");
     auto* sourceStructTy = llvm::cast<llvm::StructType>(value->getType()->getLlvmType());
-    llvm::Value* tagPtr = builder->CreateStructGEP(sourceStructTy, storage, 0U, tempName + ".tag.ptr");
+    llvm::Value* tagPtr =
+        builder->CreateStructGEP(sourceStructTy, storage, 0U, tempName + ".tag.ptr");
     llvm::Type* tagTy = getOrCreateUnionTagLlvmType(value->getType());
     llvm::Value* tagVal = builder->CreateLoad(tagTy, tagPtr, tempName + ".tag");
-    auto* invalidBlock = llvm::BasicBlock::Create(theModule->getContext(), tempName + ".invalid", parentFn);
-    auto* mergeBlock = llvm::BasicBlock::Create(theModule->getContext(), tempName + ".merge", parentFn);
+    auto* invalidBlock =
+        llvm::BasicBlock::Create(theModule->getContext(), tempName + ".invalid", parentFn);
+    auto* mergeBlock =
+        llvm::BasicBlock::Create(theModule->getContext(), tempName + ".merge", parentFn);
     auto* switchInst =
         builder->CreateSwitch(tagVal, invalidBlock, narrowedType->getUnionMembers().size());
     for (Type* memberTy : narrowedType->getUnionMembers()) {
@@ -1391,8 +1392,8 @@ auto Codegen::materializeNarrowedUnionValue(lesma::Value* value, lesma::Type* na
       }
       auto* caseBlock =
           llvm::BasicBlock::Create(theModule->getContext(), tempName + ".case", parentFn);
-      switchInst->addCase(llvm::cast<llvm::ConstantInt>(llvm::ConstantInt::get(tagTy, *sourceIndex)),
-                          caseBlock);
+      switchInst->addCase(
+          llvm::cast<llvm::ConstantInt>(llvm::ConstantInt::get(tagTy, *sourceIndex)), caseBlock);
       builder->SetInsertPoint(caseBlock);
       llvm::Value* payload = emitUnionPayloadLoadFromSlot(storage, value->getType(), memberTy);
       auto memberValue = std::make_unique<Value>("", memberTy, payload);
@@ -1409,7 +1410,8 @@ auto Codegen::materializeNarrowedUnionValue(lesma::Value* value, lesma::Type* na
     llvm::Value* narrowedValue = builder->CreateLoad(narrowedStructTy, narrowedSlot, tempName);
     return std::make_unique<Value>("", narrowedType, narrowedValue);
   }
-  llvm::Value* narrowedValue = emitUnionPayloadLoadFromSlot(storage, value->getType(), narrowedType);
+  llvm::Value* narrowedValue =
+      emitUnionPayloadLoadFromSlot(storage, value->getType(), narrowedType);
   auto narrowed = std::make_unique<Value>("", narrowedType, narrowedValue);
   if (narrowedType->is(BaseType::TY_FUNCTION)) {
     narrowed->setStoresFuncValuePair(true);
@@ -1689,7 +1691,8 @@ auto Codegen::visit(const ForIn* node) -> void {
     builder->CreateCondBr(hasValue, bLoop, bEnd);
 
     emitForInLoopIteration(parentFct, node, savedScope, forBodyScope, bLoop, bInc, [&] {
-      auto unwrapped = materializeNarrowedUnionValue(nextValue.get(), payloadType, "for.next.unwrap");
+      auto unwrapped =
+          materializeNarrowedUnionValue(nextValue.get(), payloadType, "for.next.unwrap");
       if (unwrapped != nullptr && loopVar != nullptr && loopVar->getType() != nullptr &&
           !unwrapped->getType()->isEqual(loopVar->getType())) {
         unwrapped = cast(node->getSpan(), unwrapped.get(), loopVar->getType());
@@ -2515,7 +2518,8 @@ auto Codegen::visit(const Assignment* node) -> void {
         auto currentElem = std::move(result);
         lesma::Type* optionalType = currentElem != nullptr ? currentElem->getType() : nullptr;
         lesma::Type* payloadType = getOptionalPayloadType(optionalType);
-        if (optionalType == nullptr || payloadType == nullptr || currentElem->getLlvmValue() == nullptr) {
+        if (optionalType == nullptr || payloadType == nullptr ||
+            currentElem->getLlvmValue() == nullptr) {
           throw CodegenError(node->getSpan(),
                              "Null-coalescing assignment requires an optional subscript target");
         }
@@ -2546,8 +2550,8 @@ auto Codegen::visit(const Assignment* node) -> void {
         llvm::Function* parentFunction = builder->GetInsertBlock()->getParent();
         auto* assignBlock = llvm::BasicBlock::Create(theModule->getContext(), "assign.coalesce.set",
                                                      parentFunction);
-        auto* mergeBlock = llvm::BasicBlock::Create(theModule->getContext(), "assign.coalesce.merge",
-                                                    parentFunction);
+        auto* mergeBlock = llvm::BasicBlock::Create(theModule->getContext(),
+                                                    "assign.coalesce.merge", parentFunction);
         builder->CreateCondBr(isNull, assignBlock, mergeBlock);
 
         builder->SetInsertPoint(assignBlock);
@@ -3039,12 +3043,7 @@ auto Codegen::visit(const Enum* node) -> void {
                        node->getIdentifier());
   }
 
-  if (existingEnum->getType()->getLlvmType() == nullptr) {
-    std::vector<llvm::Type*> elementTypes = {builder->getInt8Ty()};
-    auto* structType =
-        llvm::StructType::create(theModule->getContext(), elementTypes, node->getIdentifier());
-    existingEnum->getType()->setLlvmType(structType);
-  }
+  getOrCreateLlvmType(existingEnum->getType());
 }
 
 auto Codegen::visit(const FuncCall* node) -> void {
@@ -3335,10 +3334,11 @@ auto Codegen::visit(const BinaryOp* node) -> void {
   node->getRight()->accept(*this);
   auto right = std::move(result);
   setDebugLoc(node->getSpan());
-  lesma::Type* finalType = (node->getOperator() == TokenType::SHIFT_LEFT ||
-                            node->getOperator() == TokenType::SHIFT_RIGHT)
-                               ? left->getType()
-                               : CodegenTypeUtils::getExtendedType(left->getType(), right->getType());
+  lesma::Type* finalType =
+      (node->getOperator() == TokenType::SHIFT_LEFT ||
+       node->getOperator() == TokenType::SHIFT_RIGHT)
+          ? left->getType()
+          : CodegenTypeUtils::getExtendedType(left->getType(), right->getType());
   if (finalType == nullptr && left->getType()->is(BaseType::TY_ENUM) &&
       right->getType()->is(BaseType::TY_ENUM) && left->getType()->isEqual(right->getType())) {
     finalType = left->getType();
@@ -3378,13 +3378,15 @@ auto Codegen::visit(const BinaryOp* node) -> void {
       unionPtr = tmpSlot;
     }
 
-    llvm::Value* tagPtr = builder->CreateStructGEP(unionStructTy, unionPtr, 0U, "union.cmp.tag.ptr");
+    llvm::Value* tagPtr =
+        builder->CreateStructGEP(unionStructTy, unionPtr, 0U, "union.cmp.tag.ptr");
     llvm::Type* tagTy = getOrCreateUnionTagLlvmType(unionTy);
     llvm::Value* tagVal = builder->CreateLoad(tagTy, tagPtr, "union.cmp.tag");
     llvm::Value* isActive =
         builder->CreateICmpEQ(tagVal, llvm::ConstantInt::get(tagTy, *memberIndex), "union.cmp.arm");
     if (memberTy->is(BaseType::TY_NULL)) {
-      return makeBoolCompareResult(isEqual ? isActive : builder->CreateNot(isActive, "union.cmp.ne"));
+      return makeBoolCompareResult(isEqual ? isActive
+                                           : builder->CreateNot(isActive, "union.cmp.ne"));
     }
     llvm::BasicBlock* const activeBlock =
         llvm::BasicBlock::Create(theModule->getContext(), "union.cmp.active", parent);
@@ -3426,9 +3428,9 @@ auto Codegen::visit(const BinaryOp* node) -> void {
   case TokenType::POWER: {
     TokenType const arithOp = node->getOperator();
     std::unique_ptr<lesma::Value> arith =
-        arithOp == TokenType::POWER ? emitPowerOperation(node->getSpan(), left, right, finalType)
-                                    : emitPromotedArithmetic(node->getSpan(), arithOp, left, right,
-                                                             finalType);
+        arithOp == TokenType::POWER
+            ? emitPowerOperation(node->getSpan(), left, right, finalType)
+            : emitPromotedArithmetic(node->getSpan(), arithOp, left, right, finalType);
     if (arith) {
       result = std::move(arith);
       return;
@@ -3440,8 +3442,8 @@ auto Codegen::visit(const BinaryOp* node) -> void {
   case TokenType::XOR:
   case TokenType::SHIFT_LEFT:
   case TokenType::SHIFT_RIGHT:
-    if (auto bitwise = emitPromotedBitwise(node->getSpan(), node->getOperator(), left, right,
-                                           finalType)) {
+    if (auto bitwise =
+            emitPromotedBitwise(node->getSpan(), node->getOperator(), left, right, finalType)) {
       result = std::move(bitwise);
       return;
     }
@@ -3450,11 +3452,13 @@ auto Codegen::visit(const BinaryOp* node) -> void {
     Type* ltyEq = left->getType();
     Type* rtyEq = right->getType();
     if (ltyEq != nullptr && rtyEq != nullptr) {
-      if (auto unionCmp = emitUnionScalarEquality(left.get(), right.get(), true); unionCmp != nullptr) {
+      if (auto unionCmp = emitUnionScalarEquality(left.get(), right.get(), true);
+          unionCmp != nullptr) {
         result = std::move(unionCmp);
         return;
       }
-      if (auto unionCmp = emitUnionScalarEquality(right.get(), left.get(), true); unionCmp != nullptr) {
+      if (auto unionCmp = emitUnionScalarEquality(right.get(), left.get(), true);
+          unionCmp != nullptr) {
         result = std::move(unionCmp);
         return;
       }
@@ -3870,7 +3874,7 @@ auto Codegen::emitClassStaticFieldValue(Type* classTy, const std::string& field,
                                            gvVar->isExternallyInitialized());
       } else {
         localGv = new llvm::GlobalVariable(*theModule, gvVar->getValueType(), gvVar->isConstant(),
-                                             llvm::GlobalValue::ExternalLinkage, nullptr, gname);
+                                           llvm::GlobalValue::ExternalLinkage, nullptr, gname);
       }
       localGv->setVisibility(gvVar->getVisibility());
       localGv->setThreadLocalMode(gvVar->getThreadLocalMode());
@@ -4861,8 +4865,8 @@ auto Codegen::visit(const Literal* node) -> void {
       result->setCategory(ValueCategory::TYPE_SYMBOL);
     } else {
       if (Type* flowType = node->getLspFlowSensitiveType();
-          flowType != nullptr && val->getType() != nullptr && val->getType()->is(BaseType::TY_UNION) &&
-          !flowType->isEqual(val->getType())) {
+          flowType != nullptr && val->getType() != nullptr &&
+          val->getType()->is(BaseType::TY_UNION) && !flowType->isEqual(val->getType())) {
         if (auto narrowedValue =
                 materializeNarrowedUnionValue(val, flowType, "literal.union.narrow.tmp");
             narrowedValue != nullptr) {

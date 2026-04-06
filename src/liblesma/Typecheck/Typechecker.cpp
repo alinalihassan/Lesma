@@ -932,8 +932,8 @@ auto Typechecker::visitListMethodCall(Type* listType, const DotOp* node, const F
     }
     for (size_t i = 0; i < fields.size() && i < argTypes.size(); ++i) {
       Type* expected = substituteInType(fields[i]->type, explicitSubst);
-      if (expected != nullptr &&
-          (!isAssignableTo(argTypes[i], expected) || isLossyImplicitConversion(argTypes[i], expected))) {
+      if (expected != nullptr && (!isAssignableTo(argTypes[i], expected) ||
+                                  isLossyImplicitConversion(argTypes[i], expected))) {
         throw TypeCheckError(call->getSpan(),
                              "Argument type {} does not match explicit parameter type {}",
                              argTypes[i]->toString(), expected->toString());
@@ -1417,9 +1417,8 @@ void Typechecker::finishGenericClassCallWithExplicitTypeArgs(
     auto ctorParams = constructor->getType()->getFields();
     for (size_t i = 1; i < ctorParams.size() && i - 1 < argTypes.size(); ++i) {
       Type* expected = substituteInType(ctorParams[i]->type, env);
-      if (expected != nullptr &&
-          (!isAssignableTo(argTypes[i - 1], expected) ||
-           isLossyImplicitConversion(argTypes[i - 1], expected))) {
+      if (expected != nullptr && (!isAssignableTo(argTypes[i - 1], expected) ||
+                                  isLossyImplicitConversion(argTypes[i - 1], expected))) {
         throw TypeCheckError(callSite->getSpan(),
                              "Argument type {} does not match explicit parameter type {}",
                              argTypes[i - 1]->toString(), expected->toString());
@@ -1859,8 +1858,8 @@ auto Typechecker::tryResolveNonCustomTypeExpr(const TypeExpr* node) -> Type* {
       } else if (!isSupportedUnionMemberType(t)) {
         throw TypeCheckError(
             node->getSpan(),
-            "Union member type `{}` is not supported (allowed: int, float, float32, bool, and "
-            "class types — e.g. str, list<U>, or your own classes)",
+            "Union member type `{}` is not supported (allowed: int, float, float32, bool, enum, "
+            "and class types — e.g. str, list<U>, your own classes, or enums)",
             t->toString());
       }
     }
@@ -2576,7 +2575,9 @@ auto Typechecker::getOptionalPayloadType(Type* type) -> Type* {
   return cacheType(std::move(payload));
 }
 
-auto Typechecker::isNullableType(Type* type) -> bool { return getOptionalPayloadType(type) != nullptr; }
+auto Typechecker::isNullableType(Type* type) -> bool {
+  return getOptionalPayloadType(type) != nullptr;
+}
 
 auto Typechecker::typecheckBinaryOpResult(TokenType op, Type* leftTy, Type* rightTy,
                                           llvm::SMRange span) -> Type* {
@@ -2692,9 +2693,9 @@ auto Typechecker::typecheckBinaryOpResult(TokenType op, Type* leftTy, Type* righ
     }
     if (rightTy == nullptr || !isAssignableTo(rightTy, payloadType) ||
         isLossyImplicitConversion(rightTy, payloadType)) {
-      throw TypeCheckError(span, "Nil-coalescing default type {} does not match optional payload {}",
-                           rightTy != nullptr ? rightTy->toString() : "unknown",
-                           payloadType->toString());
+      throw TypeCheckError(
+          span, "Nil-coalescing default type {} does not match optional payload {}",
+          rightTy != nullptr ? rightTy->toString() : "unknown", payloadType->toString());
     }
     return payloadType;
   }
@@ -3559,7 +3560,7 @@ auto Typechecker::isSupportedUnionMemberType(Type* t) -> bool {
     return false;
   }
   return t->is(BaseType::TY_INT) || t->isFloatingPoint() || t->is(BaseType::TY_BOOL) ||
-         t->is(BaseType::TY_CLASS) || t->is(BaseType::TY_NULL);
+         t->is(BaseType::TY_CLASS) || t->is(BaseType::TY_ENUM) || t->is(BaseType::TY_NULL);
 }
 
 namespace {
@@ -4011,7 +4012,8 @@ auto Typechecker::visit(const ForIn* node) -> void {
       if (!sawNull || nonNullMembers.empty()) {
         return nextType;
       }
-      auto [canonical, displayName] = TypeUtils::canonicalizeUnionMembers(std::move(nonNullMembers));
+      auto [canonical, displayName] =
+          TypeUtils::canonicalizeUnionMembers(std::move(nonNullMembers));
       if (canonical.size() == 1U) {
         return canonical.front();
       }
@@ -4899,8 +4901,9 @@ auto Typechecker::visit(const Assignment* node) -> void {
                                                      std::string_view targetKind) {
     Type* payloadType = getOptionalPayloadType(targetType);
     if (payloadType == nullptr) {
-      throw TypeCheckError(node->getSpan(), "Null-coalescing assignment requires {} to have an "
-                                           "optional type",
+      throw TypeCheckError(node->getSpan(),
+                           "Null-coalescing assignment requires {} to have an "
+                           "optional type",
                            targetKind);
     }
     if (rhsType == nullptr || !isAssignableTo(rhsType, payloadType) ||
@@ -5359,8 +5362,8 @@ void Typechecker::completeOrdinaryFuncCallTyping(const FuncCall* node, Value* ca
     }
     for (size_t i = 0; i < fields.size() && i < argTypes.size(); ++i) {
       Type* expected = substituteInType(fields[i]->type, explicitSubst);
-      if (expected != nullptr &&
-          (!isAssignableTo(argTypes[i], expected) || isLossyImplicitConversion(argTypes[i], expected))) {
+      if (expected != nullptr && (!isAssignableTo(argTypes[i], expected) ||
+                                  isLossyImplicitConversion(argTypes[i], expected))) {
         throw TypeCheckError(node->getSpan(),
                              "Argument type {} does not match explicit "
                              "parameter type {}",
@@ -5602,9 +5605,9 @@ auto Typechecker::visit(const BinaryOp* node) -> void {
   }
   if ((node->getOperator() == TokenType::SHIFT_LEFT ||
        node->getOperator() == TokenType::SHIFT_RIGHT) &&
-      resultType != nullptr && resultType->is(BaseType::TY_INT) &&
-      left->getType() != nullptr && right->getType() != nullptr &&
-      !left->getType()->is(BaseType::TY_GENERIC) && !right->getType()->is(BaseType::TY_GENERIC)) {
+      resultType != nullptr && resultType->is(BaseType::TY_INT) && left->getType() != nullptr &&
+      right->getType() != nullptr && !left->getType()->is(BaseType::TY_GENERIC) &&
+      !right->getType()->is(BaseType::TY_GENERIC)) {
     if (auto count = extractConstantShiftCount(node->getRight()); count.has_value()) {
       if (*count < 0 || static_cast<unsigned long long>(*count) >= resultType->getIntWidth()) {
         throw TypeCheckError(node->getSpan(), "Shift count {} is out of range for {}-bit integer",
@@ -5735,7 +5738,8 @@ void Typechecker::typecheckDotOpClassOrEnumMemberAccess(const DotOp* node, Type*
                            "Cannot call mutating list method {} on immutable value", fc->getName());
     }
     if (isStdListClassType(base) && fc->getName() == "pop") {
-      if (Type* elemType = getStdListElementType(base); elemType != nullptr && isNullableType(elemType)) {
+      if (Type* elemType = getStdListElementType(base);
+          elemType != nullptr && isNullableType(elemType)) {
         throw TypeCheckError(node->getSpan(),
                              "pop() does not support nullable list element type {} because nil "
                              "marks an empty list",

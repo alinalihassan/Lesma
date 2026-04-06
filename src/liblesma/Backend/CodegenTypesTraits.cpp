@@ -279,6 +279,12 @@ auto Codegen::lookupGenericTypeFallback(const std::string& name) const -> lesma:
 
 auto Codegen::getOrCreateLlvmType(lesma::Type* type) -> llvm::Type* {
   if (type->getLlvmType() != nullptr) {
+    if (type->is(BaseType::TY_ENUM)) {
+      if (auto* existingStruct = llvm::dyn_cast<llvm::StructType>(type->getLlvmType());
+          existingStruct != nullptr && existingStruct->isOpaque()) {
+        existingStruct->setBody({builder->getInt8Ty()});
+      }
+    }
     return type->getLlvmType();
   }
   switch (type->getBaseType()) {
@@ -434,14 +440,7 @@ auto Codegen::getOrCreateLlvmType(lesma::Type* type) -> llvm::Type* {
       st = llvm::StructType::create(theModule->getContext());
     }
     type->setLlvmType(st);
-    std::vector<llvm::Type*> elementTypes;
-    for (auto* f : type->getFields()) {
-      elementTypes.push_back(getOrCreateLlvmType(f->type));
-    }
-    if (elementTypes.empty()) {
-      elementTypes.push_back(builder->getInt8Ty());
-    }
-    st->setBody(elementTypes);
+    st->setBody({builder->getInt8Ty()});
     break;
   }
   default:
