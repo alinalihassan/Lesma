@@ -1,0 +1,17 @@
+func mark(x: uint8) -> int {
+  return x as int + 1
+}
+
+func mark(x: int) -> int {
+  return x + 100
+}
+
+let x: uint8 = 1
+if mark(x << 1) != 3 {
+  exit(1)
+}
+
+let y: uint8 = 128
+if mark(y >> 1) != 65 {
+  exit(2)
+}

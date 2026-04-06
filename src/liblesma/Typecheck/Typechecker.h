@@ -218,6 +218,8 @@ class Typechecker final : public ASTVisitor {
   auto getExtendedType(Type* left, Type* right) -> Type*;
   /** For `T | null`, returns `T`; otherwise nullptr. */
   [[nodiscard]] auto getOptionalPayloadType(Type* type) -> Type*;
+  /** Whether `type` itself includes `null` as a value (for example `T?` or `A | B | null`). */
+  [[nodiscard]] auto isNullableType(Type* type) -> bool;
   /** Whether a value of type 'from' can be assigned/cast to type 'to'. */
   auto isAssignableTo(Type* from, Type* to) -> bool;
   [[nodiscard]] static auto isSupportedUnionMemberType(Type* t) -> bool;

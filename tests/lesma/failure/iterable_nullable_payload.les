@@ -1,0 +1,15 @@
+class BadIter impl Iterator<int?> {
+  func new() {}
+
+  func next() -> int? {
+    return null
+  }
+}
+
+class Bad impl Iterable<int?> {
+  func new() {}
+
+  func iter() -> BadIter {
+    return BadIter()
+  }
+}

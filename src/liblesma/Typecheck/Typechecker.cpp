@@ -806,6 +806,12 @@ auto Typechecker::visitListMethodCall(Type* listType, const DotOp* node, const F
     if (elemType == nullptr) {
       return false;
     }
+    if (isNullableType(elemType)) {
+      throw TypeCheckError(call->getSpan(),
+                           "pop() does not support nullable list element type {} because nil "
+                           "marks an empty list",
+                           elemType->toString());
+    }
     std::vector<Type*> members = {elemType, cacheType(std::make_unique<Type>(BaseType::TY_NULL))};
     auto [canonical, displayName] = TypeUtils::canonicalizeUnionMembers(std::move(members));
     if (canonical.size() == 1U) {
@@ -2570,6 +2576,8 @@ auto Typechecker::getOptionalPayloadType(Type* type) -> Type* {
   return cacheType(std::move(payload));
 }
 
+auto Typechecker::isNullableType(Type* type) -> bool { return getOptionalPayloadType(type) != nullptr; }
+
 auto Typechecker::typecheckBinaryOpResult(TokenType op, Type* leftTy, Type* rightTy,
                                           llvm::SMRange span) -> Type* {
   bool hasGeneric = leftTy->is(BaseType::TY_GENERIC) || rightTy->is(BaseType::TY_GENERIC);
@@ -2609,8 +2617,6 @@ auto Typechecker::typecheckBinaryOpResult(TokenType op, Type* leftTy, Type* righ
   case TokenType::AMPERSAND:
   case TokenType::PIPE:
   case TokenType::XOR:
-  case TokenType::SHIFT_LEFT:
-  case TokenType::SHIFT_RIGHT:
     if (hasGeneric) {
       return leftTy->is(BaseType::TY_GENERIC) ? leftTy : rightTy;
     }
@@ -2628,6 +2634,19 @@ auto Typechecker::typecheckBinaryOpResult(TokenType op, Type* leftTy, Type* righ
       throw TypeCheckError(span, "Bitwise operator requires integer types");
     }
     return unified;
+  case TokenType::SHIFT_LEFT:
+  case TokenType::SHIFT_RIGHT:
+    if (hasGeneric) {
+      return leftTy->is(BaseType::TY_GENERIC) ? leftTy : rightTy;
+    }
+    if (leftTy == nullptr || rightTy == nullptr || !leftTy->is(BaseType::TY_INT) ||
+        !rightTy->is(BaseType::TY_INT)) {
+      if (Type* overloadedType = tryOverload(); overloadedType != nullptr) {
+        return overloadedType;
+      }
+      throw TypeCheckError(span, "Shift operator requires integer types");
+    }
+    return leftTy;
   case TokenType::EQUAL_EQUAL:
   case TokenType::BANG_EQUAL:
   case TokenType::GREATER:
@@ -4016,6 +4035,13 @@ auto Typechecker::visit(const ForIn* node) -> void {
     if (getOptionalPayloadType(nextType) == nullptr) {
       throw TypeCheckError(node->getIterable()->getSpan(),
                            "For-in iterator next() must return an optional item type");
+    }
+    Type* payloadType = getOptionalPayloadType(nextType);
+    if (isNullableType(payloadType)) {
+      throw TypeCheckError(node->getIterable()->getSpan(),
+                           "For-in iterator next() payload type {} cannot be nullable because nil "
+                           "marks the end of iteration",
+                           payloadType->toString());
     }
     loopVarType = loopItemTypeForNext(nextType);
   }
@@ -5708,6 +5734,14 @@ void Typechecker::typecheckDotOpClassOrEnumMemberAccess(const DotOp* node, Type*
       throw TypeCheckError(node->getSpan(),
                            "Cannot call mutating list method {} on immutable value", fc->getName());
     }
+    if (isStdListClassType(base) && fc->getName() == "pop") {
+      if (Type* elemType = getStdListElementType(base); elemType != nullptr && isNullableType(elemType)) {
+        throw TypeCheckError(node->getSpan(),
+                             "pop() does not support nullable list element type {} because nil "
+                             "marks an empty list",
+                             elemType->toString());
+      }
+    }
     std::vector<Type*> argTypes = overloadArgTypesFromCall(fc);
     Type* receiverForLookup = base;
     auto templateIt = specializedTypeToTemplate.find(base);
@@ -6775,6 +6809,12 @@ auto Typechecker::checkTraitImplementation(const Class* classNode, Type* classTy
             iterClass = iterClass->getElementType();
           }
           if (elemTy != nullptr && iterClass != nullptr && iterClass->is(BaseType::TY_CLASS)) {
+            if (isNullableType(elemTy)) {
+              throw TypeCheckError(classNode->getNameSpan(),
+                                   "Iterable type parameter {} cannot be nullable because "
+                                   "Iterator.next() uses nil as the end-of-iteration sentinel",
+                                   elemTy->toString());
+            }
             Type* iterPtr = cacheType(std::make_unique<Type>(BaseType::TY_PTR, nullptr, iterClass));
             Type* nextT = resolveMethodReturnType(iterPtr, "next", {}, classNode->getNameSpan());
             Type* yielded = getOptionalPayloadType(nextT);

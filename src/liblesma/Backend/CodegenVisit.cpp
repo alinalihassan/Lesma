@@ -3336,7 +3336,10 @@ auto Codegen::visit(const BinaryOp* node) -> void {
   node->getRight()->accept(*this);
   auto right = std::move(result);
   setDebugLoc(node->getSpan());
-  lesma::Type* finalType = CodegenTypeUtils::getExtendedType(left->getType(), right->getType());
+  lesma::Type* finalType = (node->getOperator() == TokenType::SHIFT_LEFT ||
+                            node->getOperator() == TokenType::SHIFT_RIGHT)
+                               ? left->getType()
+                               : CodegenTypeUtils::getExtendedType(left->getType(), right->getType());
   if (finalType == nullptr && left->getType()->is(BaseType::TY_ENUM) &&
       right->getType()->is(BaseType::TY_ENUM) && left->getType()->isEqual(right->getType())) {
     finalType = left->getType();
@@ -5426,7 +5429,9 @@ auto Codegen::emitCompoundSubscriptNewValue(llvm::SMRange span, TokenType compou
 
   lesma::Type* lhsTy = currentElem->getType();
   lesma::Type* rhsTy = rhs->getType();
-  lesma::Type* finalType = CodegenTypeUtils::getExtendedType(lhsTy, rhsTy);
+  lesma::Type* finalType = (binOp == TokenType::SHIFT_LEFT || binOp == TokenType::SHIFT_RIGHT)
+                               ? lhsTy
+                               : CodegenTypeUtils::getExtendedType(lhsTy, rhsTy);
   if (finalType == nullptr && lhsTy->is(BaseType::TY_ENUM) && rhsTy->is(BaseType::TY_ENUM) &&
       lhsTy->isEqual(rhsTy)) {
     finalType = lhsTy;
