@@ -1,0 +1,5 @@
+func bad() -> int {
+  return null
+}
+
+bad()

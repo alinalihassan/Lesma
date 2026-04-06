@@ -78,21 +78,42 @@ var u: int | float = 7
 var v: float | int = 3.5
 ```
 
+For the common nullable case, **`T?`** is shorthand for **`T | null`**:
+
+```les
+var maybeCount: int? = null
+var maybeName: str? = str("lesma")
+```
+
 The compiler **normalizes** unions: member types are **deduplicated** and sorted into a **canonical order** (stable in a given compiler version). So **`int | float`** and **`float | int`** are the **same** type, with the same tag assignment and layout.
 
-**Supported members** in normal code are the scalar primitives **`int`**, **`float`**, **`float32`**, **`bool`**, and **class** types — including stdlib **`str`**, generic classes like **`list<T>`**, and your own classes (classes are passed by value in the ABI; the union stores the class layout). Other forms (arbitrary pointer unions as a single tagged union, tuples in unions, stdlib-internal type forms in unions, etc.) may be rejected.
+**Supported members** in normal code are the scalar primitives **`int`**, **`float`**, **`float32`**, **`bool`**, **`null`**, and **class** types — including stdlib **`str`**, generic classes like **`list<T>`**, and your own classes (classes are passed by value in the ABI; the union stores the class layout). Other forms (arbitrary pointer unions as a single tagged union, tuples in unions, stdlib-internal type forms in unions, etc.) may be rejected.
 
 A value of type **`T`** is assignable to **`T | U | …`** when it is assignable to **at least one** member: the compiler **wraps** it with the correct tag. Calls and assignments use the same rules.
 
+The **`null`** literal is only assignable where the target type explicitly includes the **`null`** arm, such as **`T?`** or **`T | null`**. Assigning **`null`** to a non-optional type is a type error.
+
+For the common “default when null” case, use **`??`** with an optional on the left and a value of
+the payload type on the right:
+
+```les
+let count: int? = null
+let value = count ?? 0
+```
+
+The right-hand fallback must match the optional payload type. For example, **`int? ?? 0`** is
+valid, but **`int? ?? "hello"`** is a type error.
+
 ## Flow narrowing (`if` + `is`)
 
-When a variable’s static type is a **union** and you branch on **`x is SomeType`** or **`x is not SomeType`**, the checker **narrows** the type of **`x`** inside certain blocks:
+When a variable’s static type is a **union** and you branch on **`x is SomeType`** or **`x is not SomeType`**, the checker **narrows** the type of **`x`** inside certain blocks. This includes nullable unions such as **`T?`**:
 
 - **`if x is T { … }`**: inside the **then** block, **`x`** has type **`T`** (when **`T`** is a member of the union).
 - **`else`** attached to **`if x is T`** when the union has **exactly two** members: in the **else** block, **`x`** has the **other** member type.
 - After the full **`if`** (or when code is **not** inside such a branch), **`x`** is again the **full** union.
 
-Narrowing applies to **simple variable references** (locals and parameters) the checker can tie to storage.
+Narrowing applies to storage-backed expressions the checker can tie to a stable location, including
+simple variables and common access paths like fields and subscripts.
 
 **Important:** narrowing applies to code **inside** the **`if` / `else` blocks**. A statement that comes **after** the closing brace of **`if x is T { … }`** but is **not** inside an **`else { … }`** is still in the outer scope, so **`x`** is **not** narrowed there. Use an explicit **`else { … }`** when you need the complement type:
 

@@ -1,0 +1,7 @@
+class Bad {
+  var value: int = null
+
+  func new() {}
+}
+
+Bad()

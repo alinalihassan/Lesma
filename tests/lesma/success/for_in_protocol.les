@@ -10,7 +10,7 @@ class RangeIter impl Iterator<int> {
   func has_next() -> bool {
     return self.current < self.last
   }
-  func next() -> int {
+  func next() -> int? {
     let value = self.current
     self.current = self.current + 1
     return value

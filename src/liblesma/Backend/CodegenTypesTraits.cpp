@@ -116,6 +116,9 @@ auto Codegen::visit(const TypeExpr* node) -> void {
   } else if (node->getType() == TokenType::VOID_TYPE) {
     auto* type = cacheType(std::make_unique<Type>(BaseType::TY_VOID, builder->getVoidTy()));
     result = std::make_unique<Value>(type);
+  } else if (node->getType() == TokenType::NIL) {
+    auto* type = cacheType(std::make_unique<Type>(BaseType::TY_NULL, builder->getPtrTy()));
+    result = std::make_unique<Value>(type);
   } else if (node->getType() == TokenType::PTR_TYPE) {
     node->getElementType()->accept(*this);
     // Function type is already a pointer at LLVM level; `*func(...)` is optional
@@ -316,6 +319,9 @@ auto Codegen::getOrCreateLlvmType(lesma::Type* type) -> llvm::Type* {
     break;
   case BaseType::TY_VOID:
     type->setLlvmType(builder->getVoidTy());
+    break;
+  case BaseType::TY_NULL:
+    type->setLlvmType(builder->getPtrTy());
     break;
   case BaseType::TY_PTR:
     if (type->getElementType() != nullptr) {

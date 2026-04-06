@@ -6,25 +6,46 @@ if xs[1] != 5 {
 xs[1] = 8
 
 if xs[1] != 8 {
-  exit(1)
+  exit(2)
 }
 xs[0] += 10
 if xs[0] != 14 {
-  exit(1)
+  exit(3)
 }
 xs[2] -= 2
 if xs[2] != 4 {
-  exit(1)
+  exit(4)
 }
 var empty: list<int> = []
 empty.push(1)
 
-if empty.pop() != 1 {
-  exit(1)
+let first = empty.pop()
+if first is null {
+  exit(5)
+} else {
+  if first != 1 {
+    exit(6)
+  }
 }
 empty.push(7)
 empty.clear()
 
-if empty.len() != 0 {
-  exit(1)
+if empty.pop() is not null {
+  exit(7)
+}
+if empty.get(0) is not null {
+  exit(8)
+}
+empty.push(9)
+let got = empty.get(0)
+if got is null {
+  exit(9)
+} else {
+  if got != 9 {
+    exit(10)
+  }
+}
+
+if empty.len() != 1 {
+  exit(11)
 }

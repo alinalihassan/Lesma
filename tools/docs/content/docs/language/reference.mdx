@@ -24,7 +24,9 @@ Reserved identifiers come from the compiler’s keyword table (everything below 
 
 **Literals / values:** `true`, `false`, `null`.
 
-**Expressions:** `and`, `or`, `not`, `in`, `is`, **`is not`** (after `is`), `as`, **`=>`** (lambda expression body after `func(...)`), `operator`, `super`. **`this`** is reserved; ordinary methods and operators use **`self`** for the receiver ([Classes](/docs/language/classes)).
+**Optional types:** postfix **`?`** in type position is shorthand for **`T | null`**.
+
+**Expressions:** `and`, `or`, `not`, `in`, `is`, **`is not`** (after `is`), `as`, `??`, **`=>`** (lambda expression body after `func(...)`), `operator`, `super`. **`this`** is reserved; ordinary methods and operators use **`self`** for the receiver ([Classes](/docs/language/classes)).
 
 **User names:** Any other identifier spelling is yours. Types like **`str`** come from the prelude, not the keyword list.
 
@@ -40,6 +42,7 @@ From tight binding to loose (see `Parser.cpp`):
 | Power | **`**`** |
 | Multiplicative | **`*`**, **`/`**, **`%`** |
 | Additive | **`+`**, **`-`** |
+| Nil-coalescing | **`??`** |
 | Comparison | **`==`**, **`!=`**, **`<`**, **`<=`**, **`>`**, **`>=`** |
 | Type test | **`is`**, **`is not`** (right-hand side is a **type**). |
 | Logical | **`and`**, then **`or`** |

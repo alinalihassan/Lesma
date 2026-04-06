@@ -488,6 +488,19 @@ TEST(FormatterTests, FormatSourceIsParseStable) {
   EXPECT_EQ(formattedAgain, *formatted);
 }
 
+TEST(FormatterTests, FormatSourceCanonicalizesOptionalTypeSyntax) {
+  auto formatted =
+      formatSource("let value: int | null = null\n", "optional_type_test.les", 100);
+  ASSERT_TRUE(formatted.has_value()) << formatted.error().message;
+  EXPECT_EQ(*formatted, "let value: int? = null\n");
+}
+
+TEST(FormatterTests, FormatSourcePreservesNilCoalescingPrecedence) {
+  auto formatted = formatSource("let ok = maybe ?? 0 == 1\n", "coalesce_test.les", 100);
+  ASSERT_TRUE(formatted.has_value()) << formatted.error().message;
+  EXPECT_EQ(*formatted, "let ok = maybe ?? 0 == 1\n");
+}
+
 TEST(FormatterTests, FormatSourcePreservesAddressOfUnaryOperator) {
   auto formatted = formatSource("var x = 1\nlet p: *int = &x\n", "address_of_test.les", 100);
   ASSERT_TRUE(formatted.has_value()) << formatted.error().message;

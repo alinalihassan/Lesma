@@ -1,0 +1,5 @@
+func takesInt(x: int) -> int {
+  return x
+}
+
+takesInt(null)

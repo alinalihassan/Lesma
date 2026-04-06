@@ -55,7 +55,7 @@ func __str_byte_is_ascii_whitespace(b: uint8) -> bool {
  */
 export trait Iterator<T> {
   func has_next() -> bool
-  func next() -> T
+  func next() -> T?
 }
 
 /**
@@ -86,7 +86,10 @@ class range_iter impl Iterator<int> {
     }
     return false
   }
-  func next() -> int {
+  func next() -> int? {
+    if not self.has_next() {
+      return null
+    }
     let v = self.current
     self.current = self.current + self.step
     return v
@@ -154,7 +157,10 @@ export class list_iter<T> impl Iterator<T> {
   func has_next() -> bool {
     return self.scan < __buffer_len(self.storage)
   }
-  func next() -> T {
+  func next() -> T? {
+    if not self.has_next() {
+      return null
+    }
     var v = __buffer_get(self.storage, self.scan)
     self.scan += 1
     return v
@@ -182,8 +188,17 @@ export class list<T> impl Iterable<T> {
   func push(value: T) {
     __buffer_push(self.storage, value)
   }
-  func pop() -> T {
+  func pop() -> T? {
+    if self.len() == 0 {
+      return null
+    }
     return __buffer_pop(self.storage)
+  }
+  func get(index: int) -> T? {
+    if index < 0 or index >= self.len() {
+      return null
+    }
+    return __buffer_get(self.storage, index)
   }
   func clear() {
     __buffer_clear(self.storage)
@@ -257,7 +272,7 @@ export class dict<K, V> {
     }
     return false
   }
-  func get(key: K) -> V {
+  func get(key: K) -> V? {
     var i: int = 0
     let n = self.len()
     while i < n {
@@ -266,8 +281,7 @@ export class dict<K, V> {
       }
       i += 1
     }
-    exit(1)
-    return __buffer_get(self.vals, 0)
+    return null
   }
   func set(key: K, value: V) {
     var i: int = 0
@@ -283,7 +297,16 @@ export class dict<K, V> {
     __buffer_push(self.vals, value)
   }
   func operator [](key: K) -> V {
-    return self.get(key)
+    var i: int = 0
+    let n = self.len()
+    while i < n {
+      if __buffer_get(self.keys, i) == key {
+        return __buffer_get(self.vals, i)
+      }
+      i += 1
+    }
+    exit(1)
+    return __buffer_get(self.vals, 0)
   }
   func operator []=(key: K, value: V) {
     self.set(key, value)
@@ -305,7 +328,10 @@ export class str_iter impl Iterator<uint8> {
   func has_next() -> bool {
     return self.scan < self.byte_len
   }
-  func next() -> uint8 {
+  func next() -> uint8? {
+    if not self.has_next() {
+      return null
+    }
     var v = __cstr_byte_at(self.storage, self.scan)
     self.scan += 1
     return v
@@ -360,10 +386,14 @@ export class str impl Iterable<uint8> {
     return strcmp(__cstr_offset(self.storage, n - m), suffix.storage) == 0
   }
   func contains(sub: str) -> bool {
-    return self.indexOf(sub) >= 0
+    return self.indexOf(sub) is not null
   }
-  func indexOf(needle: str) -> int {
-    return __cstr_index_of(self.storage, needle.storage)
+  func indexOf(needle: str) -> int? {
+    let idx = __cstr_index_of(self.storage, needle.storage)
+    if idx < 0 {
+      return null
+    }
+    return idx
   }
   func trimStart() -> str {
     var i: int = 0
@@ -394,8 +424,14 @@ export class str impl Iterable<uint8> {
     return self.trimStart().trimEnd()
   }
   // One code unit at index (same as self[index]; slice form matches operator []).
-  func charAt(index: int) -> str {
+  func charAt(index: int) -> str? {
+    if index < 0 or index >= self.len() {
+      return null
+    }
     return str(__str_slice(self.storage, index, 1))
+  }
+  func get(index: int) -> str? {
+    return self.charAt(index)
   }
   // start is clamped (negative -> 0); len <= 0 yields "". If start >= len(), yields "".
   func substring(start: int, len: int) -> str {
@@ -571,7 +607,7 @@ export class str impl Iterable<uint8> {
   }
 }
 
-// Read path as UTF-8 bytes (no BOM handling). text() returns "" on open/read errors.
+// Read path as UTF-8 bytes (no BOM handling). text() returns null on open/read errors.
 /**
  * File handle wrapper for reading, writing, and deleting files.
  */
@@ -581,30 +617,30 @@ export class file {
   func new(path: cstr) {
     self.storage = strdup(path)
   }
-  func text() -> str {
+  func text() -> str? {
     var fp: *int8 = fopen(self.storage, "rb")
     if fp == 0 {
-      return str(__str_slice(self.storage, 0, 0))
+      return null
     }
     if fseek(fp, 0, 2) != 0 {
       fclose(fp)
-      return str(__str_slice(self.storage, 0, 0))
+      return null
     }
     var n: int = ftell(fp)
     if n < 0 {
       fclose(fp)
-      return str(__str_slice(self.storage, 0, 0))
+      return null
     }
     if fseek(fp, 0, 0) != 0 {
       fclose(fp)
-      return str(__str_slice(self.storage, 0, 0))
+      return null
     }
     var buf: cstr = calloc(n + 1, 1) as cstr
     var got: int = fread(buf, 1, n, fp)
     fclose(fp)
     if got != n {
       free(buf)
-      return str(__str_slice(self.storage, 0, 0))
+      return null
     }
     let result: str = str(buf)
     free(buf)
@@ -622,7 +658,32 @@ export class file {
     fclose(fp)
   }
   static func write(path: cstr, src: file) {
-    file.write(path, src.text())
+    if strcmp(path, src.storage) == 0 {
+      return
+    }
+    var in_fp: *int8 = fopen(src.storage, "rb")
+    if in_fp == 0 {
+      return
+    }
+    var out_fp: *int8 = fopen(path, "wb")
+    if out_fp == 0 {
+      fclose(in_fp)
+      return
+    }
+    var buf: cstr = calloc(4096, 1) as cstr
+    while true {
+      let got: int = fread(buf, 1, 4096, in_fp)
+      if got <= 0 {
+        break
+      }
+      fwrite(buf, 1, got, out_fp)
+      if got < 4096 {
+        break
+      }
+    }
+    free(buf)
+    fclose(in_fp)
+    fclose(out_fp)
   }
   func delete() {
     remove(self.storage)

@@ -627,6 +627,18 @@ auto Parser::parseType() -> std::unique_ptr<TypeExpr> {
 }
 
 auto Parser::parseTypePrimary() -> std::unique_ptr<TypeExpr> {
+  auto wrapOptionalType = [this](std::unique_ptr<TypeExpr> baseType) -> std::unique_ptr<TypeExpr> {
+    while (advanceIfMatchAny<TokenType::QUESTION>()) {
+      auto* question = previous();
+      std::vector<std::unique_ptr<TypeExpr>> arms;
+      arms.push_back(std::move(baseType));
+      arms.push_back(std::make_unique<TypeExpr>(question->span, "null", TokenType::NIL));
+      baseType =
+          TypeExpr::makeUnionType(llvm::SMRange{arms.front()->getStart(), question->getEnd()},
+                                  arms.front()->getName() + "?", std::move(arms));
+    }
+    return baseType;
+  };
   auto* type = peek();
   if (check(TokenType::LEFT_PAREN)) {
     auto* left = consume(TokenType::LEFT_PAREN);
@@ -662,26 +674,28 @@ auto Parser::parseTypePrimary() -> std::unique_ptr<TypeExpr> {
         lexeme += ",";
       }
       lexeme += ")";
-      return TypeExpr::makeTupleType(llvm::SMRange{left->getStart(), right->getEnd()},
-                                     std::move(lexeme), std::move(elems));
+      return wrapOptionalType(TypeExpr::makeTupleType(
+          llvm::SMRange{left->getStart(), right->getEnd()}, std::move(lexeme), std::move(elems)));
     }
     std::ignore = consume(TokenType::RIGHT_PAREN);
-    return innerFirst;
+    return wrapOptionalType(std::move(innerFirst));
   }
   if (check(TokenType::STAR)) {
     advance();
     auto elementType = parseTypePrimary();
-    return std::make_unique<TypeExpr>(llvm::SMRange{type->getStart(), elementType->getEnd()},
-                                      "*" + elementType->getName(), TokenType::PTR_TYPE,
-                                      std::move(elementType));
+    return wrapOptionalType(std::make_unique<TypeExpr>(
+        llvm::SMRange{type->getStart(), elementType->getEnd()}, "*" + elementType->getName(),
+        TokenType::PTR_TYPE, std::move(elementType)));
   }
   if (checkAny<TokenType::INT_TYPE, TokenType::FLOAT_TYPE, TokenType::STRING_TYPE,
                TokenType::BOOL_TYPE, TokenType::INT8_TYPE, TokenType::INT16_TYPE,
                TokenType::INT32_TYPE, TokenType::UINT_TYPE, TokenType::UINT8_TYPE,
                TokenType::UINT16_TYPE, TokenType::UINT32_TYPE, TokenType::FLOAT32_TYPE,
-               TokenType::VOID_TYPE>()) {
+               TokenType::VOID_TYPE, TokenType::NIL>()) {
     advance();
-    return std::make_unique<TypeExpr>(type->span, type->lexeme, type->type);
+    std::string displayName = type->type == TokenType::NIL ? "null" : type->lexeme;
+    return wrapOptionalType(std::make_unique<TypeExpr>(type->span, std::move(displayName),
+                                                       type->type));
   }
   if (check(TokenType::FUNC)) {
     std::vector<std::unique_ptr<TypeExpr>> params;
@@ -723,8 +737,9 @@ auto Parser::parseTypePrimary() -> std::unique_ptr<TypeExpr> {
     // Function types are nominal (like classes): values are function pointers in LLVM, but the
     // type is written `func(...)` without a leading `*`. `*func(...)` is still accepted and lowers
     // to the same type.
-    return std::make_unique<TypeExpr>(llvm::SMRange{type->getStart(), ret->getEnd()}, lexeme,
-                                      TokenType::FUNC_TYPE, std::move(params), std::move(ret));
+    return wrapOptionalType(std::make_unique<TypeExpr>(llvm::SMRange{type->getStart(), ret->getEnd()},
+                                                       lexeme, TokenType::FUNC_TYPE,
+                                                       std::move(params), std::move(ret)));
   }
 
   if (check(TokenType::IDENTIFIER)) {
@@ -740,10 +755,12 @@ auto Parser::parseTypePrimary() -> std::unique_ptr<TypeExpr> {
         }
       }
       lexeme += ">";
-      return std::make_unique<TypeExpr>(llvm::SMRange{type->getStart(), greater->getEnd()}, lexeme,
-                                        TokenType::CUSTOM_TYPE, std::move(typeArgs));
+      return wrapOptionalType(std::make_unique<TypeExpr>(
+          llvm::SMRange{type->getStart(), greater->getEnd()}, lexeme, TokenType::CUSTOM_TYPE,
+          std::move(typeArgs)));
     }
-    return std::make_unique<TypeExpr>(type->span, type->lexeme, TokenType::CUSTOM_TYPE);
+    return wrapOptionalType(
+        std::make_unique<TypeExpr>(type->span, type->lexeme, TokenType::CUSTOM_TYPE));
   }
 
   error(type, fmt::format("Unknown type: {}", type->lexeme));
@@ -774,7 +791,13 @@ auto Parser::parseTypePrimaryAt(unsigned long& off) -> bool {
 
   if (check(TokenType::STAR, off)) {
     off++;
-    return parseTypePrimaryAt(off);
+    if (!parseTypePrimaryAt(off)) {
+      return false;
+    }
+    while (canPeek(off) && peek(off)->type == TokenType::QUESTION) {
+      off++;
+    }
+    return true;
   }
 
   if (check(TokenType::LEFT_PAREN, off)) {
@@ -797,6 +820,9 @@ auto Parser::parseTypePrimaryAt(unsigned long& off) -> bool {
       return false;
     }
     off++;
+    while (canPeek(off) && peek(off)->type == TokenType::QUESTION) {
+      off++;
+    }
     return true;
   }
 
@@ -804,8 +830,11 @@ auto Parser::parseTypePrimaryAt(unsigned long& off) -> bool {
                TokenType::BOOL_TYPE, TokenType::INT8_TYPE, TokenType::INT16_TYPE,
                TokenType::INT32_TYPE, TokenType::UINT_TYPE, TokenType::UINT8_TYPE,
                TokenType::UINT16_TYPE, TokenType::UINT32_TYPE, TokenType::FLOAT32_TYPE,
-               TokenType::VOID_TYPE>(off)) {
+               TokenType::VOID_TYPE, TokenType::NIL>(off)) {
     off++;
+    while (canPeek(off) && peek(off)->type == TokenType::QUESTION) {
+      off++;
+    }
     return true;
   }
 
@@ -835,9 +864,18 @@ auto Parser::parseTypePrimaryAt(unsigned long& off) -> bool {
 
     if (canPeek(off) && peek(off)->type == TokenType::ARROW) {
       off++;
-      return parseTypeAt(off);
+      if (!parseTypeAt(off)) {
+        return false;
+      }
+      while (canPeek(off) && peek(off)->type == TokenType::QUESTION) {
+        off++;
+      }
+      return true;
     }
 
+    while (canPeek(off) && peek(off)->type == TokenType::QUESTION) {
+      off++;
+    }
     return true;
   }
 
@@ -869,6 +907,9 @@ auto Parser::parseTypePrimaryAt(unsigned long& off) -> bool {
       if (!canPeek(off) || peek(off)->type != TokenType::GREATER) {
         return false;
       }
+      off++;
+    }
+    while (canPeek(off) && peek(off)->type == TokenType::QUESTION) {
       off++;
     }
     return true;
@@ -1257,7 +1298,7 @@ auto Parser::parseAdd() -> std::unique_ptr<Expression> {
 }
 
 auto Parser::parseCompare() -> std::unique_ptr<Expression> {
-  auto left = parseAdd();
+  auto left = parseCoalesce();
   while (true) {
     while (check(TokenType::NEWLINE) && canPeek(1) &&
            checkAny<TokenType::EQUAL_EQUAL, TokenType::BANG_EQUAL, TokenType::LESS,
@@ -1277,10 +1318,28 @@ auto Parser::parseCompare() -> std::unique_ptr<Expression> {
       left = std::make_unique<IsOp>(llvm::SMRange{left->getStart(), right->getEnd()},
                                     std::move(left), op, std::move(right));
     } else {
-      auto right = parseAdd();
+      auto right = parseCoalesce();
       left = std::make_unique<BinaryOp>(llvm::SMRange{left->getStart(), right->getEnd()},
                                         std::move(left), op, std::move(right));
     }
+  }
+  return left;
+}
+
+auto Parser::parseCoalesce() -> std::unique_ptr<Expression> {
+  auto left = parseAdd();
+  while (true) {
+    while (check(TokenType::NEWLINE) && canPeek(1) && checkAny<TokenType::NULL_COALESCE>(1)) {
+      consume(TokenType::NEWLINE);
+    }
+    if (!advanceIfMatchAny<TokenType::NULL_COALESCE>()) {
+      break;
+    }
+    auto op = previous()->type;
+    consumeOperandContinuationNewlines();
+    auto right = parseAdd();
+    left = std::make_unique<BinaryOp>(llvm::SMRange{left->getStart(), right->getEnd()},
+                                      std::move(left), op, std::move(right));
   }
   return left;
 }

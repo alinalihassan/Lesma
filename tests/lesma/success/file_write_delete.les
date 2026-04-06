@@ -4,18 +4,28 @@ let out_path: str = "tests/lesma/success/file_write_delete_out.txt"
 file.write(out_path.cstr(), "roundtrip\n")
 
 let r = file("tests/lesma/success/file_write_delete_out.txt")
-if r.text() != "roundtrip\n" {
+let rText = r.text()
+if rText is null {
   exit(1)
+} else {
+  if rText != "roundtrip\n" {
+    exit(1)
+  }
 }
 file.write(out_path.cstr(), r)
 
 let r2 = file("tests/lesma/success/file_write_delete_out.txt")
-if r2.text() != "roundtrip\n" {
+let r2Text = r2.text()
+if r2Text is null {
   exit(2)
+} else {
+  if r2Text != "roundtrip\n" {
+    exit(2)
+  }
 }
 let h = file("tests/lesma/success/file_write_delete_out.txt")
 h.delete()
 
-if file("tests/lesma/success/file_write_delete_out.txt").text() != "" {
+if file("tests/lesma/success/file_write_delete_out.txt").text() is not null {
   exit(3)
 }

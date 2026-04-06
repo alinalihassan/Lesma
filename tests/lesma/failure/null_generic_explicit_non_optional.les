@@ -1,0 +1,5 @@
+func keep<T>(value: T) -> T {
+  return value
+}
+
+var bad = keep<int>(null)

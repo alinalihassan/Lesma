@@ -216,18 +216,22 @@ class Typechecker final : public ASTVisitor {
   auto resolveType(const TypeExpr* node) -> Type*;
   /** Returns the unified type for binary ops, or nullptr if incompatible. */
   auto getExtendedType(Type* left, Type* right) -> Type*;
+  /** For `T | null`, returns `T`; otherwise nullptr. */
+  [[nodiscard]] auto getOptionalPayloadType(Type* type) -> Type*;
   /** Whether a value of type 'from' can be assigned/cast to type 'to'. */
   auto isAssignableTo(Type* from, Type* to) -> bool;
   [[nodiscard]] static auto isSupportedUnionMemberType(Type* t) -> bool;
   [[nodiscard]] auto lookupUnionNarrowedType(Value* sym) const -> Type*;
+  [[nodiscard]] auto lookupUnionNarrowedType(const Expression* expr) const -> Type*;
   auto fillUnionNarrowingForIfBlock(
       const If* node, unsigned blockIndex,
       std::unordered_map<UnionNarrowingStableKey, Type*, UnionNarrowingStableKeyHash,
                          UnionNarrowingStableKeyEq>& out) -> void;
   [[nodiscard]] static auto rhsTypeIsUnionMember(Type* unionTy, Type* rhs) -> bool;
-  void appendExcludedTypesFromPriorIsArms(const If* node, unsigned blockIndex, Value* sym,
+  void appendExcludedTypesFromPriorIsArms(const If* node, unsigned blockIndex,
+                                          const UnionNarrowingStableKey& key,
                                           Type* unionTy, std::vector<Type*>& excluded);
-  /** Drop \p sym from every active union-narrowing frame (e.g. after assignment through it). */
+  /** Drop narrowing rooted at \p sym from every active frame (e.g. after assignment through it). */
   void invalidateUnionNarrowingForSymbol(Value* sym);
   /** Outermost identifier-like storage for an assignment LHS (for invalidating narrowing on `a.b`
    *  or `a[i]`). */

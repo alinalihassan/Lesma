@@ -24,12 +24,16 @@ if str("abc").contains("zzz") {
     exit(7)
 
 }
-if str("foo bar").indexOf("bar") != 4 {
+let foundBar = str("foo bar").indexOf("bar")
+if foundBar is null {
     exit(8)
+} else {
+    if foundBar != 4 {
+        exit(8)
+    }
 }
-if str("solo").indexOf("zzz") != -1 {
+if str("solo").indexOf("zzz") is not null {
     exit(9)
-
 }
 if str("  x  ").trim() != "x" {
     exit(10)
@@ -146,6 +150,11 @@ if str("7").padStart(4, str("0")) != "0007" {
 if str("7").padEnd(4, str("0")) != "7000" {
     exit(40)
 }
-if str("ab").charAt(1) != "b" {
+let charB = str("ab").charAt(1)
+if charB is null {
     exit(41)
+} else {
+    if charB != "b" {
+        exit(41)
+    }
 }

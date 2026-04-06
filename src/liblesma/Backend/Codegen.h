@@ -276,6 +276,10 @@ protected:
       -> std::optional<unsigned>;
   auto emitUnionPayloadLoadFromSlot(llvm::Value* unionAllocaPtr, lesma::Type* unionTy,
                                     lesma::Type* memberTy) -> llvm::Value*;
+  [[nodiscard]] auto getOptionalPayloadType(lesma::Type* type) const -> lesma::Type*;
+  auto materializeNarrowedUnionValue(lesma::Value* value, lesma::Type* narrowedType,
+                                     const std::string& tempName)
+      -> std::unique_ptr<lesma::Value>;
 
   auto linkObjectFileWithLld(const std::string& objFilename) -> void;
 

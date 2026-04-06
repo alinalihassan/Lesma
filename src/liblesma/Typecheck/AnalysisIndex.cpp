@@ -165,10 +165,10 @@ auto resolvedTypeForExpr(const Expression* expr) -> Type* {
   if (expr == nullptr) {
     return nullptr;
   }
+  if (expr->getLspFlowSensitiveType() != nullptr) {
+    return expr->getLspFlowSensitiveType();
+  }
   if (auto const* lit = dynamic_cast<const Literal*>(expr)) {
-    if (lit->getLspFlowSensitiveType() != nullptr) {
-      return lit->getLspFlowSensitiveType();
-    }
     Value* const resolvedSymbol = lit->getResolvedSymbol();
     return resolvedSymbol != nullptr ? resolvedSymbol->getType() : nullptr;
   }

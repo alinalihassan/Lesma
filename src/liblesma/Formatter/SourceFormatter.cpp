@@ -85,6 +85,8 @@ constexpr int INTERPOLATION_FLAT_WIDTH = 10'000;
     return "is";
   case TokenType::IS_NOT:
     return "is not";
+  case TokenType::NULL_COALESCE:
+    return "??";
   case TokenType::EQUAL:
     return "=";
   case TokenType::PLUS_EQUAL:
@@ -137,6 +139,8 @@ constexpr int INTERPOLATION_FLAT_WIDTH = 10'000;
       case TokenType::GREATER:
       case TokenType::GREATER_EQUAL:
         return 30;
+      case TokenType::NULL_COALESCE:
+        return 35;
       case TokenType::PLUS:
       case TokenType::MINUS:
         return 40;
@@ -968,8 +972,22 @@ private:
       return wrapDelimited("(", elements, ")");
     }
     case TokenType::UNION_TYPE: {
+      std::vector<TypeExpr*> unionArms = type->getParams();
+      if (unionArms.size() == 2U) {
+        TypeExpr* nonNullArm = nullptr;
+        for (TypeExpr* arm : unionArms) {
+          if (arm != nullptr && arm->getType() == TokenType::NIL) {
+            continue;
+          }
+          nonNullArm = arm;
+        }
+        if (nonNullArm != nullptr &&
+            std::ranges::any_of(unionArms, [](TypeExpr* arm) { return arm->getType() == TokenType::NIL; })) {
+          return docs({formatType(nonNullArm), docText("?")});
+        }
+      }
       std::vector<Doc> arms;
-      for (TypeExpr* arm : type->getParams()) {
+      for (TypeExpr* arm : unionArms) {
         arms.push_back(formatType(arm));
       }
       return docJoin(docText(" | "), arms);

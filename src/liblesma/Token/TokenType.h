@@ -32,6 +32,8 @@ enum class TokenType : std::uint8_t {
   RANGE,
   ELLIPSIS,
   PIPE,
+  QUESTION,
+  NULL_COALESCE,
 
   // One or two character tokens.
   BANG,

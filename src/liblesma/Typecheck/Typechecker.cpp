@@ -806,7 +806,16 @@ auto Typechecker::visitListMethodCall(Type* listType, const DotOp* node, const F
     if (elemType == nullptr) {
       return false;
     }
-    result = std::make_unique<Value>(elemType);
+    std::vector<Type*> members = {elemType, cacheType(std::make_unique<Type>(BaseType::TY_NULL))};
+    auto [canonical, displayName] = TypeUtils::canonicalizeUnionMembers(std::move(members));
+    if (canonical.size() == 1U) {
+      result = std::make_unique<Value>(canonical.front());
+    } else {
+      auto out = std::make_unique<Type>(BaseType::TY_UNION);
+      out->setDisplayName(displayName);
+      out->setUnionMembers(std::move(canonical));
+      result = std::make_unique<Value>(cacheType(std::move(out)));
+    }
     return true;
   }
   if (call->getName() == "push") {
@@ -917,7 +926,8 @@ auto Typechecker::visitListMethodCall(Type* listType, const DotOp* node, const F
     }
     for (size_t i = 0; i < fields.size() && i < argTypes.size(); ++i) {
       Type* expected = substituteInType(fields[i]->type, explicitSubst);
-      if (expected != nullptr && !argTypes[i]->isEqual(expected)) {
+      if (expected != nullptr &&
+          (!isAssignableTo(argTypes[i], expected) || isLossyImplicitConversion(argTypes[i], expected))) {
         throw TypeCheckError(call->getSpan(),
                              "Argument type {} does not match explicit parameter type {}",
                              argTypes[i]->toString(), expected->toString());
@@ -1401,7 +1411,9 @@ void Typechecker::finishGenericClassCallWithExplicitTypeArgs(
     auto ctorParams = constructor->getType()->getFields();
     for (size_t i = 1; i < ctorParams.size() && i - 1 < argTypes.size(); ++i) {
       Type* expected = substituteInType(ctorParams[i]->type, env);
-      if (expected != nullptr && !argTypes[i - 1]->isEqual(expected)) {
+      if (expected != nullptr &&
+          (!isAssignableTo(argTypes[i - 1], expected) ||
+           isLossyImplicitConversion(argTypes[i - 1], expected))) {
         throw TypeCheckError(callSite->getSpan(),
                              "Argument type {} does not match explicit parameter type {}",
                              argTypes[i - 1]->toString(), expected->toString());
@@ -1479,7 +1491,8 @@ void Typechecker::typecheckExplicitResolvedMethodTypeArgsIfPresent(
   auto fields = methodType->getFields();
   for (size_t i = 0; i < fields.size() && i < methodArgTypes.size(); ++i) {
     Type* expected = substituteInType(fields[i]->type, methodTypeEnv);
-    if (expected != nullptr && !methodArgTypes[i]->isEqual(expected)) {
+    if (expected != nullptr && (!isAssignableTo(methodArgTypes[i], expected) ||
+                                isLossyImplicitConversion(methodArgTypes[i], expected))) {
       throw TypeCheckError(span,
                            "Argument type {} does not match explicit "
                            "parameter type {}",
@@ -1756,6 +1769,8 @@ auto Typechecker::tryResolveNonCustomTypeExpr(const TypeExpr* node) -> Type* {
     return cacheType(std::make_unique<Type>(BaseType::TY_STRING));
   case TokenType::VOID_TYPE:
     return cacheType(std::make_unique<Type>(BaseType::TY_VOID));
+  case TokenType::NIL:
+    return cacheType(std::make_unique<Type>(BaseType::TY_NULL));
   case TokenType::PTR_TYPE: {
     node->getElementType()->accept(*this);
     Type* elem = result->getType();
@@ -2475,6 +2490,9 @@ auto Typechecker::getExtendedType(Type* left, Type* right) -> Type* {
   if (left->isEqual(right)) {
     return left;
   }
+  if (left->is(BaseType::TY_NULL) || right->is(BaseType::TY_NULL)) {
+    return nullptr;
+  }
   if (left->is(BaseType::TY_VOID)) {
     return right;
   }
@@ -2521,6 +2539,31 @@ auto Typechecker::getExtendedType(Type* left, Type* right) -> Type* {
     return left;
   }
   return nullptr;
+}
+
+auto Typechecker::getOptionalPayloadType(Type* type) -> Type* {
+  if (type == nullptr || !type->is(BaseType::TY_UNION)) {
+    return nullptr;
+  }
+  Type* payload = nullptr;
+  bool sawNull = false;
+  for (Type* member : type->getUnionMembers()) {
+    if (member == nullptr) {
+      continue;
+    }
+    if (member->is(BaseType::TY_NULL)) {
+      sawNull = true;
+      continue;
+    }
+    if (payload != nullptr) {
+      return nullptr;
+    }
+    payload = member;
+  }
+  if (!sawNull || payload == nullptr) {
+    return nullptr;
+  }
+  return payload;
 }
 
 auto Typechecker::typecheckBinaryOpResult(TokenType op, Type* leftTy, Type* rightTy,
@@ -2580,6 +2623,10 @@ auto Typechecker::typecheckBinaryOpResult(TokenType op, Type* leftTy, Type* righ
         throw TypeCheckError(span, "Comparison requires operands of the same enum or class type");
       }
     }
+    if ((op == TokenType::EQUAL_EQUAL || op == TokenType::BANG_EQUAL) &&
+        (isAssignableTo(leftTy, rightTy) || isAssignableTo(rightTy, leftTy))) {
+      return cacheType(std::make_unique<Type>(BaseType::TY_BOOL));
+    }
     if (!hasGeneric && unified == nullptr && !leftTy->isEqual(rightTy)) {
       throw TypeCheckError(span, "Comparison requires compatible types: {} and {}",
                            leftTy->toString(), rightTy->toString());
@@ -2592,6 +2639,20 @@ auto Typechecker::typecheckBinaryOpResult(TokenType op, Type* leftTy, Type* righ
       throw TypeCheckError(span, "Logical operator requires Bool operands");
     }
     return cacheType(std::make_unique<Type>(BaseType::TY_BOOL));
+  case TokenType::NULL_COALESCE: {
+    Type* payloadType = getOptionalPayloadType(leftTy);
+    if (payloadType == nullptr) {
+      throw TypeCheckError(span, "Nil-coalescing requires an optional left operand, got {}",
+                           leftTy != nullptr ? leftTy->toString() : "unknown");
+    }
+    if (rightTy == nullptr || !isAssignableTo(rightTy, payloadType) ||
+        isLossyImplicitConversion(rightTy, payloadType)) {
+      throw TypeCheckError(span, "Nil-coalescing default type {} does not match optional payload {}",
+                           rightTy != nullptr ? rightTy->toString() : "unknown",
+                           payloadType->toString());
+    }
+    return payloadType;
+  }
   default:
     throw TypeCheckError(span, "Unsupported binary operator: {}", NAMEOF_ENUM(op));
   }
@@ -2602,6 +2663,14 @@ auto Typechecker::isAssignableTo(Type* from, Type* to) -> bool {
     return true;
   }
   if (from == nullptr) {
+    return false;
+  }
+  if (from->is(BaseType::TY_NULL)) {
+    if (to->is(BaseType::TY_UNION)) {
+      return std::ranges::any_of(to->getUnionMembers(), [](Type* m) -> bool {
+        return m != nullptr && m->is(BaseType::TY_NULL);
+      });
+    }
     return false;
   }
   if (from->is(BaseType::TY_GENERIC) || to->is(BaseType::TY_GENERIC)) {
@@ -3442,7 +3511,12 @@ auto Typechecker::isSupportedUnionMemberType(Type* t) -> bool {
     return false;
   }
   return t->is(BaseType::TY_INT) || t->isFloatingPoint() || t->is(BaseType::TY_BOOL) ||
-         t->is(BaseType::TY_CLASS);
+         t->is(BaseType::TY_CLASS) || t->is(BaseType::TY_NULL);
+}
+
+namespace {
+auto tryGetUnionNarrowingKey(const Expression* expr, SymbolTable* scope)
+    -> std::optional<UnionNarrowingStableKey>;
 }
 
 auto Typechecker::lookupUnionNarrowedType(Value* sym) const -> Type* {
@@ -3462,16 +3536,35 @@ auto Typechecker::lookupUnionNarrowedType(Value* sym) const -> Type* {
   return nullptr;
 }
 
+auto Typechecker::lookupUnionNarrowedType(const Expression* expr) const -> Type* {
+  auto key = tryGetUnionNarrowingKey(expr, scope);
+  if (!key.has_value() || (!key->declarationSpan.isValid() && key->fallbackAnchor == nullptr)) {
+    return nullptr;
+  }
+  for (auto it = unionNarrowingStack.rbegin(); it != unionNarrowingStack.rend(); ++it) {
+    if (auto jt = it->find(*key); jt != it->end()) {
+      return jt->second;
+    }
+  }
+  return nullptr;
+}
+
 void Typechecker::invalidateUnionNarrowingForSymbol(Value* sym) {
   if (sym == nullptr) {
     return;
   }
-  const UnionNarrowingStableKey key = unionNarrowingStableKeyForSymbol(sym);
-  if (!key.declarationSpan.isValid() && key.fallbackAnchor == nullptr) {
+  const UnionNarrowingStableKey rootKey = unionNarrowingStableRootKeyForSymbol(sym);
+  if (!rootKey.declarationSpan.isValid() && rootKey.fallbackAnchor == nullptr) {
     return;
   }
   for (auto& frame : unionNarrowingStack) {
-    frame.erase(key);
+    for (auto it = frame.begin(); it != frame.end();) {
+      if (unionNarrowingSameRoot(it->first, rootKey)) {
+        it = frame.erase(it);
+      } else {
+        ++it;
+      }
+    }
   }
 }
 
@@ -3499,18 +3592,99 @@ auto Typechecker::rootStorageSymbolForAssignmentLhs(Expression* lhs) -> Value* {
 
 namespace {
 
-auto tryGetIsOpVarSymbol(const IsOp* is, SymbolTable* scope) -> Value* {
+auto appendUnionNarrowingExprKey(std::string& out, const Expression* expr) -> bool {
+  if (expr == nullptr) {
+    return false;
+  }
+  if (auto const* lit = dynamic_cast<const Literal*>(expr)) {
+    switch (lit->getType()) {
+    case TokenType::IDENTIFIER:
+      out += "$" + lit->getValue();
+      return true;
+    case TokenType::INTEGER:
+    case TokenType::DOUBLE:
+    case TokenType::STRING:
+    case TokenType::BOOL:
+    case TokenType::TRUE_:
+    case TokenType::FALSE_:
+    case TokenType::NIL:
+      out += "#" + lit->getValue();
+      return true;
+    default:
+      return false;
+    }
+  }
+  if (auto const* dot = dynamic_cast<const DotOp*>(expr)) {
+    auto const* right = dynamic_cast<const Literal*>(dot->getRight());
+    if (right == nullptr || right->getType() != TokenType::IDENTIFIER ||
+        !appendUnionNarrowingExprKey(out, dot->getLeft())) {
+      return false;
+    }
+    out += "." + right->getValue();
+    return true;
+  }
+  if (auto const* sub = dynamic_cast<const SubscriptOp*>(expr)) {
+    if (!appendUnionNarrowingExprKey(out, sub->getLeft())) {
+      return false;
+    }
+    std::string indexKey;
+    if (!appendUnionNarrowingExprKey(indexKey, sub->getIndex())) {
+      return false;
+    }
+    out += "[" + indexKey + "]";
+    return true;
+  }
+  return false;
+}
+
+auto tryGetUnionNarrowingKey(const Expression* expr, SymbolTable* scope)
+    -> std::optional<UnionNarrowingStableKey> {
+  if (expr == nullptr) {
+    return std::nullopt;
+  }
+  if (auto const* lit = dynamic_cast<const Literal*>(expr)) {
+    if (lit->getType() != TokenType::IDENTIFIER) {
+      return std::nullopt;
+    }
+    Value* root = lit->getResolvedSymbol();
+    if (root == nullptr) {
+      root = scope->lookup(lit->getValue());
+    }
+    if (root == nullptr) {
+      return std::nullopt;
+    }
+    return unionNarrowingStableKeyForSymbol(root);
+  }
+  if (auto const* dot = dynamic_cast<const DotOp*>(expr)) {
+    auto key = tryGetUnionNarrowingKey(dot->getLeft(), scope);
+    auto const* right = dynamic_cast<const Literal*>(dot->getRight());
+    if (!key.has_value() || right == nullptr || right->getType() != TokenType::IDENTIFIER) {
+      return std::nullopt;
+    }
+    key->accessPath += "." + right->getValue();
+    return key;
+  }
+  if (auto const* sub = dynamic_cast<const SubscriptOp*>(expr)) {
+    auto key = tryGetUnionNarrowingKey(sub->getLeft(), scope);
+    if (!key.has_value()) {
+      return std::nullopt;
+    }
+    std::string indexKey;
+    if (!appendUnionNarrowingExprKey(indexKey, sub->getIndex())) {
+      return std::nullopt;
+    }
+    key->accessPath += "[" + indexKey + "]";
+    return key;
+  }
+  return std::nullopt;
+}
+
+auto tryGetIsOpUnionNarrowingKey(const IsOp* is, SymbolTable* scope)
+    -> std::optional<UnionNarrowingStableKey> {
   if (is == nullptr) {
-    return nullptr;
+    return std::nullopt;
   }
-  const auto* lit = dynamic_cast<const Literal*>(is->getLeft());
-  if (lit == nullptr || lit->getType() != TokenType::IDENTIFIER) {
-    return nullptr;
-  }
-  if (Value* rs = lit->getResolvedSymbol()) {
-    return rs;
-  }
-  return scope->lookup(lit->getValue());
+  return tryGetUnionNarrowingKey(is->getLeft(), scope);
 }
 } // namespace
 
@@ -3558,15 +3732,15 @@ auto Typechecker::rhsTypeIsUnionMember(Type* unionTy, Type* rhs) -> bool {
 }
 
 void Typechecker::appendExcludedTypesFromPriorIsArms(const If* node, unsigned blockIndex,
-                                                     Value* sym, Type* unionTy,
-                                                     std::vector<Type*>& excluded) {
+                                                     const UnionNarrowingStableKey& key,
+                                                     Type* unionTy, std::vector<Type*>& excluded) {
   for (unsigned i = 0; i < blockIndex; ++i) {
     const auto* isPrev = dynamic_cast<const IsOp*>(node->getConds()[i]);
     if (isPrev == nullptr || isPrev->getOperator() != TokenType::IS) {
       continue;
     }
-    if (unionNarrowingStableKeyForSymbol(tryGetIsOpVarSymbol(isPrev, scope)) !=
-        unionNarrowingStableKeyForSymbol(sym)) {
+    auto prevKey = tryGetIsOpUnionNarrowingKey(isPrev, scope);
+    if (!prevKey.has_value() || *prevKey != key) {
       continue;
     }
     Type* rhsPrev = nullptr;
@@ -3597,22 +3771,22 @@ auto Typechecker::fillUnionNarrowingForIfBlock(
     if (is0 == nullptr) {
       return;
     }
-    Value* sym = tryGetIsOpVarSymbol(is0, scope);
-    if (sym == nullptr || sym->getType() == nullptr || !sym->getType()->is(BaseType::TY_UNION)) {
+    auto key = tryGetIsOpUnionNarrowingKey(is0, scope);
+    if (!key.has_value()) {
       return;
     }
-    Type* unionTy = lookupUnionNarrowedType(sym);
-    if (unionTy == nullptr) {
-      unionTy = sym->getType();
+    is0->getLeft()->accept(*this);
+    Type* unionTy = result != nullptr ? result->getType() : nullptr;
+    if (unionTy == nullptr || !unionTy->is(BaseType::TY_UNION)) {
+      return;
     }
     std::vector<Type*> excluded;
-    appendExcludedTypesFromPriorIsArms(node, blockIndex, sym, unionTy, excluded);
+    appendExcludedTypesFromPriorIsArms(node, blockIndex, *key, unionTy, excluded);
     if (!excluded.empty()) {
       Type* narrowed = narrowUnionByExcludingMembers(unionTy, excluded);
       if (narrowed != nullptr) {
-        const UnionNarrowingStableKey key = unionNarrowingStableKeyForSymbol(sym);
-        if (key.declarationSpan.isValid() || key.fallbackAnchor != nullptr) {
-          out[key] = narrowed;
+        if (key->declarationSpan.isValid() || key->fallbackAnchor != nullptr) {
+          out[*key] = narrowed;
         }
       }
       return;
@@ -3624,9 +3798,8 @@ auto Typechecker::fillUnionNarrowingForIfBlock(
       return;
     }
     if (is0->getOperator() == TokenType::IS_NOT && rhsTypeIsUnionMember(unionTy, rhsTy)) {
-      const UnionNarrowingStableKey key = unionNarrowingStableKeyForSymbol(sym);
-      if (key.declarationSpan.isValid() || key.fallbackAnchor != nullptr) {
-        out[key] = rhsTy;
+      if (key->declarationSpan.isValid() || key->fallbackAnchor != nullptr) {
+        out[*key] = rhsTy;
       }
     }
     return;
@@ -3635,13 +3808,14 @@ auto Typechecker::fillUnionNarrowingForIfBlock(
   if (is == nullptr) {
     return;
   }
-  Value* sym = tryGetIsOpVarSymbol(is, scope);
-  if (sym == nullptr || sym->getType() == nullptr || !sym->getType()->is(BaseType::TY_UNION)) {
+  auto key = tryGetIsOpUnionNarrowingKey(is, scope);
+  if (!key.has_value()) {
     return;
   }
-  Type* unionTy = lookupUnionNarrowedType(sym);
-  if (unionTy == nullptr) {
-    unionTy = sym->getType();
+  is->getLeft()->accept(*this);
+  Type* unionTy = result != nullptr ? result->getType() : nullptr;
+  if (unionTy == nullptr || !unionTy->is(BaseType::TY_UNION)) {
+    return;
   }
   Type* rhsTy = nullptr;
   try {
@@ -3651,23 +3825,21 @@ auto Typechecker::fillUnionNarrowingForIfBlock(
   }
   if (is->getOperator() == TokenType::IS) {
     if (rhsTypeIsUnionMember(unionTy, rhsTy)) {
-      const UnionNarrowingStableKey key = unionNarrowingStableKeyForSymbol(sym);
-      if (key.declarationSpan.isValid() || key.fallbackAnchor != nullptr) {
-        out[key] = rhsTy;
+      if (key->declarationSpan.isValid() || key->fallbackAnchor != nullptr) {
+        out[*key] = rhsTy;
       }
     }
   } else if (is->getOperator() == TokenType::IS_NOT) {
     std::vector<Type*> excluded;
-    appendExcludedTypesFromPriorIsArms(node, blockIndex, sym, unionTy, excluded);
+    appendExcludedTypesFromPriorIsArms(node, blockIndex, *key, unionTy, excluded);
     if (rhsTypeIsUnionMember(unionTy, rhsTy)) {
       excluded.push_back(rhsTy);
     }
     if (!excluded.empty()) {
       Type* narrowed = narrowUnionByExcludingMembers(unionTy, excluded);
       if (narrowed != nullptr) {
-        const UnionNarrowingStableKey key = unionNarrowingStableKeyForSymbol(sym);
-        if (key.declarationSpan.isValid() || key.fallbackAnchor != nullptr) {
-          out[key] = narrowed;
+        if (key->declarationSpan.isValid() || key->fallbackAnchor != nullptr) {
+          out[*key] = narrowed;
         }
       }
     }
@@ -3760,6 +3932,33 @@ auto Typechecker::visit(const ForIn* node) -> void {
              bufferType != nullptr && bufferType->getElementType() != nullptr) {
     loopVarType = bufferType->getElementType();
   } else {
+    auto loopItemTypeForNext = [this](Type* nextType) -> Type* {
+      if (nextType == nullptr || !nextType->is(BaseType::TY_UNION)) {
+        return nextType;
+      }
+      std::vector<Type*> nonNullMembers;
+      bool sawNull = false;
+      for (Type* member : nextType->getUnionMembers()) {
+        if (member != nullptr && member->is(BaseType::TY_NULL)) {
+          sawNull = true;
+          continue;
+        }
+        if (member != nullptr) {
+          nonNullMembers.push_back(member);
+        }
+      }
+      if (!sawNull || nonNullMembers.empty()) {
+        return nextType;
+      }
+      auto [canonical, displayName] = TypeUtils::canonicalizeUnionMembers(std::move(nonNullMembers));
+      if (canonical.size() == 1U) {
+        return canonical.front();
+      }
+      auto out = std::make_unique<Type>(BaseType::TY_UNION);
+      out->setDisplayName(displayName);
+      out->setUnionMembers(std::move(canonical));
+      return cacheType(std::move(out));
+    };
     Type* iteratorType = resolveMethodReturnType(iterableType, "iter", {}, node->getSpan());
     if (iteratorType == nullptr) {
       throw TypeCheckError(
@@ -3773,10 +3972,11 @@ auto Typechecker::visit(const ForIn* node) -> void {
       throw TypeCheckError(node->getIterable()->getSpan(),
                            "For-in iterator has_next() must return bool");
     }
-    loopVarType = resolveMethodReturnType(iteratorType, "next", {}, node->getSpan());
-    if (loopVarType == nullptr) {
+    Type* nextType = resolveMethodReturnType(iteratorType, "next", {}, node->getSpan());
+    if (nextType == nullptr) {
       throw TypeCheckError(node->getIterable()->getSpan(), "For-in iterator must define next()");
     }
+    loopVarType = loopItemTypeForNext(nextType);
   }
 
   SymbolTable* child = scope->createChildBlock("for");
@@ -5007,7 +5207,8 @@ void Typechecker::completeOrdinaryFuncCallTyping(const FuncCall* node, Value* ca
     }
     for (size_t i = 0; i < fields.size() && i < argTypes.size(); ++i) {
       Type* expected = substituteInType(fields[i]->type, explicitSubst);
-      if (expected != nullptr && !argTypes[i]->isEqual(expected)) {
+      if (expected != nullptr &&
+          (!isAssignableTo(argTypes[i], expected) || isLossyImplicitConversion(argTypes[i], expected))) {
         throw TypeCheckError(node->getSpan(),
                              "Argument type {} does not match explicit "
                              "parameter type {}",
@@ -5224,6 +5425,15 @@ auto Typechecker::visit(const BinaryOp* node) -> void {
 }
 
 auto Typechecker::visit(const SubscriptOp* node) -> void {
+  auto applyFlowNarrowing = [this, node]() {
+    node->setLspFlowSensitiveType(nullptr);
+    if (result != nullptr) {
+      if (Type* narrowed = lookupUnionNarrowedType(node)) {
+        result->setType(narrowed);
+        node->setLspFlowSensitiveType(narrowed);
+      }
+    }
+  };
   node->getLeft()->accept(*this);
   Type* baseType = result->getType();
   node->getIndex()->accept(*this);
@@ -5253,6 +5463,7 @@ auto Typechecker::visit(const SubscriptOp* node) -> void {
                            indexType != nullptr ? indexType->toString() : "unknown");
     }
     result = std::make_unique<Value>(fields[idx]->type);
+    applyFlowNarrowing();
     return;
   }
   if (baseType != nullptr && baseType->is(BaseType::TY_ARRAY) &&
@@ -5274,6 +5485,7 @@ auto Typechecker::visit(const SubscriptOp* node) -> void {
       }
     }
     result = std::make_unique<Value>(baseType->getElementType());
+    applyFlowNarrowing();
     return;
   }
   Type* overloadType = resolveMethodReturnType(
@@ -5283,6 +5495,7 @@ auto Typechecker::visit(const SubscriptOp* node) -> void {
                          baseType != nullptr ? baseType->toString() : "unknown");
   }
   result = std::make_unique<Value>(overloadType);
+  applyFlowNarrowing();
 }
 
 void Typechecker::typecheckDotOpSuperDispatch(const DotOp* node) {
@@ -5412,10 +5625,21 @@ void Typechecker::typecheckDotOpClassOrEnumMemberAccess(const DotOp* node, Type*
 }
 
 auto Typechecker::visit(const DotOp* node) -> void {
+  node->setLspFlowSensitiveType(nullptr);
   if (dynamic_cast<const SuperExpr*>(node->getLeft()) != nullptr) {
     typecheckDotOpSuperDispatch(node);
     return;
   }
+
+  auto applyFlowNarrowing = [this, node]() {
+    node->setLspFlowSensitiveType(nullptr);
+    if (result != nullptr) {
+      if (Type* narrowed = lookupUnionNarrowedType(node)) {
+        result->setType(narrowed);
+        node->setLspFlowSensitiveType(narrowed);
+      }
+    }
+  };
 
   node->getLeft()->accept(*this);
   bool dotLeftDenotesTypeName = result->getCategory() == ValueCategory::TYPE_SYMBOL;
@@ -5448,6 +5672,7 @@ auto Typechecker::visit(const DotOp* node) -> void {
       }
       fc->setResolvedSymbol(nullptr);
       result = std::make_unique<Value>(retType);
+      applyFlowNarrowing();
       return;
     }
     throw TypeCheckError(node->getSpan(), "Expected method call after dot on trait value");
@@ -5459,11 +5684,13 @@ auto Typechecker::visit(const DotOp* node) -> void {
                            "Dot on a union requires a method call (fields are not supported)");
     }
     typecheckDotUnionMethodCall(base, node, fc);
+    applyFlowNarrowing();
     return;
   }
   if (base->is(BaseType::TY_ARRAY)) {
     if (auto* call = dynamic_cast<FuncCall*>(node->getRight())) {
       if (visitListMethodCall(base, node, call)) {
+        applyFlowNarrowing();
         return;
       }
     }
@@ -5489,6 +5716,7 @@ auto Typechecker::visit(const DotOp* node) -> void {
               matched != nullptr) {
             fc->setResolvedSymbol(nullptr);
             result = std::make_unique<Value>(matched->getReturnType());
+            applyFlowNarrowing();
             return;
           }
         }
@@ -5503,6 +5731,7 @@ auto Typechecker::visit(const DotOp* node) -> void {
                          base->toString());
   }
   typecheckDotOpClassOrEnumMemberAccess(node, base, dotLeftDenotesTypeName);
+  applyFlowNarrowing();
 }
 
 auto Typechecker::visit(const CastOp* node) -> void {
@@ -5985,8 +6214,7 @@ auto Typechecker::visit(const Literal* node) -> void {
     result = std::make_unique<Value>(cacheType(std::make_unique<Type>(BaseType::TY_BOOL)));
     break;
   case TokenType::NIL:
-    result = std::make_unique<Value>(
-        cacheType(std::make_unique<Type>(BaseType::TY_PTR, nullptr, nullptr)));
+    result = std::make_unique<Value>(cacheType(std::make_unique<Type>(BaseType::TY_NULL)));
     break;
   case TokenType::IDENTIFIER: {
     Value* sym = scope->lookup(node->getValue());
@@ -6020,7 +6248,7 @@ auto Typechecker::visit(const Literal* node) -> void {
           node->setResolvedSymbol(shadow);
           result = std::make_unique<Value>(*shadow);
           node->setLspFlowSensitiveType(nullptr);
-          if (Type* n = lookupUnionNarrowedType(shadow)) {
+          if (Type* n = lookupUnionNarrowedType(node)) {
             result->setType(n);
             node->setLspFlowSensitiveType(n);
           }
@@ -6032,7 +6260,7 @@ auto Typechecker::visit(const Literal* node) -> void {
     markValueRead(sym);
     result = std::make_unique<Value>(*sym);
     node->setLspFlowSensitiveType(nullptr);
-    if (Type* n = lookupUnionNarrowedType(sym)) {
+    if (Type* n = lookupUnionNarrowedType(node)) {
       result->setType(n);
       node->setLspFlowSensitiveType(n);
     }
@@ -6370,7 +6598,36 @@ auto Typechecker::checkTraitImplementation(const Class* classNode, Type* classTy
           if (elemTy != nullptr && iterClass != nullptr && iterClass->is(BaseType::TY_CLASS)) {
             Type* iterPtr = cacheType(std::make_unique<Type>(BaseType::TY_PTR, nullptr, iterClass));
             Type* nextT = resolveMethodReturnType(iterPtr, "next", {}, classNode->getNameSpan());
-            if (nextT != nullptr && !nextT->isEqual(elemTy)) {
+            auto iterableElemTypeFromNext = [this](Type* nextType) -> Type* {
+              if (nextType == nullptr || !nextType->is(BaseType::TY_UNION)) {
+                return nextType;
+              }
+              std::vector<Type*> nonNullMembers;
+              bool sawNull = false;
+              for (Type* member : nextType->getUnionMembers()) {
+                if (member != nullptr && member->is(BaseType::TY_NULL)) {
+                  sawNull = true;
+                  continue;
+                }
+                if (member != nullptr) {
+                  nonNullMembers.push_back(member);
+                }
+              }
+              if (!sawNull || nonNullMembers.empty()) {
+                return nextType;
+              }
+              auto [canonical, displayName] =
+                  TypeUtils::canonicalizeUnionMembers(std::move(nonNullMembers));
+              if (canonical.size() == 1U) {
+                return canonical.front();
+              }
+              auto out = std::make_unique<Type>(BaseType::TY_UNION);
+              out->setDisplayName(displayName);
+              out->setUnionMembers(std::move(canonical));
+              return cacheType(std::move(out));
+            };
+            Type* yielded = iterableElemTypeFromNext(nextT);
+            if (yielded != nullptr && !yielded->isEqual(elemTy)) {
               throw TypeCheckError(classNode->getNameSpan(),
                                    "Iterable: iter() must return a type whose next() matches the "
                                    "Iterable type parameter (expected {}, got {})",
