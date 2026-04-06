@@ -515,6 +515,15 @@ TEST(FormatterTests, FormatSourcePreservesAddressOfUnaryOperator) {
   EXPECT_EQ(formatted->find("?x"), std::string::npos);
 }
 
+TEST(FormatterTests, FormatSourcePreservesBitwisePipeOperator) {
+  auto formatted =
+      formatSource("func combine(lhs: int, rhs: int) -> int {\nreturn lhs | rhs\n}\n",
+                   "bitwise_pipe_test.les", 100);
+  ASSERT_TRUE(formatted.has_value()) << formatted.error().message;
+  EXPECT_NE(formatted->find("lhs | rhs"), std::string::npos);
+  EXPECT_EQ(formatted->find("lhs ? rhs"), std::string::npos);
+}
+
 TEST(FormatterTests, FormatSourcePreservesInferredExpressionLambdaReturnType) {
   auto formatted = formatSource("let inc = func(x: int) => x + 1\n", "lambda_infer_test.les", 100);
   ASSERT_TRUE(formatted.has_value()) << formatted.error().message;

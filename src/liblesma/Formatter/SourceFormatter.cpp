@@ -63,6 +63,8 @@ constexpr int INTERPOLATION_FLAT_WIDTH = 10'000;
     return "^";
   case TokenType::AMPERSAND:
     return "&";
+  case TokenType::PIPE:
+    return "|";
   case TokenType::TILDE:
     return "~";
   case TokenType::SHIFT_LEFT:
