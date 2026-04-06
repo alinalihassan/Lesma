@@ -2602,6 +2602,18 @@ auto Typechecker::typecheckBinaryOpResult(TokenType op, Type* leftTy, Type* righ
       throw TypeCheckError(span, "Arithmetic operator requires numeric types");
     }
     return unified;
+  case TokenType::AMPERSAND:
+  case TokenType::PIPE:
+  case TokenType::XOR:
+  case TokenType::SHIFT_LEFT:
+  case TokenType::SHIFT_RIGHT:
+    if (hasGeneric) {
+      return leftTy->is(BaseType::TY_GENERIC) ? leftTy : rightTy;
+    }
+    if (unified == nullptr || !unified->is(BaseType::TY_INT)) {
+      throw TypeCheckError(span, "Bitwise operator requires integer types");
+    }
+    return unified;
   case TokenType::EQUAL_EQUAL:
   case TokenType::BANG_EQUAL:
   case TokenType::GREATER:
@@ -4809,6 +4821,16 @@ auto Typechecker::compoundToBinaryOp(TokenType op) -> std::optional<TokenType> {
     return TokenType::MOD;
   case TokenType::POWER_EQUAL:
     return TokenType::POWER;
+  case TokenType::AMPERSAND_EQUAL:
+    return TokenType::AMPERSAND;
+  case TokenType::PIPE_EQUAL:
+    return TokenType::PIPE;
+  case TokenType::XOR_EQUAL:
+    return TokenType::XOR;
+  case TokenType::SHIFT_LEFT_EQUAL:
+    return TokenType::SHIFT_LEFT;
+  case TokenType::SHIFT_RIGHT_EQUAL:
+    return TokenType::SHIFT_RIGHT;
   default:
     return std::nullopt;
   }
@@ -5890,6 +5912,16 @@ auto Typechecker::visit(const UnaryOp* node) -> void {
                            "Cannot dereference pointer without a known pointee type");
     }
     result = std::make_unique<Value>(operand->getElementType());
+    break;
+  case TokenType::TILDE:
+    if (operand != nullptr && operand->is(BaseType::TY_GENERIC)) {
+      result = std::make_unique<Value>(operand);
+      break;
+    }
+    if (operand == nullptr || !operand->is(BaseType::TY_INT)) {
+      throw TypeCheckError(node->getSpan(), "Bitwise not requires integer type");
+    }
+    result = std::make_unique<Value>(operand);
     break;
   default:
     throw TypeCheckError(node->getSpan(), "Unsupported unary operator: {}",

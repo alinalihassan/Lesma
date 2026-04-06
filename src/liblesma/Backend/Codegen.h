@@ -609,6 +609,13 @@ private:
   emitPromotedArithmetic(llvm::SMRange span, TokenType op, std::unique_ptr<lesma::Value>& left,
                          std::unique_ptr<lesma::Value>& right, lesma::Type* finalType)
       -> std::unique_ptr<lesma::Value>;
+  [[nodiscard]] auto emitPromotedBitwise(llvm::SMRange span, TokenType op,
+                                         std::unique_ptr<lesma::Value>& left,
+                                         std::unique_ptr<lesma::Value>& right,
+                                         lesma::Type* finalType) -> std::unique_ptr<lesma::Value>;
+  [[nodiscard]] auto emitPowerOperation(llvm::SMRange span, std::unique_ptr<lesma::Value>& left,
+                                        std::unique_ptr<lesma::Value>& right, lesma::Type* finalType)
+      -> std::unique_ptr<lesma::Value>;
   void emitForInLoopIteration(llvm::Function* parentFct, const ForIn* node, SymbolTable* outerScope,
                               SymbolTable* loopBodyScope, llvm::BasicBlock* bLoop,
                               llvm::BasicBlock* bInc,

@@ -193,6 +193,10 @@ private:
   auto parseAnd() -> std::unique_ptr<Expression>;
   auto parseNot() -> std::unique_ptr<Expression>;
   auto parseCoalesce() -> std::unique_ptr<Expression>;
+  auto parseBitwiseOr() -> std::unique_ptr<Expression>;
+  auto parseBitwiseXor() -> std::unique_ptr<Expression>;
+  auto parseBitwiseAnd() -> std::unique_ptr<Expression>;
+  auto parseShift() -> std::unique_ptr<Expression>;
   auto parseDot() -> std::unique_ptr<Expression>;
   auto parsePostfix() -> std::unique_ptr<Expression>;
   auto parseCompare() -> std::unique_ptr<Expression>;

@@ -84,15 +84,19 @@
         },
         {
           "name": "keyword.operator.assignment.lesma",
-          "match": "\\?\\?=|="
+          "match": "\\?\\?=|<<=|>>=|\\*\\*=|\\+=|\\-=|\\*=|/=|%=|&=|\\|=|\\^=|="
         },
         {
           "name": "keyword.operator.expression.lesma",
-          "match": "\\b(and|or|not|is|as)\\b|\\||\\?(?!\\?|=)"
+          "match": "\\b(and|or|not|is|as)\\b|\\?(?!\\?|=)"
         },
         {
           "name": "keyword.operator.arithmetic.lesma",
-          "match": "\\+|\\-|\\*|\\^|\\/|\\%"
+          "match": "\\*\\*|\\+|\\-|\\*|\\/|\\%"
+        },
+        {
+          "name": "keyword.operator.bitwise.lesma",
+          "match": "<<|>>|&|\\||\\^|~"
         },
         {
           "name": "keyword.operator.relational.lesma",

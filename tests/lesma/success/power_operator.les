@@ -1,0 +1,20 @@
+var intPow: int = 2 ** 5
+if intPow != 32 {
+  exit(1)
+}
+
+var compound: int = 3
+compound **= 4
+if compound != 81 {
+  exit(2)
+}
+
+var precedence: int = 2 * 3 ** 2
+if precedence != 18 {
+  exit(3)
+}
+
+var root: float = 9.0 ** 0.5
+if root < 2.99 or root > 3.01 {
+  exit(4)
+}

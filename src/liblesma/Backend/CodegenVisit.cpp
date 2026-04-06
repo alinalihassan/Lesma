@@ -32,6 +32,7 @@
 #include <llvm/IR/GlobalVariable.h>
 #include <llvm/IR/IRBuilder.h>
 #include <llvm/IR/Instructions.h>
+#include <llvm/IR/Intrinsics.h>
 #include <llvm/IR/LLVMContext.h>
 #include <llvm/IR/Module.h>
 #include <llvm/IR/Value.h>
@@ -801,6 +802,66 @@ auto Codegen::emitPromotedArithmetic(llvm::SMRange span, TokenType op,
     }
   }
   return nullptr;
+}
+
+auto Codegen::emitPromotedBitwise(llvm::SMRange span, TokenType op,
+                                  std::unique_ptr<lesma::Value>& left,
+                                  std::unique_ptr<lesma::Value>& right, lesma::Type* finalType)
+    -> std::unique_ptr<lesma::Value> {
+  left = cast(span, left.get(), finalType);
+  right = cast(span, right.get(), finalType);
+  if (finalType == nullptr || !finalType->is(BaseType::TY_INT)) {
+    return nullptr;
+  }
+  llvm::Value* const l = left->getLlvmValue();
+  llvm::Value* const r = right->getLlvmValue();
+  switch (op) {
+  case TokenType::AMPERSAND:
+    return std::make_unique<Value>("", finalType, builder->CreateAnd(l, r));
+  case TokenType::PIPE:
+    return std::make_unique<Value>("", finalType, builder->CreateOr(l, r));
+  case TokenType::XOR:
+    return std::make_unique<Value>("", finalType, builder->CreateXor(l, r));
+  case TokenType::SHIFT_LEFT:
+    return std::make_unique<Value>("", finalType, builder->CreateShl(l, r));
+  case TokenType::SHIFT_RIGHT: {
+    llvm::Value* shift =
+        finalType->isSigned() ? builder->CreateAShr(l, r) : builder->CreateLShr(l, r);
+    return std::make_unique<Value>("", finalType, shift);
+  }
+  default:
+    return nullptr;
+  }
+}
+
+auto Codegen::emitPowerOperation(llvm::SMRange span, std::unique_ptr<lesma::Value>& left,
+                                 std::unique_ptr<lesma::Value>& right, lesma::Type* finalType)
+    -> std::unique_ptr<lesma::Value> {
+  left = cast(span, left.get(), finalType);
+  right = cast(span, right.get(), finalType);
+  if (finalType == nullptr) {
+    return nullptr;
+  }
+  llvm::Type* intrinsicType = finalType->isFloatingPoint() ? finalType->getLlvmType()
+                                                           : builder->getDoubleTy();
+  llvm::Value* base = left->getLlvmValue();
+  llvm::Value* exponent = right->getLlvmValue();
+  if (finalType->is(BaseType::TY_INT)) {
+    base = finalType->isSigned() ? builder->CreateSIToFP(base, intrinsicType, "pow.base")
+                                 : builder->CreateUIToFP(base, intrinsicType, "pow.base");
+    exponent = finalType->isSigned() ? builder->CreateSIToFP(exponent, intrinsicType, "pow.exp")
+                                     : builder->CreateUIToFP(exponent, intrinsicType, "pow.exp");
+  }
+  auto* powFn =
+      llvm::Intrinsic::getOrInsertDeclaration(theModule.get(), llvm::Intrinsic::pow, {intrinsicType});
+  llvm::Value* powVal = builder->CreateCall(powFn, {base, exponent}, "pow.tmp");
+  if (finalType->is(BaseType::TY_INT)) {
+    llvm::Value* intPow = finalType->isSigned()
+                              ? builder->CreateFPToSI(powVal, finalType->getLlvmType(), "pow.int")
+                              : builder->CreateFPToUI(powVal, finalType->getLlvmType(), "pow.int");
+    return std::make_unique<Value>("", finalType, intPow);
+  }
+  return std::make_unique<Value>("", finalType, powVal);
 }
 
 void Codegen::emitForInLoopIteration(llvm::Function* parentFct, const ForIn* node,
@@ -2287,7 +2348,10 @@ auto Codegen::visit(const Assignment* node) -> void {
       }
       if (assignOp == TokenType::PLUS_EQUAL || assignOp == TokenType::MINUS_EQUAL ||
           assignOp == TokenType::SLASH_EQUAL || assignOp == TokenType::STAR_EQUAL ||
-          assignOp == TokenType::MOD_EQUAL) {
+          assignOp == TokenType::MOD_EQUAL || assignOp == TokenType::POWER_EQUAL ||
+          assignOp == TokenType::AMPERSAND_EQUAL || assignOp == TokenType::PIPE_EQUAL ||
+          assignOp == TokenType::XOR_EQUAL || assignOp == TokenType::SHIFT_LEFT_EQUAL ||
+          assignOp == TokenType::SHIFT_RIGHT_EQUAL) {
         subscript->getIndex()->accept(*this);
         auto indexValue = std::move(result);
         result =
@@ -2361,9 +2425,6 @@ auto Codegen::visit(const Assignment* node) -> void {
             "", cacheType(std::make_unique<Type>(BaseType::TY_VOID, builder->getVoidTy())),
             nullptr);
         return;
-      }
-      if (assignOp == TokenType::POWER_EQUAL) {
-        throw CodegenError(node->getSpan(), "Power operator not implemented yet.");
       }
     }
   }
@@ -2464,10 +2525,14 @@ auto Codegen::visit(const Assignment* node) -> void {
   case TokenType::SLASH_EQUAL:
   case TokenType::STAR_EQUAL:
   case TokenType::MOD_EQUAL:
+  case TokenType::POWER_EQUAL:
+  case TokenType::AMPERSAND_EQUAL:
+  case TokenType::PIPE_EQUAL:
+  case TokenType::XOR_EQUAL:
+  case TokenType::SHIFT_LEFT_EQUAL:
+  case TokenType::SHIFT_RIGHT_EQUAL:
     emitCompoundAssign(node->getSpan(), node->getOperator(), lhs, value.get());
     break;
-  case TokenType::POWER_EQUAL:
-    throw CodegenError(node->getSpan(), "Power operator not implemented yet.");
   case TokenType::NULL_COALESCE_EQUAL:
     throw CodegenError(node->getSpan(),
                        "Null-coalescing assignment should have been lowered earlier");
@@ -3117,34 +3182,99 @@ auto Codegen::visit(const BinaryOp* node) -> void {
       right->getType()->is(BaseType::TY_ENUM) && left->getType()->isEqual(right->getType())) {
     finalType = left->getType();
   }
+  auto emitUnionScalarEquality = [this, node](lesma::Value* unionValue, lesma::Value* scalarValue,
+                                              bool isEqual) -> std::unique_ptr<lesma::Value> {
+    lesma::Type* unionTy = unionValue != nullptr ? unionValue->getType() : nullptr;
+    lesma::Type* scalarTy = scalarValue != nullptr ? scalarValue->getType() : nullptr;
+    if (unionTy == nullptr || scalarTy == nullptr || !unionTy->is(BaseType::TY_UNION)) {
+      return nullptr;
+    }
+    std::optional<unsigned> memberIndex;
+    for (unsigned i = 0; i < unionTy->getUnionMembers().size(); ++i) {
+      Type* memberTy = unionTy->getUnionMembers()[i];
+      if (memberTy != nullptr && memberTy->isEqual(scalarTy)) {
+        memberIndex = i;
+        break;
+      }
+    }
+    if (!memberIndex.has_value()) {
+      return nullptr;
+    }
+
+    llvm::Function* parent = builder->GetInsertBlock()->getParent();
+    auto* unionStructTy = llvm::cast<llvm::StructType>(getOrCreateLlvmType(unionTy));
+    llvm::Value* unionStorage = unionValue->getLlvmValue();
+    llvm::Value* unionPtr = unionStorage;
+    if (!unionStorage->getType()->isPointerTy()) {
+      llvm::AllocaInst* tmpSlot = createAllocaInEntry(parent, unionStructTy, "union.cmp.slot");
+      builder->CreateStore(unionStorage, tmpSlot);
+      unionPtr = tmpSlot;
+    }
+
+    Type* memberTy = unionTy->getUnionMembers().at(*memberIndex);
+    llvm::Value* payload = emitUnionPayloadLoadFromSlot(unionPtr, unionTy, memberTy);
+    auto scalarCasted = cast(node->getSpan(), scalarValue, memberTy);
+    llvm::Value* payloadEq = nullptr;
+    if (memberTy->isFloatingPoint()) {
+      payloadEq = builder->CreateFCmpOEQ(payload, scalarCasted->getLlvmValue());
+    } else if (memberTy->is(BaseType::TY_INT) || memberTy->is(BaseType::TY_BOOL) ||
+               memberTy->is(BaseType::TY_PTR)) {
+      payloadEq = builder->CreateICmpEQ(payload, scalarCasted->getLlvmValue());
+    } else {
+      return nullptr;
+    }
+
+    llvm::Value* tagPtr = builder->CreateStructGEP(unionStructTy, unionPtr, 0U, "union.cmp.tag.ptr");
+    llvm::Type* tagTy = getOrCreateUnionTagLlvmType(unionTy);
+    llvm::Value* tagVal = builder->CreateLoad(tagTy, tagPtr, "union.cmp.tag");
+    llvm::Value* isActive =
+        builder->CreateICmpEQ(tagVal, llvm::ConstantInt::get(tagTy, *memberIndex), "union.cmp.arm");
+    llvm::Value* eq = builder->CreateAnd(isActive, payloadEq, "union.cmp.eq");
+    return makeBoolCompareResult(isEqual ? eq : builder->CreateNot(eq, "union.cmp.ne"));
+  };
 
   switch (node->getOperator()) {
   case TokenType::MINUS:
   case TokenType::PLUS:
   case TokenType::STAR:
   case TokenType::SLASH:
-  case TokenType::MOD: {
+  case TokenType::MOD:
+  case TokenType::POWER: {
     TokenType const arithOp = node->getOperator();
-    if (auto arith = emitPromotedArithmetic(node->getSpan(), arithOp, left, right, finalType)) {
+    std::unique_ptr<lesma::Value> arith =
+        arithOp == TokenType::POWER ? emitPowerOperation(node->getSpan(), left, right, finalType)
+                                    : emitPromotedArithmetic(node->getSpan(), arithOp, left, right,
+                                                             finalType);
+    if (arith) {
       result = std::move(arith);
       return;
     }
     break;
   }
-  case TokenType::POWER:
-    if (finalType == nullptr) {
-      break;
+  case TokenType::AMPERSAND:
+  case TokenType::PIPE:
+  case TokenType::XOR:
+  case TokenType::SHIFT_LEFT:
+  case TokenType::SHIFT_RIGHT:
+    if (auto bitwise = emitPromotedBitwise(node->getSpan(), node->getOperator(), left, right,
+                                           finalType)) {
+      result = std::move(bitwise);
+      return;
     }
-
-    if (!right->getType()->is(BaseType::TY_INT) && !right->getType()->isFloatingPoint()) {
-      throw CodegenError(node->getSpan(), "Cannot use non-numbers for power coefficient: {}",
-                         node->getRight()->toString(sourceManager.get(), "", true));
-    }
-
-    throw CodegenError(node->getSpan(), "Power operator not implemented yet.");
+    break;
   case TokenType::EQUAL_EQUAL: {
     Type* ltyEq = left->getType();
     Type* rtyEq = right->getType();
+    if (ltyEq != nullptr && rtyEq != nullptr) {
+      if (auto unionCmp = emitUnionScalarEquality(left.get(), right.get(), true); unionCmp != nullptr) {
+        result = std::move(unionCmp);
+        return;
+      }
+      if (auto unionCmp = emitUnionScalarEquality(right.get(), left.get(), true); unionCmp != nullptr) {
+        result = std::move(unionCmp);
+        return;
+      }
+    }
     if (ltyEq != nullptr && rtyEq != nullptr) {
       if (ltyEq->is(BaseType::TY_PTR) && rtyEq->is(BaseType::TY_INT)) {
         llvm::Value* lv = builder->CreatePtrToInt(left->getLlvmValue(), builder->getInt64Ty());
@@ -3222,6 +3352,18 @@ auto Codegen::visit(const BinaryOp* node) -> void {
   case TokenType::BANG_EQUAL: {
     Type* ltyNe = left->getType();
     Type* rtyNe = right->getType();
+    if (ltyNe != nullptr && rtyNe != nullptr) {
+      if (auto unionCmp = emitUnionScalarEquality(left.get(), right.get(), false);
+          unionCmp != nullptr) {
+        result = std::move(unionCmp);
+        return;
+      }
+      if (auto unionCmp = emitUnionScalarEquality(right.get(), left.get(), false);
+          unionCmp != nullptr) {
+        result = std::move(unionCmp);
+        return;
+      }
+    }
     if (ltyNe != nullptr && rtyNe != nullptr) {
       if (ltyNe->is(BaseType::TY_PTR) && rtyNe->is(BaseType::TY_INT)) {
         llvm::Value* lv = builder->CreatePtrToInt(left->getLlvmValue(), builder->getInt64Ty());
@@ -4211,6 +4353,15 @@ auto Codegen::visit(const UnaryOp* node) -> void {
                            std::string{*OperatorUtils::getUnaryOperatorName(node->getOperator())});
       return;
     }
+  } else if (node->getOperator() == TokenType::TILDE) {
+    if (operand->getType()->is(BaseType::TY_INT)) {
+      val = builder->CreateNot(operand->getLlvmValue());
+    } else {
+      result =
+          callMethodByName(node->getSpan(), operand.get(),
+                           std::string{*OperatorUtils::getUnaryOperatorName(node->getOperator())});
+      return;
+    }
   } else if (node->getOperator() == TokenType::STAR) {
     if (operand->getType()->is(BaseType::TY_PTR)) {
       val = builder->CreateLoad(operand->getType()->getElementType()->getLlvmType(),
@@ -4968,39 +5119,85 @@ auto Codegen::emitCompoundAssignArithmetic(llvm::SMRange span, TokenType compoun
                                            lesma::Value* loaded, lesma::Value* rhs)
     -> std::unique_ptr<lesma::Value> {
   lesma::Type* targetType = loaded->getType();
-  if (targetType == nullptr ||
-      (!targetType->isFloatingPoint() && !targetType->is(BaseType::TY_INT))) {
+  if (targetType == nullptr) {
     throw CodegenError(span, "Invalid operator: {}", NAMEOF_ENUM(compoundOp));
   }
-  const bool isFloat = targetType->isFloatingPoint();
-  auto* varVal = loaded->getLlvmValue();
-  llvm::Value* newVal = nullptr;
+  auto left = std::make_unique<Value>("", targetType, loaded->getLlvmValue());
+  auto right = cast(span, rhs, targetType);
 
   switch (compoundOp) {
   case TokenType::PLUS_EQUAL:
-    newVal = isFloat ? builder->CreateFAdd(rhs->getLlvmValue(), varVal)
-                     : builder->CreateAdd(rhs->getLlvmValue(), varVal);
-    break;
   case TokenType::MINUS_EQUAL:
-    newVal = isFloat ? builder->CreateFSub(varVal, rhs->getLlvmValue())
-                     : builder->CreateSub(varVal, rhs->getLlvmValue());
-    break;
-  case TokenType::SLASH_EQUAL:
-    newVal = isFloat ? builder->CreateFDiv(varVal, rhs->getLlvmValue())
-                     : builder->CreateSDiv(varVal, rhs->getLlvmValue());
-    break;
   case TokenType::STAR_EQUAL:
-    newVal = isFloat ? builder->CreateFMul(rhs->getLlvmValue(), varVal)
-                     : builder->CreateMul(rhs->getLlvmValue(), varVal);
-    break;
-  case TokenType::MOD_EQUAL:
-    newVal = isFloat ? builder->CreateFRem(varVal, rhs->getLlvmValue())
-                     : builder->CreateSRem(varVal, rhs->getLlvmValue());
-    break;
+  case TokenType::SLASH_EQUAL:
+  case TokenType::MOD_EQUAL: {
+    TokenType arithOp = TokenType::PLUS;
+    switch (compoundOp) {
+    case TokenType::PLUS_EQUAL:
+      arithOp = TokenType::PLUS;
+      break;
+    case TokenType::MINUS_EQUAL:
+      arithOp = TokenType::MINUS;
+      break;
+    case TokenType::STAR_EQUAL:
+      arithOp = TokenType::STAR;
+      break;
+    case TokenType::SLASH_EQUAL:
+      arithOp = TokenType::SLASH;
+      break;
+    case TokenType::MOD_EQUAL:
+      arithOp = TokenType::MOD;
+      break;
+    default:
+      break;
+    }
+    auto arith = emitPromotedArithmetic(span, arithOp, left, right, targetType);
+    if (arith == nullptr) {
+      throw CodegenError(span, "Invalid compound operator: {}", NAMEOF_ENUM(compoundOp));
+    }
+    return arith;
+  }
+  case TokenType::POWER_EQUAL: {
+    auto power = emitPowerOperation(span, left, right, targetType);
+    if (power == nullptr) {
+      throw CodegenError(span, "Invalid compound operator: {}", NAMEOF_ENUM(compoundOp));
+    }
+    return power;
+  }
+  case TokenType::AMPERSAND_EQUAL:
+  case TokenType::PIPE_EQUAL:
+  case TokenType::XOR_EQUAL:
+  case TokenType::SHIFT_LEFT_EQUAL:
+  case TokenType::SHIFT_RIGHT_EQUAL: {
+    TokenType bitwiseOp = TokenType::AMPERSAND;
+    switch (compoundOp) {
+    case TokenType::AMPERSAND_EQUAL:
+      bitwiseOp = TokenType::AMPERSAND;
+      break;
+    case TokenType::PIPE_EQUAL:
+      bitwiseOp = TokenType::PIPE;
+      break;
+    case TokenType::XOR_EQUAL:
+      bitwiseOp = TokenType::XOR;
+      break;
+    case TokenType::SHIFT_LEFT_EQUAL:
+      bitwiseOp = TokenType::SHIFT_LEFT;
+      break;
+    case TokenType::SHIFT_RIGHT_EQUAL:
+      bitwiseOp = TokenType::SHIFT_RIGHT;
+      break;
+    default:
+      break;
+    }
+    auto bitwise = emitPromotedBitwise(span, bitwiseOp, left, right, targetType);
+    if (bitwise == nullptr) {
+      throw CodegenError(span, "Invalid compound operator: {}", NAMEOF_ENUM(compoundOp));
+    }
+    return bitwise;
+  }
   default:
     throw CodegenError(span, "Invalid compound operator: {}", NAMEOF_ENUM(compoundOp));
   }
-  return std::make_unique<Value>("", targetType, newVal);
 }
 
 auto Codegen::emitCompoundSubscriptNewValue(llvm::SMRange span, TokenType compoundOp,
@@ -5023,6 +5220,24 @@ auto Codegen::emitCompoundSubscriptNewValue(llvm::SMRange span, TokenType compou
   case TokenType::MOD_EQUAL:
     binOp = TokenType::MOD;
     break;
+  case TokenType::POWER_EQUAL:
+    binOp = TokenType::POWER;
+    break;
+  case TokenType::AMPERSAND_EQUAL:
+    binOp = TokenType::AMPERSAND;
+    break;
+  case TokenType::PIPE_EQUAL:
+    binOp = TokenType::PIPE;
+    break;
+  case TokenType::XOR_EQUAL:
+    binOp = TokenType::XOR;
+    break;
+  case TokenType::SHIFT_LEFT_EQUAL:
+    binOp = TokenType::SHIFT_LEFT;
+    break;
+  case TokenType::SHIFT_RIGHT_EQUAL:
+    binOp = TokenType::SHIFT_RIGHT;
+    break;
   default:
     throw CodegenError(span, "Invalid compound operator: {}", NAMEOF_ENUM(compoundOp));
   }
@@ -5036,8 +5251,34 @@ auto Codegen::emitCompoundSubscriptNewValue(llvm::SMRange span, TokenType compou
   }
   auto left = cast(span, currentElem, finalType);
   auto right = cast(span, rhs, finalType);
+  if (compoundOp == TokenType::POWER_EQUAL) {
+    auto power = emitPowerOperation(span, left, right, finalType);
+    if (power != nullptr) {
+      return power;
+    }
+  }
   if (finalType != nullptr && (finalType->is(BaseType::TY_INT) || finalType->isFloatingPoint())) {
-    return emitCompoundAssignArithmetic(span, compoundOp, left.get(), right.get());
+    switch (compoundOp) {
+    case TokenType::PLUS_EQUAL:
+    case TokenType::MINUS_EQUAL:
+    case TokenType::STAR_EQUAL:
+    case TokenType::SLASH_EQUAL:
+    case TokenType::MOD_EQUAL:
+      return emitCompoundAssignArithmetic(span, compoundOp, left.get(), right.get());
+    case TokenType::AMPERSAND_EQUAL:
+    case TokenType::PIPE_EQUAL:
+    case TokenType::XOR_EQUAL:
+    case TokenType::SHIFT_LEFT_EQUAL:
+    case TokenType::SHIFT_RIGHT_EQUAL: {
+      auto bitwise = emitPromotedBitwise(span, binOp, left, right, finalType);
+      if (bitwise != nullptr) {
+        return bitwise;
+      }
+      break;
+    }
+    default:
+      break;
+    }
   }
   if (auto operatorName = OperatorUtils::getBinaryOperatorName(binOp); operatorName.has_value()) {
     return callMethodByName(span, left.get(), std::string{*operatorName}, {right.get()});

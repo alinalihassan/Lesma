@@ -1213,7 +1213,7 @@ auto Parser::parseDot() -> std::unique_ptr<Expression> { return parsePostfix(); 
 auto Parser::parseUnary() -> std::unique_ptr<Expression> {
   // Handle unary operators recursively to allow chaining: - - x, * * ptr, etc.
   if (advanceIfMatchAny<TokenType::MINUS, TokenType::STAR, TokenType::AMPERSAND,
-                        TokenType::BANG>()) {
+                        TokenType::BANG, TokenType::TILDE>()) {
     auto* op = previous();
     consumeOperandContinuationNewlines();
     auto expr = parseUnary(); // Recursive call for chained unary operators
@@ -1327,7 +1327,7 @@ auto Parser::parseCompare() -> std::unique_ptr<Expression> {
 }
 
 auto Parser::parseCoalesce() -> std::unique_ptr<Expression> {
-  auto left = parseAdd();
+  auto left = parseBitwiseOr();
   while (true) {
     while (check(TokenType::NEWLINE) && canPeek(1) && checkAny<TokenType::NULL_COALESCE>(1)) {
       consume(TokenType::NEWLINE);
@@ -1337,7 +1337,80 @@ auto Parser::parseCoalesce() -> std::unique_ptr<Expression> {
     }
     auto op = previous()->type;
     consumeOperandContinuationNewlines();
+    auto right = parseBitwiseOr();
+    left = std::make_unique<BinaryOp>(llvm::SMRange{left->getStart(), right->getEnd()},
+                                      std::move(left), op, std::move(right));
+  }
+  return left;
+}
+
+auto Parser::parseShift() -> std::unique_ptr<Expression> {
+  auto left = parseAdd();
+  while (true) {
+    while (check(TokenType::NEWLINE) && canPeek(1) &&
+           checkAny<TokenType::SHIFT_LEFT, TokenType::SHIFT_RIGHT>(1)) {
+      consume(TokenType::NEWLINE);
+    }
+    if (!advanceIfMatchAny<TokenType::SHIFT_LEFT, TokenType::SHIFT_RIGHT>()) {
+      break;
+    }
+    auto op = previous()->type;
+    consumeOperandContinuationNewlines();
     auto right = parseAdd();
+    left = std::make_unique<BinaryOp>(llvm::SMRange{left->getStart(), right->getEnd()},
+                                      std::move(left), op, std::move(right));
+  }
+  return left;
+}
+
+auto Parser::parseBitwiseAnd() -> std::unique_ptr<Expression> {
+  auto left = parseShift();
+  while (true) {
+    while (check(TokenType::NEWLINE) && canPeek(1) && checkAny<TokenType::AMPERSAND>(1)) {
+      consume(TokenType::NEWLINE);
+    }
+    if (!advanceIfMatchAny<TokenType::AMPERSAND>()) {
+      break;
+    }
+    auto op = previous()->type;
+    consumeOperandContinuationNewlines();
+    auto right = parseShift();
+    left = std::make_unique<BinaryOp>(llvm::SMRange{left->getStart(), right->getEnd()},
+                                      std::move(left), op, std::move(right));
+  }
+  return left;
+}
+
+auto Parser::parseBitwiseXor() -> std::unique_ptr<Expression> {
+  auto left = parseBitwiseAnd();
+  while (true) {
+    while (check(TokenType::NEWLINE) && canPeek(1) && checkAny<TokenType::XOR>(1)) {
+      consume(TokenType::NEWLINE);
+    }
+    if (!advanceIfMatchAny<TokenType::XOR>()) {
+      break;
+    }
+    auto op = previous()->type;
+    consumeOperandContinuationNewlines();
+    auto right = parseBitwiseAnd();
+    left = std::make_unique<BinaryOp>(llvm::SMRange{left->getStart(), right->getEnd()},
+                                      std::move(left), op, std::move(right));
+  }
+  return left;
+}
+
+auto Parser::parseBitwiseOr() -> std::unique_ptr<Expression> {
+  auto left = parseBitwiseXor();
+  while (true) {
+    while (check(TokenType::NEWLINE) && canPeek(1) && checkAny<TokenType::PIPE>(1)) {
+      consume(TokenType::NEWLINE);
+    }
+    if (!advanceIfMatchAny<TokenType::PIPE>()) {
+      break;
+    }
+    auto op = previous()->type;
+    consumeOperandContinuationNewlines();
+    auto right = parseBitwiseXor();
     left = std::make_unique<BinaryOp>(llvm::SMRange{left->getStart(), right->getEnd()},
                                       std::move(left), op, std::move(right));
   }
@@ -1535,7 +1608,9 @@ auto Parser::parseAssignment() -> std::unique_ptr<Statement> {
 
   if (advanceIfMatchAny<TokenType::EQUAL, TokenType::PLUS_EQUAL, TokenType::MINUS_EQUAL,
                         TokenType::STAR_EQUAL, TokenType::SLASH_EQUAL, TokenType::MOD_EQUAL,
-                        TokenType::POWER_EQUAL, TokenType::NULL_COALESCE_EQUAL>()) {
+                        TokenType::POWER_EQUAL, TokenType::AMPERSAND_EQUAL,
+                        TokenType::PIPE_EQUAL, TokenType::XOR_EQUAL, TokenType::SHIFT_LEFT_EQUAL,
+                        TokenType::SHIFT_RIGHT_EQUAL, TokenType::NULL_COALESCE_EQUAL>()) {
     auto op = previous()->type;
     consumeOperandContinuationNewlines();
     auto expr = parseExpression();
@@ -1655,7 +1730,9 @@ auto Parser::parseStatement(bool isTopLevel) -> std::unique_ptr<Statement> {
   }
   if (checkAnyInLine<TokenType::EQUAL, TokenType::PLUS_EQUAL, TokenType::MINUS_EQUAL,
                      TokenType::STAR_EQUAL, TokenType::SLASH_EQUAL, TokenType::MOD_EQUAL,
-                     TokenType::POWER_EQUAL, TokenType::NULL_COALESCE_EQUAL>()) {
+                     TokenType::POWER_EQUAL, TokenType::AMPERSAND_EQUAL,
+                     TokenType::PIPE_EQUAL, TokenType::XOR_EQUAL, TokenType::SHIFT_LEFT_EQUAL,
+                     TokenType::SHIFT_RIGHT_EQUAL, TokenType::NULL_COALESCE_EQUAL>()) {
     return parseAssignment();
   }
 
