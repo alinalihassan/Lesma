@@ -15,11 +15,8 @@ if second is null {
     exit(2)
   }
 }
-if r.has_next() {
-  exit(3)
-}
 if r.next() is not null {
-  exit(4)
+  exit(3)
 }
 
 var xs = list<int>()
@@ -30,22 +27,22 @@ if only is null {
   exit(5)
 } else {
   if only != 5 {
-    exit(5)
+    exit(4)
   }
 }
 if it.next() is not null {
-  exit(6)
+  exit(5)
 }
 
 let bytes = str("A").iter()
 let byte = bytes.next()
 if byte is null {
-  exit(7)
+  exit(6)
 } else {
   if byte != 65 as uint8 {
-    exit(7)
+    exit(6)
   }
 }
 if bytes.next() is not null {
-  exit(8)
+  exit(7)
 }

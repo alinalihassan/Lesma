@@ -50,11 +50,8 @@ func __str_byte_is_ascii_whitespace(b: uint8) -> bool {
 
 /**
  * Iterates a sequence one value at a time.
- *
- * @returns true from has_next() while a value can still be read.
  */
 export trait Iterator<T> {
-  func has_next() -> bool
   func next() -> T?
 }
 
@@ -77,18 +74,19 @@ class range_iter impl Iterator<int> {
     self.stop = stop
     self.step = step
   }
-  func has_next() -> bool {
-    if self.step > 0 {
-      return self.current < self.stop
-    }
-    if self.step < 0 {
-      return self.current > self.stop
-    }
-    return false
-  }
   func next() -> int? {
-    if not self.has_next() {
-      return null
+    if self.step > 0 {
+      if self.current >= self.stop {
+        return null
+      }
+    } else {
+      if self.step < 0 {
+        if self.current <= self.stop {
+          return null
+        }
+      } else {
+        return null
+      }
     }
     let v = self.current
     self.current = self.current + self.step
@@ -154,11 +152,8 @@ export class list_iter<T> impl Iterator<T> {
   func new(buf: __buffer<T>) {
     self.storage = buf
   }
-  func has_next() -> bool {
-    return self.scan < __buffer_len(self.storage)
-  }
   func next() -> T? {
-    if not self.has_next() {
+    if self.scan >= __buffer_len(self.storage) {
       return null
     }
     var v = __buffer_get(self.storage, self.scan)
@@ -325,11 +320,8 @@ export class str_iter impl Iterator<uint8> {
     self.storage = s
     self.byte_len = strlen(self.storage)
   }
-  func has_next() -> bool {
-    return self.scan < self.byte_len
-  }
   func next() -> uint8? {
-    if not self.has_next() {
+    if self.scan >= self.byte_len {
       return null
     }
     var v = __cstr_byte_at(self.storage, self.scan)

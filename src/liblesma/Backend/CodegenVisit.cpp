@@ -1455,18 +1455,46 @@ auto Codegen::visit(const ForIn* node) -> void {
   } else {
     bCond->insertInto(parentFct);
     builder->SetInsertPoint(bCond);
-    auto hasNextValue = callMethodByName(node->getSpan(), iteratorValue.get(), "has_next");
-    builder->CreateCondBr(hasNextValue->getLlvmValue(), bLoop, bEnd);
+    auto nextValue = callMethodByName(node->getSpan(), iteratorValue.get(), "next");
+    if (nextValue == nullptr || nextValue->getType() == nullptr) {
+      throw CodegenError(node->getSpan(), "For-in iterator next() produced no value");
+    }
+    lesma::Type* nextType = nextValue->getType();
+    lesma::Type* payloadType = getOptionalPayloadType(nextType);
+    if (payloadType == nullptr) {
+      throw CodegenError(node->getSpan(), "For-in iterator next() must return an optional item");
+    }
+    lesma::Type* nullType = nullptr;
+    for (lesma::Type* member : nextType->getUnionMembers()) {
+      if (member != nullptr && member->is(BaseType::TY_NULL)) {
+        nullType = member;
+        break;
+      }
+    }
+    auto nullIndex = unionVariantIndexOf(nextType, nullType);
+    if (nullIndex == std::nullopt) {
+      throw CodegenError(node->getSpan(), "For-in iterator next() missing null union arm");
+    }
+    llvm::Value* nextAgg = nextValue->getLlvmValue();
+    if (nextAgg == nullptr) {
+      throw CodegenError(node->getSpan(), "For-in iterator next() has no lowered LLVM value");
+    }
+    if (llvm::isa<llvm::PointerType>(nextAgg->getType())) {
+      getOrCreateLlvmType(nextType);
+      nextAgg = builder->CreateLoad(nextType->getLlvmType(), nextAgg, "for.next.load");
+    }
+    llvm::Value* tagVal = builder->CreateExtractValue(nextAgg, {0U}, "for.next.tag");
+    llvm::Value* hasValue =
+        builder->CreateICmpNE(tagVal, llvm::ConstantInt::get(tagVal->getType(), *nullIndex));
+    builder->CreateCondBr(hasValue, bLoop, bEnd);
 
     emitForInLoopIteration(parentFct, node, savedScope, forBodyScope, bLoop, bInc, [&] {
-      auto nextValue = callMethodByName(node->getSpan(), iteratorValue.get(), "next");
-      if (nextValue != nullptr && nextValue->getType() != nullptr && loopVar != nullptr &&
-          loopVar->getType() != nullptr && nextValue->getType()->is(BaseType::TY_UNION) &&
-          !nextValue->getType()->isEqual(loopVar->getType())) {
-        nextValue =
-            materializeNarrowedUnionValue(nextValue.get(), loopVar->getType(), "for.next.narrow.tmp");
+      auto unwrapped = materializeNarrowedUnionValue(nextValue.get(), payloadType, "for.next.unwrap");
+      if (unwrapped != nullptr && loopVar != nullptr && loopVar->getType() != nullptr &&
+          !unwrapped->getType()->isEqual(loopVar->getType())) {
+        unwrapped = cast(node->getSpan(), unwrapped.get(), loopVar->getType());
       }
-      builder->CreateStore(nextValue->getLlvmValue(), loopVar->getLlvmValue());
+      builder->CreateStore(unwrapped->getLlvmValue(), loopVar->getLlvmValue());
     });
 
     bInc->insertInto(parentFct);

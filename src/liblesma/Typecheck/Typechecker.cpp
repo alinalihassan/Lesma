@@ -3964,17 +3964,16 @@ auto Typechecker::visit(const ForIn* node) -> void {
       throw TypeCheckError(
           node->getIterable()->getSpan(),
           "For-in requires an array type, Iterable with __buffer-backed first field, "
-          "or iter() returning Iterator (has_next/next), got {}",
+          "or iter() returning Iterator (next), got {}",
           iterableType != nullptr ? iterableType->toString() : "unknown");
-    }
-    Type* hasNextType = resolveMethodReturnType(iteratorType, "has_next", {}, node->getSpan());
-    if (hasNextType == nullptr || !hasNextType->is(BaseType::TY_BOOL)) {
-      throw TypeCheckError(node->getIterable()->getSpan(),
-                           "For-in iterator has_next() must return bool");
     }
     Type* nextType = resolveMethodReturnType(iteratorType, "next", {}, node->getSpan());
     if (nextType == nullptr) {
       throw TypeCheckError(node->getIterable()->getSpan(), "For-in iterator must define next()");
+    }
+    if (getOptionalPayloadType(nextType) == nullptr) {
+      throw TypeCheckError(node->getIterable()->getSpan(),
+                           "For-in iterator next() must return an optional item type");
     }
     loopVarType = loopItemTypeForNext(nextType);
   }
