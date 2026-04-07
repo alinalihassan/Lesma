@@ -6,8 +6,13 @@ if d.len() != 2 {
 if not d.has("a") {
   exit(1)
 }
-if d.get("a") != 1 {
+let a0 = d.get("a")
+if a0 is null {
   exit(1)
+} else {
+  if a0 != 1 {
+    exit(1)
+  }
 }
 if d["a"] != 1 {
   exit(1)
@@ -17,13 +22,23 @@ d.set("c", 3)
 if d.len() != 3 {
   exit(1)
 }
-if d.get("c") != 3 {
+let c = d.get("c")
+if c is null {
   exit(1)
+} else {
+  if c != 3 {
+    exit(1)
+  }
 }
 d.set("a", 9)
 
-if d.get("a") != 9 {
+let a1 = d.get("a")
+if a1 is null {
   exit(1)
+} else {
+  if a1 != 9 {
+    exit(1)
+  }
 }
 d["a"] = 8
 
@@ -35,8 +50,21 @@ if d.len() != 3 {
 }
 var n = {1: 10, 2: 20}
 
-if n.get(1) != 10 or n.get(2) != 20 {
+let one = n.get(1)
+let two = n.get(2)
+if one is null {
   exit(1)
+} else {
+  if one != 10 {
+    exit(1)
+  }
+}
+if two is null {
+  exit(1)
+} else {
+  if two != 20 {
+    exit(1)
+  }
 }
 if n[1] != 10 or n[2] != 20 {
   exit(1)

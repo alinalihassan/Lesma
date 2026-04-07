@@ -9,6 +9,14 @@ d.set("k", 99)
 if d.len() != 1 {
   exit(1)
 }
-if d.get("k") != 99 {
+let value = d.get("k")
+if value is null {
+  exit(1)
+} else {
+  if value != 99 {
+    exit(1)
+  }
+}
+if d.get("missing") is not null {
   exit(1)
 }

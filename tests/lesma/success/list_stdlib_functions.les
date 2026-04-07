@@ -8,8 +8,13 @@ xs.push(3)
 if xs.len() != 3 {
   exit(1)
 }
-if xs.pop() != 3 {
+let popped = xs.pop()
+if popped is null {
   exit(1)
+} else {
+  if popped != 3 {
+    exit(1)
+  }
 }
 var ys = xs.copy()
 ys.push(9)

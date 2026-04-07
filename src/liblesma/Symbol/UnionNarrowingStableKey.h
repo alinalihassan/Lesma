@@ -2,6 +2,7 @@
 
 #include <cstddef>
 #include <functional>
+#include <string>
 #include <string_view>
 
 #include "llvm/Support/SMLoc.h"
@@ -16,6 +17,7 @@ struct UnionNarrowingStableKey {
   std::string_view declarationFilePath;
   llvm::SMRange declarationSpan;
   const Value* fallbackAnchor = nullptr;
+  std::string accessPath;
 
   [[nodiscard]] friend bool operator==(UnionNarrowingStableKey a,
                                        UnionNarrowingStableKey b) noexcept {
@@ -24,10 +26,10 @@ struct UnionNarrowingStableKey {
     if (aLoc && bLoc) {
       return a.declarationFilePath == b.declarationFilePath &&
              a.declarationSpan.Start == b.declarationSpan.Start &&
-             a.declarationSpan.End == b.declarationSpan.End;
+             a.declarationSpan.End == b.declarationSpan.End && a.accessPath == b.accessPath;
     }
     if (!aLoc && !bLoc) {
-      return a.fallbackAnchor == b.fallbackAnchor;
+      return a.fallbackAnchor == b.fallbackAnchor && a.accessPath == b.accessPath;
     }
     return false;
   }
@@ -41,9 +43,12 @@ struct UnionNarrowingStableKeyHash {
            (h << 6U) + (h >> 2U);
       h ^= std::hash<const void*>{}(k.declarationSpan.End.getPointer()) + 0x9e3779b9U + (h << 6U) +
            (h >> 2U);
+      h ^= std::hash<std::string>{}(k.accessPath) + 0x9e3779b9U + (h << 6U) + (h >> 2U);
       return h;
     }
-    return std::hash<const void*>{}(k.fallbackAnchor);
+    std::size_t h = std::hash<const void*>{}(k.fallbackAnchor);
+    h ^= std::hash<std::string>{}(k.accessPath) + 0x9e3779b9U + (h << 6U) + (h >> 2U);
+    return h;
   }
 };
 
@@ -54,19 +59,34 @@ struct UnionNarrowingStableKeyEq {
   }
 };
 
-[[nodiscard]] inline auto unionNarrowingStableKeyForSymbol(Value* sym) -> UnionNarrowingStableKey {
+[[nodiscard]] inline auto unionNarrowingStableRootKeyForSymbol(Value* sym) -> UnionNarrowingStableKey {
   Value* anchor = sym;
   while (anchor != nullptr && anchor->getClosureSlotOuter() != nullptr) {
     anchor = anchor->getClosureSlotOuter();
   }
   if (anchor == nullptr) {
-    return {std::string_view{}, llvm::SMRange(), nullptr};
+    return {std::string_view{}, llvm::SMRange(), nullptr, ""};
   }
   llvm::SMRange span = anchor->getDeclarationSpan();
   if (span.isValid()) {
-    return {std::string_view(anchor->getDeclarationFilePath()), span, nullptr};
+    return {std::string_view(anchor->getDeclarationFilePath()), span, nullptr, ""};
   }
-  return {std::string_view{}, llvm::SMRange(), anchor};
+  return {std::string_view{}, llvm::SMRange(), anchor, ""};
+}
+
+[[nodiscard]] inline auto unionNarrowingStableKeyForSymbol(Value* sym,
+                                                           std::string accessPath = {})
+    -> UnionNarrowingStableKey {
+  UnionNarrowingStableKey key = unionNarrowingStableRootKeyForSymbol(sym);
+  key.accessPath = std::move(accessPath);
+  return key;
+}
+
+[[nodiscard]] inline auto unionNarrowingSameRoot(UnionNarrowingStableKey a,
+                                                 UnionNarrowingStableKey b) noexcept -> bool {
+  a.accessPath.clear();
+  b.accessPath.clear();
+  return a == b;
 }
 
 } // namespace lesma

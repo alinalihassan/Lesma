@@ -1,5 +1,10 @@
 // file(path).text() — run tests from repo root so the path resolves.
 let x = file("tests/lesma/success/file_api_fixture.txt")
-if x.text() != "lesma\n" {
+let contents = x.text()
+if contents is null {
   exit(1)
+} else {
+  if contents != "lesma\n" {
+    exit(1)
+  }
 }

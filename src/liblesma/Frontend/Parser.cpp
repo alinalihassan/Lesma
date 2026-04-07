@@ -405,6 +405,53 @@ auto Parser::consume(TokenType type, const std::string& errorMessage) -> Token* 
   return nullptr;
 }
 
+auto Parser::isTypeArgClose() -> bool {
+  return pendingTypeArgClosers > 0U || check(TokenType::GREATER) || check(TokenType::SHIFT_RIGHT);
+}
+
+auto Parser::consumeTypeArgClose(const std::string& errorMessage) -> void {
+  if (pendingTypeArgClosers > 0U) {
+    pendingTypeArgClosers--;
+    return;
+  }
+  if (check(TokenType::GREATER)) {
+    advance();
+    return;
+  }
+  if (check(TokenType::SHIFT_RIGHT)) {
+    advance();
+    pendingTypeArgClosers++;
+    return;
+  }
+  error(peek(), errorMessage);
+}
+
+auto Parser::isTypeArgClose(unsigned long off, unsigned short pendingTypeArgClosers) -> bool {
+  return pendingTypeArgClosers > 0U ||
+         (canPeek(off) &&
+          (peek(off)->type == TokenType::GREATER || peek(off)->type == TokenType::SHIFT_RIGHT));
+}
+
+auto Parser::consumeTypeArgClose(unsigned long& off, unsigned short& pendingTypeArgClosers) -> bool {
+  if (pendingTypeArgClosers > 0U) {
+    pendingTypeArgClosers--;
+    return true;
+  }
+  if (!canPeek(off)) {
+    return false;
+  }
+  if (peek(off)->type == TokenType::GREATER) {
+    off++;
+    return true;
+  }
+  if (peek(off)->type == TokenType::SHIFT_RIGHT) {
+    off++;
+    pendingTypeArgClosers++;
+    return true;
+  }
+  return false;
+}
+
 auto Parser::consumeNewline() -> Token* {
   if (check(TokenType::NEWLINE) || peek()->type == TokenType::EOF_TOKEN) {
     return advance();
@@ -561,7 +608,7 @@ auto Parser::parseAngleBracketTypeArgList() -> std::vector<std::unique_ptr<TypeE
     while (check(TokenType::NEWLINE)) {
       advance();
     }
-    if (check(TokenType::GREATER)) {
+    if (isTypeArgClose()) {
       break;
     }
     outs.push_back(parseType());
@@ -572,7 +619,7 @@ auto Parser::parseAngleBracketTypeArgList() -> std::vector<std::unique_ptr<TypeE
       break;
     }
   }
-  consume(TokenType::GREATER, "Expected '>' after type arguments");
+  consumeTypeArgClose("Expected '>' after type arguments");
   return outs;
 }
 
@@ -582,7 +629,7 @@ auto Parser::parseIgnoredTypeArgList() -> void {
   }
 
   consume(TokenType::LESS);
-  while (!check(TokenType::GREATER)) {
+  while (!isTypeArgClose()) {
     while (check(TokenType::NEWLINE)) {
       advance();
     }
@@ -591,11 +638,11 @@ auto Parser::parseIgnoredTypeArgList() -> void {
     while (check(TokenType::NEWLINE)) {
       advance();
     }
-    if (!check(TokenType::GREATER)) {
+    if (!isTypeArgClose()) {
       consume(TokenType::COMMA);
     }
   }
-  consume(TokenType::GREATER);
+  consumeTypeArgClose();
 }
 
 auto Parser::parseType() -> std::unique_ptr<TypeExpr> {
@@ -627,6 +674,18 @@ auto Parser::parseType() -> std::unique_ptr<TypeExpr> {
 }
 
 auto Parser::parseTypePrimary() -> std::unique_ptr<TypeExpr> {
+  auto wrapOptionalType = [this](std::unique_ptr<TypeExpr> baseType) -> std::unique_ptr<TypeExpr> {
+    while (advanceIfMatchAny<TokenType::QUESTION>()) {
+      auto* question = previous();
+      std::vector<std::unique_ptr<TypeExpr>> arms;
+      arms.push_back(std::move(baseType));
+      arms.push_back(std::make_unique<TypeExpr>(question->span, "null", TokenType::NIL));
+      baseType =
+          TypeExpr::makeUnionType(llvm::SMRange{arms.front()->getStart(), question->getEnd()},
+                                  arms.front()->getName() + "?", std::move(arms));
+    }
+    return baseType;
+  };
   auto* type = peek();
   if (check(TokenType::LEFT_PAREN)) {
     auto* left = consume(TokenType::LEFT_PAREN);
@@ -662,26 +721,28 @@ auto Parser::parseTypePrimary() -> std::unique_ptr<TypeExpr> {
         lexeme += ",";
       }
       lexeme += ")";
-      return TypeExpr::makeTupleType(llvm::SMRange{left->getStart(), right->getEnd()},
-                                     std::move(lexeme), std::move(elems));
+      return wrapOptionalType(TypeExpr::makeTupleType(
+          llvm::SMRange{left->getStart(), right->getEnd()}, std::move(lexeme), std::move(elems)));
     }
     std::ignore = consume(TokenType::RIGHT_PAREN);
-    return innerFirst;
+    return wrapOptionalType(std::move(innerFirst));
   }
   if (check(TokenType::STAR)) {
     advance();
     auto elementType = parseTypePrimary();
-    return std::make_unique<TypeExpr>(llvm::SMRange{type->getStart(), elementType->getEnd()},
-                                      "*" + elementType->getName(), TokenType::PTR_TYPE,
-                                      std::move(elementType));
+    return wrapOptionalType(std::make_unique<TypeExpr>(
+        llvm::SMRange{type->getStart(), elementType->getEnd()}, "*" + elementType->getName(),
+        TokenType::PTR_TYPE, std::move(elementType)));
   }
   if (checkAny<TokenType::INT_TYPE, TokenType::FLOAT_TYPE, TokenType::STRING_TYPE,
                TokenType::BOOL_TYPE, TokenType::INT8_TYPE, TokenType::INT16_TYPE,
                TokenType::INT32_TYPE, TokenType::UINT_TYPE, TokenType::UINT8_TYPE,
                TokenType::UINT16_TYPE, TokenType::UINT32_TYPE, TokenType::FLOAT32_TYPE,
-               TokenType::VOID_TYPE>()) {
+               TokenType::VOID_TYPE, TokenType::NIL>()) {
     advance();
-    return std::make_unique<TypeExpr>(type->span, type->lexeme, type->type);
+    std::string displayName = type->type == TokenType::NIL ? "null" : type->lexeme;
+    return wrapOptionalType(std::make_unique<TypeExpr>(type->span, std::move(displayName),
+                                                       type->type));
   }
   if (check(TokenType::FUNC)) {
     std::vector<std::unique_ptr<TypeExpr>> params;
@@ -723,8 +784,9 @@ auto Parser::parseTypePrimary() -> std::unique_ptr<TypeExpr> {
     // Function types are nominal (like classes): values are function pointers in LLVM, but the
     // type is written `func(...)` without a leading `*`. `*func(...)` is still accepted and lowers
     // to the same type.
-    return std::make_unique<TypeExpr>(llvm::SMRange{type->getStart(), ret->getEnd()}, lexeme,
-                                      TokenType::FUNC_TYPE, std::move(params), std::move(ret));
+    return wrapOptionalType(std::make_unique<TypeExpr>(llvm::SMRange{type->getStart(), ret->getEnd()},
+                                                       lexeme, TokenType::FUNC_TYPE,
+                                                       std::move(params), std::move(ret)));
   }
 
   if (check(TokenType::IDENTIFIER)) {
@@ -740,10 +802,12 @@ auto Parser::parseTypePrimary() -> std::unique_ptr<TypeExpr> {
         }
       }
       lexeme += ">";
-      return std::make_unique<TypeExpr>(llvm::SMRange{type->getStart(), greater->getEnd()}, lexeme,
-                                        TokenType::CUSTOM_TYPE, std::move(typeArgs));
+      return wrapOptionalType(std::make_unique<TypeExpr>(
+          llvm::SMRange{type->getStart(), greater->getEnd()}, lexeme, TokenType::CUSTOM_TYPE,
+          std::move(typeArgs)));
     }
-    return std::make_unique<TypeExpr>(type->span, type->lexeme, TokenType::CUSTOM_TYPE);
+    return wrapOptionalType(
+        std::make_unique<TypeExpr>(type->span, type->lexeme, TokenType::CUSTOM_TYPE));
   }
 
   error(type, fmt::format("Unknown type: {}", type->lexeme));
@@ -752,7 +816,12 @@ auto Parser::parseTypePrimary() -> std::unique_ptr<TypeExpr> {
 }
 
 auto Parser::parseTypeAt(unsigned long& off) -> bool {
-  if (!parseTypePrimaryAt(off)) {
+  unsigned short pendingTypeArgClosers = 0;
+  return parseTypeAt(off, pendingTypeArgClosers);
+}
+
+auto Parser::parseTypeAt(unsigned long& off, unsigned short& pendingTypeArgClosers) -> bool {
+  if (!parseTypePrimaryAt(off, pendingTypeArgClosers)) {
     return false;
   }
   while (canPeek(off) && peek(off)->type == TokenType::PIPE) {
@@ -760,7 +829,7 @@ auto Parser::parseTypeAt(unsigned long& off) -> bool {
     while (canPeek(off) && peek(off)->type == TokenType::NEWLINE) {
       off++;
     }
-    if (!parseTypePrimaryAt(off)) {
+    if (!parseTypePrimaryAt(off, pendingTypeArgClosers)) {
       return false;
     }
   }
@@ -768,24 +837,35 @@ auto Parser::parseTypeAt(unsigned long& off) -> bool {
 }
 
 auto Parser::parseTypePrimaryAt(unsigned long& off) -> bool {
+  unsigned short pendingTypeArgClosers = 0;
+  return parseTypePrimaryAt(off, pendingTypeArgClosers);
+}
+
+auto Parser::parseTypePrimaryAt(unsigned long& off, unsigned short& pendingTypeArgClosers) -> bool {
   if (!canPeek(off)) {
     return false;
   }
 
   if (check(TokenType::STAR, off)) {
     off++;
-    return parseTypePrimaryAt(off);
+    if (!parseTypePrimaryAt(off, pendingTypeArgClosers)) {
+      return false;
+    }
+    while (canPeek(off) && peek(off)->type == TokenType::QUESTION) {
+      off++;
+    }
+    return true;
   }
 
   if (check(TokenType::LEFT_PAREN, off)) {
     off++;
-    if (!parseTypeAt(off)) {
+    if (!parseTypeAt(off, pendingTypeArgClosers)) {
       return false;
     }
     if (canPeek(off) && peek(off)->type == TokenType::COMMA) {
       off++;
       while (canPeek(off) && peek(off)->type != TokenType::RIGHT_PAREN) {
-        if (!parseTypeAt(off)) {
+        if (!parseTypeAt(off, pendingTypeArgClosers)) {
           return false;
         }
         if (canPeek(off) && peek(off)->type == TokenType::COMMA) {
@@ -797,6 +877,9 @@ auto Parser::parseTypePrimaryAt(unsigned long& off) -> bool {
       return false;
     }
     off++;
+    while (canPeek(off) && peek(off)->type == TokenType::QUESTION) {
+      off++;
+    }
     return true;
   }
 
@@ -804,8 +887,11 @@ auto Parser::parseTypePrimaryAt(unsigned long& off) -> bool {
                TokenType::BOOL_TYPE, TokenType::INT8_TYPE, TokenType::INT16_TYPE,
                TokenType::INT32_TYPE, TokenType::UINT_TYPE, TokenType::UINT8_TYPE,
                TokenType::UINT16_TYPE, TokenType::UINT32_TYPE, TokenType::FLOAT32_TYPE,
-               TokenType::VOID_TYPE>(off)) {
+               TokenType::VOID_TYPE, TokenType::NIL>(off)) {
     off++;
+    while (canPeek(off) && peek(off)->type == TokenType::QUESTION) {
+      off++;
+    }
     return true;
   }
 
@@ -817,13 +903,13 @@ auto Parser::parseTypePrimaryAt(unsigned long& off) -> bool {
     }
     off++;
 
-    if (!parseTypeAt(off)) {
+    if (!parseTypeAt(off, pendingTypeArgClosers)) {
       return false;
     }
 
     while (canPeek(off) && peek(off)->type == TokenType::COMMA) {
       off++;
-      if (!parseTypeAt(off)) {
+      if (!parseTypeAt(off, pendingTypeArgClosers)) {
         return false;
       }
     }
@@ -835,9 +921,18 @@ auto Parser::parseTypePrimaryAt(unsigned long& off) -> bool {
 
     if (canPeek(off) && peek(off)->type == TokenType::ARROW) {
       off++;
-      return parseTypeAt(off);
+      if (!parseTypeAt(off, pendingTypeArgClosers)) {
+        return false;
+      }
+      while (canPeek(off) && peek(off)->type == TokenType::QUESTION) {
+        off++;
+      }
+      return true;
     }
 
+    while (canPeek(off) && peek(off)->type == TokenType::QUESTION) {
+      off++;
+    }
     return true;
   }
 
@@ -848,7 +943,7 @@ auto Parser::parseTypePrimaryAt(unsigned long& off) -> bool {
       while (canPeek(off) && peek(off)->type == TokenType::NEWLINE) {
         off++;
       }
-      if (!parseTypeAt(off)) {
+      if (!parseTypeAt(off, pendingTypeArgClosers)) {
         return false;
       }
       while (canPeek(off) && peek(off)->type == TokenType::NEWLINE) {
@@ -859,16 +954,18 @@ auto Parser::parseTypePrimaryAt(unsigned long& off) -> bool {
         while (canPeek(off) && peek(off)->type == TokenType::NEWLINE) {
           off++;
         }
-        if (!parseTypeAt(off)) {
+        if (!parseTypeAt(off, pendingTypeArgClosers)) {
           return false;
         }
         while (canPeek(off) && peek(off)->type == TokenType::NEWLINE) {
           off++;
         }
       }
-      if (!canPeek(off) || peek(off)->type != TokenType::GREATER) {
+      if (!consumeTypeArgClose(off, pendingTypeArgClosers)) {
         return false;
       }
+    }
+    while (canPeek(off) && peek(off)->type == TokenType::QUESTION) {
       off++;
     }
     return true;
@@ -877,7 +974,14 @@ auto Parser::parseTypePrimaryAt(unsigned long& off) -> bool {
   return false;
 }
 
-auto Parser::skipOneTypeAt(unsigned long& off) -> bool { return parseTypeAt(off); }
+auto Parser::skipOneTypeAt(unsigned long& off) -> bool {
+  unsigned short pendingTypeArgClosers = 0;
+  return skipOneTypeAt(off, pendingTypeArgClosers);
+}
+
+auto Parser::skipOneTypeAt(unsigned long& off, unsigned short& pendingTypeArgClosers) -> bool {
+  return parseTypeAt(off, pendingTypeArgClosers);
+}
 
 auto Parser::hasExplicitTypeArgsAndParen() -> bool {
   if (!(check(TokenType::IDENTIFIER) || check(TokenType::STRING_TYPE)) ||
@@ -885,28 +989,31 @@ auto Parser::hasExplicitTypeArgsAndParen() -> bool {
     return false;
   }
   unsigned long off = 2;
-  while (canPeek(off)) {
-    while (canPeek(off) && peek(off)->type == TokenType::NEWLINE) {
+  unsigned short pendingTypeArgClosers = 0;
+  while (canPeek(off) || pendingTypeArgClosers > 0U) {
+    while (pendingTypeArgClosers == 0U && canPeek(off) && peek(off)->type == TokenType::NEWLINE) {
       off++;
+    }
+    if (isTypeArgClose(off, pendingTypeArgClosers)) {
+      unsigned long closeOff = off;
+      unsigned short closePending = pendingTypeArgClosers;
+      if (!consumeTypeArgClose(closeOff, closePending)) {
+        return false;
+      }
+      return canPeek(closeOff) && peek(closeOff)->type == TokenType::LEFT_PAREN;
     }
     if (!canPeek(off)) {
       return false;
     }
-    if (peek(off)->type == TokenType::GREATER) {
-      return canPeek(off + 1) && peek(off + 1)->type == TokenType::LEFT_PAREN;
-    }
-    if (!skipOneTypeAt(off)) {
+    if (!skipOneTypeAt(off, pendingTypeArgClosers)) {
       return false;
     }
-    while (canPeek(off) && peek(off)->type == TokenType::NEWLINE) {
+    while (pendingTypeArgClosers == 0U && canPeek(off) && peek(off)->type == TokenType::NEWLINE) {
       off++;
     }
-    if (!canPeek(off)) {
-      return false;
-    }
-    if (peek(off)->type == TokenType::COMMA) {
+    if (pendingTypeArgClosers == 0U && canPeek(off) && peek(off)->type == TokenType::COMMA) {
       off++;
-    } else if (peek(off)->type != TokenType::GREATER) {
+    } else if (!isTypeArgClose(off, pendingTypeArgClosers)) {
       return false;
     }
   }
@@ -1172,7 +1279,7 @@ auto Parser::parseDot() -> std::unique_ptr<Expression> { return parsePostfix(); 
 auto Parser::parseUnary() -> std::unique_ptr<Expression> {
   // Handle unary operators recursively to allow chaining: - - x, * * ptr, etc.
   if (advanceIfMatchAny<TokenType::MINUS, TokenType::STAR, TokenType::AMPERSAND,
-                        TokenType::BANG>()) {
+                        TokenType::BANG, TokenType::TILDE>()) {
     auto* op = previous();
     consumeOperandContinuationNewlines();
     auto expr = parseUnary(); // Recursive call for chained unary operators
@@ -1257,7 +1364,7 @@ auto Parser::parseAdd() -> std::unique_ptr<Expression> {
 }
 
 auto Parser::parseCompare() -> std::unique_ptr<Expression> {
-  auto left = parseAdd();
+  auto left = parseCoalesce();
   while (true) {
     while (check(TokenType::NEWLINE) && canPeek(1) &&
            checkAny<TokenType::EQUAL_EQUAL, TokenType::BANG_EQUAL, TokenType::LESS,
@@ -1277,10 +1384,98 @@ auto Parser::parseCompare() -> std::unique_ptr<Expression> {
       left = std::make_unique<IsOp>(llvm::SMRange{left->getStart(), right->getEnd()},
                                     std::move(left), op, std::move(right));
     } else {
-      auto right = parseAdd();
+      auto right = parseCoalesce();
       left = std::make_unique<BinaryOp>(llvm::SMRange{left->getStart(), right->getEnd()},
                                         std::move(left), op, std::move(right));
     }
+  }
+  return left;
+}
+
+auto Parser::parseCoalesce() -> std::unique_ptr<Expression> {
+  auto left = parseBitwiseOr();
+  while (check(TokenType::NEWLINE) && canPeek(1) && checkAny<TokenType::NULL_COALESCE>(1)) {
+    consume(TokenType::NEWLINE);
+  }
+  if (!advanceIfMatchAny<TokenType::NULL_COALESCE>()) {
+    return left;
+  }
+  auto op = previous()->type;
+  consumeOperandContinuationNewlines();
+  auto right = parseCoalesce();
+  return std::make_unique<BinaryOp>(llvm::SMRange{left->getStart(), right->getEnd()},
+                                    std::move(left), op, std::move(right));
+}
+
+auto Parser::parseShift() -> std::unique_ptr<Expression> {
+  auto left = parseAdd();
+  while (true) {
+    while (check(TokenType::NEWLINE) && canPeek(1) &&
+           checkAny<TokenType::SHIFT_LEFT, TokenType::SHIFT_RIGHT>(1)) {
+      consume(TokenType::NEWLINE);
+    }
+    if (!advanceIfMatchAny<TokenType::SHIFT_LEFT, TokenType::SHIFT_RIGHT>()) {
+      break;
+    }
+    auto op = previous()->type;
+    consumeOperandContinuationNewlines();
+    auto right = parseAdd();
+    left = std::make_unique<BinaryOp>(llvm::SMRange{left->getStart(), right->getEnd()},
+                                      std::move(left), op, std::move(right));
+  }
+  return left;
+}
+
+auto Parser::parseBitwiseAnd() -> std::unique_ptr<Expression> {
+  auto left = parseShift();
+  while (true) {
+    while (check(TokenType::NEWLINE) && canPeek(1) && checkAny<TokenType::AMPERSAND>(1)) {
+      consume(TokenType::NEWLINE);
+    }
+    if (!advanceIfMatchAny<TokenType::AMPERSAND>()) {
+      break;
+    }
+    auto op = previous()->type;
+    consumeOperandContinuationNewlines();
+    auto right = parseShift();
+    left = std::make_unique<BinaryOp>(llvm::SMRange{left->getStart(), right->getEnd()},
+                                      std::move(left), op, std::move(right));
+  }
+  return left;
+}
+
+auto Parser::parseBitwiseXor() -> std::unique_ptr<Expression> {
+  auto left = parseBitwiseAnd();
+  while (true) {
+    while (check(TokenType::NEWLINE) && canPeek(1) && checkAny<TokenType::XOR>(1)) {
+      consume(TokenType::NEWLINE);
+    }
+    if (!advanceIfMatchAny<TokenType::XOR>()) {
+      break;
+    }
+    auto op = previous()->type;
+    consumeOperandContinuationNewlines();
+    auto right = parseBitwiseAnd();
+    left = std::make_unique<BinaryOp>(llvm::SMRange{left->getStart(), right->getEnd()},
+                                      std::move(left), op, std::move(right));
+  }
+  return left;
+}
+
+auto Parser::parseBitwiseOr() -> std::unique_ptr<Expression> {
+  auto left = parseBitwiseXor();
+  while (true) {
+    while (check(TokenType::NEWLINE) && canPeek(1) && checkAny<TokenType::PIPE>(1)) {
+      consume(TokenType::NEWLINE);
+    }
+    if (!advanceIfMatchAny<TokenType::PIPE>()) {
+      break;
+    }
+    auto op = previous()->type;
+    consumeOperandContinuationNewlines();
+    auto right = parseBitwiseXor();
+    left = std::make_unique<BinaryOp>(llvm::SMRange{left->getStart(), right->getEnd()},
+                                      std::move(left), op, std::move(right));
   }
   return left;
 }
@@ -1476,7 +1671,9 @@ auto Parser::parseAssignment() -> std::unique_ptr<Statement> {
 
   if (advanceIfMatchAny<TokenType::EQUAL, TokenType::PLUS_EQUAL, TokenType::MINUS_EQUAL,
                         TokenType::STAR_EQUAL, TokenType::SLASH_EQUAL, TokenType::MOD_EQUAL,
-                        TokenType::POWER_EQUAL>()) {
+                        TokenType::POWER_EQUAL, TokenType::AMPERSAND_EQUAL,
+                        TokenType::PIPE_EQUAL, TokenType::XOR_EQUAL, TokenType::SHIFT_LEFT_EQUAL,
+                        TokenType::SHIFT_RIGHT_EQUAL, TokenType::NULL_COALESCE_EQUAL>()) {
     auto op = previous()->type;
     consumeOperandContinuationNewlines();
     auto expr = parseExpression();
@@ -1596,7 +1793,9 @@ auto Parser::parseStatement(bool isTopLevel) -> std::unique_ptr<Statement> {
   }
   if (checkAnyInLine<TokenType::EQUAL, TokenType::PLUS_EQUAL, TokenType::MINUS_EQUAL,
                      TokenType::STAR_EQUAL, TokenType::SLASH_EQUAL, TokenType::MOD_EQUAL,
-                     TokenType::POWER_EQUAL>()) {
+                     TokenType::POWER_EQUAL, TokenType::AMPERSAND_EQUAL,
+                     TokenType::PIPE_EQUAL, TokenType::XOR_EQUAL, TokenType::SHIFT_LEFT_EQUAL,
+                     TokenType::SHIFT_RIGHT_EQUAL, TokenType::NULL_COALESCE_EQUAL>()) {
     return parseAssignment();
   }
 
@@ -1983,7 +2182,7 @@ auto Parser::parseClass() -> std::unique_ptr<Statement> {
             break;
           }
         }
-        consume(TokenType::GREATER, "Expected '>' after trait type arguments");
+        consumeTypeArgClose("Expected '>' after trait type arguments");
       }
       implTraitNames.push_back(traitName->lexeme);
       implTraitSpans.push_back(traitName->span);

@@ -1,0 +1,58 @@
+class Box {
+  var value: int
+
+  func new(value: int) {
+    self.value = value
+  }
+
+  func get() -> int {
+    return self.value
+  }
+}
+
+class Holder {
+  var current: Box? = null
+}
+
+func echo<T>(value: T?) -> T? {
+  return value
+}
+
+let none = echo<int>(null)
+if none is not null {
+  exit(1)
+}
+
+let some = echo<Box>(Box(4))
+if some is null {
+  exit(2)
+} else {
+  if some.get() != 4 {
+    exit(2)
+  }
+}
+
+var holder = Holder()
+holder.current = Box(7)
+if holder.current is null {
+  exit(3)
+} else {
+  if holder.current.get() != 7 {
+    exit(3)
+  }
+}
+
+var boxes: list<Box?> = []
+boxes.push(Box(9))
+if boxes[0] is null {
+  exit(4)
+} else {
+  if boxes[0].get() != 9 {
+    exit(4)
+  }
+}
+
+var emptyBoxes: list<Box?> = []
+if emptyBoxes.get(0) is not null {
+  exit(5)
+}

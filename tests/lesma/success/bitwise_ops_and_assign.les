@@ -1,0 +1,49 @@
+var anded: int = 6 & 3
+if anded != 2 {
+  exit(1)
+}
+
+var ored: int = 10 | 3
+if ored != 11 {
+  exit(2)
+}
+
+var xored: int = 10 ^ 3
+if xored != 9 {
+  exit(3)
+}
+
+var shifted: int = 2 + 3 << 2
+if shifted != 20 {
+  exit(4)
+}
+
+var shr: int = 33 >> 1
+if shr != 16 {
+  exit(5)
+}
+
+var inverted: int = ~5
+if inverted != -6 {
+  exit(6)
+}
+
+var value: int = 12
+value &= 10
+value |= 3
+value ^= 6
+value <<= 2
+value >>= 1
+if value != 26 {
+  exit(7)
+}
+
+var xs = [1, 2, 3]
+xs[1] ^= 3
+xs[2] <<= 1
+if xs[1] != 1 {
+  exit(8)
+}
+if xs[2] != 6 {
+  exit(9)
+}

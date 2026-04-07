@@ -1,0 +1,25 @@
+class Holder {
+  var current: int | str = 1
+}
+
+var holder = Holder()
+if holder.current is not int {
+  exit(1)
+} else {
+  holder.current = "ok"
+}
+
+if holder.current is not str {
+  exit(2)
+}
+
+var xs: list<int | str> = [1]
+if xs[0] is not int {
+  exit(3)
+} else {
+  xs[0] = "done"
+}
+
+if xs[0] is not str {
+  exit(4)
+}

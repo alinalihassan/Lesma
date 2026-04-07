@@ -1,0 +1,2 @@
+let x: uint8 = 1
+let y = x << 8

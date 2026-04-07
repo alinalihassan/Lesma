@@ -216,22 +216,36 @@ class Typechecker final : public ASTVisitor {
   auto resolveType(const TypeExpr* node) -> Type*;
   /** Returns the unified type for binary ops, or nullptr if incompatible. */
   auto getExtendedType(Type* left, Type* right) -> Type*;
+  /** For `T | null`, returns `T`; otherwise nullptr. */
+  [[nodiscard]] auto getOptionalPayloadType(Type* type) -> Type*;
+  /** Whether `type` itself includes `null` as a value (for example `T?` or `A | B | null`). */
+  [[nodiscard]] auto isNullableType(Type* type) -> bool;
   /** Whether a value of type 'from' can be assigned/cast to type 'to'. */
   auto isAssignableTo(Type* from, Type* to) -> bool;
   [[nodiscard]] static auto isSupportedUnionMemberType(Type* t) -> bool;
   [[nodiscard]] auto lookupUnionNarrowedType(Value* sym) const -> Type*;
+  [[nodiscard]] auto lookupUnionNarrowedType(const Expression* expr) const -> Type*;
+  [[nodiscard]] auto isStableSubscriptNarrowingIndex(const Expression* expr) const -> bool;
+  auto appendUnionNarrowingExprKey(std::string& out, const Expression* expr) const -> bool;
+  [[nodiscard]] auto tryGetUnionNarrowingKey(const Expression* expr) const
+      -> std::optional<UnionNarrowingStableKey>;
+  [[nodiscard]] auto tryGetIsOpUnionNarrowingKey(const IsOp* is) const
+      -> std::optional<UnionNarrowingStableKey>;
   auto fillUnionNarrowingForIfBlock(
       const If* node, unsigned blockIndex,
       std::unordered_map<UnionNarrowingStableKey, Type*, UnionNarrowingStableKeyHash,
                          UnionNarrowingStableKeyEq>& out) -> void;
   [[nodiscard]] static auto rhsTypeIsUnionMember(Type* unionTy, Type* rhs) -> bool;
-  void appendExcludedTypesFromPriorIsArms(const If* node, unsigned blockIndex, Value* sym,
+  void appendExcludedTypesFromPriorIsArms(const If* node, unsigned blockIndex,
+                                          const UnionNarrowingStableKey& key,
                                           Type* unionTy, std::vector<Type*>& excluded);
-  /** Drop \p sym from every active union-narrowing frame (e.g. after assignment through it). */
+  /** Drop narrowing rooted at \p sym from every active frame (e.g. after assignment through it). */
   void invalidateUnionNarrowingForSymbol(Value* sym);
   /** Outermost identifier-like storage for an assignment LHS (for invalidating narrowing on `a.b`
    *  or `a[i]`). */
   [[nodiscard]] auto rootStorageSymbolForAssignmentLhs(Expression* lhs) -> Value*;
+  /** Declared/storage type for a dot-assignment target, not the flow-narrowed read type. */
+  [[nodiscard]] auto assignmentStorageTypeForDotLhs(const DotOp* lhs, Type* fallbackType) -> Type*;
   /** Remove union arms equal to types in \p toExclude (each match removes at most one arm).
    *  Returns nullptr if no arm was removed or no arm would remain. */
   auto narrowUnionByExcludingMembers(Type* unionTy, const std::vector<Type*>& toExclude) -> Type*;
@@ -317,6 +331,10 @@ class Typechecker final : public ASTVisitor {
   void mergeMethodGenericParamsFromArgumentsWhenNoExplicitTypeArgs(
       const FuncCall* fc, Type* methodType, const std::vector<Type*>& methodArgTypes,
       std::unordered_map<std::string, Type*>& traitBoundSubs, llvm::SMRange span);
+  void mergeInferredGenericBindings(
+      std::unordered_map<std::string, Type*>& targetBindings,
+      const std::unordered_map<std::string, Type*>& inferredBindings, llvm::SMRange span,
+      const std::vector<std::string>* allowedGenericNames = nullptr);
   [[nodiscard]] auto traitRequirementParamLookupTypes(Type* selfPtr, const FuncDecl* req)
       -> std::vector<Type*>;
 

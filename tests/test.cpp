@@ -488,11 +488,40 @@ TEST(FormatterTests, FormatSourceIsParseStable) {
   EXPECT_EQ(formattedAgain, *formatted);
 }
 
+TEST(FormatterTests, FormatSourceCanonicalizesOptionalTypeSyntax) {
+  auto formatted =
+      formatSource("let value: int | null = null\n", "optional_type_test.les", 100);
+  ASSERT_TRUE(formatted.has_value()) << formatted.error().message;
+  EXPECT_EQ(*formatted, "let value: int? = null\n");
+}
+
+TEST(FormatterTests, FormatSourcePreservesNilCoalescingPrecedence) {
+  auto formatted = formatSource("let ok = maybe ?? 0 == 1\n", "coalesce_test.les", 100);
+  ASSERT_TRUE(formatted.has_value()) << formatted.error().message;
+  EXPECT_EQ(*formatted, "let ok = maybe ?? 0 == 1\n");
+}
+
+TEST(FormatterTests, FormatSourcePreservesNullCoalescingAssignment) {
+  auto formatted = formatSource("var maybe: int? = null\nmaybe ?" "?= 1\n",
+                                "coalesce_assign_test.les", 100);
+  ASSERT_TRUE(formatted.has_value()) << formatted.error().message;
+  EXPECT_EQ(*formatted, "var maybe: int? = null\nmaybe ?" "?= 1\n");
+}
+
 TEST(FormatterTests, FormatSourcePreservesAddressOfUnaryOperator) {
   auto formatted = formatSource("var x = 1\nlet p: *int = &x\n", "address_of_test.les", 100);
   ASSERT_TRUE(formatted.has_value()) << formatted.error().message;
   EXPECT_NE(formatted->find("&x"), std::string::npos);
   EXPECT_EQ(formatted->find("?x"), std::string::npos);
+}
+
+TEST(FormatterTests, FormatSourcePreservesBitwisePipeOperator) {
+  auto formatted =
+      formatSource("func combine(lhs: int, rhs: int) -> int {\nreturn lhs | rhs\n}\n",
+                   "bitwise_pipe_test.les", 100);
+  ASSERT_TRUE(formatted.has_value()) << formatted.error().message;
+  EXPECT_NE(formatted->find("lhs | rhs"), std::string::npos);
+  EXPECT_EQ(formatted->find("lhs ? rhs"), std::string::npos);
 }
 
 TEST(FormatterTests, FormatSourcePreservesInferredExpressionLambdaReturnType) {

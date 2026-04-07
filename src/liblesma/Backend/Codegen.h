@@ -276,6 +276,10 @@ protected:
       -> std::optional<unsigned>;
   auto emitUnionPayloadLoadFromSlot(llvm::Value* unionAllocaPtr, lesma::Type* unionTy,
                                     lesma::Type* memberTy) -> llvm::Value*;
+  [[nodiscard]] auto getOptionalPayloadType(lesma::Type* type) const -> lesma::Type*;
+  auto materializeNarrowedUnionValue(lesma::Value* value, lesma::Type* narrowedType,
+                                     const std::string& tempName)
+      -> std::unique_ptr<lesma::Value>;
 
   auto linkObjectFileWithLld(const std::string& objFilename) -> void;
 
@@ -604,6 +608,13 @@ private:
   [[nodiscard]] auto
   emitPromotedArithmetic(llvm::SMRange span, TokenType op, std::unique_ptr<lesma::Value>& left,
                          std::unique_ptr<lesma::Value>& right, lesma::Type* finalType)
+      -> std::unique_ptr<lesma::Value>;
+  [[nodiscard]] auto emitPromotedBitwise(llvm::SMRange span, TokenType op,
+                                         std::unique_ptr<lesma::Value>& left,
+                                         std::unique_ptr<lesma::Value>& right,
+                                         lesma::Type* finalType) -> std::unique_ptr<lesma::Value>;
+  [[nodiscard]] auto emitPowerOperation(llvm::SMRange span, std::unique_ptr<lesma::Value>& left,
+                                        std::unique_ptr<lesma::Value>& right, lesma::Type* finalType)
       -> std::unique_ptr<lesma::Value>;
   void emitForInLoopIteration(llvm::Function* parentFct, const ForIn* node, SymbolTable* outerScope,
                               SymbolTable* loopBodyScope, llvm::BasicBlock* bLoop,

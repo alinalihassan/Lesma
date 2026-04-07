@@ -329,15 +329,59 @@ auto Codegen::genListIntrinsicCall(const FuncCall* node,
   }
   case BuiltinIntrinsicKind::BufferPop: {
     auto* length = emitListLength(listType, listHandle);
-    emitListBoundsCheck(node->getSpan(), listType, listHandle,
-                        builder->CreateSub(length, builder->getInt64(1)));
+    std::vector<Type*> members = {
+        listType->getElementType(),
+        cacheType(std::make_unique<Type>(BaseType::TY_NULL, builder->getPtrTy()))};
+    auto [canonical, displayName] = TypeUtils::canonicalizeUnionMembers(std::move(members));
+    if (canonical.size() == 1U) {
+      auto* onlyType = canonical.front();
+      return std::make_unique<Value>("", onlyType,
+                                     llvm::ConstantPointerNull::getNullValue(builder->getPtrTy()));
+    }
+    auto optionalType = std::make_unique<Type>(BaseType::TY_UNION);
+    optionalType->setDisplayName(displayName);
+    optionalType->setUnionMembers(std::move(canonical));
+    Type* popType = cacheType(std::move(optionalType));
+    getOrCreateLlvmType(popType);
+
+    llvm::Function* parentFunction = builder->GetInsertBlock()->getParent();
+    auto* emptyBlock =
+        llvm::BasicBlock::Create(theModule->getContext(), "list.pop.empty", parentFunction);
+    auto* valueBlock =
+        llvm::BasicBlock::Create(theModule->getContext(), "list.pop.value", parentFunction);
+    auto* mergeBlock =
+        llvm::BasicBlock::Create(theModule->getContext(), "list.pop.merge", parentFunction);
+    builder->CreateCondBr(builder->CreateICmpEQ(length, builder->getInt64(0)), emptyBlock,
+                          valueBlock);
+
+    builder->SetInsertPoint(emptyBlock);
+    auto* nullType = cacheType(std::make_unique<Type>(BaseType::TY_NULL, builder->getPtrTy()));
+    Value nullValue("", nullType, llvm::ConstantPointerNull::getNullValue(builder->getPtrTy()));
+    auto nullIndex = unionVariantIndexOf(popType, nullType);
+    if (nullIndex == std::nullopt) {
+      throw CodegenError(node->getSpan(), "pop() could not resolve null union arm");
+    }
+    auto nullWrapped =
+        emitUnionWrapValue(node->getSpan(), &nullValue, popType, *nullIndex);
+    builder->CreateBr(mergeBlock);
+
+    builder->SetInsertPoint(valueBlock);
     auto* newLength = builder->CreateSub(length, builder->getInt64(1), "list.pop.len");
     auto* elementPtr =
         builder->CreateGEP(getListStoredElementType(listType),
                            emitListDataPtr(listType, listHandle), newLength, "list.pop.ptr");
     auto* poppedValue = builder->CreateLoad(getListStoredElementType(listType), elementPtr);
     emitStoreListLength(listType, listHandle, newLength);
-    return std::make_unique<Value>("", listType->getElementType(), poppedValue);
+    Value popped("", listType->getElementType(), poppedValue);
+    auto poppedWrapped = cast(node->getSpan(), &popped, popType);
+    llvm::BasicBlock* valueIncoming = builder->GetInsertBlock();
+    builder->CreateBr(mergeBlock);
+
+    builder->SetInsertPoint(mergeBlock);
+    auto* phi = builder->CreatePHI(popType->getLlvmType(), 2, "list.pop.result");
+    phi->addIncoming(nullWrapped->getLlvmValue(), emptyBlock);
+    phi->addIncoming(poppedWrapped->getLlvmValue(), valueIncoming);
+    return std::make_unique<Value>("", popType, phi);
   }
   default:
     break;

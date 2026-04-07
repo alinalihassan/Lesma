@@ -1,0 +1,4 @@
+let x: int? = null
+if x ?? "Hello" == "Hello" {
+  exit(1)
+}

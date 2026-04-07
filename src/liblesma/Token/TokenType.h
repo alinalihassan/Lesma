@@ -28,10 +28,14 @@ enum class TokenType : std::uint8_t {
   STAR,
   MOD,
   POWER,
+  XOR,
   AMPERSAND,
+  TILDE,
   RANGE,
   ELLIPSIS,
   PIPE,
+  QUESTION,
+  NULL_COALESCE,
 
   // One or two character tokens.
   BANG,
@@ -49,6 +53,14 @@ enum class TokenType : std::uint8_t {
   STAR_EQUAL,
   MOD_EQUAL,
   POWER_EQUAL,
+  XOR_EQUAL,
+  AMPERSAND_EQUAL,
+  PIPE_EQUAL,
+  SHIFT_LEFT,
+  SHIFT_LEFT_EQUAL,
+  SHIFT_RIGHT,
+  SHIFT_RIGHT_EQUAL,
+  NULL_COALESCE_EQUAL,
 
   // Literals.
   IDENTIFIER,

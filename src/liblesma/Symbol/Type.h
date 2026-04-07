@@ -25,6 +25,7 @@ enum class BaseType : std::uint8_t {
   TY_PTR,
   TY_ARRAY,
   TY_VOID,
+  TY_NULL,
   TY_FUNCTION,
   TY_GENERIC,
   TY_CLASS,
@@ -415,6 +416,7 @@ private:
     case BaseType::TY_STRING:
     case BaseType::TY_BOOL:
     case BaseType::TY_VOID:
+    case BaseType::TY_NULL:
     case BaseType::TY_INVALID:
     case BaseType::TY_IMPORT:
       return true;
@@ -546,6 +548,9 @@ public:
     case BaseType::TY_VOID:
       result = "void";
       break;
+    case BaseType::TY_NULL:
+      result = "null";
+      break;
     case BaseType::TY_FUNCTION:
       result = "Function";
       break;
@@ -584,6 +589,21 @@ public:
       if (!displayName.empty()) {
         result = displayName;
         break;
+      }
+      if (unionMembers.size() == 2U) {
+        Type* nonNullMember = nullptr;
+        bool sawNullMember = false;
+        for (Type* member : unionMembers) {
+          if (member != nullptr && member->is(BaseType::TY_NULL)) {
+            sawNullMember = true;
+            continue;
+          }
+          nonNullMember = member;
+        }
+        if (sawNullMember && nonNullMember != nullptr) {
+          result = nonNullMember->toString() + "?";
+          break;
+        }
       }
       for (size_t i = 0; i < unionMembers.size(); ++i) {
         if (i > 0) {

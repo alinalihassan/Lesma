@@ -6,10 +6,10 @@ class CountUpIter impl Iterator<int> {
     self.i = start
     self.last = last
   }
-  func has_next() -> bool {
-    return self.i < self.last
-  }
-  func next() -> int {
+  func next() -> int? {
+    if self.i >= self.last {
+      return null
+    }
     var v = self.i
     self.i = self.i + 1
     return v
@@ -44,10 +44,10 @@ class OnceIter<T> impl Iterator<T> {
     self.one = v
     self.done = false
   }
-  func has_next() -> bool {
-    return not self.done
-  }
-  func next() -> T {
+  func next() -> T? {
+    if self.done {
+      return null
+    }
     self.done = true
     return self.one
   }

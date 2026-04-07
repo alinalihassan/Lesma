@@ -70,6 +70,9 @@ auto getTypeMangledName(llvm::SMRange span, Type* type) -> std::string {
   if (type->is(BaseType::TY_VOID)) {
     return "void";
   }
+  if (type->is(BaseType::TY_NULL)) {
+    return "null";
+  }
   if (type->is(BaseType::TY_ARRAY)) {
     return "(arr_" + getTypeMangledName(span, type->getElementType()) + ")";
   }

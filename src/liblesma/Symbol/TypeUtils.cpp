@@ -128,4 +128,27 @@ auto canonicalizeUnionMembers(std::vector<Type*> arms)
   }
   return {std::move(unique), std::move(displayName)};
 }
+
+auto computeOptionalPayloadMembers(Type* type) -> std::optional<OptionalPayloadMembers> {
+  if (type == nullptr || !type->is(BaseType::TY_UNION)) {
+    return std::nullopt;
+  }
+  std::vector<Type*> payloadMembers;
+  bool sawNull = false;
+  for (Type* member : type->getUnionMembers()) {
+    if (member == nullptr) {
+      continue;
+    }
+    if (member->is(BaseType::TY_NULL)) {
+      sawNull = true;
+      continue;
+    }
+    payloadMembers.push_back(member);
+  }
+  if (!sawNull || payloadMembers.empty()) {
+    return std::nullopt;
+  }
+  auto [canonical, displayName] = canonicalizeUnionMembers(std::move(payloadMembers));
+  return OptionalPayloadMembers{std::move(canonical), std::move(displayName)};
+}
 } // namespace lesma::TypeUtils

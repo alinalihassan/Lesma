@@ -1,0 +1,71 @@
+class Box {
+  var value: int
+
+  func new(value: int) {
+    self.value = value
+  }
+
+  func get() -> int {
+    return self.value
+  }
+}
+
+var maybe: int? = null
+if maybe ?? 0 != 0 {
+  exit(1)
+}
+maybe = 5
+if maybe ?? 0 != 5 {
+  exit(2)
+}
+
+var one: int? = 1
+if one ?? 0 == 1 {
+  print("")
+} else {
+  exit(3)
+}
+
+func fallback() -> int {
+  return 7
+}
+
+func fail() -> int {
+  exit(91)
+  return 91
+}
+
+var present: int? = 9
+if present ?? fail() != 9 {
+  exit(4)
+}
+
+var absent: int? = null
+if absent ?? fallback() != 7 {
+  exit(5)
+}
+
+var missingA: int? = null
+var missingB: int? = null
+if missingA ?? missingB ?? 12 != 12 {
+  exit(6)
+}
+
+missingB = 6
+if missingA ?? missingB ?? 12 != 6 {
+  exit(7)
+}
+
+var scores: dict<str, int> = {"one": 1}
+if scores.get("missing") ?? 0 != 0 {
+  exit(8)
+}
+if scores.get("one") ?? 0 != 1 {
+  exit(9)
+}
+
+var maybeBox: Box? = null
+let box = maybeBox ?? Box(11)
+if box.get() != 11 {
+  exit(10)
+}

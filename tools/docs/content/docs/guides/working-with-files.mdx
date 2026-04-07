@@ -13,12 +13,16 @@ values to C, see [Foreign Function Interface](/docs/language/ffi).
 
 ## Read a whole file as text
 
-`text()` reads the file into a **`str`**. On failure (missing file, I/O error), you get an empty
-string—check the result if you care about errors.
+`text()` reads the file into a **`str?`**. On failure (missing file, I/O error), you get
+**`null`**.
 
 ```les
 let data = file("notes.txt").text()
-print(data)
+if data is null {
+    print("missing")
+} else {
+    print(data)
+}
 ```
 
 ## Write text to a path
@@ -31,7 +35,7 @@ file.write("out.txt", "hello\n")
 
 You can also copy a file by reading `text()` from one path and writing that string to another, or
 use the `file.write` overload that accepts a `file` value when you want to duplicate contents without
-an intermediate `str`.
+an intermediate `str`. If the source file cannot be read, that overload does nothing.
 
 ## Delete a file
 

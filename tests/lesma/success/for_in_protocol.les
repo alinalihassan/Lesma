@@ -7,10 +7,10 @@ class RangeIter impl Iterator<int> {
     self.current = start
     self.last = last
   }
-  func has_next() -> bool {
-    return self.current < self.last
-  }
-  func next() -> int {
+  func next() -> int? {
+    if self.current >= self.last {
+      return null
+    }
     let value = self.current
     self.current = self.current + 1
     return value

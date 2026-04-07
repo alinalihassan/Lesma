@@ -33,6 +33,18 @@ inline auto getBinaryOperatorName(TokenType op) -> std::optional<std::string_vie
     return "__operator_divide";
   case TokenType::MOD:
     return "__operator_modulo";
+  case TokenType::POWER:
+    return "__operator_power";
+  case TokenType::AMPERSAND:
+    return "__operator_bitwise_and";
+  case TokenType::PIPE:
+    return "__operator_bitwise_or";
+  case TokenType::XOR:
+    return "__operator_bitwise_xor";
+  case TokenType::SHIFT_LEFT:
+    return "__operator_shift_left";
+  case TokenType::SHIFT_RIGHT:
+    return "__operator_shift_right";
   case TokenType::EQUAL_EQUAL:
     return "__operator_equal";
   case TokenType::BANG_EQUAL:
@@ -57,6 +69,8 @@ inline auto getUnaryOperatorName(TokenType op) -> std::optional<std::string_view
   case TokenType::BANG:
   case TokenType::NOT:
     return "__operator_not";
+  case TokenType::TILDE:
+    return "__operator_bitwise_not";
   default:
     return std::nullopt;
   }
@@ -98,6 +112,24 @@ inline auto isOverloadableDeclarationToken(TokenType op) -> bool {
   if (mangled == "__operator_modulo") {
     return "operator %";
   }
+  if (mangled == "__operator_power") {
+    return "operator **";
+  }
+  if (mangled == "__operator_bitwise_and") {
+    return "operator &";
+  }
+  if (mangled == "__operator_bitwise_or") {
+    return "operator |";
+  }
+  if (mangled == "__operator_bitwise_xor") {
+    return "operator ^";
+  }
+  if (mangled == "__operator_shift_left") {
+    return "operator <<";
+  }
+  if (mangled == "__operator_shift_right") {
+    return "operator >>";
+  }
   if (mangled == "__operator_equal") {
     return "operator ==";
   }
@@ -118,6 +150,9 @@ inline auto isOverloadableDeclarationToken(TokenType op) -> bool {
   }
   if (mangled == "__operator_not") {
     return "operator not";
+  }
+  if (mangled == "__operator_bitwise_not") {
+    return "operator ~";
   }
   return std::nullopt;
 }

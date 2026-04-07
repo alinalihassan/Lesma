@@ -58,9 +58,19 @@ constexpr int INTERPOLATION_FLAT_WIDTH = 10'000;
   case TokenType::MOD:
     return "%";
   case TokenType::POWER:
+    return "**";
+  case TokenType::XOR:
     return "^";
   case TokenType::AMPERSAND:
     return "&";
+  case TokenType::PIPE:
+    return "|";
+  case TokenType::TILDE:
+    return "~";
+  case TokenType::SHIFT_LEFT:
+    return "<<";
+  case TokenType::SHIFT_RIGHT:
+    return ">>";
   case TokenType::EQUAL_EQUAL:
     return "==";
   case TokenType::BANG_EQUAL:
@@ -85,6 +95,8 @@ constexpr int INTERPOLATION_FLAT_WIDTH = 10'000;
     return "is";
   case TokenType::IS_NOT:
     return "is not";
+  case TokenType::NULL_COALESCE:
+    return "??";
   case TokenType::EQUAL:
     return "=";
   case TokenType::PLUS_EQUAL:
@@ -98,7 +110,19 @@ constexpr int INTERPOLATION_FLAT_WIDTH = 10'000;
   case TokenType::MOD_EQUAL:
     return "%=";
   case TokenType::POWER_EQUAL:
+    return "**=";
+  case TokenType::AMPERSAND_EQUAL:
+    return "&=";
+  case TokenType::PIPE_EQUAL:
+    return "|=";
+  case TokenType::XOR_EQUAL:
     return "^=";
+  case TokenType::SHIFT_LEFT_EQUAL:
+    return "<<=";
+  case TokenType::SHIFT_RIGHT_EQUAL:
+    return ">>=";
+  case TokenType::NULL_COALESCE_EQUAL:
+    return "?" "?=";
   default:
     return "?";
   }
@@ -137,15 +161,26 @@ constexpr int INTERPOLATION_FLAT_WIDTH = 10'000;
       case TokenType::GREATER:
       case TokenType::GREATER_EQUAL:
         return 30;
+      case TokenType::NULL_COALESCE:
+        return 35;
+      case TokenType::PIPE:
+        return 36;
+      case TokenType::XOR:
+        return 37;
+      case TokenType::AMPERSAND:
+        return 38;
+      case TokenType::SHIFT_LEFT:
+      case TokenType::SHIFT_RIGHT:
+        return 45;
       case TokenType::PLUS:
       case TokenType::MINUS:
-        return 40;
+        return 50;
       case TokenType::STAR:
       case TokenType::SLASH:
       case TokenType::MOD:
-        return 50;
-      case TokenType::POWER:
         return 60;
+      case TokenType::POWER:
+        return 70;
       default:
         return 0;
       }
@@ -968,8 +1003,22 @@ private:
       return wrapDelimited("(", elements, ")");
     }
     case TokenType::UNION_TYPE: {
+      std::vector<TypeExpr*> unionArms = type->getParams();
+      if (unionArms.size() == 2U) {
+        TypeExpr* nonNullArm = nullptr;
+        for (TypeExpr* arm : unionArms) {
+          if (arm != nullptr && arm->getType() == TokenType::NIL) {
+            continue;
+          }
+          nonNullArm = arm;
+        }
+        if (nonNullArm != nullptr &&
+            std::ranges::any_of(unionArms, [](TypeExpr* arm) { return arm->getType() == TokenType::NIL; })) {
+          return docs({formatType(nonNullArm), docText("?")});
+        }
+      }
       std::vector<Doc> arms;
-      for (TypeExpr* arm : type->getParams()) {
+      for (TypeExpr* arm : unionArms) {
         arms.push_back(formatType(arm));
       }
       return docJoin(docText(" | "), arms);

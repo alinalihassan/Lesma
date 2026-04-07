@@ -1,0 +1,94 @@
+enum Kind {
+  START
+  STOP
+}
+
+class Box {
+  var value: int
+
+  func new(value: int) {
+    self.value = value
+  }
+
+  func get() -> int {
+    return self.value
+  }
+}
+
+var d: dict<
+  str,
+  int | float | Box | Kind,
+> = {"count": 1, "ratio": 2.5, "box": Box(7), "kind": Kind.START}
+
+d.set("more", Box(9))
+d.set("state", Kind.STOP)
+
+let count = d.get("count")
+if count is null {
+  exit(1)
+} else if count is int {
+  if count != 1 {
+    exit(1)
+  }
+} else {
+  exit(1)
+}
+
+let ratio = d.get("ratio")
+if ratio is null {
+  exit(2)
+} else if ratio is float {
+  if ratio < 2.49 or ratio > 2.51 {
+    exit(2)
+  }
+} else {
+  exit(2)
+}
+
+let box = d.get("box")
+if box is null {
+  exit(3)
+} else if box is Box {
+  if box.get() != 7 {
+    exit(3)
+  }
+} else {
+  exit(3)
+}
+
+let kind = d.get("kind")
+if kind is null {
+  exit(4)
+} else if kind is Kind {
+  if kind != Kind.START {
+    exit(4)
+  }
+} else {
+  exit(4)
+}
+
+let more = d["more"]
+if more is Box {
+  if more.get() != 9 {
+    exit(5)
+  }
+} else {
+  exit(5)
+}
+
+let state = d["state"]
+if state is Kind {
+  if state != Kind.STOP {
+    exit(6)
+  }
+} else {
+  exit(6)
+}
+
+if d.get("missing") is not null {
+  exit(7)
+}
+
+if d.len() != 6 {
+  exit(8)
+}

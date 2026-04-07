@@ -78,7 +78,18 @@ auto Lexer::scanOne(bool continuation) -> std::unique_ptr<Token> {
   case ',':
     return makeToken(TokenType::COMMA);
   case '|':
+    if (matchAndAdvance('=')) {
+      return makeToken(TokenType::PIPE_EQUAL);
+    }
     return makeToken(TokenType::PIPE);
+  case '?':
+    if (matchAndAdvance('?')) {
+      if (matchAndAdvance('=')) {
+        return makeToken(TokenType::NULL_COALESCE_EQUAL);
+      }
+      return makeToken(TokenType::NULL_COALESCE);
+    }
+    return makeToken(TokenType::QUESTION);
   case '.': {
     if (matchAndAdvance('.')) {
       if (matchAndAdvance('.')) {
@@ -110,13 +121,24 @@ auto Lexer::scanOne(bool continuation) -> std::unique_ptr<Token> {
   case ';':
     return makeToken(TokenType::SEMICOLON);
   case '*': {
+    if (matchAndAdvance('*')) {
+      if (matchAndAdvance('=')) {
+        return makeToken(TokenType::POWER_EQUAL);
+      }
+      return makeToken(TokenType::POWER);
+    }
     if (matchAndAdvance('=')) {
       return makeToken(TokenType::STAR_EQUAL);
     }
     return makeToken(TokenType::STAR);
   }
   case '&':
+    if (matchAndAdvance('=')) {
+      return makeToken(TokenType::AMPERSAND_EQUAL);
+    }
     return makeToken(TokenType::AMPERSAND);
+  case '~':
+    return makeToken(TokenType::TILDE);
   case '!':
     return makeToken(matchAndAdvance('=') ? TokenType::BANG_EQUAL : TokenType::BANG);
   case '=': {
@@ -130,8 +152,20 @@ auto Lexer::scanOne(bool continuation) -> std::unique_ptr<Token> {
     return makeToken(TokenType::EQUAL);
   }
   case '<':
+    if (matchAndAdvance('<')) {
+      if (matchAndAdvance('=')) {
+        return makeToken(TokenType::SHIFT_LEFT_EQUAL);
+      }
+      return makeToken(TokenType::SHIFT_LEFT);
+    }
     return makeToken(matchAndAdvance('=') ? TokenType::LESS_EQUAL : TokenType::LESS);
   case '>':
+    if (matchAndAdvance('>')) {
+      if (matchAndAdvance('=')) {
+        return makeToken(TokenType::SHIFT_RIGHT_EQUAL);
+      }
+      return makeToken(TokenType::SHIFT_RIGHT);
+    }
     return makeToken(matchAndAdvance('=') ? TokenType::GREATER_EQUAL : TokenType::GREATER);
   case '/': {
     if (matchAndAdvance('=')) {
@@ -153,9 +187,9 @@ auto Lexer::scanOne(bool continuation) -> std::unique_ptr<Token> {
   }
   case '^': {
     if (matchAndAdvance('=')) {
-      return makeToken(TokenType::POWER_EQUAL);
+      return makeToken(TokenType::XOR_EQUAL);
     }
-    return makeToken(TokenType::POWER);
+    return makeToken(TokenType::XOR);
   }
   case '\\':
     c = advance();

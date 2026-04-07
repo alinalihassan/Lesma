@@ -1,0 +1,31 @@
+let xs: list<list<int>> = [[1, 2], [3]]
+
+class Box<T> {
+  var value: T
+
+  func new(value: T) {
+    self.value = value
+  }
+}
+
+func echo<T>(value: T) -> T {
+  return value
+}
+
+let ys = echo<Box<int>>(Box<int>(5))
+
+if xs.len() != 2 {
+  exit(1)
+}
+
+if xs[0].len() != 2 {
+  exit(1)
+}
+
+if xs[1][0] != 3 {
+  exit(1)
+}
+
+if ys.value != 5 {
+  exit(1)
+}
