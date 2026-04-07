@@ -1944,6 +1944,7 @@ auto Codegen::visit(const ForIn* node) -> void {
       iteratorSlot = createAllocaInEntry(parentFct, builder->getPtrTy(), "for.iter.slot");
       emitEntryNullInit(iteratorSlot, builder->getPtrTy());
       builder->CreateStore(iteratorValue->getLlvmValue(), iteratorSlot);
+      registerArcOwnedSlot(iteratorSlot, iteratorValue->getType(), false);
     }
   } else {
     getOrCreateLlvmType(listType);
@@ -2041,6 +2042,7 @@ auto Codegen::visit(const ForIn* node) -> void {
   builder->SetInsertPoint(bEnd);
   if (iteratorSlot != nullptr) {
     emitArcReleaseNullable(builder->CreateLoad(builder->getPtrTy(), iteratorSlot, "for.iter"));
+    builder->CreateStore(llvm::ConstantPointerNull::get(builder->getPtrTy()), iteratorSlot);
   }
   breakBlocks.pop();
   continueBlocks.pop();
