@@ -1396,8 +1396,7 @@ auto Codegen::materializeNarrowedUnionValue(lesma::Value* value, lesma::Type* na
       if (memberTy->is(BaseType::TY_FUNCTION)) {
         memberValue->setStoresFuncValuePair(true);
         memberValue->setCategory(ValueCategory::DIRECT_VALUE);
-        memberValue->setClosureCalleeUsesEnvParameter(
-            value->getClosureCalleeUsesEnvParameter());
+        memberValue->setClosureCalleeUsesEnvParameter(value->getClosureCalleeUsesEnvParameter());
       }
       emitUnionWrapValueToSlot({}, memberValue.get(), narrowedType, *narrowedIndex, narrowedSlot);
       builder->CreateBr(mergeBlock);
@@ -1458,6 +1457,177 @@ auto Codegen::emitUnionWrapValue(llvm::SMRange span, lesma::Value* val, lesma::T
   llvm::Function* f = builder->GetInsertBlock()->getParent();
   llvm::AllocaInst* slot = createAllocaInEntry(f, st, "union.wrap.slot");
   return emitUnionWrapValueToSlot(span, val, unionTy, variantIndex, slot);
+}
+
+auto Codegen::getOrCreateAnyTypeInfoGlobal(lesma::Type* type) -> llvm::GlobalVariable* {
+  if (type == nullptr) {
+    throw CodegenError({}, "Cannot create type info for null type");
+  }
+  getOrCreateLlvmType(type);
+  std::string const typeName = MangleUtils::getTypeMangledName({}, type);
+  if (auto it = anyTypeInfoGlobals.find(typeName); it != anyTypeInfoGlobals.end()) {
+    return it->second;
+  }
+  std::string globalName = "__lesma_any_ti_";
+  for (char ch : typeName) {
+    globalName.push_back(std::isalnum(static_cast<unsigned char>(ch)) ? ch : '_');
+  }
+  if (llvm::GlobalVariable* existing = theModule->getGlobalVariable(globalName, true);
+      existing != nullptr) {
+    anyTypeInfoGlobals[typeName] = existing;
+    return existing;
+  }
+  auto* gv = new llvm::GlobalVariable(*theModule, builder->getInt8Ty(), true,
+                                      llvm::GlobalValue::LinkOnceODRLinkage, builder->getInt8(0),
+                                      globalName);
+  gv->setUnnamedAddr(llvm::GlobalValue::UnnamedAddr::Global);
+  gv->setAlignment(llvm::MaybeAlign(1));
+  anyTypeInfoGlobals[typeName] = gv;
+  return gv;
+}
+
+auto Codegen::emitAnyTypeInfoPtr(lesma::Type* type) -> llvm::Value* {
+  return builder->CreateBitCast(getOrCreateAnyTypeInfoGlobal(type), builder->getPtrTy(),
+                                "any.typeinfo");
+}
+
+auto Codegen::emitBoxToAny(llvm::SMRange span, lesma::Value* value, lesma::Type* anyType)
+    -> std::unique_ptr<lesma::Value> {
+  if (value == nullptr || value->getType() == nullptr || anyType == nullptr) {
+    throw CodegenError(span, "Cannot box invalid value as any");
+  }
+  if (value->getType()->is(BaseType::TY_ANY)) {
+    return std::make_unique<Value>(*value);
+  }
+
+  getOrCreateLlvmType(anyType);
+
+  llvm::Type* storageTy = nullptr;
+  llvm::Value* storageValue = value->getLlvmValue();
+  if (value->getType()->is(BaseType::TY_FUNCTION)) {
+    auto* pairTy = getFuncValuePairLlvmType();
+    storageTy = pairTy;
+    if (value->getStoresFuncValuePair()) {
+      if (storageValue != nullptr && storageValue->getType()->isPointerTy()) {
+        storageValue = builder->CreateLoad(pairTy, storageValue, "any.fnpair.load");
+      }
+    } else {
+      llvm::Value* codePtr = storageValue != nullptr
+                                 ? builder->CreateBitCast(storageValue, builder->getPtrTy())
+                                 : llvm::ConstantPointerNull::get(builder->getPtrTy());
+      llvm::Value* pair = llvm::UndefValue::get(pairTy);
+      pair = builder->CreateInsertValue(pair, codePtr, {0U}, "any.fnpair.code");
+      pair = builder->CreateInsertValue(pair, llvm::ConstantPointerNull::get(builder->getPtrTy()),
+                                        {1U}, "any.fnpair.env");
+      storageValue = pair;
+    }
+  } else {
+    storageTy = getStoredAggregateFieldLlvmType(value->getType());
+  }
+
+  if (storageTy == nullptr || storageValue == nullptr) {
+    throw CodegenError(span, "Cannot box value of type {} as any", value->getType()->toString());
+  }
+
+  if (storageValue->getType() != storageTy) {
+    if (storageValue->getType()->isIntegerTy() && storageTy->isIntegerTy()) {
+      storageValue = builder->CreateIntCast(storageValue, storageTy, value->getType()->isSigned(),
+                                            "any.box.ic");
+    } else if (storageValue->getType()->isFloatingPointTy() && storageTy->isFloatingPointTy()) {
+      storageValue = builder->CreateFPCast(storageValue, storageTy, "any.box.fc");
+    } else if (theModule->getDataLayout().getTypeSizeInBits(storageValue->getType()) ==
+               theModule->getDataLayout().getTypeSizeInBits(storageTy)) {
+      storageValue = builder->CreateBitCast(storageValue, storageTy, "any.box.cast");
+    } else {
+      throw CodegenError(span, "Cannot box value of type {} as any", value->getType()->toString());
+    }
+  }
+
+  auto* allocSize =
+      builder->getInt64(theModule->getDataLayout().getTypeAllocSize(storageTy).getFixedValue());
+  llvm::Value* payloadPtr = emitMalloc(allocSize, "any.payload");
+  llvm::Value* typedPayloadPtr = builder->CreateBitCast(
+      payloadPtr, llvm::PointerType::get(theModule->getContext(), 0U), "any.payload.typed");
+  builder->CreateStore(storageValue, typedPayloadPtr);
+
+  llvm::Value* anyAgg = llvm::UndefValue::get(anyType->getLlvmType());
+  anyAgg = builder->CreateInsertValue(anyAgg, emitAnyTypeInfoPtr(value->getType()), {0U},
+                                      "any.box.typeinfo");
+  anyAgg = builder->CreateInsertValue(anyAgg, payloadPtr, {1U}, "any.box.payload");
+  return std::make_unique<Value>("", anyType, anyAgg);
+}
+
+auto Codegen::emitUnboxFromAny(llvm::SMRange span, lesma::Value* value, lesma::Type* targetType)
+    -> std::unique_ptr<lesma::Value> {
+  if (value == nullptr || value->getType() == nullptr || !value->getType()->is(BaseType::TY_ANY) ||
+      targetType == nullptr) {
+    throw CodegenError(span, "Cannot unbox invalid any value");
+  }
+  if (targetType->is(BaseType::TY_ANY)) {
+    return std::make_unique<Value>(*value);
+  }
+
+  llvm::Value* anyValue = value->getLlvmValue();
+  if (anyValue == nullptr) {
+    throw CodegenError(span, "Cannot unbox any without lowered value");
+  }
+  if (anyValue->getType()->isPointerTy()) {
+    anyValue = builder->CreateLoad(value->getType()->getLlvmType(), anyValue, "any.load");
+  }
+
+  llvm::Value* typeInfo = builder->CreateExtractValue(anyValue, {0U}, "any.unbox.typeinfo");
+  llvm::Value* payloadPtr = builder->CreateExtractValue(anyValue, {1U}, "any.unbox.payload");
+  llvm::Value* typeMatch =
+      builder->CreateICmpEQ(typeInfo, emitAnyTypeInfoPtr(targetType), "any.is");
+
+  llvm::Function* parentFn = builder->GetInsertBlock()->getParent();
+  auto* okBlock = llvm::BasicBlock::Create(theModule->getContext(), "any.unbox.ok", parentFn);
+  auto* failBlock = llvm::BasicBlock::Create(theModule->getContext(), "any.unbox.fail", parentFn);
+  builder->CreateCondBr(typeMatch, okBlock, failBlock);
+
+  builder->SetInsertPoint(failBlock);
+  emitExit(1);
+  builder->CreateUnreachable();
+
+  builder->SetInsertPoint(okBlock);
+  llvm::Type* storageTy = targetType->is(BaseType::TY_FUNCTION)
+                              ? static_cast<llvm::Type*>(getFuncValuePairLlvmType())
+                              : getStoredAggregateFieldLlvmType(targetType);
+  llvm::Value* typedPayloadPtr = builder->CreateBitCast(
+      payloadPtr, llvm::PointerType::get(theModule->getContext(), 0U), "any.unbox.typed");
+  llvm::Value* loaded = builder->CreateLoad(storageTy, typedPayloadPtr, "any.unbox.value");
+  auto out = std::make_unique<Value>("", targetType, loaded);
+  if (targetType->is(BaseType::TY_FUNCTION)) {
+    out->setStoresFuncValuePair(true);
+    out->setCategory(ValueCategory::DIRECT_VALUE);
+  }
+  return out;
+}
+
+auto Codegen::emitAnyIsCheck(llvm::SMRange span, lesma::Value* value, lesma::Type* testType,
+                             bool negate) -> std::unique_ptr<lesma::Value> {
+  if (value == nullptr || value->getType() == nullptr || !value->getType()->is(BaseType::TY_ANY) ||
+      testType == nullptr) {
+    throw CodegenError(span, "Cannot evaluate `is` on invalid any value");
+  }
+  llvm::Value* cmp = nullptr;
+  if (testType->is(BaseType::TY_ANY)) {
+    cmp = negate ? builder->getFalse() : builder->getTrue();
+  } else {
+    llvm::Value* anyValue = value->getLlvmValue();
+    if (anyValue == nullptr) {
+      throw CodegenError(span, "Cannot evaluate `is` on any without lowered value");
+    }
+    if (anyValue->getType()->isPointerTy()) {
+      anyValue = builder->CreateLoad(value->getType()->getLlvmType(), anyValue, "any.is.load");
+    }
+    llvm::Value* typeInfo = builder->CreateExtractValue(anyValue, {0U}, "any.is.typeinfo");
+    cmp = builder->CreateICmpEQ(typeInfo, emitAnyTypeInfoPtr(testType), "any.is.cmp");
+    if (negate) {
+      cmp = builder->CreateNot(cmp);
+    }
+  }
+  return makeBoolCompareResult(cmp);
 }
 
 auto Codegen::visit(const If* node) -> void {
@@ -4460,6 +4630,12 @@ auto Codegen::visit(const IsOp* node) -> void {
     throw CodegenError(node->getSpan(), "Internal: `is` expression missing resolved RHS type");
   }
 
+  if (leftType != nullptr && leftType->is(BaseType::TY_ANY)) {
+    result = emitAnyIsCheck(node->getSpan(), leftOwner.get(), rightType,
+                            node->getOperator() == TokenType::IS_NOT);
+    return;
+  }
+
   if (leftType != nullptr && leftType->is(BaseType::TY_UNION)) {
     auto idxOpt = unionVariantIndexOf(leftType, rightType);
     if (!idxOpt.has_value()) {
@@ -5142,6 +5318,10 @@ auto Codegen::visit(const Else* /*node*/) -> void {
 
 auto Codegen::cast(llvm::SMRange span, lesma::Value* val, lesma::Type* type)
     -> std::unique_ptr<lesma::Value> {
+  if (type != nullptr && type->is(BaseType::TY_ANY) && val != nullptr &&
+      val->getType() != nullptr) {
+    return emitBoxToAny(span, val, type);
+  }
   if (type != nullptr && type->is(BaseType::TY_UNION) && val != nullptr &&
       val->getType() != nullptr) {
     const auto& mem = type->getUnionMembers();
@@ -5232,7 +5412,16 @@ auto Codegen::cast(llvm::SMRange span, lesma::Value* val, lesma::Type* type)
         auto tmp = std::make_unique<lesma::Value>("", memI, val->getLlvmValue());
         return emitUnionWrapValue(span, tmp.get(), type, i);
       }
+      if (memI->is(BaseType::TY_ANY) && val->getType() != nullptr &&
+          !val->getType()->is(BaseType::TY_NULL)) {
+        auto boxed = emitBoxToAny(span, val, memI);
+        return emitUnionWrapValue(span, boxed.get(), type, i);
+      }
     }
+  }
+  if (val != nullptr && val->getType() != nullptr && val->getType()->is(BaseType::TY_ANY) &&
+      type != nullptr && !type->is(BaseType::TY_ANY)) {
+    return emitUnboxFromAny(span, val, type);
   }
   return CodegenTypeUtils::cast(span, val, type, builder.get());
 }
@@ -5855,8 +6044,21 @@ auto Codegen::callNamedFunction(
       for (size_t i = 0; i < candidateFields.size(); ++i) {
         lesma::Type* formalType = normalizeFunctionParamType(candidateFields[i]->type);
         lesma::Type* actualType = normalizeFunctionParamType(localParamTypes[i]);
-        if ((formalType == nullptr) != (actualType == nullptr) ||
-            (formalType != nullptr && !formalType->isEqual(actualType))) {
+        if ((formalType == nullptr) != (actualType == nullptr)) {
+          compatible = false;
+          break;
+        }
+        if (formalType == nullptr) {
+          continue;
+        }
+        if (formalType->is(BaseType::TY_ANY)) {
+          if (actualType == nullptr || actualType->is(BaseType::TY_NULL)) {
+            compatible = false;
+            break;
+          }
+          continue;
+        }
+        if (!formalType->isEqual(actualType)) {
           compatible = false;
           break;
         }
@@ -5896,12 +6098,41 @@ auto Codegen::callNamedFunction(
                        classSym != nullptr ? "Constructor for" : "Function", functionName);
   }
   if (symbol->getLlvmValue() == nullptr) {
+    std::vector<lesma::Type*> moduleLookupParamTypes = localParamTypes;
+    lesma::Type* lookupCallableType = symbol->getType();
+    if (lookupCallableType != nullptr && genericBindingHint != nullptr &&
+        !genericBindingHint->empty()) {
+      lookupCallableType =
+          substituteTypeForSpecializationEnv(lookupCallableType, hintedGenericBindings());
+    } else if (lookupCallableType != nullptr && !currentGenericTypes.empty() &&
+               typeContainsUnboundGeneric(lookupCallableType)) {
+      lookupCallableType =
+          substituteTypeForSpecializationEnv(lookupCallableType, currentGenericTypes);
+    }
+    if (lookupCallableType != nullptr && lookupCallableType->is(BaseType::TY_FUNCTION) &&
+        !typeContainsUnboundGeneric(lookupCallableType)) {
+      moduleLookupParamTypes.clear();
+      for (Field* field : lookupCallableType->getFields()) {
+        moduleLookupParamTypes.push_back(field != nullptr ? field->type : nullptr);
+      }
+    }
+    for (lesma::Type* lookupTy : moduleLookupParamTypes) {
+      if (lookupTy != nullptr) {
+        getOrCreateLlvmType(lookupTy);
+      }
+    }
     std::string moduleLookupName =
-        getMangledName(span, functionName, localParamTypes, selfSymbol != nullptr);
+        getMangledName(span, functionName, moduleLookupParamTypes, selfSymbol != nullptr);
     appendGenericBindingsForTemplate(moduleLookupName);
     if (auto* directFunction = theModule->getFunction(moduleLookupName);
         directFunction != nullptr) {
       symbol->setLlvmValue(directFunction);
+    } else if (!moduleLookupParamTypes.empty()) {
+      if (Value* rebound = scope->lookupFunction(functionName, moduleLookupParamTypes,
+                                                 FunctionLookupKind::OVERLOAD_IDENTITY);
+          rebound != nullptr) {
+        symbol = rebound;
+      }
     }
   }
 
@@ -6245,8 +6476,7 @@ auto Codegen::callListMethodByName(llvm::SMRange span, lesma::Value* receiver,
     if (nullIndex == std::nullopt) {
       throw CodegenError(span, "pop() could not resolve null union arm");
     }
-    auto nullWrapped =
-        emitUnionWrapValue(span, &nullValue, popType, *nullIndex);
+    auto nullWrapped = emitUnionWrapValue(span, &nullValue, popType, *nullIndex);
     builder->CreateBr(mergeBlock);
 
     builder->SetInsertPoint(valueBlock);
@@ -6443,10 +6673,18 @@ auto Codegen::callMethodByName(llvm::SMRange span, lesma::Value* receiver,
                                                               : receiverType->getDisplayName());
   }
   const auto* receiverClassEnv = specializedClassEnvFor(receiverType);
+  std::vector<std::pair<std::string, lesma::Type*>> receiverGenericBindingsStorage;
   const std::vector<std::pair<std::string, lesma::Type*>>* callSiteGenericBindings =
       (callSiteForGenericEnv != nullptr && !callSiteForGenericEnv->getGenericBindingEnv().empty())
           ? &callSiteForGenericEnv->getGenericBindingEnv()
           : nullptr;
+  if (callSiteGenericBindings == nullptr && receiverClassEnv != nullptr) {
+    receiverGenericBindingsStorage.reserve(receiverClassEnv->size());
+    for (const auto& [name, type] : *receiverClassEnv) {
+      receiverGenericBindingsStorage.emplace_back(name, type);
+    }
+    callSiteGenericBindings = &receiverGenericBindingsStorage;
+  }
   auto* savedSelfSymbol = selfSymbol;
   std::vector<lesma::Type*> paramTypes;
   std::vector<llvm::Value*> paramsLLVM;
@@ -6490,9 +6728,6 @@ auto Codegen::callMethodByName(llvm::SMRange span, lesma::Value* receiver,
           break;
         }
       }
-    }
-    if (receiverClassEnv != nullptr) {
-      directMethod = nullptr;
     }
   }
   if (directMethod != nullptr && directMethod->getLlvmValue() != nullptr) {

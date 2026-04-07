@@ -166,9 +166,8 @@ private:
       }
     }
     for (size_t i = 1; i < conds.size() && i < blocks.size(); ++i) {
-      LeadingTriviaBlock block =
-          collectLeadingTrivia(lineOf(srcMgr, blocks[i - 1]->getEnd()),
-                               lineOf(srcMgr, conds[i]->getStart()));
+      LeadingTriviaBlock block = collectLeadingTrivia(lineOf(srcMgr, blocks[i - 1]->getEnd()),
+                                                      lineOf(srcMgr, conds[i]->getStart()));
       node->setBranchTrivia(i, block.extraBlankLinesBefore, std::move(block.comments));
     }
   }
@@ -192,7 +191,8 @@ private:
     if (container == nullptr) {
       return;
     }
-    LeadingTriviaBlock tail = collectLeadingTrivia(previousEndLine, lineOf(srcMgr, container->getEnd()));
+    LeadingTriviaBlock tail =
+        collectLeadingTrivia(previousEndLine, lineOf(srcMgr, container->getEnd()));
     container->setExtraBlankLinesBeforeTrailingDetachedComments(tail.extraBlankLinesBefore);
     container->setTrailingDetachedComments(std::move(tail.comments));
   }
@@ -296,9 +296,9 @@ private:
       for (Parameter* parameter : funcDecl->getParameters()) {
         attachExpression(parameter->defaultVal.get());
       }
-      attachCompound(funcDecl->getBody(),
-                     funcDecl->getBody() != nullptr ? lineOf(srcMgr, funcDecl->getBody()->getStart())
-                                                    : lineOf(srcMgr, funcDecl->getEnd()));
+      attachCompound(funcDecl->getBody(), funcDecl->getBody() != nullptr
+                                              ? lineOf(srcMgr, funcDecl->getBody()->getStart())
+                                              : lineOf(srcMgr, funcDecl->getEnd()));
       return;
     }
     if (auto* traitDecl = dynamic_cast<TraitDecl*>(statement); traitDecl != nullptr) {
@@ -432,7 +432,8 @@ auto Parser::isTypeArgClose(unsigned long off, unsigned short pendingTypeArgClos
           (peek(off)->type == TokenType::GREATER || peek(off)->type == TokenType::SHIFT_RIGHT));
 }
 
-auto Parser::consumeTypeArgClose(unsigned long& off, unsigned short& pendingTypeArgClosers) -> bool {
+auto Parser::consumeTypeArgClose(unsigned long& off, unsigned short& pendingTypeArgClosers)
+    -> bool {
   if (pendingTypeArgClosers > 0U) {
     pendingTypeArgClosers--;
     return true;
@@ -738,11 +739,11 @@ auto Parser::parseTypePrimary() -> std::unique_ptr<TypeExpr> {
                TokenType::BOOL_TYPE, TokenType::INT8_TYPE, TokenType::INT16_TYPE,
                TokenType::INT32_TYPE, TokenType::UINT_TYPE, TokenType::UINT8_TYPE,
                TokenType::UINT16_TYPE, TokenType::UINT32_TYPE, TokenType::FLOAT32_TYPE,
-               TokenType::VOID_TYPE, TokenType::NIL>()) {
+               TokenType::ANY_TYPE, TokenType::VOID_TYPE, TokenType::NIL>()) {
     advance();
     std::string displayName = type->type == TokenType::NIL ? "null" : type->lexeme;
-    return wrapOptionalType(std::make_unique<TypeExpr>(type->span, std::move(displayName),
-                                                       type->type));
+    return wrapOptionalType(
+        std::make_unique<TypeExpr>(type->span, std::move(displayName), type->type));
   }
   if (check(TokenType::FUNC)) {
     std::vector<std::unique_ptr<TypeExpr>> params;
@@ -784,9 +785,9 @@ auto Parser::parseTypePrimary() -> std::unique_ptr<TypeExpr> {
     // Function types are nominal (like classes): values are function pointers in LLVM, but the
     // type is written `func(...)` without a leading `*`. `*func(...)` is still accepted and lowers
     // to the same type.
-    return wrapOptionalType(std::make_unique<TypeExpr>(llvm::SMRange{type->getStart(), ret->getEnd()},
-                                                       lexeme, TokenType::FUNC_TYPE,
-                                                       std::move(params), std::move(ret)));
+    return wrapOptionalType(
+        std::make_unique<TypeExpr>(llvm::SMRange{type->getStart(), ret->getEnd()}, lexeme,
+                                   TokenType::FUNC_TYPE, std::move(params), std::move(ret)));
   }
 
   if (check(TokenType::IDENTIFIER)) {
@@ -802,9 +803,9 @@ auto Parser::parseTypePrimary() -> std::unique_ptr<TypeExpr> {
         }
       }
       lexeme += ">";
-      return wrapOptionalType(std::make_unique<TypeExpr>(
-          llvm::SMRange{type->getStart(), greater->getEnd()}, lexeme, TokenType::CUSTOM_TYPE,
-          std::move(typeArgs)));
+      return wrapOptionalType(
+          std::make_unique<TypeExpr>(llvm::SMRange{type->getStart(), greater->getEnd()}, lexeme,
+                                     TokenType::CUSTOM_TYPE, std::move(typeArgs)));
     }
     return wrapOptionalType(
         std::make_unique<TypeExpr>(type->span, type->lexeme, TokenType::CUSTOM_TYPE));
@@ -1278,8 +1279,8 @@ auto Parser::parseDot() -> std::unique_ptr<Expression> { return parsePostfix(); 
 
 auto Parser::parseUnary() -> std::unique_ptr<Expression> {
   // Handle unary operators recursively to allow chaining: - - x, * * ptr, etc.
-  if (advanceIfMatchAny<TokenType::MINUS, TokenType::STAR, TokenType::AMPERSAND,
-                        TokenType::BANG, TokenType::TILDE>()) {
+  if (advanceIfMatchAny<TokenType::MINUS, TokenType::STAR, TokenType::AMPERSAND, TokenType::BANG,
+                        TokenType::TILDE>()) {
     auto* op = previous();
     consumeOperandContinuationNewlines();
     auto expr = parseUnary(); // Recursive call for chained unary operators
@@ -1671,8 +1672,8 @@ auto Parser::parseAssignment() -> std::unique_ptr<Statement> {
 
   if (advanceIfMatchAny<TokenType::EQUAL, TokenType::PLUS_EQUAL, TokenType::MINUS_EQUAL,
                         TokenType::STAR_EQUAL, TokenType::SLASH_EQUAL, TokenType::MOD_EQUAL,
-                        TokenType::POWER_EQUAL, TokenType::AMPERSAND_EQUAL,
-                        TokenType::PIPE_EQUAL, TokenType::XOR_EQUAL, TokenType::SHIFT_LEFT_EQUAL,
+                        TokenType::POWER_EQUAL, TokenType::AMPERSAND_EQUAL, TokenType::PIPE_EQUAL,
+                        TokenType::XOR_EQUAL, TokenType::SHIFT_LEFT_EQUAL,
                         TokenType::SHIFT_RIGHT_EQUAL, TokenType::NULL_COALESCE_EQUAL>()) {
     auto op = previous()->type;
     consumeOperandContinuationNewlines();
@@ -1793,8 +1794,8 @@ auto Parser::parseStatement(bool isTopLevel) -> std::unique_ptr<Statement> {
   }
   if (checkAnyInLine<TokenType::EQUAL, TokenType::PLUS_EQUAL, TokenType::MINUS_EQUAL,
                      TokenType::STAR_EQUAL, TokenType::SLASH_EQUAL, TokenType::MOD_EQUAL,
-                     TokenType::POWER_EQUAL, TokenType::AMPERSAND_EQUAL,
-                     TokenType::PIPE_EQUAL, TokenType::XOR_EQUAL, TokenType::SHIFT_LEFT_EQUAL,
+                     TokenType::POWER_EQUAL, TokenType::AMPERSAND_EQUAL, TokenType::PIPE_EQUAL,
+                     TokenType::XOR_EQUAL, TokenType::SHIFT_LEFT_EQUAL,
                      TokenType::SHIFT_RIGHT_EQUAL, TokenType::NULL_COALESCE_EQUAL>()) {
     return parseAssignment();
   }

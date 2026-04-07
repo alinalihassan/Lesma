@@ -91,6 +91,7 @@ enum class TokenType : std::uint8_t {
   UINT16_TYPE,
   UINT32_TYPE,
   FLOAT32_TYPE,
+  ANY_TYPE,
   /** Structural tuple type `(T1, T2, ...)` in TypeExpr; not a lexer token. */
   TUPLE_TYPE,
   /** Structural union type `T1 | T2 | ...` in TypeExpr; not a lexer token. */
