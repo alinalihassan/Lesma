@@ -9,6 +9,7 @@
 
 #include "Codegen.h"
 
+#include "liblesma/Backend/CodegenError.h"
 #include "liblesma/Backend/CodegenRuntimeNames.h"
 #include "liblesma/Backend/MangleUtils.h"
 #include "liblesma/Symbol/Type.h"
@@ -95,6 +96,9 @@ auto Codegen::getOrCreateArcHeaderType() -> llvm::StructType* {
 
 auto Codegen::emitArcAlloc(llvm::Value* payloadSize, llvm::Function* destroyFn,
                            const llvm::Twine& name) -> llvm::Value* {
+  if (destroyFn == nullptr) {
+    throw CodegenError({}, "ARC allocation '{}' is missing a destroy function", name.str());
+  }
   auto* headerTy = getOrCreateArcHeaderType();
   auto* headerSize = builder->getInt64(
       theModule->getDataLayout().getTypeAllocSize(headerTy).getFixedValue());
@@ -103,9 +107,7 @@ auto Codegen::emitArcAlloc(llvm::Value* payloadSize, llvm::Function* destroyFn,
   auto* headerPtr = builder->CreateBitCast(raw, llvm::PointerType::get(headerTy->getContext(), 0U),
                                            name + ".arc.header");
   builder->CreateStore(builder->getInt64(1), builder->CreateStructGEP(headerTy, headerPtr, 0U));
-  llvm::Value* destroyValue =
-      destroyFn != nullptr ? builder->CreateBitCast(destroyFn, builder->getPtrTy())
-                           : llvm::ConstantPointerNull::get(builder->getPtrTy());
+  llvm::Value* destroyValue = builder->CreateBitCast(destroyFn, builder->getPtrTy());
   builder->CreateStore(destroyValue, builder->CreateStructGEP(headerTy, headerPtr, 1U));
   auto* payload =
       builder->CreateInBoundsGEP(builder->getInt8Ty(), raw, headerSize, name + ".arc.payload");
