@@ -69,6 +69,18 @@ var maybe: any? = null
 if maybe is not null {
   exit(107)
 }
+let stillAny: any = 7
+var widenedAny: any? = stillAny
+widenedAny = stillAny
+if widenedAny is null {
+  exit(107)
+} else if widenedAny is not any {
+  exit(107)
+} else {
+  if widenedAny is not int or widenedAny as int != 7 {
+    exit(107)
+  }
+}
 maybe = 9
 if maybe is null {
   exit(108)

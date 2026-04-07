@@ -2734,9 +2734,6 @@ auto Typechecker::isAssignableTo(Type* from, Type* to) -> bool {
   if (to->is(BaseType::TY_ANY)) {
     return !from->is(BaseType::TY_NULL);
   }
-  if (from->is(BaseType::TY_ANY)) {
-    return to->is(BaseType::TY_ANY);
-  }
   if (from->isEqual(to)) {
     return true;
   }
@@ -2837,6 +2834,9 @@ auto Typechecker::isAssignableTo(Type* from, Type* to) -> bool {
     }
     return std::ranges::any_of(to->getUnionMembers(),
                                [this, from](Type* m) -> bool { return isAssignableTo(from, m); });
+  }
+  if (from->is(BaseType::TY_ANY)) {
+    return to->is(BaseType::TY_ANY);
   }
   return false;
 }
