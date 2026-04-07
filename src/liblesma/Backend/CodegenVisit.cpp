@@ -6116,6 +6116,7 @@ auto Codegen::callNamedFunction(
       }
       return type;
     };
+    Value* anyFallback = nullptr;
     for (auto* candidate : scope->getSymbols()) {
       if (symbol != nullptr) {
         break;
@@ -6130,6 +6131,7 @@ auto Codegen::callNamedFunction(
         continue;
       }
       bool compatible = true;
+      bool usesAnyFallback = false;
       for (size_t i = 0; i < candidateFields.size(); ++i) {
         lesma::Type* formalType = normalizeFunctionParamType(candidateFields[i]->type);
         lesma::Type* actualType = normalizeFunctionParamType(localParamTypes[i]);
@@ -6145,6 +6147,7 @@ auto Codegen::callNamedFunction(
             compatible = false;
             break;
           }
+          usesAnyFallback = true;
           continue;
         }
         if (!formalType->isEqual(actualType)) {
@@ -6153,9 +6156,18 @@ auto Codegen::callNamedFunction(
         }
       }
       if (compatible) {
+        if (usesAnyFallback) {
+          if (anyFallback == nullptr) {
+            anyFallback = candidate;
+          }
+          continue;
+        }
         symbol = candidate;
         break;
       }
+    }
+    if (symbol == nullptr && anyFallback != nullptr) {
+      symbol = anyFallback;
     }
     if (symbol == nullptr) {
       if (auto directIt = specializedFunctions.find(directMangledLookup);

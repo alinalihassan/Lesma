@@ -1,0 +1,18 @@
+func pick(x: any) -> int {
+  return 1
+}
+
+func pick(x: int) -> int {
+  return 2
+}
+
+let erased: any = 7
+let anyValue = pick(erased)
+if anyValue != 1 {
+  exit(1)
+}
+
+let intValue = pick(7)
+if intValue != 2 {
+  exit(2)
+}
