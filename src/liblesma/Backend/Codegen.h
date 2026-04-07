@@ -82,6 +82,13 @@ struct ArcTrackedSlot {
   bool storesFuncValuePair = false;
 };
 
+struct ModuleArcTrackedRoot {
+  llvm::GlobalVariable* slot = nullptr;
+  lesma::Type* type = nullptr;
+  bool storesFuncValuePair = false;
+  std::string debugName;
+};
+
 class Codegen final : public ASTVisitor {
   std::shared_ptr<ThreadSafeContext> theContext;
   std::unique_ptr<Module> theModule;
@@ -90,6 +97,8 @@ class Codegen final : public ASTVisitor {
   std::unique_ptr<LLJIT> theJit;
   /// JIT: mangled per-import init symbols; run from \c prepareJit (shared across nested imports).
   std::shared_ptr<std::vector<std::string>> pendingJitModuleInits;
+  /// JIT: mangled per-import fini symbols; called by the main module in reverse init order.
+  std::shared_ptr<std::vector<std::string>> pendingJitModuleFinis;
   std::unique_ptr<llvm::TargetMachine> targetMachine;
   std::shared_ptr<Parser> parser;
   std::shared_ptr<SourceMgr> sourceManager;
@@ -167,13 +176,21 @@ class Codegen final : public ASTVisitor {
   MainFnTy* mainFuncAddress = nullptr;
   Value* selfSymbol = nullptr;
   llvm::StructType* arcHeaderLlvmType = nullptr;
+  llvm::Function* arcDebugDeltaFn = nullptr;
+  llvm::Function* arcDebugReportFn = nullptr;
+  llvm::Function* arcDebugCleanupBeginFn = nullptr;
+  llvm::Function* arcDebugCleanupStepFn = nullptr;
+  llvm::Function* moduleCleanupFn = nullptr;
   std::vector<std::vector<ArcTrackedSlot>> arcOwnedSlotFrames;
+  std::vector<ModuleArcTrackedRoot> moduleArcTrackedRoots;
   bool isBreak = false;
   bool isReturn = false;
   bool isAssignment = false;
   bool isJit = false;
   bool isMain = true;
   bool emitDebugInfo = false;
+  bool emitArcDebug = false;
+  bool emitArcTrace = false;
   std::size_t lambdaCounter = 0U;
   llvm::OptimizationLevel optimizationLevelForDebug = llvm::OptimizationLevel::O3;
   /** `if x is T` / else: maps parameter/local symbol → union variant index for narrowed loads. */
@@ -229,9 +246,10 @@ public:
               preSpecializedClassTypeEnvs = {},
           std::unordered_map<lesma::Type*, lesma::Type*> preSpecializedClassTemplateOf = {},
           std::unordered_map<std::string, lesma::Type*> preSpecializedClassTypesByKey = {},
-          bool emitDebug = false,
+          bool emitDebug = false, bool emitArcDebug = false, bool emitArcTrace = false,
           llvm::OptimizationLevel optimizationLevelForDebugArg = llvm::OptimizationLevel::O3,
-          std::shared_ptr<std::vector<std::string>> sharedPendingJitModuleInits = nullptr);
+          std::shared_ptr<std::vector<std::string>> sharedPendingJitModuleInits = nullptr,
+          std::shared_ptr<std::vector<std::string>> sharedPendingJitModuleFinis = nullptr);
   ~Codegen() override;
 
   Codegen(const Codegen&) = delete;
@@ -240,6 +258,7 @@ public:
   auto operator=(Codegen&&) -> Codegen& = delete;
 
   auto dump() -> void;
+  [[nodiscard]] auto moduleToString() const -> std::string;
   auto run() -> void;
   auto prepareJit() -> void;
   auto executeJit() -> int;
@@ -516,6 +535,10 @@ protected:
   auto registerArcOwnedSlot(llvm::Value* slot, lesma::Type* type, bool storesFuncValuePair = false)
       -> void;
   auto emitReleaseCurrentArcOwnedSlots() -> void;
+  auto registerModuleArcRoot(llvm::GlobalVariable* slot, lesma::Type* type,
+                             const std::string& debugName, bool storesFuncValuePair = false)
+      -> void;
+  auto emitReleaseRegisteredModuleArcRoots() -> void;
   auto getOrCreateArcStorageRetainFunction(lesma::Type* type) -> llvm::Function*;
   auto getOrCreateArcStorageReleaseFunction(lesma::Type* type) -> llvm::Function*;
   auto getOrCreateArcPayloadDestroyFunction(lesma::Type* type) -> llvm::Function*;
@@ -542,6 +565,18 @@ protected:
   auto emitFree(llvm::Value* ptr) -> void;
   auto emitRuntimeStderrMessage(std::string_view message) -> void;
   auto emitExit(int code) -> void;
+  auto getOrCreateArcDebugDeltaFunction() -> llvm::Function*;
+  auto getOrCreateArcDebugReportFunction() -> llvm::Function*;
+  auto getOrCreateArcDebugCleanupBeginFunction() -> llvm::Function*;
+  auto getOrCreateArcDebugCleanupStepFunction() -> llvm::Function*;
+  auto emitArcDebugDelta(std::int64_t delta, llvm::Value* payloadPtr,
+                         std::string_view traceMessagePrefix) -> void;
+  auto emitArcDebugTraceCounts(std::string_view traceMessagePrefix, llvm::Value* payloadPtr,
+                               llvm::Value* before, llvm::Value* after) -> void;
+  auto emitArcDebugValidateRefcount(llvm::Value* refCount, std::string_view message) -> void;
+  auto emitArcDebugTraceModuleRoot(const ModuleArcTrackedRoot& tracked) -> void;
+  auto getOrCreateModuleCleanupFunction() -> llvm::Function*;
+  auto emitCallPendingJitModuleFinis() -> void;
   auto emitListLength(lesma::Type* listType, llvm::Value* listHandle) -> llvm::Value*;
   auto emitListCapacity(lesma::Type* listType, llvm::Value* listHandle) -> llvm::Value*;
   auto emitListDataPtr(lesma::Type* listType, llvm::Value* listHandle) -> llvm::Value*;

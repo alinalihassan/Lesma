@@ -15,5 +15,7 @@ auto getGlobalVariableSymbolName(const std::string& modulePathNormalized,
                                  const std::string& variableName) -> std::string;
 /** Unique per-module top-level init symbol for JIT (replaces internal `main`). */
 auto getImportedModuleInitSymbolName(const std::string& modulePathNormalized) -> std::string;
+/** Unique per-module ARC cleanup symbol for JIT shutdown ordering. */
+auto getImportedModuleFiniSymbolName(const std::string& modulePathNormalized) -> std::string;
 } // namespace MangleUtils
 } // namespace lesma

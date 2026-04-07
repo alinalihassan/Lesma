@@ -194,8 +194,10 @@ Codegen::Codegen(
         preSpecializedClassTypeEnvs,
     std::unordered_map<lesma::Type*, lesma::Type*> preSpecializedClassTemplateOf,
     std::unordered_map<std::string, lesma::Type*> preSpecializedClassTypesByKey, bool emitDebug,
+    bool emitArcDebugArg, bool emitArcTraceArg,
     llvm::OptimizationLevel optimizationLevelForDebugArg,
-    std::shared_ptr<std::vector<std::string>> sharedPendingJitModuleInits) {
+    std::shared_ptr<std::vector<std::string>> sharedPendingJitModuleInits,
+    std::shared_ptr<std::vector<std::string>> sharedPendingJitModuleFinis) {
   InitializeNativeTarget();
   InitializeNativeTargetAsmPrinter();
   InitializeNativeTargetAsmParser();
@@ -234,6 +236,11 @@ Codegen::Codegen(
   } else if (jit) {
     pendingJitModuleInits = std::make_shared<std::vector<std::string>>();
   }
+  if (sharedPendingJitModuleFinis != nullptr) {
+    pendingJitModuleFinis = std::move(sharedPendingJitModuleFinis);
+  } else if (jit) {
+    pendingJitModuleFinis = std::make_shared<std::vector<std::string>>();
+  }
 
   if (sharedModules && sharedScopes) {
     importedModules = std::move(sharedModules);
@@ -248,6 +255,8 @@ Codegen::Codegen(
     importedSpecializationStates = std::make_shared<std::vector<ImportedSpecializationState>>();
   }
   emitDebugInfo = emitDebug;
+  emitArcDebug = emitArcDebugArg || emitArcTraceArg;
+  emitArcTrace = emitArcTraceArg;
   optimizationLevelForDebug = optimizationLevelForDebugArg;
   initializeDebugMetadata();
   topLevelFunc = initializeTopLevel();
@@ -720,6 +729,7 @@ auto Codegen::emitSimpleClassPtrOrCastStore(llvm::SMRange span, llvm::Value* des
       unwrappedFnPair = std::make_unique<Value>("", valueResult->getType(), payload);
       unwrappedFnPair->setStoresFuncValuePair(false);
       unwrappedFnPair->setCategory(valueResult->getCategory());
+      unwrappedFnPair->setArcOwnedValue(valueResult->getArcOwnedValue());
       valueForStore = unwrappedFnPair.get();
     }
   }
@@ -1131,6 +1141,7 @@ auto Codegen::visit(const VarDecl* node) -> void {
       existing->setMangledName(mangled);
       existing->setCategory(ValueCategory::ADDRESSABLE_STORAGE);
       existing->setMutable(node->getMutability());
+      registerModuleArcRoot(gv, storedType, filename + "::" + name, existing->getStoresFuncValuePair());
       if (valueResult != nullptr) {
         emitSimpleClassPtrOrCastStore(node->getSpan(), gv, valueResult, storedType, false,
                                       existing->getStoresFuncValuePair());
@@ -3369,6 +3380,7 @@ auto Codegen::emitClassStaticFieldGlobals(lesma::Type* classTy, const Class* ast
                                         llvm::GlobalValue::PrivateLinkage, init, gvName);
     sym->setLlvmValue(gv);
     sym->setCategory(ValueCategory::ADDRESSABLE_STORAGE);
+    registerModuleArcRoot(gv, fieldTy, gvName, sym->getStoresFuncValuePair());
     if (vd->getValue() != nullptr) {
       vd->getValue()->accept(*this);
       auto* valueResult = result.get();
@@ -3743,6 +3755,10 @@ auto Codegen::visit(const BinaryOp* node) -> void {
     phi->addIncoming(leftValue, leftIncoming);
     phi->addIncoming(rightValue, rightIncoming);
     result = std::make_unique<Value>("", payloadType, phi);
+    if (TypeUtils::containsArcManagedValue(payloadType) && leftPayload->getArcOwnedValue() &&
+        (right != nullptr && right->getArcOwnedValue())) {
+      result->setArcOwnedValue(true);
+    }
     if (payloadType->is(BaseType::TY_FUNCTION)) {
       result->setStoresFuncValuePair(true);
       result->setCategory(ValueCategory::DIRECT_VALUE);
@@ -4523,6 +4539,9 @@ void Codegen::lowerDotOpSuperMethodCall(const DotOp* node) {
     llvm::Value* callResult = builder->CreateCall(calleeFn, finalParams);
     currentGenericTypes = std::move(savedGenerics);
     result = std::make_unique<Value>("", returnTy, callResult);
+    if (returnTy != nullptr && TypeUtils::containsArcManagedValue(returnTy)) {
+      result->setArcOwnedValue(true);
+    }
     if (returnTy != nullptr && returnTy->is(BaseType::TY_FUNCTION)) {
       result->setStoresFuncValuePair(true);
       result->setCategory(ValueCategory::DIRECT_VALUE);
@@ -5576,6 +5595,22 @@ auto Codegen::cast(llvm::SMRange span, lesma::Value* val, lesma::Type* type)
   if (type != nullptr && type->is(BaseType::TY_ANY) && val != nullptr &&
       val->getType() != nullptr) {
     return emitBoxToAny(span, val, type);
+  }
+  if (type != nullptr && type->is(BaseType::TY_TRAIT_EXISTENTIAL) && val != nullptr &&
+      val->getType() != nullptr) {
+    lesma::Type* actualType = val->getType();
+    llvm::Value* actualValue = val->getLlvmValue();
+    if (actualType->is(BaseType::TY_CLASS)) {
+      actualType =
+          cacheType(std::make_unique<Type>(BaseType::TY_PTR, builder->getPtrTy(), actualType));
+    }
+    if (actualType->is(BaseType::TY_PTR) && actualType->getElementType() != nullptr &&
+        actualType->getElementType()->is(BaseType::TY_CLASS)) {
+      auto out = std::make_unique<lesma::Value>(
+          "", type, emitBoxClassToExistential(type, actualType, actualValue));
+      out->setArcOwnedValue(val->getArcOwnedValue());
+      return out;
+    }
   }
   if (type != nullptr && type->is(BaseType::TY_UNION) && val != nullptr &&
       val->getType() != nullptr) {
@@ -7016,7 +7051,11 @@ auto Codegen::emitUnionClassMethodDispatch(llvm::SMRange span, lesma::Value* uni
   for (unsigned j = 0; j < phiVals.size(); ++j) {
     phi->addIncoming(phiVals[j], phiBBs[j]);
   }
-  return std::make_unique<lesma::Value>("", commonRetTy, phi);
+  auto out = std::make_unique<lesma::Value>("", commonRetTy, phi);
+  if (commonRetTy != nullptr && TypeUtils::containsArcManagedValue(commonRetTy)) {
+    out->setArcOwnedValue(true);
+  }
+  return out;
 }
 
 auto Codegen::callMethodByName(llvm::SMRange span, lesma::Value* receiver,

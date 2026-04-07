@@ -1,0 +1,14 @@
+export class Box {
+  var value: int
+
+  func new(value: int) {
+    self.value = value
+  }
+
+  func get() -> int {
+    return self.value
+  }
+}
+
+export var first: Box? = Box(4)
+export var second: Box? = Box(9)

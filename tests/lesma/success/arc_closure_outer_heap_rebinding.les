@@ -1,0 +1,43 @@
+class Box {
+  var value: int
+
+  func new(value: int) {
+    self.value = value
+  }
+
+  func get() -> int {
+    return self.value
+  }
+}
+
+func read_box(current: Box?) -> int {
+  if current is null {
+    return 0
+  } else {
+    return current.get()
+  }
+}
+
+func make_first_reader(seed: int) -> func() -> int {
+  var current: Box? = Box(seed)
+  let first = func() -> int => read_box(current)
+  current = Box(seed + 5)
+  return first
+}
+
+func make_second_reader(seed: int) -> func() -> int {
+  var current: Box? = Box(seed)
+  let first = func() -> int => read_box(current)
+  current = Box(seed + 5)
+  return func() -> int => read_box(current)
+}
+
+let readerA = make_first_reader(2)
+if readerA() != 2 {
+  exit(1)
+}
+
+let readerB = make_second_reader(2)
+if readerB() != 7 {
+  exit(2)
+}

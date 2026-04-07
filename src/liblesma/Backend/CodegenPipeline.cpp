@@ -57,8 +57,9 @@
 #include <llvm/Transforms/Vectorize/LoopVectorize.h>
 
 #include "Codegen.h"
-#include "liblesma/AST/AST.h"
 #include <lld/Common/Driver.h>
+
+#include "liblesma/AST/AST.h"
 
 #ifdef __APPLE__
 LLD_HAS_DRIVER(macho)
@@ -620,6 +621,7 @@ auto Codegen::run() -> void {
 
   deferStack.emplace();
   pushDeferBaseline();
+  pushArcOwnedSlotFrame();
   if (parser->getAst() != nullptr) {
     setDebugLoc(parser->getAst()->getSpan());
   }
@@ -662,8 +664,8 @@ auto Codegen::run() -> void {
     // params (e.g. `T` on `Cell<T>`) from the formal receiver (`self` or `cls`) for method bodies.
     Type* mergeClassTy = nullptr;
     if (auto* clsSym = std::get<2>(prototypes[pi]);
-        clsSym != nullptr && clsSym->getType() != nullptr && clsSym->getType()->is(BaseType::TY_PTR) &&
-        clsSym->getType()->getElementType() != nullptr) {
+        clsSym != nullptr && clsSym->getType() != nullptr &&
+        clsSym->getType()->is(BaseType::TY_PTR) && clsSym->getType()->getElementType() != nullptr) {
       mergeClassTy = clsSym->getType()->getElementType();
     }
     if (mergeClassTy == nullptr) {
@@ -730,9 +732,53 @@ auto Codegen::run() -> void {
   if (parser->getAst() != nullptr) {
     setDebugLoc(parser->getAst()->getSpan());
   }
+  auto savedIp = builder->saveIP();
+  auto* finalBlock =
+      llvm::BasicBlock::Create(theModule->getContext(), "top.level.return", topLevelFunc);
+  bool wiredFinalBlock = false;
+  for (llvm::BasicBlock& block : *topLevelFunc) {
+    if (&block == finalBlock || block.getTerminator() != nullptr) {
+      continue;
+    }
+    builder->SetInsertPoint(&block);
+    builder->CreateBr(finalBlock);
+    wiredFinalBlock = true;
+  }
+  if (!wiredFinalBlock) {
+    llvm::BasicBlock* currentBlock = builder->GetInsertBlock();
+    if (currentBlock != nullptr && currentBlock->getParent() == topLevelFunc &&
+        currentBlock->getTerminator() == nullptr) {
+      builder->CreateBr(finalBlock);
+      wiredFinalBlock = true;
+    }
+  }
+  builder->restoreIP(savedIp);
+  builder->SetInsertPoint(finalBlock);
+  emitReleaseCurrentArcOwnedSlots();
+  llvm::Function* cleanupFn = getOrCreateModuleCleanupFunction();
+  if (isMain) {
+    if (isJit) {
+      emitCallPendingJitModuleFinis();
+    }
+    if (cleanupFn != nullptr) {
+      builder->CreateCall(cleanupFn);
+    }
+    if (emitArcDebug) {
+      builder->CreateCall(getOrCreateArcDebugReportFunction());
+    }
+  }
   builder->CreateRet(ConstantInt::getSigned(builder->getInt64Ty(), 0));
+  popArcOwnedSlotFrame(false);
 
   finalizeDebugMetadata();
 }
 
 auto Codegen::dump() -> void { theModule->print(outs(), nullptr); }
+
+auto Codegen::moduleToString() const -> std::string {
+  std::string moduleText;
+  llvm::raw_string_ostream os(moduleText);
+  theModule->print(os, nullptr);
+  os.flush();
+  return moduleText;
+}

@@ -45,19 +45,19 @@ auto initializeLexer(const std::shared_ptr<SourceMgr>& sourceMgr) -> std::unique
   return curLexer;
 }
 
-auto initializeParser(std::unique_ptr<Lexer> lexer, const std::shared_ptr<SourceMgr>& srcMgr = nullptr)
+auto initializeParser(std::unique_ptr<Lexer> lexer,
+                      const std::shared_ptr<SourceMgr>& srcMgr = nullptr)
     -> std::unique_ptr<Parser> {
-  auto curParser =
-      srcMgr != nullptr ? std::make_unique<Parser>(lexer->getTokens(), nullptr, srcMgr,
-                                                   srcMgr->getNumBuffers(), "test.les")
-                        : std::make_unique<Parser>(lexer->getTokens());
+  auto curParser = srcMgr != nullptr ? std::make_unique<Parser>(lexer->getTokens(), nullptr, srcMgr,
+                                                                srcMgr->getNumBuffers(), "test.les")
+                                     : std::make_unique<Parser>(lexer->getTokens());
   curParser->parse();
 
   return curParser;
 }
 
-auto initializeCodegen(std::unique_ptr<Parser> parser, const std::shared_ptr<SourceMgr>& srcMgr)
-    -> std::unique_ptr<Codegen> {
+auto initializeCodegen(std::unique_ptr<Parser> parser, const std::shared_ptr<SourceMgr>& srcMgr,
+                       bool arcDebug = false, bool arcTrace = false) -> std::unique_ptr<Codegen> {
   Typechecker typechecker;
   typechecker.run(parser->getAst());
   auto takenTypeCache = typechecker.takeTypeCache();
@@ -66,10 +66,19 @@ auto initializeCodegen(std::unique_ptr<Parser> parser, const std::shared_ptr<Sou
       std::move(parser), srcMgr, __FILE__, std::vector<std::string>{}, true, true, "", nullptr,
       nullptr, nullptr, nullptr, std::move(takenRootScope), std::move(takenTypeCache),
       typechecker.takeSpecializedTypeEnv(), typechecker.takeSpecializedTypeToTemplate(),
-      typechecker.takeSpecializedClassTypes());
+      typechecker.takeSpecializedClassTypes(), false, arcDebug, arcTrace);
   codegen->run();
 
   return codegen;
+}
+
+auto buildModuleText(const std::string& src, bool arcDebug = false, bool arcTrace = false)
+    -> std::string {
+  auto srcMgr = initializeSrcMgr(src);
+  auto lexer = initializeLexer(srcMgr);
+  auto parser = initializeParser(std::move(lexer), srcMgr);
+  auto codegen = initializeCodegen(std::move(parser), srcMgr, arcDebug, arcTrace);
+  return codegen->moduleToString();
 }
 
 auto analyzeSource(const std::string& src) -> AnalysisResult {
@@ -79,6 +88,51 @@ auto analyzeSource(const std::string& src) -> AnalysisResult {
   options->implicitFilePath = "analysis_index_test.les";
   options->suppressWarnings = true;
   return analyze(std::move(options));
+}
+
+auto analyzeFile(const std::filesystem::path& path) -> AnalysisResult;
+
+auto initializeCodegenFromAnalysis(AnalysisResult result, bool arcDebug = false, bool arcTrace = false)
+    -> std::unique_ptr<Codegen> {
+  auto codegen = std::make_unique<Codegen>(
+      std::move(result.parser), result.sourceMgr,
+      result.mainFilePath.empty() ? "" : result.mainFilePath, std::vector<std::string>{}, true, true,
+      "", nullptr, nullptr, nullptr, nullptr, std::move(result.rootScope),
+      std::move(result.typeCache), std::move(result.specializedTypeEnv),
+      std::move(result.specializedTypeToTemplate), std::move(result.specializedClassTypes), false,
+      arcDebug, arcTrace);
+  codegen->run();
+  return codegen;
+}
+
+auto buildFileModuleText(const std::filesystem::path& path, bool arcDebug = false,
+                         bool arcTrace = false) -> std::string {
+  AnalysisResult result = analyzeFile(path);
+  auto codegen = initializeCodegenFromAnalysis(std::move(result), arcDebug, arcTrace);
+  return codegen->moduleToString();
+}
+
+auto runFileWithArcDebug(const std::filesystem::path& path, bool arcTrace = false)
+    -> std::pair<int, std::string> {
+  AnalysisResult result = analyzeFile(path);
+  auto codegen = initializeCodegenFromAnalysis(std::move(result), true, arcTrace);
+  testing::internal::CaptureStdout();
+  codegen->prepareJit();
+  int const exitCode = codegen->executeJit();
+  return {exitCode, testing::internal::GetCapturedStdout()};
+}
+
+auto writeScratchFile(const std::filesystem::path& path, const std::string& contents) -> void {
+  std::filesystem::create_directories(path.parent_path());
+  std::ofstream out(path);
+  out << contents;
+}
+
+auto recreateScratchDir(const std::string& name) -> std::filesystem::path {
+  std::filesystem::path const dir = std::filesystem::temp_directory_path() / name;
+  std::filesystem::remove_all(dir);
+  std::filesystem::create_directories(dir);
+  return dir;
 }
 
 auto analyzeFile(const std::filesystem::path& path) -> AnalysisResult {
@@ -203,6 +257,360 @@ TEST_F(CodegenTest, Run) {
   int exitCode = codegen->executeJit();
 
   EXPECT_TRUE(exitCode == 0);
+}
+
+TEST(CodegenIRTests, BorrowedArcReturnEmitsRetain) {
+  std::string const moduleText = buildModuleText(R"(class Box {
+  var value: int
+
+  func new(value: int) {
+    self.value = value
+  }
+}
+
+func echo(box: Box) -> Box {
+  return box
+}
+
+let out = echo(Box(1))
+exit(out.value)
+)");
+
+  EXPECT_NE(moduleText.find("arc.retain.count"), std::string::npos);
+  EXPECT_NE(moduleText.find("ret ptr"), std::string::npos);
+}
+
+TEST(CodegenIRTests, ForInIteratorCleanupReleasesIteratorSlot) {
+  std::string const moduleText = buildModuleText(R"(class Box {
+  var value: int
+
+  func new(value: int) {
+    self.value = value
+  }
+}
+
+class OnceIter impl Iterator<Box> {
+  var current: Box?
+
+  func new(value: Box?) {
+    self.current = value
+  }
+
+  func next() -> Box? {
+    let out = self.current
+    self.current = null
+    return out
+  }
+}
+
+class Once impl Iterable<Box> {
+  var current: Box?
+
+  func new(value: Box?) {
+    self.current = value
+  }
+
+  func iter() -> OnceIter {
+    return OnceIter(self.current)
+  }
+}
+
+for item in Once(Box(3)) {
+  exit(item.value)
+}
+)");
+
+  EXPECT_NE(moduleText.find("for.iter.slot"), std::string::npos);
+  EXPECT_NE(moduleText.find("for.iter"), std::string::npos);
+  EXPECT_NE(moduleText.find("arc.release.next"), std::string::npos);
+}
+
+TEST(CodegenIRTests, ListOverwriteAndPopEmitStableOwnershipBlocks) {
+  std::string const moduleText = buildModuleText(R"(class Box {
+  var value: int
+
+  func new(value: int) {
+    self.value = value
+  }
+}
+
+var items: list<Box> = []
+items.push(Box(1))
+items[0] = Box(2)
+let tail = items.pop()
+if tail is not null {
+  exit(tail.value)
+}
+)");
+
+  EXPECT_NE(moduleText.find("list.pop.result"), std::string::npos);
+  EXPECT_NE(moduleText.find("list.pop.ptr"), std::string::npos);
+  EXPECT_NE(moduleText.find("arc.release.next"), std::string::npos);
+}
+
+TEST(CodegenIRTests, ClosureCaptureMaterializationBuildsArcEnvironment) {
+  std::string const moduleText = buildModuleText(R"(class Box {
+  var value: int
+
+  func new(value: int) {
+    self.value = value
+  }
+}
+
+func make_reader(box: Box) -> func() -> int {
+  return func() -> int {
+    return box.value
+  }
+}
+
+let reader = make_reader(Box(7))
+exit(reader())
+)");
+
+  EXPECT_NE(moduleText.find(".env.arc.payload"), std::string::npos);
+  EXPECT_NE(moduleText.find("__lesma_arc_destroy_env___lambda_0"), std::string::npos);
+  EXPECT_NE(moduleText.find("cap.slot"), std::string::npos);
+  EXPECT_NE(moduleText.find("arc.env.slot"), std::string::npos);
+}
+
+TEST(CodegenIRTests, OptionalReplacementEmitsReleaseOfPreviousValue) {
+  std::string const moduleText = buildModuleText(R"(class Box {
+  var value: int
+
+  func new(value: int) {
+    self.value = value
+  }
+
+  func get() -> int {
+    return self.value
+  }
+}
+
+var current: Box? = Box(1)
+current = Box(2)
+if current is null {
+  exit(1)
+} else {
+  exit(current.get())
+}
+)");
+
+  EXPECT_NE(moduleText.find("arc.release.next"), std::string::npos);
+  EXPECT_NE(moduleText.find("arc.release.destroyfn"), std::string::npos);
+}
+
+TEST(CodegenIRTests, NullCoalesceManagedPayloadBuildsMergePhi) {
+  std::string const moduleText = buildModuleText(R"(class Box {
+  var value: int
+
+  func new(value: int) {
+    self.value = value
+  }
+
+  func get() -> int {
+    return self.value
+  }
+}
+
+func choose(left: Box?, fallback: Box) -> Box {
+  return left ?? fallback
+}
+
+let chosen = choose(Box(1), Box(2))
+exit(chosen.get())
+)");
+
+  EXPECT_NE(moduleText.find("coalesce.result"), std::string::npos);
+  EXPECT_NE(moduleText.find("coalesce.left.payload.tmp"), std::string::npos);
+}
+
+TEST(CodegenIRTests, UnionMethodDispatchManagedReturnBuildsPhi) {
+  std::string const moduleText = buildModuleText(R"(class Box {
+  var value: int
+
+  func new(value: int) {
+    self.value = value
+  }
+
+  func get() -> int {
+    return self.value
+  }
+}
+
+class BoxA {
+  var value: int
+
+  func new(value: int) {
+    self.value = value
+  }
+
+  func make() -> Box {
+    return Box(self.value)
+  }
+}
+
+class BoxB {
+  var value: int
+
+  func new(value: int) {
+    self.value = value
+  }
+
+  func make() -> Box {
+    return Box(self.value + 10)
+  }
+}
+
+func read(value: BoxA | BoxB) -> int {
+  let made = value.make()
+  return made.get()
+}
+
+exit(read(BoxA(4)))
+)");
+
+  EXPECT_NE(moduleText.find("union.m.phi"), std::string::npos);
+  EXPECT_NE(moduleText.find("union.m.case"), std::string::npos);
+}
+
+TEST(CodegenIRTests, MainModuleCleanupRunsBeforeArcReport) {
+  std::string const moduleText = buildModuleText(R"(class Box {
+  var value: int
+
+  func new(value: int) {
+    self.value = value
+  }
+
+  func get() -> int {
+    return self.value
+  }
+}
+
+export var current: Box? = Box(4)
+
+let first = current
+if first is null {
+  exit(1)
+} else {
+  if first.get() != 4 {
+    exit(2)
+  }
+}
+)",
+                                           true);
+
+  size_t const cleanupCallPos = moduleText.rfind("call void @__lesma_mod_fini_");
+  size_t const reportCallPos = moduleText.rfind("call void @__lesma_arc_debug_report()");
+  ASSERT_NE(cleanupCallPos, std::string::npos);
+  ASSERT_NE(reportCallPos, std::string::npos);
+  EXPECT_LT(cleanupCallPos, reportCallPos);
+}
+
+TEST(CodegenIRTests, ImportedModuleFinisRunBeforeMainCleanupAndReport) {
+  std::filesystem::path const scratchDir =
+      recreateScratchDir("lesma_arc_ir_imported_module_cleanup");
+  std::filesystem::path const modulePath = scratchDir / "arc_mod.les";
+  std::filesystem::path const mainPath = scratchDir / "main.les";
+  writeScratchFile(modulePath, R"(class Box {
+  var value: int
+
+  func new(value: int) {
+    self.value = value
+  }
+
+  func get() -> int {
+    return self.value
+  }
+}
+
+export var current: Box? = Box(7)
+)");
+  writeScratchFile(mainPath, R"(import "arc_mod.les"
+
+export var local: arc_mod.Box? = arc_mod.Box(2)
+
+let first = arc_mod.current
+if first is null {
+  exit(1)
+} else {
+  if first.get() != 7 {
+    exit(2)
+  }
+}
+)");
+
+  std::string const moduleText = buildFileModuleText(mainPath, true);
+  size_t const importedFiniCallPos = moduleText.find("call void @__lesma_mod_fini_");
+  size_t const mainFiniCallPos =
+      moduleText.find("call void @__lesma_mod_fini_", importedFiniCallPos + 1U);
+  size_t const reportCallPos = moduleText.rfind("call void @__lesma_arc_debug_report()");
+  ASSERT_NE(importedFiniCallPos, std::string::npos);
+  ASSERT_NE(mainFiniCallPos, std::string::npos);
+  ASSERT_NE(reportCallPos, std::string::npos);
+  EXPECT_LT(importedFiniCallPos, mainFiniCallPos);
+  EXPECT_LT(mainFiniCallPos, reportCallPos);
+}
+
+TEST(ArcDebugRuntimeTests, LocalTopLevelArcChurnReportsZero) {
+  std::filesystem::path const scratchDir = recreateScratchDir("lesma_arc_runtime_local_zero");
+  std::filesystem::path const mainPath = scratchDir / "main.les";
+  writeScratchFile(mainPath, R"(class Box {
+  var value: int
+
+  func new(value: int) {
+    self.value = value
+  }
+
+  func get() -> int {
+    return self.value
+  }
+}
+
+var current: Box? = Box(1)
+current = Box(2)
+if current is null {
+  exit(1)
+} else {
+  if current.get() != 2 {
+    exit(2)
+  }
+}
+)");
+
+  auto const [exitCode, output] = runFileWithArcDebug(mainPath);
+  EXPECT_EQ(exitCode, 0);
+  EXPECT_NE(output.find("[arc] live objects: 0"), std::string::npos);
+}
+
+TEST(ArcDebugRuntimeTests, ImportedModuleGlobalsReportZeroAfterCleanup) {
+  std::filesystem::path const repoRoot =
+      std::filesystem::path(__FILE__).parent_path().parent_path();
+  auto const [exitCode, output] =
+      runFileWithArcDebug(repoRoot / "tests/lesma/success/arc_export_global_heap.les");
+  EXPECT_EQ(exitCode, 0);
+  EXPECT_NE(output.find("[arc] live objects: 0"), std::string::npos);
+  EXPECT_NE(output.find("roots tracked:"), std::string::npos);
+  EXPECT_NE(output.find("roots remaining: 0"), std::string::npos);
+}
+
+TEST(ArcDebugRuntimeTests, StaticArcRootsReportZeroAfterCleanup) {
+  std::filesystem::path const repoRoot =
+      std::filesystem::path(__FILE__).parent_path().parent_path();
+  auto const [exitCode, output] =
+      runFileWithArcDebug(repoRoot / "tests/lesma/success/static_field_callable_closure.les");
+  EXPECT_EQ(exitCode, 0);
+  EXPECT_NE(output.find("[arc] live objects: 0"), std::string::npos);
+  EXPECT_NE(output.find("roots tracked:"), std::string::npos);
+  EXPECT_NE(output.find("roots remaining: 0"), std::string::npos);
+}
+
+TEST(ArcDebugRuntimeTests, ArcTracePrintsModuleRootNamesDuringCleanup) {
+  std::filesystem::path const repoRoot =
+      std::filesystem::path(__FILE__).parent_path().parent_path();
+  auto const [exitCode, output] =
+      runFileWithArcDebug(repoRoot / "tests/lesma/success/static_field_callable_closure.les", true);
+  EXPECT_EQ(exitCode, 0);
+  EXPECT_NE(output.find("[arc] cleanup root lesma.sfs."), std::string::npos);
 }
 
 // ============================================================================
@@ -403,8 +811,7 @@ TEST(FormatterTests, DriverFormatsDirectoriesBestEffortWhenSomeFilesDoNotParse) 
 }
 
 TEST(FormatterTests, ParserAttachesStatementTriviaAndNormalizedBlankLines) {
-  auto srcMgr =
-      initializeSrcMgr("// file comment\nlet x = 1 // trailing\n\n// step\nlet y = 2\n");
+  auto srcMgr = initializeSrcMgr("// file comment\nlet x = 1 // trailing\n\n// step\nlet y = 2\n");
   auto lexer = initializeLexer(srcMgr);
   auto parser = initializeParser(std::move(lexer), srcMgr);
 
@@ -422,8 +829,9 @@ TEST(FormatterTests, ParserAttachesStatementTriviaAndNormalizedBlankLines) {
 }
 
 TEST(FormatterTests, FormatSourceNormalizesOptionalBlankLines) {
-  auto formatted = formatSource("func work() -> void {\nlet a = 1\n\n\nlet b = 2\n\n// step\nlet c = 3\n}\n",
-                                "blank_lines_test.les", 100);
+  auto formatted =
+      formatSource("func work() -> void {\nlet a = 1\n\n\nlet b = 2\n\n// step\nlet c = 3\n}\n",
+                   "blank_lines_test.les", 100);
   ASSERT_TRUE(formatted.has_value()) << formatted.error().message;
   EXPECT_EQ(*formatted, "func work() {\n"
                         "  let a = 1\n"
@@ -436,9 +844,8 @@ TEST(FormatterTests, FormatSourceNormalizesOptionalBlankLines) {
 }
 
 TEST(FormatterTests, FormatSourcePreservesEnumValueComments) {
-  auto formatted =
-      formatSource("enum Status {\nREADY\n\n// transitional\nWAITING // trailing\n}\n",
-                   "enum_comments_test.les", 100);
+  auto formatted = formatSource("enum Status {\nREADY\n\n// transitional\nWAITING // trailing\n}\n",
+                                "enum_comments_test.les", 100);
   ASSERT_TRUE(formatted.has_value()) << formatted.error().message;
   EXPECT_EQ(*formatted, "enum Status {\n"
                         "  READY\n"
@@ -449,9 +856,8 @@ TEST(FormatterTests, FormatSourcePreservesEnumValueComments) {
 }
 
 TEST(FormatterTests, FormatSourcePreservesBlockComments) {
-  auto formatted = formatSource(
-      "func work() -> void {\n/* setup\n * step\n */\nlet x = 1\n}\n",
-      "block_comment_test.les", 100);
+  auto formatted = formatSource("func work() -> void {\n/* setup\n * step\n */\nlet x = 1\n}\n",
+                                "block_comment_test.les", 100);
   ASSERT_TRUE(formatted.has_value()) << formatted.error().message;
   EXPECT_EQ(*formatted, "func work() {\n"
                         "  /* setup\n"
@@ -462,9 +868,8 @@ TEST(FormatterTests, FormatSourcePreservesBlockComments) {
 }
 
 TEST(FormatterTests, FormatSourceNormalizesDocComments) {
-  auto formatted = formatSource(
-      "/**\n* summary\n*details\n*/\nfunc work() -> int { return 1 }\n",
-      "doc_comment_test.les", 100);
+  auto formatted = formatSource("/**\n* summary\n*details\n*/\nfunc work() -> int { return 1 }\n",
+                                "doc_comment_test.les", 100);
   ASSERT_TRUE(formatted.has_value()) << formatted.error().message;
   EXPECT_EQ(*formatted, "/**\n"
                         " * summary\n"
@@ -489,8 +894,7 @@ TEST(FormatterTests, FormatSourceIsParseStable) {
 }
 
 TEST(FormatterTests, FormatSourceCanonicalizesOptionalTypeSyntax) {
-  auto formatted =
-      formatSource("let value: int | null = null\n", "optional_type_test.les", 100);
+  auto formatted = formatSource("let value: int | null = null\n", "optional_type_test.les", 100);
   ASSERT_TRUE(formatted.has_value()) << formatted.error().message;
   EXPECT_EQ(*formatted, "let value: int? = null\n");
 }
@@ -502,10 +906,12 @@ TEST(FormatterTests, FormatSourcePreservesNilCoalescingPrecedence) {
 }
 
 TEST(FormatterTests, FormatSourcePreservesNullCoalescingAssignment) {
-  auto formatted = formatSource("var maybe: int? = null\nmaybe ?" "?= 1\n",
+  auto formatted = formatSource("var maybe: int? = null\nmaybe ?"
+                                "?= 1\n",
                                 "coalesce_assign_test.les", 100);
   ASSERT_TRUE(formatted.has_value()) << formatted.error().message;
-  EXPECT_EQ(*formatted, "var maybe: int? = null\nmaybe ?" "?= 1\n");
+  EXPECT_EQ(*formatted, "var maybe: int? = null\nmaybe ?"
+                        "?= 1\n");
 }
 
 TEST(FormatterTests, FormatSourcePreservesAddressOfUnaryOperator) {
@@ -516,9 +922,8 @@ TEST(FormatterTests, FormatSourcePreservesAddressOfUnaryOperator) {
 }
 
 TEST(FormatterTests, FormatSourcePreservesBitwisePipeOperator) {
-  auto formatted =
-      formatSource("func combine(lhs: int, rhs: int) -> int {\nreturn lhs | rhs\n}\n",
-                   "bitwise_pipe_test.les", 100);
+  auto formatted = formatSource("func combine(lhs: int, rhs: int) -> int {\nreturn lhs | rhs\n}\n",
+                                "bitwise_pipe_test.les", 100);
   ASSERT_TRUE(formatted.has_value()) << formatted.error().message;
   EXPECT_NE(formatted->find("lhs | rhs"), std::string::npos);
   EXPECT_EQ(formatted->find("lhs ? rhs"), std::string::npos);
@@ -532,24 +937,22 @@ TEST(FormatterTests, FormatSourcePreservesInferredExpressionLambdaReturnType) {
 }
 
 TEST(FormatterTests, FormatSourceOmitsExplicitVoidReturnTypesEverywhere) {
-  auto formatted = formatSource(
-      "func work() -> void {\n"
-      "  pass\n"
-      "}\n"
-      "func takes(callback: func(int) -> void) -> void {\n"
-      "  callback(1)\n"
-      "}\n"
-      "let handler: func(int) -> void = func(value: int) -> void {\n"
-      "  pass\n"
-      "}\n",
-      "void_return_style_test.les", 100);
+  auto formatted = formatSource("func work() -> void {\n"
+                                "  pass\n"
+                                "}\n"
+                                "func takes(callback: func(int) -> void) -> void {\n"
+                                "  callback(1)\n"
+                                "}\n"
+                                "let handler: func(int) -> void = func(value: int) -> void {\n"
+                                "  pass\n"
+                                "}\n",
+                                "void_return_style_test.les", 100);
   ASSERT_TRUE(formatted.has_value()) << formatted.error().message;
   EXPECT_EQ(formatted->find("-> void"), std::string::npos);
 }
 
 TEST(FormatterTests, NarrowWidthBreaksLongCalls) {
-  auto formatted =
-      formatSource("combine(alpha, beta, gamma, delta)\n", "width_test.les", 20);
+  auto formatted = formatSource("combine(alpha, beta, gamma, delta)\n", "width_test.les", 20);
   ASSERT_TRUE(formatted.has_value()) << formatted.error().message;
   EXPECT_EQ(*formatted, "combine(\n"
                         "  alpha,\n"
@@ -560,9 +963,9 @@ TEST(FormatterTests, NarrowWidthBreaksLongCalls) {
 }
 
 TEST(FormatterTests, NarrowWidthBreaksChainedCallsOneSegmentPerLine) {
-  auto formatted = formatSource(
-      "let total = xs.map(func(x: int) => x + 1).filter(func(x: int) => x > 5).reduce(func(acc: int, x: int) => acc + x, 0)\n",
-      "chain_width_test.les", 32);
+  auto formatted = formatSource("let total = xs.map(func(x: int) => x + 1).filter(func(x: int) => "
+                                "x > 5).reduce(func(acc: int, x: int) => acc + x, 0)\n",
+                                "chain_width_test.les", 32);
   ASSERT_TRUE(formatted.has_value()) << formatted.error().message;
   EXPECT_EQ(*formatted, "let total = xs\n"
                         "  .map(func(x: int) => x + 1)\n"
@@ -601,9 +1004,8 @@ TEST(FormatterTests, NarrowWidthBreaksLongReturnExpressionAndReparses) {
 }
 
 TEST(FormatterTests, NarrowWidthWrapsRepeatedBinaryOperatorsConsistently) {
-  auto formatted = formatSource(
-      "func calc() -> int {\nreturn alpha + beta + gamma + delta\n}\n",
-      "operator_chain_width_test.les", 22);
+  auto formatted = formatSource("func calc() -> int {\nreturn alpha + beta + gamma + delta\n}\n",
+                                "operator_chain_width_test.les", 22);
   ASSERT_TRUE(formatted.has_value()) << formatted.error().message;
   EXPECT_EQ(*formatted, "func calc() -> int {\n"
                         "  return alpha\n"
@@ -614,9 +1016,9 @@ TEST(FormatterTests, NarrowWidthWrapsRepeatedBinaryOperatorsConsistently) {
 }
 
 TEST(FormatterTests, NarrowWidthBreaksLongIfConditionAndReparses) {
-  auto formatted = formatSource(
-      "func check(flag: bool, other: bool, extra: bool) -> bool {\nif flag and other or extra { return true }\nreturn false\n}\n",
-      "if_condition_width_test.les", 24);
+  auto formatted = formatSource("func check(flag: bool, other: bool, extra: bool) -> bool {\nif "
+                                "flag and other or extra { return true }\nreturn false\n}\n",
+                                "if_condition_width_test.les", 24);
   ASSERT_TRUE(formatted.has_value()) << formatted.error().message;
   EXPECT_TRUE(formatted->find("flag and other or extra") == std::string::npos);
 
@@ -625,9 +1027,8 @@ TEST(FormatterTests, NarrowWidthBreaksLongIfConditionAndReparses) {
 }
 
 TEST(FormatterTests, NarrowWidthBreaksLongAssignmentAndReparses) {
-  auto formatted = formatSource(
-      "func work() -> void {\nvalue = alpha + beta + gamma + delta\n}\n",
-      "assignment_width_test.les", 20);
+  auto formatted = formatSource("func work() -> void {\nvalue = alpha + beta + gamma + delta\n}\n",
+                                "assignment_width_test.les", 20);
   ASSERT_TRUE(formatted.has_value()) << formatted.error().message;
   EXPECT_TRUE(formatted->find("value = alpha + beta + gamma + delta") == std::string::npos);
 
@@ -636,9 +1037,9 @@ TEST(FormatterTests, NarrowWidthBreaksLongAssignmentAndReparses) {
 }
 
 TEST(FormatterTests, NarrowWidthBreaksLongWhileConditionAndReparses) {
-  auto formatted = formatSource(
-      "func work() -> void {\nwhile alpha and beta or gamma { break }\n}\n",
-      "while_condition_width_test.les", 20);
+  auto formatted =
+      formatSource("func work() -> void {\nwhile alpha and beta or gamma { break }\n}\n",
+                   "while_condition_width_test.les", 20);
   ASSERT_TRUE(formatted.has_value()) << formatted.error().message;
   EXPECT_TRUE(formatted->find("while alpha and beta or gamma") == std::string::npos);
 
@@ -658,13 +1059,13 @@ TEST(FormatterTests, NarrowWidthBreaksLongLambdaExpressionBodyAndReparses) {
 }
 
 TEST(FormatterTests, FormatSourceParsesIndentedContinuationInput) {
-  auto formatted = formatSource(
-      "func check(b: uint8) -> bool {\n"
-      "  return\n"
-      "    b == 9 as uint8 or b == 10 as uint8 or b == 11 as uint8 or b == 12 as uint8 or b == 13 as uint8\n"
-      "      or b == 32 as uint8\n"
-      "}\n",
-      "wrapped_return_input_test.les", 100);
+  auto formatted = formatSource("func check(b: uint8) -> bool {\n"
+                                "  return\n"
+                                "    b == 9 as uint8 or b == 10 as uint8 or b == 11 as uint8 or b "
+                                "== 12 as uint8 or b == 13 as uint8\n"
+                                "      or b == 32 as uint8\n"
+                                "}\n",
+                                "wrapped_return_input_test.les", 100);
   ASSERT_TRUE(formatted.has_value()) << formatted.error().message;
 
   auto reparsed = parseSourceForFormatting(*formatted, "wrapped_return_input_test.les");
@@ -672,16 +1073,15 @@ TEST(FormatterTests, FormatSourceParsesIndentedContinuationInput) {
 }
 
 TEST(FormatterTests, FormatSourcePreservesLogicalSectionsInsideBlocks) {
-  auto formatted = formatSource(
-      "func work() -> void {\n"
-      "let a = 1\n"
-      "\n"
-      "// phase two\n"
-      "let b = 2\n"
-      "\n"
-      "let c = 3\n"
-      "}\n",
-      "block_grouping_test.les", 100);
+  auto formatted = formatSource("func work() -> void {\n"
+                                "let a = 1\n"
+                                "\n"
+                                "// phase two\n"
+                                "let b = 2\n"
+                                "\n"
+                                "let c = 3\n"
+                                "}\n",
+                                "block_grouping_test.les", 100);
   ASSERT_TRUE(formatted.has_value()) << formatted.error().message;
   EXPECT_EQ(*formatted, "func work() {\n"
                         "  let a = 1\n"
@@ -694,12 +1094,11 @@ TEST(FormatterTests, FormatSourcePreservesLogicalSectionsInsideBlocks) {
 }
 
 TEST(FormatterTests, FormatSourceWrapsClassHeadsAndSeparatesFieldsFromMethods) {
-  auto formatted = formatSource(
-      "class Widget : Base impl FirstTrait, SecondTrait, ThirdTrait {\n"
-      "var value: int\n"
-      "func read() -> int { return self.value }\n"
-      "}\n",
-      "class_layout_test.les", 36);
+  auto formatted = formatSource("class Widget : Base impl FirstTrait, SecondTrait, ThirdTrait {\n"
+                                "var value: int\n"
+                                "func read() -> int { return self.value }\n"
+                                "}\n",
+                                "class_layout_test.les", 36);
   ASSERT_TRUE(formatted.has_value()) << formatted.error().message;
   EXPECT_EQ(*formatted, "class Widget : Base\n"
                         "  impl FirstTrait,\n"
@@ -714,149 +1113,138 @@ TEST(FormatterTests, FormatSourceWrapsClassHeadsAndSeparatesFieldsFromMethods) {
 }
 
 TEST(ParserTests, ReturnExpressionAllowsIndentedContinuation) {
-  AnalysisResult const result = analyzeSource(
-      "func check(b: uint8) -> bool {\n"
-      "  return\n"
-      "    b == 9 as uint8 or b == 10 as uint8 or b == 11 as uint8 or b == 12 as uint8 or b == 13 as uint8\n"
-      "      or b == 32 as uint8\n"
-      "}\n");
+  AnalysisResult const result = analyzeSource("func check(b: uint8) -> bool {\n"
+                                              "  return\n"
+                                              "    b == 9 as uint8 or b == 10 as uint8 or b == 11 "
+                                              "as uint8 or b == 12 as uint8 or b == 13 as uint8\n"
+                                              "      or b == 32 as uint8\n"
+                                              "}\n");
   ASSERT_FALSE(result.hasErrors())
       << (result.diagnostics.empty() ? std::string("unknown analysis error")
                                      : result.diagnostics.front().message);
 }
 
 TEST(ParserTests, LogicalExpressionAllowsIndentedContinuationInInitializer) {
-  AnalysisResult const result = analyzeSource(
-      "func check() -> bool {\n"
-      "  let result = true and\n"
-      "    false or\n"
-      "    true\n"
-      "  return result\n"
-      "}\n");
+  AnalysisResult const result = analyzeSource("func check() -> bool {\n"
+                                              "  let result = true and\n"
+                                              "    false or\n"
+                                              "    true\n"
+                                              "  return result\n"
+                                              "}\n");
   ASSERT_FALSE(result.hasErrors())
       << (result.diagnostics.empty() ? std::string("unknown analysis error")
                                      : result.diagnostics.front().message);
 }
 
 TEST(ParserTests, ArithmeticExpressionAllowsIndentedContinuation) {
-  AnalysisResult const result = analyzeSource(
-      "func calc() -> int {\n"
-      "  return 1 +\n"
-      "    2 * 3 -\n"
-      "    4\n"
-      "}\n");
+  AnalysisResult const result = analyzeSource("func calc() -> int {\n"
+                                              "  return 1 +\n"
+                                              "    2 * 3 -\n"
+                                              "    4\n"
+                                              "}\n");
   ASSERT_FALSE(result.hasErrors())
       << (result.diagnostics.empty() ? std::string("unknown analysis error")
                                      : result.diagnostics.front().message);
 }
 
 TEST(ParserTests, ComparisonOperatorsAllowIndentedContinuationBeforeOperator) {
-  AnalysisResult const result = analyzeSource(
-      "func check(b: uint8) -> bool {\n"
-      "  return b\n"
-      "    == 9 as uint8\n"
-      "    or b\n"
-      "      == 32 as uint8\n"
-      "}\n");
+  AnalysisResult const result = analyzeSource("func check(b: uint8) -> bool {\n"
+                                              "  return b\n"
+                                              "    == 9 as uint8\n"
+                                              "    or b\n"
+                                              "      == 32 as uint8\n"
+                                              "}\n");
   ASSERT_FALSE(result.hasErrors())
       << (result.diagnostics.empty() ? std::string("unknown analysis error")
                                      : result.diagnostics.front().message);
 }
 
 TEST(ParserTests, ContinuationExpressionDoesNotConsumeFollowingStatement) {
-  AnalysisResult const result = analyzeSource(
-      "func calc() -> int {\n"
-      "  let total = 1 +\n"
-      "    2\n"
-      "  let extra = 3\n"
-      "  return total + extra\n"
-      "}\n");
+  AnalysisResult const result = analyzeSource("func calc() -> int {\n"
+                                              "  let total = 1 +\n"
+                                              "    2\n"
+                                              "  let extra = 3\n"
+                                              "  return total + extra\n"
+                                              "}\n");
   ASSERT_FALSE(result.hasErrors())
       << (result.diagnostics.empty() ? std::string("unknown analysis error")
                                      : result.diagnostics.front().message);
 }
 
 TEST(ParserTests, InitializerAllowsIndentedContinuationAfterEquals) {
-  AnalysisResult const result = analyzeSource(
-      "func calc() -> int {\n"
-      "  let total =\n"
-      "    1 + 2\n"
-      "  return total\n"
-      "}\n");
+  AnalysisResult const result = analyzeSource("func calc() -> int {\n"
+                                              "  let total =\n"
+                                              "    1 + 2\n"
+                                              "  return total\n"
+                                              "}\n");
   ASSERT_FALSE(result.hasErrors())
       << (result.diagnostics.empty() ? std::string("unknown analysis error")
                                      : result.diagnostics.front().message);
 }
 
 TEST(ParserTests, UnaryOperatorAllowsIndentedContinuationAfterOperator) {
-  AnalysisResult const result = analyzeSource(
-      "func check(flag: bool) -> bool {\n"
-      "  return not\n"
-      "    flag\n"
-      "}\n");
+  AnalysisResult const result = analyzeSource("func check(flag: bool) -> bool {\n"
+                                              "  return not\n"
+                                              "    flag\n"
+                                              "}\n");
   ASSERT_FALSE(result.hasErrors())
       << (result.diagnostics.empty() ? std::string("unknown analysis error")
                                      : result.diagnostics.front().message);
 }
 
 TEST(ParserTests, IfConditionAllowsIndentedContinuationAfterKeyword) {
-  AnalysisResult const result = analyzeSource(
-      "func check(a: bool, b: bool) -> bool {\n"
-      "  if\n"
-      "    a or b {\n"
-      "    return true\n"
-      "  }\n"
-      "  return false\n"
-      "}\n");
+  AnalysisResult const result = analyzeSource("func check(a: bool, b: bool) -> bool {\n"
+                                              "  if\n"
+                                              "    a or b {\n"
+                                              "    return true\n"
+                                              "  }\n"
+                                              "  return false\n"
+                                              "}\n");
   ASSERT_FALSE(result.hasErrors())
       << (result.diagnostics.empty() ? std::string("unknown analysis error")
                                      : result.diagnostics.front().message);
 }
 
 TEST(ParserTests, WhileConditionAllowsIndentedContinuationAfterKeyword) {
-  AnalysisResult const result = analyzeSource(
-      "func spin(a: bool, b: bool) -> void {\n"
-      "  while\n"
-      "    a and b {\n"
-      "    break\n"
-      "  }\n"
-      "}\n");
+  AnalysisResult const result = analyzeSource("func spin(a: bool, b: bool) -> void {\n"
+                                              "  while\n"
+                                              "    a and b {\n"
+                                              "    break\n"
+                                              "  }\n"
+                                              "}\n");
   ASSERT_FALSE(result.hasErrors())
       << (result.diagnostics.empty() ? std::string("unknown analysis error")
                                      : result.diagnostics.front().message);
 }
 
 TEST(ParserTests, ForIterableAllowsIndentedContinuationAfterIn) {
-  AnalysisResult const result = analyzeSource(
-      "func walk() -> void {\n"
-      "  for item in\n"
-      "    range(3) {\n"
-      "    print(item)\n"
-      "  }\n"
-      "}\n");
+  AnalysisResult const result = analyzeSource("func walk() -> void {\n"
+                                              "  for item in\n"
+                                              "    range(3) {\n"
+                                              "    print(item)\n"
+                                              "  }\n"
+                                              "}\n");
   ASSERT_FALSE(result.hasErrors())
       << (result.diagnostics.empty() ? std::string("unknown analysis error")
                                      : result.diagnostics.front().message);
 }
 
 TEST(ParserTests, ParameterDefaultAllowsIndentedContinuationAfterEquals) {
-  AnalysisResult const result = analyzeSource(
-      "func check(flag: bool =\n"
-      "  true or false) -> bool {\n"
-      "  return flag\n"
-      "}\n");
+  AnalysisResult const result = analyzeSource("func check(flag: bool =\n"
+                                              "  true or false) -> bool {\n"
+                                              "  return flag\n"
+                                              "}\n");
   ASSERT_FALSE(result.hasErrors())
       << (result.diagnostics.empty() ? std::string("unknown analysis error")
                                      : result.diagnostics.front().message);
 }
 
 TEST(ParserTests, LambdaExpressionBodyAllowsIndentedContinuationAfterFatArrow) {
-  AnalysisResult const result = analyzeSource(
-      "func check() -> int {\n"
-      "  let f = func(x: int) -> int =>\n"
-      "    x + 1\n"
-      "  return f(1)\n"
-      "}\n");
+  AnalysisResult const result = analyzeSource("func check() -> int {\n"
+                                              "  let f = func(x: int) -> int =>\n"
+                                              "    x + 1\n"
+                                              "  return f(1)\n"
+                                              "}\n");
   ASSERT_FALSE(result.hasErrors())
       << (result.diagnostics.empty() ? std::string("unknown analysis error")
                                      : result.diagnostics.front().message);

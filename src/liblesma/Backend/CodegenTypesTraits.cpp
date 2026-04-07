@@ -478,6 +478,9 @@ auto Codegen::getStoredAggregateFieldLlvmType(lesma::Type* fieldType) -> llvm::T
     return nullptr;
   }
   getOrCreateLlvmType(fieldType);
+  if (fieldType->is(BaseType::TY_TRAIT_EXISTENTIAL)) {
+    return fieldType->getLlvmType();
+  }
   if (TypeUtils::passesByPointerInAbi(fieldType)) {
     return builder->getPtrTy();
   }

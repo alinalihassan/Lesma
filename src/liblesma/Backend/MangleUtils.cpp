@@ -145,4 +145,12 @@ auto getImportedModuleInitSymbolName(const std::string& modulePathNormalized) ->
   unsigned long long const h = stableHash64(norm);
   return fmt::format("__lesma_mod_init_{:x}", static_cast<unsigned long long>(h));
 }
+
+auto getImportedModuleFiniSymbolName(const std::string& modulePathNormalized) -> std::string {
+  std::string const norm = modulePathNormalized.empty()
+                               ? std::string("<stdin>")
+                               : normalizeResolvedFilesystemPath(modulePathNormalized);
+  unsigned long long const h = stableHash64(norm);
+  return fmt::format("__lesma_mod_fini_{:x}", static_cast<unsigned long long>(h));
+}
 } // namespace lesma::MangleUtils
