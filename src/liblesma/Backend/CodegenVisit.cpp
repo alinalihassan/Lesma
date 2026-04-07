@@ -1492,6 +1492,25 @@ auto Codegen::emitAnyTypeInfoPtr(lesma::Type* type) -> llvm::Value* {
                                 "any.typeinfo");
 }
 
+auto Codegen::emitAnyTypeInfoMatches(llvm::Value* typeInfo, lesma::Type* candidate,
+                                     const llvm::Twine& name) -> llvm::Value* {
+  if (candidate == nullptr) {
+    return builder->getFalse();
+  }
+  if (candidate->is(BaseType::TY_UNION)) {
+    llvm::Value* match = builder->getFalse();
+    for (Type* member : candidate->getUnionMembers()) {
+      if (member == nullptr) {
+        continue;
+      }
+      match =
+          builder->CreateOr(match, emitAnyTypeInfoMatches(typeInfo, member, name), name + ".union");
+    }
+    return match;
+  }
+  return builder->CreateICmpEQ(typeInfo, emitAnyTypeInfoPtr(candidate), name);
+}
+
 auto Codegen::emitBoxToAny(llvm::SMRange span, lesma::Value* value, lesma::Type* anyType)
     -> std::unique_ptr<lesma::Value> {
   if (value == nullptr || value->getType() == nullptr || anyType == nullptr) {
@@ -1580,8 +1599,62 @@ auto Codegen::emitUnboxFromAny(llvm::SMRange span, lesma::Value* value, lesma::T
 
   llvm::Value* typeInfo = builder->CreateExtractValue(anyValue, {0U}, "any.unbox.typeinfo");
   llvm::Value* payloadPtr = builder->CreateExtractValue(anyValue, {1U}, "any.unbox.payload");
-  llvm::Value* typeMatch =
-      builder->CreateICmpEQ(typeInfo, emitAnyTypeInfoPtr(targetType), "any.is");
+  if (targetType->is(BaseType::TY_UNION)) {
+    getOrCreateLlvmType(targetType);
+    llvm::Function* parentFn = builder->GetInsertBlock()->getParent();
+    auto* unionStructTy = llvm::cast<llvm::StructType>(targetType->getLlvmType());
+    auto* unionSlot = createAllocaInEntry(parentFn, unionStructTy, "any.union.slot");
+    llvm::BasicBlock* failBlock =
+        llvm::BasicBlock::Create(theModule->getContext(), "any.unbox.fail", parentFn);
+    llvm::BasicBlock* mergeBlock =
+        llvm::BasicBlock::Create(theModule->getContext(), "any.unbox.merge", parentFn);
+
+    llvm::BasicBlock* currentBlock = builder->GetInsertBlock();
+    const auto& members = targetType->getUnionMembers();
+    for (unsigned idx = 0; idx < members.size(); ++idx) {
+      Type* member = members[idx];
+      if (member == nullptr) {
+        continue;
+      }
+      llvm::BasicBlock* matchBlock =
+          llvm::BasicBlock::Create(theModule->getContext(), "any.unbox.match", parentFn);
+      llvm::BasicBlock* nextBlock =
+          llvm::BasicBlock::Create(theModule->getContext(), "any.unbox.next", parentFn);
+      builder->SetInsertPoint(currentBlock);
+      llvm::Value* memberMatch = emitAnyTypeInfoMatches(typeInfo, member, "any.union.match");
+      builder->CreateCondBr(memberMatch, matchBlock, nextBlock);
+
+      builder->SetInsertPoint(matchBlock);
+      llvm::Type* storageTy = member->is(BaseType::TY_FUNCTION)
+                                  ? static_cast<llvm::Type*>(getFuncValuePairLlvmType())
+                                  : getStoredAggregateFieldLlvmType(member);
+      llvm::Value* typedPayloadPtr = builder->CreateBitCast(
+          payloadPtr, llvm::PointerType::get(theModule->getContext(), 0U), "any.unbox.typed");
+      llvm::Value* loaded = builder->CreateLoad(storageTy, typedPayloadPtr, "any.unbox.value");
+      auto memberValue = std::make_unique<Value>("", member, loaded);
+      if (member->is(BaseType::TY_FUNCTION)) {
+        memberValue->setStoresFuncValuePair(true);
+        memberValue->setCategory(ValueCategory::DIRECT_VALUE);
+      }
+      emitUnionWrapValueToSlot(span, memberValue.get(), targetType, idx, unionSlot);
+      builder->CreateBr(mergeBlock);
+      currentBlock = nextBlock;
+    }
+
+    builder->SetInsertPoint(currentBlock);
+    builder->CreateBr(failBlock);
+
+    builder->SetInsertPoint(failBlock);
+    emitRuntimeStderrMessage("Runtime cast from any failed\n");
+    emitExit(1);
+    builder->CreateUnreachable();
+
+    builder->SetInsertPoint(mergeBlock);
+    llvm::Value* unionValue = builder->CreateLoad(unionStructTy, unionSlot, "any.union.value");
+    return std::make_unique<Value>("", targetType, unionValue);
+  }
+
+  llvm::Value* typeMatch = emitAnyTypeInfoMatches(typeInfo, targetType, "any.is");
 
   llvm::Function* parentFn = builder->GetInsertBlock()->getParent();
   auto* okBlock = llvm::BasicBlock::Create(theModule->getContext(), "any.unbox.ok", parentFn);
@@ -1631,7 +1704,7 @@ auto Codegen::emitAnyIsCheck(llvm::SMRange span, lesma::Value* value, lesma::Typ
       anyValue = builder->CreateLoad(value->getType()->getLlvmType(), anyValue, "any.is.load");
     }
     llvm::Value* typeInfo = builder->CreateExtractValue(anyValue, {0U}, "any.is.typeinfo");
-    cmp = builder->CreateICmpEQ(typeInfo, emitAnyTypeInfoPtr(testType), "any.is.cmp");
+    cmp = emitAnyTypeInfoMatches(typeInfo, testType, "any.is.cmp");
     if (negate) {
       cmp = builder->CreateNot(cmp);
     }

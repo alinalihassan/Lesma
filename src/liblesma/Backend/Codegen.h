@@ -282,6 +282,8 @@ protected:
                                      const std::string& tempName) -> std::unique_ptr<lesma::Value>;
   auto getOrCreateAnyTypeInfoGlobal(lesma::Type* type) -> llvm::GlobalVariable*;
   auto emitAnyTypeInfoPtr(lesma::Type* type) -> llvm::Value*;
+  auto emitAnyTypeInfoMatches(llvm::Value* typeInfo, lesma::Type* candidate,
+                              const llvm::Twine& name = "any.type.match") -> llvm::Value*;
   auto emitBoxToAny(llvm::SMRange span, lesma::Value* value, lesma::Type* anyType)
       -> std::unique_ptr<lesma::Value>;
   auto emitUnboxFromAny(llvm::SMRange span, lesma::Value* value, lesma::Type* targetType)

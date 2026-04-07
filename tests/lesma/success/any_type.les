@@ -81,6 +81,18 @@ if widenedAny is null {
     exit(107)
   }
 }
+
+let unionAny: any = 11
+let unionValue = unionAny as int | str
+if unionValue is not int {
+  exit(120)
+} else if unionValue != 11 {
+  exit(120)
+}
+if unionAny is not int | str {
+  exit(120)
+}
+
 maybe = 9
 if maybe is null {
   exit(108)
