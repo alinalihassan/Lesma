@@ -888,7 +888,7 @@ auto Parser::parseTypePrimaryAt(unsigned long& off, unsigned short& pendingTypeA
                TokenType::BOOL_TYPE, TokenType::INT8_TYPE, TokenType::INT16_TYPE,
                TokenType::INT32_TYPE, TokenType::UINT_TYPE, TokenType::UINT8_TYPE,
                TokenType::UINT16_TYPE, TokenType::UINT32_TYPE, TokenType::FLOAT32_TYPE,
-               TokenType::VOID_TYPE, TokenType::NIL>(off)) {
+               TokenType::ANY_TYPE, TokenType::VOID_TYPE, TokenType::NIL>(off)) {
     off++;
     while (canPeek(off) && peek(off)->type == TokenType::QUESTION) {
       off++;
