@@ -1,0 +1,50 @@
+class Box {
+  var value: int
+
+  func new(value: int) {
+    self.value = value
+  }
+
+  func get() -> int {
+    return self.value
+  }
+}
+
+class OnceIter<T> impl Iterator<T> {
+  var one: T
+  var done: bool = false
+
+  func new(v: T) {
+    self.one = v
+    self.done = false
+  }
+
+  func next() -> T? {
+    if self.done {
+      return null
+    }
+    self.done = true
+    return self.one
+  }
+}
+
+class Once<T> impl Iterable<T> {
+  var one: T
+
+  func new(v: T) {
+    self.one = v
+  }
+
+  func iter() -> OnceIter<T> {
+    return OnceIter<T>(self.one)
+  }
+}
+
+var total = 0
+let once = Once<Box>(Box(14))
+for word in once {
+  total = total + word.get()
+}
+if total != 14 {
+  exit(1)
+}

@@ -1,0 +1,32 @@
+class Box {
+  var value: int
+
+  func new(value: int) {
+    self.value = value
+  }
+
+  func get() -> int {
+    return self.value
+  }
+}
+
+class Holder<T> {
+  var current: T
+
+  func new(current: T) {
+    self.current = current
+  }
+
+  func next() -> T? {
+    return self.current
+  }
+}
+
+let item = Holder<Box>(Box(12)).next()
+if item is null {
+  exit(1)
+} else {
+  if item.get() != 12 {
+    exit(1)
+  }
+}
