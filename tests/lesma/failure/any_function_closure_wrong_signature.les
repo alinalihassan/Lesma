@@ -1,0 +1,10 @@
+func make_adder() -> func(int) -> int {
+  let base: int = 2
+  return func(x: int) -> int => x + base
+}
+
+let captured = make_adder()
+let erased: any = captured
+let restored = erased as func() -> int
+
+restored()

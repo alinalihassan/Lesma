@@ -577,7 +577,8 @@ auto Codegen::getFuncValuePairLlvmType() -> llvm::StructType* {
   if (funcValuePairLlvmType == nullptr) {
     funcValuePairLlvmType = llvm::StructType::create(
         theModule->getContext(),
-        std::array<llvm::Type*, 2>{builder->getPtrTy(), builder->getPtrTy()}, "lesma.funcval");
+        std::array<llvm::Type*, 3>{builder->getPtrTy(), builder->getPtrTy(), builder->getInt1Ty()},
+        "lesma.funcval");
   }
   return funcValuePairLlvmType;
 }
@@ -1519,6 +1520,8 @@ auto Codegen::emitBoxToAny(llvm::SMRange span, lesma::Value* value, lesma::Type*
       pair = builder->CreateInsertValue(pair, codePtr, {0U}, "any.fnpair.code");
       pair = builder->CreateInsertValue(pair, llvm::ConstantPointerNull::get(builder->getPtrTy()),
                                         {1U}, "any.fnpair.env");
+      pair = builder->CreateInsertValue(pair, llvm::ConstantInt::getFalse(theModule->getContext()),
+                                        {2U}, "any.fnpair.uses_env");
       storageValue = pair;
     }
   } else {
@@ -1601,6 +1604,11 @@ auto Codegen::emitUnboxFromAny(llvm::SMRange span, lesma::Value* value, lesma::T
   if (targetType->is(BaseType::TY_FUNCTION)) {
     out->setStoresFuncValuePair(true);
     out->setCategory(ValueCategory::DIRECT_VALUE);
+    if (auto* flag = llvm::dyn_cast<llvm::ConstantInt>(
+            builder->CreateExtractValue(loaded, {2U}, "any.unbox.fn.uses_env"));
+        flag != nullptr) {
+      out->setClosureCalleeUsesEnvParameter(flag->isOne());
+    }
   }
   return out;
 }
@@ -2820,7 +2828,10 @@ auto Codegen::visit(const Assignment* node) -> void {
   node->getRightHandSide()->accept(*this);
   if (lhs->getStoresFuncValuePair() && result != nullptr && result->getStoresFuncValuePair()) {
     llvm::StructType* pt = getFuncValuePairLlvmType();
-    llvm::Value* rhsAgg = builder->CreateLoad(pt, result->getLlvmValue(), "fnval.assign");
+    llvm::Value* rhsAgg = result->getLlvmValue();
+    if (rhsAgg->getType()->isPointerTy()) {
+      rhsAgg = builder->CreateLoad(pt, rhsAgg, "fnval.assign");
+    }
     builder->CreateStore(rhsAgg, lhs->getLlvmValue());
     lhs->setClosureCalleeUsesEnvParameter(result->getClosureCalleeUsesEnvParameter());
     return;
@@ -3398,6 +3409,8 @@ auto Codegen::visit(const LambdaExpr* node) -> void {
   }
   builder->CreateStore(codePtr, builder->CreateStructGEP(pairTy, pairSlot, 0U));
   builder->CreateStore(envStoreVal, builder->CreateStructGEP(pairTy, pairSlot, 1U));
+  builder->CreateStore(llvm::ConstantInt::get(builder->getInt1Ty(), !caps.empty()),
+                       builder->CreateStructGEP(pairTy, pairSlot, 2U));
 
   auto out = std::make_unique<Value>("", fnType, pairSlot);
   out->setCategory(ValueCategory::ADDRESSABLE_STORAGE);
@@ -5029,6 +5042,8 @@ auto Codegen::visit(const Literal* node) -> void {
       builder->CreateStore(codePtr, builder->CreateStructGEP(pairTy, pairSlot, 0U));
       builder->CreateStore(llvm::ConstantPointerNull::get(builder->getPtrTy()),
                            builder->CreateStructGEP(pairTy, pairSlot, 1U));
+      builder->CreateStore(llvm::ConstantInt::getFalse(theModule->getContext()),
+                           builder->CreateStructGEP(pairTy, pairSlot, 2U));
       auto wrapped = std::make_unique<Value>("", val->getType(), pairSlot);
       wrapped->setCategory(ValueCategory::ADDRESSABLE_STORAGE);
       wrapped->setStoresFuncValuePair(true);
@@ -6239,6 +6254,7 @@ auto Codegen::callNamedFunction(
 
   llvm::Value* callableValue = nullptr;
   llvm::Value* loadedClosureEnv = nullptr;
+  llvm::Value* loadedClosureUsesEnv = nullptr;
   if (callableLesmaType->is(BaseType::TY_CLASS)) {
     if (symbol->getConstructor() == nullptr ||
         symbol->getConstructor()->getLlvmValue() == nullptr) {
@@ -6251,11 +6267,21 @@ auto Codegen::callNamedFunction(
         throw CodegenError(span, "Function value {} is not initialized", functionName);
       }
       llvm::StructType* pairTy = getFuncValuePairLlvmType();
-      llvm::Value* pairPtr = symbol->getLlvmValue();
-      llvm::Value* fnSlot = builder->CreateStructGEP(pairTy, pairPtr, 0U);
-      llvm::Value* envSlot = builder->CreateStructGEP(pairTy, pairPtr, 1U);
-      callableValue = builder->CreateLoad(builder->getPtrTy(), fnSlot, functionName + ".code");
-      loadedClosureEnv = builder->CreateLoad(builder->getPtrTy(), envSlot, functionName + ".env");
+      llvm::Value* pairVal = symbol->getLlvmValue();
+      if (pairVal->getType()->isPointerTy()) {
+        llvm::Value* fnSlot = builder->CreateStructGEP(pairTy, pairVal, 0U);
+        llvm::Value* envSlot = builder->CreateStructGEP(pairTy, pairVal, 1U);
+        llvm::Value* usesEnvSlot = builder->CreateStructGEP(pairTy, pairVal, 2U);
+        callableValue = builder->CreateLoad(builder->getPtrTy(), fnSlot, functionName + ".code");
+        loadedClosureEnv = builder->CreateLoad(builder->getPtrTy(), envSlot, functionName + ".env");
+        loadedClosureUsesEnv =
+            builder->CreateLoad(builder->getInt1Ty(), usesEnvSlot, functionName + ".uses_env");
+      } else {
+        callableValue = builder->CreateExtractValue(pairVal, {0U}, functionName + ".code");
+        loadedClosureEnv = builder->CreateExtractValue(pairVal, {1U}, functionName + ".env");
+        loadedClosureUsesEnv =
+            builder->CreateExtractValue(pairVal, {2U}, functionName + ".uses_env");
+      }
     } else {
       if (symbol->getLlvmValue() == nullptr) {
         throw CodegenError(span, "Function {} is declared but not defined", functionName);
@@ -6263,10 +6289,6 @@ auto Codegen::callNamedFunction(
       callableValue = symbol->getLlvmValue();
     }
   }
-  llvm::Value* const envArgForCall =
-      (symbol->getStoresFuncValuePair() && symbol->getClosureCalleeUsesEnvParameter())
-          ? loadedClosureEnv
-          : nullptr;
 
   auto emitIndirectCall = [&](llvm::Value* calleePtr, llvm::Value* envArg) -> llvm::CallInst* {
     std::vector<llvm::Type*> callParamTypes;
@@ -6311,11 +6333,52 @@ auto Codegen::callNamedFunction(
     return builder->CreateCall(callTy, calleePtr, callArgs);
   };
 
-  llvm::CallInst* callInst = nullptr;
+  auto emitIndirectCallWithPairAbi = [&](llvm::Value* calleePtr, llvm::Value* envArg,
+                                         llvm::Value* usesEnvFlag) -> llvm::Value* {
+    if (usesEnvFlag == nullptr) {
+      return emitIndirectCall(calleePtr, nullptr);
+    }
+    if (auto* constFlag = llvm::dyn_cast<llvm::ConstantInt>(usesEnvFlag); constFlag != nullptr) {
+      return emitIndirectCall(calleePtr, constFlag->isOne() ? envArg : nullptr);
+    }
+    llvm::Function* parentFn = builder->GetInsertBlock()->getParent();
+    llvm::BasicBlock* envBlock =
+        llvm::BasicBlock::Create(theModule->getContext(), functionName + ".call.env", parentFn);
+    llvm::BasicBlock* noEnvBlock =
+        llvm::BasicBlock::Create(theModule->getContext(), functionName + ".call.noenv", parentFn);
+    llvm::BasicBlock* mergeBlock =
+        llvm::BasicBlock::Create(theModule->getContext(), functionName + ".call.merge", parentFn);
+    builder->CreateCondBr(usesEnvFlag, envBlock, noEnvBlock);
+
+    builder->SetInsertPoint(envBlock);
+    llvm::Value* withEnvCall = emitIndirectCall(calleePtr, envArg);
+    builder->CreateBr(mergeBlock);
+    llvm::BasicBlock* withEnvDone = builder->GetInsertBlock();
+
+    builder->SetInsertPoint(noEnvBlock);
+    llvm::Value* withoutEnvCall = emitIndirectCall(calleePtr, nullptr);
+    builder->CreateBr(mergeBlock);
+    llvm::BasicBlock* withoutEnvDone = builder->GetInsertBlock();
+
+    builder->SetInsertPoint(mergeBlock);
+    Type* retType = callableLesmaType->getReturnType();
+    if (retType != nullptr && retType->is(BaseType::TY_VOID)) {
+      return nullptr;
+    }
+    llvm::PHINode* phi =
+        builder->CreatePHI(withEnvCall->getType(), 2U, functionName + ".call.result");
+    phi->addIncoming(withEnvCall, withEnvDone);
+    phi->addIncoming(withoutEnvCall, withoutEnvDone);
+    return phi;
+  };
+
+  llvm::Value* callInst = nullptr;
   if (symbol->getStoresFuncValuePair()) {
     llvm::Value* calleePtr = callableValue;
-    callInst = emitIndirectCall(calleePtr, envArgForCall);
+    callInst = emitIndirectCallWithPairAbi(calleePtr, loadedClosureEnv, loadedClosureUsesEnv);
   } else if (auto* func = llvm::dyn_cast<Function>(callableValue)) {
+    llvm::Value* const envArgForCall =
+        symbol->getClosureCalleeUsesEnvParameter() ? loadedClosureEnv : nullptr;
     if (envArgForCall != nullptr) {
       std::vector<llvm::Value*> withEnv;
       withEnv.push_back(envArgForCall);

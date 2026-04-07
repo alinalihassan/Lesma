@@ -1,0 +1,16 @@
+func make_adder() -> func(int) -> int {
+  let base: int = 2
+  return func(x: int) -> int => x + base
+}
+
+func apply(f: func(int) -> int, x: int) -> int {
+  return f(x)
+}
+
+let captured = make_adder()
+let erased: any = captured
+let restored = erased as func(int) -> int
+
+if apply(restored, 5) != 7 {
+  exit(1)
+}
