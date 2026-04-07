@@ -1935,9 +1935,15 @@ auto Codegen::visit(const ForIn* node) -> void {
   llvm::BasicBlock* bInc = llvm::BasicBlock::Create(theModule->getContext(), "for.inc");
   llvm::BasicBlock* bEnd = llvm::BasicBlock::Create(theModule->getContext(), "for.end");
   std::unique_ptr<lesma::Value> iteratorValue;
+  llvm::AllocaInst* iteratorSlot = nullptr;
   llvm::AllocaInst* indexPtr = nullptr;
   if (!useArrayIndex) {
     iteratorValue = callMethodByName(node->getSpan(), iterable.get(), "iter");
+    if (iteratorValue != nullptr && TypeUtils::isArcReferenceType(iteratorValue->getType())) {
+      iteratorSlot = createAllocaInEntry(parentFct, builder->getPtrTy(), "for.iter.slot");
+      emitEntryNullInit(iteratorSlot, builder->getPtrTy());
+      builder->CreateStore(iteratorValue->getLlvmValue(), iteratorSlot);
+    }
   } else {
     getOrCreateLlvmType(listType);
     indexPtr = createAllocaInEntry(parentFct, builder->getInt64Ty(), "for.index");
@@ -2032,6 +2038,9 @@ auto Codegen::visit(const ForIn* node) -> void {
 
   bEnd->insertInto(parentFct);
   builder->SetInsertPoint(bEnd);
+  if (iteratorSlot != nullptr) {
+    emitArcReleaseNullable(builder->CreateLoad(builder->getPtrTy(), iteratorSlot, "for.iter"));
+  }
   breakBlocks.pop();
   continueBlocks.pop();
 
