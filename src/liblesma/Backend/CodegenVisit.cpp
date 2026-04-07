@@ -1481,7 +1481,6 @@ auto Codegen::getOrCreateAnyTypeInfoGlobal(lesma::Type* type) -> llvm::GlobalVar
   auto* gv = new llvm::GlobalVariable(*theModule, builder->getInt8Ty(), true,
                                       llvm::GlobalValue::LinkOnceODRLinkage, builder->getInt8(0),
                                       globalName);
-  gv->setUnnamedAddr(llvm::GlobalValue::UnnamedAddr::Global);
   gv->setAlignment(llvm::MaybeAlign(1));
   anyTypeInfoGlobals[typeName] = gv;
   return gv;
