@@ -1,0 +1,213 @@
+enum Kind {
+  START
+  STOP
+}
+
+class Box {
+  var value: int
+
+  func new(value: int) {
+    self.value = value
+  }
+
+  func get() -> int {
+    return self.value
+  }
+}
+
+var value: any = 1
+if value is not int {
+  exit(101)
+} else if value as int != 1 {
+  exit(101)
+}
+
+value = 2.5
+if value is not float {
+  exit(102)
+}
+let asFloat = value as float
+if asFloat < 2.49 or asFloat > 2.51 {
+  exit(102)
+}
+
+value = true
+if value is not bool {
+  exit(103)
+} else if not (value as bool) {
+  exit(103)
+}
+
+value = str("hello")
+if value is not str {
+  exit(104)
+} else {
+  let helloStr = value as str
+  if helloStr.len() != 5 {
+    exit(104)
+  }
+}
+
+value = Box(7)
+if value is not Box {
+  exit(105)
+} else {
+  let boxedValue = value as Box
+  if boxedValue.get() != 7 {
+    exit(105)
+  }
+}
+
+value = Kind.STOP
+if value is not Kind {
+  exit(106)
+} else if value as Kind != Kind.STOP {
+  exit(106)
+}
+
+var maybe: any? = null
+if maybe is not null {
+  exit(107)
+}
+let stillAny: any = 7
+var widenedAny: any? = stillAny
+widenedAny = stillAny
+if widenedAny is null {
+  exit(107)
+} else if widenedAny is not any {
+  exit(107)
+} else {
+  if widenedAny is not int or widenedAny as int != 7 {
+    exit(107)
+  }
+}
+
+let unionAny: any = 11
+let unionValue = unionAny as int | str
+if unionValue is not int {
+  exit(120)
+} else if unionValue != 11 {
+  exit(120)
+}
+if unionAny is not int | str {
+  exit(120)
+}
+
+maybe = 9
+if maybe is null {
+  exit(108)
+} else if maybe is not any {
+  exit(108)
+} else {
+  if maybe is not int or maybe as int != 9 {
+    exit(108)
+  }
+}
+
+let textAny: any = str("two")
+var xs: list<any> = [1, textAny, Box(3)]
+xs.push(Kind.START)
+xs.push(true)
+
+let first = xs[0]
+if first is not int {
+  exit(109)
+} else if first as int != 1 {
+  exit(109)
+}
+
+let second = xs[1]
+if second is not str {
+  exit(110)
+} else {
+  let secondStr = second as str
+  if secondStr.len() != 3 {
+    exit(110)
+  }
+}
+
+let third = xs[2]
+if third is not Box {
+  exit(111)
+} else {
+  let thirdBox = third as Box
+  if thirdBox.get() != 3 {
+    exit(111)
+  }
+}
+
+let fourth = xs[3]
+if fourth is not Kind {
+  exit(112)
+} else if fourth as Kind != Kind.START {
+  exit(112)
+}
+
+let popped = xs.pop()
+if popped is null {
+  exit(113)
+} else if popped is not any {
+  exit(113)
+} else {
+  if popped is not bool or not (popped as bool) {
+    exit(113)
+  }
+}
+
+if xs.len() != 4 {
+  exit(114)
+}
+
+var dictValues: dict<str, any> = {"one": 1, "box": Box(8)}
+let kindAny: any = Kind.STOP
+let doneAny: any = str("done")
+dictValues.set("kind", kindAny)
+dictValues.set("text", doneAny)
+
+let gotOne = dictValues.get("one")
+if gotOne is null {
+  exit(115)
+} else if gotOne is not any {
+  exit(115)
+} else {
+  if gotOne is not int or gotOne as int != 1 {
+    exit(115)
+  }
+}
+
+let gotBox = dictValues["box"]
+if gotBox is not Box {
+  exit(116)
+} else {
+  let gotBoxValue = gotBox as Box
+  if gotBoxValue.get() != 8 {
+    exit(116)
+  }
+}
+
+let gotKind = dictValues["kind"]
+if gotKind is not Kind {
+  exit(117)
+} else if gotKind as Kind != Kind.STOP {
+  exit(117)
+}
+
+let gotText = dictValues.get("text")
+if gotText is null {
+  exit(118)
+} else if gotText is not any {
+  exit(118)
+} else {
+  if gotText is not str {
+    exit(118)
+  } else {
+    let gotTextValue = gotText as str
+    if gotTextValue.len() != 4 {
+      exit(118)
+    }
+  }
+}
+
+if dictValues.get("missing") is not null {
+  exit(119)
+}

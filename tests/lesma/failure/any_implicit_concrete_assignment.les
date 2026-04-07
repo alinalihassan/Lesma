@@ -1,0 +1,2 @@
+let value: any = 4
+let number: int = value

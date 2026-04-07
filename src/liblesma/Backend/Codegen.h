@@ -142,6 +142,7 @@ class Codegen final : public ASTVisitor {
   std::unordered_map<std::string, std::vector<std::string>> traitRequirementMethodOrder;
   std::unordered_map<std::string, const TraitDecl*> traitDeclByName;
   std::unordered_map<std::string, llvm::GlobalVariable*> witnessGlobalCache;
+  std::unordered_map<std::string, llvm::GlobalVariable*> anyTypeInfoGlobals;
   std::unordered_map<lesma::Type*, llvm::GlobalVariable*> classVtableGlobals;
   std::unordered_map<lesma::Type*, const Class*> codegenClassAstByType;
   std::unordered_map<std::string, const Class*> codegenClassAstByDisplayName;
@@ -278,7 +279,16 @@ protected:
                                     lesma::Type* memberTy) -> llvm::Value*;
   [[nodiscard]] auto getOptionalPayloadType(lesma::Type* type) const -> lesma::Type*;
   auto materializeNarrowedUnionValue(lesma::Value* value, lesma::Type* narrowedType,
-                                     const std::string& tempName)
+                                     const std::string& tempName) -> std::unique_ptr<lesma::Value>;
+  auto getOrCreateAnyTypeInfoGlobal(lesma::Type* type) -> llvm::GlobalVariable*;
+  auto emitAnyTypeInfoPtr(lesma::Type* type) -> llvm::Value*;
+  auto emitAnyTypeInfoMatches(llvm::Value* typeInfo, lesma::Type* candidate,
+                              const llvm::Twine& name = "any.type.match") -> llvm::Value*;
+  auto emitBoxToAny(llvm::SMRange span, lesma::Value* value, lesma::Type* anyType)
+      -> std::unique_ptr<lesma::Value>;
+  auto emitUnboxFromAny(llvm::SMRange span, lesma::Value* value, lesma::Type* targetType)
+      -> std::unique_ptr<lesma::Value>;
+  auto emitAnyIsCheck(llvm::SMRange span, lesma::Value* value, lesma::Type* testType, bool negate)
       -> std::unique_ptr<lesma::Value>;
 
   auto linkObjectFileWithLld(const std::string& objFilename) -> void;
@@ -490,6 +500,7 @@ protected:
   auto emitRealloc(llvm::Value* ptr, llvm::Value* size, const llvm::Twine& name = "realloc.tmp")
       -> llvm::Value*;
   auto emitFree(llvm::Value* ptr) -> void;
+  auto emitRuntimeStderrMessage(std::string_view message) -> void;
   auto emitExit(int code) -> void;
   auto emitListLength(lesma::Type* listType, llvm::Value* listHandle) -> llvm::Value*;
   auto emitListCapacity(lesma::Type* listType, llvm::Value* listHandle) -> llvm::Value*;
@@ -614,8 +625,8 @@ private:
                                          std::unique_ptr<lesma::Value>& right,
                                          lesma::Type* finalType) -> std::unique_ptr<lesma::Value>;
   [[nodiscard]] auto emitPowerOperation(llvm::SMRange span, std::unique_ptr<lesma::Value>& left,
-                                        std::unique_ptr<lesma::Value>& right, lesma::Type* finalType)
-      -> std::unique_ptr<lesma::Value>;
+                                        std::unique_ptr<lesma::Value>& right,
+                                        lesma::Type* finalType) -> std::unique_ptr<lesma::Value>;
   void emitForInLoopIteration(llvm::Function* parentFct, const ForIn* node, SymbolTable* outerScope,
                               SymbolTable* loopBodyScope, llvm::BasicBlock* bLoop,
                               llvm::BasicBlock* bInc,

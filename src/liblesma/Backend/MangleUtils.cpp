@@ -67,6 +67,9 @@ auto getTypeMangledName(llvm::SMRange span, Type* type) -> std::string {
   if (type->is(BaseType::TY_STRING)) {
     return "str";
   }
+  if (type->is(BaseType::TY_ANY)) {
+    return "any";
+  }
   if (type->is(BaseType::TY_VOID)) {
     return "void";
   }

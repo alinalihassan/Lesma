@@ -1,0 +1,2 @@
+let maybe: int? = 1
+let erased: any = maybe

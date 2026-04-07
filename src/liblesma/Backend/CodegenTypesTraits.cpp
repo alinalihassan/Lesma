@@ -187,6 +187,10 @@ auto Codegen::visit(const TypeExpr* node) -> void {
       getOrCreateLlvmType(cached);
       result = std::make_unique<Value>(cached);
     }
+  } else if (node->getType() == TokenType::ANY_TYPE) {
+    auto* type = cacheType(std::make_unique<Type>(BaseType::TY_ANY));
+    getOrCreateLlvmType(type);
+    result = std::make_unique<Value>(type);
   } else if (node->getType() == TokenType::CUSTOM_TYPE) {
     const std::string lookupName = node->getLookupName();
     auto git = currentGenericTypes.find(lookupName);
@@ -323,6 +327,15 @@ auto Codegen::getOrCreateLlvmType(lesma::Type* type) -> llvm::Type* {
   case BaseType::TY_STRING:
     type->setLlvmType(builder->getPtrTy());
     break;
+  case BaseType::TY_ANY: {
+    llvm::StructType* st = llvm::StructType::getTypeByName(theModule->getContext(), "lesma.any");
+    if (st == nullptr) {
+      st = llvm::StructType::create(theModule->getContext(),
+                                    {builder->getPtrTy(), builder->getPtrTy()}, "lesma.any");
+    }
+    type->setLlvmType(st);
+    break;
+  }
   case BaseType::TY_VOID:
     type->setLlvmType(builder->getVoidTy());
     break;

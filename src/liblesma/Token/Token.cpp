@@ -76,6 +76,7 @@ static const std::unordered_map<std::string_view, TokenType> KEYWORDS = {
     {"cstr", TokenType::STRING_TYPE},
     {"bool", TokenType::BOOL_TYPE},
     {"void", TokenType::VOID_TYPE},
+    {"any", TokenType::ANY_TYPE},
 };
 
 auto Token::getIdentifierType(const std::string& identifier, Token* lastTok) -> TokenType {

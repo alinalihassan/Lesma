@@ -24,6 +24,7 @@ enum class BaseType : std::uint8_t {
   TY_BOOL,
   TY_PTR,
   TY_ARRAY,
+  TY_ANY,
   TY_VOID,
   TY_NULL,
   TY_FUNCTION,
@@ -81,7 +82,8 @@ class Type {
   Type* returnType;
   /** For TY_CLASS: direct superclass (single inheritance), or nullptr. */
   Type* classSuperclass = nullptr;
-  /** True once another class declares this type as its base (needs vtable dispatch via base ptr). */
+  /** True once another class declares this type as its base (needs vtable dispatch via base ptr).
+   */
   bool classHasDerivedClass = false;
   std::string genericName;
   std::string displayName;
@@ -139,8 +141,7 @@ public:
     return baseType == BaseType::TY_FLOAT || baseType == BaseType::TY_FLOAT32;
   }
   [[nodiscard]] auto isOneOf(const std::vector<BaseType>& baseTypes) const -> bool {
-    return std::ranges::any_of(baseTypes,
-                               [this](BaseType type) { return type == this->baseType; });
+    return std::ranges::any_of(baseTypes, [this](BaseType type) { return type == this->baseType; });
   }
   [[nodiscard]] auto getBaseType() const -> BaseType { return baseType; }
   [[nodiscard]] auto getElementType() const -> Type* { return elementType; }
@@ -415,6 +416,7 @@ private:
     }
     case BaseType::TY_STRING:
     case BaseType::TY_BOOL:
+    case BaseType::TY_ANY:
     case BaseType::TY_VOID:
     case BaseType::TY_NULL:
     case BaseType::TY_INVALID:
@@ -544,6 +546,9 @@ public:
       break;
     case BaseType::TY_ARRAY:
       result = displayName.empty() ? "list" : displayName;
+      break;
+    case BaseType::TY_ANY:
+      result = "any";
       break;
     case BaseType::TY_VOID:
       result = "void";

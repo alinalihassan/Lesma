@@ -1,0 +1,12 @@
+func id<T>(x: T) -> T {
+  return x
+}
+
+let value = id<any>(1)
+if value is not int {
+  exit(1)
+}
+
+if value as int != 1 {
+  exit(2)
+}

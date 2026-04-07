@@ -1532,8 +1532,8 @@ void Typechecker::mergeInferredGenericBindings(
         continue;
       }
       throw TypeCheckError(span, "Conflicting inferred types for generic parameter {}: {} and {}",
-                           kv.first, existingIt->second != nullptr ? existingIt->second->toString()
-                                                                   : "void",
+                           kv.first,
+                           existingIt->second != nullptr ? existingIt->second->toString() : "void",
                            kv.second != nullptr ? kv.second->toString() : "void");
     }
     if (existingIt->second->isEqual(kv.second) ||
@@ -1788,6 +1788,8 @@ auto Typechecker::tryResolveNonCustomTypeExpr(const TypeExpr* node) -> Type* {
     return cacheType(std::make_unique<Type>(BaseType::TY_BOOL));
   case TokenType::STRING_TYPE:
     return cacheType(std::make_unique<Type>(BaseType::TY_STRING));
+  case TokenType::ANY_TYPE:
+    return cacheType(std::make_unique<Type>(BaseType::TY_ANY));
   case TokenType::VOID_TYPE:
     return cacheType(std::make_unique<Type>(BaseType::TY_VOID));
   case TokenType::NIL:
@@ -2579,7 +2581,8 @@ auto Typechecker::getOptionalPayloadType(Type* type) -> Type* {
 }
 
 auto Typechecker::isNullableType(Type* type) -> bool {
-  return (type != nullptr && type->is(BaseType::TY_NULL)) || getOptionalPayloadType(type) != nullptr;
+  return (type != nullptr && type->is(BaseType::TY_NULL)) ||
+         getOptionalPayloadType(type) != nullptr;
 }
 
 auto Typechecker::typecheckBinaryOpResult(TokenType op, Type* leftTy, Type* rightTy,
@@ -2728,6 +2731,9 @@ auto Typechecker::isAssignableTo(Type* from, Type* to) -> bool {
   if (from->is(BaseType::TY_GENERIC) || to->is(BaseType::TY_GENERIC)) {
     return true;
   }
+  if (to->is(BaseType::TY_ANY)) {
+    return !from->is(BaseType::TY_VOID) && !isNullableType(from);
+  }
   if (from->isEqual(to)) {
     return true;
   }
@@ -2828,6 +2834,9 @@ auto Typechecker::isAssignableTo(Type* from, Type* to) -> bool {
     }
     return std::ranges::any_of(to->getUnionMembers(),
                                [this, from](Type* m) -> bool { return isAssignableTo(from, m); });
+  }
+  if (from->is(BaseType::TY_ANY)) {
+    return to->is(BaseType::TY_ANY);
   }
   return false;
 }
@@ -3563,7 +3572,8 @@ auto Typechecker::isSupportedUnionMemberType(Type* t) -> bool {
     return false;
   }
   return t->is(BaseType::TY_INT) || t->isFloatingPoint() || t->is(BaseType::TY_BOOL) ||
-         t->is(BaseType::TY_CLASS) || t->is(BaseType::TY_ENUM) || t->is(BaseType::TY_NULL);
+         t->is(BaseType::TY_CLASS) || t->is(BaseType::TY_ENUM) || t->is(BaseType::TY_ANY) ||
+         t->is(BaseType::TY_NULL);
 }
 
 auto Typechecker::lookupUnionNarrowedType(Value* sym) const -> Type* {
@@ -6010,7 +6020,8 @@ auto Typechecker::visit(const CastOp* node) -> void {
   Type* from = result->getType();
   node->getType()->accept(*this);
   Type* to = result->getType();
-  if (!isAssignableTo(from, to)) {
+  if (!isAssignableTo(from, to) && !(from != nullptr && from->is(BaseType::TY_ANY) &&
+                                     to != nullptr && !to->is(BaseType::TY_VOID))) {
     throw TypeCheckError(node->getSpan(), "Cannot cast from {} to {}", from->toString(),
                          to->toString());
   }
@@ -6022,6 +6033,13 @@ auto Typechecker::visit(const IsOp* node) -> void {
   Type* lhsTy = result->getType();
   Type* rhsTy = resolveType(node->getRight());
   node->setResolvedRhsType(rhsTy);
+  if (lhsTy != nullptr && lhsTy->is(BaseType::TY_ANY)) {
+    if (rhsTy != nullptr && rhsTy->is(BaseType::TY_VOID)) {
+      throw TypeCheckError(node->getSpan(), "`is` cannot test `any` against void");
+    }
+    result = std::make_unique<Value>(cacheType(std::make_unique<Type>(BaseType::TY_BOOL)));
+    return;
+  }
   if (lhsTy != nullptr && lhsTy->is(BaseType::TY_UNION)) {
     bool found = false;
     for (Type* m : lhsTy->getUnionMembers()) {
