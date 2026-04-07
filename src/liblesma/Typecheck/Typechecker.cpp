@@ -2732,7 +2732,7 @@ auto Typechecker::isAssignableTo(Type* from, Type* to) -> bool {
     return true;
   }
   if (to->is(BaseType::TY_ANY)) {
-    return !from->is(BaseType::TY_NULL);
+    return !from->is(BaseType::TY_VOID) && !isNullableType(from);
   }
   if (from->isEqual(to)) {
     return true;

@@ -1,0 +1,3 @@
+func noop() {}
+
+let erased: any = noop()
