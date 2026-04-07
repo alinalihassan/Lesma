@@ -285,6 +285,17 @@ auto Codegen::createAllocaInEntry(llvm::Function* fn, llvm::Type* elemTy, const 
   return atEntry.CreateAlloca(elemTy, nullptr, name);
 }
 
+auto Codegen::emitEntryNullInit(llvm::AllocaInst* slot, llvm::Type* storageTy) -> void {
+  llvm::Instruction* next = slot->getNextNode();
+  llvm::IRBuilder<> atEntry(slot->getContext());
+  if (next != nullptr) {
+    atEntry.SetInsertPoint(next);
+  } else {
+    atEntry.SetInsertPoint(slot->getParent());
+  }
+  atEntry.CreateStore(llvm::Constant::getNullValue(storageTy), slot);
+}
+
 auto Codegen::initializeModule() -> std::unique_ptr<Module> {
   std::unique_ptr<Module> mod;
 #if LLVM_VERSION_MAJOR >= 21

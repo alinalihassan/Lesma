@@ -29,6 +29,10 @@ auto findStaticFieldInClass(Type* classType, const std::string& field) -> Field*
 /** Return value is passed as a pointer (class instance, trait existential, or already a pointer).
  */
 [[nodiscard]] auto passesByPointerInAbi(Type const* t) -> bool;
+/** Shared ARC-managed heap handle (`class`, `__buffer`, or pointer-to-class). */
+[[nodiscard]] auto isArcReferenceType(Type const* t) -> bool;
+/** Type storage may contain ARC-managed references transitively. */
+[[nodiscard]] auto containsArcManagedValue(Type const* t) -> bool;
 /** Stable specialization registry key shared by typecheck and codegen. */
 auto makeSpecializedClassKey(Type* classTemplate, const std::vector<std::string>& genericParamNames,
                              const std::unordered_map<std::string, Type*>& env) -> std::string;

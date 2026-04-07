@@ -89,7 +89,7 @@ public:
         privateMember(other.privateMember), memberDeclaredInClass(other.memberDeclaredInClass),
         closureCaptureOuters(other.closureCaptureOuters),
         closureSlotOuter(other.closureSlotOuter), storesFuncValuePair(other.storesFuncValuePair),
-        originLambdaExpr(other.originLambdaExpr),
+        originLambdaExpr(other.originLambdaExpr), arcOwnedValue(other.arcOwnedValue),
         closureCalleeUsesEnvParameter(other.closureCalleeUsesEnvParameter),
         staticMethod(other.staticMethod) {}
 
@@ -119,6 +119,7 @@ public:
       closureSlotOuter = other.closureSlotOuter;
       storesFuncValuePair = other.storesFuncValuePair;
       originLambdaExpr = other.originLambdaExpr;
+      arcOwnedValue = other.arcOwnedValue;
       closureCalleeUsesEnvParameter = other.closureCalleeUsesEnvParameter;
       staticMethod = other.staticMethod;
     }
@@ -203,6 +204,9 @@ public:
   /** Variable initialized from a lambda AST; used to specialize generic lambdas at call sites. */
   [[nodiscard]] auto getOriginLambdaExpr() const -> const LambdaExpr* { return originLambdaExpr; }
   auto setOriginLambdaExpr(const LambdaExpr* expr) -> void { originLambdaExpr = expr; }
+  /** True when this SSA value currently owns a +1 ARC reference and may be moved into storage. */
+  [[nodiscard]] auto getArcOwnedValue() const -> bool { return arcOwnedValue; }
+  auto setArcOwnedValue(bool v) -> void { arcOwnedValue = v; }
 
   /** Indirect call must pass closure env as first argument (lambda with captures). */
   [[nodiscard]] auto getClosureCalleeUsesEnvParameter() const -> bool {
@@ -259,6 +263,7 @@ private:
   Value* closureSlotOuter = nullptr;
   bool storesFuncValuePair = false;
   const LambdaExpr* originLambdaExpr = nullptr;
+  bool arcOwnedValue = false;
   bool closureCalleeUsesEnvParameter = false;
   bool staticMethod = false;
 };

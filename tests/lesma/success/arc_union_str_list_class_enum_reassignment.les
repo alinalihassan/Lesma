@@ -1,0 +1,152 @@
+enum Kind {
+  START
+  STOP
+}
+
+class Box {
+  var value: int
+
+  func new(value: int) {
+    self.value = value
+  }
+
+  func get() -> int {
+    return self.value
+  }
+}
+
+var value: str | list<int> | Box | Kind = str("seed")
+if value is not str {
+  exit(1)
+} else {
+  if value != "seed" {
+    exit(1)
+  }
+}
+
+let initialList: list<int> = [1, 2, 3]
+value = initialList
+if value is not list<int> {
+  exit(2)
+} else {
+  if value.len() != 3 or value[1] != 2 {
+    exit(2)
+  }
+}
+
+value = Box(9)
+if value is not Box {
+  exit(3)
+} else {
+  if value.get() != 9 {
+    exit(3)
+  }
+}
+
+value = Kind.STOP
+if value is not Kind {
+  exit(4)
+} else {
+  if value != Kind.STOP {
+    exit(4)
+  }
+}
+
+let pair: list<int> = [4, 5]
+var xs: list<str | list<int> | Box | Kind> = [str("a"), pair, Box(6), Kind.START]
+xs[0] = Box(1)
+xs[1] = str("swap")
+xs[2] = Kind.STOP
+let tail: list<int> = [7, 8, 9]
+xs[3] = tail
+
+let first = xs[0]
+if first is not Box {
+  exit(5)
+} else {
+  if first.get() != 1 {
+    exit(5)
+  }
+}
+let second = xs[1]
+if second is not str {
+  exit(6)
+} else {
+  if second != "swap" {
+    exit(6)
+  }
+}
+let third = xs[2]
+if third is not Kind {
+  exit(7)
+} else {
+  if third != Kind.STOP {
+    exit(7)
+  }
+}
+let fourth = xs[3]
+if fourth is not list<int> {
+  exit(8)
+} else {
+  if fourth.len() != 3 or fourth[2] != 9 {
+    exit(8)
+  }
+}
+
+let popped = xs.pop()
+if popped is null {
+  exit(9)
+} else {
+  if popped is not list<int> {
+    exit(9)
+  } else {
+    if popped[0] != 7 or popped[2] != 9 {
+      exit(9)
+    }
+  }
+}
+
+var d: dict<
+  str,
+  str | list<int> | Box | Kind,
+> = {"text": str("hello"), "box": Box(3), "state": Kind.START}
+d.set("text", [10, 11])
+d.set("box", Kind.STOP)
+d.set("state", Box(12))
+d.set("extra", str("tail"))
+
+let textValue = d["text"]
+if textValue is not list<int> {
+  exit(10)
+} else {
+  if textValue[0] != 10 or textValue[1] != 11 {
+    exit(10)
+  }
+}
+
+let boxValue = d["box"]
+if boxValue is not Kind {
+  exit(11)
+} else {
+  if boxValue != Kind.STOP {
+    exit(11)
+  }
+}
+
+let stateValue = d["state"]
+if stateValue is not Box {
+  exit(12)
+} else {
+  if stateValue.get() != 12 {
+    exit(12)
+  }
+}
+
+let extra = d["extra"]
+if extra is not str {
+  exit(13)
+} else {
+  if extra != "tail" {
+    exit(13)
+  }
+}
