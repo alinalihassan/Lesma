@@ -498,6 +498,7 @@ protected:
   auto emitRealloc(llvm::Value* ptr, llvm::Value* size, const llvm::Twine& name = "realloc.tmp")
       -> llvm::Value*;
   auto emitFree(llvm::Value* ptr) -> void;
+  auto emitRuntimeStderrMessage(std::string_view message) -> void;
   auto emitExit(int code) -> void;
   auto emitListLength(lesma::Type* listType, llvm::Value* listHandle) -> llvm::Value*;
   auto emitListCapacity(lesma::Type* listType, llvm::Value* listHandle) -> llvm::Value*;

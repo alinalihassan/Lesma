@@ -83,6 +83,17 @@ auto Codegen::emitFree(llvm::Value* ptr) -> void {
   builder->CreateCall(freeFn, {ptr});
 }
 
+auto Codegen::emitRuntimeStderrMessage(std::string_view message) -> void {
+  auto writeFn = theModule->getOrInsertFunction(
+      "write", llvm::FunctionType::get(
+                   builder->getInt64Ty(),
+                   {builder->getInt32Ty(), builder->getPtrTy(), builder->getInt64Ty()}, false));
+  llvm::GlobalVariable* messageGlobal = builder->CreateGlobalString(message, "runtime.errmsg");
+  builder->CreateCall(writeFn, {builder->getInt32(2),
+                                builder->CreateBitCast(messageGlobal, builder->getPtrTy()),
+                                builder->getInt64(message.size())});
+}
+
 auto Codegen::emitExit(int code) -> void {
   auto exitFn = theModule->getOrInsertFunction(
       std::string{codegen::runtime::EXIT},
@@ -297,10 +308,12 @@ auto Codegen::lookupClassStructSymbol(lesma::Type* classTy) -> Value* {
   if (classTy == nullptr || !classTy->is(BaseType::TY_CLASS)) {
     return nullptr;
   }
-  if (auto it = specializedClassSymbolsByType.find(classTy); it != specializedClassSymbolsByType.end()) {
+  if (auto it = specializedClassSymbolsByType.find(classTy);
+      it != specializedClassSymbolsByType.end()) {
     return it->second;
   }
-  if (auto envIt = specializedClassTypeEnvs.find(classTy); envIt != specializedClassTypeEnvs.end()) {
+  if (auto envIt = specializedClassTypeEnvs.find(classTy);
+      envIt != specializedClassTypeEnvs.end()) {
     bool isConcrete = true;
     for (const auto& [name, ty] : envIt->second) {
       (void) name;
@@ -311,7 +324,8 @@ auto Codegen::lookupClassStructSymbol(lesma::Type* classTy) -> Value* {
     }
     if (isConcrete) {
       Type* templateTy = classTy;
-      if (auto it = specializedClassTemplateOf.find(classTy); it != specializedClassTemplateOf.end()) {
+      if (auto it = specializedClassTemplateOf.find(classTy);
+          it != specializedClassTemplateOf.end()) {
         templateTy = it->second;
       }
       if (const Class* templateAst = findGenericClassAstForTemplateType(templateTy);
@@ -357,7 +371,8 @@ auto Codegen::specializedClassEnvFor(lesma::Type* classTy)
     return &it->second;
   }
   if (Value* sym = lookupClassStructSymbol(classTy); sym != nullptr && sym->getType() != nullptr) {
-    if (auto it = specializedClassTypeEnvs.find(sym->getType()); it != specializedClassTypeEnvs.end()) {
+    if (auto it = specializedClassTypeEnvs.find(sym->getType());
+        it != specializedClassTypeEnvs.end()) {
       return &it->second;
     }
   }
@@ -369,7 +384,8 @@ auto Codegen::specializedTraitExistentialEnvFor(lesma::Type* existentialTy)
   if (existentialTy == nullptr || !existentialTy->is(BaseType::TY_TRAIT_EXISTENTIAL)) {
     return nullptr;
   }
-  if (auto it = specializedClassTypeEnvs.find(existentialTy); it != specializedClassTypeEnvs.end()) {
+  if (auto it = specializedClassTypeEnvs.find(existentialTy);
+      it != specializedClassTypeEnvs.end()) {
     return &it->second;
   }
   return nullptr;

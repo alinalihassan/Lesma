@@ -1586,6 +1586,7 @@ auto Codegen::emitUnboxFromAny(llvm::SMRange span, lesma::Value* value, lesma::T
   builder->CreateCondBr(typeMatch, okBlock, failBlock);
 
   builder->SetInsertPoint(failBlock);
+  emitRuntimeStderrMessage("Runtime cast from any failed\n");
   emitExit(1);
   builder->CreateUnreachable();
 
