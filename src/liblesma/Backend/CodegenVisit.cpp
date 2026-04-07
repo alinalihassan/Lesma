@@ -5333,7 +5333,7 @@ namespace {
   if (t->is(BaseType::TY_PTR) && t->getElementType() != nullptr) {
     b = t->getElementType();
   }
-  return b->is(BaseType::TY_CLASS) && b->getDisplayName() == "str";
+  return b->isBuiltinStringClass();
 }
 
 /// Pointers we may free after copying in \c emitCstrConcatValues: results of \c emitMalloc (format

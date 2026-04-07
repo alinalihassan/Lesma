@@ -85,6 +85,8 @@ class Type {
   /** True once another class declares this type as its base (needs vtable dispatch via base ptr).
    */
   bool classHasDerivedClass = false;
+  /** Marks the stdlib `str` class type so callers do not rely on display-name string checks. */
+  bool builtinStringClass = false;
   std::string genericName;
   std::string displayName;
   /** Declared generic parameter names in order (for TY_CLASS and TY_FUNCTION). */
@@ -220,6 +222,8 @@ public:
   auto setClassSuperclass(Type* super) -> void { classSuperclass = super; }
   [[nodiscard]] auto getClassHasDerivedClass() const -> bool { return classHasDerivedClass; }
   auto setClassHasDerivedClass(bool value) -> void { classHasDerivedClass = value; }
+  [[nodiscard]] auto isBuiltinStringClass() const -> bool { return builtinStringClass; }
+  auto setBuiltinStringClass(bool value) -> void { builtinStringClass = value; }
   [[nodiscard]] auto getClassVtableMethodOrder() const -> const std::vector<std::string>& {
     return classVtableMethodOrder;
   }

@@ -1575,6 +1575,7 @@ auto Typechecker::materializeImportedType(Type* type) -> Type* {
     Type* copy = cacheType(std::move(placeholder));
     importedTypeCopies[type] = copy;
     copy->setDisplayName(type->getDisplayName());
+    copy->setBuiltinStringClass(type->isBuiltinStringClass());
     copy->setGenericParams(type->getGenericParams());
     copy->setImplTraitNames(std::vector<std::string>(type->getImplTraitNames()));
     copy->setDeclarationSpan(type->getDeclarationSpan());
@@ -4464,6 +4465,14 @@ auto Typechecker::visit(const Class* node) -> void {
                          makeGenericDisplaySuffix(node->getGenericParams()));
     stub->setDeclarationSpan(node->getNameSpan());
     stub->setDeclarationFilePath(mainFilePath);
+    const auto stdBasePath =
+        std::filesystem::absolute(std::filesystem::path(getStdDir()) / "base.les")
+            .lexically_normal();
+    const auto declPath =
+        std::filesystem::absolute(std::filesystem::path(mainFilePath)).lexically_normal();
+    std::error_code builtinStrEc;
+    stub->setBuiltinStringClass(node->getIdentifier() == "str" &&
+                                std::filesystem::equivalent(declPath, stdBasePath, builtinStrEc));
     stub->setGenericParams(node->getGenericParams());
     stub->setImplTraitNames(node->getImplTraitNames());
     classTypePtr = stub.get();
@@ -6439,7 +6448,7 @@ auto Typechecker::isStdStrClassType(Type* type) const -> bool {
   if (auto it = specializedTypeToTemplate.find(baseType); it != specializedTypeToTemplate.end()) {
     baseType = it->second;
   }
-  return baseType->getDisplayName() == "str";
+  return baseType->isBuiltinStringClass();
 }
 
 auto Typechecker::getStdStrType(llvm::SMRange span) -> Type* {
