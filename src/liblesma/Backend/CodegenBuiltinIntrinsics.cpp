@@ -269,12 +269,11 @@ auto Codegen::genListIntrinsicCall(const FuncCall* node,
     lenTy->setIntWidth(64);
     return std::make_unique<Value>("", lenTy, emitListLength(listType, listHandle));
   }
-  case BuiltinIntrinsicKind::BufferCopy:
-    {
-      auto out = std::make_unique<Value>("", listType, emitListDeepCopy(listType, listHandle));
-      out->setArcOwnedValue(true);
-      return out;
-    }
+  case BuiltinIntrinsicKind::BufferCopy: {
+    auto out = std::make_unique<Value>("", listType, emitListDeepCopy(listType, listHandle));
+    out->setArcOwnedValue(true);
+    return out;
+  }
   case BuiltinIntrinsicKind::BufferClear: {
     if (listType->getElementType() != nullptr &&
         TypeUtils::containsArcManagedValue(listType->getElementType())) {
@@ -285,8 +284,8 @@ auto Codegen::genListIntrinsicCall(const FuncCall* node,
           llvm::BasicBlock::Create(theModule->getContext(), "list.clear.body", parentFunction);
       auto* loopInc =
           llvm::BasicBlock::Create(theModule->getContext(), "list.clear.inc", parentFunction);
-      auto* releaseDone =
-          llvm::BasicBlock::Create(theModule->getContext(), "list.clear.release.done", parentFunction);
+      auto* releaseDone = llvm::BasicBlock::Create(theModule->getContext(),
+                                                   "list.clear.release.done", parentFunction);
       auto* indexPtr = createAllocaInEntry(parentFunction, builder->getInt64Ty(), "list.clear.idx");
       builder->CreateStore(builder->getInt64(0), indexPtr);
       builder->CreateBr(loopCond);
@@ -339,7 +338,8 @@ auto Codegen::genListIntrinsicCall(const FuncCall* node,
     auto* storedElement =
         getListStoredElementValue(node->getSpan(), &pushedArg, listType->getElementType());
     if (TypeUtils::containsArcManagedValue(listType->getElementType())) {
-      emitRetainLoadedValue(listType->getElementType(), storedElement, pushedArg.getStoresFuncValuePair());
+      emitRetainLoadedValue(listType->getElementType(), storedElement,
+                            pushedArg.getStoresFuncValuePair());
     }
     builder->CreateStore(storedElement, elementPtr);
     emitStoreListLength(listType, listHandle, nextLength);
@@ -361,14 +361,13 @@ auto Codegen::genListIntrinsicCall(const FuncCall* node,
     }
     auto* elementPtr = emitListElementPointer(node->getSpan(), listType, listHandle, paramsLLVM[1]);
     Value setArg("", paramTypes[2], paramsLLVM[2]);
-    if (TypeUtils::containsArcManagedValue(listType->getElementType())) {
-      auto* oldElement = builder->CreateLoad(getListStoredElementType(listType), elementPtr);
-      emitReleaseLoadedValue(listType->getElementType(), oldElement, false);
-    }
     auto* storedElement =
         getListStoredElementValue(node->getSpan(), &setArg, listType->getElementType());
     if (TypeUtils::containsArcManagedValue(listType->getElementType())) {
-      emitRetainLoadedValue(listType->getElementType(), storedElement, setArg.getStoresFuncValuePair());
+      emitRetainLoadedValue(listType->getElementType(), storedElement,
+                            setArg.getStoresFuncValuePair());
+      auto* oldElement = builder->CreateLoad(getListStoredElementType(listType), elementPtr);
+      emitReleaseLoadedValue(listType->getElementType(), oldElement, false);
     }
     builder->CreateStore(storedElement, elementPtr);
     return std::make_unique<Value>(
@@ -408,8 +407,7 @@ auto Codegen::genListIntrinsicCall(const FuncCall* node,
     if (nullIndex == std::nullopt) {
       throw CodegenError(node->getSpan(), "pop() could not resolve null union arm");
     }
-    auto nullWrapped =
-        emitUnionWrapValue(node->getSpan(), &nullValue, popType, *nullIndex);
+    auto nullWrapped = emitUnionWrapValue(node->getSpan(), &nullValue, popType, *nullIndex);
     builder->CreateBr(mergeBlock);
 
     builder->SetInsertPoint(valueBlock);
@@ -421,7 +419,8 @@ auto Codegen::genListIntrinsicCall(const FuncCall* node,
     emitStoreListLength(listType, listHandle, newLength);
     Value popped("", listType->getElementType(), poppedValue);
     auto poppedWrapped = cast(node->getSpan(), &popped, popType);
-    if (TypeUtils::containsArcManagedValue(listType->getElementType()) && poppedWrapped != nullptr) {
+    if (TypeUtils::containsArcManagedValue(listType->getElementType()) &&
+        poppedWrapped != nullptr) {
       poppedWrapped->setArcOwnedValue(true);
     }
     llvm::BasicBlock* valueIncoming = builder->GetInsertBlock();

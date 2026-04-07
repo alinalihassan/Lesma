@@ -558,7 +558,6 @@ auto Codegen::defineLambdaFunction(lesma::Value* value, const LambdaExpr* node) 
 
   deferStack.pop();
   deferBaselineStack.pop();
-  popArcOwnedSlotFrame(false);
 
   for (BasicBlock& bb : *f) {
     if (bb.getTerminator() != nullptr) {
@@ -572,6 +571,8 @@ auto Codegen::defineLambdaFunction(lesma::Value* value, const LambdaExpr* node) 
       throw CodegenError(node->getSpan(), "Lambda does not always return a result");
     }
   }
+
+  popArcOwnedSlotFrame(false);
 
   isReturn = false;
   std::string verifyOutput;
@@ -2372,7 +2373,6 @@ auto Codegen::defineSynthesizedClassConstructor(lesma::Value* ctorSym, const Cla
 
   deferStack.pop();
   deferBaselineStack.pop();
-  popArcOwnedSlotFrame(false);
 
   for (BasicBlock& bb : *f) {
     Instruction* terminator = bb.getTerminator();
@@ -2383,6 +2383,8 @@ auto Codegen::defineSynthesizedClassConstructor(lesma::Value* ctorSym, const Cla
     emitReleaseCurrentArcOwnedSlots();
     builder->CreateRetVoid();
   }
+
+  popArcOwnedSlotFrame(false);
 
   isReturn = false;
   std::string verifyOutput;
@@ -6851,7 +6853,11 @@ auto Codegen::callListMethodByName(llvm::SMRange span, lesma::Value* receiver,
     auto* phi = builder->CreatePHI(popType->getLlvmType(), 2, "list.pop.result");
     phi->addIncoming(nullWrapped->getLlvmValue(), emptyBlock);
     phi->addIncoming(poppedWrapped->getLlvmValue(), valueIncoming);
-    return std::make_unique<Value>("", popType, phi);
+    auto out = std::make_unique<Value>("", popType, phi);
+    if (TypeUtils::containsArcManagedValue(bufferType->getElementType())) {
+      out->setArcOwnedValue(true);
+    }
+    return out;
   }
   if (methodName == "copy") {
     auto* copiedBuffer = emitListDeepCopy(bufferType, bufferHandle);
@@ -6890,15 +6896,15 @@ auto Codegen::callListMethodByName(llvm::SMRange span, lesma::Value* receiver,
     }
     auto* elementPtr =
         emitListElementPointer(span, bufferType, bufferHandle, args[0]->getLlvmValue());
-    if (TypeUtils::containsArcManagedValue(bufferType->getElementType())) {
-      auto* oldElement = builder->CreateLoad(getListStoredElementType(bufferType), elementPtr);
-      emitReleaseLoadedValue(bufferType->getElementType(), oldElement, false);
-    }
     auto* storedElement = getListStoredElementValue(span, args[1], bufferType->getElementType());
     if (!args[1]->getArcOwnedValue() &&
         TypeUtils::containsArcManagedValue(bufferType->getElementType())) {
       emitRetainLoadedValue(bufferType->getElementType(), storedElement,
                             args[1]->getStoresFuncValuePair());
+    }
+    if (TypeUtils::containsArcManagedValue(bufferType->getElementType())) {
+      auto* oldElement = builder->CreateLoad(getListStoredElementType(bufferType), elementPtr);
+      emitReleaseLoadedValue(bufferType->getElementType(), oldElement, false);
     }
     builder->CreateStore(storedElement, elementPtr);
     return std::make_unique<Value>(
