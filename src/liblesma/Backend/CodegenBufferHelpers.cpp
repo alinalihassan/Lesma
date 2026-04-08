@@ -256,30 +256,9 @@ auto Codegen::emitRetainLoadedValue(lesma::Type* type, llvm::Value* value, bool 
     auto* slot = createAllocaInEntry(parentFn, type->getLlvmType(), "arc.union.retain.slot");
     builder->CreateStore(value, slot);
     llvm::Value* tagVal = builder->CreateExtractValue(value, {0U}, "arc.union.tag");
-    llvm::BasicBlock* mergeBlock =
-        llvm::BasicBlock::Create(theModule->getContext(), "arc.union.retain.done", parentFn);
-    llvm::BasicBlock* currentBlock = builder->GetInsertBlock();
-    for (unsigned idx = 0; idx < type->getUnionMembers().size(); ++idx) {
-      Type* member = type->getUnionMembers()[idx];
-      if (!TypeUtils::containsArcManagedValue(member)) {
-        continue;
-      }
-      auto* matchBlock =
-          llvm::BasicBlock::Create(theModule->getContext(), "arc.union.retain.match", parentFn);
-      auto* nextBlock =
-          llvm::BasicBlock::Create(theModule->getContext(), "arc.union.retain.next", parentFn);
-      builder->SetInsertPoint(currentBlock);
-      builder->CreateCondBr(
-          builder->CreateICmpEQ(tagVal, llvm::ConstantInt::get(tagVal->getType(), idx)), matchBlock,
-          nextBlock);
-      builder->SetInsertPoint(matchBlock);
-      emitRetainLoadedValue(member, emitUnionPayloadLoadFromSlot(slot, type, member), false);
-      builder->CreateBr(mergeBlock);
-      currentBlock = nextBlock;
-    }
-    builder->SetInsertPoint(currentBlock);
-    builder->CreateBr(mergeBlock);
-    builder->SetInsertPoint(mergeBlock);
+    emitForEachUnionMemberWithTagDispatch(
+        type, slot, tagVal, "arc.union.retain",
+        [this](Type* member, llvm::Value* payload) { emitRetainLoadedValue(member, payload, false); });
     return;
   }
   case BaseType::TY_ANY: {
@@ -337,30 +316,10 @@ auto Codegen::emitReleaseLoadedValue(lesma::Type* type, llvm::Value* value,
     auto* slot = createAllocaInEntry(parentFn, type->getLlvmType(), "arc.union.release.slot");
     builder->CreateStore(value, slot);
     llvm::Value* tagVal = builder->CreateExtractValue(value, {0U}, "arc.union.tag");
-    llvm::BasicBlock* mergeBlock =
-        llvm::BasicBlock::Create(theModule->getContext(), "arc.union.release.done", parentFn);
-    llvm::BasicBlock* currentBlock = builder->GetInsertBlock();
-    for (unsigned idx = 0; idx < type->getUnionMembers().size(); ++idx) {
-      Type* member = type->getUnionMembers()[idx];
-      if (!TypeUtils::containsArcManagedValue(member)) {
-        continue;
-      }
-      auto* matchBlock =
-          llvm::BasicBlock::Create(theModule->getContext(), "arc.union.release.match", parentFn);
-      auto* nextBlock =
-          llvm::BasicBlock::Create(theModule->getContext(), "arc.union.release.next", parentFn);
-      builder->SetInsertPoint(currentBlock);
-      builder->CreateCondBr(
-          builder->CreateICmpEQ(tagVal, llvm::ConstantInt::get(tagVal->getType(), idx)), matchBlock,
-          nextBlock);
-      builder->SetInsertPoint(matchBlock);
-      emitReleaseLoadedValue(member, emitUnionPayloadLoadFromSlot(slot, type, member), false);
-      builder->CreateBr(mergeBlock);
-      currentBlock = nextBlock;
-    }
-    builder->SetInsertPoint(currentBlock);
-    builder->CreateBr(mergeBlock);
-    builder->SetInsertPoint(mergeBlock);
+    emitForEachUnionMemberWithTagDispatch(type, slot, tagVal, "arc.union.release",
+                                          [this](Type* member, llvm::Value* payload) {
+                                            emitReleaseLoadedValue(member, payload, false);
+                                          });
     return;
   }
   case BaseType::TY_ANY: {
@@ -371,6 +330,38 @@ auto Codegen::emitReleaseLoadedValue(lesma::Type* type, llvm::Value* value,
   default:
     return;
   }
+}
+
+auto Codegen::emitForEachUnionMemberWithTagDispatch(
+    lesma::Type* unionTy, llvm::Value* unionSlot, llvm::Value* tagVal, std::string_view blockStem,
+    const std::function<void(lesma::Type*, llvm::Value*)>& callback) -> void {
+  if (unionTy == nullptr || unionSlot == nullptr || tagVal == nullptr) {
+    return;
+  }
+  llvm::Function* parentFn = builder->GetInsertBlock()->getParent();
+  llvm::BasicBlock* mergeBlock = llvm::BasicBlock::Create(theModule->getContext(),
+                                                          std::string(blockStem) + ".done", parentFn);
+  llvm::BasicBlock* currentBlock = builder->GetInsertBlock();
+  for (unsigned idx = 0; idx < unionTy->getUnionMembers().size(); ++idx) {
+    Type* member = unionTy->getUnionMembers()[idx];
+    if (!TypeUtils::containsArcManagedValue(member)) {
+      continue;
+    }
+    auto* matchBlock = llvm::BasicBlock::Create(theModule->getContext(),
+                                                std::string(blockStem) + ".match", parentFn);
+    auto* nextBlock = llvm::BasicBlock::Create(theModule->getContext(), std::string(blockStem) + ".next",
+                                               parentFn);
+    builder->SetInsertPoint(currentBlock);
+    builder->CreateCondBr(builder->CreateICmpEQ(tagVal, llvm::ConstantInt::get(tagVal->getType(), idx)),
+                          matchBlock, nextBlock);
+    builder->SetInsertPoint(matchBlock);
+    callback(member, emitUnionPayloadLoadFromSlot(unionSlot, unionTy, member));
+    builder->CreateBr(mergeBlock);
+    currentBlock = nextBlock;
+  }
+  builder->SetInsertPoint(currentBlock);
+  builder->CreateBr(mergeBlock);
+  builder->SetInsertPoint(mergeBlock);
 }
 
 auto Codegen::emitReleaseTrackedSlot(const ArcTrackedSlot& tracked) -> void {
@@ -706,11 +697,12 @@ auto Codegen::getOrCreateArcDebugDeltaFunction() -> llvm::Function* {
   }
 
   fn->addFnAttr(llvm::Attribute::NoInline);
-  auto* liveCount = theModule->getGlobalVariable("__lesma_arc_debug_live_count", true);
+  auto* liveCount =
+      theModule->getGlobalVariable(std::string{codegen::runtime::ARC_DEBUG_LIVE_COUNT}, true);
   if (liveCount == nullptr) {
     liveCount = new llvm::GlobalVariable(*theModule, builder->getInt64Ty(), false,
                                          llvm::GlobalValue::CommonLinkage, builder->getInt64(0),
-                                         "__lesma_arc_debug_live_count");
+                                         std::string{codegen::runtime::ARC_DEBUG_LIVE_COUNT});
   }
 
   auto savedIp = builder->saveIP();
@@ -740,11 +732,12 @@ auto Codegen::getOrCreateArcDebugReportFunction() -> llvm::Function* {
   }
 
   fn->addFnAttr(llvm::Attribute::NoInline);
-  auto* liveCount = theModule->getGlobalVariable("__lesma_arc_debug_live_count", true);
+  auto* liveCount =
+      theModule->getGlobalVariable(std::string{codegen::runtime::ARC_DEBUG_LIVE_COUNT}, true);
   if (liveCount == nullptr) {
     liveCount = new llvm::GlobalVariable(*theModule, builder->getInt64Ty(), false,
                                          llvm::GlobalValue::CommonLinkage, builder->getInt64(0),
-                                         "__lesma_arc_debug_live_count");
+                                         std::string{codegen::runtime::ARC_DEBUG_LIVE_COUNT});
   }
   auto* rootsTotal =
       theModule->getGlobalVariable(std::string{codegen::runtime::ARC_DEBUG_MODULE_ROOTS_TOTAL}, true);

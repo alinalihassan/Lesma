@@ -692,6 +692,9 @@ private:
                                            lesma::Type* storedType, const std::string& dbgName,
                                            bool destStoresFuncValuePair = false)
       -> llvm::Instruction*;
+  auto emitForEachUnionMemberWithTagDispatch(
+      lesma::Type* unionTy, llvm::Value* unionSlot, llvm::Value* tagVal, std::string_view blockStem,
+      const std::function<void(lesma::Type*, llvm::Value*)>& callback) -> void;
   [[nodiscard]] auto makeBoolCompareResult(llvm::Value* cmpVal) -> std::unique_ptr<lesma::Value>;
   [[nodiscard]] auto
   emitPromotedArithmetic(llvm::SMRange span, TokenType op, std::unique_ptr<lesma::Value>& left,
@@ -716,6 +719,7 @@ private:
   [[nodiscard]] auto materializeClassStaticFieldGlobalInCurrentModule(lesma::Type* templateClassTy,
                                                                       Field* tf)
       -> llvm::GlobalVariable*;
+  [[nodiscard]] auto traitExistentialBaseName(const std::string& displayName) const -> std::string;
 
   /** Minimum tag bits: ceil(log2(memberCount)), at least 1 (memberCount must be > 0). */
   [[nodiscard]] static auto unionDiscriminantMinBits(std::size_t memberCount) -> unsigned;
