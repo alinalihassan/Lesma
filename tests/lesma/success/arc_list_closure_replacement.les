@@ -1,0 +1,28 @@
+func make_adder(base: int) -> func(int) -> int {
+  return func(x: int) -> int => x + base
+}
+
+var f = make_adder(1)
+if f(9) != 10 {
+  exit(1)
+}
+
+f = make_adder(10)
+if f(5) != 15 {
+  exit(1)
+}
+
+var g = make_adder(2)
+if g(5) != 7 {
+  exit(1)
+}
+
+g = make_adder(7)
+if g(1) != 8 {
+  exit(1)
+}
+
+g = make_adder(20)
+if g(1) != 21 {
+  exit(1)
+}

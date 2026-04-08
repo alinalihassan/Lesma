@@ -1,0 +1,51 @@
+class Box {
+  var value: int
+
+  func new(value: int) {
+    self.value = value
+  }
+
+  func get() -> int {
+    return self.value
+  }
+}
+
+class OnceIter<T> impl Iterator<T> {
+  var one: T
+  var done: bool = false
+
+  func new(v: T) {
+    self.one = v
+    self.done = false
+  }
+
+  func next() -> T? {
+    if self.done {
+      return null
+    }
+    self.done = true
+    return self.one
+  }
+}
+
+class Once<T> impl Iterable<T> {
+  var one: T
+
+  func new(v: T) {
+    self.one = v
+  }
+
+  func iter() -> OnceIter<T> {
+    return OnceIter<T>(self.one)
+  }
+}
+
+let iterator = Once<Box>(Box(13)).iter()
+let item = iterator.next()
+if item is null {
+  exit(1)
+} else {
+  if item.get() != 13 {
+    exit(1)
+  }
+}

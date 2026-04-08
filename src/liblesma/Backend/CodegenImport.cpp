@@ -303,10 +303,10 @@ auto Codegen::compileModule(llvm::SMRange span, const std::string& filepath, boo
     auto codegen = std::make_unique<Codegen>(
         std::move(parser), sourceManager, canonicalPath, std::vector<std::string>{}, isJit, false,
         !importToScope ? moduleAlias : "", theContext, importedModules, importedScopes,
-        importedSpecializationStates,
-        std::move(preScope), std::move(preTypeCache), std::move(preSpecEnv),
-        std::move(preTemplateOf), std::move(preSpecializedClassTypes), emitDebugInfo,
-        OptimizationLevel::O0, pendingJitModuleInits);
+        importedSpecializationStates, std::move(preScope), std::move(preTypeCache),
+        std::move(preSpecEnv), std::move(preTemplateOf), std::move(preSpecializedClassTypes),
+        emitDebugInfo, emitArcDebug, emitArcTrace, OptimizationLevel::O0, pendingJitModuleInits,
+        pendingJitModuleFinis);
     codegen->run();
     ImportedSpecializationState importedState = codegen->captureImportedSpecializationState();
     importedSpecializationStates->at(importIdx) = importedState;
@@ -332,6 +332,7 @@ auto Codegen::compileModule(llvm::SMRange span, const std::string& filepath, boo
     mergeImportedSpecializationState(importedState);
 
     std::string jitModuleInitSymbol;
+    std::string jitModuleFiniSymbol;
     if (isJit) {
       codegen->verifyIrModuleOrThrow(fmt::format("import {}", filepath));
       if (llvm::Function* importMain = codegen->theModule->getFunction("main");
@@ -340,6 +341,14 @@ auto Codegen::compileModule(llvm::SMRange span, const std::string& filepath, boo
         importMain->setName(jitModuleInitSymbol);
         importMain->setLinkage(llvm::GlobalValue::ExternalLinkage);
         importMain->setVisibility(llvm::GlobalValue::HiddenVisibility);
+      }
+      jitModuleFiniSymbol = MangleUtils::getImportedModuleFiniSymbolName(canonicalPath);
+      if (llvm::Function* importFini = codegen->theModule->getFunction(jitModuleFiniSymbol);
+          importFini != nullptr) {
+        importFini->setLinkage(llvm::GlobalValue::ExternalLinkage);
+        importFini->setVisibility(llvm::GlobalValue::HiddenVisibility);
+      } else {
+        jitModuleFiniSymbol.clear();
       }
       for (llvm::Function& fn : *codegen->theModule) {
         if (fn.hasPrivateLinkage()) {
@@ -357,6 +366,9 @@ auto Codegen::compileModule(llvm::SMRange span, const std::string& filepath, boo
       }
       if (!jitModuleInitSymbol.empty() && pendingJitModuleInits != nullptr) {
         pendingJitModuleInits->push_back(jitModuleInitSymbol);
+      }
+      if (!jitModuleFiniSymbol.empty() && pendingJitModuleFinis != nullptr) {
+        pendingJitModuleFinis->push_back(jitModuleFiniSymbol);
       }
       codegen->theModule = codegen->initializeModule();
     } else {

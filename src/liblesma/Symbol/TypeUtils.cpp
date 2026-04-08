@@ -69,6 +69,40 @@ auto passesByPointerInAbi(Type const* t) -> bool {
   return t->is(BaseType::TY_CLASS) || t->is(BaseType::TY_TRAIT_EXISTENTIAL);
 }
 
+auto isArcReferenceType(Type const* t) -> bool {
+  if (t == nullptr) {
+    return false;
+  }
+  if (t->is(BaseType::TY_CLASS) || t->is(BaseType::TY_ARRAY)) {
+    return true;
+  }
+  return t->is(BaseType::TY_PTR) && t->getElementType() != nullptr &&
+         t->getElementType()->is(BaseType::TY_CLASS);
+}
+
+auto containsArcManagedValue(Type const* t) -> bool {
+  if (t == nullptr) {
+    return false;
+  }
+  if (isArcReferenceType(t)) {
+    return true;
+  }
+  switch (t->getBaseType()) {
+  case BaseType::TY_FUNCTION:
+  case BaseType::TY_ANY:
+  case BaseType::TY_TRAIT_EXISTENTIAL:
+    return true;
+  case BaseType::TY_TUPLE:
+    return std::ranges::any_of(
+        t->getFields(), [](Field const* field) { return containsArcManagedValue(field->type); });
+  case BaseType::TY_UNION:
+    return std::ranges::any_of(t->getUnionMembers(),
+                               [](Type const* member) { return containsArcManagedValue(member); });
+  default:
+    return false;
+  }
+}
+
 auto makeSpecializedClassKey(Type* classTemplate, const std::vector<std::string>& genericParamNames,
                              const std::unordered_map<std::string, Type*>& env) -> std::string {
   std::ostringstream key;

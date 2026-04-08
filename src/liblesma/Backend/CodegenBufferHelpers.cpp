@@ -9,9 +9,11 @@
 
 #include "Codegen.h"
 
+#include "liblesma/Backend/CodegenError.h"
 #include "liblesma/Backend/CodegenRuntimeNames.h"
 #include "liblesma/Backend/MangleUtils.h"
 #include "liblesma/Symbol/Type.h"
+#include "liblesma/Symbol/TypeUtils.h"
 #include "liblesma/Symbol/Value.h"
 
 using namespace lesma;
@@ -83,6 +85,584 @@ auto Codegen::emitFree(llvm::Value* ptr) -> void {
   builder->CreateCall(freeFn, {ptr});
 }
 
+auto Codegen::getOrCreateArcHeaderType() -> llvm::StructType* {
+  if (arcHeaderLlvmType == nullptr) {
+    arcHeaderLlvmType = llvm::StructType::create(theModule->getContext(),
+                                                 {builder->getInt64Ty(), builder->getPtrTy()},
+                                                 "lesma.arc.header", false);
+  }
+  return arcHeaderLlvmType;
+}
+
+auto Codegen::emitArcAlloc(llvm::Value* payloadSize, llvm::Function* destroyFn,
+                           const llvm::Twine& name) -> llvm::Value* {
+  if (destroyFn == nullptr) {
+    throw CodegenError({}, "ARC allocation '{}' is missing a destroy function", name.str());
+  }
+  auto* headerTy = getOrCreateArcHeaderType();
+  auto* headerSize =
+      builder->getInt64(theModule->getDataLayout().getTypeAllocSize(headerTy).getFixedValue());
+  auto* totalSize = builder->CreateAdd(payloadSize, headerSize, name + ".arc.bytes");
+  auto* raw = emitMalloc(totalSize, name + ".arc.raw");
+  auto* headerPtr = builder->CreateBitCast(raw, llvm::PointerType::get(headerTy->getContext(), 0U),
+                                           name + ".arc.header");
+  builder->CreateStore(builder->getInt64(1), builder->CreateStructGEP(headerTy, headerPtr, 0U));
+  llvm::Value* destroyValue = builder->CreateBitCast(destroyFn, builder->getPtrTy());
+  builder->CreateStore(destroyValue, builder->CreateStructGEP(headerTy, headerPtr, 1U));
+  auto* payload =
+      builder->CreateInBoundsGEP(builder->getInt8Ty(), raw, headerSize, name + ".arc.payload");
+  builder->CreateMemSet(payload, builder->getInt8(0), payloadSize, llvm::MaybeAlign(1U));
+  auto* payloadPtr = builder->CreateBitCast(payload, builder->getPtrTy(), name);
+  if (emitArcDebug) {
+    emitArcDebugDelta(1, payloadPtr, "[arc] alloc");
+  }
+  return payloadPtr;
+}
+
+auto Codegen::emitArcFreePayload(llvm::Value* payloadPtr) -> void {
+  auto* headerTy = getOrCreateArcHeaderType();
+  auto* headerSize =
+      builder->getInt64(theModule->getDataLayout().getTypeAllocSize(headerTy).getFixedValue());
+  auto* payloadRaw = builder->CreateBitCast(payloadPtr, builder->getPtrTy(), "arc.payload.raw");
+  auto* raw = builder->CreateInBoundsGEP(builder->getInt8Ty(), payloadRaw,
+                                         builder->CreateNeg(headerSize), "arc.raw");
+  if (emitArcDebug) {
+    emitArcDebugDelta(-1, payloadPtr, "[arc] free");
+  }
+  emitFree(raw);
+}
+
+auto Codegen::emitArcRetain(llvm::Value* payloadPtr) -> void {
+  llvm::Function* parentFn = builder->GetInsertBlock()->getParent();
+  auto* retainBlock = llvm::BasicBlock::Create(theModule->getContext(), "arc.retain", parentFn);
+  auto* doneBlock = llvm::BasicBlock::Create(theModule->getContext(), "arc.retain.done", parentFn);
+  builder->CreateCondBr(
+      builder->CreateICmpEQ(payloadPtr, llvm::ConstantPointerNull::get(builder->getPtrTy())),
+      doneBlock, retainBlock);
+
+  builder->SetInsertPoint(retainBlock);
+  auto* headerTy = getOrCreateArcHeaderType();
+  auto* headerSize =
+      builder->getInt64(theModule->getDataLayout().getTypeAllocSize(headerTy).getFixedValue());
+  auto* raw = builder->CreateInBoundsGEP(builder->getInt8Ty(),
+                                         builder->CreateBitCast(payloadPtr, builder->getPtrTy()),
+                                         builder->CreateNeg(headerSize), "arc.retain.raw");
+  auto* headerPtr = builder->CreateBitCast(raw, llvm::PointerType::get(headerTy->getContext(), 0U),
+                                           "arc.retain.header");
+  auto* refSlot = builder->CreateStructGEP(headerTy, headerPtr, 0U);
+  auto* refCount = builder->CreateLoad(builder->getInt64Ty(), refSlot, "arc.retain.count");
+  if (emitArcDebug) {
+    emitArcDebugValidateRefcount(refCount, "[arc] retain on zero-count object\n");
+  }
+  auto* next = builder->CreateAdd(refCount, builder->getInt64(1), "arc.retain.next");
+  builder->CreateStore(next, refSlot);
+  emitArcDebugTraceCounts("[arc] retain", payloadPtr, refCount, next);
+  builder->CreateBr(doneBlock);
+
+  builder->SetInsertPoint(doneBlock);
+}
+
+// Precondition: `payloadPtr` is non-null. Callers that may have a null payload must route through
+// `emitArcReleaseNullable()`, which performs the null check before delegating here.
+auto Codegen::emitArcRelease(llvm::Value* payloadPtr) -> void {
+  auto* headerTy = getOrCreateArcHeaderType();
+  auto* headerSize =
+      builder->getInt64(theModule->getDataLayout().getTypeAllocSize(headerTy).getFixedValue());
+  auto* raw = builder->CreateInBoundsGEP(builder->getInt8Ty(),
+                                         builder->CreateBitCast(payloadPtr, builder->getPtrTy()),
+                                         builder->CreateNeg(headerSize), "arc.release.raw");
+  auto* headerPtr = builder->CreateBitCast(raw, llvm::PointerType::get(headerTy->getContext(), 0U),
+                                           "arc.release.header");
+  auto* refSlot = builder->CreateStructGEP(headerTy, headerPtr, 0U);
+  auto* destroySlot = builder->CreateStructGEP(headerTy, headerPtr, 1U);
+  auto* refCount = builder->CreateLoad(builder->getInt64Ty(), refSlot, "arc.release.count");
+  if (emitArcDebug) {
+    emitArcDebugValidateRefcount(refCount, "[arc] release on zero-count object\n");
+  }
+  auto* next = builder->CreateSub(refCount, builder->getInt64(1), "arc.release.next");
+  builder->CreateStore(next, refSlot);
+  emitArcDebugTraceCounts("[arc] release", payloadPtr, refCount, next);
+
+  llvm::Function* parentFn = builder->GetInsertBlock()->getParent();
+  auto* destroyBlock =
+      llvm::BasicBlock::Create(theModule->getContext(), "arc.release.destroy", parentFn);
+  auto* doneBlock = llvm::BasicBlock::Create(theModule->getContext(), "arc.release.done", parentFn);
+  builder->CreateCondBr(builder->CreateICmpEQ(next, builder->getInt64(0)), destroyBlock, doneBlock);
+
+  builder->SetInsertPoint(destroyBlock);
+  auto* destroyPtr = builder->CreateLoad(builder->getPtrTy(), destroySlot, "arc.release.destroyfn");
+  auto* destroyTy = llvm::FunctionType::get(builder->getVoidTy(), {builder->getPtrTy()}, false);
+  builder->CreateCall(destroyTy, destroyPtr, {payloadPtr});
+  builder->CreateBr(doneBlock);
+
+  builder->SetInsertPoint(doneBlock);
+}
+
+auto Codegen::emitArcReleaseNullable(llvm::Value* payloadPtr) -> void {
+  llvm::Function* parentFn = builder->GetInsertBlock()->getParent();
+  auto* releaseBlock = llvm::BasicBlock::Create(theModule->getContext(), "arc.release", parentFn);
+  auto* doneBlock = llvm::BasicBlock::Create(theModule->getContext(), "arc.release.done", parentFn);
+  builder->CreateCondBr(
+      builder->CreateICmpEQ(payloadPtr, llvm::ConstantPointerNull::get(builder->getPtrTy())),
+      doneBlock, releaseBlock);
+  builder->SetInsertPoint(releaseBlock);
+  emitArcRelease(payloadPtr);
+  builder->CreateBr(doneBlock);
+  builder->SetInsertPoint(doneBlock);
+}
+
+auto Codegen::emitRetainLoadedValue(lesma::Type* type, llvm::Value* value, bool storesFuncValuePair)
+    -> void {
+  if (type == nullptr || value == nullptr) {
+    return;
+  }
+  if (TypeUtils::isArcReferenceType(type)) {
+    emitArcRetain(value);
+    return;
+  }
+  switch (type->getBaseType()) {
+  case BaseType::TY_PTR:
+    if (type->getElementType() != nullptr && type->getElementType()->is(BaseType::TY_CLASS)) {
+      emitArcRetain(value);
+    }
+    return;
+  case BaseType::TY_FUNCTION:
+    if (!storesFuncValuePair || !value->getType()->isStructTy()) {
+      return;
+    }
+    emitArcRetain(builder->CreateExtractValue(value, {1U}, "arc.fn.env"));
+    return;
+  case BaseType::TY_TRAIT_EXISTENTIAL:
+    emitArcRetain(builder->CreateExtractValue(value, {0U}, "arc.existential.payload"));
+    return;
+  case BaseType::TY_TUPLE: {
+    auto fields = type->getFields();
+    for (unsigned i = 0; i < fields.size(); ++i) {
+      if (!TypeUtils::containsArcManagedValue(fields[i]->type)) {
+        continue;
+      }
+      emitRetainLoadedValue(fields[i]->type, builder->CreateExtractValue(value, {i}, "arc.tuple.v"),
+                            false);
+    }
+    return;
+  }
+  case BaseType::TY_UNION: {
+    bool const hasArcMember =
+        std::ranges::any_of(type->getUnionMembers(), TypeUtils::containsArcManagedValue);
+    if (!hasArcMember) {
+      return;
+    }
+    llvm::Function* parentFn = builder->GetInsertBlock()->getParent();
+    auto* slot = createAllocaInEntry(parentFn, type->getLlvmType(), "arc.union.retain.slot");
+    builder->CreateStore(value, slot);
+    llvm::Value* tagVal = builder->CreateExtractValue(value, {0U}, "arc.union.tag");
+    emitForEachUnionMemberWithTagDispatch(
+        type, slot, tagVal, "arc.union.retain",
+        [this](Type* member, llvm::Value* payload) { emitRetainLoadedValue(member, payload, false); });
+    return;
+  }
+  case BaseType::TY_ANY: {
+    llvm::Value* payloadPtr = builder->CreateExtractValue(value, {1U}, "arc.any.payload");
+    emitArcRetain(payloadPtr);
+    return;
+  }
+  default:
+    return;
+  }
+}
+
+auto Codegen::emitReleaseLoadedValue(lesma::Type* type, llvm::Value* value,
+                                     bool storesFuncValuePair) -> void {
+  if (type == nullptr || value == nullptr) {
+    return;
+  }
+  if (TypeUtils::isArcReferenceType(type)) {
+    emitArcReleaseNullable(value);
+    return;
+  }
+  switch (type->getBaseType()) {
+  case BaseType::TY_PTR:
+    if (type->getElementType() != nullptr && type->getElementType()->is(BaseType::TY_CLASS)) {
+      emitArcReleaseNullable(value);
+    }
+    return;
+  case BaseType::TY_FUNCTION:
+    if (!storesFuncValuePair || !value->getType()->isStructTy()) {
+      return;
+    }
+    emitArcReleaseNullable(builder->CreateExtractValue(value, {1U}, "arc.fn.env"));
+    return;
+  case BaseType::TY_TRAIT_EXISTENTIAL:
+    emitArcReleaseNullable(builder->CreateExtractValue(value, {0U}, "arc.existential.payload"));
+    return;
+  case BaseType::TY_TUPLE: {
+    auto fields = type->getFields();
+    for (unsigned i = 0; i < fields.size(); ++i) {
+      if (!TypeUtils::containsArcManagedValue(fields[i]->type)) {
+        continue;
+      }
+      emitReleaseLoadedValue(fields[i]->type,
+                             builder->CreateExtractValue(value, {i}, "arc.tuple.v"), false);
+    }
+    return;
+  }
+  case BaseType::TY_UNION: {
+    bool const hasArcMember =
+        std::ranges::any_of(type->getUnionMembers(), TypeUtils::containsArcManagedValue);
+    if (!hasArcMember) {
+      return;
+    }
+    llvm::Function* parentFn = builder->GetInsertBlock()->getParent();
+    auto* slot = createAllocaInEntry(parentFn, type->getLlvmType(), "arc.union.release.slot");
+    builder->CreateStore(value, slot);
+    llvm::Value* tagVal = builder->CreateExtractValue(value, {0U}, "arc.union.tag");
+    emitForEachUnionMemberWithTagDispatch(type, slot, tagVal, "arc.union.release",
+                                          [this](Type* member, llvm::Value* payload) {
+                                            emitReleaseLoadedValue(member, payload, false);
+                                          });
+    return;
+  }
+  case BaseType::TY_ANY: {
+    llvm::Value* payloadPtr = builder->CreateExtractValue(value, {1U}, "arc.any.payload");
+    emitArcReleaseNullable(payloadPtr);
+    return;
+  }
+  default:
+    return;
+  }
+}
+
+auto Codegen::emitForEachUnionMemberWithTagDispatch(
+    lesma::Type* unionTy, llvm::Value* unionSlot, llvm::Value* tagVal, std::string_view blockStem,
+    const std::function<void(lesma::Type*, llvm::Value*)>& callback) -> void {
+  if (unionTy == nullptr || unionSlot == nullptr || tagVal == nullptr) {
+    return;
+  }
+  llvm::Function* parentFn = builder->GetInsertBlock()->getParent();
+  llvm::BasicBlock* mergeBlock = llvm::BasicBlock::Create(theModule->getContext(),
+                                                          std::string(blockStem) + ".done", parentFn);
+  llvm::BasicBlock* currentBlock = builder->GetInsertBlock();
+  for (unsigned idx = 0; idx < unionTy->getUnionMembers().size(); ++idx) {
+    Type* member = unionTy->getUnionMembers()[idx];
+    if (!TypeUtils::containsArcManagedValue(member)) {
+      continue;
+    }
+    auto* matchBlock = llvm::BasicBlock::Create(theModule->getContext(),
+                                                std::string(blockStem) + ".match", parentFn);
+    auto* nextBlock = llvm::BasicBlock::Create(theModule->getContext(), std::string(blockStem) + ".next",
+                                               parentFn);
+    builder->SetInsertPoint(currentBlock);
+    builder->CreateCondBr(builder->CreateICmpEQ(tagVal, llvm::ConstantInt::get(tagVal->getType(), idx)),
+                          matchBlock, nextBlock);
+    builder->SetInsertPoint(matchBlock);
+    callback(member, emitUnionPayloadLoadFromSlot(unionSlot, unionTy, member));
+    builder->CreateBr(mergeBlock);
+    currentBlock = nextBlock;
+  }
+  builder->SetInsertPoint(currentBlock);
+  builder->CreateBr(mergeBlock);
+  builder->SetInsertPoint(mergeBlock);
+}
+
+auto Codegen::emitReleaseTrackedSlot(const ArcTrackedSlot& tracked) -> void {
+  if (tracked.slot == nullptr || tracked.type == nullptr ||
+      !TypeUtils::containsArcManagedValue(tracked.type)) {
+    return;
+  }
+  llvm::Type* slotTy = tracked.type->is(BaseType::TY_FUNCTION) && tracked.storesFuncValuePair
+                           ? static_cast<llvm::Type*>(getFuncValuePairLlvmType())
+                           : getStoredAggregateFieldLlvmType(tracked.type);
+  if (slotTy == nullptr) {
+    return;
+  }
+  emitReleaseLoadedValue(tracked.type,
+                         builder->CreateLoad(slotTy, tracked.slot, "arc.slot.release"),
+                         tracked.storesFuncValuePair);
+}
+
+auto Codegen::pushArcOwnedSlotFrame() -> void { arcOwnedSlotFrames.emplace_back(); }
+
+auto Codegen::popArcOwnedSlotFrame(bool emitCleanup) -> void {
+  if (arcOwnedSlotFrames.empty()) {
+    return;
+  }
+  if (emitCleanup) {
+    for (auto it = arcOwnedSlotFrames.back().rbegin(); it != arcOwnedSlotFrames.back().rend();
+         ++it) {
+      emitReleaseTrackedSlot(*it);
+    }
+  }
+  arcOwnedSlotFrames.pop_back();
+}
+
+auto Codegen::registerArcOwnedSlot(llvm::Value* slot, lesma::Type* type, bool storesFuncValuePair)
+    -> void {
+  if (slot == nullptr || type == nullptr || arcOwnedSlotFrames.empty() ||
+      !TypeUtils::containsArcManagedValue(type)) {
+    return;
+  }
+  auto& frame = arcOwnedSlotFrames.back();
+  for (const ArcTrackedSlot& tracked : frame) {
+    if (tracked.slot == slot) {
+      return;
+    }
+  }
+  frame.push_back(ArcTrackedSlot{slot, type, storesFuncValuePair});
+}
+
+auto Codegen::emitReleaseCurrentArcOwnedSlots() -> void {
+  if (arcOwnedSlotFrames.empty()) {
+    return;
+  }
+  for (auto it = arcOwnedSlotFrames.back().rbegin(); it != arcOwnedSlotFrames.back().rend(); ++it) {
+    emitReleaseTrackedSlot(*it);
+  }
+}
+
+auto Codegen::registerModuleArcRoot(llvm::GlobalVariable* slot, lesma::Type* type,
+                                    const std::string& debugName, bool storesFuncValuePair) -> void {
+  if (slot == nullptr || type == nullptr || !TypeUtils::containsArcManagedValue(type)) {
+    return;
+  }
+  for (const ModuleArcTrackedRoot& tracked : moduleArcTrackedRoots) {
+    if (tracked.slot == slot) {
+      return;
+    }
+  }
+  moduleArcTrackedRoots.push_back(ModuleArcTrackedRoot{slot, type, storesFuncValuePair, debugName});
+}
+
+auto Codegen::emitReleaseRegisteredModuleArcRoots() -> void {
+  for (auto it = moduleArcTrackedRoots.rbegin(); it != moduleArcTrackedRoots.rend(); ++it) {
+    llvm::Type* storageTy = it->slot->getValueType();
+    if (emitArcTrace) {
+      emitArcDebugTraceModuleRoot(*it);
+    }
+    emitReleaseLoadedValue(it->type, builder->CreateLoad(storageTy, it->slot, "arc.root.load"),
+                           it->storesFuncValuePair);
+    builder->CreateStore(llvm::Constant::getNullValue(it->slot->getValueType()), it->slot);
+    if (emitArcDebug) {
+      builder->CreateCall(getOrCreateArcDebugCleanupStepFunction());
+    }
+  }
+}
+
+auto Codegen::getOrCreateArcStorageRetainFunction(lesma::Type* type) -> llvm::Function* {
+  if (type == nullptr) {
+    return nullptr;
+  }
+  if (auto it = arcStorageRetainFns.find(type); it != arcStorageRetainFns.end()) {
+    return it->second;
+  }
+  std::string fnName = "__lesma_arc_retain_storage_" + MangleUtils::getTypeMangledName({}, type);
+  auto* fnTy = llvm::FunctionType::get(builder->getVoidTy(), {builder->getPtrTy()}, false);
+  auto* fn = llvm::Function::Create(fnTy, llvm::GlobalValue::PrivateLinkage, fnName, *theModule);
+  arcStorageRetainFns[type] = fn;
+  auto savedIp = builder->saveIP();
+  auto* entry = llvm::BasicBlock::Create(theModule->getContext(), "entry", fn);
+  builder->SetInsertPoint(entry);
+  llvm::Value* storage = fn->getArg(0U);
+  llvm::Type* storageTy = type->is(BaseType::TY_FUNCTION)
+                              ? static_cast<llvm::Type*>(getFuncValuePairLlvmType())
+                              : getStoredAggregateFieldLlvmType(type);
+  llvm::Value* typedStorage =
+      builder->CreateBitCast(storage, llvm::PointerType::get(storageTy->getContext(), 0U));
+  emitRetainLoadedValue(type, builder->CreateLoad(storageTy, typedStorage, "arc.storage.load"),
+                        type->is(BaseType::TY_FUNCTION));
+  builder->CreateRetVoid();
+  builder->restoreIP(savedIp);
+  return fn;
+}
+
+auto Codegen::getOrCreateArcStorageReleaseFunction(lesma::Type* type) -> llvm::Function* {
+  if (type == nullptr) {
+    return nullptr;
+  }
+  if (auto it = arcStorageReleaseFns.find(type); it != arcStorageReleaseFns.end()) {
+    return it->second;
+  }
+  std::string fnName = "__lesma_arc_release_storage_" + MangleUtils::getTypeMangledName({}, type);
+  auto* fnTy = llvm::FunctionType::get(builder->getVoidTy(), {builder->getPtrTy()}, false);
+  auto* fn = llvm::Function::Create(fnTy, llvm::GlobalValue::PrivateLinkage, fnName, *theModule);
+  arcStorageReleaseFns[type] = fn;
+  auto savedIp = builder->saveIP();
+  auto* entry = llvm::BasicBlock::Create(theModule->getContext(), "entry", fn);
+  builder->SetInsertPoint(entry);
+  llvm::Value* storage = fn->getArg(0U);
+  llvm::Type* storageTy = type->is(BaseType::TY_FUNCTION)
+                              ? static_cast<llvm::Type*>(getFuncValuePairLlvmType())
+                              : getStoredAggregateFieldLlvmType(type);
+  llvm::Value* typedStorage =
+      builder->CreateBitCast(storage, llvm::PointerType::get(storageTy->getContext(), 0U));
+  emitReleaseLoadedValue(type, builder->CreateLoad(storageTy, typedStorage, "arc.storage.load"),
+                         type->is(BaseType::TY_FUNCTION));
+  builder->CreateRetVoid();
+  builder->restoreIP(savedIp);
+  return fn;
+}
+
+auto Codegen::getOrCreateArcPayloadDestroyFunction(lesma::Type* type) -> llvm::Function* {
+  if (type == nullptr) {
+    return nullptr;
+  }
+  if (auto it = arcPayloadDestroyFns.find(type); it != arcPayloadDestroyFns.end()) {
+    return it->second;
+  }
+  std::string fnName = "__lesma_arc_destroy_payload_" + MangleUtils::getTypeMangledName({}, type);
+  auto* fnTy = llvm::FunctionType::get(builder->getVoidTy(), {builder->getPtrTy()}, false);
+  auto* fn = llvm::Function::Create(fnTy, llvm::GlobalValue::PrivateLinkage, fnName, *theModule);
+  arcPayloadDestroyFns[type] = fn;
+  auto savedIp = builder->saveIP();
+  auto* entry = llvm::BasicBlock::Create(theModule->getContext(), "entry", fn);
+  builder->SetInsertPoint(entry);
+  auto* releaseFn = getOrCreateArcStorageReleaseFunction(type);
+  auto* releaseTy = llvm::FunctionType::get(builder->getVoidTy(), {builder->getPtrTy()}, false);
+  builder->CreateCall(releaseTy, releaseFn, {fn->getArg(0U)});
+  emitArcFreePayload(fn->getArg(0U));
+  builder->CreateRetVoid();
+  builder->restoreIP(savedIp);
+  return fn;
+}
+
+auto Codegen::getOrCreateArcDestroyFunction(lesma::Type* type) -> llvm::Function* {
+  if (type == nullptr) {
+    return nullptr;
+  }
+  if (auto it = arcDestroyFns.find(type); it != arcDestroyFns.end()) {
+    return it->second;
+  }
+  std::string fnName = "__lesma_arc_destroy_" + MangleUtils::getTypeMangledName({}, type);
+  auto* fnTy = llvm::FunctionType::get(builder->getVoidTy(), {builder->getPtrTy()}, false);
+  auto* fn = llvm::Function::Create(fnTy, llvm::GlobalValue::PrivateLinkage, fnName, *theModule);
+  arcDestroyFns[type] = fn;
+
+  auto savedIp = builder->saveIP();
+  auto* entry = llvm::BasicBlock::Create(theModule->getContext(), "entry", fn);
+  builder->SetInsertPoint(entry);
+  llvm::Value* payload = fn->getArg(0U);
+
+  if (type->is(BaseType::TY_ARRAY)) {
+    auto* listHandle = builder->CreateBitCast(
+        payload, llvm::PointerType::get(builder->getContext(), 0U), "arc.list.handle");
+    if (type->getElementType() != nullptr &&
+        TypeUtils::containsArcManagedValue(type->getElementType())) {
+      llvm::Function* parentFn = builder->GetInsertBlock()->getParent();
+      auto* loopCond =
+          llvm::BasicBlock::Create(theModule->getContext(), "arc.list.release.cond", parentFn);
+      auto* loopBody =
+          llvm::BasicBlock::Create(theModule->getContext(), "arc.list.release.body", parentFn);
+      auto* loopInc =
+          llvm::BasicBlock::Create(theModule->getContext(), "arc.list.release.inc", parentFn);
+      auto* loopDone =
+          llvm::BasicBlock::Create(theModule->getContext(), "arc.list.release.done", parentFn);
+      auto* indexPtr = createAllocaInEntry(parentFn, builder->getInt64Ty(), "arc.list.release.idx");
+      builder->CreateStore(builder->getInt64(0), indexPtr);
+      builder->CreateBr(loopCond);
+
+      builder->SetInsertPoint(loopCond);
+      auto* index = builder->CreateLoad(builder->getInt64Ty(), indexPtr);
+      auto* length = emitListLength(type, listHandle);
+      builder->CreateCondBr(builder->CreateICmpSLT(index, length), loopBody, loopDone);
+
+      builder->SetInsertPoint(loopBody);
+      auto* elemPtr = emitListElementPointer({}, type, listHandle, index);
+      auto* elemVal = builder->CreateLoad(getListStoredElementType(type), elemPtr, "arc.list.elem");
+      emitReleaseLoadedValue(type->getElementType(), elemVal, false);
+      builder->CreateBr(loopInc);
+
+      builder->SetInsertPoint(loopInc);
+      builder->CreateStore(builder->CreateAdd(builder->CreateLoad(builder->getInt64Ty(), indexPtr),
+                                              builder->getInt64(1)),
+                           indexPtr);
+      builder->CreateBr(loopCond);
+      builder->SetInsertPoint(loopDone);
+    }
+
+    llvm::Function* parentFn = builder->GetInsertBlock()->getParent();
+    auto* freeBlock =
+        llvm::BasicBlock::Create(theModule->getContext(), "arc.list.data.free", parentFn);
+    auto* doneBlock =
+        llvm::BasicBlock::Create(theModule->getContext(), "arc.list.data.done", parentFn);
+    auto* data = emitListDataPtr(type, listHandle);
+    builder->CreateCondBr(
+        builder->CreateICmpEQ(data, llvm::ConstantPointerNull::get(builder->getPtrTy())), doneBlock,
+        freeBlock);
+    builder->SetInsertPoint(freeBlock);
+    emitFree(data);
+    builder->CreateBr(doneBlock);
+    builder->SetInsertPoint(doneBlock);
+    emitArcFreePayload(listHandle);
+    builder->CreateRetVoid();
+    builder->restoreIP(savedIp);
+    return fn;
+  }
+
+  auto* classTy = llvm::cast<llvm::StructType>(getOrCreateLlvmType(type));
+  auto* object = builder->CreateBitCast(payload, llvm::PointerType::get(classTy->getContext(), 0U),
+                                        "arc.class.obj");
+  auto fields = type->getFields();
+  for (unsigned i = 0; i < fields.size(); ++i) {
+    Type* fieldTy = fields[i]->type;
+    unsigned const structIdx = TypeUtils::classDataFieldStructIndex(type, i);
+    auto* slot = builder->CreateStructGEP(classTy, object, structIdx, "arc.field.ptr");
+    if (TypeUtils::containsArcManagedValue(fieldTy)) {
+      llvm::Type* storageTy = getStoredAggregateFieldLlvmType(fieldTy);
+      emitReleaseLoadedValue(fieldTy, builder->CreateLoad(storageTy, slot, "arc.field.load"),
+                             false);
+      continue;
+    }
+    if (type->isBuiltinStringClass() && fieldTy != nullptr && fieldTy->is(BaseType::TY_STRING)) {
+      llvm::Function* parentFn = builder->GetInsertBlock()->getParent();
+      auto* freeBlock = llvm::BasicBlock::Create(theModule->getContext(), "arc.str.free", parentFn);
+      auto* doneBlock =
+          llvm::BasicBlock::Create(theModule->getContext(), "arc.str.free.done", parentFn);
+      auto* raw = builder->CreateLoad(builder->getPtrTy(), slot, "arc.str.raw");
+      builder->CreateCondBr(
+          builder->CreateICmpEQ(raw, llvm::ConstantPointerNull::get(builder->getPtrTy())),
+          doneBlock, freeBlock);
+      builder->SetInsertPoint(freeBlock);
+      emitFree(raw);
+      builder->CreateBr(doneBlock);
+      builder->SetInsertPoint(doneBlock);
+    }
+  }
+  emitArcFreePayload(object);
+  builder->CreateRetVoid();
+  builder->restoreIP(savedIp);
+  return fn;
+}
+
+auto Codegen::getOrCreateArcClosureDestroyFunction(const std::string& key,
+                                                   llvm::StructType* envStructTy,
+                                                   const std::vector<lesma::Type*>& captureTypes)
+    -> llvm::Function* {
+  if (auto it = arcClosureDestroyFns.find(key); it != arcClosureDestroyFns.end()) {
+    return it->second;
+  }
+  auto* fnTy = llvm::FunctionType::get(builder->getVoidTy(), {builder->getPtrTy()}, false);
+  auto* fn = llvm::Function::Create(fnTy, llvm::GlobalValue::PrivateLinkage,
+                                    "__lesma_arc_destroy_env_" + key, *theModule);
+  arcClosureDestroyFns[key] = fn;
+  auto savedIp = builder->saveIP();
+  auto* entry = llvm::BasicBlock::Create(theModule->getContext(), "entry", fn);
+  builder->SetInsertPoint(entry);
+  auto* env = builder->CreateBitCast(
+      fn->getArg(0U), llvm::PointerType::get(envStructTy->getContext(), 0U), "arc.env");
+  for (unsigned i = 0; i < captureTypes.size(); ++i) {
+    if (!TypeUtils::containsArcManagedValue(captureTypes[i])) {
+      continue;
+    }
+    auto* slot = builder->CreateStructGEP(envStructTy, env, i, "arc.env.slot");
+    llvm::Type* storageTy = getStoredAggregateFieldLlvmType(captureTypes[i]);
+    emitReleaseLoadedValue(captureTypes[i], builder->CreateLoad(storageTy, slot, "arc.env.load"),
+                           false);
+  }
+  emitArcFreePayload(env);
+  builder->CreateRetVoid();
+  builder->restoreIP(savedIp);
+  return fn;
+}
+
 auto Codegen::emitRuntimeStderrMessage(std::string_view message) -> void {
   auto writeFn = theModule->getOrInsertFunction(
       "write", llvm::FunctionType::get(
@@ -99,6 +679,297 @@ auto Codegen::emitExit(int code) -> void {
       std::string{codegen::runtime::EXIT},
       llvm::FunctionType::get(builder->getVoidTy(), {builder->getInt64Ty()}, false));
   builder->CreateCall(exitFn, {builder->getInt64(code)});
+}
+
+auto Codegen::getOrCreateArcDebugDeltaFunction() -> llvm::Function* {
+  if (arcDebugDeltaFn != nullptr) {
+    return arcDebugDeltaFn;
+  }
+  auto* fn = theModule->getFunction(std::string{codegen::runtime::ARC_DEBUG_DELTA});
+  if (fn == nullptr) {
+    auto* fnTy = llvm::FunctionType::get(builder->getInt64Ty(), {builder->getInt64Ty()}, false);
+    fn = llvm::Function::Create(fnTy, llvm::Function::LinkOnceODRLinkage,
+                                std::string{codegen::runtime::ARC_DEBUG_DELTA}, *theModule);
+  }
+  arcDebugDeltaFn = fn;
+  if (!fn->empty()) {
+    return fn;
+  }
+
+  fn->addFnAttr(llvm::Attribute::NoInline);
+  auto* liveCount =
+      theModule->getGlobalVariable(std::string{codegen::runtime::ARC_DEBUG_LIVE_COUNT}, true);
+  if (liveCount == nullptr) {
+    liveCount = new llvm::GlobalVariable(*theModule, builder->getInt64Ty(), false,
+                                         llvm::GlobalValue::CommonLinkage, builder->getInt64(0),
+                                         std::string{codegen::runtime::ARC_DEBUG_LIVE_COUNT});
+  }
+
+  auto savedIp = builder->saveIP();
+  auto* entry = llvm::BasicBlock::Create(theModule->getContext(), "entry", fn);
+  builder->SetInsertPoint(entry);
+  auto* current = builder->CreateLoad(builder->getInt64Ty(), liveCount, "arc.debug.live.current");
+  auto* next = builder->CreateAdd(current, fn->getArg(0U), "arc.debug.live.next");
+  builder->CreateStore(next, liveCount);
+  builder->CreateRet(next);
+  builder->restoreIP(savedIp);
+  return fn;
+}
+
+auto Codegen::getOrCreateArcDebugReportFunction() -> llvm::Function* {
+  if (arcDebugReportFn != nullptr) {
+    return arcDebugReportFn;
+  }
+  auto* fn = theModule->getFunction(std::string{codegen::runtime::ARC_DEBUG_REPORT});
+  if (fn == nullptr) {
+    auto* fnTy = llvm::FunctionType::get(builder->getVoidTy(), {}, false);
+    fn = llvm::Function::Create(fnTy, llvm::Function::LinkOnceODRLinkage,
+                                std::string{codegen::runtime::ARC_DEBUG_REPORT}, *theModule);
+  }
+  arcDebugReportFn = fn;
+  if (!fn->empty()) {
+    return fn;
+  }
+
+  fn->addFnAttr(llvm::Attribute::NoInline);
+  auto* liveCount =
+      theModule->getGlobalVariable(std::string{codegen::runtime::ARC_DEBUG_LIVE_COUNT}, true);
+  if (liveCount == nullptr) {
+    liveCount = new llvm::GlobalVariable(*theModule, builder->getInt64Ty(), false,
+                                         llvm::GlobalValue::CommonLinkage, builder->getInt64(0),
+                                         std::string{codegen::runtime::ARC_DEBUG_LIVE_COUNT});
+  }
+  auto* rootsTotal =
+      theModule->getGlobalVariable(std::string{codegen::runtime::ARC_DEBUG_MODULE_ROOTS_TOTAL}, true);
+  if (rootsTotal == nullptr) {
+    rootsTotal = new llvm::GlobalVariable(
+        *theModule, builder->getInt64Ty(), false, llvm::GlobalValue::CommonLinkage,
+        builder->getInt64(0), std::string{codegen::runtime::ARC_DEBUG_MODULE_ROOTS_TOTAL});
+  }
+  auto* rootsRemaining = theModule->getGlobalVariable(
+      std::string{codegen::runtime::ARC_DEBUG_MODULE_ROOTS_REMAINING}, true);
+  if (rootsRemaining == nullptr) {
+    rootsRemaining = new llvm::GlobalVariable(
+        *theModule, builder->getInt64Ty(), false, llvm::GlobalValue::CommonLinkage,
+        builder->getInt64(0), std::string{codegen::runtime::ARC_DEBUG_MODULE_ROOTS_REMAINING});
+  }
+
+  auto savedIp = builder->saveIP();
+  auto* entry = llvm::BasicBlock::Create(theModule->getContext(), "entry", fn);
+  builder->SetInsertPoint(entry);
+  auto printfFn = theModule->getOrInsertFunction(
+      "printf", llvm::FunctionType::get(builder->getInt32Ty(), {builder->getPtrTy()}, true));
+  auto* format = builder->CreateBitCast(builder->CreateGlobalString(
+                                            "[arc] live objects: %lld (roots tracked: %lld, "
+                                            "roots remaining: %lld)\n",
+                                            "arc.debug.report"),
+                                        builder->getPtrTy());
+  auto* count = builder->CreateLoad(builder->getInt64Ty(), liveCount, "arc.debug.live.report");
+  auto* total = builder->CreateLoad(builder->getInt64Ty(), rootsTotal, "arc.debug.roots.total");
+  auto* remaining =
+      builder->CreateLoad(builder->getInt64Ty(), rootsRemaining, "arc.debug.roots.remaining");
+  builder->CreateCall(printfFn, {format, count, total, remaining});
+  builder->CreateRetVoid();
+  builder->restoreIP(savedIp);
+  return fn;
+}
+
+auto Codegen::getOrCreateArcDebugCleanupBeginFunction() -> llvm::Function* {
+  if (arcDebugCleanupBeginFn != nullptr) {
+    return arcDebugCleanupBeginFn;
+  }
+  auto* fn = theModule->getFunction(std::string{codegen::runtime::ARC_DEBUG_CLEANUP_BEGIN});
+  if (fn == nullptr) {
+    auto* fnTy = llvm::FunctionType::get(builder->getVoidTy(), {builder->getInt64Ty()}, false);
+    fn = llvm::Function::Create(fnTy, llvm::Function::LinkOnceODRLinkage,
+                                std::string{codegen::runtime::ARC_DEBUG_CLEANUP_BEGIN}, *theModule);
+  }
+  arcDebugCleanupBeginFn = fn;
+  if (!fn->empty()) {
+    return fn;
+  }
+
+  auto* rootsTotal =
+      theModule->getGlobalVariable(std::string{codegen::runtime::ARC_DEBUG_MODULE_ROOTS_TOTAL}, true);
+  if (rootsTotal == nullptr) {
+    rootsTotal = new llvm::GlobalVariable(
+        *theModule, builder->getInt64Ty(), false, llvm::GlobalValue::CommonLinkage,
+        builder->getInt64(0), std::string{codegen::runtime::ARC_DEBUG_MODULE_ROOTS_TOTAL});
+  }
+  auto* rootsRemaining = theModule->getGlobalVariable(
+      std::string{codegen::runtime::ARC_DEBUG_MODULE_ROOTS_REMAINING}, true);
+  if (rootsRemaining == nullptr) {
+    rootsRemaining = new llvm::GlobalVariable(
+        *theModule, builder->getInt64Ty(), false, llvm::GlobalValue::CommonLinkage,
+        builder->getInt64(0), std::string{codegen::runtime::ARC_DEBUG_MODULE_ROOTS_REMAINING});
+  }
+
+  auto savedIp = builder->saveIP();
+  auto* entry = llvm::BasicBlock::Create(theModule->getContext(), "entry", fn);
+  builder->SetInsertPoint(entry);
+  auto* currentTotal =
+      builder->CreateLoad(builder->getInt64Ty(), rootsTotal, "arc.debug.cleanup.total.current");
+  auto* currentRemaining = builder->CreateLoad(builder->getInt64Ty(), rootsRemaining,
+                                               "arc.debug.cleanup.remaining.current");
+  auto* delta = fn->getArg(0U);
+  builder->CreateStore(builder->CreateAdd(currentTotal, delta), rootsTotal);
+  builder->CreateStore(builder->CreateAdd(currentRemaining, delta), rootsRemaining);
+  builder->CreateRetVoid();
+  builder->restoreIP(savedIp);
+  return fn;
+}
+
+auto Codegen::getOrCreateArcDebugCleanupStepFunction() -> llvm::Function* {
+  if (arcDebugCleanupStepFn != nullptr) {
+    return arcDebugCleanupStepFn;
+  }
+  auto* fn = theModule->getFunction(std::string{codegen::runtime::ARC_DEBUG_CLEANUP_STEP});
+  if (fn == nullptr) {
+    auto* fnTy = llvm::FunctionType::get(builder->getVoidTy(), {}, false);
+    fn = llvm::Function::Create(fnTy, llvm::Function::LinkOnceODRLinkage,
+                                std::string{codegen::runtime::ARC_DEBUG_CLEANUP_STEP}, *theModule);
+  }
+  arcDebugCleanupStepFn = fn;
+  if (!fn->empty()) {
+    return fn;
+  }
+
+  auto* rootsRemaining = theModule->getGlobalVariable(
+      std::string{codegen::runtime::ARC_DEBUG_MODULE_ROOTS_REMAINING}, true);
+  if (rootsRemaining == nullptr) {
+    rootsRemaining = new llvm::GlobalVariable(
+        *theModule, builder->getInt64Ty(), false, llvm::GlobalValue::CommonLinkage,
+        builder->getInt64(0), std::string{codegen::runtime::ARC_DEBUG_MODULE_ROOTS_REMAINING});
+  }
+
+  auto savedIp = builder->saveIP();
+  auto* entry = llvm::BasicBlock::Create(theModule->getContext(), "entry", fn);
+  builder->SetInsertPoint(entry);
+  auto* current =
+      builder->CreateLoad(builder->getInt64Ty(), rootsRemaining, "arc.debug.cleanup.step.current");
+  auto* next = builder->CreateSub(current, builder->getInt64(1), "arc.debug.cleanup.step.next");
+  builder->CreateStore(next, rootsRemaining);
+  builder->CreateRetVoid();
+  builder->restoreIP(savedIp);
+  return fn;
+}
+
+auto Codegen::emitArcDebugDelta(std::int64_t delta, llvm::Value* payloadPtr,
+                                std::string_view traceMessagePrefix) -> void {
+  if (!emitArcDebug) {
+    return;
+  }
+  auto* next = builder->CreateCall(getOrCreateArcDebugDeltaFunction(), {builder->getInt64(delta)});
+  if (!emitArcTrace) {
+    return;
+  }
+  auto printfFn = theModule->getOrInsertFunction(
+      "printf", llvm::FunctionType::get(builder->getInt32Ty(), {builder->getPtrTy()}, true));
+  auto* format = builder->CreateBitCast(
+      builder->CreateGlobalString(std::string(traceMessagePrefix) + " ptr=%p live=%lld\n",
+                                  "arc.debug.live.trace"),
+      builder->getPtrTy());
+  builder->CreateCall(printfFn, {format, payloadPtr, next});
+}
+
+auto Codegen::emitArcDebugTraceCounts(std::string_view traceMessagePrefix, llvm::Value* payloadPtr,
+                                      llvm::Value* before, llvm::Value* after) -> void {
+  if (!emitArcTrace) {
+    return;
+  }
+  auto printfFn = theModule->getOrInsertFunction(
+      "printf", llvm::FunctionType::get(builder->getInt32Ty(), {builder->getPtrTy()}, true));
+  auto* format =
+      builder->CreateBitCast(builder->CreateGlobalString(std::string(traceMessagePrefix) +
+                                                             " ptr=%p before=%lld after=%lld\n",
+                                                         "arc.debug.count.trace"),
+                             builder->getPtrTy());
+  builder->CreateCall(printfFn, {format, payloadPtr, before, after});
+}
+
+auto Codegen::emitArcDebugValidateRefcount(llvm::Value* refCount, std::string_view message)
+    -> void {
+  if (!emitArcDebug) {
+    return;
+  }
+  llvm::Function* parentFn = builder->GetInsertBlock()->getParent();
+  auto* failBlock = llvm::BasicBlock::Create(theModule->getContext(), "arc.debug.fail", parentFn);
+  auto* okBlock = llvm::BasicBlock::Create(theModule->getContext(), "arc.debug.ok", parentFn);
+  builder->CreateCondBr(builder->CreateICmpSGE(refCount, builder->getInt64(1)), okBlock, failBlock);
+  builder->SetInsertPoint(failBlock);
+  emitRuntimeStderrMessage(message);
+  emitExit(1);
+  builder->CreateUnreachable();
+  builder->SetInsertPoint(okBlock);
+}
+
+auto Codegen::emitArcDebugTraceModuleRoot(const ModuleArcTrackedRoot& tracked) -> void {
+  if (!emitArcTrace) {
+    return;
+  }
+  auto printfFn = theModule->getOrInsertFunction(
+      "printf", llvm::FunctionType::get(builder->getInt32Ty(), {builder->getPtrTy()}, true));
+  auto* format = builder->CreateBitCast(
+      builder->CreateGlobalString("[arc] cleanup root %s\n", "arc.debug.root.trace"),
+      builder->getPtrTy());
+  auto* name = builder->CreateBitCast(
+      builder->CreateGlobalString(tracked.debugName, "arc.debug.root.name"), builder->getPtrTy());
+  builder->CreateCall(printfFn, {format, name});
+}
+
+auto Codegen::getOrCreateModuleCleanupFunction() -> llvm::Function* {
+  if (moduleCleanupFn != nullptr) {
+    return moduleCleanupFn;
+  }
+  if (moduleArcTrackedRoots.empty()) {
+    return nullptr;
+  }
+  auto* fnTy = llvm::FunctionType::get(builder->getVoidTy(), {}, false);
+  auto* fn = llvm::Function::Create(
+      fnTy, llvm::GlobalValue::PrivateLinkage,
+      MangleUtils::getImportedModuleFiniSymbolName(filename.empty() ? std::string() : filename),
+      *theModule);
+  moduleCleanupFn = fn;
+
+  auto* doneGlobal = new llvm::GlobalVariable(*theModule, builder->getInt1Ty(), false,
+                                              llvm::GlobalValue::PrivateLinkage,
+                                              builder->getFalse(),
+                                              fn->getName().str() + ".done");
+  auto savedIp = builder->saveIP();
+  auto* entry = llvm::BasicBlock::Create(theModule->getContext(), "entry", fn);
+  auto* cleanupBlock = llvm::BasicBlock::Create(theModule->getContext(), "cleanup", fn);
+  auto* doneBlock = llvm::BasicBlock::Create(theModule->getContext(), "done", fn);
+  builder->SetInsertPoint(entry);
+  auto* alreadyDone = builder->CreateLoad(builder->getInt1Ty(), doneGlobal, "arc.cleanup.done");
+  builder->CreateCondBr(alreadyDone, doneBlock, cleanupBlock);
+
+  builder->SetInsertPoint(cleanupBlock);
+  builder->CreateStore(builder->getTrue(), doneGlobal);
+  if (emitArcDebug) {
+    builder->CreateCall(getOrCreateArcDebugCleanupBeginFunction(),
+                        {builder->getInt64(static_cast<std::int64_t>(moduleArcTrackedRoots.size()))});
+  }
+  emitReleaseRegisteredModuleArcRoots();
+  builder->CreateBr(doneBlock);
+
+  builder->SetInsertPoint(doneBlock);
+  builder->CreateRetVoid();
+  builder->restoreIP(savedIp);
+  return fn;
+}
+
+auto Codegen::emitCallPendingJitModuleFinis() -> void {
+  if (pendingJitModuleFinis == nullptr) {
+    return;
+  }
+  auto* fnTy = llvm::FunctionType::get(builder->getVoidTy(), {}, false);
+  for (auto it = pendingJitModuleFinis->rbegin(); it != pendingJitModuleFinis->rend(); ++it) {
+    if (it->empty()) {
+      continue;
+    }
+    auto finiFn = theModule->getOrInsertFunction(*it, fnTy);
+    builder->CreateCall(finiFn);
+  }
 }
 
 auto Codegen::emitListLength(lesma::Type* listType, llvm::Value* listHandle) -> llvm::Value* {
@@ -221,7 +1092,8 @@ auto Codegen::emitListDeepCopy(lesma::Type* listType, llvm::Value* listHandle) -
   auto* structType = getOrCreateListStructType(listType);
   auto* headerSize =
       builder->getInt64(theModule->getDataLayout().getTypeAllocSize(structType).getFixedValue());
-  auto* newHandle = emitMalloc(headerSize, "list.copy.header");
+  auto* newHandle =
+      emitArcAlloc(headerSize, getOrCreateArcDestroyFunction(listType), "list.copy.header");
   auto* length = emitListLength(listType, listHandle);
   auto* capacity = emitListCapacity(listType, listHandle);
   emitStoreListLength(listType, newHandle, length);
@@ -254,7 +1126,8 @@ auto Codegen::emitListDeepCopy(lesma::Type* listType, llvm::Value* listHandle) -
     return !fields.empty() && fields.front()->type != nullptr &&
            fields.front()->type->is(BaseType::TY_ARRAY);
   };
-  if (elementType->is(BaseType::TY_ARRAY) || isNestedListLike()) {
+  if (elementType->is(BaseType::TY_ARRAY) || isNestedListLike() ||
+      TypeUtils::containsArcManagedValue(elementType)) {
     auto* indexPtr = builder->CreateAlloca(builder->getInt64Ty(), nullptr, "list.copy.index");
     builder->CreateStore(builder->getInt64(0), indexPtr);
     auto* loopCond =
@@ -275,10 +1148,13 @@ auto Codegen::emitListDeepCopy(lesma::Type* listType, llvm::Value* listHandle) -
     llvm::Value* copiedElement = nullptr;
     if (elementType->is(BaseType::TY_ARRAY)) {
       copiedElement = emitListDeepCopy(elementType, oldElement);
-    } else {
+    } else if (isNestedListLike()) {
       lesma::Value oldValue("", elementType, oldElement);
       auto copiedValue = callMethodByName({}, &oldValue, "copy");
       copiedElement = copiedValue->getLlvmValue();
+    } else {
+      copiedElement = oldElement;
+      emitRetainLoadedValue(elementType, copiedElement, false);
     }
     auto* newElementPtr = builder->CreateGEP(elementLlvmType, newData, index, "list.copy.elem.ptr");
     builder->CreateStore(copiedElement, newElementPtr);

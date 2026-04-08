@@ -1,0 +1,52 @@
+class Box {
+  var value: int
+
+  func new(value: int) {
+    self.value = value
+  }
+
+  func get() -> int {
+    return self.value
+  }
+}
+
+let leftInitial: list<Box> = [Box(1), Box(2)]
+let rightInitial: list<Box> = [Box(3)]
+var groups: dict<str, list<Box>> = {"left": leftInitial, "right": rightInitial}
+
+if groups["left"][1].get() != 2 {
+  exit(1)
+}
+if groups["right"][0].get() != 3 {
+  exit(1)
+}
+
+let leftReplacement: list<Box> = [Box(4), Box(5), Box(6)]
+groups.set("left", leftReplacement)
+if groups["left"].len() != 3 {
+  exit(2)
+}
+if groups["left"][0].get() != 4 or groups["left"][2].get() != 6 {
+  exit(2)
+}
+
+groups["right"] = [Box(7), Box(8)]
+if groups["right"].len() != 2 {
+  exit(3)
+}
+if groups["right"][0].get() != 7 or groups["right"][1].get() != 8 {
+  exit(3)
+}
+
+var outer: list<dict<str, list<Box>>> = [groups]
+outer[0].set("left", [Box(9)])
+if outer[0]["left"].len() != 1 {
+  exit(4)
+}
+if outer[0]["left"][0].get() != 9 {
+  exit(4)
+}
+
+if groups.get("missing") is not null {
+  exit(5)
+}

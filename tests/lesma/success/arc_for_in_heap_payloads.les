@@ -1,0 +1,91 @@
+enum Kind {
+  START
+  STOP
+}
+
+class Box {
+  var value: int
+
+  func new(value: int) {
+    self.value = value
+  }
+
+  func get() -> int {
+    return self.value
+  }
+}
+
+var textTotal = 0
+var texts: list<str> = [str("a"), str("bb"), str("ccc")]
+for text in texts {
+  textTotal = textTotal + text.len()
+}
+if textTotal != 6 {
+  exit(1)
+}
+
+var boxTotal = 0
+var boxes: list<Box> = [Box(2), Box(5), Box(8)]
+for box in boxes {
+  boxTotal = boxTotal + box.get()
+}
+if boxTotal != 15 {
+  exit(2)
+}
+
+var mixedTotal = 0
+var mixed: list<str | Box | Kind> = [str("xy"), Box(7), Kind.START, str("z")]
+for item in mixed {
+  if item is str {
+    mixedTotal = mixedTotal + item.len()
+  } else if item is Box {
+    mixedTotal = mixedTotal + item.get()
+  } else if item is Kind {
+    if item == Kind.START {
+      mixedTotal = mixedTotal + 10
+    } else {
+      mixedTotal = mixedTotal + 20
+    }
+  }
+}
+if mixedTotal != 20 {
+  exit(3)
+}
+
+class OnceIter<T> impl Iterator<T> {
+  var one: T
+  var done: bool = false
+
+  func new(v: T) {
+    self.one = v
+    self.done = false
+  }
+
+  func next() -> T? {
+    if self.done {
+      return null
+    }
+    self.done = true
+    return self.one
+  }
+}
+
+class Once<T> impl Iterable<T> {
+  var one: T
+
+  func new(v: T) {
+    self.one = v
+  }
+
+  func iter() -> OnceIter<T> {
+    return OnceIter<T>(self.one)
+  }
+}
+
+var only = 0
+for word in Once<Box>(Box(11)) {
+  only = word.get()
+}
+if only != 11 {
+  exit(4)
+}

@@ -1,0 +1,9 @@
+import "arc_export_global_heap_module.les"
+let first = arc_export_global_heap_module.current
+if first is null {
+  exit(1)
+} else {
+  if first.get() != 7 {
+    exit(1)
+  }
+}

@@ -1,0 +1,51 @@
+trait Speaker {
+  func id() -> int
+}
+
+func read_id(value: Speaker) -> int {
+  return value.id()
+}
+
+class BoxA impl Speaker {
+  var value: int
+
+  func new(value: int) {
+    self.value = value
+  }
+
+  func id() -> int {
+    return self.value
+  }
+}
+
+class BoxB impl Speaker {
+  var value: int
+
+  func new(value: int) {
+    self.value = value
+  }
+
+  func id() -> int {
+    return self.value + 10
+  }
+}
+
+func run() -> int {
+  var current: Speaker = BoxA(1)
+  if read_id(current) != 1 {
+    return 1
+  }
+
+  current = BoxB(2)
+  if read_id(current) != 12 {
+    return 2
+  }
+
+  current = BoxA(3)
+  if read_id(current) != 3 {
+    return 3
+  }
+  return 0
+}
+
+exit(run())

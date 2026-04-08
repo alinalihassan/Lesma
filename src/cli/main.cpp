@@ -58,6 +58,8 @@ auto parseCli(int argc, char** argv) -> std::unique_ptr<CLIOptions> {
   int optimizationLevel = 3;
   bool emitDebugInfo = false;
   bool suppressWarnings = false;
+  bool arcDebug = false;
+  bool arcTrace = false;
 
   CLI::App app{"Lesma programming language", "lesma"};
   app.set_version_flag("-v,--version", LESMA_VERSION, "Print the Lesma version");
@@ -77,8 +79,7 @@ auto parseCli(int argc, char** argv) -> std::unique_ptr<CLIOptions> {
   compile->add_option("file", file, "Lesma source filename")->required();
   fmt->add_option("paths", fmtPaths, "Files or directories to format")->expected(0, -1);
   compile->add_option("-o,--output", output, "Output filename");
-  fmt->add_option("-w,--width", formatWidth, "Doc layout ribbon width")
-      ->check(CLI::PositiveNumber);
+  fmt->add_option("-w,--width", formatWidth, "Doc layout ribbon width")->check(CLI::PositiveNumber);
   run->add_option("-O,--opt", optimizationLevel, "Optimization level (0–3)")
       ->check(CLI::Range(0, 3));
   compile->add_option("-O,--opt", optimizationLevel, "Optimization level (0–3)")
@@ -96,8 +97,24 @@ auto parseCli(int argc, char** argv) -> std::unique_ptr<CLIOptions> {
         "--no-warnings", [&suppressWarnings]() -> void { suppressWarnings = true; },
         "Do not print compiler warnings to stderr");
   };
+  auto addArcDebugFlags = [&](CLI::App* sub) -> void {
+    sub->add_flag_callback(
+        "--arc-debug", [&arcDebug]() -> void { arcDebug = true; },
+        "Emit debug-only ARC live-object diagnostics in generated code");
+    sub->add_flag_callback(
+        "--arc-trace",
+        [&arcTrace, &arcDebug]() -> void {
+          arcTrace = true;
+          arcDebug = true;
+        },
+        "Emit verbose ARC retain/release/alloc/free trace lines in generated code");
+  };
   addNoWarningsFlag(run);
   addNoWarningsFlag(compile);
+#ifndef NDEBUG
+  addArcDebugFlags(run);
+  addArcDebugFlags(compile);
+#endif
   CLI::Option* const runDebugOpt = addDebugOption(run);
   // add_flag(bool&) uses lexical_cast on flag values; it fails with "--timer = true" on CLI11 2.6.
   run->add_flag_callback(
@@ -132,8 +149,8 @@ auto parseCli(int argc, char** argv) -> std::unique_ptr<CLIOptions> {
 
   bool const timer = runTimer || compileTimer;
   return std::make_unique<CLIOptions>(CLIOptions{
-      .command = fmt->parsed() ? CliCommand::Fmt
-                               : (run->parsed() ? CliCommand::Run : CliCommand::Compile),
+      .command =
+          fmt->parsed() ? CliCommand::Fmt : (run->parsed() ? CliCommand::Run : CliCommand::Compile),
       .file = file.empty() ? std::string{} : std::filesystem::absolute(file).string(),
       .output = output,
       .fmtPaths = std::move(fmtPaths),
@@ -144,6 +161,8 @@ auto parseCli(int argc, char** argv) -> std::unique_ptr<CLIOptions> {
       .optimizationLevel = optimizationLevel,
       .emitDebugInfo = emitDebugInfo,
       .suppressWarnings = suppressWarnings,
+      .arcDebug = arcDebug,
+      .arcTrace = arcTrace,
   });
 }
 
@@ -170,6 +189,8 @@ auto main(int argc, char** argv) -> int {
       .optimizationLevel = optimizationLevelFromCli(options->optimizationLevel),
       .emitDebugInfo = options->emitDebugInfo,
       .suppressWarnings = options->suppressWarnings,
+      .arcDebug = options->arcDebug,
+      .arcTrace = options->arcTrace,
   });
   int const exitCode = options->jit ? Driver::run(std::move(driverOptions))
                                     : Driver::compile(std::move(driverOptions));

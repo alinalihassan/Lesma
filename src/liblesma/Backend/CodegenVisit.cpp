@@ -194,8 +194,10 @@ Codegen::Codegen(
         preSpecializedClassTypeEnvs,
     std::unordered_map<lesma::Type*, lesma::Type*> preSpecializedClassTemplateOf,
     std::unordered_map<std::string, lesma::Type*> preSpecializedClassTypesByKey, bool emitDebug,
+    bool emitArcDebugArg, bool emitArcTraceArg,
     llvm::OptimizationLevel optimizationLevelForDebugArg,
-    std::shared_ptr<std::vector<std::string>> sharedPendingJitModuleInits) {
+    std::shared_ptr<std::vector<std::string>> sharedPendingJitModuleInits,
+    std::shared_ptr<std::vector<std::string>> sharedPendingJitModuleFinis) {
   InitializeNativeTarget();
   InitializeNativeTargetAsmPrinter();
   InitializeNativeTargetAsmParser();
@@ -234,6 +236,11 @@ Codegen::Codegen(
   } else if (jit) {
     pendingJitModuleInits = std::make_shared<std::vector<std::string>>();
   }
+  if (sharedPendingJitModuleFinis != nullptr) {
+    pendingJitModuleFinis = std::move(sharedPendingJitModuleFinis);
+  } else if (jit) {
+    pendingJitModuleFinis = std::make_shared<std::vector<std::string>>();
+  }
 
   if (sharedModules && sharedScopes) {
     importedModules = std::move(sharedModules);
@@ -248,6 +255,8 @@ Codegen::Codegen(
     importedSpecializationStates = std::make_shared<std::vector<ImportedSpecializationState>>();
   }
   emitDebugInfo = emitDebug;
+  emitArcDebug = emitArcDebugArg || emitArcTraceArg;
+  emitArcTrace = emitArcTraceArg;
   optimizationLevelForDebug = optimizationLevelForDebugArg;
   initializeDebugMetadata();
   topLevelFunc = initializeTopLevel();
@@ -313,6 +322,7 @@ auto Codegen::defineFunction(lesma::Value* value, const FuncDecl* node, Value* c
   currentFunction = value;
   deferStack.emplace();
   pushDeferBaseline();
+  pushArcOwnedSlotFrame();
 
   if (value->getLlvmValue() == nullptr) {
     throw CodegenError(node->getSpan(), "Function {} is declared but has no LLVM body",
@@ -391,6 +401,7 @@ auto Codegen::defineFunction(lesma::Value* value, const FuncDecl* node, Value* c
       cur != nullptr && cur->getTerminator() == nullptr && cur->empty()) {
     lesma::Type* rt = value->getType()->getReturnType();
     if (rt != nullptr && rt->is(BaseType::TY_VOID)) {
+      emitReleaseCurrentArcOwnedSlots();
       builder->CreateRetVoid();
     } else {
       builder->CreateUnreachable();
@@ -416,6 +427,7 @@ auto Codegen::defineFunction(lesma::Value* value, const FuncDecl* node, Value* c
     if (value->getType()->getReturnType()->is(BaseType::TY_VOID)) {
       // Make implicit return of void Function explicit.
       builder->SetInsertPoint(&bb);
+      emitReleaseCurrentArcOwnedSlots();
       builder->CreateRetVoid();
     } else {
       throw CodegenError(node->getSpan(), "Function {} does not always return a result",
@@ -434,6 +446,7 @@ auto Codegen::defineFunction(lesma::Value* value, const FuncDecl* node, Value* c
 
   // Insert Function to Symbol Table
   scope = savedScope;
+  popArcOwnedSlotFrame(false);
 
   currentFunction = nullptr;
 
@@ -460,6 +473,7 @@ auto Codegen::defineLambdaFunction(lesma::Value* value, const LambdaExpr* node) 
   currentFunction = value;
   deferStack.emplace();
   pushDeferBaseline();
+  pushArcOwnedSlotFrame();
 
   if (value->getLlvmValue() == nullptr) {
     throw CodegenError(node->getSpan(), "Lambda specialization has no LLVM function");
@@ -525,11 +539,16 @@ auto Codegen::defineLambdaFunction(lesma::Value* value, const LambdaExpr* node) 
     Type* rt = value->getType()->getReturnType();
     flushDeferredFramesForReturn();
     if (rt != nullptr && rt->is(BaseType::TY_VOID)) {
+      emitReleaseCurrentArcOwnedSlots();
       builder->CreateRetVoid();
     } else {
       if (rv == nullptr) {
         throw CodegenError(node->getSpan(), "Lambda body did not produce a value");
       }
+      if (!result->getArcOwnedValue() && TypeUtils::containsArcManagedValue(rt)) {
+        emitRetainLoadedValue(rt, rv, result->getStoresFuncValuePair());
+      }
+      emitReleaseCurrentArcOwnedSlots();
       builder->CreateRet(rv);
     }
   } else if (node->getBlockBody() != nullptr) {
@@ -538,6 +557,7 @@ auto Codegen::defineLambdaFunction(lesma::Value* value, const LambdaExpr* node) 
       Type* rt = value->getType()->getReturnType();
       if (rt != nullptr && rt->is(BaseType::TY_VOID)) {
         flushDeferredFramesForReturn();
+        emitReleaseCurrentArcOwnedSlots();
         builder->CreateRetVoid();
       } else {
         throw CodegenError(node->getSpan(), "Non-void lambda may reach end without returning");
@@ -554,11 +574,14 @@ auto Codegen::defineLambdaFunction(lesma::Value* value, const LambdaExpr* node) 
     }
     if (value->getType()->getReturnType()->is(BaseType::TY_VOID)) {
       builder->SetInsertPoint(&bb);
+      emitReleaseCurrentArcOwnedSlots();
       builder->CreateRetVoid();
     } else {
       throw CodegenError(node->getSpan(), "Lambda does not always return a result");
     }
   }
+
+  popArcOwnedSlotFrame(false);
 
   isReturn = false;
   std::string verifyOutput;
@@ -687,7 +710,8 @@ auto Codegen::llvmStorageTypeForVarSlot(lesma::Type* storedType, lesma::Value* e
 
 auto Codegen::emitSimpleClassPtrOrCastStore(llvm::SMRange span, llvm::Value* destPtr,
                                             std::unique_ptr<lesma::Value>& valueResult,
-                                            lesma::Type* storedType) -> llvm::Instruction* {
+                                            lesma::Type* storedType, bool releasePrevious,
+                                            bool destStoresFuncValuePair) -> llvm::Instruction* {
   std::unique_ptr<lesma::Value> unwrappedFnPair;
   lesma::Value* valueForStore = valueResult.get();
   if (valueResult->getStoresFuncValuePair()) {
@@ -705,47 +729,66 @@ auto Codegen::emitSimpleClassPtrOrCastStore(llvm::SMRange span, llvm::Value* des
       unwrappedFnPair = std::make_unique<Value>("", valueResult->getType(), payload);
       unwrappedFnPair->setStoresFuncValuePair(false);
       unwrappedFnPair->setCategory(valueResult->getCategory());
+      unwrappedFnPair->setArcOwnedValue(valueResult->getArcOwnedValue());
       valueForStore = unwrappedFnPair.get();
     }
   }
+  llvm::Value* storedValue = nullptr;
+  bool storedOwnsArcValue = valueForStore->getArcOwnedValue();
   const bool ptrToClass = isLesmaPtrToClass(storedType);
   if (ptrToClass && valueForStore->getType() != nullptr &&
       valueForStore->getType()->is(BaseType::TY_PTR)) {
-    return builder->CreateStore(valueForStore->getLlvmValue(), destPtr);
+    storedValue = valueForStore->getLlvmValue();
+  } else {
+    lesma::Type* castTarget = ptrToClass ? storedType->getElementType() : storedType;
+    auto castVal = cast(span, valueForStore, castTarget);
+    storedValue = castVal->getLlvmValue();
+    storedOwnsArcValue = castVal->getArcOwnedValue();
   }
-  lesma::Type* castTarget = ptrToClass ? storedType->getElementType() : storedType;
-  auto castVal = cast(span, valueForStore, castTarget);
-  return builder->CreateStore(castVal->getLlvmValue(), destPtr);
+  if (!storedOwnsArcValue && TypeUtils::containsArcManagedValue(storedType)) {
+    emitRetainLoadedValue(storedType, storedValue, destStoresFuncValuePair);
+  }
+  if (releasePrevious && TypeUtils::containsArcManagedValue(storedType)) {
+    llvm::Type* oldStorageTy = destStoresFuncValuePair
+                                   ? static_cast<llvm::Type*>(getFuncValuePairLlvmType())
+                                   : getStoredAggregateFieldLlvmType(storedType);
+    emitReleaseLoadedValue(storedType, builder->CreateLoad(oldStorageTy, destPtr, "arc.store.old"),
+                           destStoresFuncValuePair);
+  }
+  return builder->CreateStore(storedValue, destPtr);
 }
 
 auto Codegen::emitExistingVarSlotInitializerStore(const VarDecl* node, llvm::Value* destPtr,
                                                   std::unique_ptr<lesma::Value>& valueResult,
                                                   lesma::Type* storedType,
-                                                  const std::string& dbgName)
+                                                  const std::string& dbgName,
+                                                  bool destStoresFuncValuePair)
     -> llvm::Instruction* {
   const bool ptrToClass = isLesmaPtrToClass(storedType);
+  llvm::Value* storedValue = nullptr;
+  bool storedOwnsArcValue = valueResult->getArcOwnedValue();
   if (valueResult->getLlvmValue() == nullptr && storedType->is(BaseType::TY_FUNCTION) &&
       !storedType->getGenericParams().empty()) {
-    return builder->CreateStore(llvm::ConstantAggregateZero::get(getFuncValuePairLlvmType()),
-                                destPtr);
-  }
-  if (storedType->is(BaseType::TY_FUNCTION) && valueResult->getLlvmValue() != nullptr &&
-      valueResult->getLlvmValue()->getType() == getFuncValuePairLlvmType()) {
-    return builder->CreateStore(valueResult->getLlvmValue(), destPtr);
-  }
-  if (valueResult->getStoresFuncValuePair() && storedType->is(BaseType::TY_FUNCTION)) {
+    storedValue = llvm::ConstantAggregateZero::get(getFuncValuePairLlvmType());
+  } else if (storedType->is(BaseType::TY_FUNCTION) && valueResult->getLlvmValue() != nullptr &&
+             valueResult->getLlvmValue()->getType() == getFuncValuePairLlvmType()) {
+    storedValue = valueResult->getLlvmValue();
+  } else if (valueResult->getStoresFuncValuePair() && storedType->is(BaseType::TY_FUNCTION)) {
     llvm::StructType* pt = getFuncValuePairLlvmType();
-    llvm::Value* loaded =
-        builder->CreateLoad(pt, valueResult->getLlvmValue(), dbgName + ".fnpair.load");
-    return builder->CreateStore(loaded, destPtr);
+    storedValue = builder->CreateLoad(pt, valueResult->getLlvmValue(), dbgName + ".fnpair.load");
+  } else if (ptrToClass && valueResult->getType() != nullptr &&
+             valueResult->getType()->is(BaseType::TY_PTR)) {
+    storedValue = valueResult->getLlvmValue();
+  } else {
+    lesma::Type* castTarget = ptrToClass ? storedType->getElementType() : storedType;
+    auto castVal = cast(node->getSpan(), valueResult.get(), castTarget);
+    storedValue = castVal->getLlvmValue();
+    storedOwnsArcValue = castVal->getArcOwnedValue();
   }
-  if (ptrToClass && valueResult->getType() != nullptr &&
-      valueResult->getType()->is(BaseType::TY_PTR)) {
-    return builder->CreateStore(valueResult->getLlvmValue(), destPtr);
+  if (!storedOwnsArcValue && TypeUtils::containsArcManagedValue(storedType)) {
+    emitRetainLoadedValue(storedType, storedValue, destStoresFuncValuePair);
   }
-  lesma::Type* castTarget = ptrToClass ? storedType->getElementType() : storedType;
-  auto castVal = cast(node->getSpan(), valueResult.get(), castTarget);
-  return builder->CreateStore(castVal->getLlvmValue(), destPtr);
+  return builder->CreateStore(storedValue, destPtr);
 }
 
 auto Codegen::makeBoolCompareResult(llvm::Value* cmpVal) -> std::unique_ptr<lesma::Value> {
@@ -1005,14 +1048,22 @@ auto Codegen::visit(const VarDecl* node) -> void {
           i < resolvedUnpack.size() ? resolvedUnpack[i] : scope->lookup(elemName);
       llvm::Type* allocaTy = llvmStorageTypeForVarSlot(elemTy, existing);
       llvm::AllocaInst* ptr = createAllocaInEntry(parentFct, allocaTy, elemName);
+      emitEntryNullInit(ptr, allocaTy);
+      lesma::Type* storedType = elemTy;
       if (elemTy->is(BaseType::TY_CLASS)) {
         lesma::Type* ptrType =
             cacheType(std::make_unique<Type>(BaseType::TY_PTR, builder->getPtrTy(), elemTy));
+        storedType = ptrType;
         if (existing != nullptr) {
           existing->setType(ptrType);
         }
       }
-      llvm::Instruction* st = builder->CreateStore(ev, ptr);
+      registerArcOwnedSlot(ptr, storedType,
+                           existing != nullptr && existing->getStoresFuncValuePair());
+      auto unpacked = std::make_unique<Value>("", storedType, ev);
+      llvm::Instruction* st =
+          emitSimpleClassPtrOrCastStore(node->getSpan(), ptr, unpacked, storedType, false,
+                                        existing != nullptr && existing->getStoresFuncValuePair());
       emitAutoVarDebugDeclare(llvm::cast<llvm::AllocaInst>(ptr), elemName, node->getSpan(), st);
       if (existing != nullptr) {
         existing->setLlvmValue(ptr);
@@ -1094,22 +1145,27 @@ auto Codegen::visit(const VarDecl* node) -> void {
       existing->setMangledName(mangled);
       existing->setCategory(ValueCategory::ADDRESSABLE_STORAGE);
       existing->setMutable(node->getMutability());
+      registerModuleArcRoot(gv, storedType, filename + "::" + name, existing->getStoresFuncValuePair());
       if (valueResult != nullptr) {
-        emitSimpleClassPtrOrCastStore(node->getSpan(), gv, valueResult, storedType);
+        emitSimpleClassPtrOrCastStore(node->getSpan(), gv, valueResult, storedType, false,
+                                      existing->getStoresFuncValuePair());
       }
       return;
     }
 
     llvm::Function* parentFct = builder->GetInsertBlock()->getParent();
     llvm::AllocaInst* ptr = createAllocaInEntry(parentFct, storageLlvmTy, name);
+    emitEntryNullInit(ptr, storageLlvmTy);
     existing->setLlvmValue(ptr);
     existing->setCategory(ValueCategory::ADDRESSABLE_STORAGE);
     existing->setMutable(node->getMutability());
+    registerArcOwnedSlot(ptr, storedType, existing->getStoresFuncValuePair());
     if (valueResult != nullptr) {
-      llvm::Instruction* const st =
-          emitExistingVarSlotInitializerStore(node, ptr, valueResult, storedType, name);
+      llvm::Instruction* const st = emitExistingVarSlotInitializerStore(
+          node, ptr, valueResult, storedType, name, existing->getStoresFuncValuePair());
       emitAutoVarDebugDeclare(llvm::cast<llvm::AllocaInst>(ptr), name, node->getSpan(), st);
     } else {
+      builder->CreateStore(llvm::Constant::getNullValue(storageLlvmTy), ptr);
       emitAutoVarDebugDeclare(llvm::cast<llvm::AllocaInst>(ptr), name, node->getSpan(), nullptr);
     }
     if (node->getValue() != nullptr) {
@@ -1146,6 +1202,7 @@ auto Codegen::visit(const VarDecl* node) -> void {
   getOrCreateLlvmType(type);
   llvm::Function* parentFct = builder->GetInsertBlock()->getParent();
   llvm::AllocaInst* ptr = createAllocaInEntry(parentFct, type->getLlvmType(), name);
+  emitEntryNullInit(ptr, type->getLlvmType());
 
   if (type->is(BaseType::TY_CLASS)) {
     type = cacheType(std::make_unique<Type>(BaseType::TY_PTR, builder->getPtrTy(), type));
@@ -1155,12 +1212,15 @@ auto Codegen::visit(const VarDecl* node) -> void {
   symbol->setLlvmValue(ptr);
   symbol->setCategory(ValueCategory::ADDRESSABLE_STORAGE);
   symbol->setMutable(node->getMutability());
+  registerArcOwnedSlot(ptr, type, symbol->getStoresFuncValuePair());
   scope->insertSymbol(std::move(symbol));
 
   if (node->getValue() != nullptr) {
-    llvm::Instruction* const st = emitSimpleClassPtrOrCastStore(node->getSpan(), ptr, val, type);
+    llvm::Instruction* const st =
+        emitSimpleClassPtrOrCastStore(node->getSpan(), ptr, val, type, false, false);
     emitAutoVarDebugDeclare(llvm::cast<llvm::AllocaInst>(ptr), name, node->getSpan(), st);
   } else {
+    builder->CreateStore(llvm::Constant::getNullValue(type->getLlvmType()), ptr);
     emitAutoVarDebugDeclare(llvm::cast<llvm::AllocaInst>(ptr), name, node->getSpan(), nullptr);
   }
 }
@@ -1447,7 +1507,9 @@ auto Codegen::emitUnionWrapValueToSlot(llvm::SMRange /*span*/, lesma::Value* val
       payPtr, llvm::PointerType::get(theModule->getContext(), 0U), "union.pay.tptr");
   builder->CreateStore(v, typedPayPtr);
   llvm::Value* agg = builder->CreateLoad(st, destSlot, "union.val");
-  return std::make_unique<lesma::Value>("", unionTy, agg);
+  auto out = std::make_unique<lesma::Value>("", unionTy, agg);
+  out->setArcOwnedValue(val != nullptr && val->getArcOwnedValue());
+  return out;
 }
 
 auto Codegen::emitUnionWrapValue(llvm::SMRange span, lesma::Value* val, lesma::Type* unionTy,
@@ -1478,16 +1540,26 @@ auto Codegen::getOrCreateAnyTypeInfoGlobal(lesma::Type* type) -> llvm::GlobalVar
     anyTypeInfoGlobals[typeName] = existing;
     return existing;
   }
-  auto* gv = new llvm::GlobalVariable(*theModule, builder->getInt8Ty(), true,
-                                      llvm::GlobalValue::LinkOnceODRLinkage, builder->getInt8(0),
-                                      globalName);
-  gv->setAlignment(llvm::MaybeAlign(1));
+  auto* typeInfoTy = llvm::StructType::getTypeByName(theModule->getContext(), "lesma.any.typeinfo");
+  if (typeInfoTy == nullptr) {
+    typeInfoTy = llvm::StructType::create(
+        theModule->getContext(), {builder->getPtrTy(), builder->getPtrTy()}, "lesma.any.typeinfo");
+  }
+  llvm::Constant* retainFn = llvm::ConstantExpr::getBitCast(
+      getOrCreateArcStorageRetainFunction(type), builder->getPtrTy());
+  llvm::Constant* releaseFn = llvm::ConstantExpr::getBitCast(
+      getOrCreateArcStorageReleaseFunction(type), builder->getPtrTy());
+  auto* init = llvm::ConstantStruct::get(typeInfoTy, {retainFn, releaseFn});
+  auto* gv = new llvm::GlobalVariable(*theModule, typeInfoTy, true,
+                                      llvm::GlobalValue::LinkOnceODRLinkage, init, globalName);
+  gv->setAlignment(theModule->getDataLayout().getABITypeAlign(typeInfoTy));
   anyTypeInfoGlobals[typeName] = gv;
   return gv;
 }
 
 auto Codegen::emitAnyTypeInfoPtr(lesma::Type* type) -> llvm::Value* {
-  return builder->CreateBitCast(getOrCreateAnyTypeInfoGlobal(type), builder->getPtrTy(),
+  lesma::Type* canonicalType = isLesmaPtrToClass(type) ? type->getElementType() : type;
+  return builder->CreateBitCast(getOrCreateAnyTypeInfoGlobal(canonicalType), builder->getPtrTy(),
                                 "any.typeinfo");
 }
 
@@ -1566,16 +1638,24 @@ auto Codegen::emitBoxToAny(llvm::SMRange span, lesma::Value* value, lesma::Type*
 
   auto* allocSize =
       builder->getInt64(theModule->getDataLayout().getTypeAllocSize(storageTy).getFixedValue());
-  llvm::Value* payloadPtr = emitMalloc(allocSize, "any.payload");
+  llvm::Value* payloadPtr = emitArcAlloc(
+      allocSize, getOrCreateArcPayloadDestroyFunction(value->getType()), "any.payload");
   llvm::Value* typedPayloadPtr = builder->CreateBitCast(
       payloadPtr, llvm::PointerType::get(theModule->getContext(), 0U), "any.payload.typed");
   builder->CreateStore(storageValue, typedPayloadPtr);
+  if (!value->getArcOwnedValue() && TypeUtils::containsArcManagedValue(value->getType())) {
+    auto* retainFn = getOrCreateArcStorageRetainFunction(value->getType());
+    auto* retainTy = llvm::FunctionType::get(builder->getVoidTy(), {builder->getPtrTy()}, false);
+    builder->CreateCall(retainTy, retainFn, {payloadPtr});
+  }
 
   llvm::Value* anyAgg = llvm::UndefValue::get(anyType->getLlvmType());
   anyAgg = builder->CreateInsertValue(anyAgg, emitAnyTypeInfoPtr(value->getType()), {0U},
                                       "any.box.typeinfo");
   anyAgg = builder->CreateInsertValue(anyAgg, payloadPtr, {1U}, "any.box.payload");
-  return std::make_unique<Value>("", anyType, anyAgg);
+  auto out = std::make_unique<Value>("", anyType, anyAgg);
+  out->setArcOwnedValue(true);
+  return out;
 }
 
 auto Codegen::emitUnboxFromAny(llvm::SMRange span, lesma::Value* value, lesma::Type* targetType)
@@ -1862,6 +1942,8 @@ auto Codegen::visit(const ForIn* node) -> void {
     llvm::AllocaInst* elemPtr = createAllocaInEntry(parentFct, allocaTy, loopVar->getName());
     loopVar->setLlvmValue(elemPtr);
     loopVar->setCategory(ValueCategory::ADDRESSABLE_STORAGE);
+    builder->CreateStore(llvm::Constant::getNullValue(allocaTy), elemPtr);
+    registerArcOwnedSlot(elemPtr, storedType, loopVar->getStoresFuncValuePair());
   }
   scope = savedScope;
 
@@ -1870,9 +1952,16 @@ auto Codegen::visit(const ForIn* node) -> void {
   llvm::BasicBlock* bInc = llvm::BasicBlock::Create(theModule->getContext(), "for.inc");
   llvm::BasicBlock* bEnd = llvm::BasicBlock::Create(theModule->getContext(), "for.end");
   std::unique_ptr<lesma::Value> iteratorValue;
+  llvm::AllocaInst* iteratorSlot = nullptr;
   llvm::AllocaInst* indexPtr = nullptr;
   if (!useArrayIndex) {
     iteratorValue = callMethodByName(node->getSpan(), iterable.get(), "iter");
+    if (iteratorValue != nullptr && TypeUtils::isArcReferenceType(iteratorValue->getType())) {
+      iteratorSlot = createAllocaInEntry(parentFct, builder->getPtrTy(), "for.iter.slot");
+      emitEntryNullInit(iteratorSlot, builder->getPtrTy());
+      builder->CreateStore(iteratorValue->getLlvmValue(), iteratorSlot);
+      registerArcOwnedSlot(iteratorSlot, iteratorValue->getType(), false);
+    }
   } else {
     getOrCreateLlvmType(listType);
     indexPtr = createAllocaInEntry(parentFct, builder->getInt64Ty(), "for.index");
@@ -1895,6 +1984,16 @@ auto Codegen::visit(const ForIn* node) -> void {
     emitForInLoopIteration(parentFct, node, savedScope, forBodyScope, bLoop, bInc, [&] {
       auto* elemPtr = emitListElementPointer(node->getSpan(), listType, listHandle, idxVal);
       auto* elemVal = builder->CreateLoad(getListStoredElementType(listType), elemPtr);
+      if (TypeUtils::containsArcManagedValue(loopVar->getType())) {
+        llvm::Type* loopStorageTy = loopVar->getStoresFuncValuePair()
+                                        ? static_cast<llvm::Type*>(getFuncValuePairLlvmType())
+                                        : getStoredAggregateFieldLlvmType(loopVar->getType());
+        emitReleaseLoadedValue(
+            loopVar->getType(),
+            builder->CreateLoad(loopStorageTy, loopVar->getLlvmValue(), "for.loopvar.old"),
+            loopVar->getStoresFuncValuePair());
+        emitRetainLoadedValue(loopVar->getType(), elemVal, loopVar->getStoresFuncValuePair());
+      }
       builder->CreateStore(elemVal, loopVar->getLlvmValue());
     });
 
@@ -1943,11 +2042,11 @@ auto Codegen::visit(const ForIn* node) -> void {
     emitForInLoopIteration(parentFct, node, savedScope, forBodyScope, bLoop, bInc, [&] {
       auto unwrapped =
           materializeNarrowedUnionValue(nextValue.get(), payloadType, "for.next.unwrap");
-      if (unwrapped != nullptr && loopVar != nullptr && loopVar->getType() != nullptr &&
-          !unwrapped->getType()->isEqual(loopVar->getType())) {
-        unwrapped = cast(node->getSpan(), unwrapped.get(), loopVar->getType());
+      if (unwrapped == nullptr) {
+        throw CodegenError(node->getSpan(), "For-in iterator item could not be unwrapped");
       }
-      builder->CreateStore(unwrapped->getLlvmValue(), loopVar->getLlvmValue());
+      emitSimpleClassPtrOrCastStore(node->getSpan(), loopVar->getLlvmValue(), unwrapped,
+                                    loopVar->getType(), true, loopVar->getStoresFuncValuePair());
     });
 
     bInc->insertInto(parentFct);
@@ -1957,6 +2056,10 @@ auto Codegen::visit(const ForIn* node) -> void {
 
   bEnd->insertInto(parentFct);
   builder->SetInsertPoint(bEnd);
+  if (iteratorSlot != nullptr) {
+    emitArcReleaseNullable(builder->CreateLoad(builder->getPtrTy(), iteratorSlot, "for.iter"));
+    builder->CreateStore(llvm::ConstantPointerNull::get(builder->getPtrTy()), iteratorSlot);
+  }
   breakBlocks.pop();
   continueBlocks.pop();
 
@@ -2176,6 +2279,7 @@ auto Codegen::defineSynthesizedClassConstructor(lesma::Value* ctorSym, const Cla
   currentFunction = ctorSym;
   deferStack.emplace();
   pushDeferBaseline();
+  pushArcOwnedSlotFrame();
 
   if (ctorSym->getLlvmValue() == nullptr) {
     throw CodegenError(astNode->getSpan(), "Synthesized constructor has no LLVM function");
@@ -2260,6 +2364,9 @@ auto Codegen::defineSynthesizedClassConstructor(lesma::Value* ctorSym, const Cla
     if (v->getValue() != nullptr) {
       v->getValue()->accept(*this);
       auto rhs = cast(v->getValue()->getSpan(), result.get(), storageTy);
+      if (!result->getArcOwnedValue() && TypeUtils::containsArcManagedValue(storageTy)) {
+        emitRetainLoadedValue(storageTy, rhs->getLlvmValue(), result->getStoresFuncValuePair());
+      }
       builder->CreateStore(rhs->getLlvmValue(), slotPtr);
     } else {
       Value* ps = scope->lookup(v->getIdentifier()->getValue());
@@ -2271,11 +2378,15 @@ auto Codegen::defineSynthesizedClassConstructor(lesma::Value* ctorSym, const Cla
       llvm::Value* loaded =
           loadStoredAggregateFieldValue(ps->getLlvmValue(), storageTy,
                                         llvm::Twine(v->getIdentifier()->getValue()).concat(".arg"));
+      if (TypeUtils::containsArcManagedValue(storageTy)) {
+        emitRetainLoadedValue(storageTy, loaded, ps->getStoresFuncValuePair());
+      }
       builder->CreateStore(loaded, slotPtr);
     }
   }
 
   flushDeferredFramesForReturn();
+  emitReleaseCurrentArcOwnedSlots();
   builder->CreateRetVoid();
 
   deferStack.pop();
@@ -2287,8 +2398,11 @@ auto Codegen::defineSynthesizedClassConstructor(lesma::Value* ctorSym, const Cla
       continue;
     }
     builder->SetInsertPoint(&bb);
+    emitReleaseCurrentArcOwnedSlots();
     builder->CreateRetVoid();
   }
+
+  popArcOwnedSlotFrame(false);
 
   isReturn = false;
   std::string verifyOutput;
@@ -2888,6 +3002,17 @@ auto Codegen::visit(const Assignment* node) -> void {
     builder->SetInsertPoint(assignBlock);
     node->getRightHandSide()->accept(*this);
     auto storedValue = cast(node->getSpan(), result.get(), targetType);
+    if (!storedValue->getArcOwnedValue() && TypeUtils::containsArcManagedValue(targetType)) {
+      emitRetainLoadedValue(targetType, storedValue->getLlvmValue(), lhs->getStoresFuncValuePair());
+    }
+    if (TypeUtils::containsArcManagedValue(targetType)) {
+      llvm::Type* oldStorageTy = lhs->getStoresFuncValuePair()
+                                     ? static_cast<llvm::Type*>(getFuncValuePairLlvmType())
+                                     : getStoredAggregateFieldLlvmType(targetType);
+      emitReleaseLoadedValue(
+          targetType, builder->CreateLoad(oldStorageTy, lhs->getLlvmValue(), "assign.coalesce.old"),
+          lhs->getStoresFuncValuePair());
+    }
     builder->CreateStore(storedValue->getLlvmValue(), lhs->getLlvmValue());
     builder->CreateBr(mergeBlock);
 
@@ -2904,6 +3029,11 @@ auto Codegen::visit(const Assignment* node) -> void {
     if (rhsAgg->getType()->isPointerTy()) {
       rhsAgg = builder->CreateLoad(pt, rhsAgg, "fnval.assign");
     }
+    if (!result->getArcOwnedValue()) {
+      emitRetainLoadedValue(lhs->getType(), rhsAgg, true);
+    }
+    emitReleaseLoadedValue(lhs->getType(),
+                           builder->CreateLoad(pt, lhs->getLlvmValue(), "fnval.old"), true);
     builder->CreateStore(rhsAgg, lhs->getLlvmValue());
     lhs->setClosureCalleeUsesEnvParameter(result->getClosureCalleeUsesEnvParameter());
     return;
@@ -2914,6 +3044,18 @@ auto Codegen::visit(const Assignment* node) -> void {
   case TokenType::EQUAL: {
     auto value = cast(node->getSpan(), result.get(),
                       isPtr ? lhs->getType()->getElementType() : lhs->getType());
+    lesma::Type* storeType = isPtr ? lhs->getType()->getElementType() : lhs->getType();
+    if (!value->getArcOwnedValue() && TypeUtils::containsArcManagedValue(storeType)) {
+      emitRetainLoadedValue(storeType, value->getLlvmValue(), lhs->getStoresFuncValuePair());
+    }
+    if (TypeUtils::containsArcManagedValue(storeType)) {
+      llvm::Type* oldStorageTy = lhs->getStoresFuncValuePair()
+                                     ? static_cast<llvm::Type*>(getFuncValuePairLlvmType())
+                                     : getStoredAggregateFieldLlvmType(storeType);
+      emitReleaseLoadedValue(storeType,
+                             builder->CreateLoad(oldStorageTy, lhs->getLlvmValue(), "assign.old"),
+                             lhs->getStoresFuncValuePair());
+    }
     builder->CreateStore(value->getLlvmValue(), lhs->getLlvmValue());
     break;
   }
@@ -2979,6 +3121,7 @@ auto Codegen::visit(const Return* node) -> void {
 
   if (node->getValue() == nullptr) {
     if (currentFunction->getType()->getReturnType()->is(BaseType::TY_VOID)) {
+      emitReleaseCurrentArcOwnedSlots();
       builder->CreateRetVoid();
     } else {
       throw CodegenError(node->getSpan(),
@@ -3003,6 +3146,10 @@ auto Codegen::visit(const Return* node) -> void {
       if (result->getCategory() == ValueCategory::ADDRESSABLE_STORAGE) {
         toRet = builder->CreateLoad(pt, toRet, "ret.fnval");
       }
+      if (!result->getArcOwnedValue()) {
+        emitRetainLoadedValue(actualType, toRet, true);
+      }
+      emitReleaseCurrentArcOwnedSlots();
       builder->CreateRet(toRet);
       return;
     }
@@ -3025,6 +3172,10 @@ auto Codegen::visit(const Return* node) -> void {
     llvm::Type* expectedReturnType =
         declaredClass != nullptr ? builder->getPtrTy() : builder->getCurrentFunctionReturnType();
     if (actualReturnType == expectedReturnType) {
+      if (!result->getArcOwnedValue() && TypeUtils::containsArcManagedValue(actualType)) {
+        emitRetainLoadedValue(actualType, result->getLlvmValue(), false);
+      }
+      emitReleaseCurrentArcOwnedSlots();
       builder->CreateRet(result->getLlvmValue());
     } else {
       throw CodegenError(node->getSpan(),
@@ -3234,6 +3385,7 @@ auto Codegen::emitClassStaticFieldGlobals(lesma::Type* classTy, const Class* ast
                                         llvm::GlobalValue::PrivateLinkage, init, gvName);
     sym->setLlvmValue(gv);
     sym->setCategory(ValueCategory::ADDRESSABLE_STORAGE);
+    registerModuleArcRoot(gv, fieldTy, gvName, sym->getStoresFuncValuePair());
     if (vd->getValue() != nullptr) {
       vd->getValue()->accept(*this);
       auto* valueResult = result.get();
@@ -3244,14 +3396,23 @@ auto Codegen::emitClassStaticFieldGlobals(lesma::Type* classTy, const Class* ast
           builder->CreateStore(llvm::ConstantAggregateZero::get(getFuncValuePairLlvmType()), gv);
         } else if (valueResult->getLlvmValue() != nullptr &&
                    valueResult->getLlvmValue()->getType() == getFuncValuePairLlvmType()) {
+          if (!valueResult->getArcOwnedValue()) {
+            emitRetainLoadedValue(fieldTy, valueResult->getLlvmValue(), true);
+          }
           builder->CreateStore(valueResult->getLlvmValue(), gv);
         } else if (valueResult->getStoresFuncValuePair()) {
           llvm::StructType* pt = getFuncValuePairLlvmType();
           llvm::Value* loaded = builder->CreateLoad(pt, valueResult->getLlvmValue(),
                                                     sym->getName() + ".sfnpair.init");
+          if (!valueResult->getArcOwnedValue()) {
+            emitRetainLoadedValue(fieldTy, loaded, true);
+          }
           builder->CreateStore(loaded, gv);
         } else {
           auto rhs = cast(vd->getValue()->getSpan(), valueResult, fieldTy);
+          if (!valueResult->getArcOwnedValue() && TypeUtils::containsArcManagedValue(fieldTy)) {
+            emitRetainLoadedValue(fieldTy, rhs->getLlvmValue(), false);
+          }
           builder->CreateStore(rhs->getLlvmValue(), gv);
         }
         if (valueResult->getStoresFuncValuePair() &&
@@ -3267,6 +3428,9 @@ auto Codegen::emitClassStaticFieldGlobals(lesma::Type* classTy, const Class* ast
         }
       } else {
         auto rhs = cast(vd->getValue()->getSpan(), valueResult, fieldTy);
+        if (!valueResult->getArcOwnedValue() && TypeUtils::containsArcManagedValue(fieldTy)) {
+          emitRetainLoadedValue(fieldTy, rhs->getLlvmValue(), false);
+        }
         builder->CreateStore(rhs->getLlvmValue(), gv);
       }
     }
@@ -3368,6 +3532,7 @@ auto Codegen::visit(const LambdaExpr* node) -> void {
   currentFunction = resolved;
   deferStack.emplace();
   pushDeferBaseline();
+  pushArcOwnedSlotFrame();
   BasicBlock* entry = BasicBlock::Create(theModule->getContext(), "entry", f);
   builder->SetInsertPoint(entry);
   setDebugLoc(node->getSpan());
@@ -3421,11 +3586,16 @@ auto Codegen::visit(const LambdaExpr* node) -> void {
     llvm::Value* rv = result != nullptr ? result->getLlvmValue() : nullptr;
     flushDeferredFramesForReturn();
     if (retType->is(BaseType::TY_VOID)) {
+      emitReleaseCurrentArcOwnedSlots();
       builder->CreateRetVoid();
     } else {
       if (rv == nullptr) {
         throw CodegenError(node->getSpan(), "Lambda expression body did not produce a value");
       }
+      if (!result->getArcOwnedValue() && TypeUtils::containsArcManagedValue(retType)) {
+        emitRetainLoadedValue(retType, rv, result->getStoresFuncValuePair());
+      }
+      emitReleaseCurrentArcOwnedSlots();
       builder->CreateRet(rv);
     }
   } else if (node->getBlockBody() != nullptr) {
@@ -3433,6 +3603,7 @@ auto Codegen::visit(const LambdaExpr* node) -> void {
     if (builder->GetInsertBlock()->getTerminator() == nullptr) {
       flushDeferredFramesForReturn();
       if (retType->is(BaseType::TY_VOID)) {
+        emitReleaseCurrentArcOwnedSlots();
         builder->CreateRetVoid();
       } else {
         throw CodegenError(node->getSpan(), "Non-void lambda may reach end without returning");
@@ -3449,6 +3620,7 @@ auto Codegen::visit(const LambdaExpr* node) -> void {
   currentFunction = savedCurrentFunction;
   deferStack.pop();
   deferBaselineStack.pop();
+  popArcOwnedSlotFrame(false);
   builder->SetInsertPoint(resumeBlock);
   builder->SetCurrentDebugLocation(llvm::DebugLoc());
 
@@ -3459,9 +3631,16 @@ auto Codegen::visit(const LambdaExpr* node) -> void {
   llvm::Value* envStoreVal = llvm::ConstantPointerNull::get(builder->getPtrTy());
   if (!caps.empty()) {
     llvm::Type* i64Ty = builder->getInt64Ty();
+    std::vector<lesma::Type*> captureTypes;
+    captureTypes.reserve(caps.size());
+    for (Value* outer : caps) {
+      captureTypes.push_back(outer != nullptr ? outer->getType() : nullptr);
+    }
     llvm::Value* envSize = llvm::ConstantInt::get(
         i64Ty, theModule->getDataLayout().getTypeAllocSize(envStructTy).getFixedValue());
-    envStoreVal = emitMalloc(envSize, lambdaName + ".env");
+    envStoreVal = emitArcAlloc(
+        envSize, getOrCreateArcClosureDestroyFunction(lambdaName, envStructTy, captureTypes),
+        lambdaName + ".env");
     llvm::Value* typedEnv =
         builder->CreateBitCast(envStoreVal, llvm::PointerType::get(envStructTy->getContext(), 0U));
     for (size_t i = 0; i < caps.size(); ++i) {
@@ -3474,6 +3653,9 @@ auto Codegen::visit(const LambdaExpr* node) -> void {
       getOrCreateLlvmType(outerTy);
       llvm::Value* v = builder->CreateLoad(outerTy->getLlvmType(), outer->getLlvmValue(),
                                            outer->getName() + ".v");
+      if (TypeUtils::containsArcManagedValue(outerTy)) {
+        emitRetainLoadedValue(outerTy, v, outer->getStoresFuncValuePair());
+      }
       llvm::Value* slot =
           builder->CreateStructGEP(envStructTy, typedEnv, static_cast<unsigned>(i), "cap.slot");
       builder->CreateStore(v, slot);
@@ -3488,6 +3670,7 @@ auto Codegen::visit(const LambdaExpr* node) -> void {
   out->setCategory(ValueCategory::ADDRESSABLE_STORAGE);
   out->setStoresFuncValuePair(true);
   out->setClosureCalleeUsesEnvParameter(!caps.empty());
+  out->setArcOwnedValue(!caps.empty());
   result = std::move(out);
 }
 
@@ -3577,6 +3760,10 @@ auto Codegen::visit(const BinaryOp* node) -> void {
     phi->addIncoming(leftValue, leftIncoming);
     phi->addIncoming(rightValue, rightIncoming);
     result = std::make_unique<Value>("", payloadType, phi);
+    if (TypeUtils::containsArcManagedValue(payloadType) && leftPayload->getArcOwnedValue() &&
+        (right != nullptr && right->getArcOwnedValue())) {
+      result->setArcOwnedValue(true);
+    }
     if (payloadType->is(BaseType::TY_FUNCTION)) {
       result->setStoresFuncValuePair(true);
       result->setCategory(ValueCategory::DIRECT_VALUE);
@@ -4357,6 +4544,9 @@ void Codegen::lowerDotOpSuperMethodCall(const DotOp* node) {
     llvm::Value* callResult = builder->CreateCall(calleeFn, finalParams);
     currentGenericTypes = std::move(savedGenerics);
     result = std::make_unique<Value>("", returnTy, callResult);
+    if (returnTy != nullptr && TypeUtils::containsArcManagedValue(returnTy)) {
+      result->setArcOwnedValue(true);
+    }
     if (returnTy != nullptr && returnTy->is(BaseType::TY_FUNCTION)) {
       result->setStoresFuncValuePair(true);
       result->setCategory(ValueCategory::DIRECT_VALUE);
@@ -4860,7 +5050,8 @@ auto Codegen::visit(const ListLiteral* node) -> void {
     auto* structType = cast<llvm::StructType>(getOrCreateLlvmType(listType));
     auto* classSize =
         builder->getInt64(theModule->getDataLayout().getTypeAllocSize(structType).getFixedValue());
-    auto* classHandle = emitMalloc(classSize, "list.obj");
+    auto* classHandle =
+        emitArcAlloc(classSize, getOrCreateArcDestroyFunction(listType), "list.obj");
     emitInitClassVtablePointer(listType, classHandle);
     unsigned const bufIdx = TypeUtils::classDataFieldStructIndex(listType, 0U);
     auto* storagePtr =
@@ -4869,7 +5060,8 @@ auto Codegen::visit(const ListLiteral* node) -> void {
     auto* listStructTy = getOrCreateListStructType(bufferType);
     auto* headerSize = builder->getInt64(
         theModule->getDataLayout().getTypeAllocSize(listStructTy).getFixedValue());
-    auto* bufferHandle = emitMalloc(headerSize, "list.header");
+    auto* bufferHandle =
+        emitArcAlloc(headerSize, getOrCreateArcDestroyFunction(bufferType), "list.header");
     llvm::Value* dataPtr = llvm::ConstantPointerNull::get(builder->getPtrTy());
     auto elements = node->getElements();
     if (!elements.empty()) {
@@ -4883,9 +5075,14 @@ auto Codegen::visit(const ListLiteral* node) -> void {
         setDebugLoc(node->getSpan());
         auto* elementPtr =
             builder->CreateGEP(elementLlvmType, dataPtr, builder->getInt64(i), "list.elem.ptr");
-        builder->CreateStore(
-            getListStoredElementValue(node->getSpan(), result.get(), bufferType->getElementType()),
-            elementPtr);
+        auto* storedElement =
+            getListStoredElementValue(node->getSpan(), result.get(), bufferType->getElementType());
+        if (!result->getArcOwnedValue() &&
+            TypeUtils::containsArcManagedValue(bufferType->getElementType())) {
+          emitRetainLoadedValue(bufferType->getElementType(), storedElement,
+                                result->getStoresFuncValuePair());
+        }
+        builder->CreateStore(storedElement, elementPtr);
       }
     }
     auto* count = builder->getInt64(elements.size());
@@ -4894,6 +5091,7 @@ auto Codegen::visit(const ListLiteral* node) -> void {
     emitStoreListCapacity(bufferType, bufferHandle, count);
     builder->CreateStore(bufferHandle, storagePtr);
     result = std::make_unique<Value>("", listType, classHandle);
+    result->setArcOwnedValue(true);
     return;
   }
   if (listType == nullptr || !listType->is(BaseType::TY_ARRAY) ||
@@ -4908,7 +5106,8 @@ auto Codegen::visit(const ListLiteral* node) -> void {
   std::vector<Expression*> elements = node->getElements();
   auto* headerSize =
       builder->getInt64(theModule->getDataLayout().getTypeAllocSize(listStructTy).getFixedValue());
-  auto* listHandle = emitMalloc(headerSize, "list.header");
+  auto* listHandle =
+      emitArcAlloc(headerSize, getOrCreateArcDestroyFunction(listType), "list.header");
 
   llvm::Value* dataPtr = llvm::ConstantPointerNull::get(builder->getPtrTy());
   if (!elements.empty()) {
@@ -4922,8 +5121,12 @@ auto Codegen::visit(const ListLiteral* node) -> void {
       setDebugLoc(node->getSpan());
       auto* elementPtr =
           builder->CreateGEP(elementLlvmType, dataPtr, builder->getInt64(i), "list.elem.ptr");
-      builder->CreateStore(
-          getListStoredElementValue(elements[i]->getSpan(), result.get(), elementType), elementPtr);
+      auto* storedElement =
+          getListStoredElementValue(elements[i]->getSpan(), result.get(), elementType);
+      if (!result->getArcOwnedValue() && TypeUtils::containsArcManagedValue(elementType)) {
+        emitRetainLoadedValue(elementType, storedElement, result->getStoresFuncValuePair());
+      }
+      builder->CreateStore(storedElement, elementPtr);
     }
   }
 
@@ -4932,6 +5135,7 @@ auto Codegen::visit(const ListLiteral* node) -> void {
   emitStoreListLength(listType, listHandle, count);
   emitStoreListCapacity(listType, listHandle, count);
   result = std::make_unique<Value>("", listType, listHandle);
+  result->setArcOwnedValue(true);
 }
 
 auto Codegen::visit(const DictLiteral* node) -> void {
@@ -4956,7 +5160,7 @@ auto Codegen::visit(const DictLiteral* node) -> void {
   auto* structType = cast<llvm::StructType>(getOrCreateLlvmType(dictType));
   auto* classSize =
       builder->getInt64(theModule->getDataLayout().getTypeAllocSize(structType).getFixedValue());
-  auto* classHandle = emitMalloc(classSize, "dict.obj");
+  auto* classHandle = emitArcAlloc(classSize, getOrCreateArcDestroyFunction(dictType), "dict.obj");
   emitInitClassVtablePointer(dictType, classHandle);
   unsigned const keysIdx = TypeUtils::classDataFieldStructIndex(dictType, 0U);
   unsigned const valsIdx = TypeUtils::classDataFieldStructIndex(dictType, 1U);
@@ -4972,14 +5176,14 @@ auto Codegen::visit(const DictLiteral* node) -> void {
 
   auto* keysListStructTy = getOrCreateListStructType(keysBufferType);
   auto* valsListStructTy = getOrCreateListStructType(valsBufferType);
-  auto* keysHeader =
-      emitMalloc(builder->getInt64(
-                     theModule->getDataLayout().getTypeAllocSize(keysListStructTy).getFixedValue()),
-                 "dict.keys.header");
-  auto* valsHeader =
-      emitMalloc(builder->getInt64(
-                     theModule->getDataLayout().getTypeAllocSize(valsListStructTy).getFixedValue()),
-                 "dict.vals.header");
+  auto* keysHeader = emitArcAlloc(
+      builder->getInt64(
+          theModule->getDataLayout().getTypeAllocSize(keysListStructTy).getFixedValue()),
+      getOrCreateArcDestroyFunction(keysBufferType), "dict.keys.header");
+  auto* valsHeader = emitArcAlloc(
+      builder->getInt64(
+          theModule->getDataLayout().getTypeAllocSize(valsListStructTy).getFixedValue()),
+      getOrCreateArcDestroyFunction(valsBufferType), "dict.vals.header");
 
   llvm::Value* keysDataPtr = llvm::ConstantPointerNull::get(builder->getPtrTy());
   llvm::Value* valsDataPtr = llvm::ConstantPointerNull::get(builder->getPtrTy());
@@ -5002,15 +5206,21 @@ auto Codegen::visit(const DictLiteral* node) -> void {
       setDebugLoc(node->getSpan());
       auto* keyPtr = builder->CreateGEP(keysElementLlvmType, keysDataPtr, builder->getInt64(i),
                                         "dict.key.elem.ptr");
-      builder->CreateStore(getListStoredElementValue(keys[i]->getSpan(), result.get(), keyElemType),
-                           keyPtr);
+      auto* storedKey = getListStoredElementValue(keys[i]->getSpan(), result.get(), keyElemType);
+      if (!result->getArcOwnedValue() && TypeUtils::containsArcManagedValue(keyElemType)) {
+        emitRetainLoadedValue(keyElemType, storedKey, result->getStoresFuncValuePair());
+      }
+      builder->CreateStore(storedKey, keyPtr);
 
       values[i]->accept(*this);
       setDebugLoc(node->getSpan());
       auto* valPtr = builder->CreateGEP(valsElementLlvmType, valsDataPtr, builder->getInt64(i),
                                         "dict.val.elem.ptr");
-      builder->CreateStore(
-          getListStoredElementValue(values[i]->getSpan(), result.get(), valElemType), valPtr);
+      auto* storedVal = getListStoredElementValue(values[i]->getSpan(), result.get(), valElemType);
+      if (!result->getArcOwnedValue() && TypeUtils::containsArcManagedValue(valElemType)) {
+        emitRetainLoadedValue(valElemType, storedVal, result->getStoresFuncValuePair());
+      }
+      builder->CreateStore(storedVal, valPtr);
     }
   }
 
@@ -5024,6 +5234,7 @@ auto Codegen::visit(const DictLiteral* node) -> void {
   builder->CreateStore(keysHeader, keysFieldPtr);
   builder->CreateStore(valsHeader, valsFieldPtr);
   result = std::make_unique<Value>("", dictType, classHandle);
+  result->setArcOwnedValue(true);
 }
 
 auto Codegen::visit(const TupleLiteral* node) -> void {
@@ -5038,6 +5249,7 @@ auto Codegen::visit(const TupleLiteral* node) -> void {
   llvm::Value* agg = llvm::UndefValue::get(st);
   std::vector<Expression*> const elements = node->getElements();
   std::vector<Field*> const fields = tupleType->getFields();
+  bool tupleOwnsArcValue = false;
   if (elements.size() != fields.size()) {
     throw CodegenError(node->getSpan(), "Tuple literal element count mismatch");
   }
@@ -5045,9 +5257,19 @@ auto Codegen::visit(const TupleLiteral* node) -> void {
     elements[i]->accept(*this);
     setDebugLoc(node->getSpan());
     llvm::Value* ev = result->getLlvmValue();
+    bool const elementOwned = result != nullptr && result->getArcOwnedValue();
+    bool const elementNeedsArc =
+        fields[i]->type != nullptr && TypeUtils::containsArcManagedValue(fields[i]->type);
+    if (elementNeedsArc) {
+      if (!elementOwned) {
+        emitRetainLoadedValue(fields[i]->type, ev, false);
+      }
+      tupleOwnsArcValue = true;
+    }
     agg = builder->CreateInsertValue(agg, ev, static_cast<unsigned>(i), "tuple");
   }
   result = std::make_unique<Value>("", tupleType, agg);
+  result->setArcOwnedValue(tupleOwnsArcValue);
 }
 
 auto Codegen::visit(const Literal* node) -> void {
@@ -5069,22 +5291,8 @@ auto Codegen::visit(const Literal* node) -> void {
   } else if (node->getType() == TokenType::STRING) {
     lesma::Type* strClass = node->getResolvedStrClassType();
     if (strClass != nullptr && strClass->is(BaseType::TY_CLASS)) {
-      auto fields = strClass->getFields();
-      if (fields.empty() || fields.front()->type == nullptr ||
-          !fields.front()->type->is(BaseType::TY_STRING)) {
-        throw CodegenError(node->getSpan(), "String literal resolved to invalid stdlib str class");
-      }
-      auto* structType = cast<llvm::StructType>(getOrCreateLlvmType(strClass));
-      auto* classSize = builder->getInt64(
-          theModule->getDataLayout().getTypeAllocSize(structType).getFixedValue());
-      auto* classHandle = emitMalloc(classSize, "str.obj");
-      emitInitClassVtablePointer(strClass, classHandle);
-      unsigned const strFieldIdx = TypeUtils::classDataFieldStructIndex(strClass, 0U);
-      auto* storagePtr =
-          builder->CreateStructGEP(structType, classHandle, strFieldIdx, "str.storage.ptr");
-      llvm::Value* globalStr = builder->CreateGlobalString(node->getValue());
-      builder->CreateStore(globalStr, storagePtr);
-      result = std::make_unique<Value>("", strClass, classHandle);
+      result = emitBoxedStrWithCstrField(node->getSpan(),
+                                         builder->CreateGlobalString(node->getValue()), strClass);
     } else {
       auto* type = cacheType(std::make_unique<Type>(BaseType::TY_STRING, builder->getPtrTy()));
       result = std::make_unique<Value>("", type, builder->CreateGlobalString(node->getValue()));
@@ -5157,7 +5365,7 @@ namespace {
   if (t->is(BaseType::TY_PTR) && t->getElementType() != nullptr) {
     b = t->getElementType();
   }
-  return b->is(BaseType::TY_CLASS) && b->getDisplayName() == "str";
+  return b->isBuiltinStringClass();
 }
 
 /// Pointers we may free after copying in \c emitCstrConcatValues: results of \c emitMalloc (format
@@ -5280,25 +5488,7 @@ auto Codegen::emitFormatFloatToCstr(llvm::SMRange span, llvm::Value* floatVal, l
 
 auto Codegen::emitBoxedStrLiteralText(llvm::SMRange span, const std::string& text,
                                       lesma::Type* strClass) -> std::unique_ptr<lesma::Value> {
-  if (strClass == nullptr || !strClass->is(BaseType::TY_CLASS)) {
-    throw CodegenError(span, "Invalid str class for string interpolation chunk");
-  }
-  auto fields = strClass->getFields();
-  if (fields.empty() || fields.front()->type == nullptr ||
-      !fields.front()->type->is(BaseType::TY_STRING)) {
-    throw CodegenError(span, "String interpolation chunk: invalid stdlib str class");
-  }
-  auto* structType = llvm::cast<llvm::StructType>(getOrCreateLlvmType(strClass));
-  auto* classSize =
-      builder->getInt64(theModule->getDataLayout().getTypeAllocSize(structType).getFixedValue());
-  auto* classHandle = emitMalloc(classSize, "ip.str.obj");
-  emitInitClassVtablePointer(strClass, classHandle);
-  unsigned const strFieldIdx = TypeUtils::classDataFieldStructIndex(strClass, 0U);
-  auto* storagePtr =
-      builder->CreateStructGEP(structType, classHandle, strFieldIdx, "ip.str.storage.ptr");
-  llvm::Value* globalStr = builder->CreateGlobalString(text);
-  builder->CreateStore(globalStr, storagePtr);
-  return std::make_unique<Value>("", strClass, classHandle);
+  return emitBoxedStrWithCstrField(span, builder->CreateGlobalString(text), strClass);
 }
 
 auto Codegen::emitBoxedStrWithCstrField(llvm::SMRange span, llvm::Value* nulTerminatedPtr,
@@ -5314,13 +5504,22 @@ auto Codegen::emitBoxedStrWithCstrField(llvm::SMRange span, llvm::Value* nulTerm
   auto* structType = llvm::cast<llvm::StructType>(getOrCreateLlvmType(strClass));
   auto* classSize =
       builder->getInt64(theModule->getDataLayout().getTypeAllocSize(structType).getFixedValue());
-  auto* classHandle = emitMalloc(classSize, "ip.str.dyn");
+  auto* classHandle =
+      emitArcAlloc(classSize, getOrCreateArcDestroyFunction(strClass), "ip.str.dyn");
   emitInitClassVtablePointer(strClass, classHandle);
   unsigned const strFieldIdx2 = TypeUtils::classDataFieldStructIndex(strClass, 0U);
   auto* storagePtr =
       builder->CreateStructGEP(structType, classHandle, strFieldIdx2, "ip.str.dyn.ptr");
-  builder->CreateStore(nulTerminatedPtr, storagePtr);
-  return std::make_unique<Value>("", strClass, classHandle);
+  llvm::Value* ownedCstr = nulTerminatedPtr;
+  if (!isOwnedMallocCstrBuffer(nulTerminatedPtr)) {
+    auto* strdupTy = llvm::FunctionType::get(builder->getPtrTy(), {builder->getPtrTy()}, false);
+    llvm::FunctionCallee strdupFn = theModule->getOrInsertFunction("strdup", strdupTy);
+    ownedCstr = builder->CreateCall(strdupFn, {nulTerminatedPtr}, "ip.strdup");
+  }
+  builder->CreateStore(ownedCstr, storagePtr);
+  auto out = std::make_unique<Value>("", strClass, classHandle);
+  out->setArcOwnedValue(true);
+  return out;
 }
 
 auto Codegen::emitInterpolationExprToCstr(llvm::SMRange span, const Expression* expr,
@@ -5409,6 +5608,22 @@ auto Codegen::cast(llvm::SMRange span, lesma::Value* val, lesma::Type* type)
   if (type != nullptr && type->is(BaseType::TY_ANY) && val != nullptr &&
       val->getType() != nullptr) {
     return emitBoxToAny(span, val, type);
+  }
+  if (type != nullptr && type->is(BaseType::TY_TRAIT_EXISTENTIAL) && val != nullptr &&
+      val->getType() != nullptr) {
+    lesma::Type* actualType = val->getType();
+    llvm::Value* actualValue = val->getLlvmValue();
+    if (actualType->is(BaseType::TY_CLASS)) {
+      actualType =
+          cacheType(std::make_unique<Type>(BaseType::TY_PTR, builder->getPtrTy(), actualType));
+    }
+    if (actualType->is(BaseType::TY_PTR) && actualType->getElementType() != nullptr &&
+        actualType->getElementType()->is(BaseType::TY_CLASS)) {
+      auto out = std::make_unique<lesma::Value>(
+          "", type, emitBoxClassToExistential(type, actualType, actualValue));
+      out->setArcOwnedValue(val->getArcOwnedValue());
+      return out;
+    }
   }
   if (type != nullptr && type->is(BaseType::TY_UNION) && val != nullptr &&
       val->getType() != nullptr) {
@@ -6082,7 +6297,8 @@ auto Codegen::callNamedFunction(
     auto* classLlvmType = getOrCreateLlvmType(classSym->getType());
     auto* classSize = builder->getInt64(
         theModule->getDataLayout().getTypeAllocSize(classLlvmType).getFixedValue());
-    classPtr = emitMalloc(classSize, functionName + ".obj");
+    classPtr = emitArcAlloc(classSize, getOrCreateArcDestroyFunction(classSym->getType()),
+                            functionName + ".obj");
     emitInitClassVtablePointer(classSym->getType(), classPtr);
     localParamsLLVM.insert(localParamsLLVM.begin(), classPtr);
     lesma::Type* selfArgTy = cacheType(
@@ -6481,7 +6697,9 @@ auto Codegen::callNamedFunction(
 
   if (classSym != nullptr && classSym->getType()->is(BaseType::TY_CLASS)) {
     selfSymbol = selfSymbolTmp;
-    return std::make_unique<Value>("", classSym->getType(), classPtr);
+    auto out = std::make_unique<Value>("", classSym->getType(), classPtr);
+    out->setArcOwnedValue(true);
+    return out;
   }
 
   selfSymbol = selfSymbolTmp;
@@ -6490,6 +6708,9 @@ auto Codegen::callNamedFunction(
   if (retLesma != nullptr && retLesma->is(BaseType::TY_FUNCTION)) {
     callResult->setStoresFuncValuePair(true);
     callResult->setCategory(ValueCategory::DIRECT_VALUE);
+  }
+  if (retLesma != nullptr && TypeUtils::containsArcManagedValue(retLesma)) {
+    callResult->setArcOwnedValue(true);
   }
   return callResult;
 }
@@ -6554,6 +6775,36 @@ auto Codegen::callListMethodByName(llvm::SMRange span, lesma::Value* receiver,
     return std::make_unique<Value>("", type, emitListLength(bufferType, bufferHandle));
   }
   if (methodName == "clear") {
+    if (bufferType->getElementType() != nullptr &&
+        TypeUtils::containsArcManagedValue(bufferType->getElementType())) {
+      llvm::Function* parentFunction = builder->GetInsertBlock()->getParent();
+      auto* loopCond =
+          llvm::BasicBlock::Create(theModule->getContext(), "list.clear.cond", parentFunction);
+      auto* loopBody =
+          llvm::BasicBlock::Create(theModule->getContext(), "list.clear.body", parentFunction);
+      auto* loopInc =
+          llvm::BasicBlock::Create(theModule->getContext(), "list.clear.inc", parentFunction);
+      auto* releaseDone = llvm::BasicBlock::Create(theModule->getContext(),
+                                                   "list.clear.release.done", parentFunction);
+      auto* indexPtr = createAllocaInEntry(parentFunction, builder->getInt64Ty(), "list.clear.idx");
+      builder->CreateStore(builder->getInt64(0), indexPtr);
+      builder->CreateBr(loopCond);
+      builder->SetInsertPoint(loopCond);
+      auto* index = builder->CreateLoad(builder->getInt64Ty(), indexPtr);
+      auto* length = emitListLength(bufferType, bufferHandle);
+      builder->CreateCondBr(builder->CreateICmpSLT(index, length), loopBody, releaseDone);
+      builder->SetInsertPoint(loopBody);
+      auto* elementPtr = emitListElementPointer(span, bufferType, bufferHandle, index);
+      auto* elementVal = builder->CreateLoad(getListStoredElementType(bufferType), elementPtr);
+      emitReleaseLoadedValue(bufferType->getElementType(), elementVal, false);
+      builder->CreateBr(loopInc);
+      builder->SetInsertPoint(loopInc);
+      builder->CreateStore(builder->CreateAdd(builder->CreateLoad(builder->getInt64Ty(), indexPtr),
+                                              builder->getInt64(1)),
+                           indexPtr);
+      builder->CreateBr(loopCond);
+      builder->SetInsertPoint(releaseDone);
+    }
     auto* currentData = emitListDataPtr(bufferType, bufferHandle);
     llvm::Function* parentFunction = builder->GetInsertBlock()->getParent();
     auto* freeBlock =
@@ -6584,8 +6835,13 @@ auto Codegen::callListMethodByName(llvm::SMRange span, lesma::Value* receiver,
     auto* elementPtr =
         builder->CreateGEP(getListStoredElementType(bufferType),
                            emitListDataPtr(bufferType, bufferHandle), length, "list.push.ptr");
-    builder->CreateStore(getListStoredElementValue(span, args[0], bufferType->getElementType()),
-                         elementPtr);
+    auto* storedElement = getListStoredElementValue(span, args[0], bufferType->getElementType());
+    if (!args[0]->getArcOwnedValue() &&
+        TypeUtils::containsArcManagedValue(bufferType->getElementType())) {
+      emitRetainLoadedValue(bufferType->getElementType(), storedElement,
+                            args[0]->getStoresFuncValuePair());
+    }
+    builder->CreateStore(storedElement, elementPtr);
     emitStoreListLength(bufferType, bufferHandle, nextLength);
     return std::make_unique<Value>(
         "", cacheType(std::make_unique<Type>(BaseType::TY_VOID, builder->getVoidTy())), nullptr);
@@ -6636,6 +6892,10 @@ auto Codegen::callListMethodByName(llvm::SMRange span, lesma::Value* receiver,
     emitStoreListLength(bufferType, bufferHandle, newLength);
     Value popped("", bufferType->getElementType(), poppedValue);
     auto poppedWrapped = cast(span, &popped, popType);
+    if (TypeUtils::containsArcManagedValue(bufferType->getElementType()) &&
+        poppedWrapped != nullptr) {
+      poppedWrapped->setArcOwnedValue(true);
+    }
     llvm::BasicBlock* valueIncoming = builder->GetInsertBlock();
     builder->CreateBr(mergeBlock);
 
@@ -6643,23 +6903,32 @@ auto Codegen::callListMethodByName(llvm::SMRange span, lesma::Value* receiver,
     auto* phi = builder->CreatePHI(popType->getLlvmType(), 2, "list.pop.result");
     phi->addIncoming(nullWrapped->getLlvmValue(), emptyBlock);
     phi->addIncoming(poppedWrapped->getLlvmValue(), valueIncoming);
-    return std::make_unique<Value>("", popType, phi);
+    auto out = std::make_unique<Value>("", popType, phi);
+    if (TypeUtils::containsArcManagedValue(bufferType->getElementType())) {
+      out->setArcOwnedValue(true);
+    }
+    return out;
   }
   if (methodName == "copy") {
     auto* copiedBuffer = emitListDeepCopy(bufferType, bufferHandle);
     if (listClassType == nullptr) {
-      return std::make_unique<Value>("", bufferType, copiedBuffer);
+      auto out = std::make_unique<Value>("", bufferType, copiedBuffer);
+      out->setArcOwnedValue(true);
+      return out;
     }
     auto* classLlvmType = getOrCreateLlvmType(listClassType);
     auto* classSize = builder->getInt64(
         theModule->getDataLayout().getTypeAllocSize(classLlvmType).getFixedValue());
-    auto* classHandle = emitMalloc(classSize, "list.copy.obj");
+    auto* classHandle =
+        emitArcAlloc(classSize, getOrCreateArcDestroyFunction(listClassType), "list.copy.obj");
     emitInitClassVtablePointer(listClassType, classHandle);
     unsigned const copyBufIdx = TypeUtils::classDataFieldStructIndex(listClassType, 0U);
     auto* storagePtr = builder->CreateStructGEP(cast<llvm::StructType>(classLlvmType), classHandle,
                                                 copyBufIdx, "list.copy.storage.ptr");
     builder->CreateStore(copiedBuffer, storagePtr);
-    return std::make_unique<Value>("", listClassType, classHandle);
+    auto out = std::make_unique<Value>("", listClassType, classHandle);
+    out->setArcOwnedValue(true);
+    return out;
   }
   if (methodName == std::string{OperatorUtils::SUBSCRIPT_GET_NAME}) {
     if (args.size() != 1U) {
@@ -6677,8 +6946,17 @@ auto Codegen::callListMethodByName(llvm::SMRange span, lesma::Value* receiver,
     }
     auto* elementPtr =
         emitListElementPointer(span, bufferType, bufferHandle, args[0]->getLlvmValue());
-    builder->CreateStore(getListStoredElementValue(span, args[1], bufferType->getElementType()),
-                         elementPtr);
+    auto* storedElement = getListStoredElementValue(span, args[1], bufferType->getElementType());
+    if (!args[1]->getArcOwnedValue() &&
+        TypeUtils::containsArcManagedValue(bufferType->getElementType())) {
+      emitRetainLoadedValue(bufferType->getElementType(), storedElement,
+                            args[1]->getStoresFuncValuePair());
+    }
+    if (TypeUtils::containsArcManagedValue(bufferType->getElementType())) {
+      auto* oldElement = builder->CreateLoad(getListStoredElementType(bufferType), elementPtr);
+      emitReleaseLoadedValue(bufferType->getElementType(), oldElement, false);
+    }
+    builder->CreateStore(storedElement, elementPtr);
     return std::make_unique<Value>(
         "", cacheType(std::make_unique<Type>(BaseType::TY_VOID, builder->getVoidTy())), nullptr);
   }
@@ -6786,7 +7064,11 @@ auto Codegen::emitUnionClassMethodDispatch(llvm::SMRange span, lesma::Value* uni
   for (unsigned j = 0; j < phiVals.size(); ++j) {
     phi->addIncoming(phiVals[j], phiBBs[j]);
   }
-  return std::make_unique<lesma::Value>("", commonRetTy, phi);
+  auto out = std::make_unique<lesma::Value>("", commonRetTy, phi);
+  if (commonRetTy != nullptr && TypeUtils::containsArcManagedValue(commonRetTy)) {
+    out->setArcOwnedValue(true);
+  }
+  return out;
 }
 
 auto Codegen::callMethodByName(llvm::SMRange span, lesma::Value* receiver,

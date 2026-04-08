@@ -48,6 +48,10 @@ struct Options {
   bool emitDebugInfo = false;
   /** When true, Driver does not print warnings to stderr (diagnostics still collected). */
   bool suppressWarnings = false;
+  /** Emit debug-only ARC live-object diagnostics in generated code. */
+  bool arcDebug = false;
+  /** Emit verbose ARC retain/release/alloc/free trace lines in generated code. */
+  bool arcTrace = false;
 };
 
 class Driver {

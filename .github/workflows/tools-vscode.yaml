@@ -14,7 +14,7 @@ jobs:
         working-directory: ./tools/vscode
     steps:
       - name: Checkout Repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Set up Node.js
         uses: actions/setup-node@v4

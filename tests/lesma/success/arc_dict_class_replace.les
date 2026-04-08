@@ -1,0 +1,26 @@
+class Box {
+  var value: int
+
+  func new(value: int) {
+    self.value = value
+  }
+
+  func get() -> int {
+    return self.value
+  }
+}
+
+var d: dict<str, Box> = {"k": Box(1)}
+
+if d["k"].get() != 1 {
+  exit(1)
+}
+
+d.set("k", Box(9))
+
+if d.len() != 1 {
+  exit(1)
+}
+if d["k"].get() != 9 {
+  exit(1)
+}

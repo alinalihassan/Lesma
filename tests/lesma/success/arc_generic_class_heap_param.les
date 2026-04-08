@@ -1,0 +1,28 @@
+class Box {
+  var value: int
+
+  func new(value: int) {
+    self.value = value
+  }
+
+  func get() -> int {
+    return self.value
+  }
+}
+
+class Holder<T> {
+  var current: T
+
+  func new(current: T) {
+    self.current = current
+  }
+
+  func get() -> T {
+    return self.current
+  }
+}
+
+var holder = Holder<Box>(Box(11))
+if holder.get().get() != 11 {
+  exit(1)
+}

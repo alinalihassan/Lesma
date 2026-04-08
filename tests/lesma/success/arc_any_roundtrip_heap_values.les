@@ -1,0 +1,62 @@
+enum Kind {
+  START
+  STOP
+}
+
+class Box {
+  var value: int
+
+  func new(value: int) {
+    self.value = value
+  }
+
+  func get() -> int {
+    return self.value
+  }
+}
+
+func make_reader(value: int) -> func() -> int {
+  return func() -> int => value + 1
+}
+
+var value: any = str("alpha")
+if value is not str {
+  exit(1)
+} else {
+  let alphaStr = value as str
+  if alphaStr.len() != 5 {
+    exit(1)
+  }
+}
+
+value = Box(7)
+if value is not Box {
+  exit(2)
+} else {
+  let box = value as Box
+  if box.get() != 7 {
+    exit(2)
+  }
+}
+
+value = Kind.STOP
+if value is not Kind {
+  exit(3)
+} else if value as Kind != Kind.STOP {
+  exit(3)
+}
+
+let erasedReader: any = make_reader(9)
+let reader = erasedReader as func() -> int
+if reader() != 10 {
+  exit(5)
+}
+if reader() != 10 {
+  exit(5)
+}
+
+value = erasedReader
+let storedReader = value as func() -> int
+if storedReader() != 10 {
+  exit(4)
+}

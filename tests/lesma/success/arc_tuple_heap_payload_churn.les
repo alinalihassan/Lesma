@@ -1,0 +1,65 @@
+enum Kind {
+  START
+  STOP
+}
+
+class Box {
+  var value: int
+
+  func new(value: int) {
+    self.value = value
+  }
+
+  func get() -> int {
+    return self.value
+  }
+}
+
+func make_bundle(seed: int) -> (str, list<Box>, Box, Kind) {
+  return (str("seed"), [Box(seed), Box(seed + 1)], Box(seed + 2), Kind.START)
+}
+
+let text,
+boxes,
+last,
+tag = make_bundle(3)
+if text != "seed" {
+  exit(1)
+}
+if boxes.len() != 2 or boxes[0].get() != 3 or boxes[1].get() != 4 {
+  exit(2)
+}
+if last.get() != 5 {
+  exit(3)
+}
+if tag != Kind.START {
+  exit(4)
+}
+
+let packed: (str, list<Box>, Box, Kind) = (str("swap"), [Box(8)], Box(9), Kind.STOP)
+if packed[0] != "swap" {
+  exit(5)
+}
+if packed[1].len() != 1 or packed[1][0].get() != 8 {
+  exit(6)
+}
+if packed[2].get() != 9 {
+  exit(7)
+}
+if packed[3] != Kind.STOP {
+  exit(8)
+}
+
+let againText,
+againBoxes,
+againLast,
+againTag = make_bundle(10)
+if againText != "seed" {
+  exit(9)
+}
+if againBoxes[0].get() != 10 or againBoxes[1].get() != 11 {
+  exit(10)
+}
+if againLast.get() != 12 or againTag != Kind.START {
+  exit(11)
+}

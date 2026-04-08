@@ -76,6 +76,19 @@ struct ImportedSpecializationState {
   std::unordered_map<std::string, const TraitDecl*> traitDeclByName;
 };
 
+struct ArcTrackedSlot {
+  llvm::Value* slot = nullptr;
+  lesma::Type* type = nullptr;
+  bool storesFuncValuePair = false;
+};
+
+struct ModuleArcTrackedRoot {
+  llvm::GlobalVariable* slot = nullptr;
+  lesma::Type* type = nullptr;
+  bool storesFuncValuePair = false;
+  std::string debugName;
+};
+
 class Codegen final : public ASTVisitor {
   std::shared_ptr<ThreadSafeContext> theContext;
   std::unique_ptr<Module> theModule;
@@ -84,6 +97,8 @@ class Codegen final : public ASTVisitor {
   std::unique_ptr<LLJIT> theJit;
   /// JIT: mangled per-import init symbols; run from \c prepareJit (shared across nested imports).
   std::shared_ptr<std::vector<std::string>> pendingJitModuleInits;
+  /// JIT: mangled per-import fini symbols; called by the main module in reverse init order.
+  std::shared_ptr<std::vector<std::string>> pendingJitModuleFinis;
   std::unique_ptr<llvm::TargetMachine> targetMachine;
   std::shared_ptr<Parser> parser;
   std::shared_ptr<SourceMgr> sourceManager;
@@ -143,7 +158,14 @@ class Codegen final : public ASTVisitor {
   std::unordered_map<std::string, const TraitDecl*> traitDeclByName;
   std::unordered_map<std::string, llvm::GlobalVariable*> witnessGlobalCache;
   std::unordered_map<std::string, llvm::GlobalVariable*> anyTypeInfoGlobals;
+  std::unordered_map<std::string, llvm::Function*> anyTypeInfoRetainFns;
+  std::unordered_map<std::string, llvm::Function*> anyTypeInfoReleaseFns;
   std::unordered_map<lesma::Type*, llvm::GlobalVariable*> classVtableGlobals;
+  std::unordered_map<lesma::Type*, llvm::Function*> arcDestroyFns;
+  std::unordered_map<lesma::Type*, llvm::Function*> arcPayloadDestroyFns;
+  std::unordered_map<lesma::Type*, llvm::Function*> arcStorageRetainFns;
+  std::unordered_map<lesma::Type*, llvm::Function*> arcStorageReleaseFns;
+  std::unordered_map<std::string, llvm::Function*> arcClosureDestroyFns;
   std::unordered_map<lesma::Type*, const Class*> codegenClassAstByType;
   std::unordered_map<std::string, const Class*> codegenClassAstByDisplayName;
   std::unordered_map<std::string, llvm::Function*> traitThunkCache;
@@ -153,12 +175,22 @@ class Codegen final : public ASTVisitor {
   llvm::Function* topLevelFunc;
   MainFnTy* mainFuncAddress = nullptr;
   Value* selfSymbol = nullptr;
+  llvm::StructType* arcHeaderLlvmType = nullptr;
+  llvm::Function* arcDebugDeltaFn = nullptr;
+  llvm::Function* arcDebugReportFn = nullptr;
+  llvm::Function* arcDebugCleanupBeginFn = nullptr;
+  llvm::Function* arcDebugCleanupStepFn = nullptr;
+  llvm::Function* moduleCleanupFn = nullptr;
+  std::vector<std::vector<ArcTrackedSlot>> arcOwnedSlotFrames;
+  std::vector<ModuleArcTrackedRoot> moduleArcTrackedRoots;
   bool isBreak = false;
   bool isReturn = false;
   bool isAssignment = false;
   bool isJit = false;
   bool isMain = true;
   bool emitDebugInfo = false;
+  bool emitArcDebug = false;
+  bool emitArcTrace = false;
   std::size_t lambdaCounter = 0U;
   llvm::OptimizationLevel optimizationLevelForDebug = llvm::OptimizationLevel::O3;
   /** `if x is T` / else: maps parameter/local symbol → union variant index for narrowed loads. */
@@ -214,9 +246,10 @@ public:
               preSpecializedClassTypeEnvs = {},
           std::unordered_map<lesma::Type*, lesma::Type*> preSpecializedClassTemplateOf = {},
           std::unordered_map<std::string, lesma::Type*> preSpecializedClassTypesByKey = {},
-          bool emitDebug = false,
+          bool emitDebug = false, bool emitArcDebug = false, bool emitArcTrace = false,
           llvm::OptimizationLevel optimizationLevelForDebugArg = llvm::OptimizationLevel::O3,
-          std::shared_ptr<std::vector<std::string>> sharedPendingJitModuleInits = nullptr);
+          std::shared_ptr<std::vector<std::string>> sharedPendingJitModuleInits = nullptr,
+          std::shared_ptr<std::vector<std::string>> sharedPendingJitModuleFinis = nullptr);
   ~Codegen() override;
 
   Codegen(const Codegen&) = delete;
@@ -225,6 +258,7 @@ public:
   auto operator=(Codegen&&) -> Codegen& = delete;
 
   auto dump() -> void;
+  [[nodiscard]] auto moduleToString() const -> std::string;
   auto run() -> void;
   auto prepareJit() -> void;
   auto executeJit() -> int;
@@ -260,6 +294,7 @@ protected:
   /** Alloca in \p fn's entry block (after PHIs) so LLVM mem2reg can promote loop/stack slots. */
   auto createAllocaInEntry(llvm::Function* fn, llvm::Type* elemTy, const std::string& name)
       -> llvm::AllocaInst*;
+  auto emitEntryNullInit(llvm::AllocaInst* slot, llvm::Type* storageTy) -> void;
 
   [[nodiscard]] auto lookupUnionNarrowVariant(lesma::Value* sym) const -> std::optional<unsigned>;
   auto fillCodegenUnionNarrowVariantMap(
@@ -483,6 +518,34 @@ protected:
   auto emitCalloc(llvm::Value* count, llvm::Value* size, const llvm::Twine& name = "calloc.tmp")
       -> llvm::Value*;
   auto emitMalloc(llvm::Value* size, const llvm::Twine& name = "malloc.tmp") -> llvm::Value*;
+  auto getOrCreateArcHeaderType() -> llvm::StructType*;
+  auto emitArcAlloc(llvm::Value* payloadSize, llvm::Function* destroyFn, const llvm::Twine& name)
+      -> llvm::Value*;
+  auto emitArcRetain(llvm::Value* payloadPtr) -> void;
+  auto emitArcRelease(llvm::Value* payloadPtr) -> void;
+  auto emitArcReleaseNullable(llvm::Value* payloadPtr) -> void;
+  auto emitArcFreePayload(llvm::Value* payloadPtr) -> void;
+  auto emitRetainLoadedValue(lesma::Type* type, llvm::Value* value,
+                             bool storesFuncValuePair = false) -> void;
+  auto emitReleaseLoadedValue(lesma::Type* type, llvm::Value* value,
+                              bool storesFuncValuePair = false) -> void;
+  auto emitReleaseTrackedSlot(const ArcTrackedSlot& tracked) -> void;
+  auto pushArcOwnedSlotFrame() -> void;
+  auto popArcOwnedSlotFrame(bool emitCleanup) -> void;
+  auto registerArcOwnedSlot(llvm::Value* slot, lesma::Type* type, bool storesFuncValuePair = false)
+      -> void;
+  auto emitReleaseCurrentArcOwnedSlots() -> void;
+  auto registerModuleArcRoot(llvm::GlobalVariable* slot, lesma::Type* type,
+                             const std::string& debugName, bool storesFuncValuePair = false)
+      -> void;
+  auto emitReleaseRegisteredModuleArcRoots() -> void;
+  auto getOrCreateArcStorageRetainFunction(lesma::Type* type) -> llvm::Function*;
+  auto getOrCreateArcStorageReleaseFunction(lesma::Type* type) -> llvm::Function*;
+  auto getOrCreateArcPayloadDestroyFunction(lesma::Type* type) -> llvm::Function*;
+  auto getOrCreateArcDestroyFunction(lesma::Type* type) -> llvm::Function*;
+  auto getOrCreateArcClosureDestroyFunction(const std::string& key, llvm::StructType* envStructTy,
+                                            const std::vector<lesma::Type*>& captureTypes)
+      -> llvm::Function*;
   auto emitCstrConcatValues(llvm::SMRange span, llvm::Value* a, llvm::Value* b) -> llvm::Value*;
   auto emitFormatIntegerToCstr(llvm::SMRange span, llvm::Value* intVal, lesma::Type* intTy)
       -> llvm::Value*;
@@ -502,6 +565,18 @@ protected:
   auto emitFree(llvm::Value* ptr) -> void;
   auto emitRuntimeStderrMessage(std::string_view message) -> void;
   auto emitExit(int code) -> void;
+  auto getOrCreateArcDebugDeltaFunction() -> llvm::Function*;
+  auto getOrCreateArcDebugReportFunction() -> llvm::Function*;
+  auto getOrCreateArcDebugCleanupBeginFunction() -> llvm::Function*;
+  auto getOrCreateArcDebugCleanupStepFunction() -> llvm::Function*;
+  auto emitArcDebugDelta(std::int64_t delta, llvm::Value* payloadPtr,
+                         std::string_view traceMessagePrefix) -> void;
+  auto emitArcDebugTraceCounts(std::string_view traceMessagePrefix, llvm::Value* payloadPtr,
+                               llvm::Value* before, llvm::Value* after) -> void;
+  auto emitArcDebugValidateRefcount(llvm::Value* refCount, std::string_view message) -> void;
+  auto emitArcDebugTraceModuleRoot(const ModuleArcTrackedRoot& tracked) -> void;
+  auto getOrCreateModuleCleanupFunction() -> llvm::Function*;
+  auto emitCallPendingJitModuleFinis() -> void;
   auto emitListLength(lesma::Type* listType, llvm::Value* listHandle) -> llvm::Value*;
   auto emitListCapacity(lesma::Type* listType, llvm::Value* listHandle) -> llvm::Value*;
   auto emitListDataPtr(lesma::Type* listType, llvm::Value* listHandle) -> llvm::Value*;
@@ -609,12 +684,17 @@ private:
   /** Ptr-to-class direct store vs cast-then-store (shared by globals and simple locals). */
   auto emitSimpleClassPtrOrCastStore(llvm::SMRange span, llvm::Value* destPtr,
                                      std::unique_ptr<lesma::Value>& valueResult,
-                                     lesma::Type* storedType) -> llvm::Instruction*;
+                                     lesma::Type* storedType, bool releasePrevious = false,
+                                     bool destStoresFuncValuePair = false) -> llvm::Instruction*;
   /** Initial store when reusing a typecheck symbol (generic func pair, ptr-to-class, etc.). */
   auto emitExistingVarSlotInitializerStore(const VarDecl* node, llvm::Value* destPtr,
                                            std::unique_ptr<lesma::Value>& valueResult,
-                                           lesma::Type* storedType, const std::string& dbgName)
+                                           lesma::Type* storedType, const std::string& dbgName,
+                                           bool destStoresFuncValuePair = false)
       -> llvm::Instruction*;
+  auto emitForEachUnionMemberWithTagDispatch(
+      lesma::Type* unionTy, llvm::Value* unionSlot, llvm::Value* tagVal, std::string_view blockStem,
+      const std::function<void(lesma::Type*, llvm::Value*)>& callback) -> void;
   [[nodiscard]] auto makeBoolCompareResult(llvm::Value* cmpVal) -> std::unique_ptr<lesma::Value>;
   [[nodiscard]] auto
   emitPromotedArithmetic(llvm::SMRange span, TokenType op, std::unique_ptr<lesma::Value>& left,
@@ -639,6 +719,7 @@ private:
   [[nodiscard]] auto materializeClassStaticFieldGlobalInCurrentModule(lesma::Type* templateClassTy,
                                                                       Field* tf)
       -> llvm::GlobalVariable*;
+  [[nodiscard]] auto traitExistentialBaseName(const std::string& displayName) const -> std::string;
 
   /** Minimum tag bits: ceil(log2(memberCount)), at least 1 (memberCount must be > 0). */
   [[nodiscard]] static auto unionDiscriminantMinBits(std::size_t memberCount) -> unsigned;

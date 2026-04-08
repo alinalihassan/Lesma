@@ -1,0 +1,18 @@
+import "arc_export_global_heap_rich_module.les"
+let first = arc_export_global_heap_rich_module.first
+if first is null {
+  exit(1)
+} else {
+  if first.get() != 4 {
+    exit(2)
+  }
+}
+
+let second = arc_export_global_heap_rich_module.second
+if second is null {
+  exit(3)
+} else {
+  if second.get() != 9 {
+    exit(4)
+  }
+}

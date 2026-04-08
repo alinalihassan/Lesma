@@ -1,0 +1,13 @@
+export class Box {
+  var value: int
+
+  func new(value: int) {
+    self.value = value
+  }
+
+  func get() -> int {
+    return self.value
+  }
+}
+
+export var current: Box? = Box(7)

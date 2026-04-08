@@ -90,7 +90,9 @@ auto cast(llvm::SMRange span, Value* val, Type* type, llvm::IRBuilder<>* builder
     if (fromElem != nullptr && fromElem->is(BaseType::TY_CLASS)) {
       for (Type* t = fromElem; t != nullptr; t = t->getClassSuperclass()) {
         if (t->isEqual(type)) {
-          return std::make_unique<Value>("", type, val->getLlvmValue());
+          auto out = std::make_unique<Value>("", type, val->getLlvmValue());
+          out->setArcOwnedValue(val->getArcOwnedValue());
+          return out;
         }
       }
     }
@@ -128,8 +130,10 @@ auto cast(llvm::SMRange span, Value* val, Type* type, llvm::IRBuilder<>* builder
           elem != nullptr && elem->is(BaseType::TY_INT) && elem->getLlvmType() != nullptr &&
           elem->getLlvmType()->isIntegerTy() && elem->getLlvmType()->getIntegerBitWidth() == 8U;
       if (isPtrToVoid || isPtrToByte) {
-        return std::make_unique<Value>(
+        auto out = std::make_unique<Value>(
             "", type, builder->CreateBitCast(val->getLlvmValue(), type->getLlvmType()));
+        out->setArcOwnedValue(val->getArcOwnedValue());
+        return out;
       }
     }
   }
@@ -141,8 +145,10 @@ auto cast(llvm::SMRange span, Value* val, Type* type, llvm::IRBuilder<>* builder
         toElem->is(BaseType::TY_CLASS)) {
       for (Type* t = fromElem; t != nullptr; t = t->getClassSuperclass()) {
         if (t->isEqual(toElem)) {
-          return std::make_unique<Value>(
+          auto out = std::make_unique<Value>(
               "", type, builder->CreateBitCast(val->getLlvmValue(), type->getLlvmType()));
+          out->setArcOwnedValue(val->getArcOwnedValue());
+          return out;
         }
       }
     }
@@ -176,7 +182,9 @@ auto cast(llvm::SMRange span, Value* val, Type* type, llvm::IRBuilder<>* builder
       agg = builder->CreateInsertValue(agg, casted->getLlvmValue(), static_cast<unsigned>(i),
                                        "tup.cast");
     }
-    return std::make_unique<Value>("", type, agg);
+    auto out = std::make_unique<Value>("", type, agg);
+    out->setArcOwnedValue(val->getArcOwnedValue());
+    return out;
   }
 
   throw CodegenError(span, "Unsupported Cast between {} and {}",

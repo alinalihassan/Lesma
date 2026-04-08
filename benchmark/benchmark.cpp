@@ -2,9 +2,9 @@
 #include <memory>
 #include <utility>
 
-#include <benchmark/benchmark.h>
-
 #include <llvm/Passes/OptimizationLevel.h>
+
+#include <benchmark/benchmark.h>
 
 #include "liblesma/Backend/Codegen.h"
 #include "liblesma/Frontend/Lexer.h"
@@ -39,44 +39,37 @@ auto InitializeSrcMgr(const std::string& src) -> std::shared_ptr<SourceMgr> {
   return sourceMgr;
 }
 
-auto InitializeLexer(const std::shared_ptr<SourceMgr>& sourceMgr)
-    -> std::shared_ptr<Lexer> {
+auto InitializeLexer(const std::shared_ptr<SourceMgr>& sourceMgr) -> std::shared_ptr<Lexer> {
   auto curLexer = std::make_shared<Lexer>(sourceMgr);
   curLexer->scanAll();
 
   return curLexer;
 }
 
-auto InitializeParser(const std::shared_ptr<Lexer>& lexer)
-    -> std::shared_ptr<Parser> {
+auto InitializeParser(const std::shared_ptr<Lexer>& lexer) -> std::shared_ptr<Parser> {
   auto curParser = std::make_shared<Parser>(lexer->getTokens());
   curParser->parse();
 
   return curParser;
 }
 
-auto InitializeCodegen(std::shared_ptr<Parser> parser,
-                       const std::shared_ptr<SourceMgr>& srcMgr)
+auto InitializeCodegen(std::shared_ptr<Parser> parser, const std::shared_ptr<SourceMgr>& srcMgr)
     -> std::unique_ptr<Codegen> {
   Typechecker typechecker;
   typechecker.run(parser->getAst());
   auto takenTypeCache = typechecker.takeTypeCache();
   auto takenRootScope = typechecker.takeRootScope();
-  auto codegen = std::make_unique<Codegen>(std::move(parser), srcMgr, __FILE__,
-                                           std::vector<std::string>{}, true, true, "", nullptr,
-                                           nullptr, nullptr, nullptr,
-                                           std::move(takenRootScope),
-                                           std::move(takenTypeCache),
-                                           typechecker.takeSpecializedTypeEnv(),
-                                           typechecker.takeSpecializedTypeToTemplate(),
-                                           typechecker.takeSpecializedClassTypes());
+  auto codegen = std::make_unique<Codegen>(
+      std::move(parser), srcMgr, __FILE__, std::vector<std::string>{}, true, true, "", nullptr,
+      nullptr, nullptr, nullptr, std::move(takenRootScope), std::move(takenTypeCache),
+      typechecker.takeSpecializedTypeEnv(), typechecker.takeSpecializedTypeToTemplate(),
+      typechecker.takeSpecializedClassTypes(), false, false, false);
   codegen->run();
 
   return codegen;
 }
 
-[[maybe_unused]] auto GetRange(const std::string& source, int x, int y)
-    -> llvm::SMRange {
+[[maybe_unused]] auto GetRange(const std::string& source, int x, int y) -> llvm::SMRange {
   return {llvm::SMLoc::getFromPointer(std::next(source.c_str(), x)),
           llvm::SMLoc::getFromPointer(std::next(source.c_str(), y))};
 }
@@ -122,9 +115,7 @@ protected:
     parser = InitializeParser(ParserBenchmark::lexer);
   }
 
-  void TearDown(const ::benchmark::State& state) override {
-    ParserBenchmark::TearDown(state);
-  }
+  void TearDown(const ::benchmark::State& state) override { ParserBenchmark::TearDown(state); }
 };
 
 BENCHMARK_F(LexerBenchmark, Lexer)

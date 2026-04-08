@@ -38,6 +38,10 @@ struct CLIOptions {
   bool emitDebugInfo = false;
   /** When true, do not print compiler warnings to stderr. */
   bool suppressWarnings = false;
+  /** Emit debug-only ARC live-object diagnostics in generated code. */
+  bool arcDebug = false;
+  /** Emit verbose ARC retain/release/alloc/free trace lines in generated code. */
+  bool arcTrace = false;
 };
 
 template <typename S, typename... Args>

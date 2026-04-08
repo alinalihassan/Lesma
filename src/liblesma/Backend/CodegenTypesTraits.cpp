@@ -19,20 +19,15 @@
 #include "liblesma/Symbol/Value.h"
 #include "liblesma/Token/TokenType.h"
 
-namespace {
+using namespace lesma;
+using namespace llvm;
 
-// `Iterator<int>` -> `Iterator` for trait registry / witness metadata keyed by trait identifier.
-auto traitExistentialBaseName(const std::string& displayName) -> std::string {
+auto Codegen::traitExistentialBaseName(const std::string& displayName) const -> std::string {
   if (const auto pos = displayName.find('<'); pos != std::string::npos) {
     return displayName.substr(0U, pos);
   }
   return displayName;
 }
-
-} // namespace
-
-using namespace lesma;
-using namespace llvm;
 
 auto Codegen::unionDiscriminantMinBits(std::size_t memberCount) -> unsigned {
   unsigned bits = 0;
@@ -478,6 +473,9 @@ auto Codegen::getStoredAggregateFieldLlvmType(lesma::Type* fieldType) -> llvm::T
     return nullptr;
   }
   getOrCreateLlvmType(fieldType);
+  if (fieldType->is(BaseType::TY_TRAIT_EXISTENTIAL)) {
+    return fieldType->getLlvmType();
+  }
   if (TypeUtils::passesByPointerInAbi(fieldType)) {
     return builder->getPtrTy();
   }
@@ -656,7 +654,7 @@ auto Codegen::getOrEmitWitnessTable(lesma::Type* classType, const std::string& t
   if (auto it = witnessGlobalCache.find(cacheKey); it != witnessGlobalCache.end()) {
     return it->second;
   }
-  const std::string baseTraitName = traitExistentialBaseName(traitName);
+  const std::string baseTraitName = this->traitExistentialBaseName(traitName);
   const TraitDecl* tr = traitDeclByName[baseTraitName];
   if (tr == nullptr) {
     throw CodegenError({}, "Codegen: unknown trait {}", traitName);
@@ -725,7 +723,7 @@ auto Codegen::callExistentialMethod(llvm::SMRange span, lesma::Value* receiver,
     throw CodegenError(span, "Expected trait existential receiver for dynamic dispatch");
   }
   const std::string receiverDisplay = receiverType->getDisplayName();
-  const std::string baseTraitName = traitExistentialBaseName(receiverDisplay);
+  const std::string baseTraitName = this->traitExistentialBaseName(receiverDisplay);
   auto ordIt = traitRequirementMethodOrder.find(baseTraitName);
   if (ordIt == traitRequirementMethodOrder.end()) {
     throw CodegenError(span, "Trait {} has no codegen metadata", receiverDisplay);

@@ -1,0 +1,59 @@
+class Box {
+  var value: int
+
+  func new(value: int) {
+    self.value = value
+  }
+
+  func get() -> int {
+    return self.value
+  }
+}
+
+class BoxIter impl Iterator<Box> {
+  var current: int
+  var stop: int
+
+  func new(start: int, stop: int) {
+    self.current = start
+    self.stop = stop
+  }
+
+  func next() -> Box? {
+    if self.current > self.stop {
+      return null
+    }
+    let out = Box(self.current)
+    self.current += 1
+    return out
+  }
+}
+
+class BoxRange impl Iterable<Box> {
+  var start: int
+  var stop: int
+
+  func new(start: int, stop: int) {
+    self.start = start
+    self.stop = stop
+  }
+
+  func iter() -> BoxIter {
+    return BoxIter(self.start, self.stop)
+  }
+}
+
+var total: int = 0
+for item in BoxRange(1, 4) {
+  if item.get() == 2 {
+    continue
+  }
+  if item.get() == 4 {
+    break
+  }
+  total += item.get()
+}
+
+if total != 4 {
+  exit(1)
+}
