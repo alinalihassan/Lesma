@@ -1,0 +1,10 @@
+enum MaybeInt {
+  Some(int)
+
+  static func some(value: int) -> MaybeInt {
+    return MaybeInt.Some(value)
+  }
+}
+
+let value = MaybeInt.Some(1)
+let bad = value.some(2)

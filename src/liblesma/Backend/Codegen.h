@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstddef>
+#include <cstdint>
 #include <deque>
 #include <functional>
 #include <memory>
@@ -55,6 +56,7 @@ namespace lesma {
 using MainFnTy = int();
 
 class Class;
+class Enum;
 class TraitDecl;
 class FuncDecl;
 class FuncCall;
@@ -65,6 +67,7 @@ class DotOp;
 
 struct ImportedSpecializationState {
   std::unordered_map<std::string, const Class*> genericClasses;
+  std::unordered_map<std::string, const Enum*> genericEnums;
   std::unordered_map<std::string, lesma::Type*> specializedClassTypesByKey;
   std::unordered_map<lesma::Type*, std::unordered_map<std::string, lesma::Type*>>
       specializedClassTypeEnvs;
@@ -72,8 +75,18 @@ struct ImportedSpecializationState {
   std::unordered_map<lesma::Value*, std::unordered_map<std::string, lesma::Type*>>
       specializationEnvs;
   std::unordered_map<std::string, const Class*> codegenClassAstByDisplayName;
+  std::unordered_map<std::string, const Enum*> codegenEnumAstByDisplayName;
   std::unordered_map<std::string, std::vector<std::string>> traitRequirementMethodOrder;
   std::unordered_map<std::string, const TraitDecl*> traitDeclByName;
+};
+
+enum class SyntheticEnumMethodKind : std::uint8_t { CONSTRUCTOR };
+
+struct SyntheticEnumMethodBody {
+  lesma::Value* symbol = nullptr;
+  lesma::Type* enumType = nullptr;
+  unsigned variantIndex = 0U;
+  SyntheticEnumMethodKind kind = SyntheticEnumMethodKind::CONSTRUCTOR;
 };
 
 struct ArcTrackedSlot {
@@ -133,12 +146,14 @@ class Codegen final : public ASTVisitor {
   std::vector<std::tuple<lesma::Value*, const FuncDecl*, Value*>> prototypes;
   /** Class AST + constructor symbol for default `new` bodies (no FuncDecl). */
   std::vector<std::pair<lesma::Value*, const Class*>> syntheticConstructorBodies;
+  std::vector<SyntheticEnumMethodBody> syntheticEnumMethodBodies;
   std::unordered_map<std::string, const FuncDecl*> genericFunctions;
   std::unordered_map<std::string, const LambdaExpr*> genericLambdas;
   std::vector<std::pair<lesma::Value*, const LambdaExpr*>> lambdaPrototypes;
   llvm::StructType* funcValuePairLlvmType = nullptr;
   std::unordered_map<std::string, std::unordered_map<std::string, const FuncDecl*>> genericMethods;
   std::unordered_map<std::string, const Class*> genericClasses;
+  std::unordered_map<std::string, const Enum*> genericEnums;
   std::unordered_map<std::string, lesma::Type*> currentGenericTypes;
   /** Stack of call-site binding maps for `getOrCreateLlvmType` when `currentGenericTypes` is empty
    * (e.g. `Cell.of(7)` nested inside `main`). */
@@ -168,6 +183,8 @@ class Codegen final : public ASTVisitor {
   std::unordered_map<std::string, llvm::Function*> arcClosureDestroyFns;
   std::unordered_map<lesma::Type*, const Class*> codegenClassAstByType;
   std::unordered_map<std::string, const Class*> codegenClassAstByDisplayName;
+  std::unordered_map<lesma::Type*, const Enum*> codegenEnumAstByType;
+  std::unordered_map<std::string, const Enum*> codegenEnumAstByDisplayName;
   std::unordered_map<std::string, llvm::Function*> traitThunkCache;
   // deque so push_back never invalidates pointers to existing elements (used in
   // prototypes)
@@ -312,6 +329,13 @@ protected:
       -> std::optional<unsigned>;
   auto emitUnionPayloadLoadFromSlot(llvm::Value* unionAllocaPtr, lesma::Type* unionTy,
                                     lesma::Type* memberTy) -> llvm::Value*;
+  [[nodiscard]] auto getOrCreateEnumTagLlvmType(lesma::Type* enumTy) -> llvm::Type*;
+  [[nodiscard]] auto getEnumPayloadLlvmType(lesma::Type* enumTy) -> llvm::Type*;
+  auto emitEnumPayloadLoadFromSlot(llvm::Value* enumAllocaPtr, lesma::Type* enumTy,
+                                   unsigned variantIndex) -> llvm::Value*;
+  auto emitEnumConstructValue(llvm::SMRange span, lesma::Type* enumTy, unsigned variantIndex,
+                              const std::vector<lesma::Value*>& payloadValues)
+      -> std::unique_ptr<lesma::Value>;
   [[nodiscard]] auto getOptionalPayloadType(lesma::Type* type) const -> lesma::Type*;
   auto materializeNarrowedUnionValue(lesma::Value* value, lesma::Type* narrowedType,
                                      const std::string& tempName) -> std::unique_ptr<lesma::Value>;
@@ -386,6 +410,8 @@ protected:
   void lowerDotOpSuperMethodCall(const DotOp* node);
   auto visit(const CastOp* node) -> void override;
   auto visit(const IsOp* node) -> void override;
+  auto visit(const MatchExpr* node) -> void override;
+  auto visit(const BlockExpr* node) -> void override;
   auto visit(const UnaryOp* node) -> void override;
   auto visit(const Literal* node) -> void override;
   auto visit(const SuperExpr* node) -> void override;
@@ -498,6 +524,13 @@ protected:
                   const std::unordered_map<std::string, lesma::Type*>* prebuiltClassEnv = nullptr)
       -> lesma::Value*;
   auto emitClassMonomorph(lesma::Type* specialized, const Class* templateAst) -> lesma::Value*;
+  auto emitEnumMonomorph(lesma::Type* specialized, const Enum* templateAst) -> lesma::Value*;
+  auto declareOrDefineSyntheticEnumMethod(lesma::Type* enumType, const Enum* astNode,
+                                          EnumVariant* variant, unsigned variantIndex,
+                                          SyntheticEnumMethodKind kind) -> lesma::Value*;
+  auto defineSyntheticEnumMethod(const SyntheticEnumMethodBody& body) -> void;
+  [[nodiscard]] auto specializedNominalEnvFor(lesma::Type* nominalTy) const
+      -> const std::unordered_map<std::string, lesma::Type*>*;
   [[nodiscard]] auto wrapNominalReturnAsPointer(Type* t) -> Type*;
   /** Match `super` callee receiver type (mirrors Typechecker::superMethodReceiverMatchesFormal). */
   [[nodiscard]] auto superMethodReceiverMatchesFormalCodegen(lesma::Type* formalReceiverClass,

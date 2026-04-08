@@ -1,0 +1,7 @@
+enum MaybeInt {
+  None
+  Some(int)
+}
+
+let value = MaybeInt.Some(1)
+value.isSome()

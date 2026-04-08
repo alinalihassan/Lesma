@@ -73,6 +73,23 @@ struct Field {
   auto setDeclarationSymbol(std::unique_ptr<Value> value) -> void;
 };
 
+struct EnumVariant {
+  std::string name;
+  std::vector<Type*> payloadTypes;
+  llvm::SMRange declarationSpan;
+  std::string declarationFilePath;
+
+  EnumVariant(std::string n, std::vector<Type*> payloads)
+      : name(std::move(n)), payloadTypes(std::move(payloads)) {}
+
+  [[nodiscard]] auto getDeclarationSpan() const -> llvm::SMRange { return declarationSpan; }
+  [[nodiscard]] auto getDeclarationFilePath() const -> const std::string& {
+    return declarationFilePath;
+  }
+  auto setDeclarationSpan(llvm::SMRange span) -> void { declarationSpan = span; }
+  auto setDeclarationFilePath(std::string path) -> void { declarationFilePath = std::move(path); }
+};
+
 class Type {
   BaseType baseType;
   llvm::Type* llvmType;
@@ -109,6 +126,8 @@ class Type {
   std::uint16_t intWidth = 0;
   /** For TY_UNION: variant types in tag order (non-owning; same lifetime as type cache). */
   std::vector<Type*> unionMembers;
+  /** For TY_ENUM: variant metadata in declaration order. */
+  std::vector<std::unique_ptr<EnumVariant>> enumVariants;
 
 public:
   explicit Type(BaseType baseType)
@@ -196,6 +215,15 @@ public:
     return result;
   }
 
+  [[nodiscard]] auto getEnumVariants() const -> std::vector<EnumVariant*> {
+    std::vector<EnumVariant*> result;
+    result.reserve(enumVariants.size());
+    for (const auto& variant : enumVariants) {
+      result.push_back(variant.get());
+    }
+    return result;
+  }
+
   auto setLlvmType(llvm::Type* type) -> void { llvmType = type; }
   auto setBaseType(BaseType type) -> void { baseType = type; }
   auto setElementType(Type* type) -> void { elementType = type; }
@@ -244,6 +272,12 @@ public:
   }
   auto replaceStaticFields(std::vector<std::unique_ptr<Field>> newFields) -> void {
     staticFields = std::move(newFields);
+  }
+  auto addEnumVariant(std::unique_ptr<EnumVariant> variant) -> void {
+    enumVariants.push_back(std::move(variant));
+  }
+  auto replaceEnumVariants(std::vector<std::unique_ptr<EnumVariant>> newVariants) -> void {
+    enumVariants = std::move(newVariants);
   }
 
   [[nodiscard]] auto getUnionMembers() const -> const std::vector<Type*>& { return unionMembers; }

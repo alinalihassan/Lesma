@@ -330,27 +330,43 @@ struct GenericParamDecl {
   std::vector<llvm::SMRange> traitBoundSpans;
 };
 
+class FuncDecl;
+
 struct EnumValueDecl {
   std::string name;
   llvm::SMRange span;
+  std::vector<std::unique_ptr<TypeExpr>> payloadTypes;
   std::vector<CommentTrivia> leadingComments;
   std::optional<CommentTrivia> trailingComment;
   unsigned extraBlankLinesBefore = 0;
+
+  [[nodiscard]] auto getPayloadTypes() const -> std::vector<TypeExpr*> {
+    std::vector<TypeExpr*> out;
+    out.reserve(payloadTypes.size());
+    for (const auto& payloadType : payloadTypes) {
+      out.push_back(payloadType.get());
+    }
+    return out;
+  }
 };
 
 class Enum : public Statement {
   std::string identifier;
   llvm::SMRange nameSpan;
+  std::vector<GenericParamDecl> genericParams;
   std::vector<EnumValueDecl> values;
   std::vector<llvm::SMRange> valueSpans;
+  std::vector<std::unique_ptr<Statement>> methods;
   bool exported;
   mutable Value* resolvedSymbol = nullptr;
 
 public:
   Enum(llvm::SMRange loc, std::string identifier, llvm::SMRange nameSpan,
-       std::vector<EnumValueDecl> values, bool exported)
+       std::vector<GenericParamDecl> genericParams, std::vector<EnumValueDecl> values,
+       std::vector<std::unique_ptr<Statement>> methods, bool exported)
       : Statement(loc), identifier(std::move(identifier)), nameSpan(nameSpan),
-        values(std::move(values)), exported(exported) {
+        genericParams(std::move(genericParams)), values(std::move(values)),
+        methods(std::move(methods)), exported(exported) {
     valueSpans.reserve(this->values.size());
     for (const EnumValueDecl& value : this->values) {
       valueSpans.push_back(value.span);
@@ -360,6 +376,17 @@ public:
 
   [[nodiscard]] [[maybe_unused]] auto getIdentifier() const -> std::string { return identifier; }
   [[nodiscard]] [[maybe_unused]] auto getNameSpan() const -> llvm::SMRange { return nameSpan; }
+  [[nodiscard]] auto getGenericParamDecls() const -> const std::vector<GenericParamDecl>& {
+    return genericParams;
+  }
+  [[nodiscard]] auto getGenericParams() const -> std::vector<std::string> {
+    std::vector<std::string> result;
+    result.reserve(genericParams.size());
+    for (const auto& param : genericParams) {
+      result.push_back(param.name);
+    }
+    return result;
+  }
   [[nodiscard]] [[maybe_unused]] auto getValues() const -> std::vector<std::string> {
     std::vector<std::string> out;
     out.reserve(values.size());
@@ -374,6 +401,7 @@ public:
   [[nodiscard]] auto getValueDecls() const -> const std::vector<EnumValueDecl>& {
     return values;
   }
+  [[nodiscard]] auto getMethods() const -> std::vector<FuncDecl*>;
   auto setValueTrivia(size_t index, unsigned extraBlankLines,
                       std::vector<CommentTrivia> leadingComments,
                       std::optional<CommentTrivia> trailingComment) -> void {
@@ -797,6 +825,15 @@ public:
   }
 };
 
+inline auto Enum::getMethods() const -> std::vector<FuncDecl*> {
+  std::vector<FuncDecl*> out;
+  out.reserve(methods.size());
+  for (const auto& method : methods) {
+    out.push_back(dynamic_cast<FuncDecl*>(method.get()));
+  }
+  return out;
+}
+
 class TraitDecl : public Statement {
   std::string identifier;
   llvm::SMRange nameSpan;
@@ -1215,6 +1252,108 @@ public:
   auto toString(llvm::SourceMgr* srcMgr, const std::string& prefix, bool isTail) const
       -> std::string override {
     return expr->toString(srcMgr, prefix, isTail) + " as " + type->toString(srcMgr, prefix, isTail);
+  }
+};
+
+enum class MatchPatternKind : std::uint8_t { WILDCARD, ELSE_, VARIANT, VALUE };
+
+struct MatchPattern {
+  MatchPatternKind kind = MatchPatternKind::WILDCARD;
+  llvm::SMRange span;
+  llvm::SMRange enumNameSpan;
+  llvm::SMRange variantNameSpan;
+  std::string enumName;
+  std::string variantName;
+  std::vector<std::string> bindings;
+  std::vector<llvm::SMRange> bindingSpans;
+  std::unique_ptr<Expression> valueExpr;
+  mutable Type* resolvedEnumType = nullptr;
+  mutable unsigned resolvedVariantIndex = 0U;
+  mutable Type* resolvedValueType = nullptr;
+};
+
+struct MatchArm {
+  MatchPattern pattern;
+  std::unique_ptr<Expression> body;
+};
+
+class MatchExpr : public Expression {
+  std::unique_ptr<Expression> scrutinee;
+  std::vector<MatchArm> arms;
+  mutable Type* resolvedType = nullptr;
+  mutable bool usesEnumDispatch = false;
+
+public:
+  MatchExpr(llvm::SMRange loc, std::unique_ptr<Expression> scrutinee, std::vector<MatchArm> arms)
+      : Expression(loc), scrutinee(std::move(scrutinee)), arms(std::move(arms)) {}
+  void accept(ASTVisitor& visitor) const override { visitor.visit(this); }
+
+  [[nodiscard]] auto getScrutinee() const -> Expression* { return scrutinee.get(); }
+  [[nodiscard]] auto getArms() const -> const std::vector<MatchArm>& { return arms; }
+  [[nodiscard]] auto getResolvedType() const -> Type* { return resolvedType; }
+  auto setResolvedType(Type* type) const -> void { resolvedType = type; }
+  [[nodiscard]] auto getUsesEnumDispatch() const -> bool { return usesEnumDispatch; }
+  auto setUsesEnumDispatch(bool value) const -> void { usesEnumDispatch = value; }
+
+  auto toString(llvm::SourceMgr* srcMgr, const std::string& prefix, bool isTail) const
+      -> std::string override {
+    std::string out = "match " + scrutinee->toString(srcMgr, prefix, isTail) + " { ";
+    for (size_t i = 0; i < arms.size(); ++i) {
+      const MatchArm& arm = arms[i];
+      if (arm.pattern.kind == MatchPatternKind::WILDCARD) {
+        out += "_";
+      } else if (arm.pattern.kind == MatchPatternKind::ELSE_) {
+        out += "else";
+      } else if (arm.pattern.kind == MatchPatternKind::VALUE && arm.pattern.valueExpr != nullptr) {
+        out += arm.pattern.valueExpr->toString(srcMgr, prefix, isTail);
+      } else {
+        if (!arm.pattern.enumName.empty()) {
+          out += arm.pattern.enumName + ".";
+        }
+        out += arm.pattern.variantName;
+        if (!arm.pattern.bindings.empty()) {
+          out += "(";
+          for (size_t j = 0; j < arm.pattern.bindings.size(); ++j) {
+            if (j > 0U) {
+              out += ", ";
+            }
+            out += arm.pattern.bindings[j];
+          }
+          out += ")";
+        }
+      }
+      out += " => " + arm.body->toString(srcMgr, prefix, isTail);
+      if (i + 1U < arms.size()) {
+        out += ", ";
+      }
+    }
+    out += " }";
+    return out;
+  }
+};
+
+class BlockExpr : public Expression {
+  std::unique_ptr<Compound> body;
+  std::unique_ptr<Expression> tailExpr;
+  mutable Type* resolvedType = nullptr;
+
+public:
+  BlockExpr(llvm::SMRange loc, std::unique_ptr<Compound> body, std::unique_ptr<Expression> tailExpr)
+      : Expression(loc), body(std::move(body)), tailExpr(std::move(tailExpr)) {}
+  void accept(ASTVisitor& visitor) const override { visitor.visit(this); }
+
+  [[nodiscard]] auto getBody() const -> Compound* { return body.get(); }
+  [[nodiscard]] auto getTailExpr() const -> Expression* { return tailExpr.get(); }
+  [[nodiscard]] auto getResolvedType() const -> Type* { return resolvedType; }
+  auto setResolvedType(Type* type) const -> void { resolvedType = type; }
+
+  auto toString(llvm::SourceMgr* srcMgr, const std::string& prefix, bool isTail) const
+      -> std::string override {
+    std::string out = body != nullptr ? body->toString(srcMgr, prefix, isTail) : "{}";
+    if (tailExpr != nullptr) {
+      out += tailExpr->toString(srcMgr, prefix, isTail);
+    }
+    return out;
   }
 };
 

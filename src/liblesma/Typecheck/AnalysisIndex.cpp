@@ -130,11 +130,22 @@ auto declarationIdentityFromField(const Field* field) -> std::optional<IndexedDe
   };
 }
 
+auto declarationIdentityFromType(const Type* type) -> std::optional<IndexedDeclarationIdentity> {
+  if (type == nullptr || !type->getDeclarationSpan().isValid() || type->getDeclarationFilePath().empty()) {
+    return std::nullopt;
+  }
+  return IndexedDeclarationIdentity{
+      .filePath = type->getDeclarationFilePath(),
+      .span = type->getDeclarationSpan(),
+  };
+}
+
 auto appendIndexedOccurrence(AnalysisIndex& index, const std::string& name,
                              std::optional<std::string> dotBase, llvm::SMRange span,
                              bool isTypePosition, bool isMemberAccess, unsigned modifiers,
                              std::optional<IndexedTokenKind> fallbackTokenKind,
                              const Value* resolvedSymbol = nullptr,
+                             Type* resolvedType = nullptr,
                              std::optional<IndexedDeclarationIdentity> declaration = std::nullopt,
                              std::optional<llvm::SMRange> semanticHighlightSpan = std::nullopt,
                              Type* flowSensitiveType = nullptr) -> void {
@@ -147,11 +158,15 @@ auto appendIndexedOccurrence(AnalysisIndex& index, const std::string& name,
   if (semanticHighlightSpan.has_value() && !semanticHighlightSpan->isValid()) {
     semanticHighlightSpan = std::nullopt;
   }
+  if (resolvedType == nullptr && resolvedSymbol != nullptr) {
+    resolvedType = resolvedSymbol->getType();
+  }
   index.symbolOccurrences.push_back(IndexedSymbolOccurrence{
       .name = name,
       .dotBase = std::move(dotBase),
       .span = span,
       .flowSensitiveType = flowSensitiveType,
+      .resolvedType = resolvedType,
       .semanticHighlightSpan = semanticHighlightSpan,
       .declaration = std::move(declaration),
       .isTypePosition = isTypePosition,
@@ -263,12 +278,16 @@ auto fieldDeclarationFromMemberAccess(const Expression* expr, const std::string&
 }
 
 auto collectIndexFromTypeExpr(const TypeExpr* typeExpr, AnalysisIndex& index) -> void;
-auto collectIndexFromExpr(const Expression* expr, AnalysisIndex& index) -> void;
-auto collectIndexFromCallOperands(const FuncCall* call, AnalysisIndex& index) -> void;
-auto collectIndexFromStmt(const Statement* stmt, AnalysisIndex& index, bool inClass) -> void;
+auto collectIndexFromExpr(const Expression* expr, AnalysisIndex& index,
+                          const std::string& mainFilePath) -> void;
+auto collectIndexFromCallOperands(const FuncCall* call, AnalysisIndex& index,
+                                  const std::string& mainFilePath) -> void;
+auto collectIndexFromStmt(const Statement* stmt, AnalysisIndex& index, bool inClass,
+                          const std::string& mainFilePath) -> void;
 
 template <typename FuncLike>
-auto collectIndexFromFuncLike(const FuncLike* node, AnalysisIndex& index, bool inClass) -> void {
+auto collectIndexFromFuncLike(const FuncLike* node, AnalysisIndex& index, bool inClass,
+                              const std::string& mainFilePath) -> void {
   if (node == nullptr) {
     return;
   }
@@ -283,7 +302,7 @@ auto collectIndexFromFuncLike(const FuncLike* node, AnalysisIndex& index, bool i
   appendIndexedOccurrence(index, view.name, std::nullopt, view.nameSpan, false, false,
                           analysis_index_modifier::DECLARATION,
                           inClass ? IndexedTokenKind::Method : IndexedTokenKind::Function,
-                          view.resolvedSymbol, std::nullopt, semanticHighlightSpan);
+                          view.resolvedSymbol, nullptr, std::nullopt, semanticHighlightSpan);
   if (view.genericParams != nullptr) {
     for (const GenericParamDecl& genericParam : *view.genericParams) {
       appendIndexedOccurrence(
@@ -320,7 +339,7 @@ auto collectIndexFromFuncLike(const FuncLike* node, AnalysisIndex& index, bool i
   }
   collectIndexFromTypeExpr(view.returnType, index);
   if (view.body != nullptr) {
-    collectIndexFromStmt(view.body, index, false);
+    collectIndexFromStmt(view.body, index, false, mainFilePath);
   }
 }
 
@@ -358,7 +377,8 @@ auto collectIndexFromTypeExpr(const TypeExpr* typeExpr, AnalysisIndex& index) ->
   collectIndexFromTypeExpr(typeExpr->getReturnType(), index);
 }
 
-auto collectIndexFromExpr(const Expression* expr, AnalysisIndex& index) -> void {
+auto collectIndexFromExpr(const Expression* expr, AnalysisIndex& index,
+                          const std::string& mainFilePath) -> void {
   if (expr == nullptr) {
     return;
   }
@@ -369,13 +389,13 @@ auto collectIndexFromExpr(const Expression* expr, AnalysisIndex& index) -> void 
           index, lit->getValue(), std::nullopt, lit->getSpan(), false, false, 0U,
           indexedTokenKindFromResolvedSymbol(resolvedSymbol, false, false,
                                              IndexedTokenKind::Variable),
-          resolvedSymbol, std::nullopt, std::nullopt, lit->getLspFlowSensitiveType());
+          resolvedSymbol, nullptr, std::nullopt, std::nullopt, lit->getLspFlowSensitiveType());
     }
     return;
   }
   if (auto const* interp = dynamic_cast<const StringInterpolation*>(expr)) {
     for (Expression* part : interp->getExprs()) {
-      collectIndexFromExpr(part, index);
+      collectIndexFromExpr(part, index, mainFilePath);
     }
     return;
   }
@@ -383,7 +403,7 @@ auto collectIndexFromExpr(const Expression* expr, AnalysisIndex& index) -> void 
     appendIndexedOccurrence(index, call->getName(), std::nullopt,
                             makeNameSpan(call->getSpan().Start, call->getName()), false, false, 0U,
                             IndexedTokenKind::Function, call->getResolvedSymbol());
-    collectIndexFromCallOperands(call, index);
+    collectIndexFromCallOperands(call, index, mainFilePath);
     return;
   }
   if (auto const* lambda = dynamic_cast<const LambdaExpr*>(expr)) {
@@ -395,14 +415,14 @@ auto collectIndexFromExpr(const Expression* expr, AnalysisIndex& index) -> void 
     }
     collectIndexFromTypeExpr(lambda->getReturnType(), index);
     if (lambda->isExpressionBody()) {
-      collectIndexFromExpr(lambda->getExpressionBody(), index);
+      collectIndexFromExpr(lambda->getExpressionBody(), index, mainFilePath);
     } else {
-      collectIndexFromStmt(lambda->getBlockBody(), index, false);
+      collectIndexFromStmt(lambda->getBlockBody(), index, false, mainFilePath);
     }
     return;
   }
   if (auto const* dot = dynamic_cast<const DotOp*>(expr)) {
-    collectIndexFromExpr(dot->getLeft(), index);
+    collectIndexFromExpr(dot->getLeft(), index, mainFilePath);
     std::optional<std::string> const dotBase = memberReceiverName(dot->getLeft());
     std::optional<std::string> const enumBase = memberBaseName(dot->getLeft());
     bool const isEnumMemberAccess = enumBase.has_value();
@@ -413,7 +433,7 @@ auto collectIndexFromExpr(const Expression* expr, AnalysisIndex& index) -> void 
         appendIndexedOccurrence(
             index, rightLit->getValue(), dotBase, rightLit->getSpan(), false, true, 0U,
             isEnumMemberAccess ? IndexedTokenKind::EnumMember : IndexedTokenKind::Property,
-            rightLit->getResolvedSymbol(), fieldDeclaration);
+            rightLit->getResolvedSymbol(), nullptr, fieldDeclaration);
         return;
       }
     }
@@ -421,59 +441,122 @@ auto collectIndexFromExpr(const Expression* expr, AnalysisIndex& index) -> void 
       appendIndexedOccurrence(index, rightCall->getName(), dotBase,
                               makeNameSpan(rightCall->getSpan().Start, rightCall->getName()), false,
                               true, 0U, IndexedTokenKind::Method, rightCall->getResolvedSymbol());
-      collectIndexFromCallOperands(rightCall, index);
+      collectIndexFromCallOperands(rightCall, index, mainFilePath);
       return;
     }
-    collectIndexFromExpr(dot->getRight(), index);
+    collectIndexFromExpr(dot->getRight(), index, mainFilePath);
     return;
   }
   if (auto const* binary = dynamic_cast<const BinaryOp*>(expr)) {
-    collectIndexFromExpr(binary->getLeft(), index);
-    collectIndexFromExpr(binary->getRight(), index);
+    collectIndexFromExpr(binary->getLeft(), index, mainFilePath);
+    collectIndexFromExpr(binary->getRight(), index, mainFilePath);
     return;
   }
   if (auto const* subscript = dynamic_cast<const SubscriptOp*>(expr)) {
-    collectIndexFromExpr(subscript->getLeft(), index);
-    collectIndexFromExpr(subscript->getIndex(), index);
+    collectIndexFromExpr(subscript->getLeft(), index, mainFilePath);
+    collectIndexFromExpr(subscript->getIndex(), index, mainFilePath);
     return;
   }
   if (auto const* unary = dynamic_cast<const UnaryOp*>(expr)) {
-    collectIndexFromExpr(unary->getExpression(), index);
+    collectIndexFromExpr(unary->getExpression(), index, mainFilePath);
+    return;
+  }
+  if (auto const* blockExpr = dynamic_cast<const BlockExpr*>(expr)) {
+    collectIndexFromStmt(blockExpr->getBody(), index, false, mainFilePath);
+    collectIndexFromExpr(blockExpr->getTailExpr(), index, mainFilePath);
+    return;
+  }
+  if (auto const* match = dynamic_cast<const MatchExpr*>(expr)) {
+    collectIndexFromExpr(match->getScrutinee(), index, mainFilePath);
+    for (const MatchArm& arm : match->getArms()) {
+      const MatchPattern& pattern = arm.pattern;
+        if (pattern.kind == MatchPatternKind::VALUE && pattern.valueExpr != nullptr) {
+          collectIndexFromExpr(pattern.valueExpr.get(), index, mainFilePath);
+        } else if (pattern.kind == MatchPatternKind::VARIANT) {
+        if (!pattern.enumName.empty() && pattern.enumNameSpan.isValid()) {
+          appendIndexedOccurrence(index, pattern.enumName, std::nullopt, pattern.enumNameSpan, true,
+                                  false, 0U, IndexedTokenKind::Enum, nullptr,
+                                  pattern.resolvedEnumType, declarationIdentityFromType(
+                                                              pattern.resolvedEnumType));
+        }
+        if (!pattern.variantName.empty() && pattern.variantNameSpan.isValid()) {
+          std::optional<IndexedDeclarationIdentity> variantDecl = std::nullopt;
+          Type* variantType = pattern.resolvedEnumType;
+          if (variantType != nullptr) {
+            const auto& variants = variantType->getEnumVariants();
+            if (pattern.resolvedVariantIndex < variants.size() &&
+                variants[pattern.resolvedVariantIndex] != nullptr &&
+                variants[pattern.resolvedVariantIndex]->getDeclarationSpan().isValid() &&
+                !variants[pattern.resolvedVariantIndex]->getDeclarationFilePath().empty()) {
+              variantDecl = IndexedDeclarationIdentity{
+                  .filePath = variants[pattern.resolvedVariantIndex]->getDeclarationFilePath(),
+                  .span = variants[pattern.resolvedVariantIndex]->getDeclarationSpan(),
+              };
+            }
+          }
+          appendIndexedOccurrence(index, pattern.variantName, pattern.enumName, pattern.variantNameSpan,
+                                  false, true, 0U, IndexedTokenKind::EnumMember, nullptr, variantType,
+                                  variantDecl);
+        }
+        Type* bindingEnumType = pattern.resolvedEnumType;
+        if (bindingEnumType != nullptr) {
+          const auto& variants = bindingEnumType->getEnumVariants();
+          if (pattern.resolvedVariantIndex < variants.size() &&
+              variants[pattern.resolvedVariantIndex] != nullptr) {
+            const auto& payloadTypes = variants[pattern.resolvedVariantIndex]->payloadTypes;
+            for (size_t i = 0; i < pattern.bindings.size() && i < payloadTypes.size() &&
+                               i < pattern.bindingSpans.size();
+                 ++i) {
+              if (pattern.bindings[i] == "_" || !pattern.bindingSpans[i].isValid()) {
+                continue;
+              }
+              appendIndexedOccurrence(
+                  index, pattern.bindings[i], std::nullopt, pattern.bindingSpans[i], false, false,
+                  analysis_index_modifier::DECLARATION, IndexedTokenKind::Variable, nullptr,
+                  payloadTypes[i],
+                  IndexedDeclarationIdentity{.filePath = mainFilePath, .span = pattern.bindingSpans[i]});
+            }
+          }
+        }
+      }
+      collectIndexFromExpr(arm.body.get(), index, mainFilePath);
+    }
     return;
   }
   if (auto const* list = dynamic_cast<const ListLiteral*>(expr)) {
     for (Expression* element : list->getElements()) {
-      collectIndexFromExpr(element, index);
+      collectIndexFromExpr(element, index, mainFilePath);
     }
     return;
   }
   if (auto const* dict = dynamic_cast<const DictLiteral*>(expr)) {
     for (Expression* k : dict->getKeys()) {
-      collectIndexFromExpr(k, index);
+      collectIndexFromExpr(k, index, mainFilePath);
     }
     for (Expression* v : dict->getValues()) {
-      collectIndexFromExpr(v, index);
+      collectIndexFromExpr(v, index, mainFilePath);
     }
     return;
   }
   if (auto const* tup = dynamic_cast<const TupleLiteral*>(expr)) {
     for (Expression* element : tup->getElements()) {
-      collectIndexFromExpr(element, index);
+      collectIndexFromExpr(element, index, mainFilePath);
     }
     return;
   }
   if (auto const* castOp = dynamic_cast<const CastOp*>(expr)) {
-    collectIndexFromExpr(castOp->getExpression(), index);
+    collectIndexFromExpr(castOp->getExpression(), index, mainFilePath);
     collectIndexFromTypeExpr(castOp->getType(), index);
     return;
   }
   if (auto const* isOp = dynamic_cast<const IsOp*>(expr)) {
-    collectIndexFromExpr(isOp->getLeft(), index);
+    collectIndexFromExpr(isOp->getLeft(), index, mainFilePath);
     collectIndexFromTypeExpr(isOp->getRight(), index);
   }
 }
 
-auto collectIndexFromCallOperands(const FuncCall* call, AnalysisIndex& index) -> void {
+auto collectIndexFromCallOperands(const FuncCall* call, AnalysisIndex& index,
+                                  const std::string& mainFilePath) -> void {
   if (call == nullptr) {
     return;
   }
@@ -481,11 +564,12 @@ auto collectIndexFromCallOperands(const FuncCall* call, AnalysisIndex& index) ->
     collectIndexFromTypeExpr(typeArg, index);
   }
   for (Expression* arg : call->getArguments()) {
-    collectIndexFromExpr(arg, index);
+    collectIndexFromExpr(arg, index, mainFilePath);
   }
 }
 
-auto collectIndexFromStmt(const Statement* stmt, AnalysisIndex& index, bool inClass) -> void {
+auto collectIndexFromStmt(const Statement* stmt, AnalysisIndex& index, bool inClass,
+                          const std::string& mainFilePath) -> void {
   if (stmt == nullptr) {
     return;
   }
@@ -508,15 +592,15 @@ auto collectIndexFromStmt(const Statement* stmt, AnalysisIndex& index, bool inCl
                               sym);
     }
     collectIndexFromTypeExpr(varDecl->getType(), index);
-    collectIndexFromExpr(varDecl->getValue(), index);
+    collectIndexFromExpr(varDecl->getValue(), index, mainFilePath);
     return;
   }
   if (auto const* func = dynamic_cast<const FuncDecl*>(stmt)) {
-    collectIndexFromFuncLike(func, index, inClass);
+    collectIndexFromFuncLike(func, index, inClass, mainFilePath);
     return;
   }
   if (auto const* ext = dynamic_cast<const ExternFuncDecl*>(stmt)) {
-    collectIndexFromFuncLike(ext, index, false);
+    collectIndexFromFuncLike(ext, index, false, mainFilePath);
     return;
   }
   if (auto const* traitNode = dynamic_cast<const TraitDecl*>(stmt)) {
@@ -543,7 +627,7 @@ auto collectIndexFromStmt(const Statement* stmt, AnalysisIndex& index, bool inCl
       }
     }
     for (FuncDecl* req : traitNode->getRequirements()) {
-      collectIndexFromFuncLike(req, index, true);
+      collectIndexFromFuncLike(req, index, true, mainFilePath);
     }
     return;
   }
@@ -602,10 +686,10 @@ auto collectIndexFromStmt(const Statement* stmt, AnalysisIndex& index, bool inCl
       }
     }
     for (VarDecl* field : klass->getFields()) {
-      collectIndexFromStmt(field, index, true);
+      collectIndexFromStmt(field, index, true, mainFilePath);
     }
     for (FuncDecl* method : klass->getMethods()) {
-      collectIndexFromStmt(method, index, true);
+      collectIndexFromStmt(method, index, true, mainFilePath);
     }
     return;
   }
@@ -623,7 +707,7 @@ auto collectIndexFromStmt(const Statement* stmt, AnalysisIndex& index, bool inCl
       appendIndexedOccurrence(
           index, valueDecl.name, std::nullopt, valueDecl.span, false, false,
           analysis_index_modifier::DECLARATION, IndexedTokenKind::EnumMember, nullptr,
-          i < fields.size() ? declarationIdentityFromField(fields[i]) : std::nullopt);
+          nullptr, i < fields.size() ? declarationIdentityFromField(fields[i]) : std::nullopt);
     }
     return;
   }
@@ -642,21 +726,21 @@ auto collectIndexFromStmt(const Statement* stmt, AnalysisIndex& index, bool inCl
     return;
   }
   if (auto const* exprStmt = dynamic_cast<const ExpressionStatement*>(stmt)) {
-    collectIndexFromExpr(exprStmt->getExpression(), index);
+    collectIndexFromExpr(exprStmt->getExpression(), index, mainFilePath);
     return;
   }
   if (auto const* ifNode = dynamic_cast<const If*>(stmt)) {
     for (Expression* cond : ifNode->getConds()) {
-      collectIndexFromExpr(cond, index);
+      collectIndexFromExpr(cond, index, mainFilePath);
     }
     for (Compound* block : ifNode->getBlocks()) {
-      collectIndexFromStmt(block, index, false);
+      collectIndexFromStmt(block, index, false, mainFilePath);
     }
     return;
   }
   if (auto const* whileNode = dynamic_cast<const While*>(stmt)) {
-    collectIndexFromExpr(whileNode->getCond(), index);
-    collectIndexFromStmt(whileNode->getBlock(), index, false);
+    collectIndexFromExpr(whileNode->getCond(), index, mainFilePath);
+    collectIndexFromStmt(whileNode->getBlock(), index, false, mainFilePath);
     return;
   }
   if (auto const* forNode = dynamic_cast<const ForIn*>(stmt)) {
@@ -666,39 +750,40 @@ auto collectIndexFromStmt(const Statement* stmt, AnalysisIndex& index, bool inCl
                               analysis_index_modifier::DECLARATION, IndexedTokenKind::Variable,
                               forNode->getIdentifier()->getResolvedSymbol());
     }
-    collectIndexFromExpr(forNode->getIterable(), index);
-    collectIndexFromStmt(forNode->getBlock(), index, false);
+    collectIndexFromExpr(forNode->getIterable(), index, mainFilePath);
+    collectIndexFromStmt(forNode->getBlock(), index, false, mainFilePath);
     return;
   }
   if (auto const* assign = dynamic_cast<const Assignment*>(stmt)) {
-    collectIndexFromExpr(assign->getLeftHandSide(), index);
-    collectIndexFromExpr(assign->getRightHandSide(), index);
+    collectIndexFromExpr(assign->getLeftHandSide(), index, mainFilePath);
+    collectIndexFromExpr(assign->getRightHandSide(), index, mainFilePath);
     return;
   }
   if (auto const* ret = dynamic_cast<const Return*>(stmt)) {
-    collectIndexFromExpr(ret->getValue(), index);
+    collectIndexFromExpr(ret->getValue(), index, mainFilePath);
     return;
   }
   if (auto const* defer = dynamic_cast<const Defer*>(stmt)) {
-    collectIndexFromStmt(defer->getStatement(), index, false);
+    collectIndexFromStmt(defer->getStatement(), index, false, mainFilePath);
     return;
   }
   if (auto const* compound = dynamic_cast<const Compound*>(stmt)) {
     for (Statement* child : compound->getChildren()) {
-      collectIndexFromStmt(child, index, false);
+      collectIndexFromStmt(child, index, false, mainFilePath);
     }
   }
 }
 } // namespace
 
 auto lesma::buildAnalysisIndex(const Compound* ast, llvm::SourceMgr* /*srcMgr*/,
-                               unsigned /*bufferId*/) -> AnalysisIndex {
+                               unsigned /*bufferId*/, const std::string& mainFilePath)
+    -> AnalysisIndex {
   AnalysisIndex index;
   if (ast == nullptr) {
     return index;
   }
   for (Statement* stmt : ast->getChildren()) {
-    collectIndexFromStmt(stmt, index, false);
+    collectIndexFromStmt(stmt, index, false, mainFilePath);
   }
   return index;
 }

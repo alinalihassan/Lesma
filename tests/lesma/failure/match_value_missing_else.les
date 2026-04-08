@@ -1,0 +1,6 @@
+let x = 2
+
+let result = match x {
+  1 => 10
+  2 => 20
+}

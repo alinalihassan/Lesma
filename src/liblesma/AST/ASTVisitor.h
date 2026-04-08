@@ -32,6 +32,8 @@ class SubscriptOp;
 class DotOp;
 class CastOp;
 class IsOp;
+class MatchExpr;
+class BlockExpr;
 class UnaryOp;
 class ListLiteral;
 class DictLiteral;
@@ -78,6 +80,8 @@ public:
   virtual auto visit(const DotOp* node) -> void = 0;
   virtual auto visit(const CastOp* node) -> void = 0;
   virtual auto visit(const IsOp* node) -> void = 0;
+  virtual auto visit(const MatchExpr* node) -> void = 0;
+  virtual auto visit(const BlockExpr* node) -> void = 0;
   virtual auto visit(const UnaryOp* node) -> void = 0;
   virtual auto visit(const ListLiteral* node) -> void = 0;
   virtual auto visit(const DictLiteral* node) -> void = 0;

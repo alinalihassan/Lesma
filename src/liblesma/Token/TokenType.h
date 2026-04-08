@@ -129,6 +129,7 @@ enum class TokenType : std::uint8_t {
   IS_NOT,
   IN,
   IMPORT,
+  MATCH,
   FROM,
   TRAIT,
   IMPL,

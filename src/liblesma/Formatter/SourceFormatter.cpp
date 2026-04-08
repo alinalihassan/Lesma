@@ -45,6 +45,10 @@ constexpr int INTERPOLATION_FLAT_WIDTH = 10'000;
          dynamic_cast<const Enum*>(node) != nullptr;
 }
 
+[[maybe_unused]] auto formatBlock(const Compound* block) -> Doc;
+[[maybe_unused]] auto formatBlockExpr(const BlockExpr* block) -> Doc;
+[[maybe_unused]] auto formatExpression(const Expression* expr, int parentPrecedence) -> Doc;
+
 [[nodiscard]] auto operatorSpelling(TokenType type) -> std::string_view {
   switch (type) {
   case TokenType::PLUS:
@@ -142,6 +146,9 @@ constexpr int INTERPOLATION_FLAT_WIDTH = 10'000;
   }
   if (dynamic_cast<const UnaryOp*>(expr) != nullptr) {
     return 80;
+  }
+  if (dynamic_cast<const MatchExpr*>(expr) != nullptr) {
+    return 5;
   }
   if (dynamic_cast<const CastOp*>(expr) != nullptr) {
     return 70;
@@ -405,8 +412,15 @@ public:
   }
 
 private:
+  struct ScopedNominalMemberContext {
+    int& depth;
+    explicit ScopedNominalMemberContext(int& depth) : depth(depth) { ++this->depth; }
+    ~ScopedNominalMemberContext() { --depth; }
+  };
+
   const FormattingParseResult& parsed;
   llvm::SourceMgr* srcMgr = nullptr;
+  int nominalMemberDepth = 0;
 
   auto collectDotChain(const Expression* expr, const Expression*& base,
                        std::vector<const Expression*>& segments) const -> bool {
@@ -436,6 +450,47 @@ private:
     return docGroup(docs({
         formatExpression(base, parentPrecedence),
         docNest(INDENT_WIDTH, docs(std::move(tailDocs))),
+    }));
+  }
+
+  [[nodiscard]] auto formatMatchExpr(const MatchExpr* node) -> Doc {
+    std::vector<Doc> armDocs;
+    armDocs.reserve(node->getArms().size());
+    for (const MatchArm& arm : node->getArms()) {
+      Doc patternDoc;
+      if (arm.pattern.kind == MatchPatternKind::WILDCARD) {
+        patternDoc = docText("_");
+      } else if (arm.pattern.kind == MatchPatternKind::ELSE_) {
+        patternDoc = docText("else");
+      } else if (arm.pattern.kind == MatchPatternKind::VALUE && arm.pattern.valueExpr != nullptr) {
+        patternDoc = formatExpression(arm.pattern.valueExpr.get());
+      } else {
+        std::vector<Doc> patternParts;
+        if (!arm.pattern.enumName.empty()) {
+          patternParts.push_back(docText(arm.pattern.enumName));
+          patternParts.push_back(docText("."));
+        }
+        patternParts.push_back(docText(arm.pattern.variantName));
+        if (!arm.pattern.bindings.empty()) {
+          std::vector<Doc> bindingDocs;
+          bindingDocs.reserve(arm.pattern.bindings.size());
+          for (std::string const& binding : arm.pattern.bindings) {
+            bindingDocs.push_back(docText(binding));
+          }
+          patternParts.push_back(wrapDelimited("(", bindingDocs, ")"));
+        }
+        patternDoc = docs(std::move(patternParts));
+      }
+      armDocs.push_back(
+          docs({std::move(patternDoc), docText(" => "), formatExpression(arm.body.get())}));
+    }
+    return docGroup(docs({
+        docText("match "),
+        formatExpression(node->getScrutinee(), precedence(node)),
+        docText(" {"),
+        docNest(INDENT_WIDTH, docs({hardLine(), docJoin(hardLine(), armDocs)})),
+        hardLine(),
+        docText("}"),
     }));
   }
 
@@ -630,6 +685,32 @@ private:
     });
   }
 
+  [[nodiscard]] auto formatBlockExpr(const BlockExpr* block) -> Doc {
+    std::vector<Statement*> children = block != nullptr && block->getBody() != nullptr
+                                           ? block->getBody()->getChildren()
+                                           : std::vector<Statement*>{};
+    std::vector<Doc> lines;
+    Doc body = formatStatements(children, block != nullptr ? block->getBody() : nullptr, false);
+    if (!isNilDoc(body)) {
+      lines.push_back(body);
+    }
+    if (block != nullptr && block->getTailExpr() != nullptr) {
+      if (!lines.empty()) {
+        lines.push_back(hardLine());
+      }
+      lines.push_back(formatExpression(block->getTailExpr()));
+    }
+    if (lines.empty()) {
+      return docText("{}");
+    }
+    return docs({
+        docText("{"),
+        docNest(INDENT_WIDTH, docs({hardLine(), docs(std::move(lines))})),
+        hardLine(),
+        docText("}"),
+    });
+  }
+
   [[nodiscard]] auto formatImport(const Import* node) -> Doc {
     std::string const target = formatImportTarget(node);
     if (node->getImportAll() && !node->getImportScope()) {
@@ -663,6 +744,7 @@ private:
     }
     head.push_back(docText("enum "));
     head.push_back(docText(node->getIdentifier()));
+    head.push_back(formatGenericParams(node->getGenericParamDecls()));
 
     std::vector<Doc> bodyDocs;
     std::vector<EnumValueDecl> const& values = node->getValueDecls();
@@ -678,9 +760,34 @@ private:
         bodyDocs.push_back(leading);
         bodyDocs.push_back(hardLine());
       }
-      bodyDocs.push_back(docText(values[i].name));
+      std::vector<Doc> valueParts{docText(values[i].name)};
+      std::vector<TypeExpr*> payloadTypes = values[i].getPayloadTypes();
+      if (!payloadTypes.empty()) {
+        std::vector<Doc> payloadDocs;
+        payloadDocs.reserve(payloadTypes.size());
+        for (TypeExpr* payloadType : payloadTypes) {
+          payloadDocs.push_back(formatType(payloadType));
+        }
+        valueParts.push_back(wrapDelimited("(", payloadDocs, ")"));
+      }
+      bodyDocs.push_back(docs(std::move(valueParts)));
       if (values[i].trailingComment.has_value()) {
         bodyDocs.push_back(docText(" " + values[i].trailingComment->text));
+      }
+    }
+    {
+      ScopedNominalMemberContext memberContext(nominalMemberDepth);
+      std::vector<Statement*> methodStatements;
+      for (FuncDecl* method : node->getMethods()) {
+        methodStatements.push_back(method);
+      }
+      Doc methodsDoc = formatStatements(methodStatements, node, false);
+      if (!isNilDoc(methodsDoc)) {
+        if (!bodyDocs.empty()) {
+          bodyDocs.push_back(hardLine());
+          bodyDocs.push_back(hardLine());
+        }
+        bodyDocs.push_back(methodsDoc);
       }
     }
     Doc detached = formatTrailingDetachedComments(node);
@@ -716,6 +823,7 @@ private:
     for (FuncDecl* requirement : node->getRequirements()) {
       requirements.push_back(requirement);
     }
+    ScopedNominalMemberContext memberContext(nominalMemberDepth);
     Doc body = formatStatements(requirements, node, false);
     if (isNilDoc(body)) {
       return docs({headDoc, docText(" {}")});
@@ -771,6 +879,7 @@ private:
     std::sort(members.begin(), members.end(), [](const Statement* lhs, const Statement* rhs) {
       return lhs->getStart().getPointer() < rhs->getStart().getPointer();
     });
+    ScopedNominalMemberContext memberContext(nominalMemberDepth);
     Doc body = formatStatements(members, node, false);
     if (isNilDoc(body)) {
       return docs({headDoc, docText(" {}")});
@@ -786,7 +895,7 @@ private:
 
   [[nodiscard]] auto formatVarDecl(const VarDecl* node) -> Doc {
     std::vector<Doc> parts;
-    if (node->isExported()) {
+    if (node->isExported() && nominalMemberDepth == 0) {
       parts.push_back(docText("export "));
     }
     if (node->getIsPrivate()) {
@@ -865,7 +974,7 @@ private:
 
   [[nodiscard]] auto formatFuncDecl(const FuncDecl* node) -> Doc {
     std::vector<Doc> parts;
-    if (node->isExported()) {
+    if (node->isExported() && nominalMemberDepth == 0) {
       parts.push_back(docText("export "));
     }
     if (node->getIsPrivate()) {
@@ -1077,6 +1186,10 @@ private:
       result = docs({docText(op),
                      unaryNeedsSpace(unary->getOperator()) ? docText(" ") : lesma::pretty::nil(),
                      formatExpression(unary->getExpression(), currentPrecedence)});
+    } else if (auto const* match = dynamic_cast<const MatchExpr*>(expr); match != nullptr) {
+      result = formatMatchExpr(match);
+    } else if (auto const* block = dynamic_cast<const BlockExpr*>(expr); block != nullptr) {
+      result = formatBlockExpr(block);
     } else if (auto const* list = dynamic_cast<const ListLiteral*>(expr); list != nullptr) {
       std::vector<Doc> elements;
       for (Expression* element : list->getElements()) {

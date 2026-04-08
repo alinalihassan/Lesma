@@ -139,6 +139,7 @@ private:
   size_t index = 0;
   unsigned short pendingTypeArgClosers = 0;
   bool inClass = false;
+  bool inEnum = false;
   bool isExported = false;
   std::unique_ptr<Compound> tree;
   /** When non-null, parse errors are recorded here and parsing continues where possible. */
@@ -213,6 +214,9 @@ private:
   auto parseCast() -> std::unique_ptr<Expression>;
   auto parseUnary() -> std::unique_ptr<Expression>;
   auto parseTerm() -> std::unique_ptr<Expression>;
+  auto parseMatchExpr() -> std::unique_ptr<Expression>;
+  auto parseMatchPattern() -> MatchPattern;
+  auto parseBlockExpr() -> std::unique_ptr<Expression>;
   auto parseStringInterpolation() -> std::unique_ptr<Expression>;
   auto parseLambda() -> std::unique_ptr<Expression>;
   auto parseFunctionCall() -> std::unique_ptr<Expression>;

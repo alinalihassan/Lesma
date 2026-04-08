@@ -1083,6 +1083,10 @@ auto resolveExpressionTypeAtOffset(const lesma::Expression* expr, lesma::Compoun
     return nullptr;
   }
   if (auto const* lit = dynamic_cast<const lesma::Literal*>(expr)) {
+    if (lit->getResolvedSymbol() != nullptr && lit->getResolvedSymbol()->getType() != nullptr) {
+      return lit->getLspFlowSensitiveType() != nullptr ? lit->getLspFlowSensitiveType()
+                                                       : lit->getResolvedSymbol()->getType();
+    }
     switch (lit->getType()) {
     case lesma::TokenType::BOOL:
     case lesma::TokenType::BOOL_TYPE:
@@ -1198,6 +1202,12 @@ auto resolveExpressionTypeAtOffset(const lesma::Expression* expr, lesma::Compoun
       return nullptr;
     }
   }
+  if (auto const* match = dynamic_cast<const lesma::MatchExpr*>(expr)) {
+    if (match->getResolvedType() != nullptr) {
+      return match->getResolvedType();
+    }
+    return nullptr;
+  }
   if (auto const* sip = dynamic_cast<const lesma::StringInterpolation*>(expr)) {
     lesma::Type* strClass = sip->getResolvedStrClassType();
     if (strClass != nullptr) {
@@ -1241,6 +1251,9 @@ auto resolveExpressionTypeAtOffset(const lesma::Expression* expr, lesma::Compoun
   }
   return nullptr;
 }
+
+auto findActiveCallInStmt(const lesma::Statement* stmt, llvm::SourceMgr* srcMgr, unsigned bufferId,
+                          unsigned targetOffset, ActiveCallSite& best) -> void;
 
 auto findActiveCallInExpr(const lesma::Expression* expr, llvm::SourceMgr* srcMgr, unsigned bufferId,
                           unsigned targetOffset, const lesma::Expression* receiver,
@@ -1294,6 +1307,22 @@ auto findActiveCallInExpr(const lesma::Expression* expr, llvm::SourceMgr* srcMgr
   }
   if (auto const* isOp = dynamic_cast<const lesma::IsOp*>(expr)) {
     findActiveCallInExpr(isOp->getLeft(), srcMgr, bufferId, targetOffset, nullptr, best);
+    return;
+  }
+  if (auto const* blockExpr = dynamic_cast<const lesma::BlockExpr*>(expr)) {
+    findActiveCallInStmt(blockExpr->getBody(), srcMgr, bufferId, targetOffset, best);
+    findActiveCallInExpr(blockExpr->getTailExpr(), srcMgr, bufferId, targetOffset, nullptr, best);
+    return;
+  }
+  if (auto const* match = dynamic_cast<const lesma::MatchExpr*>(expr)) {
+    findActiveCallInExpr(match->getScrutinee(), srcMgr, bufferId, targetOffset, nullptr, best);
+    for (const lesma::MatchArm& arm : match->getArms()) {
+      if (arm.pattern.kind == lesma::MatchPatternKind::VALUE && arm.pattern.valueExpr != nullptr) {
+        findActiveCallInExpr(arm.pattern.valueExpr.get(), srcMgr, bufferId, targetOffset, nullptr,
+                             best);
+      }
+      findActiveCallInExpr(arm.body.get(), srcMgr, bufferId, targetOffset, nullptr, best);
+    }
     return;
   }
   if (auto const* si = dynamic_cast<const lesma::StringInterpolation*>(expr)) {
@@ -1877,6 +1906,7 @@ auto appendCallParameterInlayHints(const AnalysisResult& analysisResult, unsigne
     }
   };
 
+  std::function<void(const lesma::Statement*)> walkStmt;
   std::function<void(const lesma::Expression*, const lesma::Expression*)> walkExpr =
       [&](const lesma::Expression* expr, const lesma::Expression* dotReceiver) -> void {
     if (expr == nullptr) {
@@ -1915,6 +1945,21 @@ auto appendCallParameterInlayHints(const AnalysisResult& analysisResult, unsigne
       walkExpr(isOp->getLeft(), nullptr);
       return;
     }
+    if (auto const* match = dynamic_cast<const lesma::MatchExpr*>(expr)) {
+      walkExpr(match->getScrutinee(), nullptr);
+      for (const lesma::MatchArm& arm : match->getArms()) {
+        if (arm.pattern.kind == lesma::MatchPatternKind::VALUE && arm.pattern.valueExpr != nullptr) {
+          walkExpr(arm.pattern.valueExpr.get(), nullptr);
+        }
+        walkExpr(arm.body.get(), nullptr);
+      }
+      return;
+    }
+    if (auto const* blockExpr = dynamic_cast<const lesma::BlockExpr*>(expr)) {
+      walkStmt(blockExpr->getBody());
+      walkExpr(blockExpr->getTailExpr(), nullptr);
+      return;
+    }
     if (auto const* si = dynamic_cast<const lesma::StringInterpolation*>(expr)) {
       for (lesma::Expression* e : si->getExprs()) {
         walkExpr(e, nullptr);
@@ -1948,8 +1993,7 @@ auto appendCallParameterInlayHints(const AnalysisResult& analysisResult, unsigne
     }
   };
 
-  std::function<void(const lesma::Statement*)> walkStmt =
-      [&](const lesma::Statement* stmt) -> void {
+  walkStmt = [&](const lesma::Statement* stmt) -> void {
     if (stmt == nullptr) {
       return;
     }
@@ -3257,6 +3301,20 @@ auto main() -> int {
                   hover.contents = ::lsp::MarkupContent{
                       .kind = ::lsp::MarkupKindEnum(::lsp::MarkupKind::Markdown),
                       .value = std::move(hoverText),
+                  };
+                  if (id->range) {
+                    hover.range = id->range;
+                  }
+                  return {std::move(hover)};
+                }
+                if (const lesma::IndexedSymbolOccurrence* occ =
+                        findIndexedSymbolOccurrenceAtCursor(analysis, line, character);
+                    occ != nullptr && occ->resolvedType != nullptr) {
+                  ::lsp::Hover hover;
+                  hover.contents = ::lsp::MarkupContent{
+                      .kind = ::lsp::MarkupKindEnum(::lsp::MarkupKind::Markdown),
+                      .value = "`" + id->name + "`: `" +
+                               formatTypeName(occ->resolvedType, result.rootScope.get()) + "`",
                   };
                   if (id->range) {
                     hover.range = id->range;

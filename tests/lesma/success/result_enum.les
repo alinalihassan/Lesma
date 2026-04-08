@@ -1,0 +1,30 @@
+let ok: Result<int, bool> = Result.Ok(4)
+if (match ok {
+  Result.Ok(_) => true
+  Result.Err(_) => false
+}) == false {
+  exit(1)
+}
+if ok.unwrap() != 4 {
+  exit(2)
+}
+if ok.unwrapOr(9) != 4 {
+  exit(3)
+}
+
+let err: Result<int, bool> = Result.Err(true)
+if (match err {
+  Result.Err(_) => true
+  Result.Ok(_) => false
+}) == false {
+  exit(4)
+}
+if err.unwrapOr(8) != 8 {
+  exit(5)
+}
+if (match err {
+  Result.Err(value) => value
+  Result.Ok(_) => false
+}) == false {
+  exit(6)
+}

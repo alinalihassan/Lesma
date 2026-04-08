@@ -45,7 +45,10 @@ func extern rename(old_path: cstr, new_path: cstr) -> int
 
 // ASCII whitespace only (TAB, LF, VT, FF, CR, SPACE). uint8 avoids signed-byte pitfalls with UTF-8.
 func __str_byte_is_ascii_whitespace(b: uint8) -> bool {
-  return b == 9 as uint8 or b == 10 as uint8 or b == 11 as uint8 or b == 12 as uint8
+  return b == 9 as uint8
+    or b == 10 as uint8
+    or b == 11 as uint8
+    or b == 12 as uint8
     or b == 13 as uint8
     or b == 32 as uint8
 }
@@ -62,6 +65,24 @@ export trait Iterator<T> {
  */
 export trait Iterable<T> {
   func iter() -> Iterator<T>
+}
+
+export enum Result<T, E> {
+  Ok(T)
+  Err(E)
+
+  func unwrap() -> T? {
+    return match self {
+      Ok(value) => value
+      Err(_) => null
+    }
+  }
+  func unwrapOr(defaultValue: T) -> T {
+    return match self {
+      Ok(value) => value
+      Err(_) => defaultValue
+    }
+  }
 }
 
 // Integer sequence for `for i in range(...)`. Stop is exclusive. `range(n)` is `range(1, n)`.

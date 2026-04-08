@@ -18,6 +18,31 @@ auto findIndexInFields(Type* structType, const std::string& field) -> int {
   return -1;
 }
 
+auto findIndexInEnumVariants(Type* enumType, const std::string& variantName) -> int {
+  if (enumType == nullptr || !enumType->is(BaseType::TY_ENUM)) {
+    return -1;
+  }
+  auto variants = enumType->getEnumVariants();
+  for (size_t i = 0; i < variants.size(); ++i) {
+    if (variants[i] != nullptr && variants[i]->name == variantName) {
+      return static_cast<int>(i);
+    }
+  }
+  return -1;
+}
+
+auto findEnumVariant(Type* enumType, const std::string& variantName) -> EnumVariant* {
+  if (enumType == nullptr || !enumType->is(BaseType::TY_ENUM)) {
+    return nullptr;
+  }
+  for (EnumVariant* variant : enumType->getEnumVariants()) {
+    if (variant != nullptr && variant->name == variantName) {
+      return variant;
+    }
+  }
+  return nullptr;
+}
+
 auto classDataFieldStructIndex(Type* classTy, unsigned logicalIndex) -> unsigned {
   if (classTy != nullptr && classTy->is(BaseType::TY_CLASS)) {
     return logicalIndex + 1U;
@@ -95,6 +120,14 @@ auto containsArcManagedValue(Type const* t) -> bool {
   case BaseType::TY_TUPLE:
     return std::ranges::any_of(
         t->getFields(), [](Field const* field) { return containsArcManagedValue(field->type); });
+  case BaseType::TY_ENUM:
+    return std::ranges::any_of(t->getEnumVariants(), [](EnumVariant const* variant) {
+      if (variant == nullptr) {
+        return false;
+      }
+      return std::ranges::any_of(variant->payloadTypes,
+                                 [](Type const* payload) { return containsArcManagedValue(payload); });
+    });
   case BaseType::TY_UNION:
     return std::ranges::any_of(t->getUnionMembers(),
                                [](Type const* member) { return containsArcManagedValue(member); });

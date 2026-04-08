@@ -727,6 +727,14 @@ auto Codegen::run() -> void {
     defineSynthesizedClassConstructor(ctorSym, cls);
     currentGenericTypes = std::move(savedGenerics);
   }
+  for (size_t ei = 0; ei < syntheticEnumMethodBodies.size(); ++ei) {
+    auto savedGenerics = currentGenericTypes;
+    if (auto env = specializedNominalEnvFor(syntheticEnumMethodBodies[ei].enumType); env != nullptr) {
+      currentGenericTypes = *env;
+    }
+    defineSyntheticEnumMethod(syntheticEnumMethodBodies[ei]);
+    currentGenericTypes = std::move(savedGenerics);
+  }
 
   // Return 0 for top-level function (location must match topLevelFunc's DISubprogram)
   if (parser->getAst() != nullptr) {

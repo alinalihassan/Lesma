@@ -1,0 +1,4 @@
+let picked: int = match 1 {
+  1 => {}
+  else => {}
+}

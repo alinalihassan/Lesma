@@ -60,6 +60,7 @@ class Typechecker final : public ASTVisitor {
 
   Value* currentFunction = nullptr;
   Type* currentClassType = nullptr; // Set when visiting class methods, for self
+  Type* currentEnumType = nullptr;  // Set when visiting enum methods, for self
   /** While visiting class methods: whether the enclosing class is exported (method AST may not
    * carry export; parser clears ambient `export` for spans). */
   bool currentClassExported = false;
@@ -164,6 +165,7 @@ class Typechecker final : public ASTVisitor {
   auto insertImportedVariableAlias(const std::string& resolvedPath, const std::string& exportedName,
                                    const std::string& localName) -> void;
   void validateParameterDefaultOrdering(llvm::SMRange span, const std::vector<Parameter*>& params);
+  void registerEnumSyntheticMembers(const Enum* node, Type* enumTypePtr, SymbolTable* outerScope);
   [[nodiscard]] auto currentFunctionRootScope() const -> SymbolTable*;
   auto getOrCreateLambdaCaptureShadow(Value* outerSym, const std::string& name, llvm::SMRange span)
       -> Value*;
@@ -464,6 +466,8 @@ public:
   auto visit(const DotOp* node) -> void override;
   auto visit(const CastOp* node) -> void override;
   auto visit(const IsOp* node) -> void override;
+  auto visit(const MatchExpr* node) -> void override;
+  auto visit(const BlockExpr* node) -> void override;
   auto visit(const UnaryOp* node) -> void override;
   auto visit(const Literal* node) -> void override;
   auto visit(const SuperExpr* node) -> void override;

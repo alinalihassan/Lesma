@@ -1,0 +1,5 @@
+enum MaybeInt {
+  Some(int)
+}
+
+let bad = MaybeInt.Some()

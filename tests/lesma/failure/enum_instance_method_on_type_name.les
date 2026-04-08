@@ -1,0 +1,8 @@
+enum MaybeInt {
+  None
+  Some
+}
+
+if MaybeInt.isSome() {
+  exit(1)
+}

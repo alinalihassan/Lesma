@@ -1109,8 +1109,175 @@ auto Parser::parseDictLiteral() -> std::unique_ptr<Expression> {
                                        std::move(keyExprs), std::move(valueExprs));
 }
 
+auto Parser::parseMatchPattern() -> MatchPattern {
+  MatchPattern pattern;
+  if (check(TokenType::ELSE)) {
+    auto* elseTok = consume(TokenType::ELSE);
+    pattern.kind = MatchPatternKind::ELSE_;
+    pattern.span = elseTok->span;
+    return pattern;
+  }
+  if (check(TokenType::IDENTIFIER) && peek()->lexeme == "_") {
+    auto* wildcard = consume(TokenType::IDENTIFIER);
+    pattern.kind = MatchPatternKind::WILDCARD;
+    pattern.span = wildcard->span;
+    return pattern;
+  }
+
+  if (!check(TokenType::IDENTIFIER)) {
+    pattern.kind = MatchPatternKind::VALUE;
+    pattern.valueExpr = parseExpression();
+    pattern.span = pattern.valueExpr->getSpan();
+    return pattern;
+  }
+
+  auto* first = consume(TokenType::IDENTIFIER, "Expected enum variant pattern");
+  pattern.kind = MatchPatternKind::VARIANT;
+  pattern.span = first->span;
+  pattern.variantName = first->lexeme;
+  pattern.variantNameSpan = first->span;
+
+  if (advanceIfMatchAny<TokenType::DOT>()) {
+    auto* variant = consume(TokenType::IDENTIFIER, "Expected variant name after '.' in match arm");
+    pattern.enumName = first->lexeme;
+    pattern.enumNameSpan = first->span;
+    pattern.variantName = variant->lexeme;
+    pattern.variantNameSpan = variant->span;
+    pattern.span = llvm::SMRange{first->getStart(), variant->getEnd()};
+  }
+
+  if (advanceIfMatchAny<TokenType::LEFT_PAREN>()) {
+    auto* leftParen = previous();
+    while (!check(TokenType::RIGHT_PAREN)) {
+      auto* binding =
+          consume(TokenType::IDENTIFIER, "Expected identifier or '_' in match pattern payload");
+      pattern.bindings.push_back(binding->lexeme);
+      pattern.bindingSpans.push_back(binding->span);
+      if (!check(TokenType::RIGHT_PAREN)) {
+        consume(TokenType::COMMA);
+      }
+    }
+    auto* rightParen = consume(TokenType::RIGHT_PAREN);
+    pattern.span = llvm::SMRange{pattern.span.Start, rightParen->getEnd()};
+    (void) leftParen;
+  }
+
+  return pattern;
+}
+
+auto Parser::parseMatchExpr() -> std::unique_ptr<Expression> {
+  auto* matchTok = consume(TokenType::MATCH);
+  consumeOperandContinuationNewlines();
+  auto scrutinee = parseExpression();
+  consume(TokenType::LEFT_BRACE, "Expected '{' to start match arms");
+  while (check(TokenType::NEWLINE)) {
+    advance();
+  }
+
+  std::vector<MatchArm> arms;
+  while (!check(TokenType::RIGHT_BRACE)) {
+    MatchPattern pattern = parseMatchPattern();
+    consume(TokenType::FAT_ARROW, "Expected '=>' after match arm pattern");
+    consumeOperandContinuationNewlines();
+    std::unique_ptr<Expression> body = check(TokenType::LEFT_BRACE) ? parseBlockExpr()
+                                                                    : parseExpression();
+    llvm::SMRange armSpan{pattern.span.Start, body->getEnd()};
+    (void) armSpan;
+    arms.push_back(MatchArm{std::move(pattern), std::move(body)});
+    while (check(TokenType::NEWLINE)) {
+      advance();
+    }
+    if (!check(TokenType::RIGHT_BRACE) && check(TokenType::COMMA)) {
+      advance();
+      while (check(TokenType::NEWLINE)) {
+        advance();
+      }
+    }
+  }
+  auto* end = consume(TokenType::RIGHT_BRACE);
+  return std::make_unique<MatchExpr>(llvm::SMRange{matchTok->getStart(), end->getEnd()},
+                                     std::move(scrutinee), std::move(arms));
+}
+
+auto Parser::parseBlockExpr() -> std::unique_ptr<Expression> {
+  while (check(TokenType::NEWLINE)) {
+    consume(TokenType::NEWLINE);
+  }
+  auto* openBrace = consume(TokenType::LEFT_BRACE);
+  std::vector<std::unique_ptr<Statement>> statements;
+  std::unique_ptr<Expression> tailExpr;
+
+  auto startsStatement = [this]() -> bool {
+    return checkAny<TokenType::FUNC, TokenType::TRAIT, TokenType::IMPORT, TokenType::FROM,
+                    TokenType::CLASS, TokenType::ENUM, TokenType::EXPORT, TokenType::LET,
+                    TokenType::VAR, TokenType::IF, TokenType::WHILE, TokenType::FOR,
+                    TokenType::BREAK, TokenType::CONTINUE, TokenType::PASS, TokenType::RETURN,
+                    TokenType::DEFER>();
+  };
+
+  auto onlyBlockEndAfterExpression = [this]() -> bool {
+    unsigned long offset = 0;
+    while (check(TokenType::NEWLINE, offset)) {
+      ++offset;
+    }
+    return check(TokenType::RIGHT_BRACE, offset);
+  };
+
+  while (!checkAny<TokenType::RIGHT_BRACE, TokenType::EOF_TOKEN>()) {
+    while (check(TokenType::NEWLINE)) {
+      consume(TokenType::NEWLINE);
+    }
+    if (checkAny<TokenType::RIGHT_BRACE, TokenType::EOF_TOKEN>()) {
+      break;
+    }
+    try {
+      if (startsStatement() ||
+          checkAnyInLine<TokenType::EQUAL, TokenType::PLUS_EQUAL, TokenType::MINUS_EQUAL,
+                         TokenType::STAR_EQUAL, TokenType::SLASH_EQUAL, TokenType::MOD_EQUAL,
+                         TokenType::POWER_EQUAL, TokenType::AMPERSAND_EQUAL,
+                         TokenType::PIPE_EQUAL, TokenType::XOR_EQUAL,
+                         TokenType::SHIFT_LEFT_EQUAL, TokenType::SHIFT_RIGHT_EQUAL,
+                         TokenType::NULL_COALESCE_EQUAL>()) {
+        std::unique_ptr<Statement> stmt = parseStatement(false);
+        if (stmt != nullptr) {
+          statements.push_back(std::move(stmt));
+        }
+        continue;
+      }
+
+      std::unique_ptr<Expression> expr = parseExpression();
+      if (expr == nullptr) {
+        error(peek(), "Expected expression in block expression");
+      }
+      if (onlyBlockEndAfterExpression()) {
+        while (check(TokenType::NEWLINE)) {
+          consume(TokenType::NEWLINE);
+        }
+        tailExpr = std::move(expr);
+        break;
+      }
+      consumeNewlineOrBlockEnd();
+      statements.push_back(
+          std::make_unique<ExpressionStatement>(expr->getSpan(), std::move(expr)));
+    } catch (const ParserError& err) {
+      if (diagnosticsOut == nullptr) {
+        throw;
+      }
+      recoverFromParserError(err);
+    }
+  }
+
+  auto* closeBrace = consume(TokenType::RIGHT_BRACE);
+  auto body = std::make_unique<Compound>(llvm::SMRange{openBrace->getStart(), closeBrace->getEnd()},
+                                         std::move(statements));
+  return std::make_unique<BlockExpr>(llvm::SMRange{openBrace->getStart(), closeBrace->getEnd()},
+                                     std::move(body), std::move(tailExpr));
+}
+
 auto Parser::parseTerm() -> std::unique_ptr<Expression> {
   switch (peek()->type) {
+  case TokenType::MATCH:
+    return parseMatchExpr();
   case TokenType::FUNC: {
     size_t i = 1;
     while (check(TokenType::NEWLINE, i)) {
@@ -1896,8 +2063,8 @@ auto Parser::parseParameterList(bool allowVarargsEllipsis) -> ParameterListParse
 auto Parser::parseFunctionDeclaration(bool methodIsPrivate, bool declaresInheritanceOverload,
                                       bool methodIsStatic) -> std::unique_ptr<Statement> {
   auto loc = isExported ? previous()->span : peek()->span;
-  if (methodIsStatic && !inClass) {
-    error(peek(), "`static func` is only allowed inside class bodies");
+  if (methodIsStatic && !inClass && !inEnum) {
+    error(peek(), "`static func` is only allowed inside class or enum bodies");
     return nullptr;
   }
   consume(TokenType::FUNC);
@@ -1910,8 +2077,8 @@ auto Parser::parseFunctionDeclaration(bool methodIsPrivate, bool declaresInherit
     externFunc = true;
   }
 
-  if (externFunc && inClass) {
-    error(previous(), "Extern functions are not allowed in class definition.");
+  if (externFunc && (inClass || inEnum)) {
+    error(previous(), "Extern functions are not allowed in class or enum definitions.");
     return nullptr;
   }
 
@@ -2378,14 +2545,17 @@ auto Parser::parseEnum() -> std::unique_ptr<Statement> {
   consume(TokenType::ENUM);
 
   auto* token = consume(TokenType::IDENTIFIER);
+  std::vector<GenericParamDecl> genericParams = parseGenericParamList();
   while (check(TokenType::NEWLINE)) {
     consume(TokenType::NEWLINE);
   }
   consume(TokenType::LEFT_BRACE);
 
   std::vector<EnumValueDecl> values;
+  std::vector<std::unique_ptr<Statement>> methods;
   auto endLoc = token->getEnd();
 
+  inEnum = true;
   while (!checkAny<TokenType::RIGHT_BRACE, TokenType::EOF_TOKEN>()) {
     try {
       while (check(TokenType::NEWLINE)) {
@@ -2394,13 +2564,50 @@ auto Parser::parseEnum() -> std::unique_ptr<Statement> {
       if (checkAny<TokenType::RIGHT_BRACE, TokenType::EOF_TOKEN>()) {
         break;
       }
+      if (check(TokenType::STATIC) || check(TokenType::FUNC)) {
+        bool methodStatic = false;
+        if (advanceIfMatchAny<TokenType::STATIC>()) {
+          methodStatic = true;
+        }
+        auto stmt = parseFunctionDeclaration(false, false, methodStatic);
+        auto* funcDecl = dynamic_cast<FuncDecl*>(stmt.get());
+        if (funcDecl == nullptr) {
+          error(peek(), "Expected enum method");
+        }
+        endLoc = funcDecl != nullptr ? funcDecl->getEnd() : stmt->getEnd();
+        methods.push_back(std::move(stmt));
+        continue;
+      }
       auto* valueToken = consume(TokenType::IDENTIFIER);
+      std::vector<std::unique_ptr<TypeExpr>> payloadTypes;
+      llvm::SMLoc valueEnd = valueToken->getEnd();
+      if (advanceIfMatchAny<TokenType::LEFT_PAREN>()) {
+        while (!check(TokenType::RIGHT_PAREN)) {
+          while (check(TokenType::NEWLINE)) {
+            consume(TokenType::NEWLINE);
+          }
+          if (check(TokenType::RIGHT_PAREN)) {
+            break;
+          }
+          payloadTypes.push_back(parseType());
+          valueEnd = payloadTypes.back()->getEnd();
+          while (check(TokenType::NEWLINE)) {
+            consume(TokenType::NEWLINE);
+          }
+          if (!check(TokenType::RIGHT_PAREN)) {
+            consume(TokenType::COMMA);
+          }
+        }
+        auto* closeParen = consume(TokenType::RIGHT_PAREN);
+        valueEnd = closeParen->getEnd();
+      }
       values.push_back(EnumValueDecl{
           .name = valueToken->lexeme,
-          .span = valueToken->span,
+          .span = llvm::SMRange{valueToken->getStart(), valueEnd},
+          .payloadTypes = std::move(payloadTypes),
       });
-      endLoc = valueToken->getEnd();
-      consume(TokenType::NEWLINE);
+      endLoc = valueEnd;
+      consumeNewlineOrBlockEnd();
     } catch (const ParserError& err) {
       if (diagnosticsOut == nullptr) {
         throw;
@@ -2408,12 +2615,14 @@ auto Parser::parseEnum() -> std::unique_ptr<Statement> {
       recoverFromParserError(err);
     }
   }
+  inEnum = false;
 
   auto* enumClose = consume(TokenType::RIGHT_BRACE);
   endLoc = enumClose->getEnd();
 
   return std::make_unique<Enum>(llvm::SMRange{loc.Start, endLoc}, token->lexeme, token->span,
-                                std::move(values), isExported);
+                                std::move(genericParams), std::move(values), std::move(methods),
+                                isExported);
 }
 
 auto Parser::parseCompound() -> std::unique_ptr<Compound> {

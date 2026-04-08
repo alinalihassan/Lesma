@@ -303,12 +303,37 @@ auto Typechecker::pathLeadsToEndWithoutReturn(const std::vector<Statement*>& sta
   if (index >= statements.size()) {
     return true; // fell off the end
   }
+  std::function<bool(const Expression*)> expressionFallsThrough = [&](const Expression* expr) {
+    if (expr == nullptr) {
+      return true;
+    }
+    if (expressionCallsStdlibBaseLesExit(const_cast<Expression*>(expr))) {
+      return false;
+    }
+    if (auto const* blockExpr = dynamic_cast<const BlockExpr*>(expr)) {
+      bool bodyFallsThrough = blockExpr->getBody() == nullptr ||
+                              pathLeadsToEndWithoutReturn(blockExpr->getBody()->getChildren(), 0);
+      if (!bodyFallsThrough) {
+        return false;
+      }
+      return expressionFallsThrough(blockExpr->getTailExpr());
+    }
+    if (auto const* matchExpr = dynamic_cast<const MatchExpr*>(expr)) {
+      for (const MatchArm& arm : matchExpr->getArms()) {
+        if (expressionFallsThrough(arm.body.get())) {
+          return true;
+        }
+      }
+      return false;
+    }
+    return true;
+  };
   Statement* s = statements[index];
   if (dynamic_cast<Return*>(s) != nullptr) {
     return false; // this path returns
   }
   if (auto* exprStmt = dynamic_cast<ExpressionStatement*>(s)) {
-    if (expressionCallsStdlibBaseLesExit(exprStmt->getExpression())) {
+    if (!expressionFallsThrough(exprStmt->getExpression())) {
       return false; // noreturn (stdlib extern exit in base.les)
     }
   }
@@ -1000,6 +1025,45 @@ auto Typechecker::lookupFunctionInScopeThenImportedModuleCaches(
   return nullptr;
 }
 
+void Typechecker::registerEnumSyntheticMembers(const Enum* node, Type* enumTypePtr,
+                                               SymbolTable* outerScope) {
+  if (node == nullptr || enumTypePtr == nullptr || outerScope == nullptr) {
+    return;
+  }
+  for (EnumVariant* variant : enumTypePtr->getEnumVariants()) {
+    if (variant == nullptr) {
+      continue;
+    }
+
+    std::vector<std::unique_ptr<Field>> ctorFields;
+    std::vector<Type*> ctorParamTypes;
+    for (size_t i = 0; i < variant->payloadTypes.size(); ++i) {
+      Type* payloadType = variant->payloadTypes[i];
+      Type* paramType = typeAsPtrIfClassForOverload(payloadType);
+      ctorParamTypes.push_back(paramType);
+      ctorFields.push_back(std::make_unique<Field>("arg" + std::to_string(i), paramType));
+    }
+    auto ctorType = std::make_unique<Type>(BaseType::TY_FUNCTION, nullptr, std::move(ctorFields));
+    ctorType->setReturnType(enumTypePtr);
+    Type* ctorTypePtr = cacheType(std::move(ctorType));
+    Value* existingCtor = outerScope->lookupFunction(variant->name, ctorParamTypes,
+                                                     FunctionLookupKind::OVERLOAD_IDENTITY);
+    if (existingCtor != nullptr) {
+      throw TypeCheckError(variant->getDeclarationSpan(),
+                           "Enum variant constructor '{}' conflicts with an existing symbol",
+                           variant->name);
+    }
+    auto ctorSym = std::make_unique<Value>(variant->name, ctorTypePtr);
+    ctorSym->setCategory(ValueCategory::CALLABLE_SYMBOL);
+    ctorSym->setDeclarationKind(ValueDeclarationKind::METHOD);
+    ctorSym->setExported(node->isExported());
+    ctorSym->setDeclarationSpan(variant->getDeclarationSpan());
+    ctorSym->setDeclarationFilePath(mainFilePath);
+    ctorSym->setStaticMethod(true);
+    outerScope->insertSymbol(std::move(ctorSym));
+  }
+}
+
 auto Typechecker::tryLookupFunctionViaDotImportLiterals(const DotOp* node, const std::string& name,
                                                         const std::vector<Type*>& methodArgTypes)
     -> Value* {
@@ -1054,7 +1118,7 @@ void Typechecker::inferClassTemplateParamsForStaticMethodCallOnTemplate(
             shape->getElementType()->is(BaseType::TY_CLASS)) {
           shape = shape->getElementType();
         }
-        if (shape->is(BaseType::TY_CLASS)) {
+        if (shape->isOneOf({BaseType::TY_CLASS, BaseType::TY_ENUM})) {
           if (auto tit = specializedTypeToTemplate.find(shape);
               tit != specializedTypeToTemplate.end() && tit->second->isEqual(receiverForLookup)) {
             ctxClass = shape;
@@ -1072,7 +1136,7 @@ void Typechecker::inferClassTemplateParamsForStaticMethodCallOnTemplate(
       }
       throw TypeCheckError(
           span,
-          "Cannot infer class type parameter `{}` from this static method call; use "
+          "Cannot infer type parameter `{}` from this static method call; use "
           "arguments that determine `{}`, a contextual type (e.g. variable annotation), or "
           "call through a specialized type",
           gn, gn);
@@ -1583,6 +1647,20 @@ auto Typechecker::materializeImportedType(Type* type) -> Type* {
     for (Field* field : type->getFields()) {
       copy->addField(cloneImportedField(field));
     }
+    for (EnumVariant* variant : type->getEnumVariants()) {
+      if (variant == nullptr) {
+        continue;
+      }
+      std::vector<Type*> payloadTypes;
+      payloadTypes.reserve(variant->payloadTypes.size());
+      for (Type* payload : variant->payloadTypes) {
+        payloadTypes.push_back(materializeImportedType(payload));
+      }
+      auto clonedVariant = std::make_unique<EnumVariant>(variant->name, std::move(payloadTypes));
+      clonedVariant->setDeclarationSpan(variant->getDeclarationSpan());
+      clonedVariant->setDeclarationFilePath(variant->getDeclarationFilePath());
+      copy->addEnumVariant(std::move(clonedVariant));
+    }
     if (type->is(BaseType::TY_CLASS)) {
       for (Field* field : type->getStaticFields()) {
         copy->addStaticField(cloneImportedField(field));
@@ -1983,8 +2061,9 @@ auto Typechecker::resolveCustomTypeExpr(const TypeExpr* node) -> Type* {
     return getOrCreateSpecializedTraitExistentialType(resolvedType, lookupName, genericParamNames,
                                                       explicitTypeArgs);
   }
-  if (resolvedType == nullptr || !resolvedType->is(BaseType::TY_CLASS)) {
-    throw TypeCheckError(node->getSpan(), "Type {} is not a generic class", node->getName());
+  if (resolvedType == nullptr ||
+      !resolvedType->isOneOf({BaseType::TY_CLASS, BaseType::TY_ENUM})) {
+    throw TypeCheckError(node->getSpan(), "Type {} is not a generic nominal type", node->getName());
   }
   Type* classTemplate = resolvedType;
   auto templateIt = specializedTypeToTemplate.find(classTemplate);
@@ -1993,7 +2072,7 @@ auto Typechecker::resolveCustomTypeExpr(const TypeExpr* node) -> Type* {
   }
   const auto& genericParamNames = classTemplate->getGenericParams();
   if (genericParamNames.size() != explicitTypeArgs.size()) {
-    throw TypeCheckError(node->getSpan(), "Generic class {} expects {} type arguments, got {}",
+    throw TypeCheckError(node->getSpan(), "Generic type {} expects {} type arguments, got {}",
                          node->getName(), genericParamNames.size(), explicitTypeArgs.size());
   }
   std::unordered_map<std::string, Type*> env;
@@ -2035,6 +2114,15 @@ auto Typechecker::substituteInType(Type* t, const std::unordered_map<std::string
         std::vector<std::vector<std::string>>(t->getGenericParamTraitBounds()));
     funcType->setVarArgs(t->isVarArgs());
     return cacheType(std::move(funcType));
+  }
+  if (t->is(BaseType::TY_ENUM)) {
+    if (auto tmplIt = specializedTypeToTemplate.find(t); tmplIt != specializedTypeToTemplate.end()) {
+      t = tmplIt->second;
+    }
+    if (t->getGenericParams().empty()) {
+      return t;
+    }
+    return getOrCreateSpecializedClassType(t, t->getGenericParams(), env);
   }
   if (t->is(BaseType::TY_TUPLE)) {
     std::vector<std::unique_ptr<Field>> fields;
@@ -2347,9 +2435,11 @@ void Typechecker::registerSpecializedClassType(Type* specialized, Type* classTem
   specialized->setImplTraitNames(classTemplate->getImplTraitNames());
   specialized->setDeclarationSpan(classTemplate->getDeclarationSpan());
   specialized->setDeclarationFilePath(classTemplate->getDeclarationFilePath());
-  specialized->setClassVtableMethodOrder(
-      std::vector<std::string>(classTemplate->getClassVtableMethodOrder()));
-  specialized->setClassHasDerivedClass(classTemplate->getClassHasDerivedClass());
+  if (classTemplate->is(BaseType::TY_CLASS)) {
+    specialized->setClassVtableMethodOrder(
+        std::vector<std::string>(classTemplate->getClassVtableMethodOrder()));
+    specialized->setClassHasDerivedClass(classTemplate->getClassHasDerivedClass());
+  }
   specialized->setDisplayName(makeSpecializedDisplayName(classTemplate, genericParamNames,
                                                          specializedTypeEnv[specialized]));
   specializedClassTypes[TypeUtils::makeSpecializedClassKey(
@@ -2373,8 +2463,8 @@ auto Typechecker::getOrCreateSpecializedClassType(Type* classTemplate,
                                   classTemplate == classTemplateBeingDeclared &&
                                   classTemplate->getFields().size() < classFieldCountExpected;
   if (templateIncomplete) {
-    auto specialized =
-        std::make_unique<Type>(BaseType::TY_CLASS, nullptr, std::vector<std::unique_ptr<Field>>{});
+    auto specialized = std::make_unique<Type>(classTemplate->getBaseType(), nullptr,
+                                              std::vector<std::unique_ptr<Field>>{});
     Type* ptr = cacheType(std::move(specialized));
     registerSpecializedClassType(ptr, classTemplate, std::unordered_map<std::string, Type*>(env));
     if (classTemplate->getClassSuperclass() != nullptr) {
@@ -2384,8 +2474,8 @@ auto Typechecker::getOrCreateSpecializedClassType(Type* classTemplate,
   }
   // Cache an empty specialization before substituting fields so recursive references (e.g. *Node<T>
   // to Node<T>) hit specializedClassTypes and do not recurse infinitely in substituteInType.
-  auto specializedShell =
-      std::make_unique<Type>(BaseType::TY_CLASS, nullptr, std::vector<std::unique_ptr<Field>>{});
+  auto specializedShell = std::make_unique<Type>(classTemplate->getBaseType(), nullptr,
+                                                 std::vector<std::unique_ptr<Field>>{});
   Type* ptr = cacheType(std::move(specializedShell));
   registerSpecializedClassType(ptr, classTemplate, std::unordered_map<std::string, Type*>(env));
   if (classTemplate->getClassSuperclass() != nullptr) {
@@ -2406,6 +2496,24 @@ auto Typechecker::getOrCreateSpecializedClassType(Type* classTemplate,
     newFields.push_back(std::move(nf));
   }
   ptr->replaceFields(std::move(newFields));
+  if (classTemplate->is(BaseType::TY_ENUM)) {
+    std::vector<std::unique_ptr<EnumVariant>> newVariants;
+    for (EnumVariant* variant : classTemplate->getEnumVariants()) {
+      if (variant == nullptr) {
+        continue;
+      }
+      std::vector<Type*> payloadTypes;
+      payloadTypes.reserve(variant->payloadTypes.size());
+      for (Type* payload : variant->payloadTypes) {
+        payloadTypes.push_back(substituteInType(payload, env));
+      }
+      auto nv = std::make_unique<EnumVariant>(variant->name, std::move(payloadTypes));
+      nv->setDeclarationSpan(variant->getDeclarationSpan());
+      nv->setDeclarationFilePath(variant->getDeclarationFilePath());
+      newVariants.push_back(std::move(nv));
+    }
+    ptr->replaceEnumVariants(std::move(newVariants));
+  }
   {
     std::vector<std::unique_ptr<Field>> newStaticFields;
     for (Field* f : classTemplate->getStaticFields()) {
@@ -2453,6 +2561,24 @@ void Typechecker::finalizeSpecializedTypesForTemplate(Type* classTemplate) {
       newFields.push_back(std::move(nf));
     }
     specPtr->replaceFields(std::move(newFields));
+    if (classTemplate->is(BaseType::TY_ENUM)) {
+      std::vector<std::unique_ptr<EnumVariant>> newVariants;
+      for (EnumVariant* variant : classTemplate->getEnumVariants()) {
+        if (variant == nullptr) {
+          continue;
+        }
+        std::vector<Type*> payloadTypes;
+        payloadTypes.reserve(variant->payloadTypes.size());
+        for (Type* payload : variant->payloadTypes) {
+          payloadTypes.push_back(substituteInType(payload, env));
+        }
+        auto nv = std::make_unique<EnumVariant>(variant->name, std::move(payloadTypes));
+        nv->setDeclarationSpan(variant->getDeclarationSpan());
+        nv->setDeclarationFilePath(variant->getDeclarationFilePath());
+        newVariants.push_back(std::move(nv));
+      }
+      specPtr->replaceEnumVariants(std::move(newVariants));
+    }
     {
       std::vector<std::unique_ptr<Field>> newStaticFields;
       for (Field* f : classTemplate->getStaticFields()) {
@@ -2470,14 +2596,16 @@ void Typechecker::finalizeSpecializedTypesForTemplate(Type* classTemplate) {
       specPtr->replaceStaticFields(std::move(newStaticFields));
     }
     specPtr->setDisplayName(makeSpecializedDisplayName(classTemplate, genericParamNames, env));
-    if (classTemplate->getClassSuperclass() != nullptr) {
+    if (classTemplate->is(BaseType::TY_CLASS) && classTemplate->getClassSuperclass() != nullptr) {
       specPtr->setClassSuperclass(substituteInType(classTemplate->getClassSuperclass(), env));
-    } else {
+    } else if (classTemplate->is(BaseType::TY_CLASS)) {
       specPtr->setClassSuperclass(nullptr);
     }
-    specPtr->setClassVtableMethodOrder(
-        std::vector<std::string>(classTemplate->getClassVtableMethodOrder()));
-    specPtr->setClassHasDerivedClass(classTemplate->getClassHasDerivedClass());
+    if (classTemplate->is(BaseType::TY_CLASS)) {
+      specPtr->setClassVtableMethodOrder(
+          std::vector<std::string>(classTemplate->getClassVtableMethodOrder()));
+      specPtr->setClassHasDerivedClass(classTemplate->getClassHasDerivedClass());
+    }
   }
 }
 
@@ -3072,7 +3200,8 @@ auto Typechecker::getOrTypecheckImport(const std::string& absolutePath) -> Symbo
   }
   imported->index =
       buildAnalysisIndex(imported->parser != nullptr ? imported->parser->getAst() : nullptr,
-                         imported->sourceMgr.get(), imported->mainBufferId);
+                         imported->sourceMgr.get(), imported->mainBufferId,
+                         imported->mainFilePath);
   imported->importAliasToPath = sub.takeImportAliasToPath();
   imported->importedNameToSource = sub.takeImportedNameToSource();
   imported->importedModules = sub.takeImportedModules();
@@ -4264,38 +4393,105 @@ auto Typechecker::visit(const Import* node) -> void {
 }
 
 auto Typechecker::visit(const Enum* node) -> void {
-  if (!declarationPass) {
-    return;
+  auto savedGenerics = currentGenericTypes;
+  SymbolTable* outerScope = scope;
+  SymbolTable* enumGenericScope = outerScope->createChildBlock("enum_generics");
+  scope = enumGenericScope;
+  for (const auto& param : node->getGenericParamDecls()) {
+    auto* genericType = cacheType(std::make_unique<Type>(param.name));
+    currentGenericTypes[param.name] = genericType;
   }
-  auto type =
-      std::make_unique<Type>(BaseType::TY_ENUM, nullptr, std::vector<std::unique_ptr<Field>>{});
-  Type* typePtr = type.get();
-  type->setDisplayName(node->getIdentifier());
-  std::vector<std::string> const values = node->getValues();
-  std::vector<llvm::SMRange> const& valueSpans = node->getValueSpans();
-  for (size_t i = 0; i < values.size(); ++i) {
-    auto field = std::make_unique<Field>(values[i], typePtr);
-    if (i < valueSpans.size()) {
-      field->setDeclarationSpan(valueSpans[i]);
+  insertGenericParamSymbols(enumGenericScope, node->getGenericParamDecls(), currentGenericTypes,
+                            mainFilePath);
+
+  Type* enumTypePtr = outerScope->lookupType(node->getIdentifier());
+  if (declarationPass) {
+    if (enumTypePtr != nullptr) {
+      throw TypeCheckError(node->getNameSpan(), "Duplicate enum definition: {}",
+                           node->getIdentifier());
+    }
+    auto stub =
+        std::make_unique<Type>(BaseType::TY_ENUM, nullptr, std::vector<std::unique_ptr<Field>>{});
+    stub->setDisplayName(node->getIdentifier() + makeGenericDisplaySuffix(node->getGenericParams()));
+    stub->setDeclarationSpan(node->getNameSpan());
+    stub->setDeclarationFilePath(mainFilePath);
+    stub->setGenericParams(node->getGenericParams());
+    enumTypePtr = stub.get();
+    outerScope->insertType(node->getIdentifier(), std::move(stub));
+
+    auto enumSymbol = std::make_unique<Value>(node->getIdentifier(), enumTypePtr);
+    enumSymbol->setCategory(ValueCategory::TYPE_SYMBOL);
+    enumSymbol->setDeclarationKind(ValueDeclarationKind::ENUM);
+    enumSymbol->setExported(node->isExported());
+    enumSymbol->setDeclarationSpan(node->getNameSpan());
+    enumSymbol->setDeclarationFilePath(mainFilePath);
+    outerScope->insertSymbol(std::move(enumSymbol));
+    node->setResolvedSymbol(outerScope->lookupStruct(node->getIdentifier()));
+
+    Type* savedTemplateBeingDeclared = classTemplateBeingDeclared;
+    size_t savedFieldCountExpected = classFieldCountExpected;
+    classTemplateBeingDeclared = enumTypePtr;
+    classFieldCountExpected = node->getValueDecls().size();
+    for (const EnumValueDecl& value : node->getValueDecls()) {
+      if (TypeUtils::findIndexInEnumVariants(enumTypePtr, value.name) >= 0) {
+        throw TypeCheckError(value.span, "Duplicate enum variant '{}'", value.name);
+      }
+      std::vector<Type*> payloadTypes;
+      payloadTypes.reserve(value.payloadTypes.size());
+      for (TypeExpr* payloadTypeExpr : value.getPayloadTypes()) {
+        Type* payloadType = resolveType(payloadTypeExpr);
+        payloadTypes.push_back(payloadType);
+      }
+      auto field = std::make_unique<Field>(value.name, enumTypePtr);
+      field->setDeclarationSpan(value.span);
       field->setDeclarationFilePath(mainFilePath);
-      auto memberSymbol = std::make_unique<Value>(values[i], typePtr);
+      auto memberSymbol = std::make_unique<Value>(value.name, enumTypePtr);
       memberSymbol->setCategory(ValueCategory::DIRECT_VALUE);
       memberSymbol->setDeclarationKind(ValueDeclarationKind::ENUM_MEMBER);
-      memberSymbol->setDeclarationSpan(valueSpans[i]);
+      memberSymbol->setDeclarationSpan(value.span);
       memberSymbol->setDeclarationFilePath(mainFilePath);
       field->setDeclarationSymbol(std::move(memberSymbol));
+      enumTypePtr->addField(std::move(field));
+
+      auto variant = std::make_unique<EnumVariant>(value.name, std::move(payloadTypes));
+      variant->setDeclarationSpan(value.span);
+      variant->setDeclarationFilePath(mainFilePath);
+      enumTypePtr->addEnumVariant(std::move(variant));
     }
-    type->addField(std::move(field));
+    finalizeSpecializedTypesForTemplate(enumTypePtr);
+    registerEnumSyntheticMembers(node, enumTypePtr, outerScope);
+    classTemplateBeingDeclared = savedTemplateBeingDeclared;
+    classFieldCountExpected = savedFieldCountExpected;
+  } else if (enumTypePtr == nullptr) {
+    throw TypeCheckError(node->getNameSpan(), "Enum not found: {}", node->getIdentifier());
   }
-  scope->insertType(node->getIdentifier(), std::move(type));
-  auto enumSymbol = std::make_unique<Value>(node->getIdentifier(), typePtr);
-  enumSymbol->setCategory(ValueCategory::TYPE_SYMBOL);
-  enumSymbol->setDeclarationKind(ValueDeclarationKind::ENUM);
-  enumSymbol->setExported(node->isExported());
-  enumSymbol->setDeclarationSpan(node->getNameSpan());
-  enumSymbol->setDeclarationFilePath(mainFilePath);
-  scope->insertSymbol(std::move(enumSymbol));
-  node->setResolvedSymbol(scope->lookupStruct(node->getIdentifier()));
+
+  enumTypePtr->setGenericParams(node->getGenericParams());
+  SymbolTable* savedMethodInsertScope = currentMethodInsertScope;
+  Type* savedEnumType = currentEnumType;
+  bool const savedNominalExported = currentClassExported;
+  currentMethodInsertScope = outerScope;
+  currentEnumType = enumTypePtr;
+  currentClassExported = node->isExported();
+  for (FuncDecl* func : node->getMethods()) {
+    SymbolTable* methodScope = scope->createChildBlock("enum_method");
+    scope = methodScope;
+    if (!func->getIsStatic()) {
+      auto selfSym = std::make_unique<Value>("self", enumTypePtr);
+      selfSym->setCategory(ValueCategory::ADDRESSABLE_STORAGE);
+      selfSym->setDeclarationKind(ValueDeclarationKind::PARAMETER);
+      selfSym->setDeclarationSpan(func->getNameSpan());
+      selfSym->setDeclarationFilePath(mainFilePath);
+      scope->insertSymbol(std::move(selfSym));
+    }
+    func->accept(*this);
+    scope = scope->getParent();
+  }
+  currentClassExported = savedNominalExported;
+  currentEnumType = savedEnumType;
+  currentMethodInsertScope = savedMethodInsertScope;
+  scope = outerScope;
+  currentGenericTypes = std::move(savedGenerics);
 }
 
 [[nodiscard]] auto Typechecker::cloneFieldForInheritance(Field* source) -> std::unique_ptr<Field> {
@@ -4687,6 +4883,9 @@ auto Typechecker::visit(const FuncDecl* node) -> void {
     Type* selfPtr = cacheType(std::make_unique<Type>(BaseType::TY_PTR, nullptr, currentClassType));
     paramFields.push_back(std::make_unique<Field>("self", selfPtr));
     paramTypes.push_back(selfPtr);
+  } else if (currentEnumType != nullptr && !node->getIsStatic()) {
+    paramFields.push_back(std::make_unique<Field>("self", currentEnumType));
+    paramTypes.push_back(currentEnumType);
   }
   validateParameterDefaultOrdering(node->getSpan(), node->getParameters());
   for (Parameter* param : node->getParameters()) {
@@ -4739,13 +4938,14 @@ auto Typechecker::visit(const FuncDecl* node) -> void {
   Value* funcSymbol = insertScope->lookupFunction(node->getName(), paramTypes,
                                                   FunctionLookupKind::OVERLOAD_IDENTITY);
   bool const effectiveFuncExported =
-      currentClassType != nullptr ? currentClassExported : node->isExported();
+      (currentClassType != nullptr || currentEnumType != nullptr) ? currentClassExported
+                                                                  : node->isExported();
 
   if (declarationPass) {
     if (funcSymbol == nullptr) {
       auto declaredFunc = std::make_unique<Value>(node->getName(), funcTypePtr);
       declaredFunc->setCategory(ValueCategory::CALLABLE_SYMBOL);
-      declaredFunc->setDeclarationKind(currentClassType != nullptr
+      declaredFunc->setDeclarationKind((currentClassType != nullptr || currentEnumType != nullptr)
                                            ? ValueDeclarationKind::METHOD
                                            : ValueDeclarationKind::FUNCTION);
       declaredFunc->setExported(effectiveFuncExported);
@@ -4765,8 +4965,9 @@ auto Typechecker::visit(const FuncDecl* node) -> void {
       }
     } else {
       funcSymbol->setType(funcTypePtr);
-      funcSymbol->setDeclarationKind(currentClassType != nullptr ? ValueDeclarationKind::METHOD
-                                                                 : ValueDeclarationKind::FUNCTION);
+      funcSymbol->setDeclarationKind((currentClassType != nullptr || currentEnumType != nullptr)
+                                         ? ValueDeclarationKind::METHOD
+                                         : ValueDeclarationKind::FUNCTION);
       funcSymbol->setExported(effectiveFuncExported);
       if (currentClassType != nullptr) {
         funcSymbol->setPrivateMember(node->getIsPrivate());
@@ -4784,7 +4985,9 @@ auto Typechecker::visit(const FuncDecl* node) -> void {
       funcSymbol->setBodyScope(child);
       SymbolTable* savedScopePtr = scope;
       scope = child;
-      const size_t paramOffset = (currentClassType != nullptr) && !node->getIsStatic() ? 1U : 0U;
+      const size_t paramOffset =
+          (currentClassType != nullptr || currentEnumType != nullptr) && !node->getIsStatic() ? 1U
+                                                                                              : 0U;
       for (size_t i = 0; i < node->getParameters().size(); ++i) {
         Parameter* param = node->getParameters()[i];
         auto paramSymbol = std::make_unique<Value>(param->name, paramTypes[paramOffset + i]);
@@ -5841,14 +6044,18 @@ void Typechecker::typecheckDotOpClassOrEnumMemberAccess(const DotOp* node, Type*
     }
     std::vector<Type*> methodArgTypes;
     bool const typeNameReceiver =
-        dotLeftDenotesTypeName && receiverForLookup->is(BaseType::TY_CLASS);
+        dotLeftDenotesTypeName &&
+        receiverForLookup->isOneOf({BaseType::TY_CLASS, BaseType::TY_ENUM});
     if (typeNameReceiver && fc->getName() != "new") {
       methodArgTypes = argTypes;
     } else {
-      Type* selfType =
-          receiverForLookup->is(BaseType::TY_PTR)
-              ? receiverForLookup
-              : cacheType(std::make_unique<Type>(BaseType::TY_PTR, nullptr, receiverForLookup));
+      Type* selfType = receiverForLookup;
+      if (receiverForLookup->is(BaseType::TY_CLASS)) {
+        selfType = receiverForLookup->is(BaseType::TY_PTR)
+                       ? receiverForLookup
+                       : cacheType(std::make_unique<Type>(BaseType::TY_PTR, nullptr,
+                                                          receiverForLookup));
+      }
       methodArgTypes.push_back(selfType);
       methodArgTypes.insert(methodArgTypes.end(), argTypes.begin(), argTypes.end());
     }
@@ -5878,7 +6085,7 @@ void Typechecker::typecheckDotOpClassOrEnumMemberAccess(const DotOp* node, Type*
         fc, method, methodTypeEnv, methodArgTypes, node->getSpan(),
         [&](std::unordered_map<std::string, Type*>& subs) {
           if (typeNameReceiver && fc->getName() != "new" && method->isStaticMethod() &&
-              receiverForLookup->is(BaseType::TY_CLASS)) {
+              receiverForLookup->isOneOf({BaseType::TY_CLASS, BaseType::TY_ENUM})) {
             inferClassTemplateParamsForStaticMethodCallOnTemplate(
                 node->getSpan(), receiverForLookup, methodType, methodArgTypes, subs);
           }
@@ -5892,6 +6099,39 @@ void Typechecker::typecheckDotOpClassOrEnumMemberAccess(const DotOp* node, Type*
   Field* staticPart = nullptr;
   if (base->is(BaseType::TY_CLASS) && dotLeftDenotesTypeName) {
     staticPart = TypeUtils::findStaticFieldInClass(base, rightLit->getValue());
+  }
+  if (base->is(BaseType::TY_ENUM) && dotLeftDenotesTypeName) {
+    EnumVariant* variant = TypeUtils::findEnumVariant(base, rightLit->getValue());
+    if (variant == nullptr) {
+      throw TypeCheckError(node->getSpan(), "Unknown enum variant: {}", rightLit->getValue());
+    }
+    if (!variant->payloadTypes.empty()) {
+      throw TypeCheckError(node->getSpan(),
+                           "Payload-bearing enum variant '{}' must be constructed with arguments",
+                           rightLit->getValue());
+    }
+    if (Field* variantField = TypeUtils::findFieldInFields(base, rightLit->getValue());
+        variantField != nullptr && variantField->getDeclarationSymbol() != nullptr) {
+      rightLit->setResolvedSymbol(variantField->getDeclarationSymbol());
+      markValueRead(variantField->getDeclarationSymbol());
+    }
+    Type* enumResultType = base;
+    if (!base->getGenericParams().empty()) {
+      if (Type* expected = currentExpectedType(); expected != nullptr) {
+        Type* expectedShape = expected;
+        if (expectedShape->is(BaseType::TY_PTR) && expectedShape->getElementType() != nullptr) {
+          expectedShape = expectedShape->getElementType();
+        }
+        if (expectedShape->is(BaseType::TY_ENUM)) {
+          if (auto templateIt = specializedTypeToTemplate.find(expectedShape);
+              templateIt != specializedTypeToTemplate.end() && templateIt->second->isEqual(base)) {
+            enumResultType = expectedShape;
+          }
+        }
+      }
+    }
+    result = std::make_unique<Value>(enumResultType);
+    return;
   }
   Field* field = staticPart;
   if (field == nullptr) {
@@ -6063,6 +6303,226 @@ auto Typechecker::visit(const IsOp* node) -> void {
     }
   }
   result = std::make_unique<Value>(cacheType(std::make_unique<Type>(BaseType::TY_BOOL)));
+}
+
+auto Typechecker::visit(const MatchExpr* node) -> void {
+  node->getScrutinee()->accept(*this);
+  Type* scrutineeType = result->getType();
+  if (scrutineeType == nullptr) {
+    throw TypeCheckError(node->getSpan(), "match requires a scrutinee with a known type");
+  }
+  bool const enumScrutinee = scrutineeType->is(BaseType::TY_ENUM);
+  std::string enumBaseName;
+  if (enumScrutinee) {
+    Type* templateEnumType = scrutineeType;
+    if (auto it = specializedTypeToTemplate.find(scrutineeType); it != specializedTypeToTemplate.end()) {
+      templateEnumType = it->second;
+    }
+    enumBaseName = templateEnumType->getDisplayName();
+    if (enumBaseName.empty()) {
+      enumBaseName = scrutineeType->getDisplayName();
+    }
+    if (size_t anglePos = enumBaseName.find('<'); anglePos != std::string::npos) {
+      enumBaseName = enumBaseName.substr(0, anglePos);
+    }
+  }
+
+  const auto& arms = node->getArms();
+  if (arms.empty()) {
+    throw TypeCheckError(node->getSpan(), "match requires at least one arm");
+  }
+
+  std::vector<bool> seenVariants(enumScrutinee ? scrutineeType->getEnumVariants().size() : 0U, false);
+  bool catchAllSeen = false;
+  bool usesEnumDispatch = enumScrutinee;
+  Type* expectedType = currentExpectedType();
+  Type* matchResultType = nullptr;
+  std::function<bool(const Expression*)> expressionFallsThrough = [&](const Expression* expr) {
+    if (expr == nullptr) {
+      return true;
+    }
+    if (expressionCallsStdlibBaseLesExit(const_cast<Expression*>(expr))) {
+      return false;
+    }
+    if (auto const* blockExpr = dynamic_cast<const BlockExpr*>(expr)) {
+      bool bodyFallsThrough = blockExpr->getBody() == nullptr ||
+                              pathLeadsToEndWithoutReturn(blockExpr->getBody()->getChildren(), 0);
+      if (!bodyFallsThrough) {
+        return false;
+      }
+      return expressionFallsThrough(blockExpr->getTailExpr());
+    }
+    if (auto const* matchExpr = dynamic_cast<const MatchExpr*>(expr)) {
+      for (const MatchArm& nestedArm : matchExpr->getArms()) {
+        if (expressionFallsThrough(nestedArm.body.get())) {
+          return true;
+        }
+      }
+      return false;
+    }
+    return true;
+  };
+
+  for (size_t armIndex = 0; armIndex < arms.size(); ++armIndex) {
+    const MatchArm& arm = arms[armIndex];
+    SymbolTable* savedScope = scope;
+    SymbolTable* armScope = scope->createChildBlock("match_arm");
+    scope = armScope;
+
+    const MatchPattern& pattern = arm.pattern;
+    if (catchAllSeen) {
+      throw TypeCheckError(pattern.span, "No match arms are allowed after a catch-all arm");
+    }
+
+    if (pattern.kind == MatchPatternKind::WILDCARD || pattern.kind == MatchPatternKind::ELSE_) {
+      if (!pattern.bindings.empty()) {
+        throw TypeCheckError(pattern.span, "Wildcard match arm cannot bind payload names");
+      }
+      if (pattern.valueExpr != nullptr) {
+        throw TypeCheckError(pattern.span, "Catch-all match arm cannot have a value pattern");
+      }
+      if (catchAllSeen) {
+        throw TypeCheckError(pattern.span, "Duplicate catch-all match arm");
+      }
+      if (armIndex + 1U != arms.size()) {
+        throw TypeCheckError(pattern.span, "Catch-all match arm must be the final arm");
+      }
+      catchAllSeen = true;
+      usesEnumDispatch = usesEnumDispatch && enumScrutinee;
+    } else if (pattern.kind == MatchPatternKind::VARIANT) {
+      if (!enumScrutinee) {
+        throw TypeCheckError(pattern.span, "Enum variant patterns require an enum scrutinee");
+      }
+      if (!pattern.enumName.empty() && pattern.enumName != enumBaseName) {
+        throw TypeCheckError(pattern.span, "Match arm enum {} does not match scrutinee enum {}",
+                             pattern.enumName, enumBaseName);
+      }
+      int variantIndex = TypeUtils::findIndexInEnumVariants(scrutineeType, pattern.variantName);
+      if (variantIndex < 0) {
+        throw TypeCheckError(pattern.span, "Unknown enum variant {} for {}",
+                             pattern.variantName, scrutineeType->toString());
+      }
+      if (seenVariants[static_cast<size_t>(variantIndex)]) {
+        throw TypeCheckError(pattern.span, "Duplicate match arm for variant {}",
+                             pattern.variantName);
+      }
+      seenVariants[static_cast<size_t>(variantIndex)] = true;
+      EnumVariant* variant = scrutineeType->getEnumVariants()[static_cast<size_t>(variantIndex)];
+      if (variant == nullptr) {
+        throw TypeCheckError(pattern.span, "Invalid enum variant {}", pattern.variantName);
+      }
+      if (pattern.bindings.size() != variant->payloadTypes.size()) {
+        throw TypeCheckError(pattern.span,
+                             "Match arm for variant {} expects {} payload binding(s), got {}",
+                             pattern.variantName, variant->payloadTypes.size(),
+                             pattern.bindings.size());
+      }
+      for (size_t i = 0; i < pattern.bindings.size(); ++i) {
+        if (pattern.bindings[i] == "_") {
+          continue;
+        }
+        auto bindingSym = std::make_unique<Value>(pattern.bindings[i], variant->payloadTypes[i]);
+        bindingSym->setCategory(ValueCategory::ADDRESSABLE_STORAGE);
+        bindingSym->setDeclarationKind(ValueDeclarationKind::VARIABLE);
+        bindingSym->setDeclarationSpan(pattern.span);
+        bindingSym->setDeclarationFilePath(mainFilePath);
+        warnShadowingFromEnclosing(pattern.bindings[i], pattern.span);
+        scope->insertSymbol(std::move(bindingSym));
+      }
+      pattern.resolvedEnumType = scrutineeType;
+      pattern.resolvedVariantIndex = static_cast<unsigned>(variantIndex);
+    } else {
+      usesEnumDispatch = false;
+      if (!pattern.bindings.empty()) {
+        throw TypeCheckError(pattern.span, "Value match arms cannot bind payload names");
+      }
+      if (pattern.valueExpr == nullptr) {
+        throw TypeCheckError(pattern.span, "Value match arm is missing its pattern expression");
+      }
+      visitExprWithExpectedType(pattern.valueExpr.get(), scrutineeType);
+      Type* patternType = result->getType();
+      if (patternType == nullptr) {
+        throw TypeCheckError(pattern.span, "Match pattern value has unknown type");
+      }
+      (void) typecheckBinaryOpResult(TokenType::EQUAL_EQUAL, scrutineeType, patternType,
+                                     pattern.valueExpr->getSpan());
+      pattern.resolvedValueType = patternType;
+    }
+
+    visitExprWithExpectedType(arm.body.get(), expectedType);
+    Type* armType = result->getType();
+    scope = savedScope;
+    bool armFallsThrough = expressionFallsThrough(arm.body.get());
+
+    if (armType == nullptr && armFallsThrough) {
+      throw TypeCheckError(arm.body->getSpan(), "Match arm has unknown result type");
+    }
+    if (!armFallsThrough) {
+      continue;
+    }
+    if (expectedType != nullptr) {
+      if (!isAssignableTo(armType, expectedType)) {
+        throw TypeCheckError(arm.body->getSpan(),
+                             "Match arm type {} is not assignable to expected type {}",
+                             armType->toString(), expectedType->toString());
+      }
+      matchResultType = expectedType;
+      continue;
+    }
+    if (matchResultType == nullptr) {
+      matchResultType = armType;
+      continue;
+    }
+    if (Type* unified = getExtendedType(matchResultType, armType); unified != nullptr) {
+      matchResultType = unified;
+      continue;
+    }
+    if (isAssignableTo(armType, matchResultType)) {
+      continue;
+    }
+    if (isAssignableTo(matchResultType, armType)) {
+      matchResultType = armType;
+      continue;
+    }
+    throw TypeCheckError(arm.body->getSpan(), "Match arms must have a common type, got {} and {}",
+                         matchResultType->toString(), armType->toString());
+  }
+
+  if (enumScrutinee && usesEnumDispatch && !catchAllSeen) {
+    for (size_t i = 0; i < seenVariants.size(); ++i) {
+      if (!seenVariants[i]) {
+        EnumVariant* variant = scrutineeType->getEnumVariants()[i];
+        throw TypeCheckError(node->getSpan(), "Non-exhaustive match; missing variant {}",
+                             variant != nullptr ? variant->name : "<unknown>");
+      }
+    }
+  } else if (!catchAllSeen) {
+    throw TypeCheckError(node->getSpan(), "Non-exhaustive match requires an else arm");
+  }
+
+  if (matchResultType == nullptr) {
+    matchResultType = cacheType(std::make_unique<Type>(BaseType::TY_VOID));
+  }
+  node->setUsesEnumDispatch(usesEnumDispatch);
+  node->setResolvedType(matchResultType);
+  result = std::make_unique<Value>(matchResultType);
+}
+
+auto Typechecker::visit(const BlockExpr* node) -> void {
+  if (node->getBody() != nullptr) {
+    node->getBody()->accept(*this);
+  }
+  bool const bodyFallsThrough =
+      node->getBody() == nullptr || pathLeadsToEndWithoutReturn(node->getBody()->getChildren(), 0);
+  if (bodyFallsThrough && node->getTailExpr() != nullptr) {
+    visitExprWithExpectedType(node->getTailExpr(), currentExpectedType());
+    node->setResolvedType(result != nullptr ? result->getType() : nullptr);
+    return;
+  }
+
+  Type* blockType = cacheType(std::make_unique<Type>(BaseType::TY_VOID));
+  node->setResolvedType(blockType);
+  result = std::make_unique<Value>(blockType);
 }
 
 auto Typechecker::visit(const UnaryOp* node) -> void {

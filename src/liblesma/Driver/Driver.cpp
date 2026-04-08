@@ -182,7 +182,8 @@ auto lesma::analyze(std::unique_ptr<Options> options, Timer* phaseTimer) -> Anal
     result.importedNameToSource = typechecker.takeImportedNameToSource();
     result.importedModules = typechecker.takeImportedModules();
     result.index = buildAnalysisIndex(result.parser != nullptr ? result.parser->getAst() : nullptr,
-                                      result.sourceMgr.get(), result.mainBufferId);
+                                      result.sourceMgr.get(), result.mainBufferId,
+                                      result.mainFilePath);
     return result;
   } catch (const LesmaError& err) {
     result.diagnostics.push_back(AnalysisDiagnostic{
@@ -206,7 +207,8 @@ auto lesma::analyze(std::unique_ptr<Options> options, Timer* phaseTimer) -> Anal
     result.importedNameToSource = typechecker.takeImportedNameToSource();
     result.importedModules = typechecker.takeImportedModules();
     result.index = buildAnalysisIndex(result.parser != nullptr ? result.parser->getAst() : nullptr,
-                                      result.sourceMgr.get(), result.mainBufferId);
+                                      result.sourceMgr.get(), result.mainBufferId,
+                                      result.mainFilePath);
     return result;
   }
 }

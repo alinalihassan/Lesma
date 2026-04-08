@@ -1,0 +1,40 @@
+enum Mode {
+  Off
+  On
+}
+
+let x = 2
+let picked = match x {
+  1 => 10
+  2 => 20
+  else => 30
+}
+if picked != 20 {
+  exit(1)
+}
+
+let signed = match x {
+  -1 => 1
+  else => 2
+}
+if signed != 2 {
+  exit(2)
+}
+
+let flag = true
+let flagValue = match flag {
+  false => 1
+  true => 2
+  else => 3
+}
+if flagValue != 2 {
+  exit(3)
+}
+
+let enumValue = match Mode.On {
+  Off => 1
+  else => 2
+}
+if enumValue != 2 {
+  exit(4)
+}

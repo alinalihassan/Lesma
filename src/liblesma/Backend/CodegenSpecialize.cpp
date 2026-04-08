@@ -65,11 +65,39 @@ auto Codegen::isTypeFullyConcrete(Type* t) const -> bool {
       }
       break;
     case BaseType::TY_TUPLE:
-    case BaseType::TY_ENUM:
       for (Field* field : cur->getFields()) {
         if (!self(self, field->type)) {
           isConcrete = false;
           break;
+        }
+      }
+      break;
+    case BaseType::TY_ENUM:
+      if (auto envIt = specializedClassTypeEnvs.find(cur); envIt != specializedClassTypeEnvs.end()) {
+        for (const auto& [name, boundType] : envIt->second) {
+          (void) name;
+          if (!self(self, boundType)) {
+            isConcrete = false;
+            break;
+          }
+        }
+      } else if (!cur->getGenericParams().empty()) {
+        isConcrete = false;
+      }
+      if (isConcrete) {
+        for (EnumVariant* variant : cur->getEnumVariants()) {
+          if (variant == nullptr) {
+            continue;
+          }
+          for (Type* payload : variant->payloadTypes) {
+            if (!self(self, payload)) {
+              isConcrete = false;
+              break;
+            }
+          }
+          if (!isConcrete) {
+            break;
+          }
         }
       }
       break;
@@ -336,43 +364,43 @@ auto Codegen::substituteTypeForSpecializationEnv(Type* t,
     u->setDeclarationSpan(t->getDeclarationSpan());
     return cacheType(std::move(u));
   }
-  if (t->is(BaseType::TY_CLASS)) {
-    Type* classTemplate = t;
+  if (t->isOneOf({BaseType::TY_CLASS, BaseType::TY_ENUM})) {
+    Type* nominalTemplate = t;
     if (auto tmplIt = specializedClassTemplateOf.find(t);
         tmplIt != specializedClassTemplateOf.end()) {
-      classTemplate = tmplIt->second;
+      nominalTemplate = tmplIt->second;
     }
-    const auto& genericParamNames = classTemplate->getGenericParams();
+    const auto& genericParamNames = nominalTemplate->getGenericParams();
     if (genericParamNames.empty()) {
       return t;
     }
-    std::unordered_map<std::string, Type*> classEnv;
+    std::unordered_map<std::string, Type*> nominalEnv;
     if (auto specTmpl = specializedClassTemplateOf.find(t);
         specTmpl != specializedClassTemplateOf.end()) {
       if (auto envIt = specializedClassTypeEnvs.find(t); envIt != specializedClassTypeEnvs.end()) {
         for (const auto& name : genericParamNames) {
           auto b = envIt->second.find(name);
           if (b != envIt->second.end()) {
-            classEnv[name] = substituteTypeForSpecializationEnv(b->second, env);
+            nominalEnv[name] = substituteTypeForSpecializationEnv(b->second, env);
           }
         }
       }
     }
     for (const auto& name : genericParamNames) {
       if (auto it = env.find(name); it != env.end()) {
-        classEnv[name] = it->second;
+        nominalEnv[name] = it->second;
       }
     }
     bool allBound = true;
     for (const auto& name : genericParamNames) {
-      if (!classEnv.contains(name)) {
+      if (!nominalEnv.contains(name)) {
         allBound = false;
         break;
       }
     }
     if (allBound) {
       const std::string registryKey =
-          TypeUtils::makeSpecializedClassKey(classTemplate, genericParamNames, classEnv);
+          TypeUtils::makeSpecializedClassKey(nominalTemplate, genericParamNames, nominalEnv);
       if (auto it = specializedClassTypesByKey.find(registryKey);
           it != specializedClassTypesByKey.end()) {
         return it->second;
