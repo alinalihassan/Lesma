@@ -284,8 +284,10 @@ auto Codegen::defineFunction(lesma::Value* value, const FuncDecl* node, Value* c
   }
   SymbolTable* savedScope = scope;
   SymbolTable* templateBodyScope = value->getBodyScope();
+  auto savedGenerics = currentGenericTypes;
   scope = templateBodyScope;
   if (scope != nullptr && specializationEnvs.contains(value)) {
+    currentGenericTypes = specializationEnvs.at(value);
     scope = savedScope->createChildBlock(node->getName() + ".specialized");
     std::vector<std::string> paramNames;
     paramNames.reserve(node->getParameters().size() + 1U);
@@ -306,6 +308,25 @@ auto Codegen::defineFunction(lesma::Value* value, const FuncDecl* node, Value* c
       seeded->setLlvmValue(nullptr);
       seeded->setCategory(ValueCategory::ADDRESSABLE_STORAGE);
       scope->insertSymbol(std::move(seeded));
+    }
+    for (const auto& [genericName, genericType] : currentGenericTypes) {
+      if (genericType == nullptr) {
+        continue;
+      }
+      bool alreadySeeded = false;
+      for (auto* symbol : scope->getSymbols()) {
+        if (symbol != nullptr && symbol->getName() == genericName) {
+          alreadySeeded = true;
+          break;
+        }
+      }
+      if (alreadySeeded) {
+        continue;
+      }
+      auto typeSymbol = std::make_unique<Value>(genericName, genericType);
+      typeSymbol->setCategory(ValueCategory::TYPE_SYMBOL);
+      typeSymbol->setDeclarationKind(ValueDeclarationKind::TYPE_PARAMETER);
+      scope->insertSymbol(std::move(typeSymbol));
     }
   }
   if (scope == nullptr) {
@@ -446,6 +467,7 @@ auto Codegen::defineFunction(lesma::Value* value, const FuncDecl* node, Value* c
 
   // Insert Function to Symbol Table
   scope = savedScope;
+  currentGenericTypes = std::move(savedGenerics);
   popArcOwnedSlotFrame(false);
 
   currentFunction = nullptr;
@@ -3340,8 +3362,6 @@ auto Codegen::visit(const Continue* node) -> void {
   builder->CreateBr(block);
 }
 
-auto Codegen::visit(const Pass* node) -> void { (void) node; }
-
 auto Codegen::visit(const Return* node) -> void {
   setDebugLoc(node->getSpan());
   // Check if it's top-level
@@ -3491,6 +3511,10 @@ auto Codegen::visit(const Import* node) -> void {
   setDebugLoc(node->getSpan());
   compileModule(node->getSpan(), node->getFilePath(), node->isStd(), node->getAlias(),
                 node->getImportAll(), node->getImportScope(), node->getImportedNames());
+}
+
+auto Codegen::visit(const TypeAlias* /*node*/) -> void {
+  // Type aliases are compile-time only.
 }
 
 auto Codegen::visit(const TraitDecl* /*node*/) -> void {
@@ -4844,6 +4868,7 @@ auto Codegen::emitClassInstanceDataField(Value* classStructSym, llvm::Value* obj
 
 void Codegen::emitClassStaticMethodCall(const DotOp* node, Type* classTy, const FuncCall* method) {
   auto recvHolder = std::make_unique<lesma::Value>("", classTy, static_cast<llvm::Value*>(nullptr));
+  recvHolder->setCategory(ValueCategory::TYPE_SYMBOL);
   std::vector<std::unique_ptr<lesma::Value>> argStorage;
   std::vector<lesma::Value*> args;
   evaluateCallArgValues(method, argStorage, args);
@@ -5070,6 +5095,21 @@ auto Codegen::visit(const DotOp* node) -> void {
 
   if (leftValue != nullptr && leftValue->getType() != nullptr) {
     lesma::Type* receiverType = leftValue->getType();
+    if (receiverType->is(BaseType::TY_GENERIC) &&
+        leftValue->getCategory() == ValueCategory::TYPE_SYMBOL) {
+      auto it = currentGenericTypes.find(receiverType->getGenericName());
+      if (it != currentGenericTypes.end()) {
+        receiverType = it->second;
+        if (receiverType->is(BaseType::TY_PTR) && receiverType->getElementType() != nullptr) {
+          receiverType = receiverType->getElementType();
+        }
+        if (auto* method = dynamic_cast<FuncCall*>(node->getRight());
+            method != nullptr && receiverType->is(BaseType::TY_CLASS)) {
+          emitClassStaticMethodCall(node, receiverType, method);
+          return;
+        }
+      }
+    }
     if (receiverType->is(BaseType::TY_PTR) && receiverType->getElementType() != nullptr &&
         receiverType->getElementType()->is(BaseType::TY_CLASS)) {
       receiverType = receiverType->getElementType();
@@ -5544,9 +5584,9 @@ auto Codegen::visit(const MatchExpr* node) -> void {
       }
       return;
     }
-    llvm::BasicBlock* incomingBlock = builder->GetInsertBlock();
     if (matchType != nullptr && !matchType->is(BaseType::TY_VOID)) {
       auto casted = cast(node->getSpan(), armValue.get(), matchType);
+      llvm::BasicBlock* incomingBlock = builder->GetInsertBlock();
       builder->CreateBr(mergeBlock);
       incomings.emplace_back(casted->getLlvmValue(), incomingBlock);
     } else {
@@ -5657,9 +5697,20 @@ auto Codegen::visit(const MatchExpr* node) -> void {
 
   builder->SetInsertPoint(mergeBlock);
   if (matchType != nullptr && !matchType->is(BaseType::TY_VOID)) {
-    llvm::PHINode* phi = builder->CreatePHI(matchType->getLlvmType(),
-                                            static_cast<unsigned>(incomings.size()), "match.result");
+    llvm::Type* phiType = nullptr;
+    if (!incomings.empty()) {
+      phiType = incomings.front().first->getType();
+    } else {
+      phiType = getStoredAggregateFieldLlvmType(matchType);
+    }
+    llvm::PHINode* phi =
+        builder->CreatePHI(phiType, static_cast<unsigned>(incomings.size()), "match.result");
     for (const auto& incoming : incomings) {
+      if (phi->getType() != incoming.first->getType()) {
+        throw CodegenError(
+            node->getSpan(), "Internal error: match PHI type mismatch in function {}",
+            currentFunction != nullptr ? std::string(currentFunction->getName()) : "<none>");
+      }
       phi->addIncoming(incoming.first, incoming.second);
     }
     result = std::make_unique<Value>("", matchType, phi);
@@ -6420,6 +6471,11 @@ auto Codegen::cast(llvm::SMRange span, lesma::Value* val, lesma::Type* type)
         llvm::PHINode* phi = builder->CreatePHI(
             type->getLlvmType(), static_cast<unsigned>(phiIncomings.size()), "union.widen.out");
         for (auto const& pr : phiIncomings) {
+          if (phi->getType() != pr.first->getType()) {
+            throw CodegenError(
+                span, "Internal error: union widen PHI type mismatch in function {}",
+                currentFunction != nullptr ? std::string(currentFunction->getName()) : "<none>");
+          }
           phi->addIncoming(pr.first, pr.second);
         }
         return std::make_unique<lesma::Value>("", type, phi);
@@ -7894,7 +7950,9 @@ auto Codegen::callMethodByName(llvm::SMRange span, lesma::Value* receiver,
   lesma::Value* receiverForCall = receiver;
   std::unique_ptr<lesma::Value> receiverAdapter;
   lesma::Value* directMethod = nullptr;
-  if (resolvedCallee != nullptr && resolvedCallee->isStaticMethod()) {
+  bool const staticCall = receiver->getCategory() == ValueCategory::TYPE_SYMBOL ||
+                          (resolvedCallee != nullptr && resolvedCallee->isStaticMethod());
+  if (staticCall) {
     for (auto* arg : args) {
       appendCallableArgument(arg, paramTypes, paramsLLVM);
     }
@@ -7903,6 +7961,20 @@ auto Codegen::callMethodByName(llvm::SMRange span, lesma::Value* receiver,
       if (Value* specializedMethod = scope->lookupFunction(methodName, paramTypes);
           specializedMethod != nullptr) {
         directMethod = specializedMethod;
+      }
+    }
+    if (directMethod == nullptr) {
+      directMethod = scope->lookupFunction(methodName, paramTypes);
+      if (directMethod == nullptr) {
+        for (const auto& importedScope : *importedScopes) {
+          if (importedScope == nullptr) {
+            continue;
+          }
+          directMethod = importedScope->lookupFunction(methodName, paramTypes);
+          if (directMethod != nullptr) {
+            break;
+          }
+        }
       }
     }
   } else {

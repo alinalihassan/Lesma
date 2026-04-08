@@ -631,6 +631,13 @@ auto collectIndexFromStmt(const Statement* stmt, AnalysisIndex& index, bool inCl
     }
     return;
   }
+  if (auto const* typeAlias = dynamic_cast<const TypeAlias*>(stmt)) {
+    appendIndexedOccurrence(index, typeAlias->getIdentifier(), std::nullopt, typeAlias->getNameSpan(),
+                            true, false, analysis_index_modifier::DECLARATION,
+                            IndexedTokenKind::Type, typeAlias->getResolvedSymbol());
+    collectIndexFromTypeExpr(typeAlias->getAliasedType(), index);
+    return;
+  }
   if (auto const* klass = dynamic_cast<const Class*>(stmt)) {
     appendIndexedOccurrence(index, klass->getIdentifier(), std::nullopt, klass->getNameSpan(), true,
                             false, analysis_index_modifier::DECLARATION, IndexedTokenKind::Class,

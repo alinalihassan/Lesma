@@ -609,6 +609,17 @@ private:
     if (auto const* import = dynamic_cast<const Import*>(node); import != nullptr) {
       return formatImport(import);
     }
+    if (auto const* typeAlias = dynamic_cast<const TypeAlias*>(node); typeAlias != nullptr) {
+      std::vector<Doc> parts;
+      if (typeAlias->isExported()) {
+        parts.push_back(docText("export "));
+      }
+      parts.push_back(docText("type "));
+      parts.push_back(docText(typeAlias->getIdentifier()));
+      parts.push_back(docText(" = "));
+      parts.push_back(formatType(typeAlias->getAliasedType()));
+      return docs(std::move(parts));
+    }
     if (auto const* enumDecl = dynamic_cast<const Enum*>(node); enumDecl != nullptr) {
       return formatEnum(enumDecl);
     }
@@ -650,9 +661,6 @@ private:
     }
     if (dynamic_cast<const Continue*>(node) != nullptr) {
       return docText("continue");
-    }
-    if (dynamic_cast<const Pass*>(node) != nullptr) {
-      return docText("pass");
     }
     if (auto const* returnStmt = dynamic_cast<const Return*>(node); returnStmt != nullptr) {
       if (returnStmt->getValue() == nullptr) {

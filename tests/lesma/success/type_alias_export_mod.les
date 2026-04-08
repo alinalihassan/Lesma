@@ -1,0 +1,10 @@
+export type MaybeNum = int | null
+export type Word = str
+
+export func make_present() -> MaybeNum {
+  return 7
+}
+
+export func make_word() -> Word {
+  return "hello"
+}

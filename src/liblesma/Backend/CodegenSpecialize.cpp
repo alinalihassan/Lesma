@@ -405,6 +405,68 @@ auto Codegen::substituteTypeForSpecializationEnv(Type* t,
           it != specializedClassTypesByKey.end()) {
         return it->second;
       }
+      if (nominalTemplate->is(BaseType::TY_ENUM)) {
+        auto specialized =
+            std::make_unique<Type>(BaseType::TY_ENUM, nullptr, std::vector<std::unique_ptr<Field>>{});
+        std::string displayName = nominalTemplate->getDisplayName();
+        if (displayName.empty()) {
+          displayName = "enum";
+        } else {
+          const auto angle = displayName.find('<');
+          if (angle != std::string::npos) {
+            displayName = displayName.substr(0, angle);
+          }
+        }
+        displayName += "<";
+        for (size_t i = 0; i < genericParamNames.size(); ++i) {
+          if (i > 0U) {
+            displayName += ", ";
+          }
+          displayName += nominalEnv[genericParamNames[i]]->toString();
+        }
+        displayName += ">";
+        specialized->setDisplayName(displayName);
+        specialized->setGenericParams(genericParamNames);
+        specialized->setDeclarationSpan(nominalTemplate->getDeclarationSpan());
+        specialized->setDeclarationFilePath(nominalTemplate->getDeclarationFilePath());
+        Type* specializedPtr = cacheType(std::move(specialized));
+        specializedClassTypeEnvs[specializedPtr] = nominalEnv;
+        specializedClassTemplateOf[specializedPtr] = nominalTemplate;
+        specializedClassTypesByKey[registryKey] = specializedPtr;
+
+        std::vector<std::unique_ptr<Field>> newFields;
+        for (Field* field : nominalTemplate->getFields()) {
+          Type* subst = substituteTypeForSpecializationEnv(field->type, nominalEnv);
+          auto newField = std::make_unique<Field>(field->name, subst);
+          newField->setDeclarationSpan(field->getDeclarationSpan());
+          newField->setDeclarationFilePath(field->getDeclarationFilePath());
+          if (Value* ds = field->getDeclarationSymbol()) {
+            auto symCopy = std::make_unique<Value>(*ds);
+            symCopy->setType(subst);
+            newField->setDeclarationSymbol(std::move(symCopy));
+          }
+          newFields.push_back(std::move(newField));
+        }
+        specializedPtr->replaceFields(std::move(newFields));
+
+        std::vector<std::unique_ptr<EnumVariant>> newVariants;
+        for (EnumVariant* variant : nominalTemplate->getEnumVariants()) {
+          if (variant == nullptr) {
+            continue;
+          }
+          std::vector<Type*> payloadTypes;
+          payloadTypes.reserve(variant->payloadTypes.size());
+          for (Type* payload : variant->payloadTypes) {
+            payloadTypes.push_back(substituteTypeForSpecializationEnv(payload, nominalEnv));
+          }
+          auto newVariant = std::make_unique<EnumVariant>(variant->name, std::move(payloadTypes));
+          newVariant->setDeclarationSpan(variant->getDeclarationSpan());
+          newVariant->setDeclarationFilePath(variant->getDeclarationFilePath());
+          newVariants.push_back(std::move(newVariant));
+        }
+        specializedPtr->replaceEnumVariants(std::move(newVariants));
+        return specializedPtr;
+      }
     }
   }
   return t;

@@ -1211,7 +1211,7 @@ auto Parser::parseBlockExpr() -> std::unique_ptr<Expression> {
     return checkAny<TokenType::FUNC, TokenType::TRAIT, TokenType::IMPORT, TokenType::FROM,
                     TokenType::CLASS, TokenType::ENUM, TokenType::EXPORT, TokenType::LET,
                     TokenType::VAR, TokenType::IF, TokenType::WHILE, TokenType::FOR,
-                    TokenType::BREAK, TokenType::CONTINUE, TokenType::PASS, TokenType::RETURN,
+                    TokenType::BREAK, TokenType::CONTINUE, TokenType::RETURN,
                     TokenType::DEFER>();
   };
 
@@ -1868,12 +1868,6 @@ auto Parser::parseContinue() -> std::unique_ptr<Statement> {
   return std::make_unique<Continue>(span);
 }
 
-auto Parser::parsePass() -> std::unique_ptr<Statement> {
-  auto span = consume(TokenType::PASS)->span;
-  consumeNewlineOrBlockEnd();
-  return std::make_unique<Pass>(span);
-}
-
 auto Parser::parseReturn() -> std::unique_ptr<Statement> {
   auto loc = peek()->span;
   consume(TokenType::RETURN);
@@ -1903,6 +1897,7 @@ auto Parser::parseStatement(bool isTopLevel) -> std::unique_ptr<Statement> {
   }
 
   if (checkAny<TokenType::FUNC, TokenType::IMPORT, TokenType::CLASS, TokenType::ENUM,
+               TokenType::TYPE,
                TokenType::TRAIT, TokenType::EXPORT>() &&
       !isTopLevel) {
     error(peek(), "Statement not allowed inside a block");
@@ -1922,6 +1917,9 @@ auto Parser::parseStatement(bool isTopLevel) -> std::unique_ptr<Statement> {
   }
   if (checkAny<TokenType::IMPORT, TokenType::FROM>()) {
     return parseImport();
+  }
+  if (check(TokenType::TYPE)) {
+    return parseTypeAlias();
   }
   if (check(TokenType::CLASS)) {
     return parseClass();
@@ -1949,9 +1947,6 @@ auto Parser::parseStatement(bool isTopLevel) -> std::unique_ptr<Statement> {
   }
   if (check(TokenType::CONTINUE)) {
     return parseContinue();
-  }
-  if (check(TokenType::PASS)) {
-    return parsePass();
   }
   if (check(TokenType::RETURN)) {
     return parseReturn();
@@ -2203,8 +2198,9 @@ auto Parser::parseExport() -> std::unique_ptr<Statement> {
   }
 
   if (!checkAny<TokenType::FUNC, TokenType::CLASS, TokenType::ENUM, TokenType::TRAIT,
+                TokenType::TYPE,
                 TokenType::LET, TokenType::VAR>()) {
-    error(peek(), "Can only export functions, classes, enums, traits, and variables");
+    error(peek(), "Can only export functions, classes, enums, traits, type aliases, and variables");
   }
 
   isExported = true;
@@ -2223,6 +2219,8 @@ auto Parser::parseExport() -> std::unique_ptr<Statement> {
     statement = parseClass();
   } else if (check(TokenType::TRAIT)) {
     statement = parseTrait();
+  } else if (check(TokenType::TYPE)) {
+    statement = parseTypeAlias();
   } else if (check(TokenType::ENUM)) {
     statement = parseEnum();
   } else {
@@ -2313,6 +2311,21 @@ auto Parser::parseImport() -> std::unique_ptr<Statement> {
   return std::make_unique<Import>(llvm::SMRange{loc.Start, endLoc}, filepath, std::string{},
                                   llvm::SMRange(), token->type == TokenType::IDENTIFIER, false,
                                   true, importedNames);
+}
+
+auto Parser::parseTypeAlias() -> std::unique_ptr<Statement> {
+  auto loc = isExported ? previous()->span : peek()->span;
+  consume(TokenType::TYPE);
+  auto* nameTok = consume(TokenType::IDENTIFIER);
+  consume(TokenType::EQUAL, "Expected '=' in type alias");
+  while (check(TokenType::NEWLINE)) {
+    consume(TokenType::NEWLINE);
+  }
+  auto aliasedType = parseType();
+  consumeNewlineOrBlockEnd();
+  return std::make_unique<TypeAlias>(
+      llvm::SMRange{loc.Start, aliasedType->getEnd()}, nameTok->lexeme, nameTok->span,
+      std::move(aliasedType), isExported);
 }
 
 auto Parser::parseClass() -> std::unique_ptr<Statement> {
@@ -2462,6 +2475,10 @@ auto Parser::parseClass() -> std::unique_ptr<Statement> {
 
 auto Parser::parseTraitMethodDeclaration() -> std::unique_ptr<FuncDecl> {
   auto loc = peek()->span;
+  bool methodStatic = false;
+  if (advanceIfMatchAny<TokenType::STATIC>()) {
+    methodStatic = true;
+  }
   consume(TokenType::FUNC);
   if (inClass) {
     error(previous(), "Trait requirements cannot be declared inside a class");
@@ -2497,7 +2514,8 @@ auto Parser::parseTraitMethodDeclaration() -> std::unique_ptr<FuncDecl> {
   return std::make_unique<FuncDecl>(llvm::SMRange{loc.Start, funcEndLoc}, functionName,
                                     functionNameSpan, llvm::SMRange{},
                                     std::vector<GenericParamDecl>{}, std::move(returnType),
-                                    std::move(parameters), std::move(body), false, false);
+                                    std::move(parameters), std::move(body), false, false, false,
+                                    false, methodStatic);
 }
 
 auto Parser::parseTrait() -> std::unique_ptr<Statement> {
@@ -2519,12 +2537,12 @@ auto Parser::parseTrait() -> std::unique_ptr<Statement> {
       break;
     }
     try {
-      if (check(TokenType::FUNC)) {
+      if (check(TokenType::STATIC) || check(TokenType::FUNC)) {
         auto req = parseTraitMethodDeclaration();
         endLoc = req->getEnd();
         requirements.push_back(std::move(req));
       } else {
-        error(peek(), "Expected 'func' in trait body");
+        error(peek(), "Expected 'func' or 'static func' in trait body");
       }
     } catch (const ParserError& err) {
       if (diagnosticsOut == nullptr) {

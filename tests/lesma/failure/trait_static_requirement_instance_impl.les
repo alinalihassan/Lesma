@@ -1,0 +1,17 @@
+trait Factory<T> {
+  static func decode(value: int) -> T
+}
+
+class Box {
+  var value: int
+
+  func new(value: int) {
+    self.value = value
+  }
+}
+
+class Bad impl Factory<Box> {
+  func decode(value: int) -> Box {
+    return Box(value)
+  }
+}

@@ -1,0 +1,35 @@
+from json import Json
+
+class Box {
+  var value: int
+
+  func new(value: int) {
+    self.value = value
+  }
+}
+
+let badParse = Json.parse("{\"name\": true,}")
+if match badParse {
+  Result.Err(err) => err.text().contains("byte")
+  Result.Ok(_) => false
+} == false {
+  exit(1)
+}
+
+let badRoot = Json.parseObject("[1, 2, 3]")
+if match badRoot {
+  Result.Err(err) => err.text() == "JSON root is not an object"
+  Result.Ok(_) => false
+} == false {
+  exit(2)
+}
+
+var boxed: any? = null
+boxed = Box(3)
+let unsupported = Json.stringify(boxed)
+if match unsupported {
+  Result.Err(err) => err.text().contains("Unsupported")
+  Result.Ok(_) => false
+} == false {
+  exit(3)
+}

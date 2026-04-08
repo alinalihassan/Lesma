@@ -1,0 +1,25 @@
+class Box impl Display {
+  var value: int
+
+  func new(value: int) {
+    self.value = value
+  }
+
+  func str() -> str {
+    return "Box(${self.value})"
+  }
+}
+
+func label<T: Display>(value: T) -> str {
+  return value.str()
+}
+
+let box = Box(7)
+if label(box) != "Box(7)" {
+  exit(1)
+}
+if box.str() != "Box(7)" {
+  exit(1)
+}
+
+print(box)

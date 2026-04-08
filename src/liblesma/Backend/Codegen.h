@@ -379,6 +379,7 @@ protected:
   auto visit(const While* node) -> void override;
   auto visit(const ForIn* node) -> void override;
   auto visit(const Import* node) -> void override;
+  auto visit(const TypeAlias* node) -> void override;
   auto visit(const Enum* node) -> void override;
   auto visit(const Class* node) -> void override;
   auto visit(const TraitDecl* node) -> void override;
@@ -387,7 +388,6 @@ protected:
   auto visit(const Assignment* node) -> void override;
   auto visit(const Break* node) -> void override;
   auto visit(const Continue* node) -> void override;
-  auto visit(const Pass* node) -> void override;
   auto visit(const Return* node) -> void override;
   auto visit(const Defer* node) -> void override;
   /** Emit deferred statements in LIFO order (last \c defer registered runs first). */

@@ -1,0 +1,24 @@
+type Small = int | bool
+type Word = str
+type Numbers = list<int>
+
+let a: Small = 3
+let b: Small = true
+let word: Word = "lesma"
+var numbers: Numbers = []
+numbers.push(4)
+numbers.push(9)
+
+func keep_small(value: Small) -> Small {
+  return value
+}
+
+keep_small(a)
+keep_small(b)
+
+if word.len() != 5 {
+  exit(5)
+}
+if numbers.len() != 2 or numbers[0] != 4 or numbers[1] != 9 {
+  exit(6)
+}

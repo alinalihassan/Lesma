@@ -1,0 +1,19 @@
+trait Factory<T> {
+  static func decode(value: int) -> T
+}
+
+class Box impl Factory<Box> {
+  var value: int
+
+  func new(value: int) {
+    self.value = value
+  }
+
+  static func decode(value: int) -> Box {
+    return Box(value)
+  }
+}
+let box = Box.decode(7)
+if box.value != 7 {
+  exit(1)
+}

@@ -1,0 +1,57 @@
+from json import Json
+
+let path: str = "tests/lesma/success/json_file_roundtrip_out.json"
+
+var payload: dict<str, any?> = {}
+payload["name"] = "Lesma"
+payload["enabled"] = true
+payload["count"] = 4
+var values: list<any?> = []
+values.push(1)
+values.push("two")
+values.push(null)
+payload["values"] = values
+
+let writeResult = Json.write(path, payload)
+if match writeResult {
+  Result.Ok(value) => value
+  Result.Err(_) => false
+} == false {
+  exit(1)
+}
+
+let readResult = Json.readObject(path)
+let loaded = match readResult {
+  Result.Ok(value) => value
+  Result.Err(_) => {
+    exit(2)
+  }
+}
+
+if loaded["name"] is not str or loaded["name"] as str != "Lesma" {
+  exit(3)
+}
+if loaded["enabled"] is not bool or loaded["enabled"] as bool != true {
+  exit(4)
+}
+if loaded["count"] is not int or loaded["count"] as int != 4 {
+  exit(5)
+}
+if loaded["values"] is not list<any?> {
+  exit(6)
+}
+let readValues = loaded["values"] as list<any?>
+if readValues[0] is not int or readValues[0] as int != 1 {
+  exit(7)
+}
+if readValues[1] is not str or readValues[1] as str != "two" {
+  exit(8)
+}
+if readValues[2] is not null {
+  exit(9)
+}
+
+file(path.cstr()).delete()
+if file(path.cstr()).text() is not null {
+  exit(10)
+}

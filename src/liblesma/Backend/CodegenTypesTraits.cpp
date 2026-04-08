@@ -198,6 +198,13 @@ auto Codegen::visit(const TypeExpr* node) -> void {
       typeArg->accept(*this);
       explicitTypeArgs.push_back(result->getType());
     }
+    if (Value* resolvedSym = node->getResolvedSymbol();
+        resolvedSym != nullptr && resolvedSym->getDeclarationKind() == ValueDeclarationKind::TYPE &&
+        resolvedSym->getType() != nullptr && explicitTypeArgs.empty()) {
+      getOrCreateLlvmType(resolvedSym->getType());
+      result = std::make_unique<Value>(resolvedSym->getType());
+      return;
+    }
     if (lookupName == "__buffer") {
       if (explicitTypeArgs.size() != 1U) {
         throw CodegenError(node->getSpan(), "__buffer<T> expects exactly one type argument");
@@ -258,6 +265,51 @@ auto Codegen::visit(const TypeExpr* node) -> void {
         const std::string registryKey =
             TypeUtils::makeSpecializedClassKey(templateType, genericParamNames, env);
         auto specIt = specializedClassTypesByKey.find(registryKey);
+        if (specIt == specializedClassTypesByKey.end()) {
+          auto specialized =
+              std::make_unique<Type>(BaseType::TY_ENUM, nullptr, std::vector<std::unique_ptr<Field>>{});
+          specialized->setDisplayName(node->getName());
+          specialized->setGenericParams(genericParamNames);
+          specialized->setDeclarationSpan(templateType->getDeclarationSpan());
+          specialized->setDeclarationFilePath(templateType->getDeclarationFilePath());
+          typ = cacheType(std::move(specialized));
+          specializedClassTypeEnvs[typ] = env;
+          specializedClassTemplateOf[typ] = templateType;
+          specializedClassTypesByKey[registryKey] = typ;
+
+          std::vector<std::unique_ptr<Field>> newFields;
+          for (Field* field : templateType->getFields()) {
+            Type* subst = substituteTypeForSpecializationEnv(field->type, env);
+            auto newField = std::make_unique<Field>(field->name, subst);
+            newField->setDeclarationSpan(field->getDeclarationSpan());
+            newField->setDeclarationFilePath(field->getDeclarationFilePath());
+            if (Value* ds = field->getDeclarationSymbol()) {
+              auto symCopy = std::make_unique<Value>(*ds);
+              symCopy->setType(subst);
+              newField->setDeclarationSymbol(std::move(symCopy));
+            }
+            newFields.push_back(std::move(newField));
+          }
+          typ->replaceFields(std::move(newFields));
+
+          std::vector<std::unique_ptr<EnumVariant>> newVariants;
+          for (EnumVariant* variant : templateType->getEnumVariants()) {
+            if (variant == nullptr) {
+              continue;
+            }
+            std::vector<Type*> payloadTypes;
+            payloadTypes.reserve(variant->payloadTypes.size());
+            for (Type* payload : variant->payloadTypes) {
+              payloadTypes.push_back(substituteTypeForSpecializationEnv(payload, env));
+            }
+            auto newVariant = std::make_unique<EnumVariant>(variant->name, std::move(payloadTypes));
+            newVariant->setDeclarationSpan(variant->getDeclarationSpan());
+            newVariant->setDeclarationFilePath(variant->getDeclarationFilePath());
+            newVariants.push_back(std::move(newVariant));
+          }
+          typ->replaceEnumVariants(std::move(newVariants));
+          specIt = specializedClassTypesByKey.find(registryKey);
+        }
         if (specIt == specializedClassTypesByKey.end()) {
           throw CodegenError(node->getSpan(), "Missing specialized enum type for {}", node->getName());
         }

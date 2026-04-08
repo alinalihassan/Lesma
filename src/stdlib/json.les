@@ -1,0 +1,609 @@
+from base import Display
+
+export class JsonErr impl Display {
+  private var message: str
+
+  private func new(message: str) {
+    self.message = message
+  }
+
+  static func Message(message: str) -> JsonErr {
+    return JsonErr(message)
+  }
+
+  func str() -> str {
+    return self.message
+  }
+
+  func text() -> str {
+    return self.str()
+  }
+}
+
+export trait Serializable<T> {
+  static func decode(value: any?) -> Result<T, JsonErr>
+  static func encode(value: T) -> Result<any?, JsonErr>
+}
+
+export class Json impl Display {
+  private var source: str
+  private var index: int = 0
+
+  private func new(text: str) {
+    self.source = text
+    self.index = 0
+  }
+
+  static func parse(text: str) -> Result<any?, JsonErr> {
+    let json = Json(text)
+    json.skipWhitespace()
+    let valueResult = json.parseValue()
+    let value = match valueResult {
+      Result.Ok(parsedValue) => parsedValue
+      Result.Err(err) => {
+        let out: Result<any?, JsonErr> = Result.Err(err)
+        return out
+      }
+    }
+    json.skipWhitespace()
+    if json.isAtEnd() {
+      return Result.Ok(value)
+    }
+    return Result.Err(JsonErr.Message("Unexpected trailing JSON at byte ${json.index}"))
+  }
+
+  static func parseObject(text: str) -> Result<dict<str, any?>, JsonErr> {
+    let parsed = Json.parse(text)
+    let value = match parsed {
+      Result.Ok(parsedValue) => parsedValue
+      Result.Err(err) => {
+        let out: Result<dict<str, any?>, JsonErr> = Result.Err(err)
+        return out
+      }
+    }
+    if value is null {
+      return Result.Err(JsonErr.Message("JSON root is not an object"))
+    }
+    if value is any {
+      let dynamic = value as any
+      if dynamic is dict<str, any?> {
+        return Result.Ok(dynamic as dict<str, any?>)
+      }
+    }
+    return Result.Err(JsonErr.Message("JSON root is not an object"))
+  }
+
+  static func parseArray(text: str) -> Result<list<any?>, JsonErr> {
+    let parsed = Json.parse(text)
+    let value = match parsed {
+      Result.Ok(parsedValue) => parsedValue
+      Result.Err(err) => {
+        let out: Result<list<any?>, JsonErr> = Result.Err(err)
+        return out
+      }
+    }
+    if value is null {
+      return Result.Err(JsonErr.Message("JSON root is not an array"))
+    }
+    if value is any {
+      let dynamic = value as any
+      if dynamic is list<any?> {
+        return Result.Ok(dynamic as list<any?>)
+      }
+    }
+    return Result.Err(JsonErr.Message("JSON root is not an array"))
+  }
+
+  static func stringify(value: any?) -> Result<str, JsonErr> {
+    let json = Json("")
+    return json.stringifyValue(value)
+  }
+
+  static func read(path: str) -> Result<any?, JsonErr> {
+    let text = file(path.cstr()).text()
+    if text is str {
+      return Json.parse(text as str)
+    }
+    return Result.Err(JsonErr.Message("Unable to read JSON file '${path}'"))
+  }
+
+  static func readObject(path: str) -> Result<dict<str, any?>, JsonErr> {
+    let raw = Json.read(path)
+    let value = match raw {
+      Result.Ok(parsedValue) => parsedValue
+      Result.Err(err) => {
+        let out: Result<dict<str, any?>, JsonErr> = Result.Err(err)
+        return out
+      }
+    }
+    if value is null {
+      return Result.Err(JsonErr.Message("JSON root is not an object"))
+    }
+    if value is any {
+      let dynamic = value as any
+      if dynamic is dict<str, any?> {
+        return Result.Ok(dynamic as dict<str, any?>)
+      }
+    }
+    return Result.Err(JsonErr.Message("JSON root is not an object"))
+  }
+
+  static func readArray(path: str) -> Result<list<any?>, JsonErr> {
+    let raw = Json.read(path)
+    let value = match raw {
+      Result.Ok(parsedValue) => parsedValue
+      Result.Err(err) => {
+        let out: Result<list<any?>, JsonErr> = Result.Err(err)
+        return out
+      }
+    }
+    if value is null {
+      return Result.Err(JsonErr.Message("JSON root is not an array"))
+    }
+    if value is any {
+      let dynamic = value as any
+      if dynamic is list<any?> {
+        return Result.Ok(dynamic as list<any?>)
+      }
+    }
+    return Result.Err(JsonErr.Message("JSON root is not an array"))
+  }
+
+  static func write(path: str, value: any?) -> Result<bool, JsonErr> {
+    let textResult = Json.stringify(value)
+    let text = match textResult {
+      Result.Ok(encodedText) => encodedText
+      Result.Err(err) => {
+        let out: Result<bool, JsonErr> = Result.Err(err)
+        return out
+      }
+    }
+    file.write(path.cstr(), text)
+    if file(path.cstr()).text() is str {
+      return Result.Ok(true)
+    }
+    return Result.Err(JsonErr.Message("Unable to write JSON file '${path}'"))
+  }
+
+  static func decode<T: Serializable>(value: any?) -> Result<T, JsonErr> {
+    return T.decode(value)
+  }
+
+  static func encode<T: Serializable>(value: T) -> Result<any?, JsonErr> {
+    return T.encode(value)
+  }
+
+  func str() -> str {
+    return self.source
+  }
+
+  private func isAtEnd() -> bool {
+    return self.index >= self.source.len()
+  }
+
+  private func currentChar() -> str {
+    let value = self.source.charAt(self.index)
+    if value is str {
+      return value as str
+    }
+    return ""
+  }
+
+  private func advance() -> str {
+    let value = self.currentChar()
+    self.index += 1
+    return value
+  }
+
+  private func skipWhitespace() {
+    while not self.isAtEnd() {
+      let ch = self.currentChar()
+      if ch == " " or ch == "\n" or ch == "\r" or ch == "\t" {
+        self.index += 1
+      } else {
+        return
+      }
+    }
+  }
+
+  private func isDigit(ch: str) -> bool {
+    return ch == "0"
+      or ch == "1"
+      or ch == "2"
+      or ch == "3"
+      or ch == "4"
+      or ch == "5"
+      or ch == "6"
+      or ch == "7"
+      or ch == "8"
+      or ch == "9"
+  }
+
+  private func parseValue() -> Result<any?, JsonErr> {
+    self.skipWhitespace()
+    if self.isAtEnd() {
+      return Result.Err(JsonErr.Message("Unexpected end of JSON at byte ${self.index}"))
+    }
+
+    let ch = self.currentChar()
+    if ch == "{" {
+      return self.parseObjectValue()
+    }
+    if ch == "[" {
+      return self.parseArrayValue()
+    }
+    if ch == "\"" {
+      let stringResult = self.parseString()
+      return match stringResult {
+        Result.Ok(value) => {
+          var raw: any? = null
+          raw = value
+          Result.Ok(raw)
+        }
+        Result.Err(err) => Result.Err(err)
+      }
+    }
+    if ch == "t" {
+      return self.parseTrue()
+    }
+    if ch == "f" {
+      return self.parseFalse()
+    }
+    if ch == "n" {
+      return self.parseNull()
+    }
+    return self.parseNumber()
+  }
+
+  private func parseObjectValue() -> Result<any?, JsonErr> {
+    let objectResult = self.parseObjectRaw()
+    return match objectResult {
+      Result.Ok(value) => {
+        var raw: any? = null
+        raw = value
+        Result.Ok(raw)
+      }
+      Result.Err(err) => Result.Err(err)
+    }
+  }
+
+  private func parseArrayValue() -> Result<any?, JsonErr> {
+    let arrayResult = self.parseArrayRaw()
+    return match arrayResult {
+      Result.Ok(value) => {
+        var raw: any? = null
+        raw = value
+        Result.Ok(raw)
+      }
+      Result.Err(err) => Result.Err(err)
+    }
+  }
+
+  private func parseObjectRaw() -> Result<dict<str, any?>, JsonErr> {
+    var object: dict<str, any?> = {}
+    self.advance()
+    self.skipWhitespace()
+    if not self.isAtEnd() and self.currentChar() == "}" {
+      self.advance()
+      return Result.Ok(object)
+    }
+
+    while true {
+      self.skipWhitespace()
+      if self.isAtEnd() {
+        return Result.Err(JsonErr.Message("Unterminated object at byte ${self.index}"))
+      }
+      if self.currentChar() != "\"" {
+        return Result.Err(JsonErr.Message("Expected object key at byte ${self.index}"))
+      }
+      let keyResult = self.parseString()
+      let key = match keyResult {
+        Result.Ok(value) => value
+        Result.Err(err) => {
+          let out: Result<dict<str, any?>, JsonErr> = Result.Err(err)
+          return out
+        }
+      }
+      self.skipWhitespace()
+      if self.isAtEnd() or self.currentChar() != ":" {
+        return Result.Err(JsonErr.Message("Expected ':' at byte ${self.index}"))
+      }
+      self.advance()
+      let valueResult = self.parseValue()
+      let value = match valueResult {
+        Result.Ok(parsedValue) => parsedValue
+        Result.Err(err) => {
+          let out: Result<dict<str, any?>, JsonErr> = Result.Err(err)
+          return out
+        }
+      }
+      object[key] = value
+      self.skipWhitespace()
+      if self.isAtEnd() {
+        return Result.Err(JsonErr.Message("Unterminated object at byte ${self.index}"))
+      }
+      let end = self.advance()
+      if end == "}" {
+        return Result.Ok(object)
+      }
+      if end != "," {
+        return Result.Err(JsonErr.Message("Expected ',' or '}' at byte ${self.index - 1}"))
+      }
+      self.skipWhitespace()
+      if not self.isAtEnd() and self.currentChar() == "}" {
+        return Result.Err(JsonErr.Message("Trailing comma in object at byte ${self.index}"))
+      }
+    }
+
+    return Result.Err(JsonErr.Message("Unterminated object at byte ${self.index}"))
+  }
+
+  private func parseArrayRaw() -> Result<list<any?>, JsonErr> {
+    var items: list<any?> = []
+    self.advance()
+    self.skipWhitespace()
+    if not self.isAtEnd() and self.currentChar() == "]" {
+      self.advance()
+      return Result.Ok(items)
+    }
+
+    while true {
+      let valueResult = self.parseValue()
+      let value = match valueResult {
+        Result.Ok(parsedValue) => parsedValue
+        Result.Err(err) => {
+          let out: Result<list<any?>, JsonErr> = Result.Err(err)
+          return out
+        }
+      }
+      items.push(value)
+      self.skipWhitespace()
+      if self.isAtEnd() {
+        return Result.Err(JsonErr.Message("Unterminated array at byte ${self.index}"))
+      }
+      let end = self.advance()
+      if end == "]" {
+        return Result.Ok(items)
+      }
+      if end != "," {
+        return Result.Err(JsonErr.Message("Expected ',' or ']' at byte ${self.index - 1}"))
+      }
+      self.skipWhitespace()
+      if not self.isAtEnd() and self.currentChar() == "]" {
+        return Result.Err(JsonErr.Message("Trailing comma in array at byte ${self.index}"))
+      }
+    }
+
+    return Result.Err(JsonErr.Message("Unterminated array at byte ${self.index}"))
+  }
+
+  private func parseString() -> Result<str, JsonErr> {
+    var out: str = ""
+    self.advance()
+    while not self.isAtEnd() {
+      let ch = self.advance()
+      if ch == "\"" {
+        return Result.Ok(out)
+      }
+      if ch == "\\" {
+        if self.isAtEnd() {
+          return Result.Err(JsonErr.Message("Unterminated escape at byte ${self.index}"))
+        }
+        let escape = self.advance()
+        if escape == "\"" {
+          out = out + "\""
+        } else if escape == "\\" {
+          out = out + "\\"
+        } else if escape == "/" {
+          out = out + "/"
+        } else if escape == "n" {
+          out = out + "\n"
+        } else if escape == "r" {
+          out = out + "\r"
+        } else if escape == "t" {
+          out = out + "\t"
+        } else {
+          return Result.Err(
+            JsonErr.Message("Unsupported escape '\\${escape}' at byte ${self.index - 1}")
+          )
+        }
+      } else {
+        out = out + ch
+      }
+    }
+    return Result.Err(JsonErr.Message("Unterminated string at byte ${self.index}"))
+  }
+
+  private func parseTrue() -> Result<any?, JsonErr> {
+    if self.source.substring(self.index, 4) != "true" {
+      return Result.Err(JsonErr.Message("Invalid token at byte ${self.index}"))
+    }
+    self.index += 4
+    var raw: any? = null
+    raw = true
+    return Result.Ok(raw)
+  }
+
+  private func parseFalse() -> Result<any?, JsonErr> {
+    if self.source.substring(self.index, 5) != "false" {
+      return Result.Err(JsonErr.Message("Invalid token at byte ${self.index}"))
+    }
+    self.index += 5
+    var raw: any? = null
+    raw = false
+    return Result.Ok(raw)
+  }
+
+  private func parseNull() -> Result<any?, JsonErr> {
+    if self.source.substring(self.index, 4) != "null" {
+      return Result.Err(JsonErr.Message("Invalid token at byte ${self.index}"))
+    }
+    self.index += 4
+    var raw: any? = null
+    return Result.Ok(raw)
+  }
+
+  private func parseNumber() -> Result<any?, JsonErr> {
+    let start = self.index
+    var isFloat: bool = false
+
+    if self.currentChar() == "-" {
+      self.advance()
+      if self.isAtEnd() {
+        return Result.Err(JsonErr.Message("Invalid number at byte ${start}"))
+      }
+    }
+
+    if self.currentChar() == "0" {
+      self.advance()
+      if not self.isAtEnd() and self.isDigit(self.currentChar()) {
+        return Result.Err(JsonErr.Message("Invalid leading zero at byte ${start}"))
+      }
+    } else {
+      if not self.isDigit(self.currentChar()) {
+        return Result.Err(JsonErr.Message("Invalid number at byte ${start}"))
+      }
+      while not self.isAtEnd() and self.isDigit(self.currentChar()) {
+        self.advance()
+      }
+    }
+
+    if not self.isAtEnd() and self.currentChar() == "." {
+      isFloat = true
+      self.advance()
+      if self.isAtEnd() or not self.isDigit(self.currentChar()) {
+        return Result.Err(JsonErr.Message("Invalid float at byte ${start}"))
+      }
+      while not self.isAtEnd() and self.isDigit(self.currentChar()) {
+        self.advance()
+      }
+    }
+
+    if not self.isAtEnd() and (self.currentChar() == "e" or self.currentChar() == "E") {
+      isFloat = true
+      self.advance()
+      if not self.isAtEnd() and (self.currentChar() == "+" or self.currentChar() == "-") {
+        self.advance()
+      }
+      if self.isAtEnd() or not self.isDigit(self.currentChar()) {
+        return Result.Err(JsonErr.Message("Invalid exponent at byte ${start}"))
+      }
+      while not self.isAtEnd() and self.isDigit(self.currentChar()) {
+        self.advance()
+      }
+    }
+
+    let numberText = self.source.substring(start, self.index - start)
+    var raw: any? = null
+    if isFloat {
+      raw = numberText.toFloat()
+    } else {
+      raw = numberText.toInt()
+    }
+    return Result.Ok(raw)
+  }
+
+  private func stringifyValue(value: any?) -> Result<str, JsonErr> {
+    if value is null {
+      return Result.Ok("null")
+    }
+    if value is any {
+      let dynamic = value as any
+      if dynamic is bool {
+        if dynamic as bool {
+          return Result.Ok("true")
+        }
+        return Result.Ok("false")
+      }
+      if dynamic is int {
+        return Result.Ok("${dynamic as int}")
+      }
+      if dynamic is float {
+        return Result.Ok("${dynamic as float}")
+      }
+      if dynamic is str {
+        return self.stringifyString(dynamic as str)
+      }
+      if dynamic is list<any?> {
+        return self.stringifyArray(dynamic as list<any?>)
+      }
+      if dynamic is dict<str, any?> {
+        return self.stringifyObject(dynamic as dict<str, any?>)
+      }
+    }
+    return Result.Err(JsonErr.Message("Unsupported JSON value"))
+  }
+
+  private func stringifyString(value: str) -> Result<str, JsonErr> {
+    var out: str = "\""
+    var i: int = 0
+    while i < value.len() {
+      let ch = value[i]
+      if ch == "\"" {
+        out = out + "\\\""
+      } else if ch == "\\" {
+        out = out + "\\\\"
+      } else if ch == "\n" {
+        out = out + "\\n"
+      } else if ch == "\r" {
+        out = out + "\\r"
+      } else if ch == "\t" {
+        out = out + "\\t"
+      } else {
+        out = out + ch
+      }
+      i += 1
+    }
+    return Result.Ok(out + "\"")
+  }
+
+  private func stringifyArray(values: list<any?>) -> Result<str, JsonErr> {
+    var out: str = "["
+    var i: int = 0
+    while i < values.len() {
+      if i > 0 {
+        out = out + ","
+      }
+      let itemResult = self.stringifyValue(values[i])
+      let itemText = match itemResult {
+        Result.Ok(value) => value
+        Result.Err(err) => {
+          let outResult: Result<str, JsonErr> = Result.Err(err)
+          return outResult
+        }
+      }
+      out = out + itemText
+      i += 1
+    }
+    return Result.Ok(out + "]")
+  }
+
+  private func stringifyObject(values: dict<str, any?>) -> Result<str, JsonErr> {
+    var out: str = "{"
+    var i: int = 0
+    while i < values.len() {
+      if i > 0 {
+        out = out + ","
+      }
+      let keyResult = self.stringifyString(values.keys[i])
+      let keyText = match keyResult {
+        Result.Ok(value) => value
+        Result.Err(err) => {
+          let outResult: Result<str, JsonErr> = Result.Err(err)
+          return outResult
+        }
+      }
+      let valueResult = self.stringifyValue(values.vals[i])
+      let valueText = match valueResult {
+        Result.Ok(value) => value
+        Result.Err(err) => {
+          let outResult: Result<str, JsonErr> = Result.Err(err)
+          return outResult
+        }
+      }
+      out = out + keyText + ":" + valueText
+      i += 1
+    }
+    return Result.Ok(out + "}")
+  }
+}

@@ -479,6 +479,38 @@ public:
   }
 };
 
+class TypeAlias : public Statement {
+  std::string identifier;
+  llvm::SMRange nameSpan;
+  std::unique_ptr<TypeExpr> aliasedType;
+  bool exported;
+  mutable Value* resolvedSymbol = nullptr;
+
+public:
+  TypeAlias(llvm::SMRange loc, std::string identifier, llvm::SMRange nameSpan,
+            std::unique_ptr<TypeExpr> aliasedType, bool exported)
+      : Statement(loc), identifier(std::move(identifier)), nameSpan(nameSpan),
+        aliasedType(std::move(aliasedType)), exported(exported) {}
+  void accept(ASTVisitor& visitor) const override { visitor.visit(this); }
+
+  [[nodiscard]] auto getIdentifier() const -> std::string { return identifier; }
+  [[nodiscard]] auto getNameSpan() const -> llvm::SMRange { return nameSpan; }
+  [[nodiscard]] auto getAliasedType() const -> TypeExpr* { return aliasedType.get(); }
+  [[nodiscard]] auto isExported() const -> bool { return exported; }
+  [[nodiscard]] auto getResolvedSymbol() const -> Value* { return resolvedSymbol; }
+  auto setResolvedSymbol(Value* value) const -> void { resolvedSymbol = value; }
+
+  auto toString(llvm::SourceMgr* srcMgr, const std::string& prefix, bool isTail) const
+      -> std::string override {
+    return fmt::format("{}{}TypeAlias[Line({}-{}):Col({}-{})]: {} = {}\n", prefix,
+                       isTail ? "└──" : "├──", srcMgr->getLineAndColumn(getStart()).first,
+                       srcMgr->getLineAndColumn(getEnd()).first,
+                       srcMgr->getLineAndColumn(getStart()).second,
+                       srcMgr->getLineAndColumn(getEnd()).second, identifier,
+                       aliasedType != nullptr ? aliasedType->getName() : "<missing>");
+  }
+};
+
 class VarDecl : public Statement {
   std::vector<std::unique_ptr<Literal>> vars;
   std::unique_ptr<TypeExpr> type;
@@ -1550,21 +1582,6 @@ public:
       -> std::string override {
     return fmt::format(
         "{}{}Continue[Line({}-{}):Col({}-{})]:\n", prefix, isTail ? "└──" : "├──",
-        srcMgr->getLineAndColumn(getStart()).first, srcMgr->getLineAndColumn(getEnd()).first,
-        srcMgr->getLineAndColumn(getStart()).second, srcMgr->getLineAndColumn(getEnd()).second);
-  }
-};
-
-/** No-op statement (Python-style); valid wherever a statement is allowed. */
-class Pass : public Statement {
-public:
-  explicit Pass(llvm::SMRange loc) : Statement(loc) {}
-  void accept(ASTVisitor& visitor) const override { visitor.visit(this); }
-
-  auto toString(llvm::SourceMgr* srcMgr, const std::string& prefix, bool isTail) const
-      -> std::string override {
-    return fmt::format(
-        "{}{}Pass[Line({}-{}):Col({}-{})]:\n", prefix, isTail ? "└──" : "├──",
         srcMgr->getLineAndColumn(getStart()).first, srcMgr->getLineAndColumn(getEnd()).first,
         srcMgr->getLineAndColumn(getStart()).second, srcMgr->getLineAndColumn(getEnd()).second);
   }

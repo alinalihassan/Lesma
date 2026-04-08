@@ -457,8 +457,12 @@ private:
     case BaseType::TY_ANY:
     case BaseType::TY_VOID:
     case BaseType::TY_NULL:
-    case BaseType::TY_INVALID:
     case BaseType::TY_IMPORT:
+      return true;
+    case BaseType::TY_INVALID:
+      if (!displayName.empty() || !rhs->getDisplayName().empty()) {
+        return displayName == rhs->getDisplayName();
+      }
       return true;
     case BaseType::TY_PTR:
     case BaseType::TY_ARRAY: {
@@ -556,7 +560,7 @@ public:
 
     switch (baseType) {
     case BaseType::TY_INVALID:
-      result = "Invalid";
+      result = displayName.empty() ? "Invalid" : displayName;
       break;
     case BaseType::TY_INT: {
       const unsigned w = getIntWidth();

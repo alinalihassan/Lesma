@@ -1,0 +1,11 @@
+from "type_alias_export_mod.les" import MaybeNum, Word, make_present, make_word
+
+let maybe: MaybeNum = make_present()
+let missing: MaybeNum = null
+let word: Word = make_word()
+
+if word.len() != 5 {
+  exit(2)
+}
+var _ = maybe
+var __ = missing

@@ -4,6 +4,7 @@ namespace lesma {
 class Statement;
 class Compound;
 class Import;
+class TypeAlias;
 class Enum;
 class Class;
 class TraitDecl;
@@ -17,7 +18,6 @@ class Assignment;
 class ExpressionStatement;
 class Break;
 class Continue;
-class Pass;
 class Return;
 class Defer;
 class UnimplementedStatement;
@@ -51,6 +51,7 @@ public:
   virtual auto visit(const Statement* node) -> void = 0;
   virtual auto visit(const Compound* node) -> void = 0;
   virtual auto visit(const Import* node) -> void = 0;
+  virtual auto visit(const TypeAlias* node) -> void = 0;
   virtual auto visit(const Enum* node) -> void = 0;
   virtual auto visit(const Class* node) -> void = 0;
   virtual auto visit(const TraitDecl* node) -> void = 0;
@@ -64,7 +65,6 @@ public:
   virtual auto visit(const ExpressionStatement* node) -> void = 0;
   virtual auto visit(const Break* node) -> void = 0;
   virtual auto visit(const Continue* node) -> void = 0;
-  virtual auto visit(const Pass* node) -> void = 0;
   virtual auto visit(const Return* node) -> void = 0;
   virtual auto visit(const Defer* node) -> void = 0;
   virtual auto visit(const UnimplementedStatement* node) -> void = 0;

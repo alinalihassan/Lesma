@@ -67,6 +67,10 @@ export trait Iterable<T> {
   func iter() -> Iterator<T>
 }
 
+export trait Display {
+  func str() -> str
+}
+
 export enum Result<T, E> {
   Ok(T)
   Err(E)
@@ -779,6 +783,10 @@ export func random(bound1: int, bound2: int) -> int {
  */
 export func print(text: str) {
   printf("%s\n", text.cstr())
+}
+
+export func print(value: Display) {
+  printf("%s\n", value.str().cstr())
 }
 
 /**

@@ -24,6 +24,7 @@ namespace lesma {
 
 class Class;
 class TraitDecl;
+class TypeAlias;
 class TypeCheckError;
 
 /** Callback to resolve import *: (filepath, isStd, mainFilePath) -> exported names or failure. */
@@ -73,6 +74,8 @@ class Typechecker final : public ASTVisitor {
   /** Specialized class types: key = template toString + "|" + concrete types,
    * value = Type* with concrete fields. */
   std::unordered_map<std::string, Type*> specializedClassTypes;
+  /** Template class type -> AST node, used when constructor/privacy decisions need declaration info. */
+  std::unordered_map<Type*, const Class*> classAstByType;
   /** For each specialized class type, the substitution map (generic name ->
    * concrete type) used to create it. */
   std::unordered_map<Type*, std::unordered_map<std::string, Type*>> specializedTypeEnv;
@@ -100,6 +103,9 @@ class Typechecker final : public ASTVisitor {
 
   /** Registered traits (name → AST) for impl checks and existential method lookup. */
   std::unordered_map<std::string, const TraitDecl*> traitRegistry;
+  std::unordered_map<std::string, const TypeAlias*> typeAliasRegistry;
+  std::unordered_set<std::string> typeAliasesResolving;
+  std::unordered_set<std::string> recursiveTypeAliases;
   /** traitName -> methodName -> overload signatures (TY_FUNCTION: self + params, return type;
    *  multiple entries per name preserve overloads; resolved during visit(TraitDecl)). */
   std::unordered_map<std::string, std::unordered_map<std::string, std::vector<Type*>>>
@@ -179,6 +185,7 @@ class Typechecker final : public ASTVisitor {
   auto lookupConstructorForAllocatedClass(SymbolTable* tab,
                                           const std::vector<Type*>& ctorParamTypes, Type* classType)
       -> Value*;
+  auto lookupZeroArgConstructorForAllocatedClass(SymbolTable* tab, Type* classType) -> Value*;
   /** After all template fields exist, fill in placeholder specialized types created
    * mid-declaration. */
   void finalizeSpecializedTypesForTemplate(Type* classTemplate);
@@ -215,6 +222,9 @@ class Typechecker final : public ASTVisitor {
    *  \c CUSTOM_TYPE. */
   [[nodiscard]] auto tryResolveNonCustomTypeExpr(const TypeExpr* node) -> Type*;
   auto resolveCustomTypeExpr(const TypeExpr* node) -> Type*;
+  auto resolveTypeAlias(const std::string& aliasName, llvm::SMRange span) -> Type*;
+  auto finalizeRecursiveTypeAlias(Type* aliasStub, Type* resolvedType,
+                                  const std::string& aliasName) -> Type*;
   auto resolveType(const TypeExpr* node) -> Type*;
   /** Returns the unified type for binary ops, or nullptr if incompatible. */
   auto getExtendedType(Type* left, Type* right) -> Type*;
@@ -444,6 +454,7 @@ public:
   auto visit(const While* node) -> void override;
   auto visit(const ForIn* node) -> void override;
   auto visit(const Import* node) -> void override;
+  auto visit(const TypeAlias* node) -> void override;
   auto visit(const Enum* node) -> void override;
   auto visit(const Class* node) -> void override;
   auto visit(const TraitDecl* node) -> void override;
@@ -452,7 +463,6 @@ public:
   auto visit(const Assignment* node) -> void override;
   auto visit(const Break* node) -> void override;
   auto visit(const Continue* node) -> void override;
-  auto visit(const Pass* node) -> void override;
   auto visit(const Return* node) -> void override;
   auto visit(const Defer* node) -> void override;
   auto visit(const UnimplementedStatement* node) -> void override;

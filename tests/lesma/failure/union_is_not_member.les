@@ -1,5 +1,4 @@
 // `is` RHS must be a member of the union.
 var x: int | bool = 1
 if x is float {
-  pass
 }

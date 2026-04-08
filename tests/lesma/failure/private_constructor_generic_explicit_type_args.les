@@ -1,0 +1,5 @@
+class Secret<T> {
+  private func new() {}
+}
+
+var s = Secret<int>()
