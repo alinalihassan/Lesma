@@ -1,0 +1,24 @@
+class Box {
+  var value: int
+
+  func new(value: int) {
+    self.value = value
+  }
+
+  func get() -> int {
+    return self.value
+  }
+}
+
+let current: Box = Box(7)
+var erased: any = 0
+erased = current
+
+if erased is not Box {
+  exit(1)
+}
+
+let out = erased as Box
+if out.get() != 7 {
+  exit(2)
+}

@@ -582,6 +582,36 @@ if current is null {
   EXPECT_NE(output.find("[arc] live objects: 0"), std::string::npos);
 }
 
+TEST(ArcDebugRuntimeTests, MixedTupleBorrowedAndOwnedArcElementsReportZero) {
+  std::filesystem::path const scratchDir = recreateScratchDir("lesma_arc_runtime_tuple_mixed_zero");
+  std::filesystem::path const mainPath = scratchDir / "main.les";
+  writeScratchFile(mainPath, R"(class Box {
+  var value: int
+
+  func new(value: int) {
+    self.value = value
+  }
+
+  func get() -> int {
+    return self.value
+  }
+}
+
+let a = Box(1)
+let pair: (Box, Box) = (a, Box(2))
+if pair[0].get() != 1 {
+  exit(1)
+}
+if pair[1].get() != 2 {
+  exit(2)
+}
+)");
+
+  auto const [exitCode, output] = runFileWithArcDebug(mainPath);
+  EXPECT_EQ(exitCode, 0);
+  EXPECT_NE(output.find("[arc] live objects: 0"), std::string::npos);
+}
+
 TEST(ArcDebugRuntimeTests, ImportedModuleGlobalsReportZeroAfterCleanup) {
   std::filesystem::path const repoRoot =
       std::filesystem::path(__FILE__).parent_path().parent_path();

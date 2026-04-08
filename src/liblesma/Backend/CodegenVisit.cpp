@@ -734,6 +734,7 @@ auto Codegen::emitSimpleClassPtrOrCastStore(llvm::SMRange span, llvm::Value* des
     }
   }
   llvm::Value* storedValue = nullptr;
+  bool storedOwnsArcValue = valueForStore->getArcOwnedValue();
   const bool ptrToClass = isLesmaPtrToClass(storedType);
   if (ptrToClass && valueForStore->getType() != nullptr &&
       valueForStore->getType()->is(BaseType::TY_PTR)) {
@@ -742,8 +743,9 @@ auto Codegen::emitSimpleClassPtrOrCastStore(llvm::SMRange span, llvm::Value* des
     lesma::Type* castTarget = ptrToClass ? storedType->getElementType() : storedType;
     auto castVal = cast(span, valueForStore, castTarget);
     storedValue = castVal->getLlvmValue();
+    storedOwnsArcValue = castVal->getArcOwnedValue();
   }
-  if (!valueForStore->getArcOwnedValue() && TypeUtils::containsArcManagedValue(storedType)) {
+  if (!storedOwnsArcValue && TypeUtils::containsArcManagedValue(storedType)) {
     emitRetainLoadedValue(storedType, storedValue, destStoresFuncValuePair);
   }
   if (releasePrevious && TypeUtils::containsArcManagedValue(storedType)) {
@@ -764,6 +766,7 @@ auto Codegen::emitExistingVarSlotInitializerStore(const VarDecl* node, llvm::Val
     -> llvm::Instruction* {
   const bool ptrToClass = isLesmaPtrToClass(storedType);
   llvm::Value* storedValue = nullptr;
+  bool storedOwnsArcValue = valueResult->getArcOwnedValue();
   if (valueResult->getLlvmValue() == nullptr && storedType->is(BaseType::TY_FUNCTION) &&
       !storedType->getGenericParams().empty()) {
     storedValue = llvm::ConstantAggregateZero::get(getFuncValuePairLlvmType());
@@ -780,8 +783,9 @@ auto Codegen::emitExistingVarSlotInitializerStore(const VarDecl* node, llvm::Val
     lesma::Type* castTarget = ptrToClass ? storedType->getElementType() : storedType;
     auto castVal = cast(node->getSpan(), valueResult.get(), castTarget);
     storedValue = castVal->getLlvmValue();
+    storedOwnsArcValue = castVal->getArcOwnedValue();
   }
-  if (!valueResult->getArcOwnedValue() && TypeUtils::containsArcManagedValue(storedType)) {
+  if (!storedOwnsArcValue && TypeUtils::containsArcManagedValue(storedType)) {
     emitRetainLoadedValue(storedType, storedValue, destStoresFuncValuePair);
   }
   return builder->CreateStore(storedValue, destPtr);
@@ -1554,7 +1558,8 @@ auto Codegen::getOrCreateAnyTypeInfoGlobal(lesma::Type* type) -> llvm::GlobalVar
 }
 
 auto Codegen::emitAnyTypeInfoPtr(lesma::Type* type) -> llvm::Value* {
-  return builder->CreateBitCast(getOrCreateAnyTypeInfoGlobal(type), builder->getPtrTy(),
+  lesma::Type* canonicalType = isLesmaPtrToClass(type) ? type->getElementType() : type;
+  return builder->CreateBitCast(getOrCreateAnyTypeInfoGlobal(canonicalType), builder->getPtrTy(),
                                 "any.typeinfo");
 }
 
@@ -2997,7 +3002,7 @@ auto Codegen::visit(const Assignment* node) -> void {
     builder->SetInsertPoint(assignBlock);
     node->getRightHandSide()->accept(*this);
     auto storedValue = cast(node->getSpan(), result.get(), targetType);
-    if (!result->getArcOwnedValue() && TypeUtils::containsArcManagedValue(targetType)) {
+    if (!storedValue->getArcOwnedValue() && TypeUtils::containsArcManagedValue(targetType)) {
       emitRetainLoadedValue(targetType, storedValue->getLlvmValue(), lhs->getStoresFuncValuePair());
     }
     if (TypeUtils::containsArcManagedValue(targetType)) {
@@ -3040,7 +3045,7 @@ auto Codegen::visit(const Assignment* node) -> void {
     auto value = cast(node->getSpan(), result.get(),
                       isPtr ? lhs->getType()->getElementType() : lhs->getType());
     lesma::Type* storeType = isPtr ? lhs->getType()->getElementType() : lhs->getType();
-    if (!result->getArcOwnedValue() && TypeUtils::containsArcManagedValue(storeType)) {
+    if (!value->getArcOwnedValue() && TypeUtils::containsArcManagedValue(storeType)) {
       emitRetainLoadedValue(storeType, value->getLlvmValue(), lhs->getStoresFuncValuePair());
     }
     if (TypeUtils::containsArcManagedValue(storeType)) {
@@ -5252,8 +5257,16 @@ auto Codegen::visit(const TupleLiteral* node) -> void {
     elements[i]->accept(*this);
     setDebugLoc(node->getSpan());
     llvm::Value* ev = result->getLlvmValue();
+    bool const elementOwned = result != nullptr && result->getArcOwnedValue();
+    bool const elementNeedsArc =
+        fields[i]->type != nullptr && TypeUtils::containsArcManagedValue(fields[i]->type);
+    if (elementNeedsArc) {
+      if (!elementOwned) {
+        emitRetainLoadedValue(fields[i]->type, ev, false);
+      }
+      tupleOwnsArcValue = true;
+    }
     agg = builder->CreateInsertValue(agg, ev, static_cast<unsigned>(i), "tuple");
-    tupleOwnsArcValue = tupleOwnsArcValue || (result != nullptr && result->getArcOwnedValue());
   }
   result = std::make_unique<Value>("", tupleType, agg);
   result->setArcOwnedValue(tupleOwnsArcValue);
