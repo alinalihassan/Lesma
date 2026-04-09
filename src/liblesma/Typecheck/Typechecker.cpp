@@ -3315,11 +3315,43 @@ auto Typechecker::functionTypesMatchForTraitImpl(Type* actualFn, Type* expectedF
   if (ar == nullptr || er == nullptr) {
     return false;
   }
-  if (er->is(BaseType::TY_PTR) && er->getElementType() != nullptr &&
-      er->getElementType()->is(BaseType::TY_TRAIT_EXISTENTIAL)) {
-    return isAssignableTo(ar, er);
+  if (isAssignableTo(ar, er)) {
+    return true;
   }
-  return ar->isEqual(er);
+  if (ar->is(BaseType::TY_ENUM) && er->is(BaseType::TY_ENUM)) {
+    Type* actualTemplate = ar;
+    if (auto it = specializedTypeToTemplate.find(ar); it != specializedTypeToTemplate.end()) {
+      actualTemplate = it->second;
+    }
+    Type* expectedTemplate = er;
+    if (auto it = specializedTypeToTemplate.find(er); it != specializedTypeToTemplate.end()) {
+      expectedTemplate = it->second;
+    }
+    if (!actualTemplate->isEqual(expectedTemplate)) {
+      return false;
+    }
+    const auto& genericNames = getDeclaredGenericParams(actualTemplate);
+    if (genericNames.empty()) {
+      return ar->isEqual(er);
+    }
+    auto actualEnvIt = specializedTypeEnv.find(ar);
+    auto expectedEnvIt = specializedTypeEnv.find(er);
+    if (actualEnvIt == specializedTypeEnv.end() || expectedEnvIt == specializedTypeEnv.end()) {
+      return false;
+    }
+    for (const auto& genericName : genericNames) {
+      auto actualArgIt = actualEnvIt->second.find(genericName);
+      auto expectedArgIt = expectedEnvIt->second.find(genericName);
+      if (actualArgIt == actualEnvIt->second.end() || expectedArgIt == expectedEnvIt->second.end()) {
+        return false;
+      }
+      if (!isAssignableTo(actualArgIt->second, expectedArgIt->second)) {
+        return false;
+      }
+    }
+    return true;
+  }
+  return false;
 }
 
 auto Typechecker::wrapReturnTypeIfNominal(Type* returnType) -> Type* {
@@ -4414,15 +4446,18 @@ auto Typechecker::fillUnionNarrowingForIfBlock(
   }
   const auto* is = dynamic_cast<const IsOp*>(cond);
   if (is == nullptr) {
+    collectUnionNarrowingForConditionAssumption(cond, true, out);
     return;
   }
   auto key = tryGetIsOpUnionNarrowingKey(is);
   if (!key.has_value()) {
+    collectUnionNarrowingForConditionAssumption(cond, true, out);
     return;
   }
   is->getLeft()->accept(*this);
   Type* unionTy = result != nullptr ? result->getType() : nullptr;
   if (unionTy == nullptr || !unionTy->is(BaseType::TY_UNION)) {
+    collectUnionNarrowingForConditionAssumption(cond, true, out);
     return;
   }
   Type* rhsTy = nullptr;
@@ -4465,18 +4500,21 @@ auto Typechecker::fillUnionNarrowingForFollowingStatements(
   if (guardBlock == nullptr || pathLeadsToEndWithoutReturn(guardBlock->getChildren(), 0)) {
     return;
   }
-  collectUnionNarrowingForGuardSuccess(node->getConds()[0], out);
+  collectUnionNarrowingForConditionAssumption(node->getConds()[0], false, out);
 }
 
-auto Typechecker::collectUnionNarrowingForGuardSuccess(
-    const Expression* cond,
+auto Typechecker::collectUnionNarrowingForConditionAssumption(
+    const Expression* cond, bool assumeTrue,
     std::unordered_map<UnionNarrowingStableKey, Type*, UnionNarrowingStableKeyHash,
                        UnionNarrowingStableKeyEq>& out) -> bool {
   if (cond == nullptr) {
     return false;
   }
   if (auto const* binary = dynamic_cast<const BinaryOp*>(cond)) {
-    if (binary->getOperator() != TokenType::OR) {
+    bool const propagateChildren =
+        (binary->getOperator() == TokenType::AND && assumeTrue) ||
+        (binary->getOperator() == TokenType::OR && !assumeTrue);
+    if (!propagateChildren) {
       return false;
     }
     std::unordered_map<UnionNarrowingStableKey, Type*, UnionNarrowingStableKeyHash,
@@ -4485,22 +4523,48 @@ auto Typechecker::collectUnionNarrowingForGuardSuccess(
     std::unordered_map<UnionNarrowingStableKey, Type*, UnionNarrowingStableKeyHash,
                        UnionNarrowingStableKeyEq>
         rightMap;
-    if (!collectUnionNarrowingForGuardSuccess(binary->getLeft(), leftMap) ||
-        !collectUnionNarrowingForGuardSuccess(binary->getRight(), rightMap)) {
-      return false;
+    bool const leftCollected =
+        collectUnionNarrowingForConditionAssumption(binary->getLeft(), assumeTrue, leftMap);
+    bool pushedLeft = !leftMap.empty();
+    if (pushedLeft) {
+      unionNarrowingStack.push_back(leftMap);
     }
-    for (const auto& [key, narrowed] : leftMap) {
-      out[key] = narrowed;
+    bool const rightCollected =
+        collectUnionNarrowingForConditionAssumption(binary->getRight(), assumeTrue, rightMap);
+    if (pushedLeft) {
+      unionNarrowingStack.pop_back();
     }
-    for (const auto& [key, narrowed] : rightMap) {
-      auto existing = out.find(key);
-      if (existing != out.end() && existing->second != nullptr && narrowed != nullptr &&
-          !existing->second->isEqual(narrowed)) {
+    auto mergeNarrowMap = [this](
+                              std::unordered_map<UnionNarrowingStableKey, Type*,
+                                                 UnionNarrowingStableKeyHash,
+                                                 UnionNarrowingStableKeyEq>& dst,
+                              const std::unordered_map<UnionNarrowingStableKey, Type*,
+                                                       UnionNarrowingStableKeyHash,
+                                                       UnionNarrowingStableKeyEq>& src) -> bool {
+      for (const auto& [key, narrowed] : src) {
+        auto it = dst.find(key);
+        if (it == dst.end() || it->second == nullptr) {
+          dst[key] = narrowed;
+          continue;
+        }
+        if (narrowed == nullptr || it->second->isEqual(narrowed)) {
+          continue;
+        }
+        if (isAssignableTo(narrowed, it->second)) {
+          it->second = narrowed;
+          continue;
+        }
+        if (isAssignableTo(it->second, narrowed)) {
+          continue;
+        }
         return false;
       }
-      out[key] = narrowed;
+      return true;
+    };
+    if (!mergeNarrowMap(out, leftMap) || !mergeNarrowMap(out, rightMap)) {
+      return false;
     }
-    return true;
+    return leftCollected || rightCollected;
   }
 
   const auto* is = dynamic_cast<const IsOp*>(cond);
@@ -4526,7 +4590,14 @@ auto Typechecker::collectUnionNarrowingForGuardSuccess(
   } catch (const TypeCheckError&) {
     return false;
   }
-  if (is->getOperator() == TokenType::IS) {
+  if (is->getOperator() == TokenType::IS && assumeTrue) {
+    if (!unionCanSatisfyIsCheck(unionTy, rhsTy)) {
+      return false;
+    }
+    out[*key] = rhsTy;
+    return true;
+  }
+  if (is->getOperator() == TokenType::IS && !assumeTrue) {
     if (!rhsTypeIsUnionMember(unionTy, rhsTy)) {
       return false;
     }
@@ -4537,7 +4608,18 @@ auto Typechecker::collectUnionNarrowingForGuardSuccess(
     out[*key] = narrowed;
     return true;
   }
-  if (is->getOperator() == TokenType::IS_NOT && unionCanSatisfyIsCheck(unionTy, rhsTy)) {
+  if (is->getOperator() == TokenType::IS_NOT && assumeTrue) {
+    if (!rhsTypeIsUnionMember(unionTy, rhsTy)) {
+      return false;
+    }
+    Type* narrowed = narrowUnionByExcludingMembers(unionTy, {rhsTy});
+    if (narrowed == nullptr) {
+      return false;
+    }
+    out[*key] = narrowed;
+    return true;
+  }
+  if (is->getOperator() == TokenType::IS_NOT && !assumeTrue && unionCanSatisfyIsCheck(unionTy, rhsTy)) {
     out[*key] = rhsTy;
     return true;
   }
@@ -6353,7 +6435,22 @@ auto Typechecker::visit(const LambdaExpr* node) -> void {
 auto Typechecker::visit(const BinaryOp* node) -> void {
   node->getLeft()->accept(*this);
   std::unique_ptr<Value> left = std::move(result);
+  bool pushedConditionNarrowing = false;
+  if (node->getOperator() == TokenType::AND || node->getOperator() == TokenType::OR) {
+    std::unordered_map<UnionNarrowingStableKey, Type*, UnionNarrowingStableKeyHash,
+                       UnionNarrowingStableKeyEq>
+        conditionNarrowing;
+    bool const assumeLeftTrue = node->getOperator() == TokenType::AND;
+    collectUnionNarrowingForConditionAssumption(node->getLeft(), assumeLeftTrue, conditionNarrowing);
+    if (!conditionNarrowing.empty()) {
+      unionNarrowingStack.push_back(std::move(conditionNarrowing));
+      pushedConditionNarrowing = true;
+    }
+  }
   node->getRight()->accept(*this);
+  if (pushedConditionNarrowing) {
+    unionNarrowingStack.pop_back();
+  }
   std::unique_ptr<Value> right = std::move(result);
   auto getNullableStorageTypeForComparison = [this](const Expression* expr,
                                                     Type* currentType) -> Type* {

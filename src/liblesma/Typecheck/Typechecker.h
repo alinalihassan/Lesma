@@ -254,8 +254,8 @@ class Typechecker final : public ASTVisitor {
       const If* node,
       std::unordered_map<UnionNarrowingStableKey, Type*, UnionNarrowingStableKeyHash,
                          UnionNarrowingStableKeyEq>& out) -> void;
-  auto collectUnionNarrowingForGuardSuccess(
-      const Expression* cond,
+  auto collectUnionNarrowingForConditionAssumption(
+      const Expression* cond, bool assumeTrue,
       std::unordered_map<UnionNarrowingStableKey, Type*, UnionNarrowingStableKeyHash,
                          UnionNarrowingStableKeyEq>& out) -> bool;
   [[nodiscard]] static auto rhsTypeIsUnionMember(Type* unionTy, Type* rhs) -> bool;

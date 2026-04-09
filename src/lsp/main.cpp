@@ -441,6 +441,10 @@ auto formatHoverContent(lesma::Value* value, lesma::SymbolTable* rootScope,
     if (type != nullptr && type->is(lesma::BaseType::TY_GENERIC)) {
       return "type parameter `" + name + "`";
     }
+    if (value->getDeclarationKind() == lesma::ValueDeclarationKind::TYPE) {
+      std::string aliasedType = type != nullptr ? type->toString() : "?";
+      return "type `" + name + "` = `" + aliasedType + "`";
+    }
     // For TYPE_SYMBOL: enum, trait, or class
     if (type != nullptr && type->is(lesma::BaseType::TY_ENUM)) {
       return "enum `" + name + "`";

@@ -1,0 +1,7 @@
+// A mixed logical condition may fail for reasons unrelated to the type guard, so narrowing must
+// not leak past the if statement.
+var x: int | str = 5
+if x is int and x > 7 {
+  print("big")
+}
+let bad: int = x

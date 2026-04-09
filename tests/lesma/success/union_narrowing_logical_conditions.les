@@ -1,0 +1,35 @@
+class Lookup {
+  func operator [](key: str) -> int | str {
+    if key == "name" {
+      return "Lesma"
+    }
+    return 3
+  }
+}
+
+var x: int | str = 9
+if x is int and x > 7 {
+  let narrowed: int = x
+  if narrowed != 9 {
+    exit(1)
+  }
+} else {
+  exit(1)
+}
+
+var root = Lookup()
+if root["name"] is not str or root["name"] != "Lesma" {
+  exit(2)
+}
+if root["age"] is not int or root["age"] + 1 != 4 {
+  exit(3)
+}
+if root["name"] is not str or root["age"] is not int {
+  exit(4)
+}
+
+let name: str = root["name"]
+let age: int = root["age"]
+if name != "Lesma" or age != 3 {
+  exit(5)
+}
