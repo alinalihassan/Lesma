@@ -1161,6 +1161,8 @@ private:
     } else if (auto const* stringInterpolation = dynamic_cast<const StringInterpolation*>(expr);
                stringInterpolation != nullptr) {
       result = formatStringInterpolation(stringInterpolation);
+    } else if (auto const* typeExpr = dynamic_cast<const TypeExpr*>(expr); typeExpr != nullptr) {
+      result = formatType(typeExpr);
     } else if (auto const* lambda = dynamic_cast<const LambdaExpr*>(expr); lambda != nullptr) {
       result = formatLambda(lambda);
     } else if (auto const* funcCall = dynamic_cast<const FuncCall*>(expr); funcCall != nullptr) {

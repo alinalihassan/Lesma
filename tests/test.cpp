@@ -1173,6 +1173,16 @@ TEST(FormatterTests, FormatSourceKeepsBlankLineAfterImportsBeforeLet) {
                         "let maybe: MaybeNum = null\n");
 }
 
+TEST(FormatterTests, FormatSourceSupportsValuePositionTypeReceivers) {
+  auto formatted =
+      formatSource("func wrap() -> Result<int, int> {\nreturn Result<int, int>.Ok(1)\n}\n",
+                   "value_type_receiver_test.les", 100);
+  ASSERT_TRUE(formatted.has_value()) << formatted.error().message;
+  EXPECT_EQ(*formatted, "func wrap() -> Result<int, int> {\n"
+                        "  return Result<int, int>.Ok(1)\n"
+                        "}\n");
+}
+
 TEST(ParserTests, ReturnExpressionAllowsIndentedContinuation) {
   AnalysisResult const result = analyzeSource("func check(b: uint8) -> bool {\n"
                                               "  return\n"
@@ -1617,6 +1627,35 @@ var status: Status = Status.READY
   EXPECT_TRUE(sawReadyUsageDeclaration);
   EXPECT_TRUE(sawEnumDeclaration);
   EXPECT_TRUE(sawEnumUsageDeclaration);
+}
+
+TEST(AnalysisIndexTests, ValuePositionGenericEnumConstructorIsIndexed) {
+  constexpr auto source = R"(func wrap() -> Result<int, int> {
+  return Result<int, int>.Ok(1)
+}
+)";
+
+  AnalysisResult const result = analyzeSource(source);
+  ASSERT_FALSE(result.hasErrors())
+      << (result.diagnostics.empty() ? std::string("unknown analysis error")
+                                     : result.diagnostics.front().message);
+
+  int resultTypeOccurrenceCount = 0;
+  bool sawOkConstructorUsage = false;
+
+  for (const IndexedSymbolOccurrence& occurrence : result.index.symbolOccurrences) {
+    if (occurrence.name == "Result" && occurrence.isTypePosition) {
+      ASSERT_TRUE(occurrence.declaration.has_value());
+      ++resultTypeOccurrenceCount;
+    }
+    if (occurrence.name == "Ok" && occurrence.isMemberAccess) {
+      ASSERT_TRUE(occurrence.declaration.has_value());
+      sawOkConstructorUsage = true;
+    }
+  }
+
+  EXPECT_GE(resultTypeOccurrenceCount, 2);
+  EXPECT_TRUE(sawOkConstructorUsage);
 }
 
 TEST(AnalysisIndexTests, NestedMemberAccessPreservesOuterReceiverName) {

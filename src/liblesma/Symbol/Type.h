@@ -544,16 +544,30 @@ private:
       if (lu.size() != ru.size()) {
         return false;
       }
-      for (size_t i = 0; i < lu.size(); ++i) {
-        Type* lt = lu[i];
-        Type* rt = ru[i];
-        if (lt == nullptr || rt == nullptr) {
-          if (lt != rt) {
-            return false;
+      std::vector<bool> used(ru.size(), false);
+      for (Type* lt : lu) {
+        bool matched = false;
+        for (size_t i = 0; i < ru.size(); ++i) {
+          if (used[i]) {
+            continue;
           }
-          continue;
+          Type* rt = ru[i];
+          if (lt == nullptr || rt == nullptr) {
+            if (lt != rt) {
+              continue;
+            }
+            used[i] = true;
+            matched = true;
+            break;
+          }
+          if (!lt->isEqualImpl(rt, active)) {
+            continue;
+          }
+          used[i] = true;
+          matched = true;
+          break;
         }
-        if (!lt->isEqualImpl(rt, active)) {
+        if (!matched) {
           return false;
         }
       }

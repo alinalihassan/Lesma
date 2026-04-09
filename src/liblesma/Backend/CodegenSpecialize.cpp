@@ -384,7 +384,7 @@ auto Codegen::substituteTypeForSpecializationEnv(
     }
     auto u = std::make_unique<Type>(BaseType::TY_UNION);
     u->setUnionMembers(std::move(members));
-    u->setDisplayName(dn);
+    u->setDisplayName(t->getDisplayName().empty() ? dn : t->getDisplayName());
     u->setDeclarationSpan(t->getDeclarationSpan());
     u->setDeclarationFilePath(t->getDeclarationFilePath());
     return cacheType(std::move(u));

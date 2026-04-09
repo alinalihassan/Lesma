@@ -1,5 +1,3 @@
-from base import Display
-
 export class JsonErr impl Display {
   private var message: str
 
@@ -12,11 +10,11 @@ export class JsonErr impl Display {
   }
 }
 
-export type JsonValue = dict<str, any?>
+export type JsonValue = null | bool | int | float | str | list<JsonValue> | dict<str, JsonValue>
 
 export trait Serializable<T> {
-  static func decode(value: any?) -> Result<T, JsonErr>
-  static func encode(value: T) -> Result<any?, JsonErr>
+  static func decode(value: JsonValue) -> Result<T, JsonErr>
+  func encode() -> Result<JsonValue, JsonErr>
 }
 
 export class Json impl Display {
@@ -28,23 +26,19 @@ export class Json impl Display {
     self.index = 0
   }
 
-  private static func objectErr(err: JsonErr) -> Result<dict<str, any?>, JsonErr> {
-    return Result.Err(err)
+  private static func objectErr(err: JsonErr) -> Result<dict<str, JsonValue>, JsonErr> {
+    let out: Result<dict<str, JsonValue>, JsonErr> = Result<dict<str, JsonValue>, JsonErr>.Err(err)
+    return out
   }
 
-  private static func arrayErr(err: JsonErr) -> Result<list<any?>, JsonErr> {
-    return Result.Err(err)
-  }
-
-  static func parse(text: str) -> Result<any?, JsonErr> {
+  static func parse(text: str) -> Result<JsonValue, JsonErr> {
     let json = Json(text)
     json.skipWhitespace()
     let valueResult = json.parseValue()
     let value = match valueResult {
       Result.Ok(parsedValue) => parsedValue
       Result.Err(err) => {
-        let out: Result<any?, JsonErr> = Result.Err(err)
-        return out
+        return Result<JsonValue, JsonErr>.Err(err)
       }
     }
     json.skipWhitespace()
@@ -54,7 +48,7 @@ export class Json impl Display {
     return Result.Err(JsonErr("Unexpected trailing JSON at byte ${json.index}"))
   }
 
-  static func parseObject(text: str) -> Result<dict<str, any?>, JsonErr> {
+  static func parseObject(text: str) -> Result<dict<str, JsonValue>, JsonErr> {
     let parsed = Json.parse(text)
     let value = match parsed {
       Result.Ok(parsedValue) => parsedValue
@@ -62,44 +56,132 @@ export class Json impl Display {
         return objectErr(err)
       }
     }
-    if value is null {
-      return Result.Err(JsonErr("JSON root is not an object"))
-    }
-    if value is any {
-      let dynamic = value as any
-      if dynamic is dict<str, any?> {
-        return Result.Ok(dynamic as dict<str, any?>)
-      }
+    if value is dict<str, JsonValue> {
+      return Result.Ok(value as dict<str, JsonValue>)
     }
     return Result.Err(JsonErr("JSON root is not an object"))
   }
 
-  static func parseArray(text: str) -> Result<list<any?>, JsonErr> {
+  static func parseArray(text: str) -> Result<list<JsonValue>, JsonErr> {
     let parsed = Json.parse(text)
     let value = match parsed {
       Result.Ok(parsedValue) => parsedValue
       Result.Err(err) => {
-        return arrayErr(err)
+        return Result<list<JsonValue>, JsonErr>.Err(err)
       }
     }
-    if value is null {
-      return Result.Err(JsonErr("JSON root is not an array"))
-    }
-    if value is any {
-      let dynamic = value as any
-      if dynamic is list<any?> {
-        return Result.Ok(dynamic as list<any?>)
-      }
+    if value is list<JsonValue> {
+      return Result.Ok(value as list<JsonValue>)
     }
     return Result.Err(JsonErr("JSON root is not an array"))
   }
 
-  static func stringify(value: any?) -> Result<str, JsonErr> {
+  private func stringifyValue(value: JsonValue) -> Result<str, JsonErr> {
+    if value is null {
+      return Result.Ok("null")
+    }
+    if value is bool {
+      if value as bool {
+        return Result.Ok("true")
+      }
+      return Result.Ok("false")
+    }
+    if value is int {
+      return Result.Ok("${value as int}")
+    }
+    if value is float {
+      return Result.Ok("${value as float}")
+    }
+    if value is str {
+      return self.stringifyString(value as str)
+    }
+    if value is list<JsonValue> {
+      return self.stringifyArray(value as list<JsonValue>)
+    }
+    if value is dict<str, JsonValue> {
+      return self.stringifyObject(value as dict<str, JsonValue>)
+    }
+    return Result.Err(JsonErr("Unsupported JSON value"))
+  }
+
+  private func stringifyString(value: str) -> Result<str, JsonErr> {
+    var out: str = "\""
+    var i: int = 0
+    while i < value.len() {
+      let ch = value[i]
+      if ch == "\"" {
+        out = out + "\\\""
+      } else if ch == "\\" {
+        out = out + "\\\\"
+      } else if ch == "\n" {
+        out = out + "\\n"
+      } else if ch == "\r" {
+        out = out + "\\r"
+      } else if ch == "\t" {
+        out = out + "\\t"
+      } else {
+        out = out + ch
+      }
+      i += 1
+    }
+    return Result.Ok(out + "\"")
+  }
+
+  private func stringifyArray(values: list<JsonValue>) -> Result<str, JsonErr> {
+    var out: str = "["
+    var i: int = 0
+    while i < values.len() {
+      if i > 0 {
+        out = out + ","
+      }
+      let item: JsonValue = values[i]
+      let itemResult = self.stringifyValue(item)
+      let itemText = match itemResult {
+        Result.Ok(value) => value
+        Result.Err(err) => {
+          return Result<str, JsonErr>.Err(err)
+        }
+      }
+      out = out + itemText
+      i += 1
+    }
+    return Result.Ok(out + "]")
+  }
+
+  private func stringifyObject(values: dict<str, JsonValue>) -> Result<str, JsonErr> {
+    var out: str = "{"
+    var i: int = 0
+    while i < values.len() {
+      if i > 0 {
+        out = out + ","
+      }
+      let keyResult = self.stringifyString(values.keys[i])
+      let keyText = match keyResult {
+        Result.Ok(value) => value
+        Result.Err(err) => {
+          return Result<str, JsonErr>.Err(err)
+        }
+      }
+      let item: JsonValue = values.vals[i]
+      let valueResult = self.stringifyValue(item)
+      let valueText = match valueResult {
+        Result.Ok(value) => value
+        Result.Err(err) => {
+          return Result<str, JsonErr>.Err(err)
+        }
+      }
+      out = out + keyText + ":" + valueText
+      i += 1
+    }
+    return Result.Ok(out + "}")
+  }
+
+  static func stringify(value: JsonValue) -> Result<str, JsonErr> {
     let json = Json("")
     return json.stringifyValue(value)
   }
 
-  static func read(path: str) -> Result<any?, JsonErr> {
+  static func read(path: str) -> Result<JsonValue, JsonErr> {
     let text = file(path.cstr()).text()
     if text is str {
       return Json.parse(text as str)
@@ -107,7 +189,7 @@ export class Json impl Display {
     return Result.Err(JsonErr("Unable to read JSON file '${path}'"))
   }
 
-  static func readObject(path: str) -> Result<dict<str, any?>, JsonErr> {
+  static func readObject(path: str) -> Result<dict<str, JsonValue>, JsonErr> {
     let raw = Json.read(path)
     let value = match raw {
       Result.Ok(parsedValue) => parsedValue
@@ -115,45 +197,32 @@ export class Json impl Display {
         return objectErr(err)
       }
     }
-    if value is null {
-      return Result.Err(JsonErr("JSON root is not an object"))
-    }
-    if value is any {
-      let dynamic = value as any
-      if dynamic is dict<str, any?> {
-        return Result.Ok(dynamic as dict<str, any?>)
-      }
+    if value is dict<str, JsonValue> {
+      return Result.Ok(value as dict<str, JsonValue>)
     }
     return Result.Err(JsonErr("JSON root is not an object"))
   }
 
-  static func readArray(path: str) -> Result<list<any?>, JsonErr> {
+  static func readArray(path: str) -> Result<list<JsonValue>, JsonErr> {
     let raw = Json.read(path)
     let value = match raw {
       Result.Ok(parsedValue) => parsedValue
       Result.Err(err) => {
-        return arrayErr(err)
+        return Result<list<JsonValue>, JsonErr>.Err(err)
       }
     }
-    if value is null {
-      return Result.Err(JsonErr("JSON root is not an array"))
-    }
-    if value is any {
-      let dynamic = value as any
-      if dynamic is list<any?> {
-        return Result.Ok(dynamic as list<any?>)
-      }
+    if value is list<JsonValue> {
+      return Result.Ok(value as list<JsonValue>)
     }
     return Result.Err(JsonErr("JSON root is not an array"))
   }
 
-  static func write(path: str, value: any?) -> Result<bool, JsonErr> {
+  static func write(path: str, value: JsonValue) -> Result<bool, JsonErr> {
     let textResult = Json.stringify(value)
     let text = match textResult {
       Result.Ok(encodedText) => encodedText
       Result.Err(err) => {
-        let out: Result<bool, JsonErr> = Result.Err(err)
-        return out
+        return Result<bool, JsonErr>.Err(err)
       }
     }
     file.write(path.cstr(), text)
@@ -163,12 +232,12 @@ export class Json impl Display {
     return Result.Err(JsonErr("Unable to write JSON file '${path}'"))
   }
 
-  static func decode<T: Serializable>(value: any?) -> Result<T, JsonErr> {
+  static func decode<T: Serializable>(value: JsonValue) -> Result<T, JsonErr> {
     return T.decode(value)
   }
 
-  static func encode<T: Serializable>(value: T) -> Result<any?, JsonErr> {
-    return T.encode(value)
+  static func encode<T: Serializable>(value: T) -> Result<JsonValue, JsonErr> {
+    return value.encode()
   }
 
   func str() -> str {
@@ -217,7 +286,7 @@ export class Json impl Display {
       or ch == "9"
   }
 
-  private func parseValue() -> Result<any?, JsonErr> {
+  private func parseValue() -> Result<JsonValue, JsonErr> {
     self.skipWhitespace()
     if self.isAtEnd() {
       return Result.Err(JsonErr("Unexpected end of JSON at byte ${self.index}"))
@@ -234,7 +303,7 @@ export class Json impl Display {
       let stringResult = self.parseString()
       return match stringResult {
         Result.Ok(value) => {
-          var raw: any? = null
+          var raw: JsonValue = null
           raw = value
           Result.Ok(raw)
         }
@@ -253,11 +322,11 @@ export class Json impl Display {
     return self.parseNumber()
   }
 
-  private func parseObjectValue() -> Result<any?, JsonErr> {
+  private func parseObjectValue() -> Result<JsonValue, JsonErr> {
     let objectResult = self.parseObjectRaw()
     return match objectResult {
       Result.Ok(value) => {
-        var raw: any? = null
+        var raw: JsonValue = null
         raw = value
         Result.Ok(raw)
       }
@@ -265,11 +334,11 @@ export class Json impl Display {
     }
   }
 
-  private func parseArrayValue() -> Result<any?, JsonErr> {
+  private func parseArrayValue() -> Result<JsonValue, JsonErr> {
     let arrayResult = self.parseArrayRaw()
     return match arrayResult {
       Result.Ok(value) => {
-        var raw: any? = null
+        var raw: JsonValue = null
         raw = value
         Result.Ok(raw)
       }
@@ -277,8 +346,8 @@ export class Json impl Display {
     }
   }
 
-  private func parseObjectRaw() -> Result<dict<str, any?>, JsonErr> {
-    var object: dict<str, any?> = {}
+  private func parseObjectRaw() -> Result<dict<str, JsonValue>, JsonErr> {
+    var object: dict<str, JsonValue> = {}
     self.advance()
     self.skipWhitespace()
     if not self.isAtEnd() and self.currentChar() == "}" {
@@ -334,8 +403,8 @@ export class Json impl Display {
     return Result.Err(JsonErr("Unterminated object at byte ${self.index}"))
   }
 
-  private func parseArrayRaw() -> Result<list<any?>, JsonErr> {
-    var items: list<any?> = []
+  private func parseArrayRaw() -> Result<list<JsonValue>, JsonErr> {
+    var items: list<JsonValue> = []
     self.advance()
     self.skipWhitespace()
     if not self.isAtEnd() and self.currentChar() == "]" {
@@ -348,7 +417,7 @@ export class Json impl Display {
       let value = match valueResult {
         Result.Ok(parsedValue) => parsedValue
         Result.Err(err) => {
-          return arrayErr(err)
+          return Result<list<JsonValue>, JsonErr>.Err(err)
         }
       }
       items.push(value)
@@ -407,36 +476,36 @@ export class Json impl Display {
     return Result.Err(JsonErr("Unterminated string at byte ${self.index}"))
   }
 
-  private func parseTrue() -> Result<any?, JsonErr> {
+  private func parseTrue() -> Result<JsonValue, JsonErr> {
     if self.source.substring(self.index, 4) != "true" {
       return Result.Err(JsonErr("Invalid token at byte ${self.index}"))
     }
     self.index += 4
-    var raw: any? = null
+    var raw: JsonValue = null
     raw = true
     return Result.Ok(raw)
   }
 
-  private func parseFalse() -> Result<any?, JsonErr> {
+  private func parseFalse() -> Result<JsonValue, JsonErr> {
     if self.source.substring(self.index, 5) != "false" {
       return Result.Err(JsonErr("Invalid token at byte ${self.index}"))
     }
     self.index += 5
-    var raw: any? = null
+    var raw: JsonValue = null
     raw = false
     return Result.Ok(raw)
   }
 
-  private func parseNull() -> Result<any?, JsonErr> {
+  private func parseNull() -> Result<JsonValue, JsonErr> {
     if self.source.substring(self.index, 4) != "null" {
       return Result.Err(JsonErr("Invalid token at byte ${self.index}"))
     }
     self.index += 4
-    var raw: any? = null
+    var raw: JsonValue = null
     return Result.Ok(raw)
   }
 
-  private func parseNumber() -> Result<any?, JsonErr> {
+  private func parseNumber() -> Result<JsonValue, JsonErr> {
     let start = self.index
     var isFloat: bool = false
 
@@ -487,116 +556,12 @@ export class Json impl Display {
     }
 
     let numberText = self.source.substring(start, self.index - start)
-    var raw: any? = null
+    var raw: JsonValue = null
     if isFloat {
       raw = numberText.toFloat()
     } else {
       raw = numberText.toInt()
     }
     return Result.Ok(raw)
-  }
-
-  private func stringifyValue(value: any?) -> Result<str, JsonErr> {
-    if value is null {
-      return Result.Ok("null")
-    }
-    if value is any {
-      let dynamic = value as any
-      if dynamic is bool {
-        if dynamic as bool {
-          return Result.Ok("true")
-        }
-        return Result.Ok("false")
-      }
-      if dynamic is int {
-        return Result.Ok("${dynamic as int}")
-      }
-      if dynamic is float {
-        return Result.Ok("${dynamic as float}")
-      }
-      if dynamic is str {
-        return self.stringifyString(dynamic as str)
-      }
-      if dynamic is list<any?> {
-        return self.stringifyArray(dynamic as list<any?>)
-      }
-      if dynamic is dict<str, any?> {
-        return self.stringifyObject(dynamic as dict<str, any?>)
-      }
-    }
-    return Result.Err(JsonErr("Unsupported JSON value"))
-  }
-
-  private func stringifyString(value: str) -> Result<str, JsonErr> {
-    var out: str = "\""
-    var i: int = 0
-    while i < value.len() {
-      let ch = value[i]
-      if ch == "\"" {
-        out = out + "\\\""
-      } else if ch == "\\" {
-        out = out + "\\\\"
-      } else if ch == "\n" {
-        out = out + "\\n"
-      } else if ch == "\r" {
-        out = out + "\\r"
-      } else if ch == "\t" {
-        out = out + "\\t"
-      } else {
-        out = out + ch
-      }
-      i += 1
-    }
-    return Result.Ok(out + "\"")
-  }
-
-  private func stringifyArray(values: list<any?>) -> Result<str, JsonErr> {
-    var out: str = "["
-    var i: int = 0
-    while i < values.len() {
-      if i > 0 {
-        out = out + ","
-      }
-      let itemResult = self.stringifyValue(values[i])
-      let itemText = match itemResult {
-        Result.Ok(value) => value
-        Result.Err(err) => {
-          let outResult: Result<str, JsonErr> = Result.Err(err)
-          return outResult
-        }
-      }
-      out = out + itemText
-      i += 1
-    }
-    return Result.Ok(out + "]")
-  }
-
-  private func stringifyObject(values: dict<str, any?>) -> Result<str, JsonErr> {
-    var out: str = "{"
-    var i: int = 0
-    while i < values.len() {
-      if i > 0 {
-        out = out + ","
-      }
-      let keyResult = self.stringifyString(values.keys[i])
-      let keyText = match keyResult {
-        Result.Ok(value) => value
-        Result.Err(err) => {
-          let outResult: Result<str, JsonErr> = Result.Err(err)
-          return outResult
-        }
-      }
-      let valueResult = self.stringifyValue(values.vals[i])
-      let valueText = match valueResult {
-        Result.Ok(value) => value
-        Result.Err(err) => {
-          let outResult: Result<str, JsonErr> = Result.Err(err)
-          return outResult
-        }
-      }
-      out = out + keyText + ":" + valueText
-      i += 1
-    }
-    return Result.Ok(out + "}")
   }
 }

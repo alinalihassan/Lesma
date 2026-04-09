@@ -992,7 +992,7 @@ auto Typechecker::overloadArgTypesFromCall(const FuncCall* fc) -> std::vector<Ty
   }
   argTypes.reserve(fc->getArguments().size());
   for (Expression* arg : fc->getArguments()) {
-    arg->accept(*this);
+    visitExprWithExpectedType(arg, nullptr);
     argTypes.push_back(typeAsPtrIfClassForOverload(result->getType()));
   }
   return argTypes;
@@ -1008,8 +1008,10 @@ void Typechecker::collectExplicitTypesFromCallByVisit(const FuncCall* call,
 }
 
 auto Typechecker::lookupFunctionInScopeThenImportedModuleCaches(
-    const std::string& name, const std::vector<Type*>& methodArgTypes) -> Value* {
-  Value* method = scope->lookupFunction(name, methodArgTypes);
+    const std::string& name, const std::vector<Type*>& methodArgTypes,
+    Type* requiredDeclaredInClass) -> Value* {
+  Value* method = scope->lookupFunction(name, methodArgTypes, FunctionLookupKind::VALUE, nullptr,
+                                        requiredDeclaredInClass);
   if (method != nullptr) {
     return method;
   }
@@ -1017,7 +1019,9 @@ auto Typechecker::lookupFunctionInScopeThenImportedModuleCaches(
     if (cachedModule == nullptr || cachedModule->rootScope == nullptr) {
       continue;
     }
-    method = cachedModule->rootScope->lookupFunction(name, methodArgTypes);
+    method = cachedModule->rootScope->lookupFunction(name, methodArgTypes,
+                                                     FunctionLookupKind::VALUE, nullptr,
+                                                     requiredDeclaredInClass);
     if (method != nullptr) {
       return method;
     }
@@ -1060,6 +1064,7 @@ void Typechecker::registerEnumSyntheticMembers(const Enum* node, Type* enumTypeP
     ctorSym->setDeclarationSpan(variant->getDeclarationSpan());
     ctorSym->setDeclarationFilePath(mainFilePath);
     ctorSym->setStaticMethod(true);
+    ctorSym->setMemberDeclaredInClass(enumTypePtr);
     outerScope->insertSymbol(std::move(ctorSym));
   }
 }
@@ -1105,6 +1110,9 @@ void Typechecker::inferClassTemplateParamsForStaticMethodCallOnTemplate(
     if (existingIt != traitBoundSubs.end()) {
       if (inferredIt != inferredFromArgs.end() &&
           !existingIt->second->isEqual(inferredIt->second)) {
+        if (isAssignableTo(inferredIt->second, existingIt->second)) {
+          continue;
+        }
         throw TypeCheckError(span, "Conflicting types for class type parameter `{}`: {} vs {}", gn,
                              existingIt->second->toString(), inferredIt->second->toString());
       }
@@ -1665,6 +1673,11 @@ void Typechecker::mergeInferredGenericBindings(
          !isLossyImplicitConversion(kv.second, existingIt->second))) {
       continue;
     }
+    if (isAssignableTo(existingIt->second, kv.second) &&
+        !isLossyImplicitConversion(existingIt->second, kv.second)) {
+      existingIt->second = kv.second;
+      continue;
+    }
     throw TypeCheckError(span, "Conflicting inferred types for generic parameter {}: {} and {}",
                          kv.first, existingIt->second->toString(), kv.second->toString());
   }
@@ -1787,8 +1800,9 @@ auto Typechecker::materializeImportedType(Type* type) -> Type* {
     }
     auto u = std::make_unique<Type>(BaseType::TY_UNION);
     u->setUnionMembers(std::move(canonical));
-    u->setDisplayName(displayName);
+    u->setDisplayName(type->getDisplayName().empty() ? displayName : type->getDisplayName());
     u->setDeclarationSpan(type->getDeclarationSpan());
+    u->setDeclarationFilePath(type->getDeclarationFilePath());
     Type* copy = cacheType(std::move(u));
     importedTypeCopies[type] = copy;
     return copy;
@@ -2380,7 +2394,7 @@ auto Typechecker::substituteInType(Type* t, const std::unordered_map<std::string
       return unique.front();
     }
     auto u = std::make_unique<Type>(BaseType::TY_UNION);
-    u->setDisplayName(dn);
+    u->setDisplayName(t->getDisplayName().empty() ? dn : t->getDisplayName());
     u->setUnionMembers(std::move(unique));
     u->setDeclarationSpan(t->getDeclarationSpan());
     u->setDeclarationFilePath(t->getDeclarationFilePath());
@@ -2512,9 +2526,26 @@ auto Typechecker::typeUsesClassTypeParameter(Type* t,
 auto Typechecker::inferGenericBindings(Type* pattern, Type* actual,
                                        std::unordered_map<std::string, Type*>& bindings,
                                        llvm::SMRange span) -> void {
+  std::set<std::pair<Type*, Type*>> activePairs;
+  inferGenericBindings(pattern, actual, bindings, span, activePairs);
+}
+
+auto Typechecker::inferGenericBindings(Type* pattern, Type* actual,
+                                       std::unordered_map<std::string, Type*>& bindings,
+                                       llvm::SMRange span,
+                                       std::set<std::pair<Type*, Type*>>& activePairs) -> void {
   if (pattern == nullptr || actual == nullptr) {
     return;
   }
+  const auto pairKey = std::pair<Type*, Type*>(pattern, actual);
+  if (!activePairs.insert(pairKey).second) {
+    return;
+  }
+  struct ActivePairGuard {
+    std::set<std::pair<Type*, Type*>>* setPtr;
+    std::pair<Type*, Type*> key;
+    ~ActivePairGuard() { setPtr->erase(key); }
+  } activePairGuard{&activePairs, pairKey};
   if (pattern->is(BaseType::TY_GENERIC)) {
     const std::string genericName = pattern->getGenericName();
     // Class-typed arguments use pointer types at the call/overload boundary (`*U`) while generic
@@ -2532,6 +2563,15 @@ auto Typechecker::inferGenericBindings(Type* pattern, Type* actual,
       return;
     }
     if (!bindingActual->isEqual(it->second)) {
+      if (isAssignableTo(bindingActual, it->second) &&
+          !isLossyImplicitConversion(bindingActual, it->second)) {
+        return;
+      }
+      if (isAssignableTo(it->second, bindingActual) &&
+          !isLossyImplicitConversion(it->second, bindingActual)) {
+        bindings[genericName] = bindingActual;
+        return;
+      }
       throw TypeCheckError(span, "Conflicting inferred types for generic parameter {}: {} and {}",
                            genericName, it->second->toString(), bindingActual->toString());
     }
@@ -2553,6 +2593,15 @@ auto Typechecker::inferGenericBindings(Type* pattern, Type* actual,
           if (it == bindings.end()) {
             bindings[kv.first] = kv.second;
           } else if (!it->second->isEqual(kv.second)) {
+            if (isAssignableTo(kv.second, it->second) &&
+                !isLossyImplicitConversion(kv.second, it->second)) {
+              continue;
+            }
+            if (isAssignableTo(it->second, kv.second) &&
+                !isLossyImplicitConversion(it->second, kv.second)) {
+              bindings[kv.first] = kv.second;
+              continue;
+            }
             throw TypeCheckError(span,
                                  "Conflicting inferred types for generic parameter {}: {} and {}",
                                  kv.first, it->second->toString(), kv.second->toString());
@@ -2569,7 +2618,7 @@ auto Typechecker::inferGenericBindings(Type* pattern, Type* actual,
         }
         auto probe = acc;
         try {
-          inferGenericBindings(pmem[fi], amem[aj], probe, span);
+          inferGenericBindings(pmem[fi], amem[aj], probe, span, activePairs);
         } catch (const TypeCheckError&) {
           continue;
         }
@@ -2608,7 +2657,7 @@ auto Typechecker::inferGenericBindings(Type* pattern, Type* actual,
         auto ait = actualEnvIt->second.find(genericName);
         if (ait != actualEnvIt->second.end()) {
           inferGenericBindings(cacheType(std::make_unique<Type>(genericName)), ait->second, bindings,
-                               span);
+                               span, activePairs);
         }
       }
       return;
@@ -2618,14 +2667,15 @@ auto Typechecker::inferGenericBindings(Type* pattern, Type* actual,
         auto pit = patternEnvIt->second.find(genericName);
         auto ait = actualEnvIt->second.find(genericName);
         if (pit != patternEnvIt->second.end() && ait != actualEnvIt->second.end()) {
-          inferGenericBindings(pit->second, ait->second, bindings, span);
+          inferGenericBindings(pit->second, ait->second, bindings, span, activePairs);
         }
       }
     }
     return;
   }
   if (pattern->isOneOf({BaseType::TY_PTR, BaseType::TY_ARRAY})) {
-    inferGenericBindings(pattern->getElementType(), actual->getElementType(), bindings, span);
+    inferGenericBindings(pattern->getElementType(), actual->getElementType(), bindings, span,
+                         activePairs);
     return;
   }
   if (pattern->is(BaseType::TY_FUNCTION)) {
@@ -2635,16 +2685,19 @@ auto Typechecker::inferGenericBindings(Type* pattern, Type* actual,
     auto patternFields = pattern->getFields();
     auto actualFields = actual->getFields();
     for (size_t i = 0; i < patternFields.size() && i < actualFields.size(); ++i) {
-      inferGenericBindings(patternFields[i]->type, actualFields[i]->type, bindings, span);
+      inferGenericBindings(patternFields[i]->type, actualFields[i]->type, bindings, span,
+                           activePairs);
     }
-    inferGenericBindings(pattern->getReturnType(), actual->getReturnType(), bindings, span);
+    inferGenericBindings(pattern->getReturnType(), actual->getReturnType(), bindings, span,
+                         activePairs);
     return;
   }
   if (pattern->is(BaseType::TY_TUPLE)) {
     auto patternFields = pattern->getFields();
     auto actualFields = actual->getFields();
     for (size_t i = 0; i < patternFields.size() && i < actualFields.size(); ++i) {
-      inferGenericBindings(patternFields[i]->type, actualFields[i]->type, bindings, span);
+      inferGenericBindings(patternFields[i]->type, actualFields[i]->type, bindings, span,
+                           activePairs);
     }
   }
 }
@@ -3000,6 +3053,36 @@ auto Typechecker::getExtendedType(Type* left, Type* right) -> Type* {
   return nullptr;
 }
 
+auto Typechecker::mergeLiteralInferredType(Type* current, Type* next) -> Type* {
+  if (current == nullptr) {
+    return next;
+  }
+  if (next == nullptr) {
+    return current;
+  }
+  if (current->isEqual(next)) {
+    return current;
+  }
+  if (isAssignableTo(next, current)) {
+    return current;
+  }
+  if (isAssignableTo(current, next)) {
+    return next;
+  }
+  if (Type* widened = getExtendedType(current, next); widened != nullptr) {
+    return widened;
+  }
+  std::vector<Type*> members = {current, next};
+  auto [canonical, displayName] = TypeUtils::canonicalizeUnionMembers(std::move(members));
+  if (canonical.size() == 1U) {
+    return canonical.front();
+  }
+  auto unionType = std::make_unique<Type>(BaseType::TY_UNION);
+  unionType->setDisplayName(displayName);
+  unionType->setUnionMembers(std::move(canonical));
+  return cacheType(std::move(unionType));
+}
+
 auto Typechecker::getOptionalPayloadType(Type* type) -> Type* {
   auto payloadMembers = TypeUtils::computeOptionalPayloadMembers(type);
   if (!payloadMembers.has_value()) {
@@ -3184,6 +3267,39 @@ auto Typechecker::isAssignableTo(Type* from, Type* to) -> bool {
   }
   if (from->isEqual(to)) {
     return true;
+  }
+  if (from->isOneOf({BaseType::TY_CLASS, BaseType::TY_ENUM}) &&
+      to->isOneOf({BaseType::TY_CLASS, BaseType::TY_ENUM})) {
+    Type* fromTemplate = from;
+    if (auto it = specializedTypeToTemplate.find(from); it != specializedTypeToTemplate.end()) {
+      fromTemplate = it->second;
+    }
+    Type* toTemplate = to;
+    if (auto it = specializedTypeToTemplate.find(to); it != specializedTypeToTemplate.end()) {
+      toTemplate = it->second;
+    }
+    if (fromTemplate->isEqual(toTemplate)) {
+      const auto& genericNames = getDeclaredGenericParams(fromTemplate);
+      if (genericNames.empty()) {
+        return false;
+      }
+      auto fromEnvIt = specializedTypeEnv.find(from);
+      auto toEnvIt = specializedTypeEnv.find(to);
+      if (fromEnvIt == specializedTypeEnv.end() || toEnvIt == specializedTypeEnv.end()) {
+        return false;
+      }
+      for (const auto& genericName : genericNames) {
+        auto fromArgIt = fromEnvIt->second.find(genericName);
+        auto toArgIt = toEnvIt->second.find(genericName);
+        if (fromArgIt == fromEnvIt->second.end() || toArgIt == toEnvIt->second.end()) {
+          return false;
+        }
+        if (!isAssignableTo(fromArgIt->second, toArgIt->second)) {
+          return false;
+        }
+      }
+      return true;
+    }
   }
   if (from->is(BaseType::TY_PTR) && from->getElementType() != nullptr && to->is(BaseType::TY_PTR) &&
       to->getElementType() != nullptr && from->getElementType()->is(BaseType::TY_CLASS) &&
@@ -3683,6 +3799,15 @@ void Typechecker::emitWarning(llvm::SMRange span, std::string message) {
   }
   if (!mainFilePath.empty() && isStdlibSourcePath(mainFilePath)) {
     return;
+  }
+  for (const AnalysisDiagnostic& existing : *warningDiagnostics) {
+    if (existing.severity == AnalysisDiagnosticSeverity::Warning && existing.message == message &&
+        existing.span.Start.getPointer() == span.Start.getPointer() &&
+        existing.span.End.getPointer() == span.End.getPointer() &&
+        existing.spanSourceMgr.get() == diagnosticUnitSourceMgr.get() &&
+        existing.spanBufferId == diagnosticUnitBufferId) {
+      return;
+    }
   }
   appendSemanticDiagnostic(span, std::move(message), AnalysisDiagnosticSeverity::Warning);
 }
@@ -6710,7 +6835,10 @@ void Typechecker::typecheckDotOpClassOrEnumMemberAccess(const DotOp* node, Type*
     if (specializedIt != specializedTypeEnv.end()) {
       methodTypeEnv = specializedIt->second;
     }
-    Value* method = lookupFunctionInScopeThenImportedModuleCaches(fc->getName(), methodArgTypes);
+    Type* requiredDeclaredInClass =
+        typeNameReceiver && fc->getName() != "new" ? receiverForLookup : nullptr;
+    Value* method = lookupFunctionInScopeThenImportedModuleCaches(fc->getName(), methodArgTypes,
+                                                                 requiredDeclaredInClass);
     if (method == nullptr) {
       method = tryLookupFunctionViaDotImportLiterals(node, fc->getName(), methodArgTypes);
     }
@@ -6926,6 +7054,10 @@ auto Typechecker::visit(const CastOp* node) -> void {
   Type* from = result->getType();
   node->getType()->accept(*this);
   Type* to = result->getType();
+  if (from != nullptr && to != nullptr && from->isEqual(to)) {
+    emitWarning(node->getSpan(),
+                fmt::format("Redundant cast: expression already has type {}", to->toString()));
+  }
   if (!isAssignableTo(from, to) && !(from != nullptr && from->is(BaseType::TY_ANY) &&
                                      to != nullptr && !to->is(BaseType::TY_VOID))) {
     throw TypeCheckError(node->getSpan(), "Cannot cast from {} to {}", from->toString(),
@@ -7460,13 +7592,7 @@ auto Typechecker::visit(const DictLiteral* node) -> void {
     } else if (keyType == nullptr) {
       keyType = keyT;
     } else {
-      Type* unifiedKey = getExtendedType(keyType, keyT);
-      if (unifiedKey != nullptr) {
-        keyType = unifiedKey;
-      } else if (!keyT->isEqual(keyType)) {
-        throw TypeCheckError(keys[i]->getSpan(), "Dict keys must have a common type, got {} and {}",
-                             keyType->toString(), keyT->toString());
-      }
+      keyType = mergeLiteralInferredType(keyType, keyT);
     }
 
     visitExprWithExpectedType(values[i], expectedValueType);
@@ -7483,14 +7609,7 @@ auto Typechecker::visit(const DictLiteral* node) -> void {
     } else if (valueType == nullptr) {
       valueType = valT;
     } else {
-      Type* unifiedVal = getExtendedType(valueType, valT);
-      if (unifiedVal != nullptr) {
-        valueType = unifiedVal;
-      } else if (!valT->isEqual(valueType)) {
-        throw TypeCheckError(values[i]->getSpan(),
-                             "Dict values must have a common type, got {} and {}",
-                             valueType->toString(), valT->toString());
-      }
+      valueType = mergeLiteralInferredType(valueType, valT);
     }
   }
 

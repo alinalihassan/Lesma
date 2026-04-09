@@ -44,7 +44,8 @@ public:
 
   auto lookupFunction(const std::string& symbolName, std::vector<lesma::Type*> paramTypes,
                       FunctionLookupKind kind = FunctionLookupKind::VALUE,
-                      Type* excludeFormalReceiverClass = nullptr) -> Value*;
+                      Type* excludeFormalReceiverClass = nullptr,
+                      Type* requiredDeclaredInClass = nullptr) -> Value*;
   /** Like \c lookupFunction(Value), but only considers overloads for which \p receiverMatches
    * returns true for the class type under the first (receiver) pointer parameter. Used for
    * `super.method(self, …)` so the subclass overload is not chosen via subtyping.

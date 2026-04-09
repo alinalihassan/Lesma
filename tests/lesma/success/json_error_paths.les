@@ -1,13 +1,5 @@
 from json import Json
 
-class Box {
-  var value: int
-
-  func new(value: int) {
-    self.value = value
-  }
-}
-
 let badParse = Json.parse("{\"name\": true,}")
 if match badParse {
   Result.Err(err) => err.str().contains("byte")
@@ -24,11 +16,9 @@ if match badRoot {
   exit(2)
 }
 
-var boxed: any? = null
-boxed = Box(3)
-let unsupported = Json.stringify(boxed)
-if match unsupported {
-  Result.Err(err) => err.str().contains("Unsupported")
+let badArray = Json.parseArray("{\"name\": true}")
+if match badArray {
+  Result.Err(err) => err.str() == "JSON root is not an array"
   Result.Ok(_) => false
 } == false {
   exit(3)

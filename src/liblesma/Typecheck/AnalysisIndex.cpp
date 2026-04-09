@@ -416,6 +416,10 @@ auto collectIndexFromExpr(const Expression* expr, AnalysisIndex& index,
     }
     return;
   }
+  if (auto const* typeExpr = dynamic_cast<const TypeExpr*>(expr)) {
+    collectIndexFromTypeExpr(typeExpr, index);
+    return;
+  }
   if (auto const* call = dynamic_cast<const FuncCall*>(expr)) {
     appendIndexedOccurrence(index, call->getName(), std::nullopt,
                             makeNameSpan(call->getSpan().Start, call->getName()), false, false, 0U,
@@ -455,9 +459,13 @@ auto collectIndexFromExpr(const Expression* expr, AnalysisIndex& index,
       }
     }
     if (auto const* rightCall = dynamic_cast<const FuncCall*>(dot->getRight())) {
+      std::optional<IndexedDeclarationIdentity> const memberDeclaration =
+          isEnumMemberAccess ? fieldDeclarationFromMemberAccess(dot->getLeft(), rightCall->getName())
+                             : std::nullopt;
       appendIndexedOccurrence(index, rightCall->getName(), dotBase,
                               makeNameSpan(rightCall->getSpan().Start, rightCall->getName()), false,
-                              true, 0U, IndexedTokenKind::Method, rightCall->getResolvedSymbol());
+                              true, 0U, IndexedTokenKind::Method, rightCall->getResolvedSymbol(),
+                              nullptr, memberDeclaration);
       collectIndexFromCallOperands(rightCall, index, mainFilePath);
       return;
     }

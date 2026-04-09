@@ -3834,8 +3834,8 @@ auto Codegen::declareOrDefineSyntheticEnumMethod(lesma::Type* enumType, const En
     lookupParamTypes.push_back(loweredParam);
     loweredFields.push_back(std::make_unique<Field>("arg" + std::to_string(i), loweredParam));
   }
-  Value* existing =
-      scope->lookupFunction(name, lookupParamTypes, FunctionLookupKind::OVERLOAD_IDENTITY);
+  Value* existing = scope->lookupFunction(name, lookupParamTypes, FunctionLookupKind::OVERLOAD_IDENTITY,
+                                          nullptr, enumType);
   Type* returnType = enumType;
   if (existing == nullptr) {
     auto syntheticType =
@@ -3847,10 +3847,12 @@ auto Codegen::declareOrDefineSyntheticEnumMethod(lesma::Type* enumType, const En
     syntheticSymbol->setDeclarationKind(ValueDeclarationKind::METHOD);
     syntheticSymbol->setExported(astNode->isExported());
     syntheticSymbol->setStaticMethod(isStaticMethod);
+    syntheticSymbol->setMemberDeclaredInClass(enumType);
     syntheticSymbol->setDeclarationSpan(variant->getDeclarationSpan());
     syntheticSymbol->setDeclarationFilePath(filename);
     scope->insertSymbol(std::move(syntheticSymbol));
-    existing = scope->lookupFunction(name, lookupParamTypes, FunctionLookupKind::OVERLOAD_IDENTITY);
+    existing = scope->lookupFunction(name, lookupParamTypes, FunctionLookupKind::OVERLOAD_IDENTITY,
+                                     nullptr, enumType);
     if (existing == nullptr) {
       throw CodegenError(astNode->getSpan(), "Failed to synthesize enum helper '{}'", name);
     }
@@ -6539,6 +6541,100 @@ auto Codegen::cast(llvm::SMRange span, lesma::Value* val, lesma::Type* type)
   }
   if (type != nullptr && type->is(BaseType::TY_UNION) && val != nullptr &&
       val->getType() != nullptr) {
+    auto nominalTemplateName = [this](lesma::Type* nominal) -> std::string {
+      if (nominal == nullptr) {
+        return {};
+      }
+      if (auto it = specializedClassTemplateOf.find(nominal); it != specializedClassTemplateOf.end()) {
+        nominal = it->second;
+      }
+      std::string displayName = nominal->getDisplayName();
+      if (displayName.empty()) {
+        return {};
+      }
+      if (size_t genericStart = displayName.find('<'); genericStart != std::string::npos) {
+        displayName.resize(genericStart);
+      }
+      return displayName;
+    };
+    auto unionArmAccepts = [this, &nominalTemplateName](auto&& self, lesma::Type* from,
+                                                        lesma::Type* to) -> bool {
+      if (from == nullptr || to == nullptr) {
+        return false;
+      }
+      if (from->is(BaseType::TY_PTR) && from->getElementType() != nullptr &&
+          from->getElementType()->isOneOf({BaseType::TY_CLASS, BaseType::TY_ENUM})) {
+        if (to->is(BaseType::TY_PTR) && to->getElementType() != nullptr) {
+          return self(self, from->getElementType(), to->getElementType());
+        }
+        return self(self, from->getElementType(), to);
+      }
+      if (to->is(BaseType::TY_PTR) && to->getElementType() != nullptr &&
+          to->getElementType()->isOneOf({BaseType::TY_CLASS, BaseType::TY_ENUM})) {
+        if (from->is(BaseType::TY_PTR) && from->getElementType() != nullptr) {
+          return self(self, from->getElementType(), to->getElementType());
+        }
+        return self(self, from, to->getElementType());
+      }
+      if (from->isEqual(to)) {
+        return true;
+      }
+      if (to->is(BaseType::TY_UNION)) {
+        for (Type* member : to->getUnionMembers()) {
+          if (self(self, from, member)) {
+            return true;
+          }
+        }
+        return false;
+      }
+      if (from->is(BaseType::TY_UNION)) {
+        for (Type* member : from->getUnionMembers()) {
+          if (!self(self, member, to)) {
+            return false;
+          }
+        }
+        return true;
+      }
+      if (from->isOneOf({BaseType::TY_CLASS, BaseType::TY_ENUM}) &&
+          to->isOneOf({BaseType::TY_CLASS, BaseType::TY_ENUM})) {
+        Type* fromTemplate = from;
+        if (auto it = specializedClassTemplateOf.find(from); it != specializedClassTemplateOf.end()) {
+          fromTemplate = it->second;
+        }
+        Type* toTemplate = to;
+        if (auto it = specializedClassTemplateOf.find(to); it != specializedClassTemplateOf.end()) {
+          toTemplate = it->second;
+        }
+        if (!fromTemplate->isEqual(toTemplate)) {
+          std::string fromTemplateName = nominalTemplateName(fromTemplate);
+          std::string toTemplateName = nominalTemplateName(toTemplate);
+          if (fromTemplateName.empty() || toTemplateName.empty() || fromTemplateName != toTemplateName) {
+            return false;
+          }
+        }
+        const auto& genericNames = fromTemplate->getGenericParams();
+        if (genericNames.empty()) {
+          return true;
+        }
+        const auto* fromEnv = specializedNominalEnvFor(from);
+        const auto* toEnv = specializedNominalEnvFor(to);
+        if (fromEnv == nullptr || toEnv == nullptr) {
+          return true;
+        }
+        for (const auto& genericName : genericNames) {
+          auto fromArgIt = fromEnv->find(genericName);
+          auto toArgIt = toEnv->find(genericName);
+          if (fromArgIt == fromEnv->end() || toArgIt == toEnv->end()) {
+            return false;
+          }
+          if (!self(self, fromArgIt->second, toArgIt->second)) {
+            return false;
+          }
+        }
+        return true;
+      }
+      return false;
+    };
     const auto& mem = type->getUnionMembers();
     if (val->getType()->is(BaseType::TY_UNION)) {
       lesma::Type* fromU = val->getType();
@@ -6623,11 +6719,9 @@ auto Codegen::cast(llvm::SMRange span, lesma::Value* val, lesma::Type* type)
       if (val->getType()->isEqual(memI)) {
         return emitUnionWrapValue(span, val, type, i);
       }
-      if (memI->is(BaseType::TY_CLASS) && val->getType() != nullptr &&
-          val->getType()->is(BaseType::TY_PTR) && val->getType()->getElementType() != nullptr &&
-          val->getType()->getElementType()->isEqual(memI)) {
-        // Class union arms use pointer ABI; *T rvalues already carry the same handle the union
-        // stores for T (no LLVM load—val is the handle, not a slot address).
+      if (unionArmAccepts(unionArmAccepts, val->getType(), memI)) {
+        // Nominal values use pointer ABI; reuse the existing handle and retag it with the
+        // destination union arm type that type-checking already proved assignable.
         getOrCreateLlvmType(memI);
         auto tmp = std::make_unique<lesma::Value>("", memI, val->getLlvmValue());
         return emitUnionWrapValue(span, tmp.get(), type, i);
@@ -8112,25 +8206,39 @@ auto Codegen::callMethodByName(llvm::SMRange span, lesma::Value* receiver,
   lesma::Value* directMethod = nullptr;
   bool const staticCall = receiver->getCategory() == ValueCategory::TYPE_SYMBOL ||
                           (resolvedCallee != nullptr && resolvedCallee->isStaticMethod());
+  Type* requiredDeclaredInClass =
+      staticCall && receiverType->isOneOf({BaseType::TY_CLASS, BaseType::TY_ENUM}) ? receiverType
+                                                                                    : nullptr;
   if (staticCall) {
     for (auto* arg : args) {
       appendCallableArgument(arg, paramTypes, paramsLLVM);
     }
-    directMethod = resolvedCallee;
+    if (resolvedCallee != nullptr) {
+      Type* declaredIn = resolvedCallee->getMemberDeclaredInClass();
+      if (requiredDeclaredInClass == nullptr ||
+          (declaredIn != nullptr && declaredIn->isEqual(requiredDeclaredInClass))) {
+        directMethod = resolvedCallee;
+      }
+    }
     if (emittedEnumMonomorph && receiverType->is(BaseType::TY_ENUM)) {
-      if (Value* specializedMethod = scope->lookupFunction(methodName, paramTypes);
+      if (Value* specializedMethod = scope->lookupFunction(methodName, paramTypes,
+                                                           FunctionLookupKind::VALUE, nullptr,
+                                                           requiredDeclaredInClass);
           specializedMethod != nullptr) {
         directMethod = specializedMethod;
       }
     }
     if (directMethod == nullptr) {
-      directMethod = scope->lookupFunction(methodName, paramTypes);
+      directMethod = scope->lookupFunction(methodName, paramTypes, FunctionLookupKind::VALUE, nullptr,
+                                           requiredDeclaredInClass);
       if (directMethod == nullptr) {
         for (const auto& importedScope : *importedScopes) {
           if (importedScope == nullptr) {
             continue;
           }
-          directMethod = importedScope->lookupFunction(methodName, paramTypes);
+          directMethod = importedScope->lookupFunction(methodName, paramTypes,
+                                                      FunctionLookupKind::VALUE, nullptr,
+                                                      requiredDeclaredInClass);
           if (directMethod != nullptr) {
             break;
           }
@@ -8173,7 +8281,9 @@ auto Codegen::callMethodByName(llvm::SMRange span, lesma::Value* receiver,
   }
   if (emittedEnumMonomorph && receiverType->is(BaseType::TY_ENUM) &&
       (directMethod == nullptr || directMethod->getLlvmValue() == nullptr)) {
-    if (Value* specializedMethod = scope->lookupFunction(methodName, paramTypes);
+    if (Value* specializedMethod = scope->lookupFunction(methodName, paramTypes,
+                                                         FunctionLookupKind::VALUE, nullptr,
+                                                         requiredDeclaredInClass);
         specializedMethod != nullptr) {
       directMethod = specializedMethod;
     }
@@ -8212,6 +8322,15 @@ auto Codegen::callMethodByName(llvm::SMRange span, lesma::Value* receiver,
         getOrCreateLlvmType(returnTy);
       }
       selfSymbol = savedSelfSymbol;
+      llvm::Function* directFn = llvm::cast<Function>(directMethod->getLlvmValue());
+      if (directFn->getParent() != theModule.get()) {
+        if (llvm::Function* localFn = theModule->getFunction(directFn->getName())) {
+          directFn = localFn;
+        } else {
+          directFn = llvm::Function::Create(directFn->getFunctionType(), directFn->getLinkage(),
+                                            directFn->getName(), *theModule);
+        }
+      }
       llvm::Value* callResult = nullptr;
       const auto& vtOrder = receiverType->getClassVtableMethodOrder();
       std::string const methodKey = makeResolvedCallableKey(directMethod);
@@ -8241,15 +8360,13 @@ auto Codegen::callMethodByName(llvm::SMRange span, lesma::Value* receiver,
         auto* calleeFn = llvm::cast<llvm::Function>(directMethod->getLlvmValue());
         llvm::FunctionType* ft = calleeFn->getFunctionType();
         llvm::Value* useVirtual = builder->CreateIsNotNull(fnPtrVal, "vt.fn.has.target");
-        llvm::Value* directFnPtr =
-            builder->CreateBitCast(directMethod->getLlvmValue(), ptrTy, "direct.fn.ptr");
+        llvm::Value* directFnPtr = builder->CreateBitCast(directFn, ptrTy, "direct.fn.ptr");
         llvm::Value* selectedFnPtr =
             builder->CreateSelect(useVirtual, fnPtrVal, directFnPtr, "dispatch.fn.ptr");
         llvm::Value* callee = builder->CreateBitCast(selectedFnPtr, calleeFn->getType());
         callResult = builder->CreateCall(llvm::FunctionCallee(ft, callee), finalParams);
       } else {
-        callResult =
-            builder->CreateCall(llvm::cast<Function>(directMethod->getLlvmValue()), finalParams);
+        callResult = builder->CreateCall(directFn, finalParams);
       }
       currentGenericTypes = std::move(savedGenerics);
       return std::make_unique<Value>("", returnTy, callResult);

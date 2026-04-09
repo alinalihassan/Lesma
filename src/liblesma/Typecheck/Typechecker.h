@@ -216,6 +216,9 @@ class Typechecker final : public ASTVisitor {
   auto inferGenericBindings(Type* pattern, Type* actual,
                             std::unordered_map<std::string, Type*>& bindings, llvm::SMRange span)
       -> void;
+  auto inferGenericBindings(Type* pattern, Type* actual,
+                            std::unordered_map<std::string, Type*>& bindings, llvm::SMRange span,
+                            std::set<std::pair<Type*, Type*>>& activePairs) -> void;
 
   auto cacheType(std::unique_ptr<Type> type) -> Type*;
   auto materializeImportedType(Type* type) -> Type*;
@@ -231,6 +234,8 @@ class Typechecker final : public ASTVisitor {
   auto resolveType(const TypeExpr* node) -> Type*;
   /** Returns the unified type for binary ops, or nullptr if incompatible. */
   auto getExtendedType(Type* left, Type* right) -> Type*;
+  /** Infers a common literal element type, widening numerics first and otherwise building a union. */
+  auto mergeLiteralInferredType(Type* current, Type* next) -> Type*;
   /** For `T | null`, returns `T`; otherwise nullptr. */
   [[nodiscard]] auto getOptionalPayloadType(Type* type) -> Type*;
   /** Whether `type` itself includes `null` as a value (for example `T?` or `A | B | null`). */
@@ -302,7 +307,8 @@ class Typechecker final : public ASTVisitor {
   void collectExplicitTypesFromCallByVisit(const FuncCall* call, std::vector<Type*>& out);
   [[nodiscard]] auto
   lookupFunctionInScopeThenImportedModuleCaches(const std::string& name,
-                                                const std::vector<Type*>& methodArgTypes) -> Value*;
+                                                const std::vector<Type*>& methodArgTypes,
+                                                Type* requiredDeclaredInClass = nullptr) -> Value*;
   [[nodiscard]] auto tryLookupFunctionViaDotImportLiterals(const DotOp* node,
                                                            const std::string& name,
                                                            const std::vector<Type*>& methodArgTypes)

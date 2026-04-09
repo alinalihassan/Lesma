@@ -1455,6 +1455,8 @@ struct CallableCandidate {
   unsigned paramOffset = 0U;
 };
 
+[[nodiscard]] auto extractClassBaseName(const std::string& displayName) -> std::string;
+
 auto receiverMatchesSelf(lesma::Type* receiverType, lesma::Type* selfType) -> bool {
   if (receiverType == nullptr || selfType == nullptr) {
     return false;
@@ -1478,6 +1480,24 @@ auto receiverMatchesSelf(lesma::Type* receiverType, lesma::Type* selfType) -> bo
   return false;
 }
 
+auto receiverMatchesStaticOwner(lesma::Type* receiverType, lesma::Type* ownerType) -> bool {
+  if (receiverType == nullptr || ownerType == nullptr) {
+    return false;
+  }
+  if (receiverType->is(lesma::BaseType::TY_PTR) && receiverType->getElementType() != nullptr) {
+    receiverType = receiverType->getElementType();
+  }
+  if (ownerType->is(lesma::BaseType::TY_PTR) && ownerType->getElementType() != nullptr) {
+    ownerType = ownerType->getElementType();
+  }
+  if (receiverType->isEqual(ownerType)) {
+    return true;
+  }
+  std::string const receiverName = extractClassBaseName(receiverType->getDisplayName());
+  std::string const ownerName = extractClassBaseName(ownerType->getDisplayName());
+  return !receiverName.empty() && receiverName == ownerName;
+}
+
 auto collectCallableCandidates(lesma::SymbolTable* scope, const std::string& name,
                                lesma::Type* receiverType,
                                const std::vector<lesma::Type*>& typedArgs)
@@ -1494,11 +1514,17 @@ auto collectCallableCandidates(lesma::SymbolTable* scope, const std::string& nam
       std::vector<lesma::Field*> fields = sym->getType()->getFields();
       unsigned paramOffset = 0U;
       if (receiverType != nullptr) {
-        if (fields.empty() || fields[0] == nullptr || fields[0]->name != "self" ||
-            !receiverMatchesSelf(receiverType, fields[0]->type)) {
-          continue;
+        if (sym->isStaticMethod()) {
+          if (!receiverMatchesStaticOwner(receiverType, sym->getMemberDeclaredInClass())) {
+            continue;
+          }
+        } else {
+          if (fields.empty() || fields[0] == nullptr || fields[0]->name != "self" ||
+              !receiverMatchesSelf(receiverType, fields[0]->type)) {
+            continue;
+          }
+          paramOffset = 1U;
         }
-        paramOffset = 1U;
       } else if (!fields.empty() && fields[0] != nullptr && fields[0]->name == "self") {
         continue;
       }
@@ -2276,22 +2302,10 @@ auto resolveCanonicalSymbolAtCursor(AnalysisResult& result, const AnalysisView& 
   if (!isUsableAnalysis(analysis)) {
     return std::nullopt;
   }
-  if (const lesma::IndexedSymbolOccurrence* occurrence =
-          findIndexedSymbolOccurrenceAtCursor(analysis, line, character);
-      occurrence != nullptr && occurrence->declaration.has_value()) {
-    if (std::optional<ResolvedSymbol> resolved =
-            resolveSymbolByDeclarationIdentity(result, *occurrence->declaration)) {
-      return resolved;
-    }
-    // Fallback: try to resolve method directly from class AST
-    // This handles imported generic class methods where AST walk might fail
-    if (occurrence->isMemberAccess && occurrence->fallbackTokenKind == lesma::IndexedTokenKind::Method) {
-      if (std::optional<ResolvedSymbol> method =
-              tryResolveMethodFromClassAst(result, *occurrence->declaration, id.name)) {
-        return method;
-      }
-    }
-  }
+  const lesma::IndexedSymbolOccurrence* occurrence =
+      findIndexedSymbolOccurrenceAtCursor(analysis, line, character);
+  bool const preferSemanticResolution =
+      occurrence != nullptr && (occurrence->isMemberAccess || occurrence->isTypePosition);
 
   if (id.dotBase.has_value()) {
     if (std::optional<std::string> modulePath =
@@ -2335,9 +2349,48 @@ auto resolveCanonicalSymbolAtCursor(AnalysisResult& result, const AnalysisView& 
   lesma::Value* local =
       lookupValueForHover(analysis.ast, analysis.rootScope, analysis.sourceMgr, analysis.bufferId,
                           line, character, id.name, id.isTypePosition);
+  if (!id.dotBase.has_value() && local != nullptr && analysis.importedNameToSource != nullptr) {
+    auto importedIt = analysis.importedNameToSource->find(id.name);
+    if (importedIt != analysis.importedNameToSource->end()) {
+      std::string const localDeclPath = normalizePath(local->getDeclarationFilePath());
+      std::string const importedDeclPath = normalizePath(importedIt->second.first);
+      if (!importedDeclPath.empty() && localDeclPath == importedDeclPath) {
+        if (std::optional<ResolvedSymbol> imported =
+                resolveImportedSymbol(result, analysis, importedIt->second.first,
+                                      importedIt->second.second, line, character, id)) {
+          return imported;
+        }
+      }
+    }
+  }
   if (local != nullptr && local->getType() != nullptr &&
       !local->getType()->is(lesma::BaseType::TY_IMPORT)) {
     return ResolvedSymbol{.value = local, .owner = analysis};
+  }
+
+  if (occurrence != nullptr && occurrence->declaration.has_value()) {
+    if (!preferSemanticResolution) {
+      if (std::optional<ResolvedSymbol> resolved =
+              resolveSymbolByDeclarationIdentity(result, *occurrence->declaration)) {
+        return resolved;
+      }
+    } else if (occurrence->isMemberAccess &&
+               occurrence->fallbackTokenKind == lesma::IndexedTokenKind::Method) {
+      if (std::optional<ResolvedSymbol> method =
+              tryResolveMethodFromClassAst(result, *occurrence->declaration, id.name)) {
+        return method;
+      }
+    }
+    if (std::optional<ResolvedSymbol> resolved =
+            resolveSymbolByDeclarationIdentity(result, *occurrence->declaration)) {
+      return resolved;
+    }
+    if (occurrence->isMemberAccess && occurrence->fallbackTokenKind == lesma::IndexedTokenKind::Method) {
+      if (std::optional<ResolvedSymbol> method =
+              tryResolveMethodFromClassAst(result, *occurrence->declaration, id.name)) {
+        return method;
+      }
+    }
   }
 
   if (!id.dotBase.has_value() && analysis.importedNameToSource != nullptr) {
@@ -2656,14 +2709,12 @@ auto collectReferences(AnalysisResult& result, unsigned line, unsigned character
   std::optional<ResolvedSymbol> targetResolved =
       resolveCanonicalSymbolAtCursor(result, mainAnalysis, line, character, *id);
   std::optional<SymbolIdentity> targetIdentity;
-  if (targetOccurrence != nullptr && targetOccurrence->declaration.has_value()) {
+  if (targetResolved) {
+    targetIdentity = symbolIdentityForResolved(result, *targetResolved);
+  }
+  if (!targetIdentity && targetOccurrence != nullptr && targetOccurrence->declaration.has_value()) {
     targetIdentity =
         symbolIdentityForIndexedDeclaration(result, *targetOccurrence->declaration, id->name);
-  }
-  if (!targetIdentity) {
-    if (targetResolved) {
-      targetIdentity = symbolIdentityForResolved(result, *targetResolved);
-    }
   }
   if (targetIdentity) {
     bool const includeWorkspace =
@@ -2678,25 +2729,24 @@ auto collectReferences(AnalysisResult& result, unsigned line, unsigned character
         ::lsp::Range const occurrenceRange =
             smRangeToLspRange(analysis.sourceMgr, analysis.bufferId, occurrence.span);
         std::optional<SymbolIdentity> occurrenceIdentity;
-        if (occurrence.declaration.has_value()) {
+        std::optional<ResolvedSymbol> resolved = resolveCanonicalSymbolAtCursor(
+            result, analysis, occurrenceRange.start.line, occurrenceRange.start.character,
+            makeCursorIdentifier(occurrence.name, occurrence.dotBase, occurrenceRange,
+                                 occurrence.isTypePosition));
+        if (!resolved) {
+          resolved = resolveCanonicalSymbolAtCursor(
+              result, analysis, occurrenceRange.end.line, occurrenceRange.end.character,
+              makeCursorIdentifier(occurrence.name, occurrence.dotBase, occurrenceRange,
+                                   occurrence.isTypePosition));
+        }
+        if (resolved) {
+          occurrenceIdentity = symbolIdentityForResolved(result, *resolved);
+        } else if (occurrence.declaration.has_value()) {
           occurrenceIdentity =
               symbolIdentityForIndexedDeclaration(result, *occurrence.declaration, occurrence.name);
         }
         if (!occurrenceIdentity) {
-          std::optional<ResolvedSymbol> resolved = resolveCanonicalSymbolAtCursor(
-              result, analysis, occurrenceRange.start.line, occurrenceRange.start.character,
-              makeCursorIdentifier(occurrence.name, occurrence.dotBase, occurrenceRange,
-                                   occurrence.isTypePosition));
-          if (!resolved) {
-            resolved = resolveCanonicalSymbolAtCursor(
-                result, analysis, occurrenceRange.end.line, occurrenceRange.end.character,
-                makeCursorIdentifier(occurrence.name, occurrence.dotBase, occurrenceRange,
-                                     occurrence.isTypePosition));
-          }
-          if (!resolved) {
-            continue;
-          }
-          occurrenceIdentity = symbolIdentityForResolved(result, *resolved);
+          continue;
         }
         if (!occurrenceIdentity || occurrenceIdentity->path != targetIdentity->path ||
             occurrenceIdentity->name != targetIdentity->name ||
@@ -3038,16 +3088,35 @@ auto tryResolveDefinitionLocation(AnalysisResult& result, unsigned line, unsigne
   if (!id) {
     return std::nullopt;
   }
-  if (const lesma::IndexedSymbolOccurrence* occurrence =
-          findIndexedSymbolOccurrenceAtCursor(analysis, line, character);
-      occurrence != nullptr && occurrence->declaration.has_value()) {
+  const lesma::IndexedSymbolOccurrence* occurrence =
+      findIndexedSymbolOccurrenceAtCursor(analysis, line, character);
+  std::optional<ResolvedSymbol> resolved =
+      resolveCanonicalSymbolAtCursor(result, line, character, *id);
+  if (resolved && resolved->value != nullptr) {
+    llvm::SMRange declSpan = resolved->value->getDeclarationSpan();
+    if (declSpan.isValid()) {
+      std::string declPath = resolved->value->getDeclarationFilePath();
+      if (declPath.empty() && resolved->owner.mainFilePath != nullptr) {
+        declPath = *resolved->owner.mainFilePath;
+      }
+      if (!declPath.empty()) {
+        std::optional<::lsp::Range> mappedRange =
+            lspRangeForValueDeclaration(result, resolved->value, resolved->owner);
+        if (mappedRange) {
+          return ::lsp::Location{
+              .uri = uriFromPath(declPath),
+              .range = *mappedRange,
+          };
+        }
+      }
+    }
+  }
+  if (occurrence != nullptr && occurrence->declaration.has_value()) {
     if (std::optional<::lsp::Location> declarationLocation =
             locationForIndexedDeclaration(result, *occurrence->declaration)) {
       return declarationLocation;
     }
   }
-  std::optional<ResolvedSymbol> resolved =
-      resolveCanonicalSymbolAtCursor(result, line, character, *id);
   if (!resolved || resolved->value == nullptr) {
     return std::nullopt;
   }
