@@ -1229,10 +1229,35 @@ void Typechecker::finalizeResolvedMethodCallTyping(
   }
   mergeMethodGenericParamsFromArgumentsWhenNoExplicitTypeArgs(fc, methodType, methodArgTypes,
                                                               methodTypeEnv, span);
+  if (Type* expected = currentExpectedType();
+      expected != nullptr && methodType->getReturnType() != nullptr) {
+    inferGenericBindings(methodType->getReturnType(), expected, methodTypeEnv, span);
+  }
   verifyGenericTraitBounds(method, methodTypeEnv, span);
   Type* retType = methodType->getReturnType();
   if (!methodTypeEnv.empty() && retType != nullptr) {
     retType = substituteInType(retType, methodTypeEnv);
+  }
+  if (Type* expected = currentExpectedType();
+      expected != nullptr && retType != nullptr && retType->is(BaseType::TY_ENUM)) {
+    Type* expectedShape = expected;
+    if (expectedShape->is(BaseType::TY_PTR) && expectedShape->getElementType() != nullptr) {
+      expectedShape = expectedShape->getElementType();
+    }
+    if (expectedShape->is(BaseType::TY_ENUM)) {
+      Type* retTemplate = retType;
+      if (auto it = specializedTypeToTemplate.find(retType); it != specializedTypeToTemplate.end()) {
+        retTemplate = it->second;
+      }
+      Type* expectedTemplate = expectedShape;
+      if (auto it = specializedTypeToTemplate.find(expectedShape);
+          it != specializedTypeToTemplate.end()) {
+        expectedTemplate = it->second;
+      }
+      if (retTemplate->isEqual(expectedTemplate)) {
+        retType = expectedShape;
+      }
+    }
   }
   if (!methodTypeEnv.empty()) {
     fc->setGenericBindingEnv(methodTypeEnv);
@@ -2562,6 +2587,41 @@ auto Typechecker::inferGenericBindings(Type* pattern, Type* actual,
     return;
   }
   if (pattern->getBaseType() != actual->getBaseType()) {
+    return;
+  }
+  if (pattern->isOneOf({BaseType::TY_CLASS, BaseType::TY_ENUM})) {
+    Type* patternTemplate = pattern;
+    if (auto it = specializedTypeToTemplate.find(pattern); it != specializedTypeToTemplate.end()) {
+      patternTemplate = it->second;
+    }
+    Type* actualTemplate = actual;
+    if (auto it = specializedTypeToTemplate.find(actual); it != specializedTypeToTemplate.end()) {
+      actualTemplate = it->second;
+    }
+    if (!patternTemplate->isEqual(actualTemplate)) {
+      return;
+    }
+    auto patternEnvIt = specializedTypeEnv.find(pattern);
+    auto actualEnvIt = specializedTypeEnv.find(actual);
+    if (patternEnvIt == specializedTypeEnv.end() && actualEnvIt != specializedTypeEnv.end()) {
+      for (const auto& genericName : getDeclaredGenericParams(patternTemplate)) {
+        auto ait = actualEnvIt->second.find(genericName);
+        if (ait != actualEnvIt->second.end()) {
+          inferGenericBindings(cacheType(std::make_unique<Type>(genericName)), ait->second, bindings,
+                               span);
+        }
+      }
+      return;
+    }
+    if (patternEnvIt != specializedTypeEnv.end() && actualEnvIt != specializedTypeEnv.end()) {
+      for (const auto& genericName : getDeclaredGenericParams(patternTemplate)) {
+        auto pit = patternEnvIt->second.find(genericName);
+        auto ait = actualEnvIt->second.find(genericName);
+        if (pit != patternEnvIt->second.end() && ait != actualEnvIt->second.end()) {
+          inferGenericBindings(pit->second, ait->second, bindings, span);
+        }
+      }
+    }
     return;
   }
   if (pattern->isOneOf({BaseType::TY_PTR, BaseType::TY_ARRAY})) {
@@ -5949,6 +6009,7 @@ auto Typechecker::resolveFuncCallCalleeOrEarlyReturn(const FuncCall* node,
 
 auto Typechecker::visit(const FuncCall* node) -> void {
   node->clearGenericBindingEnv();
+  node->setContextualEnumMonomorph(nullptr);
   std::vector<Type*> argTypes = overloadArgTypesFromCall(node);
   if (visitListIntrinsicCall(node, argTypes)) {
     return;
@@ -5974,6 +6035,27 @@ auto Typechecker::visit(const FuncCall* node) -> void {
     throw TypeCheckError(node->getSpan(), "Not a function: {}", node->getName());
   }
   node->setResolvedSymbol(callee);
+  if (Type* expected = currentExpectedType(); expected != nullptr) {
+    Type* expectedShape = expected;
+    if (expectedShape->is(BaseType::TY_PTR) && expectedShape->getElementType() != nullptr) {
+      expectedShape = expectedShape->getElementType();
+    }
+    Type* calleeReturn = callee->getType()->getReturnType();
+    if (expectedShape != nullptr && calleeReturn != nullptr && expectedShape->is(BaseType::TY_ENUM) &&
+        calleeReturn->is(BaseType::TY_ENUM)) {
+      Type* expectedTemplate = expectedShape;
+      if (auto it = specializedTypeToTemplate.find(expectedShape); it != specializedTypeToTemplate.end()) {
+        expectedTemplate = it->second;
+      }
+      Type* returnTemplate = calleeReturn;
+      if (auto it = specializedTypeToTemplate.find(calleeReturn); it != specializedTypeToTemplate.end()) {
+        returnTemplate = it->second;
+      }
+      if (expectedTemplate->isEqual(returnTemplate)) {
+        node->setContextualEnumMonomorph(expectedShape);
+      }
+    }
+  }
   markValueRead(callee);
   if (funcCallResolvedViaImportedNameBinding) {
     if (Value* importStub = scope->lookup(node->getName());
@@ -6047,6 +6129,9 @@ void Typechecker::completeOrdinaryFuncCallTyping(const FuncCall* node, Value* ca
   for (size_t i = 0; i < fields.size() && i < argTypes.size(); ++i) {
     inferGenericBindings(fields[i]->type, argTypes[i], localGenericTypes, node->getSpan());
   }
+  if (Type* expected = currentExpectedType(); expected != nullptr && funcType->getReturnType() != nullptr) {
+    inferGenericBindings(funcType->getReturnType(), expected, localGenericTypes, node->getSpan());
+  }
   if (callee->getName() == "new" && !funcType->getFields().empty() &&
       funcType->getFields()[0]->type->is(BaseType::TY_PTR)) {
     Type* classType = funcType->getFields()[0]->type->getElementType();
@@ -6060,6 +6145,27 @@ void Typechecker::completeOrdinaryFuncCallTyping(const FuncCall* node, Value* ca
     Type* retType = substituteInType(funcType->getReturnType(), localGenericTypes);
     if (retType == nullptr) {
       retType = funcType->getReturnType();
+    }
+    if (Type* expected = currentExpectedType();
+        expected != nullptr && retType != nullptr && retType->is(BaseType::TY_ENUM)) {
+      Type* expectedShape = expected;
+      if (expectedShape->is(BaseType::TY_PTR) && expectedShape->getElementType() != nullptr) {
+        expectedShape = expectedShape->getElementType();
+      }
+      if (expectedShape->is(BaseType::TY_ENUM)) {
+        Type* retTemplate = retType;
+        if (auto it = specializedTypeToTemplate.find(retType); it != specializedTypeToTemplate.end()) {
+          retTemplate = it->second;
+        }
+        Type* expectedTemplate = expectedShape;
+        if (auto it = specializedTypeToTemplate.find(expectedShape);
+            it != specializedTypeToTemplate.end()) {
+          expectedTemplate = it->second;
+        }
+        if (retTemplate->isEqual(expectedTemplate)) {
+          retType = expectedShape;
+        }
+      }
     }
     result = std::make_unique<Value>(materializeForCallSite(retType, importedScope));
   }
@@ -7536,7 +7642,17 @@ auto Typechecker::visit(const StringInterpolation* node) -> void {
 
 auto Typechecker::visit(const TypeExpr* node) -> void {
   Type* type = resolveType(node);
+  if (Value* resolvedSym = node->getResolvedSymbol();
+      resolvedSym != nullptr && resolvedSym->getCategory() == ValueCategory::TYPE_SYMBOL) {
+    auto out = std::make_unique<Value>(*resolvedSym);
+    out->setType(type);
+    result = std::move(out);
+    return;
+  }
   result = std::make_unique<Value>(type);
+  if (type != nullptr && node->getType() == TokenType::CUSTOM_TYPE) {
+    result->setCategory(ValueCategory::TYPE_SYMBOL);
+  }
 }
 
 auto Typechecker::visit(const TraitDecl* node) -> void {

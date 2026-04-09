@@ -3435,6 +3435,20 @@ auto Codegen::visit(const Return* node) -> void {
       }
       emitReleaseCurrentArcOwnedSlots();
       builder->CreateRet(result->getLlvmValue());
+    } else if (declaredReturnType != nullptr && actualType != nullptr &&
+               actualType->isEqual(declaredReturnType) &&
+               !actualReturnType->isPointerTy() && !expectedReturnType->isPointerTy() &&
+               theModule->getDataLayout().getTypeAllocSize(actualReturnType) ==
+                   theModule->getDataLayout().getTypeAllocSize(expectedReturnType)) {
+      if (!result->getArcOwnedValue() && TypeUtils::containsArcManagedValue(actualType)) {
+        emitRetainLoadedValue(actualType, result->getLlvmValue(), false);
+      }
+      llvm::Function* parentFct = builder->GetInsertBlock()->getParent();
+      llvm::AllocaInst* retSlot = createAllocaInEntry(parentFct, actualReturnType, "ret.coerce");
+      builder->CreateStore(result->getLlvmValue(), retSlot);
+      llvm::Value* coerced = builder->CreateLoad(expectedReturnType, retSlot, "ret.coerced");
+      emitReleaseCurrentArcOwnedSlots();
+      builder->CreateRet(coerced);
     } else {
       throw CodegenError(node->getSpan(),
                          "Return type does not match the function return type, expected {}, "
@@ -8269,6 +8283,67 @@ auto Codegen::genFuncCall(const FuncCall* node, const std::vector<lesma::Value*>
   }
 
   evaluateCallExplicitTypeArgs(node, explicitTypeArgs);
+
+  if (Type* contextualEnum = node->getContextualEnumMonomorph(); contextualEnum != nullptr) {
+    Type* enumType = contextualEnum;
+    if (currentFunction != nullptr && currentFunction->getType() != nullptr &&
+        currentFunction->getType()->getReturnType() != nullptr) {
+      Type* declaredReturn = currentFunction->getType()->getReturnType();
+      Type* declaredShape = declaredReturn;
+      if (declaredShape->is(BaseType::TY_PTR) && declaredShape->getElementType() != nullptr) {
+        declaredShape = declaredShape->getElementType();
+      }
+      Type* contextualShape = enumType;
+      if (contextualShape->is(BaseType::TY_PTR) && contextualShape->getElementType() != nullptr) {
+        contextualShape = contextualShape->getElementType();
+      }
+      Type* declaredTemplate = declaredShape;
+      if (auto it = specializedClassTemplateOf.find(declaredShape); it != specializedClassTemplateOf.end()) {
+        declaredTemplate = it->second;
+      }
+      Type* contextualTemplate = contextualShape;
+      if (auto it = specializedClassTemplateOf.find(contextualShape);
+          it != specializedClassTemplateOf.end()) {
+        contextualTemplate = it->second;
+      }
+      if (declaredShape->is(BaseType::TY_ENUM) && contextualShape->is(BaseType::TY_ENUM) &&
+          declaredTemplate->isEqual(contextualTemplate)) {
+        enumType = declaredShape;
+      }
+    }
+    if (enumType->is(BaseType::TY_PTR) && enumType->getElementType() != nullptr) {
+      enumType = enumType->getElementType();
+    }
+    if (enumType->is(BaseType::TY_ENUM)) {
+      Type* enumTemplate = enumType;
+      if (auto it = specializedClassTemplateOf.find(enumType); it != specializedClassTemplateOf.end()) {
+        enumTemplate = it->second;
+      }
+      const Enum* enumAst = nullptr;
+      if (auto it = codegenEnumAstByType.find(enumTemplate); it != codegenEnumAstByType.end()) {
+        enumAst = it->second;
+      } else if (auto it = codegenEnumAstByDisplayName.find(enumTemplate->getDisplayName());
+                 it != codegenEnumAstByDisplayName.end()) {
+        enumAst = it->second;
+      }
+      if (enumAst != nullptr && enumType != enumTemplate) {
+        emitEnumMonomorph(enumType, enumAst);
+      }
+      int const variantIndex = TypeUtils::findIndexInEnumVariants(enumType, node->getName());
+      if (variantIndex >= 0) {
+        std::vector<std::unique_ptr<lesma::Value>> payloadStorage;
+        std::vector<lesma::Value*> payloadValues;
+        payloadStorage.reserve(posArgs.size());
+        payloadValues.reserve(posArgs.size());
+        for (auto* arg : posArgs) {
+          payloadStorage.push_back(std::make_unique<lesma::Value>(*arg));
+          payloadValues.push_back(payloadStorage.back().get());
+        }
+        return emitEnumConstructValue(node->getSpan(), enumType, static_cast<unsigned>(variantIndex),
+                                      payloadValues);
+      }
+    }
+  }
 
   setDebugLoc(node->getSpan());
   if (isListIntrinsicName(node->getName())) {

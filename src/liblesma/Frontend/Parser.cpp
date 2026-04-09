@@ -1021,6 +1021,71 @@ auto Parser::hasExplicitTypeArgsAndParen() -> bool {
   return false;
 }
 
+auto Parser::hasTypeArgsAndDot() -> bool {
+  if (!(check(TokenType::IDENTIFIER) || check(TokenType::STRING_TYPE)) || !check(TokenType::LESS, 1)) {
+    return false;
+  }
+  unsigned long off = 2;
+  unsigned short pendingTypeArgClosers = 0;
+  while (canPeek(off) || pendingTypeArgClosers > 0U) {
+    while (pendingTypeArgClosers == 0U && canPeek(off) && peek(off)->type == TokenType::NEWLINE) {
+      off++;
+    }
+    if (isTypeArgClose(off, pendingTypeArgClosers)) {
+      unsigned long closeOff = off;
+      unsigned short closePending = pendingTypeArgClosers;
+      if (!consumeTypeArgClose(closeOff, closePending)) {
+        return false;
+      }
+      while (canPeek(closeOff) && peek(closeOff)->type == TokenType::NEWLINE) {
+        closeOff++;
+      }
+      return canPeek(closeOff) && peek(closeOff)->type == TokenType::DOT;
+    }
+    if (!canPeek(off)) {
+      return false;
+    }
+    if (!skipOneTypeAt(off, pendingTypeArgClosers)) {
+      return false;
+    }
+    while (pendingTypeArgClosers == 0U && canPeek(off) && peek(off)->type == TokenType::NEWLINE) {
+      off++;
+    }
+    if (pendingTypeArgClosers == 0U && canPeek(off) && peek(off)->type == TokenType::COMMA) {
+      off++;
+    } else if (!isTypeArgClose(off, pendingTypeArgClosers)) {
+      return false;
+    }
+  }
+  return false;
+}
+
+auto Parser::parseValueTypeExpr() -> std::unique_ptr<Expression> {
+  auto* token = peek();
+  if (token->type != TokenType::IDENTIFIER && token->type != TokenType::STRING_TYPE) {
+    error(token, "Expected type name");
+  }
+  advance();
+  std::vector<std::unique_ptr<TypeExpr>> typeArgs;
+  if (check(TokenType::LESS)) {
+    typeArgs = parseAngleBracketTypeArgList();
+  }
+  if (typeArgs.empty()) {
+    return std::make_unique<TypeExpr>(token->span, token->lexeme, TokenType::CUSTOM_TYPE);
+  }
+  Token* const greater = previous();
+  std::string lexeme = token->lexeme + "<";
+  for (size_t i = 0; i < typeArgs.size(); ++i) {
+    lexeme += typeArgs[i]->getName();
+    if (i + 1U < typeArgs.size()) {
+      lexeme += ", ";
+    }
+  }
+  lexeme += ">";
+  return std::make_unique<TypeExpr>(llvm::SMRange{token->getStart(), greater->getEnd()}, lexeme,
+                                    TokenType::CUSTOM_TYPE, std::move(typeArgs));
+}
+
 // Expression
 auto Parser::parseFunctionCall() -> std::unique_ptr<Expression> {
   auto* token = peek();
@@ -1303,6 +1368,9 @@ auto Parser::parseTerm() -> std::unique_ptr<Expression> {
   case TokenType::IDENTIFIER: {
     if (check(TokenType::LEFT_PAREN, 1) || hasExplicitTypeArgsAndParen()) {
       return parseFunctionCall();
+    }
+    if (hasTypeArgsAndDot()) {
+      return parseValueTypeExpr();
     }
 
     auto* token = peek();

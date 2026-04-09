@@ -37,6 +37,7 @@ using lesma::lsp_srv::formatTypeName;
 struct CompletionContext {
   bool isMember = false;
   std::string prefix;
+  unsigned prefixStart = 0U;
   std::string memberChain;
   unsigned memberChainStart = 0U;
 };
@@ -233,6 +234,23 @@ auto lineStartOffsetAt(llvm::StringRef text, unsigned pos) -> unsigned {
     }
   }
   return start;
+}
+
+auto endsWithWholeWord(llvm::StringRef text, llvm::StringRef word) -> bool {
+  text = text.rtrim(" \t\r");
+  if (text.size() < word.size() || !text.ends_with(word)) {
+    return false;
+  }
+  if (text.size() == word.size()) {
+    return true;
+  }
+  return !isIdentChar(text[text.size() - word.size() - 1U]);
+}
+
+auto cursorInReturnEnumContext(llvm::StringRef text, const CompletionContext& ctx) -> bool {
+  unsigned const lineStart = lineStartOffsetAt(text, ctx.prefixStart);
+  llvm::StringRef const beforePrefix = text.slice(lineStart, ctx.prefixStart);
+  return endsWithWholeWord(beforePrefix, "return");
 }
 
 /** True if a `//` line comment begins before \p openQuoteIdx on the same line (outside strings). */
@@ -520,6 +538,7 @@ auto extractCompletionContext(llvm::StringRef text, unsigned offset) -> Completi
     --prefixStart;
   }
   ctx.prefix = std::string(text.slice(prefixStart, cursor));
+  ctx.prefixStart = static_cast<unsigned>(prefixStart);
   if (prefixStart == 0U || text[prefixStart - 1U] != '.') {
     return ctx;
   }
@@ -1401,6 +1420,42 @@ void appendScopeSymbols(AnalysisResult& result, SymbolTable* scope, SymbolTable*
   }
 }
 
+void appendReturnEnumVariants(const InnermostFunc& cursorContext, SymbolTable* root,
+                              std::vector<CompletionCandidate>& out,
+                              std::unordered_set<std::string>& seen) {
+  if (cursorContext.func == nullptr) {
+    return;
+  }
+  Value* funcSymbol = cursorContext.func->getResolvedSymbol();
+  if (funcSymbol == nullptr || funcSymbol->getType() == nullptr ||
+      !funcSymbol->getType()->is(BaseType::TY_FUNCTION)) {
+    return;
+  }
+  Type* returnType = funcSymbol->getType()->getReturnType();
+  if (returnType == nullptr) {
+    return;
+  }
+  if (returnType->is(BaseType::TY_PTR) && returnType->getElementType() != nullptr) {
+    returnType = returnType->getElementType();
+  }
+  if (!returnType->is(BaseType::TY_ENUM)) {
+    return;
+  }
+  std::string const detail =
+      !returnType->getDisplayName().empty() ? returnType->getDisplayName()
+                                            : formatTypeName(returnType, root);
+  for (EnumVariant* variant : returnType->getEnumVariants()) {
+    if (variant == nullptr) {
+      continue;
+    }
+    addCandidate(out, seen,
+                 CompletionCandidate{.label = variant->name,
+                                     .kind = ::lsp::CompletionItemKind::EnumMember,
+                                     .detail = detail,
+                                     .documentation = {}});
+  }
+}
+
 void appendKeywords(std::vector<CompletionCandidate>& out, std::unordered_set<std::string>& seen) {
   static constexpr std::array<std::string_view, 29> keywords = {
       "and",    "as",      "break",  "class", "continue", "defer", "else",
@@ -1545,6 +1600,9 @@ auto completionItems(AnalysisResult& result, unsigned line, unsigned character)
   } else {
     appendScopeSymbols(*activeResult, activeScope != nullptr ? activeScope : root, root, candidates,
                        seen);
+    if (cursorInReturnEnumContext(text, ctx)) {
+      appendReturnEnumVariants(cursorContext, root, candidates, seen);
+    }
     appendMatchArmBindingCandidatesAtOffset(*activeResult, offset, candidates, seen);
     appendKeywords(candidates, seen);
   }

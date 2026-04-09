@@ -191,6 +191,7 @@ auto Codegen::visit(const TypeExpr* node) -> void {
     auto git = currentGenericTypes.find(lookupName);
     if (git != currentGenericTypes.end()) {
       result = std::make_unique<Value>(git->second);
+      result->setCategory(ValueCategory::TYPE_SYMBOL);
       return;
     }
     std::vector<lesma::Type*> explicitTypeArgs;
@@ -202,7 +203,8 @@ auto Codegen::visit(const TypeExpr* node) -> void {
         resolvedSym != nullptr && resolvedSym->getDeclarationKind() == ValueDeclarationKind::TYPE &&
         resolvedSym->getType() != nullptr && explicitTypeArgs.empty()) {
       getOrCreateLlvmType(resolvedSym->getType());
-      result = std::make_unique<Value>(resolvedSym->getType());
+      result = std::make_unique<Value>(*resolvedSym);
+      result->setType(resolvedSym->getType());
       return;
     }
     if (lookupName == "__buffer") {
@@ -325,6 +327,7 @@ auto Codegen::visit(const TypeExpr* node) -> void {
 
     result = std::make_unique<Value>(*sym);
     result->setType(typ);
+    result->setCategory(ValueCategory::TYPE_SYMBOL);
   } else {
     throw CodegenError(node->getSpan(), "Unimplemented type {}", NAMEOF_ENUM(node->getType()));
   }

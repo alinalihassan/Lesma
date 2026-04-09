@@ -194,6 +194,10 @@ private:
   auto parseType() -> std::unique_ptr<TypeExpr>;
   /** Parses `<` … `>` as a comma-separated list of types (caller ensures current token is `<`). */
   auto parseAngleBracketTypeArgList() -> std::vector<std::unique_ptr<TypeExpr>>;
+  /** True for value-position type receivers like `Result<int, bool>.Ok(...)`. */
+  auto hasTypeArgsAndDot() -> bool;
+  /** Parses a value-position nominal type expression like `Result<int, bool>`. */
+  auto parseValueTypeExpr() -> std::unique_ptr<Expression>;
   /** One union arm: no top-level `|` (inner `parseType` still allows unions in parens / ptr). */
   auto parseTypePrimary() -> std::unique_ptr<TypeExpr>;
   auto parseExpression() -> std::unique_ptr<Expression>;
