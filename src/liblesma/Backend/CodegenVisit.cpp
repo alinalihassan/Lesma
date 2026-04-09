@@ -4325,6 +4325,32 @@ auto Codegen::visit(const BinaryOp* node) -> void {
     eqPhi->addIncoming(builder->getFalse(), inactiveIncoming);
     return makeBoolCompareResult(isEqual ? eqPhi : builder->CreateNot(eqPhi, "union.cmp.ne"));
   };
+  auto emitNullEquality = [this](lesma::Value* lhs, lesma::Value* rhs,
+                                 bool isEqual) -> std::unique_ptr<lesma::Value> {
+    Type* lhsTy = lhs != nullptr ? lhs->getType() : nullptr;
+    Type* rhsTy = rhs != nullptr ? rhs->getType() : nullptr;
+    if (lhsTy == nullptr || rhsTy == nullptr) {
+      return nullptr;
+    }
+    bool lhsNull = lhsTy->is(BaseType::TY_NULL);
+    bool rhsNull = rhsTy->is(BaseType::TY_NULL);
+    if (!lhsNull && !rhsNull) {
+      return nullptr;
+    }
+    if (lhsNull && rhsNull) {
+      return makeBoolCompareResult(isEqual ? builder->getTrue() : builder->getFalse());
+    }
+
+    lesma::Value* nonNullSide = lhsNull ? rhs : lhs;
+    llvm::Value* nonNullValue = nonNullSide != nullptr ? nonNullSide->getLlvmValue() : nullptr;
+    if (nonNullValue != nullptr && nonNullValue->getType()->isPointerTy()) {
+      llvm::Value* isNullPtr =
+          builder->CreateIsNull(nonNullValue, isEqual ? "cmp.null.eq" : "cmp.null.ne.base");
+      return makeBoolCompareResult(isEqual ? isNullPtr
+                                           : builder->CreateNot(isNullPtr, "cmp.null.ne"));
+    }
+    return makeBoolCompareResult(isEqual ? builder->getFalse() : builder->getTrue());
+  };
 
   switch (node->getOperator()) {
   case TokenType::MINUS:
@@ -4359,6 +4385,10 @@ auto Codegen::visit(const BinaryOp* node) -> void {
     Type* ltyEq = left->getType();
     Type* rtyEq = right->getType();
     if (ltyEq != nullptr && rtyEq != nullptr) {
+      if (auto nullCmp = emitNullEquality(left.get(), right.get(), true); nullCmp != nullptr) {
+        result = std::move(nullCmp);
+        return;
+      }
       if (auto unionCmp = emitUnionScalarEquality(left.get(), right.get(), true);
           unionCmp != nullptr) {
         result = std::move(unionCmp);
@@ -4448,6 +4478,10 @@ auto Codegen::visit(const BinaryOp* node) -> void {
     Type* ltyNe = left->getType();
     Type* rtyNe = right->getType();
     if (ltyNe != nullptr && rtyNe != nullptr) {
+      if (auto nullCmp = emitNullEquality(left.get(), right.get(), false); nullCmp != nullptr) {
+        result = std::move(nullCmp);
+        return;
+      }
       if (auto unionCmp = emitUnionScalarEquality(left.get(), right.get(), false);
           unionCmp != nullptr) {
         result = std::move(unionCmp);
@@ -4657,6 +4691,33 @@ auto Codegen::visit(const BinaryOp* node) -> void {
   default:
     throw CodegenError(node->getSpan(), "Unimplemented binary operator: {}",
                        NAMEOF_ENUM(node->getOperator()));
+  }
+
+  auto isNullLiteralExpr = [](const Expression* expr) -> bool {
+    auto* literal = dynamic_cast<const Literal*>(expr);
+    return literal != nullptr && literal->getType() == TokenType::NIL;
+  };
+  if ((node->getOperator() == TokenType::EQUAL_EQUAL ||
+       node->getOperator() == TokenType::BANG_EQUAL) &&
+      (isNullLiteralExpr(node->getLeft()) || isNullLiteralExpr(node->getRight()))) {
+    bool const isEqual = node->getOperator() == TokenType::EQUAL_EQUAL;
+    bool const leftIsNullLiteral = isNullLiteralExpr(node->getLeft());
+    bool const rightIsNullLiteral = isNullLiteralExpr(node->getRight());
+    if (leftIsNullLiteral && rightIsNullLiteral) {
+      result = makeBoolCompareResult(isEqual ? builder->getTrue() : builder->getFalse());
+      return;
+    }
+    lesma::Value* nonNullSide = leftIsNullLiteral ? right.get() : left.get();
+    llvm::Value* nonNullValue = nonNullSide != nullptr ? nonNullSide->getLlvmValue() : nullptr;
+    if (nonNullValue != nullptr && nonNullValue->getType()->isPointerTy()) {
+      llvm::Value* isNullPtr =
+          builder->CreateIsNull(nonNullValue, isEqual ? "cmp.ast.null.eq" : "cmp.ast.null.ne");
+      result = makeBoolCompareResult(isEqual ? isNullPtr
+                                             : builder->CreateNot(isNullPtr, "cmp.ast.null.not"));
+      return;
+    }
+    result = makeBoolCompareResult(isEqual ? builder->getFalse() : builder->getTrue());
+    return;
   }
 
   if (auto operatorName = OperatorUtils::getBinaryOperatorName(node->getOperator());

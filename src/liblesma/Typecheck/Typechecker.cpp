@@ -3036,8 +3036,20 @@ auto Typechecker::typecheckBinaryOpResult(TokenType op, Type* leftTy, Type* righ
   case TokenType::GREATER_EQUAL:
   case TokenType::LESS:
   case TokenType::LESS_EQUAL:
-    if (Type* overloadedType = tryOverload(); overloadedType != nullptr) {
-      return overloadedType;
+    if (!(op == TokenType::EQUAL_EQUAL || op == TokenType::BANG_EQUAL) ||
+        (!leftTy->is(BaseType::TY_NULL) && !rightTy->is(BaseType::TY_NULL))) {
+      if (Type* overloadedType = tryOverload(); overloadedType != nullptr) {
+        return overloadedType;
+      }
+    }
+    if ((op == TokenType::EQUAL_EQUAL || op == TokenType::BANG_EQUAL) &&
+        leftTy->is(BaseType::TY_NULL) && rightTy->is(BaseType::TY_NULL)) {
+      return cacheType(std::make_unique<Type>(BaseType::TY_BOOL));
+    }
+    if ((op == TokenType::EQUAL_EQUAL || op == TokenType::BANG_EQUAL) &&
+        ((leftTy->is(BaseType::TY_NULL) && isNullableType(rightTy)) ||
+         (rightTy->is(BaseType::TY_NULL) && isNullableType(leftTy)))) {
+      return cacheType(std::make_unique<Type>(BaseType::TY_BOOL));
     }
     if ((op == TokenType::EQUAL_EQUAL || op == TokenType::BANG_EQUAL) && leftTy != nullptr &&
         rightTy != nullptr &&
@@ -3540,6 +3552,8 @@ auto Typechecker::visit(const Else* /*node*/) -> void {}
 
 auto Typechecker::visit(const Compound* node) -> void {
   bool precededByTerminator = false;
+  unionNarrowingStack.emplace_back();
+  size_t const followingStatementNarrowingIndex = unionNarrowingStack.size() - 1U;
   for (Statement* elem : node->getChildren()) {
     if (precededByTerminator) {
       emitWarning(elem->getSpan(), "Unreachable code");
@@ -3549,8 +3563,13 @@ auto Typechecker::visit(const Compound* node) -> void {
     } catch (const TypeCheckError& err) {
       recoverFromTypeError(err);
     }
+    if (auto* ifStmt = dynamic_cast<If*>(elem)) {
+      fillUnionNarrowingForFollowingStatements(ifStmt,
+                                               unionNarrowingStack[followingStatementNarrowingIndex]);
+    }
     precededByTerminator = isControlFlowTerminator(elem);
   }
+  unionNarrowingStack.pop_back();
 }
 
 void Typechecker::appendSemanticDiagnostic(llvm::SMRange span, std::string message,
@@ -4372,6 +4391,55 @@ auto Typechecker::fillUnionNarrowingForIfBlock(
         }
       }
     }
+  }
+}
+
+auto Typechecker::fillUnionNarrowingForFollowingStatements(
+    const If* node,
+    std::unordered_map<UnionNarrowingStableKey, Type*, UnionNarrowingStableKeyHash,
+                       UnionNarrowingStableKeyEq>& out) -> void {
+  if (node == nullptr || node->getConds().size() != 1U || node->getBlocks().size() != 1U) {
+    return;
+  }
+  Compound* guardBlock = node->getBlocks()[0];
+  if (guardBlock == nullptr || pathLeadsToEndWithoutReturn(guardBlock->getChildren(), 0)) {
+    return;
+  }
+  const auto* is = dynamic_cast<const IsOp*>(node->getConds()[0]);
+  if (is == nullptr) {
+    return;
+  }
+  auto key = tryGetIsOpUnionNarrowingKey(is);
+  if (!key.has_value() || (!key->declarationSpan.isValid() && key->fallbackAnchor == nullptr)) {
+    return;
+  }
+  try {
+    is->getLeft()->accept(*this);
+  } catch (const TypeCheckError&) {
+    return;
+  }
+  Type* unionTy = result != nullptr ? result->getType() : nullptr;
+  if (unionTy == nullptr || !unionTy->is(BaseType::TY_UNION)) {
+    return;
+  }
+  Type* rhsTy = nullptr;
+  try {
+    rhsTy = resolveType(is->getRight());
+  } catch (const TypeCheckError&) {
+    return;
+  }
+  if (is->getOperator() == TokenType::IS) {
+    if (!rhsTypeIsUnionMember(unionTy, rhsTy)) {
+      return;
+    }
+    Type* narrowed = narrowUnionByExcludingMembers(unionTy, {rhsTy});
+    if (narrowed != nullptr) {
+      out[*key] = narrowed;
+    }
+    return;
+  }
+  if (is->getOperator() == TokenType::IS_NOT && unionCanSatisfyIsCheck(unionTy, rhsTy)) {
+    out[*key] = rhsTy;
   }
 }
 
@@ -6140,8 +6208,54 @@ auto Typechecker::visit(const BinaryOp* node) -> void {
   std::unique_ptr<Value> left = std::move(result);
   node->getRight()->accept(*this);
   std::unique_ptr<Value> right = std::move(result);
-  Type* resultType = typecheckBinaryOpResult(node->getOperator(), left->getType(), right->getType(),
-                                             node->getSpan());
+  auto getNullableStorageTypeForComparison = [this](const Expression* expr,
+                                                    Type* currentType) -> Type* {
+    if (expr == nullptr || currentType == nullptr || isNullableType(currentType)) {
+      return nullptr;
+    }
+    if (Value* root = rootStorageSymbolForAssignmentLhs(const_cast<Expression*>(expr));
+        root != nullptr && root->getType() != nullptr && isNullableType(root->getType())) {
+      return root->getType();
+    }
+    if (auto const* dot = dynamic_cast<const DotOp*>(expr)) {
+      Type* storageType = assignmentStorageTypeForDotLhs(const_cast<DotOp*>(dot), currentType);
+      if (storageType != nullptr && isNullableType(storageType)) {
+        return storageType;
+      }
+    }
+    return nullptr;
+  };
+  auto const* leftNullLit = dynamic_cast<const Literal*>(node->getLeft());
+  auto const* rightNullLit = dynamic_cast<const Literal*>(node->getRight());
+  bool const leftIsNull = leftNullLit != nullptr && leftNullLit->getType() == TokenType::NIL;
+  bool const rightIsNull = rightNullLit != nullptr && rightNullLit->getType() == TokenType::NIL;
+  Type* leftTypeForCheck = left->getType();
+  Type* rightTypeForCheck = right->getType();
+  bool emitAlwaysFalseWarning = false;
+  bool emitAlwaysTrueWarning = false;
+  if (node->getOperator() == TokenType::EQUAL_EQUAL || node->getOperator() == TokenType::BANG_EQUAL) {
+    if (rightIsNull) {
+      if (Type* nullableStorage = getNullableStorageTypeForComparison(node->getLeft(), left->getType())) {
+        leftTypeForCheck = nullableStorage;
+        emitAlwaysFalseWarning = node->getOperator() == TokenType::EQUAL_EQUAL;
+        emitAlwaysTrueWarning = node->getOperator() == TokenType::BANG_EQUAL;
+      }
+    } else if (leftIsNull) {
+      if (Type* nullableStorage =
+              getNullableStorageTypeForComparison(node->getRight(), right->getType())) {
+        rightTypeForCheck = nullableStorage;
+        emitAlwaysFalseWarning = node->getOperator() == TokenType::EQUAL_EQUAL;
+        emitAlwaysTrueWarning = node->getOperator() == TokenType::BANG_EQUAL;
+      }
+    }
+  }
+  Type* resultType =
+      typecheckBinaryOpResult(node->getOperator(), leftTypeForCheck, rightTypeForCheck, node->getSpan());
+  if (emitAlwaysFalseWarning) {
+    emitWarning(node->getSpan(), "Comparison is always false after flow narrowing");
+  } else if (emitAlwaysTrueWarning) {
+    emitWarning(node->getSpan(), "Comparison is always true after flow narrowing");
+  }
   auto extractConstantShiftCount = [](const Expression* expr) -> std::optional<long long> {
     if (auto const* lit = dynamic_cast<const Literal*>(expr)) {
       if (lit->getType() == TokenType::INTEGER) {
@@ -6590,8 +6704,30 @@ auto Typechecker::visit(const IsOp* node) -> void {
   }
   if (lhsTy != nullptr && lhsTy->is(BaseType::TY_UNION)) {
     if (!unionCanSatisfyIsCheck(lhsTy, rhsTy)) {
-      throw TypeCheckError(node->getSpan(), "`is` type {} is not a member of union {}",
-                           rhsTy->toString(), lhsTy->toString());
+      emitWarning(node->getSpan(), node->getOperator() == TokenType::IS
+                                       ? "Type test is always false"
+                                       : "Type test is always true");
+      result = std::make_unique<Value>(cacheType(std::make_unique<Type>(BaseType::TY_BOOL)));
+      return;
+    }
+  }
+  if (lhsTy != nullptr && rhsTy != nullptr && !lhsTy->is(BaseType::TY_ANY) &&
+      !lhsTy->is(BaseType::TY_UNION)) {
+    Type* lhsCmp = lhsTy;
+    Type* rhsCmp = rhsTy;
+    if (lhsCmp->is(BaseType::TY_PTR) && lhsCmp->getElementType() != nullptr &&
+        lhsCmp->getElementType()->is(BaseType::TY_CLASS)) {
+      lhsCmp = lhsCmp->getElementType();
+    }
+    if (rhsCmp->is(BaseType::TY_PTR) && rhsCmp->getElementType() != nullptr &&
+        rhsCmp->getElementType()->is(BaseType::TY_CLASS)) {
+      rhsCmp = rhsCmp->getElementType();
+    }
+    bool satisfiable = lhsCmp->isEqual(rhsCmp);
+    if (!satisfiable) {
+      emitWarning(node->getSpan(), node->getOperator() == TokenType::IS
+                                       ? "Type test is always false"
+                                       : "Type test is always true");
     }
   }
   result = std::make_unique<Value>(cacheType(std::make_unique<Type>(BaseType::TY_BOOL)));
