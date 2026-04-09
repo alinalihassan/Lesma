@@ -5448,14 +5448,69 @@ auto Codegen::visit(const IsOp* node) -> void {
 
   if (leftType != nullptr && leftType->is(BaseType::TY_UNION)) {
     auto idxOpt = unionVariantIndexOf(leftType, rightType);
-    if (!idxOpt.has_value()) {
+    const auto& members = leftType->getUnionMembers();
+    std::optional<unsigned> anyIdxOpt = std::nullopt;
+    for (unsigned i = 0; i < members.size(); ++i) {
+      if (members[i] != nullptr &&
+          (members[i]->is(BaseType::TY_ANY) || members[i]->toString() == "any")) {
+        anyIdxOpt = i;
+        break;
+      }
+    }
+    if (!idxOpt.has_value() && !anyIdxOpt.has_value()) {
       throw CodegenError(node->getSpan(), "`is` type is not a member of the union value type");
     }
     getOrCreateLlvmType(leftType);
-    llvm::Value* agg = leftOwner->getLlvmValue();
-    llvm::Value* tagVal = builder->CreateExtractValue(agg, {0U}, "union.tag");
-    llvm::Value* cmp = builder->CreateICmpEQ(
-        tagVal, llvm::ConstantInt::get(tagVal->getType(), static_cast<uint64_t>(*idxOpt)));
+    llvm::Function* parent = builder->GetInsertBlock()->getParent();
+    auto* unionStructTy = llvm::cast<llvm::StructType>(leftType->getLlvmType());
+    llvm::Value* unionStorage = leftOwner->getLlvmValue();
+    llvm::Value* unionPtr = unionStorage;
+    if (!unionStorage->getType()->isPointerTy()) {
+      llvm::AllocaInst* tmpSlot = createAllocaInEntry(parent, unionStructTy, "union.is.slot");
+      builder->CreateStore(unionStorage, tmpSlot);
+      unionPtr = tmpSlot;
+    }
+    llvm::Value* tagPtr = builder->CreateStructGEP(unionStructTy, unionPtr, 0U, "union.is.tag.ptr");
+    llvm::Type* tagTy = getOrCreateUnionTagLlvmType(leftType);
+    llvm::Value* tagVal = builder->CreateLoad(tagTy, tagPtr, "union.is.tag");
+    llvm::Value* cmp = idxOpt.has_value()
+                           ? builder->CreateICmpEQ(
+                                 tagVal, llvm::ConstantInt::get(tagTy, static_cast<uint64_t>(*idxOpt)))
+                           : builder->getFalse();
+    if (anyIdxOpt.has_value()) {
+      llvm::Value* anyTagCmp =
+          builder->CreateICmpEQ(tagVal, llvm::ConstantInt::get(tagTy, static_cast<uint64_t>(*anyIdxOpt)));
+      llvm::Value* anyCmp = nullptr;
+      if (rightType->is(BaseType::TY_ANY)) {
+        anyCmp = anyTagCmp;
+      } else {
+        llvm::BasicBlock* activeBlock =
+            llvm::BasicBlock::Create(theModule->getContext(), "union.is.any.active", parent);
+        llvm::BasicBlock* inactiveBlock =
+            llvm::BasicBlock::Create(theModule->getContext(), "union.is.any.inactive", parent);
+        llvm::BasicBlock* mergeBlock =
+            llvm::BasicBlock::Create(theModule->getContext(), "union.is.any.merge", parent);
+        builder->CreateCondBr(anyTagCmp, activeBlock, inactiveBlock);
+
+        builder->SetInsertPoint(activeBlock);
+        llvm::Value* anyPayload = emitUnionPayloadLoadFromSlot(unionPtr, leftType, members[*anyIdxOpt]);
+        auto anyValue = std::make_unique<lesma::Value>("", members[*anyIdxOpt], anyPayload);
+        auto anyCheck = emitAnyIsCheck(node->getSpan(), anyValue.get(), rightType, false);
+        llvm::BasicBlock* activeIncoming = builder->GetInsertBlock();
+        builder->CreateBr(mergeBlock);
+
+        builder->SetInsertPoint(inactiveBlock);
+        llvm::BasicBlock* inactiveIncoming = builder->GetInsertBlock();
+        builder->CreateBr(mergeBlock);
+
+        builder->SetInsertPoint(mergeBlock);
+        auto* phi = builder->CreatePHI(builder->getInt1Ty(), 2U, "union.is.any.phi");
+        phi->addIncoming(anyCheck->getLlvmValue(), activeIncoming);
+        phi->addIncoming(builder->getFalse(), inactiveIncoming);
+        anyCmp = phi;
+      }
+      cmp = idxOpt.has_value() ? builder->CreateOr(cmp, anyCmp, "union.is.any.or") : anyCmp;
+    }
     llvm::Value* val = nullptr;
     if (node->getOperator() == TokenType::IS) {
       val = cmp;

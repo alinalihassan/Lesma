@@ -6,6 +6,7 @@
 #include <functional>
 #include <memory>
 #include <optional>
+#include <set>
 #include <stack>
 #include <string>
 #include <tuple>
@@ -710,6 +711,9 @@ protected:
   auto typeWithSingletonUnionsCollapsed(lesma::Type* t) -> lesma::Type*;
 
 private:
+  auto substituteTypeForSpecializationEnv(
+      lesma::Type* t, const std::unordered_map<std::string, lesma::Type*>& env,
+      std::set<lesma::Type const*>& active) -> lesma::Type*;
   [[nodiscard]] static auto isLesmaPtrToClass(lesma::Type* t) -> bool;
   /** Stack/global slot LLVM type for a local or exported variable (class-as-ptr ABI, func pair). */
   [[nodiscard]] auto llvmStorageTypeForVarSlot(lesma::Type* storedType, lesma::Value* existing)

@@ -3,6 +3,7 @@
 #include <functional>
 #include <memory>
 #include <optional>
+#include <set>
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
@@ -200,6 +201,8 @@ class Typechecker final : public ASTVisitor {
       -> Type*;
   /** Substitute env into type (for fields); returns cached type. */
   auto substituteInType(Type* t, const std::unordered_map<std::string, Type*>& env) -> Type*;
+  auto substituteInType(Type* t, const std::unordered_map<std::string, Type*>& env,
+                        std::set<Type const*>& active) -> Type*;
   /** True if \p t mentions any name in \p classParamNames (enclosing class type parameters). */
   [[nodiscard]] auto
   typeUsesClassTypeParameter(Type* t, const std::unordered_set<std::string>& classParamNames) const
@@ -248,6 +251,7 @@ class Typechecker final : public ASTVisitor {
       std::unordered_map<UnionNarrowingStableKey, Type*, UnionNarrowingStableKeyHash,
                          UnionNarrowingStableKeyEq>& out) -> void;
   [[nodiscard]] static auto rhsTypeIsUnionMember(Type* unionTy, Type* rhs) -> bool;
+  [[nodiscard]] static auto unionCanSatisfyIsCheck(Type* unionTy, Type* rhs) -> bool;
   void appendExcludedTypesFromPriorIsArms(const If* node, unsigned blockIndex,
                                           const UnionNarrowingStableKey& key,
                                           Type* unionTy, std::vector<Type*>& excluded);

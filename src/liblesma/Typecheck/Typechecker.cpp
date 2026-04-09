@@ -2244,15 +2244,31 @@ auto Typechecker::finalizeRecursiveTypeAlias(Type* aliasStub, Type* resolvedType
   aliasStub->setIntWidth(static_cast<std::uint16_t>(resolvedType->getIntWidth()));
   aliasStub->setUnionMembers(
       std::vector<Type*>(resolvedType->getUnionMembers().begin(), resolvedType->getUnionMembers().end()));
+  aliasStub->setDeclarationSpan(resolvedType->getDeclarationSpan());
+  aliasStub->setDeclarationFilePath(resolvedType->getDeclarationFilePath());
   aliasStub->setDisplayName(aliasName);
   return aliasStub;
 }
 
 auto Typechecker::substituteInType(Type* t, const std::unordered_map<std::string, Type*>& env)
     -> Type* {
+  std::set<Type const*> active;
+  return substituteInType(t, env, active);
+}
+
+auto Typechecker::substituteInType(Type* t, const std::unordered_map<std::string, Type*>& env,
+                                   std::set<Type const*>& active) -> Type* {
   if (t == nullptr) {
     return nullptr;
   }
+  if (!active.insert(t).second) {
+    return t;
+  }
+  struct ActiveGuard {
+    std::set<Type const*>* const setPtr;
+    Type const* key;
+    ~ActiveGuard() { setPtr->erase(key); }
+  } guard{&active, t};
   if (t->is(BaseType::TY_GENERIC)) {
     auto it = env.find(t->getGenericName());
     if (it != env.end()) {
@@ -2261,20 +2277,20 @@ auto Typechecker::substituteInType(Type* t, const std::unordered_map<std::string
     return t;
   }
   if (t->is(BaseType::TY_PTR) && t->getElementType() != nullptr) {
-    Type* elem = substituteInType(t->getElementType(), env);
+    Type* elem = substituteInType(t->getElementType(), env, active);
     return cacheType(std::make_unique<Type>(BaseType::TY_PTR, nullptr, elem));
   }
   if (t->is(BaseType::TY_ARRAY) && t->getElementType() != nullptr) {
-    Type* elem = substituteInType(t->getElementType(), env);
+    Type* elem = substituteInType(t->getElementType(), env, active);
     return cacheType(std::make_unique<Type>(BaseType::TY_ARRAY, nullptr, elem));
   }
   if (t->is(BaseType::TY_FUNCTION)) {
     std::vector<std::unique_ptr<Field>> fields;
     for (Field* field : t->getFields()) {
-      fields.push_back(std::make_unique<Field>(field->name, substituteInType(field->type, env)));
+      fields.push_back(std::make_unique<Field>(field->name, substituteInType(field->type, env, active)));
     }
     auto funcType = std::make_unique<Type>(BaseType::TY_FUNCTION, nullptr, std::move(fields));
-    funcType->setReturnType(substituteInType(t->getReturnType(), env));
+    funcType->setReturnType(substituteInType(t->getReturnType(), env, active));
     funcType->setGenericParams(t->getGenericParams());
     funcType->setGenericParamTraitBounds(
         std::vector<std::vector<std::string>>(t->getGenericParamTraitBounds()));
@@ -2296,7 +2312,7 @@ auto Typechecker::substituteInType(Type* t, const std::unordered_map<std::string
         for (const auto& name : genericParamNames) {
           auto boundIt = envIt->second.find(name);
           if (boundIt != envIt->second.end()) {
-            enumEnv[name] = substituteInType(boundIt->second, env);
+            enumEnv[name] = substituteInType(boundIt->second, env, active);
           }
         }
       }
@@ -2320,7 +2336,7 @@ auto Typechecker::substituteInType(Type* t, const std::unordered_map<std::string
   if (t->is(BaseType::TY_TUPLE)) {
     std::vector<std::unique_ptr<Field>> fields;
     for (Field* field : t->getFields()) {
-      fields.push_back(std::make_unique<Field>(field->name, substituteInType(field->type, env)));
+      fields.push_back(std::make_unique<Field>(field->name, substituteInType(field->type, env, active)));
     }
     auto tupleType = std::make_unique<Type>(BaseType::TY_TUPLE, nullptr, std::move(fields));
     tupleType->setDisplayName(t->getDisplayName());
@@ -2330,7 +2346,7 @@ auto Typechecker::substituteInType(Type* t, const std::unordered_map<std::string
     std::vector<Type*> arms;
     arms.reserve(t->getUnionMembers().size());
     for (Type* m : t->getUnionMembers()) {
-      arms.push_back(substituteInType(m, env));
+      arms.push_back(substituteInType(m, env, active));
     }
     auto [unique, dn] = TypeUtils::canonicalizeUnionMembers(std::move(arms));
     // Match Codegen::substituteTypeForSpecializationEnv: a single arm is the arm type itself, not a
@@ -2342,6 +2358,7 @@ auto Typechecker::substituteInType(Type* t, const std::unordered_map<std::string
     u->setDisplayName(dn);
     u->setUnionMembers(std::move(unique));
     u->setDeclarationSpan(t->getDeclarationSpan());
+    u->setDeclarationFilePath(t->getDeclarationFilePath());
     return cacheType(std::move(u));
   }
   if (t->is(BaseType::TY_CLASS)) {
@@ -2361,7 +2378,7 @@ auto Typechecker::substituteInType(Type* t, const std::unordered_map<std::string
         for (const auto& name : genericParamNames) {
           auto b = envIt->second.find(name);
           if (b != envIt->second.end()) {
-            classEnv[name] = substituteInType(b->second, env);
+            classEnv[name] = substituteInType(b->second, env, active);
           }
         }
       }
@@ -4219,6 +4236,7 @@ auto Typechecker::narrowUnionByExcludingMembers(Type* unionTy, const std::vector
   u->setDisplayName(displayName);
   u->setUnionMembers(std::move(canonical));
   u->setDeclarationSpan(unionTy->getDeclarationSpan());
+  u->setDeclarationFilePath(unionTy->getDeclarationFilePath());
   return cacheType(std::move(u));
 }
 
@@ -4228,6 +4246,18 @@ auto Typechecker::rhsTypeIsUnionMember(Type* unionTy, Type* rhs) -> bool {
   }
   return std::ranges::any_of(unionTy->getUnionMembers(),
                              [rhs](Type* m) -> bool { return m->isEqual(rhs); });
+}
+
+auto Typechecker::unionCanSatisfyIsCheck(Type* unionTy, Type* rhs) -> bool {
+  if (rhsTypeIsUnionMember(unionTy, rhs)) {
+    return true;
+  }
+  if (rhs == nullptr || unionTy == nullptr || rhs->is(BaseType::TY_VOID)) {
+    return false;
+  }
+  return std::ranges::any_of(unionTy->getUnionMembers(), [](Type* member) -> bool {
+    return member != nullptr && (member->is(BaseType::TY_ANY) || member->toString() == "any");
+  });
 }
 
 void Typechecker::appendExcludedTypesFromPriorIsArms(const If* node, unsigned blockIndex,
@@ -4296,7 +4326,7 @@ auto Typechecker::fillUnionNarrowingForIfBlock(
     } catch (const TypeCheckError&) {
       return;
     }
-    if (is0->getOperator() == TokenType::IS_NOT && rhsTypeIsUnionMember(unionTy, rhsTy)) {
+    if (is0->getOperator() == TokenType::IS_NOT && unionCanSatisfyIsCheck(unionTy, rhsTy)) {
       if (key->declarationSpan.isValid() || key->fallbackAnchor != nullptr) {
         out[*key] = rhsTy;
       }
@@ -4323,7 +4353,7 @@ auto Typechecker::fillUnionNarrowingForIfBlock(
     return;
   }
   if (is->getOperator() == TokenType::IS) {
-    if (rhsTypeIsUnionMember(unionTy, rhsTy)) {
+    if (unionCanSatisfyIsCheck(unionTy, rhsTy)) {
       if (key->declarationSpan.isValid() || key->fallbackAnchor != nullptr) {
         out[*key] = rhsTy;
       }
@@ -6559,14 +6589,7 @@ auto Typechecker::visit(const IsOp* node) -> void {
     return;
   }
   if (lhsTy != nullptr && lhsTy->is(BaseType::TY_UNION)) {
-    bool found = false;
-    for (Type* m : lhsTy->getUnionMembers()) {
-      if (m->isEqual(rhsTy)) {
-        found = true;
-        break;
-      }
-    }
-    if (!found) {
+    if (!unionCanSatisfyIsCheck(lhsTy, rhsTy)) {
       throw TypeCheckError(node->getSpan(), "`is` type {} is not a member of union {}",
                            rhsTy->toString(), lhsTy->toString());
     }

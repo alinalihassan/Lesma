@@ -49,6 +49,9 @@ auto Codegen::isTypeFullyConcrete(Type* t) const -> bool {
 
     bool isConcrete = true;
     switch (cur->getBaseType()) {
+    case BaseType::TY_INVALID:
+      isConcrete = true;
+      break;
     case BaseType::TY_PTR:
     case BaseType::TY_ARRAY:
       isConcrete = self(self, cur->getElementType());
@@ -304,8 +307,29 @@ auto Codegen::emitClassMonomorph(Type* specialized, const Class* templateAst) ->
 auto Codegen::substituteTypeForSpecializationEnv(Type* t,
                                                  const std::unordered_map<std::string, Type*>& env)
     -> Type* {
+  std::set<Type const*> active;
+  return substituteTypeForSpecializationEnv(t, env, active);
+}
+
+auto Codegen::substituteTypeForSpecializationEnv(
+    Type* t, const std::unordered_map<std::string, Type*>& env, std::set<Type const*>& active)
+    -> Type* {
   if (t == nullptr) {
     return nullptr;
+  }
+  if (isTypeFullyConcrete(t)) {
+    return t;
+  }
+  if (!active.insert(t).second) {
+    return t;
+  }
+  struct ActiveGuard {
+    std::set<Type const*>* const setPtr;
+    Type const* key;
+    ~ActiveGuard() { setPtr->erase(key); }
+  } guard{&active, t};
+  if (t->is(BaseType::TY_INVALID)) {
+    return t;
   }
   if (t->is(BaseType::TY_GENERIC)) {
     auto it = env.find(t->getGenericName());
@@ -315,11 +339,11 @@ auto Codegen::substituteTypeForSpecializationEnv(Type* t,
     return t;
   }
   if (t->is(BaseType::TY_PTR) && t->getElementType() != nullptr) {
-    Type* elem = substituteTypeForSpecializationEnv(t->getElementType(), env);
+    Type* elem = substituteTypeForSpecializationEnv(t->getElementType(), env, active);
     return cacheType(std::make_unique<Type>(BaseType::TY_PTR, nullptr, elem));
   }
   if (t->is(BaseType::TY_ARRAY) && t->getElementType() != nullptr) {
-    Type* elem = substituteTypeForSpecializationEnv(t->getElementType(), env);
+    Type* elem = substituteTypeForSpecializationEnv(t->getElementType(), env, active);
     auto* arr = cacheType(std::make_unique<Type>(BaseType::TY_ARRAY, nullptr, elem));
     arr->setDisplayName(t->getDisplayName());
     return arr;
@@ -328,10 +352,10 @@ auto Codegen::substituteTypeForSpecializationEnv(Type* t,
     std::vector<std::unique_ptr<Field>> fields;
     for (Field* field : t->getFields()) {
       fields.push_back(std::make_unique<Field>(
-          field->name, substituteTypeForSpecializationEnv(field->type, env)));
+          field->name, substituteTypeForSpecializationEnv(field->type, env, active)));
     }
     auto funcType = std::make_unique<Type>(BaseType::TY_FUNCTION, nullptr, std::move(fields));
-    funcType->setReturnType(substituteTypeForSpecializationEnv(t->getReturnType(), env));
+    funcType->setReturnType(substituteTypeForSpecializationEnv(t->getReturnType(), env, active));
     funcType->setGenericParams(t->getGenericParams());
     funcType->setGenericParamTraitBounds(
         std::vector<std::vector<std::string>>(t->getGenericParamTraitBounds()));
@@ -342,7 +366,7 @@ auto Codegen::substituteTypeForSpecializationEnv(Type* t,
     std::vector<std::unique_ptr<Field>> fields;
     for (Field* field : t->getFields()) {
       fields.push_back(std::make_unique<Field>(
-          field->name, substituteTypeForSpecializationEnv(field->type, env)));
+          field->name, substituteTypeForSpecializationEnv(field->type, env, active)));
     }
     auto tupleType = std::make_unique<Type>(BaseType::TY_TUPLE, nullptr, std::move(fields));
     tupleType->setDisplayName(t->getDisplayName());
@@ -352,7 +376,7 @@ auto Codegen::substituteTypeForSpecializationEnv(Type* t,
     std::vector<Type*> arms;
     arms.reserve(t->getUnionMembers().size());
     for (Type* m : t->getUnionMembers()) {
-      arms.push_back(substituteTypeForSpecializationEnv(m, env));
+      arms.push_back(substituteTypeForSpecializationEnv(m, env, active));
     }
     auto [members, dn] = TypeUtils::canonicalizeUnionMembers(std::move(arms));
     if (members.size() == 1U) {
@@ -362,6 +386,7 @@ auto Codegen::substituteTypeForSpecializationEnv(Type* t,
     u->setUnionMembers(std::move(members));
     u->setDisplayName(dn);
     u->setDeclarationSpan(t->getDeclarationSpan());
+    u->setDeclarationFilePath(t->getDeclarationFilePath());
     return cacheType(std::move(u));
   }
   if (t->isOneOf({BaseType::TY_CLASS, BaseType::TY_ENUM})) {
@@ -381,7 +406,7 @@ auto Codegen::substituteTypeForSpecializationEnv(Type* t,
         for (const auto& name : genericParamNames) {
           auto b = envIt->second.find(name);
           if (b != envIt->second.end()) {
-            nominalEnv[name] = substituteTypeForSpecializationEnv(b->second, env);
+            nominalEnv[name] = substituteTypeForSpecializationEnv(b->second, env, active);
           }
         }
       }
@@ -436,7 +461,7 @@ auto Codegen::substituteTypeForSpecializationEnv(Type* t,
 
         std::vector<std::unique_ptr<Field>> newFields;
         for (Field* field : nominalTemplate->getFields()) {
-          Type* subst = substituteTypeForSpecializationEnv(field->type, nominalEnv);
+          Type* subst = substituteTypeForSpecializationEnv(field->type, nominalEnv, active);
           auto newField = std::make_unique<Field>(field->name, subst);
           newField->setDeclarationSpan(field->getDeclarationSpan());
           newField->setDeclarationFilePath(field->getDeclarationFilePath());
@@ -457,7 +482,7 @@ auto Codegen::substituteTypeForSpecializationEnv(Type* t,
           std::vector<Type*> payloadTypes;
           payloadTypes.reserve(variant->payloadTypes.size());
           for (Type* payload : variant->payloadTypes) {
-            payloadTypes.push_back(substituteTypeForSpecializationEnv(payload, nominalEnv));
+            payloadTypes.push_back(substituteTypeForSpecializationEnv(payload, nominalEnv, active));
           }
           auto newVariant = std::make_unique<EnumVariant>(variant->name, std::move(payloadTypes));
           newVariant->setDeclarationSpan(variant->getDeclarationSpan());

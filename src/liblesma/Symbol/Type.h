@@ -330,6 +330,12 @@ private:
     if (this == rhs) {
       return true;
     }
+    if (baseType == BaseType::TY_INVALID && !displayName.empty()) {
+      return displayName == rhs->getDisplayName();
+    }
+    if (rhs->getBaseType() == BaseType::TY_INVALID && !rhs->getDisplayName().empty()) {
+      return rhs->getDisplayName() == displayName;
+    }
     if (this->getBaseType() != rhs->getBaseType()) {
       return false;
     }
@@ -526,6 +532,13 @@ private:
       return true;
     }
     case BaseType::TY_UNION: {
+      if (declarationSpan.isValid() && rhs->getDeclarationSpan().isValid() &&
+          declarationSpan.Start == rhs->getDeclarationSpan().Start &&
+          declarationSpan.End == rhs->getDeclarationSpan().End &&
+          (declarationFilePath == rhs->getDeclarationFilePath() || declarationFilePath.empty() ||
+           rhs->getDeclarationFilePath().empty())) {
+        return true;
+      }
       const auto& lu = getUnionMembers();
       const auto& ru = rhs->getUnionMembers();
       if (lu.size() != ru.size()) {

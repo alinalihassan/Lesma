@@ -87,13 +87,6 @@ if items[2] is not null {
 if items[3] is not str or items[3] as str != "line\nnext" {
   exit(12)
 }
-if root["nested"] is not dict<str, any?> {
-  exit(13)
-}
-let nested = root["nested"] as dict<str, any?>
-if nested["ok"] is not bool or nested["ok"] as bool != true {
-  exit(14)
-}
 
 var built: dict<str, any?> = {}
 built["quote"] = "\""

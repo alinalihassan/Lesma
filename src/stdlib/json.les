@@ -26,6 +26,14 @@ export class Json impl Display {
     self.index = 0
   }
 
+  private static func objectErr(err: JsonErr) -> Result<dict<str, any?>, JsonErr> {
+    return Result.Err(err)
+  }
+
+  private static func arrayErr(err: JsonErr) -> Result<list<any?>, JsonErr> {
+    return Result.Err(err)
+  }
+
   static func parse(text: str) -> Result<any?, JsonErr> {
     let json = Json(text)
     json.skipWhitespace()
@@ -49,8 +57,7 @@ export class Json impl Display {
     let value = match parsed {
       Result.Ok(parsedValue) => parsedValue
       Result.Err(err) => {
-        let out: Result<dict<str, any?>, JsonErr> = Result.Err(err)
-        return out
+        return objectErr(err)
       }
     }
     if value is null {
@@ -70,8 +77,7 @@ export class Json impl Display {
     let value = match parsed {
       Result.Ok(parsedValue) => parsedValue
       Result.Err(err) => {
-        let out: Result<list<any?>, JsonErr> = Result.Err(err)
-        return out
+        return arrayErr(err)
       }
     }
     if value is null {
@@ -104,8 +110,7 @@ export class Json impl Display {
     let value = match raw {
       Result.Ok(parsedValue) => parsedValue
       Result.Err(err) => {
-        let out: Result<dict<str, any?>, JsonErr> = Result.Err(err)
-        return out
+        return objectErr(err)
       }
     }
     if value is null {
@@ -125,8 +130,7 @@ export class Json impl Display {
     let value = match raw {
       Result.Ok(parsedValue) => parsedValue
       Result.Err(err) => {
-        let out: Result<list<any?>, JsonErr> = Result.Err(err)
-        return out
+        return arrayErr(err)
       }
     }
     if value is null {
@@ -292,8 +296,7 @@ export class Json impl Display {
       let key = match keyResult {
         Result.Ok(value) => value
         Result.Err(err) => {
-          let out: Result<dict<str, any?>, JsonErr> = Result.Err(err)
-          return out
+          return objectErr(err)
         }
       }
       self.skipWhitespace()
@@ -305,8 +308,7 @@ export class Json impl Display {
       let value = match valueResult {
         Result.Ok(parsedValue) => parsedValue
         Result.Err(err) => {
-          let out: Result<dict<str, any?>, JsonErr> = Result.Err(err)
-          return out
+          return objectErr(err)
         }
       }
       object[key] = value
@@ -344,8 +346,7 @@ export class Json impl Display {
       let value = match valueResult {
         Result.Ok(parsedValue) => parsedValue
         Result.Err(err) => {
-          let out: Result<list<any?>, JsonErr> = Result.Err(err)
-          return out
+          return arrayErr(err)
         }
       }
       items.push(value)

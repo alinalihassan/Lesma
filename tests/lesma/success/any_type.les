@@ -104,6 +104,11 @@ if maybe is null {
   }
 }
 
+let maybeText: any? = str("nullable")
+if maybeText is not str {
+  exit(121)
+}
+
 let textAny: any = str("two")
 var xs: list<any> = [1, textAny, Box(3)]
 xs.push(Kind.START)
