@@ -224,6 +224,9 @@ auto matchGenericParameter(Type* formalTy, Type* argTy,
   if (formalTy == nullptr || argTy == nullptr) {
     return formalTy == argTy;
   }
+  if (lookupKind == FunctionLookupKind::OVERLOAD_IDENTITY) {
+    return formalTy->isEqual(argTy);
+  }
   if (formalTy->is(BaseType::TY_UNION)) {
     if (argTy->is(BaseType::TY_UNION)) {
       const std::vector<Type*>& formalMembers = formalTy->getUnionMembers();

@@ -1,0 +1,31 @@
+trait Named {
+  func name() -> str
+}
+
+class Box impl Named {
+  func name() -> str {
+    return "box"
+  }
+}
+
+func show(text: str) -> int {
+  if text == "x" {
+    return 1
+  }
+  return 0
+}
+
+func show<T: Named>(value: T) -> int {
+  if value.name() == "box" {
+    return 10
+  }
+  return 0
+}
+
+if show("x") + show(Box()) != 11 {
+  exit(1)
+}
+
+if Box().name() != "box" {
+  exit(1)
+}

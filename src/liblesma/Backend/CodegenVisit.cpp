@@ -2786,7 +2786,11 @@ auto Codegen::visit(const FuncDecl* node) -> void {
     if (selfSymbol != nullptr) {
       genericMethods[selfSymbol->getName()][node->getName()] = node;
     } else {
-      genericFunctions[node->getName()] = node;
+      std::string genericKey = makeResolvedCallableKey(node->getResolvedSymbol());
+      if (genericKey.empty()) {
+        genericKey = node->getName();
+      }
+      genericFunctions[genericKey] = node;
     }
     currentGenericTypes = std::move(savedGenerics);
     return;
@@ -6991,6 +6995,7 @@ auto Codegen::callNamedFunction(
     }
   }
   const FuncDecl* genericFuncTemplateForLookup = nullptr;
+  std::string resolvedCallableKey = makeResolvedCallableKey(typecheckCalleeFallback);
   if (selfSymbol != nullptr) {
     if (auto* methodMap = genericMethodMapForSelf(genericMethods, selfSymbol);
         methodMap != nullptr) {
@@ -6999,8 +7004,15 @@ auto Codegen::callNamedFunction(
       }
     }
   } else {
-    if (auto git = genericFunctions.find(functionName); git != genericFunctions.end()) {
-      genericFuncTemplateForLookup = git->second;
+    if (!resolvedCallableKey.empty()) {
+      if (auto git = genericFunctions.find(resolvedCallableKey); git != genericFunctions.end()) {
+        genericFuncTemplateForLookup = git->second;
+      }
+    }
+    if (genericFuncTemplateForLookup == nullptr) {
+      if (auto git = genericFunctions.find(functionName); git != genericFunctions.end()) {
+        genericFuncTemplateForLookup = git->second;
+      }
     }
   }
   auto appendGenericBindingsForTemplate = [&](std::string& out) -> void {
@@ -7046,6 +7058,17 @@ auto Codegen::callNamedFunction(
   auto* classSym = scope->lookupStruct(functionName);
   llvm::Value* classPtr = nullptr;
 
+  if (selfSymbol == nullptr && typecheckCalleeFallback != nullptr &&
+      typecheckCalleeFallback->getType() != nullptr &&
+      typecheckCalleeFallback->getType()->is(BaseType::TY_FUNCTION) &&
+      !typecheckCalleeFallback->getType()->getGenericParams().empty() &&
+      genericFuncTemplateForLookup != nullptr) {
+    std::vector<std::string> genericNames = genericFuncTemplateForLookup->getGenericParams();
+    auto bindingEnv = buildFunctionSpecializationEnv(genericFuncTemplateForLookup, genericNames);
+    symbol = specializeFunction(genericFuncTemplateForLookup, localParamTypes, genericNames,
+                                explicitTypeArgs, bindingEnv.empty() ? nullptr : &bindingEnv);
+  }
+
   if (classSym == nullptr || (classSym->getType()->is(BaseType::TY_CLASS) &&
                               classSym->getType()->getLlvmType() == nullptr)) {
     const Class* templateClass = nullptr;
@@ -7077,7 +7100,7 @@ auto Codegen::callNamedFunction(
     }
   }
 
-  if (classSym != nullptr && classSym->getType()->is(BaseType::TY_CLASS)) {
+  if (symbol == nullptr && classSym != nullptr && classSym->getType()->is(BaseType::TY_CLASS)) {
     auto* classLlvmType = getOrCreateLlvmType(classSym->getType());
     auto* classSize = builder->getInt64(
         theModule->getDataLayout().getTypeAllocSize(classLlvmType).getFixedValue());
@@ -7098,7 +7121,7 @@ auto Codegen::callNamedFunction(
     if (symbol == nullptr) {
       symbol = classSym->getConstructor();
     }
-  } else {
+  } else if (symbol == nullptr) {
     auto directSignatureKey = makeCallableSignatureKey(functionName, localParamTypes);
     std::string directMangledLookup =
         getMangledName(span, functionName, localParamTypes, selfSymbol != nullptr);
@@ -7250,9 +7273,16 @@ auto Codegen::callNamedFunction(
       }
     }
     if (templateDecl == nullptr) {
-      auto git = genericFunctions.find(functionName);
-      if (git != genericFunctions.end()) {
-        templateDecl = git->second;
+      if (!resolvedCallableKey.empty()) {
+        if (auto git = genericFunctions.find(resolvedCallableKey); git != genericFunctions.end()) {
+          templateDecl = git->second;
+        }
+      }
+      if (templateDecl == nullptr) {
+        auto git = genericFunctions.find(functionName);
+        if (git != genericFunctions.end()) {
+          templateDecl = git->second;
+        }
       }
     }
     if (templateDecl != nullptr) {

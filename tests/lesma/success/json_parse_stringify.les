@@ -41,7 +41,10 @@ class User impl Serializable<User> {
   }
 }
 
-let parsedResult = Json.parseObject("{\"name\":\"Lesma\",\"active\":true,\"count\":3,\"ratio\":2.5,\"note\":null,\"items\":[1,false,null,\"line\\nnext\"],\"nested\":{\"ok\":true}}")
+let parsedResult = Json
+  .parseObject(
+    "{\"name\":\"Lesma\",\"active\":true,\"count\":3,\"ratio\":2.5,\"note\":null,\"items\":[1,false,null,\"line\\nnext\"],\"nested\":{\"ok\":true}}",
+  )
 let root = match parsedResult {
   Result.Ok(value) => value
   Result.Err(_) => {

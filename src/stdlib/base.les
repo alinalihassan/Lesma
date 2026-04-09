@@ -785,8 +785,8 @@ export func print(text: str) {
   printf("%s\n", text.cstr())
 }
 
-export func print(value: Display) {
-  printf("%s\n", value.str().cstr())
+export func print<T: Display>(value: T) {
+  print(value.str())
 }
 
 /**

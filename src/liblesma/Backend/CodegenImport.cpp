@@ -311,6 +311,19 @@ auto Codegen::compileModule(llvm::SMRange span, const std::string& filepath, boo
     ImportedSpecializationState importedState = codegen->captureImportedSpecializationState();
     importedSpecializationStates->at(importIdx) = importedState;
     mergeImportedTraitMetadata(importedState);
+    for (const auto& [key, fn] : codegen->genericFunctions) {
+      if (!key.empty() && fn != nullptr) {
+        genericFunctions[key] = fn;
+      }
+    }
+    for (const auto& [owner, methods] : codegen->genericMethods) {
+      auto& dest = genericMethods[owner];
+      for (const auto& [methodKey, methodAst] : methods) {
+        if (!methodKey.empty() && methodAst != nullptr) {
+          dest[methodKey] = methodAst;
+        }
+      }
+    }
 
     // Imported modules run optimize(O0) (no-op). For JIT, promote PrivateLinkage so Mach-O
     // JITLink can resolve symbols across ORC modules at -O0 (see prepareJit / addIRModule path).

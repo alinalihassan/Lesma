@@ -565,7 +565,7 @@ private:
 
   // Canonical statement spacing:
   // - one newline between statements
-  // - top-level major declarations keep at least one separating blank line
+  // - top-level import blocks and major declarations keep at least one separating blank line
   // - user-authored blank lines may request one extra blank line, but spacing is capped
   // - comments stay attached to the following statement or trailing container position
   [[nodiscard]] auto formatStatements(const std::vector<Statement*>& statements,
@@ -579,6 +579,12 @@ private:
       if (previous != nullptr) {
         unsigned structuralExtraBlankLines =
             topLevel && isMajorDeclaration(previous) && isMajorDeclaration(statement) ? 1U : 0U;
+        if (topLevel &&
+            (dynamic_cast<const Import*>(previous) != nullptr ||
+             dynamic_cast<const Import*>(statement) != nullptr) &&
+            dynamic_cast<const Import*>(previous) != dynamic_cast<const Import*>(statement)) {
+          structuralExtraBlankLines = std::max(structuralExtraBlankLines, 1U);
+        }
         if (dynamic_cast<const VarDecl*>(previous) != nullptr &&
             dynamic_cast<const FuncDecl*>(statement) != nullptr) {
           structuralExtraBlankLines = std::max(structuralExtraBlankLines, 1U);
@@ -741,8 +747,8 @@ private:
         names.push_back(docs({docText(binding.name), docText(" as "), docText(binding.alias)}));
       }
     }
-    return docs({docText("from "), docText(target), docText(" import "),
-                 docJoin(docs({docText(","), softLine()}), names)});
+    return docs(
+        {docText("from "), docText(target), docText(" import "), docJoin(docText(", "), names)});
   }
 
   [[nodiscard]] auto formatEnum(const Enum* node) -> Doc {

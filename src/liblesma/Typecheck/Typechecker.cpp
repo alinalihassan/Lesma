@@ -4559,9 +4559,7 @@ auto Typechecker::visit(const Import* node) -> void {
     importType->setDeclarationFilePath(
         std::filesystem::absolute(std::filesystem::path(resolvedPath)).lexically_normal().string());
   }
-  if (!node->isStd()) {
-    registerTraitsFromImportedModule(resolvedPath);
-  }
+  registerTraitsFromImportedModule(importType->getDeclarationFilePath());
   auto addImportSymbol = [this, &importType](const std::string& name, llvm::SMRange declSpan) {
     if (!name.empty()) {
       auto symbol = std::make_unique<Value>(name, importType);
@@ -5195,8 +5193,14 @@ auto Typechecker::visit(const FuncDecl* node) -> void {
   }
   SymbolTable* insertScope =
       currentMethodInsertScope != nullptr ? currentMethodInsertScope : scope->getParent();
-  Value* funcSymbol = insertScope->lookupFunction(node->getName(), paramTypes,
-                                                  FunctionLookupKind::OVERLOAD_IDENTITY);
+  Value* funcSymbol = nullptr;
+  if (!declarationPass) {
+    funcSymbol = node->getResolvedSymbol();
+  }
+  if (funcSymbol == nullptr) {
+    funcSymbol = insertScope->lookupFunction(node->getName(), paramTypes,
+                                             FunctionLookupKind::OVERLOAD_IDENTITY);
+  }
   bool const effectiveFuncExported =
       (currentClassType != nullptr || currentEnumType != nullptr) ? currentClassExported
                                                                   : node->isExported();
@@ -7548,6 +7552,9 @@ auto Typechecker::typecheckTraitDefaultBodies(const Class* classNode, Type* clas
   }
   for (size_t ti = 0; ti < implNames.size(); ++ti) {
     const std::string& traitName = implNames[ti];
+    if (Value* importStub = scope->lookupImportModuleSymbol(traitName); importStub != nullptr) {
+      markValueRead(importStub);
+    }
     auto trIt = traitRegistry.find(traitName);
     if (trIt == traitRegistry.end()) {
       continue;
@@ -7601,6 +7608,9 @@ auto Typechecker::checkTraitImplementation(const Class* classNode, Type* classTy
   }
   for (size_t ti = 0; ti < implNames.size(); ++ti) {
     const std::string& traitName = implNames[ti];
+    if (Value* importStub = scope->lookupImportModuleSymbol(traitName); importStub != nullptr) {
+      markValueRead(importStub);
+    }
     auto trIt = traitRegistry.find(traitName);
     if (trIt == traitRegistry.end()) {
       throw TypeCheckError(classNode->getNameSpan(), "Unknown trait '{}'", traitName);

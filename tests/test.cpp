@@ -1142,6 +1142,37 @@ TEST(FormatterTests, FormatSourceWrapsClassHeadsAndSeparatesFieldsFromMethods) {
                         "}\n");
 }
 
+TEST(FormatterTests, FormatSourceKeepsNamedImportsOnOneLine) {
+  auto formatted = formatSource("from json import Json, JsonErr, Serializable\n",
+                                "named_imports_test.les", 20);
+  ASSERT_TRUE(formatted.has_value()) << formatted.error().message;
+  EXPECT_EQ(*formatted, "from json import Json, JsonErr, Serializable\n");
+}
+
+TEST(FormatterTests, FormatSourceKeepsBlankLineAfterImports) {
+  auto formatted = formatSource("from json import Json, JsonErr, Serializable\n"
+                                "class User {\n"
+                                "var name: str\n"
+                                "}\n",
+                                "import_spacing_test.les", 100);
+  ASSERT_TRUE(formatted.has_value()) << formatted.error().message;
+  EXPECT_EQ(*formatted, "from json import Json, JsonErr, Serializable\n"
+                        "\n"
+                        "class User {\n"
+                        "  var name: str\n"
+                        "}\n");
+}
+
+TEST(FormatterTests, FormatSourceKeepsBlankLineAfterImportsBeforeLet) {
+  auto formatted = formatSource("from \"type_alias_export_mod.les\" import MaybeNum, Word\n"
+                                "let maybe: MaybeNum = null\n",
+                                "import_spacing_let_test.les", 100);
+  ASSERT_TRUE(formatted.has_value()) << formatted.error().message;
+  EXPECT_EQ(*formatted, "from \"type_alias_export_mod.les\" import MaybeNum, Word\n"
+                        "\n"
+                        "let maybe: MaybeNum = null\n");
+}
+
 TEST(ParserTests, ReturnExpressionAllowsIndentedContinuation) {
   AnalysisResult const result = analyzeSource("func check(b: uint8) -> bool {\n"
                                               "  return\n"
