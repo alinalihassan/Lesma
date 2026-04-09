@@ -3,20 +3,12 @@ from base import Display
 export class JsonErr impl Display {
   private var message: str
 
-  private func new(message: str) {
+  func new(message: str) {
     self.message = message
-  }
-
-  static func Message(message: str) -> JsonErr {
-    return JsonErr(message)
   }
 
   func str() -> str {
     return self.message
-  }
-
-  func text() -> str {
-    return self.str()
   }
 }
 
@@ -49,7 +41,7 @@ export class Json impl Display {
     if json.isAtEnd() {
       return Result.Ok(value)
     }
-    return Result.Err(JsonErr.Message("Unexpected trailing JSON at byte ${json.index}"))
+    return Result.Err(JsonErr("Unexpected trailing JSON at byte ${json.index}"))
   }
 
   static func parseObject(text: str) -> Result<dict<str, any?>, JsonErr> {
@@ -62,7 +54,7 @@ export class Json impl Display {
       }
     }
     if value is null {
-      return Result.Err(JsonErr.Message("JSON root is not an object"))
+      return Result.Err(JsonErr("JSON root is not an object"))
     }
     if value is any {
       let dynamic = value as any
@@ -70,7 +62,7 @@ export class Json impl Display {
         return Result.Ok(dynamic as dict<str, any?>)
       }
     }
-    return Result.Err(JsonErr.Message("JSON root is not an object"))
+    return Result.Err(JsonErr("JSON root is not an object"))
   }
 
   static func parseArray(text: str) -> Result<list<any?>, JsonErr> {
@@ -83,7 +75,7 @@ export class Json impl Display {
       }
     }
     if value is null {
-      return Result.Err(JsonErr.Message("JSON root is not an array"))
+      return Result.Err(JsonErr("JSON root is not an array"))
     }
     if value is any {
       let dynamic = value as any
@@ -91,7 +83,7 @@ export class Json impl Display {
         return Result.Ok(dynamic as list<any?>)
       }
     }
-    return Result.Err(JsonErr.Message("JSON root is not an array"))
+    return Result.Err(JsonErr("JSON root is not an array"))
   }
 
   static func stringify(value: any?) -> Result<str, JsonErr> {
@@ -104,7 +96,7 @@ export class Json impl Display {
     if text is str {
       return Json.parse(text as str)
     }
-    return Result.Err(JsonErr.Message("Unable to read JSON file '${path}'"))
+    return Result.Err(JsonErr("Unable to read JSON file '${path}'"))
   }
 
   static func readObject(path: str) -> Result<dict<str, any?>, JsonErr> {
@@ -117,7 +109,7 @@ export class Json impl Display {
       }
     }
     if value is null {
-      return Result.Err(JsonErr.Message("JSON root is not an object"))
+      return Result.Err(JsonErr("JSON root is not an object"))
     }
     if value is any {
       let dynamic = value as any
@@ -125,7 +117,7 @@ export class Json impl Display {
         return Result.Ok(dynamic as dict<str, any?>)
       }
     }
-    return Result.Err(JsonErr.Message("JSON root is not an object"))
+    return Result.Err(JsonErr("JSON root is not an object"))
   }
 
   static func readArray(path: str) -> Result<list<any?>, JsonErr> {
@@ -138,7 +130,7 @@ export class Json impl Display {
       }
     }
     if value is null {
-      return Result.Err(JsonErr.Message("JSON root is not an array"))
+      return Result.Err(JsonErr("JSON root is not an array"))
     }
     if value is any {
       let dynamic = value as any
@@ -146,7 +138,7 @@ export class Json impl Display {
         return Result.Ok(dynamic as list<any?>)
       }
     }
-    return Result.Err(JsonErr.Message("JSON root is not an array"))
+    return Result.Err(JsonErr("JSON root is not an array"))
   }
 
   static func write(path: str, value: any?) -> Result<bool, JsonErr> {
@@ -162,7 +154,7 @@ export class Json impl Display {
     if file(path.cstr()).text() is str {
       return Result.Ok(true)
     }
-    return Result.Err(JsonErr.Message("Unable to write JSON file '${path}'"))
+    return Result.Err(JsonErr("Unable to write JSON file '${path}'"))
   }
 
   static func decode<T: Serializable>(value: any?) -> Result<T, JsonErr> {
@@ -222,7 +214,7 @@ export class Json impl Display {
   private func parseValue() -> Result<any?, JsonErr> {
     self.skipWhitespace()
     if self.isAtEnd() {
-      return Result.Err(JsonErr.Message("Unexpected end of JSON at byte ${self.index}"))
+      return Result.Err(JsonErr("Unexpected end of JSON at byte ${self.index}"))
     }
 
     let ch = self.currentChar()
@@ -291,10 +283,10 @@ export class Json impl Display {
     while true {
       self.skipWhitespace()
       if self.isAtEnd() {
-        return Result.Err(JsonErr.Message("Unterminated object at byte ${self.index}"))
+        return Result.Err(JsonErr("Unterminated object at byte ${self.index}"))
       }
       if self.currentChar() != "\"" {
-        return Result.Err(JsonErr.Message("Expected object key at byte ${self.index}"))
+        return Result.Err(JsonErr("Expected object key at byte ${self.index}"))
       }
       let keyResult = self.parseString()
       let key = match keyResult {
@@ -306,7 +298,7 @@ export class Json impl Display {
       }
       self.skipWhitespace()
       if self.isAtEnd() or self.currentChar() != ":" {
-        return Result.Err(JsonErr.Message("Expected ':' at byte ${self.index}"))
+        return Result.Err(JsonErr("Expected ':' at byte ${self.index}"))
       }
       self.advance()
       let valueResult = self.parseValue()
@@ -320,22 +312,22 @@ export class Json impl Display {
       object[key] = value
       self.skipWhitespace()
       if self.isAtEnd() {
-        return Result.Err(JsonErr.Message("Unterminated object at byte ${self.index}"))
+        return Result.Err(JsonErr("Unterminated object at byte ${self.index}"))
       }
       let end = self.advance()
       if end == "}" {
         return Result.Ok(object)
       }
       if end != "," {
-        return Result.Err(JsonErr.Message("Expected ',' or '}' at byte ${self.index - 1}"))
+        return Result.Err(JsonErr("Expected ',' or '}' at byte ${self.index - 1}"))
       }
       self.skipWhitespace()
       if not self.isAtEnd() and self.currentChar() == "}" {
-        return Result.Err(JsonErr.Message("Trailing comma in object at byte ${self.index}"))
+        return Result.Err(JsonErr("Trailing comma in object at byte ${self.index}"))
       }
     }
 
-    return Result.Err(JsonErr.Message("Unterminated object at byte ${self.index}"))
+    return Result.Err(JsonErr("Unterminated object at byte ${self.index}"))
   }
 
   private func parseArrayRaw() -> Result<list<any?>, JsonErr> {
@@ -359,22 +351,22 @@ export class Json impl Display {
       items.push(value)
       self.skipWhitespace()
       if self.isAtEnd() {
-        return Result.Err(JsonErr.Message("Unterminated array at byte ${self.index}"))
+        return Result.Err(JsonErr("Unterminated array at byte ${self.index}"))
       }
       let end = self.advance()
       if end == "]" {
         return Result.Ok(items)
       }
       if end != "," {
-        return Result.Err(JsonErr.Message("Expected ',' or ']' at byte ${self.index - 1}"))
+        return Result.Err(JsonErr("Expected ',' or ']' at byte ${self.index - 1}"))
       }
       self.skipWhitespace()
       if not self.isAtEnd() and self.currentChar() == "]" {
-        return Result.Err(JsonErr.Message("Trailing comma in array at byte ${self.index}"))
+        return Result.Err(JsonErr("Trailing comma in array at byte ${self.index}"))
       }
     }
 
-    return Result.Err(JsonErr.Message("Unterminated array at byte ${self.index}"))
+    return Result.Err(JsonErr("Unterminated array at byte ${self.index}"))
   }
 
   private func parseString() -> Result<str, JsonErr> {
@@ -387,7 +379,7 @@ export class Json impl Display {
       }
       if ch == "\\" {
         if self.isAtEnd() {
-          return Result.Err(JsonErr.Message("Unterminated escape at byte ${self.index}"))
+          return Result.Err(JsonErr("Unterminated escape at byte ${self.index}"))
         }
         let escape = self.advance()
         if escape == "\"" {
@@ -403,20 +395,18 @@ export class Json impl Display {
         } else if escape == "t" {
           out = out + "\t"
         } else {
-          return Result.Err(
-            JsonErr.Message("Unsupported escape '\\${escape}' at byte ${self.index - 1}")
-          )
+          return Result.Err(JsonErr("Unsupported escape '\\${escape}' at byte ${self.index - 1}"))
         }
       } else {
         out = out + ch
       }
     }
-    return Result.Err(JsonErr.Message("Unterminated string at byte ${self.index}"))
+    return Result.Err(JsonErr("Unterminated string at byte ${self.index}"))
   }
 
   private func parseTrue() -> Result<any?, JsonErr> {
     if self.source.substring(self.index, 4) != "true" {
-      return Result.Err(JsonErr.Message("Invalid token at byte ${self.index}"))
+      return Result.Err(JsonErr("Invalid token at byte ${self.index}"))
     }
     self.index += 4
     var raw: any? = null
@@ -426,7 +416,7 @@ export class Json impl Display {
 
   private func parseFalse() -> Result<any?, JsonErr> {
     if self.source.substring(self.index, 5) != "false" {
-      return Result.Err(JsonErr.Message("Invalid token at byte ${self.index}"))
+      return Result.Err(JsonErr("Invalid token at byte ${self.index}"))
     }
     self.index += 5
     var raw: any? = null
@@ -436,7 +426,7 @@ export class Json impl Display {
 
   private func parseNull() -> Result<any?, JsonErr> {
     if self.source.substring(self.index, 4) != "null" {
-      return Result.Err(JsonErr.Message("Invalid token at byte ${self.index}"))
+      return Result.Err(JsonErr("Invalid token at byte ${self.index}"))
     }
     self.index += 4
     var raw: any? = null
@@ -450,18 +440,18 @@ export class Json impl Display {
     if self.currentChar() == "-" {
       self.advance()
       if self.isAtEnd() {
-        return Result.Err(JsonErr.Message("Invalid number at byte ${start}"))
+        return Result.Err(JsonErr("Invalid number at byte ${start}"))
       }
     }
 
     if self.currentChar() == "0" {
       self.advance()
       if not self.isAtEnd() and self.isDigit(self.currentChar()) {
-        return Result.Err(JsonErr.Message("Invalid leading zero at byte ${start}"))
+        return Result.Err(JsonErr("Invalid leading zero at byte ${start}"))
       }
     } else {
       if not self.isDigit(self.currentChar()) {
-        return Result.Err(JsonErr.Message("Invalid number at byte ${start}"))
+        return Result.Err(JsonErr("Invalid number at byte ${start}"))
       }
       while not self.isAtEnd() and self.isDigit(self.currentChar()) {
         self.advance()
@@ -472,7 +462,7 @@ export class Json impl Display {
       isFloat = true
       self.advance()
       if self.isAtEnd() or not self.isDigit(self.currentChar()) {
-        return Result.Err(JsonErr.Message("Invalid float at byte ${start}"))
+        return Result.Err(JsonErr("Invalid float at byte ${start}"))
       }
       while not self.isAtEnd() and self.isDigit(self.currentChar()) {
         self.advance()
@@ -486,7 +476,7 @@ export class Json impl Display {
         self.advance()
       }
       if self.isAtEnd() or not self.isDigit(self.currentChar()) {
-        return Result.Err(JsonErr.Message("Invalid exponent at byte ${start}"))
+        return Result.Err(JsonErr("Invalid exponent at byte ${start}"))
       }
       while not self.isAtEnd() and self.isDigit(self.currentChar()) {
         self.advance()
@@ -531,7 +521,7 @@ export class Json impl Display {
         return self.stringifyObject(dynamic as dict<str, any?>)
       }
     }
-    return Result.Err(JsonErr.Message("Unsupported JSON value"))
+    return Result.Err(JsonErr("Unsupported JSON value"))
   }
 
   private func stringifyString(value: str) -> Result<str, JsonErr> {

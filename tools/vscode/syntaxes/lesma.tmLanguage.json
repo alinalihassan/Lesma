@@ -44,7 +44,7 @@
         },
         {
           "name": "keyword.control.lesma",
-          "match": "\\b(if|else|while|for|in|break|continue|pass|return|defer|let|var|operator)\\b"
+          "match": "\\b(if|else|match|while|for|in|break|continue|return|defer|let|var|operator)\\b"
         },
         {
           "name": "keyword.module.lesma",

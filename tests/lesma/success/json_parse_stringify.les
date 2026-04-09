@@ -11,21 +11,21 @@ class User impl Serializable<User> {
 
   static func decode(value: any?) -> Result<User, JsonErr> {
     if value is null {
-      let err: Result<User, JsonErr> = Result.Err(JsonErr.Message("User expects object"))
+      let err: Result<User, JsonErr> = Result.Err(JsonErr("User expects object"))
       return err
     }
     if value is not any {
-      let err: Result<User, JsonErr> = Result.Err(JsonErr.Message("User expects object"))
+      let err: Result<User, JsonErr> = Result.Err(JsonErr("User expects object"))
       return err
     }
     let dynamic = value as any
     if dynamic is not dict<str, any?> {
-      let err: Result<User, JsonErr> = Result.Err(JsonErr.Message("User expects object"))
+      let err: Result<User, JsonErr> = Result.Err(JsonErr("User expects object"))
       return err
     }
     let object = dynamic as dict<str, any?>
     if object["name"] is not str or object["age"] is not int {
-      let err: Result<User, JsonErr> = Result.Err(JsonErr.Message("User missing required fields"))
+      let err: Result<User, JsonErr> = Result.Err(JsonErr("User missing required fields"))
       return err
     }
     return Result.Ok(User(object["name"] as str, object["age"] as int))
