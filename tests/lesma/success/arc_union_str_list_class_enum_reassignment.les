@@ -15,7 +15,7 @@ class Box {
   }
 }
 
-var value: str | list<int> | Box | Kind = str("seed")
+var value: str | list<int> | Box | Kind = "seed"
 if value is not str {
   exit(1)
 } else {
@@ -53,9 +53,9 @@ if value is not Kind {
 }
 
 let pair: list<int> = [4, 5]
-var xs: list<str | list<int> | Box | Kind> = [str("a"), pair, Box(6), Kind.START]
+var xs: list<str | list<int> | Box | Kind> = ["a", pair, Box(6), Kind.START]
 xs[0] = Box(1)
-xs[1] = str("swap")
+xs[1] = "swap"
 xs[2] = Kind.STOP
 let tail: list<int> = [7, 8, 9]
 xs[3] = tail
@@ -109,11 +109,11 @@ if popped is null {
 var d: dict<
   str,
   str | list<int> | Box | Kind,
-> = {"text": str("hello"), "box": Box(3), "state": Kind.START}
+> = {"text": "hello", "box": Box(3), "state": Kind.START}
 d.set("text", [10, 11])
 d.set("box", Kind.STOP)
 d.set("state", Box(12))
-d.set("extra", str("tail"))
+d.set("extra", "tail")
 
 let textValue = d["text"]
 if textValue is not list<int> {

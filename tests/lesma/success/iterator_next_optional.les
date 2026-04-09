@@ -34,7 +34,7 @@ if it.next() is not null {
   exit(5)
 }
 
-let bytes = str("A").iter()
+let bytes = "A".iter()
 let byte = bytes.next()
 if byte is null {
   exit(6)

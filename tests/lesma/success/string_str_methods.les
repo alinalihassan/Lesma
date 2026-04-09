@@ -1,159 +1,162 @@
 // str: comparison, concat, search, trim, subscript (mutable copy via strdup).
-if str("a") + str("b") != "ab" {
+if "a" + "b" != "ab" {
   exit(1)
 }
-if not str("hello").startsWith("hel") {
+if "Hello World".len() != 11 {
   exit(2)
 }
-if str("hello").startsWith("helloo") {
+if not "hello".startsWith("hel") {
   exit(3)
 }
-if not str("hello").endsWith("llo") {
+if "hello".startsWith("helloo") {
   exit(4)
 }
-if str("hi").endsWith("hello") {
+if not "hello".endsWith("llo") {
   exit(5)
 }
-if not str("banana").contains("nan") {
+if "hi".endsWith("hello") {
   exit(6)
 }
-if str("abc").contains("zzz") {
+if not "banana".contains("nan") {
   exit(7)
 }
-let foundBar = str("foo bar").indexOf("bar")
-if foundBar is null {
+if "abc".contains("zzz") {
   exit(8)
+}
+let foundBar = "foo bar".indexOf("bar")
+if foundBar is null {
+  exit(9)
 } else {
   if foundBar != 4 {
-    exit(8)
+    exit(9)
   }
 }
-if str("solo").indexOf("zzz") is not null {
-  exit(9)
-}
-if str("  x  ").trim() != "x" {
+if "solo".indexOf("zzz") is not null {
   exit(10)
 }
-if str("  yz").trimStart() != "yz" {
+if "  x  ".trim() != "x" {
   exit(11)
 }
-if str("ab  ").trimEnd() != "ab" {
+if "  yz".trimStart() != "yz" {
   exit(12)
 }
-if str("").isEmpty() != true {
+if "ab  ".trimEnd() != "ab" {
   exit(13)
 }
-if str("x").isEmpty() != false {
+if "".isEmpty() != true {
   exit(14)
 }
-if str("ab")[0] != "a" {
+if "x".isEmpty() != false {
   exit(15)
 }
-if str("ab")[1] != "b" {
+if "ab"[0] != "a" {
   exit(16)
 }
-// Mutable subscript: str owns a strdup buffer (safe for in-place byte writes).
-var mut = str("ab")
-mut[0] = "c"
-if mut != "cb" {
+if "ab"[1] != "b" {
   exit(17)
 }
-if mut[1] != "b" {
+// Mutable subscript: str owns a strdup buffer (safe for in-place byte writes).
+var mut = "ab"
+mut[0] = "c"
+if mut != "cb" {
   exit(18)
 }
-if str("a") == str("a") != true {
+if mut[1] != "b" {
   exit(19)
 }
-if str("a") != str("b") != true {
+if "a" == "a" != true {
   exit(20)
 }
-// split / join
-var csv: list<str> = str("a,b,c").split(str(","))
-if csv.len() != 3 {
+if "a" != "b" != true {
   exit(21)
 }
-if csv[0] != "a" {
+// split / join
+var csv: list<str> = "a,b,c".split(",")
+if csv.len() != 3 {
   exit(22)
 }
-if csv[1] != "b" {
+if csv[0] != "a" {
   exit(23)
 }
-if csv[2] != "c" {
+if csv[1] != "b" {
   exit(24)
 }
-var empty_parts: list<str> = list<str>()
-if str(",").join(empty_parts) != "" {
+if csv[2] != "c" {
   exit(25)
+}
+var empty_parts: list<str> = list<str>()
+if ",".join(empty_parts) != "" {
+  exit(26)
 }
 var three: list<str> = list<str>()
 three.push("x")
 three.push("y")
-if str("|").join(three) != "x|y" {
-  exit(26)
-}
-var empty_csv: list<str> = str("").split(str(","))
-if empty_csv.len() != 1 {
+if "|".join(three) != "x|y" {
   exit(27)
 }
-if empty_csv[0] != "" {
+var empty_csv: list<str> = "".split(",")
+if empty_csv.len() != 1 {
   exit(28)
 }
-// substring
-if str("abcdef").substring(2, 3) != "cde" {
+if empty_csv[0] != "" {
   exit(29)
 }
-if str("ab").substring(10, 1) != "" {
+// substring
+if "abcdef".substring(2, 3) != "cde" {
   exit(30)
 }
-if str("ab").substring(0, 0) != "" {
+if "ab".substring(10, 1) != "" {
   exit(31)
 }
-if str("ab").substring(-5, 1) != "a" {
+if "ab".substring(0, 0) != "" {
   exit(32)
 }
-// replace / repeat
-if str("a.a.a").replace(str("."), str("_")) != "a_a_a" {
+if "ab".substring(-5, 1) != "a" {
   exit(33)
 }
-if str("hi").replace(str(""), str("x")) != "hi" {
+// replace / repeat
+if "a.a.a".replace(".", "_") != "a_a_a" {
   exit(34)
 }
-if str("z").repeat(4) != "zzzz" {
+if "hi".replace("", "x") != "hi" {
   exit(35)
 }
-if str("x").repeat(0) != "" {
+if "z".repeat(4) != "zzzz" {
   exit(36)
 }
-// ASCII case
-if str("AbC").toLower() != "abc" {
+if "x".repeat(0) != "" {
   exit(37)
 }
-if str("aBc").toUpper() != "ABC" {
+// ASCII case
+if "AbC".toLower() != "abc" {
   exit(38)
 }
-// pad / charAt
-if str("7").padStart(4, str("0")) != "0007" {
+if "aBc".toUpper() != "ABC" {
   exit(39)
 }
-if str("7").padEnd(4, str("0")) != "7000" {
+// pad / charAt
+if "7".padStart(4, "0") != "0007" {
   exit(40)
 }
-let charB = str("ab").charAt(1)
-if charB is null {
+if "7".padEnd(4, "0") != "7000" {
   exit(41)
+}
+let charB = "ab".charAt(1)
+if charB is null {
+  exit(42)
 } else {
   if charB != "b" {
-    exit(41)
+    exit(42)
   }
 }
-if str("ab").charAt(10) is not null {
-  exit(42)
-}
-let safeA = str("ab").get(0)
-if safeA is null {
+if "ab".charAt(10) is not null {
   exit(43)
+}
+let safeA = "ab".get(0)
+if safeA is null {
+  exit(44)
 } else {
   if safeA != "a" {
-    exit(43)
+    exit(44)
   }
 }
