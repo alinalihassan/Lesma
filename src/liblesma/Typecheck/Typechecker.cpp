@@ -4465,42 +4465,83 @@ auto Typechecker::fillUnionNarrowingForFollowingStatements(
   if (guardBlock == nullptr || pathLeadsToEndWithoutReturn(guardBlock->getChildren(), 0)) {
     return;
   }
-  const auto* is = dynamic_cast<const IsOp*>(node->getConds()[0]);
+  collectUnionNarrowingForGuardSuccess(node->getConds()[0], out);
+}
+
+auto Typechecker::collectUnionNarrowingForGuardSuccess(
+    const Expression* cond,
+    std::unordered_map<UnionNarrowingStableKey, Type*, UnionNarrowingStableKeyHash,
+                       UnionNarrowingStableKeyEq>& out) -> bool {
+  if (cond == nullptr) {
+    return false;
+  }
+  if (auto const* binary = dynamic_cast<const BinaryOp*>(cond)) {
+    if (binary->getOperator() != TokenType::OR) {
+      return false;
+    }
+    std::unordered_map<UnionNarrowingStableKey, Type*, UnionNarrowingStableKeyHash,
+                       UnionNarrowingStableKeyEq>
+        leftMap;
+    std::unordered_map<UnionNarrowingStableKey, Type*, UnionNarrowingStableKeyHash,
+                       UnionNarrowingStableKeyEq>
+        rightMap;
+    if (!collectUnionNarrowingForGuardSuccess(binary->getLeft(), leftMap) ||
+        !collectUnionNarrowingForGuardSuccess(binary->getRight(), rightMap)) {
+      return false;
+    }
+    for (const auto& [key, narrowed] : leftMap) {
+      out[key] = narrowed;
+    }
+    for (const auto& [key, narrowed] : rightMap) {
+      auto existing = out.find(key);
+      if (existing != out.end() && existing->second != nullptr && narrowed != nullptr &&
+          !existing->second->isEqual(narrowed)) {
+        return false;
+      }
+      out[key] = narrowed;
+    }
+    return true;
+  }
+
+  const auto* is = dynamic_cast<const IsOp*>(cond);
   if (is == nullptr) {
-    return;
+    return false;
   }
   auto key = tryGetIsOpUnionNarrowingKey(is);
   if (!key.has_value() || (!key->declarationSpan.isValid() && key->fallbackAnchor == nullptr)) {
-    return;
+    return false;
   }
   try {
     is->getLeft()->accept(*this);
   } catch (const TypeCheckError&) {
-    return;
+    return false;
   }
   Type* unionTy = result != nullptr ? result->getType() : nullptr;
   if (unionTy == nullptr || !unionTy->is(BaseType::TY_UNION)) {
-    return;
+    return false;
   }
   Type* rhsTy = nullptr;
   try {
     rhsTy = resolveType(is->getRight());
   } catch (const TypeCheckError&) {
-    return;
+    return false;
   }
   if (is->getOperator() == TokenType::IS) {
     if (!rhsTypeIsUnionMember(unionTy, rhsTy)) {
-      return;
+      return false;
     }
     Type* narrowed = narrowUnionByExcludingMembers(unionTy, {rhsTy});
-    if (narrowed != nullptr) {
-      out[*key] = narrowed;
+    if (narrowed == nullptr) {
+      return false;
     }
-    return;
+    out[*key] = narrowed;
+    return true;
   }
   if (is->getOperator() == TokenType::IS_NOT && unionCanSatisfyIsCheck(unionTy, rhsTy)) {
     out[*key] = rhsTy;
+    return true;
   }
+  return false;
 }
 
 auto Typechecker::visit(const If* node) -> void {

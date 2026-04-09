@@ -1,6 +1,6 @@
-from json import Json, JsonErr, Serializable
+from json import Json, JsonErr, Serializable, JsonValue
 
-class User impl Serializable<User> {
+export class User impl Serializable<User> {
   var name: str
   var age: int
 
@@ -12,15 +12,17 @@ class User impl Serializable<User> {
 
     let object = value as dict<str, any?>
     if object["name"] is not str or object["age"] is not int {
-      let err: Result<User, JsonErr> = Result.Err(JsonErr("User missing required fields"))
-      return err
+      return Result.Err(JsonErr("User missing required fields"))
     }
 
-    return Result.Ok(User(object["name"], object["age"]))
+    let name: str = object["name"]
+    let age: int = object["age"]
+
+    return Result.Ok(User(name, age))
   }
 
-  static func encode(value: User) -> Result<any?, JsonErr> {
-    var object: dict<str, any?> = {"name": value.name, "age": value.age}
+  static func encode(value: User) -> Result<JsonValue, JsonErr> {
+    var object: JsonValue = {"name": value.name, "age": value.age}
     return Result.Ok(object)
   }
 }
@@ -36,7 +38,7 @@ let root = match parsedResult {
   }
 }
 
-if root["name"] is not str or root["name"] as str != "Lesma" {
+if root["name"] is not str or root["name"] != "Lesma" {
   exit(2)
 }
 if root["active"] is not bool or root["active"] as bool != true {

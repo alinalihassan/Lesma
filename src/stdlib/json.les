@@ -12,6 +12,8 @@ export class JsonErr impl Display {
   }
 }
 
+export type JsonValue = dict<str, any?>
+
 export trait Serializable<T> {
   static func decode(value: any?) -> Result<T, JsonErr>
   static func encode(value: T) -> Result<any?, JsonErr>
