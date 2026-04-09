@@ -1490,6 +1490,7 @@ auto Codegen::emitEnumConstructValue(llvm::SMRange span, lesma::Type* enumTy, un
   llvm::Value* tagPtr = builder->CreateStructGEP(st, slot, 0U, "enum.tag.ptr");
   llvm::Type* tagTy = getOrCreateEnumTagLlvmType(enumTy);
   builder->CreateStore(llvm::ConstantInt::get(tagTy, variantIndex), tagPtr);
+  bool ownsPayload = false;
   if (!variant->payloadTypes.empty()) {
     llvm::Value* payPtr = builder->CreateStructGEP(st, slot, 1U, "enum.pay.ptr");
     Type* aggregatePayloadType = nullptr;
@@ -1498,6 +1499,12 @@ auto Codegen::emitEnumConstructValue(llvm::SMRange span, lesma::Type* enumTy, un
       aggregatePayloadType = variant->payloadTypes.front();
       auto casted = cast(span, payloadValues.front(), aggregatePayloadType);
       payloadValue = casted->getLlvmValue();
+      if (TypeUtils::containsArcManagedValue(aggregatePayloadType) && !casted->getArcOwnedValue()) {
+        emitRetainLoadedValue(aggregatePayloadType, payloadValue, casted->getStoresFuncValuePair());
+        ownsPayload = true;
+      } else {
+        ownsPayload = casted->getArcOwnedValue();
+      }
     } else {
       std::vector<std::unique_ptr<Field>> tupleFields;
       tupleFields.reserve(variant->payloadTypes.size());
@@ -1511,6 +1518,14 @@ auto Codegen::emitEnumConstructValue(llvm::SMRange span, lesma::Type* enumTy, un
       payloadValue = llvm::UndefValue::get(aggregatePayloadType->getLlvmType());
       for (size_t i = 0; i < payloadValues.size(); ++i) {
         auto casted = cast(span, payloadValues[i], variant->payloadTypes[i]);
+        if (TypeUtils::containsArcManagedValue(variant->payloadTypes[i]) &&
+            !casted->getArcOwnedValue()) {
+          emitRetainLoadedValue(variant->payloadTypes[i], casted->getLlvmValue(),
+                                casted->getStoresFuncValuePair());
+          ownsPayload = true;
+        } else {
+          ownsPayload = ownsPayload || casted->getArcOwnedValue();
+        }
         payloadValue = builder->CreateInsertValue(payloadValue, casted->getLlvmValue(),
                                                   {static_cast<unsigned>(i)}, "enum.tuple.ins");
       }
@@ -1530,10 +1545,6 @@ auto Codegen::emitEnumConstructValue(llvm::SMRange span, lesma::Type* enumTy, un
   }
   llvm::Value* enumValue = builder->CreateLoad(st, slot, "enum.val");
   auto out = std::make_unique<lesma::Value>("", enumTy, enumValue);
-  bool ownsPayload = false;
-  for (lesma::Value* payloadValue : payloadValues) {
-    ownsPayload = ownsPayload || (payloadValue != nullptr && payloadValue->getArcOwnedValue());
-  }
   out->setArcOwnedValue(ownsPayload);
   return out;
 }
@@ -1656,9 +1667,14 @@ auto Codegen::emitUnionWrapValueToSlot(llvm::SMRange /*span*/, lesma::Value* val
   llvm::Value* typedPayPtr = builder->CreateBitCast(
       payPtr, llvm::PointerType::get(theModule->getContext(), 0U), "union.pay.tptr");
   builder->CreateStore(v, typedPayPtr);
+  bool ownsWrappedPayload = val != nullptr && val->getArcOwnedValue();
+  if (ownsWrappedPayload && val->getType() != nullptr &&
+      TypeUtils::containsArcManagedValue(val->getType())) {
+    emitRetainLoadedValue(val->getType(), v, false);
+  }
   llvm::Value* agg = builder->CreateLoad(st, destSlot, "union.val");
   auto out = std::make_unique<lesma::Value>("", unionTy, agg);
-  out->setArcOwnedValue(val != nullptr && val->getArcOwnedValue());
+  out->setArcOwnedValue(ownsWrappedPayload);
   return out;
 }
 
@@ -2856,12 +2872,25 @@ auto Codegen::visit(const FuncDecl* node) -> void {
   std::vector<llvm::Type*> paramLLVMTypes;
   bool shouldExport = node->isExported();
 
-  if (selfSymbol != nullptr && !node->getIsStatic()) {
-    paramTypes.push_back(selfSymbol->getType());
-    getOrCreateLlvmType(selfSymbol->getType());
-    paramLLVMTypes.push_back(selfSymbol->getType()->getLlvmType());
-    fields.push_back(std::make_unique<Field>("self", selfSymbol->getType()));
+  if (selfSymbol != nullptr) {
     shouldExport = selfSymbol->isExported();
+    if (!shouldExport && selfSymbol->getType() != nullptr) {
+      Type* ownerType = selfSymbol->getType();
+      if (ownerType->is(BaseType::TY_PTR) && ownerType->getElementType() != nullptr) {
+        ownerType = ownerType->getElementType();
+      }
+      if (ownerType->is(BaseType::TY_CLASS)) {
+        if (Value* ownerSym = lookupClassStructSymbol(ownerType); ownerSym != nullptr) {
+          shouldExport = ownerSym->isExported();
+        }
+      }
+    }
+    if (!node->getIsStatic()) {
+      paramTypes.push_back(selfSymbol->getType());
+      getOrCreateLlvmType(selfSymbol->getType());
+      paramLLVMTypes.push_back(selfSymbol->getType()->getLlvmType());
+      fields.push_back(std::make_unique<Field>("self", selfSymbol->getType()));
+    }
   }
 
   for (auto* param : node->getParameters()) {
@@ -2952,8 +2981,8 @@ auto Codegen::visit(const FuncDecl* node) -> void {
     return;
   }
 
-  auto mangledName = getMangledName(node->getSpan(), node->getName(), paramTypes,
-                                    selfSymbol != nullptr && !node->getIsStatic());
+  auto mangledName =
+      getMangledName(node->getSpan(), node->getName(), paramTypes, selfSymbol != nullptr);
   std::string signatureKey = makeCallableSignatureKey(node->getName(), paramTypes);
   if (!currentGenericTypes.empty()) {
     std::vector<std::string> bindingOrder;
@@ -3014,6 +3043,7 @@ auto Codegen::visit(const FuncDecl* node) -> void {
     existingFunc->setDeclarationKind(selfSymbol != nullptr ? ValueDeclarationKind::METHOD
                                                            : ValueDeclarationKind::FUNCTION);
     existingFunc->setStaticMethod(node->getIsStatic());
+    existingFunc->setExported(shouldExport);
     if (selfSymbol != nullptr && selfSymbol->getType() != nullptr) {
       Type* declaredInClass = selfSymbol->getType();
       if (declaredInClass->is(BaseType::TY_PTR) && declaredInClass->getElementType() != nullptr) {
@@ -3041,7 +3071,7 @@ auto Codegen::visit(const FuncDecl* node) -> void {
   funcSymbol->setDeclarationKind(selfSymbol != nullptr ? ValueDeclarationKind::METHOD
                                                        : ValueDeclarationKind::FUNCTION);
   funcSymbol->setStaticMethod(node->getIsStatic());
-  funcSymbol->setExported(node->isExported());
+  funcSymbol->setExported(shouldExport);
   funcSymbol->setMangledName(mangledName);
   if (selfSymbol != nullptr && selfSymbol->getType() != nullptr) {
     Type* declaredInClass = selfSymbol->getType();
@@ -3940,8 +3970,8 @@ auto Codegen::declareOrDefineSyntheticEnumMethod(lesma::Type* enumType, const En
   }
   llvm::Type* llvmReturnType = returnType->is(BaseType::TY_PTR) ? builder->getPtrTy()
                                                                  : returnType->getLlvmType();
-  std::string mangledName = getMangledName(astNode->getSpan(), name, lookupParamTypes,
-                                           !isStaticMethod);
+  std::string mangledName =
+      getMangledName(astNode->getSpan(), name, lookupParamTypes, selfSymbol != nullptr);
   llvm::FunctionType* functionType = FunctionType::get(llvmReturnType, paramLLVMTypes, false);
   llvm::Function* function = llvm::Function::Create(functionType, llvm::GlobalValue::PrivateLinkage,
                                                     mangledName, *theModule);
@@ -5182,6 +5212,20 @@ auto Codegen::visit(const DotOp* node) -> void {
 
   node->getLeft()->accept(*this);
   auto leftValue = std::move(result);
+  if (leftValue != nullptr && leftValue->getType() != nullptr &&
+      leftValue->getType()->is(BaseType::TY_IMPORT)) {
+    if (auto* leftIdent = dynamic_cast<Literal*>(node->getLeft());
+        leftIdent != nullptr && leftIdent->getType() == TokenType::IDENTIFIER) {
+      if (Value* nominalSym = scope->lookupStruct(leftIdent->getValue());
+          nominalSym != nullptr && nominalSym->getType() != nullptr &&
+          nominalSym->getType()->isOneOf({BaseType::TY_CLASS, BaseType::TY_ENUM})) {
+        auto nominalValue = std::make_unique<Value>(*nominalSym);
+        nominalValue->setCategory(ValueCategory::TYPE_SYMBOL);
+        nominalValue->setLlvmValue(nullptr);
+        leftValue = std::move(nominalValue);
+      }
+    }
+  }
   setDebugLoc(node->getSpan());
   if (leftValue != nullptr && leftValue->getType() != nullptr &&
       leftValue->getType()->is(BaseType::TY_ARRAY)) {
@@ -5372,6 +5416,79 @@ auto Codegen::visit(const DotOp* node) -> void {
 
     auto* typeSym = scope->lookupType(left->getValue());
     if (typeSym != nullptr) {
+      if (typeSym->is(BaseType::TY_IMPORT)) {
+        if (Value* nominalSym = scope->lookupStruct(left->getValue());
+            nominalSym != nullptr && nominalSym->getType() != nullptr &&
+            nominalSym->getType()->isOneOf({BaseType::TY_CLASS, BaseType::TY_ENUM})) {
+          lesma::Type* nominalType = nominalSym->getType();
+          if (nominalType->is(BaseType::TY_ENUM)) {
+            std::string field;
+            FuncCall const* method = nullptr;
+            if ((dynamic_cast<Literal*>(node->getRight()) == nullptr) &&
+                (dynamic_cast<FuncCall*>(node->getRight()) == nullptr)) {
+              throw CodegenError(node->getRight()->getSpan(),
+                                 "Expected identifier or method call right-hand of dot operator");
+            }
+            if ((dynamic_cast<Literal*>(node->getRight()) != nullptr) &&
+                TokenType::IDENTIFIER == dynamic_cast<Literal*>(node->getRight())->getType()) {
+              field = dynamic_cast<Literal*>(node->getRight())->getValue();
+            } else {
+              method = dynamic_cast<FuncCall*>(node->getRight());
+            }
+            if (!field.empty()) {
+              int const variantIndex = TypeUtils::findIndexInEnumVariants(nominalType, field);
+              if (variantIndex < 0) {
+                throw CodegenError(node->getSpan(), "Unknown enum variant {}", field);
+              }
+              EnumVariant* variant =
+                  nominalType->getEnumVariants()[static_cast<size_t>(variantIndex)];
+              if (variant == nullptr || !variant->payloadTypes.empty()) {
+                throw CodegenError(node->getSpan(),
+                                   "Payload-bearing enum variant {} must be called with arguments",
+                                   field);
+              }
+              result = emitEnumConstructValue(node->getSpan(), nominalType,
+                                             static_cast<unsigned>(variantIndex), {});
+              return;
+            }
+            if (method != nullptr) {
+              std::vector<std::unique_ptr<lesma::Value>> argStorage;
+              std::vector<lesma::Value*> args;
+              evaluateCallArgValues(method, argStorage, args);
+              std::vector<lesma::Type*> explicitTypeArgs;
+              evaluateCallExplicitTypeArgs(method, explicitTypeArgs);
+              result = callMethodByName(node->getSpan(), nominalSym, method->getName(), args,
+                                        explicitTypeArgs, method->getResolvedSymbol(), method);
+              return;
+            }
+          } else if (nominalType->is(BaseType::TY_CLASS)) {
+            std::string field;
+            FuncCall const* method = nullptr;
+            if ((dynamic_cast<Literal*>(node->getRight()) == nullptr) &&
+                (dynamic_cast<FuncCall*>(node->getRight()) == nullptr)) {
+              throw CodegenError(node->getRight()->getSpan(),
+                                 "Expected identifier or method call right-hand of dot operator, "
+                                 "found {}",
+                                 node->getRight()->toString(sourceManager.get(), "", true));
+            }
+            if ((dynamic_cast<Literal*>(node->getRight()) != nullptr) &&
+                TokenType::IDENTIFIER == dynamic_cast<Literal*>(node->getRight())->getType()) {
+              field = dynamic_cast<Literal*>(node->getRight())->getValue();
+            } else {
+              method = dynamic_cast<FuncCall*>(node->getRight());
+            }
+            if (!field.empty()) {
+              result = emitClassStaticFieldValue(nominalType, field, node->getRight()->getSpan(),
+                                                 node->getSpan());
+              return;
+            }
+            if (method != nullptr) {
+              emitClassStaticMethodCall(node, nominalType, method);
+              return;
+            }
+          }
+        }
+      }
       // Assuming it's an enum or statically accessed class
       if (!typeSym->isOneOf({BaseType::TY_ENUM, BaseType::TY_CLASS, BaseType::TY_IMPORT})) {
         throw CodegenError(node->getLeft()->getSpan(), "Cannot apply dot accessor on {}",
@@ -8273,6 +8390,10 @@ auto Codegen::callMethodByName(llvm::SMRange span, lesma::Value* receiver,
                        receiverType->getDisplayName().empty() ? "(unknown)"
                                                               : receiverType->getDisplayName());
   }
+  Type* canonicalReceiverType = receiverType;
+  if (receiverType->is(BaseType::TY_CLASS) && cls != nullptr && cls->getType() != nullptr) {
+    canonicalReceiverType = cls->getType();
+  }
   const auto* receiverClassEnv = specializedNominalEnvFor(receiverType);
   std::vector<std::pair<std::string, lesma::Type*>> receiverGenericBindingsStorage;
   const std::vector<std::pair<std::string, lesma::Type*>>* callSiteGenericBindings =
@@ -8316,8 +8437,9 @@ auto Codegen::callMethodByName(llvm::SMRange span, lesma::Value* receiver,
   };
   bool const staticCall = receiver->getCategory() == ValueCategory::TYPE_SYMBOL;
   Type* requiredDeclaredInClass =
-      staticCall && receiverType->isOneOf({BaseType::TY_CLASS, BaseType::TY_ENUM}) ? receiverType
-                                                                                    : nullptr;
+      staticCall && canonicalReceiverType->isOneOf({BaseType::TY_CLASS, BaseType::TY_ENUM})
+          ? canonicalReceiverType
+          : nullptr;
   if (staticCall) {
     for (auto* arg : args) {
       appendCallableArgument(arg, paramTypes, paramsLLVM);
@@ -8370,6 +8492,38 @@ auto Codegen::callMethodByName(llvm::SMRange span, lesma::Value* receiver,
                                                          requiredGenericArity);
         specializedMethod != nullptr) {
       directMethod = specializedMethod;
+    }
+  }
+  if (requiredGenericArity.has_value() && resolvedCallee != nullptr &&
+      resolvedCallee->getType() != nullptr &&
+      resolvedCallee->getType()->getGenericParams().size() == requiredGenericArity.value()) {
+    const bool directMethodHasWrongGenericArity =
+        directMethod == nullptr || directMethod->getType() == nullptr ||
+        directMethod->getType()->getGenericParams().size() != requiredGenericArity.value();
+    if (directMethodHasWrongGenericArity) {
+      directMethod = nullptr;
+      Value* methodOwner = cls;
+      if (methodOwner == nullptr && staticCall && receiverType->is(BaseType::TY_ENUM)) {
+        methodOwner = receiver;
+      }
+      if (methodOwner != nullptr) {
+        if (auto* methodMap = genericMethodMapForSelf(genericMethods, methodOwner);
+            methodMap != nullptr) {
+          if (auto mit = methodMap->find(methodName); mit != methodMap->end()) {
+            const FuncDecl* templateDecl = mit->second;
+            std::vector<std::string> genericNames = templateDecl->getGenericParams();
+            std::unordered_map<std::string, Type*> bindingEnv;
+            if (callSiteGenericBindings != nullptr) {
+              for (const auto& [name, type] : *callSiteGenericBindings) {
+                bindingEnv[name] = type;
+              }
+            }
+            directMethod =
+                specializeFunction(templateDecl, paramTypes, genericNames, explicitTypeArgs,
+                                   bindingEnv.empty() ? nullptr : &bindingEnv);
+          }
+        }
+      }
     }
   }
   if (directMethod != nullptr && directMethod->getLlvmValue() != nullptr) {
@@ -8461,7 +8615,7 @@ auto Codegen::callMethodByName(llvm::SMRange span, lesma::Value* receiver,
   }
   selfSymbol = cls;
   auto resultValue = callNamedFunction(span, methodName, paramTypes, paramsLLVM, explicitTypeArgs,
-                                       nullptr, nullptr, callSiteGenericBindings);
+                                       resolvedCallee, nullptr, callSiteGenericBindings);
   selfSymbol = savedSelfSymbol;
   return resultValue;
 }
