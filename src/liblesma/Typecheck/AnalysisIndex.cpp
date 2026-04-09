@@ -103,6 +103,19 @@ auto makeNameSpan(llvm::SMLoc start, const std::string& name) -> llvm::SMRange {
   return llvm::SMRange{start, llvm::SMLoc::getFromPointer(text.end())};
 }
 
+auto spanTextEquals(llvm::SMRange span, llvm::StringRef expected) -> bool {
+  if (!span.isValid()) {
+    return false;
+  }
+  char const* const startPtr = span.Start.getPointer();
+  char const* const endPtr = span.End.getPointer();
+  if (startPtr == nullptr || endPtr == nullptr || endPtr < startPtr) {
+    return false;
+  }
+  llvm::StringRef const text(startPtr, static_cast<size_t>(endPtr - startPtr));
+  return text == expected;
+}
+
 auto declarationIdentityFromValue(const Value* resolvedSymbol)
     -> std::optional<IndexedDeclarationIdentity> {
   if (resolvedSymbol == nullptr) {
@@ -362,10 +375,14 @@ auto collectIndexFromTypeExpr(const TypeExpr* typeExpr, AnalysisIndex& index) ->
       name = typeExpr->getLookupName();
       span = makeNameSpan(typeExpr->getStart(), name);
     }
-    appendIndexedOccurrence(
-        index, name, std::nullopt, span, true, false, 0U,
-        indexedTokenKindFromResolvedSymbol(resolvedSymbol, true, false, IndexedTokenKind::Type),
-        resolvedSymbol);
+    // Optional-type sugar parses `T?` as `T | null`, but the synthetic `null` arm only has the
+    // `?` token span. Skip indexing that synthetic arm so punctuation is not highlighted as a type.
+    if (!(typeExpr->getType() == TokenType::NIL && !spanTextEquals(span, "null"))) {
+      appendIndexedOccurrence(
+          index, name, std::nullopt, span, true, false, 0U,
+          indexedTokenKindFromResolvedSymbol(resolvedSymbol, true, false, IndexedTokenKind::Type),
+          resolvedSymbol);
+    }
   }
   collectIndexFromTypeExpr(typeExpr->getElementType(), index);
   for (TypeExpr* typeArg : typeExpr->getTypeArgs()) {
