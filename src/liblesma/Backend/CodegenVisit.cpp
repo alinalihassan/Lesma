@@ -1709,6 +1709,30 @@ auto Codegen::getOrCreateAnyTypeInfoGlobal(lesma::Type* type) -> llvm::GlobalVar
 
 auto Codegen::emitAnyTypeInfoPtr(lesma::Type* type) -> llvm::Value* {
   lesma::Type* canonicalType = isLesmaPtrToClass(type) ? type->getElementType() : type;
+  if (canonicalType != nullptr && canonicalType->isBuiltinStringClass()) {
+    auto resolveBuiltinStr = [](SymbolTable* table) -> lesma::Type* {
+      if (table == nullptr) {
+        return nullptr;
+      }
+      Value* strSymbol = table->lookupStruct("str");
+      if (strSymbol == nullptr || strSymbol->getType() == nullptr ||
+          !strSymbol->getType()->isBuiltinStringClass() ||
+          strSymbol->getType()->getLlvmType() == nullptr) {
+        return nullptr;
+      }
+      return strSymbol->getType();
+    };
+    if (lesma::Type* resolved = resolveBuiltinStr(scope); resolved != nullptr) {
+      canonicalType = resolved;
+    } else {
+      for (const auto& importedScope : *importedScopes) {
+        if (lesma::Type* resolved = resolveBuiltinStr(importedScope.get()); resolved != nullptr) {
+          canonicalType = resolved;
+          break;
+        }
+      }
+    }
+  }
   return builder->CreateBitCast(getOrCreateAnyTypeInfoGlobal(canonicalType), builder->getPtrTy(),
                                 "any.typeinfo");
 }
@@ -1884,6 +1908,29 @@ auto Codegen::emitUnboxFromAny(llvm::SMRange span, lesma::Value* value, lesma::T
     canonicalTargetType = canonicalTargetType->getElementType();
   }
   if (canonicalTargetType->isBuiltinStringClass()) {
+    Value* strSymbol = scope->lookupStruct("str");
+    if (strSymbol == nullptr || strSymbol->getType() == nullptr ||
+        !strSymbol->getType()->isBuiltinStringClass() ||
+        strSymbol->getType()->getLlvmType() == nullptr) {
+      strSymbol = nullptr;
+      for (const auto& importedScope : *importedScopes) {
+        if (importedScope == nullptr) {
+          continue;
+        }
+        Value* importedStr = importedScope->lookupStruct("str");
+        if (importedStr != nullptr && importedStr->getType() != nullptr &&
+            importedStr->getType()->isBuiltinStringClass() &&
+            importedStr->getType()->getLlvmType() != nullptr) {
+          strSymbol = importedStr;
+          break;
+        }
+      }
+    }
+    if (strSymbol != nullptr) {
+      canonicalTargetType = strSymbol->getType();
+    }
+  }
+  if (canonicalTargetType->isBuiltinStringClass()) {
     auto* cstrType = cacheType(std::make_unique<Type>(BaseType::TY_STRING, builder->getPtrTy()));
     llvm::Value* stringCompatMatch =
         emitAnyTypeInfoMatches(typeInfo, canonicalTargetType, "any.str.compat");
@@ -1931,7 +1978,7 @@ auto Codegen::emitUnboxFromAny(llvm::SMRange span, lesma::Value* value, lesma::T
     llvm::PHINode* phi = builder->CreatePHI(builder->getPtrTy(), 2U, "any.str.value");
     phi->addIncoming(exactLoaded, exactDone);
     phi->addIncoming(boxedString->getLlvmValue(), cstrDone);
-    return std::make_unique<Value>("", targetType, phi);
+    return std::make_unique<Value>("", canonicalTargetType, phi);
   }
   if (targetType->is(BaseType::TY_UNION)) {
     getOrCreateLlvmType(targetType);
@@ -2861,7 +2908,8 @@ auto Codegen::visit(const FuncDecl* node) -> void {
   getOrCreateLlvmType(returnType);
 
   lesma::Value* existingFunc =
-      scope->lookupFunction(node->getName(), paramTypes, FunctionLookupKind::OVERLOAD_IDENTITY);
+      scope->lookupFunction(node->getName(), paramTypes, FunctionLookupKind::OVERLOAD_IDENTITY,
+                            nullptr, nullptr, node->getGenericParams().size());
   if (existingFunc == nullptr) {
     auto normalizeFunctionParamType = [](lesma::Type* type) -> lesma::Type* {
       if (type != nullptr && type->is(BaseType::TY_PTR) && type->getElementType() != nullptr &&
@@ -2966,6 +3014,15 @@ auto Codegen::visit(const FuncDecl* node) -> void {
     existingFunc->setDeclarationKind(selfSymbol != nullptr ? ValueDeclarationKind::METHOD
                                                            : ValueDeclarationKind::FUNCTION);
     existingFunc->setStaticMethod(node->getIsStatic());
+    if (selfSymbol != nullptr && selfSymbol->getType() != nullptr) {
+      Type* declaredInClass = selfSymbol->getType();
+      if (declaredInClass->is(BaseType::TY_PTR) && declaredInClass->getElementType() != nullptr) {
+        declaredInClass = declaredInClass->getElementType();
+      }
+      if (declaredInClass->isOneOf({BaseType::TY_CLASS, BaseType::TY_ENUM})) {
+        existingFunc->setMemberDeclaredInClass(declaredInClass);
+      }
+    }
     if (templateFuncSymbol != nullptr && existingFunc->getBodyScope() == nullptr) {
       existingFunc->setBodyScope(templateFuncSymbol->getBodyScope());
     }
@@ -2986,6 +3043,15 @@ auto Codegen::visit(const FuncDecl* node) -> void {
   funcSymbol->setStaticMethod(node->getIsStatic());
   funcSymbol->setExported(node->isExported());
   funcSymbol->setMangledName(mangledName);
+  if (selfSymbol != nullptr && selfSymbol->getType() != nullptr) {
+    Type* declaredInClass = selfSymbol->getType();
+    if (declaredInClass->is(BaseType::TY_PTR) && declaredInClass->getElementType() != nullptr) {
+      declaredInClass = declaredInClass->getElementType();
+    }
+    if (declaredInClass->isOneOf({BaseType::TY_CLASS, BaseType::TY_ENUM})) {
+      funcSymbol->setMemberDeclaredInClass(declaredInClass);
+    }
+  }
   if (templateFuncSymbol != nullptr) {
     funcSymbol->setBodyScope(templateFuncSymbol->getBodyScope());
   }
@@ -7621,6 +7687,28 @@ auto Codegen::callNamedFunction(
       }
     } else {
       if (symbol->getLlvmValue() == nullptr) {
+        std::string const declaredPath =
+            normalizeResolvedFilesystemPath(symbol->getDeclarationFilePath());
+        std::string const currentPath = normalizeResolvedFilesystemPath(filename);
+        if (!symbol->getMangledName().empty() && !declaredPath.empty() && declaredPath != currentPath &&
+            callableLesmaType->getLlvmType() != nullptr) {
+          llvm::FunctionType* importedTy =
+              llvm::cast<llvm::FunctionType>(callableLesmaType->getLlvmType());
+          if (isJit) {
+            auto* importedFn = llvm::cast<llvm::Function>(
+                theModule->getOrInsertFunction(symbol->getMangledName(), importedTy).getCallee());
+            symbol->setLlvmValue(importedFn);
+          } else {
+            llvm::Function* importedFn = theModule->getFunction(symbol->getMangledName());
+            if (importedFn == nullptr) {
+              importedFn = llvm::Function::Create(importedTy, llvm::Function::ExternalLinkage,
+                                                  symbol->getMangledName(), *theModule);
+            }
+            symbol->setLlvmValue(importedFn);
+          }
+        }
+      }
+      if (symbol->getLlvmValue() == nullptr) {
         throw CodegenError(span, "Function {} is declared but not defined", functionName);
       }
       callableValue = symbol->getLlvmValue();
@@ -8191,6 +8279,10 @@ auto Codegen::callMethodByName(llvm::SMRange span, lesma::Value* receiver,
       (callSiteForGenericEnv != nullptr && !callSiteForGenericEnv->getGenericBindingEnv().empty())
           ? &callSiteForGenericEnv->getGenericBindingEnv()
           : nullptr;
+  std::optional<size_t> const requiredGenericArity =
+      callSiteForGenericEnv != nullptr && !callSiteForGenericEnv->getExplicitTypeArgs().empty()
+          ? std::optional<size_t>(callSiteForGenericEnv->getExplicitTypeArgs().size())
+          : std::nullopt;
   if (callSiteGenericBindings == nullptr && receiverClassEnv != nullptr) {
     receiverGenericBindingsStorage.reserve(receiverClassEnv->size());
     for (const auto& [name, type] : *receiverClassEnv) {
@@ -8204,8 +8296,25 @@ auto Codegen::callMethodByName(llvm::SMRange span, lesma::Value* receiver,
   lesma::Value* receiverForCall = receiver;
   std::unique_ptr<lesma::Value> receiverAdapter;
   lesma::Value* directMethod = nullptr;
-  bool const staticCall = receiver->getCategory() == ValueCategory::TYPE_SYMBOL ||
-                          (resolvedCallee != nullptr && resolvedCallee->isStaticMethod());
+  auto preferImportedMethodWithBody =
+      [&](lesma::Value* candidate, Type* declaredInClass = nullptr) -> lesma::Value* {
+    if (candidate != nullptr && candidate->getLlvmValue() != nullptr) {
+      return candidate;
+    }
+    for (const auto& importedScope : *importedScopes) {
+      if (importedScope == nullptr) {
+        continue;
+      }
+      Value* importedMethod =
+          importedScope->lookupFunction(methodName, paramTypes, FunctionLookupKind::VALUE, nullptr,
+                                        declaredInClass, requiredGenericArity);
+      if (importedMethod != nullptr && importedMethod->getLlvmValue() != nullptr) {
+        return importedMethod;
+      }
+    }
+    return candidate;
+  };
+  bool const staticCall = receiver->getCategory() == ValueCategory::TYPE_SYMBOL;
   Type* requiredDeclaredInClass =
       staticCall && receiverType->isOneOf({BaseType::TY_CLASS, BaseType::TY_ENUM}) ? receiverType
                                                                                     : nullptr;
@@ -8213,37 +8322,19 @@ auto Codegen::callMethodByName(llvm::SMRange span, lesma::Value* receiver,
     for (auto* arg : args) {
       appendCallableArgument(arg, paramTypes, paramsLLVM);
     }
-    if (resolvedCallee != nullptr) {
-      Type* declaredIn = resolvedCallee->getMemberDeclaredInClass();
-      if (requiredDeclaredInClass == nullptr ||
-          (declaredIn != nullptr && declaredIn->isEqual(requiredDeclaredInClass))) {
-        directMethod = resolvedCallee;
-      }
-    }
     if (emittedEnumMonomorph && receiverType->is(BaseType::TY_ENUM)) {
       if (Value* specializedMethod = scope->lookupFunction(methodName, paramTypes,
                                                            FunctionLookupKind::VALUE, nullptr,
-                                                           requiredDeclaredInClass);
+                                                           requiredDeclaredInClass,
+                                                           requiredGenericArity);
           specializedMethod != nullptr) {
         directMethod = specializedMethod;
       }
     }
-    if (directMethod == nullptr) {
+    if (directMethod == nullptr || directMethod->getLlvmValue() == nullptr) {
       directMethod = scope->lookupFunction(methodName, paramTypes, FunctionLookupKind::VALUE, nullptr,
-                                           requiredDeclaredInClass);
-      if (directMethod == nullptr) {
-        for (const auto& importedScope : *importedScopes) {
-          if (importedScope == nullptr) {
-            continue;
-          }
-          directMethod = importedScope->lookupFunction(methodName, paramTypes,
-                                                      FunctionLookupKind::VALUE, nullptr,
-                                                      requiredDeclaredInClass);
-          if (directMethod != nullptr) {
-            break;
-          }
-        }
-      }
+                                           requiredDeclaredInClass, requiredGenericArity);
+      directMethod = preferImportedMethodWithBody(directMethod, requiredDeclaredInClass);
     }
   } else {
     // Adapt imported/aliased class pointers to the canonical method-owning class type for overload
@@ -8266,24 +8357,17 @@ auto Codegen::callMethodByName(llvm::SMRange span, lesma::Value* receiver,
     for (auto* arg : args) {
       appendCallableArgument(arg, paramTypes, paramsLLVM);
     }
-    directMethod = scope->lookupFunction(methodName, paramTypes);
-    if (directMethod == nullptr) {
-      for (const auto& importedScope : *importedScopes) {
-        if (importedScope == nullptr) {
-          continue;
-        }
-        directMethod = importedScope->lookupFunction(methodName, paramTypes);
-        if (directMethod != nullptr) {
-          break;
-        }
-      }
-    }
+    directMethod =
+        scope->lookupFunction(methodName, paramTypes, FunctionLookupKind::VALUE, nullptr, nullptr,
+                              requiredGenericArity);
+    directMethod = preferImportedMethodWithBody(directMethod);
   }
   if (emittedEnumMonomorph && receiverType->is(BaseType::TY_ENUM) &&
       (directMethod == nullptr || directMethod->getLlvmValue() == nullptr)) {
     if (Value* specializedMethod = scope->lookupFunction(methodName, paramTypes,
                                                          FunctionLookupKind::VALUE, nullptr,
-                                                         requiredDeclaredInClass);
+                                                         requiredDeclaredInClass,
+                                                         requiredGenericArity);
         specializedMethod != nullptr) {
       directMethod = specializedMethod;
     }
@@ -8377,7 +8461,7 @@ auto Codegen::callMethodByName(llvm::SMRange span, lesma::Value* receiver,
   }
   selfSymbol = cls;
   auto resultValue = callNamedFunction(span, methodName, paramTypes, paramsLLVM, explicitTypeArgs,
-                                       resolvedCallee, nullptr, callSiteGenericBindings);
+                                       nullptr, nullptr, callSiteGenericBindings);
   selfSymbol = savedSelfSymbol;
   return resultValue;
 }

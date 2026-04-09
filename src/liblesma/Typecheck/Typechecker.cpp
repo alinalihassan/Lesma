@@ -945,8 +945,7 @@ auto Typechecker::visitListMethodCall(Type* listType, const DotOp* node, const F
     }
     for (size_t i = 0; i < fields.size() && i < argTypes.size(); ++i) {
       Type* expected = substituteInType(fields[i]->type, explicitSubst);
-      if (expected != nullptr && (!isAssignableTo(argTypes[i], expected) ||
-                                  isLossyImplicitConversion(argTypes[i], expected))) {
+    if (expected != nullptr && !isLosslesslyAssignableTo(argTypes[i], expected)) {
         throw TypeCheckError(call->getSpan(),
                              "Argument type {} does not match explicit parameter type {}",
                              argTypes[i]->toString(), expected->toString());
@@ -1009,9 +1008,9 @@ void Typechecker::collectExplicitTypesFromCallByVisit(const FuncCall* call,
 
 auto Typechecker::lookupFunctionInScopeThenImportedModuleCaches(
     const std::string& name, const std::vector<Type*>& methodArgTypes,
-    Type* requiredDeclaredInClass) -> Value* {
+    Type* requiredDeclaredInClass, std::optional<size_t> requiredGenericArity) -> Value* {
   Value* method = scope->lookupFunction(name, methodArgTypes, FunctionLookupKind::VALUE, nullptr,
-                                        requiredDeclaredInClass);
+                                        requiredDeclaredInClass, requiredGenericArity);
   if (method != nullptr) {
     return method;
   }
@@ -1021,7 +1020,7 @@ auto Typechecker::lookupFunctionInScopeThenImportedModuleCaches(
     }
     method = cachedModule->rootScope->lookupFunction(name, methodArgTypes,
                                                      FunctionLookupKind::VALUE, nullptr,
-                                                     requiredDeclaredInClass);
+                                                     requiredDeclaredInClass, requiredGenericArity);
     if (method != nullptr) {
       return method;
     }
@@ -1538,8 +1537,7 @@ void Typechecker::finishGenericClassCallWithExplicitTypeArgs(
     auto ctorParams = constructor->getType()->getFields();
     for (size_t i = 1; i < ctorParams.size() && i - 1 < argTypes.size(); ++i) {
       Type* expected = substituteInType(ctorParams[i]->type, env);
-      if (expected != nullptr && (!isAssignableTo(argTypes[i - 1], expected) ||
-                                  isLossyImplicitConversion(argTypes[i - 1], expected))) {
+      if (expected != nullptr && !isLosslesslyAssignableTo(argTypes[i - 1], expected)) {
         throw TypeCheckError(callSite->getSpan(),
                              "Argument type {} does not match explicit parameter type {}",
                              argTypes[i - 1]->toString(), expected->toString());
@@ -1616,8 +1614,7 @@ void Typechecker::typecheckExplicitResolvedMethodTypeArgsIfPresent(
   auto fields = methodType->getFields();
   for (size_t i = 0; i < fields.size() && i < methodArgTypes.size(); ++i) {
     Type* expected = substituteInType(fields[i]->type, methodTypeEnv);
-    if (expected != nullptr && (!isAssignableTo(methodArgTypes[i], expected) ||
-                                isLossyImplicitConversion(methodArgTypes[i], expected))) {
+    if (expected != nullptr && !isLosslesslyAssignableTo(methodArgTypes[i], expected)) {
       throw TypeCheckError(span,
                            "Argument type {} does not match explicit "
                            "parameter type {}",
@@ -3405,6 +3402,10 @@ auto Typechecker::isAssignableTo(Type* from, Type* to) -> bool {
   return false;
 }
 
+auto Typechecker::isLosslesslyAssignableTo(Type* from, Type* to) -> bool {
+  return isAssignableTo(from, to) && !isLossyImplicitConversion(from, to);
+}
+
 auto Typechecker::functionTypesMatchForTraitImpl(Type* actualFn, Type* expectedFn) -> bool {
   if (actualFn == nullptr || expectedFn == nullptr || !actualFn->is(BaseType::TY_FUNCTION) ||
       !expectedFn->is(BaseType::TY_FUNCTION)) {
@@ -3431,7 +3432,10 @@ auto Typechecker::functionTypesMatchForTraitImpl(Type* actualFn, Type* expectedF
   if (ar == nullptr || er == nullptr) {
     return false;
   }
-  if (isAssignableTo(ar, er)) {
+  if (ar->isEqual(er)) {
+    return true;
+  }
+  if (isLosslesslyAssignableTo(ar, er)) {
     return true;
   }
   if (ar->is(BaseType::TY_ENUM) && er->is(BaseType::TY_ENUM)) {
@@ -4146,7 +4150,7 @@ auto Typechecker::visit(const VarDecl* node) -> void {
     visitExprWithExpectedType(node->getValue(), declType);
     Type* initType = result->getType();
     if (declType != nullptr) {
-      if (!isAssignableTo(initType, declType)) {
+      if (!isLosslesslyAssignableTo(initType, declType)) {
         throw TypeCheckError(node->getSpan(),
                              "Variable initializer type {} is not assignable "
                              "to declared type {}",
@@ -5404,7 +5408,7 @@ auto Typechecker::visit(const Class* node) -> void {
         field->getValue()->accept(*this);
         initType = result->getType();
         if (fieldType != nullptr) {
-          if (!isAssignableTo(initType, fieldType)) {
+          if (!isLosslesslyAssignableTo(initType, fieldType)) {
             throw TypeCheckError(
                 field->getSpan(),
                 "Class field initializer type {} is not assignable to declared type {}",
@@ -5570,7 +5574,7 @@ auto Typechecker::visit(const FuncDecl* node) -> void {
                            param->name);
     }
     Type* paramType = typeAsPtrIfClassForOverload(nominalParamType);
-    if (param->defaultVal != nullptr && !isAssignableTo(result->getType(), paramType)) {
+    if (param->defaultVal != nullptr && !isLosslesslyAssignableTo(result->getType(), paramType)) {
       throw TypeCheckError(param->defaultVal->getSpan(),
                            "Default value type {} is not assignable to parameter type {}",
                            result->getType()->toString(), paramType->toString());
@@ -5605,7 +5609,8 @@ auto Typechecker::visit(const FuncDecl* node) -> void {
   }
   if (funcSymbol == nullptr) {
     funcSymbol = insertScope->lookupFunction(node->getName(), paramTypes,
-                                             FunctionLookupKind::OVERLOAD_IDENTITY);
+                                             FunctionLookupKind::OVERLOAD_IDENTITY, nullptr, nullptr,
+                                             node->getGenericParams().size());
   }
   bool const effectiveFuncExported =
       (currentClassType != nullptr || currentEnumType != nullptr) ? currentClassExported
@@ -5619,16 +5624,18 @@ auto Typechecker::visit(const FuncDecl* node) -> void {
                                            ? ValueDeclarationKind::METHOD
                                            : ValueDeclarationKind::FUNCTION);
       declaredFunc->setExported(effectiveFuncExported);
-      if (currentClassType != nullptr) {
+      if (currentClassType != nullptr || currentEnumType != nullptr) {
         declaredFunc->setPrivateMember(node->getIsPrivate());
-        declaredFunc->setMemberDeclaredInClass(currentClassType);
+        declaredFunc->setMemberDeclaredInClass(currentClassType != nullptr ? currentClassType
+                                                                           : currentEnumType);
       }
       declaredFunc->setDeclarationSpan(node->getNameSpan());
       declaredFunc->setDeclarationFilePath(mainFilePath);
       declaredFunc->setStaticMethod(node->getIsStatic());
       insertScope->insertSymbol(std::move(declaredFunc));
       funcSymbol = insertScope->lookupFunction(node->getName(), paramTypes,
-                                               FunctionLookupKind::OVERLOAD_IDENTITY);
+                                               FunctionLookupKind::OVERLOAD_IDENTITY, nullptr, nullptr,
+                                               node->getGenericParams().size());
       // Set resolvedSymbol immediately after we get the symbol for this exact overload
       if (funcSymbol != nullptr) {
         node->setResolvedSymbol(funcSymbol);
@@ -5639,9 +5646,10 @@ auto Typechecker::visit(const FuncDecl* node) -> void {
                                          ? ValueDeclarationKind::METHOD
                                          : ValueDeclarationKind::FUNCTION);
       funcSymbol->setExported(effectiveFuncExported);
-      if (currentClassType != nullptr) {
+      if (currentClassType != nullptr || currentEnumType != nullptr) {
         funcSymbol->setPrivateMember(node->getIsPrivate());
-        funcSymbol->setMemberDeclaredInClass(currentClassType);
+        funcSymbol->setMemberDeclaredInClass(currentClassType != nullptr ? currentClassType
+                                                                         : currentEnumType);
       }
       funcSymbol->setStaticMethod(node->getIsStatic());
       funcSymbol->setDeclarationSpan(node->getNameSpan());
@@ -5756,7 +5764,7 @@ auto Typechecker::visit(const ExternFuncDecl* node) -> void {
                            param->name);
     }
     Type* paramType = typeAsPtrIfClassForOverload(nominalParamType);
-    if (param->defaultVal != nullptr && !isAssignableTo(result->getType(), paramType)) {
+    if (param->defaultVal != nullptr && !isLosslesslyAssignableTo(result->getType(), paramType)) {
       throw TypeCheckError(param->defaultVal->getSpan(),
                            "Default value type {} is not assignable to parameter type {}",
                            result->getType()->toString(), paramType->toString());
@@ -5902,7 +5910,7 @@ auto Typechecker::visit(const Assignment* node) -> void {
     Type* rhsType = result->getType();
     if (binaryOp.has_value()) {
       Type* resultType = typecheckBinaryOpResult(*binaryOp, lhsType, rhsType, node->getSpan());
-      if (!isAssignableTo(resultType, lhsType)) {
+      if (!isLosslesslyAssignableTo(resultType, lhsType)) {
         throw TypeCheckError(
             node->getSpan(),
             "Compound assignment result type {} is not assignable to variable of type {}",
@@ -5914,7 +5922,7 @@ auto Typechecker::visit(const Assignment* node) -> void {
       } else if (assignOp != TokenType::EQUAL) {
         throw TypeCheckError(node->getSpan(), "Unsupported assignment operator: {}",
                              NAMEOF_ENUM(assignOp));
-      } else if (!isAssignableTo(rhsType, lhsType)) {
+      } else if (!isLosslesslyAssignableTo(rhsType, lhsType)) {
         throw TypeCheckError(node->getSpan(), "Cannot assign type {} to variable of type {}",
                              rhsType->toString(), lhsType->toString());
       }
@@ -5961,7 +5969,7 @@ auto Typechecker::visit(const Assignment* node) -> void {
     Type* rhsType = result->getType();
     if (binaryOp.has_value()) {
       Type* resultType = typecheckBinaryOpResult(*binaryOp, targetType, rhsType, node->getSpan());
-      if (targetType != nullptr && !isAssignableTo(resultType, targetType)) {
+      if (targetType != nullptr && !isLosslesslyAssignableTo(resultType, targetType)) {
         throw TypeCheckError(
             node->getSpan(),
             "Compound assignment result type {} is not assignable to field of type {}",
@@ -5973,7 +5981,7 @@ auto Typechecker::visit(const Assignment* node) -> void {
       } else if (assignOp != TokenType::EQUAL) {
         throw TypeCheckError(node->getSpan(), "Unsupported assignment operator: {}",
                              NAMEOF_ENUM(assignOp));
-      } else if (targetType != nullptr && !isAssignableTo(rhsType, targetType)) {
+      } else if (targetType != nullptr && !isLosslesslyAssignableTo(rhsType, targetType)) {
         throw TypeCheckError(node->getSpan(), "Cannot assign type {} to field of type {}",
                              rhsType->toString(), targetType->toString());
       }
@@ -6010,7 +6018,7 @@ auto Typechecker::visit(const Assignment* node) -> void {
       Type* rhsType = result->getType();
       if (binaryOp.has_value()) {
         Type* resultType = typecheckBinaryOpResult(*binaryOp, targetType, rhsType, node->getSpan());
-        if (targetType != nullptr && !isAssignableTo(resultType, targetType)) {
+        if (targetType != nullptr && !isLosslesslyAssignableTo(resultType, targetType)) {
           throw TypeCheckError(
               node->getSpan(),
               "Compound assignment result type {} is not assignable to list element type {}",
@@ -6022,7 +6030,7 @@ auto Typechecker::visit(const Assignment* node) -> void {
         } else if (assignOp != TokenType::EQUAL) {
           throw TypeCheckError(node->getSpan(), "Unsupported assignment operator: {}",
                                NAMEOF_ENUM(assignOp));
-        } else if (targetType != nullptr && !isAssignableTo(rhsType, targetType)) {
+        } else if (targetType != nullptr && !isLosslesslyAssignableTo(rhsType, targetType)) {
           throw TypeCheckError(node->getSpan(), "Cannot assign type {} to list element of type {}",
                                rhsType->toString(), targetType->toString());
         }
@@ -6108,7 +6116,7 @@ auto Typechecker::visit(const Return* node) -> void {
     return;
   }
   visitExprWithExpectedType(node->getValue(), expected);
-  if (!isAssignableTo(result->getType(), expected)) {
+  if (!isLosslesslyAssignableTo(result->getType(), expected)) {
     throw TypeCheckError(node->getSpan(), "Return type does not match: expected {}, got {}",
                          expected->toString(), result->getType()->toString());
   }
@@ -6200,7 +6208,12 @@ auto Typechecker::resolveFuncCallCalleeOrEarlyReturn(const FuncCall* node,
     }
   }
   if (callee == nullptr && maybeRetypeCallArgsForStringLiteralOverload(node, argTypes)) {
-    callee = scope->lookupFunction(node->getName(), argTypes);
+    std::optional<size_t> const explicitGenericArity =
+        node->getExplicitTypeArgs().empty()
+            ? std::nullopt
+            : std::optional<size_t>(node->getExplicitTypeArgs().size());
+    callee = scope->lookupFunction(node->getName(), argTypes, FunctionLookupKind::VALUE, nullptr,
+                                   nullptr, explicitGenericArity);
     if (callee == nullptr) {
       Value* classSym = scope->lookupStruct(node->getName());
       if (classSym == nullptr) {
@@ -6241,7 +6254,13 @@ auto Typechecker::resolveFuncCallCalleeOrEarlyReturn(const FuncCall* node,
       if (importedIt != importedNameToSource.end()) {
         importedScope = getOrTypecheckImport(importedIt->second.first);
         if (importedScope != nullptr) {
-          callee = importedScope->lookupFunction(importedIt->second.second, argTypes);
+          std::optional<size_t> const explicitGenericArity =
+              node->getExplicitTypeArgs().empty()
+                  ? std::nullopt
+                  : std::optional<size_t>(node->getExplicitTypeArgs().size());
+          callee = importedScope->lookupFunction(importedIt->second.second, argTypes,
+                                                 FunctionLookupKind::VALUE, nullptr, nullptr,
+                                                 explicitGenericArity);
           if (callee != nullptr) {
             funcCallResolvedViaImportedNameBinding = true;
           }
@@ -6273,7 +6292,11 @@ auto Typechecker::visit(const FuncCall* node) -> void {
   }
 
   SymbolTable* importedScope = nullptr;
-  Value* callee = scope->lookupFunction(node->getName(), argTypes);
+  std::optional<size_t> const explicitGenericArity =
+      node->getExplicitTypeArgs().empty() ? std::nullopt
+                                          : std::optional<size_t>(node->getExplicitTypeArgs().size());
+  Value* callee = scope->lookupFunction(node->getName(), argTypes, FunctionLookupKind::VALUE, nullptr,
+                                        nullptr, explicitGenericArity);
   bool funcCallResolvedViaImportedNameBinding = false;
   if (resolveFuncCallCalleeOrEarlyReturn(node, argTypes, importedScope,
                                          funcCallResolvedViaImportedNameBinding, callee)) {
@@ -6338,8 +6361,7 @@ void Typechecker::completeOrdinaryFuncCallTyping(const FuncCall* node, Value* ca
     }
     for (size_t i = 0; i < fields.size() && i < argTypes.size(); ++i) {
       Type* expected = substituteInType(fields[i]->type, explicitSubst);
-      if (expected != nullptr && (!isAssignableTo(argTypes[i], expected) ||
-                                  isLossyImplicitConversion(argTypes[i], expected))) {
+      if (expected != nullptr && !isLosslesslyAssignableTo(argTypes[i], expected)) {
         throw TypeCheckError(node->getSpan(),
                              "Argument type {} does not match explicit "
                              "parameter type {}",
@@ -6837,8 +6859,12 @@ void Typechecker::typecheckDotOpClassOrEnumMemberAccess(const DotOp* node, Type*
     }
     Type* requiredDeclaredInClass =
         typeNameReceiver && fc->getName() != "new" ? receiverForLookup : nullptr;
-    Value* method = lookupFunctionInScopeThenImportedModuleCaches(fc->getName(), methodArgTypes,
-                                                                 requiredDeclaredInClass);
+    std::optional<size_t> const explicitMethodGenericArity =
+        fc->getExplicitTypeArgs().empty()
+            ? std::nullopt
+            : std::optional<size_t>(fc->getExplicitTypeArgs().size());
+    Value* method = lookupFunctionInScopeThenImportedModuleCaches(
+        fc->getName(), methodArgTypes, requiredDeclaredInClass, explicitMethodGenericArity);
     if (method == nullptr) {
       method = tryLookupFunctionViaDotImportLiterals(node, fc->getName(), methodArgTypes);
     }
@@ -7265,7 +7291,7 @@ auto Typechecker::visit(const MatchExpr* node) -> void {
       continue;
     }
     if (expectedType != nullptr) {
-      if (!isAssignableTo(armType, expectedType)) {
+      if (!isLosslesslyAssignableTo(armType, expectedType)) {
         throw TypeCheckError(arm.body->getSpan(),
                              "Match arm type {} is not assignable to expected type {}",
                              armType->toString(), expectedType->toString());
@@ -7452,7 +7478,7 @@ auto Typechecker::visit(const ListLiteral* node) -> void {
       throw TypeCheckError(element->getSpan(), "List element has unknown type");
     }
     if (expectedElementType != nullptr) {
-      if (!isAssignableTo(current, expectedElementType)) {
+      if (!isLosslesslyAssignableTo(current, expectedElementType)) {
         throw TypeCheckError(element->getSpan(),
                              "List element type {} is not assignable to expected type {}",
                              current->toString(), expectedElementType->toString());
@@ -7584,7 +7610,7 @@ auto Typechecker::visit(const DictLiteral* node) -> void {
       throw TypeCheckError(keys[i]->getSpan(), "Dict key has unknown type");
     }
     if (expectedKeyType != nullptr) {
-      if (!isAssignableTo(keyT, expectedKeyType)) {
+      if (!isLosslesslyAssignableTo(keyT, expectedKeyType)) {
         throw TypeCheckError(keys[i]->getSpan(),
                              "Dict key type {} is not assignable to expected type {}",
                              keyT->toString(), expectedKeyType->toString());
@@ -7601,7 +7627,7 @@ auto Typechecker::visit(const DictLiteral* node) -> void {
       throw TypeCheckError(values[i]->getSpan(), "Dict value has unknown type");
     }
     if (expectedValueType != nullptr) {
-      if (!isAssignableTo(valT, expectedValueType)) {
+      if (!isLosslesslyAssignableTo(valT, expectedValueType)) {
         throw TypeCheckError(values[i]->getSpan(),
                              "Dict value type {} is not assignable to expected type {}",
                              valT->toString(), expectedValueType->toString());
@@ -7678,7 +7704,7 @@ auto Typechecker::visit(const TupleLiteral* node) -> void {
                                elemTypes[i]->toString(), toElem->toString());
         }
       }
-    } else if (!isAssignableTo(cached, expectedType)) {
+    } else if (!isLosslesslyAssignableTo(cached, expectedType)) {
       throw TypeCheckError(node->getSpan(),
                            "Tuple literal type {} is not compatible with expected {}",
                            cached->toString(), expectedType->toString());

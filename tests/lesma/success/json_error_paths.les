@@ -8,18 +8,18 @@ if match badParse {
   exit(1)
 }
 
-let badRoot = Json.parseObject("[1, 2, 3]")
+let badRoot = Json.parse("true")
 if match badRoot {
-  Result.Err(err) => err.str() == "JSON root is not an object"
+  Result.Err(err) => err.str() == "JSON root is not an object or array"
   Result.Ok(_) => false
 } == false {
   exit(2)
 }
 
-let badArray = Json.parseArray("{\"name\": true}")
-if match badArray {
-  Result.Err(err) => err.str() == "JSON root is not an array"
-  Result.Ok(_) => false
+let goodArray = Json.parse("[1, 2, 3]")
+if match goodArray {
+  Result.Ok(_) => true
+  Result.Err(_) => false
 } == false {
   exit(3)
 }

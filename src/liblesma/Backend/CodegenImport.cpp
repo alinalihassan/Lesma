@@ -112,6 +112,10 @@ auto Codegen::exposeImportedSymbols(llvm::SMRange /*span*/, SymbolTable* importe
       const std::string localName = importedLocalName.empty() ? sym->getName() : importedLocalName;
       auto structSymbol = std::make_unique<Value>(localName, sym->getType());
       structSymbol->setCategory(ValueCategory::TYPE_SYMBOL);
+      structSymbol->setDeclarationKind(sym->getDeclarationKind());
+      structSymbol->setDeclarationSpan(sym->getDeclarationSpan());
+      structSymbol->setDeclarationFilePath(sym->getDeclarationFilePath());
+      structSymbol->setExported(sym->isExported());
       structSymbol->getType()->setLlvmType(structType);
       structSymbol->setGenericClassTemplate(sym->getGenericClassTemplate());
       scope->insertTypeRef(sym->getName(), sym->getType());
@@ -166,7 +170,9 @@ auto Codegen::exposeImportedSymbols(llvm::SMRange /*span*/, SymbolTable* importe
       paramTypes.push_back(field->type);
     }
 
-    Value* funcSymbol = importedScope->lookupFunction(name, paramTypes);
+    Value* funcSymbol = importedScope->lookupFunction(name, paramTypes, FunctionLookupKind::VALUE,
+                                                      nullptr, nullptr,
+                                                      sym->getType()->getGenericParams().size());
     const bool isMethodSym = MangleUtils::isMethod(sym->getMangledName());
     bool methodClassImported = true;
     if (isMethodSym && !importAll && importToScope) {
@@ -188,7 +194,9 @@ auto Codegen::exposeImportedSymbols(llvm::SMRange /*span*/, SymbolTable* importe
     }
 
     const std::string localName = importedLocalName.empty() ? name : importedLocalName;
-    Value* localSymbol = scope->lookupFunction(localName, paramTypes);
+    Value* localSymbol = scope->lookupFunction(localName, paramTypes, FunctionLookupKind::VALUE,
+                                               nullptr, nullptr,
+                                               sym->getType()->getGenericParams().size());
     const bool reuseExistingLocal =
         localSymbol != nullptr && localSymbol->getLlvmValue() == nullptr;
     auto symbol =
@@ -210,6 +218,13 @@ auto Codegen::exposeImportedSymbols(llvm::SMRange /*span*/, SymbolTable* importe
     }
     targetSymbol->setExported(false);
     targetSymbol->setMangledName(sym->getMangledName());
+    targetSymbol->setDeclarationKind(funcSymbol->getDeclarationKind());
+    targetSymbol->setDeclarationSpan(funcSymbol->getDeclarationSpan());
+    targetSymbol->setDeclarationFilePath(funcSymbol->getDeclarationFilePath());
+    targetSymbol->setStaticMethod(funcSymbol->isStaticMethod());
+    targetSymbol->setMemberDeclaredInClass(funcSymbol->getMemberDeclaredInClass());
+    targetSymbol->setPrivateMember(funcSymbol->isPrivateMember());
+    targetSymbol->setGenericClassTemplate(funcSymbol->getGenericClassTemplate());
     if (!reuseExistingLocal) {
       scope->insertSymbol(std::move(symbol));
     }

@@ -3,6 +3,7 @@
 #include <cstdint>
 #include <functional>
 #include <memory>
+#include <optional>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -45,7 +46,8 @@ public:
   auto lookupFunction(const std::string& symbolName, std::vector<lesma::Type*> paramTypes,
                       FunctionLookupKind kind = FunctionLookupKind::VALUE,
                       Type* excludeFormalReceiverClass = nullptr,
-                      Type* requiredDeclaredInClass = nullptr) -> Value*;
+                      Type* requiredDeclaredInClass = nullptr,
+                      std::optional<size_t> requiredGenericArity = std::nullopt) -> Value*;
   /** Like \c lookupFunction(Value), but only considers overloads for which \p receiverMatches
    * returns true for the class type under the first (receiver) pointer parameter. Used for
    * `super.method(self, …)` so the subclass overload is not chosen via subtyping.

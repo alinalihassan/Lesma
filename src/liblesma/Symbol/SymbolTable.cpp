@@ -499,7 +499,8 @@ auto selectBestFunctionTypeMatchTail(const std::vector<Type*>& candidateFunction
 
 auto SymbolTable::lookupFunction(const std::string& name, std::vector<lesma::Type*> paramTypes,
                                  FunctionLookupKind lookupKind, Type* excludeFormalReceiverClass,
-                                 Type* requiredDeclaredInClass)
+                                 Type* requiredDeclaredInClass,
+                                 std::optional<size_t> requiredGenericArity)
     -> Value* {
   auto range = symbols.equal_range(name);
   Value* bestCandidate = nullptr;
@@ -520,6 +521,10 @@ auto SymbolTable::lookupFunction(const std::string& name, std::vector<lesma::Typ
       if (declaredIn == nullptr || !declaredIn->isEqual(requiredDeclaredInClass)) {
         continue;
       }
+    }
+    if (requiredGenericArity.has_value() &&
+        it->second->getType()->getGenericParams().size() != requiredGenericArity.value()) {
+      continue;
     }
 
     bool paramsMatch = true;
@@ -568,6 +573,12 @@ auto SymbolTable::lookupFunction(const std::string& name, std::vector<lesma::Typ
         Value* candSym = it->second.get();
         if (candSym->getLlvmValue() != nullptr && bestCandidate->getLlvmValue() == nullptr) {
           candidateWins = true;
+        } else if (!requiredGenericArity.has_value()) {
+          size_t const candidateGenericArity = candSym->getType()->getGenericParams().size();
+          size_t const bestGenericArity = bestCandidate->getType()->getGenericParams().size();
+          if (candidateGenericArity < bestGenericArity) {
+            candidateWins = true;
+          }
         }
       }
     }
@@ -586,7 +597,7 @@ auto SymbolTable::lookupFunction(const std::string& name, std::vector<lesma::Typ
   }
 
   return parent->lookupFunction(name, paramTypes, lookupKind, excludeFormalReceiverClass,
-                                requiredDeclaredInClass);
+                                requiredDeclaredInClass, requiredGenericArity);
 }
 
 auto SymbolTable::lookupSuperClassMethod(

@@ -240,8 +240,10 @@ class Typechecker final : public ASTVisitor {
   [[nodiscard]] auto getOptionalPayloadType(Type* type) -> Type*;
   /** Whether `type` itself includes `null` as a value (for example `T?` or `A | B | null`). */
   [[nodiscard]] auto isNullableType(Type* type) -> bool;
-  /** Whether a value of type 'from' can be assigned/cast to type 'to'. */
+  /** Broad compatibility relation used for unions, matching, and coercion-aware checks. */
   auto isAssignableTo(Type* from, Type* to) -> bool;
+  /** True when \p from can flow to \p to without precision loss. */
+  auto isLosslesslyAssignableTo(Type* from, Type* to) -> bool;
   [[nodiscard]] static auto isSupportedUnionMemberType(Type* t) -> bool;
   [[nodiscard]] auto lookupUnionNarrowedType(Value* sym) const -> Type*;
   [[nodiscard]] auto lookupUnionNarrowedType(const Expression* expr) const -> Type*;
@@ -308,7 +310,9 @@ class Typechecker final : public ASTVisitor {
   [[nodiscard]] auto
   lookupFunctionInScopeThenImportedModuleCaches(const std::string& name,
                                                 const std::vector<Type*>& methodArgTypes,
-                                                Type* requiredDeclaredInClass = nullptr) -> Value*;
+                                                Type* requiredDeclaredInClass = nullptr,
+                                                std::optional<size_t> requiredGenericArity =
+                                                    std::nullopt) -> Value*;
   [[nodiscard]] auto tryLookupFunctionViaDotImportLiterals(const DotOp* node,
                                                            const std::string& name,
                                                            const std::vector<Type*>& methodArgTypes)

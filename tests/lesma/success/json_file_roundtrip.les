@@ -1,4 +1,23 @@
-from json import Json, JsonValue
+from json import Json, JsonErr, JsonValue
+
+func expectObject(result: Result<dict<str, JsonValue> | list<JsonValue>, JsonErr>, code: int) -> dict<str, JsonValue> {
+  let parsedRoot = match result {
+    Result.Ok(value) => value
+    Result.Err(_) => {
+      exit(code)
+      var fallback: dict<str, JsonValue> = {}
+      fallback["_"] = null
+      return fallback
+    }
+  }
+  if parsedRoot is not dict<str, JsonValue> {
+    exit(code)
+    var fallback: dict<str, JsonValue> = {}
+    fallback["_"] = null
+    return fallback
+  }
+  return parsedRoot
+}
 
 let path: str = "tests/lesma/success/json_file_roundtrip_out.json"
 
@@ -20,13 +39,7 @@ if match writeResult {
   exit(1)
 }
 
-let readResult = Json.readObject(path)
-let loaded = match readResult {
-  Result.Ok(value) => value
-  Result.Err(_) => {
-    exit(2)
-  }
-}
+let loaded = expectObject(Json.read(path), 2)
 
 if loaded["name"] is not str or loaded["name"] as str != "Lesma" {
   exit(3)

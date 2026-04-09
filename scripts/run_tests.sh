@@ -13,6 +13,7 @@ fi
 
 fail_count=0
 success_count=0
+failed_tests=()
 
 # Wall-clock limit per compiler invocation (seconds). Use 0 to disable. Override with LESMA_TEST_TIMEOUT.
 LESMA_TEST_TIMEOUT="${LESMA_TEST_TIMEOUT:-2}"
@@ -174,16 +175,19 @@ process_result_line() {
     fail_count=$((fail_count + 1))
     printf 'Testing %s\n' "$2"
     printf '  Run failed, expected %s, got %s\n' "$3" "$4"
+    failed_tests+=("$2: run failed (expected $3, got $4)")
     ;;
   fail-expect)
     fail_count=$((fail_count + 1))
     printf 'Testing %s\n' "$2"
     printf '  Run succeeded but was expected to fail\n'
+    failed_tests+=("$2: expected failure but run succeeded")
     ;;
   fail-timeout)
     fail_count=$((fail_count + 1))
     printf 'Testing %s\n' "$2"
     printf '  Timed out after %ss (LESMA_TEST_TIMEOUT)\n' "${LESMA_TEST_TIMEOUT}"
+    failed_tests+=("$2: timed out after ${LESMA_TEST_TIMEOUT}s")
     ;;
   *)
     printf 'Internal error: bad result line: %s\n' "${line}" >&2
@@ -272,6 +276,12 @@ print_suite_results_in_order "${TMPDIR_RESULTS}" "${failure_files[@]}"
 printf 'Tests:\n'
 printf '  fail:    %d\n' "${fail_count}"
 printf '  success: %d\n' "${success_count}"
+if [ "${fail_count}" -gt 0 ]; then
+  printf 'Failed tests summary:\n'
+  for failed in "${failed_tests[@]}"; do
+    printf '  - %s\n' "${failed}"
+  done
+fi
 if [ "${fail_count}" -gt 0 ]; then
   exit 1
 fi
