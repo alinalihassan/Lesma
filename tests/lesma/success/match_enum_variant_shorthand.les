@@ -1,0 +1,16 @@
+func unwrap(x: Result<int, int>) -> int {
+  return match x {
+    Ok(value) => value
+    Err(_) => 0
+  }
+}
+
+func main() -> int {
+  if unwrap(Result<int, int>.Ok(7)) != 7 {
+    return 1
+  }
+  if unwrap(Result<int, int>.Err(2)) != 0 {
+    return 2
+  }
+  return 0
+}

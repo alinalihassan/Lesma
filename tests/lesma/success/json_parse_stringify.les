@@ -6,19 +6,18 @@ export class User impl Serializable<User> {
 
   static func decode(value: JsonValue) -> Result<User, JsonErr> {
     if value is not dict<str, JsonValue> {
-      let err: Result<User, JsonErr> = Result.Err(JsonErr("User expects object"))
-      return err
+      return Err(JsonErr("User expects object"))
     }
 
     if value["name"] is not str or value["age"] is not int {
-      return Result.Err(JsonErr("User missing required fields"))
+      return Err(JsonErr("User missing required fields"))
     }
 
-    return Result.Ok(User(value["name"], value["age"]))
+    return Ok(User(value["name"], value["age"]))
   }
 
   func encode() -> Result<JsonValue, JsonErr> {
-    return Result<JsonValue, JsonErr>.Ok({"name": self.name, "age": self.age})
+    return Ok({"name": self.name, "age": self.age})
   }
 }
 
