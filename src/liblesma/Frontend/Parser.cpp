@@ -2720,7 +2720,7 @@ auto Parser::parseEnum() -> std::unique_ptr<Statement> {
   consume(TokenType::LEFT_BRACE);
 
   std::vector<EnumValueDecl> values;
-  std::vector<std::unique_ptr<Statement>> methods;
+  std::vector<std::unique_ptr<FuncDecl>> methods;
   auto endLoc = token->getEnd();
 
   inEnum = true;
@@ -2741,9 +2741,11 @@ auto Parser::parseEnum() -> std::unique_ptr<Statement> {
         auto* funcDecl = dynamic_cast<FuncDecl*>(stmt.get());
         if (funcDecl == nullptr) {
           error(peek(), "Expected enum method");
+          continue;
         }
-        endLoc = funcDecl != nullptr ? funcDecl->getEnd() : stmt->getEnd();
-        methods.push_back(std::move(stmt));
+        endLoc = funcDecl->getEnd();
+        std::ignore = stmt.release();
+        methods.push_back(std::unique_ptr<FuncDecl>(funcDecl));
         continue;
       }
       auto* valueToken = consume(TokenType::IDENTIFIER);

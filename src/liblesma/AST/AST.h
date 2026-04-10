@@ -355,22 +355,15 @@ class Enum : public Statement {
   std::vector<GenericParamDecl> genericParams;
   std::vector<EnumValueDecl> values;
   std::vector<llvm::SMRange> valueSpans;
-  std::vector<std::unique_ptr<Statement>> methods;
+  std::vector<std::unique_ptr<FuncDecl>> methods;
   bool exported;
   mutable Value* resolvedSymbol = nullptr;
 
 public:
   Enum(llvm::SMRange loc, std::string identifier, llvm::SMRange nameSpan,
        std::vector<GenericParamDecl> genericParams, std::vector<EnumValueDecl> values,
-       std::vector<std::unique_ptr<Statement>> methods, bool exported)
-      : Statement(loc), identifier(std::move(identifier)), nameSpan(nameSpan),
-        genericParams(std::move(genericParams)), values(std::move(values)),
-        methods(std::move(methods)), exported(exported) {
-    valueSpans.reserve(this->values.size());
-    for (const EnumValueDecl& value : this->values) {
-      valueSpans.push_back(value.span);
-    }
-  };
+       std::vector<std::unique_ptr<FuncDecl>> methods, bool exported);
+  ~Enum();
   void accept(ASTVisitor& visitor) const override { visitor.visit(this); }
 
   [[nodiscard]] [[maybe_unused]] auto getIdentifier() const -> std::string { return identifier; }
@@ -855,13 +848,25 @@ public:
   }
 };
 
+inline Enum::Enum(llvm::SMRange loc, std::string identifier, llvm::SMRange nameSpan,
+                  std::vector<GenericParamDecl> genericParams, std::vector<EnumValueDecl> values,
+                  std::vector<std::unique_ptr<FuncDecl>> methods, bool exported)
+    : Statement(loc), identifier(std::move(identifier)), nameSpan(nameSpan),
+      genericParams(std::move(genericParams)), values(std::move(values)),
+      methods(std::move(methods)), exported(exported) {
+  valueSpans.reserve(this->values.size());
+  for (const EnumValueDecl& value : this->values) {
+    valueSpans.push_back(value.span);
+  }
+}
+
+inline Enum::~Enum() = default;
+
 inline auto Enum::getMethods() const -> std::vector<FuncDecl*> {
   std::vector<FuncDecl*> out;
   out.reserve(methods.size());
   for (const auto& method : methods) {
-    auto* funcDecl = dynamic_cast<FuncDecl*>(method.get());
-    assert(funcDecl != nullptr && "Enum method list contains a non-FuncDecl statement");
-    out.push_back(funcDecl);
+    out.push_back(method.get());
   }
   return out;
 }
