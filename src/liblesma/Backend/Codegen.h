@@ -724,6 +724,8 @@ private:
   auto substituteTypeForSpecializationEnv(
       lesma::Type* t, const std::unordered_map<std::string, lesma::Type*>& env,
       std::set<lesma::Type const*>& active) -> lesma::Type*;
+  /** True when \p type can be passed to \c MangleUtils::getTypeMangledName for ARC storage helpers. */
+  [[nodiscard]] static auto isLesmaTypeReadyForArcTypeMangling(lesma::Type* type) -> bool;
   [[nodiscard]] static auto isLesmaPtrToClass(lesma::Type* t) -> bool;
   /** Stack/global slot LLVM type for a local or exported variable (class-as-ptr ABI, func pair). */
   [[nodiscard]] auto llvmStorageTypeForVarSlot(lesma::Type* storedType, lesma::Value* existing)

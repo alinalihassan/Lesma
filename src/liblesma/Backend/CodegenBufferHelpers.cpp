@@ -6,6 +6,7 @@
 #include <llvm/IR/Function.h>
 #include <llvm/IR/GlobalVariable.h>
 #include <llvm/IR/Instructions.h>
+#include <llvm/Support/Casting.h>
 
 #include "Codegen.h"
 
@@ -18,6 +19,55 @@
 
 using namespace lesma;
 using namespace llvm;
+
+auto Codegen::isLesmaTypeReadyForArcTypeMangling(lesma::Type* type) -> bool {
+  if (type == nullptr) {
+    return false;
+  }
+  if (type->is(BaseType::TY_GENERIC) || type->is(BaseType::TY_TRAIT_EXISTENTIAL)) {
+    return true;
+  }
+  if (type->getLlvmType() == nullptr) {
+    return false;
+  }
+  if (type->is(BaseType::TY_ARRAY)) {
+    return isLesmaTypeReadyForArcTypeMangling(type->getElementType());
+  }
+  if (type->is(BaseType::TY_PTR)) {
+    return isLesmaTypeReadyForArcTypeMangling(type->getElementType());
+  }
+  if (type->is(BaseType::TY_FUNCTION)) {
+    for (Field* field : type->getFields()) {
+      if (field == nullptr || !isLesmaTypeReadyForArcTypeMangling(field->type)) {
+        return false;
+      }
+    }
+    return true;
+  }
+  if (type->isOneOf({BaseType::TY_CLASS, BaseType::TY_ENUM})) {
+    return llvm::isa<llvm::StructType>(type->getLlvmType());
+  }
+  if (type->is(BaseType::TY_TUPLE)) {
+    for (Field* f : type->getFields()) {
+      if (f == nullptr || f->type == nullptr || !isLesmaTypeReadyForArcTypeMangling(f->type)) {
+        return false;
+      }
+    }
+    return true;
+  }
+  if (type->is(BaseType::TY_UNION)) {
+    for (lesma::Type* m : type->getUnionMembers()) {
+      if (m == nullptr || !isLesmaTypeReadyForArcTypeMangling(m)) {
+        return false;
+      }
+    }
+    return true;
+  }
+  if (type->is(BaseType::TY_IMPORT) || type->is(BaseType::TY_INVALID)) {
+    return false;
+  }
+  return true;
+}
 
 auto Codegen::getOrCreateListStructType(lesma::Type* listType) -> llvm::StructType* {
   std::string typeName = "lesma.list";
@@ -451,6 +501,9 @@ auto Codegen::getOrCreateArcStorageRetainFunction(lesma::Type* type) -> llvm::Fu
   if (type == nullptr) {
     return nullptr;
   }
+  if (!isLesmaTypeReadyForArcTypeMangling(type)) {
+    return nullptr;
+  }
   const std::string typeKey = MangleUtils::getTypeMangledName({}, type);
   if (auto it = arcStorageRetainFns.find(typeKey); it != arcStorageRetainFns.end()) {
     return it->second;
@@ -477,6 +530,9 @@ auto Codegen::getOrCreateArcStorageRetainFunction(lesma::Type* type) -> llvm::Fu
 
 auto Codegen::getOrCreateArcStorageReleaseFunction(lesma::Type* type) -> llvm::Function* {
   if (type == nullptr) {
+    return nullptr;
+  }
+  if (!isLesmaTypeReadyForArcTypeMangling(type)) {
     return nullptr;
   }
   const std::string typeKey = MangleUtils::getTypeMangledName({}, type);
@@ -507,6 +563,9 @@ auto Codegen::getOrCreateArcPayloadDestroyFunction(lesma::Type* type) -> llvm::F
   if (type == nullptr) {
     return nullptr;
   }
+  if (!isLesmaTypeReadyForArcTypeMangling(type)) {
+    return nullptr;
+  }
   const std::string typeKey = MangleUtils::getTypeMangledName({}, type);
   if (auto it = arcPayloadDestroyFns.find(typeKey); it != arcPayloadDestroyFns.end()) {
     return it->second;
@@ -529,6 +588,9 @@ auto Codegen::getOrCreateArcPayloadDestroyFunction(lesma::Type* type) -> llvm::F
 
 auto Codegen::getOrCreateArcDestroyFunction(lesma::Type* type) -> llvm::Function* {
   if (type == nullptr) {
+    return nullptr;
+  }
+  if (!isLesmaTypeReadyForArcTypeMangling(type)) {
     return nullptr;
   }
   const std::string typeKey = MangleUtils::getTypeMangledName({}, type);
