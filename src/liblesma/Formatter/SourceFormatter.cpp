@@ -516,7 +516,6 @@ private:
       bodyInner.push_back(hardLine());
       bodyInner.push_back(trailingDetached);
     }
-    bodyInner.push_back(hardLine());
     return docGroup(docs({
         docText("match "),
         formatExpression(node->getScrutinee(), precedence(node)),
