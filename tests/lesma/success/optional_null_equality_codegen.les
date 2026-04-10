@@ -1,0 +1,50 @@
+// Regression: optional/union vs `null` uses tag checks in codegen (`emitUnionScalarEquality`), not a
+// pointer fast path — `== null` / `!= null` must be correct when the value is a tagged aggregate.
+var none: int? = null
+if none == null {
+  if none != null {
+    exit(1)
+  }
+} else {
+  exit(1)
+}
+if none != null {
+  exit(1)
+}
+
+var some: int? = 7
+if some == null {
+  exit(1)
+}
+if some != null {
+  if some == null {
+    exit(1)
+  }
+} else {
+  exit(1)
+}
+
+// Multi-member union (not sugar to `T?`) — still must compare tag vs null correctly.
+var unionNull: int | float | null = null
+if unionNull == null {
+  if unionNull != null {
+    exit(1)
+  }
+} else {
+  exit(1)
+}
+if unionNull != null {
+  exit(1)
+}
+
+var unionInt: int | float | null = 42
+if unionInt == null {
+  exit(1)
+}
+if unionInt != null {
+  if unionInt == null {
+    exit(1)
+  }
+} else {
+  exit(1)
+}

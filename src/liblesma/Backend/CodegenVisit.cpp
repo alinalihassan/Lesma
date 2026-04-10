@@ -4452,6 +4452,10 @@ auto Codegen::visit(const BinaryOp* node) -> void {
     }
     bool lhsNull = lhsTy->is(BaseType::TY_NULL);
     bool rhsNull = rhsTy->is(BaseType::TY_NULL);
+    if ((lhsTy->is(BaseType::TY_UNION) && rhsNull) ||
+        (rhsTy->is(BaseType::TY_UNION) && lhsNull)) {
+      return nullptr;
+    }
     if (!lhsNull && !rhsNull) {
       return nullptr;
     }
