@@ -1321,14 +1321,22 @@ auto Codegen::specializedClassEnvFor(lesma::Type* classTy)
   return nullptr;
 }
 
-auto Codegen::specializedNominalEnvFor(lesma::Type* nominalTy) const
+auto Codegen::specializedNominalEnvFor(lesma::Type* nominalTy)
     -> const std::unordered_map<std::string, lesma::Type*>* {
   if (nominalTy == nullptr ||
       !nominalTy->isOneOf({BaseType::TY_CLASS, BaseType::TY_ENUM, BaseType::TY_TRAIT_EXISTENTIAL})) {
     return nullptr;
   }
-  if (auto it = specializedClassTypeEnvs.find(nominalTy); it != specializedClassTypeEnvs.end()) {
-    return &it->second;
+  if (nominalTy->is(BaseType::TY_CLASS)) {
+    return specializedClassEnvFor(nominalTy);
+  }
+  if (nominalTy->is(BaseType::TY_TRAIT_EXISTENTIAL)) {
+    return specializedTraitExistentialEnvFor(nominalTy);
+  }
+  if (nominalTy->is(BaseType::TY_ENUM)) {
+    if (auto it = specializedClassTypeEnvs.find(nominalTy); it != specializedClassTypeEnvs.end()) {
+      return &it->second;
+    }
   }
   return nullptr;
 }

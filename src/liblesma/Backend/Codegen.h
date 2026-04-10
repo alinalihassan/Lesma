@@ -540,7 +540,7 @@ protected:
                                           EnumVariant* variant, unsigned variantIndex,
                                           SyntheticEnumMethodKind kind) -> lesma::Value*;
   auto defineSyntheticEnumMethod(const SyntheticEnumMethodBody& body) -> void;
-  [[nodiscard]] auto specializedNominalEnvFor(lesma::Type* nominalTy) const
+  [[nodiscard]] auto specializedNominalEnvFor(lesma::Type* nominalTy)
       -> const std::unordered_map<std::string, lesma::Type*>*;
   [[nodiscard]] auto wrapNominalReturnAsPointer(Type* t) -> Type*;
   /** Match `super` callee receiver type (mirrors Typechecker::superMethodReceiverMatchesFormal). */
