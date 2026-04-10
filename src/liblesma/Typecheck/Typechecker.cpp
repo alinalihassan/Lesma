@@ -7467,92 +7467,100 @@ auto Typechecker::visit(const MatchExpr* node) -> void {
 
   for (size_t armIndex = 0; armIndex < arms.size(); ++armIndex) {
     const MatchArm& arm = arms[armIndex];
-    SymbolTable* savedScope = scope;
-    SymbolTable* armScope = scope->createChildBlock("match_arm");
-    scope = armScope;
+    Type* armType = nullptr;
+    {
+      SymbolTable* savedScope = scope;
+      SymbolTable* armScope = scope->createChildBlock("match_arm");
+      struct MatchArmScopeGuard {
+        Typechecker* typechecker;
+        SymbolTable* savedScope;
 
-    const MatchPattern& pattern = arm.pattern;
-    if (catchAllSeen) {
-      throw TypeCheckError(pattern.span, "No match arms are allowed after a catch-all arm");
-    }
+        ~MatchArmScopeGuard() { typechecker->scope = savedScope; }
+      } armScopeGuard{this, savedScope};
+      scope = armScope;
 
-    if (pattern.kind == MatchPatternKind::WILDCARD || pattern.kind == MatchPatternKind::ELSE_) {
-      if (!pattern.bindings.empty()) {
-        throw TypeCheckError(pattern.span, "Wildcard match arm cannot bind payload names");
-      }
-      if (pattern.valueExpr != nullptr) {
-        throw TypeCheckError(pattern.span, "Catch-all match arm cannot have a value pattern");
-      }
+      const MatchPattern& pattern = arm.pattern;
       if (catchAllSeen) {
-        throw TypeCheckError(pattern.span, "Duplicate catch-all match arm");
+        throw TypeCheckError(pattern.span, "No match arms are allowed after a catch-all arm");
       }
-      if (armIndex + 1U != arms.size()) {
-        throw TypeCheckError(pattern.span, "Catch-all match arm must be the final arm");
-      }
-      catchAllSeen = true;
-      usesEnumDispatch = usesEnumDispatch && enumScrutinee;
-    } else if (pattern.kind == MatchPatternKind::VARIANT) {
-      if (!enumScrutinee) {
-        throw TypeCheckError(pattern.span, "Enum variant patterns require an enum scrutinee");
-      }
-      if (!pattern.enumName.empty() && pattern.enumName != enumBaseName) {
-        throw TypeCheckError(pattern.span, "Match arm enum {} does not match scrutinee enum {}",
-                             pattern.enumName, enumBaseName);
-      }
-      int variantIndex = TypeUtils::findIndexInEnumVariants(scrutineeType, pattern.variantName);
-      if (variantIndex < 0) {
-        throw TypeCheckError(pattern.span, "Unknown enum variant {} for {}", pattern.variantName,
-                             scrutineeType->toString());
-      }
-      if (seenVariants[static_cast<size_t>(variantIndex)]) {
-        throw TypeCheckError(pattern.span, "Duplicate match arm for variant {}",
-                             pattern.variantName);
-      }
-      seenVariants[static_cast<size_t>(variantIndex)] = true;
-      EnumVariant* variant = scrutineeType->getEnumVariants()[static_cast<size_t>(variantIndex)];
-      if (variant == nullptr) {
-        throw TypeCheckError(pattern.span, "Invalid enum variant {}", pattern.variantName);
-      }
-      if (pattern.bindings.size() != variant->payloadTypes.size()) {
-        throw TypeCheckError(
-            pattern.span, "Match arm for variant {} expects {} payload binding(s), got {}",
-            pattern.variantName, variant->payloadTypes.size(), pattern.bindings.size());
-      }
-      for (size_t i = 0; i < pattern.bindings.size(); ++i) {
-        if (pattern.bindings[i] == "_") {
-          continue;
-        }
-        auto bindingSym = std::make_unique<Value>(pattern.bindings[i], variant->payloadTypes[i]);
-        bindingSym->setCategory(ValueCategory::ADDRESSABLE_STORAGE);
-        bindingSym->setDeclarationKind(ValueDeclarationKind::VARIABLE);
-        bindingSym->setDeclarationSpan(pattern.span);
-        bindingSym->setDeclarationFilePath(mainFilePath);
-        warnShadowingFromEnclosing(pattern.bindings[i], pattern.span);
-        scope->insertSymbol(std::move(bindingSym));
-      }
-      pattern.resolvedEnumType = scrutineeType;
-      pattern.resolvedVariantIndex = static_cast<unsigned>(variantIndex);
-    } else {
-      usesEnumDispatch = false;
-      if (!pattern.bindings.empty()) {
-        throw TypeCheckError(pattern.span, "Value match arms cannot bind payload names");
-      }
-      if (pattern.valueExpr == nullptr) {
-        throw TypeCheckError(pattern.span, "Value match arm is missing its pattern expression");
-      }
-      visitExprWithExpectedType(pattern.valueExpr.get(), scrutineeType);
-      Type* patternType = result->getType();
-      if (patternType == nullptr) {
-        throw TypeCheckError(pattern.span, "Match pattern value has unknown type");
-      }
-      (void) typecheckBinaryOpResult(TokenType::EQUAL_EQUAL, scrutineeType, patternType,
-                                     pattern.valueExpr->getSpan());
-      pattern.resolvedValueType = patternType;
-    }
 
-    visitExprWithExpectedType(arm.body.get(), expectedType);
-    Type* armType = result->getType();
-    scope = savedScope;
+      if (pattern.kind == MatchPatternKind::WILDCARD || pattern.kind == MatchPatternKind::ELSE_) {
+        if (!pattern.bindings.empty()) {
+          throw TypeCheckError(pattern.span, "Wildcard match arm cannot bind payload names");
+        }
+        if (pattern.valueExpr != nullptr) {
+          throw TypeCheckError(pattern.span, "Catch-all match arm cannot have a value pattern");
+        }
+        if (catchAllSeen) {
+          throw TypeCheckError(pattern.span, "Duplicate catch-all match arm");
+        }
+        if (armIndex + 1U != arms.size()) {
+          throw TypeCheckError(pattern.span, "Catch-all match arm must be the final arm");
+        }
+        catchAllSeen = true;
+        usesEnumDispatch = usesEnumDispatch && enumScrutinee;
+      } else if (pattern.kind == MatchPatternKind::VARIANT) {
+        if (!enumScrutinee) {
+          throw TypeCheckError(pattern.span, "Enum variant patterns require an enum scrutinee");
+        }
+        if (!pattern.enumName.empty() && pattern.enumName != enumBaseName) {
+          throw TypeCheckError(pattern.span, "Match arm enum {} does not match scrutinee enum {}",
+                               pattern.enumName, enumBaseName);
+        }
+        int variantIndex = TypeUtils::findIndexInEnumVariants(scrutineeType, pattern.variantName);
+        if (variantIndex < 0) {
+          throw TypeCheckError(pattern.span, "Unknown enum variant {} for {}", pattern.variantName,
+                               scrutineeType->toString());
+        }
+        if (seenVariants[static_cast<size_t>(variantIndex)]) {
+          throw TypeCheckError(pattern.span, "Duplicate match arm for variant {}",
+                               pattern.variantName);
+        }
+        seenVariants[static_cast<size_t>(variantIndex)] = true;
+        EnumVariant* variant = scrutineeType->getEnumVariants()[static_cast<size_t>(variantIndex)];
+        if (variant == nullptr) {
+          throw TypeCheckError(pattern.span, "Invalid enum variant {}", pattern.variantName);
+        }
+        if (pattern.bindings.size() != variant->payloadTypes.size()) {
+          throw TypeCheckError(
+              pattern.span, "Match arm for variant {} expects {} payload binding(s), got {}",
+              pattern.variantName, variant->payloadTypes.size(), pattern.bindings.size());
+        }
+        for (size_t i = 0; i < pattern.bindings.size(); ++i) {
+          if (pattern.bindings[i] == "_") {
+            continue;
+          }
+          auto bindingSym = std::make_unique<Value>(pattern.bindings[i], variant->payloadTypes[i]);
+          bindingSym->setCategory(ValueCategory::ADDRESSABLE_STORAGE);
+          bindingSym->setDeclarationKind(ValueDeclarationKind::VARIABLE);
+          bindingSym->setDeclarationSpan(pattern.span);
+          bindingSym->setDeclarationFilePath(mainFilePath);
+          warnShadowingFromEnclosing(pattern.bindings[i], pattern.span);
+          scope->insertSymbol(std::move(bindingSym));
+        }
+        pattern.resolvedEnumType = scrutineeType;
+        pattern.resolvedVariantIndex = static_cast<unsigned>(variantIndex);
+      } else {
+        usesEnumDispatch = false;
+        if (!pattern.bindings.empty()) {
+          throw TypeCheckError(pattern.span, "Value match arms cannot bind payload names");
+        }
+        if (pattern.valueExpr == nullptr) {
+          throw TypeCheckError(pattern.span, "Value match arm is missing its pattern expression");
+        }
+        visitExprWithExpectedType(pattern.valueExpr.get(), scrutineeType);
+        Type* patternType = result->getType();
+        if (patternType == nullptr) {
+          throw TypeCheckError(pattern.span, "Match pattern value has unknown type");
+        }
+        (void) typecheckBinaryOpResult(TokenType::EQUAL_EQUAL, scrutineeType, patternType,
+                                       pattern.valueExpr->getSpan());
+        pattern.resolvedValueType = patternType;
+      }
+
+      visitExprWithExpectedType(arm.body.get(), expectedType);
+      armType = result->getType();
+    }
     bool armFallsThrough = expressionFallsThrough(arm.body.get());
 
     if (armType == nullptr && armFallsThrough) {
