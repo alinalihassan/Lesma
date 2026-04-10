@@ -276,13 +276,14 @@ auto Driver::baseCompile(std::unique_ptr<lesma::Options> options, bool jit) -> i
       }
 
       if (!jit) {
-        timer.measure("Writing Object File",
-                      [&]() -> void { codegen->writeToObjectFile(outputFilename); });
-        timer.measure("Linking Object File", [&]() -> void {
+        timer.measureFile("Writing Object File", result.mainFilePath,
+                          [&]() -> void { codegen->writeToObjectFile(outputFilename); });
+        timer.measure("Linking", [&]() -> void {
           codegen->linkObjectFile(fmt::format("{}.o", outputFilename));
         });
       } else {
-        timer.measure("JIT", [&]() -> void { codegen->prepareJit(); });
+        timer.measureFile("JIT", result.mainFilePath,
+                          [&]() -> void { codegen->prepareJit(); });
         exitCode = timer.measure("Execution", [&]() -> int { return codegen->executeJit(); });
       }
     }

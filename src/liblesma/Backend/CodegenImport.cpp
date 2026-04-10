@@ -401,49 +401,57 @@ auto Codegen::compileModule(llvm::SMRange span, const std::string& filepath, boo
 
     std::string jitModuleInitSymbol;
     std::string jitModuleFiniSymbol;
-    if (isJit) {
-      codegen->verifyIrModuleOrThrow(fmt::format("import {}", filepath));
-      if (llvm::Function* importMain = codegen->theModule->getFunction("main");
-          importMain != nullptr && importMain->hasInternalLinkage()) {
-        jitModuleInitSymbol = MangleUtils::getImportedModuleInitSymbolName(canonicalPath);
-        importMain->setName(jitModuleInitSymbol);
-        importMain->setLinkage(llvm::GlobalValue::ExternalLinkage);
-        importMain->setVisibility(llvm::GlobalValue::HiddenVisibility);
-      }
-      jitModuleFiniSymbol = MangleUtils::getImportedModuleFiniSymbolName(canonicalPath);
-      if (llvm::Function* importFini = codegen->theModule->getFunction(jitModuleFiniSymbol);
-          importFini != nullptr) {
-        importFini->setLinkage(llvm::GlobalValue::ExternalLinkage);
-        importFini->setVisibility(llvm::GlobalValue::HiddenVisibility);
-      } else {
-        jitModuleFiniSymbol.clear();
-      }
-      for (llvm::Function& fn : *codegen->theModule) {
-        if (fn.hasPrivateLinkage()) {
-          fn.setLinkage(llvm::GlobalValue::ExternalLinkage);
-          fn.setVisibility(llvm::GlobalValue::HiddenVisibility);
+    auto addImportToBackend = [&]() -> void {
+      if (isJit) {
+        codegen->verifyIrModuleOrThrow(fmt::format("import {}", filepath));
+        if (llvm::Function* importMain = codegen->theModule->getFunction("main");
+            importMain != nullptr && importMain->hasInternalLinkage()) {
+          jitModuleInitSymbol = MangleUtils::getImportedModuleInitSymbolName(canonicalPath);
+          importMain->setName(jitModuleInitSymbol);
+          importMain->setLinkage(llvm::GlobalValue::ExternalLinkage);
+          importMain->setVisibility(llvm::GlobalValue::HiddenVisibility);
         }
+        jitModuleFiniSymbol = MangleUtils::getImportedModuleFiniSymbolName(canonicalPath);
+        if (llvm::Function* importFini = codegen->theModule->getFunction(jitModuleFiniSymbol);
+            importFini != nullptr) {
+          importFini->setLinkage(llvm::GlobalValue::ExternalLinkage);
+          importFini->setVisibility(llvm::GlobalValue::HiddenVisibility);
+        } else {
+          jitModuleFiniSymbol.clear();
+        }
+        for (llvm::Function& fn : *codegen->theModule) {
+          if (fn.hasPrivateLinkage()) {
+            fn.setLinkage(llvm::GlobalValue::ExternalLinkage);
+            fn.setVisibility(llvm::GlobalValue::HiddenVisibility);
+          }
+        }
+        // Do not promote private GlobalVariables (string literals, etc.): Mach-O JITLink reports
+        // "Unexpected definitions" for anonymous ___unnamed_* symbols when they become external.
+        llvm::Error jitErr =
+            theJit->addIRModule(ThreadSafeModule(std::move(codegen->theModule), *theContext));
+        if (jitErr) {
+          throw CodegenError(span, std::string("Failed adding import to JIT: ") + canonicalPath +
+                                       ": " + jitErrorToString(std::move(jitErr)));
+        }
+        if (!jitModuleInitSymbol.empty() && pendingJitModuleInits != nullptr) {
+          pendingJitModuleInits->push_back(jitModuleInitSymbol);
+        }
+        if (!jitModuleFiniSymbol.empty() && pendingJitModuleFinis != nullptr) {
+          pendingJitModuleFinis->push_back(jitModuleFiniSymbol);
+        }
+        codegen->theModule = codegen->initializeModule();
+      } else {
+        std::string objFile = fmt::format("tmp{}", objectFiles.size());
+        codegen->writeToObjectFile(objFile);
+        objectFiles.push_back(fmt::format("{}.o", objFile));
       }
-      // Do not promote private GlobalVariables (string literals, etc.): Mach-O JITLink reports
-      // "Unexpected definitions" for anonymous ___unnamed_* symbols when they become external.
-      llvm::Error jitErr =
-          theJit->addIRModule(ThreadSafeModule(std::move(codegen->theModule), *theContext));
-      if (jitErr) {
-        throw CodegenError(span, std::string("Failed adding import to JIT: ") + canonicalPath +
-                                     ": " + jitErrorToString(std::move(jitErr)));
-      }
-      if (!jitModuleInitSymbol.empty() && pendingJitModuleInits != nullptr) {
-        pendingJitModuleInits->push_back(jitModuleInitSymbol);
-      }
-      if (!jitModuleFiniSymbol.empty() && pendingJitModuleFinis != nullptr) {
-        pendingJitModuleFinis->push_back(jitModuleFiniSymbol);
-      }
-      codegen->theModule = codegen->initializeModule();
+    };
+
+    if (performanceTimer != nullptr) {
+      performanceTimer->measureFile(isJit ? "JIT" : "Writing Object File", canonicalPath,
+                                    addImportToBackend);
     } else {
-      // Create object file to be linked
-      std::string objFile = fmt::format("tmp{}", objectFiles.size());
-      codegen->writeToObjectFile(objFile);
-      objectFiles.push_back(fmt::format("{}.o", objFile));
+      addImportToBackend();
     }
     // Keep the imported codegen alive so Class* stored in copied symbols stay
     // valid
