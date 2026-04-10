@@ -19,7 +19,7 @@ if label(box) != "Box(7)" {
   exit(1)
 }
 if box.str() != "Box(7)" {
-  exit(1)
+  exit(2)
 }
 
 print(box)
