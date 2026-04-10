@@ -24,7 +24,7 @@
 - [x] Type narrowing
 - [x] Automatic Reference Counting (no cycles detection yet)
 - [x] Add optional types
-- [ ] Enums v2 (in type unions, enums with methods, traits and associated values)
+- [x] Enums v2 (in type unions, enums with methods, traits and associated values)
 - [ ] Multithreading with LLVM coroutines (async await)
 - [ ] Try catch and Errors
 - [x] Formatter
