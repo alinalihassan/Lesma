@@ -5289,6 +5289,7 @@ auto Typechecker::visit(const Enum* node) -> void {
   SymbolTable* outerScope = scope;
   SymbolTable* enumGenericScope = outerScope->createChildBlock("enum_generics");
   scope = enumGenericScope;
+  node->setGenericScope(enumGenericScope);
   for (const auto& param : node->getGenericParamDecls()) {
     auto* genericType = cacheType(std::make_unique<Type>(param.name));
     currentGenericTypes[param.name] = genericType;

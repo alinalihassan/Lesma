@@ -238,6 +238,13 @@ auto resolveDeclarationSymbolInStmt(const lesma::Statement* stmt, llvm::SourceMg
     if (smRangesEqual(srcMgr, bufferId, enumNode->getNameSpan(), declarationSpan)) {
       return enumNode->getResolvedSymbol();
     }
+    if (enumNode->getGenericScope() != nullptr) {
+      for (const lesma::GenericParamDecl& genericParam : enumNode->getGenericParamDecls()) {
+        if (smRangesEqual(srcMgr, bufferId, genericParam.span, declarationSpan)) {
+          return enumNode->getGenericScope()->lookup(genericParam.name);
+        }
+      }
+    }
     if (enumNode->getResolvedSymbol() != nullptr &&
         enumNode->getResolvedSymbol()->getType() != nullptr) {
       std::vector<lesma::Field*> const fields =
@@ -806,6 +813,13 @@ auto lookupValueForHover(lesma::Compound* ast, lesma::SymbolTable* root, llvm::S
   if (enclosingNominal.enclosingClass != nullptr) {
     if (isTypePosition && enclosingNominal.enclosingClass->getGenericScope() != nullptr) {
       if (lesma::Value* v = enclosingNominal.enclosingClass->getGenericScope()->lookup(name)) {
+        return v;
+      }
+    }
+  }
+  if (enclosingNominal.enclosingEnum != nullptr) {
+    if (isTypePosition && enclosingNominal.enclosingEnum->getGenericScope() != nullptr) {
+      if (lesma::Value* v = enclosingNominal.enclosingEnum->getGenericScope()->lookup(name)) {
         return v;
       }
     }

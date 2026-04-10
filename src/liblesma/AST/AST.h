@@ -358,6 +358,7 @@ class Enum : public Statement {
   std::vector<std::unique_ptr<FuncDecl>> methods;
   bool exported;
   mutable Value* resolvedSymbol = nullptr;
+  mutable SymbolTable* genericScope = nullptr;
 
 public:
   Enum(llvm::SMRange loc, std::string identifier, llvm::SMRange nameSpan,
@@ -405,6 +406,8 @@ public:
   [[nodiscard]] [[maybe_unused]] auto isExported() const -> bool { return exported; }
   [[nodiscard]] auto getResolvedSymbol() const -> Value* { return resolvedSymbol; }
   auto setResolvedSymbol(Value* v) const -> void { resolvedSymbol = v; }
+  [[nodiscard]] auto getGenericScope() const -> SymbolTable* { return genericScope; }
+  auto setGenericScope(SymbolTable* scopePtr) const -> void { genericScope = scopePtr; }
 
   auto toString(llvm::SourceMgr* srcMgr, const std::string& prefix, bool isTail) const
       -> std::string override {

@@ -926,13 +926,10 @@ auto resolveMemberFieldType(Type* baseType, const std::string& name) -> Type* {
   if (parts.empty()) {
     return nullptr;
   }
-  Value* v = lookupName(scope, root, parts[0]);
-  Type* ty = nullptr;
-  if (v == nullptr) {
-    if (Type* indexedType = indexedOccurrenceTypeAtStartOffset(result, parts[0], chainStart);
-        indexedType != nullptr) {
-      ty = indexedType;
-    }
+  Type* ty = indexedOccurrenceTypeAtStartOffset(result, parts[0], chainStart);
+  Value* v = nullptr;
+  if (ty == nullptr) {
+    v = lookupName(scope, root, parts[0]);
   }
   size_t idx = 1U;
   if (v == nullptr && ty == nullptr && parts.size() >= 2U) {
@@ -946,6 +943,12 @@ auto resolveMemberFieldType(Type* baseType, const std::string& name) -> Type* {
   }
   if (ty == nullptr) {
     ty = v->getType();
+  }
+  if (ty != nullptr && ty->is(BaseType::TY_IMPORT) && v == nullptr) {
+    v = lookupName(scope, root, parts[0]);
+    if (v == nullptr) {
+      return nullptr;
+    }
   }
   while (idx < parts.size()) {
     if (ty != nullptr && ty->is(BaseType::TY_IMPORT)) {
@@ -1605,12 +1608,12 @@ auto completionItems(AnalysisResult& result, unsigned line, unsigned character)
     appendTraitRequirementMethods(*activeResult, baseType, ast, root, completionEnclosingTrait,
                                   completingOnTypeName, candidates, seen);
   } else {
+    appendMatchArmBindingCandidatesAtOffset(*activeResult, offset, candidates, seen);
     appendScopeSymbols(*activeResult, activeScope != nullptr ? activeScope : root, root, candidates,
                        seen);
     if (cursorInReturnEnumContext(text, ctx)) {
       appendReturnEnumVariants(cursorContext, root, candidates, seen);
     }
-    appendMatchArmBindingCandidatesAtOffset(*activeResult, offset, candidates, seen);
     appendKeywords(candidates, seen);
   }
 

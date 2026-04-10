@@ -246,13 +246,6 @@ auto SymbolTable::matchGenericParameter(
   return formalTy->isEqual(argTy);
 }
 
-/**
- * Check if a symbol exists in the current or any parent scope and return it if
- * possible
- *
- * @param name Name of the desired symbol
- * @return Desired symbol / nullptr if the symbol was not found
- */
 // Returns true if ranksA is strictly better than ranksB (lexicographic; then
 // shorter wins when prefix equal).
 auto SymbolTable::rankVectorBetter(const std::vector<int>& ranksA, const std::vector<int>& ranksB)
