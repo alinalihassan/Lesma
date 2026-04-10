@@ -8213,6 +8213,42 @@ auto Typechecker::visit(const Literal* node) -> void {
     if (sym == nullptr) {
       throw TypeCheckError(node->getSpan(), "Unknown name: {}", node->getValue());
     }
+    // Bare `ErrMsg` after `return`: same as `PairOrErr<int, str>.ErrMsg` when the expected type is a
+    // matching specialized enum and the variant has no payload (constructors are registered as
+    // zero-arg callables, so lookup would otherwise yield a function value).
+    if (sym->getDeclarationKind() == ValueDeclarationKind::METHOD && sym->isStaticMethod() &&
+        sym->getMemberDeclaredInClass() != nullptr &&
+        sym->getMemberDeclaredInClass()->is(BaseType::TY_ENUM)) {
+      Type* ft = sym->getType();
+      if (ft != nullptr && ft->is(BaseType::TY_FUNCTION) && ft->getFields().empty()) {
+        Type* expectedShape = currentExpectedType();
+        if (expectedShape != nullptr && expectedShape->is(BaseType::TY_PTR) &&
+            expectedShape->getElementType() != nullptr) {
+          expectedShape = expectedShape->getElementType();
+        }
+        if (expectedShape != nullptr && expectedShape->is(BaseType::TY_ENUM)) {
+          Type* expectedTemplate = expectedShape;
+          if (auto it = specializedTypeToTemplate.find(expectedShape);
+              it != specializedTypeToTemplate.end()) {
+            expectedTemplate = it->second;
+          }
+          Type* ctorEnum = sym->getMemberDeclaredInClass();
+          if (expectedTemplate->isEqual(ctorEnum)) {
+            const EnumVariant* variant = TypeUtils::findEnumVariant(expectedShape, node->getValue());
+            if (variant != nullptr && variant->payloadTypes.empty()) {
+              if (Field* variantField = TypeUtils::findFieldInFields(expectedShape, node->getValue());
+                  variantField != nullptr && variantField->getDeclarationSymbol() != nullptr) {
+                node->setResolvedSymbol(variantField->getDeclarationSymbol());
+                markValueRead(variantField->getDeclarationSymbol());
+                result = std::make_unique<Value>(expectedShape);
+                node->setLspFlowSensitiveType(nullptr);
+                break;
+              }
+            }
+          }
+        }
+      }
+    }
     if (currentFunction != nullptr && currentFunction->getName().starts_with("__lambda_")) {
       SymbolTable* foundScope = nullptr;
       for (SymbolTable* s = scope; s != nullptr && foundScope == nullptr; s = s->getParent()) {

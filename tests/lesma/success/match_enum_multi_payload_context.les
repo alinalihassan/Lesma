@@ -1,0 +1,28 @@
+// Two separate payload slots (`Both(int, int)`). Single-payload refinement is skipped; contextual
+// `let` still supplies tuple expected type for arm bodies.
+enum Gate {
+  Both(int, int)
+  Neither
+}
+
+func sample(ok: bool) -> Gate {
+  if ok {
+    return Gate.Both(10, 20)
+  }
+  return Gate.Neither
+}
+
+func main() -> int {
+  let out: (int, int) = match sample(true) {
+    Gate.Both(a, b) => (a + 1, b + 2)
+    Gate.Neither => (0, 0)
+
+  }
+  if out[0] != 11 {
+    return 2
+  }
+  if out[1] != 22 {
+    return 3
+  }
+  return 0
+}

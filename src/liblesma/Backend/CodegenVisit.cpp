@@ -6521,7 +6521,27 @@ auto Codegen::visit(const Literal* node) -> void {
     result =
         std::make_unique<Value>("", type, ConstantPointerNull::getNullValue(builder->getPtrTy()));
   } else if (node->getType() == TokenType::IDENTIFIER) {
-    // Look this variable up in the function.
+    // Typechecker may resolve bare enum variant names (e.g. `return ErrMsg`) to ENUM_MEMBER.
+    if (Value* rs = node->getResolvedSymbol(); rs != nullptr &&
+        rs->getDeclarationKind() == ValueDeclarationKind::ENUM_MEMBER) {
+      Type* enumTy = rs->getType();
+      if (enumTy != nullptr && enumTy->is(BaseType::TY_PTR) && enumTy->getElementType() != nullptr) {
+        enumTy = enumTy->getElementType();
+      }
+      if (enumTy != nullptr && enumTy->is(BaseType::TY_ENUM)) {
+        int const vidx = TypeUtils::findIndexInEnumVariants(enumTy, rs->getName());
+        if (vidx >= 0) {
+          EnumVariant* variant = enumTy->getEnumVariants()[static_cast<size_t>(vidx)];
+          if (variant != nullptr && variant->payloadTypes.empty()) {
+            result = emitEnumConstructValue(node->getSpan(), enumTy, static_cast<unsigned>(vidx),
+                                            {});
+            return;
+          }
+        }
+      }
+    }
+    // Prefer scope lookup here: resolvedSymbol may be ENUM_MEMBER (e.g. from dot on a payload
+    // variant); we only handle zero-payload ENUM_MEMBER above. Lookup finds the variant ctor.
     auto* val = scope->lookup(node->getValue());
     if (val == nullptr) {
       throw CodegenError(node->getSpan(), "Unknown variable name {}", node->getValue());

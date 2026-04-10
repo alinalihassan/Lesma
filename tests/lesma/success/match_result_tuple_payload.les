@@ -1,0 +1,28 @@
+// `Result`'s Ok carries a tuple type (single enum payload). Contextual type on `let` drives tuple
+// element inference so literals need no casts — same idea as `match_pair_union_second_pass.les`.
+from base import Result
+
+func sample(ok: bool) -> Result<(int, str), int> {
+  if ok {
+    return Ok((1, "a"))
+  }
+  return Err(0)
+}
+
+let p: (int, str) = match sample(true) {
+  Result.Ok(_) => (2, "k")
+  Result.Err(_) => {
+    exit(1)
+    (0, "x")
+  }
+
+
+
+}
+
+if p[0] != 2 {
+  exit(2)
+}
+if p[1] != "k" {
+  exit(3)
+}
