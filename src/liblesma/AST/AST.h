@@ -859,7 +859,9 @@ inline auto Enum::getMethods() const -> std::vector<FuncDecl*> {
   std::vector<FuncDecl*> out;
   out.reserve(methods.size());
   for (const auto& method : methods) {
-    out.push_back(dynamic_cast<FuncDecl*>(method.get()));
+    auto* funcDecl = dynamic_cast<FuncDecl*>(method.get());
+    assert(funcDecl != nullptr && "Enum method list contains a non-FuncDecl statement");
+    out.push_back(funcDecl);
   }
   return out;
 }
