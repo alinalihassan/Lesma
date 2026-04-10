@@ -149,9 +149,49 @@ private:
                            findTrailingComment(values[i].span.End));
       previousEndLine = lineOf(srcMgr, values[i].span.End);
     }
+    std::vector<Statement*> methodStatements;
+    for (FuncDecl* method : node->getMethods()) {
+      if (method != nullptr) {
+        methodStatements.push_back(method);
+      }
+    }
+    std::sort(methodStatements.begin(), methodStatements.end(),
+              [](const Statement* lhs, const Statement* rhs) {
+                return lhs->getStart().getPointer() < rhs->getStart().getPointer();
+              });
+    if (!methodStatements.empty()) {
+      attachStatementList(methodStatements, nullptr, previousEndLine);
+      previousEndLine = lineOf(srcMgr, methodStatements.back()->getEnd());
+    }
     LeadingTriviaBlock tail = collectLeadingTrivia(previousEndLine, lineOf(srcMgr, node->getEnd()));
     node->setExtraBlankLinesBeforeTrailingDetachedComments(tail.extraBlankLinesBefore);
     node->setTrailingDetachedComments(std::move(tail.comments));
+  }
+
+  auto attachMatchExpr(MatchExpr* node) -> void {
+    if (node == nullptr) {
+      return;
+    }
+    attachExpression(node->getScrutinee());
+    if (node->getArms().empty()) {
+      return;
+    }
+    unsigned previousEndLine = lineOf(srcMgr, node->getScrutinee()->getEnd());
+    size_t const armCount = node->getArms().size();
+    for (size_t i = 0; i < armCount; ++i) {
+      llvm::SMLoc const patternStart = node->getArms()[i].pattern.span.Start;
+      LeadingTriviaBlock block =
+          collectLeadingTrivia(previousEndLine, lineOf(srcMgr, patternStart));
+      node->setArmTrivia(i, block.extraBlankLinesBefore, std::move(block.comments));
+      attachExpression(node->getArmBody(i));
+      Expression* bodyExpr = node->getArmBody(i);
+      if (bodyExpr != nullptr) {
+        previousEndLine = lineOf(srcMgr, bodyExpr->getEnd());
+      }
+    }
+    LeadingTriviaBlock tail =
+        collectLeadingTrivia(previousEndLine, lineOf(srcMgr, node->getEnd()));
+    node->setTrailingDetachedTrivia(tail.extraBlankLinesBefore, std::move(tail.comments));
   }
 
   auto attachIf(If* node) -> void {
@@ -271,6 +311,19 @@ private:
       for (Expression* element : tuple->getElements()) {
         attachExpression(element);
       }
+      return;
+    }
+    if (auto* blockExpr = dynamic_cast<BlockExpr*>(expression); blockExpr != nullptr) {
+      if (blockExpr->getBody() != nullptr) {
+        attachCompound(blockExpr->getBody(),
+                       lineOf(srcMgr, blockExpr->getBody()->getStart()));
+      }
+      attachExpression(blockExpr->getTailExpr());
+      return;
+    }
+    if (auto* matchExpr = dynamic_cast<MatchExpr*>(expression); matchExpr != nullptr) {
+      attachMatchExpr(matchExpr);
+      return;
     }
   }
 
@@ -1248,7 +1301,8 @@ auto Parser::parseMatchExpr() -> std::unique_ptr<Expression> {
                                                                     : parseExpression();
     llvm::SMRange armSpan{pattern.span.Start, body->getEnd()};
     (void) armSpan;
-    arms.push_back(MatchArm{std::move(pattern), std::move(body)});
+    arms.push_back(
+        MatchArm{std::move(pattern), std::move(body), /*leadingComments=*/{}, /*extraBlankLinesBefore=*/0U});
     while (check(TokenType::NEWLINE)) {
       advance();
     }

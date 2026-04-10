@@ -455,8 +455,10 @@ private:
 
   [[nodiscard]] auto formatMatchExpr(const MatchExpr* node) -> Doc {
     std::vector<Doc> armDocs;
-    armDocs.reserve(node->getArms().size());
-    for (const MatchArm& arm : node->getArms()) {
+    size_t const n = node->getArms().size();
+    armDocs.reserve(n);
+    for (size_t i = 0; i < n; ++i) {
+      const MatchArm& arm = node->getArms()[i];
       Doc patternDoc;
       if (arm.pattern.kind == MatchPatternKind::WILDCARD) {
         patternDoc = docText("_");
@@ -481,15 +483,45 @@ private:
         }
         patternDoc = docs(std::move(patternParts));
       }
-      armDocs.push_back(
+      std::vector<Doc> armParts;
+      Doc leading = formatCommentDocs(node->getArmLeadingComments(i));
+      bool const hasLeading = !isNilDoc(leading);
+      if (hasLeading) {
+        armParts.push_back(leading);
+        armParts.push_back(hardLine());
+      }
+      if (node->getArmExtraBlankLinesBefore(i) > 0U) {
+        armParts.push_back(repeatHardLines(node->getArmExtraBlankLinesBefore(i)));
+      }
+      armParts.push_back(
           docs({std::move(patternDoc), docText(" => "), formatExpression(arm.body.get())}));
+      armDocs.push_back(docs(std::move(armParts)));
     }
+    std::vector<Doc> bodyInner;
+    bodyInner.reserve(4U);
+    bodyInner.push_back(hardLine());
+    bodyInner.push_back(docJoin(hardLine(), armDocs));
+    Doc trailingDetached = lesma::pretty::nil();
+    if (!node->getTrailingDetachedComments().empty() ||
+        node->getExtraBlankLinesBeforeTrailingDetachedComments() > 0U) {
+      std::vector<Doc> trailingParts;
+      if (node->getExtraBlankLinesBeforeTrailingDetachedComments() > 0U) {
+        trailingParts.push_back(
+            repeatHardLines(node->getExtraBlankLinesBeforeTrailingDetachedComments()));
+      }
+      trailingParts.push_back(formatCommentDocs(node->getTrailingDetachedComments()));
+      trailingDetached = docs(std::move(trailingParts));
+    }
+    if (!isNilDoc(trailingDetached)) {
+      bodyInner.push_back(hardLine());
+      bodyInner.push_back(trailingDetached);
+    }
+    bodyInner.push_back(hardLine());
     return docGroup(docs({
         docText("match "),
         formatExpression(node->getScrutinee(), precedence(node)),
         docText(" {"),
-        docNest(INDENT_WIDTH, docs({hardLine(), docJoin(hardLine(), armDocs)})),
-        hardLine(),
+        docNest(INDENT_WIDTH, docs(std::move(bodyInner))),
         docText("}"),
     }));
   }

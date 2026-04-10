@@ -1311,6 +1311,8 @@ struct MatchPattern {
 struct MatchArm {
   MatchPattern pattern;
   std::unique_ptr<Expression> body;
+  std::vector<CommentTrivia> leadingComments;
+  unsigned extraBlankLinesBefore = 0;
 };
 
 class MatchExpr : public Expression {
@@ -1318,6 +1320,8 @@ class MatchExpr : public Expression {
   std::vector<MatchArm> arms;
   mutable Type* resolvedType = nullptr;
   mutable bool usesEnumDispatch = false;
+  std::vector<CommentTrivia> trailingDetachedComments;
+  unsigned extraBlankLinesBeforeTrailingDetachedComments = 0;
 
 public:
   MatchExpr(llvm::SMRange loc, std::unique_ptr<Expression> scrutinee, std::vector<MatchArm> arms)
@@ -1326,6 +1330,44 @@ public:
 
   [[nodiscard]] auto getScrutinee() const -> Expression* { return scrutinee.get(); }
   [[nodiscard]] auto getArms() const -> const std::vector<MatchArm>& { return arms; }
+  [[nodiscard]] auto getArmLeadingComments(size_t index) const -> const std::vector<CommentTrivia>& {
+    static const std::vector<CommentTrivia> empty;
+    if (index >= arms.size()) {
+      return empty;
+    }
+    return arms[index].leadingComments;
+  }
+  [[nodiscard]] auto getArmExtraBlankLinesBefore(size_t index) const -> unsigned {
+    if (index >= arms.size()) {
+      return 0U;
+    }
+    return arms[index].extraBlankLinesBefore;
+  }
+  auto setArmTrivia(size_t index, unsigned extraBlankLines, std::vector<CommentTrivia> comments)
+      -> void {
+    if (index >= arms.size()) {
+      return;
+    }
+    arms[index].extraBlankLinesBefore = extraBlankLines;
+    arms[index].leadingComments = std::move(comments);
+  }
+  auto setTrailingDetachedTrivia(unsigned extraBlankLines, std::vector<CommentTrivia> comments)
+      -> void {
+    extraBlankLinesBeforeTrailingDetachedComments = extraBlankLines;
+    trailingDetachedComments = std::move(comments);
+  }
+  [[nodiscard]] auto getTrailingDetachedComments() const -> const std::vector<CommentTrivia>& {
+    return trailingDetachedComments;
+  }
+  [[nodiscard]] auto getExtraBlankLinesBeforeTrailingDetachedComments() const -> unsigned {
+    return extraBlankLinesBeforeTrailingDetachedComments;
+  }
+  [[nodiscard]] auto getArmBody(size_t index) -> Expression* {
+    if (index >= arms.size()) {
+      return nullptr;
+    }
+    return arms[index].body.get();
+  }
   [[nodiscard]] auto getResolvedType() const -> Type* { return resolvedType; }
   auto setResolvedType(Type* type) const -> void { resolvedType = type; }
   [[nodiscard]] auto getUsesEnumDispatch() const -> bool { return usesEnumDispatch; }
