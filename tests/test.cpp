@@ -62,12 +62,15 @@ auto initializeCodegen(std::unique_ptr<Parser> parser, const std::shared_ptr<Sou
   typechecker.run(parser->getAst());
   auto takenTypeCache = typechecker.takeTypeCache();
   auto takenRootScope = typechecker.takeRootScope();
+  auto takenSpecializedTypeEnv = typechecker.takeSpecializedTypeEnv();
+  auto takenSpecializedTypeToTemplate = typechecker.takeSpecializedTypeToTemplate();
+  auto takenSpecializedClassTypes = typechecker.takeSpecializedClassTypes();
+  auto takenImportedModules = typechecker.takeImportedModules();
   auto codegen = std::make_unique<Codegen>(
       std::move(parser), srcMgr, __FILE__, std::vector<std::string>{}, true, true, "", nullptr,
       nullptr, nullptr, nullptr, nullptr, std::move(takenRootScope), std::move(takenTypeCache),
-      typechecker.takeSpecializedTypeEnv(), typechecker.takeSpecializedTypeToTemplate(),
-      typechecker.takeSpecializedClassTypes(), std::unordered_map<std::string,
-                                                                  std::shared_ptr<ImportedModuleAnalysis>>{},
+      std::move(takenSpecializedTypeEnv), std::move(takenSpecializedTypeToTemplate),
+      std::move(takenSpecializedClassTypes), std::move(takenImportedModules),
       nullptr,
       false, arcDebug, arcTrace);
   codegen->run();
@@ -103,7 +106,7 @@ auto initializeCodegenFromAnalysis(AnalysisResult result, bool arcDebug = false,
       "", nullptr, nullptr, nullptr, nullptr, nullptr, std::move(result.rootScope),
       std::move(result.typeCache), std::move(result.specializedTypeEnv),
       std::move(result.specializedTypeToTemplate), std::move(result.specializedClassTypes),
-      std::unordered_map<std::string, std::shared_ptr<ImportedModuleAnalysis>>{}, nullptr, false,
+      std::move(result.importedModules), nullptr, false,
       arcDebug, arcTrace);
   codegen->run();
   return codegen;
