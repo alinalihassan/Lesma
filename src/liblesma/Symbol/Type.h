@@ -432,6 +432,36 @@ private:
           return false;
         }
       }
+      if (baseType == BaseType::TY_ENUM) {
+        auto lev = getEnumVariants();
+        auto rev = rhs->getEnumVariants();
+        if (lev.size() != rev.size()) {
+          return false;
+        }
+        for (size_t i = 0; i < lev.size(); ++i) {
+          if (lev[i]->name != rev[i]->name) {
+            return false;
+          }
+          const auto& lpt = lev[i]->payloadTypes;
+          const auto& rpt = rev[i]->payloadTypes;
+          if (lpt.size() != rpt.size()) {
+            return false;
+          }
+          for (size_t j = 0; j < lpt.size(); ++j) {
+            Type* lt = lpt[j];
+            Type* rt = rpt[j];
+            if (lt == nullptr || rt == nullptr) {
+              if (lt != rt) {
+                return false;
+              }
+              continue;
+            }
+            if (!lt->isEqualImpl(rt, active)) {
+              return false;
+            }
+          }
+        }
+      }
       return true;
     }
 

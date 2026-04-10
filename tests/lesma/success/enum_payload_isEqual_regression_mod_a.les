@@ -1,0 +1,5 @@
+// Support module for tests/lesma/failure/enum_payload_isEqual_regression.les: distinct enum `E` with
+// payload `int` on variant `A` (same display name as the sibling module, different file path).
+export enum E {
+  A(int)
+}
