@@ -1210,6 +1210,12 @@ auto resolveExpressionTypeAtOffset(const lesma::Expression* expr, lesma::Compoun
     }
     return nullptr;
   }
+  if (auto const* block = dynamic_cast<const lesma::BlockExpr*>(expr)) {
+    if (block->getResolvedType() != nullptr) {
+      return block->getResolvedType();
+    }
+    return nullptr;
+  }
   if (auto const* sip = dynamic_cast<const lesma::StringInterpolation*>(expr)) {
     lesma::Type* strClass = sip->getResolvedStrClassType();
     if (strClass != nullptr) {
@@ -1461,6 +1467,35 @@ struct CallableCandidate {
 
 [[nodiscard]] auto extractClassBaseName(const std::string& displayName) -> std::string;
 
+[[nodiscard]] auto expressionRepresentsTypeSymbol(const lesma::Expression* expr, lesma::Compound* ast,
+                                                  lesma::SymbolTable* root, llvm::SourceMgr* srcMgr,
+                                                  unsigned bufferId, unsigned targetOffset) -> bool {
+  if (expr == nullptr || root == nullptr) {
+    return false;
+  }
+  auto symbolIsType = [](const lesma::Value* symbol) -> bool {
+    return symbol != nullptr && symbol->getCategory() == lesma::ValueCategory::TYPE_SYMBOL;
+  };
+  if (auto const* lit = dynamic_cast<const lesma::Literal*>(expr)) {
+    if (symbolIsType(lit->getResolvedSymbol())) {
+      return true;
+    }
+    if (lit->getType() != lesma::TokenType::IDENTIFIER) {
+      return false;
+    }
+    lesma::SymbolTable* scope = activeScopeForOffset(ast, root, srcMgr, bufferId, targetOffset);
+    if (scope == nullptr) {
+      scope = root;
+    }
+    return symbolIsType(scope->lookup(lit->getValue()));
+  }
+  if (auto const* dot = dynamic_cast<const lesma::DotOp*>(expr)) {
+    auto const* rightLit = dynamic_cast<const lesma::Literal*>(dot->getRight());
+    return rightLit != nullptr && symbolIsType(rightLit->getResolvedSymbol());
+  }
+  return false;
+}
+
 auto receiverMatchesSelf(lesma::Type* receiverType, lesma::Type* selfType) -> bool {
   if (receiverType == nullptr || selfType == nullptr) {
     return false;
@@ -1484,7 +1519,8 @@ auto receiverMatchesSelf(lesma::Type* receiverType, lesma::Type* selfType) -> bo
   return false;
 }
 
-auto receiverMatchesStaticOwner(lesma::Type* receiverType, lesma::Type* ownerType) -> bool {
+auto receiverMatchesStaticOwner(lesma::Type* receiverType, lesma::Type* ownerType,
+                                bool receiverIsTypeSymbol) -> bool {
   if (receiverType == nullptr || ownerType == nullptr) {
     return false;
   }
@@ -1499,11 +1535,11 @@ auto receiverMatchesStaticOwner(lesma::Type* receiverType, lesma::Type* ownerTyp
   }
   std::string const receiverName = extractClassBaseName(receiverType->getDisplayName());
   std::string const ownerName = extractClassBaseName(ownerType->getDisplayName());
-  return !receiverName.empty() && receiverName == ownerName;
+  return receiverIsTypeSymbol && !receiverName.empty() && receiverName == ownerName;
 }
 
 auto collectCallableCandidates(lesma::SymbolTable* scope, const std::string& name,
-                               lesma::Type* receiverType,
+                               lesma::Type* receiverType, bool receiverIsTypeSymbol,
                                const std::vector<lesma::Type*>& typedArgs)
     -> std::vector<CallableCandidate> {
   std::vector<CallableCandidate> candidates;
@@ -1519,7 +1555,8 @@ auto collectCallableCandidates(lesma::SymbolTable* scope, const std::string& nam
       unsigned paramOffset = 0U;
       if (receiverType != nullptr) {
         if (sym->isStaticMethod()) {
-          if (!receiverMatchesStaticOwner(receiverType, sym->getMemberDeclaredInClass())) {
+          if (!receiverMatchesStaticOwner(receiverType, sym->getMemberDeclaredInClass(),
+                                          receiverIsTypeSymbol)) {
             continue;
           }
         } else {
@@ -1714,7 +1751,7 @@ auto resolveSubscriptResultType(lesma::Type* baseType, lesma::Type* indexType, l
     indexArgs.push_back(indexType);
   }
   std::vector<CallableCandidate> candidates = collectCallableCandidates(
-      scope, std::string{lesma::OperatorUtils::SUBSCRIPT_GET_NAME}, baseType, indexArgs);
+      scope, std::string{lesma::OperatorUtils::SUBSCRIPT_GET_NAME}, baseType, false, indexArgs);
   if (candidates.empty()) {
     return nullptr;
   }
@@ -1754,14 +1791,19 @@ auto buildSignatureHelp(AnalysisResult& result, unsigned line, unsigned characte
     }
   }
   lesma::Type* receiverType = nullptr;
+  bool receiverIsTypeSymbol = false;
   if (activeCall->receiver != nullptr) {
     receiverType =
         resolveExpressionTypeAtOffset(activeCall->receiver, analysis.ast, analysis.rootScope,
                                       analysis.sourceMgr, analysis.bufferId, targetOffset);
+    receiverIsTypeSymbol = expressionRepresentsTypeSymbol(
+        activeCall->receiver, analysis.ast, analysis.rootScope, analysis.sourceMgr,
+        analysis.bufferId, targetOffset);
   }
 
   std::vector<CallableCandidate> candidates =
-      collectCallableCandidates(scope, activeCall->call->getName(), receiverType, argTypes);
+      collectCallableCandidates(scope, activeCall->call->getName(), receiverType,
+                                receiverIsTypeSymbol, argTypes);
 
   // Also search for class methods if no candidates found
   if (candidates.empty() && receiverType != nullptr) {
@@ -1882,12 +1924,16 @@ auto appendCallParameterInlayHints(const AnalysisResult& analysisResult, unsigne
         argTypes.push_back(argType);
       }
       lesma::Type* receiverType = nullptr;
+      bool receiverIsTypeSymbol = false;
       if (receiver != nullptr) {
         receiverType =
             resolveExpressionTypeAtOffset(receiver, ast, root, srcMgr, bufferId, callStartOffset);
+        receiverIsTypeSymbol =
+            expressionRepresentsTypeSymbol(receiver, ast, root, srcMgr, bufferId, callStartOffset);
       }
       if (receiver == nullptr || receiverType != nullptr) {
-        candidates = collectCallableCandidates(scope, call->getName(), receiverType, argTypes);
+        candidates = collectCallableCandidates(scope, call->getName(), receiverType,
+                                              receiverIsTypeSymbol, argTypes);
       }
       if (resolvedSym != nullptr) {
         std::vector<CallableCandidate> narrowed;
@@ -2226,13 +2272,17 @@ auto resolveMethodSymbolAtCursor(AnalysisResult& result, const AnalysisView& ana
   if (receiverType == nullptr) {
     return std::nullopt;
   }
+  bool const receiverIsTypeSymbol = expressionRepresentsTypeSymbol(
+      activeCall->receiver, analysis.ast, analysis.rootScope, analysis.sourceMgr, analysis.bufferId,
+      targetOffset);
 
   for (const AnalysisView& candidateAnalysis : collectAnalysisViews(result)) {
     if (!isUsableAnalysis(candidateAnalysis) || candidateAnalysis.rootScope == nullptr) {
       continue;
     }
     std::vector<CallableCandidate> candidates =
-        collectCallableCandidates(candidateAnalysis.rootScope, id.name, receiverType, argTypes);
+        collectCallableCandidates(candidateAnalysis.rootScope, id.name, receiverType,
+                                  receiverIsTypeSymbol, argTypes);
     if (!candidates.empty() && candidates.front().value != nullptr) {
       return ResolvedSymbol{.value = candidates.front().value, .owner = candidateAnalysis};
     }
@@ -2998,6 +3048,9 @@ auto tryResolveUnionMultiMethodDefinitionLocations(AnalysisResult& result, unsig
   lesma::Type* receiverType =
       resolveExpressionTypeAtOffset(activeCall->receiver, analysis.ast, analysis.rootScope,
                                     analysis.sourceMgr, analysis.bufferId, targetOffset);
+  bool const receiverIsTypeSymbol = expressionRepresentsTypeSymbol(
+      activeCall->receiver, analysis.ast, analysis.rootScope, analysis.sourceMgr, analysis.bufferId,
+      targetOffset);
   llvm::SMRange const receiverSpan = activeCall->receiver->getSpan();
   if (receiverSpan.isValid()) {
     unsigned const recvStart =
@@ -3025,7 +3078,8 @@ auto tryResolveUnionMultiMethodDefinitionLocations(AnalysisResult& result, unsig
       continue;
     }
     std::vector<CallableCandidate> perView =
-        collectCallableCandidates(candidateAnalysis.rootScope, id->name, receiverType, argTypes);
+        collectCallableCandidates(candidateAnalysis.rootScope, id->name, receiverType,
+                                  receiverIsTypeSymbol, argTypes);
     for (const CallableCandidate& cand : perView) {
       aggregated.emplace_back(cand, candidateAnalysis);
     }
