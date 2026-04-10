@@ -6048,6 +6048,8 @@ auto Codegen::visit(const MatchExpr* node) -> void {
 
 auto Codegen::visit(const BlockExpr* node) -> void {
   setDebugLoc(node->getSpan());
+  SymbolTable* savedScope = scope;
+  scope = scope->createChildBlock("block_expr");
   if (node->getBody() != nullptr) {
     node->getBody()->accept(*this);
   }
@@ -6055,14 +6057,17 @@ auto Codegen::visit(const BlockExpr* node) -> void {
       currentBlock != nullptr && currentBlock->getTerminator() != nullptr) {
     result = std::make_unique<Value>(
         "", cacheType(std::make_unique<Type>(BaseType::TY_VOID, builder->getVoidTy())), nullptr);
+    scope = savedScope;
     return;
   }
   if (node->getTailExpr() != nullptr) {
     node->getTailExpr()->accept(*this);
+    scope = savedScope;
     return;
   }
   result = std::make_unique<Value>(
       "", cacheType(std::make_unique<Type>(BaseType::TY_VOID, builder->getVoidTy())), nullptr);
+  scope = savedScope;
 }
 
 auto Codegen::visit(const UnaryOp* node) -> void {
