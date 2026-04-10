@@ -777,5 +777,10 @@ private:
       -> lesma::Value*;
   [[nodiscard]] auto cgUnionComplementMemberIndex(lesma::Type* unionTy, lesma::Type* excluded)
       -> std::optional<unsigned>;
+
+  /** Merge per-arm \c Value metadata into the PHI result of a \c match (ARC, function pair, closure).
+   */
+  static auto mergeMatchPhiArmMetadataIntoResult(std::vector<std::unique_ptr<lesma::Value>> sources,
+                                                 lesma::Value* out) -> void;
 };
 } // namespace lesma

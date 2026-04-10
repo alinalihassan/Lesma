@@ -5817,6 +5817,82 @@ auto Codegen::visit(const IsOp* node) -> void {
       "", cacheType(std::make_unique<Type>(BaseType::TY_BOOL, builder->getInt1Ty())), val);
 }
 
+auto Codegen::mergeMatchPhiArmMetadataIntoResult(std::vector<std::unique_ptr<Value>> sources,
+                                                 Value* out) -> void {
+  if (out == nullptr || sources.empty()) {
+    return;
+  }
+  Value* const first = sources.front().get();
+  if (first == nullptr) {
+    return;
+  }
+  bool const firstStores = first->getStoresFuncValuePair();
+  bool const firstArc = first->getArcOwnedValue();
+  bool const firstClosureEnv = first->getClosureCalleeUsesEnvParameter();
+  const LambdaExpr* const firstOrigin = first->getOriginLambdaExpr();
+  Value* const firstSlot = first->getClosureSlotOuter();
+  bool allSameStores = true;
+  bool allSameArc = true;
+  bool allSameClosureEnv = true;
+  bool allSameOrigin = true;
+  bool allSameSlot = true;
+  bool anyStores = firstStores;
+  bool anyArc = firstArc;
+  bool anyClosureEnv = firstClosureEnv;
+  for (size_t i = 1; i < sources.size(); ++i) {
+    Value* s = sources[i].get();
+    if (s == nullptr) {
+      continue;
+    }
+    if (s->getStoresFuncValuePair() != firstStores) {
+      allSameStores = false;
+    }
+    if (s->getArcOwnedValue() != firstArc) {
+      allSameArc = false;
+    }
+    if (s->getClosureCalleeUsesEnvParameter() != firstClosureEnv) {
+      allSameClosureEnv = false;
+    }
+    if (s->getOriginLambdaExpr() != firstOrigin) {
+      allSameOrigin = false;
+    }
+    if (s->getClosureSlotOuter() != firstSlot) {
+      allSameSlot = false;
+    }
+    if (s->getStoresFuncValuePair()) {
+      anyStores = true;
+    }
+    if (s->getArcOwnedValue()) {
+      anyArc = true;
+    }
+    if (s->getClosureCalleeUsesEnvParameter()) {
+      anyClosureEnv = true;
+    }
+  }
+  out->setStoresFuncValuePair(allSameStores ? firstStores : anyStores);
+  out->setArcOwnedValue(allSameArc ? firstArc : anyArc);
+  out->setClosureCalleeUsesEnvParameter(allSameClosureEnv ? firstClosureEnv : anyClosureEnv);
+  if (allSameOrigin) {
+    out->setOriginLambdaExpr(firstOrigin);
+  } else {
+    out->setOriginLambdaExpr(nullptr);
+  }
+  if (allSameSlot) {
+    out->setClosureSlotOuter(firstSlot);
+  } else {
+    out->setClosureSlotOuter(nullptr);
+  }
+  out->clearClosureCaptureOuters();
+  for (const std::unique_ptr<Value>& u : sources) {
+    if (u == nullptr) {
+      continue;
+    }
+    for (Value* outer : u->getClosureCaptureOuters()) {
+      out->pushClosureCaptureOuterIfNew(outer);
+    }
+  }
+}
+
 auto Codegen::visit(const MatchExpr* node) -> void {
   setDebugLoc(node->getSpan());
   node->getScrutinee()->accept(*this);
@@ -5847,6 +5923,7 @@ auto Codegen::visit(const MatchExpr* node) -> void {
   llvm::BasicBlock* mergeBlock =
       llvm::BasicBlock::Create(theModule->getContext(), "match.merge", parentFn);
   std::vector<std::pair<llvm::Value*, llvm::BasicBlock*>> incomings;
+  std::vector<std::unique_ptr<Value>> matchIncomingValues;
 
   auto emitArmBody = [&](const MatchArm& arm, llvm::BasicBlock* armBlock,
                          llvm::Value* enumSlot) -> void {
@@ -5914,6 +5991,7 @@ auto Codegen::visit(const MatchExpr* node) -> void {
       llvm::BasicBlock* incomingBlock = builder->GetInsertBlock();
       builder->CreateBr(mergeBlock);
       incomings.emplace_back(casted->getLlvmValue(), incomingBlock);
+      matchIncomingValues.push_back(std::move(casted));
     } else {
       builder->CreateBr(mergeBlock);
     }
@@ -6039,6 +6117,11 @@ auto Codegen::visit(const MatchExpr* node) -> void {
       phi->addIncoming(incoming.first, incoming.second);
     }
     result = std::make_unique<Value>("", matchType, phi);
+    if (!matchIncomingValues.empty()) {
+      Codegen::mergeMatchPhiArmMetadataIntoResult(std::move(matchIncomingValues), result.get());
+    } else if (matchType != nullptr && TypeUtils::containsArcManagedValue(matchType)) {
+      result->setArcOwnedValue(true);
+    }
     return;
   }
 
