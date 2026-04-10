@@ -590,18 +590,18 @@ auto indexedOccurrenceTypeAtStartOffset(const AnalysisResult& result, const std:
     if (occurrence.name != name || !occurrence.span.isValid()) {
       continue;
     }
-    unsigned const occStart =
-        static_cast<unsigned>(occurrence.span.Start.getPointer() -
-                              result.sourceMgr->getMemoryBuffer(result.mainBufferId)->getBufferStart());
+    unsigned const occStart = static_cast<unsigned>(
+        occurrence.span.Start.getPointer() -
+        result.sourceMgr->getMemoryBuffer(result.mainBufferId)->getBufferStart());
     if (occStart != startOffset) {
       continue;
     }
-    unsigned const occEnd =
-        static_cast<unsigned>(occurrence.span.End.getPointer() -
-                              result.sourceMgr->getMemoryBuffer(result.mainBufferId)->getBufferStart());
+    unsigned const occEnd = static_cast<unsigned>(
+        occurrence.span.End.getPointer() -
+        result.sourceMgr->getMemoryBuffer(result.mainBufferId)->getBufferStart());
     unsigned const occLen = occEnd > occStart ? occEnd - occStart : 0U;
-    Type* candidateType =
-        occurrence.flowSensitiveType != nullptr ? occurrence.flowSensitiveType : occurrence.resolvedType;
+    Type* candidateType = occurrence.flowSensitiveType != nullptr ? occurrence.flowSensitiveType
+                                                                  : occurrence.resolvedType;
     if (candidateType != nullptr && (bestType == nullptr || occLen < bestLen)) {
       bestType = candidateType;
       bestLen = occLen;
@@ -624,8 +624,9 @@ auto resolvedTypeForCompletionExpr(const Expression* expr) -> Type* {
   }
   if (auto const* call = dynamic_cast<const FuncCall*>(expr)) {
     Value* resolved = call->getResolvedSymbol();
-    return resolved != nullptr && resolved->getType() != nullptr ? resolved->getType()->getReturnType()
-                                                                 : nullptr;
+    return resolved != nullptr && resolved->getType() != nullptr
+               ? resolved->getType()->getReturnType()
+               : nullptr;
   }
   if (auto const* dot = dynamic_cast<const DotOp*>(expr)) {
     Type* baseType = resolvedTypeForCompletionExpr(dot->getLeft());
@@ -640,8 +641,9 @@ auto resolvedTypeForCompletionExpr(const Expression* expr) -> Type* {
     }
     if (auto const* rightCall = dynamic_cast<const FuncCall*>(dot->getRight())) {
       Value* resolved = rightCall->getResolvedSymbol();
-      return resolved != nullptr && resolved->getType() != nullptr ? resolved->getType()->getReturnType()
-                                                                   : nullptr;
+      return resolved != nullptr && resolved->getType() != nullptr
+                 ? resolved->getType()->getReturnType()
+                 : nullptr;
     }
   }
   if (auto const* match = dynamic_cast<const MatchExpr*>(expr)) {
@@ -654,12 +656,12 @@ auto resolvedTypeForCompletionExpr(const Expression* expr) -> Type* {
 }
 
 void appendMatchWalkStmt(const AnalysisResult& result, unsigned offset,
-                         std::vector<CompletionCandidate>& out, std::unordered_set<std::string>& seen,
-                         const Statement* stmt);
+                         std::vector<CompletionCandidate>& out,
+                         std::unordered_set<std::string>& seen, const Statement* stmt);
 
 void appendMatchWalkExpr(const AnalysisResult& result, unsigned offset,
-                         std::vector<CompletionCandidate>& out, std::unordered_set<std::string>& seen,
-                         const Expression* expr) {
+                         std::vector<CompletionCandidate>& out,
+                         std::unordered_set<std::string>& seen, const Expression* expr) {
   if (expr == nullptr || !expr->getSpan().isValid()) {
     return;
   }
@@ -715,10 +717,11 @@ void appendMatchWalkExpr(const AnalysisResult& result, unsigned offset,
               continue;
             }
             addCandidate(out, seen,
-                         CompletionCandidate{.label = arm.pattern.bindings[i],
-                                             .kind = ::lsp::CompletionItemKind::Variable,
-                                             .detail = formatTypeName(payloadTypes[i], result.rootScope.get()),
-                                             .documentation = {}});
+                         CompletionCandidate{
+                             .label = arm.pattern.bindings[i],
+                             .kind = ::lsp::CompletionItemKind::Variable,
+                             .detail = formatTypeName(payloadTypes[i], result.rootScope.get()),
+                             .documentation = {}});
           }
         }
       }
@@ -796,8 +799,8 @@ void appendMatchWalkExpr(const AnalysisResult& result, unsigned offset,
 }
 
 void appendMatchWalkStmt(const AnalysisResult& result, unsigned offset,
-                         std::vector<CompletionCandidate>& out, std::unordered_set<std::string>& seen,
-                         const Statement* stmt) {
+                         std::vector<CompletionCandidate>& out,
+                         std::unordered_set<std::string>& seen, const Statement* stmt) {
   if (stmt == nullptr || !stmt->getSpan().isValid()) {
     return;
   }
@@ -917,7 +920,8 @@ auto resolveMemberFieldType(Type* baseType, const std::string& name) -> Type* {
  *  `TY_IMPORT` steps when an import alias is bound in scope. */
 [[nodiscard]] auto resolveCompletionMemberChainType(const AnalysisResult& result,
                                                     const std::string& chain, unsigned chainStart,
-                                                    SymbolTable* scope, SymbolTable* root) -> Type* {
+                                                    SymbolTable* scope, SymbolTable* root)
+    -> Type* {
   std::vector<std::string> const parts = splitChain(chain);
   if (parts.empty()) {
     return nullptr;
@@ -978,22 +982,20 @@ auto resolveChainType(const AnalysisResult& result, const std::string& chain, un
   return resolveCompletionMemberChainType(result, chain, chainStart, scope, root);
 }
 
-/** When the receiver is `self`, resolve the class instance type from the innermost enclosing
- * method. */
+/** When the receiver is `self`, resolve the innermost enclosing nominal instance type. */
 auto resolveSelfReceiverType(Compound* ast, unsigned offset, llvm::SourceMgr* srcMgr,
                              unsigned bufferId, SymbolTable* root) -> Type* {
   if (ast == nullptr || root == nullptr) {
     return nullptr;
   }
   InnermostFunc inner = findInnermostFuncContaining(ast, offset, srcMgr, bufferId);
-  if (inner.enclosingClass == nullptr) {
-    return nullptr;
+  if (inner.enclosingClass != nullptr) {
+    return root->lookupType(inner.enclosingClass->getIdentifier());
   }
-  Type* classTy = root->lookupType(inner.enclosingClass->getIdentifier());
-  if (classTy == nullptr) {
-    return nullptr;
+  if (inner.enclosingEnum != nullptr) {
+    return root->lookupType(inner.enclosingEnum->getIdentifier());
   }
-  return classTy;
+  return nullptr;
 }
 
 void addCandidate(std::vector<CompletionCandidate>& out, std::unordered_set<std::string>& seen,
@@ -1262,8 +1264,7 @@ void addCandidate(std::vector<CompletionCandidate>& out, std::unordered_set<std:
 
 void appendTraitRequirementMethods(AnalysisResult& result, Type* classType, Compound* mainAst,
                                    SymbolTable* root, TraitDecl* completionEnclosingTrait,
-                                   bool completingOnTypeName,
-                                   std::vector<CompletionCandidate>& out,
+                                   bool completingOnTypeName, std::vector<CompletionCandidate>& out,
                                    std::unordered_set<std::string>& seen) {
   if (classType == nullptr || root == nullptr) {
     return;
@@ -1387,8 +1388,7 @@ void appendMembersForType(AnalysisResult& result, Type* baseType, Compound* ast,
         if (sf == nullptr) {
           continue;
         }
-        if (Value* decl = sf->getDeclarationSymbol();
-            decl != nullptr && decl->isPrivateMember()) {
+        if (Value* decl = sf->getDeclarationSymbol(); decl != nullptr && decl->isPrivateMember()) {
           continue;
         }
         addCandidate(out, seen,
@@ -1402,8 +1402,8 @@ void appendMembersForType(AnalysisResult& result, Type* baseType, Compound* ast,
   // Walk inheritance chain so subclass completion includes superclass methods (deduped by `seen`).
   for (Type* ty = baseType; ty != nullptr; ty = ty->getClassSuperclass()) {
     if (Class* klass = findClassDeclarationForType(result, ty, ast, root)) {
-      appendMethodsForClass(result, klass, root, completionEnclosingClass, completingOnTypeName, out,
-                            seen);
+      appendMethodsForClass(result, klass, root, completionEnclosingClass, completingOnTypeName,
+                            out, seen);
     }
   }
 }
@@ -1450,9 +1450,9 @@ void appendReturnEnumVariants(const InnermostFunc& cursorContext, SymbolTable* r
   if (!returnType->is(BaseType::TY_ENUM)) {
     return;
   }
-  std::string const detail =
-      !returnType->getDisplayName().empty() ? returnType->getDisplayName()
-                                            : formatTypeName(returnType, root);
+  std::string const detail = !returnType->getDisplayName().empty()
+                                 ? returnType->getDisplayName()
+                                 : formatTypeName(returnType, root);
   for (EnumVariant* variant : returnType->getEnumVariants()) {
     if (variant == nullptr) {
       continue;
@@ -1467,11 +1467,10 @@ void appendReturnEnumVariants(const InnermostFunc& cursorContext, SymbolTable* r
 
 void appendKeywords(std::vector<CompletionCandidate>& out, std::unordered_set<std::string>& seen) {
   static constexpr std::array<std::string_view, 29> keywords = {
-      "and",    "as",      "break",  "class", "continue", "defer", "else",
-      "enum",   "export",  "extern", "for",   "func",     "from",  "if",
-      "import", "in",      "is",     "let",   "match",    "not",   "or",
-      "overload", "private", "return", "static", "super", "this",
-      "var",    "while",
+      "and",    "as",     "break", "class", "continue", "defer",    "else",    "enum",
+      "export", "extern", "for",   "func",  "from",     "if",       "import",  "in",
+      "is",     "let",    "match", "not",   "or",       "overload", "private", "return",
+      "static", "super",  "this",  "var",   "while",
   };
   static constexpr std::array<std::string_view, 3> literals = {"false", "null", "true"};
   static constexpr std::array<std::string_view, 11> builtinTypes = {
@@ -1599,9 +1598,8 @@ auto completionItems(AnalysisResult& result, unsigned line, unsigned character)
     if (parts.size() == 1U && activeResult->importAliasToPath.contains(parts.front())) {
       appendModuleMembersForAlias(*activeResult, parts.front(), candidates, seen);
     }
-    bool const completingOnTypeName =
-        memberCompletionUsesTypeNameContext(*activeResult, activeScope, root, ctx.memberChain,
-                                            ctx.memberChainStart);
+    bool const completingOnTypeName = memberCompletionUsesTypeNameContext(
+        *activeResult, activeScope, root, ctx.memberChain, ctx.memberChainStart);
     appendMembersForType(*activeResult, baseType, ast, root, completionEnclosingClass,
                          completingOnTypeName, candidates, seen);
     appendTraitRequirementMethods(*activeResult, baseType, ast, root, completionEnclosingTrait,

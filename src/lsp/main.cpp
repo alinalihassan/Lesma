@@ -473,6 +473,11 @@ auto isBuiltinTypeName(const std::string& name) -> bool {
 using InnermostFunc =
     lesma::lsp_srv::InnermostFuncAtOffset<const lesma::FuncDecl, const lesma::Class>;
 
+struct EnclosingNominalDecl {
+  const lesma::Class* enclosingClass = nullptr;
+  const lesma::Enum* enclosingEnum = nullptr;
+};
+
 [[nodiscard]] auto findInnermostFuncContaining(lesma::Compound* ast, unsigned targetOffset,
                                                llvm::SourceMgr* sm, unsigned bid) -> InnermostFunc {
   return lesma::lsp_srv::findInnermostFuncContainingAst<const lesma::FuncDecl, const lesma::Class>(
@@ -484,87 +489,101 @@ using InnermostFunc =
 InnermostFunc findFuncWithCursorInSignature(lesma::Compound* ast, unsigned targetOffset,
                                             llvm::SourceMgr* sm, unsigned bid) {
   InnermostFunc out;
-  std::function<void(lesma::Statement*, const lesma::Class*)> scan = [&](lesma::Statement* stmt,
-                                                                         const lesma::Class* cls) {
-    if (stmt == nullptr || out.func != nullptr) {
-      return;
-    }
-    auto const inSpan = [&](llvm::SMRange span) -> bool {
-      if (!span.isValid()) {
-        return false;
-      }
-      unsigned a = getOffsetFromSMLoc(sm, bid, span.Start);
-      unsigned b = getOffsetFromSMLoc(sm, bid, span.End);
-      return targetOffset >= a && targetOffset < b;
-    };
-    if (auto const* f = dynamic_cast<const lesma::FuncDecl*>(stmt)) {
-      if (inSpan(f->getSpan()) || inSpan(f->getNameSpan())) {
-        out.func = f;
-        out.enclosingClass = cls;
-        return;
-      }
-      for (lesma::Parameter* p : f->getParameters()) {
-        if (p != nullptr && inSpan(p->nameSpan)) {
-          out.func = f;
-          out.enclosingClass = cls;
+  std::function<void(lesma::Statement*, const lesma::Class*, const lesma::Enum*)> scan =
+      [&](lesma::Statement* stmt, const lesma::Class* cls, const lesma::Enum* en) {
+        if (stmt == nullptr || out.func != nullptr) {
           return;
         }
-      }
-      if (f->getBody() != nullptr) {
-        for (lesma::Statement* s : f->getBody()->getChildren()) {
-          scan(s, cls);
-          if (out.func != nullptr) {
+        auto const inSpan = [&](llvm::SMRange span) -> bool {
+          if (!span.isValid()) {
+            return false;
+          }
+          unsigned a = getOffsetFromSMLoc(sm, bid, span.Start);
+          unsigned b = getOffsetFromSMLoc(sm, bid, span.End);
+          return targetOffset >= a && targetOffset < b;
+        };
+        if (auto const* f = dynamic_cast<const lesma::FuncDecl*>(stmt)) {
+          if (inSpan(f->getSpan()) || inSpan(f->getNameSpan())) {
+            out.func = f;
+            out.enclosingClass = cls;
+            out.enclosingEnum = en;
             return;
           }
-        }
-      }
-      return;
-    }
-    if (dynamic_cast<const lesma::ExternFuncDecl*>(stmt) != nullptr) {
-      return;
-    }
-    if (auto const* c = dynamic_cast<const lesma::Class*>(stmt)) {
-      for (lesma::FuncDecl* m : c->getMethods()) {
-        if (m != nullptr) {
-          scan(m, c);
-          if (out.func != nullptr) {
-            return;
+          for (lesma::Parameter* p : f->getParameters()) {
+            if (p != nullptr && inSpan(p->nameSpan)) {
+              out.func = f;
+              out.enclosingClass = cls;
+              out.enclosingEnum = en;
+              return;
+            }
           }
-        }
-      }
-    }
-    if (auto const* compound = dynamic_cast<const lesma::Compound*>(stmt)) {
-      for (lesma::Statement* s : compound->getChildren()) {
-        scan(s, cls);
-        if (out.func != nullptr) {
+          if (f->getBody() != nullptr) {
+            for (lesma::Statement* s : f->getBody()->getChildren()) {
+              scan(s, cls, en);
+              if (out.func != nullptr) {
+                return;
+              }
+            }
+          }
           return;
         }
-      }
-      return;
-    }
-    if (auto const* ifNode = dynamic_cast<const lesma::If*>(stmt)) {
-      for (lesma::Compound* block : ifNode->getBlocks()) {
-        scan(block, cls);
-        if (out.func != nullptr) {
+        if (dynamic_cast<const lesma::ExternFuncDecl*>(stmt) != nullptr) {
           return;
         }
-      }
-      return;
-    }
-    if (auto const* whileNode = dynamic_cast<const lesma::While*>(stmt)) {
-      scan(whileNode->getBlock(), cls);
-      return;
-    }
-    if (auto const* forNode = dynamic_cast<const lesma::ForIn*>(stmt)) {
-      scan(forNode->getBlock(), cls);
-      return;
-    }
-    if (auto const* defer = dynamic_cast<const lesma::Defer*>(stmt)) {
-      scan(defer->getStatement(), cls);
-    }
-  };
+        if (auto const* c = dynamic_cast<const lesma::Class*>(stmt)) {
+          for (lesma::FuncDecl* m : c->getMethods()) {
+            if (m != nullptr) {
+              scan(m, c, nullptr);
+              if (out.func != nullptr) {
+                return;
+              }
+            }
+          }
+          return;
+        }
+        if (auto const* en = dynamic_cast<const lesma::Enum*>(stmt)) {
+          for (lesma::FuncDecl* m : en->getMethods()) {
+            if (m != nullptr) {
+              scan(m, nullptr, en);
+              if (out.func != nullptr) {
+                return;
+              }
+            }
+          }
+          return;
+        }
+        if (auto const* compound = dynamic_cast<const lesma::Compound*>(stmt)) {
+          for (lesma::Statement* s : compound->getChildren()) {
+            scan(s, cls, en);
+            if (out.func != nullptr) {
+              return;
+            }
+          }
+          return;
+        }
+        if (auto const* ifNode = dynamic_cast<const lesma::If*>(stmt)) {
+          for (lesma::Compound* block : ifNode->getBlocks()) {
+            scan(block, cls, en);
+            if (out.func != nullptr) {
+              return;
+            }
+          }
+          return;
+        }
+        if (auto const* whileNode = dynamic_cast<const lesma::While*>(stmt)) {
+          scan(whileNode->getBlock(), cls, en);
+          return;
+        }
+        if (auto const* forNode = dynamic_cast<const lesma::ForIn*>(stmt)) {
+          scan(forNode->getBlock(), cls, en);
+          return;
+        }
+        if (auto const* defer = dynamic_cast<const lesma::Defer*>(stmt)) {
+          scan(defer->getStatement(), cls, en);
+        }
+      };
   for (lesma::Statement* s : ast->getChildren()) {
-    scan(s, nullptr);
+    scan(s, nullptr, nullptr);
     if (out.func != nullptr) {
       break;
     }
@@ -640,9 +659,9 @@ auto findExternFuncWithCursorInSignature(const lesma::Compound* ast, unsigned ta
   return out;
 }
 
-auto findEnclosingClassContaining(const lesma::Compound* ast, unsigned targetOffset,
-                                  llvm::SourceMgr* sm, unsigned bid) -> const lesma::Class* {
-  const lesma::Class* out = nullptr;
+auto findEnclosingNominalContaining(const lesma::Compound* ast, unsigned targetOffset,
+                                    llvm::SourceMgr* sm, unsigned bid) -> EnclosingNominalDecl {
+  EnclosingNominalDecl out;
   unsigned bestLen = 0U;
   std::function<void(const lesma::Statement*)> scan = [&](const lesma::Statement* stmt) -> void {
     if (stmt == nullptr) {
@@ -655,13 +674,37 @@ auto findEnclosingClassContaining(const lesma::Compound* ast, unsigned targetOff
         unsigned b = getOffsetFromSMLoc(sm, bid, span.End);
         if (targetOffset >= a && targetOffset < b) {
           unsigned len = b - a;
-          if (out == nullptr || len < bestLen) {
-            out = klass;
+          if ((out.enclosingClass == nullptr && out.enclosingEnum == nullptr) || len < bestLen) {
+            out.enclosingClass = klass;
+            out.enclosingEnum = nullptr;
             bestLen = len;
           }
         }
       }
       for (lesma::FuncDecl* method : klass->getMethods()) {
+        if (method != nullptr && method->getBody() != nullptr) {
+          for (lesma::Statement* child : method->getBody()->getChildren()) {
+            scan(child);
+          }
+        }
+      }
+      return;
+    }
+    if (auto const* enumDecl = dynamic_cast<const lesma::Enum*>(stmt)) {
+      llvm::SMRange span = enumDecl->getSpan();
+      if (span.isValid()) {
+        unsigned a = getOffsetFromSMLoc(sm, bid, span.Start);
+        unsigned b = getOffsetFromSMLoc(sm, bid, span.End);
+        if (targetOffset >= a && targetOffset < b) {
+          unsigned len = b - a;
+          if ((out.enclosingClass == nullptr && out.enclosingEnum == nullptr) || len < bestLen) {
+            out.enclosingClass = nullptr;
+            out.enclosingEnum = enumDecl;
+            bestLen = len;
+          }
+        }
+      }
+      for (lesma::FuncDecl* method : enumDecl->getMethods()) {
         if (method != nullptr && method->getBody() != nullptr) {
           for (lesma::Statement* child : method->getBody()->getChildren()) {
             scan(child);
@@ -758,10 +801,11 @@ auto lookupValueForHover(lesma::Compound* ast, lesma::SymbolTable* root, llvm::S
       return value;
     }
   }
-  if (auto const* enclosingClass =
-          findEnclosingClassContaining(ast, targetOffset, srcMgr, bufferId)) {
-    if (isTypePosition && enclosingClass->getGenericScope() != nullptr) {
-      if (lesma::Value* v = enclosingClass->getGenericScope()->lookup(name)) {
+  EnclosingNominalDecl const enclosingNominal =
+      findEnclosingNominalContaining(ast, targetOffset, srcMgr, bufferId);
+  if (enclosingNominal.enclosingClass != nullptr) {
+    if (isTypePosition && enclosingNominal.enclosingClass->getGenericScope() != nullptr) {
+      if (lesma::Value* v = enclosingNominal.enclosingClass->getGenericScope()->lookup(name)) {
         return v;
       }
     }
@@ -1467,9 +1511,10 @@ struct CallableCandidate {
 
 [[nodiscard]] auto extractClassBaseName(const std::string& displayName) -> std::string;
 
-[[nodiscard]] auto expressionRepresentsTypeSymbol(const lesma::Expression* expr, lesma::Compound* ast,
-                                                  lesma::SymbolTable* root, llvm::SourceMgr* srcMgr,
-                                                  unsigned bufferId, unsigned targetOffset) -> bool {
+[[nodiscard]] auto expressionRepresentsTypeSymbol(const lesma::Expression* expr,
+                                                  lesma::Compound* ast, lesma::SymbolTable* root,
+                                                  llvm::SourceMgr* srcMgr, unsigned bufferId,
+                                                  unsigned targetOffset) -> bool {
   if (expr == nullptr || root == nullptr) {
     return false;
   }
@@ -1530,7 +1575,7 @@ auto receiverMatchesStaticOwner(lesma::Type* receiverType, lesma::Type* ownerTyp
   if (ownerType->is(lesma::BaseType::TY_PTR) && ownerType->getElementType() != nullptr) {
     ownerType = ownerType->getElementType();
   }
-  if (receiverType->isEqual(ownerType)) {
+  if (receiverIsTypeSymbol && receiverType->isEqual(ownerType)) {
     return true;
   }
   std::string const receiverName = extractClassBaseName(receiverType->getDisplayName());
@@ -1796,18 +1841,18 @@ auto buildSignatureHelp(AnalysisResult& result, unsigned line, unsigned characte
     receiverType =
         resolveExpressionTypeAtOffset(activeCall->receiver, analysis.ast, analysis.rootScope,
                                       analysis.sourceMgr, analysis.bufferId, targetOffset);
-    receiverIsTypeSymbol = expressionRepresentsTypeSymbol(
-        activeCall->receiver, analysis.ast, analysis.rootScope, analysis.sourceMgr,
-        analysis.bufferId, targetOffset);
+    receiverIsTypeSymbol =
+        expressionRepresentsTypeSymbol(activeCall->receiver, analysis.ast, analysis.rootScope,
+                                       analysis.sourceMgr, analysis.bufferId, targetOffset);
   }
 
-  std::vector<CallableCandidate> candidates =
-      collectCallableCandidates(scope, activeCall->call->getName(), receiverType,
-                                receiverIsTypeSymbol, argTypes);
+  std::vector<CallableCandidate> candidates = collectCallableCandidates(
+      scope, activeCall->call->getName(), receiverType, receiverIsTypeSymbol, argTypes);
 
   // Also search for class methods if no candidates found
   if (candidates.empty() && receiverType != nullptr) {
-    candidates = findMethodCandidatesForReceiverType(result, receiverType, activeCall->call->getName());
+    candidates =
+        findMethodCandidatesForReceiverType(result, receiverType, activeCall->call->getName());
   }
 
   if (candidates.empty()) {
@@ -1933,7 +1978,7 @@ auto appendCallParameterInlayHints(const AnalysisResult& analysisResult, unsigne
       }
       if (receiver == nullptr || receiverType != nullptr) {
         candidates = collectCallableCandidates(scope, call->getName(), receiverType,
-                                              receiverIsTypeSymbol, argTypes);
+                                               receiverIsTypeSymbol, argTypes);
       }
       if (resolvedSym != nullptr) {
         std::vector<CallableCandidate> narrowed;
@@ -2026,7 +2071,8 @@ auto appendCallParameterInlayHints(const AnalysisResult& analysisResult, unsigne
     if (auto const* match = dynamic_cast<const lesma::MatchExpr*>(expr)) {
       walkExpr(match->getScrutinee(), nullptr);
       for (const lesma::MatchArm& arm : match->getArms()) {
-        if (arm.pattern.kind == lesma::MatchPatternKind::VALUE && arm.pattern.valueExpr != nullptr) {
+        if (arm.pattern.kind == lesma::MatchPatternKind::VALUE &&
+            arm.pattern.valueExpr != nullptr) {
           walkExpr(arm.pattern.valueExpr.get(), nullptr);
         }
         walkExpr(arm.body.get(), nullptr);
@@ -2272,17 +2318,16 @@ auto resolveMethodSymbolAtCursor(AnalysisResult& result, const AnalysisView& ana
   if (receiverType == nullptr) {
     return std::nullopt;
   }
-  bool const receiverIsTypeSymbol = expressionRepresentsTypeSymbol(
-      activeCall->receiver, analysis.ast, analysis.rootScope, analysis.sourceMgr, analysis.bufferId,
-      targetOffset);
+  bool const receiverIsTypeSymbol =
+      expressionRepresentsTypeSymbol(activeCall->receiver, analysis.ast, analysis.rootScope,
+                                     analysis.sourceMgr, analysis.bufferId, targetOffset);
 
   for (const AnalysisView& candidateAnalysis : collectAnalysisViews(result)) {
     if (!isUsableAnalysis(candidateAnalysis) || candidateAnalysis.rootScope == nullptr) {
       continue;
     }
-    std::vector<CallableCandidate> candidates =
-        collectCallableCandidates(candidateAnalysis.rootScope, id.name, receiverType,
-                                  receiverIsTypeSymbol, argTypes);
+    std::vector<CallableCandidate> candidates = collectCallableCandidates(
+        candidateAnalysis.rootScope, id.name, receiverType, receiverIsTypeSymbol, argTypes);
     if (!candidates.empty() && candidates.front().value != nullptr) {
       return ResolvedSymbol{.value = candidates.front().value, .owner = candidateAnalysis};
     }
@@ -2320,10 +2365,10 @@ auto resolveMethodSymbolAtCursor(AnalysisResult& result, const AnalysisView& ana
 /** Try to resolve a method symbol directly from the class AST using the declaration identity.
  * This is a fallback when resolveSymbolByDeclarationIdentity fails to find the symbol
  * by walking the AST (e.g., for imported module methods). */
-[[nodiscard]] auto tryResolveMethodFromClassAst(AnalysisResult& result,
-                                                const lesma::IndexedDeclarationIdentity& declaration,
-                                                const std::string& methodName)
-    -> std::optional<ResolvedSymbol> {
+[[nodiscard]] auto
+tryResolveMethodFromClassAst(AnalysisResult& result,
+                             const lesma::IndexedDeclarationIdentity& declaration,
+                             const std::string& methodName) -> std::optional<ResolvedSymbol> {
   // Find the analysis view for the file containing the declaration
   std::optional<AnalysisView> view = findAnalysisViewForPath(result, declaration.filePath);
   if (!view || !isUsableAnalysis(*view) || view->ast == nullptr) {
@@ -2443,7 +2488,8 @@ auto resolveCanonicalSymbolAtCursor(AnalysisResult& result, const AnalysisView& 
             resolveSymbolByDeclarationIdentity(result, *occurrence->declaration)) {
       return resolved;
     }
-    if (occurrence->isMemberAccess && occurrence->fallbackTokenKind == lesma::IndexedTokenKind::Method) {
+    if (occurrence->isMemberAccess &&
+        occurrence->fallbackTokenKind == lesma::IndexedTokenKind::Method) {
       if (std::optional<ResolvedSymbol> method =
               tryResolveMethodFromClassAst(result, *occurrence->declaration, id.name)) {
         return method;
@@ -3048,9 +3094,9 @@ auto tryResolveUnionMultiMethodDefinitionLocations(AnalysisResult& result, unsig
   lesma::Type* receiverType =
       resolveExpressionTypeAtOffset(activeCall->receiver, analysis.ast, analysis.rootScope,
                                     analysis.sourceMgr, analysis.bufferId, targetOffset);
-  bool const receiverIsTypeSymbol = expressionRepresentsTypeSymbol(
-      activeCall->receiver, analysis.ast, analysis.rootScope, analysis.sourceMgr, analysis.bufferId,
-      targetOffset);
+  bool const receiverIsTypeSymbol =
+      expressionRepresentsTypeSymbol(activeCall->receiver, analysis.ast, analysis.rootScope,
+                                     analysis.sourceMgr, analysis.bufferId, targetOffset);
   llvm::SMRange const receiverSpan = activeCall->receiver->getSpan();
   if (receiverSpan.isValid()) {
     unsigned const recvStart =
@@ -3077,9 +3123,8 @@ auto tryResolveUnionMultiMethodDefinitionLocations(AnalysisResult& result, unsig
     if (!isUsableAnalysis(candidateAnalysis) || candidateAnalysis.rootScope == nullptr) {
       continue;
     }
-    std::vector<CallableCandidate> perView =
-        collectCallableCandidates(candidateAnalysis.rootScope, id->name, receiverType,
-                                  receiverIsTypeSymbol, argTypes);
+    std::vector<CallableCandidate> perView = collectCallableCandidates(
+        candidateAnalysis.rootScope, id->name, receiverType, receiverIsTypeSymbol, argTypes);
     for (const CallableCandidate& cand : perView) {
       aggregated.emplace_back(cand, candidateAnalysis);
     }
@@ -3478,10 +3523,16 @@ auto main() -> int {
                         (sigFunc.enclosingClass != nullptr &&
                          vectorContainsString(sigFunc.enclosingClass->getGenericParams(),
                                               id->name)) ||
+                        (sigFunc.enclosingEnum != nullptr &&
+                         vectorContainsString(sigFunc.enclosingEnum->getGenericParams(),
+                                              id->name)) ||
                         (inner.func != nullptr &&
                          vectorContainsString(inner.func->getGenericParams(), id->name)) ||
                         (inner.enclosingClass != nullptr &&
-                         vectorContainsString(inner.enclosingClass->getGenericParams(), id->name));
+                         vectorContainsString(inner.enclosingClass->getGenericParams(),
+                                              id->name)) ||
+                        (inner.enclosingEnum != nullptr &&
+                         vectorContainsString(inner.enclosingEnum->getGenericParams(), id->name));
                     if (inGenericScope) {
                       ::lsp::Hover hover;
                       hover.contents = ::lsp::MarkupContent{

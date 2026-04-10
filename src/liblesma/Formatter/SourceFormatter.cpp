@@ -610,10 +610,9 @@ private:
       if (previous != nullptr) {
         unsigned structuralExtraBlankLines =
             topLevel && isMajorDeclaration(previous) && isMajorDeclaration(statement) ? 1U : 0U;
-        if (topLevel &&
-            (dynamic_cast<const Import*>(previous) != nullptr ||
-             dynamic_cast<const Import*>(statement) != nullptr) &&
-            dynamic_cast<const Import*>(previous) != dynamic_cast<const Import*>(statement)) {
+        bool const prevIsImport = dynamic_cast<const Import*>(previous) != nullptr;
+        bool const stmtIsImport = dynamic_cast<const Import*>(statement) != nullptr;
+        if (topLevel && (prevIsImport || stmtIsImport) && prevIsImport != stmtIsImport) {
           structuralExtraBlankLines = std::max(structuralExtraBlankLines, 1U);
         }
         if (dynamic_cast<const VarDecl*>(previous) != nullptr &&

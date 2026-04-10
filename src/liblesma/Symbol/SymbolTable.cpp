@@ -253,21 +253,10 @@ auto SymbolTable::matchGenericParameter(
  * @param name Name of the desired symbol
  * @return Desired symbol / nullptr if the symbol was not found
  */
-namespace {
-// Match rank for overload resolution: higher = better. Candidates are compared
-// lexicographically by per-parameter rank vectors (earlier position breaks
-// ties; then shorter vector wins).
-constexpr int RANK_EXACT = 3;     // concrete-typed parameter match
-constexpr int RANK_GENERIC = 2;   // formal is generic (with consistent binding)
-/// \c *Derived actual vs \c *Base formal (still a valid VALUE lookup, but less specific than
-/// matching the same class under the pointer).
-constexpr int RANK_PTR_SUBCLASS = 2;
-constexpr int RANK_DEFAULTED = 1; // caller omitted, default applies
-constexpr int RANK_VARARG = 0;    // extra args absorbed by vararg
-
 // Returns true if ranksA is strictly better than ranksB (lexicographic; then
 // shorter wins when prefix equal).
-auto rankVectorBetter(const std::vector<int>& ranksA, const std::vector<int>& ranksB) -> bool {
+auto SymbolTable::rankVectorBetter(const std::vector<int>& ranksA, const std::vector<int>& ranksB)
+    -> bool {
   size_t n = std::min(ranksA.size(), ranksB.size());
   for (size_t i = 0; i < n; ++i) {
     if (ranksA[i] != ranksB[i]) {
@@ -277,7 +266,8 @@ auto rankVectorBetter(const std::vector<int>& ranksA, const std::vector<int>& ra
   return ranksA.size() < ranksB.size();
 }
 
-auto superCallSelfPointerMatches(Type* formalTy, Type* argTy, Type* staticSuperType) -> bool {
+auto SymbolTable::superCallSelfPointerMatches(Type* formalTy, Type* argTy, Type* staticSuperType)
+    -> bool {
   if (formalTy == nullptr || argTy == nullptr || staticSuperType == nullptr) {
     return false;
   }
@@ -296,7 +286,7 @@ auto superCallSelfPointerMatches(Type* formalTy, Type* argTy, Type* staticSuperT
   return false;
 }
 
-auto receiverClassTypeForMethodFn(Type* fnTy) -> Type* {
+auto SymbolTable::receiverClassTypeForMethodFn(Type* fnTy) -> Type* {
   if (fnTy == nullptr || !fnTy->is(BaseType::TY_FUNCTION)) {
     return nullptr;
   }
@@ -312,7 +302,7 @@ auto receiverClassTypeForMethodFn(Type* fnTy) -> Type* {
   return nullptr;
 }
 
-auto typeContainsGeneric(Type* type) -> bool {
+auto SymbolTable::typeContainsGeneric(Type* type) -> bool {
   if (type == nullptr) {
     return false;
   }
@@ -320,20 +310,20 @@ auto typeContainsGeneric(Type* type) -> bool {
     return true;
   }
   if (type->isOneOf({BaseType::TY_PTR, BaseType::TY_ARRAY})) {
-    return typeContainsGeneric(type->getElementType());
+    return SymbolTable::typeContainsGeneric(type->getElementType());
   }
   if (type->is(BaseType::TY_FUNCTION)) {
     for (Field* field : type->getFields()) {
-      if (typeContainsGeneric(field->type)) {
+      if (SymbolTable::typeContainsGeneric(field->type)) {
         return true;
       }
     }
-    return typeContainsGeneric(type->getReturnType());
+    return SymbolTable::typeContainsGeneric(type->getReturnType());
   }
   return false;
 }
 
-[[nodiscard]] auto rankForMatchedOverloadParam(Type* formalTy, Type* argTy) -> int {
+auto SymbolTable::rankForMatchedOverloadParam(Type* formalTy, Type* argTy) -> int {
   if (formalTy != nullptr && argTy != nullptr && formalTy->is(BaseType::TY_PTR) &&
       argTy->is(BaseType::TY_PTR) && formalTy->getElementType() != nullptr &&
       argTy->getElementType() != nullptr && formalTy->getElementType()->is(BaseType::TY_CLASS) &&
@@ -341,14 +331,13 @@ auto typeContainsGeneric(Type* type) -> bool {
     Type* formalCls = formalTy->getElementType();
     Type* argCls = argTy->getElementType();
     if (!argCls->isEqual(formalCls)) {
-      return RANK_PTR_SUBCLASS;
+      return SymbolTable::RANK_PTR_SUBCLASS;
     }
-    return RANK_EXACT;
+    return SymbolTable::RANK_EXACT;
   }
-  return typeContainsGeneric(formalTy) ? RANK_GENERIC : RANK_EXACT;
+  return SymbolTable::typeContainsGeneric(formalTy) ? SymbolTable::RANK_GENERIC
+                                                    : SymbolTable::RANK_EXACT;
 }
-
-} // namespace
 
 namespace lesma {
 
@@ -372,7 +361,7 @@ auto selectBestFunctionTypeMatch(const std::vector<Type*>& candidateFunctionType
       if (i < funcParamFields.size() && i < paramTypes.size()) {
         Type* formalTy = funcParamFields[i]->type;
         Type* argTy = paramTypes[i];
-        if (argTy->is(BaseType::TY_GENERIC) && !typeContainsGeneric(formalTy)) {
+        if (argTy->is(BaseType::TY_GENERIC) && !SymbolTable::typeContainsGeneric(formalTy)) {
           paramsMatch = false;
           break;
         }
@@ -381,12 +370,12 @@ auto selectBestFunctionTypeMatch(const std::vector<Type*>& candidateFunctionType
           paramsMatch = false;
           break;
         }
-        candidateRanks.push_back(rankForMatchedOverloadParam(formalTy, argTy));
+        candidateRanks.push_back(SymbolTable::rankForMatchedOverloadParam(formalTy, argTy));
       } else if (i < funcParamFields.size() && funcParamFields[i]->defaultValue != nullptr) {
-        candidateRanks.push_back(RANK_DEFAULTED);
+        candidateRanks.push_back(SymbolTable::RANK_DEFAULTED);
       } else if (i >= funcParamFields.size()) {
         if (funcTy->isVarArgs()) {
-          candidateRanks.push_back(RANK_VARARG);
+          candidateRanks.push_back(SymbolTable::RANK_VARARG);
           break;
         }
         paramsMatch = false;
@@ -401,7 +390,8 @@ auto selectBestFunctionTypeMatch(const std::vector<Type*>& candidateFunctionType
       continue;
     }
 
-    bool candidateWins = bestCandidate == nullptr || rankVectorBetter(candidateRanks, bestRanks);
+    bool candidateWins = bestCandidate == nullptr ||
+                         SymbolTable::rankVectorBetter(candidateRanks, bestRanks);
     if (candidateWins) {
       bestRanks = std::move(candidateRanks);
       bestCandidate = funcTy;
@@ -437,7 +427,7 @@ auto selectBestFunctionTypeMatchTail(const std::vector<Type*>& candidateFunction
       if (i < funcParamFields.size() && j < paramTypesAfterSelf.size()) {
         Type* formalTy = funcParamFields[i]->type;
         Type* argTy = paramTypesAfterSelf[j];
-        if (argTy->is(BaseType::TY_GENERIC) && !typeContainsGeneric(formalTy)) {
+        if (argTy->is(BaseType::TY_GENERIC) && !SymbolTable::typeContainsGeneric(formalTy)) {
           paramsMatch = false;
           break;
         }
@@ -446,12 +436,12 @@ auto selectBestFunctionTypeMatchTail(const std::vector<Type*>& candidateFunction
           paramsMatch = false;
           break;
         }
-        candidateRanks.push_back(rankForMatchedOverloadParam(formalTy, argTy));
+        candidateRanks.push_back(SymbolTable::rankForMatchedOverloadParam(formalTy, argTy));
       } else if (i < funcParamFields.size() && funcParamFields[i]->defaultValue != nullptr) {
-        candidateRanks.push_back(RANK_DEFAULTED);
+        candidateRanks.push_back(SymbolTable::RANK_DEFAULTED);
       } else if (i >= funcParamFields.size()) {
         if (funcTy->isVarArgs()) {
-          candidateRanks.push_back(RANK_VARARG);
+          candidateRanks.push_back(SymbolTable::RANK_VARARG);
           break;
         }
         paramsMatch = false;
@@ -466,7 +456,8 @@ auto selectBestFunctionTypeMatchTail(const std::vector<Type*>& candidateFunction
       continue;
     }
 
-    bool candidateWins = bestCandidate == nullptr || rankVectorBetter(candidateRanks, bestRanks);
+    bool candidateWins = bestCandidate == nullptr ||
+                         SymbolTable::rankVectorBetter(candidateRanks, bestRanks);
     if (candidateWins) {
       bestRanks = std::move(candidateRanks);
       bestCandidate = funcTy;
@@ -492,7 +483,7 @@ auto SymbolTable::lookupFunction(const std::string& name, std::vector<lesma::Typ
       continue;
     }
     if (excludeFormalReceiverClass != nullptr) {
-      Type* recvCls = receiverClassTypeForMethodFn(it->second->getType());
+      Type* recvCls = SymbolTable::receiverClassTypeForMethodFn(it->second->getType());
       if (recvCls != nullptr && recvCls->isEqual(excludeFormalReceiverClass)) {
         continue;
       }
@@ -518,7 +509,7 @@ auto SymbolTable::lookupFunction(const std::string& name, std::vector<lesma::Typ
       if (i < funcParamTypes.size() && i < paramTypes.size()) {
         Type* formalTy = funcParamTypes[i]->type;
         Type* argTy = paramTypes[i];
-        if (argTy->is(BaseType::TY_GENERIC) && !typeContainsGeneric(formalTy)) {
+        if (argTy->is(BaseType::TY_GENERIC) && !SymbolTable::typeContainsGeneric(formalTy)) {
           paramsMatch = false;
           break; // argument must be concrete
         }
@@ -526,12 +517,12 @@ auto SymbolTable::lookupFunction(const std::string& name, std::vector<lesma::Typ
           paramsMatch = false;
           break;
         }
-        candidateRanks.push_back(rankForMatchedOverloadParam(formalTy, argTy));
+        candidateRanks.push_back(SymbolTable::rankForMatchedOverloadParam(formalTy, argTy));
       } else if (i < funcParamTypes.size() && funcParamTypes[i]->defaultValue != nullptr) {
-        candidateRanks.push_back(RANK_DEFAULTED);
+        candidateRanks.push_back(SymbolTable::RANK_DEFAULTED);
       } else if (i >= funcParamTypes.size()) {
         if (it->second->getType()->isVarArgs()) {
-          candidateRanks.push_back(RANK_VARARG);
+          candidateRanks.push_back(SymbolTable::RANK_VARARG);
           break;
         }
         paramsMatch = false;
@@ -546,7 +537,8 @@ auto SymbolTable::lookupFunction(const std::string& name, std::vector<lesma::Typ
       continue;
     }
 
-    bool candidateWins = bestCandidate == nullptr || rankVectorBetter(candidateRanks, bestRanks);
+    bool candidateWins = bestCandidate == nullptr ||
+                         SymbolTable::rankVectorBetter(candidateRanks, bestRanks);
     if (!candidateWins && bestCandidate != nullptr && candidateRanks.size() == bestRanks.size()) {
       bool const ranksEqual =
           std::equal(candidateRanks.begin(), candidateRanks.end(), bestRanks.begin());
@@ -594,7 +586,7 @@ auto SymbolTable::lookupSuperClassMethod(
     if (!it->second->getType()->is(BaseType::TY_FUNCTION)) {
       continue;
     }
-    Type* recvCls = receiverClassTypeForMethodFn(it->second->getType());
+    Type* recvCls = SymbolTable::receiverClassTypeForMethodFn(it->second->getType());
     if (recvCls == nullptr || !receiverMatches(recvCls)) {
       continue;
     }
@@ -612,13 +604,13 @@ auto SymbolTable::lookupSuperClassMethod(
       if (i < funcParamTypes.size() && i < paramTypes.size()) {
         Type* formalTy = funcParamTypes[i]->type;
         Type* argTy = paramTypes[i];
-        if (argTy->is(BaseType::TY_GENERIC) && !typeContainsGeneric(formalTy)) {
+        if (argTy->is(BaseType::TY_GENERIC) && !SymbolTable::typeContainsGeneric(formalTy)) {
           paramsMatch = false;
           break;
         }
         if (i == 0 && staticSuperclassType != nullptr &&
-            superCallSelfPointerMatches(formalTy, argTy, staticSuperclassType)) {
-          candidateRanks.push_back(rankForMatchedOverloadParam(formalTy, argTy));
+            SymbolTable::superCallSelfPointerMatches(formalTy, argTy, staticSuperclassType)) {
+          candidateRanks.push_back(SymbolTable::rankForMatchedOverloadParam(formalTy, argTy));
           continue;
         }
         if (!SymbolTable::matchGenericParameter(formalTy, argTy, genericBindings,
@@ -626,12 +618,12 @@ auto SymbolTable::lookupSuperClassMethod(
           paramsMatch = false;
           break;
         }
-        candidateRanks.push_back(rankForMatchedOverloadParam(formalTy, argTy));
+        candidateRanks.push_back(SymbolTable::rankForMatchedOverloadParam(formalTy, argTy));
       } else if (i < funcParamTypes.size() && funcParamTypes[i]->defaultValue != nullptr) {
-        candidateRanks.push_back(RANK_DEFAULTED);
+        candidateRanks.push_back(SymbolTable::RANK_DEFAULTED);
       } else if (i >= funcParamTypes.size()) {
         if (it->second->getType()->isVarArgs()) {
-          candidateRanks.push_back(RANK_VARARG);
+          candidateRanks.push_back(SymbolTable::RANK_VARARG);
           break;
         }
         paramsMatch = false;
@@ -646,7 +638,8 @@ auto SymbolTable::lookupSuperClassMethod(
       continue;
     }
 
-    bool candidateWins = bestCandidate == nullptr || rankVectorBetter(candidateRanks, bestRanks);
+    bool candidateWins = bestCandidate == nullptr ||
+                         SymbolTable::rankVectorBetter(candidateRanks, bestRanks);
     if (!candidateWins && bestCandidate != nullptr && candidateRanks.size() == bestRanks.size()) {
       bool const ranksEqual =
           std::equal(candidateRanks.begin(), candidateRanks.end(), bestRanks.begin());
@@ -674,7 +667,7 @@ auto SymbolTable::lookupSuperClassMethod(
       if (!cand->getType()->is(BaseType::TY_FUNCTION)) {
         continue;
       }
-      Type* recvCls2 = receiverClassTypeForMethodFn(cand->getType());
+      Type* recvCls2 = SymbolTable::receiverClassTypeForMethodFn(cand->getType());
       if (recvCls2 == nullptr || !receiverMatches(recvCls2)) {
         continue;
       }
@@ -690,13 +683,13 @@ auto SymbolTable::lookupSuperClassMethod(
         if (i < funcParamTypes2.size() && i < paramTypes.size()) {
           Type* formalTy = funcParamTypes2[i]->type;
           Type* argTy = paramTypes[i];
-          if (argTy->is(BaseType::TY_GENERIC) && !typeContainsGeneric(formalTy)) {
+          if (argTy->is(BaseType::TY_GENERIC) && !SymbolTable::typeContainsGeneric(formalTy)) {
             paramsMatch2 = false;
             break;
           }
           if (i == 0 && staticSuperclassType != nullptr &&
-              superCallSelfPointerMatches(formalTy, argTy, staticSuperclassType)) {
-            candidateRanks2.push_back(rankForMatchedOverloadParam(formalTy, argTy));
+              SymbolTable::superCallSelfPointerMatches(formalTy, argTy, staticSuperclassType)) {
+            candidateRanks2.push_back(SymbolTable::rankForMatchedOverloadParam(formalTy, argTy));
             continue;
           }
           if (!SymbolTable::matchGenericParameter(formalTy, argTy, genericBindings2,
@@ -704,12 +697,12 @@ auto SymbolTable::lookupSuperClassMethod(
             paramsMatch2 = false;
             break;
           }
-          candidateRanks2.push_back(rankForMatchedOverloadParam(formalTy, argTy));
+          candidateRanks2.push_back(SymbolTable::rankForMatchedOverloadParam(formalTy, argTy));
         } else if (i < funcParamTypes2.size() && funcParamTypes2[i]->defaultValue != nullptr) {
-          candidateRanks2.push_back(RANK_DEFAULTED);
+          candidateRanks2.push_back(SymbolTable::RANK_DEFAULTED);
         } else if (i >= funcParamTypes2.size()) {
           if (cand->getType()->isVarArgs()) {
-            candidateRanks2.push_back(RANK_VARARG);
+            candidateRanks2.push_back(SymbolTable::RANK_VARARG);
             break;
           }
           paramsMatch2 = false;
@@ -722,14 +715,16 @@ auto SymbolTable::lookupSuperClassMethod(
       if (!paramsMatch2) {
         continue;
       }
-      bool wins2 = withLlvm == nullptr || rankVectorBetter(candidateRanks2, withLlvmRanks);
+      bool wins2 = withLlvm == nullptr ||
+                   SymbolTable::rankVectorBetter(candidateRanks2, withLlvmRanks);
       if (wins2) {
         withLlvmRanks = std::move(candidateRanks2);
         withLlvm = cand;
       }
     }
-    if (withLlvm != nullptr && !rankVectorBetter(bestRanks, withLlvmRanks) &&
-        !rankVectorBetter(withLlvmRanks, bestRanks)) {
+    if (withLlvm != nullptr &&
+        !SymbolTable::rankVectorBetter(bestRanks, withLlvmRanks) &&
+        !SymbolTable::rankVectorBetter(withLlvmRanks, bestRanks)) {
       bestCandidate = withLlvm;
     }
   }
@@ -989,6 +984,9 @@ auto SymbolTable::cloneSubtreeForCodegen(SymbolTable* newParent,
     auto c = std::make_unique<Value>(*sym);
     c->setLlvmValue(nullptr);
     dst->insertSymbol(std::move(c));
+  }
+  for (const auto& [k, t] : types) {
+    dst->insertTypeRef(k, t.get());
   }
   for (const auto& [k, t] : typeRefs) {
     dst->insertTypeRef(k, t);

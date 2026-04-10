@@ -126,8 +126,8 @@ public:
 
   /** Deep-clone this scope and nested child scopes under \p newParent for generic specialization
    *  codegen. Fills \p oldToNew with template table pointer → clone pointer. Clears LLVM handles
-   *  on cloned \c Value entries. Does not deep-copy owned \c Type objects (uses the same \c Type*
-   *  as the template where applicable); copies \c typeRefs. */
+   *  on cloned \c Value entries. Does not deep-copy owned \c Type objects; preserves local type
+   *  bindings by reusing the same \c Type* pointers in the clone's lookup maps. */
   [[nodiscard]] auto cloneSubtreeForCodegen(SymbolTable* newParent,
                                             std::unordered_map<SymbolTable*, SymbolTable*>& oldToNew)
       -> std::unique_ptr<SymbolTable>;
@@ -161,6 +161,20 @@ private:
   friend auto selectBestFunctionTypeMatchTail(const std::vector<Type*>& candidateFunctionTypes,
                                               const std::vector<Type*>& paramTypesAfterSelf)
       -> Type*;
+
+  static constexpr int RANK_EXACT = 3;
+  static constexpr int RANK_GENERIC = 2;
+  static constexpr int RANK_PTR_SUBCLASS = 2;
+  static constexpr int RANK_DEFAULTED = 1;
+  static constexpr int RANK_VARARG = 0;
+
+  [[nodiscard]] static auto rankVectorBetter(const std::vector<int>& ranksA,
+                                             const std::vector<int>& ranksB) -> bool;
+  [[nodiscard]] static auto superCallSelfPointerMatches(Type* formalTy, Type* argTy,
+                                                        Type* staticSuperType) -> bool;
+  [[nodiscard]] static auto receiverClassTypeForMethodFn(Type* fnTy) -> Type*;
+  [[nodiscard]] static auto typeContainsGeneric(Type* type) -> bool;
+  [[nodiscard]] static auto rankForMatchedOverloadParam(Type* formalTy, Type* argTy) -> int;
 
   static auto matchGenericParameter(Type* formalTy, Type* argTy,
                                     std::unordered_map<std::string, Type*>& genericBindings,

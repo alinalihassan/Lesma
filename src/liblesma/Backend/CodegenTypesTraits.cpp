@@ -371,17 +371,20 @@ auto Codegen::getOrCreateLlvmType(lesma::Type* type) -> llvm::Type* {
           const llvm::DataLayout& dl = theModule->getDataLayout();
           unsigned maxAlloc = 0U;
           unsigned maxAbiAlign = 1U;
-          for (EnumVariant* variant : variants) {
+          for (unsigned idx = 0; idx < variants.size(); ++idx) {
+            EnumVariant* variant = variants[idx];
             if (variant == nullptr) {
               continue;
             }
-            for (Type* payloadType : variant->payloadTypes) {
-              llvm::Type* const lt = getStoredAggregateFieldLlvmType(payloadType);
-              maxAlloc = std::max(maxAlloc,
-                                  static_cast<unsigned>(dl.getTypeAllocSize(lt).getFixedValue()));
-              maxAbiAlign =
-                  std::max(maxAbiAlign, static_cast<unsigned>(dl.getABITypeAlign(lt).value()));
+            Type* aggregatePayloadType = getEnumVariantAggregatePayloadType(type, idx);
+            if (aggregatePayloadType == nullptr) {
+              continue;
             }
+            llvm::Type* const lt = getStoredAggregateFieldLlvmType(aggregatePayloadType);
+            maxAlloc =
+                std::max(maxAlloc, static_cast<unsigned>(dl.getTypeAllocSize(lt).getFixedValue()));
+            maxAbiAlign =
+                std::max(maxAbiAlign, static_cast<unsigned>(dl.getABITypeAlign(lt).value()));
           }
           unsigned const payloadBytes = llvm::alignTo(maxAlloc, maxAbiAlign);
           unsigned const numI64 = std::max(1U, (payloadBytes + 7U) / 8U);
@@ -625,6 +628,9 @@ auto Codegen::getEnumPayloadLlvmType(lesma::Type* enumTy) -> llvm::Type* {
   }
   getOrCreateLlvmType(enumTy);
   auto* st = llvm::cast<llvm::StructType>(enumTy->getLlvmType());
+  if (st->getNumElements() <= 1U) {
+    return nullptr;
+  }
   return st->getElementType(1U);
 }
 
