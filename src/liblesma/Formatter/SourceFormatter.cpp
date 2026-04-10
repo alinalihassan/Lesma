@@ -45,9 +45,9 @@ constexpr int INTERPOLATION_FLAT_WIDTH = 10'000;
          dynamic_cast<const Enum*>(node) != nullptr;
 }
 
-[[maybe_unused]] auto formatBlock(const Compound* block) -> Doc;
-[[maybe_unused]] auto formatBlockExpr(const BlockExpr* block) -> Doc;
-[[maybe_unused]] auto formatExpression(const Expression* expr, int parentPrecedence) -> Doc;
+auto formatBlock(const Compound* block) -> Doc;
+auto formatBlockExpr(const BlockExpr* block) -> Doc;
+auto formatExpression(const Expression* expr, int parentPrecedence) -> Doc;
 
 [[nodiscard]] auto operatorSpelling(TokenType type) -> std::string_view {
   switch (type) {
