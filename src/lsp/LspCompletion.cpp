@@ -653,6 +653,207 @@ auto resolvedTypeForCompletionExpr(const Expression* expr) -> Type* {
   return nullptr;
 }
 
+void appendMatchWalkStmt(const AnalysisResult& result, unsigned offset,
+                         std::vector<CompletionCandidate>& out, std::unordered_set<std::string>& seen,
+                         const Statement* stmt);
+
+void appendMatchWalkExpr(const AnalysisResult& result, unsigned offset,
+                         std::vector<CompletionCandidate>& out, std::unordered_set<std::string>& seen,
+                         const Expression* expr) {
+  if (expr == nullptr || !expr->getSpan().isValid()) {
+    return;
+  }
+  unsigned const start = static_cast<unsigned>(
+      expr->getSpan().Start.getPointer() -
+      result.sourceMgr->getMemoryBuffer(result.mainBufferId)->getBufferStart());
+  unsigned const end = static_cast<unsigned>(
+      expr->getSpan().End.getPointer() -
+      result.sourceMgr->getMemoryBuffer(result.mainBufferId)->getBufferStart());
+  if (offset < start || offset > end) {
+    return;
+  }
+  if (auto const* match = dynamic_cast<const MatchExpr*>(expr)) {
+    appendMatchWalkExpr(result, offset, out, seen, match->getScrutinee());
+    Type* matchType = resolvedTypeForCompletionExpr(match->getScrutinee());
+    for (const MatchArm& arm : match->getArms()) {
+      if (arm.body == nullptr || !arm.body->getSpan().isValid()) {
+        continue;
+      }
+      unsigned const patternStart = static_cast<unsigned>(
+          arm.pattern.span.Start.getPointer() -
+          result.sourceMgr->getMemoryBuffer(result.mainBufferId)->getBufferStart());
+      unsigned const armStart = static_cast<unsigned>(
+          arm.body->getSpan().Start.getPointer() -
+          result.sourceMgr->getMemoryBuffer(result.mainBufferId)->getBufferStart());
+      unsigned const armEnd = static_cast<unsigned>(
+          arm.body->getSpan().End.getPointer() -
+          result.sourceMgr->getMemoryBuffer(result.mainBufferId)->getBufferStart());
+      if (matchType != nullptr && matchType->is(BaseType::TY_ENUM) && offset >= patternStart &&
+          offset <= armStart) {
+        for (EnumVariant* variant : matchType->getEnumVariants()) {
+          if (variant == nullptr) {
+            continue;
+          }
+          addCandidate(out, seen,
+                       CompletionCandidate{.label = variant->name,
+                                           .kind = ::lsp::CompletionItemKind::EnumMember,
+                                           .detail = matchType->getDisplayName(),
+                                           .documentation = {}});
+        }
+      }
+      if (offset < armStart || offset > armEnd) {
+        continue;
+      }
+      Type* enumType = arm.pattern.resolvedEnumType;
+      if (enumType != nullptr) {
+        const auto& variants = enumType->getEnumVariants();
+        if (arm.pattern.resolvedVariantIndex < variants.size() &&
+            variants[arm.pattern.resolvedVariantIndex] != nullptr) {
+          const auto& payloadTypes = variants[arm.pattern.resolvedVariantIndex]->payloadTypes;
+          for (size_t i = 0; i < arm.pattern.bindings.size() && i < payloadTypes.size(); ++i) {
+            if (arm.pattern.bindings[i] == "_") {
+              continue;
+            }
+            addCandidate(out, seen,
+                         CompletionCandidate{.label = arm.pattern.bindings[i],
+                                             .kind = ::lsp::CompletionItemKind::Variable,
+                                             .detail = formatTypeName(payloadTypes[i], result.rootScope.get()),
+                                             .documentation = {}});
+          }
+        }
+      }
+      appendMatchWalkExpr(result, offset, out, seen, arm.body.get());
+      if (arm.pattern.kind == MatchPatternKind::VALUE && arm.pattern.valueExpr != nullptr) {
+        appendMatchWalkExpr(result, offset, out, seen, arm.pattern.valueExpr.get());
+      }
+    }
+    return;
+  }
+  if (auto const* blockExpr = dynamic_cast<const BlockExpr*>(expr)) {
+    appendMatchWalkStmt(result, offset, out, seen, blockExpr->getBody());
+    appendMatchWalkExpr(result, offset, out, seen, blockExpr->getTailExpr());
+    return;
+  }
+  if (auto const* call = dynamic_cast<const FuncCall*>(expr)) {
+    for (Expression* arg : call->getArguments()) {
+      appendMatchWalkExpr(result, offset, out, seen, arg);
+    }
+    return;
+  }
+  if (auto const* dot = dynamic_cast<const DotOp*>(expr)) {
+    appendMatchWalkExpr(result, offset, out, seen, dot->getLeft());
+    appendMatchWalkExpr(result, offset, out, seen, dot->getRight());
+    return;
+  }
+  if (auto const* binary = dynamic_cast<const BinaryOp*>(expr)) {
+    appendMatchWalkExpr(result, offset, out, seen, binary->getLeft());
+    appendMatchWalkExpr(result, offset, out, seen, binary->getRight());
+    return;
+  }
+  if (auto const* unary = dynamic_cast<const UnaryOp*>(expr)) {
+    appendMatchWalkExpr(result, offset, out, seen, unary->getExpression());
+    return;
+  }
+  if (auto const* castOp = dynamic_cast<const CastOp*>(expr)) {
+    appendMatchWalkExpr(result, offset, out, seen, castOp->getExpression());
+    return;
+  }
+  if (auto const* isOp = dynamic_cast<const IsOp*>(expr)) {
+    appendMatchWalkExpr(result, offset, out, seen, isOp->getLeft());
+    return;
+  }
+  if (auto const* subscript = dynamic_cast<const SubscriptOp*>(expr)) {
+    appendMatchWalkExpr(result, offset, out, seen, subscript->getLeft());
+    appendMatchWalkExpr(result, offset, out, seen, subscript->getIndex());
+    return;
+  }
+  if (auto const* list = dynamic_cast<const ListLiteral*>(expr)) {
+    for (Expression* el : list->getElements()) {
+      appendMatchWalkExpr(result, offset, out, seen, el);
+    }
+    return;
+  }
+  if (auto const* dict = dynamic_cast<const DictLiteral*>(expr)) {
+    for (Expression* key : dict->getKeys()) {
+      appendMatchWalkExpr(result, offset, out, seen, key);
+    }
+    for (Expression* val : dict->getValues()) {
+      appendMatchWalkExpr(result, offset, out, seen, val);
+    }
+    return;
+  }
+  if (auto const* tup = dynamic_cast<const TupleLiteral*>(expr)) {
+    for (Expression* el : tup->getElements()) {
+      appendMatchWalkExpr(result, offset, out, seen, el);
+    }
+    return;
+  }
+  if (auto const* interp = dynamic_cast<const StringInterpolation*>(expr)) {
+    for (Expression* el : interp->getExprs()) {
+      appendMatchWalkExpr(result, offset, out, seen, el);
+    }
+  }
+}
+
+void appendMatchWalkStmt(const AnalysisResult& result, unsigned offset,
+                         std::vector<CompletionCandidate>& out, std::unordered_set<std::string>& seen,
+                         const Statement* stmt) {
+  if (stmt == nullptr || !stmt->getSpan().isValid()) {
+    return;
+  }
+  unsigned const start = static_cast<unsigned>(
+      stmt->getSpan().Start.getPointer() -
+      result.sourceMgr->getMemoryBuffer(result.mainBufferId)->getBufferStart());
+  unsigned const end = static_cast<unsigned>(
+      stmt->getSpan().End.getPointer() -
+      result.sourceMgr->getMemoryBuffer(result.mainBufferId)->getBufferStart());
+  if (offset < start || offset > end) {
+    return;
+  }
+  if (auto const* exprStmt = dynamic_cast<const ExpressionStatement*>(stmt)) {
+    appendMatchWalkExpr(result, offset, out, seen, exprStmt->getExpression());
+  } else if (auto const* varDecl = dynamic_cast<const VarDecl*>(stmt)) {
+    appendMatchWalkExpr(result, offset, out, seen, varDecl->getValue());
+  } else if (auto const* assign = dynamic_cast<const Assignment*>(stmt)) {
+    appendMatchWalkExpr(result, offset, out, seen, assign->getLeftHandSide());
+    appendMatchWalkExpr(result, offset, out, seen, assign->getRightHandSide());
+  } else if (auto const* ifNode = dynamic_cast<const If*>(stmt)) {
+    for (Expression* cond : ifNode->getConds()) {
+      appendMatchWalkExpr(result, offset, out, seen, cond);
+    }
+    for (Compound* block : ifNode->getBlocks()) {
+      appendMatchWalkStmt(result, offset, out, seen, block);
+    }
+  } else if (auto const* whileNode = dynamic_cast<const While*>(stmt)) {
+    appendMatchWalkExpr(result, offset, out, seen, whileNode->getCond());
+    appendMatchWalkStmt(result, offset, out, seen, whileNode->getBlock());
+  } else if (auto const* forIn = dynamic_cast<const ForIn*>(stmt)) {
+    appendMatchWalkExpr(result, offset, out, seen, forIn->getIterable());
+    appendMatchWalkStmt(result, offset, out, seen, forIn->getBlock());
+  } else if (auto const* ret = dynamic_cast<const Return*>(stmt)) {
+    appendMatchWalkExpr(result, offset, out, seen, ret->getValue());
+  } else if (auto const* defer = dynamic_cast<const Defer*>(stmt)) {
+    appendMatchWalkStmt(result, offset, out, seen, defer->getStatement());
+  } else if (auto const* compound = dynamic_cast<const Compound*>(stmt)) {
+    for (Statement* child : compound->getChildren()) {
+      appendMatchWalkStmt(result, offset, out, seen, child);
+    }
+  } else if (auto const* func = dynamic_cast<const FuncDecl*>(stmt)) {
+    appendMatchWalkStmt(result, offset, out, seen, func->getBody());
+  } else if (auto const* klass = dynamic_cast<const Class*>(stmt)) {
+    for (VarDecl* field : klass->getFields()) {
+      appendMatchWalkStmt(result, offset, out, seen, field);
+    }
+    for (FuncDecl* method : klass->getMethods()) {
+      appendMatchWalkStmt(result, offset, out, seen, method);
+    }
+  } else if (auto const* en = dynamic_cast<const Enum*>(stmt)) {
+    for (FuncDecl* method : en->getMethods()) {
+      appendMatchWalkStmt(result, offset, out, seen, method);
+    }
+  }
+}
+
 void appendMatchArmBindingCandidatesAtOffset(const AnalysisResult& result, unsigned offset,
                                              std::vector<CompletionCandidate>& out,
                                              std::unordered_set<std::string>& seen) {
@@ -663,200 +864,8 @@ void appendMatchArmBindingCandidatesAtOffset(const AnalysisResult& result, unsig
   if (ast == nullptr) {
     return;
   }
-  std::function<void(const Statement*)> walkStmt;
-  std::function<void(const Expression*)> walkExpr = [&](const Expression* expr) {
-    if (expr == nullptr || !expr->getSpan().isValid()) {
-      return;
-    }
-    unsigned const start = static_cast<unsigned>(
-        expr->getSpan().Start.getPointer() -
-        result.sourceMgr->getMemoryBuffer(result.mainBufferId)->getBufferStart());
-    unsigned const end = static_cast<unsigned>(
-        expr->getSpan().End.getPointer() -
-        result.sourceMgr->getMemoryBuffer(result.mainBufferId)->getBufferStart());
-    if (offset < start || offset > end) {
-      return;
-    }
-    if (auto const* match = dynamic_cast<const MatchExpr*>(expr)) {
-      walkExpr(match->getScrutinee());
-      Type* matchType = resolvedTypeForCompletionExpr(match->getScrutinee());
-      for (const MatchArm& arm : match->getArms()) {
-        if (arm.body == nullptr || !arm.body->getSpan().isValid()) {
-          continue;
-        }
-        unsigned const patternStart = static_cast<unsigned>(
-            arm.pattern.span.Start.getPointer() -
-            result.sourceMgr->getMemoryBuffer(result.mainBufferId)->getBufferStart());
-        unsigned const armStart = static_cast<unsigned>(
-            arm.body->getSpan().Start.getPointer() -
-            result.sourceMgr->getMemoryBuffer(result.mainBufferId)->getBufferStart());
-        unsigned const armEnd = static_cast<unsigned>(
-            arm.body->getSpan().End.getPointer() -
-            result.sourceMgr->getMemoryBuffer(result.mainBufferId)->getBufferStart());
-        if (matchType != nullptr && matchType->is(BaseType::TY_ENUM) && offset >= patternStart &&
-            offset <= armStart) {
-          for (EnumVariant* variant : matchType->getEnumVariants()) {
-            if (variant == nullptr) {
-              continue;
-            }
-            addCandidate(out, seen,
-                         CompletionCandidate{.label = variant->name,
-                                             .kind = ::lsp::CompletionItemKind::EnumMember,
-                                             .detail = matchType->getDisplayName(),
-                                             .documentation = {}});
-          }
-        }
-        if (offset < armStart || offset > armEnd) {
-          continue;
-        }
-        Type* enumType = arm.pattern.resolvedEnumType;
-        if (enumType != nullptr) {
-          const auto& variants = enumType->getEnumVariants();
-          if (arm.pattern.resolvedVariantIndex < variants.size() &&
-              variants[arm.pattern.resolvedVariantIndex] != nullptr) {
-            const auto& payloadTypes = variants[arm.pattern.resolvedVariantIndex]->payloadTypes;
-            for (size_t i = 0; i < arm.pattern.bindings.size() && i < payloadTypes.size(); ++i) {
-              if (arm.pattern.bindings[i] == "_") {
-                continue;
-              }
-              addCandidate(out, seen,
-                           CompletionCandidate{.label = arm.pattern.bindings[i],
-                                               .kind = ::lsp::CompletionItemKind::Variable,
-                                               .detail = formatTypeName(payloadTypes[i], result.rootScope.get()),
-                                               .documentation = {}});
-            }
-          }
-        }
-        walkExpr(arm.body.get());
-        if (arm.pattern.kind == MatchPatternKind::VALUE && arm.pattern.valueExpr != nullptr) {
-          walkExpr(arm.pattern.valueExpr.get());
-        }
-      }
-      return;
-    }
-    if (auto const* blockExpr = dynamic_cast<const BlockExpr*>(expr)) {
-      walkStmt(blockExpr->getBody());
-      walkExpr(blockExpr->getTailExpr());
-      return;
-    }
-    if (auto const* call = dynamic_cast<const FuncCall*>(expr)) {
-      for (Expression* arg : call->getArguments()) {
-        walkExpr(arg);
-      }
-      return;
-    }
-    if (auto const* dot = dynamic_cast<const DotOp*>(expr)) {
-      walkExpr(dot->getLeft());
-      walkExpr(dot->getRight());
-      return;
-    }
-    if (auto const* binary = dynamic_cast<const BinaryOp*>(expr)) {
-      walkExpr(binary->getLeft());
-      walkExpr(binary->getRight());
-      return;
-    }
-    if (auto const* unary = dynamic_cast<const UnaryOp*>(expr)) {
-      walkExpr(unary->getExpression());
-      return;
-    }
-    if (auto const* castOp = dynamic_cast<const CastOp*>(expr)) {
-      walkExpr(castOp->getExpression());
-      return;
-    }
-    if (auto const* isOp = dynamic_cast<const IsOp*>(expr)) {
-      walkExpr(isOp->getLeft());
-      return;
-    }
-    if (auto const* subscript = dynamic_cast<const SubscriptOp*>(expr)) {
-      walkExpr(subscript->getLeft());
-      walkExpr(subscript->getIndex());
-      return;
-    }
-    if (auto const* list = dynamic_cast<const ListLiteral*>(expr)) {
-      for (Expression* el : list->getElements()) {
-        walkExpr(el);
-      }
-      return;
-    }
-    if (auto const* dict = dynamic_cast<const DictLiteral*>(expr)) {
-      for (Expression* key : dict->getKeys()) {
-        walkExpr(key);
-      }
-      for (Expression* val : dict->getValues()) {
-        walkExpr(val);
-      }
-      return;
-    }
-    if (auto const* tup = dynamic_cast<const TupleLiteral*>(expr)) {
-      for (Expression* el : tup->getElements()) {
-        walkExpr(el);
-      }
-      return;
-    }
-    if (auto const* interp = dynamic_cast<const StringInterpolation*>(expr)) {
-      for (Expression* el : interp->getExprs()) {
-        walkExpr(el);
-      }
-    }
-  };
-  walkStmt = [&](const Statement* stmt) {
-    if (stmt == nullptr || !stmt->getSpan().isValid()) {
-      return;
-    }
-    unsigned const start = static_cast<unsigned>(
-        stmt->getSpan().Start.getPointer() -
-        result.sourceMgr->getMemoryBuffer(result.mainBufferId)->getBufferStart());
-    unsigned const end = static_cast<unsigned>(
-        stmt->getSpan().End.getPointer() -
-        result.sourceMgr->getMemoryBuffer(result.mainBufferId)->getBufferStart());
-    if (offset < start || offset > end) {
-      return;
-    }
-    if (auto const* exprStmt = dynamic_cast<const ExpressionStatement*>(stmt)) {
-      walkExpr(exprStmt->getExpression());
-    } else if (auto const* varDecl = dynamic_cast<const VarDecl*>(stmt)) {
-      walkExpr(varDecl->getValue());
-    } else if (auto const* assign = dynamic_cast<const Assignment*>(stmt)) {
-      walkExpr(assign->getLeftHandSide());
-      walkExpr(assign->getRightHandSide());
-    } else if (auto const* ifNode = dynamic_cast<const If*>(stmt)) {
-      for (Expression* cond : ifNode->getConds()) {
-        walkExpr(cond);
-      }
-      for (Compound* block : ifNode->getBlocks()) {
-        walkStmt(block);
-      }
-    } else if (auto const* whileNode = dynamic_cast<const While*>(stmt)) {
-      walkExpr(whileNode->getCond());
-      walkStmt(whileNode->getBlock());
-    } else if (auto const* forIn = dynamic_cast<const ForIn*>(stmt)) {
-      walkExpr(forIn->getIterable());
-      walkStmt(forIn->getBlock());
-    } else if (auto const* ret = dynamic_cast<const Return*>(stmt)) {
-      walkExpr(ret->getValue());
-    } else if (auto const* defer = dynamic_cast<const Defer*>(stmt)) {
-      walkStmt(defer->getStatement());
-    } else if (auto const* compound = dynamic_cast<const Compound*>(stmt)) {
-      for (Statement* child : compound->getChildren()) {
-        walkStmt(child);
-      }
-    } else if (auto const* func = dynamic_cast<const FuncDecl*>(stmt)) {
-      walkStmt(func->getBody());
-    } else if (auto const* klass = dynamic_cast<const Class*>(stmt)) {
-      for (VarDecl* field : klass->getFields()) {
-        walkStmt(field);
-      }
-      for (FuncDecl* method : klass->getMethods()) {
-        walkStmt(method);
-      }
-    } else if (auto const* en = dynamic_cast<const Enum*>(stmt)) {
-      for (FuncDecl* method : en->getMethods()) {
-        walkStmt(method);
-      }
-    }
-  };
   for (Statement* stmt : ast->getChildren()) {
-    walkStmt(stmt);
+    appendMatchWalkStmt(result, offset, out, seen, stmt);
   }
 }
 
