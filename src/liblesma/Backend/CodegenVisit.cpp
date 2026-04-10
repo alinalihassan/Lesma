@@ -715,8 +715,9 @@ namespace {
   std::unordered_set<lesma::Type*> active;
   return typeContainsUnboundGenericImpl(type, active);
 }
+} // namespace
 
-[[nodiscard]] auto genericMethodMapForSelf(
+auto Codegen::genericMethodMapForSelf(
     std::unordered_map<std::string, std::unordered_map<std::string, const FuncDecl*>>&
         genericMethods,
     lesma::Value* selfSymbol) -> std::unordered_map<std::string, const FuncDecl*>* {
@@ -737,7 +738,6 @@ namespace {
   }
   return nullptr;
 }
-} // namespace
 
 auto Codegen::isLesmaPtrToClass(lesma::Type* t) -> bool {
   return t != nullptr && t->is(BaseType::TY_PTR) && t->getElementType() != nullptr &&
@@ -7507,7 +7507,7 @@ auto Codegen::callNamedFunction(
   const FuncDecl* genericFuncTemplateForLookup = nullptr;
   std::string resolvedCallableKey = makeResolvedCallableKey(typecheckCalleeFallback);
   if (selfSymbol != nullptr) {
-    if (auto* methodMap = genericMethodMapForSelf(genericMethods, selfSymbol);
+    if (auto* methodMap = this->genericMethodMapForSelf(genericMethods, selfSymbol);
         methodMap != nullptr) {
       if (auto mit = methodMap->find(functionName); mit != methodMap->end()) {
         genericFuncTemplateForLookup = mit->second;
@@ -7776,7 +7776,7 @@ auto Codegen::callNamedFunction(
   if (symbol->getLlvmValue() == nullptr || genericLambdaNeedsSpecialize) {
     const FuncDecl* templateDecl = nullptr;
     if (selfSymbol != nullptr) {
-      if (auto* methodMap = genericMethodMapForSelf(genericMethods, selfSymbol);
+      if (auto* methodMap = this->genericMethodMapForSelf(genericMethods, selfSymbol);
           methodMap != nullptr) {
         auto mit = methodMap->find(functionName);
         if (mit != methodMap->end()) {
@@ -8611,7 +8611,7 @@ auto Codegen::callMethodByName(llvm::SMRange span, lesma::Value* receiver,
         methodOwner = receiver;
       }
       if (methodOwner != nullptr) {
-        if (auto* methodMap = genericMethodMapForSelf(genericMethods, methodOwner);
+        if (auto* methodMap = this->genericMethodMapForSelf(genericMethods, methodOwner);
             methodMap != nullptr) {
           if (auto mit = methodMap->find(methodName); mit != methodMap->end()) {
             const FuncDecl* templateDecl = mit->second;

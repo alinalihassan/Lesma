@@ -728,6 +728,10 @@ private:
    */
   [[nodiscard]] static auto isLesmaTypeReadyForArcTypeMangling(lesma::Type* type) -> bool;
   [[nodiscard]] static auto isLesmaPtrToClass(lesma::Type* t) -> bool;
+  [[nodiscard]] auto genericMethodMapForSelf(
+      std::unordered_map<std::string, std::unordered_map<std::string, const FuncDecl*>>&
+          genericMethods,
+      lesma::Value* selfSymbol) -> std::unordered_map<std::string, const FuncDecl*>*;
   /** Stack/global slot LLVM type for a local or exported variable (class-as-ptr ABI, func pair). */
   [[nodiscard]] auto llvmStorageTypeForVarSlot(lesma::Type* storedType, lesma::Value* existing)
       -> llvm::Type*;
