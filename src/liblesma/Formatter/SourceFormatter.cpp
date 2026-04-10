@@ -502,8 +502,7 @@ private:
     bodyInner.push_back(hardLine());
     bodyInner.push_back(docJoin(hardLine(), armDocs));
     Doc trailingDetached = lesma::pretty::nil();
-    if (!node->getTrailingDetachedComments().empty() ||
-        node->getExtraBlankLinesBeforeTrailingDetachedComments() > 0U) {
+    if (!node->getTrailingDetachedComments().empty()) {
       std::vector<Doc> trailingParts;
       if (node->getExtraBlankLinesBeforeTrailingDetachedComments() > 0U) {
         trailingParts.push_back(
