@@ -406,6 +406,29 @@ if current is null {
   EXPECT_NE(moduleText.find("arc.release.destroyfn"), std::string::npos);
 }
 
+TEST(CodegenIRTests, AnyBoxedEnumPayloadBuildsEnumArcHelpers) {
+  std::string const moduleText = buildModuleText(R"(class Box {
+  var value: int
+
+  func new(value: int) {
+    self.value = value
+  }
+}
+
+enum MaybeBox {
+  None
+  Some(Box)
+}
+
+var payload: any = MaybeBox.Some(Box(1))
+payload = 7
+)");
+
+  EXPECT_NE(moduleText.find("__lesma_arc_destroy_payload_"), std::string::npos);
+  EXPECT_NE(moduleText.find("__lesma_arc_release_storage_"), std::string::npos);
+  EXPECT_NE(moduleText.find("arc.enum.release"), std::string::npos);
+}
+
 TEST(CodegenIRTests, NullCoalesceManagedPayloadBuildsMergePhi) {
   std::string const moduleText = buildModuleText(R"(class Box {
   var value: int
@@ -651,7 +674,95 @@ if match current {
 
   auto const [exitCode, output] = runFileWithArcDebug(mainPath);
   EXPECT_EQ(exitCode, 0);
-  EXPECT_NE(output.find("[arc] live objects: 0"), std::string::npos);
+  EXPECT_NE(output.find("[arc] live objects: 0"), std::string::npos) << output;
+}
+
+TEST(ArcDebugRuntimeTests, EnumMultiPayloadOverwriteReleasesManagedPayloads) {
+  std::filesystem::path const scratchDir =
+      recreateScratchDir("lesma_arc_runtime_enum_multi_payload_zero");
+  std::filesystem::path const mainPath = scratchDir / "main.les";
+  writeScratchFile(mainPath, R"(class Box {
+  var value: int
+
+  func new(value: int) {
+    self.value = value
+  }
+}
+
+enum MaybePair {
+  Empty
+  Pair(Box, Box)
+}
+
+var current: MaybePair = MaybePair.Pair(Box(1), Box(2))
+current = MaybePair.Empty
+if match current {
+  MaybePair.Empty => true
+  MaybePair.Pair(_, _) => false
+} == false {
+  exit(1)
+}
+)");
+
+  auto const [exitCode, output] = runFileWithArcDebug(mainPath);
+  EXPECT_EQ(exitCode, 0);
+  EXPECT_NE(output.find("[arc] live objects: 0"), std::string::npos) << output;
+}
+
+TEST(ArcDebugRuntimeTests, AnyBoxedEnumPayloadReportsZero) {
+  std::filesystem::path const scratchDir =
+      recreateScratchDir("lesma_arc_runtime_any_boxed_enum_payload_zero");
+  std::filesystem::path const mainPath = scratchDir / "main.les";
+  writeScratchFile(mainPath, R"(class Box {
+  var value: int
+
+  func new(value: int) {
+    self.value = value
+  }
+}
+
+enum MaybeBox {
+  None
+  Some(Box)
+}
+
+var payload: any = MaybeBox.Some(Box(1))
+payload = 7
+if payload is not int or payload as int != 7 {
+  exit(1)
+}
+)");
+
+  auto const [exitCode, output] = runFileWithArcDebug(mainPath);
+  EXPECT_EQ(exitCode, 0);
+  EXPECT_NE(output.find("[arc] live objects: 0"), std::string::npos) << output;
+}
+
+TEST(ArcDebugRuntimeTests, GenericEnumPayloadOverwriteReportsZero) {
+  std::filesystem::path const scratchDir =
+      recreateScratchDir("lesma_arc_runtime_generic_enum_payload_zero");
+  std::filesystem::path const mainPath = scratchDir / "main.les";
+  writeScratchFile(mainPath, R"(class Box {
+  var value: int
+
+  func new(value: int) {
+    self.value = value
+  }
+}
+
+var current: Result<Box, int> = Result.Ok(Box(1))
+current = Result.Err(2)
+if match current {
+  Result.Err(value) => value == 2
+  Result.Ok(_) => false
+} == false {
+  exit(1)
+}
+)");
+
+  auto const [exitCode, output] = runFileWithArcDebug(mainPath);
+  EXPECT_EQ(exitCode, 0);
+  EXPECT_NE(output.find("[arc] live objects: 0"), std::string::npos) << output;
 }
 
 TEST(ArcDebugRuntimeTests, ImportedModuleGlobalsReportZeroAfterCleanup) {

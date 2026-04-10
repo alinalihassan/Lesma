@@ -41,6 +41,16 @@ auto Codegen::isLesmaTypeReadyForArcTypeMangling(lesma::Type* type) -> bool {
       return field != nullptr && isLesmaTypeReadyForArcTypeMangling(field->type);
     });
   }
+  if (type->is(BaseType::TY_ENUM)) {
+    return llvm::isa<llvm::StructType>(type->getLlvmType()) &&
+           std::ranges::all_of(type->getEnumVariants(), [](EnumVariant* variant) -> bool {
+             return variant != nullptr &&
+                    std::ranges::all_of(variant->payloadTypes, [](lesma::Type* payloadType) -> bool {
+                      return payloadType != nullptr &&
+                             isLesmaTypeReadyForArcTypeMangling(payloadType);
+                    });
+           });
+  }
   if (type->is(BaseType::TY_CLASS)) {
     return llvm::isa<llvm::StructType>(type->getLlvmType());
   }
@@ -432,18 +442,7 @@ auto Codegen::emitForEachEnumVariantPayloadWithTagDispatch(
     if (variant == nullptr || variant->payloadTypes.empty()) {
       continue;
     }
-    Type* payloadType = nullptr;
-    if (variant->payloadTypes.size() == 1U) {
-      payloadType = variant->payloadTypes.front();
-    } else {
-      std::vector<std::unique_ptr<Field>> tupleFields;
-      tupleFields.reserve(variant->payloadTypes.size());
-      for (size_t i = 0; i < variant->payloadTypes.size(); ++i) {
-        tupleFields.push_back(
-            std::make_unique<Field>("_" + std::to_string(i), variant->payloadTypes[i]));
-      }
-      payloadType = cacheType(std::make_unique<Type>(BaseType::TY_TUPLE, nullptr, std::move(tupleFields)));
-    }
+    Type* payloadType = getEnumVariantAggregatePayloadType(enumTy, idx);
     if (!TypeUtils::containsArcManagedValue(payloadType)) {
       continue;
     }
@@ -501,6 +500,12 @@ auto Codegen::emitForEachUnionMemberWithTagDispatch(
 auto Codegen::emitReleaseTrackedSlot(const ArcTrackedSlot& tracked) -> void {
   if (tracked.slot == nullptr || tracked.type == nullptr ||
       !TypeUtils::containsArcManagedValue(tracked.type)) {
+    return;
+  }
+  if (llvm::Function* releaseFn = getOrCreateArcStorageReleaseFunction(tracked.type);
+      releaseFn != nullptr) {
+    auto* releaseTy = llvm::FunctionType::get(builder->getVoidTy(), {builder->getPtrTy()}, false);
+    builder->CreateCall(releaseTy, releaseFn, {tracked.slot});
     return;
   }
   llvm::Type* slotTy = tracked.type->is(BaseType::TY_FUNCTION) && tracked.storesFuncValuePair
@@ -569,12 +574,18 @@ auto Codegen::registerModuleArcRoot(llvm::GlobalVariable* slot, lesma::Type* typ
 
 auto Codegen::emitReleaseRegisteredModuleArcRoots() -> void {
   for (auto it = moduleArcTrackedRoots.rbegin(); it != moduleArcTrackedRoots.rend(); ++it) {
-    llvm::Type* storageTy = it->slot->getValueType();
     if (emitArcTrace) {
       emitArcDebugTraceModuleRoot(*it);
     }
-    emitReleaseLoadedValue(it->type, builder->CreateLoad(storageTy, it->slot, "arc.root.load"),
-                           it->storesFuncValuePair);
+    if (llvm::Function* releaseFn = getOrCreateArcStorageReleaseFunction(it->type);
+        releaseFn != nullptr) {
+      auto* releaseTy = llvm::FunctionType::get(builder->getVoidTy(), {builder->getPtrTy()}, false);
+      builder->CreateCall(releaseTy, releaseFn, {it->slot});
+    } else {
+      llvm::Type* storageTy = it->slot->getValueType();
+      emitReleaseLoadedValue(it->type, builder->CreateLoad(storageTy, it->slot, "arc.root.load"),
+                             it->storesFuncValuePair);
+    }
     builder->CreateStore(llvm::Constant::getNullValue(it->slot->getValueType()), it->slot);
     if (emitArcDebug) {
       builder->CreateCall(getOrCreateArcDebugCleanupStepFunction());
@@ -743,6 +754,22 @@ auto Codegen::getOrCreateArcDestroyFunction(lesma::Type* type) -> llvm::Function
     builder->CreateBr(doneBlock);
     builder->SetInsertPoint(doneBlock);
     emitArcFreePayload(listHandle);
+    builder->CreateRetVoid();
+    builder->restoreIP(savedIp);
+    return fn;
+  }
+
+  if (type->is(BaseType::TY_ENUM)) {
+    auto* enumTy = llvm::cast<llvm::StructType>(getOrCreateLlvmType(type));
+    auto* enumValue = builder->CreateBitCast(payload, llvm::PointerType::get(enumTy->getContext(), 0U),
+                                             "arc.enum.obj");
+    auto* tagPtr = builder->CreateStructGEP(enumTy, enumValue, 0U, "arc.enum.tag.ptr");
+    auto* tagVal = builder->CreateLoad(getOrCreateEnumTagLlvmType(type), tagPtr, "arc.enum.tag");
+    emitForEachEnumVariantPayloadWithTagDispatch(
+        type, enumValue, tagVal, "arc.enum.destroy", [this](Type* payloadType, llvm::Value* payload) {
+          emitReleaseLoadedValue(payloadType, payload, false);
+        });
+    emitArcFreePayload(enumValue);
     builder->CreateRetVoid();
     builder->restoreIP(savedIp);
     return fn;

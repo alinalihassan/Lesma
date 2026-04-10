@@ -385,7 +385,7 @@ auto Codegen::compileModule(llvm::SMRange span, const std::string& filepath, boo
     }
 
     // Imported modules run optimize(O0) (no-op). For JIT, promote PrivateLinkage so Mach-O
-    // JITLink can resolve symbols across ORC modules at -O0 (see prepareJit / addLazyIRModule).
+    // JITLink can resolve symbols across ORC modules at -O0 (see prepareJit / addIRModule).
     codegen->optimize(OptimizationLevel::O0);
     codegen->theModule->setModuleIdentifier(filepath);
 
@@ -432,11 +432,10 @@ auto Codegen::compileModule(llvm::SMRange span, const std::string& filepath, boo
         // Do not promote private GlobalVariables (string literals, etc.): Mach-O JITLink reports
         // "Unexpected definitions" for anonymous ___unnamed_* symbols when they become external.
         llvm::Error jitErr =
-            theJit->addLazyIRModule(ThreadSafeModule(std::move(codegen->theModule), *theContext));
+            theJit->addIRModule(ThreadSafeModule(std::move(codegen->theModule), *theContext));
         if (jitErr) {
-          throw CodegenError(span,
-                             std::string("Failed adding lazy import to JIT: ") + canonicalPath +
-                                 ": " + jitErrorToString(std::move(jitErr)));
+          throw CodegenError(span, std::string("Failed adding import to JIT: ") + canonicalPath +
+                                       ": " + jitErrorToString(std::move(jitErr)));
         }
         if (!jitModuleInitSymbol.empty() && pendingJitModuleInits != nullptr) {
           pendingJitModuleInits->push_back(jitModuleInitSymbol);

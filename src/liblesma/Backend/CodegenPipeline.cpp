@@ -335,6 +335,8 @@ auto Codegen::initializeTargetMachine() -> std::unique_ptr<llvm::TargetMachine> 
 
   llvm::TargetOptions const opt;
   llvm::Reloc::Model rm = llvm::Reloc::Model();
+  llvm::CodeGenOptLevel codegenOptLevel =
+      emitArcDebug ? llvm::CodeGenOptLevel::None : llvm::CodeGenOptLevel::Default;
 
   std::string cpu(llvm::sys::getHostCPUName());
   if (cpu.empty()) {
@@ -351,9 +353,11 @@ auto Codegen::initializeTargetMachine() -> std::unique_ptr<llvm::TargetMachine> 
 
   std::unique_ptr<llvm::TargetMachine> targetMachine(
 #if LLVM_VERSION_MAJOR >= 21
-      target->createTargetMachine(targetTriple, cpu, featuresStr, opt, rm));
+      target->createTargetMachine(targetTriple, cpu, featuresStr, opt, rm, std::nullopt,
+                                  codegenOptLevel));
 #else
-      target->createTargetMachine(targetTriple.str(), cpu, featuresStr, opt, rm));
+      target->createTargetMachine(targetTriple.str(), cpu, featuresStr, opt, rm, std::nullopt,
+                                  codegenOptLevel));
 #endif
   return targetMachine;
 }
@@ -361,8 +365,11 @@ auto Codegen::initializeTargetMachine() -> std::unique_ptr<llvm::TargetMachine> 
 auto Codegen::initializeJit() -> std::unique_ptr<LLLazyJIT> {
   llvm::orc::LLLazyJITBuilder jitBuilder{};
   jitBuilder.setDataLayout(theModule->getDataLayout());
-  jitBuilder.setJITTargetMachineBuilder(
-      llvm::orc::JITTargetMachineBuilder(targetMachine->getTargetTriple()));
+  llvm::orc::JITTargetMachineBuilder jitTargetMachineBuilder(targetMachine->getTargetTriple());
+  if (emitArcDebug) {
+    jitTargetMachineBuilder.setCodeGenOptLevel(llvm::CodeGenOptLevel::None);
+  }
+  jitBuilder.setJITTargetMachineBuilder(std::move(jitTargetMachineBuilder));
   auto jitOrErr = jitBuilder.create();
   if (!jitOrErr) {
     throw CodegenError({}, std::string("Couldn't initialize JIT:\n") +
@@ -571,10 +578,10 @@ auto Codegen::linkObjectFile(const std::string& objFilename) -> void {
 
 auto Codegen::prepareJit() -> void {
   llvm::Error addModuleErr =
-      theJit->addLazyIRModule(ThreadSafeModule(std::move(theModule), *theContext));
+      theJit->addIRModule(ThreadSafeModule(std::move(theModule), *theContext));
   if (addModuleErr) {
     // Concatenate: LLVM error text may contain characters that break fmt::format placeholders.
-    throw CodegenError({}, std::string("JIT addLazyIRModule failed: ") +
+    throw CodegenError({}, std::string("JIT addIRModule failed: ") +
                                llvmErrorToString(std::move(addModuleErr)));
   }
   Expected<ExecutorAddr> mainFuncOrErr = theJit->lookup(topLevelFunc->getName());

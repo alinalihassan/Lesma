@@ -565,17 +565,18 @@ auto Codegen::getOrCreateLlvmType(lesma::Type* type) -> llvm::Type* {
     const llvm::DataLayout& dl = theModule->getDataLayout();
     unsigned maxAlloc = 0U;
     unsigned maxAbiAlign = 1U;
-    for (EnumVariant* variant : variants) {
+    for (unsigned idx = 0; idx < variants.size(); ++idx) {
+      EnumVariant* variant = variants[idx];
       if (variant == nullptr) {
         continue;
       }
-      for (Type* payloadType : variant->payloadTypes) {
-        llvm::Type* const lt = getStoredAggregateFieldLlvmType(payloadType);
-        maxAlloc =
-            std::max(maxAlloc, static_cast<unsigned>(dl.getTypeAllocSize(lt).getFixedValue()));
-        maxAbiAlign =
-            std::max(maxAbiAlign, static_cast<unsigned>(dl.getABITypeAlign(lt).value()));
+      Type* aggregatePayloadType = getEnumVariantAggregatePayloadType(type, idx);
+      if (aggregatePayloadType == nullptr) {
+        continue;
       }
+      llvm::Type* const lt = getStoredAggregateFieldLlvmType(aggregatePayloadType);
+      maxAlloc = std::max(maxAlloc, static_cast<unsigned>(dl.getTypeAllocSize(lt).getFixedValue()));
+      maxAbiAlign = std::max(maxAbiAlign, static_cast<unsigned>(dl.getABITypeAlign(lt).value()));
     }
     unsigned const payloadBytes = llvm::alignTo(maxAlloc, maxAbiAlign);
     unsigned const numI64 = std::max(1U, (payloadBytes + 7U) / 8U);
@@ -625,6 +626,33 @@ auto Codegen::getEnumPayloadLlvmType(lesma::Type* enumTy) -> llvm::Type* {
   getOrCreateLlvmType(enumTy);
   auto* st = llvm::cast<llvm::StructType>(enumTy->getLlvmType());
   return st->getElementType(1U);
+}
+
+auto Codegen::getEnumVariantAggregatePayloadType(lesma::Type* enumTy, unsigned variantIndex)
+    -> lesma::Type* {
+  if (enumTy == nullptr || !enumTy->is(BaseType::TY_ENUM)) {
+    llvm::SMRange const span = enumTy != nullptr ? enumTy->getDeclarationSpan() : llvm::SMRange{};
+    throw CodegenError(span,
+                       "Internal error: getEnumVariantAggregatePayloadType expects an enum type");
+  }
+  auto variants = enumTy->getEnumVariants();
+  if (variantIndex >= variants.size() || variants[variantIndex] == nullptr) {
+    throw CodegenError(enumTy->getDeclarationSpan(), "Invalid enum variant index");
+  }
+  EnumVariant* variant = variants[variantIndex];
+  if (variant->payloadTypes.empty()) {
+    return nullptr;
+  }
+  if (variant->payloadTypes.size() == 1U) {
+    return variant->payloadTypes.front();
+  }
+  std::vector<std::unique_ptr<Field>> tupleFields;
+  tupleFields.reserve(variant->payloadTypes.size());
+  for (size_t i = 0; i < variant->payloadTypes.size(); ++i) {
+    tupleFields.push_back(
+        std::make_unique<Field>("_" + std::to_string(i), variant->payloadTypes[i]));
+  }
+  return cacheType(std::make_unique<Type>(BaseType::TY_TUPLE, nullptr, std::move(tupleFields)));
 }
 
 auto Codegen::getStoredAggregateFieldLlvmType(lesma::Type* fieldType) -> llvm::Type* {

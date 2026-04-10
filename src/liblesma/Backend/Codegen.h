@@ -336,7 +336,8 @@ protected:
   /** Wrap \p val into \p unionTy at \p variantIndex using existing alloca \p destSlot (union
    * struct). */
   auto emitUnionWrapValueToSlot(llvm::SMRange span, lesma::Value* val, lesma::Type* unionTy,
-                                unsigned variantIndex, llvm::Value* destSlot)
+                                unsigned variantIndex, llvm::Value* destSlot,
+                                bool retainBorrowedPayload = true)
       -> std::unique_ptr<lesma::Value>;
   [[nodiscard]] auto unionVariantIndexOf(lesma::Type* unionTy, lesma::Type* memberTy) const
       -> std::optional<unsigned>;
@@ -344,6 +345,8 @@ protected:
                                     lesma::Type* memberTy) -> llvm::Value*;
   [[nodiscard]] auto getOrCreateEnumTagLlvmType(lesma::Type* enumTy) -> llvm::Type*;
   [[nodiscard]] auto getEnumPayloadLlvmType(lesma::Type* enumTy) -> llvm::Type*;
+  [[nodiscard]] auto getEnumVariantAggregatePayloadType(lesma::Type* enumTy, unsigned variantIndex)
+      -> lesma::Type*;
   auto emitEnumPayloadLoadFromSlot(llvm::Value* enumAllocaPtr, lesma::Type* enumTy,
                                    unsigned variantIndex) -> llvm::Value*;
   auto emitEnumConstructValue(llvm::SMRange span, lesma::Type* enumTy, unsigned variantIndex,

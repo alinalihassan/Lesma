@@ -251,6 +251,8 @@ auto Driver::baseCompile(std::unique_ptr<lesma::Options> options, bool jit) -> i
 
   try {
     int exitCode = 0;
+    llvm::OptimizationLevel const effectiveOptLevel =
+        (emitArcDebug || emitArcTrace) ? llvm::OptimizationLevel::O0 : optLevel;
     {
       auto codegen = timer.measureFile(
           "Compiling", result.mainFilePath, [&]() -> std::unique_ptr<lesma::Codegen> {
@@ -262,12 +264,12 @@ auto Driver::baseCompile(std::unique_ptr<lesma::Options> options, bool jit) -> i
                 std::move(result.typeCache), std::move(result.specializedTypeEnv),
                 std::move(result.specializedTypeToTemplate),
                 std::move(result.specializedClassTypes), std::move(result.importedModules), &timer,
-                emitDebugInfo, emitArcDebug, emitArcTrace, optLevel);
+                emitDebugInfo, emitArcDebug, emitArcTrace, effectiveOptLevel);
             cg->run();
             return cg;
           });
 
-      timer.measure("Optimizing", [&]() -> void { codegen->optimize(optLevel); });
+      timer.measure("Optimizing", [&]() -> void { codegen->optimize(effectiveOptLevel); });
 
       if ((debugFlags & Debug::IR) != Debug::NONE) {
         lesma::print(LogType::DEBUG, "LLVM IR (after optimization):\n");

@@ -793,6 +793,15 @@ auto Codegen::emitSimpleClassPtrOrCastStore(llvm::SMRange span, llvm::Value* des
     storedOwnsArcValue = castVal->getArcOwnedValue();
   }
   if (!storedOwnsArcValue && TypeUtils::containsArcManagedValue(storedType)) {
+    if (!releasePrevious) {
+      if (llvm::Function* retainFn = getOrCreateArcStorageRetainFunction(storedType);
+          retainFn != nullptr) {
+        llvm::Instruction* storeInst = builder->CreateStore(storedValue, destPtr);
+        auto* retainTy = llvm::FunctionType::get(builder->getVoidTy(), {builder->getPtrTy()}, false);
+        builder->CreateCall(retainTy, retainFn, {destPtr});
+        return storeInst;
+      }
+    }
     emitRetainLoadedValue(storedType, storedValue, destStoresFuncValuePair);
   }
   if (releasePrevious && TypeUtils::containsArcManagedValue(storedType)) {
@@ -833,6 +842,13 @@ auto Codegen::emitExistingVarSlotInitializerStore(const VarDecl* node, llvm::Val
     storedOwnsArcValue = castVal->getArcOwnedValue();
   }
   if (!storedOwnsArcValue && TypeUtils::containsArcManagedValue(storedType)) {
+    if (llvm::Function* retainFn = getOrCreateArcStorageRetainFunction(storedType);
+        retainFn != nullptr) {
+      llvm::Instruction* storeInst = builder->CreateStore(storedValue, destPtr);
+      auto* retainTy = llvm::FunctionType::get(builder->getVoidTy(), {builder->getPtrTy()}, false);
+      builder->CreateCall(retainTy, retainFn, {destPtr});
+      return storeInst;
+    }
     emitRetainLoadedValue(storedType, storedValue, destStoresFuncValuePair);
   }
   return builder->CreateStore(storedValue, destPtr);
@@ -1451,19 +1467,7 @@ auto Codegen::emitEnumPayloadLoadFromSlot(llvm::Value* enumAllocaPtr, lesma::Typ
   if (variant->payloadTypes.empty()) {
     return llvm::UndefValue::get(builder->getInt8Ty());
   }
-  Type* payloadType = nullptr;
-  if (variant->payloadTypes.size() == 1U) {
-    payloadType = variant->payloadTypes.front();
-  } else {
-    std::vector<std::unique_ptr<Field>> tupleFields;
-    tupleFields.reserve(variant->payloadTypes.size());
-    for (size_t i = 0; i < variant->payloadTypes.size(); ++i) {
-      tupleFields.push_back(
-          std::make_unique<Field>("_" + std::to_string(i), variant->payloadTypes[i]));
-    }
-    auto tupleType = std::make_unique<Type>(BaseType::TY_TUPLE, nullptr, std::move(tupleFields));
-    payloadType = cacheType(std::move(tupleType));
-  }
+  Type* payloadType = getEnumVariantAggregatePayloadType(enumTy, variantIndex);
   getOrCreateLlvmType(enumTy);
   getOrCreateLlvmType(payloadType);
   auto* st = llvm::cast<llvm::StructType>(enumTy->getLlvmType());
@@ -1498,10 +1502,9 @@ auto Codegen::emitEnumConstructValue(llvm::SMRange span, lesma::Type* enumTy, un
   bool ownsPayload = false;
   if (!variant->payloadTypes.empty()) {
     llvm::Value* payPtr = builder->CreateStructGEP(st, slot, 1U, "enum.pay.ptr");
-    Type* aggregatePayloadType = nullptr;
+    Type* aggregatePayloadType = getEnumVariantAggregatePayloadType(enumTy, variantIndex);
     llvm::Value* payloadValue = nullptr;
     if (variant->payloadTypes.size() == 1U) {
-      aggregatePayloadType = variant->payloadTypes.front();
       auto casted = cast(span, payloadValues.front(), aggregatePayloadType);
       payloadValue = casted->getLlvmValue();
       if (TypeUtils::containsArcManagedValue(aggregatePayloadType) && !casted->getArcOwnedValue()) {
@@ -1511,14 +1514,6 @@ auto Codegen::emitEnumConstructValue(llvm::SMRange span, lesma::Type* enumTy, un
         ownsPayload = casted->getArcOwnedValue();
       }
     } else {
-      std::vector<std::unique_ptr<Field>> tupleFields;
-      tupleFields.reserve(variant->payloadTypes.size());
-      for (size_t i = 0; i < variant->payloadTypes.size(); ++i) {
-        tupleFields.push_back(
-            std::make_unique<Field>("_" + std::to_string(i), variant->payloadTypes[i]));
-      }
-      auto tupleType = std::make_unique<Type>(BaseType::TY_TUPLE, nullptr, std::move(tupleFields));
-      aggregatePayloadType = cacheType(std::move(tupleType));
       getOrCreateLlvmType(aggregatePayloadType);
       payloadValue = llvm::UndefValue::get(aggregatePayloadType->getLlvmType());
       for (size_t i = 0; i < payloadValues.size(); ++i) {
@@ -1647,7 +1642,8 @@ auto Codegen::materializeNarrowedUnionValue(lesma::Value* value, lesma::Type* na
 
 auto Codegen::emitUnionWrapValueToSlot(llvm::SMRange /*span*/, lesma::Value* val,
                                        lesma::Type* unionTy, unsigned variantIndex,
-                                       llvm::Value* destSlot) -> std::unique_ptr<lesma::Value> {
+                                       llvm::Value* destSlot, bool retainBorrowedPayload)
+    -> std::unique_ptr<lesma::Value> {
   getOrCreateLlvmType(unionTy);
   getOrCreateLlvmType(val->getType());
   auto* st = llvm::cast<llvm::StructType>(unionTy->getLlvmType());
@@ -1673,9 +1669,10 @@ auto Codegen::emitUnionWrapValueToSlot(llvm::SMRange /*span*/, lesma::Value* val
       payPtr, llvm::PointerType::get(theModule->getContext(), 0U), "union.pay.tptr");
   builder->CreateStore(v, typedPayPtr);
   bool ownsWrappedPayload = val != nullptr && val->getArcOwnedValue();
-  if (ownsWrappedPayload && val->getType() != nullptr &&
+  if (retainBorrowedPayload && !ownsWrappedPayload && val->getType() != nullptr &&
       TypeUtils::containsArcManagedValue(val->getType())) {
     emitRetainLoadedValue(val->getType(), v, false);
+    ownsWrappedPayload = true;
   }
   llvm::Value* agg = builder->CreateLoad(st, destSlot, "union.val");
   auto out = std::make_unique<lesma::Value>("", unionTy, agg);
@@ -7000,6 +6997,10 @@ auto Codegen::cast(llvm::SMRange span, lesma::Value* val, lesma::Type* type)
             builder->CreateSwitch(tagVal, defaultBB, static_cast<unsigned>(fromMembers.size()));
         std::vector<std::pair<llvm::Value*, llvm::BasicBlock*>> phiIncomings;
         phiIncomings.reserve(fromMembers.size());
+        bool allSameWrappedArc = true;
+        bool anyWrappedArc = false;
+        bool firstWrappedArc = false;
+        bool sawWrappedArc = false;
 
         for (unsigned i = 0; i < fromMembers.size(); ++i) {
           llvm::BasicBlock* caseBB = llvm::BasicBlock::Create(
@@ -7010,7 +7011,16 @@ auto Codegen::cast(llvm::SMRange span, lesma::Value* val, lesma::Type* type)
           llvm::Value* loaded = emitUnionPayloadLoadFromSlot(srcSlot, fromU, memTy);
           auto tmp = std::make_unique<lesma::Value>("", memTy, loaded);
           std::unique_ptr<lesma::Value> wrapped =
-              emitUnionWrapValueToSlot(span, tmp.get(), type, destIdxPerFrom[i], wrapSlot);
+              emitUnionWrapValueToSlot(span, tmp.get(), type, destIdxPerFrom[i], wrapSlot, false);
+          if (!sawWrappedArc) {
+            firstWrappedArc = wrapped->getArcOwnedValue();
+            sawWrappedArc = true;
+          } else if (wrapped->getArcOwnedValue() != firstWrappedArc) {
+            allSameWrappedArc = false;
+          }
+          if (wrapped->getArcOwnedValue()) {
+            anyWrappedArc = true;
+          }
           llvm::Value* outAgg = wrapped->getLlvmValue();
           builder->CreateBr(mergeBB);
           phiIncomings.emplace_back(outAgg, caseBB);
@@ -7030,7 +7040,9 @@ auto Codegen::cast(llvm::SMRange span, lesma::Value* val, lesma::Type* type)
           }
           phi->addIncoming(pr.first, pr.second);
         }
-        return std::make_unique<lesma::Value>("", type, phi);
+        auto out = std::make_unique<lesma::Value>("", type, phi);
+        out->setArcOwnedValue(sawWrappedArc && (allSameWrappedArc ? firstWrappedArc : anyWrappedArc));
+        return out;
       }
     }
     for (unsigned i = 0; i < mem.size(); ++i) {
