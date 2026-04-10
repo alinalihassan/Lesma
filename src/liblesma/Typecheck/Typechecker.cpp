@@ -945,7 +945,7 @@ auto Typechecker::visitListMethodCall(Type* listType, const DotOp* node, const F
     }
     for (size_t i = 0; i < fields.size() && i < argTypes.size(); ++i) {
       Type* expected = substituteInType(fields[i]->type, explicitSubst);
-    if (expected != nullptr && !isLosslesslyAssignableTo(argTypes[i], expected)) {
+      if (expected != nullptr && !isLosslesslyAssignableTo(argTypes[i], expected)) {
         throw TypeCheckError(call->getSpan(),
                              "Argument type {} does not match explicit parameter type {}",
                              argTypes[i]->toString(), expected->toString());
@@ -1253,7 +1253,8 @@ void Typechecker::finalizeResolvedMethodCallTyping(
     }
     if (expectedShape->is(BaseType::TY_ENUM)) {
       Type* retTemplate = retType;
-      if (auto it = specializedTypeToTemplate.find(retType); it != specializedTypeToTemplate.end()) {
+      if (auto it = specializedTypeToTemplate.find(retType);
+          it != specializedTypeToTemplate.end()) {
         retTemplate = it->second;
       }
       Type* expectedTemplate = expectedShape;
@@ -1490,7 +1491,8 @@ void Typechecker::finishGenericClassCallWithExplicitTypeArgs(
     Type* ptrToClass = typeAsPtrIfClassForOverload(classType);
     std::vector<Type*> constructorParamTypes = {ptrToClass};
     constructorParamTypes.insert(constructorParamTypes.end(), argTypes.begin(), argTypes.end());
-    constructor = lookupConstructorForAllocatedClass(ctorLookupScope, constructorParamTypes, classType);
+    constructor =
+        lookupConstructorForAllocatedClass(ctorLookupScope, constructorParamTypes, classType);
     if (constructor == nullptr) {
       throw TypeCheckError(callSite->getSpan(),
                            "Constructor not found for {} with given type arguments",
@@ -1499,7 +1501,8 @@ void Typechecker::finishGenericClassCallWithExplicitTypeArgs(
     enforcePrivateMemberReadable(callSite->getSpan(), constructor);
   } else {
     Type* templateClass = classType;
-    if (auto it = specializedTypeToTemplate.find(classType); it != specializedTypeToTemplate.end()) {
+    if (auto it = specializedTypeToTemplate.find(classType);
+        it != specializedTypeToTemplate.end()) {
       templateClass = it->second;
     }
     auto astIt = classAstByType.find(templateClass);
@@ -1524,7 +1527,8 @@ void Typechecker::finishGenericClassCallWithExplicitTypeArgs(
         }
         Type* ptrToClass = typeAsPtrIfClassForOverload(classType);
         std::vector<Type*> constructorParamTypes = {ptrToClass};
-        constructor = lookupConstructorForAllocatedClass(ctorLookupScope, constructorParamTypes, classType);
+        constructor =
+            lookupConstructorForAllocatedClass(ctorLookupScope, constructorParamTypes, classType);
       } else if (hasAnyExplicitNew) {
         throw TypeCheckError(callSite->getSpan(),
                              "Constructor not found for {} with given type arguments",
@@ -1718,11 +1722,10 @@ auto Typechecker::materializeImportedType(Type* type) -> Type* {
       if (candidate == nullptr || !candidate->is(type->getBaseType())) {
         return nullptr;
       }
-      if (type->isBuiltinStringClass() && candidate->isBuiltinStringClass()) {
-        return candidate;
-      }
-      if (!type->getDisplayName().empty() && candidate->getDisplayName() == type->getDisplayName() &&
-          sameDeclarationPath(candidate->getDeclarationFilePath(), type->getDeclarationFilePath())) {
+      if (!type->getDisplayName().empty() &&
+          candidate->getDisplayName() == type->getDisplayName() &&
+          sameDeclarationPath(candidate->getDeclarationFilePath(),
+                              type->getDeclarationFilePath())) {
         return candidate;
       }
       return nullptr;
@@ -1732,6 +1735,16 @@ auto Typechecker::materializeImportedType(Type* type) -> Type* {
         if (Value* existingNominal = rootScope->lookupStruct(type->getDisplayName());
             existingNominal != nullptr) {
           if (Type* reused = reuseExistingNominal(existingNominal->getType()); reused != nullptr) {
+            importedTypeCopies[type] = reused;
+            importedTypeMaterializationInProgress.erase(type);
+            return reused;
+          }
+        }
+      }
+      if (!type->getDisplayName().empty()) {
+        for (const auto& [specializationKey, existingSpecialized] : specializedClassTypes) {
+          (void) specializationKey;
+          if (Type* reused = reuseExistingNominal(existingSpecialized); reused != nullptr) {
             importedTypeCopies[type] = reused;
             importedTypeMaterializationInProgress.erase(type);
             return reused;
@@ -2131,7 +2144,8 @@ auto Typechecker::resolveCustomTypeExpr(const TypeExpr* node) -> Type* {
                          node->getName());
   }
   if (resolvedFromImport) {
-    if (Value* localImportSym = scope->lookupImportModuleSymbol(lookupName); localImportSym != nullptr) {
+    if (Value* localImportSym = scope->lookupImportModuleSymbol(lookupName);
+        localImportSym != nullptr) {
       markValueRead(localImportSym);
     }
   }
@@ -2199,8 +2213,7 @@ auto Typechecker::resolveCustomTypeExpr(const TypeExpr* node) -> Type* {
     return getOrCreateSpecializedTraitExistentialType(resolvedType, lookupName, genericParamNames,
                                                       explicitTypeArgs);
   }
-  if (resolvedType == nullptr ||
-      !resolvedType->isOneOf({BaseType::TY_CLASS, BaseType::TY_ENUM})) {
+  if (resolvedType == nullptr || !resolvedType->isOneOf({BaseType::TY_CLASS, BaseType::TY_ENUM})) {
     throw TypeCheckError(node->getSpan(), "Type {} is not a generic nominal type", node->getName());
   }
   Type* classTemplate = resolvedType;
@@ -2241,9 +2254,8 @@ auto Typechecker::resolveTypeAlias(const std::string& aliasName, llvm::SMRange s
   Type* resolvedType = resolveType(aliasIt->second->getAliasedType());
   typeAliasesResolving.erase(aliasName);
   if (recursiveTypeAliases.contains(aliasName)) {
-    resolvedType =
-        finalizeRecursiveTypeAlias(aliasSymbol != nullptr ? aliasSymbol->getType() : nullptr,
-                                   resolvedType, aliasName);
+    resolvedType = finalizeRecursiveTypeAlias(
+        aliasSymbol != nullptr ? aliasSymbol->getType() : nullptr, resolvedType, aliasName);
   }
   if (aliasSymbol != nullptr) {
     aliasSymbol->setType(resolvedType);
@@ -2253,7 +2265,7 @@ auto Typechecker::resolveTypeAlias(const std::string& aliasName, llvm::SMRange s
 }
 
 auto Typechecker::finalizeRecursiveTypeAlias(Type* aliasStub, Type* resolvedType,
-                                            const std::string& aliasName) -> Type* {
+                                             const std::string& aliasName) -> Type* {
   if (aliasStub == nullptr || resolvedType == nullptr || aliasStub == resolvedType) {
     return aliasStub != nullptr ? aliasStub : resolvedType;
   }
@@ -2294,7 +2306,6 @@ auto Typechecker::finalizeRecursiveTypeAlias(Type* aliasStub, Type* resolvedType
   };
 
   aliasStub->setBaseType(resolvedType->getBaseType());
-  aliasStub->setLlvmType(resolvedType->getLlvmType());
   aliasStub->setElementType(resolvedType->getElementType());
   aliasStub->setReturnType(resolvedType->getReturnType());
   aliasStub->setGenericName(resolvedType->getGenericName());
@@ -2313,8 +2324,8 @@ auto Typechecker::finalizeRecursiveTypeAlias(Type* aliasStub, Type* resolvedType
   aliasStub->setVarArgs(resolvedType->isVarArgs());
   aliasStub->setSigned(resolvedType->isSigned());
   aliasStub->setIntWidth(static_cast<std::uint16_t>(resolvedType->getIntWidth()));
-  aliasStub->setUnionMembers(
-      std::vector<Type*>(resolvedType->getUnionMembers().begin(), resolvedType->getUnionMembers().end()));
+  aliasStub->setUnionMembers(std::vector<Type*>(resolvedType->getUnionMembers().begin(),
+                                                resolvedType->getUnionMembers().end()));
   aliasStub->setDeclarationSpan(resolvedType->getDeclarationSpan());
   aliasStub->setDeclarationFilePath(resolvedType->getDeclarationFilePath());
   aliasStub->setDisplayName(aliasName);
@@ -2358,7 +2369,8 @@ auto Typechecker::substituteInType(Type* t, const std::unordered_map<std::string
   if (t->is(BaseType::TY_FUNCTION)) {
     std::vector<std::unique_ptr<Field>> fields;
     for (Field* field : t->getFields()) {
-      fields.push_back(std::make_unique<Field>(field->name, substituteInType(field->type, env, active)));
+      fields.push_back(
+          std::make_unique<Field>(field->name, substituteInType(field->type, env, active)));
     }
     auto funcType = std::make_unique<Type>(BaseType::TY_FUNCTION, nullptr, std::move(fields));
     funcType->setReturnType(substituteInType(t->getReturnType(), env, active));
@@ -2370,7 +2382,8 @@ auto Typechecker::substituteInType(Type* t, const std::unordered_map<std::string
   }
   if (t->is(BaseType::TY_ENUM)) {
     Type* enumTemplate = t;
-    if (auto tmplIt = specializedTypeToTemplate.find(t); tmplIt != specializedTypeToTemplate.end()) {
+    if (auto tmplIt = specializedTypeToTemplate.find(t);
+        tmplIt != specializedTypeToTemplate.end()) {
       enumTemplate = tmplIt->second;
     }
     const auto& genericParamNames = enumTemplate->getGenericParams();
@@ -2378,7 +2391,8 @@ auto Typechecker::substituteInType(Type* t, const std::unordered_map<std::string
       return t;
     }
     std::unordered_map<std::string, Type*> enumEnv;
-    if (auto specTmpl = specializedTypeToTemplate.find(t); specTmpl != specializedTypeToTemplate.end()) {
+    if (auto specTmpl = specializedTypeToTemplate.find(t);
+        specTmpl != specializedTypeToTemplate.end()) {
       if (auto envIt = specializedTypeEnv.find(t); envIt != specializedTypeEnv.end()) {
         for (const auto& name : genericParamNames) {
           auto boundIt = envIt->second.find(name);
@@ -2407,7 +2421,8 @@ auto Typechecker::substituteInType(Type* t, const std::unordered_map<std::string
   if (t->is(BaseType::TY_TUPLE)) {
     std::vector<std::unique_ptr<Field>> fields;
     for (Field* field : t->getFields()) {
-      fields.push_back(std::make_unique<Field>(field->name, substituteInType(field->type, env, active)));
+      fields.push_back(
+          std::make_unique<Field>(field->name, substituteInType(field->type, env, active)));
     }
     auto tupleType = std::make_unique<Type>(BaseType::TY_TUPLE, nullptr, std::move(fields));
     tupleType->setDisplayName(t->getDisplayName());
@@ -2688,8 +2703,8 @@ auto Typechecker::inferGenericBindings(Type* pattern, Type* actual,
       for (const auto& genericName : getDeclaredGenericParams(patternTemplate)) {
         auto ait = actualEnvIt->second.find(genericName);
         if (ait != actualEnvIt->second.end()) {
-          inferGenericBindings(cacheType(std::make_unique<Type>(genericName)), ait->second, bindings,
-                               span, activePairs);
+          inferGenericBindings(cacheType(std::make_unique<Type>(genericName)), ait->second,
+                               bindings, span, activePairs);
         }
       }
       return;
@@ -3497,7 +3512,8 @@ auto Typechecker::functionTypesMatchForTraitImpl(Type* actualFn, Type* expectedF
     for (const auto& genericName : genericNames) {
       auto actualArgIt = actualEnvIt->second.find(genericName);
       auto expectedArgIt = expectedEnvIt->second.find(genericName);
-      if (actualArgIt == actualEnvIt->second.end() || expectedArgIt == expectedEnvIt->second.end()) {
+      if (actualArgIt == actualEnvIt->second.end() ||
+          expectedArgIt == expectedEnvIt->second.end()) {
         return false;
       }
       if (!isAssignableTo(actualArgIt->second, expectedArgIt->second)) {
@@ -3535,10 +3551,10 @@ Typechecker::Typechecker()
 Typechecker::Typechecker(std::string mainFilePath, GetExportsFn getExports,
                          std::vector<AnalysisDiagnostic>* warningDiagnosticsOut,
                          std::shared_ptr<llvm::SourceMgr> diagnosticUnitSourceMgrIn,
-                         unsigned diagnosticUnitBufferIdIn)
+                         unsigned diagnosticUnitBufferIdIn, Timer* phaseTimerIn)
     : rootScope(std::make_unique<SymbolTable>(nullptr)), scope(rootScope.get()),
       mainFilePath(std::move(mainFilePath)), getExports(std::move(getExports)),
-      warningDiagnostics(warningDiagnosticsOut),
+      phaseTimer(phaseTimerIn), warningDiagnostics(warningDiagnosticsOut),
       diagnosticUnitSourceMgr(std::move(diagnosticUnitSourceMgrIn)),
       diagnosticUnitBufferId(diagnosticUnitBufferIdIn) {}
 
@@ -3663,22 +3679,40 @@ auto Typechecker::getOrTypecheckImport(const std::string& absolutePath) -> Symbo
     return it->second != nullptr ? it->second->rootScope.get() : nullptr;
   }
   TypecheckImportActiveGuard const activeGuard(normPath);
-  auto buffer = llvm::MemoryBuffer::getFile(normPath);
+  auto buffer =
+      phaseTimer != nullptr
+          ? phaseTimer->measureFile("Reading", normPath,
+                                    [&]() -> llvm::ErrorOr<std::unique_ptr<llvm::MemoryBuffer>> {
+                                      return llvm::MemoryBuffer::getFile(normPath);
+                                    })
+          : llvm::MemoryBuffer::getFile(normPath);
   if (!buffer) {
     return nullptr;
   }
   auto srcMgr = std::make_shared<llvm::SourceMgr>();
   unsigned const bufferId = srcMgr->AddNewSourceBuffer(std::move(*buffer), llvm::SMLoc());
   auto lexer = std::make_unique<Lexer>(srcMgr);
-  lexer->scanAll();
+  if (phaseTimer != nullptr) {
+    phaseTimer->measureFile("Lexing", normPath, [&]() -> void { lexer->scanAll(); });
+  } else {
+    lexer->scanAll();
+  }
   auto parser = std::make_unique<Parser>(lexer->getTokens(), nullptr, srcMgr, bufferId, normPath);
-  parser->parse();
+  if (phaseTimer != nullptr) {
+    phaseTimer->measureFile("Parsing", normPath, [&]() -> void { parser->parse(); });
+  } else {
+    parser->parse();
+  }
   Compound* ast = parser->getAst();
   if (ast == nullptr) {
     return nullptr;
   }
-  Typechecker sub(normPath, getExports, warningDiagnostics, srcMgr, bufferId);
-  sub.run(ast);
+  Typechecker sub(normPath, getExports, warningDiagnostics, srcMgr, bufferId, phaseTimer);
+  if (phaseTimer != nullptr) {
+    phaseTimer->measureFile("Typecheck", normPath, [&]() -> void { sub.run(ast); });
+  } else {
+    sub.run(ast);
+  }
   auto imported = std::make_shared<ImportedModuleAnalysis>();
   imported->sourceMgr = std::move(srcMgr);
   imported->mainBufferId = bufferId;
@@ -3706,8 +3740,7 @@ auto Typechecker::getOrTypecheckImport(const std::string& absolutePath) -> Symbo
   }
   imported->index =
       buildAnalysisIndex(imported->parser != nullptr ? imported->parser->getAst() : nullptr,
-                         imported->sourceMgr.get(), imported->mainBufferId,
-                         imported->mainFilePath);
+                         imported->sourceMgr.get(), imported->mainBufferId, imported->mainFilePath);
   imported->importAliasToPath = sub.takeImportAliasToPath();
   imported->importedNameToSource = sub.takeImportedNameToSource();
   imported->importedModules = sub.takeImportedModules();
@@ -3811,8 +3844,8 @@ auto Typechecker::visit(const Compound* node) -> void {
       recoverFromTypeError(err);
     }
     if (auto* ifStmt = dynamic_cast<If*>(elem)) {
-      fillUnionNarrowingForFollowingStatements(ifStmt,
-                                               unionNarrowingStack[followingStatementNarrowingIndex]);
+      fillUnionNarrowingForFollowingStatements(
+          ifStmt, unionNarrowingStack[followingStatementNarrowingIndex]);
     }
     precededByTerminator = isControlFlowTerminator(elem);
   }
@@ -4654,9 +4687,8 @@ auto Typechecker::fillUnionNarrowingForIfBlock(
 }
 
 auto Typechecker::fillUnionNarrowingForFollowingStatements(
-    const If* node,
-    std::unordered_map<UnionNarrowingStableKey, Type*, UnionNarrowingStableKeyHash,
-                       UnionNarrowingStableKeyEq>& out) -> void {
+    const If* node, std::unordered_map<UnionNarrowingStableKey, Type*, UnionNarrowingStableKeyHash,
+                                       UnionNarrowingStableKeyEq>& out) -> void {
   if (node == nullptr || node->getConds().size() != 1U || node->getBlocks().size() != 1U) {
     return;
   }
@@ -4675,9 +4707,8 @@ auto Typechecker::collectUnionNarrowingForConditionAssumption(
     return false;
   }
   if (auto const* binary = dynamic_cast<const BinaryOp*>(cond)) {
-    bool const propagateChildren =
-        (binary->getOperator() == TokenType::AND && assumeTrue) ||
-        (binary->getOperator() == TokenType::OR && !assumeTrue);
+    bool const propagateChildren = (binary->getOperator() == TokenType::AND && assumeTrue) ||
+                                   (binary->getOperator() == TokenType::OR && !assumeTrue);
     if (!propagateChildren) {
       return false;
     }
@@ -4698,13 +4729,11 @@ auto Typechecker::collectUnionNarrowingForConditionAssumption(
     if (pushedLeft) {
       unionNarrowingStack.pop_back();
     }
-    auto mergeNarrowMap = [this](
-                              std::unordered_map<UnionNarrowingStableKey, Type*,
-                                                 UnionNarrowingStableKeyHash,
-                                                 UnionNarrowingStableKeyEq>& dst,
-                              const std::unordered_map<UnionNarrowingStableKey, Type*,
-                                                       UnionNarrowingStableKeyHash,
-                                                       UnionNarrowingStableKeyEq>& src) -> bool {
+    auto mergeNarrowMap =
+        [this](std::unordered_map<UnionNarrowingStableKey, Type*, UnionNarrowingStableKeyHash,
+                                  UnionNarrowingStableKeyEq>& dst,
+               const std::unordered_map<UnionNarrowingStableKey, Type*, UnionNarrowingStableKeyHash,
+                                        UnionNarrowingStableKeyEq>& src) -> bool {
       for (const auto& [key, narrowed] : src) {
         auto it = dst.find(key);
         if (it == dst.end() || it->second == nullptr) {
@@ -4783,7 +4812,8 @@ auto Typechecker::collectUnionNarrowingForConditionAssumption(
     out[*key] = narrowed;
     return true;
   }
-  if (is->getOperator() == TokenType::IS_NOT && !assumeTrue && unionCanSatisfyIsCheck(unionTy, rhsTy)) {
+  if (is->getOperator() == TokenType::IS_NOT && !assumeTrue &&
+      unionCanSatisfyIsCheck(unionTy, rhsTy)) {
     out[*key] = rhsTy;
     return true;
   }
@@ -5114,7 +5144,8 @@ auto Typechecker::visit(const Enum* node) -> void {
     }
     auto stub =
         std::make_unique<Type>(BaseType::TY_ENUM, nullptr, std::vector<std::unique_ptr<Field>>{});
-    stub->setDisplayName(node->getIdentifier() + makeGenericDisplaySuffix(node->getGenericParams()));
+    stub->setDisplayName(node->getIdentifier() +
+                         makeGenericDisplaySuffix(node->getGenericParams()));
     stub->setDeclarationSpan(node->getNameSpan());
     stub->setDeclarationFilePath(mainFilePath);
     stub->setGenericParams(node->getGenericParams());
@@ -5644,12 +5675,12 @@ auto Typechecker::visit(const FuncDecl* node) -> void {
   }
   if (funcSymbol == nullptr) {
     funcSymbol = insertScope->lookupFunction(node->getName(), paramTypes,
-                                             FunctionLookupKind::OVERLOAD_IDENTITY, nullptr, nullptr,
-                                             node->getGenericParams().size());
+                                             FunctionLookupKind::OVERLOAD_IDENTITY, nullptr,
+                                             nullptr, node->getGenericParams().size());
   }
-  bool const effectiveFuncExported =
-      (currentClassType != nullptr || currentEnumType != nullptr) ? currentClassExported
-                                                                  : node->isExported();
+  bool const effectiveFuncExported = (currentClassType != nullptr || currentEnumType != nullptr)
+                                         ? currentClassExported
+                                         : node->isExported();
 
   if (declarationPass) {
     if (funcSymbol == nullptr) {
@@ -5669,8 +5700,8 @@ auto Typechecker::visit(const FuncDecl* node) -> void {
       declaredFunc->setStaticMethod(node->getIsStatic());
       insertScope->insertSymbol(std::move(declaredFunc));
       funcSymbol = insertScope->lookupFunction(node->getName(), paramTypes,
-                                               FunctionLookupKind::OVERLOAD_IDENTITY, nullptr, nullptr,
-                                               node->getGenericParams().size());
+                                               FunctionLookupKind::OVERLOAD_IDENTITY, nullptr,
+                                               nullptr, node->getGenericParams().size());
       // Set resolvedSymbol immediately after we get the symbol for this exact overload
       if (funcSymbol != nullptr) {
         node->setResolvedSymbol(funcSymbol);
@@ -6328,10 +6359,11 @@ auto Typechecker::visit(const FuncCall* node) -> void {
 
   SymbolTable* importedScope = nullptr;
   std::optional<size_t> const explicitGenericArity =
-      node->getExplicitTypeArgs().empty() ? std::nullopt
-                                          : std::optional<size_t>(node->getExplicitTypeArgs().size());
-  Value* callee = scope->lookupFunction(node->getName(), argTypes, FunctionLookupKind::VALUE, nullptr,
-                                        nullptr, explicitGenericArity);
+      node->getExplicitTypeArgs().empty()
+          ? std::nullopt
+          : std::optional<size_t>(node->getExplicitTypeArgs().size());
+  Value* callee = scope->lookupFunction(node->getName(), argTypes, FunctionLookupKind::VALUE,
+                                        nullptr, nullptr, explicitGenericArity);
   bool funcCallResolvedViaImportedNameBinding = false;
   if (resolveFuncCallCalleeOrEarlyReturn(node, argTypes, importedScope,
                                          funcCallResolvedViaImportedNameBinding, callee)) {
@@ -6347,14 +6379,16 @@ auto Typechecker::visit(const FuncCall* node) -> void {
       expectedShape = expectedShape->getElementType();
     }
     Type* calleeReturn = callee->getType()->getReturnType();
-    if (expectedShape != nullptr && calleeReturn != nullptr && expectedShape->is(BaseType::TY_ENUM) &&
-        calleeReturn->is(BaseType::TY_ENUM)) {
+    if (expectedShape != nullptr && calleeReturn != nullptr &&
+        expectedShape->is(BaseType::TY_ENUM) && calleeReturn->is(BaseType::TY_ENUM)) {
       Type* expectedTemplate = expectedShape;
-      if (auto it = specializedTypeToTemplate.find(expectedShape); it != specializedTypeToTemplate.end()) {
+      if (auto it = specializedTypeToTemplate.find(expectedShape);
+          it != specializedTypeToTemplate.end()) {
         expectedTemplate = it->second;
       }
       Type* returnTemplate = calleeReturn;
-      if (auto it = specializedTypeToTemplate.find(calleeReturn); it != specializedTypeToTemplate.end()) {
+      if (auto it = specializedTypeToTemplate.find(calleeReturn);
+          it != specializedTypeToTemplate.end()) {
         returnTemplate = it->second;
       }
       if (expectedTemplate->isEqual(returnTemplate)) {
@@ -6432,7 +6466,8 @@ void Typechecker::completeOrdinaryFuncCallTyping(const FuncCall* node, Value* ca
   }
 
   std::unordered_map<std::string, Type*> localGenericTypes;
-  if (Type* expected = currentExpectedType(); expected != nullptr && funcType->getReturnType() != nullptr) {
+  if (Type* expected = currentExpectedType();
+      expected != nullptr && funcType->getReturnType() != nullptr) {
     inferGenericBindings(funcType->getReturnType(), expected, localGenericTypes, node->getSpan());
     retypeCallArgumentsWithExpectedParams(node, funcType, localGenericTypes, argTypes);
     localGenericTypes.clear();
@@ -6440,7 +6475,8 @@ void Typechecker::completeOrdinaryFuncCallTyping(const FuncCall* node, Value* ca
   for (size_t i = 0; i < fields.size() && i < argTypes.size(); ++i) {
     inferGenericBindings(fields[i]->type, argTypes[i], localGenericTypes, node->getSpan());
   }
-  if (Type* expected = currentExpectedType(); expected != nullptr && funcType->getReturnType() != nullptr) {
+  if (Type* expected = currentExpectedType();
+      expected != nullptr && funcType->getReturnType() != nullptr) {
     inferGenericBindings(funcType->getReturnType(), expected, localGenericTypes, node->getSpan());
   }
   if (callee->getName() == "new" && !funcType->getFields().empty() &&
@@ -6465,7 +6501,8 @@ void Typechecker::completeOrdinaryFuncCallTyping(const FuncCall* node, Value* ca
       }
       if (expectedShape->is(BaseType::TY_ENUM)) {
         Type* retTemplate = retType;
-        if (auto it = specializedTypeToTemplate.find(retType); it != specializedTypeToTemplate.end()) {
+        if (auto it = specializedTypeToTemplate.find(retType);
+            it != specializedTypeToTemplate.end()) {
           retTemplate = it->second;
         }
         Type* expectedTemplate = expectedShape;
@@ -6655,7 +6692,8 @@ auto Typechecker::visit(const BinaryOp* node) -> void {
                        UnionNarrowingStableKeyEq>
         conditionNarrowing;
     bool const assumeLeftTrue = node->getOperator() == TokenType::AND;
-    collectUnionNarrowingForConditionAssumption(node->getLeft(), assumeLeftTrue, conditionNarrowing);
+    collectUnionNarrowingForConditionAssumption(node->getLeft(), assumeLeftTrue,
+                                                conditionNarrowing);
     if (!conditionNarrowing.empty()) {
       unionNarrowingStack.push_back(std::move(conditionNarrowing));
       pushedConditionNarrowing = true;
@@ -6691,9 +6729,11 @@ auto Typechecker::visit(const BinaryOp* node) -> void {
   Type* rightTypeForCheck = right->getType();
   bool emitAlwaysFalseWarning = false;
   bool emitAlwaysTrueWarning = false;
-  if (node->getOperator() == TokenType::EQUAL_EQUAL || node->getOperator() == TokenType::BANG_EQUAL) {
+  if (node->getOperator() == TokenType::EQUAL_EQUAL ||
+      node->getOperator() == TokenType::BANG_EQUAL) {
     if (rightIsNull) {
-      if (Type* nullableStorage = getNullableStorageTypeForComparison(node->getLeft(), left->getType())) {
+      if (Type* nullableStorage =
+              getNullableStorageTypeForComparison(node->getLeft(), left->getType())) {
         leftTypeForCheck = nullableStorage;
         emitAlwaysFalseWarning = node->getOperator() == TokenType::EQUAL_EQUAL;
         emitAlwaysTrueWarning = node->getOperator() == TokenType::BANG_EQUAL;
@@ -6707,8 +6747,8 @@ auto Typechecker::visit(const BinaryOp* node) -> void {
       }
     }
   }
-  Type* resultType =
-      typecheckBinaryOpResult(node->getOperator(), leftTypeForCheck, rightTypeForCheck, node->getSpan());
+  Type* resultType = typecheckBinaryOpResult(node->getOperator(), leftTypeForCheck,
+                                             rightTypeForCheck, node->getSpan());
   if (emitAlwaysFalseWarning) {
     emitWarning(node->getSpan(), "Comparison is always false after flow narrowing");
   } else if (emitAlwaysTrueWarning) {
@@ -6911,10 +6951,10 @@ void Typechecker::typecheckDotOpClassOrEnumMemberAccess(const DotOp* node, Type*
     } else {
       Type* selfType = receiverForLookup;
       if (receiverForLookup->is(BaseType::TY_CLASS)) {
-        selfType = receiverForLookup->is(BaseType::TY_PTR)
-                       ? receiverForLookup
-                       : cacheType(std::make_unique<Type>(BaseType::TY_PTR, nullptr,
-                                                          receiverForLookup));
+        selfType =
+            receiverForLookup->is(BaseType::TY_PTR)
+                ? receiverForLookup
+                : cacheType(std::make_unique<Type>(BaseType::TY_PTR, nullptr, receiverForLookup));
       }
       methodArgTypes.push_back(selfType);
       methodArgTypes.insert(methodArgTypes.end(), argTypes.begin(), argTypes.end());
@@ -6927,9 +6967,8 @@ void Typechecker::typecheckDotOpClassOrEnumMemberAccess(const DotOp* node, Type*
     Type* requiredDeclaredInClass =
         typeNameReceiver && fc->getName() != "new" ? receiverForLookup : nullptr;
     std::optional<size_t> const explicitMethodGenericArity =
-        fc->getExplicitTypeArgs().empty()
-            ? std::nullopt
-            : std::optional<size_t>(fc->getExplicitTypeArgs().size());
+        fc->getExplicitTypeArgs().empty() ? std::nullopt
+                                          : std::optional<size_t>(fc->getExplicitTypeArgs().size());
     Value* method = lookupFunctionInScopeThenImportedModuleCaches(
         fc->getName(), methodArgTypes, requiredDeclaredInClass, explicitMethodGenericArity);
     if (method == nullptr) {
@@ -7212,7 +7251,8 @@ auto Typechecker::visit(const MatchExpr* node) -> void {
   std::string enumBaseName;
   if (enumScrutinee) {
     Type* templateEnumType = scrutineeType;
-    if (auto it = specializedTypeToTemplate.find(scrutineeType); it != specializedTypeToTemplate.end()) {
+    if (auto it = specializedTypeToTemplate.find(scrutineeType);
+        it != specializedTypeToTemplate.end()) {
       templateEnumType = it->second;
     }
     enumBaseName = templateEnumType->getDisplayName();
@@ -7229,7 +7269,8 @@ auto Typechecker::visit(const MatchExpr* node) -> void {
     throw TypeCheckError(node->getSpan(), "match requires at least one arm");
   }
 
-  std::vector<bool> seenVariants(enumScrutinee ? scrutineeType->getEnumVariants().size() : 0U, false);
+  std::vector<bool> seenVariants(enumScrutinee ? scrutineeType->getEnumVariants().size() : 0U,
+                                 false);
   bool catchAllSeen = false;
   bool usesEnumDispatch = enumScrutinee;
   Type* expectedType = currentExpectedType();
@@ -7296,8 +7337,8 @@ auto Typechecker::visit(const MatchExpr* node) -> void {
       }
       int variantIndex = TypeUtils::findIndexInEnumVariants(scrutineeType, pattern.variantName);
       if (variantIndex < 0) {
-        throw TypeCheckError(pattern.span, "Unknown enum variant {} for {}",
-                             pattern.variantName, scrutineeType->toString());
+        throw TypeCheckError(pattern.span, "Unknown enum variant {} for {}", pattern.variantName,
+                             scrutineeType->toString());
       }
       if (seenVariants[static_cast<size_t>(variantIndex)]) {
         throw TypeCheckError(pattern.span, "Duplicate match arm for variant {}",
@@ -7309,10 +7350,9 @@ auto Typechecker::visit(const MatchExpr* node) -> void {
         throw TypeCheckError(pattern.span, "Invalid enum variant {}", pattern.variantName);
       }
       if (pattern.bindings.size() != variant->payloadTypes.size()) {
-        throw TypeCheckError(pattern.span,
-                             "Match arm for variant {} expects {} payload binding(s), got {}",
-                             pattern.variantName, variant->payloadTypes.size(),
-                             pattern.bindings.size());
+        throw TypeCheckError(
+            pattern.span, "Match arm for variant {} expects {} payload binding(s), got {}",
+            pattern.variantName, variant->payloadTypes.size(), pattern.bindings.size());
       }
       for (size_t i = 0; i < pattern.bindings.size(); ++i) {
         if (pattern.bindings[i] == "_") {
@@ -7677,7 +7717,8 @@ auto Typechecker::visit(const DictLiteral* node) -> void {
            shape->getElementType()->is(BaseType::TY_CLASS)) {
       shape = shape->getElementType();
     }
-    if (shape != nullptr && getStdDictKeyType(shape) != nullptr && getStdDictValueType(shape) != nullptr) {
+    if (shape != nullptr && getStdDictKeyType(shape) != nullptr &&
+        getStdDictValueType(shape) != nullptr) {
       return shape;
     }
     if (shape == nullptr || !shape->is(BaseType::TY_UNION)) {
@@ -7716,7 +7757,8 @@ auto Typechecker::visit(const DictLiteral* node) -> void {
   std::vector<Expression*> const keys = node->getKeys();
   std::vector<Expression*> const values = node->getValues();
   if (keys.empty()) {
-    if (dictExpectedShape == nullptr || expectedKeyType == nullptr || expectedValueType == nullptr) {
+    if (dictExpectedShape == nullptr || expectedKeyType == nullptr ||
+        expectedValueType == nullptr) {
       throw TypeCheckError(node->getSpan(),
                            "Empty dict literal requires an explicit dict<K, V> context");
     }

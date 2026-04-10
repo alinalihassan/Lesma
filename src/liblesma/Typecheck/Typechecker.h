@@ -25,6 +25,7 @@ namespace lesma {
 
 class Class;
 class TraitDecl;
+class Timer;
 class TypeAlias;
 class TypeCheckError;
 
@@ -59,6 +60,7 @@ class Typechecker final : public ASTVisitor {
 
   std::string mainFilePath;
   GetExportsFn getExports;
+  Timer* phaseTimer = nullptr;
 
   Value* currentFunction = nullptr;
   Type* currentClassType = nullptr; // Set when visiting class methods, for self
@@ -441,7 +443,7 @@ public:
   Typechecker(std::string mainFilePath, GetExportsFn getExports,
               std::vector<AnalysisDiagnostic>* warningDiagnosticsOut = nullptr,
               std::shared_ptr<llvm::SourceMgr> diagnosticUnitSourceMgr = nullptr,
-              unsigned diagnosticUnitBufferId = 0);
+              unsigned diagnosticUnitBufferId = 0, Timer* phaseTimer = nullptr);
   ~Typechecker() override = default;
 
   Typechecker(const Typechecker&) = delete;

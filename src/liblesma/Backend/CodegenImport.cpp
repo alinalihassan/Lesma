@@ -54,15 +54,20 @@ auto Codegen::typecheckModule(const Compound* ast, const std::string& modulePath
                   std::unordered_map<std::string, lesma::Type*>,
                   std::unordered_map<std::string, std::shared_ptr<ImportedModuleAnalysis>>> {
   Typechecker typechecker(
-      modulePath, [this](const std::string& path, bool isStd, const std::string& mainFilePath) {
+      modulePath,
+      [this](const std::string& path, bool isStd, const std::string& mainFilePath) {
         return getExportsFromFile(path, isStd, mainFilePath);
-      });
+      },
+      nullptr, nullptr, 0, performanceTimer);
   typechecker.run(ast);
   auto takenTypeCache = typechecker.takeTypeCache();
   auto takenRoot = typechecker.takeRootScope();
   auto takenImportedModules = typechecker.takeImportedModules();
-  return {std::move(takenRoot), std::move(takenTypeCache), typechecker.takeSpecializedTypeEnv(),
-          typechecker.takeSpecializedTypeToTemplate(), typechecker.takeSpecializedClassTypes(),
+  return {std::move(takenRoot),
+          std::move(takenTypeCache),
+          typechecker.takeSpecializedTypeEnv(),
+          typechecker.takeSpecializedTypeToTemplate(),
+          typechecker.takeSpecializedClassTypes(),
           std::move(takenImportedModules)};
 }
 
@@ -173,9 +178,9 @@ auto Codegen::exposeImportedSymbols(llvm::SMRange /*span*/, SymbolTable* importe
       paramTypes.push_back(field->type);
     }
 
-    Value* funcSymbol = importedScope->lookupFunction(name, paramTypes, FunctionLookupKind::VALUE,
-                                                      nullptr, nullptr,
-                                                      sym->getType()->getGenericParams().size());
+    Value* funcSymbol =
+        importedScope->lookupFunction(name, paramTypes, FunctionLookupKind::VALUE, nullptr, nullptr,
+                                      sym->getType()->getGenericParams().size());
     const bool isMethodSym = MangleUtils::isMethod(sym->getMangledName());
     bool methodClassImported = true;
     if (isMethodSym && !importAll && importToScope) {
@@ -197,9 +202,9 @@ auto Codegen::exposeImportedSymbols(llvm::SMRange /*span*/, SymbolTable* importe
     }
 
     const std::string localName = importedLocalName.empty() ? name : importedLocalName;
-    Value* localSymbol = scope->lookupFunction(localName, paramTypes, FunctionLookupKind::VALUE,
-                                               nullptr, nullptr,
-                                               sym->getType()->getGenericParams().size());
+    Value* localSymbol =
+        scope->lookupFunction(localName, paramTypes, FunctionLookupKind::VALUE, nullptr, nullptr,
+                              sym->getType()->getGenericParams().size());
     const bool reuseExistingLocal =
         localSymbol != nullptr && localSymbol->getLlvmValue() == nullptr;
     auto symbol =
@@ -285,7 +290,13 @@ auto Codegen::compileModule(llvm::SMRange span, const std::string& filepath, boo
   }
   compiling.insert(canonicalPath);
 
-  auto buffer = MemoryBuffer::getFile(canonicalPath);
+  auto buffer = performanceTimer != nullptr
+                    ? performanceTimer->measureFile(
+                          "Reading", canonicalPath,
+                          [&]() -> llvm::ErrorOr<std::unique_ptr<llvm::MemoryBuffer>> {
+                            return MemoryBuffer::getFile(canonicalPath);
+                          })
+                    : MemoryBuffer::getFile(canonicalPath);
   if (std::error_code ec = buffer.getError()) {
     compiling.erase(canonicalPath);
     throw LesmaError(llvm::SMRange(), "Could not read file: {}", canonicalPath);
@@ -305,8 +316,7 @@ auto Codegen::compileModule(llvm::SMRange span, const std::string& filepath, boo
     // Lexer
     auto lexer = std::make_unique<Lexer>(sourceManager);
     if (performanceTimer != nullptr) {
-      performanceTimer->measureDetail(fmt::format("Import Lexing [{}]", canonicalPath),
-                                      [&]() -> void { lexer->scanAll(); });
+      performanceTimer->measureFile("Lexing", canonicalPath, [&]() -> void { lexer->scanAll(); });
     } else {
       lexer->scanAll();
     }
@@ -315,8 +325,7 @@ auto Codegen::compileModule(llvm::SMRange span, const std::string& filepath, boo
     auto parser =
         std::make_unique<Parser>(lexer->getTokens(), nullptr, sourceManager, fileId, canonicalPath);
     if (performanceTimer != nullptr) {
-      performanceTimer->measureDetail(fmt::format("Import Parsing [{}]", canonicalPath),
-                                      [&]() -> void { parser->parse(); });
+      performanceTimer->measureFile("Parsing", canonicalPath, [&]() -> void { parser->parse(); });
     } else {
       parser->parse();
     }
@@ -328,9 +337,16 @@ auto Codegen::compileModule(llvm::SMRange span, const std::string& filepath, boo
     auto [preScope, preTypeCache, preSpecEnv, preTemplateOf, preSpecializedClassTypes,
           preImportedModuleAnalyses] =
         performanceTimer != nullptr
-            ? performanceTimer->measureDetail(
-                  fmt::format("Import Typecheck [{}]", canonicalPath),
-                  [&]() {
+            ? performanceTimer->measureFile(
+                  "Typecheck", canonicalPath,
+                  [&]() -> std::tuple<
+                            std::unique_ptr<SymbolTable>, std::vector<std::unique_ptr<lesma::Type>>,
+                            std::unordered_map<lesma::Type*,
+                                               std::unordered_map<std::string, lesma::Type*>>,
+                            std::unordered_map<lesma::Type*, lesma::Type*>,
+                            std::unordered_map<std::string, lesma::Type*>,
+                            std::unordered_map<std::string,
+                                               std::shared_ptr<ImportedModuleAnalysis>>> {
                     return typecheckModule(ast, canonicalPath);
                   })
             : typecheckModule(ast, canonicalPath);
@@ -340,12 +356,10 @@ auto Codegen::compileModule(llvm::SMRange span, const std::string& filepath, boo
         !importToScope ? moduleAlias : "", theContext, theJit, importedModules, importedScopes,
         importedSpecializationStates, std::move(preScope), std::move(preTypeCache),
         std::move(preSpecEnv), std::move(preTemplateOf), std::move(preSpecializedClassTypes),
-        std::move(preImportedModuleAnalyses), performanceTimer,
-        emitDebugInfo, emitArcDebug, emitArcTrace, OptimizationLevel::O0, pendingJitModuleInits,
-        pendingJitModuleFinis);
+        std::move(preImportedModuleAnalyses), performanceTimer, emitDebugInfo, emitArcDebug,
+        emitArcTrace, OptimizationLevel::O0, pendingJitModuleInits, pendingJitModuleFinis);
     if (performanceTimer != nullptr) {
-      performanceTimer->measureDetail(fmt::format("Import Codegen [{}]", canonicalPath),
-                                      [&]() -> void { codegen->run(); });
+      performanceTimer->measureFile("Compiling", canonicalPath, [&]() -> void { codegen->run(); });
     } else {
       codegen->run();
     }
@@ -413,14 +427,7 @@ auto Codegen::compileModule(llvm::SMRange span, const std::string& filepath, boo
       // Do not promote private GlobalVariables (string literals, etc.): Mach-O JITLink reports
       // "Unexpected definitions" for anonymous ___unnamed_* symbols when they become external.
       llvm::Error jitErr =
-          performanceTimer != nullptr
-              ? performanceTimer->measureDetail(
-                    fmt::format("Import JIT addIRModule [{}]", canonicalPath),
-                    [&]() -> llvm::Error {
-                      return theJit->addIRModule(
-                          ThreadSafeModule(std::move(codegen->theModule), *theContext));
-                    })
-              : theJit->addIRModule(ThreadSafeModule(std::move(codegen->theModule), *theContext));
+          theJit->addIRModule(ThreadSafeModule(std::move(codegen->theModule), *theContext));
       if (jitErr) {
         throw CodegenError(span, std::string("Failed adding import to JIT: ") + canonicalPath +
                                      ": " + jitErrorToString(std::move(jitErr)));

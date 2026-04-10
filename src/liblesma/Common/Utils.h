@@ -1,10 +1,12 @@
 #pragma once
 
+#include <algorithm>
 #include <chrono>
 #include <cstdint>
 #include <filesystem>
 #include <string>
 #include <type_traits>
+#include <unordered_map>
 #include <utility>
 #include <vector>
 
@@ -75,8 +77,83 @@ void print(const S& formatStr, const Args&... args) {
 // Timer class for measuring execution time of code blocks
 class Timer {
 private:
+  struct PhaseDetail {
+    std::string label;
+    double elapsedMs = 0;
+  };
+
+  struct PhaseAggregate {
+    double elapsedMs = 0;
+    std::vector<PhaseDetail> details;
+    std::unordered_map<std::string, std::size_t> detailIndexes;
+  };
+
+  struct ActiveScope {
+    double nestedElapsedMs = 0;
+  };
+
   double total = 0;
   bool enabled;
+  std::vector<std::string> phaseOrder;
+  std::unordered_map<std::string, PhaseAggregate> phaseAggregates;
+  std::vector<ActiveScope> activeScopes;
+
+  auto recordPhaseMeasurement(const std::string& phase, const std::string* detailLabel,
+                              double elapsedMs) -> void {
+    if (elapsedMs <= 0) {
+      return;
+    }
+    if (!phaseAggregates.contains(phase)) {
+      phaseOrder.push_back(phase);
+    }
+    auto& aggregate = phaseAggregates[phase];
+    aggregate.elapsedMs += elapsedMs;
+    if (detailLabel == nullptr || detailLabel->empty()) {
+      return;
+    }
+    auto it = aggregate.detailIndexes.find(*detailLabel);
+    if (it == aggregate.detailIndexes.end()) {
+      aggregate.detailIndexes[*detailLabel] = aggregate.details.size();
+      aggregate.details.push_back(PhaseDetail{.label = *detailLabel, .elapsedMs = elapsedMs});
+      return;
+    }
+    aggregate.details[it->second].elapsedMs += elapsedMs;
+  }
+
+  template <typename F>
+  auto measureImpl(const std::string& phase, const std::string* detailLabel, F&& func)
+      -> decltype(auto) {
+    auto start = std::chrono::steady_clock::now();
+    activeScopes.push_back(ActiveScope{});
+    if constexpr (std::is_void_v<std::invoke_result_t<F>>) {
+      std::forward<F>(func)();
+      auto elapsedMs =
+          std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start)
+              .count();
+      double nestedElapsedMs = activeScopes.back().nestedElapsedMs;
+      activeScopes.pop_back();
+      if (!activeScopes.empty()) {
+        activeScopes.back().nestedElapsedMs += elapsedMs;
+      }
+      double exclusiveElapsedMs = std::max(0.0, elapsedMs - nestedElapsedMs);
+      total += exclusiveElapsedMs;
+      recordPhaseMeasurement(phase, detailLabel, exclusiveElapsedMs);
+    } else {
+      decltype(auto) result = std::forward<F>(func)();
+      auto elapsedMs =
+          std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start)
+              .count();
+      double nestedElapsedMs = activeScopes.back().nestedElapsedMs;
+      activeScopes.pop_back();
+      if (!activeScopes.empty()) {
+        activeScopes.back().nestedElapsedMs += elapsedMs;
+      }
+      double exclusiveElapsedMs = std::max(0.0, elapsedMs - nestedElapsedMs);
+      total += exclusiveElapsedMs;
+      recordPhaseMeasurement(phase, detailLabel, exclusiveElapsedMs);
+      return result;
+    }
+  }
 
 public:
   explicit Timer(bool enabled) : enabled(enabled) {}
@@ -84,58 +161,30 @@ public:
   // Measure execution time of a callable, works with both void and non-void
   // return types
   template <typename F>
-  auto measure(const std::string& operation, F&& func) -> decltype(auto) {
-    auto recordElapsed = [this, &operation](double elapsed) -> auto {
-      total += elapsed;
-      if (enabled) {
-        print(LogType::DEBUG, "{} -> {:.2f} ms\n", operation, elapsed);
-      }
-    };
-    auto start = std::chrono::steady_clock::now();
-    if constexpr (std::is_void_v<std::invoke_result_t<F>>) {
-      std::forward<F>(func)();
-      auto elapsed = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() -
-                                                               start)
-                         .count();
-      recordElapsed(elapsed);
-    } else {
-      decltype(auto) result = std::forward<F>(func)();
-      auto elapsed = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() -
-                                                               start)
-                         .count();
-      recordElapsed(elapsed);
-      return result;
-    }
+  auto measure(const std::string& phase, F&& func) -> decltype(auto) {
+    return measureImpl(phase, nullptr, std::forward<F>(func));
   }
 
   template <typename F>
-  auto measureDetail(const std::string& operation, F&& func) -> decltype(auto) {
-    auto recordElapsed = [this, &operation](double elapsed) -> auto {
-      if (enabled) {
-        print(LogType::DEBUG, "  {} -> {:.2f} ms\n", operation, elapsed);
-      }
-    };
-    auto start = std::chrono::steady_clock::now();
-    if constexpr (std::is_void_v<std::invoke_result_t<F>>) {
-      std::forward<F>(func)();
-      auto elapsed = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() -
-                                                               start)
-                         .count();
-      recordElapsed(elapsed);
-    } else {
-      decltype(auto) result = std::forward<F>(func)();
-      auto elapsed = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() -
-                                                               start)
-                         .count();
-      recordElapsed(elapsed);
-      return result;
-    }
+  auto measureFile(const std::string& phase, const std::string& fileLabel, F&& func)
+      -> decltype(auto) {
+    return measureImpl(phase, &fileLabel, std::forward<F>(func));
   }
 
   [[nodiscard]] auto getTotal() const -> double { return total; }
 
-  auto printTotal() const -> void {
+  auto printReport() const -> void {
     if (enabled) {
+      for (const std::string& phase : phaseOrder) {
+        auto it = phaseAggregates.find(phase);
+        if (it == phaseAggregates.end()) {
+          continue;
+        }
+        print(LogType::DEBUG, "{} -> {:.2f} ms\n", phase, it->second.elapsedMs);
+        for (const PhaseDetail& detail : it->second.details) {
+          print(LogType::DEBUG, "  {} -> {:.2f} ms\n", detail.label, detail.elapsedMs);
+        }
+      }
       print(LogType::DEBUG, "Total -> {:.2f} ms\n", total);
     }
   }
