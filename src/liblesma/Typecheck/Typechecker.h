@@ -348,9 +348,11 @@ class Typechecker final : public ASTVisitor {
                                           SymbolTable*& importedScope,
                                           bool& funcCallResolvedViaImportedNameBinding,
                                           Value*& callee) -> bool;
+  void retypeCallArgumentsWithExpectedParams(
+      const FuncCall* node, Type* funcType,
+      const std::unordered_map<std::string, Type*>& genericBindings, std::vector<Type*>& argTypes);
   void completeOrdinaryFuncCallTyping(const FuncCall* node, Value* callee,
-                                      SymbolTable* importedScope,
-                                      const std::vector<Type*>& argTypes);
+                                      SymbolTable* importedScope, std::vector<Type*> argTypes);
   void finishGenericClassCallWithExplicitTypeArgs(
       const FuncCall* callSite, Type* classType, const std::vector<Type*>& argTypes,
       SymbolTable* ctorLookupScope, bool markConstructorSymbolRead,

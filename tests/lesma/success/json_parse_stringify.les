@@ -17,7 +17,7 @@ export class User impl Serializable<User> {
   }
 
   func encode() -> Result<JsonValue, JsonErr> {
-    return Ok({"name": self.name as JsonValue, "age": self.age as JsonValue})
+    return Ok({"name": self.name, "age": self.age})
   }
 }
 

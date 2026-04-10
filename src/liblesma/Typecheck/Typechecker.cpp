@@ -6341,7 +6341,7 @@ auto Typechecker::visit(const FuncCall* node) -> void {
 
 void Typechecker::completeOrdinaryFuncCallTyping(const FuncCall* node, Value* callee,
                                                  SymbolTable* importedScope,
-                                                 const std::vector<Type*>& argTypes) {
+                                                 std::vector<Type*> argTypes) {
   auto* funcType = callee->getType();
   auto fields = funcType->getFields();
 
@@ -6359,6 +6359,7 @@ void Typechecker::completeOrdinaryFuncCallTyping(const FuncCall* node, Value* ca
     for (size_t i = 0; i < genericParamNames.size(); ++i) {
       explicitSubst[genericParamNames[i]] = explicitTypes[i];
     }
+    retypeCallArgumentsWithExpectedParams(node, funcType, explicitSubst, argTypes);
     for (size_t i = 0; i < fields.size() && i < argTypes.size(); ++i) {
       Type* expected = substituteInType(fields[i]->type, explicitSubst);
       if (expected != nullptr && !isLosslesslyAssignableTo(argTypes[i], expected)) {
@@ -6396,6 +6397,11 @@ void Typechecker::completeOrdinaryFuncCallTyping(const FuncCall* node, Value* ca
   }
 
   std::unordered_map<std::string, Type*> localGenericTypes;
+  if (Type* expected = currentExpectedType(); expected != nullptr && funcType->getReturnType() != nullptr) {
+    inferGenericBindings(funcType->getReturnType(), expected, localGenericTypes, node->getSpan());
+    retypeCallArgumentsWithExpectedParams(node, funcType, localGenericTypes, argTypes);
+    localGenericTypes.clear();
+  }
   for (size_t i = 0; i < fields.size() && i < argTypes.size(); ++i) {
     inferGenericBindings(fields[i]->type, argTypes[i], localGenericTypes, node->getSpan());
   }
@@ -6443,6 +6449,32 @@ void Typechecker::completeOrdinaryFuncCallTyping(const FuncCall* node, Value* ca
     node->setGenericBindingEnv(localGenericTypes);
   }
   verifyGenericTraitBounds(callee, localGenericTypes, node->getSpan());
+}
+
+void Typechecker::retypeCallArgumentsWithExpectedParams(
+    const FuncCall* node, Type* funcType,
+    const std::unordered_map<std::string, Type*>& genericBindings, std::vector<Type*>& argTypes) {
+  if (node == nullptr || funcType == nullptr || genericBindings.empty()) {
+    return;
+  }
+  auto fields = funcType->getFields();
+  for (size_t i = 0; i < fields.size() && i < node->getArguments().size(); ++i) {
+    Type* expectedParamType = substituteInType(fields[i]->type, genericBindings);
+    if (expectedParamType == nullptr) {
+      expectedParamType = fields[i]->type;
+    }
+    if (expectedParamType != nullptr && expectedParamType->is(BaseType::TY_PTR) &&
+        expectedParamType->getElementType() != nullptr &&
+        expectedParamType->getElementType()->is(BaseType::TY_CLASS)) {
+      expectedParamType = expectedParamType->getElementType();
+    }
+    visitExprWithExpectedType(node->getArguments()[i], expectedParamType);
+    if (i < argTypes.size()) {
+      argTypes[i] = typeAsPtrIfClassForOverload(result->getType());
+    } else {
+      argTypes.push_back(typeAsPtrIfClassForOverload(result->getType()));
+    }
+  }
 }
 
 auto Typechecker::visit(const LambdaExpr* node) -> void {
@@ -7451,22 +7483,47 @@ auto Typechecker::visit(const ListLiteral* node) -> void {
     std::unordered_map<std::string, Type*> env = {{"T", elementType}};
     return getOrCreateSpecializedClassType(listTemplate, listTemplate->getGenericParams(), env);
   };
+  auto resolveExpectedListShape = [this](Type* type) -> Type* {
+    if (type == nullptr) {
+      return nullptr;
+    }
+    if (type->is(BaseType::TY_ARRAY) || getStdListElementType(type) != nullptr) {
+      return type;
+    }
+    if (!type->is(BaseType::TY_UNION)) {
+      return nullptr;
+    }
+    Type* resolved = nullptr;
+    for (Type* member : type->getUnionMembers()) {
+      if (member == nullptr) {
+        continue;
+      }
+      if (member->is(BaseType::TY_ARRAY) || getStdListElementType(member) != nullptr) {
+        if (resolved != nullptr) {
+          return nullptr;
+        }
+        resolved = member;
+      }
+    }
+    return resolved;
+  };
+  Type* listExpectedShape = resolveExpectedListShape(expectedType);
   Type* expectedElementType = nullptr;
-  if (expectedType != nullptr) {
-    if (expectedType->is(BaseType::TY_ARRAY)) {
-      expectedElementType = expectedType->getElementType();
+  if (listExpectedShape != nullptr) {
+    if (listExpectedShape->is(BaseType::TY_ARRAY)) {
+      expectedElementType = listExpectedShape->getElementType();
     } else {
-      expectedElementType = getStdListElementType(expectedType);
+      expectedElementType = getStdListElementType(listExpectedShape);
     }
   }
   std::vector<Expression*> elements = node->getElements();
   if (elements.empty()) {
-    if (expectedType == nullptr || expectedElementType == nullptr) {
+    if (listExpectedShape == nullptr || expectedElementType == nullptr) {
       throw TypeCheckError(node->getSpan(),
                            "Empty list literal requires an explicit list<T> context");
     }
-    node->setResolvedType(expectedType);
-    result = std::make_unique<Value>(expectedType);
+    node->setResolvedType(listExpectedShape);
+    result = std::make_unique<Value>(listExpectedShape);
     return;
   }
 
@@ -7501,13 +7558,12 @@ auto Typechecker::visit(const ListLiteral* node) -> void {
     }
   }
 
-  if (expectedType != nullptr && !expectedType->is(BaseType::TY_ARRAY) &&
-      getStdListElementType(expectedType) == nullptr) {
+  if (expectedType != nullptr && listExpectedShape == nullptr) {
     throw TypeCheckError(node->getSpan(), "List literal is not compatible with expected type {}",
                          expectedType->toString());
   }
 
-  Type* listType = expectedType;
+  Type* listType = listExpectedShape != nullptr ? listExpectedShape : expectedType;
   if (listType == nullptr) {
     listType = getStdListType(elementType);
   }
@@ -7577,6 +7633,43 @@ auto Typechecker::visit(const DictLiteral* node) -> void {
     std::unordered_map<std::string, Type*> env = {{"K", keyType}, {"V", valueType}};
     return getOrCreateSpecializedClassType(dictTemplate, dictTemplate->getGenericParams(), env);
   };
+  auto resolveExpectedDictShape = [&getStdDictKeyType, &getStdDictValueType](Type* type) -> Type* {
+    if (type == nullptr) {
+      return nullptr;
+    }
+    Type* shape = type;
+    while (shape != nullptr && shape->is(BaseType::TY_PTR) && shape->getElementType() != nullptr &&
+           shape->getElementType()->is(BaseType::TY_CLASS)) {
+      shape = shape->getElementType();
+    }
+    if (shape != nullptr && getStdDictKeyType(shape) != nullptr && getStdDictValueType(shape) != nullptr) {
+      return shape;
+    }
+    if (shape == nullptr || !shape->is(BaseType::TY_UNION)) {
+      return nullptr;
+    }
+    Type* resolved = nullptr;
+    for (Type* member : shape->getUnionMembers()) {
+      if (member == nullptr) {
+        continue;
+      }
+      Type* memberShape = member;
+      while (memberShape != nullptr && memberShape->is(BaseType::TY_PTR) &&
+             memberShape->getElementType() != nullptr &&
+             memberShape->getElementType()->is(BaseType::TY_CLASS)) {
+        memberShape = memberShape->getElementType();
+      }
+      if (memberShape != nullptr && getStdDictKeyType(memberShape) != nullptr &&
+          getStdDictValueType(memberShape) != nullptr) {
+        if (resolved != nullptr) {
+          return nullptr;
+        }
+        resolved = memberShape;
+      }
+    }
+    return resolved;
+  };
+  dictExpectedShape = resolveExpectedDictShape(expectedType);
 
   Type* expectedKeyType = nullptr;
   Type* expectedValueType = nullptr;
@@ -7588,12 +7681,12 @@ auto Typechecker::visit(const DictLiteral* node) -> void {
   std::vector<Expression*> const keys = node->getKeys();
   std::vector<Expression*> const values = node->getValues();
   if (keys.empty()) {
-    if (expectedType == nullptr || expectedKeyType == nullptr || expectedValueType == nullptr) {
+    if (dictExpectedShape == nullptr || expectedKeyType == nullptr || expectedValueType == nullptr) {
       throw TypeCheckError(node->getSpan(),
                            "Empty dict literal requires an explicit dict<K, V> context");
     }
-    node->setResolvedType(expectedType);
-    result = std::make_unique<Value>(expectedType);
+    node->setResolvedType(dictExpectedShape);
+    result = std::make_unique<Value>(dictExpectedShape);
     return;
   }
 
@@ -7639,13 +7732,12 @@ auto Typechecker::visit(const DictLiteral* node) -> void {
     }
   }
 
-  if (expectedType != nullptr && (getStdDictKeyType(dictExpectedShape) == nullptr ||
-                                  getStdDictValueType(dictExpectedShape) == nullptr)) {
+  if (expectedType != nullptr && dictExpectedShape == nullptr) {
     throw TypeCheckError(node->getSpan(), "Dict literal is not compatible with expected type {}",
                          expectedType->toString());
   }
 
-  Type* dictTy = expectedType;
+  Type* dictTy = dictExpectedShape != nullptr ? dictExpectedShape : expectedType;
   if (dictTy == nullptr) {
     dictTy = getStdDictType(keyType, valueType);
   }
