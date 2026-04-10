@@ -1,0 +1,27 @@
+// Regression: generic enum templates must register `selfSymbol` and only codegen
+// *generic* methods during the template pass. Non-generic methods that use the
+// enum's type parameters (like `T` below) are emitted via the normal path; doing
+// all methods in the template pass used to break with errors such as unknown `T`
+// during early import/codegen.
+enum Opt<T> {
+  None
+  Some(T)
+
+  func getOrDefault(defaultValue: T) -> T {
+    return match self {
+      Some(value) => value
+      None => defaultValue
+      }
+  }
+}
+
+func main() {
+  let a = Opt<int>.Some(41)
+  if a.getOrDefault(0) != 41 {
+    exit(1)
+  }
+  let b: Opt<int> = Opt<int>.None
+  if b.getOrDefault(7) != 7 {
+    exit(2)
+  }
+}

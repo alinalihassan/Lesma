@@ -3846,6 +3846,19 @@ auto Codegen::visit(const Enum* node) -> void {
     }
     displayName += ">";
     codegenEnumAstByDisplayName[displayName] = node;
+    lesma::Value* templateEnumSym = scope->lookupStruct(node->getIdentifier());
+    if (templateEnumSym != nullptr && templateEnumSym->getType() != nullptr) {
+      methodSelfSymbols.push_back(std::make_unique<Value>(node->getIdentifier() + ".enum",
+                                                            templateEnumSym->getType()));
+      methodSelfSymbols.back()->setExported(node->isExported());
+      selfSymbol = methodSelfSymbols.back().get();
+      for (FuncDecl* func : node->getMethods()) {
+        if (!func->getGenericParams().empty()) {
+          func->accept(*this);
+        }
+      }
+      selfSymbol = nullptr;
+    }
     return;
   }
   lesma::Value* existingEnum = scope->lookupStruct(node->getIdentifier());
