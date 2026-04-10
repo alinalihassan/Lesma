@@ -358,8 +358,8 @@ auto Codegen::initializeTargetMachine() -> std::unique_ptr<llvm::TargetMachine> 
   return targetMachine;
 }
 
-auto Codegen::initializeJit() -> std::unique_ptr<LLJIT> {
-  llvm::orc::LLJITBuilder jitBuilder{};
+auto Codegen::initializeJit() -> std::unique_ptr<LLLazyJIT> {
+  llvm::orc::LLLazyJITBuilder jitBuilder{};
   jitBuilder.setDataLayout(theModule->getDataLayout());
   jitBuilder.setJITTargetMachineBuilder(
       llvm::orc::JITTargetMachineBuilder(targetMachine->getTargetTriple()));
@@ -370,7 +370,7 @@ auto Codegen::initializeJit() -> std::unique_ptr<LLJIT> {
   }
   auto jit = std::move(*jitOrErr);
 
-  // Default LLJIT uses JITLink on supported targets (in-process). Debugger registration via
+  // Default LLLazyJIT uses JITLink on supported targets (in-process). Debugger registration via
   // llvm::orc::enableDebuggerSupport is omitted: LLVM 21's helper can assert on darwin-arm64 with
   // this stack; revisit when emitting JIT DWARF or when upstream stabilizes the API.
 
@@ -563,10 +563,10 @@ auto Codegen::linkObjectFile(const std::string& objFilename) -> void {
 
 auto Codegen::prepareJit() -> void {
   llvm::Error addModuleErr =
-      theJit->addIRModule(ThreadSafeModule(std::move(theModule), *theContext));
+      theJit->addLazyIRModule(ThreadSafeModule(std::move(theModule), *theContext));
   if (addModuleErr) {
     // Concatenate: LLVM error text may contain characters that break fmt::format placeholders.
-    throw CodegenError({}, std::string("JIT addIRModule failed: ") +
+    throw CodegenError({}, std::string("JIT addLazyIRModule failed: ") +
                                llvmErrorToString(std::move(addModuleErr)));
   }
   Expected<ExecutorAddr> mainFuncOrErr = theJit->lookup(topLevelFunc->getName());

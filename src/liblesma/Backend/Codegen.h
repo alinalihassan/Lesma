@@ -110,7 +110,7 @@ class Codegen final : public ASTVisitor {
   std::unique_ptr<Module> theModule;
   std::unique_ptr<IRBuilder<>> builder;
 
-  std::shared_ptr<LLJIT> theJit;
+  std::shared_ptr<LLLazyJIT> theJit;
   /// JIT: mangled per-import init symbols; run from \c prepareJit (shared across nested imports).
   std::shared_ptr<std::vector<std::string>> pendingJitModuleInits;
   /// JIT: mangled per-import fini symbols; called by the main module in reverse init order.
@@ -259,7 +259,7 @@ public:
   Codegen(std::shared_ptr<Parser> parser, std::shared_ptr<SourceMgr> srcMgr,
           const std::string& filename, std::vector<std::string> imports, bool jit, bool main,
           std::string alias = "", const std::shared_ptr<ThreadSafeContext>& = nullptr,
-          std::shared_ptr<LLJIT> sharedJit = nullptr,
+          std::shared_ptr<LLLazyJIT> sharedJit = nullptr,
           std::shared_ptr<std::vector<std::string>> sharedModules = nullptr,
           std::shared_ptr<std::vector<std::unique_ptr<SymbolTable>>> sharedScopes = nullptr,
           std::shared_ptr<std::vector<ImportedSpecializationState>>
@@ -301,7 +301,7 @@ public:
 protected:
   auto initializeTargetMachine() -> std::unique_ptr<llvm::TargetMachine>;
   auto initializeModule() -> std::unique_ptr<Module>;
-  auto initializeJit() -> std::unique_ptr<LLJIT>;
+  auto initializeJit() -> std::unique_ptr<LLLazyJIT>;
   auto initializeTopLevel() -> llvm::Function*;
 
   auto initializeDebugMetadata() -> void;

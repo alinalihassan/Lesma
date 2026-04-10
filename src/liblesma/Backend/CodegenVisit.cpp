@@ -185,7 +185,7 @@ using namespace lesma;
 Codegen::Codegen(
     std::shared_ptr<Parser> parser, std::shared_ptr<SourceMgr> srcMgr, const std::string& filename,
     std::vector<std::string> imports, bool jit, bool main, std::string alias,
-    const std::shared_ptr<ThreadSafeContext>& context, std::shared_ptr<LLJIT> sharedJit,
+    const std::shared_ptr<ThreadSafeContext>& context, std::shared_ptr<LLLazyJIT> sharedJit,
     std::shared_ptr<std::vector<std::string>> sharedModules,
     std::shared_ptr<std::vector<std::unique_ptr<SymbolTable>>> sharedScopes,
     std::shared_ptr<std::vector<ImportedSpecializationState>> sharedImportedSpecializationStates,
@@ -212,7 +212,7 @@ Codegen::Codegen(
   theModule = initializeModule();
   if (jit) {
     theJit = sharedJit != nullptr ? std::move(sharedJit)
-                                  : std::shared_ptr<LLJIT>(initializeJit().release());
+                                  : std::shared_ptr<LLLazyJIT>(initializeJit().release());
   }
 
   builder = std::make_unique<IRBuilder<>>(theModule->getContext());
