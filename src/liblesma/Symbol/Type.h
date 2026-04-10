@@ -330,11 +330,9 @@ private:
     if (this == rhs) {
       return true;
     }
-    if (baseType == BaseType::TY_INVALID && !displayName.empty()) {
-      return displayName == rhs->getDisplayName();
-    }
-    if (rhs->getBaseType() == BaseType::TY_INVALID && !rhs->getDisplayName().empty()) {
-      return rhs->getDisplayName() == displayName;
+    if (getBaseType() == BaseType::TY_INVALID && rhs->getBaseType() == BaseType::TY_INVALID &&
+        !getDisplayName().empty() && !rhs->getDisplayName().empty()) {
+      return getDisplayName() == rhs->getDisplayName();
     }
     if (this->getBaseType() != rhs->getBaseType()) {
       return false;
