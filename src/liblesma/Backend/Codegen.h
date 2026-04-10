@@ -43,6 +43,7 @@ class AllocaInst;
 #include "liblesma/AST/ASTVisitor.h"
 #include "liblesma/Backend/MangleUtils.h"
 #include "liblesma/Common/ExportDiscovery.h"
+#include "liblesma/Driver/AnalysisResult.h"
 #include "liblesma/Frontend/Parser.h"
 #include "liblesma/Symbol/SymbolTable.h"
 #include "liblesma/Symbol/Type.h"
@@ -139,6 +140,8 @@ class Codegen final : public ASTVisitor {
       importedScopes; // Shared so child (e.g. B) sees parent's (A) imports
                       // (e.g. math)
   std::shared_ptr<std::vector<ImportedSpecializationState>> importedSpecializationStates;
+  /** Keeps imported-module typecheck analyses alive while lowering imported ASTs. */
+  std::unordered_map<std::string, std::shared_ptr<ImportedModuleAnalysis>> importedModuleAnalyses;
   std::vector<std::unique_ptr<Codegen>> importedCodegens; // Keep imported module codegens alive so
                                                           // Class* in symbols stay valid
   /** Maps `import "m"` alias -> absolute path of `m` (for resolving exported globals). */
@@ -264,6 +267,8 @@ public:
               preSpecializedClassTypeEnvs = {},
           std::unordered_map<lesma::Type*, lesma::Type*> preSpecializedClassTemplateOf = {},
           std::unordered_map<std::string, lesma::Type*> preSpecializedClassTypesByKey = {},
+          std::unordered_map<std::string, std::shared_ptr<ImportedModuleAnalysis>>
+              preImportedModuleAnalyses = {},
           bool emitDebug = false, bool emitArcDebug = false, bool emitArcTrace = false,
           llvm::OptimizationLevel optimizationLevelForDebugArg = llvm::OptimizationLevel::O3,
           std::shared_ptr<std::vector<std::string>> sharedPendingJitModuleInits = nullptr,
@@ -362,7 +367,8 @@ protected:
       -> std::tuple<std::unique_ptr<SymbolTable>, std::vector<std::unique_ptr<lesma::Type>>,
                     std::unordered_map<lesma::Type*, std::unordered_map<std::string, lesma::Type*>>,
                     std::unordered_map<lesma::Type*, lesma::Type*>,
-                    std::unordered_map<std::string, lesma::Type*>>;
+                    std::unordered_map<std::string, lesma::Type*>,
+                    std::unordered_map<std::string, std::shared_ptr<ImportedModuleAnalysis>>>;
   [[nodiscard]] auto isImported(const std::vector<ImportedNameBinding>& importedNames,
                                 const std::string& importName) const -> bool;
   [[nodiscard]] auto getImportedLocalName(const std::vector<ImportedNameBinding>& importedNames,

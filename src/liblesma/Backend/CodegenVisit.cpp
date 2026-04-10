@@ -193,8 +193,10 @@ Codegen::Codegen(
     std::unordered_map<lesma::Type*, std::unordered_map<std::string, lesma::Type*>>
         preSpecializedClassTypeEnvs,
     std::unordered_map<lesma::Type*, lesma::Type*> preSpecializedClassTemplateOf,
-    std::unordered_map<std::string, lesma::Type*> preSpecializedClassTypesByKey, bool emitDebug,
-    bool emitArcDebugArg, bool emitArcTraceArg,
+    std::unordered_map<std::string, lesma::Type*> preSpecializedClassTypesByKey,
+    std::unordered_map<std::string, std::shared_ptr<ImportedModuleAnalysis>>
+        preImportedModuleAnalyses,
+    bool emitDebug, bool emitArcDebugArg, bool emitArcTraceArg,
     llvm::OptimizationLevel optimizationLevelForDebugArg,
     std::shared_ptr<std::vector<std::string>> sharedPendingJitModuleInits,
     std::shared_ptr<std::vector<std::string>> sharedPendingJitModuleFinis) {
@@ -225,6 +227,7 @@ Codegen::Codegen(
   specializedClassTypeEnvs.merge(std::move(preSpecializedClassTypeEnvs));
   specializedClassTemplateOf.merge(std::move(preSpecializedClassTemplateOf));
   specializedClassTypesByKey.merge(std::move(preSpecializedClassTypesByKey));
+  importedModuleAnalyses.merge(std::move(preImportedModuleAnalyses));
 
   this->alias = std::move(alias);
   this->filename = filename;

@@ -248,8 +248,8 @@ auto Driver::baseCompile(std::unique_ptr<lesma::Options> options, bool jit) -> i
             result.mainFilePath.empty() ? "" : result.mainFilePath, modules, jit, true, "", nullptr,
             nullptr, nullptr, nullptr, std::move(result.rootScope), std::move(result.typeCache),
             std::move(result.specializedTypeEnv), std::move(result.specializedTypeToTemplate),
-            std::move(result.specializedClassTypes), emitDebugInfo, emitArcDebug, emitArcTrace,
-            optLevel);
+            std::move(result.specializedClassTypes), std::move(result.importedModules),
+            emitDebugInfo, emitArcDebug, emitArcTrace, optLevel);
         cg->run();
         return cg;
       });
