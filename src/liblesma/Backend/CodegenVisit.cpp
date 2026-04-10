@@ -8683,6 +8683,17 @@ auto Codegen::callMethodByName(llvm::SMRange span, lesma::Value* receiver,
       }
     }
     try {
+      if (staticCall && receiverType->is(BaseType::TY_ENUM)) {
+        int const variantIndex = TypeUtils::findIndexInEnumVariants(receiverType, methodName);
+        if (variantIndex >= 0) {
+          Type* enumCtorType = receiverType;
+          if (!currentGenericTypes.empty() && typeContainsUnboundGeneric(enumCtorType)) {
+            enumCtorType = substituteTypeForSpecializationEnv(enumCtorType, currentGenericTypes);
+          }
+          currentGenericTypes = std::move(savedGenerics);
+          return emitEnumConstructValue(span, enumCtorType, static_cast<unsigned>(variantIndex), args);
+        }
+      }
       std::vector<llvm::Value*> finalParams;
       auto fields = directMethod->getType()->getFields();
       finalParams.reserve(paramsLLVM.size());

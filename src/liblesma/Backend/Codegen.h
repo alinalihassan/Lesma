@@ -754,6 +754,9 @@ private:
                                            lesma::Type* storedType, const std::string& dbgName,
                                            bool destStoresFuncValuePair = false)
       -> llvm::Instruction*;
+  auto emitForEachEnumVariantPayloadWithTagDispatch(
+      lesma::Type* enumTy, llvm::Value* enumSlot, llvm::Value* tagVal, std::string_view blockStem,
+      const std::function<void(lesma::Type*, llvm::Value*)>& callback) -> void;
   auto emitForEachUnionMemberWithTagDispatch(
       lesma::Type* unionTy, llvm::Value* unionSlot, llvm::Value* tagVal, std::string_view blockStem,
       const std::function<void(lesma::Type*, llvm::Value*)>& callback) -> void;

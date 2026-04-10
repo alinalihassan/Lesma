@@ -41,7 +41,7 @@ auto Codegen::isLesmaTypeReadyForArcTypeMangling(lesma::Type* type) -> bool {
       return field != nullptr && isLesmaTypeReadyForArcTypeMangling(field->type);
     });
   }
-  if (type->isOneOf({BaseType::TY_CLASS, BaseType::TY_ENUM})) {
+  if (type->is(BaseType::TY_CLASS)) {
     return llvm::isa<llvm::StructType>(type->getLlvmType());
   }
   if (type->is(BaseType::TY_TUPLE)) {
@@ -287,6 +287,27 @@ auto Codegen::emitRetainLoadedValue(lesma::Type* type, llvm::Value* value, bool 
     }
     return;
   }
+  case BaseType::TY_ENUM: {
+    bool const hasArcVariantPayload =
+        std::ranges::any_of(type->getEnumVariants(), [](EnumVariant const* variant) {
+          if (variant == nullptr) {
+            return false;
+          }
+          return std::ranges::any_of(variant->payloadTypes, TypeUtils::containsArcManagedValue);
+        });
+    if (!hasArcVariantPayload) {
+      return;
+    }
+    llvm::Function* parentFn = builder->GetInsertBlock()->getParent();
+    auto* slot = createAllocaInEntry(parentFn, type->getLlvmType(), "arc.enum.retain.slot");
+    builder->CreateStore(value, slot);
+    llvm::Value* tagVal = builder->CreateExtractValue(value, {0U}, "arc.enum.tag");
+    emitForEachEnumVariantPayloadWithTagDispatch(
+        type, slot, tagVal, "arc.enum.retain", [this](Type* payloadType, llvm::Value* payload) {
+          emitRetainLoadedValue(payloadType, payload, false);
+        });
+    return;
+  }
   case BaseType::TY_UNION: {
     bool const hasArcMember =
         std::ranges::any_of(type->getUnionMembers(), TypeUtils::containsArcManagedValue);
@@ -348,6 +369,27 @@ auto Codegen::emitReleaseLoadedValue(lesma::Type* type, llvm::Value* value,
     }
     return;
   }
+  case BaseType::TY_ENUM: {
+    bool const hasArcVariantPayload =
+        std::ranges::any_of(type->getEnumVariants(), [](EnumVariant const* variant) {
+          if (variant == nullptr) {
+            return false;
+          }
+          return std::ranges::any_of(variant->payloadTypes, TypeUtils::containsArcManagedValue);
+        });
+    if (!hasArcVariantPayload) {
+      return;
+    }
+    llvm::Function* parentFn = builder->GetInsertBlock()->getParent();
+    auto* slot = createAllocaInEntry(parentFn, type->getLlvmType(), "arc.enum.release.slot");
+    builder->CreateStore(value, slot);
+    llvm::Value* tagVal = builder->CreateExtractValue(value, {0U}, "arc.enum.tag");
+    emitForEachEnumVariantPayloadWithTagDispatch(
+        type, slot, tagVal, "arc.enum.release", [this](Type* payloadType, llvm::Value* payload) {
+          emitReleaseLoadedValue(payloadType, payload, false);
+        });
+    return;
+  }
   case BaseType::TY_UNION: {
     bool const hasArcMember =
         std::ranges::any_of(type->getUnionMembers(), TypeUtils::containsArcManagedValue);
@@ -372,6 +414,55 @@ auto Codegen::emitReleaseLoadedValue(lesma::Type* type, llvm::Value* value,
   default:
     return;
   }
+}
+
+auto Codegen::emitForEachEnumVariantPayloadWithTagDispatch(
+    lesma::Type* enumTy, llvm::Value* enumSlot, llvm::Value* tagVal, std::string_view blockStem,
+    const std::function<void(lesma::Type*, llvm::Value*)>& callback) -> void {
+  if (enumTy == nullptr || enumSlot == nullptr || tagVal == nullptr) {
+    return;
+  }
+  llvm::Function* parentFn = builder->GetInsertBlock()->getParent();
+  llvm::BasicBlock* mergeBlock =
+      llvm::BasicBlock::Create(theModule->getContext(), std::string(blockStem) + ".done", parentFn);
+  llvm::BasicBlock* currentBlock = builder->GetInsertBlock();
+  auto variants = enumTy->getEnumVariants();
+  for (unsigned idx = 0; idx < variants.size(); ++idx) {
+    EnumVariant* variant = variants[idx];
+    if (variant == nullptr || variant->payloadTypes.empty()) {
+      continue;
+    }
+    Type* payloadType = nullptr;
+    if (variant->payloadTypes.size() == 1U) {
+      payloadType = variant->payloadTypes.front();
+    } else {
+      std::vector<std::unique_ptr<Field>> tupleFields;
+      tupleFields.reserve(variant->payloadTypes.size());
+      for (size_t i = 0; i < variant->payloadTypes.size(); ++i) {
+        tupleFields.push_back(
+            std::make_unique<Field>("_" + std::to_string(i), variant->payloadTypes[i]));
+      }
+      payloadType = cacheType(std::make_unique<Type>(BaseType::TY_TUPLE, nullptr, std::move(tupleFields)));
+    }
+    if (!TypeUtils::containsArcManagedValue(payloadType)) {
+      continue;
+    }
+    auto* matchBlock = llvm::BasicBlock::Create(theModule->getContext(),
+                                                std::string(blockStem) + ".match", parentFn);
+    auto* nextBlock = llvm::BasicBlock::Create(theModule->getContext(),
+                                               std::string(blockStem) + ".next", parentFn);
+    builder->SetInsertPoint(currentBlock);
+    builder->CreateCondBr(
+        builder->CreateICmpEQ(tagVal, llvm::ConstantInt::get(tagVal->getType(), idx)), matchBlock,
+        nextBlock);
+    builder->SetInsertPoint(matchBlock);
+    callback(payloadType, emitEnumPayloadLoadFromSlot(enumSlot, enumTy, idx));
+    builder->CreateBr(mergeBlock);
+    currentBlock = nextBlock;
+  }
+  builder->SetInsertPoint(currentBlock);
+  builder->CreateBr(mergeBlock);
+  builder->SetInsertPoint(mergeBlock);
 }
 
 auto Codegen::emitForEachUnionMemberWithTagDispatch(

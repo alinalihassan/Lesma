@@ -586,7 +586,7 @@ if current is null {
 
   auto const [exitCode, output] = runFileWithArcDebug(mainPath);
   EXPECT_EQ(exitCode, 0);
-  EXPECT_NE(output.find("[arc] live objects: 0"), std::string::npos);
+  EXPECT_NE(output.find("[arc] live objects: 0"), std::string::npos) << output;
 }
 
 TEST(ArcDebugRuntimeTests, MixedTupleBorrowedAndOwnedArcElementsReportZero) {
@@ -611,6 +611,41 @@ if pair[0].get() != 1 {
 }
 if pair[1].get() != 2 {
   exit(2)
+}
+)");
+
+  auto const [exitCode, output] = runFileWithArcDebug(mainPath);
+  EXPECT_EQ(exitCode, 0);
+  EXPECT_NE(output.find("[arc] live objects: 0"), std::string::npos);
+}
+
+TEST(ArcDebugRuntimeTests, EnumPayloadOverwriteReleasesManagedPayloads) {
+  std::filesystem::path const scratchDir = recreateScratchDir("lesma_arc_runtime_enum_payload_zero");
+  std::filesystem::path const mainPath = scratchDir / "main.les";
+  writeScratchFile(mainPath, R"(class Box {
+  var value: int
+
+  func new(value: int) {
+    self.value = value
+  }
+
+  func get() -> int {
+    return self.value
+  }
+}
+
+enum MaybeBox {
+  None
+  Some(Box)
+}
+
+var current: MaybeBox = MaybeBox.Some(Box(1))
+current = MaybeBox.None
+if match current {
+  MaybeBox.None => true
+  MaybeBox.Some(_) => false
+} == false {
+  exit(1)
 }
 )");
 
