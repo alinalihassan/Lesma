@@ -562,12 +562,23 @@ auto Codegen::linkObjectFile(const std::string& objFilename) -> void {
 }
 
 auto Codegen::prepareJit() -> void {
-  if (Error jitError = theJit->addIRModule(ThreadSafeModule(std::move(theModule), *theContext))) {
+  llvm::Error addModuleErr =
+      performanceTimer != nullptr
+          ? performanceTimer->measureDetail("JIT addIRModule", [&]() -> llvm::Error {
+              return theJit->addIRModule(ThreadSafeModule(std::move(theModule), *theContext));
+            })
+          : theJit->addIRModule(ThreadSafeModule(std::move(theModule), *theContext));
+  if (addModuleErr) {
     // Concatenate: LLVM error text may contain characters that break fmt::format placeholders.
     throw CodegenError({}, std::string("JIT addIRModule failed: ") +
-                               llvmErrorToString(std::move(jitError)));
+                               llvmErrorToString(std::move(addModuleErr)));
   }
-  Expected<ExecutorAddr> mainFuncOrErr = theJit->lookup(topLevelFunc->getName());
+  Expected<ExecutorAddr> mainFuncOrErr =
+      performanceTimer != nullptr
+          ? performanceTimer->measureDetail("JIT lookup(main)", [&]() -> Expected<ExecutorAddr> {
+              return theJit->lookup(topLevelFunc->getName());
+            })
+          : theJit->lookup(topLevelFunc->getName());
   if (!mainFuncOrErr) {
     throw CodegenError({}, std::string("Couldn't find top-level function '") +
                                topLevelFunc->getName().str() +
@@ -577,13 +588,24 @@ auto Codegen::prepareJit() -> void {
 
   if (pendingJitModuleInits != nullptr) {
     for (const std::string& sym : *pendingJitModuleInits) {
-      Expected<ExecutorAddr> initAddr = theJit->lookup(sym);
+      Expected<ExecutorAddr> initAddr =
+          performanceTimer != nullptr
+              ? performanceTimer->measureDetail(
+                    fmt::format("JIT lookup(module_init {})", sym), [&]() -> Expected<ExecutorAddr> {
+                      return theJit->lookup(sym);
+                    })
+              : theJit->lookup(sym);
       if (!initAddr) {
         throw CodegenError({}, std::string("JIT could not resolve module initializer ") + sym +
                                    ": " + llvmErrorToString(initAddr.takeError()));
       }
       using ModuleInitTy = int64_t();
-      std::ignore = initAddr->toPtr<ModuleInitTy>()();
+      if (performanceTimer != nullptr) {
+        performanceTimer->measureDetail(fmt::format("JIT run(module_init {})", sym),
+                                        [&]() -> void { std::ignore = initAddr->toPtr<ModuleInitTy>()(); });
+      } else {
+        std::ignore = initAddr->toPtr<ModuleInitTy>()();
+      }
     }
     pendingJitModuleInits->clear();
   }

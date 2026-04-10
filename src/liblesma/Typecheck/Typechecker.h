@@ -96,6 +96,8 @@ class Typechecker final : public ASTVisitor {
   std::unordered_map<Type*, std::unordered_map<std::string, Type*>> specializedTraitExistentialEnv;
   /** Imported types materialized into this typechecker's cache so they outlive imported scopes. */
   std::unordered_map<Type*, Type*> importedTypeCopies;
+  /** Guards recursive imported nominal materialization while trying canonical reuse. */
+  std::unordered_set<Type*> importedTypeMaterializationInProgress;
   std::vector<Type*> expectedTypes;
   /** Per `if` branch: stable storage identity → narrowed type for `is` / `is not` on unions. */
   std::vector<std::unordered_map<UnionNarrowingStableKey, Type*, UnionNarrowingStableKeyHash,

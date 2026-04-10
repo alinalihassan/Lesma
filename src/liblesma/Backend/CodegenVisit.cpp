@@ -185,7 +185,7 @@ using namespace lesma;
 Codegen::Codegen(
     std::shared_ptr<Parser> parser, std::shared_ptr<SourceMgr> srcMgr, const std::string& filename,
     std::vector<std::string> imports, bool jit, bool main, std::string alias,
-    const std::shared_ptr<ThreadSafeContext>& context,
+    const std::shared_ptr<ThreadSafeContext>& context, std::shared_ptr<LLJIT> sharedJit,
     std::shared_ptr<std::vector<std::string>> sharedModules,
     std::shared_ptr<std::vector<std::unique_ptr<SymbolTable>>> sharedScopes,
     std::shared_ptr<std::vector<ImportedSpecializationState>> sharedImportedSpecializationStates,
@@ -196,6 +196,7 @@ Codegen::Codegen(
     std::unordered_map<std::string, lesma::Type*> preSpecializedClassTypesByKey,
     std::unordered_map<std::string, std::shared_ptr<ImportedModuleAnalysis>>
         preImportedModuleAnalyses,
+    Timer* performanceTimer,
     bool emitDebug, bool emitArcDebugArg, bool emitArcTraceArg,
     llvm::OptimizationLevel optimizationLevelForDebugArg,
     std::shared_ptr<std::vector<std::string>> sharedPendingJitModuleInits,
@@ -210,12 +211,14 @@ Codegen::Codegen(
   targetMachine = initializeTargetMachine();
   theModule = initializeModule();
   if (jit) {
-    theJit = initializeJit();
+    theJit = sharedJit != nullptr ? std::move(sharedJit)
+                                  : std::shared_ptr<LLJIT>(initializeJit().release());
   }
 
   builder = std::make_unique<IRBuilder<>>(theModule->getContext());
   this->parser = std::move(parser);
   sourceManager = std::move(srcMgr);
+  this->performanceTimer = performanceTimer;
   if (preScope == nullptr) {
     throw CodegenError({}, "Codegen requires a precomputed typecheck scope");
   }

@@ -66,6 +66,7 @@ class LambdaExpr;
 class VarDecl;
 class ForIn;
 class DotOp;
+class Timer;
 
 struct ImportedSpecializationState {
   std::unordered_map<std::string, const Class*> genericClasses;
@@ -109,7 +110,7 @@ class Codegen final : public ASTVisitor {
   std::unique_ptr<Module> theModule;
   std::unique_ptr<IRBuilder<>> builder;
 
-  std::unique_ptr<LLJIT> theJit;
+  std::shared_ptr<LLJIT> theJit;
   /// JIT: mangled per-import init symbols; run from \c prepareJit (shared across nested imports).
   std::shared_ptr<std::vector<std::string>> pendingJitModuleInits;
   /// JIT: mangled per-import fini symbols; called by the main module in reverse init order.
@@ -117,6 +118,7 @@ class Codegen final : public ASTVisitor {
   std::unique_ptr<llvm::TargetMachine> targetMachine;
   std::shared_ptr<Parser> parser;
   std::shared_ptr<SourceMgr> sourceManager;
+  Timer* performanceTimer = nullptr;
   // deque so push_back never invalidates Type* pointers stored in scope (from
   // typecheck). Declared before \c rootScope so symbols are destroyed before the
   // type cache.
@@ -180,10 +182,10 @@ class Codegen final : public ASTVisitor {
   std::unordered_map<std::string, llvm::Function*> anyTypeInfoRetainFns;
   std::unordered_map<std::string, llvm::Function*> anyTypeInfoReleaseFns;
   std::unordered_map<lesma::Type*, llvm::GlobalVariable*> classVtableGlobals;
-  std::unordered_map<lesma::Type*, llvm::Function*> arcDestroyFns;
-  std::unordered_map<lesma::Type*, llvm::Function*> arcPayloadDestroyFns;
-  std::unordered_map<lesma::Type*, llvm::Function*> arcStorageRetainFns;
-  std::unordered_map<lesma::Type*, llvm::Function*> arcStorageReleaseFns;
+  std::unordered_map<std::string, llvm::Function*> arcDestroyFns;
+  std::unordered_map<std::string, llvm::Function*> arcPayloadDestroyFns;
+  std::unordered_map<std::string, llvm::Function*> arcStorageRetainFns;
+  std::unordered_map<std::string, llvm::Function*> arcStorageReleaseFns;
   std::unordered_map<std::string, llvm::Function*> arcClosureDestroyFns;
   std::unordered_map<lesma::Type*, const Class*> codegenClassAstByType;
   std::unordered_map<std::string, const Class*> codegenClassAstByDisplayName;
@@ -257,6 +259,7 @@ public:
   Codegen(std::shared_ptr<Parser> parser, std::shared_ptr<SourceMgr> srcMgr,
           const std::string& filename, std::vector<std::string> imports, bool jit, bool main,
           std::string alias = "", const std::shared_ptr<ThreadSafeContext>& = nullptr,
+          std::shared_ptr<LLJIT> sharedJit = nullptr,
           std::shared_ptr<std::vector<std::string>> sharedModules = nullptr,
           std::shared_ptr<std::vector<std::unique_ptr<SymbolTable>>> sharedScopes = nullptr,
           std::shared_ptr<std::vector<ImportedSpecializationState>>
@@ -269,6 +272,7 @@ public:
           std::unordered_map<std::string, lesma::Type*> preSpecializedClassTypesByKey = {},
           std::unordered_map<std::string, std::shared_ptr<ImportedModuleAnalysis>>
               preImportedModuleAnalyses = {},
+          Timer* performanceTimer = nullptr,
           bool emitDebug = false, bool emitArcDebug = false, bool emitArcTrace = false,
           llvm::OptimizationLevel optimizationLevelForDebugArg = llvm::OptimizationLevel::O3,
           std::shared_ptr<std::vector<std::string>> sharedPendingJitModuleInits = nullptr,

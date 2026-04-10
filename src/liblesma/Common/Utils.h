@@ -1,5 +1,6 @@
 #pragma once
 
+#include <chrono>
 #include <cstdint>
 #include <filesystem>
 #include <string>
@@ -12,7 +13,6 @@
 
 #include "fmt/color.h"
 #include "fmt/core.h"
-#include "plf_nanotimer.h"
 
 namespace lesma {
 struct AnalysisDiagnostic;
@@ -75,7 +75,6 @@ void print(const S& formatStr, const Args&... args) {
 // Timer class for measuring execution time of code blocks
 class Timer {
 private:
-  plf::nanotimer timer;
   double total = 0;
   bool enabled;
 
@@ -92,13 +91,43 @@ public:
         print(LogType::DEBUG, "{} -> {:.2f} ms\n", operation, elapsed);
       }
     };
-    timer.start();
+    auto start = std::chrono::steady_clock::now();
     if constexpr (std::is_void_v<std::invoke_result_t<F>>) {
       std::forward<F>(func)();
-      recordElapsed(timer.get_elapsed_ms());
+      auto elapsed = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() -
+                                                               start)
+                         .count();
+      recordElapsed(elapsed);
     } else {
       decltype(auto) result = std::forward<F>(func)();
-      recordElapsed(timer.get_elapsed_ms());
+      auto elapsed = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() -
+                                                               start)
+                         .count();
+      recordElapsed(elapsed);
+      return result;
+    }
+  }
+
+  template <typename F>
+  auto measureDetail(const std::string& operation, F&& func) -> decltype(auto) {
+    auto recordElapsed = [this, &operation](double elapsed) -> auto {
+      if (enabled) {
+        print(LogType::DEBUG, "  {} -> {:.2f} ms\n", operation, elapsed);
+      }
+    };
+    auto start = std::chrono::steady_clock::now();
+    if constexpr (std::is_void_v<std::invoke_result_t<F>>) {
+      std::forward<F>(func)();
+      auto elapsed = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() -
+                                                               start)
+                         .count();
+      recordElapsed(elapsed);
+    } else {
+      decltype(auto) result = std::forward<F>(func)();
+      auto elapsed = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() -
+                                                               start)
+                         .count();
+      recordElapsed(elapsed);
       return result;
     }
   }

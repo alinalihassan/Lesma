@@ -451,13 +451,14 @@ auto Codegen::getOrCreateArcStorageRetainFunction(lesma::Type* type) -> llvm::Fu
   if (type == nullptr) {
     return nullptr;
   }
-  if (auto it = arcStorageRetainFns.find(type); it != arcStorageRetainFns.end()) {
+  const std::string typeKey = MangleUtils::getTypeMangledName({}, type);
+  if (auto it = arcStorageRetainFns.find(typeKey); it != arcStorageRetainFns.end()) {
     return it->second;
   }
-  std::string fnName = "__lesma_arc_retain_storage_" + MangleUtils::getTypeMangledName({}, type);
+  std::string fnName = "__lesma_arc_retain_storage_" + typeKey;
   auto* fnTy = llvm::FunctionType::get(builder->getVoidTy(), {builder->getPtrTy()}, false);
   auto* fn = llvm::Function::Create(fnTy, llvm::GlobalValue::PrivateLinkage, fnName, *theModule);
-  arcStorageRetainFns[type] = fn;
+  arcStorageRetainFns[typeKey] = fn;
   auto savedIp = builder->saveIP();
   auto* entry = llvm::BasicBlock::Create(theModule->getContext(), "entry", fn);
   builder->SetInsertPoint(entry);
@@ -478,13 +479,14 @@ auto Codegen::getOrCreateArcStorageReleaseFunction(lesma::Type* type) -> llvm::F
   if (type == nullptr) {
     return nullptr;
   }
-  if (auto it = arcStorageReleaseFns.find(type); it != arcStorageReleaseFns.end()) {
+  const std::string typeKey = MangleUtils::getTypeMangledName({}, type);
+  if (auto it = arcStorageReleaseFns.find(typeKey); it != arcStorageReleaseFns.end()) {
     return it->second;
   }
-  std::string fnName = "__lesma_arc_release_storage_" + MangleUtils::getTypeMangledName({}, type);
+  std::string fnName = "__lesma_arc_release_storage_" + typeKey;
   auto* fnTy = llvm::FunctionType::get(builder->getVoidTy(), {builder->getPtrTy()}, false);
   auto* fn = llvm::Function::Create(fnTy, llvm::GlobalValue::PrivateLinkage, fnName, *theModule);
-  arcStorageReleaseFns[type] = fn;
+  arcStorageReleaseFns[typeKey] = fn;
   auto savedIp = builder->saveIP();
   auto* entry = llvm::BasicBlock::Create(theModule->getContext(), "entry", fn);
   builder->SetInsertPoint(entry);
@@ -505,13 +507,14 @@ auto Codegen::getOrCreateArcPayloadDestroyFunction(lesma::Type* type) -> llvm::F
   if (type == nullptr) {
     return nullptr;
   }
-  if (auto it = arcPayloadDestroyFns.find(type); it != arcPayloadDestroyFns.end()) {
+  const std::string typeKey = MangleUtils::getTypeMangledName({}, type);
+  if (auto it = arcPayloadDestroyFns.find(typeKey); it != arcPayloadDestroyFns.end()) {
     return it->second;
   }
-  std::string fnName = "__lesma_arc_destroy_payload_" + MangleUtils::getTypeMangledName({}, type);
+  std::string fnName = "__lesma_arc_destroy_payload_" + typeKey;
   auto* fnTy = llvm::FunctionType::get(builder->getVoidTy(), {builder->getPtrTy()}, false);
   auto* fn = llvm::Function::Create(fnTy, llvm::GlobalValue::PrivateLinkage, fnName, *theModule);
-  arcPayloadDestroyFns[type] = fn;
+  arcPayloadDestroyFns[typeKey] = fn;
   auto savedIp = builder->saveIP();
   auto* entry = llvm::BasicBlock::Create(theModule->getContext(), "entry", fn);
   builder->SetInsertPoint(entry);
@@ -528,13 +531,14 @@ auto Codegen::getOrCreateArcDestroyFunction(lesma::Type* type) -> llvm::Function
   if (type == nullptr) {
     return nullptr;
   }
-  if (auto it = arcDestroyFns.find(type); it != arcDestroyFns.end()) {
+  const std::string typeKey = MangleUtils::getTypeMangledName({}, type);
+  if (auto it = arcDestroyFns.find(typeKey); it != arcDestroyFns.end()) {
     return it->second;
   }
-  std::string fnName = "__lesma_arc_destroy_" + MangleUtils::getTypeMangledName({}, type);
+  std::string fnName = "__lesma_arc_destroy_" + typeKey;
   auto* fnTy = llvm::FunctionType::get(builder->getVoidTy(), {builder->getPtrTy()}, false);
   auto* fn = llvm::Function::Create(fnTy, llvm::GlobalValue::PrivateLinkage, fnName, *theModule);
-  arcDestroyFns[type] = fn;
+  arcDestroyFns[typeKey] = fn;
 
   auto savedIp = builder->saveIP();
   auto* entry = llvm::BasicBlock::Create(theModule->getContext(), "entry", fn);

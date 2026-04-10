@@ -304,12 +304,22 @@ auto Codegen::compileModule(llvm::SMRange span, const std::string& filepath, boo
   try {
     // Lexer
     auto lexer = std::make_unique<Lexer>(sourceManager);
-    lexer->scanAll();
+    if (performanceTimer != nullptr) {
+      performanceTimer->measureDetail(fmt::format("Import Lexing [{}]", canonicalPath),
+                                      [&]() -> void { lexer->scanAll(); });
+    } else {
+      lexer->scanAll();
+    }
 
     // Parser
     auto parser =
         std::make_unique<Parser>(lexer->getTokens(), nullptr, sourceManager, fileId, canonicalPath);
-    parser->parse();
+    if (performanceTimer != nullptr) {
+      performanceTimer->measureDetail(fmt::format("Import Parsing [{}]", canonicalPath),
+                                      [&]() -> void { parser->parse(); });
+    } else {
+      parser->parse();
+    }
     Compound* ast = parser->getAst();
     if (ast == nullptr) {
       throw CodegenError(span, "Unable to parse imported module {}", filepath);
@@ -317,17 +327,28 @@ auto Codegen::compileModule(llvm::SMRange span, const std::string& filepath, boo
 
     auto [preScope, preTypeCache, preSpecEnv, preTemplateOf, preSpecializedClassTypes,
           preImportedModuleAnalyses] =
-        typecheckModule(ast, canonicalPath);
+        performanceTimer != nullptr
+            ? performanceTimer->measureDetail(
+                  fmt::format("Import Typecheck [{}]", canonicalPath),
+                  [&]() {
+                    return typecheckModule(ast, canonicalPath);
+                  })
+            : typecheckModule(ast, canonicalPath);
 
     auto codegen = std::make_unique<Codegen>(
         std::move(parser), sourceManager, canonicalPath, std::vector<std::string>{}, isJit, false,
-        !importToScope ? moduleAlias : "", theContext, importedModules, importedScopes,
+        !importToScope ? moduleAlias : "", theContext, theJit, importedModules, importedScopes,
         importedSpecializationStates, std::move(preScope), std::move(preTypeCache),
         std::move(preSpecEnv), std::move(preTemplateOf), std::move(preSpecializedClassTypes),
-        std::move(preImportedModuleAnalyses),
+        std::move(preImportedModuleAnalyses), performanceTimer,
         emitDebugInfo, emitArcDebug, emitArcTrace, OptimizationLevel::O0, pendingJitModuleInits,
         pendingJitModuleFinis);
-    codegen->run();
+    if (performanceTimer != nullptr) {
+      performanceTimer->measureDetail(fmt::format("Import Codegen [{}]", canonicalPath),
+                                      [&]() -> void { codegen->run(); });
+    } else {
+      codegen->run();
+    }
     ImportedSpecializationState importedState = codegen->captureImportedSpecializationState();
     importedSpecializationStates->at(importIdx) = importedState;
     mergeImportedTraitMetadata(importedState);
@@ -392,7 +413,14 @@ auto Codegen::compileModule(llvm::SMRange span, const std::string& filepath, boo
       // Do not promote private GlobalVariables (string literals, etc.): Mach-O JITLink reports
       // "Unexpected definitions" for anonymous ___unnamed_* symbols when they become external.
       llvm::Error jitErr =
-          theJit->addIRModule(ThreadSafeModule(std::move(codegen->theModule), *theContext));
+          performanceTimer != nullptr
+              ? performanceTimer->measureDetail(
+                    fmt::format("Import JIT addIRModule [{}]", canonicalPath),
+                    [&]() -> llvm::Error {
+                      return theJit->addIRModule(
+                          ThreadSafeModule(std::move(codegen->theModule), *theContext));
+                    })
+              : theJit->addIRModule(ThreadSafeModule(std::move(codegen->theModule), *theContext));
       if (jitErr) {
         throw CodegenError(span, std::string("Failed adding import to JIT: ") + canonicalPath +
                                      ": " + jitErrorToString(std::move(jitErr)));

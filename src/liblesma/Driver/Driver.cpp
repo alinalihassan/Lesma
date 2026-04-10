@@ -246,9 +246,10 @@ auto Driver::baseCompile(std::unique_ptr<lesma::Options> options, bool jit) -> i
         auto cg = std::make_unique<Codegen>(
             std::move(result.parser), result.sourceMgr,
             result.mainFilePath.empty() ? "" : result.mainFilePath, modules, jit, true, "", nullptr,
+            nullptr,
             nullptr, nullptr, nullptr, std::move(result.rootScope), std::move(result.typeCache),
             std::move(result.specializedTypeEnv), std::move(result.specializedTypeToTemplate),
-            std::move(result.specializedClassTypes), std::move(result.importedModules),
+            std::move(result.specializedClassTypes), std::move(result.importedModules), &timer,
             emitDebugInfo, emitArcDebug, emitArcTrace, optLevel);
         cg->run();
         return cg;

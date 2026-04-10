@@ -1707,10 +1707,45 @@ auto Typechecker::materializeImportedType(Type* type) -> Type* {
     return existing->second;
   }
   if (type->is(BaseType::TY_CLASS) || type->is(BaseType::TY_ENUM)) {
+    const bool canAttemptCanonicalReuse = importedTypeMaterializationInProgress.insert(type).second;
+    auto sameDeclarationPath = [](const std::string& lhs, const std::string& rhs) -> bool {
+      if (lhs.empty() || rhs.empty()) {
+        return false;
+      }
+      return normalizeResolvedFilesystemPath(lhs) == normalizeResolvedFilesystemPath(rhs);
+    };
+    auto reuseExistingNominal = [&](Type* candidate) -> Type* {
+      if (candidate == nullptr || !candidate->is(type->getBaseType())) {
+        return nullptr;
+      }
+      if (type->isBuiltinStringClass() && candidate->isBuiltinStringClass()) {
+        return candidate;
+      }
+      if (!type->getDisplayName().empty() && candidate->getDisplayName() == type->getDisplayName() &&
+          sameDeclarationPath(candidate->getDeclarationFilePath(), type->getDeclarationFilePath())) {
+        return candidate;
+      }
+      return nullptr;
+    };
+    if (canAttemptCanonicalReuse) {
+      if (rootScope != nullptr && !type->getDisplayName().empty()) {
+        if (Value* existingNominal = rootScope->lookupStruct(type->getDisplayName());
+            existingNominal != nullptr) {
+          if (Type* reused = reuseExistingNominal(existingNominal->getType()); reused != nullptr) {
+            importedTypeCopies[type] = reused;
+            importedTypeMaterializationInProgress.erase(type);
+            return reused;
+          }
+        }
+      }
+    }
     auto placeholder =
         std::make_unique<Type>(type->getBaseType(), nullptr, std::vector<std::unique_ptr<Field>>{});
     Type* copy = cacheType(std::move(placeholder));
     importedTypeCopies[type] = copy;
+    if (canAttemptCanonicalReuse) {
+      importedTypeMaterializationInProgress.erase(type);
+    }
     copy->setDisplayName(type->getDisplayName());
     copy->setBuiltinStringClass(type->isBuiltinStringClass());
     copy->setGenericParams(type->getGenericParams());
