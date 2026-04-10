@@ -33,7 +33,7 @@ func expectObject(
       fallback["_"] = null
       return fallback
     }
-    }
+  }
   if parsedRoot is not dict<str, JsonValue> {
     exit(code)
     var fallback: dict<str, JsonValue> = {}
@@ -50,7 +50,7 @@ func expectText(result: Result<str, JsonErr>, code: int) -> str {
       exit(code)
       return ""
     }
-    }
+  }
   return resolved
 }
 
@@ -61,7 +61,7 @@ func expectUser(result: Result<User, JsonErr>, code: int) -> User {
       exit(code)
       return User("", 0)
     }
-    }
+  }
   return resolved
 }
 
@@ -115,6 +115,8 @@ var built: dict<str, JsonValue> = {}
 built["quote"] = "\""
 built["slash"] = "\\"
 built["newline"] = "a\nb"
+built["cr"] = "\r"
+built["tab"] = "\t"
 built["null"] = null
 var array: list<JsonValue> = []
 array.push(7)
@@ -133,6 +135,12 @@ if encoded.contains("\\\\") == false {
 if encoded.contains("\\n") == false {
   exit(18)
 }
+if encoded.contains("\\r") == false {
+  exit(30)
+}
+if encoded.contains("\\t") == false {
+  exit(31)
+}
 if encoded.contains("null") == false {
   exit(19)
 }
@@ -144,6 +152,12 @@ if roundTrip["quote"] is not str or roundTrip["quote"] != "\"" {
 }
 if roundTrip["newline"] is not str or roundTrip["newline"] != "a\nb" {
   exit(22)
+}
+if roundTrip["cr"] is not str or roundTrip["cr"] != "\r" {
+  exit(32)
+}
+if roundTrip["tab"] is not str or roundTrip["tab"] != "\t" {
+  exit(33)
 }
 if roundTrip["null"] is not null {
   exit(23)
@@ -157,7 +171,7 @@ let braceArmDict = match Json.parseObject("{}") {
     var empty: dict<str, JsonValue> = {}
     empty
   }
-  }
+}
 if braceArmDict["k"] is not int or braceArmDict["k"] != 1 {
   exit(29)
 }
