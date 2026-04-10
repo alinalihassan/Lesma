@@ -994,3 +994,54 @@ auto SymbolTable::getChild(const std::string& scopeId) -> SymbolTable* {
   }
   return it->second.get();
 }
+
+auto SymbolTable::cloneSubtreeForCodegen(SymbolTable* newParent,
+                                           std::unordered_map<SymbolTable*, SymbolTable*>& oldToNew)
+    -> std::unique_ptr<SymbolTable> {
+  auto owned = std::make_unique<SymbolTable>(newParent);
+  SymbolTable* dst = owned.get();
+  oldToNew[this] = dst;
+
+  for (const auto& [key, sym] : symbols) {
+    (void)key;
+    auto c = std::make_unique<Value>(*sym);
+    c->setLlvmValue(nullptr);
+    dst->insertSymbol(std::move(c));
+  }
+  for (const auto& [k, t] : typeRefs) {
+    dst->insertTypeRef(k, t);
+  }
+  for (const auto& [childKey, childPtr] : children) {
+    auto clonedChild = childPtr->cloneSubtreeForCodegen(dst, oldToNew);
+    dst->children.emplace(childKey, std::move(clonedChild));
+  }
+  return owned;
+}
+
+auto SymbolTable::attachClonedChild(std::string const& blockName, std::unique_ptr<SymbolTable> child)
+    -> SymbolTable* {
+  int idx = 1;
+  while (children.contains(blockName + std::to_string(idx))) {
+    idx++;
+  }
+  auto key = blockName + std::to_string(idx);
+  SymbolTable* ptr = child.get();
+  children.emplace(std::move(key), std::move(child));
+  return ptr;
+}
+
+auto SymbolTable::remapValueBodyScopesForCodegenClone(
+    std::unordered_map<SymbolTable*, SymbolTable*> const& oldToNew) -> void {
+  for (auto* sym : getSymbols()) {
+    SymbolTable* bs = sym->getBodyScope();
+    if (bs != nullptr) {
+      if (auto it = oldToNew.find(bs); it != oldToNew.end()) {
+        sym->setBodyScope(it->second);
+      }
+    }
+  }
+  for (auto& [k, ch] : children) {
+    (void)k;
+    ch->remapValueBodyScopesForCodegenClone(oldToNew);
+  }
+}

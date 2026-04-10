@@ -169,6 +169,9 @@ class Codegen final : public ASTVisitor {
   std::unordered_map<lesma::Type*, lesma::Value*> specializedClassSymbolsByType;
   std::unordered_map<lesma::Value*, std::unordered_map<std::string, lesma::Type*>>
       specializationEnvs;
+  /** While emitting a specialized generic function, maps template \c SymbolTable* from typecheck to
+   *  this emission's cloned tables (see \c defineFunction). */
+  std::unordered_map<lesma::SymbolTable*, lesma::SymbolTable*> codegenTemplateBodyScopeRemap;
   std::unordered_map<lesma::Type*, std::unordered_map<std::string, lesma::Type*>>
       specializedClassTypeEnvs;
   /** From typecheck: specialized class → template (for lowering `Base<T>` field/super types). */
@@ -732,6 +735,8 @@ private:
       std::unordered_map<std::string, std::unordered_map<std::string, const FuncDecl*>>&
           genericMethods,
       lesma::Value* selfSymbol) -> std::unordered_map<std::string, const FuncDecl*>*;
+  /** Map a typecheck body-scope pointer to this specialized emission's clone when active. */
+  [[nodiscard]] auto remapCodegenTemplateBodyScope(lesma::SymbolTable* t) const -> lesma::SymbolTable*;
   /** Stack/global slot LLVM type for a local or exported variable (class-as-ptr ABI, func pair). */
   [[nodiscard]] auto llvmStorageTypeForVarSlot(lesma::Type* storedType, lesma::Value* existing)
       -> llvm::Type*;

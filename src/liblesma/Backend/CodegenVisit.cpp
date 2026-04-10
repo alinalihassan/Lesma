@@ -293,27 +293,11 @@ auto Codegen::defineFunction(lesma::Value* value, const FuncDecl* node, Value* c
   scope = templateBodyScope;
   if (scope != nullptr && specializationEnvs.contains(value)) {
     currentGenericTypes = specializationEnvs.at(value);
-    scope = savedScope->createChildBlock(node->getName() + ".specialized");
-    std::vector<std::string> paramNames;
-    paramNames.reserve(node->getParameters().size() + 1U);
-    if (usesImplicitSelfParam) {
-      paramNames.push_back("self");
-    }
-    for (auto* param : node->getParameters()) {
-      paramNames.push_back(param->name);
-    }
-    for (auto* symbol : templateBodyScope->getSymbols()) {
-      if (symbol == nullptr) {
-        continue;
-      }
-      if (std::find(paramNames.begin(), paramNames.end(), symbol->getName()) == paramNames.end()) {
-        continue;
-      }
-      auto seeded = std::make_unique<Value>(*symbol);
-      seeded->setLlvmValue(nullptr);
-      seeded->setCategory(ValueCategory::ADDRESSABLE_STORAGE);
-      scope->insertSymbol(std::move(seeded));
-    }
+    std::unordered_map<SymbolTable*, SymbolTable*> clonedScopeMap;
+    auto clonedRoot = templateBodyScope->cloneSubtreeForCodegen(savedScope, clonedScopeMap);
+    clonedRoot->remapValueBodyScopesForCodegenClone(clonedScopeMap);
+    scope = savedScope->attachClonedChild(node->getName() + ".specialized", std::move(clonedRoot));
+    codegenTemplateBodyScopeRemap = std::move(clonedScopeMap);
     for (const auto& [genericName, genericType] : currentGenericTypes) {
       if (genericType == nullptr) {
         continue;
@@ -471,6 +455,7 @@ auto Codegen::defineFunction(lesma::Value* value, const FuncDecl* node, Value* c
   }
 
   // Insert Function to Symbol Table
+  codegenTemplateBodyScopeRemap.clear();
   scope = savedScope;
   currentGenericTypes = std::move(savedGenerics);
   popArcOwnedSlotFrame(false);
@@ -483,9 +468,22 @@ auto Codegen::defineFunction(lesma::Value* value, const FuncDecl* node, Value* c
   builder->SetCurrentDebugLocation(llvm::DebugLoc());
 }
 
+auto Codegen::remapCodegenTemplateBodyScope(SymbolTable* t) const -> SymbolTable* {
+  if (t == nullptr) {
+    return nullptr;
+  }
+  if (auto it = codegenTemplateBodyScopeRemap.find(t); it != codegenTemplateBodyScopeRemap.end()) {
+    return it->second;
+  }
+  return t;
+}
+
 auto Codegen::defineLambdaFunction(lesma::Value* value, const LambdaExpr* node) -> void {
   SymbolTable* savedScope = scope;
   scope = value->getBodyScope();
+  if (scope != nullptr) {
+    scope = remapCodegenTemplateBodyScope(scope);
+  }
   if (scope == nullptr) {
     scope = savedScope->createChildBlock("lambda_spec");
   }
@@ -2245,8 +2243,9 @@ auto Codegen::visit(const ForIn* node) -> void {
     }
   }
   SymbolTable* savedScope = scope;
-  SymbolTable* forBodyScope =
-      node->getBodyScope() != nullptr ? node->getBodyScope() : savedScope->createChildBlock("for");
+  SymbolTable* forBodyScope = node->getBodyScope() != nullptr
+                                  ? remapCodegenTemplateBodyScope(node->getBodyScope())
+                                  : savedScope->createChildBlock("for");
   scope = forBodyScope;
   Value* loopVar = scope->lookup(node->getIdentifier()->getValue());
   if (loopVar == nullptr) {
@@ -4128,7 +4127,8 @@ auto Codegen::visit(const LambdaExpr* node) -> void {
   llvm::BasicBlock* resumeBlock = builder->GetInsertBlock();
   SymbolTable* savedScope = scope;
   Value* savedCurrentFunction = currentFunction;
-  scope = resolved->getBodyScope() != nullptr ? resolved->getBodyScope() : savedScope;
+  scope = resolved->getBodyScope() != nullptr ? remapCodegenTemplateBodyScope(resolved->getBodyScope())
+                                              : savedScope;
   currentFunction = resolved;
   deferStack.emplace();
   pushDeferBaseline();
@@ -4143,7 +4143,9 @@ auto Codegen::visit(const LambdaExpr* node) -> void {
     envArg->setName("__env");
     llvm::Value* typedEnv = builder->CreateBitCast(
         envArg, llvm::PointerType::get(envStructTy->getContext(), 0U), "env.ptr");
-    SymbolTable* body = resolved->getBodyScope();
+    SymbolTable* body = resolved->getBodyScope() != nullptr
+                            ? remapCodegenTemplateBodyScope(resolved->getBodyScope())
+                            : nullptr;
     for (size_t i = 0; i < caps.size(); ++i) {
       Value* outer = caps[i];
       if (body == nullptr) {

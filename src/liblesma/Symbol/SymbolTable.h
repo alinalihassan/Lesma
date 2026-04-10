@@ -122,6 +122,22 @@ public:
    * \c lookupType still works after ownership is unified elsewhere (e.g. Driver/Codegen). */
   auto releaseOwnedTypesInto(std::vector<std::unique_ptr<Type>>& dest) -> void;
 
+  /** Deep-clone this scope and nested child scopes under \p newParent for generic specialization
+   *  codegen. Fills \p oldToNew with template table pointer → clone pointer. Clears LLVM handles
+   *  on cloned \c Value entries. Does not deep-copy owned \c Type objects (uses the same \c Type*
+   *  as the template where applicable); copies \c typeRefs. */
+  [[nodiscard]] auto cloneSubtreeForCodegen(SymbolTable* newParent,
+                                            std::unordered_map<SymbolTable*, SymbolTable*>& oldToNew)
+      -> std::unique_ptr<SymbolTable>;
+
+  /** Take ownership of a subtree produced by \c cloneSubtreeForCodegen (naming like \c createChildBlock). */
+  auto attachClonedChild(std::string const& blockName, std::unique_ptr<SymbolTable> child)
+      -> SymbolTable*;
+
+  /** Remap \c Value::bodyScope on this tree when it points at a template table listed in \p oldToNew. */
+  auto remapValueBodyScopesForCodegenClone(std::unordered_map<SymbolTable*, SymbolTable*> const& oldToNew)
+      -> void;
+
   [[nodiscard]] auto toString(int ind) -> std::string {
     std::string res;
     for (const auto& [key, symbol] : symbols) {
