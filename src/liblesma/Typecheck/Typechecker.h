@@ -207,6 +207,9 @@ class Typechecker final : public ASTVisitor {
   auto substituteInType(Type* t, const std::unordered_map<std::string, Type*>& env) -> Type*;
   auto substituteInType(Type* t, const std::unordered_map<std::string, Type*>& env,
                         std::set<Type const*>& active) -> Type*;
+  auto tryReuseActiveSpecializedNominalType(
+      Type* t, const std::unordered_map<std::string, Type*>& env, std::set<Type const*>& active)
+      -> Type*;
   /** True if \p t mentions any name in \p classParamNames (enclosing class type parameters). */
   [[nodiscard]] auto
   typeUsesClassTypeParameter(Type* t, const std::unordered_set<std::string>& classParamNames) const

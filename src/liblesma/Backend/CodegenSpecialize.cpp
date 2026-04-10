@@ -312,6 +312,49 @@ auto Codegen::substituteTypeForSpecializationEnv(Type* t,
   return substituteTypeForSpecializationEnv(t, env, active);
 }
 
+auto Codegen::tryReuseActiveSpecializedNominalType(
+    Type* t, const std::unordered_map<std::string, Type*>& env, std::set<Type const*>& active)
+    -> Type* {
+  if (t == nullptr || !active.contains(t) || !t->isOneOf({BaseType::TY_CLASS, BaseType::TY_ENUM})) {
+    return nullptr;
+  }
+  Type* nominalTemplate = t;
+  if (auto tmplIt = specializedClassTemplateOf.find(t); tmplIt != specializedClassTemplateOf.end()) {
+    nominalTemplate = tmplIt->second;
+  }
+  const auto& genericParamNames = nominalTemplate->getGenericParams();
+  if (genericParamNames.empty()) {
+    return nullptr;
+  }
+  std::unordered_map<std::string, Type*> nominalEnv;
+  if (auto specTmpl = specializedClassTemplateOf.find(t);
+      specTmpl != specializedClassTemplateOf.end()) {
+    if (auto envIt = specializedClassTypeEnvs.find(t); envIt != specializedClassTypeEnvs.end()) {
+      for (const auto& name : genericParamNames) {
+        auto boundIt = envIt->second.find(name);
+        if (boundIt != envIt->second.end()) {
+          nominalEnv[name] = substituteTypeForSpecializationEnv(boundIt->second, env, active);
+        }
+      }
+    }
+  }
+  for (const auto& name : genericParamNames) {
+    if (auto it = env.find(name); it != env.end()) {
+      nominalEnv[name] = it->second;
+    }
+  }
+  for (const auto& name : genericParamNames) {
+    if (!nominalEnv.contains(name)) {
+      return nullptr;
+    }
+  }
+  auto registryKey = TypeUtils::makeSpecializedClassKey(nominalTemplate, genericParamNames, nominalEnv);
+  if (auto it = specializedClassTypesByKey.find(registryKey); it != specializedClassTypesByKey.end()) {
+    return it->second;
+  }
+  return nullptr;
+}
+
 auto Codegen::substituteTypeForSpecializationEnv(Type* t,
                                                  const std::unordered_map<std::string, Type*>& env,
                                                  std::set<Type const*>& active) -> Type* {
@@ -320,6 +363,9 @@ auto Codegen::substituteTypeForSpecializationEnv(Type* t,
   }
   if (isTypeFullyConcrete(t)) {
     return t;
+  }
+  if (Type* reused = tryReuseActiveSpecializedNominalType(t, env, active); reused != nullptr) {
+    return reused;
   }
   if (!active.insert(t).second) {
     return t;

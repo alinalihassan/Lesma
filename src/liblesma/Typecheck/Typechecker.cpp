@@ -2366,10 +2366,55 @@ auto Typechecker::substituteInType(Type* t, const std::unordered_map<std::string
   return substituteInType(t, env, active);
 }
 
+auto Typechecker::tryReuseActiveSpecializedNominalType(
+    Type* t, const std::unordered_map<std::string, Type*>& env, std::set<Type const*>& active)
+    -> Type* {
+  if (t == nullptr || !active.contains(t) || !t->isOneOf({BaseType::TY_CLASS, BaseType::TY_ENUM})) {
+    return nullptr;
+  }
+  Type* nominalTemplate = t;
+  if (auto tmplIt = specializedTypeToTemplate.find(t); tmplIt != specializedTypeToTemplate.end()) {
+    nominalTemplate = tmplIt->second;
+  }
+  const auto& genericParamNames = nominalTemplate->getGenericParams();
+  if (genericParamNames.empty()) {
+    return nullptr;
+  }
+  std::unordered_map<std::string, Type*> nominalEnv;
+  if (auto specTmpl = specializedTypeToTemplate.find(t); specTmpl != specializedTypeToTemplate.end()) {
+    if (auto envIt = specializedTypeEnv.find(t); envIt != specializedTypeEnv.end()) {
+      for (const auto& name : genericParamNames) {
+        auto boundIt = envIt->second.find(name);
+        if (boundIt != envIt->second.end()) {
+          nominalEnv[name] = substituteInType(boundIt->second, env, active);
+        }
+      }
+    }
+  }
+  for (const auto& name : genericParamNames) {
+    if (auto it = env.find(name); it != env.end()) {
+      nominalEnv[name] = it->second;
+    }
+  }
+  for (const auto& name : genericParamNames) {
+    if (!nominalEnv.contains(name)) {
+      return nullptr;
+    }
+  }
+  auto key = TypeUtils::makeSpecializedClassKey(nominalTemplate, genericParamNames, nominalEnv);
+  if (auto it = specializedClassTypes.find(key); it != specializedClassTypes.end()) {
+    return it->second;
+  }
+  return nullptr;
+}
+
 auto Typechecker::substituteInType(Type* t, const std::unordered_map<std::string, Type*>& env,
                                    std::set<Type const*>& active) -> Type* {
   if (t == nullptr) {
     return nullptr;
+  }
+  if (Type* reused = tryReuseActiveSpecializedNominalType(t, env, active); reused != nullptr) {
+    return reused;
   }
   if (!active.insert(t).second) {
     return t;
