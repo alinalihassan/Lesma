@@ -28,135 +28,135 @@ if foundBar is null {
   exit(9)
 } else {
   if foundBar != 4 {
-    exit(9)
+    exit(10)
   }
 }
 if "solo".indexOf("zzz") is not null {
-  exit(10)
-}
-if "  x  ".trim() != "x" {
   exit(11)
 }
-if "  yz".trimStart() != "yz" {
+if "  x  ".trim() != "x" {
   exit(12)
 }
-if "ab  ".trimEnd() != "ab" {
+if "  yz".trimStart() != "yz" {
   exit(13)
 }
-if "".isEmpty() != true {
+if "ab  ".trimEnd() != "ab" {
   exit(14)
 }
-if "x".isEmpty() != false {
+if "".isEmpty() != true {
   exit(15)
 }
-if "ab"[0] != "a" {
+if "x".isEmpty() != false {
   exit(16)
 }
-if "ab"[1] != "b" {
+if "ab"[0] != "a" {
   exit(17)
+}
+if "ab"[1] != "b" {
+  exit(18)
 }
 // Mutable subscript: str owns a strdup buffer (safe for in-place byte writes).
 var mut = "ab"
 mut[0] = "c"
 if mut != "cb" {
-  exit(18)
-}
-if mut[1] != "b" {
   exit(19)
 }
-if "a" == "a" != true {
+if mut[1] != "b" {
   exit(20)
 }
-if "a" != "b" != true {
+if "a" == "a" != true {
   exit(21)
+}
+if "a" != "b" != true {
+  exit(22)
 }
 // split / join
 var csv: list<str> = "a,b,c".split(",")
 if csv.len() != 3 {
-  exit(22)
-}
-if csv[0] != "a" {
   exit(23)
 }
-if csv[1] != "b" {
+if csv[0] != "a" {
   exit(24)
 }
-if csv[2] != "c" {
+if csv[1] != "b" {
   exit(25)
+}
+if csv[2] != "c" {
+  exit(26)
 }
 var empty_parts: list<str> = list<str>()
 if ",".join(empty_parts) != "" {
-  exit(26)
+  exit(27)
 }
 var three: list<str> = list<str>()
 three.push("x")
 three.push("y")
 if "|".join(three) != "x|y" {
-  exit(27)
+  exit(28)
 }
 var empty_csv: list<str> = "".split(",")
 if empty_csv.len() != 1 {
-  exit(28)
+  exit(29)
 }
 if empty_csv[0] != "" {
-  exit(29)
+  exit(30)
 }
 // substring
 if "abcdef".substring(2, 3) != "cde" {
-  exit(30)
-}
-if "ab".substring(10, 1) != "" {
   exit(31)
 }
-if "ab".substring(0, 0) != "" {
+if "ab".substring(10, 1) != "" {
   exit(32)
 }
-if "ab".substring(-5, 1) != "a" {
+if "ab".substring(0, 0) != "" {
   exit(33)
+}
+if "ab".substring(-5, 1) != "a" {
+  exit(34)
 }
 // replace / repeat
 if "a.a.a".replace(".", "_") != "a_a_a" {
-  exit(34)
-}
-if "hi".replace("", "x") != "hi" {
   exit(35)
 }
-if "z".repeat(4) != "zzzz" {
+if "hi".replace("", "x") != "hi" {
   exit(36)
 }
-if "x".repeat(0) != "" {
+if "z".repeat(4) != "zzzz" {
   exit(37)
+}
+if "x".repeat(0) != "" {
+  exit(38)
 }
 // ASCII case
 if "AbC".toLower() != "abc" {
-  exit(38)
+  exit(39)
 }
 if "aBc".toUpper() != "ABC" {
-  exit(39)
+  exit(40)
 }
 // pad / charAt
 if "7".padStart(4, "0") != "0007" {
-  exit(40)
+  exit(41)
 }
 if "7".padEnd(4, "0") != "7000" {
-  exit(41)
+  exit(42)
 }
 let charB = "ab".charAt(1)
 if charB is null {
-  exit(42)
+  exit(43)
 } else {
   if charB != "b" {
-    exit(42)
+    exit(44)
   }
 }
 if "ab".charAt(10) is not null {
-  exit(43)
+  exit(45)
 }
 let safeA = "ab".get(0)
 if safeA is null {
-  exit(44)
+  exit(46)
 } else {
   if safeA != "a" {
-    exit(44)
+    exit(47)
   }
 }
