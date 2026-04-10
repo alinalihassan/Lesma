@@ -18,8 +18,8 @@ struct OptionalPayloadMembers {
 };
 
 auto findIndexInFields(Type* structType, const std::string& field) -> int;
-auto findIndexInEnumVariants(Type* enumType, const std::string& variantName) -> int;
-auto findEnumVariant(Type* enumType, const std::string& variantName) -> EnumVariant*;
+auto findIndexInEnumVariants(const Type* enumType, const std::string& variantName) -> int;
+auto findEnumVariant(const Type* enumType, const std::string& variantName) -> const EnumVariant*;
 /** LLVM struct index for the \p logicalIndex-th class data field (after the vtable pointer). */
 auto classDataFieldStructIndex(Type* classTy, unsigned logicalIndex) -> unsigned;
 auto findTypeInFields(Type* structType, const std::string& field) -> Type*;

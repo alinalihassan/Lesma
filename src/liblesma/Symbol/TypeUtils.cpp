@@ -18,7 +18,7 @@ auto findIndexInFields(Type* structType, const std::string& field) -> int {
   return -1;
 }
 
-auto findIndexInEnumVariants(Type* enumType, const std::string& variantName) -> int {
+auto findIndexInEnumVariants(const Type* enumType, const std::string& variantName) -> int {
   if (enumType == nullptr || !enumType->is(BaseType::TY_ENUM)) {
     return -1;
   }
@@ -31,7 +31,7 @@ auto findIndexInEnumVariants(Type* enumType, const std::string& variantName) -> 
   return -1;
 }
 
-auto findEnumVariant(Type* enumType, const std::string& variantName) -> EnumVariant* {
+auto findEnumVariant(const Type* enumType, const std::string& variantName) -> const EnumVariant* {
   if (enumType == nullptr || !enumType->is(BaseType::TY_ENUM)) {
     return nullptr;
   }

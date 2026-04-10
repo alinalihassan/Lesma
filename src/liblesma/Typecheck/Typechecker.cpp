@@ -7008,7 +7008,7 @@ void Typechecker::typecheckDotOpClassOrEnumMemberAccess(const DotOp* node, Type*
     staticPart = TypeUtils::findStaticFieldInClass(base, rightLit->getValue());
   }
   if (base->is(BaseType::TY_ENUM) && dotLeftDenotesTypeName) {
-    EnumVariant* variant = TypeUtils::findEnumVariant(base, rightLit->getValue());
+    const EnumVariant* variant = TypeUtils::findEnumVariant(base, rightLit->getValue());
     if (variant == nullptr) {
       throw TypeCheckError(node->getSpan(), "Unknown enum variant: {}", rightLit->getValue());
     }
