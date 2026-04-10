@@ -7,8 +7,9 @@ category: Guides
 
 ## Printing values
 
-The standard library provides overloaded **`print`** for common types (`str`, `int`, `float`,
-`bool`, and others). Each call adds a trailing newline, similar to many scripting languages.
+The standard library provides **`print`** for values that implement **`Display`**. Built-in and
+stdlib types such as `str`, numbers, `bool`, and other common values already work. Each call adds a
+trailing newline, similar to many scripting languages.
 
 ```les
 let n: int = 42
@@ -17,6 +18,24 @@ print(n)
 ```
 
 Use **`${expression}`** inside string literals for interpolation.
+
+Custom types can opt in by implementing `Display`:
+
+```les
+class Box impl Display {
+    var value: int
+
+    func new(value: int) {
+        self.value = value
+    }
+
+    func str() -> str {
+        return "Box(${self.value})"
+    }
+}
+
+print(Box(7))
+```
 
 ## Reading a line from the terminal
 

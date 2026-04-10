@@ -12,11 +12,11 @@ Use the [language tutorials](/docs/language/literals) to learn features; use thi
 
 Reserved identifiers come from the compiler’s keyword table (everything below is always a keyword, not a user-chosen name).
 
-**Control flow:** `if`, `else` (and **`else if`** as two tokens), `while`, `for`, `break`, `continue`, `return`, `pass`, `defer` (deferred statements run when the enclosing function or module finishes, **LIFO**—last `defer` first—before the `return` value is evaluated). Example with C **`fopen`/`fclose`**: [Control flow → Defer](/docs/language/control-flow#defer).
+**Control flow:** `if`, `else` (and **`else if`** as two tokens), `match`, `while`, `for`, `break`, `continue`, `return`, `defer` (deferred statements run when the enclosing function or module finishes, **LIFO**—last `defer` first—before the `return` value is evaluated). Example with C **`fopen`/`fclose`**: [Control flow → Defer](/docs/language/control-flow#defer).
 
-**Bindings and declarations:** `let`, `var`, `func` (named functions, **`func(...)`** function types, and **`func(`**…**`) =>`** / **`func(`**…**`) {`** … **`}`** [lambdas](/docs/language/functions#lambdas)), `class`, `enum`, `trait`, `impl`.
+**Bindings and declarations:** `let`, `var`, `func` (named functions, **`func(...)`** function types, and **`func(`**…**`) =>`** / **`func(`**…**`) {`** … **`}`** [lambdas](/docs/language/functions#lambdas)), `class`, `enum`, `trait`, `impl`, `type`.
 
-**Class members:** `private` (field or method visible only in the class that declares it—subclasses and outside code cannot read or call it), `overload` (mark a method that **replaces** a superclass method with the same name; without `overload`, reusing the name is an error). See [Classes → Private and overload](/docs/language/classes#private-and-overload).
+**Class and enum members:** `private` (field, method, or constructor visible only in the class that declares it), `static` (member belongs to the type rather than an instance), `overload` (mark a method that **replaces** a superclass method with the same name; without `overload`, reusing the name is an error). See [Classes → Private and overload](/docs/language/classes#private-and-overload).
 
 **Modules:** `import`, `from`, `export`, `extern`.
 
@@ -57,7 +57,7 @@ Comparison and arithmetic operators may resolve to **instance methods** (`__oper
 
 Except when compiling **`base.les` itself**, every module **implicitly** loads **`base.les`**. All **exported** names from that file are in scope without **import**.
 
-Common prelude items include: **`print`** (overloads), **`input`**, **`exit`**, **`range`**, generic **`list`**, **`str`**, **`dict`**, **`file`**, **`Iterator`**, **`Iterable`**. The source of truth is **`src/stdlib/base.les`** in the repository.
+Common prelude items include: **`print`**, **`input`**, **`exit`**, **`range`**, generic **`list`**, **`str`**, **`dict`**, **`file`**, **`Iterator`**, **`Iterable`**, **`Display`**, and **`Result`**. The source of truth is **`src/stdlib/base.les`** in the repository.
 
 **`range`:** **`range(stop)`** is **`range(1, stop, 1)`** (default start is **1**). Two- and three-argument forms use an **exclusive** stop and optional step; **step 0** yields no iterations.
 

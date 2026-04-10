@@ -46,20 +46,9 @@ Parameters may provide defaults (the default must match the declared type):
 ```les
 func bump(n: int = 0) -> int {
     return n + 1
-
 }
 print("${bump()}")
 print("${bump(5)}")
-```
-
-## `pass`
-
-**`pass`** is a no-op statement. It is useful as a placeholder where the grammar requires a body (for example an empty branch, a stub method, or a temporary definition).
-
-```les
-func todo() {
-    pass
-}
 ```
 
 ## Lambdas

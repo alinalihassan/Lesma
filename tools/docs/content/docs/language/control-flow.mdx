@@ -1,15 +1,13 @@
 ---
 title: Control Flow
 description: |
-  Conditionals, loops, break and continue, `defer`, and terminal nodes (`return`, `exit`).
+  Conditionals, match, loops, break and continue, defer, and terminal nodes (return, exit).
 category: Language
 ---
 
 ## Conditionals
 
 `if` / `else` chains pick a branch. You can return early from a function.
-
-When the condition uses **`x is SomeType`** on a **union** variable, the checker **narrows** the type of **`x`** inside the matching branch; see [Types](/docs/language/types) (sections *Union types* and *Flow narrowing*).
 
 ```les
 func sign(n: int) -> str {
@@ -23,6 +21,65 @@ func sign(n: int) -> str {
 }
 ```
 
+When the condition uses **`x is SomeType`** on a **union** variable, the checker **narrows** the type of **`x`** inside the matching branch; see [Types](/docs/language/types) (sections *Union types* and *Flow narrowing*).
+
+```les
+func describe(x: int | str) -> str {
+    if x is int {
+        return "integer: ${x}"
+    }
+    return "string: ${x}"
+}
+```
+
+Inside the **`if x is int`** block, **`x`** is treated as **`int`**. In the **`else`** branch of a two-member union, **`x`** is narrowed to the other member (**`str`** here).
+
+## Match
+
+Use **`match`** when you want to branch on a value and keep the cases together. `match` works as an
+expression or as a statement-style branch:
+
+```les
+let label = match code {
+    200 => "ok"
+    404 => "missing"
+    else => "other"
+}
+```
+
+Each arm uses **`pattern => body`**. The body can be a single expression or a block expression:
+
+```les
+let picked = match 2 {
+    1 => {
+        print("one")
+        10
+    }
+    2 => {
+        print("two")
+        20
+    }
+    else => 0
+}
+```
+
+On an **enum** scrutinee, each arm can name a variant as **`EnumName.Variant`** or, when the enum type
+is clear from context, use the **shorthand** **`Variant`** alone (same as writing the qualified name):
+
+```les
+enum Status {
+    Idle
+    Running(str)
+}
+
+func label(s: Status) -> str {
+    return match s {
+        Idle => "idle"
+        Running(msg) => msg
+    }
+}
+```
+
 ## Loops
 
 `while` runs while a condition holds. `for` / `in` iterates any **iterable** (for example `range` or a `list`):
@@ -32,10 +89,22 @@ var i: int = 0
 while i < 3 {
     print(i)
     i = i + 1
-
 }
 for j in range(1, 4) {
     print("${j}")
+}
+```
+
+You can iterate a **list literal** or a **variable** that holds a list:
+
+```les
+for v in [1, 2, 3] {
+    print("${v}")
+}
+
+let xs: list<int> = [10, 20, 30]
+for n in xs {
+    print("${n}")
 }
 ```
 
@@ -108,6 +177,8 @@ See [Foreign Function Interface](/docs/language/ffi) for **`func extern`** detai
 
 ## Next steps
 
+- [Enums](/docs/language/enums) for enum payloads and variant matching.
+- [Types](/docs/language/types) for narrowing with `is` / `is not`.
 - [Functions](/docs/language/functions)
 - [Classes](/docs/language/classes)
 - [Foreign Function Interface](/docs/language/ffi)

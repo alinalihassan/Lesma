@@ -15,9 +15,6 @@ let p: (int, str) = match sample(true) {
     exit(1)
     (0, "x")
   }
-
-
-
 }
 
 if p[0] != 2 {

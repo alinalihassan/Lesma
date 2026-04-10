@@ -1,41 +1,36 @@
 // stdlib range: exclusive stop; range(n) == range(1, n); optional step (default 1).
-
 var total = 0
 for i in range(1, 4) {
-    total += i
+  total += i
 }
 if total != 6 {
-    exit(1)
-
+  exit(1)
 }
 var oneArg = 0
 for i in range(4) {
-    oneArg += i
+  oneArg += i
 }
 if oneArg != 6 {
-    exit(1)
-
+  exit(1)
 }
 var stepSum = 0
 for i in range(1, 10, 2) {
-    stepSum += i
+  stepSum += i
 }
 if stepSum != 25 {
-    exit(1)
-
+  exit(1)
 }
 var down = 0
 for i in range(5, 0, -1) {
-    down += i
+  down += i
 }
 if down != 15 {
-    exit(1)
-
+  exit(1)
 }
 var empty = 0
 for i in range(1, 1) {
-    empty += 1
+  empty += 1
 }
 if empty != 0 {
-    exit(1)
+  exit(1)
 }

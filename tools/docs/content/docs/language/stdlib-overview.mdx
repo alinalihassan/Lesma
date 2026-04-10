@@ -1,7 +1,7 @@
 ---
 title: Standard Library Overview
 description: |
-  Core modules that ship with the compiler: base, math, and time.
+  Core modules that ship with the compiler: base, json, math, and time.
 category: Language
 ---
 
@@ -9,22 +9,54 @@ The **standard library** ships with the toolchain as Lesma modules. You load the
 
 ## Core modules
 
-- **`base`** — built-in types and helpers (`list`, `dict`, `str`, `range`, `print`, `file`, `random`, …).
+- **`base`** — built-in types and helpers (`list`, `dict`, `str`, `range`, `Result`, `Display`, `print`, `file`, `random`, …).
+- **`json`** — JSON parsing/stringifying plus `Serializable`.
 - **`math`** — numeric helpers (`abs`, `sin`, `ceil`, …).
 - **`time`** — `sleep` (seconds as `int` or `float`).
 
 ## Typical imports
 
 ```les
+from json import Json
 from time import sleep
 from math import ceil
 
 print("${ceil(3.2)}")
+match Json.stringify({"ok": true}) {
+    Result.Ok(text) => print(text)
+    Result.Err(err) => print(err)
+}
 sleep(0.01)
+```
+
+## Prelude highlights from `base`
+
+Except when compiling `base.les` itself, Lesma implicitly loads that module. Common exported names
+available in everyday code include:
+
+- `print`, `input`, `exit`
+- `str`, `list<T>`, `dict<K, V>`, `range`
+- `Iterator<T>`, `Iterable<T>`
+- `Display`
+- `Result<T, E>`
+
+## JSON
+
+The `json` module provides:
+
+- `Json.parse(...)` for objects and arrays
+- `Json.stringify(...)` for JSON-compatible values
+- `Serializable<T>` for typed encode/decode helpers
+- `JsonErr` for parse and conversion failures
+
+Typical imports:
+
+```les
+from json import Json, JsonErr, Serializable, JsonValue
 ```
 
 ## Next steps
 
-- [Reading and Writing Files](/docs/guides/working-with-files), [Console Input and Output](/docs/guides/console-io), [Using Math](/docs/guides/using-math), and [Random, Time, and Sleep](/docs/guides/random-time-and-sleep) for hands-on recipes.
+- [JSON](/docs/guides/json), [Reading and Writing Files](/docs/guides/working-with-files), [Console Input and Output](/docs/guides/console-io), [Math](/docs/guides/math), and [Random, Time, and Sleep](/docs/guides/random-time-and-sleep) for hands-on recipes.
 - [Modules & Imports](/docs/language/modules) for paths and exports.
 - [CLI Reference](/docs/tooling/cli) to run programs that import stdlib modules.

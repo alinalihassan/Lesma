@@ -34,9 +34,17 @@ from "helpers.les" import *
 
 ## Export
 
-Mark declarations **export** when other modules should see them (`export class`, `export func`, …).
+Mark declarations **export** when other modules should see them (`export class`, `export func`,
+`export enum`, `export type`, `export trait`, `export let`, `export var`, …).
+
+Type aliases can be exported and imported the same way as functions and nominal types:
+
+```les
+export type MaybeNum = int?
+```
 
 ## Next steps
 
 - [Standard Library Overview](/docs/language/stdlib-overview)
+- [Types](/docs/language/types) for aliases, unions, and annotations.
 - [CLI Reference](/docs/tooling/cli) for compiling multi-file programs.

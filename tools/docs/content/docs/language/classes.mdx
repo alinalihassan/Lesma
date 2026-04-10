@@ -1,11 +1,12 @@
 ---
 title: Classes & OOP
 description: |
-  Classes, constructors, fields, methods, inheritance, and object construction.
+  Classes, constructors, synthesized and private constructors, fields, methods, static members, inheritance, and object construction.
 category: Language
 ---
 
-Lesma is **object-oriented**: you model state and behavior with **classes**, construct instances with **`new`**, and call methods on **objects**.
+Lesma is **object-oriented**: you model state and behavior with **classes**, construct instances with
+constructor calls, and call methods on **objects**.
 
 ## Minimal class
 
@@ -15,19 +16,126 @@ export class Animal {
 
     func new() {
         self.x = 101
-
     }
     func getX() -> int {
         return self.x
-
     }
 }
+
 var z = Animal()
 ```
 
 ## Fields and methods
 
-Classes hold **fields** (`var`) and **methods** (`func`). `self` refers to the receiver.
+Classes hold **fields** and **methods**.
+
+- Use **`let`** for fields that should not be reassigned after instantiation.
+- Use **`var`** for fields that may change over the object's lifetime.
+- Fields may have explicit types, default values, or both.
+- When a field has a default value, Lesma can infer the field type from that value.
+
+In a non-static method, **`self`** is available implicitly as the current instance. You do **not**
+write it in the parameter list.
+
+```les
+class User {
+    let id: int
+    let active = true
+    var name: str
+    var loginCount: int = 0
+    var email = ""
+
+    func new(id: int, name: str) {
+        self.id = id
+        self.name = name
+    }
+
+    func rename(name: str) {
+        self.name = name
+    }
+
+    func label() -> str {
+        return "${self.id}: ${self.name}"
+    }
+}
+```
+
+Here `active` is inferred as `bool`, `email` is inferred as `str`, and `loginCount` has an explicit
+type plus a default value.
+
+## Constructors
+
+`func new(...)` defines a constructor. Calls such as `Animal()` or `Point(1, 2)` allocate the object
+and route to the matching `new` overload.
+
+When a class has fields but no explicit constructor, Lesma can synthesize a constructor from the
+required fields.
+
+```les
+class User {
+    let name: str
+    let email: str
+    let active: bool = true
+}
+
+let myUser = User("John", "johndear@myemail.com")
+```
+
+The synthesized constructor takes the required fields in declaration order. Fields with defaults, such
+as `active`, do not need an argument.
+
+### Private constructors
+
+Mark a constructor `private` when only the class itself should be allowed to call it:
+
+```les
+class User {
+    var name: str
+    var admin: bool
+
+    func new(name: str) {
+        self.new(name, false)
+    }
+
+    private func new(name: str, admin: bool) {
+        self.name = name
+        self.admin = admin
+    }
+}
+
+let user = User("John")
+
+// Error: this constructor is private outside the class body.
+let bad = User("Root", true)
+```
+
+Code outside the declaring class cannot call a private constructor directly.
+
+## Static fields and methods
+
+Use **`static`** for members that belong to the class rather than an instance:
+
+```les
+class Token {
+    static var created: int = 0
+    var text: str
+
+    func new(text: str) {
+        self.text = text
+        Token.created = Token.created + 1
+    }
+
+    static func totalCreated() -> int {
+        return Token.created
+    }
+}
+
+let a = Token("first")
+let b = Token("second")
+print(Token.totalCreated())
+```
+
+Call static methods on the type name, not on an instance.
 
 ## Inheritance
 
@@ -39,15 +147,15 @@ class Base {
 
     func new(n: int) {
         self.k = n
-
     }
 }
+
 class Derived: Base {
     func new(n: int) {
         super.new(self, n)
-
     }
 }
+
 var d = Derived(7)
 ```
 
@@ -63,7 +171,6 @@ class Wallet {
 
     func new(initial: int) {
         self.balance = initial
-
     }
     func spend(amount: int) -> bool {
         if amount > self.balance {
@@ -85,33 +192,32 @@ class Base {
 
     func new(t: int) {
         self.tag = t
-
     }
     func bump() -> int {
         return self.tag + 1
-
     }
 }
+
 class Child: Base {
     private var extra: int
 
     func new(t: int, e: int) {
         super.new(self, t)
         self.extra = e
-
     }
     overload func bump() -> int
         return self.tag + self.extra + 10
-
 }
+
 var c = Child(2, 3)
-# c.bump() uses Child’s overload; Base.bump is not called for a Child receiver.
+// c.bump() uses Child’s overload; Base.bump is not called for a Child receiver.
 ```
 
 Deeper inheritance works the same way: each subclass that redefines `bump` uses **`overload func bump()`**. Method lookup picks the **most specific** receiver type that matches the call.
 
 ## Next steps
 
+- [Types](/docs/language/types) for unions, optionals, and type aliases used in fields and APIs.
 - [Comments](/docs/language/comments) for how leading `//` lines and block comments become LSP documentation on declarations.
 - [Traits & Generics](/docs/language/traits-generics)
 - [Modules](/docs/language/modules)

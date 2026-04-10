@@ -1,0 +1,119 @@
+---
+title: JSON
+description: |
+  Parse, stringify, and encode typed values with the standard `json` module.
+category: Guides
+---
+
+Lesma ships with a standard **`json`** module for parsing JSON text, stringifying JSON-compatible
+values, and encoding/decoding your own types through **`Serializable`**.
+
+## Imports
+
+Typical imports:
+
+```les
+from json import Json, JsonErr, Serializable, JsonValue
+```
+
+## Parse JSON text
+
+Use `Json.parse(...)` when the root can be either an object or an array:
+
+```les
+let parsed = Json.parse("{\"name\":\"Lesma\",\"count\":3}")
+let root = match parsed {
+    Result.Ok(value) => value
+    Result.Err(err) => {
+        print(err)
+        exit(1)
+        {}
+    }
+}
+```
+
+Use `Json.parseObject(...)` or `Json.parseArray(...)` when you want a stricter root shape.
+
+## Stringify JSON-compatible values
+
+`Json.stringify(...)` accepts JSON-compatible roots and returns `Result<str, JsonErr>`:
+
+```les
+let payload: dict<str, JsonValue> = {
+    "name": "Lesma",
+    "active": true,
+    "count": 3,
+}
+
+let text = match Json.stringify(payload) {
+    Result.Ok(value) => value
+    Result.Err(err) => {
+        print(err)
+        exit(1)
+        ""
+    }
+}
+
+print(text)
+```
+
+`JsonValue` is the recursive alias used by the module:
+
+```les
+type JsonValue = null | bool | int | float | str | list<JsonValue> | dict<str, JsonValue>
+```
+
+## Typed encode and decode with `Serializable`
+
+Implement `Serializable<T>` on your own class when you want typed conversion:
+
+```les
+from json import Json, JsonErr, Serializable, JsonValue
+
+class User impl Serializable<User> {
+    var name: str
+    var age: int
+
+    static func decode(value: JsonValue) -> Result<User, JsonErr> {
+        if value is not dict<str, JsonValue> {
+            return Result.Err(JsonErr("User expects object"))
+        }
+        if value["name"] is not str or value["age"] is not int {
+            return Result.Err(JsonErr("User missing required fields"))
+        }
+        return Result.Ok(User(value["name"], value["age"]))
+    }
+
+    func encode() -> Result<JsonValue, JsonErr> {
+        return Result.Ok({"name": self.name, "age": self.age})
+    }
+}
+```
+
+Then:
+
+```les
+let text = "{\"name\":\"Ada\",\"age\":37}"
+let user = Json.parse<User>(text)
+let textAgain = Json.stringify(User("Ada", 37))
+```
+
+## Error handling
+
+JSON operations return `Result<..., JsonErr>`, so `match` is the usual way to handle success and
+failure:
+
+```les
+match Json.parseArray("[1, 2, 3]") {
+    Result.Ok(values) => print(values.len())
+    Result.Err(err) => print(err)
+}
+```
+
+`JsonErr` implements `Display`, so you can pass it directly to `print`.
+
+## Next steps
+
+- [Standard Library Overview](/docs/language/stdlib-overview)
+- [Types](/docs/language/types) for unions and aliases used by `JsonValue`.
+- [Control flow](/docs/language/control-flow) for `match`.

@@ -1,7 +1,7 @@
 ---
 title: Traits & Generics
 description: |
-  Traits, impls, bounds, and generic functions and classes.
+  Traits, impls, static and instance requirements, bounds, and generic functions, enums, and classes.
 category: Language
 ---
 
@@ -14,23 +14,29 @@ A trait declares required methods. A class **implements** a trait with `impl`:
 ```les
 export trait Describable {
     func label() -> str
-
 }
-export class Box impl Describable {
-    func new() {
-        pass
 
-    }
+export class Box impl Describable {
     func label() -> str {
         return "box"
-
     }
 }
+
 var b = Box()
 print(b.label())
 ```
 
 Default bodies on trait methods are allowed—classes that `impl` the trait inherit them unless they override.
+
+Traits can also declare **static requirements**:
+
+```les
+trait Codec<T> {
+    static func decode(value: int) -> Result<T, str>
+}
+```
+
+If a trait requires a static method, the implementation must also be static.
 
 ## Generic functions
 
@@ -39,7 +45,6 @@ Type parameters appear in angle brackets before the parameter list:
 ```les
 func identity<T>(x: T) -> T {
     return x
-
 }
 func max_val<T>(a: T, b: T) -> T {
     if a > b {
@@ -59,11 +64,33 @@ func print_label<T: Describable>(x: T) -> void {
 }
 ```
 
+Bounds also apply to static requirements:
+
+```les
+func decode_with_trait<T: Codec>(value: int) -> Result<T, str> {
+    return T.decode(value)
+}
+```
+
 ## Generic classes
 
 Classes can carry type parameters and participate in inheritance; combine generics with `:` / `impl` as needed for your program.
 
+## Generic enums
+
+Enums can be generic too:
+
+```les
+enum Result<T, E> {
+    Ok(T)
+    Err(E)
+}
+```
+
+This pattern works well with `match`, trait bounds, and API return types.
+
 ## Next steps
 
 - [Modules](/docs/language/modules) for exporting traits and generic types.
-- [Types](/docs/language/types) for pointers and type parameters.
+- [Types](/docs/language/types) for pointers, type parameters, and aliases.
+- [Enums](/docs/language/enums) for enum methods and variant matching.

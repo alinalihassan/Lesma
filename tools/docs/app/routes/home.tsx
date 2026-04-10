@@ -177,8 +177,8 @@ export default function Home() {
             </p>
             <h2 className="mb-2 text-2xl font-semibold">Practical guides</h2>
             <p className="text-fd-muted-foreground mb-6 max-w-2xl">
-              Short recipes for everyday tasks using the standard library: files, console I/O, math,
-              randomness, and sleep.
+              Short recipes for everyday tasks using the standard library: files, console I/O, JSON,
+              math, randomness, and sleep.
             </p>
             <Cards className="grid gap-4 sm:grid-cols-2">
               <Card
@@ -197,9 +197,14 @@ export default function Home() {
                 href="/docs/guides/random-time-and-sleep"
               />
               <Card
-                title="Using Math"
+                title="JSON"
+                description="Parse and stringify with the `json` module and `Serializable` types."
+                href="/docs/guides/json"
+              />
+              <Card
+                title="Math"
                 description="Import `abs`, rounding, and trig helpers from the `math` module."
-                href="/docs/guides/using-math"
+                href="/docs/guides/math"
               />
             </Cards>
             <p className="mt-4">

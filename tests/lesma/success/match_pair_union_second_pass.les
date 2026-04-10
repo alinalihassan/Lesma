@@ -27,7 +27,6 @@ let p: Pair<str, Wide> = match sample(true) {
     exit(1)
     Pair("x", false)
   }
-
 }
 
 if p.first != "k" {
