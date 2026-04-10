@@ -1,70 +1,66 @@
-from json import Json, JsonErr, JsonValue
+from json import Json, JsonValue
 
-func expectObject(result: Result<dict<str, JsonValue> | list<JsonValue>, JsonErr>, code: int) -> dict<str, JsonValue> {
-  let parsedRoot = match result {
+func runRoundtrip() -> int {
+  let path: str = "tests/lesma/success/json_file_roundtrip_${random(0, 2000000000)}_${random(0, 2000000000)}.json"
+  defer file(path.cstr()).delete()
+
+  var payload: dict<str, JsonValue> = {}
+  payload["name"] = "Lesma"
+  payload["enabled"] = true
+  payload["count"] = 4
+  var values: list<JsonValue> = []
+  values.push(1)
+  values.push("two")
+  values.push(null)
+  payload["values"] = values
+
+  let writeResult = Json.write(path, payload)
+  if (match writeResult {
     Result.Ok(value) => value
-    Result.Err(_) => {
-      exit(code)
-      var fallback: dict<str, JsonValue> = {}
-      fallback["_"] = null
-      return fallback
-    }
+    Result.Err(_) => false
+    }) == false {
+    return 1
   }
-  if parsedRoot is not dict<str, JsonValue> {
-    exit(code)
-    var fallback: dict<str, JsonValue> = {}
-    fallback["_"] = null
-    return fallback
+
+  let readResult = Json.read(path)
+  let loadedRootOpt = readResult.unwrap()
+  if loadedRootOpt is null {
+    return 2
   }
-  return parsedRoot
+  let loadedRoot = loadedRootOpt
+  if loadedRoot is not dict<str, JsonValue> {
+    return 2
+  }
+  let loaded = loadedRoot as dict<str, JsonValue>
+
+  if loaded["name"] is not str or loaded["name"] as str != "Lesma" {
+    return 3
+  }
+  if loaded["enabled"] is not bool or loaded["enabled"] as bool != true {
+    return 4
+  }
+  if loaded["count"] is not int or loaded["count"] as int != 4 {
+    return 5
+  }
+  if loaded["values"] is not list<JsonValue> {
+    return 6
+  }
+  let readValues = loaded["values"] as list<JsonValue>
+  if readValues[0] is not int or readValues[0] as int != 1 {
+    return 7
+  }
+  if readValues[1] is not str or readValues[1] as str != "two" {
+    return 8
+  }
+  if readValues[2] is not null {
+    return 9
+  }
+
+  file(path.cstr()).delete()
+  if file(path.cstr()).text() is not null {
+    return 10
+  }
+  return 0
 }
 
-let path: str = "tests/lesma/success/json_file_roundtrip_out.json"
-
-var payload: dict<str, JsonValue> = {}
-payload["name"] = "Lesma"
-payload["enabled"] = true
-payload["count"] = 4
-var values: list<JsonValue> = []
-values.push(1)
-values.push("two")
-values.push(null)
-payload["values"] = values
-
-let writeResult = Json.write(path, payload)
-if match writeResult {
-  Result.Ok(value) => value
-  Result.Err(_) => false
-} == false {
-  exit(1)
-}
-
-let loaded = expectObject(Json.read(path), 2)
-
-if loaded["name"] is not str or loaded["name"] as str != "Lesma" {
-  exit(3)
-}
-if loaded["enabled"] is not bool or loaded["enabled"] as bool != true {
-  exit(4)
-}
-if loaded["count"] is not int or loaded["count"] as int != 4 {
-  exit(5)
-}
-if loaded["values"] is not list<JsonValue> {
-  exit(6)
-}
-let readValues = loaded["values"] as list<JsonValue>
-if readValues[0] is not int or readValues[0] as int != 1 {
-  exit(7)
-}
-if readValues[1] is not str or readValues[1] as str != "two" {
-  exit(8)
-}
-if readValues[2] is not null {
-  exit(9)
-}
-
-file(path.cstr()).delete()
-if file(path.cstr()).text() is not null {
-  exit(10)
-}
+exit(runRoundtrip())

@@ -226,6 +226,8 @@ private:
   auto parseFunctionCall() -> std::unique_ptr<Expression>;
   auto parseListLiteral() -> std::unique_ptr<Expression>;
   auto parseDictLiteral() -> std::unique_ptr<Expression>;
+  /** After `=>`, when the arm body starts with `{`, disambiguate dict literal `{ "k": v }` vs block. */
+  [[nodiscard]] auto matchArmOpeningBraceBeginsDictLiteral() -> bool;
 
   // Lookahead: true if from current position we have IDENTIFIER LESS type-list
   // GREATER LEFT_PAREN (so parsing as call with explicit type args is valid).

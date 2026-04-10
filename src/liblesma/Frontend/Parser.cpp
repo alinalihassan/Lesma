@@ -1227,6 +1227,30 @@ auto Parser::parseDictLiteral() -> std::unique_ptr<Expression> {
                                        std::move(keyExprs), std::move(valueExprs));
 }
 
+auto Parser::matchArmOpeningBraceBeginsDictLiteral() -> bool {
+  if (!check(TokenType::LEFT_BRACE)) {
+    return false;
+  }
+  unsigned long offset = 1;
+  while (check(TokenType::NEWLINE, offset)) {
+    offset++;
+  }
+  if (check(TokenType::RIGHT_BRACE, offset)) {
+    return true;
+  }
+  TokenType const first = peek(offset)->type;
+  if (first == TokenType::STRING || first == TokenType::INTEGER || first == TokenType::DOUBLE ||
+      first == TokenType::TRUE_ || first == TokenType::FALSE_ || first == TokenType::NIL ||
+      first == TokenType::IDENTIFIER) {
+    unsigned long afterFirst = offset + 1;
+    while (check(TokenType::NEWLINE, afterFirst)) {
+      afterFirst++;
+    }
+    return check(TokenType::COLON, afterFirst);
+  }
+  return false;
+}
+
 auto Parser::parseMatchPattern() -> MatchPattern {
   MatchPattern pattern;
   if (check(TokenType::ELSE)) {
@@ -1297,8 +1321,12 @@ auto Parser::parseMatchExpr() -> std::unique_ptr<Expression> {
     MatchPattern pattern = parseMatchPattern();
     consume(TokenType::FAT_ARROW, "Expected '=>' after match arm pattern");
     consumeOperandContinuationNewlines();
-    std::unique_ptr<Expression> body = check(TokenType::LEFT_BRACE) ? parseBlockExpr()
-                                                                    : parseExpression();
+    std::unique_ptr<Expression> body;
+    if (check(TokenType::LEFT_BRACE)) {
+      body = matchArmOpeningBraceBeginsDictLiteral() ? parseDictLiteral() : parseBlockExpr();
+    } else {
+      body = parseExpression();
+    }
     llvm::SMRange armSpan{pattern.span.Start, body->getEnd()};
     (void) armSpan;
     arms.push_back(
