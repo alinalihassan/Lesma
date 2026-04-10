@@ -238,6 +238,9 @@ class Typechecker final : public ASTVisitor {
   auto resolveType(const TypeExpr* node) -> Type*;
   /** Returns the unified type for binary ops, or nullptr if incompatible. */
   auto getExtendedType(Type* left, Type* right) -> Type*;
+  /** Widen two types for a common supertype (nominal generics, assignability, recursive class
+   *  args). Used by \c getExtendedType after primitive rules. */
+  auto unifyTypesForExtendedType(Type* a, Type* b, bool allowIncompatibleUnionLub = false) -> Type*;
   /** Infers a common literal element type, widening numerics first and otherwise building a union. */
   auto mergeLiteralInferredType(Type* current, Type* next) -> Type*;
   /** For `T | null`, returns `T`; otherwise nullptr. */
@@ -345,6 +348,10 @@ class Typechecker final : public ASTVisitor {
                                                                  std::vector<Type*>& argTypes)
       -> bool;
   [[nodiscard]] auto materializeForCallSite(Type* t, SymbolTable* importedScope) -> Type*;
+  /** If true (generic class only), \c tryFinishGenericClassCallWithInferredTypeArgs is skipped so
+   *  \c visit(FuncCall) can bind generics from \c currentExpectedType() in \c
+   *  completeOrdinaryFuncCallTyping. */
+  [[nodiscard]] auto deferGenericClassInferenceToContextualExpected(Type* classType) const -> bool;
   void visitCallArgumentsIgnoringResult(const FuncCall* fc);
   /** If lookup missed, resolve imports / class value / string-literal repair. Returns true if
    *  \c visit(FuncCall) should return immediately (result may be set). */

@@ -522,6 +522,7 @@ private:
         formatExpression(node->getScrutinee(), precedence(node)),
         docText(" {"),
         docNest(INDENT_WIDTH, docs(std::move(bodyInner))),
+        hardLine(),
         docText("}"),
     }));
   }
