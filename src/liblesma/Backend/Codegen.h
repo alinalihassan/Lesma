@@ -15,6 +15,8 @@
 #include <utility>
 #include <vector>
 
+#include <sysexits.h>
+
 namespace llvm {
 class DIBuilder;
 class DICompileUnit;
@@ -37,8 +39,6 @@ class AllocaInst;
 #include <llvm/Support/SMLoc.h>
 #include <llvm/Support/SourceMgr.h>
 #include <llvm/Target/TargetMachine.h>
-
-#include <sysexits.h>
 
 #include "liblesma/AST/ASTVisitor.h"
 #include "liblesma/Backend/MangleUtils.h"
@@ -272,8 +272,8 @@ public:
           std::unordered_map<std::string, lesma::Type*> preSpecializedClassTypesByKey = {},
           std::unordered_map<std::string, std::shared_ptr<ImportedModuleAnalysis>>
               preImportedModuleAnalyses = {},
-          Timer* performanceTimer = nullptr,
-          bool emitDebug = false, bool emitArcDebug = false, bool emitArcTrace = false,
+          Timer* performanceTimer = nullptr, bool emitDebug = false, bool emitArcDebug = false,
+          bool emitArcTrace = false,
           llvm::OptimizationLevel optimizationLevelForDebugArg = llvm::OptimizationLevel::O3,
           std::shared_ptr<std::vector<std::string>> sharedPendingJitModuleInits = nullptr,
           std::shared_ptr<std::vector<std::string>> sharedPendingJitModuleFinis = nullptr);
@@ -721,10 +721,11 @@ protected:
   auto typeWithSingletonUnionsCollapsed(lesma::Type* t) -> lesma::Type*;
 
 private:
-  auto substituteTypeForSpecializationEnv(
-      lesma::Type* t, const std::unordered_map<std::string, lesma::Type*>& env,
-      std::set<lesma::Type const*>& active) -> lesma::Type*;
-  /** True when \p type can be passed to \c MangleUtils::getTypeMangledName for ARC storage helpers. */
+  auto substituteTypeForSpecializationEnv(lesma::Type* t,
+                                          const std::unordered_map<std::string, lesma::Type*>& env,
+                                          std::set<lesma::Type const*>& active) -> lesma::Type*;
+  /** True when \p type can be passed to \c MangleUtils::getTypeMangledName for ARC storage helpers.
+   */
   [[nodiscard]] static auto isLesmaTypeReadyForArcTypeMangling(lesma::Type* type) -> bool;
   [[nodiscard]] static auto isLesmaPtrToClass(lesma::Type* t) -> bool;
   /** Stack/global slot LLVM type for a local or exported variable (class-as-ptr ABI, func pair). */
@@ -780,7 +781,8 @@ private:
   [[nodiscard]] auto cgUnionComplementMemberIndex(lesma::Type* unionTy, lesma::Type* excluded)
       -> std::optional<unsigned>;
 
-  /** Merge per-arm \c Value metadata into the PHI result of a \c match (ARC, function pair, closure).
+  /** Merge per-arm \c Value metadata into the PHI result of a \c match (ARC, function pair,
+   * closure).
    */
   static auto mergeMatchPhiArmMetadataIntoResult(std::vector<std::unique_ptr<lesma::Value>> sources,
                                                  lesma::Value* out) -> void;

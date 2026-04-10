@@ -2,7 +2,6 @@
 
 #include <algorithm>
 #include <cassert>
-#include <iterator>
 #include <memory>
 #include <optional>
 #include <sstream>
@@ -398,9 +397,7 @@ public:
   [[nodiscard]] [[maybe_unused]] auto getValueSpans() const -> const std::vector<llvm::SMRange>& {
     return valueSpans;
   }
-  [[nodiscard]] auto getValueDecls() const -> const std::vector<EnumValueDecl>& {
-    return values;
-  }
+  [[nodiscard]] auto getValueDecls() const -> const std::vector<EnumValueDecl>& { return values; }
   [[nodiscard]] auto getMethods() const -> std::vector<FuncDecl*>;
   auto setValueTrivia(size_t index, unsigned extraBlankLines,
                       std::vector<CommentTrivia> leadingComments,
@@ -502,12 +499,11 @@ public:
 
   auto toString(llvm::SourceMgr* srcMgr, const std::string& prefix, bool isTail) const
       -> std::string override {
-    return fmt::format("{}{}TypeAlias[Line({}-{}):Col({}-{})]: {} = {}\n", prefix,
-                       isTail ? "└──" : "├──", srcMgr->getLineAndColumn(getStart()).first,
-                       srcMgr->getLineAndColumn(getEnd()).first,
-                       srcMgr->getLineAndColumn(getStart()).second,
-                       srcMgr->getLineAndColumn(getEnd()).second, identifier,
-                       aliasedType != nullptr ? aliasedType->getName() : "<missing>");
+    return fmt::format(
+        "{}{}TypeAlias[Line({}-{}):Col({}-{})]: {} = {}\n", prefix, isTail ? "└──" : "├──",
+        srcMgr->getLineAndColumn(getStart()).first, srcMgr->getLineAndColumn(getEnd()).first,
+        srcMgr->getLineAndColumn(getStart()).second, srcMgr->getLineAndColumn(getEnd()).second,
+        identifier, aliasedType != nullptr ? aliasedType->getName() : "<missing>");
   }
 };
 
@@ -529,7 +525,8 @@ public:
           std::unique_ptr<TypeExpr> type, std::unique_ptr<Expression> expr, bool isMutable,
           bool exportedArg = false, bool privateField = false, bool staticField = false)
       : Statement(loc), vars(std::move(vars)), type(std::move(type)), expr(std::move(expr)),
-        isMutable(isMutable), exported(exportedArg), isPrivate(privateField), isStatic(staticField) {}
+        isMutable(isMutable), exported(exportedArg), isPrivate(privateField),
+        isStatic(staticField) {}
   void accept(ASTVisitor& visitor) const override { visitor.visit(this); }
 
   [[nodiscard]] [[maybe_unused]] auto getIdentifier() const -> Literal* {
@@ -621,7 +618,8 @@ public:
     return result;
   }
 
-  [[nodiscard]] auto getBranchLeadingComments(size_t index) const -> const std::vector<CommentTrivia>& {
+  [[nodiscard]] auto getBranchLeadingComments(size_t index) const
+      -> const std::vector<CommentTrivia>& {
     static const std::vector<CommentTrivia> empty;
     if (index >= branchLeadingComments.size()) {
       return empty;
@@ -746,7 +744,7 @@ class FuncDecl : public Statement {
   llvm::SMRange nameSpan;
   /** Span of overload tokens only (`+`, `[]`, …), excluding the `operator` keyword; invalid if N/A.
    */
-  llvm::SMRange overloadGlyphSpan{};
+  llvm::SMRange overloadGlyphSpan;
   std::vector<GenericParamDecl> genericParams;
   std::unique_ptr<TypeExpr> returnType;
   std::vector<std::unique_ptr<Parameter>> parameters;
@@ -1015,9 +1013,9 @@ public:
              std::vector<std::unique_ptr<Parameter>> parameters,
              std::unique_ptr<TypeExpr> returnType, std::unique_ptr<Expression> expressionBody,
              std::unique_ptr<Compound> blockBody)
-      : Expression(loc), genericParams(std::move(genericParams)),
-        parameters(std::move(parameters)), returnType(std::move(returnType)),
-        expressionBody(std::move(expressionBody)), blockBody(std::move(blockBody)) {}
+      : Expression(loc), genericParams(std::move(genericParams)), parameters(std::move(parameters)),
+        returnType(std::move(returnType)), expressionBody(std::move(expressionBody)),
+        blockBody(std::move(blockBody)) {}
   void accept(ASTVisitor& visitor) const override { visitor.visit(this); }
 
   [[nodiscard]] auto getGenericParamDecls() const -> const std::vector<GenericParamDecl>& {
@@ -1049,15 +1047,14 @@ public:
 
   auto toString(llvm::SourceMgr* srcMgr, const std::string& prefix, bool isTail) const
       -> std::string override {
-    std::string ret = fmt::format("{}{}LambdaExpr[Line({}-{}):Col({}-{})]: func(", prefix,
-                                  isTail ? "└──" : "├──",
-                                  srcMgr->getLineAndColumn(getStart()).first,
-                                  srcMgr->getLineAndColumn(getEnd()).first,
-                                  srcMgr->getLineAndColumn(getStart()).second,
-                                  srcMgr->getLineAndColumn(getEnd()).second);
+    std::string ret = fmt::format(
+        "{}{}LambdaExpr[Line({}-{}):Col({}-{})]: func(", prefix, isTail ? "└──" : "├──",
+        srcMgr->getLineAndColumn(getStart()).first, srcMgr->getLineAndColumn(getEnd()).first,
+        srcMgr->getLineAndColumn(getStart()).second, srcMgr->getLineAndColumn(getEnd()).second);
     for (size_t i = 0; i < parameters.size(); ++i) {
       Parameter* p = parameters[i].get();
-      ret += p->name + ": " + (p->type != nullptr ? p->type->toString(srcMgr, prefix, isTail) : "?");
+      ret +=
+          p->name + ": " + (p->type != nullptr ? p->type->toString(srcMgr, prefix, isTail) : "?");
       if (i + 1U < parameters.size()) {
         ret += ", ";
       }
@@ -1330,7 +1327,8 @@ public:
 
   [[nodiscard]] auto getScrutinee() const -> Expression* { return scrutinee.get(); }
   [[nodiscard]] auto getArms() const -> const std::vector<MatchArm>& { return arms; }
-  [[nodiscard]] auto getArmLeadingComments(size_t index) const -> const std::vector<CommentTrivia>& {
+  [[nodiscard]] auto getArmLeadingComments(size_t index) const
+      -> const std::vector<CommentTrivia>& {
     static const std::vector<CommentTrivia> empty;
     if (index >= arms.size()) {
       return empty;

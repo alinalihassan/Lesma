@@ -739,7 +739,8 @@ auto Codegen::run() -> void {
   }
   for (size_t ei = 0; ei < syntheticEnumMethodBodies.size(); ++ei) {
     auto savedGenerics = currentGenericTypes;
-    if (auto env = specializedNominalEnvFor(syntheticEnumMethodBodies[ei].enumType); env != nullptr) {
+    if (const auto* env = specializedNominalEnvFor(syntheticEnumMethodBodies[ei].enumType);
+        env != nullptr) {
       currentGenericTypes = *env;
     }
     defineSyntheticEnumMethod(syntheticEnumMethodBodies[ei]);
