@@ -1383,6 +1383,10 @@ auto findActiveCallInStmt(const lesma::Statement* stmt, llvm::SourceMgr* srcMgr,
     for (lesma::FuncDecl* method : klass->getMethods()) {
       findActiveCallInStmt(method, srcMgr, bufferId, targetOffset, best);
     }
+  } else if (auto const* en = dynamic_cast<const lesma::Enum*>(stmt)) {
+    for (lesma::FuncDecl* method : en->getMethods()) {
+      findActiveCallInStmt(method, srcMgr, bufferId, targetOffset, best);
+    }
   }
 }
 
@@ -2060,6 +2064,10 @@ auto appendCallParameterInlayHints(const AnalysisResult& analysisResult, unsigne
         walkStmt(field);
       }
       for (lesma::FuncDecl* method : klass->getMethods()) {
+        walkStmt(method);
+      }
+    } else if (auto const* en = dynamic_cast<const lesma::Enum*>(stmt)) {
+      for (lesma::FuncDecl* method : en->getMethods()) {
         walkStmt(method);
       }
     }
