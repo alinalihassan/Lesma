@@ -741,6 +741,9 @@ auto collectIndexFromStmt(const Statement* stmt, AnalysisIndex& index, bool inCl
           analysis_index_modifier::DECLARATION, IndexedTokenKind::EnumMember, nullptr,
           nullptr, i < fields.size() ? declarationIdentityFromField(fields[i]) : std::nullopt);
     }
+    for (FuncDecl* method : enumNode->getMethods()) {
+      collectIndexFromStmt(method, index, true, mainFilePath);
+    }
     return;
   }
   if (auto const* importNode = dynamic_cast<const Import*>(stmt)) {
