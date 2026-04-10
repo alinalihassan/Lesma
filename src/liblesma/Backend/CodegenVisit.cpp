@@ -7526,10 +7526,12 @@ auto Codegen::callNamedFunction(
     localParamTypes.insert(localParamTypes.begin(), selfArgTy);
 
     selfSymbol = classSym;
-    symbol = scope->lookupFunction("new", localParamTypes);
+    symbol = scope->lookupFunction("new", localParamTypes, FunctionLookupKind::VALUE, nullptr,
+                                   classSym->getType());
     if (symbol == nullptr && rootScope != nullptr) {
       // Method/template body scopes may not chain to the table where monomorph constructors live.
-      symbol = rootScope->lookupFunction("new", localParamTypes);
+      symbol = rootScope->lookupFunction("new", localParamTypes, FunctionLookupKind::VALUE, nullptr,
+                                         classSym->getType());
     }
     if (symbol == nullptr) {
       symbol = classSym->getConstructor();

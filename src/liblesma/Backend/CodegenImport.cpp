@@ -126,6 +126,7 @@ auto Codegen::exposeImportedSymbols(llvm::SMRange /*span*/, SymbolTable* importe
       structSymbol->setExported(sym->isExported());
       structSymbol->getType()->setLlvmType(structType);
       structSymbol->setGenericClassTemplate(sym->getGenericClassTemplate());
+      structSymbol->setConstructor(sym->getConstructor());
       scope->insertTypeRef(sym->getName(), sym->getType());
       scope->insertSymbol(std::move(structSymbol));
       continue;
@@ -205,8 +206,11 @@ auto Codegen::exposeImportedSymbols(llvm::SMRange /*span*/, SymbolTable* importe
     Value* localSymbol =
         scope->lookupFunction(localName, paramTypes, FunctionLookupKind::VALUE, nullptr, nullptr,
                               sym->getType()->getGenericParams().size());
+    // Reuse only when we are updating the same mangled symbol; lookupFunction(name, params) alone
+    // can match the wrong overload when many symbols share a name (e.g. `new`).
     const bool reuseExistingLocal =
-        localSymbol != nullptr && localSymbol->getLlvmValue() == nullptr;
+        localSymbol != nullptr && localSymbol->getLlvmValue() == nullptr &&
+        localSymbol->getMangledName() == sym->getMangledName();
     auto symbol =
         reuseExistingLocal ? nullptr : std::make_unique<Value>(localName, funcSymbol->getType());
     Value* targetSymbol = reuseExistingLocal ? localSymbol : symbol.get();

@@ -425,6 +425,14 @@ auto Codegen::verifyIrModuleOrThrow(const std::string& contextLabel) const -> vo
 
 auto Codegen::optimize(OptimizationLevel opt) -> void {
   if (opt == OptimizationLevel::O0) {
+    // Strip unused function declarations (e.g. bulk-imported stdlib symbols that are never
+    // called) so -O0 IR dumps and object codegen are not dominated by dead declares.
+    llvm::PassBuilder pb(&*targetMachine);
+    llvm::ModuleAnalysisManager mam;
+    pb.registerModuleAnalyses(mam);
+    llvm::ModulePassManager mpm;
+    mpm.addPass(llvm::StripDeadPrototypesPass());
+    mpm.run(*theModule, mam);
     return;
   }
 

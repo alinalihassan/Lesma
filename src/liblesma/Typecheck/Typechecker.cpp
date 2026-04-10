@@ -5290,6 +5290,7 @@ void Typechecker::registerSynthesizedClassConstructor(const Class* node, Type* c
   ctorSym->setCategory(ValueCategory::CALLABLE_SYMBOL);
   ctorSym->setDeclarationKind(ValueDeclarationKind::METHOD);
   ctorSym->setExported(node->isExported());
+  ctorSym->setMemberDeclaredInClass(classTypePtr);
   ctorSym->setDeclarationSpan(node->getNameSpan());
   ctorSym->setDeclarationFilePath(mainFilePath);
   outerScope->insertSymbol(std::move(ctorSym));
