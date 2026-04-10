@@ -4,8 +4,10 @@
 #include <functional>
 #include <memory>
 #include <optional>
+#include <set>
 #include <string>
 #include <unordered_map>
+#include <utility>
 #include <vector>
 
 #include "Value.h"
@@ -154,6 +156,24 @@ public:
   }
 
 private:
+  friend auto selectBestFunctionTypeMatch(const std::vector<Type*>& candidateFunctionTypes,
+                                          const std::vector<Type*>& paramTypes) -> Type*;
+  friend auto selectBestFunctionTypeMatchTail(const std::vector<Type*>& candidateFunctionTypes,
+                                              const std::vector<Type*>& paramTypesAfterSelf)
+      -> Type*;
+
+  static auto matchGenericParameter(Type* formalTy, Type* argTy,
+                                    std::unordered_map<std::string, Type*>& genericBindings,
+                                    FunctionLookupKind lookupKind) -> bool;
+  static auto matchGenericParameter(
+      Type* formalTy, Type* argTy, std::unordered_map<std::string, Type*>& genericBindings,
+      FunctionLookupKind lookupKind, std::set<std::pair<Type*, Type*>>& activePairs) -> bool;
+  [[nodiscard]] static auto matchGenericUnionAgainstUnion(
+      const std::vector<Type*>& formalMembers, size_t formalIndex, const std::vector<Type*>& argMembers,
+      std::vector<bool>& usedArg, std::unordered_map<std::string, Type*> trialBindings,
+      std::unordered_map<std::string, Type*>& genericBindings, FunctionLookupKind lookupKind,
+      std::set<std::pair<Type*, Type*>>& activePairs) -> bool;
+
   SymbolTable* parent;
   /** Owning types and symbols: destroy symbols before types (Values may point into \c types). */
   std::unordered_map<std::string, std::unique_ptr<Type>> types;

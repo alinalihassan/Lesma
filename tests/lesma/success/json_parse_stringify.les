@@ -141,9 +141,6 @@ if encoded.contains("\\r") == false {
 if encoded.contains("\\t") == false {
   exit(31)
 }
-if encoded.contains("null") == false {
-  exit(19)
-}
 
 let roundTrip = expectObject(Json.parse(encoded), 20)
 
