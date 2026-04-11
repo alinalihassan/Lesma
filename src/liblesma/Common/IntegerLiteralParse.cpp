@@ -1,7 +1,6 @@
 #include "liblesma/Common/IntegerLiteralParse.h"
 
 #include <climits>
-#include <cstddef>
 #include <string_view>
 
 namespace lesma {
@@ -80,6 +79,11 @@ namespace {
 }
 
 } // namespace
+
+auto integerLiteralHasExplicitRadix(std::string_view s) -> bool {
+  return s.size() >= 2U && s[0] == '0' &&
+         (s[1] == 'b' || s[1] == 'B' || s[1] == 'o' || s[1] == 'O' || s[1] == 'x' || s[1] == 'X');
+}
 
 auto parseLesmaIntegerLiteral(std::string_view s) -> std::optional<long long> {
   if (s.empty()) {
