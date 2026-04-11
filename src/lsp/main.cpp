@@ -2389,13 +2389,17 @@ tryResolveMethodFromClassAst(AnalysisResult& result,
     return std::nullopt;
   }
 
-  // Look for a class that contains a method with this declaration span
+  // Look for a class or enum that contains a method with this declaration span
   for (lesma::Statement* stmt : view->ast->getChildren()) {
-    auto* klass = dynamic_cast<lesma::Class*>(stmt);
-    if (klass == nullptr) {
+    std::vector<lesma::FuncDecl*> methods;
+    if (auto* klass = dynamic_cast<lesma::Class*>(stmt)) {
+      methods = klass->getMethods();
+    } else if (auto* enm = dynamic_cast<lesma::Enum*>(stmt)) {
+      methods = enm->getMethods();
+    } else {
       continue;
     }
-    for (lesma::FuncDecl* method : klass->getMethods()) {
+    for (lesma::FuncDecl* method : methods) {
       if (method == nullptr || method->getName() != methodName) {
         continue;
       }
