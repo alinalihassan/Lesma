@@ -210,8 +210,7 @@ auto Lexer::scanOne(bool continuation) -> std::unique_ptr<Token> {
     }
 
     if (c != '\n') {
-      lexError(currentSpan(),
-               fmt::format("Newline expected after line continuation, found {}", c));
+      lexError(currentSpan(), fmt::format("Newline expected after line continuation, found {}", c));
       skipRestOfPhysicalLine();
       return scanOne(false);
     }
@@ -521,8 +520,105 @@ auto Lexer::continueTemplateStringChunk() -> std::unique_ptr<Token> {
 }
 
 auto Lexer::addNumToken() -> std::unique_ptr<Token> {
+  char const* const start = beginLoc.getPointer();
+  if (*start == '0') {
+    char const n = peek();
+    if (n == 'b' || n == 'B') {
+      advance();
+      bool any = false;
+      while (peek() == '0' || peek() == '1') {
+        advance();
+        any = true;
+      }
+      if (!any) {
+        if (isDigit(peek()) && peek() != '0' && peek() != '1') {
+          lexError(currentSpan(), "Invalid digit in binary integer literal");
+          while (isDigit(peek())) {
+            advance();
+          }
+        } else {
+          lexError(currentSpan(), "Binary integer literal requires at least one digit after 0b");
+        }
+      } else if (isDigit(peek()) && peek() != '0' && peek() != '1') {
+        lexError(currentSpan(), "Invalid digit in binary integer literal");
+        while (isDigit(peek())) {
+          advance();
+        }
+      }
+      if ((peek() == '.') && isDigit(peek(1))) {
+        lexError(currentSpan(), "Binary integer literal cannot have a fractional part");
+        advance();
+        while (isDigit(peek())) {
+          advance();
+        }
+        return makeToken(TokenType::DOUBLE);
+      }
+      return makeToken(TokenType::INTEGER);
+    }
+    if (n == 'o' || n == 'O') {
+      advance();
+      bool any = false;
+      while (isOctalDigit(peek())) {
+        advance();
+        any = true;
+      }
+      if (!any) {
+        if (peek() == '8' || peek() == '9') {
+          lexError(currentSpan(), "Invalid digit in octal integer literal");
+          while (isDigit(peek())) {
+            advance();
+          }
+        } else {
+          lexError(currentSpan(), "Octal integer literal requires at least one digit after 0o");
+        }
+      } else if (peek() == '8' || peek() == '9') {
+        lexError(currentSpan(), "Invalid digit in octal integer literal");
+        while (isDigit(peek())) {
+          advance();
+        }
+      }
+      if ((peek() == '.') && isDigit(peek(1))) {
+        lexError(currentSpan(), "Octal integer literal cannot have a fractional part");
+        advance();
+        while (isDigit(peek())) {
+          advance();
+        }
+        return makeToken(TokenType::DOUBLE);
+      }
+      return makeToken(TokenType::INTEGER);
+    }
+    if (n == 'x' || n == 'X') {
+      advance();
+      bool any = false;
+      while (isHexDigit(peek())) {
+        advance();
+        any = true;
+      }
+      if (!any) {
+        lexError(currentSpan(), "Hexadecimal integer literal requires at least one digit after 0x");
+      }
+      if ((peek() == '.') && isDigit(peek(1))) {
+        lexError(currentSpan(), "Hexadecimal integer literal cannot have a fractional part");
+        advance();
+        while (isDigit(peek())) {
+          advance();
+        }
+        return makeToken(TokenType::DOUBLE);
+      }
+      return makeToken(TokenType::INTEGER);
+    }
+  }
+
   while (isDigit(peek())) {
     advance();
+  }
+
+  char const radixProbe = peek();
+  if ((radixProbe == 'b' || radixProbe == 'B' || radixProbe == 'o' || radixProbe == 'O' ||
+       radixProbe == 'x' || radixProbe == 'X') &&
+      *start == '0' && loc.getPointer() > start + 1) {
+    lexError(currentSpan(),
+             "Invalid numeric literal: use 0b, 0o, or 0x with a single leading 0 only");
   }
 
   // Look for a fractional part.
@@ -590,4 +686,3 @@ auto Lexer::skipRestOfPhysicalLine() -> void {
     advance();
   }
 }
-

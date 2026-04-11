@@ -27,6 +27,7 @@
 #include <lsp/types.h>
 
 #include "liblesma/AST/AST.h"
+#include "liblesma/Common/IntegerLiteralParse.h"
 #include "liblesma/Common/OperatorUtils.h"
 #include "liblesma/Common/Utils.h"
 #include "liblesma/Driver/AnalysisResult.h"
@@ -3472,6 +3473,21 @@ auto main() -> int {
                 if (!id) {
                   return {};
                 }
+                if (integerLiteralHasExplicitRadix(id->name)) {
+                  if (auto dec = parseLesmaIntegerLiteral(id->name)) {
+                    std::string hoverText =
+                        "**Decimal:** `" + std::to_string(*dec) + "`\n\nType: `int`";
+                    ::lsp::Hover hover;
+                    hover.contents = ::lsp::MarkupContent{
+                        .kind = ::lsp::MarkupKindEnum(::lsp::MarkupKind::Markdown),
+                        .value = std::move(hoverText),
+                    };
+                    if (id->range) {
+                      hover.range = id->range;
+                    }
+                    return {std::move(hover)};
+                  }
+                }
                 std::optional<ResolvedSymbol> resolved =
                     resolveCanonicalSymbolAtCursor(result, line, character, *id);
                 if (resolved && resolved->value != nullptr &&
@@ -3503,9 +3519,9 @@ auto main() -> int {
                 if (const lesma::IndexedSymbolOccurrence* occ =
                         findIndexedSymbolOccurrenceAtCursor(analysis, line, character);
                     occ != nullptr && occ->resolvedType != nullptr) {
-                  lesma::Type* const hoverType =
-                      occ->flowSensitiveType != nullptr ? occ->flowSensitiveType
-                                                          : occ->resolvedType;
+                  lesma::Type* const hoverType = occ->flowSensitiveType != nullptr
+                                                     ? occ->flowSensitiveType
+                                                     : occ->resolvedType;
                   ::lsp::Hover hover;
                   hover.contents = ::lsp::MarkupContent{
                       .kind = ::lsp::MarkupKindEnum(::lsp::MarkupKind::Markdown),

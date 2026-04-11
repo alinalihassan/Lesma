@@ -1,0 +1,13 @@
+// Mixed radix integer literals (binary, hex, octal) and tuple index.
+let x = 0b01010101 + 0x54123 + 0o4123
+if x != 346571 {
+  exit(1)
+}
+
+let t = (10, 20, 30)
+if t[0x1] != 20 {
+  exit(1)
+}
+if t[0b10] != 30 {
+  exit(1)
+}

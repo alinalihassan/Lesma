@@ -1,4 +1,5 @@
 from "class.les" import Animal
+
 var animal = Animal()
 
 if animal.getX() != 101 {

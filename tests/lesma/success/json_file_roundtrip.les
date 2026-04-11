@@ -18,7 +18,7 @@ func runRoundtrip() -> int {
   if (match writeResult {
     Result.Ok(value) => value
     Result.Err(_) => false
-    }) == false {
+  }) == false {
     return 1
   }
 

@@ -11,6 +11,18 @@ Lesma programs are built from **expressions** that evaluate to typed values. Lit
 
 Integer and floating-point literals behave as you would expect; types are inferred in context or annotated explicitly (see [Types](/docs/language/types)).
 
+Integer literals may use an explicit radix prefix:
+
+- **Binary:** `0b` or `0B` followed by binary digits (`0`–`1`), e.g. `0b1010`
+- **Octal:** `0o` or `0O` followed by octal digits (`0`–`7`), e.g. `0o755`
+- **Hexadecimal:** `0x` or `0X` followed by hex digits (`0`–`9`, `a`–`f`, `A`–`F`), e.g. `0xFF`
+
+Decimal literals are unchanged. Only a single leading `0` is allowed before the radix letter; for example use `0b1`, not `00b1`.
+
+```les
+let n = 0b01010101 + 0x10 + 0o17
+```
+
 ## Strings
 
 String literals use double quotes. You can splice values into a string with **`${…}`**:

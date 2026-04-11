@@ -5,6 +5,7 @@
 #include "llvm/Support/SMLoc.h"
 
 #include "liblesma/AST/AST.h"
+#include "liblesma/Common/IntegerLiteralParse.h"
 #include "liblesma/Driver/AnalysisResult.h"
 #include "liblesma/Symbol/TypeUtils.h"
 
@@ -51,8 +52,7 @@ auto indexedTokenKindFromResolvedSymbol(const Value* resolvedSymbol, bool isType
     return fallbackKind;
   }
   if (std::optional<IndexedTokenKind> declarationKind =
-          detail_index::indexedTokenKindFromDeclarationKind(
-              resolvedSymbol->getDeclarationKind())) {
+          detail_index::indexedTokenKindFromDeclarationKind(resolvedSymbol->getDeclarationKind())) {
     return *declarationKind;
   }
   Type* const resolvedType = resolvedSymbol->getType();
@@ -144,7 +144,8 @@ auto declarationIdentityFromField(const Field* field) -> std::optional<IndexedDe
 }
 
 auto declarationIdentityFromType(const Type* type) -> std::optional<IndexedDeclarationIdentity> {
-  if (type == nullptr || !type->getDeclarationSpan().isValid() || type->getDeclarationFilePath().empty()) {
+  if (type == nullptr || !type->getDeclarationSpan().isValid() ||
+      type->getDeclarationFilePath().empty()) {
     return std::nullopt;
   }
   return IndexedDeclarationIdentity{
@@ -157,8 +158,7 @@ auto appendIndexedOccurrence(AnalysisIndex& index, const std::string& name,
                              std::optional<std::string> dotBase, llvm::SMRange span,
                              bool isTypePosition, bool isMemberAccess, unsigned modifiers,
                              std::optional<IndexedTokenKind> fallbackTokenKind,
-                             const Value* resolvedSymbol = nullptr,
-                             Type* resolvedType = nullptr,
+                             const Value* resolvedSymbol = nullptr, Type* resolvedType = nullptr,
                              std::optional<IndexedDeclarationIdentity> declaration = std::nullopt,
                              std::optional<llvm::SMRange> semanticHighlightSpan = std::nullopt,
                              Type* flowSensitiveType = nullptr) -> void {
@@ -407,6 +407,10 @@ auto collectIndexFromExpr(const Expression* expr, AnalysisIndex& index,
           indexedTokenKindFromResolvedSymbol(resolvedSymbol, false, false,
                                              IndexedTokenKind::Variable),
           resolvedSymbol, nullptr, std::nullopt, std::nullopt, lit->getLspFlowSensitiveType());
+    } else if (lit->getType() == TokenType::INTEGER &&
+               integerLiteralHasExplicitRadix(lit->getValue())) {
+      appendIndexedOccurrence(index, lit->getValue(), std::nullopt, lit->getSpan(), false, false,
+                              0U, std::nullopt, nullptr, nullptr);
     }
     return;
   }
@@ -460,8 +464,9 @@ auto collectIndexFromExpr(const Expression* expr, AnalysisIndex& index,
     }
     if (auto const* rightCall = dynamic_cast<const FuncCall*>(dot->getRight())) {
       std::optional<IndexedDeclarationIdentity> const memberDeclaration =
-          isEnumMemberAccess ? fieldDeclarationFromMemberAccess(dot->getLeft(), rightCall->getName())
-                             : std::nullopt;
+          isEnumMemberAccess
+              ? fieldDeclarationFromMemberAccess(dot->getLeft(), rightCall->getName())
+              : std::nullopt;
       appendIndexedOccurrence(index, rightCall->getName(), dotBase,
                               makeNameSpan(rightCall->getSpan().Start, rightCall->getName()), false,
                               true, 0U, IndexedTokenKind::Method, rightCall->getResolvedSymbol(),
@@ -495,14 +500,14 @@ auto collectIndexFromExpr(const Expression* expr, AnalysisIndex& index,
     collectIndexFromExpr(match->getScrutinee(), index, mainFilePath);
     for (const MatchArm& arm : match->getArms()) {
       const MatchPattern& pattern = arm.pattern;
-        if (pattern.kind == MatchPatternKind::VALUE && pattern.valueExpr != nullptr) {
-          collectIndexFromExpr(pattern.valueExpr.get(), index, mainFilePath);
-        } else if (pattern.kind == MatchPatternKind::VARIANT) {
+      if (pattern.kind == MatchPatternKind::VALUE && pattern.valueExpr != nullptr) {
+        collectIndexFromExpr(pattern.valueExpr.get(), index, mainFilePath);
+      } else if (pattern.kind == MatchPatternKind::VARIANT) {
         if (!pattern.enumName.empty() && pattern.enumNameSpan.isValid()) {
           appendIndexedOccurrence(index, pattern.enumName, std::nullopt, pattern.enumNameSpan, true,
                                   false, 0U, IndexedTokenKind::Enum, nullptr,
-                                  pattern.resolvedEnumType, declarationIdentityFromType(
-                                                              pattern.resolvedEnumType));
+                                  pattern.resolvedEnumType,
+                                  declarationIdentityFromType(pattern.resolvedEnumType));
         }
         if (!pattern.variantName.empty() && pattern.variantNameSpan.isValid()) {
           std::optional<IndexedDeclarationIdentity> variantDecl = std::nullopt;
@@ -519,9 +524,9 @@ auto collectIndexFromExpr(const Expression* expr, AnalysisIndex& index,
               };
             }
           }
-          appendIndexedOccurrence(index, pattern.variantName, pattern.enumName, pattern.variantNameSpan,
-                                  false, true, 0U, IndexedTokenKind::EnumMember, nullptr, variantType,
-                                  variantDecl);
+          appendIndexedOccurrence(index, pattern.variantName, pattern.enumName,
+                                  pattern.variantNameSpan, false, true, 0U,
+                                  IndexedTokenKind::EnumMember, nullptr, variantType, variantDecl);
         }
         Type* bindingEnumType = pattern.resolvedEnumType;
         if (bindingEnumType != nullptr) {
@@ -535,11 +540,12 @@ auto collectIndexFromExpr(const Expression* expr, AnalysisIndex& index,
               if (pattern.bindings[i] == "_" || !pattern.bindingSpans[i].isValid()) {
                 continue;
               }
-              appendIndexedOccurrence(
-                  index, pattern.bindings[i], std::nullopt, pattern.bindingSpans[i], false, false,
-                  analysis_index_modifier::DECLARATION, IndexedTokenKind::Variable, nullptr,
-                  payloadTypes[i],
-                  IndexedDeclarationIdentity{.filePath = mainFilePath, .span = pattern.bindingSpans[i]});
+              appendIndexedOccurrence(index, pattern.bindings[i], std::nullopt,
+                                      pattern.bindingSpans[i], false, false,
+                                      analysis_index_modifier::DECLARATION,
+                                      IndexedTokenKind::Variable, nullptr, payloadTypes[i],
+                                      IndexedDeclarationIdentity{.filePath = mainFilePath,
+                                                                 .span = pattern.bindingSpans[i]});
             }
           }
         }
@@ -657,9 +663,10 @@ auto collectIndexFromStmt(const Statement* stmt, AnalysisIndex& index, bool inCl
     return;
   }
   if (auto const* typeAlias = dynamic_cast<const TypeAlias*>(stmt)) {
-    appendIndexedOccurrence(index, typeAlias->getIdentifier(), std::nullopt, typeAlias->getNameSpan(),
-                            true, false, analysis_index_modifier::DECLARATION,
-                            IndexedTokenKind::Type, typeAlias->getResolvedSymbol());
+    appendIndexedOccurrence(index, typeAlias->getIdentifier(), std::nullopt,
+                            typeAlias->getNameSpan(), true, false,
+                            analysis_index_modifier::DECLARATION, IndexedTokenKind::Type,
+                            typeAlias->getResolvedSymbol());
     collectIndexFromTypeExpr(typeAlias->getAliasedType(), index);
     return;
   }
@@ -738,8 +745,8 @@ auto collectIndexFromStmt(const Statement* stmt, AnalysisIndex& index, bool inCl
       const NamedSpan& valueDecl = valueDecls[i];
       appendIndexedOccurrence(
           index, valueDecl.name, std::nullopt, valueDecl.span, false, false,
-          analysis_index_modifier::DECLARATION, IndexedTokenKind::EnumMember, nullptr,
-          nullptr, i < fields.size() ? declarationIdentityFromField(fields[i]) : std::nullopt);
+          analysis_index_modifier::DECLARATION, IndexedTokenKind::EnumMember, nullptr, nullptr,
+          i < fields.size() ? declarationIdentityFromField(fields[i]) : std::nullopt);
     }
     for (FuncDecl* method : enumNode->getMethods()) {
       collectIndexFromStmt(method, index, true, mainFilePath);

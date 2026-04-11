@@ -16,8 +16,7 @@ class B {
 }
 
 class Box {
-  func new() {
-  }
+  func new() {}
   func take<T: NeedVal>(o: T) -> int {
     return o.val()
   }

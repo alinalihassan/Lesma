@@ -9,7 +9,6 @@ func main() -> int {
   let bad = match sample() {
     Result.Ok(_) => (1, "a")
     Result.Err(_) => ("x", 2)
-
   }
   return 0
 }

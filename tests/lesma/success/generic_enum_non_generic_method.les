@@ -11,7 +11,7 @@ enum Opt<T> {
     return match self {
       Some(value) => value
       None => defaultValue
-      }
+    }
   }
 }
 

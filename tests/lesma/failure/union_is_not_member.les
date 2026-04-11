@@ -1,4 +1,3 @@
 // `is` cannot test `any` against void.
 var x: any = 1
-if x is void {
-}
+if x is void {}

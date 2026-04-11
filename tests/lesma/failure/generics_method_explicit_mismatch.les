@@ -1,6 +1,5 @@
 class Wrapper {
-  func new() {
-  }
+  func new() {}
   func id<T>(v: T) -> T {
     return v
   }

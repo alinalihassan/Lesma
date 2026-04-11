@@ -60,6 +60,12 @@ private:
 
   static auto isDigit(char c) -> bool { return c >= '0' && c <= '9'; }
 
+  static auto isHexDigit(char c) -> bool {
+    return isDigit(c) || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F');
+  }
+
+  static auto isOctalDigit(char c) -> bool { return c >= '0' && c <= '7'; }
+
   static auto isAlpha(char c) -> bool {
     return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '_';
   }

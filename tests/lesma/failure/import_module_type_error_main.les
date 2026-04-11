@@ -1,3 +1,4 @@
 // Type error in imported module must fail analysis (diagnostic owned by imported file)
 from "import_module_type_error_lib.les" import *
+
 var _ = 0

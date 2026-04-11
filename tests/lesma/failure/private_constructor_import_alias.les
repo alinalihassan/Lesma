@@ -1,2 +1,3 @@
 import "../success/private_constructor_import_mod.les" as m
+
 var s = m.Secret(1)

@@ -2,6 +2,7 @@
 import "function_call.les" as fc1
 import "function_call.les" as fc2
 import "function_call.les"
+
 if fc1.fib() != 101 {
   exit(1)
 }

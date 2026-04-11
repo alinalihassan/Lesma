@@ -1,4 +1,5 @@
 import "export_global_module.les"
+
 if export_global_module.answer != 42 {
   exit(1)
 }
