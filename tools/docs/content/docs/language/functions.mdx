@@ -17,6 +17,47 @@ func add(a: int, b: int) -> int {
 }
 ```
 
+## Async functions
+
+Use `async func` for a named async function. The source-level return type stays the payload type:
+
+```les
+async func add_one(value: int) -> int {
+    return value + 1
+}
+```
+
+Calling an async function produces an internal task value. You can:
+- use `await taskExpr` inside another `async func`
+- use top-level `await taskExpr` from module code
+
+```les
+async func add_pair(a: int, b: int) -> int {
+    let left = await add_one(a)
+    let right = await add_one(b)
+    return left + right
+}
+
+let total = await add_pair(2, 3)
+
+if total != 7 {
+    exit(1)
+}
+```
+
+### Current runtime model
+
+The current async implementation is intentionally small:
+- `await` drains the task to completion on the current thread, including at top level
+- there is no scheduler, parallel execution, or background progress yet
+- awaiting a task consumes that task handle
+
+### Current limitations
+
+- only top-level named `async func` declarations are supported
+- async methods, async lambdas, and `async func extern` are not supported yet
+- `await` is only valid inside an `async func` or at top level
+
 ## Calls
 
 Call with parentheses and comma-separated arguments. Calls can nest:

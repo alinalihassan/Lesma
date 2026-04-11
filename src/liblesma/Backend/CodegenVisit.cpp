@@ -820,11 +820,14 @@ auto Codegen::emitAsyncTaskPromisePointer(llvm::Value* taskHandle, lesma::Type* 
   return builder->CreateBitCast(rawPtr, builder->getPtrTy(), "task.promise");
 }
 
-auto Codegen::emitRunAsyncTask(llvm::SMRange span, std::unique_ptr<lesma::Value> taskValue,
-                               bool destroyTask) -> std::unique_ptr<lesma::Value> {
+auto Codegen::emitDrainAsyncTask(llvm::SMRange span, std::unique_ptr<lesma::Value> taskValue,
+                                 bool destroyTask) -> std::unique_ptr<lesma::Value> {
   if (taskValue == nullptr) {
     throw CodegenError(span, "Expected async task value");
   }
+  // The current runtime model is synchronous drain-to-completion: `await` resumes the coroutine in
+  // a local loop until `coro.done`, then optionally destroys the task handle before returning the
+  // payload to the caller.
   if (taskValue->getCategory() == ValueCategory::ADDRESSABLE_STORAGE) {
     taskValue = materializeSymbolValue(taskValue.get());
   }
@@ -4371,12 +4374,6 @@ auto Codegen::defineSyntheticEnumMethod(const SyntheticEnumMethodBody& body) -> 
 
 auto Codegen::visit(const FuncCall* node) -> void {
   setDebugLoc(node->getSpan());
-  if (node->getResolvedSymbol() == nullptr && node->getName() == "run" &&
-      node->getArguments().size() == 1U) {
-    node->getArguments().front()->accept(*this);
-    result = emitRunAsyncTask(node->getSpan(), std::move(result), true);
-    return;
-  }
   result = genFuncCall(node, {});
 }
 
@@ -6508,7 +6505,7 @@ auto Codegen::visit(const BlockExpr* node) -> void {
 auto Codegen::visit(const UnaryOp* node) -> void {
   if (node->getOperator() == TokenType::AWAIT) {
     node->getExpression()->accept(*this);
-    result = emitRunAsyncTask(node->getSpan(), std::move(result), true);
+    result = emitDrainAsyncTask(node->getSpan(), std::move(result), true);
     return;
   }
   setDebugLoc(node->getSpan());

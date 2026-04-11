@@ -1,0 +1,1 @@
+async func extern abs(x: int) -> int

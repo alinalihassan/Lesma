@@ -1,0 +1,5 @@
+async func invalid() -> int {
+  return await 1
+}
+
+await invalid()

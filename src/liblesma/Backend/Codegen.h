@@ -548,8 +548,8 @@ protected:
                              llvm::ArrayRef<llvm::Type*> overloadTypes = {}) -> llvm::FunctionCallee;
   auto emitAsyncTaskPromisePointer(llvm::Value* taskHandle, lesma::Type* taskType, bool fromCaller)
       -> llvm::Value*;
-  auto emitRunAsyncTask(llvm::SMRange span, std::unique_ptr<lesma::Value> taskValue,
-                        bool destroyTask) -> std::unique_ptr<lesma::Value>;
+  auto emitDrainAsyncTask(llvm::SMRange span, std::unique_ptr<lesma::Value> taskValue,
+                          bool destroyTask) -> std::unique_ptr<lesma::Value>;
   auto
   specializeClass(const Class* node, const std::vector<lesma::Type*>& constructorArgTypes,
                   const std::vector<lesma::Type*>& explicitTypeArgs = {},

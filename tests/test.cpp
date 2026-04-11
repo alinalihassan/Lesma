@@ -1104,6 +1104,14 @@ TEST(FormatterTests, FormatSourcePreservesAddressOfUnaryOperator) {
   EXPECT_EQ(formatted->find("?x"), std::string::npos);
 }
 
+TEST(FormatterTests, FormatSourcePreservesAwaitUnaryOperator) {
+  auto formatted = formatSource(
+      "async func work(value: int) -> int {\nreturn await next(value)\n}\n", "await_test.les", 100);
+  ASSERT_TRUE(formatted.has_value()) << formatted.error().message;
+  EXPECT_NE(formatted->find("await next(value)"), std::string::npos);
+  EXPECT_EQ(formatted->find("?next(value)"), std::string::npos);
+}
+
 TEST(FormatterTests, FormatSourcePreservesBitwisePipeOperator) {
   auto formatted = formatSource("func combine(lhs: int, rhs: int) -> int {\nreturn lhs | rhs\n}\n",
                                 "bitwise_pipe_test.les", 100);

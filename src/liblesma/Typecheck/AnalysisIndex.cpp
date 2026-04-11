@@ -209,15 +209,6 @@ auto resolvedTypeForExpr(const Expression* expr) -> Type* {
     return resolvedSymbol != nullptr ? resolvedSymbol->getType() : nullptr;
   }
   if (auto const* call = dynamic_cast<const FuncCall*>(expr)) {
-    if (call->getName() == "run") {
-      auto args = call->getArguments();
-      if (args.size() == 1U) {
-        Type* taskType = resolvedTypeForExpr(args.front());
-        if (taskType != nullptr && taskType->isBuiltinTask()) {
-          return taskType->getTaskPayloadType();
-        }
-      }
-    }
     Value* const resolvedSymbol = call->getResolvedSymbol();
     return resolvedSymbol != nullptr && resolvedSymbol->getType() != nullptr
                ? resolvedSymbol->getType()->getReturnType()

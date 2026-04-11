@@ -6603,17 +6603,6 @@ auto Typechecker::resolveFuncCallCalleeOrEarlyReturn(const FuncCall* node,
 }
 
 auto Typechecker::visit(const FuncCall* node) -> void {
-  if (node->getName() == "run" && node->getArguments().size() == 1U) {
-    if (!node->getExplicitTypeArgs().empty()) {
-      throw TypeCheckError(node->getSpan(), "`run` does not accept explicit type arguments");
-    }
-    node->getArguments().front()->accept(*this);
-    if (Type* payloadType = unwrapAsyncTaskType(result != nullptr ? result->getType() : nullptr);
-        payloadType != nullptr) {
-      result = std::make_unique<Value>(payloadType);
-      return;
-    }
-  }
   node->clearGenericBindingEnv();
   node->setContextualEnumMonomorph(nullptr);
   std::vector<Type*> argTypes = overloadArgTypesFromCall(node);
@@ -7851,8 +7840,9 @@ auto Typechecker::visit(const UnaryOp* node) -> void {
     Type* enclosingAsyncPayload =
         currentFunction != nullptr ? unwrapAsyncTaskType(currentFunction->getType()->getReturnType())
                                    : nullptr;
-    if (enclosingAsyncPayload == nullptr) {
-      throw TypeCheckError(node->getSpan(), "`await` is only allowed inside async functions");
+    if (currentFunction != nullptr && enclosingAsyncPayload == nullptr) {
+      throw TypeCheckError(node->getSpan(),
+                           "`await` is only allowed inside async functions or at top level");
     }
     node->getExpression()->accept(*this);
     Type* payloadType = unwrapAsyncTaskType(result != nullptr ? result->getType() : nullptr);

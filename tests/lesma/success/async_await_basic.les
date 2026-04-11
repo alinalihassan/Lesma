@@ -8,6 +8,8 @@ async func add_pair(a: int, b: int) -> int {
   return left + right
 }
 
-if run(add_pair(2, 3)) != 7 {
+let total = await add_pair(2, 3)
+
+if total != 7 {
   exit(1)
 }
