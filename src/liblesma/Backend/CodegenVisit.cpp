@@ -3,6 +3,7 @@
 #include <cctype>
 #include <cstddef>
 #include <functional>
+#include <limits>
 #include <memory>
 #include <optional>
 #include <ranges>
@@ -4893,21 +4894,29 @@ auto Codegen::visit(const SubscriptOp* node) -> void {
       throw CodegenError(node->getIndex()->getSpan(),
                          "Tuple index must be a non-negative integer literal");
     }
-    unsigned long idx = 0;
+    std::size_t idx = 0;
     if (auto idxOpt = parseLesmaIntegerLiteral(idxLit->getValue())) {
       if (*idxOpt < 0) {
         throw CodegenError(node->getIndex()->getSpan(), "Tuple index must be non-negative");
       }
-      idx = static_cast<unsigned long>(*idxOpt);
+      if (static_cast<unsigned long long>(*idxOpt) >
+          std::numeric_limits<std::size_t>::max()) {
+        throw CodegenError(node->getIndex()->getSpan(), "Tuple index is too large");
+      }
+      idx = static_cast<std::size_t>(*idxOpt);
     } else {
       throw CodegenError(node->getIndex()->getSpan(), "Invalid tuple index literal");
     }
     std::vector<Field*> const tf = listValue->getType()->getFields();
+    if (idx > static_cast<std::size_t>(std::numeric_limits<unsigned>::max())) {
+      throw CodegenError(node->getIndex()->getSpan(), "Tuple index is too large");
+    }
     if (idx >= tf.size()) {
       throw CodegenError(node->getSpan(), "Invalid index on tuple");
     }
     llvm::Value* agg = listValue->getLlvmValue();
-    llvm::Value* ev = builder->CreateExtractValue(agg, static_cast<unsigned>(idx), "tuple.sub");
+    llvm::Value* ev =
+        builder->CreateExtractValue(agg, static_cast<unsigned>(idx), "tuple.sub");
     result = std::make_unique<Value>("", tf[idx]->type, ev);
     applyFlowNarrowing();
     return;

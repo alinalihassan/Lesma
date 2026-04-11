@@ -5,30 +5,28 @@
 
 namespace lesma {
 
-namespace {
-
-[[nodiscard]] auto digitValueBase2(char c) -> int {
+[[nodiscard]] static auto digitValueBase2(char c) -> int {
   if (c == '0' || c == '1') {
     return c - '0';
   }
   return -1;
 }
 
-[[nodiscard]] auto digitValueBase8(char c) -> int {
+[[nodiscard]] static auto digitValueBase8(char c) -> int {
   if (c >= '0' && c <= '7') {
     return c - '0';
   }
   return -1;
 }
 
-[[nodiscard]] auto digitValueBase10(char c) -> int {
+[[nodiscard]] static auto digitValueBase10(char c) -> int {
   if (c >= '0' && c <= '9') {
     return c - '0';
   }
   return -1;
 }
 
-[[nodiscard]] auto digitValueBase16(char c) -> int {
+[[nodiscard]] static auto digitValueBase16(char c) -> int {
   if (c >= '0' && c <= '9') {
     return c - '0';
   }
@@ -41,7 +39,8 @@ namespace {
   return -1;
 }
 
-[[nodiscard]] auto parseMagnitude(std::string_view digits, int base) -> std::optional<long long> {
+[[nodiscard]] static auto parseMagnitude(std::string_view digits, int base)
+    -> std::optional<long long> {
   if (digits.empty()) {
     return std::nullopt;
   }
@@ -72,13 +71,8 @@ namespace {
     }
     acc = acc * baseU + vU;
   }
-  if (acc > static_cast<unsigned long long>(LLONG_MAX)) {
-    return std::nullopt;
-  }
   return static_cast<long long>(acc);
 }
-
-} // namespace
 
 auto integerLiteralHasExplicitRadix(std::string_view s) -> bool {
   return s.size() >= 2U && s[0] == '0' &&

@@ -210,8 +210,7 @@ auto Lexer::scanOne(bool continuation) -> std::unique_ptr<Token> {
     }
 
     if (c != '\n') {
-      lexError(currentSpan(),
-               fmt::format("Newline expected after line continuation, found {}", c));
+      lexError(currentSpan(), fmt::format("Newline expected after line continuation, found {}", c));
       skipRestOfPhysicalLine();
       return scanOne(false);
     }
@@ -532,8 +531,14 @@ auto Lexer::addNumToken() -> std::unique_ptr<Token> {
         any = true;
       }
       if (!any) {
-        lexError(currentSpan(),
-                 "Binary integer literal requires at least one digit after 0b");
+        if (isDigit(peek()) && peek() != '0' && peek() != '1') {
+          lexError(currentSpan(), "Invalid digit in binary integer literal");
+          while (isDigit(peek())) {
+            advance();
+          }
+        } else {
+          lexError(currentSpan(), "Binary integer literal requires at least one digit after 0b");
+        }
       } else if (isDigit(peek()) && peek() != '0' && peek() != '1') {
         lexError(currentSpan(), "Invalid digit in binary integer literal");
         while (isDigit(peek())) {
@@ -558,8 +563,14 @@ auto Lexer::addNumToken() -> std::unique_ptr<Token> {
         any = true;
       }
       if (!any) {
-        lexError(currentSpan(),
-                 "Octal integer literal requires at least one digit after 0o");
+        if (peek() == '8' || peek() == '9') {
+          lexError(currentSpan(), "Invalid digit in octal integer literal");
+          while (isDigit(peek())) {
+            advance();
+          }
+        } else {
+          lexError(currentSpan(), "Octal integer literal requires at least one digit after 0o");
+        }
       } else if (peek() == '8' || peek() == '9') {
         lexError(currentSpan(), "Invalid digit in octal integer literal");
         while (isDigit(peek())) {
@@ -584,8 +595,7 @@ auto Lexer::addNumToken() -> std::unique_ptr<Token> {
         any = true;
       }
       if (!any) {
-        lexError(currentSpan(),
-                 "Hexadecimal integer literal requires at least one digit after 0x");
+        lexError(currentSpan(), "Hexadecimal integer literal requires at least one digit after 0x");
       }
       if ((peek() == '.') && isDigit(peek(1))) {
         lexError(currentSpan(), "Hexadecimal integer literal cannot have a fractional part");
@@ -676,4 +686,3 @@ auto Lexer::skipRestOfPhysicalLine() -> void {
     advance();
   }
 }
-
