@@ -69,6 +69,7 @@ LLD_HAS_DRIVER(elf)
 #include "liblesma/Backend/CodegenRuntimeNames.h"
 #include "liblesma/Backend/CodegenTypeUtils.h"
 #include "liblesma/Backend/MangleUtils.h"
+#include "liblesma/Common/IntegerLiteralParse.h"
 #include "liblesma/Common/OperatorUtils.h"
 #include "liblesma/Common/Utils.h"
 #include "liblesma/Frontend/Parser.h"
@@ -4893,9 +4894,12 @@ auto Codegen::visit(const SubscriptOp* node) -> void {
                          "Tuple index must be a non-negative integer literal");
     }
     unsigned long idx = 0;
-    try {
-      idx = static_cast<unsigned long>(std::stoull(idxLit->getValue()));
-    } catch (...) {
+    if (auto idxOpt = parseLesmaIntegerLiteral(idxLit->getValue())) {
+      if (*idxOpt < 0) {
+        throw CodegenError(node->getIndex()->getSpan(), "Tuple index must be non-negative");
+      }
+      idx = static_cast<unsigned long>(*idxOpt);
+    } else {
       throw CodegenError(node->getIndex()->getSpan(), "Invalid tuple index literal");
     }
     std::vector<Field*> const tf = listValue->getType()->getFields();
@@ -6498,8 +6502,11 @@ auto Codegen::visit(const Literal* node) -> void {
   } else if (node->getType() == TokenType::INTEGER) {
     auto* type = cacheType(std::make_unique<Type>(BaseType::TY_INT, builder->getInt64Ty()));
     type->setIntWidth(64);
-    result = std::make_unique<Value>(
-        "", type, ConstantInt::getSigned(builder->getInt64Ty(), std::stoi(node->getValue())));
+    if (auto intVal = parseLesmaIntegerLiteral(node->getValue())) {
+      result = std::make_unique<Value>("", type, ConstantInt::getSigned(builder->getInt64Ty(), *intVal));
+    } else {
+      throw CodegenError(node->getSpan(), "Invalid integer literal {}", node->getValue());
+    }
   } else if (node->getType() == TokenType::BOOL) {
     auto* type = cacheType(std::make_unique<Type>(BaseType::TY_BOOL, builder->getInt1Ty()));
     result = std::make_unique<Value>(

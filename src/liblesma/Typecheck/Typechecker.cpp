@@ -18,6 +18,7 @@
 #include "nameof.hpp"
 
 #include "liblesma/AST/AST.h"
+#include "liblesma/Common/IntegerLiteralParse.h"
 #include "liblesma/Common/OperatorUtils.h"
 #include "liblesma/Common/TypeCheckError.h"
 #include "liblesma/Common/Utils.h"
@@ -4539,11 +4540,10 @@ auto Typechecker::assignmentStorageTypeForDotLhs(const DotOp* lhs, Type* fallbac
 namespace {
 
 [[nodiscard]] auto normalizeUnionNarrowingIntegerLiteral(const std::string& value) -> std::string {
-  try {
-    return fmt::format("{}", std::stoll(value));
-  } catch (...) {
-    return value;
+  if (auto v = parseLesmaIntegerLiteral(value)) {
+    return fmt::format("{}", *v);
   }
+  return value;
 }
 
 [[nodiscard]] auto normalizeUnionNarrowingFloatLiteral(const std::string& value) -> std::string {
@@ -6967,11 +6967,10 @@ auto Typechecker::visit(const BinaryOp* node) -> void {
   auto extractConstantShiftCount = [](const Expression* expr) -> std::optional<long long> {
     if (auto const* lit = dynamic_cast<const Literal*>(expr)) {
       if (lit->getType() == TokenType::INTEGER) {
-        try {
-          return std::stoll(lit->getValue());
-        } catch (...) {
-          throw TypeCheckError(expr->getSpan(), "Invalid shift count literal");
+        if (auto v = parseLesmaIntegerLiteral(lit->getValue())) {
+          return *v;
         }
+        throw TypeCheckError(expr->getSpan(), "Invalid shift count literal");
       }
       return std::nullopt;
     }
@@ -6983,11 +6982,10 @@ auto Typechecker::visit(const BinaryOp* node) -> void {
       if (lit == nullptr || lit->getType() != TokenType::INTEGER) {
         return std::nullopt;
       }
-      try {
-        return -std::stoll(lit->getValue());
-      } catch (...) {
-        throw TypeCheckError(expr->getSpan(), "Invalid shift count literal");
+      if (auto v = parseLesmaIntegerLiteral(lit->getValue())) {
+        return -*v;
       }
+      throw TypeCheckError(expr->getSpan(), "Invalid shift count literal");
     }
     return std::nullopt;
   };
@@ -6995,11 +6993,13 @@ auto Typechecker::visit(const BinaryOp* node) -> void {
       left->getType() != nullptr && right->getType() != nullptr &&
       !left->getType()->is(BaseType::TY_GENERIC) && !right->getType()->is(BaseType::TY_GENERIC)) {
     auto* zeroLit = dynamic_cast<Literal*>(node->getRight());
-    if (zeroLit != nullptr && zeroLit->getType() == TokenType::INTEGER &&
-        zeroLit->getValue() == "0") {
-      Type* unified = getExtendedType(left->getType(), right->getType());
-      if (unified != nullptr && unified->is(BaseType::TY_INT)) {
-        throw TypeCheckError(node->getSpan(), "Division or remainder by zero");
+    if (zeroLit != nullptr && zeroLit->getType() == TokenType::INTEGER) {
+      auto const z = parseLesmaIntegerLiteral(zeroLit->getValue());
+      if (z.has_value() && *z == 0) {
+        Type* unified = getExtendedType(left->getType(), right->getType());
+        if (unified != nullptr && unified->is(BaseType::TY_INT)) {
+          throw TypeCheckError(node->getSpan(), "Division or remainder by zero");
+        }
       }
     }
   }
@@ -7039,9 +7039,9 @@ auto Typechecker::visit(const SubscriptOp* node) -> void {
                            "Tuple index must be a non-negative integer literal");
     }
     long long idxVal = 0;
-    try {
-      idxVal = std::stoll(idxLit->getValue());
-    } catch (...) {
+    if (auto idxOpt = parseLesmaIntegerLiteral(idxLit->getValue())) {
+      idxVal = *idxOpt;
+    } else {
       throw TypeCheckError(node->getIndex()->getSpan(), "Invalid tuple index literal");
     }
     if (idxVal < 0) {
@@ -7069,9 +7069,9 @@ auto Typechecker::visit(const SubscriptOp* node) -> void {
     if (auto* idxLit = dynamic_cast<Literal*>(node->getIndex());
         idxLit != nullptr && idxLit->getType() == TokenType::INTEGER) {
       long long idxVal = 0;
-      try {
-        idxVal = std::stoll(idxLit->getValue());
-      } catch (...) {
+      if (auto idxOpt = parseLesmaIntegerLiteral(idxLit->getValue())) {
+        idxVal = *idxOpt;
+      } else {
         throw TypeCheckError(node->getIndex()->getSpan(), "Invalid list index literal");
       }
       if (idxVal < 0) {

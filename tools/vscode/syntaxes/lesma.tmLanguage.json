@@ -187,8 +187,16 @@
     "numbers": {
       "patterns": [
         {
-          "name": "constant.numeric.other.lesma",
-          "match": "[+-]?([0][obx])?[0-9]+"
+          "name": "constant.numeric.integer.hex.lesma",
+          "match": "\\b0[xX][0-9a-fA-F]+\\b"
+        },
+        {
+          "name": "constant.numeric.integer.binary.lesma",
+          "match": "\\b0[bB][01]+\\b"
+        },
+        {
+          "name": "constant.numeric.integer.octal.lesma",
+          "match": "\\b0[oO][0-7]+\\b"
         },
         {
           "name": "constant.numeric.float.lesma",

@@ -119,6 +119,7 @@ set(LIB_NAME lesma)
 set(COMMON_SOURCES
   src/liblesma/Common/Utils.cpp
   src/liblesma/Common/ExportDiscovery.cpp
+  src/liblesma/Common/IntegerLiteralParse.cpp
   src/liblesma/Formatter/PrettyDoc.cpp
   src/liblesma/Formatter/SourceFormatter.cpp
   src/liblesma/Frontend/Lexer.cpp
