@@ -224,52 +224,57 @@ process_result_line() {
   esac
 }
 
+# Run tests with up to NUM_JOBS concurrent compiler processes, but print each result as soon as
+# it is the next line in file order (stable ordering, progressive output).
 run_suite_parallel() {
   local tmpdir="$1"
   local expected_to_fail="$2"
   shift 2
   local -a files=("$@")
+  local n=${#files[@]}
+  local next_to_start=0
+  local printed=0
   local -a pids=()
-  local file pid newp
+  local file rp line newp pid
 
-  for file in "${files[@]}"; do
-    while :; do
-      newp=()
-      for pid in "${pids[@]}"; do
-        if kill -0 "${pid}" 2>/dev/null; then
-          newp+=("${pid}")
-        fi
-      done
-      pids=("${newp[@]}")
-      [ "${#pids[@]}" -lt "${NUM_JOBS}" ] && break
-      sleep 0.05
+  if [ "${n}" -eq 0 ]; then
+    return 0
+  fi
+
+  while [ "${printed}" -lt "${n}" ]; do
+    newp=()
+    for pid in "${pids[@]}"; do
+      if kill -0 "${pid}" 2>/dev/null; then
+        newp+=("${pid}")
+      fi
     done
-    (
+    pids=("${newp[@]}")
+
+    while [ "${next_to_start}" -lt "${n}" ] && [ "${#pids[@]}" -lt "${NUM_JOBS}" ]; do
+      file="${files[$next_to_start]}"
+      (
+        rp="${tmpdir}/$(result_path_for_file "${file}")"
+        run_single_test "${file}" "${expected_to_fail}" "${compiler_path}" "${rp}"
+      ) &
+      pids+=($!)
+      next_to_start=$((next_to_start + 1))
+    done
+
+    while [ "${printed}" -lt "${n}" ]; do
+      file="${files[$printed]}"
       rp="${tmpdir}/$(result_path_for_file "${file}")"
-      run_single_test "${file}" "${expected_to_fail}" "${compiler_path}" "${rp}"
-    ) &
-    pids+=($!)
-  done
+      if [ ! -f "${rp}" ]; then
+        break
+      fi
+      line=$(cat "${rp}")
+      process_result_line "${line}" "${file}"
+      printed=$((printed + 1))
+    done
 
-  for pid in "${pids[@]}"; do
-    wait "${pid}" || true
-  done
-}
-
-print_suite_results_in_order() {
-  local tmpdir="$1"
-  shift
-  local -a files=("$@")
-  local file rp line
-
-  for file in "${files[@]}"; do
-    rp="${tmpdir}/$(result_path_for_file "${file}")"
-    if [ ! -f "${rp}" ]; then
-      printf 'Internal error: missing result for %s\n' "${file}" >&2
-      exit 1
+    if [ "${printed}" -ge "${n}" ]; then
+      break
     fi
-    line=$(cat "${rp}")
-    process_result_line "${line}" "${file}"
+    sleep 0.05
   done
 }
 
@@ -296,10 +301,8 @@ success_files=("${SCRIPT_DIR}"/../tests/lesma/success/*.les)
 failure_files=("${SCRIPT_DIR}"/../tests/lesma/failure/*.les)
 
 run_suite_parallel "${TMPDIR_RESULTS}" 0 "${success_files[@]}"
-print_suite_results_in_order "${TMPDIR_RESULTS}" "${success_files[@]}"
 
 run_suite_parallel "${TMPDIR_RESULTS}" 1 "${failure_files[@]}"
-print_suite_results_in_order "${TMPDIR_RESULTS}" "${failure_files[@]}"
 
 printf 'Tests:\n'
 printf '  fail:    %d\n' "${fail_count}"
