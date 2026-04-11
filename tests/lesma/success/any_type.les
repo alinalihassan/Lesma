@@ -38,7 +38,7 @@ if value is not bool {
   exit(103)
 }
 
-value = str("hello")
+value = "hello"
 if value is not str {
   exit(104)
 } else {
@@ -104,7 +104,12 @@ if maybe is null {
   }
 }
 
-let textAny: any = str("two")
+let maybeText: any? = "nullable"
+if maybeText is not str {
+  exit(121)
+}
+
+let textAny: any = "two"
 var xs: list<any> = [1, textAny, Box(3)]
 xs.push(Kind.START)
 xs.push(true)
@@ -160,7 +165,7 @@ if xs.len() != 4 {
 
 var dictValues: dict<str, any> = {"one": 1, "box": Box(8)}
 let kindAny: any = Kind.STOP
-let doneAny: any = str("done")
+let doneAny: any = "done"
 dictValues.set("kind", kindAny)
 dictValues.set("text", doneAny)
 

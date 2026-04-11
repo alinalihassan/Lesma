@@ -1,0 +1,15 @@
+type Payload = str | dict<str, str | int>
+
+func explicitReceiver() -> Result<Payload, int> {
+  return Result.Ok({"name": "Ada", "age": 37})
+}
+
+func bareVariant() -> Result<Payload, int> {
+  return Ok({"name": "Ada", "age": 37})
+}
+
+func main() -> int {
+  explicitReceiver()
+  bareVariant()
+  return 0
+}

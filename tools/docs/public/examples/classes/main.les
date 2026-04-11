@@ -1,20 +1,18 @@
 export class Animal {
-    var x: int
+  var x: int
 
-    func new() {
-        self.x = 101
-
-    }
-    func getX() -> int {
-        return self.x
-
-    }
+  func new() {
+    self.x = 101
+  }
+  func getX() -> int {
+    return self.x
+  }
 }
 var z = Animal()
 
 func testClass(x: Animal) -> int {
-    return x.getX()
-
+  return x.getX()
 }
 if testClass(z) != 101 {
-	exit(1)}
+  exit(1)
+}

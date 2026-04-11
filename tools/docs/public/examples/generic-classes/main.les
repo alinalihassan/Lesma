@@ -1,34 +1,33 @@
 class Box<T> {
-    var val: T
-    func new(v: T) {
-        self.val = v
-    }
-    func getVal() -> T {
-        return self.val
+  var val: T
 
-    }
+  func new(v: T) {
+    self.val = v
+  }
+  func getVal() -> T {
+    return self.val
+  }
 }
 var intBox = Box(42)
 var floatBox = Box(3.14)
 
 if intBox.getVal() != 42 {
-    exit(1)
-
+  exit(1)
 }
 if floatBox.getVal() != 3.14 {
-    exit(1)
-
+  exit(1)
 }
 // Part 3: multiple type params on generic classes
 class Pair<T, U> {
-    var a: T
-    var b: U
-    func new(x: T, y: U) {
-        self.a = x
-        self.b = y
+  var a: T
+  var b: U
 
-    }
+  func new(x: T, y: U) {
+    self.a = x
+    self.b = y
+  }
 }
 var p = Pair(1, 3.14)
 if p.a != 1 or p.b != 3.14 {
-    exit(1)}
+  exit(1)
+}

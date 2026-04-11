@@ -1,10 +1,12 @@
 #pragma once
 
 #include <cstddef>
+#include <cstdint>
 #include <deque>
 #include <functional>
 #include <memory>
 #include <optional>
+#include <set>
 #include <stack>
 #include <string>
 #include <tuple>
@@ -12,6 +14,8 @@
 #include <unordered_set>
 #include <utility>
 #include <vector>
+
+#include <sysexits.h>
 
 namespace llvm {
 class DIBuilder;
@@ -36,11 +40,10 @@ class AllocaInst;
 #include <llvm/Support/SourceMgr.h>
 #include <llvm/Target/TargetMachine.h>
 
-#include <sysexits.h>
-
 #include "liblesma/AST/ASTVisitor.h"
 #include "liblesma/Backend/MangleUtils.h"
 #include "liblesma/Common/ExportDiscovery.h"
+#include "liblesma/Driver/AnalysisResult.h"
 #include "liblesma/Frontend/Parser.h"
 #include "liblesma/Symbol/SymbolTable.h"
 #include "liblesma/Symbol/Type.h"
@@ -55,6 +58,7 @@ namespace lesma {
 using MainFnTy = int();
 
 class Class;
+class Enum;
 class TraitDecl;
 class FuncDecl;
 class FuncCall;
@@ -62,9 +66,11 @@ class LambdaExpr;
 class VarDecl;
 class ForIn;
 class DotOp;
+class Timer;
 
 struct ImportedSpecializationState {
   std::unordered_map<std::string, const Class*> genericClasses;
+  std::unordered_map<std::string, const Enum*> genericEnums;
   std::unordered_map<std::string, lesma::Type*> specializedClassTypesByKey;
   std::unordered_map<lesma::Type*, std::unordered_map<std::string, lesma::Type*>>
       specializedClassTypeEnvs;
@@ -72,8 +78,18 @@ struct ImportedSpecializationState {
   std::unordered_map<lesma::Value*, std::unordered_map<std::string, lesma::Type*>>
       specializationEnvs;
   std::unordered_map<std::string, const Class*> codegenClassAstByDisplayName;
+  std::unordered_map<std::string, const Enum*> codegenEnumAstByDisplayName;
   std::unordered_map<std::string, std::vector<std::string>> traitRequirementMethodOrder;
   std::unordered_map<std::string, const TraitDecl*> traitDeclByName;
+};
+
+enum class SyntheticEnumMethodKind : std::uint8_t { CONSTRUCTOR };
+
+struct SyntheticEnumMethodBody {
+  lesma::Value* symbol = nullptr;
+  lesma::Type* enumType = nullptr;
+  unsigned variantIndex = 0U;
+  SyntheticEnumMethodKind kind = SyntheticEnumMethodKind::CONSTRUCTOR;
 };
 
 struct ArcTrackedSlot {
@@ -94,7 +110,7 @@ class Codegen final : public ASTVisitor {
   std::unique_ptr<Module> theModule;
   std::unique_ptr<IRBuilder<>> builder;
 
-  std::unique_ptr<LLJIT> theJit;
+  std::shared_ptr<LLLazyJIT> theJit;
   /// JIT: mangled per-import init symbols; run from \c prepareJit (shared across nested imports).
   std::shared_ptr<std::vector<std::string>> pendingJitModuleInits;
   /// JIT: mangled per-import fini symbols; called by the main module in reverse init order.
@@ -102,6 +118,7 @@ class Codegen final : public ASTVisitor {
   std::unique_ptr<llvm::TargetMachine> targetMachine;
   std::shared_ptr<Parser> parser;
   std::shared_ptr<SourceMgr> sourceManager;
+  Timer* performanceTimer = nullptr;
   // deque so push_back never invalidates Type* pointers stored in scope (from
   // typecheck). Declared before \c rootScope so symbols are destroyed before the
   // type cache.
@@ -125,6 +142,8 @@ class Codegen final : public ASTVisitor {
       importedScopes; // Shared so child (e.g. B) sees parent's (A) imports
                       // (e.g. math)
   std::shared_ptr<std::vector<ImportedSpecializationState>> importedSpecializationStates;
+  /** Keeps imported-module typecheck analyses alive while lowering imported ASTs. */
+  std::unordered_map<std::string, std::shared_ptr<ImportedModuleAnalysis>> importedModuleAnalyses;
   std::vector<std::unique_ptr<Codegen>> importedCodegens; // Keep imported module codegens alive so
                                                           // Class* in symbols stay valid
   /** Maps `import "m"` alias -> absolute path of `m` (for resolving exported globals). */
@@ -133,12 +152,14 @@ class Codegen final : public ASTVisitor {
   std::vector<std::tuple<lesma::Value*, const FuncDecl*, Value*>> prototypes;
   /** Class AST + constructor symbol for default `new` bodies (no FuncDecl). */
   std::vector<std::pair<lesma::Value*, const Class*>> syntheticConstructorBodies;
+  std::vector<SyntheticEnumMethodBody> syntheticEnumMethodBodies;
   std::unordered_map<std::string, const FuncDecl*> genericFunctions;
   std::unordered_map<std::string, const LambdaExpr*> genericLambdas;
   std::vector<std::pair<lesma::Value*, const LambdaExpr*>> lambdaPrototypes;
   llvm::StructType* funcValuePairLlvmType = nullptr;
   std::unordered_map<std::string, std::unordered_map<std::string, const FuncDecl*>> genericMethods;
   std::unordered_map<std::string, const Class*> genericClasses;
+  std::unordered_map<std::string, const Enum*> genericEnums;
   std::unordered_map<std::string, lesma::Type*> currentGenericTypes;
   /** Stack of call-site binding maps for `getOrCreateLlvmType` when `currentGenericTypes` is empty
    * (e.g. `Cell.of(7)` nested inside `main`). */
@@ -148,6 +169,9 @@ class Codegen final : public ASTVisitor {
   std::unordered_map<lesma::Type*, lesma::Value*> specializedClassSymbolsByType;
   std::unordered_map<lesma::Value*, std::unordered_map<std::string, lesma::Type*>>
       specializationEnvs;
+  /** While emitting a specialized generic function, maps template \c SymbolTable* from typecheck to
+   *  this emission's cloned tables (see \c defineFunction). */
+  std::unordered_map<lesma::SymbolTable*, lesma::SymbolTable*> codegenTemplateBodyScopeRemap;
   std::unordered_map<lesma::Type*, std::unordered_map<std::string, lesma::Type*>>
       specializedClassTypeEnvs;
   /** From typecheck: specialized class → template (for lowering `Base<T>` field/super types). */
@@ -161,13 +185,15 @@ class Codegen final : public ASTVisitor {
   std::unordered_map<std::string, llvm::Function*> anyTypeInfoRetainFns;
   std::unordered_map<std::string, llvm::Function*> anyTypeInfoReleaseFns;
   std::unordered_map<lesma::Type*, llvm::GlobalVariable*> classVtableGlobals;
-  std::unordered_map<lesma::Type*, llvm::Function*> arcDestroyFns;
-  std::unordered_map<lesma::Type*, llvm::Function*> arcPayloadDestroyFns;
-  std::unordered_map<lesma::Type*, llvm::Function*> arcStorageRetainFns;
-  std::unordered_map<lesma::Type*, llvm::Function*> arcStorageReleaseFns;
+  std::unordered_map<std::string, llvm::Function*> arcDestroyFns;
+  std::unordered_map<std::string, llvm::Function*> arcPayloadDestroyFns;
+  std::unordered_map<std::string, llvm::Function*> arcStorageRetainFns;
+  std::unordered_map<std::string, llvm::Function*> arcStorageReleaseFns;
   std::unordered_map<std::string, llvm::Function*> arcClosureDestroyFns;
   std::unordered_map<lesma::Type*, const Class*> codegenClassAstByType;
   std::unordered_map<std::string, const Class*> codegenClassAstByDisplayName;
+  std::unordered_map<lesma::Type*, const Enum*> codegenEnumAstByType;
+  std::unordered_map<std::string, const Enum*> codegenEnumAstByDisplayName;
   std::unordered_map<std::string, llvm::Function*> traitThunkCache;
   // deque so push_back never invalidates pointers to existing elements (used in
   // prototypes)
@@ -236,6 +262,7 @@ public:
   Codegen(std::shared_ptr<Parser> parser, std::shared_ptr<SourceMgr> srcMgr,
           const std::string& filename, std::vector<std::string> imports, bool jit, bool main,
           std::string alias = "", const std::shared_ptr<ThreadSafeContext>& = nullptr,
+          std::shared_ptr<LLLazyJIT> sharedJit = nullptr,
           std::shared_ptr<std::vector<std::string>> sharedModules = nullptr,
           std::shared_ptr<std::vector<std::unique_ptr<SymbolTable>>> sharedScopes = nullptr,
           std::shared_ptr<std::vector<ImportedSpecializationState>>
@@ -246,7 +273,10 @@ public:
               preSpecializedClassTypeEnvs = {},
           std::unordered_map<lesma::Type*, lesma::Type*> preSpecializedClassTemplateOf = {},
           std::unordered_map<std::string, lesma::Type*> preSpecializedClassTypesByKey = {},
-          bool emitDebug = false, bool emitArcDebug = false, bool emitArcTrace = false,
+          std::unordered_map<std::string, std::shared_ptr<ImportedModuleAnalysis>>
+              preImportedModuleAnalyses = {},
+          Timer* performanceTimer = nullptr, bool emitDebug = false, bool emitArcDebug = false,
+          bool emitArcTrace = false,
           llvm::OptimizationLevel optimizationLevelForDebugArg = llvm::OptimizationLevel::O3,
           std::shared_ptr<std::vector<std::string>> sharedPendingJitModuleInits = nullptr,
           std::shared_ptr<std::vector<std::string>> sharedPendingJitModuleFinis = nullptr);
@@ -274,7 +304,7 @@ public:
 protected:
   auto initializeTargetMachine() -> std::unique_ptr<llvm::TargetMachine>;
   auto initializeModule() -> std::unique_ptr<Module>;
-  auto initializeJit() -> std::unique_ptr<LLJIT>;
+  auto initializeJit() -> std::unique_ptr<LLLazyJIT>;
   auto initializeTopLevel() -> llvm::Function*;
 
   auto initializeDebugMetadata() -> void;
@@ -306,12 +336,22 @@ protected:
   /** Wrap \p val into \p unionTy at \p variantIndex using existing alloca \p destSlot (union
    * struct). */
   auto emitUnionWrapValueToSlot(llvm::SMRange span, lesma::Value* val, lesma::Type* unionTy,
-                                unsigned variantIndex, llvm::Value* destSlot)
+                                unsigned variantIndex, llvm::Value* destSlot,
+                                bool retainBorrowedPayload = true)
       -> std::unique_ptr<lesma::Value>;
   [[nodiscard]] auto unionVariantIndexOf(lesma::Type* unionTy, lesma::Type* memberTy) const
       -> std::optional<unsigned>;
   auto emitUnionPayloadLoadFromSlot(llvm::Value* unionAllocaPtr, lesma::Type* unionTy,
                                     lesma::Type* memberTy) -> llvm::Value*;
+  [[nodiscard]] auto getOrCreateEnumTagLlvmType(lesma::Type* enumTy) -> llvm::Type*;
+  [[nodiscard]] auto getEnumPayloadLlvmType(lesma::Type* enumTy) -> llvm::Type*;
+  [[nodiscard]] auto getEnumVariantAggregatePayloadType(lesma::Type* enumTy, unsigned variantIndex)
+      -> lesma::Type*;
+  auto emitEnumPayloadLoadFromSlot(llvm::Value* enumAllocaPtr, lesma::Type* enumTy,
+                                   unsigned variantIndex) -> llvm::Value*;
+  auto emitEnumConstructValue(llvm::SMRange span, lesma::Type* enumTy, unsigned variantIndex,
+                              const std::vector<lesma::Value*>& payloadValues)
+      -> std::unique_ptr<lesma::Value>;
   [[nodiscard]] auto getOptionalPayloadType(lesma::Type* type) const -> lesma::Type*;
   auto materializeNarrowedUnionValue(lesma::Value* value, lesma::Type* narrowedType,
                                      const std::string& tempName) -> std::unique_ptr<lesma::Value>;
@@ -337,7 +377,8 @@ protected:
       -> std::tuple<std::unique_ptr<SymbolTable>, std::vector<std::unique_ptr<lesma::Type>>,
                     std::unordered_map<lesma::Type*, std::unordered_map<std::string, lesma::Type*>>,
                     std::unordered_map<lesma::Type*, lesma::Type*>,
-                    std::unordered_map<std::string, lesma::Type*>>;
+                    std::unordered_map<std::string, lesma::Type*>,
+                    std::unordered_map<std::string, std::shared_ptr<ImportedModuleAnalysis>>>;
   [[nodiscard]] auto isImported(const std::vector<ImportedNameBinding>& importedNames,
                                 const std::string& importName) const -> bool;
   [[nodiscard]] auto getImportedLocalName(const std::vector<ImportedNameBinding>& importedNames,
@@ -355,6 +396,7 @@ protected:
   auto visit(const While* node) -> void override;
   auto visit(const ForIn* node) -> void override;
   auto visit(const Import* node) -> void override;
+  auto visit(const TypeAlias* node) -> void override;
   auto visit(const Enum* node) -> void override;
   auto visit(const Class* node) -> void override;
   auto visit(const TraitDecl* node) -> void override;
@@ -363,7 +405,6 @@ protected:
   auto visit(const Assignment* node) -> void override;
   auto visit(const Break* node) -> void override;
   auto visit(const Continue* node) -> void override;
-  auto visit(const Pass* node) -> void override;
   auto visit(const Return* node) -> void override;
   auto visit(const Defer* node) -> void override;
   /** Emit deferred statements in LIFO order (last \c defer registered runs first). */
@@ -386,6 +427,8 @@ protected:
   void lowerDotOpSuperMethodCall(const DotOp* node);
   auto visit(const CastOp* node) -> void override;
   auto visit(const IsOp* node) -> void override;
+  auto visit(const MatchExpr* node) -> void override;
+  auto visit(const BlockExpr* node) -> void override;
   auto visit(const UnaryOp* node) -> void override;
   auto visit(const Literal* node) -> void override;
   auto visit(const SuperExpr* node) -> void override;
@@ -498,6 +541,13 @@ protected:
                   const std::unordered_map<std::string, lesma::Type*>* prebuiltClassEnv = nullptr)
       -> lesma::Value*;
   auto emitClassMonomorph(lesma::Type* specialized, const Class* templateAst) -> lesma::Value*;
+  auto emitEnumMonomorph(lesma::Type* specialized, const Enum* templateAst) -> lesma::Value*;
+  auto declareOrDefineSyntheticEnumMethod(lesma::Type* enumType, const Enum* astNode,
+                                          EnumVariant* variant, unsigned variantIndex,
+                                          SyntheticEnumMethodKind kind) -> lesma::Value*;
+  auto defineSyntheticEnumMethod(const SyntheticEnumMethodBody& body) -> void;
+  [[nodiscard]] auto specializedNominalEnvFor(lesma::Type* nominalTy)
+      -> const std::unordered_map<std::string, lesma::Type*>*;
   [[nodiscard]] auto wrapNominalReturnAsPointer(Type* t) -> Type*;
   /** Match `super` callee receiver type (mirrors Typechecker::superMethodReceiverMatchesFormal). */
   [[nodiscard]] auto superMethodReceiverMatchesFormalCodegen(lesma::Type* formalReceiverClass,
@@ -677,7 +727,22 @@ protected:
   auto typeWithSingletonUnionsCollapsed(lesma::Type* t) -> lesma::Type*;
 
 private:
+  auto substituteTypeForSpecializationEnv(lesma::Type* t,
+                                          const std::unordered_map<std::string, lesma::Type*>& env,
+                                          std::set<lesma::Type const*>& active) -> lesma::Type*;
+  auto tryReuseActiveSpecializedNominalType(
+      lesma::Type* t, const std::unordered_map<std::string, lesma::Type*>& env,
+      std::set<lesma::Type const*>& active) -> lesma::Type*;
+  /** True when \p type can be passed to \c MangleUtils::getTypeMangledName for ARC storage helpers.
+   */
+  [[nodiscard]] static auto isLesmaTypeReadyForArcTypeMangling(lesma::Type* type) -> bool;
   [[nodiscard]] static auto isLesmaPtrToClass(lesma::Type* t) -> bool;
+  [[nodiscard]] auto genericMethodMapForSelf(
+      std::unordered_map<std::string, std::unordered_map<std::string, const FuncDecl*>>&
+          genericMethods,
+      lesma::Value* selfSymbol) -> std::unordered_map<std::string, const FuncDecl*>*;
+  /** Map a typecheck body-scope pointer to this specialized emission's clone when active. */
+  [[nodiscard]] auto remapCodegenTemplateBodyScope(lesma::SymbolTable* t) const -> lesma::SymbolTable*;
   /** Stack/global slot LLVM type for a local or exported variable (class-as-ptr ABI, func pair). */
   [[nodiscard]] auto llvmStorageTypeForVarSlot(lesma::Type* storedType, lesma::Value* existing)
       -> llvm::Type*;
@@ -692,6 +757,9 @@ private:
                                            lesma::Type* storedType, const std::string& dbgName,
                                            bool destStoresFuncValuePair = false)
       -> llvm::Instruction*;
+  auto emitForEachEnumVariantPayloadWithTagDispatch(
+      lesma::Type* enumTy, llvm::Value* enumSlot, llvm::Value* tagVal, std::string_view blockStem,
+      const std::function<void(lesma::Type*, llvm::Value*)>& callback) -> void;
   auto emitForEachUnionMemberWithTagDispatch(
       lesma::Type* unionTy, llvm::Value* unionSlot, llvm::Value* tagVal, std::string_view blockStem,
       const std::function<void(lesma::Type*, llvm::Value*)>& callback) -> void;
@@ -730,5 +798,11 @@ private:
       -> lesma::Value*;
   [[nodiscard]] auto cgUnionComplementMemberIndex(lesma::Type* unionTy, lesma::Type* excluded)
       -> std::optional<unsigned>;
+
+  /** Merge per-arm \c Value metadata into the PHI result of a \c match (ARC, function pair,
+   * closure).
+   */
+  static auto mergeMatchPhiArmMetadataIntoResult(std::vector<std::unique_ptr<lesma::Value>> sources,
+                                                 lesma::Value* out) -> void;
 };
 } // namespace lesma

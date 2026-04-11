@@ -1,0 +1,187 @@
+from json import Json, JsonErr, Serializable, JsonValue
+
+export class User impl Serializable<User> {
+  var name: str
+  var age: int
+
+  static func decode(value: JsonValue) -> Result<User, JsonErr> {
+    if value is not dict<str, JsonValue> {
+      return Err(JsonErr("User expects object"))
+    }
+
+    if value["name"] is not str or value["age"] is not int {
+      return Err(JsonErr("User missing required fields"))
+    }
+
+    return Ok(User(value["name"], value["age"]))
+  }
+
+  func encode() -> Result<JsonValue, JsonErr> {
+    return Ok({"name": self.name, "age": self.age})
+  }
+}
+
+func expectObject(
+  result: Result<dict<str, JsonValue> | list<JsonValue>, JsonErr>,
+  code: int,
+) -> dict<str, JsonValue> {
+  let parsedRoot = match result {
+    Result.Ok(value) => value
+    Result.Err(_) => {
+      exit(code)
+      var fallback: dict<str, JsonValue> = {}
+      fallback["_"] = null
+      return fallback
+    }
+  }
+  if parsedRoot is not dict<str, JsonValue> {
+    exit(code)
+    var fallback: dict<str, JsonValue> = {}
+    fallback["_"] = null
+    return fallback
+  }
+  return parsedRoot
+}
+
+func expectText(result: Result<str, JsonErr>, code: int) -> str {
+  let resolved = match result {
+    Result.Ok(value) => value
+    Result.Err(_) => {
+      exit(code)
+      return ""
+    }
+  }
+  return resolved
+}
+
+func expectUser(result: Result<User, JsonErr>, code: int) -> User {
+  let resolved = match result {
+    Result.Ok(value) => value
+    Result.Err(_) => {
+      exit(code)
+      return User("", 0)
+    }
+  }
+  return resolved
+}
+
+let root = expectObject(
+  Json
+    .parse(
+      "{\"name\":\"Lesma\",\"active\":true,\"count\":3,\"ratio\":2.5,\"note\":null,\"items\":[1,false,null,\"line\\nnext\"],\"nested\":{\"ok\":true}}",
+    ),
+  1,
+)
+
+if root["name"] is not str or root["name"] != "Lesma" {
+  exit(2)
+}
+if root["active"] is not bool or root["active"] != true {
+  exit(3)
+}
+if root["count"] is not int or root["count"] != 3 {
+  exit(4)
+}
+if root["ratio"] is not float {
+  exit(5)
+}
+
+if root["ratio"] < 2.49 or root["ratio"] > 2.51 {
+  exit(6)
+}
+
+if root["note"] is not null {
+  exit(7)
+}
+
+if root["items"] is not list<JsonValue> {
+  exit(8)
+}
+let items = root["items"]
+if items[0] is not int or items[0] != 1 {
+  exit(9)
+}
+if items[1] is not bool or items[1] != false {
+  exit(10)
+}
+if items[2] is not null {
+  exit(11)
+}
+if items[3] is not str or items[3] != "line\nnext" {
+  exit(12)
+}
+
+var built: dict<str, JsonValue> = {}
+built["quote"] = "\""
+built["slash"] = "\\"
+built["newline"] = "a\nb"
+built["cr"] = "\r"
+built["tab"] = "\t"
+built["null"] = null
+var array: list<JsonValue> = []
+array.push(7)
+array.push(true)
+array.push(null)
+built["array"] = array
+
+let encoded = expectText(Json.stringify(built), 15)
+
+if encoded.contains("\\\"") == false {
+  exit(16)
+}
+if encoded.contains("\\\\") == false {
+  exit(17)
+}
+if encoded.contains("\\n") == false {
+  exit(18)
+}
+if encoded.contains("\\r") == false {
+  exit(30)
+}
+if encoded.contains("\\t") == false {
+  exit(31)
+}
+
+let roundTrip = expectObject(Json.parse(encoded), 20)
+
+if roundTrip["quote"] is not str or roundTrip["quote"] != "\"" {
+  exit(21)
+}
+if roundTrip["newline"] is not str or roundTrip["newline"] != "a\nb" {
+  exit(22)
+}
+if roundTrip["cr"] is not str or roundTrip["cr"] != "\r" {
+  exit(32)
+}
+if roundTrip["tab"] is not str or roundTrip["tab"] != "\t" {
+  exit(33)
+}
+if roundTrip["null"] is not null {
+  exit(23)
+}
+
+// Brace ambiguity: after `=>`, `{` must parse as a dict literal when it looks like `{ "k": … }`, not a block.
+let braceArmDict = match Json.parseObject("{}") {
+  Result.Ok(v) => {"k": 1}
+  Result.Err(_) => {
+    exit(28)
+    var empty: dict<str, JsonValue> = {}
+    empty
+  }
+}
+if braceArmDict["k"] is not int or braceArmDict["k"] != 1 {
+  exit(29)
+}
+
+let user = expectUser(Json.parse<User>("{\"name\":\"Ada\",\"age\":37}"), 24)
+
+if user.name != "Ada" or user.age != 37 {
+  exit(25)
+}
+
+let encodedUserTextResult: Result<str, JsonErr> = Json.stringify<User>(user)
+let encodedUserText = expectText(encodedUserTextResult, 26)
+
+if encodedUserText.contains("\"Ada\"") == false {
+  exit(27)
+}

@@ -16,7 +16,7 @@ class Box {
 }
 
 var textTotal = 0
-var texts: list<str> = [str("a"), str("bb"), str("ccc")]
+var texts: list<str> = ["a", "bb", "ccc"]
 for text in texts {
   textTotal = textTotal + text.len()
 }
@@ -34,7 +34,7 @@ if boxTotal != 15 {
 }
 
 var mixedTotal = 0
-var mixed: list<str | Box | Kind> = [str("xy"), Box(7), Kind.START, str("z")]
+var mixed: list<str | Box | Kind> = ["xy", Box(7), Kind.START, "z"]
 for item in mixed {
   if item is str {
     mixedTotal = mixedTotal + item.len()

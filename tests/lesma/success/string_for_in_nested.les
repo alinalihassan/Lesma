@@ -10,7 +10,7 @@ func nestedSameString(s: str) -> (int, int) {
   }
   return (count, sum)
 }
-let pair = nestedSameString(str("ab"))
+let pair = nestedSameString("ab")
 if pair[0] != 4 {
   exit(1)
 }

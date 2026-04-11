@@ -49,6 +49,9 @@ auto Codegen::isTypeFullyConcrete(Type* t) const -> bool {
 
     bool isConcrete = true;
     switch (cur->getBaseType()) {
+    case BaseType::TY_INVALID:
+      isConcrete = true;
+      break;
     case BaseType::TY_PTR:
     case BaseType::TY_ARRAY:
       isConcrete = self(self, cur->getElementType());
@@ -65,11 +68,40 @@ auto Codegen::isTypeFullyConcrete(Type* t) const -> bool {
       }
       break;
     case BaseType::TY_TUPLE:
-    case BaseType::TY_ENUM:
       for (Field* field : cur->getFields()) {
         if (!self(self, field->type)) {
           isConcrete = false;
           break;
+        }
+      }
+      break;
+    case BaseType::TY_ENUM:
+      if (auto envIt = specializedClassTypeEnvs.find(cur);
+          envIt != specializedClassTypeEnvs.end()) {
+        for (const auto& [name, boundType] : envIt->second) {
+          (void) name;
+          if (!self(self, boundType)) {
+            isConcrete = false;
+            break;
+          }
+        }
+      } else if (!cur->getGenericParams().empty()) {
+        isConcrete = false;
+      }
+      if (isConcrete) {
+        for (EnumVariant* variant : cur->getEnumVariants()) {
+          if (variant == nullptr) {
+            continue;
+          }
+          for (Type* payload : variant->payloadTypes) {
+            if (!self(self, payload)) {
+              isConcrete = false;
+              break;
+            }
+          }
+          if (!isConcrete) {
+            break;
+          }
         }
       }
       break;
@@ -276,8 +308,75 @@ auto Codegen::emitClassMonomorph(Type* specialized, const Class* templateAst) ->
 auto Codegen::substituteTypeForSpecializationEnv(Type* t,
                                                  const std::unordered_map<std::string, Type*>& env)
     -> Type* {
+  std::set<Type const*> active;
+  return substituteTypeForSpecializationEnv(t, env, active);
+}
+
+auto Codegen::tryReuseActiveSpecializedNominalType(
+    Type* t, const std::unordered_map<std::string, Type*>& env, std::set<Type const*>& active)
+    -> Type* {
+  if (t == nullptr || !active.contains(t) || !t->isOneOf({BaseType::TY_CLASS, BaseType::TY_ENUM})) {
+    return nullptr;
+  }
+  Type* nominalTemplate = t;
+  if (auto tmplIt = specializedClassTemplateOf.find(t); tmplIt != specializedClassTemplateOf.end()) {
+    nominalTemplate = tmplIt->second;
+  }
+  const auto& genericParamNames = nominalTemplate->getGenericParams();
+  if (genericParamNames.empty()) {
+    return nullptr;
+  }
+  std::unordered_map<std::string, Type*> nominalEnv;
+  if (auto specTmpl = specializedClassTemplateOf.find(t);
+      specTmpl != specializedClassTemplateOf.end()) {
+    if (auto envIt = specializedClassTypeEnvs.find(t); envIt != specializedClassTypeEnvs.end()) {
+      for (const auto& name : genericParamNames) {
+        auto boundIt = envIt->second.find(name);
+        if (boundIt != envIt->second.end()) {
+          nominalEnv[name] = substituteTypeForSpecializationEnv(boundIt->second, env, active);
+        }
+      }
+    }
+  }
+  for (const auto& name : genericParamNames) {
+    if (auto it = env.find(name); it != env.end()) {
+      nominalEnv[name] = it->second;
+    }
+  }
+  for (const auto& name : genericParamNames) {
+    if (!nominalEnv.contains(name)) {
+      return nullptr;
+    }
+  }
+  auto registryKey = TypeUtils::makeSpecializedClassKey(nominalTemplate, genericParamNames, nominalEnv);
+  if (auto it = specializedClassTypesByKey.find(registryKey); it != specializedClassTypesByKey.end()) {
+    return it->second;
+  }
+  return nullptr;
+}
+
+auto Codegen::substituteTypeForSpecializationEnv(Type* t,
+                                                 const std::unordered_map<std::string, Type*>& env,
+                                                 std::set<Type const*>& active) -> Type* {
   if (t == nullptr) {
     return nullptr;
+  }
+  if (isTypeFullyConcrete(t)) {
+    return t;
+  }
+  if (Type* reused = tryReuseActiveSpecializedNominalType(t, env, active); reused != nullptr) {
+    return reused;
+  }
+  if (!active.insert(t).second) {
+    return t;
+  }
+  struct ActiveGuard {
+    std::set<Type const*>* setPtr;
+    Type const* key;
+    ~ActiveGuard() { setPtr->erase(key); }
+  } guard{.setPtr = &active, .key = t};
+  if (t->is(BaseType::TY_INVALID)) {
+    return t;
   }
   if (t->is(BaseType::TY_GENERIC)) {
     auto it = env.find(t->getGenericName());
@@ -287,11 +386,11 @@ auto Codegen::substituteTypeForSpecializationEnv(Type* t,
     return t;
   }
   if (t->is(BaseType::TY_PTR) && t->getElementType() != nullptr) {
-    Type* elem = substituteTypeForSpecializationEnv(t->getElementType(), env);
+    Type* elem = substituteTypeForSpecializationEnv(t->getElementType(), env, active);
     return cacheType(std::make_unique<Type>(BaseType::TY_PTR, nullptr, elem));
   }
   if (t->is(BaseType::TY_ARRAY) && t->getElementType() != nullptr) {
-    Type* elem = substituteTypeForSpecializationEnv(t->getElementType(), env);
+    Type* elem = substituteTypeForSpecializationEnv(t->getElementType(), env, active);
     auto* arr = cacheType(std::make_unique<Type>(BaseType::TY_ARRAY, nullptr, elem));
     arr->setDisplayName(t->getDisplayName());
     return arr;
@@ -300,10 +399,10 @@ auto Codegen::substituteTypeForSpecializationEnv(Type* t,
     std::vector<std::unique_ptr<Field>> fields;
     for (Field* field : t->getFields()) {
       fields.push_back(std::make_unique<Field>(
-          field->name, substituteTypeForSpecializationEnv(field->type, env)));
+          field->name, substituteTypeForSpecializationEnv(field->type, env, active)));
     }
     auto funcType = std::make_unique<Type>(BaseType::TY_FUNCTION, nullptr, std::move(fields));
-    funcType->setReturnType(substituteTypeForSpecializationEnv(t->getReturnType(), env));
+    funcType->setReturnType(substituteTypeForSpecializationEnv(t->getReturnType(), env, active));
     funcType->setGenericParams(t->getGenericParams());
     funcType->setGenericParamTraitBounds(
         std::vector<std::vector<std::string>>(t->getGenericParamTraitBounds()));
@@ -314,7 +413,7 @@ auto Codegen::substituteTypeForSpecializationEnv(Type* t,
     std::vector<std::unique_ptr<Field>> fields;
     for (Field* field : t->getFields()) {
       fields.push_back(std::make_unique<Field>(
-          field->name, substituteTypeForSpecializationEnv(field->type, env)));
+          field->name, substituteTypeForSpecializationEnv(field->type, env, active)));
     }
     auto tupleType = std::make_unique<Type>(BaseType::TY_TUPLE, nullptr, std::move(fields));
     tupleType->setDisplayName(t->getDisplayName());
@@ -324,7 +423,7 @@ auto Codegen::substituteTypeForSpecializationEnv(Type* t,
     std::vector<Type*> arms;
     arms.reserve(t->getUnionMembers().size());
     for (Type* m : t->getUnionMembers()) {
-      arms.push_back(substituteTypeForSpecializationEnv(m, env));
+      arms.push_back(substituteTypeForSpecializationEnv(m, env, active));
     }
     auto [members, dn] = TypeUtils::canonicalizeUnionMembers(std::move(arms));
     if (members.size() == 1U) {
@@ -332,50 +431,113 @@ auto Codegen::substituteTypeForSpecializationEnv(Type* t,
     }
     auto u = std::make_unique<Type>(BaseType::TY_UNION);
     u->setUnionMembers(std::move(members));
-    u->setDisplayName(dn);
+    u->setDisplayName(t->getDisplayName().empty() ? dn : t->getDisplayName());
     u->setDeclarationSpan(t->getDeclarationSpan());
+    u->setDeclarationFilePath(t->getDeclarationFilePath());
     return cacheType(std::move(u));
   }
-  if (t->is(BaseType::TY_CLASS)) {
-    Type* classTemplate = t;
+  if (t->isOneOf({BaseType::TY_CLASS, BaseType::TY_ENUM})) {
+    Type* nominalTemplate = t;
     if (auto tmplIt = specializedClassTemplateOf.find(t);
         tmplIt != specializedClassTemplateOf.end()) {
-      classTemplate = tmplIt->second;
+      nominalTemplate = tmplIt->second;
     }
-    const auto& genericParamNames = classTemplate->getGenericParams();
+    const auto& genericParamNames = nominalTemplate->getGenericParams();
     if (genericParamNames.empty()) {
       return t;
     }
-    std::unordered_map<std::string, Type*> classEnv;
+    std::unordered_map<std::string, Type*> nominalEnv;
     if (auto specTmpl = specializedClassTemplateOf.find(t);
         specTmpl != specializedClassTemplateOf.end()) {
       if (auto envIt = specializedClassTypeEnvs.find(t); envIt != specializedClassTypeEnvs.end()) {
         for (const auto& name : genericParamNames) {
           auto b = envIt->second.find(name);
           if (b != envIt->second.end()) {
-            classEnv[name] = substituteTypeForSpecializationEnv(b->second, env);
+            nominalEnv[name] = substituteTypeForSpecializationEnv(b->second, env, active);
           }
         }
       }
     }
     for (const auto& name : genericParamNames) {
       if (auto it = env.find(name); it != env.end()) {
-        classEnv[name] = it->second;
+        nominalEnv[name] = it->second;
       }
     }
     bool allBound = true;
     for (const auto& name : genericParamNames) {
-      if (!classEnv.contains(name)) {
+      if (!nominalEnv.contains(name)) {
         allBound = false;
         break;
       }
     }
     if (allBound) {
       const std::string registryKey =
-          TypeUtils::makeSpecializedClassKey(classTemplate, genericParamNames, classEnv);
+          TypeUtils::makeSpecializedClassKey(nominalTemplate, genericParamNames, nominalEnv);
       if (auto it = specializedClassTypesByKey.find(registryKey);
           it != specializedClassTypesByKey.end()) {
         return it->second;
+      }
+      if (nominalTemplate->is(BaseType::TY_ENUM)) {
+        auto specialized = std::make_unique<Type>(BaseType::TY_ENUM, nullptr,
+                                                  std::vector<std::unique_ptr<Field>>{});
+        std::string displayName = nominalTemplate->getDisplayName();
+        if (displayName.empty()) {
+          displayName = "enum";
+        } else {
+          const auto angle = displayName.find('<');
+          if (angle != std::string::npos) {
+            displayName = displayName.substr(0, angle);
+          }
+        }
+        displayName += "<";
+        for (size_t i = 0; i < genericParamNames.size(); ++i) {
+          if (i > 0U) {
+            displayName += ", ";
+          }
+          displayName += nominalEnv[genericParamNames[i]]->toString();
+        }
+        displayName += ">";
+        specialized->setDisplayName(displayName);
+        specialized->setGenericParams(genericParamNames);
+        specialized->setDeclarationSpan(nominalTemplate->getDeclarationSpan());
+        specialized->setDeclarationFilePath(nominalTemplate->getDeclarationFilePath());
+        Type* specializedPtr = cacheType(std::move(specialized));
+        specializedClassTypeEnvs[specializedPtr] = nominalEnv;
+        specializedClassTemplateOf[specializedPtr] = nominalTemplate;
+        specializedClassTypesByKey[registryKey] = specializedPtr;
+
+        std::vector<std::unique_ptr<Field>> newFields;
+        for (Field* field : nominalTemplate->getFields()) {
+          Type* subst = substituteTypeForSpecializationEnv(field->type, nominalEnv, active);
+          auto newField = std::make_unique<Field>(field->name, subst);
+          newField->setDeclarationSpan(field->getDeclarationSpan());
+          newField->setDeclarationFilePath(field->getDeclarationFilePath());
+          if (Value* ds = field->getDeclarationSymbol()) {
+            auto symCopy = std::make_unique<Value>(*ds);
+            symCopy->setType(subst);
+            newField->setDeclarationSymbol(std::move(symCopy));
+          }
+          newFields.push_back(std::move(newField));
+        }
+        specializedPtr->replaceFields(std::move(newFields));
+
+        std::vector<std::unique_ptr<EnumVariant>> newVariants;
+        for (EnumVariant* variant : nominalTemplate->getEnumVariants()) {
+          if (variant == nullptr) {
+            continue;
+          }
+          std::vector<Type*> payloadTypes;
+          payloadTypes.reserve(variant->payloadTypes.size());
+          for (Type* payload : variant->payloadTypes) {
+            payloadTypes.push_back(substituteTypeForSpecializationEnv(payload, nominalEnv, active));
+          }
+          auto newVariant = std::make_unique<EnumVariant>(variant->name, std::move(payloadTypes));
+          newVariant->setDeclarationSpan(variant->getDeclarationSpan());
+          newVariant->setDeclarationFilePath(variant->getDeclarationFilePath());
+          newVariants.push_back(std::move(newVariant));
+        }
+        specializedPtr->replaceEnumVariants(std::move(newVariants));
+        return specializedPtr;
       }
     }
   }
@@ -515,7 +677,7 @@ auto Codegen::bindGenericsFromTypePair(const TypeExpr* declared, lesma::Type* ac
           merged[kv.first] = kv.second;
         }
         for (const auto& name : genericNameSet) {
-          if (merged.find(name) == merged.end()) {
+          if (!merged.contains(name)) {
             merged[name] = genericPlaceholders.at(name);
           }
         }
@@ -532,10 +694,11 @@ auto Codegen::bindGenericsFromTypePair(const TypeExpr* declared, lesma::Type* ac
         if (declArmTy == nullptr) {
           continue;
         }
-        // Typechecker::inferGenericBindings tests pmem[fi]->isEqual(amem[aj]) before recursing; that
-        // is false for TY_GENERIC vs concrete, so viable pairings are discovered via infer, not
-        // structural equality on the open arm. Require isEqual only when the declared arm is already
-        // concrete so we do not pair e.g. `int` with `str` before bindGenericsFromTypePair runs.
+        // Typechecker::inferGenericBindings tests pmem[fi]->isEqual(amem[aj]) before recursing;
+        // that is false for TY_GENERIC vs concrete, so viable pairings are discovered via infer,
+        // not structural equality on the open arm. Require isEqual only when the declared arm is
+        // already concrete so we do not pair e.g. `int` with `str` before bindGenericsFromTypePair
+        // runs.
         if (!declArmTy->is(BaseType::TY_GENERIC) && !declArmTy->isEqual(actualMem[aj])) {
           continue;
         }
@@ -941,9 +1104,10 @@ auto Codegen::specializeClass(const Class* node,
     for (const auto& gn : genericNames) {
       auto it = env.find(gn);
       if (it == env.end() || it->second == nullptr) {
-        throw CodegenError(node->getSpan(),
-                           "Internal error: incomplete specialization env for class {} parameter {}",
-                           node->getIdentifier(), gn);
+        throw CodegenError(
+            node->getSpan(),
+            "Internal error: incomplete specialization env for class {} parameter {}",
+            node->getIdentifier(), gn);
       }
     }
   } else if (!explicitTypeArgs.empty()) {
@@ -965,93 +1129,93 @@ auto Codegen::specializeClass(const Class* node,
       }
     }
   } else {
-  const bool needsConstructorInference = explicitTypeArgs.empty();
-  bool constructorEnvResolved = false;
-  if (needsConstructorInference && constructorDecl != nullptr) {
-    for (auto* method : node->getMethods()) {
-      if (method->getName() != "new") {
-        continue;
-      }
-      const auto& params = method->getParameters();
-      if (params.size() != constructorArgTypes.size()) {
-        continue;
-      }
-      std::unordered_map<std::string, lesma::Type*> trialEnv = env;
-      bool bindingConflict = false;
-      for (size_t i = 0; i < params.size(); ++i) {
-        TypeExpr* declType = params[i]->type.get();
-        if (declType != nullptr) {
-          bindGenericsFromTypePair(declType, constructorArgTypes[i], genericNameSet, trialEnv,
-                                   &bindingConflict);
+    const bool needsConstructorInference = explicitTypeArgs.empty();
+    bool constructorEnvResolved = false;
+    if (needsConstructorInference && constructorDecl != nullptr) {
+      for (auto* method : node->getMethods()) {
+        if (method->getName() != "new") {
+          continue;
         }
-      }
-      if (bindingConflict) {
-        continue;
-      }
-      bool allGenericsBound = true;
-      for (const auto& gn : genericNames) {
-        if (!trialEnv.contains(gn)) {
-          allGenericsBound = false;
+        const auto& params = method->getParameters();
+        if (params.size() != constructorArgTypes.size()) {
+          continue;
+        }
+        std::unordered_map<std::string, lesma::Type*> trialEnv = env;
+        bool bindingConflict = false;
+        for (size_t i = 0; i < params.size(); ++i) {
+          TypeExpr* declType = params[i]->type.get();
+          if (declType != nullptr) {
+            bindGenericsFromTypePair(declType, constructorArgTypes[i], genericNameSet, trialEnv,
+                                     &bindingConflict);
+          }
+        }
+        if (bindingConflict) {
+          continue;
+        }
+        bool allGenericsBound = true;
+        for (const auto& gn : genericNames) {
+          if (!trialEnv.contains(gn)) {
+            allGenericsBound = false;
+            break;
+          }
+        }
+        if (allGenericsBound) {
+          env = std::move(trialEnv);
+          constructorDecl = method;
+          constructorEnvResolved = true;
           break;
         }
       }
-      if (allGenericsBound) {
-        env = std::move(trialEnv);
-        constructorDecl = method;
-        constructorEnvResolved = true;
-        break;
+    }
+    if (!constructorEnvResolved && needsConstructorInference && constructorDecl != nullptr) {
+      auto params = constructorDecl->getParameters();
+      for (size_t i = 0; i < params.size() && i < constructorArgTypes.size(); ++i) {
+        TypeExpr* declType = params[i]->type.get();
+        if (declType != nullptr) {
+          bindGenericsFromTypePair(declType, constructorArgTypes[i], genericNameSet, env);
+        }
       }
     }
-  }
-  if (!constructorEnvResolved && needsConstructorInference && constructorDecl != nullptr) {
-    auto params = constructorDecl->getParameters();
-    for (size_t i = 0; i < params.size() && i < constructorArgTypes.size(); ++i) {
-      TypeExpr* declType = params[i]->type.get();
-      if (declType != nullptr) {
-        bindGenericsFromTypePair(declType, constructorArgTypes[i], genericNameSet, env);
+    if (!constructorEnvResolved && needsConstructorInference && constructorDecl == nullptr) {
+      std::vector<VarDecl*> requiredFields;
+      for (VarDecl* fd : node->getFields()) {
+        if (fd->getIsStatic()) {
+          continue;
+        }
+        if (fd->getValue() == nullptr) {
+          requiredFields.push_back(fd);
+        }
       }
-    }
-  }
-  if (!constructorEnvResolved && needsConstructorInference && constructorDecl == nullptr) {
-    std::vector<VarDecl*> requiredFields;
-    for (VarDecl* fd : node->getFields()) {
-      if (fd->getIsStatic()) {
-        continue;
+      if (constructorArgTypes.size() != requiredFields.size()) {
+        throw CodegenError(node->getSpan(),
+                           "Generic class {}: expected {} constructor argument(s) for synthesized "
+                           "constructor, got {}",
+                           node->getIdentifier(), requiredFields.size(),
+                           constructorArgTypes.size());
       }
-      if (fd->getValue() == nullptr) {
-        requiredFields.push_back(fd);
+      for (size_t i = 0; i < requiredFields.size(); ++i) {
+        TypeExpr* declType = requiredFields[i]->getType();
+        if (declType != nullptr) {
+          bindGenericsFromTypePair(declType, constructorArgTypes[i], genericNameSet, env);
+        }
       }
+      constructorEnvResolved = true;
     }
-    if (constructorArgTypes.size() != requiredFields.size()) {
-      throw CodegenError(node->getSpan(),
-                         "Generic class {}: expected {} constructor argument(s) for synthesized "
-                         "constructor, got {}",
-                         node->getIdentifier(), requiredFields.size(), constructorArgTypes.size());
-    }
-    for (size_t i = 0; i < requiredFields.size(); ++i) {
-      TypeExpr* declType = requiredFields[i]->getType();
-      if (declType != nullptr) {
-        bindGenericsFromTypePair(declType, constructorArgTypes[i], genericNameSet, env);
-      }
-    }
-    constructorEnvResolved = true;
-  }
 
-  for (const auto& gn : genericNames) {
-    if (!env.contains(gn)) {
-      throw CodegenError(node->getSpan(),
-                         "Generic class {} requires type arguments for all parameters; "
-                         "could not infer {} from constructor",
-                         node->getIdentifier(), gn);
+    for (const auto& gn : genericNames) {
+      if (!env.contains(gn)) {
+        throw CodegenError(node->getSpan(),
+                           "Generic class {} requires type arguments for all parameters; "
+                           "could not infer {} from constructor",
+                           node->getIdentifier(), gn);
+      }
     }
-  }
   }
 
   auto envIsFullyConcrete =
       [this](const std::unordered_map<std::string, lesma::Type*>& bindings) -> bool {
-    return std::ranges::all_of(bindings, [this](const auto& nameAndTy) {
-      return isTypeFullyConcrete(nameAndTy.second);
-    });
+    return std::ranges::all_of(
+        bindings, [this](const auto& nameAndTy) { return isTypeFullyConcrete(nameAndTy.second); });
   };
 
   Value* templateSymbol = scope->lookupStruct(node->getIdentifier());

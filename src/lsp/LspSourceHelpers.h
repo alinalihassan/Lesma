@@ -2,6 +2,7 @@
 
 #include <cstddef>
 #include <string>
+#include <type_traits>
 
 #include <llvm/ADT/StringRef.h>
 #include <llvm/Support/SMLoc.h>
@@ -45,12 +46,16 @@ template <typename FuncDeclT, typename ClassT>
 struct InnermostFuncAtOffset {
   FuncDeclT* func = nullptr;
   ClassT* enclosingClass = nullptr;
+  std::conditional_t<std::is_const_v<ClassT>, const lesma::Enum, lesma::Enum>* enclosingEnum =
+      nullptr;
 };
 
 template <typename FuncDeclT, typename ClassT>
-void considerFuncForInnermost(FuncDeclT* func, ClassT* cls, unsigned targetOffset,
-                              llvm::SourceMgr* srcMgr, unsigned bufferId,
-                              InnermostFuncAtOffset<FuncDeclT, ClassT>& best, unsigned& bestLen) {
+void considerFuncForInnermost(
+    FuncDeclT* func, ClassT* cls,
+    std::conditional_t<std::is_const_v<ClassT>, const lesma::Enum, lesma::Enum>* enumNode,
+    unsigned targetOffset, llvm::SourceMgr* srcMgr, unsigned bufferId,
+    InnermostFuncAtOffset<FuncDeclT, ClassT>& best, unsigned& bestLen) {
   if (func == nullptr || func->getBody() == nullptr) {
     return;
   }
@@ -67,23 +72,26 @@ void considerFuncForInnermost(FuncDeclT* func, ClassT* cls, unsigned targetOffse
   if (best.func == nullptr || len < bestLen) {
     best.func = func;
     best.enclosingClass = cls;
+    best.enclosingEnum = enumNode;
     bestLen = len;
   }
 }
 
 template <typename FuncDeclT, typename ClassT>
-void scanCompoundForFuncsForInnermost(lesma::Compound* compound, ClassT* cls, unsigned targetOffset,
-                                      llvm::SourceMgr* srcMgr, unsigned bufferId,
-                                      InnermostFuncAtOffset<FuncDeclT, ClassT>& best,
-                                      unsigned& bestLen) {
+void scanCompoundForFuncsForInnermost(
+    lesma::Compound* compound, ClassT* cls,
+    std::conditional_t<std::is_const_v<ClassT>, const lesma::Enum, lesma::Enum>* enumNode,
+    unsigned targetOffset, llvm::SourceMgr* srcMgr, unsigned bufferId,
+    InnermostFuncAtOffset<FuncDeclT, ClassT>& best, unsigned& bestLen) {
+  using EnumT = std::conditional_t<std::is_const_v<ClassT>, const lesma::Enum, lesma::Enum>;
   if (compound == nullptr) {
     return;
   }
   for (lesma::Statement* stmt : compound->getChildren()) {
     if (auto* f = dynamic_cast<FuncDeclT*>(stmt)) {
-      considerFuncForInnermost(f, cls, targetOffset, srcMgr, bufferId, best, bestLen);
-      scanCompoundForFuncsForInnermost(f->getBody(), cls, targetOffset, srcMgr, bufferId, best,
-                                       bestLen);
+      considerFuncForInnermost(f, cls, enumNode, targetOffset, srcMgr, bufferId, best, bestLen);
+      scanCompoundForFuncsForInnermost(f->getBody(), cls, enumNode, targetOffset, srcMgr, bufferId,
+                                       best, bestLen);
     } else if (auto* klass = dynamic_cast<lesma::Class*>(stmt)) {
       auto* clsPtr = static_cast<ClassT*>(klass);
       for (lesma::FuncDecl* method : klass->getMethods()) {
@@ -91,10 +99,22 @@ void scanCompoundForFuncsForInnermost(lesma::Compound* compound, ClassT* cls, un
         if (methodAsFuncT == nullptr) {
           continue;
         }
-        considerFuncForInnermost(methodAsFuncT, clsPtr, targetOffset, srcMgr, bufferId, best,
-                                 bestLen);
-        scanCompoundForFuncsForInnermost(method->getBody(), clsPtr, targetOffset, srcMgr, bufferId,
-                                         best, bestLen);
+        considerFuncForInnermost(methodAsFuncT, clsPtr, static_cast<EnumT*>(nullptr), targetOffset,
+                                 srcMgr, bufferId, best, bestLen);
+        scanCompoundForFuncsForInnermost(method->getBody(), clsPtr, static_cast<EnumT*>(nullptr),
+                                         targetOffset, srcMgr, bufferId, best, bestLen);
+      }
+    } else if (auto* enumDecl = dynamic_cast<lesma::Enum*>(stmt)) {
+      auto* enumPtr = static_cast<EnumT*>(enumDecl);
+      for (lesma::FuncDecl* method : enumDecl->getMethods()) {
+        auto* methodAsFuncT = dynamic_cast<FuncDeclT*>(method);
+        if (methodAsFuncT == nullptr) {
+          continue;
+        }
+        considerFuncForInnermost(methodAsFuncT, static_cast<ClassT*>(nullptr), enumPtr,
+                                 targetOffset, srcMgr, bufferId, best, bestLen);
+        scanCompoundForFuncsForInnermost(method->getBody(), static_cast<ClassT*>(nullptr), enumPtr,
+                                         targetOffset, srcMgr, bufferId, best, bestLen);
       }
     }
   }
@@ -106,8 +126,11 @@ template <typename FuncDeclT, typename ClassT>
     -> InnermostFuncAtOffset<FuncDeclT, ClassT> {
   InnermostFuncAtOffset<FuncDeclT, ClassT> best;
   unsigned bestLen = 0U;
-  scanCompoundForFuncsForInnermost(ast, static_cast<ClassT*>(nullptr), targetOffset, srcMgr,
-                                   bufferId, best, bestLen);
+  scanCompoundForFuncsForInnermost(
+      ast, static_cast<ClassT*>(nullptr),
+      static_cast<std::conditional_t<std::is_const_v<ClassT>, const lesma::Enum, lesma::Enum>*>(
+          nullptr),
+      targetOffset, srcMgr, bufferId, best, bestLen);
   return best;
 }
 

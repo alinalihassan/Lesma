@@ -1,8 +1,9 @@
 {
   "pages": [
     "working-with-files",
+    "json",
     "console-io",
     "random-time-and-sleep",
-    "using-math"
+    "math"
   ]
 }

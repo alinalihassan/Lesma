@@ -2,7 +2,6 @@
 
 #include <algorithm>
 #include <cassert>
-#include <iterator>
 #include <memory>
 #include <optional>
 #include <sstream>
@@ -330,36 +329,57 @@ struct GenericParamDecl {
   std::vector<llvm::SMRange> traitBoundSpans;
 };
 
+class FuncDecl;
+
 struct EnumValueDecl {
   std::string name;
   llvm::SMRange span;
+  std::vector<std::unique_ptr<TypeExpr>> payloadTypes;
   std::vector<CommentTrivia> leadingComments;
   std::optional<CommentTrivia> trailingComment;
   unsigned extraBlankLinesBefore = 0;
+
+  [[nodiscard]] auto getPayloadTypes() const -> std::vector<TypeExpr*> {
+    std::vector<TypeExpr*> out;
+    out.reserve(payloadTypes.size());
+    for (const auto& payloadType : payloadTypes) {
+      out.push_back(payloadType.get());
+    }
+    return out;
+  }
 };
 
 class Enum : public Statement {
   std::string identifier;
   llvm::SMRange nameSpan;
+  std::vector<GenericParamDecl> genericParams;
   std::vector<EnumValueDecl> values;
   std::vector<llvm::SMRange> valueSpans;
+  std::vector<std::unique_ptr<FuncDecl>> methods;
   bool exported;
   mutable Value* resolvedSymbol = nullptr;
+  mutable SymbolTable* genericScope = nullptr;
 
 public:
   Enum(llvm::SMRange loc, std::string identifier, llvm::SMRange nameSpan,
-       std::vector<EnumValueDecl> values, bool exported)
-      : Statement(loc), identifier(std::move(identifier)), nameSpan(nameSpan),
-        values(std::move(values)), exported(exported) {
-    valueSpans.reserve(this->values.size());
-    for (const EnumValueDecl& value : this->values) {
-      valueSpans.push_back(value.span);
-    }
-  };
+       std::vector<GenericParamDecl> genericParams, std::vector<EnumValueDecl> values,
+       std::vector<std::unique_ptr<FuncDecl>> methods, bool exported);
+  ~Enum();
   void accept(ASTVisitor& visitor) const override { visitor.visit(this); }
 
   [[nodiscard]] [[maybe_unused]] auto getIdentifier() const -> std::string { return identifier; }
   [[nodiscard]] [[maybe_unused]] auto getNameSpan() const -> llvm::SMRange { return nameSpan; }
+  [[nodiscard]] auto getGenericParamDecls() const -> const std::vector<GenericParamDecl>& {
+    return genericParams;
+  }
+  [[nodiscard]] auto getGenericParams() const -> std::vector<std::string> {
+    std::vector<std::string> result;
+    result.reserve(genericParams.size());
+    for (const auto& param : genericParams) {
+      result.push_back(param.name);
+    }
+    return result;
+  }
   [[nodiscard]] [[maybe_unused]] auto getValues() const -> std::vector<std::string> {
     std::vector<std::string> out;
     out.reserve(values.size());
@@ -371,9 +391,8 @@ public:
   [[nodiscard]] [[maybe_unused]] auto getValueSpans() const -> const std::vector<llvm::SMRange>& {
     return valueSpans;
   }
-  [[nodiscard]] auto getValueDecls() const -> const std::vector<EnumValueDecl>& {
-    return values;
-  }
+  [[nodiscard]] auto getValueDecls() const -> const std::vector<EnumValueDecl>& { return values; }
+  [[nodiscard]] auto getMethods() const -> std::vector<FuncDecl*>;
   auto setValueTrivia(size_t index, unsigned extraBlankLines,
                       std::vector<CommentTrivia> leadingComments,
                       std::optional<CommentTrivia> trailingComment) -> void {
@@ -387,6 +406,8 @@ public:
   [[nodiscard]] [[maybe_unused]] auto isExported() const -> bool { return exported; }
   [[nodiscard]] auto getResolvedSymbol() const -> Value* { return resolvedSymbol; }
   auto setResolvedSymbol(Value* v) const -> void { resolvedSymbol = v; }
+  [[nodiscard]] auto getGenericScope() const -> SymbolTable* { return genericScope; }
+  auto setGenericScope(SymbolTable* scopePtr) const -> void { genericScope = scopePtr; }
 
   auto toString(llvm::SourceMgr* srcMgr, const std::string& prefix, bool isTail) const
       -> std::string override {
@@ -451,6 +472,37 @@ public:
   }
 };
 
+class TypeAlias : public Statement {
+  std::string identifier;
+  llvm::SMRange nameSpan;
+  std::unique_ptr<TypeExpr> aliasedType;
+  bool exported;
+  mutable Value* resolvedSymbol = nullptr;
+
+public:
+  TypeAlias(llvm::SMRange loc, std::string identifier, llvm::SMRange nameSpan,
+            std::unique_ptr<TypeExpr> aliasedType, bool exported)
+      : Statement(loc), identifier(std::move(identifier)), nameSpan(nameSpan),
+        aliasedType(std::move(aliasedType)), exported(exported) {}
+  void accept(ASTVisitor& visitor) const override { visitor.visit(this); }
+
+  [[nodiscard]] auto getIdentifier() const -> std::string { return identifier; }
+  [[nodiscard]] auto getNameSpan() const -> llvm::SMRange { return nameSpan; }
+  [[nodiscard]] auto getAliasedType() const -> TypeExpr* { return aliasedType.get(); }
+  [[nodiscard]] auto isExported() const -> bool { return exported; }
+  [[nodiscard]] auto getResolvedSymbol() const -> Value* { return resolvedSymbol; }
+  auto setResolvedSymbol(Value* value) const -> void { resolvedSymbol = value; }
+
+  auto toString(llvm::SourceMgr* srcMgr, const std::string& prefix, bool isTail) const
+      -> std::string override {
+    return fmt::format(
+        "{}{}TypeAlias[Line({}-{}):Col({}-{})]: {} = {}\n", prefix, isTail ? "└──" : "├──",
+        srcMgr->getLineAndColumn(getStart()).first, srcMgr->getLineAndColumn(getEnd()).first,
+        srcMgr->getLineAndColumn(getStart()).second, srcMgr->getLineAndColumn(getEnd()).second,
+        identifier, aliasedType != nullptr ? aliasedType->getName() : "<missing>");
+  }
+};
+
 class VarDecl : public Statement {
   std::vector<std::unique_ptr<Literal>> vars;
   std::unique_ptr<TypeExpr> type;
@@ -469,7 +521,8 @@ public:
           std::unique_ptr<TypeExpr> type, std::unique_ptr<Expression> expr, bool isMutable,
           bool exportedArg = false, bool privateField = false, bool staticField = false)
       : Statement(loc), vars(std::move(vars)), type(std::move(type)), expr(std::move(expr)),
-        isMutable(isMutable), exported(exportedArg), isPrivate(privateField), isStatic(staticField) {}
+        isMutable(isMutable), exported(exportedArg), isPrivate(privateField),
+        isStatic(staticField) {}
   void accept(ASTVisitor& visitor) const override { visitor.visit(this); }
 
   [[nodiscard]] [[maybe_unused]] auto getIdentifier() const -> Literal* {
@@ -561,7 +614,8 @@ public:
     return result;
   }
 
-  [[nodiscard]] auto getBranchLeadingComments(size_t index) const -> const std::vector<CommentTrivia>& {
+  [[nodiscard]] auto getBranchLeadingComments(size_t index) const
+      -> const std::vector<CommentTrivia>& {
     static const std::vector<CommentTrivia> empty;
     if (index >= branchLeadingComments.size()) {
       return empty;
@@ -686,7 +740,7 @@ class FuncDecl : public Statement {
   llvm::SMRange nameSpan;
   /** Span of overload tokens only (`+`, `[]`, …), excluding the `operator` keyword; invalid if N/A.
    */
-  llvm::SMRange overloadGlyphSpan{};
+  llvm::SMRange overloadGlyphSpan;
   std::vector<GenericParamDecl> genericParams;
   std::unique_ptr<TypeExpr> returnType;
   std::vector<std::unique_ptr<Parameter>> parameters;
@@ -796,6 +850,29 @@ public:
     return ret;
   }
 };
+
+inline Enum::Enum(llvm::SMRange loc, std::string identifier, llvm::SMRange nameSpan,
+                  std::vector<GenericParamDecl> genericParams, std::vector<EnumValueDecl> values,
+                  std::vector<std::unique_ptr<FuncDecl>> methods, bool exported)
+    : Statement(loc), identifier(std::move(identifier)), nameSpan(nameSpan),
+      genericParams(std::move(genericParams)), values(std::move(values)),
+      methods(std::move(methods)), exported(exported) {
+  valueSpans.reserve(this->values.size());
+  for (const EnumValueDecl& value : this->values) {
+    valueSpans.push_back(value.span);
+  }
+}
+
+inline Enum::~Enum() = default;
+
+inline auto Enum::getMethods() const -> std::vector<FuncDecl*> {
+  std::vector<FuncDecl*> out;
+  out.reserve(methods.size());
+  for (const auto& method : methods) {
+    out.push_back(method.get());
+  }
+  return out;
+}
 
 class TraitDecl : public Statement {
   std::string identifier;
@@ -946,9 +1023,9 @@ public:
              std::vector<std::unique_ptr<Parameter>> parameters,
              std::unique_ptr<TypeExpr> returnType, std::unique_ptr<Expression> expressionBody,
              std::unique_ptr<Compound> blockBody)
-      : Expression(loc), genericParams(std::move(genericParams)),
-        parameters(std::move(parameters)), returnType(std::move(returnType)),
-        expressionBody(std::move(expressionBody)), blockBody(std::move(blockBody)) {}
+      : Expression(loc), genericParams(std::move(genericParams)), parameters(std::move(parameters)),
+        returnType(std::move(returnType)), expressionBody(std::move(expressionBody)),
+        blockBody(std::move(blockBody)) {}
   void accept(ASTVisitor& visitor) const override { visitor.visit(this); }
 
   [[nodiscard]] auto getGenericParamDecls() const -> const std::vector<GenericParamDecl>& {
@@ -980,15 +1057,14 @@ public:
 
   auto toString(llvm::SourceMgr* srcMgr, const std::string& prefix, bool isTail) const
       -> std::string override {
-    std::string ret = fmt::format("{}{}LambdaExpr[Line({}-{}):Col({}-{})]: func(", prefix,
-                                  isTail ? "└──" : "├──",
-                                  srcMgr->getLineAndColumn(getStart()).first,
-                                  srcMgr->getLineAndColumn(getEnd()).first,
-                                  srcMgr->getLineAndColumn(getStart()).second,
-                                  srcMgr->getLineAndColumn(getEnd()).second);
+    std::string ret = fmt::format(
+        "{}{}LambdaExpr[Line({}-{}):Col({}-{})]: func(", prefix, isTail ? "└──" : "├──",
+        srcMgr->getLineAndColumn(getStart()).first, srcMgr->getLineAndColumn(getEnd()).first,
+        srcMgr->getLineAndColumn(getStart()).second, srcMgr->getLineAndColumn(getEnd()).second);
     for (size_t i = 0; i < parameters.size(); ++i) {
       Parameter* p = parameters[i].get();
-      ret += p->name + ": " + (p->type != nullptr ? p->type->toString(srcMgr, prefix, isTail) : "?");
+      ret +=
+          p->name + ": " + (p->type != nullptr ? p->type->toString(srcMgr, prefix, isTail) : "?");
       if (i + 1U < parameters.size()) {
         ret += ", ";
       }
@@ -1015,6 +1091,8 @@ class FuncCall : public Expression {
   mutable bool superDispatch = false;
   /** Canonical specialized class type chosen by typecheck for `ClassName(...)`/`new(...)`. */
   mutable Type* allocatedClassMonomorph = nullptr;
+  /** Canonical specialized enum type chosen by typecheck for contextual variant construction. */
+  mutable Type* contextualEnumMonomorph = nullptr;
   /** Generic binding environment chosen by typecheck for top-level generic function calls. */
   mutable std::vector<std::pair<std::string, Type*>> genericBindingEnv;
 
@@ -1033,6 +1111,8 @@ public:
   auto setSuperDispatch(bool value) const -> void { superDispatch = value; }
   [[nodiscard]] auto getAllocatedClassMonomorph() const -> Type* { return allocatedClassMonomorph; }
   auto setAllocatedClassMonomorph(Type* t) const -> void { allocatedClassMonomorph = t; }
+  [[nodiscard]] auto getContextualEnumMonomorph() const -> Type* { return contextualEnumMonomorph; }
+  auto setContextualEnumMonomorph(Type* t) const -> void { contextualEnumMonomorph = t; }
   auto clearGenericBindingEnv() const -> void { genericBindingEnv.clear(); }
   auto setGenericBindingEnv(const std::unordered_map<std::string, Type*>& env) const -> void {
     genericBindingEnv.assign(env.begin(), env.end());
@@ -1215,6 +1295,151 @@ public:
   auto toString(llvm::SourceMgr* srcMgr, const std::string& prefix, bool isTail) const
       -> std::string override {
     return expr->toString(srcMgr, prefix, isTail) + " as " + type->toString(srcMgr, prefix, isTail);
+  }
+};
+
+enum class MatchPatternKind : std::uint8_t { WILDCARD, ELSE_, VARIANT, VALUE };
+
+struct MatchPattern {
+  MatchPatternKind kind = MatchPatternKind::WILDCARD;
+  llvm::SMRange span;
+  llvm::SMRange enumNameSpan;
+  llvm::SMRange variantNameSpan;
+  std::string enumName;
+  std::string variantName;
+  std::vector<std::string> bindings;
+  std::vector<llvm::SMRange> bindingSpans;
+  std::unique_ptr<Expression> valueExpr;
+  mutable Type* resolvedEnumType = nullptr;
+  mutable unsigned resolvedVariantIndex = 0U;
+  mutable Type* resolvedValueType = nullptr;
+};
+
+struct MatchArm {
+  MatchPattern pattern;
+  std::unique_ptr<Expression> body;
+  std::vector<CommentTrivia> leadingComments;
+  unsigned extraBlankLinesBefore = 0;
+};
+
+class MatchExpr : public Expression {
+  std::unique_ptr<Expression> scrutinee;
+  std::vector<MatchArm> arms;
+  mutable Type* resolvedType = nullptr;
+  mutable bool usesEnumDispatch = false;
+  std::vector<CommentTrivia> trailingDetachedComments;
+  unsigned extraBlankLinesBeforeTrailingDetachedComments = 0;
+
+public:
+  MatchExpr(llvm::SMRange loc, std::unique_ptr<Expression> scrutinee, std::vector<MatchArm> arms)
+      : Expression(loc), scrutinee(std::move(scrutinee)), arms(std::move(arms)) {}
+  void accept(ASTVisitor& visitor) const override { visitor.visit(this); }
+
+  [[nodiscard]] auto getScrutinee() const -> Expression* { return scrutinee.get(); }
+  [[nodiscard]] auto getArms() const -> const std::vector<MatchArm>& { return arms; }
+  [[nodiscard]] auto getArmLeadingComments(size_t index) const
+      -> const std::vector<CommentTrivia>& {
+    static const std::vector<CommentTrivia> empty;
+    if (index >= arms.size()) {
+      return empty;
+    }
+    return arms[index].leadingComments;
+  }
+  [[nodiscard]] auto getArmExtraBlankLinesBefore(size_t index) const -> unsigned {
+    if (index >= arms.size()) {
+      return 0U;
+    }
+    return arms[index].extraBlankLinesBefore;
+  }
+  auto setArmTrivia(size_t index, unsigned extraBlankLines, std::vector<CommentTrivia> comments)
+      -> void {
+    if (index >= arms.size()) {
+      return;
+    }
+    arms[index].extraBlankLinesBefore = extraBlankLines;
+    arms[index].leadingComments = std::move(comments);
+  }
+  auto setTrailingDetachedTrivia(unsigned extraBlankLines, std::vector<CommentTrivia> comments)
+      -> void {
+    extraBlankLinesBeforeTrailingDetachedComments = extraBlankLines;
+    trailingDetachedComments = std::move(comments);
+  }
+  [[nodiscard]] auto getTrailingDetachedComments() const -> const std::vector<CommentTrivia>& {
+    return trailingDetachedComments;
+  }
+  [[nodiscard]] auto getExtraBlankLinesBeforeTrailingDetachedComments() const -> unsigned {
+    return extraBlankLinesBeforeTrailingDetachedComments;
+  }
+  [[nodiscard]] auto getArmBody(size_t index) -> Expression* {
+    if (index >= arms.size()) {
+      return nullptr;
+    }
+    return arms[index].body.get();
+  }
+  [[nodiscard]] auto getResolvedType() const -> Type* { return resolvedType; }
+  auto setResolvedType(Type* type) const -> void { resolvedType = type; }
+  [[nodiscard]] auto getUsesEnumDispatch() const -> bool { return usesEnumDispatch; }
+  auto setUsesEnumDispatch(bool value) const -> void { usesEnumDispatch = value; }
+
+  auto toString(llvm::SourceMgr* srcMgr, const std::string& prefix, bool isTail) const
+      -> std::string override {
+    std::string out = "match " + scrutinee->toString(srcMgr, prefix, isTail) + " { ";
+    for (size_t i = 0; i < arms.size(); ++i) {
+      const MatchArm& arm = arms[i];
+      if (arm.pattern.kind == MatchPatternKind::WILDCARD) {
+        out += "_";
+      } else if (arm.pattern.kind == MatchPatternKind::ELSE_) {
+        out += "else";
+      } else if (arm.pattern.kind == MatchPatternKind::VALUE && arm.pattern.valueExpr != nullptr) {
+        out += arm.pattern.valueExpr->toString(srcMgr, prefix, isTail);
+      } else {
+        if (!arm.pattern.enumName.empty()) {
+          out += arm.pattern.enumName + ".";
+        }
+        out += arm.pattern.variantName;
+        if (!arm.pattern.bindings.empty()) {
+          out += "(";
+          for (size_t j = 0; j < arm.pattern.bindings.size(); ++j) {
+            if (j > 0U) {
+              out += ", ";
+            }
+            out += arm.pattern.bindings[j];
+          }
+          out += ")";
+        }
+      }
+      out += " => " + arm.body->toString(srcMgr, prefix, isTail);
+      if (i + 1U < arms.size()) {
+        out += ", ";
+      }
+    }
+    out += " }";
+    return out;
+  }
+};
+
+class BlockExpr : public Expression {
+  std::unique_ptr<Compound> body;
+  std::unique_ptr<Expression> tailExpr;
+  mutable Type* resolvedType = nullptr;
+
+public:
+  BlockExpr(llvm::SMRange loc, std::unique_ptr<Compound> body, std::unique_ptr<Expression> tailExpr)
+      : Expression(loc), body(std::move(body)), tailExpr(std::move(tailExpr)) {}
+  void accept(ASTVisitor& visitor) const override { visitor.visit(this); }
+
+  [[nodiscard]] auto getBody() const -> Compound* { return body.get(); }
+  [[nodiscard]] auto getTailExpr() const -> Expression* { return tailExpr.get(); }
+  [[nodiscard]] auto getResolvedType() const -> Type* { return resolvedType; }
+  auto setResolvedType(Type* type) const -> void { resolvedType = type; }
+
+  auto toString(llvm::SourceMgr* srcMgr, const std::string& prefix, bool isTail) const
+      -> std::string override {
+    std::string out = body != nullptr ? body->toString(srcMgr, prefix, isTail) : "{}";
+    if (tailExpr != nullptr) {
+      out += tailExpr->toString(srcMgr, prefix, isTail);
+    }
+    return out;
   }
 };
 
@@ -1411,21 +1636,6 @@ public:
       -> std::string override {
     return fmt::format(
         "{}{}Continue[Line({}-{}):Col({}-{})]:\n", prefix, isTail ? "└──" : "├──",
-        srcMgr->getLineAndColumn(getStart()).first, srcMgr->getLineAndColumn(getEnd()).first,
-        srcMgr->getLineAndColumn(getStart()).second, srcMgr->getLineAndColumn(getEnd()).second);
-  }
-};
-
-/** No-op statement (Python-style); valid wherever a statement is allowed. */
-class Pass : public Statement {
-public:
-  explicit Pass(llvm::SMRange loc) : Statement(loc) {}
-  void accept(ASTVisitor& visitor) const override { visitor.visit(this); }
-
-  auto toString(llvm::SourceMgr* srcMgr, const std::string& prefix, bool isTail) const
-      -> std::string override {
-    return fmt::format(
-        "{}{}Pass[Line({}-{}):Col({}-{})]:\n", prefix, isTail ? "└──" : "├──",
         srcMgr->getLineAndColumn(getStart()).first, srcMgr->getLineAndColumn(getEnd()).first,
         srcMgr->getLineAndColumn(getStart()).second, srcMgr->getLineAndColumn(getEnd()).second);
   }

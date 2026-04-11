@@ -1,0 +1,25 @@
+class Box<T> {
+  var ready: bool
+
+  func new() {
+    self.ready = true
+  }
+
+  private func new(_: T) {
+    self.ready = true
+  }
+
+  func cloneWith(value: T) -> Box<T> {
+    return Box<T>(value)
+  }
+}
+
+var box = Box<int>()
+if box.ready != true {
+  exit(1)
+}
+
+var cloned = box.cloneWith(3)
+if cloned.ready != true {
+  exit(2)
+}

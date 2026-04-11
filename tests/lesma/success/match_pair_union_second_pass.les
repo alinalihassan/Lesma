@@ -1,0 +1,37 @@
+// Same-template Pair arms with different primitive fields: contextual type from `let p: Pair<str,
+// Wide>` drives generic constructor inference so literals need no `as Wide`.
+from base import Result
+
+type Wide = bool | int | str
+
+class Pair<K, V> {
+  var first: K
+  var second: V
+
+  func new(x: K, y: V) {
+    self.first = x
+    self.second = y
+  }
+}
+
+func sample(ok: bool) -> Result<Pair<str, Wide>, int> {
+  if ok {
+    return Ok(Pair("z", "s"))
+  }
+  return Err(0)
+}
+
+let p: Pair<str, Wide> = match sample(true) {
+  Result.Ok(_) => Pair("k", 1)
+  Result.Err(_) => {
+    exit(1)
+    Pair("x", false)
+  }
+}
+
+if p.first != "k" {
+  exit(2)
+}
+if p.second is not int or p.second != 1 {
+  exit(3)
+}

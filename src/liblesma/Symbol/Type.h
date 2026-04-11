@@ -73,6 +73,23 @@ struct Field {
   auto setDeclarationSymbol(std::unique_ptr<Value> value) -> void;
 };
 
+struct EnumVariant {
+  std::string name;
+  std::vector<Type*> payloadTypes;
+  llvm::SMRange declarationSpan;
+  std::string declarationFilePath;
+
+  EnumVariant(std::string n, std::vector<Type*> payloads)
+      : name(std::move(n)), payloadTypes(std::move(payloads)) {}
+
+  [[nodiscard]] auto getDeclarationSpan() const -> llvm::SMRange { return declarationSpan; }
+  [[nodiscard]] auto getDeclarationFilePath() const -> const std::string& {
+    return declarationFilePath;
+  }
+  auto setDeclarationSpan(llvm::SMRange span) -> void { declarationSpan = span; }
+  auto setDeclarationFilePath(std::string path) -> void { declarationFilePath = std::move(path); }
+};
+
 class Type {
   BaseType baseType;
   llvm::Type* llvmType;
@@ -109,6 +126,8 @@ class Type {
   std::uint16_t intWidth = 0;
   /** For TY_UNION: variant types in tag order (non-owning; same lifetime as type cache). */
   std::vector<Type*> unionMembers;
+  /** For TY_ENUM: variant metadata in declaration order. */
+  std::vector<std::unique_ptr<EnumVariant>> enumVariants;
 
 public:
   explicit Type(BaseType baseType)
@@ -196,6 +215,15 @@ public:
     return result;
   }
 
+  [[nodiscard]] auto getEnumVariants() const -> std::vector<EnumVariant*> {
+    std::vector<EnumVariant*> result;
+    result.reserve(enumVariants.size());
+    for (const auto& variant : enumVariants) {
+      result.push_back(variant.get());
+    }
+    return result;
+  }
+
   auto setLlvmType(llvm::Type* type) -> void { llvmType = type; }
   auto setBaseType(BaseType type) -> void { baseType = type; }
   auto setElementType(Type* type) -> void { elementType = type; }
@@ -244,6 +272,12 @@ public:
   }
   auto replaceStaticFields(std::vector<std::unique_ptr<Field>> newFields) -> void {
     staticFields = std::move(newFields);
+  }
+  auto addEnumVariant(std::unique_ptr<EnumVariant> variant) -> void {
+    enumVariants.push_back(std::move(variant));
+  }
+  auto replaceEnumVariants(std::vector<std::unique_ptr<EnumVariant>> newVariants) -> void {
+    enumVariants = std::move(newVariants);
   }
 
   [[nodiscard]] auto getUnionMembers() const -> const std::vector<Type*>& { return unionMembers; }
@@ -295,6 +329,10 @@ private:
     }
     if (this == rhs) {
       return true;
+    }
+    if (getBaseType() == BaseType::TY_INVALID && rhs->getBaseType() == BaseType::TY_INVALID &&
+        !getDisplayName().empty() && !rhs->getDisplayName().empty()) {
+      return getDisplayName() == rhs->getDisplayName();
     }
     if (this->getBaseType() != rhs->getBaseType()) {
       return false;
@@ -392,6 +430,36 @@ private:
           return false;
         }
       }
+      if (baseType == BaseType::TY_ENUM) {
+        auto lev = getEnumVariants();
+        auto rev = rhs->getEnumVariants();
+        if (lev.size() != rev.size()) {
+          return false;
+        }
+        for (size_t i = 0; i < lev.size(); ++i) {
+          if (lev[i]->name != rev[i]->name) {
+            return false;
+          }
+          const auto& lpt = lev[i]->payloadTypes;
+          const auto& rpt = rev[i]->payloadTypes;
+          if (lpt.size() != rpt.size()) {
+            return false;
+          }
+          for (size_t j = 0; j < lpt.size(); ++j) {
+            Type* lt = lpt[j];
+            Type* rt = rpt[j];
+            if (lt == nullptr || rt == nullptr) {
+              if (lt != rt) {
+                return false;
+              }
+              continue;
+            }
+            if (!lt->isEqualImpl(rt, active)) {
+              return false;
+            }
+          }
+        }
+      }
       return true;
     }
 
@@ -423,8 +491,12 @@ private:
     case BaseType::TY_ANY:
     case BaseType::TY_VOID:
     case BaseType::TY_NULL:
-    case BaseType::TY_INVALID:
     case BaseType::TY_IMPORT:
+      return true;
+    case BaseType::TY_INVALID:
+      if (!displayName.empty() || !rhs->getDisplayName().empty()) {
+        return displayName == rhs->getDisplayName();
+      }
       return true;
     case BaseType::TY_PTR:
     case BaseType::TY_ARRAY: {
@@ -488,21 +560,42 @@ private:
       return true;
     }
     case BaseType::TY_UNION: {
+      if (declarationSpan.isValid() && rhs->getDeclarationSpan().isValid() &&
+          declarationSpan.Start == rhs->getDeclarationSpan().Start &&
+          declarationSpan.End == rhs->getDeclarationSpan().End &&
+          (declarationFilePath == rhs->getDeclarationFilePath() || declarationFilePath.empty() ||
+           rhs->getDeclarationFilePath().empty())) {
+        return true;
+      }
       const auto& lu = getUnionMembers();
       const auto& ru = rhs->getUnionMembers();
       if (lu.size() != ru.size()) {
         return false;
       }
-      for (size_t i = 0; i < lu.size(); ++i) {
-        Type* lt = lu[i];
-        Type* rt = ru[i];
-        if (lt == nullptr || rt == nullptr) {
-          if (lt != rt) {
-            return false;
+      std::vector<bool> used(ru.size(), false);
+      for (Type* lt : lu) {
+        bool matched = false;
+        for (size_t i = 0; i < ru.size(); ++i) {
+          if (used[i]) {
+            continue;
           }
-          continue;
+          Type* rt = ru[i];
+          if (lt == nullptr || rt == nullptr) {
+            if (lt != rt) {
+              continue;
+            }
+            used[i] = true;
+            matched = true;
+            break;
+          }
+          if (!lt->isEqualImpl(rt, active)) {
+            continue;
+          }
+          used[i] = true;
+          matched = true;
+          break;
         }
-        if (!lt->isEqualImpl(rt, active)) {
+        if (!matched) {
           return false;
         }
       }
@@ -522,7 +615,7 @@ public:
 
     switch (baseType) {
     case BaseType::TY_INVALID:
-      result = "Invalid";
+      result = displayName.empty() ? "Invalid" : displayName;
       break;
     case BaseType::TY_INT: {
       const unsigned w = getIntWidth();

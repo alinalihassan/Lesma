@@ -1,6 +1,21 @@
 #!/bin/bash
 
 SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" &>/dev/null && pwd)
+REPO_ROOT=$(cd -- "${SCRIPT_DIR}/.." &>/dev/null && pwd)
+
+# Print a filesystem path relative to REPO_ROOT (falls back to the original path if outside).
+repo_relative_path() {
+  local p="$1"
+  local dir base ap
+  dir=$(dirname -- "$p")
+  base=$(basename -- "$p")
+  ap=$(cd "$dir" 2>/dev/null && printf '%s/%s' "$(pwd)" "$base" || printf '%s' "$p")
+  case "$ap" in
+  "${REPO_ROOT}/"*) printf '%s\n' "${ap#"${REPO_ROOT}/"}" ;;
+  "${REPO_ROOT}") printf '%s\n' "." ;;
+  *) printf '%s\n' "$p" ;;
+  esac
+}
 
 # Parallelism: default to CPU count, override with LESMA_TEST_JOBS (e.g. 1 for serial).
 NUM_JOBS="${LESMA_TEST_JOBS:-$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 4)}"
@@ -13,6 +28,7 @@ fi
 
 fail_count=0
 success_count=0
+failed_tests=()
 
 # Wall-clock limit per compiler invocation (seconds). Use 0 to disable. Override with LESMA_TEST_TIMEOUT.
 LESMA_TEST_TIMEOUT="${LESMA_TEST_TIMEOUT:-2}"
@@ -158,6 +174,7 @@ result_path_for_file() {
 
 process_result_line() {
   local line="$1"
+  local file="${2:-}"
   # shellcheck disable=SC2086
   set -- ${line}
   case "$1" in
@@ -174,16 +191,31 @@ process_result_line() {
     fail_count=$((fail_count + 1))
     printf 'Testing %s\n' "$2"
     printf '  Run failed, expected %s, got %s\n' "$3" "$4"
+    if [ -n "${file}" ]; then
+      failed_tests+=("${file}"$'\t'"run failed (expected $3, got $4)")
+    else
+      failed_tests+=("$2: run failed (expected $3, got $4)")
+    fi
     ;;
   fail-expect)
     fail_count=$((fail_count + 1))
     printf 'Testing %s\n' "$2"
     printf '  Run succeeded but was expected to fail\n'
+    if [ -n "${file}" ]; then
+      failed_tests+=("${file}"$'\t'"expected failure but run succeeded")
+    else
+      failed_tests+=("$2: expected failure but run succeeded")
+    fi
     ;;
   fail-timeout)
     fail_count=$((fail_count + 1))
     printf 'Testing %s\n' "$2"
     printf '  Timed out after %ss (LESMA_TEST_TIMEOUT)\n' "${LESMA_TEST_TIMEOUT}"
+    if [ -n "${file}" ]; then
+      failed_tests+=("${file}"$'\t'"timed out after ${LESMA_TEST_TIMEOUT}s")
+    else
+      failed_tests+=("$2: timed out after ${LESMA_TEST_TIMEOUT}s")
+    fi
     ;;
   *)
     printf 'Internal error: bad result line: %s\n' "${line}" >&2
@@ -237,7 +269,7 @@ print_suite_results_in_order() {
       exit 1
     fi
     line=$(cat "${rp}")
-    process_result_line "${line}"
+    process_result_line "${line}" "${file}"
   done
 }
 
@@ -272,6 +304,21 @@ print_suite_results_in_order "${TMPDIR_RESULTS}" "${failure_files[@]}"
 printf 'Tests:\n'
 printf '  fail:    %d\n' "${fail_count}"
 printf '  success: %d\n' "${success_count}"
+if [ "${fail_count}" -gt 0 ]; then
+  printf 'Failed tests summary:\n'
+  for failed in "${failed_tests[@]}"; do
+    case "${failed}" in
+    *$'\t'*)
+      rel=$(repo_relative_path "${failed%%$'\t'*}")
+      msg="${failed#*$'\t'}"
+      printf '  - %s: %s\n' "${rel}" "${msg}"
+      ;;
+    *)
+      printf '  - %s\n' "${failed}"
+      ;;
+    esac
+  done
+fi
 if [ "${fail_count}" -gt 0 ]; then
   exit 1
 fi

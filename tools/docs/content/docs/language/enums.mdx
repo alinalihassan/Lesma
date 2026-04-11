@@ -1,21 +1,22 @@
 ---
 title: Enums
 description: |
-  Declaring and using enumeration types in Lesma.
+  Declaring enums, payload variants, enum methods, and matching on enum values in Lesma.
 category: Language
 ---
 
 ## Enumerations
 
-An **`enum`** declares a set of named constants. Cases are referenced as **`EnumName.CASE`**.
+An **`enum`** declares a nominal type with a fixed set of **variants**. Variants can be plain named
+cases or carry **payload values**. Reference them as **`EnumName.Variant`**.
 
 ```les
 enum Color {
     RED
     BLUE
     GREEN
-
 }
+
 var paint: Color = Color.RED
 
 if Color.BLUE == Color.BLUE and Color.GREEN != Color.RED {
@@ -25,8 +26,91 @@ if Color.BLUE == Color.BLUE and Color.GREEN != Color.RED {
 
 Enums can be used as parameter and return types like any other nominal type.
 
+## Payload variants
+
+Variants can store values:
+
+```les
+enum Result {
+    Ok(int)
+    Err(str)
+}
+
+let success: Result = Result.Ok(42)
+let failure: Result = Result.Err("no data")
+```
+
+Each variant has a fixed payload shape. The compiler checks arity and payload types at construction
+sites and in `match` arms.
+
+## Matching on enums
+
+Use **`match`** to branch on enum variants and bind payloads:
+
+```les
+enum MaybeInt {
+    None
+    Some(int)
+}
+
+func value_or(x: MaybeInt, fallback: int) -> int {
+    return match x {
+        MaybeInt.Some(value) => value
+        MaybeInt.None => fallback
+    }
+}
+```
+
+You can list every variant, or use an **`else`** arm instead of naming the remaining variants
+explicitly.
+
+Inside an enum method, `match` on **`self`** can use **shorthand** variant patterns (**`Some(x)`**)
+as well as the qualified form (**`MaybeInt.Some(x)`**).
+
+When the expected return type already names an enum, Lesma also accepts contextual shorthand such as
+`return Ok(value)` for `Result.Ok(value)`.
+
+## Enum methods
+
+Enums can define instance and static methods, just like classes:
+
+```les
+enum MaybeInt {
+    None
+    Some(int)
+
+    func valueOr(defaultValue: int) -> int {
+        return match self {
+            Some(value) => value
+            None => defaultValue
+        }
+    }
+
+    static func some(value: int) -> MaybeInt {
+        return MaybeInt.Some(value)
+    }
+}
+```
+
+Instance methods use `self` as the current enum value. Static methods are called on the enum type
+itself.
+
+## Generic enums
+
+Enums can also be generic:
+
+```les
+enum Result<T, E> {
+    Ok(T)
+    Err(E)
+}
+```
+
+This is useful for sum types such as `Result<T, E>` and other typed state machines.
+
 ## Next steps
 
+- [Control flow](/docs/language/control-flow) for `match`.
 - [Tuples](/docs/language/tuples) for tuple types and unpacking.
 - [Types](/docs/language/types) for annotations, `is` / `is not`, and `as`.
 - [Classes](/docs/language/classes) and [Traits & Generics](/docs/language/traits-generics) for larger type patterns.

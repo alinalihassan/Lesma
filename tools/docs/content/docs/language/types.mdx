@@ -31,6 +31,28 @@ When types can be inferred reliably, you can omit annotations on locals:
 let n = 40 + 2
 ```
 
+## Type aliases
+
+Use **`type`** to give a reusable name to another type expression:
+
+```les
+type Small = int | bool
+type Word = str
+type Numbers = list<int>
+```
+
+Aliases are **compile-time only**: they improve readability and API design, but they do not create a
+new runtime wrapper or a distinct nominal type.
+
+You can export and import type aliases like other top-level declarations:
+
+```les
+export type MaybeNum = int?
+export type JsonText = str
+```
+
+Lesma also supports self-referential aliases when the aliased type can be resolved recursively.
+
 ## Pointers
 
 Pointer types use a leading `*`. They show up in low-level code and in [FFI](/docs/language/ffi) declarations:
@@ -106,7 +128,9 @@ valid, but **`int? ?? "hello"`** is a type error.
 
 ## Flow narrowing (`if` + `is`)
 
-When a variable’s static type is a **union** and you branch on **`x is SomeType`** or **`x is not SomeType`**, the checker **narrows** the type of **`x`** inside certain blocks. This includes nullable unions such as **`T?`**:
+When a variable’s static type is a **union** and you branch on **`x is SomeType`** or
+**`x is not SomeType`**, the checker **narrows** the type of **`x`** inside certain blocks. This
+includes nullable unions such as **`T?`**:
 
 - **`if x is T { … }`**: inside the **then** block, **`x`** has type **`T`** (when **`T`** is a member of the union).
 - **`else`** attached to **`if x is T`** when the union has **exactly two** members: in the **else** block, **`x`** has the **other** member type.
@@ -114,6 +138,15 @@ When a variable’s static type is a **union** and you branch on **`x is SomeTyp
 
 Narrowing applies to storage-backed expressions the checker can tie to a stable location, including
 simple variables and common access paths like fields and subscripts.
+
+Logical conditions can preserve narrowing too:
+
+```les
+var x: int | str = 9
+if x is int and x > 7 {
+    let narrowed: int = x
+}
+```
 
 **Important:** narrowing applies to code **inside** the **`if` / `else` blocks**. A statement that comes **after** the closing brace of **`if x is T { … }`** but is **not** inside an **`else { … }`** is still in the outer scope, so **`x`** is **not** narrowed there. Use an explicit **`else { … }`** when you need the complement type:
 
@@ -186,6 +219,7 @@ When **`lesma-lsp`** is enabled, **hover** on an identifier can show the **flow-
 
 ## Next steps
 
+- [Modules](/docs/language/modules) for exporting and importing aliases.
 - [Control flow](/docs/language/control-flow) for **`if` / `else`** structure used with narrowing.
 - [Enums](/docs/language/enums) and [Tuples](/docs/language/tuples) for more type forms.
 - [Foreign Function Interface](/docs/language/ffi) for `func extern` and C-compatible types.

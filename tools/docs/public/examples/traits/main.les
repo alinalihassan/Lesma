@@ -1,44 +1,43 @@
 // 1) Default method bodies on a trait (class can use them without overrides)
 trait WithDefault {
-    func base() -> int {
-        return 7
-    }
-    func extra() -> int {
-        return self.base() + 3
-
-    }
+  func base() -> int {
+    return 7
+  }
+  func extra() -> int {
+    return self.base() + 3
+  }
 }
+
 class C impl WithDefault {
-    func new() {
-        var _x = 0
-
-    }
+  func new() {
+    var _x = 0
+  }
 }
+
 // 2) Generic function with a trait bound: T must implement Twice
 trait Twice {
-    func val() -> int
-
+  func val() -> int
 }
+
 class A impl Twice {
-    var x: int
-    func new(v: int) {
-        self.x = v
-    }
-    func val() -> int {
-        return self.x * 2
+  var x: int
 
-    }
+  func new(v: int) {
+    self.x = v
+  }
+  func val() -> int {
+    return self.x * 2
+  }
 }
-func get_val<T: Twice>(o: T) -> int {
-    return o.val()
 
+func get_val<T: Twice>(o: T) -> int {
+  return o.val()
 }
 var c = C()
 if c.extra() != 10 {
-    exit(1)
-
+  exit(1)
 }
 var a = A(3)
 if get_val(a) != 6 {
-    exit(1)
+  exit(1)
 }

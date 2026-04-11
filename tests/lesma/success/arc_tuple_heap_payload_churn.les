@@ -16,7 +16,7 @@ class Box {
 }
 
 func make_bundle(seed: int) -> (str, list<Box>, Box, Kind) {
-  return (str("seed"), [Box(seed), Box(seed + 1)], Box(seed + 2), Kind.START)
+  return ("seed", [Box(seed), Box(seed + 1)], Box(seed + 2), Kind.START)
 }
 
 let text,
@@ -36,7 +36,7 @@ if tag != Kind.START {
   exit(4)
 }
 
-let packed: (str, list<Box>, Box, Kind) = (str("swap"), [Box(8)], Box(9), Kind.STOP)
+let packed: (str, list<Box>, Box, Kind) = ("swap", [Box(8)], Box(9), Kind.STOP)
 if packed[0] != "swap" {
   exit(5)
 }

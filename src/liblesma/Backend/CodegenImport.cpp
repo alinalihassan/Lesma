@@ -51,16 +51,24 @@ auto Codegen::typecheckModule(const Compound* ast, const std::string& modulePath
     -> std::tuple<std::unique_ptr<SymbolTable>, std::vector<std::unique_ptr<lesma::Type>>,
                   std::unordered_map<lesma::Type*, std::unordered_map<std::string, lesma::Type*>>,
                   std::unordered_map<lesma::Type*, lesma::Type*>,
-                  std::unordered_map<std::string, lesma::Type*>> {
+                  std::unordered_map<std::string, lesma::Type*>,
+                  std::unordered_map<std::string, std::shared_ptr<ImportedModuleAnalysis>>> {
   Typechecker typechecker(
-      modulePath, [this](const std::string& path, bool isStd, const std::string& mainFilePath) {
+      modulePath,
+      [this](const std::string& path, bool isStd, const std::string& mainFilePath) {
         return getExportsFromFile(path, isStd, mainFilePath);
-      });
+      },
+      nullptr, nullptr, 0, performanceTimer);
   typechecker.run(ast);
   auto takenTypeCache = typechecker.takeTypeCache();
   auto takenRoot = typechecker.takeRootScope();
-  return {std::move(takenRoot), std::move(takenTypeCache), typechecker.takeSpecializedTypeEnv(),
-          typechecker.takeSpecializedTypeToTemplate(), typechecker.takeSpecializedClassTypes()};
+  auto takenImportedModules = typechecker.takeImportedModules();
+  return {std::move(takenRoot),
+          std::move(takenTypeCache),
+          typechecker.takeSpecializedTypeEnv(),
+          typechecker.takeSpecializedTypeToTemplate(),
+          typechecker.takeSpecializedClassTypes(),
+          std::move(takenImportedModules)};
 }
 
 auto Codegen::isImported(const std::vector<ImportedNameBinding>& importedNames,
@@ -112,8 +120,13 @@ auto Codegen::exposeImportedSymbols(llvm::SMRange /*span*/, SymbolTable* importe
       const std::string localName = importedLocalName.empty() ? sym->getName() : importedLocalName;
       auto structSymbol = std::make_unique<Value>(localName, sym->getType());
       structSymbol->setCategory(ValueCategory::TYPE_SYMBOL);
+      structSymbol->setDeclarationKind(sym->getDeclarationKind());
+      structSymbol->setDeclarationSpan(sym->getDeclarationSpan());
+      structSymbol->setDeclarationFilePath(sym->getDeclarationFilePath());
+      structSymbol->setExported(sym->isExported());
       structSymbol->getType()->setLlvmType(structType);
       structSymbol->setGenericClassTemplate(sym->getGenericClassTemplate());
+      structSymbol->setConstructor(sym->getConstructor());
       scope->insertTypeRef(sym->getName(), sym->getType());
       scope->insertSymbol(std::move(structSymbol));
       continue;
@@ -166,7 +179,9 @@ auto Codegen::exposeImportedSymbols(llvm::SMRange /*span*/, SymbolTable* importe
       paramTypes.push_back(field->type);
     }
 
-    Value* funcSymbol = importedScope->lookupFunction(name, paramTypes);
+    Value* funcSymbol =
+        importedScope->lookupFunction(name, paramTypes, FunctionLookupKind::VALUE, nullptr, nullptr,
+                                      sym->getType()->getGenericParams().size());
     const bool isMethodSym = MangleUtils::isMethod(sym->getMangledName());
     bool methodClassImported = true;
     if (isMethodSym && !importAll && importToScope) {
@@ -188,9 +203,14 @@ auto Codegen::exposeImportedSymbols(llvm::SMRange /*span*/, SymbolTable* importe
     }
 
     const std::string localName = importedLocalName.empty() ? name : importedLocalName;
-    Value* localSymbol = scope->lookupFunction(localName, paramTypes);
+    Value* localSymbol =
+        scope->lookupFunction(localName, paramTypes, FunctionLookupKind::VALUE, nullptr, nullptr,
+                              sym->getType()->getGenericParams().size());
+    // Reuse only when we are updating the same mangled symbol; lookupFunction(name, params) alone
+    // can match the wrong overload when many symbols share a name (e.g. `new`).
     const bool reuseExistingLocal =
-        localSymbol != nullptr && localSymbol->getLlvmValue() == nullptr;
+        localSymbol != nullptr && localSymbol->getLlvmValue() == nullptr &&
+        localSymbol->getMangledName() == sym->getMangledName();
     auto symbol =
         reuseExistingLocal ? nullptr : std::make_unique<Value>(localName, funcSymbol->getType());
     Value* targetSymbol = reuseExistingLocal ? localSymbol : symbol.get();
@@ -210,6 +230,13 @@ auto Codegen::exposeImportedSymbols(llvm::SMRange /*span*/, SymbolTable* importe
     }
     targetSymbol->setExported(false);
     targetSymbol->setMangledName(sym->getMangledName());
+    targetSymbol->setDeclarationKind(funcSymbol->getDeclarationKind());
+    targetSymbol->setDeclarationSpan(funcSymbol->getDeclarationSpan());
+    targetSymbol->setDeclarationFilePath(funcSymbol->getDeclarationFilePath());
+    targetSymbol->setStaticMethod(funcSymbol->isStaticMethod());
+    targetSymbol->setMemberDeclaredInClass(funcSymbol->getMemberDeclaredInClass());
+    targetSymbol->setPrivateMember(funcSymbol->isPrivateMember());
+    targetSymbol->setGenericClassTemplate(funcSymbol->getGenericClassTemplate());
     if (!reuseExistingLocal) {
       scope->insertSymbol(std::move(symbol));
     }
@@ -267,7 +294,13 @@ auto Codegen::compileModule(llvm::SMRange span, const std::string& filepath, boo
   }
   compiling.insert(canonicalPath);
 
-  auto buffer = MemoryBuffer::getFile(canonicalPath);
+  auto buffer = performanceTimer != nullptr
+                    ? performanceTimer->measureFile(
+                          "Reading", canonicalPath,
+                          [&]() -> llvm::ErrorOr<std::unique_ptr<llvm::MemoryBuffer>> {
+                            return MemoryBuffer::getFile(canonicalPath);
+                          })
+                    : MemoryBuffer::getFile(canonicalPath);
   if (std::error_code ec = buffer.getError()) {
     compiling.erase(canonicalPath);
     throw LesmaError(llvm::SMRange(), "Could not read file: {}", canonicalPath);
@@ -286,34 +319,73 @@ auto Codegen::compileModule(llvm::SMRange span, const std::string& filepath, boo
   try {
     // Lexer
     auto lexer = std::make_unique<Lexer>(sourceManager);
-    lexer->scanAll();
+    if (performanceTimer != nullptr) {
+      performanceTimer->measureFile("Lexing", canonicalPath, [&]() -> void { lexer->scanAll(); });
+    } else {
+      lexer->scanAll();
+    }
 
     // Parser
     auto parser =
         std::make_unique<Parser>(lexer->getTokens(), nullptr, sourceManager, fileId, canonicalPath);
-    parser->parse();
+    if (performanceTimer != nullptr) {
+      performanceTimer->measureFile("Parsing", canonicalPath, [&]() -> void { parser->parse(); });
+    } else {
+      parser->parse();
+    }
     Compound* ast = parser->getAst();
     if (ast == nullptr) {
       throw CodegenError(span, "Unable to parse imported module {}", filepath);
     }
 
-    auto [preScope, preTypeCache, preSpecEnv, preTemplateOf, preSpecializedClassTypes] =
-        typecheckModule(ast, canonicalPath);
+    auto [preScope, preTypeCache, preSpecEnv, preTemplateOf, preSpecializedClassTypes,
+          preImportedModuleAnalyses] =
+        performanceTimer != nullptr
+            ? performanceTimer->measureFile(
+                  "Typecheck", canonicalPath,
+                  [&]() -> std::tuple<
+                            std::unique_ptr<SymbolTable>, std::vector<std::unique_ptr<lesma::Type>>,
+                            std::unordered_map<lesma::Type*,
+                                               std::unordered_map<std::string, lesma::Type*>>,
+                            std::unordered_map<lesma::Type*, lesma::Type*>,
+                            std::unordered_map<std::string, lesma::Type*>,
+                            std::unordered_map<std::string,
+                                               std::shared_ptr<ImportedModuleAnalysis>>> {
+                    return typecheckModule(ast, canonicalPath);
+                  })
+            : typecheckModule(ast, canonicalPath);
 
     auto codegen = std::make_unique<Codegen>(
         std::move(parser), sourceManager, canonicalPath, std::vector<std::string>{}, isJit, false,
-        !importToScope ? moduleAlias : "", theContext, importedModules, importedScopes,
+        !importToScope ? moduleAlias : "", theContext, theJit, importedModules, importedScopes,
         importedSpecializationStates, std::move(preScope), std::move(preTypeCache),
         std::move(preSpecEnv), std::move(preTemplateOf), std::move(preSpecializedClassTypes),
-        emitDebugInfo, emitArcDebug, emitArcTrace, OptimizationLevel::O0, pendingJitModuleInits,
-        pendingJitModuleFinis);
-    codegen->run();
+        std::move(preImportedModuleAnalyses), performanceTimer, emitDebugInfo, emitArcDebug,
+        emitArcTrace, OptimizationLevel::O0, pendingJitModuleInits, pendingJitModuleFinis);
+    if (performanceTimer != nullptr) {
+      performanceTimer->measureFile("Compiling", canonicalPath, [&]() -> void { codegen->run(); });
+    } else {
+      codegen->run();
+    }
     ImportedSpecializationState importedState = codegen->captureImportedSpecializationState();
     importedSpecializationStates->at(importIdx) = importedState;
     mergeImportedTraitMetadata(importedState);
+    for (const auto& [key, fn] : codegen->genericFunctions) {
+      if (!key.empty() && fn != nullptr) {
+        genericFunctions[key] = fn;
+      }
+    }
+    for (const auto& [owner, methods] : codegen->genericMethods) {
+      auto& dest = genericMethods[owner];
+      for (const auto& [methodKey, methodAst] : methods) {
+        if (!methodKey.empty() && methodAst != nullptr) {
+          dest[methodKey] = methodAst;
+        }
+      }
+    }
 
     // Imported modules run optimize(O0) (no-op). For JIT, promote PrivateLinkage so Mach-O
-    // JITLink can resolve symbols across ORC modules at -O0 (see prepareJit / addIRModule path).
+    // JITLink can resolve symbols across ORC modules at -O0 (see prepareJit / addIRModule).
     codegen->optimize(OptimizationLevel::O0);
     codegen->theModule->setModuleIdentifier(filepath);
 
@@ -333,49 +405,57 @@ auto Codegen::compileModule(llvm::SMRange span, const std::string& filepath, boo
 
     std::string jitModuleInitSymbol;
     std::string jitModuleFiniSymbol;
-    if (isJit) {
-      codegen->verifyIrModuleOrThrow(fmt::format("import {}", filepath));
-      if (llvm::Function* importMain = codegen->theModule->getFunction("main");
-          importMain != nullptr && importMain->hasInternalLinkage()) {
-        jitModuleInitSymbol = MangleUtils::getImportedModuleInitSymbolName(canonicalPath);
-        importMain->setName(jitModuleInitSymbol);
-        importMain->setLinkage(llvm::GlobalValue::ExternalLinkage);
-        importMain->setVisibility(llvm::GlobalValue::HiddenVisibility);
-      }
-      jitModuleFiniSymbol = MangleUtils::getImportedModuleFiniSymbolName(canonicalPath);
-      if (llvm::Function* importFini = codegen->theModule->getFunction(jitModuleFiniSymbol);
-          importFini != nullptr) {
-        importFini->setLinkage(llvm::GlobalValue::ExternalLinkage);
-        importFini->setVisibility(llvm::GlobalValue::HiddenVisibility);
-      } else {
-        jitModuleFiniSymbol.clear();
-      }
-      for (llvm::Function& fn : *codegen->theModule) {
-        if (fn.hasPrivateLinkage()) {
-          fn.setLinkage(llvm::GlobalValue::ExternalLinkage);
-          fn.setVisibility(llvm::GlobalValue::HiddenVisibility);
+    auto addImportToBackend = [&]() -> void {
+      if (isJit) {
+        codegen->verifyIrModuleOrThrow(fmt::format("import {}", filepath));
+        if (llvm::Function* importMain = codegen->theModule->getFunction("main");
+            importMain != nullptr && importMain->hasInternalLinkage()) {
+          jitModuleInitSymbol = MangleUtils::getImportedModuleInitSymbolName(canonicalPath);
+          importMain->setName(jitModuleInitSymbol);
+          importMain->setLinkage(llvm::GlobalValue::ExternalLinkage);
+          importMain->setVisibility(llvm::GlobalValue::HiddenVisibility);
         }
+        jitModuleFiniSymbol = MangleUtils::getImportedModuleFiniSymbolName(canonicalPath);
+        if (llvm::Function* importFini = codegen->theModule->getFunction(jitModuleFiniSymbol);
+            importFini != nullptr) {
+          importFini->setLinkage(llvm::GlobalValue::ExternalLinkage);
+          importFini->setVisibility(llvm::GlobalValue::HiddenVisibility);
+        } else {
+          jitModuleFiniSymbol.clear();
+        }
+        for (llvm::Function& fn : *codegen->theModule) {
+          if (fn.hasPrivateLinkage()) {
+            fn.setLinkage(llvm::GlobalValue::ExternalLinkage);
+            fn.setVisibility(llvm::GlobalValue::HiddenVisibility);
+          }
+        }
+        // Do not promote private GlobalVariables (string literals, etc.): Mach-O JITLink reports
+        // "Unexpected definitions" for anonymous ___unnamed_* symbols when they become external.
+        llvm::Error jitErr =
+            theJit->addIRModule(ThreadSafeModule(std::move(codegen->theModule), *theContext));
+        if (jitErr) {
+          throw CodegenError(span, std::string("Failed adding import to JIT: ") + canonicalPath +
+                                       ": " + jitErrorToString(std::move(jitErr)));
+        }
+        if (!jitModuleInitSymbol.empty() && pendingJitModuleInits != nullptr) {
+          pendingJitModuleInits->push_back(jitModuleInitSymbol);
+        }
+        if (!jitModuleFiniSymbol.empty() && pendingJitModuleFinis != nullptr) {
+          pendingJitModuleFinis->push_back(jitModuleFiniSymbol);
+        }
+        codegen->theModule = codegen->initializeModule();
+      } else {
+        std::string objFile = fmt::format("tmp{}", objectFiles.size());
+        codegen->writeToObjectFile(objFile);
+        objectFiles.push_back(fmt::format("{}.o", objFile));
       }
-      // Do not promote private GlobalVariables (string literals, etc.): Mach-O JITLink reports
-      // "Unexpected definitions" for anonymous ___unnamed_* symbols when they become external.
-      llvm::Error jitErr =
-          theJit->addIRModule(ThreadSafeModule(std::move(codegen->theModule), *theContext));
-      if (jitErr) {
-        throw CodegenError(span, std::string("Failed adding import to JIT: ") + canonicalPath +
-                                     ": " + jitErrorToString(std::move(jitErr)));
-      }
-      if (!jitModuleInitSymbol.empty() && pendingJitModuleInits != nullptr) {
-        pendingJitModuleInits->push_back(jitModuleInitSymbol);
-      }
-      if (!jitModuleFiniSymbol.empty() && pendingJitModuleFinis != nullptr) {
-        pendingJitModuleFinis->push_back(jitModuleFiniSymbol);
-      }
-      codegen->theModule = codegen->initializeModule();
+    };
+
+    if (performanceTimer != nullptr) {
+      performanceTimer->measureFile(isJit ? "JIT" : "Writing Object File", canonicalPath,
+                                    addImportToBackend);
     } else {
-      // Create object file to be linked
-      std::string objFile = fmt::format("tmp{}", objectFiles.size());
-      codegen->writeToObjectFile(objFile);
-      objectFiles.push_back(fmt::format("{}.o", objFile));
+      addImportToBackend();
     }
     // Keep the imported codegen alive so Class* stored in copied symbols stay
     // valid

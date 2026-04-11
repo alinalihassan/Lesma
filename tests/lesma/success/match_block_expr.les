@@ -1,0 +1,56 @@
+var observed = 0
+
+match 1 {
+  1 => {
+    observed = 5
+  }
+  else => {
+    observed = 9
+  }
+}
+
+if observed != 5 {
+  exit(1)
+}
+
+let picked = match 2 {
+  1 => {
+    observed = 10
+    10
+  }
+  2 => {
+    observed = 20
+    20
+  }
+  else => {
+    observed = 30
+    30
+  }
+}
+
+if picked != 20 {
+  exit(2)
+}
+
+if observed != 20 {
+  exit(3)
+}
+
+func pick(x: int) -> int {
+  match x {
+    1 => {
+      return 10
+    }
+    else => {
+      return 20
+    }
+  }
+}
+
+if pick(1) != 10 {
+  exit(4)
+}
+
+if pick(7) != 20 {
+  exit(5)
+}

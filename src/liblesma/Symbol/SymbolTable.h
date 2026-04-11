@@ -3,8 +3,11 @@
 #include <cstdint>
 #include <functional>
 #include <memory>
+#include <optional>
+#include <set>
 #include <string>
 #include <unordered_map>
+#include <utility>
 #include <vector>
 
 #include "Value.h"
@@ -44,7 +47,9 @@ public:
 
   auto lookupFunction(const std::string& symbolName, std::vector<lesma::Type*> paramTypes,
                       FunctionLookupKind kind = FunctionLookupKind::VALUE,
-                      Type* excludeFormalReceiverClass = nullptr) -> Value*;
+                      Type* excludeFormalReceiverClass = nullptr,
+                      Type* requiredDeclaredInClass = nullptr,
+                      std::optional<size_t> requiredGenericArity = std::nullopt) -> Value*;
   /** Like \c lookupFunction(Value), but only considers overloads for which \p receiverMatches
    * returns true for the class type under the first (receiver) pointer parameter. Used for
    * `super.method(self, …)` so the subclass overload is not chosen via subtyping.
@@ -119,6 +124,22 @@ public:
    * \c lookupType still works after ownership is unified elsewhere (e.g. Driver/Codegen). */
   auto releaseOwnedTypesInto(std::vector<std::unique_ptr<Type>>& dest) -> void;
 
+  /** Deep-clone this scope and nested child scopes under \p newParent for generic specialization
+   *  codegen. Fills \p oldToNew with template table pointer → clone pointer. Clears LLVM handles
+   *  on cloned \c Value entries. Does not deep-copy owned \c Type objects; preserves local type
+   *  bindings by reusing the same \c Type* pointers in the clone's lookup maps. */
+  [[nodiscard]] auto cloneSubtreeForCodegen(SymbolTable* newParent,
+                                            std::unordered_map<SymbolTable*, SymbolTable*>& oldToNew)
+      -> std::unique_ptr<SymbolTable>;
+
+  /** Take ownership of a subtree produced by \c cloneSubtreeForCodegen (naming like \c createChildBlock). */
+  auto attachClonedChild(std::string const& blockName, std::unique_ptr<SymbolTable> child)
+      -> SymbolTable*;
+
+  /** Remap \c Value::bodyScope on this tree when it points at a template table listed in \p oldToNew. */
+  auto remapValueBodyScopesForCodegenClone(std::unordered_map<SymbolTable*, SymbolTable*> const& oldToNew)
+      -> void;
+
   [[nodiscard]] auto toString(int ind) -> std::string {
     std::string res;
     for (const auto& [key, symbol] : symbols) {
@@ -135,6 +156,38 @@ public:
   }
 
 private:
+  friend auto selectBestFunctionTypeMatch(const std::vector<Type*>& candidateFunctionTypes,
+                                          const std::vector<Type*>& paramTypes) -> Type*;
+  friend auto selectBestFunctionTypeMatchTail(const std::vector<Type*>& candidateFunctionTypes,
+                                              const std::vector<Type*>& paramTypesAfterSelf)
+      -> Type*;
+
+  static constexpr int RANK_EXACT = 3;
+  static constexpr int RANK_GENERIC = 2;
+  static constexpr int RANK_PTR_SUBCLASS = 2;
+  static constexpr int RANK_DEFAULTED = 1;
+  static constexpr int RANK_VARARG = 0;
+
+  [[nodiscard]] static auto rankVectorBetter(const std::vector<int>& ranksA,
+                                             const std::vector<int>& ranksB) -> bool;
+  [[nodiscard]] static auto superCallSelfPointerMatches(Type* formalTy, Type* argTy,
+                                                        Type* staticSuperType) -> bool;
+  [[nodiscard]] static auto receiverClassTypeForMethodFn(Type* fnTy) -> Type*;
+  [[nodiscard]] static auto typeContainsGeneric(Type* type) -> bool;
+  [[nodiscard]] static auto rankForMatchedOverloadParam(Type* formalTy, Type* argTy) -> int;
+
+  static auto matchGenericParameter(Type* formalTy, Type* argTy,
+                                    std::unordered_map<std::string, Type*>& genericBindings,
+                                    FunctionLookupKind lookupKind) -> bool;
+  static auto matchGenericParameter(
+      Type* formalTy, Type* argTy, std::unordered_map<std::string, Type*>& genericBindings,
+      FunctionLookupKind lookupKind, std::set<std::pair<Type*, Type*>>& activePairs) -> bool;
+  [[nodiscard]] static auto matchGenericUnionAgainstUnion(
+      const std::vector<Type*>& formalMembers, size_t formalIndex, const std::vector<Type*>& argMembers,
+      std::vector<bool>& usedArg, std::unordered_map<std::string, Type*> trialBindings,
+      std::unordered_map<std::string, Type*>& genericBindings, FunctionLookupKind lookupKind,
+      std::set<std::pair<Type*, Type*>>& activePairs) -> bool;
+
   SymbolTable* parent;
   /** Owning types and symbols: destroy symbols before types (Values may point into \c types). */
   std::unordered_map<std::string, std::unique_ptr<Type>> types;

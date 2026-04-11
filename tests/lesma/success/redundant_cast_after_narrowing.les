@@ -1,0 +1,10 @@
+var value: int | str = 5
+
+if value is int {
+  let narrowed: int = value as int
+  if narrowed != 5 {
+    exit(1)
+  }
+} else {
+  exit(2)
+}

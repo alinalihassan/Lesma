@@ -50,6 +50,9 @@ struct IndexedSymbolOccurrence {
   llvm::SMRange span;
   /** Non-owning; if set, hover uses this type instead of the resolved symbol's declared type. */
   Type* flowSensitiveType = nullptr;
+  /** Non-owning resolved/declared type for this occurrence (used by LSP when no symbol lookup
+   * fits). */
+  Type* resolvedType = nullptr;
   /** When set, semantic tokens use this range instead of \c span (e.g. operator glyphs only). */
   std::optional<llvm::SMRange> semanticHighlightSpan;
   std::optional<IndexedDeclarationIdentity> declaration;
@@ -125,13 +128,14 @@ struct AnalysisResult {
 
 /** Run lexer, parser, and typechecker. Does not run codegen.
  *  When \p phaseTimer is non-null, the driver passes an enabled Timer so phases are recorded
- *  (Reading source, Lexing, Parsing, Typecheck). */
+ *  (Reading, Lexing, Parsing, Typecheck). */
 auto analyze(std::unique_ptr<Options> options, Timer* phaseTimer = nullptr) -> AnalysisResult;
-auto buildAnalysisIndex(const Compound* ast, llvm::SourceMgr* srcMgr, unsigned bufferId)
-    -> AnalysisIndex;
+auto buildAnalysisIndex(const Compound* ast, llvm::SourceMgr* srcMgr, unsigned bufferId,
+                        const std::string& mainFilePath) -> AnalysisIndex;
 
 [[nodiscard]] auto indexedTokenKindFromResolvedSymbol(const Value* resolvedSymbol,
                                                       bool isTypePosition, bool isMemberAccess,
-                                                      IndexedTokenKind fallbackKind) -> IndexedTokenKind;
+                                                      IndexedTokenKind fallbackKind)
+    -> IndexedTokenKind;
 
 } // namespace lesma

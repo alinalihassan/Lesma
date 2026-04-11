@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <sstream>
 #include <string>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -16,6 +17,31 @@ auto findIndexInFields(Type* structType, const std::string& field) -> int {
     }
   }
   return -1;
+}
+
+auto findIndexInEnumVariants(const Type* enumType, const std::string& variantName) -> int {
+  if (enumType == nullptr || !enumType->is(BaseType::TY_ENUM)) {
+    return -1;
+  }
+  auto variants = enumType->getEnumVariants();
+  for (size_t i = 0; i < variants.size(); ++i) {
+    if (variants[i] != nullptr && variants[i]->name == variantName) {
+      return static_cast<int>(i);
+    }
+  }
+  return -1;
+}
+
+auto findEnumVariant(const Type* enumType, const std::string& variantName) -> const EnumVariant* {
+  if (enumType == nullptr || !enumType->is(BaseType::TY_ENUM)) {
+    return nullptr;
+  }
+  for (EnumVariant* variant : enumType->getEnumVariants()) {
+    if (variant != nullptr && variant->name == variantName) {
+      return variant;
+    }
+  }
+  return nullptr;
 }
 
 auto classDataFieldStructIndex(Type* classTy, unsigned logicalIndex) -> unsigned {
@@ -80,10 +106,11 @@ auto isArcReferenceType(Type const* t) -> bool {
          t->getElementType()->is(BaseType::TY_CLASS);
 }
 
-auto containsArcManagedValue(Type const* t) -> bool {
-  if (t == nullptr) {
+auto containsArcManagedValue(Type const* t, std::unordered_set<Type const*>& visited) -> bool {
+  if (t == nullptr || visited.contains(t)) {
     return false;
   }
+  visited.insert(t);
   if (isArcReferenceType(t)) {
     return true;
   }
@@ -93,14 +120,29 @@ auto containsArcManagedValue(Type const* t) -> bool {
   case BaseType::TY_TRAIT_EXISTENTIAL:
     return true;
   case BaseType::TY_TUPLE:
-    return std::ranges::any_of(
-        t->getFields(), [](Field const* field) { return containsArcManagedValue(field->type); });
+    return std::ranges::any_of(t->getFields(), [&](Field const* field) {
+      return field != nullptr && containsArcManagedValue(field->type, visited);
+    });
+  case BaseType::TY_ENUM:
+    return std::ranges::any_of(t->getEnumVariants(), [&](EnumVariant const* variant) {
+      if (variant == nullptr) {
+        return false;
+      }
+      return std::ranges::any_of(variant->payloadTypes, [&](Type const* payload) {
+        return containsArcManagedValue(payload, visited);
+      });
+    });
   case BaseType::TY_UNION:
     return std::ranges::any_of(t->getUnionMembers(),
-                               [](Type const* member) { return containsArcManagedValue(member); });
+                               [&](Type const* member) { return containsArcManagedValue(member, visited); });
   default:
     return false;
   }
+}
+
+auto containsArcManagedValue(Type const* t) -> bool {
+  std::unordered_set<Type const*> visited;
+  return containsArcManagedValue(t, visited);
 }
 
 auto makeSpecializedClassKey(Type* classTemplate, const std::vector<std::string>& genericParamNames,

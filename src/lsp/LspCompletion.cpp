@@ -37,7 +37,9 @@ using lesma::lsp_srv::formatTypeName;
 struct CompletionContext {
   bool isMember = false;
   std::string prefix;
+  unsigned prefixStart = 0U;
   std::string memberChain;
+  unsigned memberChainStart = 0U;
 };
 
 struct CompletionCandidate {
@@ -232,6 +234,23 @@ auto lineStartOffsetAt(llvm::StringRef text, unsigned pos) -> unsigned {
     }
   }
   return start;
+}
+
+auto endsWithWholeWord(llvm::StringRef text, llvm::StringRef word) -> bool {
+  text = text.rtrim(" \t\r");
+  if (text.size() < word.size() || !text.ends_with(word)) {
+    return false;
+  }
+  if (text.size() == word.size()) {
+    return true;
+  }
+  return !isIdentChar(text[text.size() - word.size() - 1U]);
+}
+
+auto cursorInReturnEnumContext(llvm::StringRef text, const CompletionContext& ctx) -> bool {
+  unsigned const lineStart = lineStartOffsetAt(text, ctx.prefixStart);
+  llvm::StringRef const beforePrefix = text.slice(lineStart, ctx.prefixStart);
+  return endsWithWholeWord(beforePrefix, "return");
 }
 
 /** True if a `//` line comment begins before \p openQuoteIdx on the same line (outside strings). */
@@ -519,6 +538,7 @@ auto extractCompletionContext(llvm::StringRef text, unsigned offset) -> Completi
     --prefixStart;
   }
   ctx.prefix = std::string(text.slice(prefixStart, cursor));
+  ctx.prefixStart = static_cast<unsigned>(prefixStart);
   if (prefixStart == 0U || text[prefixStart - 1U] != '.') {
     return ctx;
   }
@@ -530,6 +550,7 @@ auto extractCompletionContext(llvm::StringRef text, unsigned offset) -> Completi
     --chainStart;
   }
   ctx.memberChain = std::string(text.slice(chainStart, chainEnd + 1U));
+  ctx.memberChainStart = static_cast<unsigned>(chainStart);
   return ctx;
 }
 
@@ -555,6 +576,300 @@ auto lookupName(SymbolTable* scope, SymbolTable* root, const std::string& name) 
     }
   }
   return root != nullptr ? root->lookup(name) : nullptr;
+}
+
+void addCandidate(std::vector<CompletionCandidate>& out, std::unordered_set<std::string>& seen,
+                  CompletionCandidate candidate);
+auto resolveMemberFieldType(Type* baseType, const std::string& name) -> Type*;
+
+auto indexedOccurrenceTypeAtStartOffset(const AnalysisResult& result, const std::string& name,
+                                        unsigned startOffset) -> Type* {
+  Type* bestType = nullptr;
+  unsigned bestLen = 0U;
+  for (const IndexedSymbolOccurrence& occurrence : result.index.symbolOccurrences) {
+    if (occurrence.name != name || !occurrence.span.isValid()) {
+      continue;
+    }
+    unsigned const occStart = static_cast<unsigned>(
+        occurrence.span.Start.getPointer() -
+        result.sourceMgr->getMemoryBuffer(result.mainBufferId)->getBufferStart());
+    if (occStart != startOffset) {
+      continue;
+    }
+    unsigned const occEnd = static_cast<unsigned>(
+        occurrence.span.End.getPointer() -
+        result.sourceMgr->getMemoryBuffer(result.mainBufferId)->getBufferStart());
+    unsigned const occLen = occEnd > occStart ? occEnd - occStart : 0U;
+    Type* candidateType = occurrence.flowSensitiveType != nullptr ? occurrence.flowSensitiveType
+                                                                  : occurrence.resolvedType;
+    if (candidateType != nullptr && (bestType == nullptr || occLen < bestLen)) {
+      bestType = candidateType;
+      bestLen = occLen;
+    }
+  }
+  return bestType;
+}
+
+auto resolvedTypeForCompletionExpr(const Expression* expr) -> Type* {
+  if (expr == nullptr) {
+    return nullptr;
+  }
+  if (auto const* lit = dynamic_cast<const Literal*>(expr)) {
+    Value* resolved = lit->getResolvedSymbol();
+    if (resolved != nullptr && resolved->getType() != nullptr) {
+      return lit->getLspFlowSensitiveType() != nullptr ? lit->getLspFlowSensitiveType()
+                                                       : resolved->getType();
+    }
+    return nullptr;
+  }
+  if (auto const* call = dynamic_cast<const FuncCall*>(expr)) {
+    Value* resolved = call->getResolvedSymbol();
+    return resolved != nullptr && resolved->getType() != nullptr
+               ? resolved->getType()->getReturnType()
+               : nullptr;
+  }
+  if (auto const* dot = dynamic_cast<const DotOp*>(expr)) {
+    Type* baseType = resolvedTypeForCompletionExpr(dot->getLeft());
+    if (baseType == nullptr) {
+      return nullptr;
+    }
+    if (baseType->is(BaseType::TY_PTR) && baseType->getElementType() != nullptr) {
+      baseType = baseType->getElementType();
+    }
+    if (auto const* rightLit = dynamic_cast<const Literal*>(dot->getRight())) {
+      return resolveMemberFieldType(baseType, rightLit->getValue());
+    }
+    if (auto const* rightCall = dynamic_cast<const FuncCall*>(dot->getRight())) {
+      Value* resolved = rightCall->getResolvedSymbol();
+      return resolved != nullptr && resolved->getType() != nullptr
+                 ? resolved->getType()->getReturnType()
+                 : nullptr;
+    }
+  }
+  if (auto const* match = dynamic_cast<const MatchExpr*>(expr)) {
+    return match->getResolvedType();
+  }
+  if (auto const* blockExpr = dynamic_cast<const BlockExpr*>(expr)) {
+    return blockExpr->getResolvedType();
+  }
+  return nullptr;
+}
+
+void appendMatchWalkStmt(const AnalysisResult& result, unsigned offset,
+                         std::vector<CompletionCandidate>& out,
+                         std::unordered_set<std::string>& seen, const Statement* stmt);
+
+void appendMatchWalkExpr(const AnalysisResult& result, unsigned offset,
+                         std::vector<CompletionCandidate>& out,
+                         std::unordered_set<std::string>& seen, const Expression* expr) {
+  if (expr == nullptr || !expr->getSpan().isValid()) {
+    return;
+  }
+  unsigned const start = static_cast<unsigned>(
+      expr->getSpan().Start.getPointer() -
+      result.sourceMgr->getMemoryBuffer(result.mainBufferId)->getBufferStart());
+  unsigned const end = static_cast<unsigned>(
+      expr->getSpan().End.getPointer() -
+      result.sourceMgr->getMemoryBuffer(result.mainBufferId)->getBufferStart());
+  if (offset < start || offset > end) {
+    return;
+  }
+  if (auto const* match = dynamic_cast<const MatchExpr*>(expr)) {
+    appendMatchWalkExpr(result, offset, out, seen, match->getScrutinee());
+    Type* matchType = resolvedTypeForCompletionExpr(match->getScrutinee());
+    for (const MatchArm& arm : match->getArms()) {
+      if (arm.body == nullptr || !arm.body->getSpan().isValid()) {
+        continue;
+      }
+      unsigned const patternStart = static_cast<unsigned>(
+          arm.pattern.span.Start.getPointer() -
+          result.sourceMgr->getMemoryBuffer(result.mainBufferId)->getBufferStart());
+      unsigned const armStart = static_cast<unsigned>(
+          arm.body->getSpan().Start.getPointer() -
+          result.sourceMgr->getMemoryBuffer(result.mainBufferId)->getBufferStart());
+      unsigned const armEnd = static_cast<unsigned>(
+          arm.body->getSpan().End.getPointer() -
+          result.sourceMgr->getMemoryBuffer(result.mainBufferId)->getBufferStart());
+      if (matchType != nullptr && matchType->is(BaseType::TY_ENUM) && offset >= patternStart &&
+          offset <= armStart) {
+        for (EnumVariant* variant : matchType->getEnumVariants()) {
+          if (variant == nullptr) {
+            continue;
+          }
+          addCandidate(out, seen,
+                       CompletionCandidate{.label = variant->name,
+                                           .kind = ::lsp::CompletionItemKind::EnumMember,
+                                           .detail = matchType->getDisplayName(),
+                                           .documentation = {}});
+        }
+      }
+      if (offset < armStart || offset > armEnd) {
+        continue;
+      }
+      Type* enumType = arm.pattern.resolvedEnumType;
+      if (enumType != nullptr) {
+        const auto& variants = enumType->getEnumVariants();
+        if (arm.pattern.resolvedVariantIndex < variants.size() &&
+            variants[arm.pattern.resolvedVariantIndex] != nullptr) {
+          const auto& payloadTypes = variants[arm.pattern.resolvedVariantIndex]->payloadTypes;
+          for (size_t i = 0; i < arm.pattern.bindings.size() && i < payloadTypes.size(); ++i) {
+            if (arm.pattern.bindings[i] == "_") {
+              continue;
+            }
+            addCandidate(out, seen,
+                         CompletionCandidate{
+                             .label = arm.pattern.bindings[i],
+                             .kind = ::lsp::CompletionItemKind::Variable,
+                             .detail = formatTypeName(payloadTypes[i], result.rootScope.get()),
+                             .documentation = {}});
+          }
+        }
+      }
+      appendMatchWalkExpr(result, offset, out, seen, arm.body.get());
+      if (arm.pattern.kind == MatchPatternKind::VALUE && arm.pattern.valueExpr != nullptr) {
+        appendMatchWalkExpr(result, offset, out, seen, arm.pattern.valueExpr.get());
+      }
+    }
+    return;
+  }
+  if (auto const* blockExpr = dynamic_cast<const BlockExpr*>(expr)) {
+    appendMatchWalkStmt(result, offset, out, seen, blockExpr->getBody());
+    appendMatchWalkExpr(result, offset, out, seen, blockExpr->getTailExpr());
+    return;
+  }
+  if (auto const* call = dynamic_cast<const FuncCall*>(expr)) {
+    for (Expression* arg : call->getArguments()) {
+      appendMatchWalkExpr(result, offset, out, seen, arg);
+    }
+    return;
+  }
+  if (auto const* dot = dynamic_cast<const DotOp*>(expr)) {
+    appendMatchWalkExpr(result, offset, out, seen, dot->getLeft());
+    appendMatchWalkExpr(result, offset, out, seen, dot->getRight());
+    return;
+  }
+  if (auto const* binary = dynamic_cast<const BinaryOp*>(expr)) {
+    appendMatchWalkExpr(result, offset, out, seen, binary->getLeft());
+    appendMatchWalkExpr(result, offset, out, seen, binary->getRight());
+    return;
+  }
+  if (auto const* unary = dynamic_cast<const UnaryOp*>(expr)) {
+    appendMatchWalkExpr(result, offset, out, seen, unary->getExpression());
+    return;
+  }
+  if (auto const* castOp = dynamic_cast<const CastOp*>(expr)) {
+    appendMatchWalkExpr(result, offset, out, seen, castOp->getExpression());
+    return;
+  }
+  if (auto const* isOp = dynamic_cast<const IsOp*>(expr)) {
+    appendMatchWalkExpr(result, offset, out, seen, isOp->getLeft());
+    return;
+  }
+  if (auto const* subscript = dynamic_cast<const SubscriptOp*>(expr)) {
+    appendMatchWalkExpr(result, offset, out, seen, subscript->getLeft());
+    appendMatchWalkExpr(result, offset, out, seen, subscript->getIndex());
+    return;
+  }
+  if (auto const* list = dynamic_cast<const ListLiteral*>(expr)) {
+    for (Expression* el : list->getElements()) {
+      appendMatchWalkExpr(result, offset, out, seen, el);
+    }
+    return;
+  }
+  if (auto const* dict = dynamic_cast<const DictLiteral*>(expr)) {
+    for (Expression* key : dict->getKeys()) {
+      appendMatchWalkExpr(result, offset, out, seen, key);
+    }
+    for (Expression* val : dict->getValues()) {
+      appendMatchWalkExpr(result, offset, out, seen, val);
+    }
+    return;
+  }
+  if (auto const* tup = dynamic_cast<const TupleLiteral*>(expr)) {
+    for (Expression* el : tup->getElements()) {
+      appendMatchWalkExpr(result, offset, out, seen, el);
+    }
+    return;
+  }
+  if (auto const* interp = dynamic_cast<const StringInterpolation*>(expr)) {
+    for (Expression* el : interp->getExprs()) {
+      appendMatchWalkExpr(result, offset, out, seen, el);
+    }
+  }
+}
+
+void appendMatchWalkStmt(const AnalysisResult& result, unsigned offset,
+                         std::vector<CompletionCandidate>& out,
+                         std::unordered_set<std::string>& seen, const Statement* stmt) {
+  if (stmt == nullptr || !stmt->getSpan().isValid()) {
+    return;
+  }
+  unsigned const start = static_cast<unsigned>(
+      stmt->getSpan().Start.getPointer() -
+      result.sourceMgr->getMemoryBuffer(result.mainBufferId)->getBufferStart());
+  unsigned const end = static_cast<unsigned>(
+      stmt->getSpan().End.getPointer() -
+      result.sourceMgr->getMemoryBuffer(result.mainBufferId)->getBufferStart());
+  if (offset < start || offset > end) {
+    return;
+  }
+  if (auto const* exprStmt = dynamic_cast<const ExpressionStatement*>(stmt)) {
+    appendMatchWalkExpr(result, offset, out, seen, exprStmt->getExpression());
+  } else if (auto const* varDecl = dynamic_cast<const VarDecl*>(stmt)) {
+    appendMatchWalkExpr(result, offset, out, seen, varDecl->getValue());
+  } else if (auto const* assign = dynamic_cast<const Assignment*>(stmt)) {
+    appendMatchWalkExpr(result, offset, out, seen, assign->getLeftHandSide());
+    appendMatchWalkExpr(result, offset, out, seen, assign->getRightHandSide());
+  } else if (auto const* ifNode = dynamic_cast<const If*>(stmt)) {
+    for (Expression* cond : ifNode->getConds()) {
+      appendMatchWalkExpr(result, offset, out, seen, cond);
+    }
+    for (Compound* block : ifNode->getBlocks()) {
+      appendMatchWalkStmt(result, offset, out, seen, block);
+    }
+  } else if (auto const* whileNode = dynamic_cast<const While*>(stmt)) {
+    appendMatchWalkExpr(result, offset, out, seen, whileNode->getCond());
+    appendMatchWalkStmt(result, offset, out, seen, whileNode->getBlock());
+  } else if (auto const* forIn = dynamic_cast<const ForIn*>(stmt)) {
+    appendMatchWalkExpr(result, offset, out, seen, forIn->getIterable());
+    appendMatchWalkStmt(result, offset, out, seen, forIn->getBlock());
+  } else if (auto const* ret = dynamic_cast<const Return*>(stmt)) {
+    appendMatchWalkExpr(result, offset, out, seen, ret->getValue());
+  } else if (auto const* defer = dynamic_cast<const Defer*>(stmt)) {
+    appendMatchWalkStmt(result, offset, out, seen, defer->getStatement());
+  } else if (auto const* compound = dynamic_cast<const Compound*>(stmt)) {
+    for (Statement* child : compound->getChildren()) {
+      appendMatchWalkStmt(result, offset, out, seen, child);
+    }
+  } else if (auto const* func = dynamic_cast<const FuncDecl*>(stmt)) {
+    appendMatchWalkStmt(result, offset, out, seen, func->getBody());
+  } else if (auto const* klass = dynamic_cast<const Class*>(stmt)) {
+    for (VarDecl* field : klass->getFields()) {
+      appendMatchWalkStmt(result, offset, out, seen, field);
+    }
+    for (FuncDecl* method : klass->getMethods()) {
+      appendMatchWalkStmt(result, offset, out, seen, method);
+    }
+  } else if (auto const* en = dynamic_cast<const Enum*>(stmt)) {
+    for (FuncDecl* method : en->getMethods()) {
+      appendMatchWalkStmt(result, offset, out, seen, method);
+    }
+  }
+}
+
+void appendMatchArmBindingCandidatesAtOffset(const AnalysisResult& result, unsigned offset,
+                                             std::vector<CompletionCandidate>& out,
+                                             std::unordered_set<std::string>& seen) {
+  if (result.parser == nullptr || result.sourceMgr == nullptr) {
+    return;
+  }
+  Compound* ast = result.parser->getAst();
+  if (ast == nullptr) {
+    return;
+  }
+  for (Statement* stmt : ast->getChildren()) {
+    appendMatchWalkStmt(result, offset, out, seen, stmt);
+  }
 }
 
 auto lookupImportedModuleSymbol(const AnalysisResult& result, const std::string& alias,
@@ -604,24 +919,37 @@ auto resolveMemberFieldType(Type* baseType, const std::string& name) -> Type* {
  *  qualified imports (`alias.ExportedName` via \p result), nested type fields, and repeated
  *  `TY_IMPORT` steps when an import alias is bound in scope. */
 [[nodiscard]] auto resolveCompletionMemberChainType(const AnalysisResult& result,
-                                                  const std::string& chain, SymbolTable* scope,
-                                                  SymbolTable* root) -> Type* {
+                                                    const std::string& chain, unsigned chainStart,
+                                                    SymbolTable* scope, SymbolTable* root)
+    -> Type* {
   std::vector<std::string> const parts = splitChain(chain);
   if (parts.empty()) {
     return nullptr;
   }
-  Value* v = lookupName(scope, root, parts[0]);
+  Type* ty = indexedOccurrenceTypeAtStartOffset(result, parts[0], chainStart);
+  Value* v = nullptr;
+  if (ty == nullptr) {
+    v = lookupName(scope, root, parts[0]);
+  }
   size_t idx = 1U;
-  if (v == nullptr && parts.size() >= 2U) {
+  if (v == nullptr && ty == nullptr && parts.size() >= 2U) {
     v = lookupImportedModuleSymbol(result, parts[0], parts[1]);
     if (v != nullptr) {
       idx = 2U;
     }
   }
-  if (v == nullptr) {
+  if (v == nullptr && ty == nullptr) {
     return nullptr;
   }
-  Type* ty = v->getType();
+  if (ty == nullptr) {
+    ty = v->getType();
+  }
+  if (ty != nullptr && ty->is(BaseType::TY_IMPORT) && v == nullptr) {
+    v = lookupName(scope, root, parts[0]);
+    if (v == nullptr) {
+      return nullptr;
+    }
+  }
   while (idx < parts.size()) {
     if (ty != nullptr && ty->is(BaseType::TY_IMPORT)) {
       v = lookupImportedModuleSymbol(result, v->getName(), parts[idx]);
@@ -645,32 +973,32 @@ auto resolveMemberFieldType(Type* baseType, const std::string& name) -> Type* {
  *  (static members and `new`), not other type symbols (e.g. enums) or instance chains. */
 [[nodiscard]] auto memberCompletionUsesTypeNameContext(const AnalysisResult& result,
                                                        SymbolTable* scope, SymbolTable* root,
-                                                       const std::string& memberChain) -> bool {
-  Type* const ty = resolveCompletionMemberChainType(result, memberChain, scope, root);
+                                                       const std::string& memberChain,
+                                                       unsigned memberChainStart) -> bool {
+  Type* const ty =
+      resolveCompletionMemberChainType(result, memberChain, memberChainStart, scope, root);
   return ty != nullptr && ty->is(BaseType::TY_CLASS);
 }
 
-auto resolveChainType(const AnalysisResult& result, const std::string& chain, SymbolTable* scope,
-                      SymbolTable* root) -> Type* {
-  return resolveCompletionMemberChainType(result, chain, scope, root);
+auto resolveChainType(const AnalysisResult& result, const std::string& chain, unsigned chainStart,
+                      SymbolTable* scope, SymbolTable* root) -> Type* {
+  return resolveCompletionMemberChainType(result, chain, chainStart, scope, root);
 }
 
-/** When the receiver is `self`, resolve the class instance type from the innermost enclosing
- * method. */
+/** When the receiver is `self`, resolve the innermost enclosing nominal instance type. */
 auto resolveSelfReceiverType(Compound* ast, unsigned offset, llvm::SourceMgr* srcMgr,
                              unsigned bufferId, SymbolTable* root) -> Type* {
   if (ast == nullptr || root == nullptr) {
     return nullptr;
   }
   InnermostFunc inner = findInnermostFuncContaining(ast, offset, srcMgr, bufferId);
-  if (inner.enclosingClass == nullptr) {
-    return nullptr;
+  if (inner.enclosingClass != nullptr) {
+    return root->lookupType(inner.enclosingClass->getIdentifier());
   }
-  Type* classTy = root->lookupType(inner.enclosingClass->getIdentifier());
-  if (classTy == nullptr) {
-    return nullptr;
+  if (inner.enclosingEnum != nullptr) {
+    return root->lookupType(inner.enclosingEnum->getIdentifier());
   }
-  return classTy;
+  return nullptr;
 }
 
 void addCandidate(std::vector<CompletionCandidate>& out, std::unordered_set<std::string>& seen,
@@ -939,8 +1267,7 @@ void addCandidate(std::vector<CompletionCandidate>& out, std::unordered_set<std:
 
 void appendTraitRequirementMethods(AnalysisResult& result, Type* classType, Compound* mainAst,
                                    SymbolTable* root, TraitDecl* completionEnclosingTrait,
-                                   bool completingOnTypeName,
-                                   std::vector<CompletionCandidate>& out,
+                                   bool completingOnTypeName, std::vector<CompletionCandidate>& out,
                                    std::unordered_set<std::string>& seen) {
   if (classType == nullptr || root == nullptr) {
     return;
@@ -1064,8 +1391,7 @@ void appendMembersForType(AnalysisResult& result, Type* baseType, Compound* ast,
         if (sf == nullptr) {
           continue;
         }
-        if (Value* decl = sf->getDeclarationSymbol();
-            decl != nullptr && decl->isPrivateMember()) {
+        if (Value* decl = sf->getDeclarationSymbol(); decl != nullptr && decl->isPrivateMember()) {
           continue;
         }
         addCandidate(out, seen,
@@ -1079,8 +1405,8 @@ void appendMembersForType(AnalysisResult& result, Type* baseType, Compound* ast,
   // Walk inheritance chain so subclass completion includes superclass methods (deduped by `seen`).
   for (Type* ty = baseType; ty != nullptr; ty = ty->getClassSuperclass()) {
     if (Class* klass = findClassDeclarationForType(result, ty, ast, root)) {
-      appendMethodsForClass(result, klass, root, completionEnclosingClass, completingOnTypeName, out,
-                            seen);
+      appendMethodsForClass(result, klass, root, completionEnclosingClass, completingOnTypeName,
+                            out, seen);
     }
   }
 }
@@ -1106,13 +1432,48 @@ void appendScopeSymbols(AnalysisResult& result, SymbolTable* scope, SymbolTable*
   }
 }
 
+void appendReturnEnumVariants(const InnermostFunc& cursorContext, SymbolTable* root,
+                              std::vector<CompletionCandidate>& out,
+                              std::unordered_set<std::string>& seen) {
+  if (cursorContext.func == nullptr) {
+    return;
+  }
+  Value* funcSymbol = cursorContext.func->getResolvedSymbol();
+  if (funcSymbol == nullptr || funcSymbol->getType() == nullptr ||
+      !funcSymbol->getType()->is(BaseType::TY_FUNCTION)) {
+    return;
+  }
+  Type* returnType = funcSymbol->getType()->getReturnType();
+  if (returnType == nullptr) {
+    return;
+  }
+  if (returnType->is(BaseType::TY_PTR) && returnType->getElementType() != nullptr) {
+    returnType = returnType->getElementType();
+  }
+  if (!returnType->is(BaseType::TY_ENUM)) {
+    return;
+  }
+  std::string const detail = !returnType->getDisplayName().empty()
+                                 ? returnType->getDisplayName()
+                                 : formatTypeName(returnType, root);
+  for (EnumVariant* variant : returnType->getEnumVariants()) {
+    if (variant == nullptr) {
+      continue;
+    }
+    addCandidate(out, seen,
+                 CompletionCandidate{.label = variant->name,
+                                     .kind = ::lsp::CompletionItemKind::EnumMember,
+                                     .detail = detail,
+                                     .documentation = {}});
+  }
+}
+
 void appendKeywords(std::vector<CompletionCandidate>& out, std::unordered_set<std::string>& seen) {
   static constexpr std::array<std::string_view, 29> keywords = {
-      "and",    "as",      "break",  "class", "continue", "defer", "else",
-      "enum",   "export",  "extern", "for",   "func",     "from",  "if",
-      "import", "in",      "is",     "let",   "not",      "or",    "overload",
-      "pass",   "private", "return", "static", "super",   "this",  "var",
-      "while",
+      "and",    "as",     "break", "class", "continue", "defer",    "else",    "enum",
+      "export", "extern", "for",   "func",  "from",     "if",       "import",  "in",
+      "is",     "let",    "match", "not",   "or",       "overload", "private", "return",
+      "static", "super",  "this",  "var",   "while",
   };
   static constexpr std::array<std::string_view, 3> literals = {"false", "null", "true"};
   static constexpr std::array<std::string_view, 11> builtinTypes = {
@@ -1232,22 +1593,27 @@ auto completionItems(AnalysisResult& result, unsigned line, unsigned character)
 
   if (ctx.isMember) {
     std::vector<std::string> parts = splitChain(ctx.memberChain);
-    Type* baseType = resolveChainType(*activeResult, ctx.memberChain, activeScope, root);
+    Type* baseType =
+        resolveChainType(*activeResult, ctx.memberChain, ctx.memberChainStart, activeScope, root);
     if (baseType == nullptr && parts.size() == 1U && parts.front() == "self") {
       baseType = resolveSelfReceiverType(ast, offset, activeSrcMgr, activeBufferId, root);
     }
     if (parts.size() == 1U && activeResult->importAliasToPath.contains(parts.front())) {
       appendModuleMembersForAlias(*activeResult, parts.front(), candidates, seen);
     }
-    bool const completingOnTypeName =
-        memberCompletionUsesTypeNameContext(*activeResult, activeScope, root, ctx.memberChain);
+    bool const completingOnTypeName = memberCompletionUsesTypeNameContext(
+        *activeResult, activeScope, root, ctx.memberChain, ctx.memberChainStart);
     appendMembersForType(*activeResult, baseType, ast, root, completionEnclosingClass,
                          completingOnTypeName, candidates, seen);
     appendTraitRequirementMethods(*activeResult, baseType, ast, root, completionEnclosingTrait,
                                   completingOnTypeName, candidates, seen);
   } else {
+    appendMatchArmBindingCandidatesAtOffset(*activeResult, offset, candidates, seen);
     appendScopeSymbols(*activeResult, activeScope != nullptr ? activeScope : root, root, candidates,
                        seen);
+    if (cursorInReturnEnumContext(text, ctx)) {
+      appendReturnEnumVariants(cursorContext, root, candidates, seen);
+    }
     appendKeywords(candidates, seen);
   }
 

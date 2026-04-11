@@ -19,7 +19,7 @@ func make_reader(value: int) -> func() -> int {
   return func() -> int => value + 1
 }
 
-var value: any = str("alpha")
+var value: any = "alpha"
 if value is not str {
   exit(1)
 } else {

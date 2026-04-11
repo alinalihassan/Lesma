@@ -17,7 +17,6 @@ class B {
 
 class Box {
   func new() {
-    pass
   }
   func take<T: NeedVal>(o: T) -> int {
     return o.val()

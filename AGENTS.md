@@ -156,7 +156,8 @@ The codebase follows consistent C++ style. Respect it when editing.
 
 - **Consult the source of truth first:** Before writing or editing any C++ code, read the repo-root **`.clang-format`** and **`.clang-tidy`** and follow those files as the authoritative style/lint configuration for the current change. Do not rely on memory or generic LLVM/C++ habits when the project config says otherwise.
 - **Formatting and lint:** `.clang-format` and `.clang-tidy` define formatting and many clang-tidy checks (e.g. `modernize-*`, `readability-*`, `cppcoreguidelines-*`). Naming: `camelBack` for variables/functions/parameters/members, `CamelCase` for classes/enums, `UPPER_CASE` for global constants. Integer literal suffixes are uppercase (e.g. `0U`).
-- **Helpers in classes:** Prefer **private methods** on the class over free functions in an anonymous namespace. When a helper is only used by one class, add it as a private member so the style stays consistent and the API is clearer.
+- **No anonymous namespaces:** Do not add helpers in anonymous namespaces. They are easy to add without checking how similar logic is already organized on the relevant class, and they drift from project conventions. Put file-local helpers on the owning class as **private** members (use `static` when the helper does not need `this`). Before adding any helper, search the codebase for an existing place to extend.
+- **Helpers in classes:** Prefer **private methods** on the class over free functions at namespace scope. When a helper is only used by one class, add it as a private member so the style stays consistent and the API is clearer.
 - **Includes:** Include order and grouping follow `.clang-format` (e.g. standard library, then LLVM, then project `liblesma/`).
 
 ---
@@ -169,4 +170,4 @@ The codebase follows consistent C++ style. Respect it when editing.
 - **Validation:** Always run `scripts/run_tests.sh <path-to-lesma>` and ensure 0 failures.
 - **Wall-clock benchmark:** With `LESMA_BUILD_BENCHMARKS`, `./build/Debug/benchmark suite … --json-out` / `--vega-lite-out`; timings in JSON are **milliseconds**; SVG via `npx -p vega-lite vl2svg suite.vl.json > chart.svg`.
 - **Memory:** Use the **Debug_Asan** preset (AddressSanitizer + LeakSanitizer) on macOS and Linux; Valgrind is Linux-only and not supported on Apple Silicon.
-- **C++ style:** Follow `.clang-format` and `.clang-tidy`; use private methods instead of anonymous-namespace helpers where the helper belongs to a class.
+- **C++ style:** Follow `.clang-format` and `.clang-tidy`; no anonymous namespaces—use private (static) class members instead of anonymous-namespace helpers.

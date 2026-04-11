@@ -1,0 +1,41 @@
+// Multi-payload variant + generic `Pair` in arms: contextual expected type drives `Pair`
+// inference; bindings use per-slot payload types. Generic enum `PairOrErr<K, V>` is used
+// concretely as `PairOrErr<int, str>` at call sites (like `Opt<int>` / `Result<...>`).
+class Pair<K, V> {
+  var first: K
+  var second: V
+
+  func new(x: K, y: V) {
+    self.first = x
+    self.second = y
+  }
+}
+
+enum PairOrErr<K, V> {
+  Values(K, V)
+  ErrMsg
+}
+
+func sample(ok: bool) -> PairOrErr<int, str> {
+  if ok {
+    return Values(1, "a")
+  }
+  return ErrMsg
+}
+
+func main() -> int {
+  let p: Pair<int, str> = match sample(true) {
+    PairOrErr.Values(x, s) => Pair(x + 9, s)
+    PairOrErr.ErrMsg => {
+      exit(1)
+      Pair(0, "x")
+    }
+  }
+  if p.first != 10 {
+    return 2
+  }
+  if p.second != "a" {
+    return 3
+  }
+  return 0
+}

@@ -6,6 +6,7 @@
 #include <llvm/IR/Function.h>
 #include <llvm/IR/GlobalVariable.h>
 #include <llvm/IR/Instructions.h>
+#include <llvm/Support/Casting.h>
 
 #include "Codegen.h"
 
@@ -18,6 +19,56 @@
 
 using namespace lesma;
 using namespace llvm;
+
+auto Codegen::isLesmaTypeReadyForArcTypeMangling(lesma::Type* type) -> bool {
+  if (type == nullptr) {
+    return false;
+  }
+  if (type->is(BaseType::TY_GENERIC) || type->is(BaseType::TY_TRAIT_EXISTENTIAL)) {
+    return true;
+  }
+  if (type->getLlvmType() == nullptr) {
+    return false;
+  }
+  if (type->is(BaseType::TY_ARRAY)) {
+    return isLesmaTypeReadyForArcTypeMangling(type->getElementType());
+  }
+  if (type->is(BaseType::TY_PTR)) {
+    return isLesmaTypeReadyForArcTypeMangling(type->getElementType());
+  }
+  if (type->is(BaseType::TY_FUNCTION)) {
+    return std::ranges::all_of(type->getFields(), [](Field* field) -> bool {
+      return field != nullptr && isLesmaTypeReadyForArcTypeMangling(field->type);
+    });
+  }
+  if (type->is(BaseType::TY_ENUM)) {
+    return llvm::isa<llvm::StructType>(type->getLlvmType()) &&
+           std::ranges::all_of(type->getEnumVariants(), [](EnumVariant* variant) -> bool {
+             return variant != nullptr &&
+                    std::ranges::all_of(variant->payloadTypes, [](lesma::Type* payloadType) -> bool {
+                      return payloadType != nullptr &&
+                             isLesmaTypeReadyForArcTypeMangling(payloadType);
+                    });
+           });
+  }
+  if (type->is(BaseType::TY_CLASS)) {
+    return llvm::isa<llvm::StructType>(type->getLlvmType());
+  }
+  if (type->is(BaseType::TY_TUPLE)) {
+    return std::ranges::all_of(type->getFields(), [](Field* field) -> bool {
+      return field != nullptr && isLesmaTypeReadyForArcTypeMangling(field->type);
+    });
+  }
+  if (type->is(BaseType::TY_UNION)) {
+    return std::ranges::all_of(type->getUnionMembers(), [](lesma::Type* m) -> bool {
+      return m != nullptr && isLesmaTypeReadyForArcTypeMangling(m);
+    });
+  }
+  if (type->is(BaseType::TY_IMPORT) || type->is(BaseType::TY_INVALID)) {
+    return false;
+  }
+  return true;
+}
 
 auto Codegen::getOrCreateListStructType(lesma::Type* listType) -> llvm::StructType* {
   std::string typeName = "lesma.list";
@@ -246,6 +297,27 @@ auto Codegen::emitRetainLoadedValue(lesma::Type* type, llvm::Value* value, bool 
     }
     return;
   }
+  case BaseType::TY_ENUM: {
+    bool const hasArcVariantPayload =
+        std::ranges::any_of(type->getEnumVariants(), [](EnumVariant const* variant) {
+          if (variant == nullptr) {
+            return false;
+          }
+          return std::ranges::any_of(variant->payloadTypes, TypeUtils::containsArcManagedValue);
+        });
+    if (!hasArcVariantPayload) {
+      return;
+    }
+    llvm::Function* parentFn = builder->GetInsertBlock()->getParent();
+    auto* slot = createAllocaInEntry(parentFn, type->getLlvmType(), "arc.enum.retain.slot");
+    builder->CreateStore(value, slot);
+    llvm::Value* tagVal = builder->CreateExtractValue(value, {0U}, "arc.enum.tag");
+    emitForEachEnumVariantPayloadWithTagDispatch(
+        type, slot, tagVal, "arc.enum.retain", [this](Type* payloadType, llvm::Value* payload) {
+          emitRetainLoadedValue(payloadType, payload, false);
+        });
+    return;
+  }
   case BaseType::TY_UNION: {
     bool const hasArcMember =
         std::ranges::any_of(type->getUnionMembers(), TypeUtils::containsArcManagedValue);
@@ -256,9 +328,10 @@ auto Codegen::emitRetainLoadedValue(lesma::Type* type, llvm::Value* value, bool 
     auto* slot = createAllocaInEntry(parentFn, type->getLlvmType(), "arc.union.retain.slot");
     builder->CreateStore(value, slot);
     llvm::Value* tagVal = builder->CreateExtractValue(value, {0U}, "arc.union.tag");
-    emitForEachUnionMemberWithTagDispatch(
-        type, slot, tagVal, "arc.union.retain",
-        [this](Type* member, llvm::Value* payload) { emitRetainLoadedValue(member, payload, false); });
+    emitForEachUnionMemberWithTagDispatch(type, slot, tagVal, "arc.union.retain",
+                                          [this](Type* member, llvm::Value* payload) {
+                                            emitRetainLoadedValue(member, payload, false);
+                                          });
     return;
   }
   case BaseType::TY_ANY: {
@@ -306,6 +379,27 @@ auto Codegen::emitReleaseLoadedValue(lesma::Type* type, llvm::Value* value,
     }
     return;
   }
+  case BaseType::TY_ENUM: {
+    bool const hasArcVariantPayload =
+        std::ranges::any_of(type->getEnumVariants(), [](EnumVariant const* variant) {
+          if (variant == nullptr) {
+            return false;
+          }
+          return std::ranges::any_of(variant->payloadTypes, TypeUtils::containsArcManagedValue);
+        });
+    if (!hasArcVariantPayload) {
+      return;
+    }
+    llvm::Function* parentFn = builder->GetInsertBlock()->getParent();
+    auto* slot = createAllocaInEntry(parentFn, type->getLlvmType(), "arc.enum.release.slot");
+    builder->CreateStore(value, slot);
+    llvm::Value* tagVal = builder->CreateExtractValue(value, {0U}, "arc.enum.tag");
+    emitForEachEnumVariantPayloadWithTagDispatch(
+        type, slot, tagVal, "arc.enum.release", [this](Type* payloadType, llvm::Value* payload) {
+          emitReleaseLoadedValue(payloadType, payload, false);
+        });
+    return;
+  }
   case BaseType::TY_UNION: {
     bool const hasArcMember =
         std::ranges::any_of(type->getUnionMembers(), TypeUtils::containsArcManagedValue);
@@ -332,6 +426,44 @@ auto Codegen::emitReleaseLoadedValue(lesma::Type* type, llvm::Value* value,
   }
 }
 
+auto Codegen::emitForEachEnumVariantPayloadWithTagDispatch(
+    lesma::Type* enumTy, llvm::Value* enumSlot, llvm::Value* tagVal, std::string_view blockStem,
+    const std::function<void(lesma::Type*, llvm::Value*)>& callback) -> void {
+  if (enumTy == nullptr || enumSlot == nullptr || tagVal == nullptr) {
+    return;
+  }
+  llvm::Function* parentFn = builder->GetInsertBlock()->getParent();
+  llvm::BasicBlock* mergeBlock =
+      llvm::BasicBlock::Create(theModule->getContext(), std::string(blockStem) + ".done", parentFn);
+  llvm::BasicBlock* currentBlock = builder->GetInsertBlock();
+  auto variants = enumTy->getEnumVariants();
+  for (unsigned idx = 0; idx < variants.size(); ++idx) {
+    EnumVariant* variant = variants[idx];
+    if (variant == nullptr || variant->payloadTypes.empty()) {
+      continue;
+    }
+    Type* payloadType = getEnumVariantAggregatePayloadType(enumTy, idx);
+    if (!TypeUtils::containsArcManagedValue(payloadType)) {
+      continue;
+    }
+    auto* matchBlock = llvm::BasicBlock::Create(theModule->getContext(),
+                                                std::string(blockStem) + ".match", parentFn);
+    auto* nextBlock = llvm::BasicBlock::Create(theModule->getContext(),
+                                               std::string(blockStem) + ".next", parentFn);
+    builder->SetInsertPoint(currentBlock);
+    builder->CreateCondBr(
+        builder->CreateICmpEQ(tagVal, llvm::ConstantInt::get(tagVal->getType(), idx)), matchBlock,
+        nextBlock);
+    builder->SetInsertPoint(matchBlock);
+    callback(payloadType, emitEnumPayloadLoadFromSlot(enumSlot, enumTy, idx));
+    builder->CreateBr(mergeBlock);
+    currentBlock = nextBlock;
+  }
+  builder->SetInsertPoint(currentBlock);
+  builder->CreateBr(mergeBlock);
+  builder->SetInsertPoint(mergeBlock);
+}
+
 auto Codegen::emitForEachUnionMemberWithTagDispatch(
     lesma::Type* unionTy, llvm::Value* unionSlot, llvm::Value* tagVal, std::string_view blockStem,
     const std::function<void(lesma::Type*, llvm::Value*)>& callback) -> void {
@@ -339,8 +471,8 @@ auto Codegen::emitForEachUnionMemberWithTagDispatch(
     return;
   }
   llvm::Function* parentFn = builder->GetInsertBlock()->getParent();
-  llvm::BasicBlock* mergeBlock = llvm::BasicBlock::Create(theModule->getContext(),
-                                                          std::string(blockStem) + ".done", parentFn);
+  llvm::BasicBlock* mergeBlock =
+      llvm::BasicBlock::Create(theModule->getContext(), std::string(blockStem) + ".done", parentFn);
   llvm::BasicBlock* currentBlock = builder->GetInsertBlock();
   for (unsigned idx = 0; idx < unionTy->getUnionMembers().size(); ++idx) {
     Type* member = unionTy->getUnionMembers()[idx];
@@ -349,11 +481,12 @@ auto Codegen::emitForEachUnionMemberWithTagDispatch(
     }
     auto* matchBlock = llvm::BasicBlock::Create(theModule->getContext(),
                                                 std::string(blockStem) + ".match", parentFn);
-    auto* nextBlock = llvm::BasicBlock::Create(theModule->getContext(), std::string(blockStem) + ".next",
-                                               parentFn);
+    auto* nextBlock = llvm::BasicBlock::Create(theModule->getContext(),
+                                               std::string(blockStem) + ".next", parentFn);
     builder->SetInsertPoint(currentBlock);
-    builder->CreateCondBr(builder->CreateICmpEQ(tagVal, llvm::ConstantInt::get(tagVal->getType(), idx)),
-                          matchBlock, nextBlock);
+    builder->CreateCondBr(
+        builder->CreateICmpEQ(tagVal, llvm::ConstantInt::get(tagVal->getType(), idx)), matchBlock,
+        nextBlock);
     builder->SetInsertPoint(matchBlock);
     callback(member, emitUnionPayloadLoadFromSlot(unionSlot, unionTy, member));
     builder->CreateBr(mergeBlock);
@@ -367,6 +500,12 @@ auto Codegen::emitForEachUnionMemberWithTagDispatch(
 auto Codegen::emitReleaseTrackedSlot(const ArcTrackedSlot& tracked) -> void {
   if (tracked.slot == nullptr || tracked.type == nullptr ||
       !TypeUtils::containsArcManagedValue(tracked.type)) {
+    return;
+  }
+  if (llvm::Function* releaseFn = getOrCreateArcStorageReleaseFunction(tracked.type);
+      releaseFn != nullptr) {
+    auto* releaseTy = llvm::FunctionType::get(builder->getVoidTy(), {builder->getPtrTy()}, false);
+    builder->CreateCall(releaseTy, releaseFn, {tracked.slot});
     return;
   }
   llvm::Type* slotTy = tracked.type->is(BaseType::TY_FUNCTION) && tracked.storesFuncValuePair
@@ -420,7 +559,8 @@ auto Codegen::emitReleaseCurrentArcOwnedSlots() -> void {
 }
 
 auto Codegen::registerModuleArcRoot(llvm::GlobalVariable* slot, lesma::Type* type,
-                                    const std::string& debugName, bool storesFuncValuePair) -> void {
+                                    const std::string& debugName, bool storesFuncValuePair)
+    -> void {
   if (slot == nullptr || type == nullptr || !TypeUtils::containsArcManagedValue(type)) {
     return;
   }
@@ -434,12 +574,18 @@ auto Codegen::registerModuleArcRoot(llvm::GlobalVariable* slot, lesma::Type* typ
 
 auto Codegen::emitReleaseRegisteredModuleArcRoots() -> void {
   for (auto it = moduleArcTrackedRoots.rbegin(); it != moduleArcTrackedRoots.rend(); ++it) {
-    llvm::Type* storageTy = it->slot->getValueType();
     if (emitArcTrace) {
       emitArcDebugTraceModuleRoot(*it);
     }
-    emitReleaseLoadedValue(it->type, builder->CreateLoad(storageTy, it->slot, "arc.root.load"),
-                           it->storesFuncValuePair);
+    if (llvm::Function* releaseFn = getOrCreateArcStorageReleaseFunction(it->type);
+        releaseFn != nullptr) {
+      auto* releaseTy = llvm::FunctionType::get(builder->getVoidTy(), {builder->getPtrTy()}, false);
+      builder->CreateCall(releaseTy, releaseFn, {it->slot});
+    } else {
+      llvm::Type* storageTy = it->slot->getValueType();
+      emitReleaseLoadedValue(it->type, builder->CreateLoad(storageTy, it->slot, "arc.root.load"),
+                             it->storesFuncValuePair);
+    }
     builder->CreateStore(llvm::Constant::getNullValue(it->slot->getValueType()), it->slot);
     if (emitArcDebug) {
       builder->CreateCall(getOrCreateArcDebugCleanupStepFunction());
@@ -451,13 +597,17 @@ auto Codegen::getOrCreateArcStorageRetainFunction(lesma::Type* type) -> llvm::Fu
   if (type == nullptr) {
     return nullptr;
   }
-  if (auto it = arcStorageRetainFns.find(type); it != arcStorageRetainFns.end()) {
+  if (!isLesmaTypeReadyForArcTypeMangling(type)) {
+    return nullptr;
+  }
+  const std::string typeKey = MangleUtils::getTypeMangledName({}, type);
+  if (auto it = arcStorageRetainFns.find(typeKey); it != arcStorageRetainFns.end()) {
     return it->second;
   }
-  std::string fnName = "__lesma_arc_retain_storage_" + MangleUtils::getTypeMangledName({}, type);
+  std::string fnName = "__lesma_arc_retain_storage_" + typeKey;
   auto* fnTy = llvm::FunctionType::get(builder->getVoidTy(), {builder->getPtrTy()}, false);
   auto* fn = llvm::Function::Create(fnTy, llvm::GlobalValue::PrivateLinkage, fnName, *theModule);
-  arcStorageRetainFns[type] = fn;
+  arcStorageRetainFns[typeKey] = fn;
   auto savedIp = builder->saveIP();
   auto* entry = llvm::BasicBlock::Create(theModule->getContext(), "entry", fn);
   builder->SetInsertPoint(entry);
@@ -478,13 +628,17 @@ auto Codegen::getOrCreateArcStorageReleaseFunction(lesma::Type* type) -> llvm::F
   if (type == nullptr) {
     return nullptr;
   }
-  if (auto it = arcStorageReleaseFns.find(type); it != arcStorageReleaseFns.end()) {
+  if (!isLesmaTypeReadyForArcTypeMangling(type)) {
+    return nullptr;
+  }
+  const std::string typeKey = MangleUtils::getTypeMangledName({}, type);
+  if (auto it = arcStorageReleaseFns.find(typeKey); it != arcStorageReleaseFns.end()) {
     return it->second;
   }
-  std::string fnName = "__lesma_arc_release_storage_" + MangleUtils::getTypeMangledName({}, type);
+  std::string fnName = "__lesma_arc_release_storage_" + typeKey;
   auto* fnTy = llvm::FunctionType::get(builder->getVoidTy(), {builder->getPtrTy()}, false);
   auto* fn = llvm::Function::Create(fnTy, llvm::GlobalValue::PrivateLinkage, fnName, *theModule);
-  arcStorageReleaseFns[type] = fn;
+  arcStorageReleaseFns[typeKey] = fn;
   auto savedIp = builder->saveIP();
   auto* entry = llvm::BasicBlock::Create(theModule->getContext(), "entry", fn);
   builder->SetInsertPoint(entry);
@@ -505,13 +659,17 @@ auto Codegen::getOrCreateArcPayloadDestroyFunction(lesma::Type* type) -> llvm::F
   if (type == nullptr) {
     return nullptr;
   }
-  if (auto it = arcPayloadDestroyFns.find(type); it != arcPayloadDestroyFns.end()) {
+  if (!isLesmaTypeReadyForArcTypeMangling(type)) {
+    return nullptr;
+  }
+  const std::string typeKey = MangleUtils::getTypeMangledName({}, type);
+  if (auto it = arcPayloadDestroyFns.find(typeKey); it != arcPayloadDestroyFns.end()) {
     return it->second;
   }
-  std::string fnName = "__lesma_arc_destroy_payload_" + MangleUtils::getTypeMangledName({}, type);
+  std::string fnName = "__lesma_arc_destroy_payload_" + typeKey;
   auto* fnTy = llvm::FunctionType::get(builder->getVoidTy(), {builder->getPtrTy()}, false);
   auto* fn = llvm::Function::Create(fnTy, llvm::GlobalValue::PrivateLinkage, fnName, *theModule);
-  arcPayloadDestroyFns[type] = fn;
+  arcPayloadDestroyFns[typeKey] = fn;
   auto savedIp = builder->saveIP();
   auto* entry = llvm::BasicBlock::Create(theModule->getContext(), "entry", fn);
   builder->SetInsertPoint(entry);
@@ -528,13 +686,17 @@ auto Codegen::getOrCreateArcDestroyFunction(lesma::Type* type) -> llvm::Function
   if (type == nullptr) {
     return nullptr;
   }
-  if (auto it = arcDestroyFns.find(type); it != arcDestroyFns.end()) {
+  if (!isLesmaTypeReadyForArcTypeMangling(type)) {
+    return nullptr;
+  }
+  const std::string typeKey = MangleUtils::getTypeMangledName({}, type);
+  if (auto it = arcDestroyFns.find(typeKey); it != arcDestroyFns.end()) {
     return it->second;
   }
-  std::string fnName = "__lesma_arc_destroy_" + MangleUtils::getTypeMangledName({}, type);
+  std::string fnName = "__lesma_arc_destroy_" + typeKey;
   auto* fnTy = llvm::FunctionType::get(builder->getVoidTy(), {builder->getPtrTy()}, false);
   auto* fn = llvm::Function::Create(fnTy, llvm::GlobalValue::PrivateLinkage, fnName, *theModule);
-  arcDestroyFns[type] = fn;
+  arcDestroyFns[typeKey] = fn;
 
   auto savedIp = builder->saveIP();
   auto* entry = llvm::BasicBlock::Create(theModule->getContext(), "entry", fn);
@@ -592,6 +754,22 @@ auto Codegen::getOrCreateArcDestroyFunction(lesma::Type* type) -> llvm::Function
     builder->CreateBr(doneBlock);
     builder->SetInsertPoint(doneBlock);
     emitArcFreePayload(listHandle);
+    builder->CreateRetVoid();
+    builder->restoreIP(savedIp);
+    return fn;
+  }
+
+  if (type->is(BaseType::TY_ENUM)) {
+    auto* enumTy = llvm::cast<llvm::StructType>(getOrCreateLlvmType(type));
+    auto* enumValue = builder->CreateBitCast(payload, llvm::PointerType::get(enumTy->getContext(), 0U),
+                                             "arc.enum.obj");
+    auto* tagPtr = builder->CreateStructGEP(enumTy, enumValue, 0U, "arc.enum.tag.ptr");
+    auto* tagVal = builder->CreateLoad(getOrCreateEnumTagLlvmType(type), tagPtr, "arc.enum.tag");
+    emitForEachEnumVariantPayloadWithTagDispatch(
+        type, enumValue, tagVal, "arc.enum.destroy", [this](Type* payloadType, llvm::Value* payload) {
+          emitReleaseLoadedValue(payloadType, payload, false);
+        });
+    emitArcFreePayload(enumValue);
     builder->CreateRetVoid();
     builder->restoreIP(savedIp);
     return fn;
@@ -739,8 +917,8 @@ auto Codegen::getOrCreateArcDebugReportFunction() -> llvm::Function* {
                                          llvm::GlobalValue::CommonLinkage, builder->getInt64(0),
                                          std::string{codegen::runtime::ARC_DEBUG_LIVE_COUNT});
   }
-  auto* rootsTotal =
-      theModule->getGlobalVariable(std::string{codegen::runtime::ARC_DEBUG_MODULE_ROOTS_TOTAL}, true);
+  auto* rootsTotal = theModule->getGlobalVariable(
+      std::string{codegen::runtime::ARC_DEBUG_MODULE_ROOTS_TOTAL}, true);
   if (rootsTotal == nullptr) {
     rootsTotal = new llvm::GlobalVariable(
         *theModule, builder->getInt64Ty(), false, llvm::GlobalValue::CommonLinkage,
@@ -759,11 +937,11 @@ auto Codegen::getOrCreateArcDebugReportFunction() -> llvm::Function* {
   builder->SetInsertPoint(entry);
   auto printfFn = theModule->getOrInsertFunction(
       "printf", llvm::FunctionType::get(builder->getInt32Ty(), {builder->getPtrTy()}, true));
-  auto* format = builder->CreateBitCast(builder->CreateGlobalString(
-                                            "[arc] live objects: %lld (roots tracked: %lld, "
-                                            "roots remaining: %lld)\n",
-                                            "arc.debug.report"),
-                                        builder->getPtrTy());
+  auto* format = builder->CreateBitCast(
+      builder->CreateGlobalString("[arc] live objects: %lld (roots tracked: %lld, "
+                                  "roots remaining: %lld)\n",
+                                  "arc.debug.report"),
+      builder->getPtrTy());
   auto* count = builder->CreateLoad(builder->getInt64Ty(), liveCount, "arc.debug.live.report");
   auto* total = builder->CreateLoad(builder->getInt64Ty(), rootsTotal, "arc.debug.roots.total");
   auto* remaining =
@@ -789,8 +967,8 @@ auto Codegen::getOrCreateArcDebugCleanupBeginFunction() -> llvm::Function* {
     return fn;
   }
 
-  auto* rootsTotal =
-      theModule->getGlobalVariable(std::string{codegen::runtime::ARC_DEBUG_MODULE_ROOTS_TOTAL}, true);
+  auto* rootsTotal = theModule->getGlobalVariable(
+      std::string{codegen::runtime::ARC_DEBUG_MODULE_ROOTS_TOTAL}, true);
   if (rootsTotal == nullptr) {
     rootsTotal = new llvm::GlobalVariable(
         *theModule, builder->getInt64Ty(), false, llvm::GlobalValue::CommonLinkage,
@@ -933,8 +1111,7 @@ auto Codegen::getOrCreateModuleCleanupFunction() -> llvm::Function* {
 
   auto* doneGlobal = new llvm::GlobalVariable(*theModule, builder->getInt1Ty(), false,
                                               llvm::GlobalValue::PrivateLinkage,
-                                              builder->getFalse(),
-                                              fn->getName().str() + ".done");
+                                              builder->getFalse(), fn->getName().str() + ".done");
   auto savedIp = builder->saveIP();
   auto* entry = llvm::BasicBlock::Create(theModule->getContext(), "entry", fn);
   auto* cleanupBlock = llvm::BasicBlock::Create(theModule->getContext(), "cleanup", fn);
@@ -946,8 +1123,9 @@ auto Codegen::getOrCreateModuleCleanupFunction() -> llvm::Function* {
   builder->SetInsertPoint(cleanupBlock);
   builder->CreateStore(builder->getTrue(), doneGlobal);
   if (emitArcDebug) {
-    builder->CreateCall(getOrCreateArcDebugCleanupBeginFunction(),
-                        {builder->getInt64(static_cast<std::int64_t>(moduleArcTrackedRoots.size()))});
+    builder->CreateCall(
+        getOrCreateArcDebugCleanupBeginFunction(),
+        {builder->getInt64(static_cast<std::int64_t>(moduleArcTrackedRoots.size()))});
   }
   emitReleaseRegisteredModuleArcRoots();
   builder->CreateBr(doneBlock);
@@ -1249,6 +1427,26 @@ auto Codegen::specializedClassEnvFor(lesma::Type* classTy)
   if (Value* sym = lookupClassStructSymbol(classTy); sym != nullptr && sym->getType() != nullptr) {
     if (auto it = specializedClassTypeEnvs.find(sym->getType());
         it != specializedClassTypeEnvs.end()) {
+      return &it->second;
+    }
+  }
+  return nullptr;
+}
+
+auto Codegen::specializedNominalEnvFor(lesma::Type* nominalTy)
+    -> const std::unordered_map<std::string, lesma::Type*>* {
+  if (nominalTy == nullptr || !nominalTy->isOneOf({BaseType::TY_CLASS, BaseType::TY_ENUM,
+                                                   BaseType::TY_TRAIT_EXISTENTIAL})) {
+    return nullptr;
+  }
+  if (nominalTy->is(BaseType::TY_CLASS)) {
+    return specializedClassEnvFor(nominalTy);
+  }
+  if (nominalTy->is(BaseType::TY_TRAIT_EXISTENTIAL)) {
+    return specializedTraitExistentialEnvFor(nominalTy);
+  }
+  if (nominalTy->is(BaseType::TY_ENUM)) {
+    if (auto it = specializedClassTypeEnvs.find(nominalTy); it != specializedClassTypeEnvs.end()) {
       return &it->second;
     }
   }

@@ -1,0 +1,9 @@
+// Regression: `Type::isEqual` for nominal enums must compare `EnumVariant::payloadTypes`. Two enums
+// with the same identifier and variant names but different payload types used to be treated as
+// equal (self-typed variant fields recurse through the active-pair guard without inspecting
+// payloads), which could allow this assignment. It must be rejected.
+from "../success/enum_payload_isEqual_regression_mod_a.les" import E as EA
+
+from "../success/enum_payload_isEqual_regression_mod_b.les" import E as EB
+
+let v: EA = EB.A(true)

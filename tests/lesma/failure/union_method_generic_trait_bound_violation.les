@@ -14,7 +14,6 @@ class Plain {
 
 class A {
   func new() {
-    pass
   }
   func take<T: NeedVal>(o: T) -> int {
     return o.val()
@@ -23,7 +22,6 @@ class A {
 
 class B {
   func new() {
-    pass
   }
   func take<T: NeedVal>(o: T) -> int {
     return o.val()

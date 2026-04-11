@@ -1,0 +1,33 @@
+// Nested `match` on `Result` carrying tuple payloads: each `match` gets contextual tuple type.
+from base import Result
+
+func row(ok: bool) -> Result<(int, str), int> {
+  if ok {
+    return Ok((1, "a"))
+  }
+  return Err(0)
+}
+
+func main() -> int {
+  let out: (int, str) = match row(true) {
+    Result.Ok(_) => match row(true) {
+      Result.Ok(_) => (2, "k")
+      Result.Err(_) => {
+        exit(1)
+        (0, "e")
+      }
+
+
+
+    }
+    Result.Err(_) => (9, "z")
+
+  }
+  if out[0] != 2 {
+    return 2
+  }
+  if out[1] != "k" {
+    return 3
+  }
+  return 0
+}

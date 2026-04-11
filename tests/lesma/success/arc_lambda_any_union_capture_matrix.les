@@ -37,7 +37,7 @@ func make_union_reader(payload: str | list<int> | Box | Kind) -> func() -> int {
 }
 
 let firstPair: list<int> = [2, 3]
-var reader0: func() -> int = make_union_reader(str("abc"))
+var reader0: func() -> int = make_union_reader("abc")
 var reader1: func() -> int = make_union_reader(firstPair)
 var reader2: func() -> int = make_union_reader(Box(7))
 var reader3: func() -> int = make_union_reader(Kind.STOP)
@@ -59,7 +59,7 @@ let secondTriplet: list<int> = [1, 4, 9]
 reader0 = make_union_reader(secondTriplet)
 reader1 = make_union_reader(Box(11))
 reader2 = make_union_reader(Kind.START)
-reader3 = make_union_reader(str("zz"))
+reader3 = make_union_reader("zz")
 
 if reader0() != 5 {
   exit(5)

@@ -17,54 +17,49 @@ Below is one file that ties together several ideas. You can paste it into the
 ## Example: a small script
 
 ```les
-# Standard library modules ship with the compiler. Pull in only what you need.
+// Standard library modules ship with the compiler. Pull in only what you need.
 from math import ceil
 from time import sleep
 
-# `let` is an immutable binding; `var` is mutable (see Variables in the language section).
+// `let` is an immutable binding; `var` is mutable (see Variables in the language section).
 let title: str = "Lesma"
 var total: int = 0
 
-# Functions use `func`, parameters, and an optional return type. `void` means no meaningful value.
+// Functions use `func`, parameters, and an optional return type. `void` means no meaningful value.
 func greet(who: str) -> void {
     print("Hello, ${who}!")
-
 }
-# Classes group state and methods. `self` refers to the current instance.
+
+// Classes group state and methods. `self` refers to the current instance.
 class Counter {
     var n: int = 0
 
-    func new() {
-        pass
-
-    }
     func add(amount: int) {
         self.n = self.n + amount
 
     }
     func value() -> int {
         return self.n
-
     }
 }
-# --- Top-level execution starts here (no main). ---
+
+// --- Top-level execution starts here (no main). ---
 
 greet(title)
 
 var c = Counter()
-# `range` is from the built-in environment (same family of helpers as `print`).
+// `range` is from the built-in environment (same family of helpers as `print`).
 for i in range(1, 4) {
     c.add(i)
     total = total + i
-
 }
 print("Loop ran; counter holds ${c.value()}, sum of indices is ${total}")
 
-# Stdlib `math` wraps common numeric helpers from the C runtime.
+// Stdlib `math` wraps common numeric helpers from the C runtime.
 let x: float = 3.7
 print("ceil(${x}) = ${ceil(x)}")
 
-# `sleep` comes from the `time` module (seconds as float or int).
+// `sleep` comes from the `time` module (seconds as float or int).
 sleep(0.001)
 print("Done.")
 ```
@@ -84,6 +79,9 @@ print("Done.")
   pattern used across the language docs and tests.
 - **Control flow.** `for i in range(...)` iterates over integer ranges; `if` / `while` / `else` work
   as you would expect ([Control Flow](/docs/language/control-flow)).
+- **More language features.** Lesma also has enums with payloads, `match`, type aliases, generics,
+  and stdlib modules such as `json`; this page keeps to one small script so the structure is easy to
+  see first.
 
 ## Next steps
 

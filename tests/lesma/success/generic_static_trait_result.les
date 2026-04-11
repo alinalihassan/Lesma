@@ -1,0 +1,29 @@
+trait Codec<T> {
+  static func decode(value: int) -> Result<T, str>
+}
+
+class Box impl Codec<Box> {
+  var value: int
+
+  func new(value: int) {
+    self.value = value
+  }
+
+  static func decode(value: int) -> Result<Box, str> {
+    return Result.Ok(Box(value))
+  }
+}
+
+func decode_with_trait<T: Codec>(value: int) -> Result<T, str> {
+  return T.decode(value)
+}
+
+let maybeBox = decode_with_trait<Box>(7).unwrap()
+if maybeBox is Box {
+  let box = maybeBox as Box
+  if box.value != 7 {
+    exit(1)
+  }
+} else {
+  exit(2)
+}

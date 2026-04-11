@@ -3,6 +3,7 @@
 #include <functional>
 #include <memory>
 #include <optional>
+#include <set>
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
@@ -24,6 +25,8 @@ namespace lesma {
 
 class Class;
 class TraitDecl;
+class Timer;
+class TypeAlias;
 class TypeCheckError;
 
 /** Callback to resolve import *: (filepath, isStd, mainFilePath) -> exported names or failure. */
@@ -57,9 +60,11 @@ class Typechecker final : public ASTVisitor {
 
   std::string mainFilePath;
   GetExportsFn getExports;
+  Timer* phaseTimer = nullptr;
 
   Value* currentFunction = nullptr;
   Type* currentClassType = nullptr; // Set when visiting class methods, for self
+  Type* currentEnumType = nullptr;  // Set when visiting enum methods, for self
   /** While visiting class methods: whether the enclosing class is exported (method AST may not
    * carry export; parser clears ambient `export` for spans). */
   bool currentClassExported = false;
@@ -72,6 +77,8 @@ class Typechecker final : public ASTVisitor {
   /** Specialized class types: key = template toString + "|" + concrete types,
    * value = Type* with concrete fields. */
   std::unordered_map<std::string, Type*> specializedClassTypes;
+  /** Template class type -> AST node, used when constructor/privacy decisions need declaration info. */
+  std::unordered_map<Type*, const Class*> classAstByType;
   /** For each specialized class type, the substitution map (generic name ->
    * concrete type) used to create it. */
   std::unordered_map<Type*, std::unordered_map<std::string, Type*>> specializedTypeEnv;
@@ -91,6 +98,8 @@ class Typechecker final : public ASTVisitor {
   std::unordered_map<Type*, std::unordered_map<std::string, Type*>> specializedTraitExistentialEnv;
   /** Imported types materialized into this typechecker's cache so they outlive imported scopes. */
   std::unordered_map<Type*, Type*> importedTypeCopies;
+  /** Guards recursive imported nominal materialization while trying canonical reuse. */
+  std::unordered_set<Type*> importedTypeMaterializationInProgress;
   std::vector<Type*> expectedTypes;
   /** Per `if` branch: stable storage identity → narrowed type for `is` / `is not` on unions. */
   std::vector<std::unordered_map<UnionNarrowingStableKey, Type*, UnionNarrowingStableKeyHash,
@@ -99,6 +108,9 @@ class Typechecker final : public ASTVisitor {
 
   /** Registered traits (name → AST) for impl checks and existential method lookup. */
   std::unordered_map<std::string, const TraitDecl*> traitRegistry;
+  std::unordered_map<std::string, const TypeAlias*> typeAliasRegistry;
+  std::unordered_set<std::string> typeAliasesResolving;
+  std::unordered_set<std::string> recursiveTypeAliases;
   /** traitName -> methodName -> overload signatures (TY_FUNCTION: self + params, return type;
    *  multiple entries per name preserve overloads; resolved during visit(TraitDecl)). */
   std::unordered_map<std::string, std::unordered_map<std::string, std::vector<Type*>>>
@@ -164,6 +176,7 @@ class Typechecker final : public ASTVisitor {
   auto insertImportedVariableAlias(const std::string& resolvedPath, const std::string& exportedName,
                                    const std::string& localName) -> void;
   void validateParameterDefaultOrdering(llvm::SMRange span, const std::vector<Parameter*>& params);
+  void registerEnumSyntheticMembers(const Enum* node, Type* enumTypePtr, SymbolTable* outerScope);
   [[nodiscard]] auto currentFunctionRootScope() const -> SymbolTable*;
   auto getOrCreateLambdaCaptureShadow(Value* outerSym, const std::string& name, llvm::SMRange span)
       -> Value*;
@@ -177,6 +190,7 @@ class Typechecker final : public ASTVisitor {
   auto lookupConstructorForAllocatedClass(SymbolTable* tab,
                                           const std::vector<Type*>& ctorParamTypes, Type* classType)
       -> Value*;
+  auto lookupZeroArgConstructorForAllocatedClass(SymbolTable* tab, Type* classType) -> Value*;
   /** After all template fields exist, fill in placeholder specialized types created
    * mid-declaration. */
   void finalizeSpecializedTypesForTemplate(Type* classTemplate);
@@ -191,6 +205,11 @@ class Typechecker final : public ASTVisitor {
       -> Type*;
   /** Substitute env into type (for fields); returns cached type. */
   auto substituteInType(Type* t, const std::unordered_map<std::string, Type*>& env) -> Type*;
+  auto substituteInType(Type* t, const std::unordered_map<std::string, Type*>& env,
+                        std::set<Type const*>& active) -> Type*;
+  auto tryReuseActiveSpecializedNominalType(
+      Type* t, const std::unordered_map<std::string, Type*>& env, std::set<Type const*>& active)
+      -> Type*;
   /** True if \p t mentions any name in \p classParamNames (enclosing class type parameters). */
   [[nodiscard]] auto
   typeUsesClassTypeParameter(Type* t, const std::unordered_set<std::string>& classParamNames) const
@@ -204,6 +223,9 @@ class Typechecker final : public ASTVisitor {
   auto inferGenericBindings(Type* pattern, Type* actual,
                             std::unordered_map<std::string, Type*>& bindings, llvm::SMRange span)
       -> void;
+  auto inferGenericBindings(Type* pattern, Type* actual,
+                            std::unordered_map<std::string, Type*>& bindings, llvm::SMRange span,
+                            std::set<std::pair<Type*, Type*>>& activePairs) -> void;
 
   auto cacheType(std::unique_ptr<Type> type) -> Type*;
   auto materializeImportedType(Type* type) -> Type*;
@@ -213,15 +235,25 @@ class Typechecker final : public ASTVisitor {
    *  \c CUSTOM_TYPE. */
   [[nodiscard]] auto tryResolveNonCustomTypeExpr(const TypeExpr* node) -> Type*;
   auto resolveCustomTypeExpr(const TypeExpr* node) -> Type*;
+  auto resolveTypeAlias(const std::string& aliasName, llvm::SMRange span) -> Type*;
+  auto finalizeRecursiveTypeAlias(Type* aliasStub, Type* resolvedType,
+                                  const std::string& aliasName) -> Type*;
   auto resolveType(const TypeExpr* node) -> Type*;
   /** Returns the unified type for binary ops, or nullptr if incompatible. */
   auto getExtendedType(Type* left, Type* right) -> Type*;
+  /** Widen two types for a common supertype (nominal generics, assignability, recursive class
+   *  args). Used by \c getExtendedType after primitive rules. */
+  auto unifyTypesForExtendedType(Type* a, Type* b, bool allowIncompatibleUnionLub = false) -> Type*;
+  /** Infers a common literal element type, widening numerics first and otherwise building a union. */
+  auto mergeLiteralInferredType(Type* current, Type* next) -> Type*;
   /** For `T | null`, returns `T`; otherwise nullptr. */
   [[nodiscard]] auto getOptionalPayloadType(Type* type) -> Type*;
   /** Whether `type` itself includes `null` as a value (for example `T?` or `A | B | null`). */
   [[nodiscard]] auto isNullableType(Type* type) -> bool;
-  /** Whether a value of type 'from' can be assigned/cast to type 'to'. */
+  /** Broad compatibility relation used for unions, matching, and coercion-aware checks. */
   auto isAssignableTo(Type* from, Type* to) -> bool;
+  /** True when \p from can flow to \p to without precision loss. */
+  auto isLosslesslyAssignableTo(Type* from, Type* to) -> bool;
   [[nodiscard]] static auto isSupportedUnionMemberType(Type* t) -> bool;
   [[nodiscard]] auto lookupUnionNarrowedType(Value* sym) const -> Type*;
   [[nodiscard]] auto lookupUnionNarrowedType(const Expression* expr) const -> Type*;
@@ -235,7 +267,16 @@ class Typechecker final : public ASTVisitor {
       const If* node, unsigned blockIndex,
       std::unordered_map<UnionNarrowingStableKey, Type*, UnionNarrowingStableKeyHash,
                          UnionNarrowingStableKeyEq>& out) -> void;
+  auto fillUnionNarrowingForFollowingStatements(
+      const If* node,
+      std::unordered_map<UnionNarrowingStableKey, Type*, UnionNarrowingStableKeyHash,
+                         UnionNarrowingStableKeyEq>& out) -> void;
+  auto collectUnionNarrowingForConditionAssumption(
+      const Expression* cond, bool assumeTrue,
+      std::unordered_map<UnionNarrowingStableKey, Type*, UnionNarrowingStableKeyHash,
+                         UnionNarrowingStableKeyEq>& out) -> bool;
   [[nodiscard]] static auto rhsTypeIsUnionMember(Type* unionTy, Type* rhs) -> bool;
+  [[nodiscard]] static auto unionCanSatisfyIsCheck(Type* unionTy, Type* rhs) -> bool;
   void appendExcludedTypesFromPriorIsArms(const If* node, unsigned blockIndex,
                                           const UnionNarrowingStableKey& key,
                                           Type* unionTy, std::vector<Type*>& excluded);
@@ -278,7 +319,10 @@ class Typechecker final : public ASTVisitor {
   void collectExplicitTypesFromCallByVisit(const FuncCall* call, std::vector<Type*>& out);
   [[nodiscard]] auto
   lookupFunctionInScopeThenImportedModuleCaches(const std::string& name,
-                                                const std::vector<Type*>& methodArgTypes) -> Value*;
+                                                const std::vector<Type*>& methodArgTypes,
+                                                Type* requiredDeclaredInClass = nullptr,
+                                                std::optional<size_t> requiredGenericArity =
+                                                    std::nullopt) -> Value*;
   [[nodiscard]] auto tryLookupFunctionViaDotImportLiterals(const DotOp* node,
                                                            const std::string& name,
                                                            const std::vector<Type*>& methodArgTypes)
@@ -307,6 +351,10 @@ class Typechecker final : public ASTVisitor {
                                                                  std::vector<Type*>& argTypes)
       -> bool;
   [[nodiscard]] auto materializeForCallSite(Type* t, SymbolTable* importedScope) -> Type*;
+  /** If true (generic class only), \c tryFinishGenericClassCallWithInferredTypeArgs is skipped so
+   *  \c visit(FuncCall) can bind generics from \c currentExpectedType() in \c
+   *  completeOrdinaryFuncCallTyping. */
+  [[nodiscard]] auto deferGenericClassInferenceToContextualExpected(Type* classType) const -> bool;
   void visitCallArgumentsIgnoringResult(const FuncCall* fc);
   /** If lookup missed, resolve imports / class value / string-literal repair. Returns true if
    *  \c visit(FuncCall) should return immediately (result may be set). */
@@ -314,9 +362,11 @@ class Typechecker final : public ASTVisitor {
                                           SymbolTable*& importedScope,
                                           bool& funcCallResolvedViaImportedNameBinding,
                                           Value*& callee) -> bool;
+  void retypeCallArgumentsWithExpectedParams(
+      const FuncCall* node, Type* funcType,
+      const std::unordered_map<std::string, Type*>& genericBindings, std::vector<Type*>& argTypes);
   void completeOrdinaryFuncCallTyping(const FuncCall* node, Value* callee,
-                                      SymbolTable* importedScope,
-                                      const std::vector<Type*>& argTypes);
+                                      SymbolTable* importedScope, std::vector<Type*> argTypes);
   void finishGenericClassCallWithExplicitTypeArgs(
       const FuncCall* callSite, Type* classType, const std::vector<Type*>& argTypes,
       SymbolTable* ctorLookupScope, bool markConstructorSymbolRead,
@@ -403,7 +453,7 @@ public:
   Typechecker(std::string mainFilePath, GetExportsFn getExports,
               std::vector<AnalysisDiagnostic>* warningDiagnosticsOut = nullptr,
               std::shared_ptr<llvm::SourceMgr> diagnosticUnitSourceMgr = nullptr,
-              unsigned diagnosticUnitBufferId = 0);
+              unsigned diagnosticUnitBufferId = 0, Timer* phaseTimer = nullptr);
   ~Typechecker() override = default;
 
   Typechecker(const Typechecker&) = delete;
@@ -442,6 +492,7 @@ public:
   auto visit(const While* node) -> void override;
   auto visit(const ForIn* node) -> void override;
   auto visit(const Import* node) -> void override;
+  auto visit(const TypeAlias* node) -> void override;
   auto visit(const Enum* node) -> void override;
   auto visit(const Class* node) -> void override;
   auto visit(const TraitDecl* node) -> void override;
@@ -450,7 +501,6 @@ public:
   auto visit(const Assignment* node) -> void override;
   auto visit(const Break* node) -> void override;
   auto visit(const Continue* node) -> void override;
-  auto visit(const Pass* node) -> void override;
   auto visit(const Return* node) -> void override;
   auto visit(const Defer* node) -> void override;
   auto visit(const UnimplementedStatement* node) -> void override;
@@ -464,6 +514,8 @@ public:
   auto visit(const DotOp* node) -> void override;
   auto visit(const CastOp* node) -> void override;
   auto visit(const IsOp* node) -> void override;
+  auto visit(const MatchExpr* node) -> void override;
+  auto visit(const BlockExpr* node) -> void override;
   auto visit(const UnaryOp* node) -> void override;
   auto visit(const Literal* node) -> void override;
   auto visit(const SuperExpr* node) -> void override;

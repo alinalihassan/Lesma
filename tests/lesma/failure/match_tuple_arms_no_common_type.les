@@ -1,0 +1,15 @@
+// Arms produce incompatible tuple types when no contextual `let` type is available.
+from base import Result
+
+func sample() -> Result<(int, str), int> {
+  return Err(0)
+}
+
+func main() -> int {
+  let bad = match sample() {
+    Result.Ok(_) => (1, "a")
+    Result.Err(_) => ("x", 2)
+
+  }
+  return 0
+}

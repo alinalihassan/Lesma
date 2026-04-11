@@ -1,0 +1,42 @@
+enum MaybeInt {
+  None
+  Some(int)
+
+  func valueOr(defaultValue: int) -> int {
+    return match self {
+      Some(value) => value
+      None => defaultValue
+    }
+  }
+  static func some(value: int) -> MaybeInt {
+    return MaybeInt.Some(value)
+  }
+}
+
+let a = MaybeInt.some(41)
+let b = MaybeInt.None
+
+if (match a {
+  MaybeInt.Some(_) => true
+  MaybeInt.None => false
+}) == false {
+  exit(1)
+}
+if a.valueOr(0) != 41 {
+  exit(2)
+}
+if (match b {
+  MaybeInt.None => true
+  MaybeInt.Some(_) => false
+}) == false {
+  exit(3)
+}
+if b.valueOr(7) != 7 {
+  exit(4)
+}
+if (match MaybeInt.Some(9) {
+  MaybeInt.Some(value) => value
+  MaybeInt.None => 0
+}) != 9 {
+  exit(5)
+}

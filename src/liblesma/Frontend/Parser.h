@@ -139,6 +139,7 @@ private:
   size_t index = 0;
   unsigned short pendingTypeArgClosers = 0;
   bool inClass = false;
+  bool inEnum = false;
   bool isExported = false;
   std::unique_ptr<Compound> tree;
   /** When non-null, parse errors are recorded here and parsing continues where possible. */
@@ -172,6 +173,7 @@ private:
       -> std::unique_ptr<Statement>;
   auto parseExport() -> std::unique_ptr<Statement>;
   auto parseImport() -> std::unique_ptr<Statement>;
+  auto parseTypeAlias() -> std::unique_ptr<Statement>;
   auto parseClass() -> std::unique_ptr<Statement>;
   auto parseTrait() -> std::unique_ptr<Statement>;
   auto parseGenericParamList() -> std::vector<GenericParamDecl>;
@@ -187,12 +189,15 @@ private:
   auto parseAssignment() -> std::unique_ptr<Statement>;
   auto parseBreak() -> std::unique_ptr<Statement>;
   auto parseContinue() -> std::unique_ptr<Statement>;
-  auto parsePass() -> std::unique_ptr<Statement>;
   auto parseReturn() -> std::unique_ptr<Statement>;
   auto parseDefer() -> std::unique_ptr<Statement>;
   auto parseType() -> std::unique_ptr<TypeExpr>;
   /** Parses `<` … `>` as a comma-separated list of types (caller ensures current token is `<`). */
   auto parseAngleBracketTypeArgList() -> std::vector<std::unique_ptr<TypeExpr>>;
+  /** True for value-position type receivers like `Result<int, bool>.Ok(...)`. */
+  auto hasTypeArgsAndDot() -> bool;
+  /** Parses a value-position nominal type expression like `Result<int, bool>`. */
+  auto parseValueTypeExpr() -> std::unique_ptr<Expression>;
   /** One union arm: no top-level `|` (inner `parseType` still allows unions in parens / ptr). */
   auto parseTypePrimary() -> std::unique_ptr<TypeExpr>;
   auto parseExpression() -> std::unique_ptr<Expression>;
@@ -213,11 +218,16 @@ private:
   auto parseCast() -> std::unique_ptr<Expression>;
   auto parseUnary() -> std::unique_ptr<Expression>;
   auto parseTerm() -> std::unique_ptr<Expression>;
+  auto parseMatchExpr() -> std::unique_ptr<Expression>;
+  auto parseMatchPattern() -> MatchPattern;
+  auto parseBlockExpr() -> std::unique_ptr<Expression>;
   auto parseStringInterpolation() -> std::unique_ptr<Expression>;
   auto parseLambda() -> std::unique_ptr<Expression>;
   auto parseFunctionCall() -> std::unique_ptr<Expression>;
   auto parseListLiteral() -> std::unique_ptr<Expression>;
   auto parseDictLiteral() -> std::unique_ptr<Expression>;
+  /** After `=>`, when the arm body starts with `{`, disambiguate dict literal `{ "k": v }` vs block. */
+  [[nodiscard]] auto matchArmOpeningBraceBeginsDictLiteral() -> bool;
 
   // Lookahead: true if from current position we have IDENTIFIER LESS type-list
   // GREATER LEFT_PAREN (so parsing as call with explicit type args is valid).

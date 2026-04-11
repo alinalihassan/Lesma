@@ -1,0 +1,14 @@
+class Counter {
+  var value: int
+
+  func new(value: int) {
+    self.value = value
+  }
+
+  static func zero() -> Counter {
+    return Counter(0)
+  }
+}
+
+let counter = Counter.zero()
+let bad = counter.zero()

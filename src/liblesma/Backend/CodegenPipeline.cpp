@@ -335,6 +335,8 @@ auto Codegen::initializeTargetMachine() -> std::unique_ptr<llvm::TargetMachine> 
 
   llvm::TargetOptions const opt;
   llvm::Reloc::Model rm = llvm::Reloc::Model();
+  llvm::CodeGenOptLevel codegenOptLevel =
+      emitArcDebug ? llvm::CodeGenOptLevel::None : llvm::CodeGenOptLevel::Default;
 
   std::string cpu(llvm::sys::getHostCPUName());
   if (cpu.empty()) {
@@ -351,18 +353,23 @@ auto Codegen::initializeTargetMachine() -> std::unique_ptr<llvm::TargetMachine> 
 
   std::unique_ptr<llvm::TargetMachine> targetMachine(
 #if LLVM_VERSION_MAJOR >= 21
-      target->createTargetMachine(targetTriple, cpu, featuresStr, opt, rm));
+      target->createTargetMachine(targetTriple, cpu, featuresStr, opt, rm, std::nullopt,
+                                  codegenOptLevel));
 #else
-      target->createTargetMachine(targetTriple.str(), cpu, featuresStr, opt, rm));
+      target->createTargetMachine(targetTriple.str(), cpu, featuresStr, opt, rm, std::nullopt,
+                                  codegenOptLevel));
 #endif
   return targetMachine;
 }
 
-auto Codegen::initializeJit() -> std::unique_ptr<LLJIT> {
-  llvm::orc::LLJITBuilder jitBuilder{};
+auto Codegen::initializeJit() -> std::unique_ptr<LLLazyJIT> {
+  llvm::orc::LLLazyJITBuilder jitBuilder{};
   jitBuilder.setDataLayout(theModule->getDataLayout());
-  jitBuilder.setJITTargetMachineBuilder(
-      llvm::orc::JITTargetMachineBuilder(targetMachine->getTargetTriple()));
+  llvm::orc::JITTargetMachineBuilder jitTargetMachineBuilder(targetMachine->getTargetTriple());
+  if (emitArcDebug) {
+    jitTargetMachineBuilder.setCodeGenOptLevel(llvm::CodeGenOptLevel::None);
+  }
+  jitBuilder.setJITTargetMachineBuilder(std::move(jitTargetMachineBuilder));
   auto jitOrErr = jitBuilder.create();
   if (!jitOrErr) {
     throw CodegenError({}, std::string("Couldn't initialize JIT:\n") +
@@ -370,7 +377,7 @@ auto Codegen::initializeJit() -> std::unique_ptr<LLJIT> {
   }
   auto jit = std::move(*jitOrErr);
 
-  // Default LLJIT uses JITLink on supported targets (in-process). Debugger registration via
+  // Default LLLazyJIT uses JITLink on supported targets (in-process). Debugger registration via
   // llvm::orc::enableDebuggerSupport is omitted: LLVM 21's helper can assert on darwin-arm64 with
   // this stack; revisit when emitting JIT DWARF or when upstream stabilizes the API.
 
@@ -425,6 +432,14 @@ auto Codegen::verifyIrModuleOrThrow(const std::string& contextLabel) const -> vo
 
 auto Codegen::optimize(OptimizationLevel opt) -> void {
   if (opt == OptimizationLevel::O0) {
+    // Strip unused function declarations (e.g. bulk-imported stdlib symbols that are never
+    // called) so -O0 IR dumps and object codegen are not dominated by dead declares.
+    llvm::PassBuilder pb(&*targetMachine);
+    llvm::ModuleAnalysisManager mam;
+    pb.registerModuleAnalyses(mam);
+    llvm::ModulePassManager mpm;
+    mpm.addPass(llvm::StripDeadPrototypesPass());
+    mpm.run(*theModule, mam);
     return;
   }
 
@@ -562,10 +577,12 @@ auto Codegen::linkObjectFile(const std::string& objFilename) -> void {
 }
 
 auto Codegen::prepareJit() -> void {
-  if (Error jitError = theJit->addIRModule(ThreadSafeModule(std::move(theModule), *theContext))) {
+  llvm::Error addModuleErr =
+      theJit->addIRModule(ThreadSafeModule(std::move(theModule), *theContext));
+  if (addModuleErr) {
     // Concatenate: LLVM error text may contain characters that break fmt::format placeholders.
     throw CodegenError({}, std::string("JIT addIRModule failed: ") +
-                               llvmErrorToString(std::move(jitError)));
+                               llvmErrorToString(std::move(addModuleErr)));
   }
   Expected<ExecutorAddr> mainFuncOrErr = theJit->lookup(topLevelFunc->getName());
   if (!mainFuncOrErr) {
@@ -725,6 +742,15 @@ auto Codegen::run() -> void {
       }
     }
     defineSynthesizedClassConstructor(ctorSym, cls);
+    currentGenericTypes = std::move(savedGenerics);
+  }
+  for (size_t ei = 0; ei < syntheticEnumMethodBodies.size(); ++ei) {
+    auto savedGenerics = currentGenericTypes;
+    if (const auto* env = specializedNominalEnvFor(syntheticEnumMethodBodies[ei].enumType);
+        env != nullptr) {
+      currentGenericTypes = *env;
+    }
+    defineSyntheticEnumMethod(syntheticEnumMethodBodies[ei]);
     currentGenericTypes = std::move(savedGenerics);
   }
 

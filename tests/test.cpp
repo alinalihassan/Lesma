@@ -62,11 +62,17 @@ auto initializeCodegen(std::unique_ptr<Parser> parser, const std::shared_ptr<Sou
   typechecker.run(parser->getAst());
   auto takenTypeCache = typechecker.takeTypeCache();
   auto takenRootScope = typechecker.takeRootScope();
+  auto takenSpecializedTypeEnv = typechecker.takeSpecializedTypeEnv();
+  auto takenSpecializedTypeToTemplate = typechecker.takeSpecializedTypeToTemplate();
+  auto takenSpecializedClassTypes = typechecker.takeSpecializedClassTypes();
+  auto takenImportedModules = typechecker.takeImportedModules();
   auto codegen = std::make_unique<Codegen>(
       std::move(parser), srcMgr, __FILE__, std::vector<std::string>{}, true, true, "", nullptr,
-      nullptr, nullptr, nullptr, std::move(takenRootScope), std::move(takenTypeCache),
-      typechecker.takeSpecializedTypeEnv(), typechecker.takeSpecializedTypeToTemplate(),
-      typechecker.takeSpecializedClassTypes(), false, arcDebug, arcTrace);
+      nullptr, nullptr, nullptr, nullptr, std::move(takenRootScope), std::move(takenTypeCache),
+      std::move(takenSpecializedTypeEnv), std::move(takenSpecializedTypeToTemplate),
+      std::move(takenSpecializedClassTypes), std::move(takenImportedModules),
+      nullptr,
+      false, arcDebug, arcTrace);
   codegen->run();
 
   return codegen;
@@ -97,9 +103,10 @@ auto initializeCodegenFromAnalysis(AnalysisResult result, bool arcDebug = false,
   auto codegen = std::make_unique<Codegen>(
       std::move(result.parser), result.sourceMgr,
       result.mainFilePath.empty() ? "" : result.mainFilePath, std::vector<std::string>{}, true, true,
-      "", nullptr, nullptr, nullptr, nullptr, std::move(result.rootScope),
+      "", nullptr, nullptr, nullptr, nullptr, nullptr, std::move(result.rootScope),
       std::move(result.typeCache), std::move(result.specializedTypeEnv),
-      std::move(result.specializedTypeToTemplate), std::move(result.specializedClassTypes), false,
+      std::move(result.specializedTypeToTemplate), std::move(result.specializedClassTypes),
+      std::move(result.importedModules), nullptr, false,
       arcDebug, arcTrace);
   codegen->run();
   return codegen;
@@ -399,6 +406,29 @@ if current is null {
   EXPECT_NE(moduleText.find("arc.release.destroyfn"), std::string::npos);
 }
 
+TEST(CodegenIRTests, AnyBoxedEnumPayloadBuildsEnumArcHelpers) {
+  std::string const moduleText = buildModuleText(R"(class Box {
+  var value: int
+
+  func new(value: int) {
+    self.value = value
+  }
+}
+
+enum MaybeBox {
+  None
+  Some(Box)
+}
+
+var payload: any = MaybeBox.Some(Box(1))
+payload = 7
+)");
+
+  EXPECT_NE(moduleText.find("__lesma_arc_destroy_payload_"), std::string::npos);
+  EXPECT_NE(moduleText.find("__lesma_arc_release_storage_"), std::string::npos);
+  EXPECT_NE(moduleText.find("arc.enum.release"), std::string::npos);
+}
+
 TEST(CodegenIRTests, NullCoalesceManagedPayloadBuildsMergePhi) {
   std::string const moduleText = buildModuleText(R"(class Box {
   var value: int
@@ -579,7 +609,7 @@ if current is null {
 
   auto const [exitCode, output] = runFileWithArcDebug(mainPath);
   EXPECT_EQ(exitCode, 0);
-  EXPECT_NE(output.find("[arc] live objects: 0"), std::string::npos);
+  EXPECT_NE(output.find("[arc] live objects: 0"), std::string::npos) << output;
 }
 
 TEST(ArcDebugRuntimeTests, MixedTupleBorrowedAndOwnedArcElementsReportZero) {
@@ -610,6 +640,129 @@ if pair[1].get() != 2 {
   auto const [exitCode, output] = runFileWithArcDebug(mainPath);
   EXPECT_EQ(exitCode, 0);
   EXPECT_NE(output.find("[arc] live objects: 0"), std::string::npos);
+}
+
+TEST(ArcDebugRuntimeTests, EnumPayloadOverwriteReleasesManagedPayloads) {
+  std::filesystem::path const scratchDir = recreateScratchDir("lesma_arc_runtime_enum_payload_zero");
+  std::filesystem::path const mainPath = scratchDir / "main.les";
+  writeScratchFile(mainPath, R"(class Box {
+  var value: int
+
+  func new(value: int) {
+    self.value = value
+  }
+
+  func get() -> int {
+    return self.value
+  }
+}
+
+enum MaybeBox {
+  None
+  Some(Box)
+}
+
+var current: MaybeBox = MaybeBox.Some(Box(1))
+current = MaybeBox.None
+if match current {
+  MaybeBox.None => true
+  MaybeBox.Some(_) => false
+} == false {
+  exit(1)
+}
+)");
+
+  auto const [exitCode, output] = runFileWithArcDebug(mainPath);
+  EXPECT_EQ(exitCode, 0);
+  EXPECT_NE(output.find("[arc] live objects: 0"), std::string::npos) << output;
+}
+
+TEST(ArcDebugRuntimeTests, EnumMultiPayloadOverwriteReleasesManagedPayloads) {
+  std::filesystem::path const scratchDir =
+      recreateScratchDir("lesma_arc_runtime_enum_multi_payload_zero");
+  std::filesystem::path const mainPath = scratchDir / "main.les";
+  writeScratchFile(mainPath, R"(class Box {
+  var value: int
+
+  func new(value: int) {
+    self.value = value
+  }
+}
+
+enum MaybePair {
+  Empty
+  Pair(Box, Box)
+}
+
+var current: MaybePair = MaybePair.Pair(Box(1), Box(2))
+current = MaybePair.Empty
+if match current {
+  MaybePair.Empty => true
+  MaybePair.Pair(_, _) => false
+} == false {
+  exit(1)
+}
+)");
+
+  auto const [exitCode, output] = runFileWithArcDebug(mainPath);
+  EXPECT_EQ(exitCode, 0);
+  EXPECT_NE(output.find("[arc] live objects: 0"), std::string::npos) << output;
+}
+
+TEST(ArcDebugRuntimeTests, AnyBoxedEnumPayloadReportsZero) {
+  std::filesystem::path const scratchDir =
+      recreateScratchDir("lesma_arc_runtime_any_boxed_enum_payload_zero");
+  std::filesystem::path const mainPath = scratchDir / "main.les";
+  writeScratchFile(mainPath, R"(class Box {
+  var value: int
+
+  func new(value: int) {
+    self.value = value
+  }
+}
+
+enum MaybeBox {
+  None
+  Some(Box)
+}
+
+var payload: any = MaybeBox.Some(Box(1))
+payload = 7
+if payload is not int or payload as int != 7 {
+  exit(1)
+}
+)");
+
+  auto const [exitCode, output] = runFileWithArcDebug(mainPath);
+  EXPECT_EQ(exitCode, 0);
+  EXPECT_NE(output.find("[arc] live objects: 0"), std::string::npos) << output;
+}
+
+TEST(ArcDebugRuntimeTests, GenericEnumPayloadOverwriteReportsZero) {
+  std::filesystem::path const scratchDir =
+      recreateScratchDir("lesma_arc_runtime_generic_enum_payload_zero");
+  std::filesystem::path const mainPath = scratchDir / "main.les";
+  writeScratchFile(mainPath, R"(class Box {
+  var value: int
+
+  func new(value: int) {
+    self.value = value
+  }
+}
+
+var current: Result<Box, int> = Result.Ok(Box(1))
+current = Result.Err(2)
+if match current {
+  Result.Err(value) => value == 2
+  Result.Ok(_) => false
+} == false {
+  exit(1)
+}
+)");
+
+  auto const [exitCode, output] = runFileWithArcDebug(mainPath);
+  EXPECT_EQ(exitCode, 0);
+  EXPECT_NE(output.find("[arc] live objects: 0"), std::string::npos) << output;
 }
 
 TEST(ArcDebugRuntimeTests, ImportedModuleGlobalsReportZeroAfterCleanup) {
@@ -1142,6 +1295,47 @@ TEST(FormatterTests, FormatSourceWrapsClassHeadsAndSeparatesFieldsFromMethods) {
                         "}\n");
 }
 
+TEST(FormatterTests, FormatSourceKeepsNamedImportsOnOneLine) {
+  auto formatted = formatSource("from json import Json, JsonErr, Serializable\n",
+                                "named_imports_test.les", 20);
+  ASSERT_TRUE(formatted.has_value()) << formatted.error().message;
+  EXPECT_EQ(*formatted, "from json import Json, JsonErr, Serializable\n");
+}
+
+TEST(FormatterTests, FormatSourceKeepsBlankLineAfterImports) {
+  auto formatted = formatSource("from json import Json, JsonErr, Serializable\n"
+                                "class User {\n"
+                                "var name: str\n"
+                                "}\n",
+                                "import_spacing_test.les", 100);
+  ASSERT_TRUE(formatted.has_value()) << formatted.error().message;
+  EXPECT_EQ(*formatted, "from json import Json, JsonErr, Serializable\n"
+                        "\n"
+                        "class User {\n"
+                        "  var name: str\n"
+                        "}\n");
+}
+
+TEST(FormatterTests, FormatSourceKeepsBlankLineAfterImportsBeforeLet) {
+  auto formatted = formatSource("from \"type_alias_export_mod.les\" import MaybeNum, Word\n"
+                                "let maybe: MaybeNum = null\n",
+                                "import_spacing_let_test.les", 100);
+  ASSERT_TRUE(formatted.has_value()) << formatted.error().message;
+  EXPECT_EQ(*formatted, "from \"type_alias_export_mod.les\" import MaybeNum, Word\n"
+                        "\n"
+                        "let maybe: MaybeNum = null\n");
+}
+
+TEST(FormatterTests, FormatSourceSupportsValuePositionTypeReceivers) {
+  auto formatted =
+      formatSource("func wrap() -> Result<int, int> {\nreturn Result<int, int>.Ok(1)\n}\n",
+                   "value_type_receiver_test.les", 100);
+  ASSERT_TRUE(formatted.has_value()) << formatted.error().message;
+  EXPECT_EQ(*formatted, "func wrap() -> Result<int, int> {\n"
+                        "  return Result<int, int>.Ok(1)\n"
+                        "}\n");
+}
+
 TEST(ParserTests, ReturnExpressionAllowsIndentedContinuation) {
   AnalysisResult const result = analyzeSource("func check(b: uint8) -> bool {\n"
                                               "  return\n"
@@ -1586,6 +1780,35 @@ var status: Status = Status.READY
   EXPECT_TRUE(sawReadyUsageDeclaration);
   EXPECT_TRUE(sawEnumDeclaration);
   EXPECT_TRUE(sawEnumUsageDeclaration);
+}
+
+TEST(AnalysisIndexTests, ValuePositionGenericEnumConstructorIsIndexed) {
+  constexpr auto source = R"(func wrap() -> Result<int, int> {
+  return Result<int, int>.Ok(1)
+}
+)";
+
+  AnalysisResult const result = analyzeSource(source);
+  ASSERT_FALSE(result.hasErrors())
+      << (result.diagnostics.empty() ? std::string("unknown analysis error")
+                                     : result.diagnostics.front().message);
+
+  int resultTypeOccurrenceCount = 0;
+  bool sawOkConstructorUsage = false;
+
+  for (const IndexedSymbolOccurrence& occurrence : result.index.symbolOccurrences) {
+    if (occurrence.name == "Result" && occurrence.isTypePosition) {
+      ASSERT_TRUE(occurrence.declaration.has_value());
+      ++resultTypeOccurrenceCount;
+    }
+    if (occurrence.name == "Ok" && occurrence.isMemberAccess) {
+      ASSERT_TRUE(occurrence.declaration.has_value());
+      sawOkConstructorUsage = true;
+    }
+  }
+
+  EXPECT_GE(resultTypeOccurrenceCount, 2);
+  EXPECT_TRUE(sawOkConstructorUsage);
 }
 
 TEST(AnalysisIndexTests, NestedMemberAccessPreservesOuterReceiverName) {

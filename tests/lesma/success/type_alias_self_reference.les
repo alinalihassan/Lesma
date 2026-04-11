@@ -1,0 +1,19 @@
+type JsonValue = null | int | list<JsonValue> | dict<str, JsonValue>
+
+var leaf: JsonValue = 1
+var items: list<JsonValue> = [leaf]
+var rootObject: dict<str, JsonValue> = {"items": items}
+var root: JsonValue = rootObject
+var roots: list<JsonValue> = [root]
+
+if items[0] is int {
+  if (items[0] as int) != 1 {
+    exit(1)
+  }
+} else {
+  exit(1)
+}
+
+if roots[0] is int {
+  exit(1)
+}

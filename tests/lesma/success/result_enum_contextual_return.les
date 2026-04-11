@@ -1,0 +1,77 @@
+class Box {
+  var value: int
+
+  func new(value: int) {
+    self.value = value
+  }
+}
+
+func makeOk(value: int) -> Result<int, bool> {
+  return Ok(value)
+}
+
+func makeErr() -> Result<int, bool> {
+  return Err(true)
+}
+
+func makeBoxOk(value: int) -> Result<Box, bool> {
+  return Ok(Box(value))
+}
+
+func makeExplicitOk(value: int) -> Result<int, bool> {
+  return Result<int, bool>.Ok(value)
+}
+
+func makeExplicitErr() -> Result<int, bool> {
+  return Result<int, bool>.Err(true)
+}
+
+func makeDottedOk(value: int) -> Result<int, bool> {
+  return Result.Ok(value)
+}
+
+func makeDottedErr() -> Result<int, bool> {
+  return Result.Err(true)
+}
+
+let directOk = Result<int, bool>.Ok(7)
+if directOk.unwrap() != 7 {
+  exit(1)
+}
+
+let directErr = Result<int, bool>.Err(true)
+if directErr.unwrapOr(9) != 9 {
+  exit(2)
+}
+
+if makeOk(11).unwrap() != 11 {
+  exit(3)
+}
+
+if makeErr().unwrapOr(12) != 12 {
+  exit(4)
+}
+
+let boxed = makeBoxOk(13).unwrap()
+if boxed is not Box {
+  exit(5)
+}
+if (boxed as Box).value != 13 {
+  exit(6)
+}
+
+if makeExplicitOk(14).unwrap() != 14 {
+  exit(7)
+}
+
+if makeExplicitErr().unwrapOr(15) != 15 {
+  exit(8)
+}
+
+if makeDottedOk(16).unwrap() != 16 {
+  exit(9)
+}
+
+if makeDottedErr().unwrapOr(17) != 17 {
+  exit(10)
+}

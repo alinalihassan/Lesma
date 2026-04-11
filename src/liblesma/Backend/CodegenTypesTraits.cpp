@@ -191,12 +191,21 @@ auto Codegen::visit(const TypeExpr* node) -> void {
     auto git = currentGenericTypes.find(lookupName);
     if (git != currentGenericTypes.end()) {
       result = std::make_unique<Value>(git->second);
+      result->setCategory(ValueCategory::TYPE_SYMBOL);
       return;
     }
     std::vector<lesma::Type*> explicitTypeArgs;
     for (auto* typeArg : node->getTypeArgs()) {
       typeArg->accept(*this);
       explicitTypeArgs.push_back(result->getType());
+    }
+    if (Value* resolvedSym = node->getResolvedSymbol();
+        resolvedSym != nullptr && resolvedSym->getDeclarationKind() == ValueDeclarationKind::TYPE &&
+        resolvedSym->getType() != nullptr && explicitTypeArgs.empty()) {
+      getOrCreateLlvmType(resolvedSym->getType());
+      result = std::make_unique<Value>(*resolvedSym);
+      result->setType(resolvedSym->getType());
+      return;
     }
     if (lookupName == "__buffer") {
       if (explicitTypeArgs.size() != 1U) {
@@ -229,22 +238,96 @@ auto Codegen::visit(const TypeExpr* node) -> void {
     }
     if (!explicitTypeArgs.empty()) {
       const Class* templateClass = nullptr;
+      const Enum* templateEnum = nullptr;
       if (auto gitClass = genericClasses.find(lookupName); gitClass != genericClasses.end()) {
         templateClass = gitClass->second;
       } else if (sym != nullptr && sym->getGenericClassTemplate() != nullptr) {
         templateClass = static_cast<const Class*>(sym->getGenericClassTemplate());
+      } else if (auto gitEnum = genericEnums.find(lookupName); gitEnum != genericEnums.end()) {
+        templateEnum = gitEnum->second;
       }
-      if (templateClass == nullptr) {
-        throw CodegenError(node->getSpan(), "Type {} is not a generic class", node->getName());
+      if (templateClass == nullptr && templateEnum == nullptr) {
+        throw CodegenError(node->getSpan(), "Type {} is not a generic nominal type",
+                           node->getName());
       }
-      sym = specializeClass(templateClass, {}, explicitTypeArgs);
-      typ = sym->getType();
+      if (templateClass != nullptr) {
+        sym = specializeClass(templateClass, {}, explicitTypeArgs);
+        typ = sym->getType();
+      } else {
+        Type* templateType = sym->getType();
+        const auto& genericParamNames = templateType->getGenericParams();
+        if (genericParamNames.size() != explicitTypeArgs.size()) {
+          throw CodegenError(node->getSpan(), "Generic type {} expects {} type arguments, got {}",
+                             node->getName(), genericParamNames.size(), explicitTypeArgs.size());
+        }
+        std::unordered_map<std::string, Type*> env;
+        for (size_t i = 0; i < genericParamNames.size(); ++i) {
+          env[genericParamNames[i]] = explicitTypeArgs[i];
+        }
+        const std::string registryKey =
+            TypeUtils::makeSpecializedClassKey(templateType, genericParamNames, env);
+        auto specIt = specializedClassTypesByKey.find(registryKey);
+        if (specIt == specializedClassTypesByKey.end()) {
+          auto specialized =
+              std::make_unique<Type>(BaseType::TY_ENUM, nullptr, std::vector<std::unique_ptr<Field>>{});
+          specialized->setDisplayName(node->getName());
+          specialized->setGenericParams(genericParamNames);
+          specialized->setDeclarationSpan(templateType->getDeclarationSpan());
+          specialized->setDeclarationFilePath(templateType->getDeclarationFilePath());
+          typ = cacheType(std::move(specialized));
+          specializedClassTypeEnvs[typ] = env;
+          specializedClassTemplateOf[typ] = templateType;
+          specializedClassTypesByKey[registryKey] = typ;
+
+          std::vector<std::unique_ptr<Field>> newFields;
+          for (Field* field : templateType->getFields()) {
+            Type* subst = substituteTypeForSpecializationEnv(field->type, env);
+            auto newField = std::make_unique<Field>(field->name, subst);
+            newField->setDeclarationSpan(field->getDeclarationSpan());
+            newField->setDeclarationFilePath(field->getDeclarationFilePath());
+            if (Value* ds = field->getDeclarationSymbol()) {
+              auto symCopy = std::make_unique<Value>(*ds);
+              symCopy->setType(subst);
+              newField->setDeclarationSymbol(std::move(symCopy));
+            }
+            newFields.push_back(std::move(newField));
+          }
+          typ->replaceFields(std::move(newFields));
+
+          std::vector<std::unique_ptr<EnumVariant>> newVariants;
+          for (EnumVariant* variant : templateType->getEnumVariants()) {
+            if (variant == nullptr) {
+              continue;
+            }
+            std::vector<Type*> payloadTypes;
+            payloadTypes.reserve(variant->payloadTypes.size());
+            for (Type* payload : variant->payloadTypes) {
+              payloadTypes.push_back(substituteTypeForSpecializationEnv(payload, env));
+            }
+            auto newVariant = std::make_unique<EnumVariant>(variant->name, std::move(payloadTypes));
+            newVariant->setDeclarationSpan(variant->getDeclarationSpan());
+            newVariant->setDeclarationFilePath(variant->getDeclarationFilePath());
+            newVariants.push_back(std::move(newVariant));
+          }
+          typ->replaceEnumVariants(std::move(newVariants));
+          specIt = specializedClassTypesByKey.find(registryKey);
+        }
+        if (specIt == specializedClassTypesByKey.end()) {
+          throw CodegenError(node->getSpan(), "Missing specialized enum type for {}", node->getName());
+        }
+        typ = specIt->second;
+        if (isTypeFullyConcrete(typ)) {
+          emitEnumMonomorph(typ, templateEnum);
+        }
+      }
     }
-    if (sym->getType()->getLlvmType() == nullptr) {
-      getOrCreateLlvmType(sym->getType());
+    if (typ->getLlvmType() == nullptr) {
+      getOrCreateLlvmType(typ);
     }
 
     result = std::make_unique<Value>(*sym);
+    result->setType(typ);
+    result->setCategory(ValueCategory::TYPE_SYMBOL);
   } else {
     throw CodegenError(node->getSpan(), "Unimplemented type {}", NAMEOF_ENUM(node->getType()));
   }
@@ -281,7 +364,36 @@ auto Codegen::getOrCreateLlvmType(lesma::Type* type) -> llvm::Type* {
     if (type->is(BaseType::TY_ENUM)) {
       if (auto* existingStruct = llvm::dyn_cast<llvm::StructType>(type->getLlvmType());
           existingStruct != nullptr && existingStruct->isOpaque()) {
-        existingStruct->setBody({builder->getInt8Ty()});
+        auto variants = type->getEnumVariants();
+        if (variants.empty()) {
+          existingStruct->setBody({builder->getInt8Ty()});
+        } else {
+          const llvm::DataLayout& dl = theModule->getDataLayout();
+          unsigned maxAlloc = 0U;
+          unsigned maxAbiAlign = 1U;
+          for (unsigned idx = 0; idx < variants.size(); ++idx) {
+            EnumVariant* variant = variants[idx];
+            if (variant == nullptr) {
+              continue;
+            }
+            Type* aggregatePayloadType = getEnumVariantAggregatePayloadType(type, idx);
+            if (aggregatePayloadType == nullptr) {
+              continue;
+            }
+            llvm::Type* const lt = getStoredAggregateFieldLlvmType(aggregatePayloadType);
+            maxAlloc =
+                std::max(maxAlloc, static_cast<unsigned>(dl.getTypeAllocSize(lt).getFixedValue()));
+            maxAbiAlign =
+                std::max(maxAbiAlign, static_cast<unsigned>(dl.getABITypeAlign(lt).value()));
+          }
+          unsigned const payloadBytes = llvm::alignTo(maxAlloc, maxAbiAlign);
+          unsigned const numI64 = std::max(1U, (payloadBytes + 7U) / 8U);
+          llvm::Type* payloadTy = llvm::ArrayType::get(builder->getInt64Ty(), numI64);
+          unsigned const minTagBits = unionDiscriminantMinBits(variants.size());
+          unsigned const tagBitWidth = roundUnionTagToSupportedBitWidth(minTagBits);
+          llvm::Type* tagTy = builder->getIntNTy(tagBitWidth);
+          existingStruct->setBody({tagTy, payloadTy});
+        }
       }
     }
     return type->getLlvmType();
@@ -448,7 +560,38 @@ auto Codegen::getOrCreateLlvmType(lesma::Type* type) -> llvm::Type* {
       st = llvm::StructType::create(theModule->getContext());
     }
     type->setLlvmType(st);
-    st->setBody({builder->getInt8Ty()});
+    auto variants = type->getEnumVariants();
+    if (variants.empty()) {
+      st->setBody({builder->getInt8Ty()});
+      break;
+    }
+    const llvm::DataLayout& dl = theModule->getDataLayout();
+    unsigned maxAlloc = 0U;
+    unsigned maxAbiAlign = 1U;
+    for (unsigned idx = 0; idx < variants.size(); ++idx) {
+      EnumVariant* variant = variants[idx];
+      if (variant == nullptr) {
+        continue;
+      }
+      Type* aggregatePayloadType = getEnumVariantAggregatePayloadType(type, idx);
+      if (aggregatePayloadType == nullptr) {
+        continue;
+      }
+      llvm::Type* const lt = getStoredAggregateFieldLlvmType(aggregatePayloadType);
+      maxAlloc = std::max(maxAlloc, static_cast<unsigned>(dl.getTypeAllocSize(lt).getFixedValue()));
+      maxAbiAlign = std::max(maxAbiAlign, static_cast<unsigned>(dl.getABITypeAlign(lt).value()));
+    }
+    unsigned const payloadBytes = llvm::alignTo(maxAlloc, maxAbiAlign);
+    unsigned const numI64 = std::max(1U, (payloadBytes + 7U) / 8U);
+    llvm::Type* const payloadTy = llvm::ArrayType::get(builder->getInt64Ty(), numI64);
+    unsigned const minTagBits = unionDiscriminantMinBits(variants.size());
+    unsigned const tagBitWidth = roundUnionTagToSupportedBitWidth(minTagBits);
+    if (tagBitWidth == 0U) {
+      throw CodegenError(type->getDeclarationSpan(),
+                         "Enum has too many variants for the discriminant");
+    }
+    llvm::Type* const tagTy = builder->getIntNTy(tagBitWidth);
+    st->setBody({tagTy, payloadTy});
     break;
   }
   default:
@@ -466,6 +609,56 @@ auto Codegen::getOrCreateUnionTagLlvmType(lesma::Type* unionTy) -> llvm::Type* {
   getOrCreateLlvmType(unionTy);
   auto* st = llvm::cast<llvm::StructType>(unionTy->getLlvmType());
   return st->getElementType(0U);
+}
+
+auto Codegen::getOrCreateEnumTagLlvmType(lesma::Type* enumTy) -> llvm::Type* {
+  if (enumTy == nullptr || !enumTy->is(BaseType::TY_ENUM)) {
+    llvm::SMRange const span = enumTy != nullptr ? enumTy->getDeclarationSpan() : llvm::SMRange{};
+    throw CodegenError(span, "Internal error: getOrCreateEnumTagLlvmType expects an enum type");
+  }
+  getOrCreateLlvmType(enumTy);
+  auto* st = llvm::cast<llvm::StructType>(enumTy->getLlvmType());
+  return st->getElementType(0U);
+}
+
+auto Codegen::getEnumPayloadLlvmType(lesma::Type* enumTy) -> llvm::Type* {
+  if (enumTy == nullptr || !enumTy->is(BaseType::TY_ENUM)) {
+    llvm::SMRange const span = enumTy != nullptr ? enumTy->getDeclarationSpan() : llvm::SMRange{};
+    throw CodegenError(span, "Internal error: getEnumPayloadLlvmType expects an enum type");
+  }
+  getOrCreateLlvmType(enumTy);
+  auto* st = llvm::cast<llvm::StructType>(enumTy->getLlvmType());
+  if (st->getNumElements() <= 1U) {
+    return nullptr;
+  }
+  return st->getElementType(1U);
+}
+
+auto Codegen::getEnumVariantAggregatePayloadType(lesma::Type* enumTy, unsigned variantIndex)
+    -> lesma::Type* {
+  if (enumTy == nullptr || !enumTy->is(BaseType::TY_ENUM)) {
+    llvm::SMRange const span = enumTy != nullptr ? enumTy->getDeclarationSpan() : llvm::SMRange{};
+    throw CodegenError(span,
+                       "Internal error: getEnumVariantAggregatePayloadType expects an enum type");
+  }
+  auto variants = enumTy->getEnumVariants();
+  if (variantIndex >= variants.size() || variants[variantIndex] == nullptr) {
+    throw CodegenError(enumTy->getDeclarationSpan(), "Invalid enum variant index");
+  }
+  EnumVariant* variant = variants[variantIndex];
+  if (variant->payloadTypes.empty()) {
+    return nullptr;
+  }
+  if (variant->payloadTypes.size() == 1U) {
+    return variant->payloadTypes.front();
+  }
+  std::vector<std::unique_ptr<Field>> tupleFields;
+  tupleFields.reserve(variant->payloadTypes.size());
+  for (size_t i = 0; i < variant->payloadTypes.size(); ++i) {
+    tupleFields.push_back(
+        std::make_unique<Field>("_" + std::to_string(i), variant->payloadTypes[i]));
+  }
+  return cacheType(std::make_unique<Type>(BaseType::TY_TUPLE, nullptr, std::move(tupleFields)));
 }
 
 auto Codegen::getStoredAggregateFieldLlvmType(lesma::Type* fieldType) -> llvm::Type* {
@@ -524,11 +717,13 @@ auto Codegen::mergeImportedTraitMetadata(ImportedSpecializationState const& impo
 auto Codegen::captureImportedSpecializationState() const -> ImportedSpecializationState {
   ImportedSpecializationState importedState;
   importedState.genericClasses = genericClasses;
+  importedState.genericEnums = genericEnums;
   importedState.specializedClassTypesByKey = specializedClassTypesByKey;
   importedState.specializedClassTypeEnvs = specializedClassTypeEnvs;
   importedState.specializedClassTemplateOf = specializedClassTemplateOf;
   importedState.specializationEnvs = specializationEnvs;
   importedState.codegenClassAstByDisplayName = codegenClassAstByDisplayName;
+  importedState.codegenEnumAstByDisplayName = codegenEnumAstByDisplayName;
   importedState.traitRequirementMethodOrder = traitRequirementMethodOrder;
   importedState.traitDeclByName = traitDeclByName;
   return importedState;
@@ -538,6 +733,9 @@ auto Codegen::mergeImportedSpecializationState(ImportedSpecializationState const
     -> void {
   for (const auto& entry : imported.genericClasses) {
     genericClasses.insert(entry);
+  }
+  for (const auto& entry : imported.genericEnums) {
+    genericEnums.insert(entry);
   }
   for (const auto& entry : imported.specializedClassTypesByKey) {
     specializedClassTypesByKey.insert(entry);
@@ -553,6 +751,9 @@ auto Codegen::mergeImportedSpecializationState(ImportedSpecializationState const
   }
   for (const auto& entry : imported.codegenClassAstByDisplayName) {
     codegenClassAstByDisplayName.insert(entry);
+  }
+  for (const auto& entry : imported.codegenEnumAstByDisplayName) {
+    codegenEnumAstByDisplayName.insert(entry);
   }
 }
 

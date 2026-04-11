@@ -1,0 +1,13 @@
+class Box {
+  var value: int
+
+  func new() {
+    self.value = 0
+  }
+
+  private func new(value: int) {
+    self.value = value
+  }
+}
+
+var box = Box(3)

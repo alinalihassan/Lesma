@@ -39,6 +39,16 @@ void maybeTimed(Timer* timerPtr, const std::string& label, F&& fn) {
   }
 }
 
+template <typename F>
+void maybeTimedFile(Timer* timerPtr, const std::string& phase, const std::string& fileLabel,
+                    F&& fn) {
+  if (timerPtr != nullptr) {
+    timerPtr->measureFile(phase, fileLabel, std::forward<F>(fn));
+  } else {
+    std::forward<F>(fn)();
+  }
+}
+
 void displayWarnings(const lesma::AnalysisResult& result) {
   if (result.suppressWarnings) {
     return;
@@ -67,7 +77,7 @@ auto lesma::analyze(std::unique_ptr<Options> options, Timer* phaseTimer) -> Anal
 
   try {
     bool readFailed = false;
-    maybeTimed(phaseTimer, "Reading source", [&]() -> void {
+    maybeTimedFile(phaseTimer, "Reading", result.mainFilePath, [&]() -> void {
       if (options->sourceType == SourceType::FILE) {
         auto buffer = llvm::MemoryBuffer::getFileAsStream(options->source);
         if (!buffer) {
@@ -106,7 +116,7 @@ auto lesma::analyze(std::unique_ptr<Options> options, Timer* phaseTimer) -> Anal
 
   std::unique_ptr<Lexer> lexer;
   try {
-    maybeTimed(phaseTimer, "Lexing", [&]() -> void {
+    maybeTimedFile(phaseTimer, "Lexing", result.mainFilePath, [&]() -> void {
       lexer = std::make_unique<Lexer>(srcMgr, &result.diagnostics, result.mainFilePath);
       lexer->scanAll();
       if ((options->debug & Debug::LEXER) != Debug::NONE) {
@@ -136,7 +146,7 @@ auto lesma::analyze(std::unique_ptr<Options> options, Timer* phaseTimer) -> Anal
 
   std::unique_ptr<Parser> parser;
   try {
-    maybeTimed(phaseTimer, "Parsing", [&]() -> void {
+    maybeTimedFile(phaseTimer, "Parsing", result.mainFilePath, [&]() -> void {
       parser = std::make_unique<Parser>(lexer->getTokens(), &result.diagnostics, srcMgr,
                                         mainBufferId, result.mainFilePath);
       parser->parse();
@@ -167,9 +177,10 @@ auto lesma::analyze(std::unique_ptr<Options> options, Timer* phaseTimer) -> Anal
       [&](const std::string& path, bool isStd, const std::string& main) {
         return discoverExportedTopLevelNames(path, isStd, main);
       },
-      &result.diagnostics, srcMgr, mainBufferId);
+      &result.diagnostics, srcMgr, mainBufferId, phaseTimer);
   try {
-    maybeTimed(phaseTimer, "Typecheck", [&]() -> void { typechecker.run(parser->getAst()); });
+    maybeTimedFile(phaseTimer, "Typecheck", result.mainFilePath,
+                   [&]() -> void { typechecker.run(parser->getAst()); });
     result.sourceMgr = std::move(srcMgr);
     result.mainBufferId = mainBufferId;
     result.parser = std::move(parser);
@@ -181,8 +192,9 @@ auto lesma::analyze(std::unique_ptr<Options> options, Timer* phaseTimer) -> Anal
     result.importAliasToPath = typechecker.takeImportAliasToPath();
     result.importedNameToSource = typechecker.takeImportedNameToSource();
     result.importedModules = typechecker.takeImportedModules();
-    result.index = buildAnalysisIndex(result.parser != nullptr ? result.parser->getAst() : nullptr,
-                                      result.sourceMgr.get(), result.mainBufferId);
+    result.index =
+        buildAnalysisIndex(result.parser != nullptr ? result.parser->getAst() : nullptr,
+                           result.sourceMgr.get(), result.mainBufferId, result.mainFilePath);
     return result;
   } catch (const LesmaError& err) {
     result.diagnostics.push_back(AnalysisDiagnostic{
@@ -205,8 +217,9 @@ auto lesma::analyze(std::unique_ptr<Options> options, Timer* phaseTimer) -> Anal
     result.importAliasToPath = typechecker.takeImportAliasToPath();
     result.importedNameToSource = typechecker.takeImportedNameToSource();
     result.importedModules = typechecker.takeImportedModules();
-    result.index = buildAnalysisIndex(result.parser != nullptr ? result.parser->getAst() : nullptr,
-                                      result.sourceMgr.get(), result.mainBufferId);
+    result.index =
+        buildAnalysisIndex(result.parser != nullptr ? result.parser->getAst() : nullptr,
+                           result.sourceMgr.get(), result.mainBufferId, result.mainFilePath);
     return result;
   }
 }
@@ -238,21 +251,25 @@ auto Driver::baseCompile(std::unique_ptr<lesma::Options> options, bool jit) -> i
 
   try {
     int exitCode = 0;
+    llvm::OptimizationLevel const effectiveOptLevel =
+        (emitArcDebug || emitArcTrace) ? llvm::OptimizationLevel::O0 : optLevel;
     {
-      auto codegen = timer.measure("Compiling", [&]() -> std::unique_ptr<lesma::Codegen> {
-        std::vector<std::string> const modules;
-        auto cg = std::make_unique<Codegen>(
-            std::move(result.parser), result.sourceMgr,
-            result.mainFilePath.empty() ? "" : result.mainFilePath, modules, jit, true, "", nullptr,
-            nullptr, nullptr, nullptr, std::move(result.rootScope), std::move(result.typeCache),
-            std::move(result.specializedTypeEnv), std::move(result.specializedTypeToTemplate),
-            std::move(result.specializedClassTypes), emitDebugInfo, emitArcDebug, emitArcTrace,
-            optLevel);
-        cg->run();
-        return cg;
-      });
+      auto codegen = timer.measureFile(
+          "Compiling", result.mainFilePath, [&]() -> std::unique_ptr<lesma::Codegen> {
+            std::vector<std::string> const modules;
+            auto cg = std::make_unique<Codegen>(
+                std::move(result.parser), result.sourceMgr,
+                result.mainFilePath.empty() ? "" : result.mainFilePath, modules, jit, true, "",
+                nullptr, nullptr, nullptr, nullptr, nullptr, std::move(result.rootScope),
+                std::move(result.typeCache), std::move(result.specializedTypeEnv),
+                std::move(result.specializedTypeToTemplate),
+                std::move(result.specializedClassTypes), std::move(result.importedModules), &timer,
+                emitDebugInfo, emitArcDebug, emitArcTrace, effectiveOptLevel);
+            cg->run();
+            return cg;
+          });
 
-      timer.measure("Optimizing", [&]() -> void { codegen->optimize(optLevel); });
+      timer.measure("Optimizing", [&]() -> void { codegen->optimize(effectiveOptLevel); });
 
       if ((debugFlags & Debug::IR) != Debug::NONE) {
         lesma::print(LogType::DEBUG, "LLVM IR (after optimization):\n");
@@ -261,18 +278,19 @@ auto Driver::baseCompile(std::unique_ptr<lesma::Options> options, bool jit) -> i
       }
 
       if (!jit) {
-        timer.measure("Writing Object File",
-                      [&]() -> void { codegen->writeToObjectFile(outputFilename); });
-        timer.measure("Linking Object File", [&]() -> void {
+        timer.measureFile("Writing Object File", result.mainFilePath,
+                          [&]() -> void { codegen->writeToObjectFile(outputFilename); });
+        timer.measure("Linking", [&]() -> void {
           codegen->linkObjectFile(fmt::format("{}.o", outputFilename));
         });
       } else {
-        timer.measure("JIT", [&]() -> void { codegen->prepareJit(); });
+        timer.measureFile("JIT", result.mainFilePath,
+                          [&]() -> void { codegen->prepareJit(); });
         exitCode = timer.measure("Execution", [&]() -> int { return codegen->executeJit(); });
       }
     }
     llvm::llvm_shutdown();
-    timer.printTotal();
+    timer.printReport();
     return exitCode;
   } catch (const LesmaError& err) {
     llvm::llvm_shutdown();
