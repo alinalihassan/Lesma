@@ -135,6 +135,11 @@ class Codegen final : public ASTVisitor {
   /** \c deferStack.size() after \c deferStack.emplace() for the current module/callable unit. */
   std::stack<size_t> deferBaselineStack;
   lesma::Value* currentFunction = nullptr;
+  llvm::Value* currentAsyncCoroHandle = nullptr;
+  llvm::Value* currentAsyncPromisePtr = nullptr;
+  llvm::BasicBlock* currentAsyncReturnBlock = nullptr;
+  lesma::Type* currentAsyncReturnPayloadType = nullptr;
+  std::unordered_map<lesma::Type*, llvm::StructType*> asyncPromiseTypes;
 
   std::vector<std::string> objectFiles;
   std::shared_ptr<std::vector<std::string>> importedModules;
@@ -535,6 +540,16 @@ protected:
       -> lesma::Value*;
   auto defineLambdaFunction(lesma::Value* value, const LambdaExpr* node) -> void;
   [[nodiscard]] auto getFuncValuePairLlvmType() -> llvm::StructType*;
+  [[nodiscard]] auto isAsyncTaskType(lesma::Type* type) const -> bool;
+  [[nodiscard]] auto getAsyncTaskPayloadType(lesma::Type* type) const -> lesma::Type*;
+  [[nodiscard]] auto getOrCreateAsyncPromiseLlvmType(lesma::Type* payloadType)
+      -> llvm::StructType*;
+  auto getCoroutineIntrinsic(llvm::Intrinsic::ID id,
+                             llvm::ArrayRef<llvm::Type*> overloadTypes = {}) -> llvm::FunctionCallee;
+  auto emitAsyncTaskPromisePointer(llvm::Value* taskHandle, lesma::Type* taskType, bool fromCaller)
+      -> llvm::Value*;
+  auto emitRunAsyncTask(llvm::SMRange span, std::unique_ptr<lesma::Value> taskValue,
+                        bool destroyTask) -> std::unique_ptr<lesma::Value>;
   auto
   specializeClass(const Class* node, const std::vector<lesma::Type*>& constructorArgTypes,
                   const std::vector<lesma::Type*>& explicitTypeArgs = {},

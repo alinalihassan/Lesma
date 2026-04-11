@@ -104,6 +104,10 @@ class Type {
   bool classHasDerivedClass = false;
   /** Marks the stdlib `str` class type so callers do not rely on display-name string checks. */
   bool builtinStringClass = false;
+  /** Compiler-internal async task wrapper type. */
+  bool builtinTask = false;
+  /** Payload type for compiler-internal async task wrapper types. */
+  Type* taskPayloadType = nullptr;
   std::string genericName;
   std::string displayName;
   /** Declared generic parameter names in order (for TY_CLASS and TY_FUNCTION). */
@@ -252,6 +256,10 @@ public:
   auto setClassHasDerivedClass(bool value) -> void { classHasDerivedClass = value; }
   [[nodiscard]] auto isBuiltinStringClass() const -> bool { return builtinStringClass; }
   auto setBuiltinStringClass(bool value) -> void { builtinStringClass = value; }
+  [[nodiscard]] auto isBuiltinTask() const -> bool { return builtinTask; }
+  auto setBuiltinTask(bool value) -> void { builtinTask = value; }
+  [[nodiscard]] auto getTaskPayloadType() const -> Type* { return taskPayloadType; }
+  auto setTaskPayloadType(Type* type) -> void { taskPayloadType = type; }
   [[nodiscard]] auto getClassVtableMethodOrder() const -> const std::vector<std::string>& {
     return classVtableMethodOrder;
   }

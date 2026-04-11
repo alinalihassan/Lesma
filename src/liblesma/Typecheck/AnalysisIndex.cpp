@@ -209,6 +209,15 @@ auto resolvedTypeForExpr(const Expression* expr) -> Type* {
     return resolvedSymbol != nullptr ? resolvedSymbol->getType() : nullptr;
   }
   if (auto const* call = dynamic_cast<const FuncCall*>(expr)) {
+    if (call->getName() == "run") {
+      auto args = call->getArguments();
+      if (args.size() == 1U) {
+        Type* taskType = resolvedTypeForExpr(args.front());
+        if (taskType != nullptr && taskType->isBuiltinTask()) {
+          return taskType->getTaskPayloadType();
+        }
+      }
+    }
     Value* const resolvedSymbol = call->getResolvedSymbol();
     return resolvedSymbol != nullptr && resolvedSymbol->getType() != nullptr
                ? resolvedSymbol->getType()->getReturnType()
@@ -220,6 +229,14 @@ auto resolvedTypeForExpr(const Expression* expr) -> Type* {
   }
   if (auto const* castOp = dynamic_cast<const CastOp*>(expr)) {
     return resolvedTypeForExpr(castOp->getType());
+  }
+  if (auto const* unary = dynamic_cast<const UnaryOp*>(expr)) {
+    if (unary->getOperator() == TokenType::AWAIT) {
+      Type* taskType = resolvedTypeForExpr(unary->getExpression());
+      if (taskType != nullptr && taskType->isBuiltinTask()) {
+        return taskType->getTaskPayloadType();
+      }
+    }
   }
   if (auto const* dot = dynamic_cast<const DotOp*>(expr)) {
     Type* baseType = resolvedTypeForExpr(dot->getLeft());

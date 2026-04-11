@@ -1,0 +1,5 @@
+async func mark_value() {
+  let _ = 9
+}
+
+run(mark_value())

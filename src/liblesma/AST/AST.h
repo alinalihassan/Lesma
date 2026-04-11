@@ -745,6 +745,7 @@ class FuncDecl : public Statement {
   std::unique_ptr<TypeExpr> returnType;
   std::vector<std::unique_ptr<Parameter>> parameters;
   std::unique_ptr<Compound> body;
+  bool isAsync;
   bool varargs;
   bool exported;
   /** Class body only: method is visible only inside methods of the declaring class. */
@@ -761,12 +762,13 @@ public:
   FuncDecl(llvm::SMRange loc, std::string name, llvm::SMRange nameSpan,
            llvm::SMRange overloadGlyphSpan, std::vector<GenericParamDecl> genericParams,
            std::unique_ptr<TypeExpr> returnType, std::vector<std::unique_ptr<Parameter>> parameters,
-           std::unique_ptr<Compound> body, bool varargs, bool exported, bool methodPrivate = false,
-           bool inheritanceOverload = false, bool methodStatic = false)
+           std::unique_ptr<Compound> body, bool isAsync, bool varargs, bool exported,
+           bool methodPrivate = false, bool inheritanceOverload = false,
+           bool methodStatic = false)
       : Statement(loc), name(std::move(name)), nameSpan(nameSpan),
         overloadGlyphSpan(overloadGlyphSpan), genericParams(std::move(genericParams)),
         returnType(std::move(returnType)), parameters(std::move(parameters)), body(std::move(body)),
-        varargs(varargs), exported(exported), isPrivate(methodPrivate),
+        isAsync(isAsync), varargs(varargs), exported(exported), isPrivate(methodPrivate),
         declaresOverload(inheritanceOverload), isStatic(methodStatic) {}
   void accept(ASTVisitor& visitor) const override { visitor.visit(this); }
 
@@ -791,6 +793,7 @@ public:
   [[nodiscard]] [[maybe_unused]] auto getReturnType() const -> TypeExpr* {
     return returnType.get();
   }
+  [[nodiscard]] auto getIsAsync() const -> bool { return isAsync; }
   [[nodiscard]] [[maybe_unused]] auto getParameters() const -> std::vector<Parameter*> {
     std::vector<Parameter*> result;
     result.reserve(parameters.size());
@@ -813,11 +816,12 @@ public:
 
   auto toString(llvm::SourceMgr* srcMgr, const std::string& prefix, bool isTail) const
       -> std::string override {
-    auto ret = fmt::format("{}{}FuncDecl[Line({}-{}):Col({}-{})]: {}(", prefix,
+    auto ret = fmt::format("{}{}FuncDecl[Line({}-{}):Col({}-{})]: {}{}(", prefix,
                            isTail ? "└──" : "├──", srcMgr->getLineAndColumn(getStart()).first,
                            srcMgr->getLineAndColumn(getEnd()).first,
                            srcMgr->getLineAndColumn(getStart()).second,
-                           srcMgr->getLineAndColumn(getEnd()).second, name);
+                           srcMgr->getLineAndColumn(getEnd()).second, isAsync ? "async " : "",
+                           name);
     for (const auto& param : parameters) {
       ret += param->name + ": " +
              (param->type != nullptr ? param->type->toString(srcMgr, prefix, isTail) : "?") +

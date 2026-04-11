@@ -28,6 +28,8 @@ static const std::unordered_map<std::string_view, TokenType> KEYWORDS = {
     {"class", TokenType::CLASS},
     {"enum", TokenType::ENUM},
     {"else", TokenType::ELSE},
+    {"async", TokenType::ASYNC},
+    {"await", TokenType::AWAIT},
     {"false", TokenType::FALSE_},
     {"for", TokenType::FOR},
     {"defer", TokenType::DEFER},

@@ -1355,7 +1355,8 @@ auto Parser::parseBlockExpr() -> std::unique_ptr<Expression> {
   std::unique_ptr<Expression> tailExpr;
 
   auto startsStatement = [this]() -> bool {
-    return checkAny<TokenType::FUNC, TokenType::TRAIT, TokenType::IMPORT, TokenType::FROM,
+    return checkAny<TokenType::ASYNC, TokenType::FUNC, TokenType::TRAIT, TokenType::IMPORT,
+                    TokenType::FROM,
                     TokenType::CLASS, TokenType::ENUM, TokenType::EXPORT, TokenType::LET,
                     TokenType::VAR, TokenType::IF, TokenType::WHILE, TokenType::FOR,
                     TokenType::BREAK, TokenType::CONTINUE, TokenType::RETURN,
@@ -1597,7 +1598,7 @@ auto Parser::parseDot() -> std::unique_ptr<Expression> { return parsePostfix(); 
 auto Parser::parseUnary() -> std::unique_ptr<Expression> {
   // Handle unary operators recursively to allow chaining: - - x, * * ptr, etc.
   if (advanceIfMatchAny<TokenType::MINUS, TokenType::STAR, TokenType::AMPERSAND, TokenType::BANG,
-                        TokenType::TILDE>()) {
+                        TokenType::TILDE, TokenType::AWAIT>()) {
     auto* op = previous();
     consumeOperandContinuationNewlines();
     auto expr = parseUnary(); // Recursive call for chained unary operators
@@ -2041,12 +2042,21 @@ auto Parser::parseDefer() -> std::unique_ptr<Statement> {
   return std::make_unique<Defer>(llvm::SMRange{loc.Start, val->getEnd()}, std::move(val));
 }
 
+auto Parser::parseAsyncFunctionDeclaration() -> std::unique_ptr<Statement> {
+  consume(TokenType::ASYNC);
+  if (!check(TokenType::FUNC)) {
+    error(peek(), "Expected `func` after `async`");
+    return nullptr;
+  }
+  return parseFunctionDeclaration(false, false, false, true);
+}
+
 auto Parser::parseStatement(bool isTopLevel) -> std::unique_ptr<Statement> {
   while (check(TokenType::NEWLINE)) {
     advance();
   }
 
-  if (checkAny<TokenType::FUNC, TokenType::IMPORT, TokenType::CLASS, TokenType::ENUM,
+  if (checkAny<TokenType::ASYNC, TokenType::FUNC, TokenType::IMPORT, TokenType::CLASS, TokenType::ENUM,
                TokenType::TYPE,
                TokenType::TRAIT, TokenType::EXPORT>() &&
       !isTopLevel) {
@@ -2058,6 +2068,9 @@ auto Parser::parseStatement(bool isTopLevel) -> std::unique_ptr<Statement> {
   }
   if (check(TokenType::STATIC)) {
     error(peek(), "`static` is only valid on class fields and methods");
+  }
+  if (check(TokenType::ASYNC)) {
+    return parseAsyncFunctionDeclaration();
   }
   if (check(TokenType::FUNC)) {
     return parseFunctionDeclaration();
@@ -2206,7 +2219,8 @@ auto Parser::parseParameterList(bool allowVarargsEllipsis) -> ParameterListParse
 }
 
 auto Parser::parseFunctionDeclaration(bool methodIsPrivate, bool declaresInheritanceOverload,
-                                      bool methodIsStatic) -> std::unique_ptr<Statement> {
+                                      bool methodIsStatic, bool isAsync)
+    -> std::unique_ptr<Statement> {
   auto loc = isExported ? previous()->span : peek()->span;
   if (methodIsStatic && !inClass && !inEnum) {
     error(peek(), "`static func` is only allowed inside class or enum bodies");
@@ -2220,6 +2234,17 @@ auto Parser::parseFunctionDeclaration(bool methodIsPrivate, bool declaresInherit
 
   if (advanceIfMatchAny<TokenType::EXTERN>()) {
     externFunc = true;
+  }
+
+  if (isAsync) {
+    if (inClass || inEnum) {
+      error(previous(), "`async func` is only supported for top-level named functions");
+      return nullptr;
+    }
+    if (externFunc) {
+      error(previous(), "`async func extern` is not supported");
+      return nullptr;
+    }
   }
 
   if (externFunc && (inClass || inEnum)) {
@@ -2333,7 +2358,7 @@ auto Parser::parseFunctionDeclaration(bool methodIsPrivate, bool declaresInherit
   return std::make_unique<FuncDecl>(
       llvm::SMRange{loc.Start, funcEnd}, functionName, functionNameSpan, overloadGlyphSpan,
       std::move(genericParams), std::move(returnType), std::move(parameters), std::move(body),
-      false, funcExported, methodIsPrivate, declaresInheritanceOverload, methodIsStatic);
+      isAsync, false, funcExported, methodIsPrivate, declaresInheritanceOverload, methodIsStatic);
 }
 
 auto Parser::parseExport() -> std::unique_ptr<Statement> {
@@ -2347,7 +2372,7 @@ auto Parser::parseExport() -> std::unique_ptr<Statement> {
     advance();
   }
 
-  if (!checkAny<TokenType::FUNC, TokenType::CLASS, TokenType::ENUM, TokenType::TRAIT,
+  if (!checkAny<TokenType::ASYNC, TokenType::FUNC, TokenType::CLASS, TokenType::ENUM, TokenType::TRAIT,
                 TokenType::TYPE,
                 TokenType::LET, TokenType::VAR>()) {
     error(peek(), "Can only export functions, classes, enums, traits, type aliases, and variables");
@@ -2355,7 +2380,9 @@ auto Parser::parseExport() -> std::unique_ptr<Statement> {
 
   isExported = true;
   std::unique_ptr<Statement> statement;
-  if (check(TokenType::FUNC)) {
+  if (check(TokenType::ASYNC)) {
+    statement = parseAsyncFunctionDeclaration();
+  } else if (check(TokenType::FUNC)) {
     statement = parseFunctionDeclaration();
   } else if (check(TokenType::LET) || check(TokenType::VAR)) {
     statement = parseVarDecl();
@@ -2665,7 +2692,7 @@ auto Parser::parseTraitMethodDeclaration() -> std::unique_ptr<FuncDecl> {
                                     functionNameSpan, llvm::SMRange{},
                                     std::vector<GenericParamDecl>{}, std::move(returnType),
                                     std::move(parameters), std::move(body), false, false, false,
-                                    false, methodStatic);
+                                    false, false, methodStatic);
 }
 
 auto Parser::parseTrait() -> std::unique_ptr<Statement> {

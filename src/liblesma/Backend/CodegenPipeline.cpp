@@ -47,6 +47,10 @@
 #include <llvm/Transforms/IPO/GlobalDCE.h>
 #include <llvm/Transforms/IPO/Inliner.h>
 #include <llvm/Transforms/IPO/StripDeadPrototypes.h>
+#include <llvm/Transforms/Coroutines/CoroCleanup.h>
+#include <llvm/Transforms/Coroutines/CoroEarly.h>
+#include <llvm/Transforms/Coroutines/CoroElide.h>
+#include <llvm/Transforms/Coroutines/CoroSplit.h>
 #include <llvm/Transforms/Scalar/ADCE.h>
 #include <llvm/Transforms/Scalar/DeadStoreElimination.h>
 #include <llvm/Transforms/Scalar/GVN.h>
@@ -435,9 +439,20 @@ auto Codegen::optimize(OptimizationLevel opt) -> void {
     // Strip unused function declarations (e.g. bulk-imported stdlib symbols that are never
     // called) so -O0 IR dumps and object codegen are not dominated by dead declares.
     llvm::PassBuilder pb(&*targetMachine);
+    llvm::LoopAnalysisManager lam;
+    llvm::FunctionAnalysisManager fam;
+    llvm::CGSCCAnalysisManager cgam;
     llvm::ModuleAnalysisManager mam;
+    pb.registerCGSCCAnalyses(cgam);
+    pb.registerFunctionAnalyses(fam);
+    pb.registerLoopAnalyses(lam);
     pb.registerModuleAnalyses(mam);
+    pb.crossRegisterProxies(lam, fam, cgam, mam);
     llvm::ModulePassManager mpm;
+    mpm.addPass(llvm::CoroEarlyPass());
+    mpm.addPass(llvm::createModuleToPostOrderCGSCCPassAdaptor(llvm::CoroSplitPass(false)));
+    mpm.addPass(llvm::createModuleToFunctionPassAdaptor(llvm::CoroElidePass()));
+    mpm.addPass(llvm::CoroCleanupPass());
     mpm.addPass(llvm::StripDeadPrototypesPass());
     mpm.run(*theModule, mam);
     return;
@@ -462,6 +477,7 @@ auto Codegen::optimize(OptimizationLevel opt) -> void {
 
   // Add custom passes to FunctionPassManager
   llvm::FunctionPassManager fpm;
+  fpm.addPass(llvm::CoroElidePass());
   // Split promotable aggregate allocas, then mem2reg: reduces stack traffic and dead lifetime slots
   // left after inlining (e.g. unused this/arg spill allocas in inlined callees).
   fpm.addPass(llvm::SROAPass(llvm::SROAOptions::ModifyCFG));
@@ -475,12 +491,15 @@ auto Codegen::optimize(OptimizationLevel opt) -> void {
   // Add custom passes to CGSCCPassManager
   llvm::CGSCCPassManager cgpm;
   cgpm.addPass(llvm::InlinerPass());
+  cgpm.addPass(llvm::CoroSplitPass(opt != OptimizationLevel::O0));
 
   // Add custom pass managers to ModulePassManager
   llvm::ModulePassManager mpm =
       pb.buildModuleOptimizationPipeline(opt, ThinOrFullLTOPhase::FullLTOPreLink);
+  mpm.addPass(llvm::CoroEarlyPass());
   mpm.addPass(llvm::createModuleToPostOrderCGSCCPassAdaptor(std::move(cgpm)));
   mpm.addPass(llvm::createModuleToFunctionPassAdaptor(std::move(fpm)));
+  mpm.addPass(llvm::CoroCleanupPass());
   mpm.addPass(llvm::StripDeadPrototypesPass());
   mpm.addPass(llvm::GlobalDCEPass());
 

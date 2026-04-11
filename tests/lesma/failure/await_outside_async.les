@@ -1,0 +1,9 @@
+async func value() -> int {
+  return 1
+}
+
+func plain() -> int {
+  return await value()
+}
+
+plain()

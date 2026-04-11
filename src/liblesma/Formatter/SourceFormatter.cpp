@@ -132,7 +132,9 @@ auto formatExpression(const Expression* expr, int parentPrecedence) -> Doc;
   }
 }
 
-[[nodiscard]] auto unaryNeedsSpace(TokenType type) -> bool { return type == TokenType::NOT; }
+[[nodiscard]] auto unaryNeedsSpace(TokenType type) -> bool {
+  return type == TokenType::NOT || type == TokenType::AWAIT;
+}
 
 [[nodiscard]] auto isVoidType(const TypeExpr* type) -> bool {
   return type != nullptr && type->getType() == TokenType::VOID_TYPE;
@@ -1030,6 +1032,9 @@ private:
     if (node->getIsStatic()) {
       parts.push_back(docText("static "));
     }
+    if (node->getIsAsync()) {
+      parts.push_back(docText("async "));
+    }
     parts.push_back(docText("func "));
     parts.push_back(formatFunctionName(node->getName(), node->getOverloadGlyphSpan().isValid()));
     parts.push_back(formatGenericParams(node->getGenericParamDecls()));
@@ -1228,7 +1233,12 @@ private:
                                   formatType(isOp->getRight()));
     } else if (auto const* unary = dynamic_cast<const UnaryOp*>(expr); unary != nullptr) {
       int const currentPrecedence = precedence(expr);
-      std::string const op = std::string(operatorSpelling(unary->getOperator()));
+      std::string op;
+      if (unary->getOperator() == TokenType::AWAIT) {
+        op = "await";
+      } else {
+        op = std::string(operatorSpelling(unary->getOperator()));
+      }
       result = docs({docText(op),
                      unaryNeedsSpace(unary->getOperator()) ? docText(" ") : lesma::pretty::nil(),
                      formatExpression(unary->getExpression(), currentPrecedence)});

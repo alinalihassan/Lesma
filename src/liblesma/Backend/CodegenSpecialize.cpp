@@ -436,6 +436,15 @@ auto Codegen::substituteTypeForSpecializationEnv(Type* t,
     u->setDeclarationFilePath(t->getDeclarationFilePath());
     return cacheType(std::move(u));
   }
+  if (t->isBuiltinTask()) {
+    Type* payloadType = substituteTypeForSpecializationEnv(t->getTaskPayloadType(), env, active);
+    auto taskType = std::make_unique<Type>(BaseType::TY_CLASS);
+    std::string payloadName = payloadType != nullptr ? payloadType->toString() : "void";
+    taskType->setDisplayName("Task<" + payloadName + ">");
+    taskType->setBuiltinTask(true);
+    taskType->setTaskPayloadType(payloadType);
+    return cacheType(std::move(taskType));
+  }
   if (t->isOneOf({BaseType::TY_CLASS, BaseType::TY_ENUM})) {
     Type* nominalTemplate = t;
     if (auto tmplIt = specializedClassTemplateOf.find(t);
@@ -910,8 +919,13 @@ auto Codegen::specializeFunction(
     fields.push_back(std::make_unique<Field>(param->name, paramT));
     concreteParamTypes.push_back(paramT);
   }
-  node->getReturnType()->accept(*this);
-  Type* returnType = wrapNominalReturnAsPointer(result->getType());
+  Type* returnType = nullptr;
+  if (node->getIsAsync()) {
+    returnType = substituteTypeForSpecializationEnv(templateSym->getType()->getReturnType(), env);
+  } else {
+    node->getReturnType()->accept(*this);
+    returnType = wrapNominalReturnAsPointer(result->getType());
+  }
   std::vector<llvm::Type*> paramLLVMTypes;
   for (auto* t : concreteParamTypes) {
     getOrCreateLlvmType(t);
@@ -948,6 +962,9 @@ auto Codegen::specializeFunction(
   }
   auto* llvmFuncType = FunctionType::get(llvmReturnType, paramLLVMTypes, node->getVarArgs());
   auto* llvmFunc = Function::Create(llvmFuncType, linkage, mangledName, *theModule);
+  if (node->getIsAsync()) {
+    llvmFunc->addFnAttr(llvm::Attribute::PresplitCoroutine);
+  }
   attachFunctionDebugInfo(llvmFunc, node->getName(), mangledName, node->getSpan(), linkage, false);
   typePtr->setLlvmType(llvmFuncType);
   func->setLlvmValue(llvmFunc);
