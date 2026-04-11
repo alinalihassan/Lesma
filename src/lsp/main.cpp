@@ -2390,28 +2390,29 @@ tryResolveMethodFromClassAst(AnalysisResult& result,
   }
 
   // Look for a class or enum that contains a method with this declaration span
-  for (lesma::Statement* stmt : view->ast->getChildren()) {
-    std::vector<lesma::FuncDecl*> methods;
-    if (auto* klass = dynamic_cast<lesma::Class*>(stmt)) {
-      methods = klass->getMethods();
-    } else if (auto* enm = dynamic_cast<lesma::Enum*>(stmt)) {
-      methods = enm->getMethods();
-    } else {
-      continue;
+  auto tryNominalMethods = [&](auto* nominal) -> std::optional<ResolvedSymbol> {
+    if (nominal == nullptr) {
+      return std::nullopt;
     }
-    for (lesma::FuncDecl* method : methods) {
+    for (lesma::FuncDecl* method : nominal->getMethods()) {
       if (method == nullptr || method->getName() != methodName) {
         continue;
       }
-      // Check if this method's declaration span matches
-      llvm::SMRange methodSpan = method->getNameSpan();
-      if (methodSpan.Start.getPointer() == declaration.span.Start.getPointer() &&
-          methodSpan.End.getPointer() == declaration.span.End.getPointer()) {
-        lesma::Value* sym = method->getResolvedSymbol();
-        if (sym != nullptr) {
+      if (smRangesEqual(view->sourceMgr, view->bufferId, method->getNameSpan(), declaration.span)) {
+        if (lesma::Value* sym = method->getResolvedSymbol(); sym != nullptr) {
           return ResolvedSymbol{.value = sym, .owner = *view};
         }
       }
+    }
+    return std::nullopt;
+  };
+
+  for (lesma::Statement* stmt : view->ast->getChildren()) {
+    if (auto resolved = tryNominalMethods(dynamic_cast<lesma::Class*>(stmt))) {
+      return resolved;
+    }
+    if (auto resolved = tryNominalMethods(dynamic_cast<lesma::Enum*>(stmt))) {
+      return resolved;
     }
   }
   return std::nullopt;
