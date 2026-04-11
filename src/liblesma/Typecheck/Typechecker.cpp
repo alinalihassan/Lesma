@@ -4452,6 +4452,58 @@ auto Typechecker::lookupUnionNarrowedType(const Expression* expr) const -> Type*
   return nullptr;
 }
 
+auto Typechecker::resolvedTypeIgnoringFlowNarrowing(const Expression* expr) -> Type* {
+  if (expr == nullptr) {
+    return nullptr;
+  }
+  if (auto const* lit = dynamic_cast<const Literal*>(expr)) {
+    Value* const resolvedSymbol = lit->getResolvedSymbol();
+    return resolvedSymbol != nullptr ? resolvedSymbol->getType() : nullptr;
+  }
+  if (auto const* sip = dynamic_cast<const StringInterpolation*>(expr)) {
+    return sip->getResolvedStrClassType();
+  }
+  if (auto const* typeExpr = dynamic_cast<const TypeExpr*>(expr)) {
+    Value* const resolvedSymbol = typeExpr->getResolvedSymbol();
+    return resolvedSymbol != nullptr ? resolvedSymbol->getType() : nullptr;
+  }
+  if (auto const* call = dynamic_cast<const FuncCall*>(expr)) {
+    Value* const resolvedSymbol = call->getResolvedSymbol();
+    return resolvedSymbol != nullptr && resolvedSymbol->getType() != nullptr
+               ? resolvedSymbol->getType()->getReturnType()
+               : nullptr;
+  }
+  if (auto const* lambda = dynamic_cast<const LambdaExpr*>(expr)) {
+    Value* const resolvedSymbol = lambda->getResolvedSymbol();
+    return resolvedSymbol != nullptr ? resolvedSymbol->getType() : nullptr;
+  }
+  if (auto const* castOp = dynamic_cast<const CastOp*>(expr)) {
+    return resolveType(castOp->getType());
+  }
+  if (auto const* dot = dynamic_cast<const DotOp*>(expr)) {
+    Type* baseType = resolvedTypeIgnoringFlowNarrowing(dot->getLeft());
+    if (baseType == nullptr) {
+      return nullptr;
+    }
+    if (baseType->is(BaseType::TY_PTR) && baseType->getElementType() != nullptr) {
+      baseType = baseType->getElementType();
+    }
+    if (auto const* rightCall = dynamic_cast<const FuncCall*>(dot->getRight())) {
+      Value* const resolvedSymbol = rightCall->getResolvedSymbol();
+      return resolvedSymbol != nullptr && resolvedSymbol->getType() != nullptr
+                 ? resolvedSymbol->getType()->getReturnType()
+                 : nullptr;
+    }
+    auto const* rightLit = dynamic_cast<const Literal*>(dot->getRight());
+    if (rightLit == nullptr || rightLit->getType() != TokenType::IDENTIFIER ||
+        !baseType->isOneOf({BaseType::TY_CLASS, BaseType::TY_ENUM})) {
+      return nullptr;
+    }
+    return TypeUtils::findTypeInFields(baseType, rightLit->getValue());
+  }
+  return nullptr;
+}
+
 void Typechecker::invalidateUnionNarrowingForSymbol(Value* sym) {
   if (sym == nullptr) {
     return;
@@ -7396,7 +7448,14 @@ auto Typechecker::visit(const CastOp* node) -> void {
   Type* from = result->getType();
   node->getType()->accept(*this);
   Type* to = result->getType();
-  if (from != nullptr && to != nullptr && from->isEqual(to)) {
+  Type* warningFrom = from;
+  if (node->getExpression()->getLspFlowSensitiveType() != nullptr) {
+    if (Type* nonFlowType = resolvedTypeIgnoringFlowNarrowing(node->getExpression());
+        nonFlowType != nullptr) {
+      warningFrom = nonFlowType;
+    }
+  }
+  if (warningFrom != nullptr && to != nullptr && warningFrom->isEqual(to)) {
     emitWarning(node->getSpan(),
                 fmt::format("Redundant cast: expression already has type {}", to->toString()));
   }

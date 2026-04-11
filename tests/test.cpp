@@ -1112,6 +1112,15 @@ TEST(FormatterTests, FormatSourcePreservesBitwisePipeOperator) {
   EXPECT_EQ(formatted->find("lhs ? rhs"), std::string::npos);
 }
 
+TEST(FormatterTests, FormatSourcePreservesParensForCastBeforeDotAccess) {
+  auto formatted = formatSource("func readValue(boxed: any) -> int {\n"
+                                "return (boxed as Box).value\n"
+                                "}\n",
+                                "cast_dot_precedence_test.les", 100);
+  ASSERT_TRUE(formatted.has_value()) << formatted.error().message;
+  EXPECT_NE(formatted->find("(boxed as Box).value"), std::string::npos);
+}
+
 TEST(FormatterTests, FormatSourcePreservesInferredExpressionLambdaReturnType) {
   auto formatted = formatSource("let inc = func(x: int) => x + 1\n", "lambda_infer_test.les", 100);
   ASSERT_TRUE(formatted.has_value()) << formatted.error().message;
@@ -1584,6 +1593,40 @@ func f() -> void {
     }
   }
   EXPECT_TRUE(found);
+}
+
+TEST(WarningDiagnostics, DoesNotFlagCastAfterFlowNarrowingAsRedundant) {
+  constexpr auto source = R"(class Box {
+    var value: int
+
+    func new(value: int) {
+        self.value = value
+    }
+}
+
+func readValue(boxed: any) -> int {
+    if boxed is not Box {
+        return 0
+    }
+    return (boxed as Box).value
+}
+)";
+  auto options = std::make_unique<Options>();
+  options->sourceType = SourceType::STRING;
+  options->source = source;
+  options->implicitFilePath = "cast_flow_narrowing_warn_test.les";
+  options->suppressWarnings = false;
+  AnalysisResult const result = analyze(std::move(options));
+  ASSERT_FALSE(result.hasErrors());
+  bool found = false;
+  for (const auto& d : result.diagnostics) {
+    if (d.severity == AnalysisDiagnosticSeverity::Warning &&
+        d.message == "Redundant cast: expression already has type Box") {
+      found = true;
+      break;
+    }
+  }
+  EXPECT_FALSE(found);
 }
 
 TEST(AnalysisParseRecoveryTests, CollectsMultipleParserDiagnostics) {

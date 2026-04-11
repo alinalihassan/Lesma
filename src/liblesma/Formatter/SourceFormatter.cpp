@@ -434,7 +434,7 @@ private:
     return isChain || !segments.empty();
   }
 
-  [[nodiscard]] auto formatDotChain(const Expression* expr, int parentPrecedence) -> Doc {
+  [[nodiscard]] auto formatDotChain(const Expression* expr) -> Doc {
     const Expression* base = nullptr;
     std::vector<const Expression*> segments;
     collectDotChain(expr, base, segments);
@@ -448,7 +448,7 @@ private:
     }
 
     return docGroup(docs({
-        formatExpression(base, parentPrecedence),
+        formatExpression(base, precedence(expr)),
         docNest(INDENT_WIDTH, docs(std::move(tailDocs))),
     }));
   }
@@ -1216,7 +1216,7 @@ private:
       result = docs({formatExpression(subscript->getLeft(), precedence(expr)), docText("["),
                      formatExpression(subscript->getIndex()), docText("]")});
     } else if (auto const* dot = dynamic_cast<const DotOp*>(expr); dot != nullptr) {
-      result = formatDotChain(dot, parentPrecedence);
+      result = formatDotChain(dot);
     } else if (auto const* cast = dynamic_cast<const CastOp*>(expr); cast != nullptr) {
       int const currentPrecedence = precedence(expr);
       result = formatGroupedInfix(formatExpression(cast->getExpression(), currentPrecedence), "as",
