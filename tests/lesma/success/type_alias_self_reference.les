@@ -7,7 +7,7 @@ var root: JsonValue = rootObject
 var roots: list<JsonValue> = [root]
 
 if items[0] is int {
-  if (items[0] as int) != 1 {
+  if items[0] as int != 1 {
     exit(1)
   }
 } else {

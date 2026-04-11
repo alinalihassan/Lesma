@@ -16,7 +16,6 @@ func main() -> int {
   let out: (int, int) = match sample(true) {
     Gate.Both(a, b) => (a + 1, b + 2)
     Gate.Neither => (0, 0)
-
   }
   if out[0] != 11 {
     return 2

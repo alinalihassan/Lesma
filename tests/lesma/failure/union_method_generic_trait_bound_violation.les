@@ -13,16 +13,14 @@ class Plain {
 }
 
 class A {
-  func new() {
-  }
+  func new() {}
   func take<T: NeedVal>(o: T) -> int {
     return o.val()
   }
 }
 
 class B {
-  func new() {
-  }
+  func new() {}
   func take<T: NeedVal>(o: T) -> int {
     return o.val()
   }

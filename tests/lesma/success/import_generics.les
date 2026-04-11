@@ -3,6 +3,7 @@
 // (2) the importer can call the constructor Module.Box(args) and specialize
 // via the Class* stored on the symbol, and (3) methods on the result work.
 import "import_generics_module.les"
+
 var intBox = import_generics_module.Box(42)
 var floatBox = import_generics_module.Box(3.14)
 

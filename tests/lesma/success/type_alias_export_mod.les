@@ -1,4 +1,4 @@
-export type MaybeNum = int | null
+export type MaybeNum = int?
 export type Word = str
 
 export func make_present() -> MaybeNum {

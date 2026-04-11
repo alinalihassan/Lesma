@@ -1,4 +1,5 @@
 import "arc_export_global_heap_rich_module.les"
+
 let first = arc_export_global_heap_rich_module.first
 if first is null {
   exit(1)

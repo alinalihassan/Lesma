@@ -1,5 +1,6 @@
 from time import sleep as sleep_test
 from "class.les" import Animal
+
 let y = Animal()
 sleep_test(0.001)
 

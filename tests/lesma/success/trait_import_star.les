@@ -1,5 +1,6 @@
 // import * exposes exported trait names (ExportDiscovery includes TraitDecl)
 from "trait_export_mod.les" import *
+
 class C impl ExportedTrait {
   func new() {
     var _x = 0

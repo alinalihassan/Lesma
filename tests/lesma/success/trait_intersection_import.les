@@ -1,5 +1,6 @@
 // Traits from another module + intersection generic in this file
 import "trait_bounds_mod.les"
+
 class Both impl HasVal, HasDbl {
   var x: int
 

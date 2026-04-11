@@ -1,4 +1,5 @@
 from "function_call.les" import *
+
 if fib() != 101 {
   exit(1)
 }
