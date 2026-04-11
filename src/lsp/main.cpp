@@ -3498,11 +3498,14 @@ auto main() -> int {
                 if (const lesma::IndexedSymbolOccurrence* occ =
                         findIndexedSymbolOccurrenceAtCursor(analysis, line, character);
                     occ != nullptr && occ->resolvedType != nullptr) {
+                  lesma::Type* const hoverType =
+                      occ->flowSensitiveType != nullptr ? occ->flowSensitiveType
+                                                          : occ->resolvedType;
                   ::lsp::Hover hover;
                   hover.contents = ::lsp::MarkupContent{
                       .kind = ::lsp::MarkupKindEnum(::lsp::MarkupKind::Markdown),
                       .value = "`" + id->name + "`: `" +
-                               formatTypeName(occ->resolvedType, result.rootScope.get()) + "`",
+                               formatTypeName(hoverType, result.rootScope.get()) + "`",
                   };
                   if (id->range) {
                     hover.range = id->range;
