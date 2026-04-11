@@ -1112,6 +1112,32 @@ TEST(FormatterTests, FormatSourcePreservesAwaitUnaryOperator) {
   EXPECT_EQ(formatted->find("?next(value)"), std::string::npos);
 }
 
+TEST(FormatterTests, FormatSourcePreservesAsyncLambdaSyntax) {
+  auto formatted = formatSource("let read = async func(x: int) -> int => await next(x)\n"
+                                "let run = async func(x: int) -> int {\n"
+                                "return await next(x)\n"
+                                "}\n",
+                                "async_lambda_test.les", 100);
+  ASSERT_TRUE(formatted.has_value()) << formatted.error().message;
+  EXPECT_NE(formatted->find("async func(x: int) -> int => await next(x)"), std::string::npos);
+  EXPECT_NE(formatted->find("let run = async func(x: int) -> int {\n"), std::string::npos);
+}
+
+TEST(FormatterTests, FormatSourcePreservesAsyncMethodModifiers) {
+  auto formatted = formatSource("class Worker {\n"
+                                "private async func add(delta: int) -> int {\n"
+                                "return delta\n"
+                                "}\n"
+                                "static async func twice(value: int) -> int {\n"
+                                "return value * 2\n"
+                                "}\n"
+                                "}\n",
+                                "async_method_test.les", 100);
+  ASSERT_TRUE(formatted.has_value()) << formatted.error().message;
+  EXPECT_NE(formatted->find("private async func add(delta: int) -> int"), std::string::npos);
+  EXPECT_NE(formatted->find("static async func twice(value: int) -> int"), std::string::npos);
+}
+
 TEST(FormatterTests, FormatSourcePreservesBitwisePipeOperator) {
   auto formatted = formatSource("func combine(lhs: int, rhs: int) -> int {\nreturn lhs | rhs\n}\n",
                                 "bitwise_pipe_test.les", 100);

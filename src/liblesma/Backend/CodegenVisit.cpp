@@ -617,6 +617,7 @@ auto Codegen::remapCodegenTemplateBodyScope(SymbolTable* t) const -> SymbolTable
 
 auto Codegen::defineLambdaFunction(lesma::Value* value, const LambdaExpr* node) -> void {
   SymbolTable* savedScope = scope;
+  Value* savedCurrentFunction = currentFunction;
   scope = value->getBodyScope();
   if (scope != nullptr) {
     scope = remapCodegenTemplateBodyScope(scope);
@@ -633,6 +634,14 @@ auto Codegen::defineLambdaFunction(lesma::Value* value, const LambdaExpr* node) 
     return nullptr;
   };
   currentFunction = value;
+  llvm::Value* savedAsyncCoroHandle = currentAsyncCoroHandle;
+  llvm::Value* savedAsyncPromisePtr = currentAsyncPromisePtr;
+  llvm::BasicBlock* savedAsyncReturnBlock = currentAsyncReturnBlock;
+  lesma::Type* savedAsyncReturnPayloadType = currentAsyncReturnPayloadType;
+  currentAsyncCoroHandle = nullptr;
+  currentAsyncPromisePtr = nullptr;
+  currentAsyncReturnBlock = nullptr;
+  currentAsyncReturnPayloadType = nullptr;
   deferStack.emplace();
   pushDeferBaseline();
   pushArcOwnedSlotFrame();
@@ -695,12 +704,106 @@ auto Codegen::defineLambdaFunction(lesma::Value* value, const LambdaExpr* node) 
     fieldIndex++;
   }
 
+  llvm::BasicBlock* asyncSuspendBlock = nullptr;
+  llvm::BasicBlock* asyncResumeBlock = nullptr;
+  llvm::BasicBlock* asyncCleanupBlock = nullptr;
+  llvm::BasicBlock* asyncTrapBlock = nullptr;
+  llvm::BasicBlock* asyncDynAllocBlock = nullptr;
+  llvm::BasicBlock* asyncCoroBeginBlock = nullptr;
+  llvm::Value* asyncCoroId = nullptr;
+  if (node->getIsAsync()) {
+    currentAsyncReturnPayloadType = getAsyncTaskPayloadType(value->getType()->getReturnType());
+    if (currentAsyncReturnPayloadType == nullptr) {
+      throw CodegenError(node->getSpan(), "Async lambda is missing an internal task return type");
+    }
+    auto* promiseTy = getOrCreateAsyncPromiseLlvmType(currentAsyncReturnPayloadType);
+    asyncSuspendBlock = llvm::BasicBlock::Create(theModule->getContext(), "async.suspend", f);
+    asyncResumeBlock = llvm::BasicBlock::Create(theModule->getContext(), "async.resume", f);
+    asyncCleanupBlock = llvm::BasicBlock::Create(theModule->getContext(), "async.cleanup", f);
+    asyncTrapBlock = llvm::BasicBlock::Create(theModule->getContext(), "async.trap", f);
+    asyncDynAllocBlock = llvm::BasicBlock::Create(theModule->getContext(), "async.dyn.alloc", f);
+    asyncCoroBeginBlock = llvm::BasicBlock::Create(theModule->getContext(), "async.coro.begin", f);
+    currentAsyncReturnBlock = llvm::BasicBlock::Create(theModule->getContext(), "async.final", f);
+
+    currentAsyncPromisePtr = createAllocaInEntry(f, promiseTy, "async.promise");
+    auto* nullPtr = llvm::ConstantPointerNull::get(builder->getPtrTy());
+    auto coroIdFn = getCoroutineIntrinsic(llvm::Intrinsic::coro_id);
+    asyncCoroId = builder->CreateCall(
+        coroIdFn, {llvm::ConstantInt::get(builder->getInt32Ty(), 0), currentAsyncPromisePtr, nullPtr,
+                   nullPtr},
+        "async.coro.id");
+    auto coroAllocFn = getCoroutineIntrinsic(llvm::Intrinsic::coro_alloc);
+    llvm::Value* needsDynAlloc = builder->CreateCall(coroAllocFn, {asyncCoroId}, "async.need.alloc");
+    builder->CreateCondBr(needsDynAlloc, asyncDynAllocBlock, asyncCoroBeginBlock);
+
+    builder->SetInsertPoint(asyncDynAllocBlock);
+    auto coroSizeFn = getCoroutineIntrinsic(llvm::Intrinsic::coro_size, {builder->getInt64Ty()});
+    llvm::Value* coroSize = builder->CreateCall(coroSizeFn, {}, "async.coro.size");
+    llvm::Value* coroMem = emitMalloc(coroSize, "async.coro.mem");
+    builder->CreateBr(asyncCoroBeginBlock);
+
+    builder->SetInsertPoint(asyncCoroBeginBlock);
+    auto* coroMemPhi = builder->CreatePHI(builder->getPtrTy(), 2, "async.coro.alloc");
+    coroMemPhi->addIncoming(nullPtr, entry);
+    coroMemPhi->addIncoming(coroMem, asyncDynAllocBlock);
+    auto coroBeginFn = getCoroutineIntrinsic(llvm::Intrinsic::coro_begin);
+    currentAsyncCoroHandle =
+        builder->CreateCall(coroBeginFn, {asyncCoroId, coroMemPhi}, "async.coro.handle");
+    llvm::Value* readyPtr =
+        builder->CreateStructGEP(promiseTy, currentAsyncPromisePtr, 0, "async.promise.ready.ptr");
+    builder->CreateStore(builder->getFalse(), readyPtr);
+
+    auto initialSuspendFn = getCoroutineIntrinsic(llvm::Intrinsic::coro_suspend);
+    llvm::Value* initialSuspend =
+        builder->CreateCall(initialSuspendFn,
+                            {llvm::ConstantTokenNone::get(theModule->getContext()),
+                             llvm::ConstantInt::getFalse(builder->getInt1Ty())},
+                            "async.initial.suspend");
+    auto* initialSwitch = builder->CreateSwitch(initialSuspend, asyncSuspendBlock, 2);
+    initialSwitch->addCase(llvm::ConstantInt::get(builder->getInt8Ty(), 0), asyncResumeBlock);
+    initialSwitch->addCase(llvm::ConstantInt::get(builder->getInt8Ty(), 1), asyncCleanupBlock);
+    builder->SetInsertPoint(asyncResumeBlock);
+  }
+
   if (node->isExpressionBody()) {
     node->getExpressionBody()->accept(*this);
     llvm::Value* rv = result != nullptr ? result->getLlvmValue() : nullptr;
     Type* rt = value->getType()->getReturnType();
     flushDeferredFramesForReturn();
-    if (rt != nullptr && rt->is(BaseType::TY_VOID)) {
+    if (node->getIsAsync()) {
+      auto* promiseTy = getOrCreateAsyncPromiseLlvmType(currentAsyncReturnPayloadType);
+      llvm::Value* readyPtr =
+          builder->CreateStructGEP(promiseTy, currentAsyncPromisePtr, 0, "async.promise.ready.ptr");
+      builder->CreateStore(builder->getTrue(), readyPtr);
+      if (currentAsyncReturnPayloadType->is(BaseType::TY_VOID)) {
+        emitReleaseCurrentArcOwnedSlots();
+        builder->CreateBr(currentAsyncReturnBlock);
+      } else {
+        if (result == nullptr || result->getType() == nullptr) {
+          throw CodegenError(node->getSpan(), "Async lambda body did not produce a value");
+        }
+        if (!result->getType()->isEqual(currentAsyncReturnPayloadType)) {
+          result = cast(node->getSpan(), result.get(), currentAsyncReturnPayloadType);
+        }
+        llvm::Value* payloadValue = result->getLlvmValue();
+        bool storesFuncValuePair = result->getStoresFuncValuePair();
+        if (storesFuncValuePair && payloadValue != nullptr && payloadValue->getType()->isPointerTy()) {
+          payloadValue = builder->CreateLoad(getFuncValuePairLlvmType(), payloadValue, "async.ret.fn");
+        }
+        if (payloadValue == nullptr) {
+          throw CodegenError(node->getSpan(), "Async lambda return value has no LLVM payload");
+        }
+        if (!result->getArcOwnedValue() &&
+            TypeUtils::containsArcManagedValue(currentAsyncReturnPayloadType)) {
+          emitRetainLoadedValue(currentAsyncReturnPayloadType, payloadValue, storesFuncValuePair);
+        }
+        llvm::Value* payloadPtr = builder->CreateStructGEP(
+            promiseTy, currentAsyncPromisePtr, 1, "async.promise.payload.ptr");
+        builder->CreateStore(payloadValue, payloadPtr);
+        emitReleaseCurrentArcOwnedSlots();
+        builder->CreateBr(currentAsyncReturnBlock);
+      }
+    } else if (rt != nullptr && rt->is(BaseType::TY_VOID)) {
       emitReleaseCurrentArcOwnedSlots();
       builder->CreateRetVoid();
     } else {
@@ -717,7 +820,18 @@ auto Codegen::defineLambdaFunction(lesma::Value* value, const LambdaExpr* node) 
     node->getBlockBody()->accept(*this);
     if (builder->GetInsertBlock()->getTerminator() == nullptr) {
       Type* rt = value->getType()->getReturnType();
-      if (rt != nullptr && rt->is(BaseType::TY_VOID)) {
+      if (node->getIsAsync() && currentAsyncReturnPayloadType != nullptr &&
+          currentAsyncReturnPayloadType->is(BaseType::TY_VOID)) {
+        flushDeferredFramesForReturn();
+        if (auto* promiseTy = getOrCreateAsyncPromiseLlvmType(currentAsyncReturnPayloadType);
+            currentAsyncPromisePtr != nullptr) {
+          llvm::Value* readyPtr =
+              builder->CreateStructGEP(promiseTy, currentAsyncPromisePtr, 0, "async.promise.ready");
+          builder->CreateStore(builder->getTrue(), readyPtr);
+        }
+        emitReleaseCurrentArcOwnedSlots();
+        builder->CreateBr(currentAsyncReturnBlock);
+      } else if (rt != nullptr && rt->is(BaseType::TY_VOID)) {
         flushDeferredFramesForReturn();
         emitReleaseCurrentArcOwnedSlots();
         builder->CreateRetVoid();
@@ -725,6 +839,69 @@ auto Codegen::defineLambdaFunction(lesma::Value* value, const LambdaExpr* node) 
         throw CodegenError(node->getSpan(), "Non-void lambda may reach end without returning");
       }
     }
+  }
+
+  if (node->getIsAsync()) {
+    if (llvm::BasicBlock* cur = builder->GetInsertBlock();
+        cur != nullptr && cur->getTerminator() == nullptr) {
+      if (currentAsyncReturnPayloadType != nullptr &&
+          currentAsyncReturnPayloadType->is(BaseType::TY_VOID)) {
+        if (auto* promiseTy = getOrCreateAsyncPromiseLlvmType(currentAsyncReturnPayloadType);
+            currentAsyncPromisePtr != nullptr) {
+          llvm::Value* readyPtr =
+              builder->CreateStructGEP(promiseTy, currentAsyncPromisePtr, 0, "async.promise.ready");
+          builder->CreateStore(builder->getTrue(), readyPtr);
+        }
+        emitReleaseCurrentArcOwnedSlots();
+        builder->CreateBr(currentAsyncReturnBlock);
+      } else if (cur->empty()) {
+        builder->CreateUnreachable();
+      } else {
+        throw CodegenError(node->getSpan(), "Lambda does not always return a result");
+      }
+    }
+
+    builder->SetInsertPoint(currentAsyncReturnBlock);
+    auto finalSuspendFn = getCoroutineIntrinsic(llvm::Intrinsic::coro_suspend);
+    llvm::Value* finalSuspend =
+        builder->CreateCall(finalSuspendFn,
+                            {llvm::ConstantTokenNone::get(theModule->getContext()),
+                             llvm::ConstantInt::getTrue(builder->getInt1Ty())},
+                            "async.final.suspend");
+    auto* finalSwitch = builder->CreateSwitch(finalSuspend, asyncSuspendBlock, 2);
+    finalSwitch->addCase(llvm::ConstantInt::get(builder->getInt8Ty(), 0), asyncTrapBlock);
+    finalSwitch->addCase(llvm::ConstantInt::get(builder->getInt8Ty(), 1), asyncCleanupBlock);
+
+    builder->SetInsertPoint(asyncCleanupBlock);
+    auto coroFreeFn = getCoroutineIntrinsic(llvm::Intrinsic::coro_free);
+    llvm::Value* freeMem = builder->CreateCall(coroFreeFn, {asyncCoroId, currentAsyncCoroHandle},
+                                               "async.coro.free");
+    llvm::Value* hasFreeMem =
+        builder->CreateICmpNE(freeMem, llvm::ConstantPointerNull::get(builder->getPtrTy()));
+    auto* freeBlock = llvm::BasicBlock::Create(theModule->getContext(), "async.free.mem", f);
+    auto* cleanupDoneBlock =
+        llvm::BasicBlock::Create(theModule->getContext(), "async.cleanup.done", f);
+    builder->CreateCondBr(hasFreeMem, freeBlock, cleanupDoneBlock);
+
+    builder->SetInsertPoint(freeBlock);
+    emitFree(freeMem);
+    builder->CreateBr(cleanupDoneBlock);
+
+    builder->SetInsertPoint(cleanupDoneBlock);
+    builder->CreateBr(asyncSuspendBlock);
+
+    builder->SetInsertPoint(asyncTrapBlock);
+    auto* trapFn =
+        llvm::Intrinsic::getOrInsertDeclaration(theModule.get(), llvm::Intrinsic::trap, {});
+    builder->CreateCall(trapFn, {});
+    builder->CreateUnreachable();
+
+    builder->SetInsertPoint(asyncSuspendBlock);
+    auto coroEndFn = getCoroutineIntrinsic(llvm::Intrinsic::coro_end);
+    builder->CreateCall(coroEndFn,
+                        {currentAsyncCoroHandle, llvm::ConstantInt::getFalse(builder->getInt1Ty()),
+                         llvm::ConstantTokenNone::get(theModule->getContext())});
+    builder->CreateRet(currentAsyncCoroHandle);
   }
 
   deferStack.pop();
@@ -753,7 +930,11 @@ auto Codegen::defineLambdaFunction(lesma::Value* value, const LambdaExpr* node) 
   }
 
   scope = savedScope;
-  currentFunction = nullptr;
+  currentFunction = savedCurrentFunction;
+  currentAsyncCoroHandle = savedAsyncCoroHandle;
+  currentAsyncPromisePtr = savedAsyncPromisePtr;
+  currentAsyncReturnBlock = savedAsyncReturnBlock;
+  currentAsyncReturnPayloadType = savedAsyncReturnPayloadType;
   builder->SetInsertPoint(&topLevelFunc->back());
   builder->SetCurrentDebugLocation(llvm::DebugLoc());
 }
@@ -4430,6 +4611,9 @@ auto Codegen::visit(const LambdaExpr* node) -> void {
   llvm::FunctionType* llvmFnType = FunctionType::get(llvmReturnType, paramLLVMTypes, false);
   Function* f =
       Function::Create(llvmFnType, llvm::GlobalValue::PrivateLinkage, lambdaName, *theModule);
+  if (node->getIsAsync()) {
+    f->addFnAttr(llvm::Attribute::PresplitCoroutine);
+  }
   resolved->setLlvmValue(f);
   resolved->setMangledName(lambdaName);
   resolved->setClosureCalleeUsesEnvParameter(!caps.empty());
@@ -4437,16 +4621,85 @@ auto Codegen::visit(const LambdaExpr* node) -> void {
   llvm::BasicBlock* resumeBlock = builder->GetInsertBlock();
   SymbolTable* savedScope = scope;
   Value* savedCurrentFunction = currentFunction;
+  llvm::Value* savedAsyncCoroHandle = currentAsyncCoroHandle;
+  llvm::Value* savedAsyncPromisePtr = currentAsyncPromisePtr;
+  llvm::BasicBlock* savedAsyncReturnBlock = currentAsyncReturnBlock;
+  lesma::Type* savedAsyncReturnPayloadType = currentAsyncReturnPayloadType;
   scope = resolved->getBodyScope() != nullptr
               ? remapCodegenTemplateBodyScope(resolved->getBodyScope())
               : savedScope;
   currentFunction = resolved;
+  currentAsyncCoroHandle = nullptr;
+  currentAsyncPromisePtr = nullptr;
+  currentAsyncReturnBlock = nullptr;
+  currentAsyncReturnPayloadType = nullptr;
   deferStack.emplace();
   pushDeferBaseline();
   pushArcOwnedSlotFrame();
   BasicBlock* entry = BasicBlock::Create(theModule->getContext(), "entry", f);
   builder->SetInsertPoint(entry);
   setDebugLoc(node->getSpan());
+
+  llvm::BasicBlock* asyncSuspendBlock = nullptr;
+  llvm::BasicBlock* asyncResumeBlock = nullptr;
+  llvm::BasicBlock* asyncCleanupBlock = nullptr;
+  llvm::BasicBlock* asyncTrapBlock = nullptr;
+  llvm::BasicBlock* asyncDynAllocBlock = nullptr;
+  llvm::BasicBlock* asyncCoroBeginBlock = nullptr;
+  llvm::Value* asyncCoroId = nullptr;
+  if (node->getIsAsync()) {
+    currentAsyncReturnPayloadType = getAsyncTaskPayloadType(resolved->getType()->getReturnType());
+    if (currentAsyncReturnPayloadType == nullptr) {
+      throw CodegenError(node->getSpan(), "Async lambda is missing an internal task return type");
+    }
+    auto* promiseTy = getOrCreateAsyncPromiseLlvmType(currentAsyncReturnPayloadType);
+    asyncSuspendBlock = llvm::BasicBlock::Create(theModule->getContext(), "async.suspend", f);
+    asyncResumeBlock = llvm::BasicBlock::Create(theModule->getContext(), "async.resume", f);
+    asyncCleanupBlock = llvm::BasicBlock::Create(theModule->getContext(), "async.cleanup", f);
+    asyncTrapBlock = llvm::BasicBlock::Create(theModule->getContext(), "async.trap", f);
+    asyncDynAllocBlock = llvm::BasicBlock::Create(theModule->getContext(), "async.dyn.alloc", f);
+    asyncCoroBeginBlock = llvm::BasicBlock::Create(theModule->getContext(), "async.coro.begin", f);
+    currentAsyncReturnBlock = llvm::BasicBlock::Create(theModule->getContext(), "async.final", f);
+
+    currentAsyncPromisePtr = createAllocaInEntry(f, promiseTy, "async.promise");
+    auto* nullPtr = llvm::ConstantPointerNull::get(builder->getPtrTy());
+    auto coroIdFn = getCoroutineIntrinsic(llvm::Intrinsic::coro_id);
+    asyncCoroId = builder->CreateCall(
+        coroIdFn, {llvm::ConstantInt::get(builder->getInt32Ty(), 0), currentAsyncPromisePtr, nullPtr,
+                   nullPtr},
+        "async.coro.id");
+    auto coroAllocFn = getCoroutineIntrinsic(llvm::Intrinsic::coro_alloc);
+    llvm::Value* needsDynAlloc = builder->CreateCall(coroAllocFn, {asyncCoroId}, "async.need.alloc");
+    builder->CreateCondBr(needsDynAlloc, asyncDynAllocBlock, asyncCoroBeginBlock);
+
+    builder->SetInsertPoint(asyncDynAllocBlock);
+    auto coroSizeFn = getCoroutineIntrinsic(llvm::Intrinsic::coro_size, {builder->getInt64Ty()});
+    llvm::Value* coroSize = builder->CreateCall(coroSizeFn, {}, "async.coro.size");
+    llvm::Value* coroMem = emitMalloc(coroSize, "async.coro.mem");
+    builder->CreateBr(asyncCoroBeginBlock);
+
+    builder->SetInsertPoint(asyncCoroBeginBlock);
+    auto* coroMemPhi = builder->CreatePHI(builder->getPtrTy(), 2, "async.coro.alloc");
+    coroMemPhi->addIncoming(nullPtr, entry);
+    coroMemPhi->addIncoming(coroMem, asyncDynAllocBlock);
+    auto coroBeginFn = getCoroutineIntrinsic(llvm::Intrinsic::coro_begin);
+    currentAsyncCoroHandle =
+        builder->CreateCall(coroBeginFn, {asyncCoroId, coroMemPhi}, "async.coro.handle");
+    llvm::Value* readyPtr =
+        builder->CreateStructGEP(promiseTy, currentAsyncPromisePtr, 0, "async.promise.ready.ptr");
+    builder->CreateStore(builder->getFalse(), readyPtr);
+
+    auto initialSuspendFn = getCoroutineIntrinsic(llvm::Intrinsic::coro_suspend);
+    llvm::Value* initialSuspend =
+        builder->CreateCall(initialSuspendFn,
+                            {llvm::ConstantTokenNone::get(theModule->getContext()),
+                             llvm::ConstantInt::getFalse(builder->getInt1Ty())},
+                            "async.initial.suspend");
+    auto* initialSwitch = builder->CreateSwitch(initialSuspend, asyncSuspendBlock, 2);
+    initialSwitch->addCase(llvm::ConstantInt::get(builder->getInt8Ty(), 0), asyncResumeBlock);
+    initialSwitch->addCase(llvm::ConstantInt::get(builder->getInt8Ty(), 1), asyncCleanupBlock);
+    builder->SetInsertPoint(asyncResumeBlock);
+  }
 
   unsigned argIdx = 0U;
   if (!caps.empty()) {
@@ -4498,7 +4751,41 @@ auto Codegen::visit(const LambdaExpr* node) -> void {
     node->getExpressionBody()->accept(*this);
     llvm::Value* rv = result != nullptr ? result->getLlvmValue() : nullptr;
     flushDeferredFramesForReturn();
-    if (retType->is(BaseType::TY_VOID)) {
+    if (node->getIsAsync()) {
+      auto* promiseTy = getOrCreateAsyncPromiseLlvmType(currentAsyncReturnPayloadType);
+      llvm::Value* readyPtr =
+          builder->CreateStructGEP(promiseTy, currentAsyncPromisePtr, 0, "async.promise.ready.ptr");
+      builder->CreateStore(builder->getTrue(), readyPtr);
+      if (currentAsyncReturnPayloadType->is(BaseType::TY_VOID)) {
+        emitReleaseCurrentArcOwnedSlots();
+        builder->CreateBr(currentAsyncReturnBlock);
+      } else {
+        if (result == nullptr || result->getType() == nullptr) {
+          throw CodegenError(node->getSpan(), "Async lambda expression body did not produce a value");
+        }
+        if (!result->getType()->isEqual(currentAsyncReturnPayloadType)) {
+          result = cast(node->getSpan(), result.get(), currentAsyncReturnPayloadType);
+        }
+        llvm::Value* payloadValue = result->getLlvmValue();
+        bool storesFuncValuePair = result->getStoresFuncValuePair();
+        if (storesFuncValuePair && payloadValue != nullptr && payloadValue->getType()->isPointerTy()) {
+          payloadValue =
+              builder->CreateLoad(getFuncValuePairLlvmType(), payloadValue, "async.lambda.ret.fn");
+        }
+        if (payloadValue == nullptr) {
+          throw CodegenError(node->getSpan(), "Async lambda return value has no LLVM payload");
+        }
+        if (!result->getArcOwnedValue() &&
+            TypeUtils::containsArcManagedValue(currentAsyncReturnPayloadType)) {
+          emitRetainLoadedValue(currentAsyncReturnPayloadType, payloadValue, storesFuncValuePair);
+        }
+        llvm::Value* payloadPtr = builder->CreateStructGEP(
+            promiseTy, currentAsyncPromisePtr, 1, "async.promise.payload.ptr");
+        builder->CreateStore(payloadValue, payloadPtr);
+        emitReleaseCurrentArcOwnedSlots();
+        builder->CreateBr(currentAsyncReturnBlock);
+      }
+    } else if (retType->is(BaseType::TY_VOID)) {
       emitReleaseCurrentArcOwnedSlots();
       builder->CreateRetVoid();
     } else {
@@ -4515,13 +4802,86 @@ auto Codegen::visit(const LambdaExpr* node) -> void {
     node->getBlockBody()->accept(*this);
     if (builder->GetInsertBlock()->getTerminator() == nullptr) {
       flushDeferredFramesForReturn();
-      if (retType->is(BaseType::TY_VOID)) {
+      if (node->getIsAsync() && currentAsyncReturnPayloadType != nullptr &&
+          currentAsyncReturnPayloadType->is(BaseType::TY_VOID)) {
+        if (auto* promiseTy = getOrCreateAsyncPromiseLlvmType(currentAsyncReturnPayloadType);
+            currentAsyncPromisePtr != nullptr) {
+          llvm::Value* readyPtr =
+              builder->CreateStructGEP(promiseTy, currentAsyncPromisePtr, 0, "async.promise.ready");
+          builder->CreateStore(builder->getTrue(), readyPtr);
+        }
+        emitReleaseCurrentArcOwnedSlots();
+        builder->CreateBr(currentAsyncReturnBlock);
+      } else if (retType->is(BaseType::TY_VOID)) {
         emitReleaseCurrentArcOwnedSlots();
         builder->CreateRetVoid();
       } else {
         throw CodegenError(node->getSpan(), "Non-void lambda may reach end without returning");
       }
     }
+  }
+
+  if (node->getIsAsync()) {
+    if (llvm::BasicBlock* cur = builder->GetInsertBlock();
+        cur != nullptr && cur->getTerminator() == nullptr) {
+      if (currentAsyncReturnPayloadType != nullptr &&
+          currentAsyncReturnPayloadType->is(BaseType::TY_VOID)) {
+        if (auto* promiseTy = getOrCreateAsyncPromiseLlvmType(currentAsyncReturnPayloadType);
+            currentAsyncPromisePtr != nullptr) {
+          llvm::Value* readyPtr =
+              builder->CreateStructGEP(promiseTy, currentAsyncPromisePtr, 0, "async.promise.ready");
+          builder->CreateStore(builder->getTrue(), readyPtr);
+        }
+        emitReleaseCurrentArcOwnedSlots();
+        builder->CreateBr(currentAsyncReturnBlock);
+      } else if (cur->empty()) {
+        builder->CreateUnreachable();
+      } else {
+        throw CodegenError(node->getSpan(), "Lambda does not always return a result");
+      }
+    }
+
+    builder->SetInsertPoint(currentAsyncReturnBlock);
+    auto finalSuspendFn = getCoroutineIntrinsic(llvm::Intrinsic::coro_suspend);
+    llvm::Value* finalSuspend =
+        builder->CreateCall(finalSuspendFn,
+                            {llvm::ConstantTokenNone::get(theModule->getContext()),
+                             llvm::ConstantInt::getTrue(builder->getInt1Ty())},
+                            "async.final.suspend");
+    auto* finalSwitch = builder->CreateSwitch(finalSuspend, asyncSuspendBlock, 2);
+    finalSwitch->addCase(llvm::ConstantInt::get(builder->getInt8Ty(), 0), asyncTrapBlock);
+    finalSwitch->addCase(llvm::ConstantInt::get(builder->getInt8Ty(), 1), asyncCleanupBlock);
+
+    builder->SetInsertPoint(asyncCleanupBlock);
+    auto coroFreeFn = getCoroutineIntrinsic(llvm::Intrinsic::coro_free);
+    llvm::Value* freeMem = builder->CreateCall(coroFreeFn, {asyncCoroId, currentAsyncCoroHandle},
+                                               "async.coro.free");
+    llvm::Value* hasFreeMem =
+        builder->CreateICmpNE(freeMem, llvm::ConstantPointerNull::get(builder->getPtrTy()));
+    auto* freeBlock = llvm::BasicBlock::Create(theModule->getContext(), "async.free.mem", f);
+    auto* cleanupDoneBlock =
+        llvm::BasicBlock::Create(theModule->getContext(), "async.cleanup.done", f);
+    builder->CreateCondBr(hasFreeMem, freeBlock, cleanupDoneBlock);
+
+    builder->SetInsertPoint(freeBlock);
+    emitFree(freeMem);
+    builder->CreateBr(cleanupDoneBlock);
+
+    builder->SetInsertPoint(cleanupDoneBlock);
+    builder->CreateBr(asyncSuspendBlock);
+
+    builder->SetInsertPoint(asyncTrapBlock);
+    auto* trapFn =
+        llvm::Intrinsic::getOrInsertDeclaration(theModule.get(), llvm::Intrinsic::trap, {});
+    builder->CreateCall(trapFn, {});
+    builder->CreateUnreachable();
+
+    builder->SetInsertPoint(asyncSuspendBlock);
+    auto coroEndFn = getCoroutineIntrinsic(llvm::Intrinsic::coro_end);
+    builder->CreateCall(coroEndFn,
+                        {currentAsyncCoroHandle, llvm::ConstantInt::getFalse(builder->getInt1Ty()),
+                         llvm::ConstantTokenNone::get(theModule->getContext())});
+    builder->CreateRet(currentAsyncCoroHandle);
   }
 
   std::string verifyOutput;
@@ -4531,6 +4891,10 @@ auto Codegen::visit(const LambdaExpr* node) -> void {
   }
   scope = savedScope;
   currentFunction = savedCurrentFunction;
+  currentAsyncCoroHandle = savedAsyncCoroHandle;
+  currentAsyncPromisePtr = savedAsyncPromisePtr;
+  currentAsyncReturnBlock = savedAsyncReturnBlock;
+  currentAsyncReturnPayloadType = savedAsyncReturnPayloadType;
   deferStack.pop();
   deferBaselineStack.pop();
   popArcOwnedSlotFrame(false);

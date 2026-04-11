@@ -6876,15 +6876,17 @@ auto Typechecker::visit(const LambdaExpr* node) -> void {
     paramFields.push_back(std::make_unique<Field>(param->name, paramType));
   }
 
-  Type* returnType = nullptr;
+  Type* sourceReturnType = nullptr;
   if (node->getReturnType() != nullptr) {
     node->getReturnType()->accept(*this);
-    returnType = wrapReturnTypeIfNominal(result->getType());
+    sourceReturnType = wrapReturnTypeIfNominal(result->getType());
   }
 
   auto funcType = std::make_unique<Type>(BaseType::TY_FUNCTION, nullptr, std::move(paramFields));
-  if (returnType != nullptr) {
-    funcType->setReturnType(returnType);
+  Type* functionReturnType =
+      node->getIsAsync() ? getOrCreateAsyncTaskType(sourceReturnType) : sourceReturnType;
+  if (functionReturnType != nullptr) {
+    funcType->setReturnType(functionReturnType);
   }
   Type* funcTypePtr = cacheType(std::move(funcType));
   funcTypePtr->setGenericParams(node->getGenericParams());
@@ -6940,26 +6942,32 @@ auto Typechecker::visit(const LambdaExpr* node) -> void {
     currentGenericParamTraitBounds[p.name] = p.traitBounds;
   }
   if (node->isExpressionBody()) {
-    if (returnType != nullptr) {
-      visitExprWithExpectedType(node->getExpressionBody(), returnType);
+    if (sourceReturnType != nullptr) {
+      visitExprWithExpectedType(node->getExpressionBody(), sourceReturnType);
     } else {
       node->getExpressionBody()->accept(*this);
-      returnType = wrapReturnTypeIfNominal(result->getType());
-      lambdaSymbolPtr->getType()->setReturnType(returnType);
+      sourceReturnType = wrapReturnTypeIfNominal(result->getType());
+      functionReturnType =
+          node->getIsAsync() ? getOrCreateAsyncTaskType(sourceReturnType) : sourceReturnType;
+      lambdaSymbolPtr->getType()->setReturnType(functionReturnType);
     }
   } else if (!declarationPass && node->getBlockBody() != nullptr) {
-    if (returnType == nullptr) {
-      returnType = cacheType(std::make_unique<Type>(BaseType::TY_VOID));
-      lambdaSymbolPtr->getType()->setReturnType(returnType);
+    if (sourceReturnType == nullptr) {
+      sourceReturnType = cacheType(std::make_unique<Type>(BaseType::TY_VOID));
+      functionReturnType =
+          node->getIsAsync() ? getOrCreateAsyncTaskType(sourceReturnType) : sourceReturnType;
+      lambdaSymbolPtr->getType()->setReturnType(functionReturnType);
     }
     node->getBlockBody()->accept(*this);
-    if (returnType != nullptr && !returnType->is(BaseType::TY_VOID) &&
+    if (sourceReturnType != nullptr && !sourceReturnType->is(BaseType::TY_VOID) &&
         !blockAlwaysReturns(node->getBlockBody())) {
       throw TypeCheckError(node->getSpan(), "Non-void lambda may reach end without returning");
     }
-  } else if (returnType == nullptr) {
-    returnType = cacheType(std::make_unique<Type>(BaseType::TY_VOID));
-    lambdaSymbolPtr->getType()->setReturnType(returnType);
+  } else if (sourceReturnType == nullptr) {
+    sourceReturnType = cacheType(std::make_unique<Type>(BaseType::TY_VOID));
+    functionReturnType =
+        node->getIsAsync() ? getOrCreateAsyncTaskType(sourceReturnType) : sourceReturnType;
+    lambdaSymbolPtr->getType()->setReturnType(functionReturnType);
   }
 
   currentGenericParamTraitBounds = std::move(savedTraitBounds);
@@ -8600,6 +8608,9 @@ auto Typechecker::buildMethodFunctionType(FuncDecl* decl, Type* classType) -> Ty
   }
   decl->getReturnType()->accept(*this);
   Type* returnType = wrapReturnTypeIfNominal(result->getType());
+  if (decl->getIsAsync()) {
+    returnType = getOrCreateAsyncTaskType(returnType);
+  }
   auto funcType = std::make_unique<Type>(BaseType::TY_FUNCTION, nullptr, std::move(paramFields));
   funcType->setReturnType(returnType);
   return cacheType(std::move(funcType));

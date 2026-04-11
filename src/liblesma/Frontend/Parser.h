@@ -168,7 +168,10 @@ private:
   /// `allowVarargsEllipsis` is true, `...` is accepted as a trailing varargs marker.
   auto parseParameterList(bool allowVarargsEllipsis) -> ParameterListParseResult;
 
-  auto parseAsyncFunctionDeclaration() -> std::unique_ptr<Statement>;
+  [[nodiscard]] auto asyncStartsLambda() -> bool;
+  auto parseAsyncFunctionDeclaration(bool methodIsPrivate = false,
+                                     bool declaresInheritanceOverload = false,
+                                     bool methodIsStatic = false) -> std::unique_ptr<Statement>;
   auto parseFunctionDeclaration(bool methodIsPrivate = false,
                                 bool declaresInheritanceOverload = false, bool methodIsStatic = false,
                                 bool isAsync = false)
@@ -224,7 +227,7 @@ private:
   auto parseMatchPattern() -> MatchPattern;
   auto parseBlockExpr() -> std::unique_ptr<Expression>;
   auto parseStringInterpolation() -> std::unique_ptr<Expression>;
-  auto parseLambda() -> std::unique_ptr<Expression>;
+  auto parseLambda(bool isAsync = false) -> std::unique_ptr<Expression>;
   auto parseFunctionCall() -> std::unique_ptr<Expression>;
   auto parseListLiteral() -> std::unique_ptr<Expression>;
   auto parseDictLiteral() -> std::unique_ptr<Expression>;

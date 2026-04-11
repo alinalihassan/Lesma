@@ -1020,16 +1020,17 @@ class LambdaExpr : public Expression {
   std::unique_ptr<TypeExpr> returnType;
   std::unique_ptr<Expression> expressionBody;
   std::unique_ptr<Compound> blockBody;
+  bool isAsync;
   mutable Value* resolvedSymbol = nullptr;
 
 public:
   LambdaExpr(llvm::SMRange loc, std::vector<GenericParamDecl> genericParams,
              std::vector<std::unique_ptr<Parameter>> parameters,
              std::unique_ptr<TypeExpr> returnType, std::unique_ptr<Expression> expressionBody,
-             std::unique_ptr<Compound> blockBody)
+             std::unique_ptr<Compound> blockBody, bool isAsync)
       : Expression(loc), genericParams(std::move(genericParams)), parameters(std::move(parameters)),
         returnType(std::move(returnType)), expressionBody(std::move(expressionBody)),
-        blockBody(std::move(blockBody)) {}
+        blockBody(std::move(blockBody)), isAsync(isAsync) {}
   void accept(ASTVisitor& visitor) const override { visitor.visit(this); }
 
   [[nodiscard]] auto getGenericParamDecls() const -> const std::vector<GenericParamDecl>& {
@@ -1053,6 +1054,7 @@ public:
     return result;
   }
   [[nodiscard]] auto getReturnType() const -> TypeExpr* { return returnType.get(); }
+  [[nodiscard]] auto getIsAsync() const -> bool { return isAsync; }
   [[nodiscard]] auto isExpressionBody() const -> bool { return expressionBody != nullptr; }
   [[nodiscard]] auto getExpressionBody() const -> Expression* { return expressionBody.get(); }
   [[nodiscard]] auto getBlockBody() const -> Compound* { return blockBody.get(); }
@@ -1062,9 +1064,10 @@ public:
   auto toString(llvm::SourceMgr* srcMgr, const std::string& prefix, bool isTail) const
       -> std::string override {
     std::string ret = fmt::format(
-        "{}{}LambdaExpr[Line({}-{}):Col({}-{})]: func(", prefix, isTail ? "└──" : "├──",
+        "{}{}LambdaExpr[Line({}-{}):Col({}-{})]: {}func(", prefix, isTail ? "└──" : "├──",
         srcMgr->getLineAndColumn(getStart()).first, srcMgr->getLineAndColumn(getEnd()).first,
-        srcMgr->getLineAndColumn(getStart()).second, srcMgr->getLineAndColumn(getEnd()).second);
+        srcMgr->getLineAndColumn(getStart()).second, srcMgr->getLineAndColumn(getEnd()).second,
+        isAsync ? "async " : "");
     for (size_t i = 0; i < parameters.size(); ++i) {
       Parameter* p = parameters[i].get();
       ret +=

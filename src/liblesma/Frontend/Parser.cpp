@@ -1426,6 +1426,12 @@ auto Parser::parseTerm() -> std::unique_ptr<Expression> {
   switch (peek()->type) {
   case TokenType::MATCH:
     return parseMatchExpr();
+  case TokenType::ASYNC:
+    if (asyncStartsLambda()) {
+      return parseLambda(true);
+    }
+    error(peek(), "Expected `async func<` or `async func(` to start a lambda");
+    return nullptr;
   case TokenType::FUNC: {
     size_t i = 1;
     while (check(TokenType::NEWLINE, i)) {
@@ -1511,8 +1517,15 @@ auto Parser::parseTerm() -> std::unique_ptr<Expression> {
   return nullptr;
 }
 
-auto Parser::parseLambda() -> std::unique_ptr<Expression> {
-  auto* start = consume(TokenType::FUNC);
+auto Parser::parseLambda(bool isAsync) -> std::unique_ptr<Expression> {
+  llvm::SMLoc startLoc;
+  if (isAsync) {
+    auto* asyncTok = consume(TokenType::ASYNC);
+    startLoc = asyncTok->getStart();
+    consume(TokenType::FUNC);
+  } else {
+    startLoc = consume(TokenType::FUNC)->getStart();
+  }
   std::vector<GenericParamDecl> genericParams = parseGenericParamList();
   consume(TokenType::LEFT_PAREN);
   auto paramList = parseParameterList(false);
@@ -1531,19 +1544,21 @@ auto Parser::parseLambda() -> std::unique_ptr<Expression> {
       error(peek(), "Expected expression after '=>'");
       return nullptr;
     }
-    return std::make_unique<LambdaExpr>(llvm::SMRange{start->getStart(), bodyExpr->getEnd()},
+    return std::make_unique<LambdaExpr>(llvm::SMRange{startLoc, bodyExpr->getEnd()},
                                         std::move(genericParams), std::move(parameters),
-                                        std::move(returnType), std::move(bodyExpr), nullptr);
+                                        std::move(returnType), std::move(bodyExpr), nullptr,
+                                        isAsync);
   }
 
   if (returnType == nullptr) {
-    returnType = std::make_unique<TypeExpr>(start->span, "void", TokenType::VOID_TYPE);
+    returnType = std::make_unique<TypeExpr>(llvm::SMRange{startLoc, startLoc}, "void",
+                                            TokenType::VOID_TYPE);
   }
   auto block = parseBlock();
   auto lambdaEnd = block != nullptr ? block->getEnd() : returnType->getEnd();
-  return std::make_unique<LambdaExpr>(llvm::SMRange{start->getStart(), lambdaEnd},
+  return std::make_unique<LambdaExpr>(llvm::SMRange{startLoc, lambdaEnd},
                                       std::move(genericParams), std::move(parameters),
-                                      std::move(returnType), nullptr, std::move(block));
+                                      std::move(returnType), nullptr, std::move(block), isAsync);
 }
 
 auto Parser::parseStringInterpolation() -> std::unique_ptr<Expression> {
@@ -2042,13 +2057,26 @@ auto Parser::parseDefer() -> std::unique_ptr<Statement> {
   return std::make_unique<Defer>(llvm::SMRange{loc.Start, val->getEnd()}, std::move(val));
 }
 
-auto Parser::parseAsyncFunctionDeclaration() -> std::unique_ptr<Statement> {
+auto Parser::asyncStartsLambda() -> bool {
+  if (!check(TokenType::ASYNC) || !check(TokenType::FUNC, 1)) {
+    return false;
+  }
+  size_t i = 2;
+  while (check(TokenType::NEWLINE, i)) {
+    ++i;
+  }
+  return check(TokenType::LESS, i) || check(TokenType::LEFT_PAREN, i);
+}
+
+auto Parser::parseAsyncFunctionDeclaration(bool methodIsPrivate, bool declaresInheritanceOverload,
+                                           bool methodIsStatic) -> std::unique_ptr<Statement> {
   consume(TokenType::ASYNC);
   if (!check(TokenType::FUNC)) {
     error(peek(), "Expected `func` after `async`");
     return nullptr;
   }
-  return parseFunctionDeclaration(false, false, false, true);
+  return parseFunctionDeclaration(methodIsPrivate, declaresInheritanceOverload, methodIsStatic,
+                                  true);
 }
 
 auto Parser::parseStatement(bool isTopLevel) -> std::unique_ptr<Statement> {
@@ -2056,9 +2084,9 @@ auto Parser::parseStatement(bool isTopLevel) -> std::unique_ptr<Statement> {
     advance();
   }
 
-  if (checkAny<TokenType::ASYNC, TokenType::FUNC, TokenType::IMPORT, TokenType::CLASS, TokenType::ENUM,
-               TokenType::TYPE,
-               TokenType::TRAIT, TokenType::EXPORT>() &&
+  if (((check(TokenType::ASYNC) && !asyncStartsLambda()) ||
+       checkAny<TokenType::FUNC, TokenType::IMPORT, TokenType::CLASS, TokenType::ENUM, TokenType::TYPE,
+                TokenType::TRAIT, TokenType::EXPORT>()) &&
       !isTopLevel) {
     error(peek(), "Statement not allowed inside a block");
   }
@@ -2069,7 +2097,7 @@ auto Parser::parseStatement(bool isTopLevel) -> std::unique_ptr<Statement> {
   if (check(TokenType::STATIC)) {
     error(peek(), "`static` is only valid on class fields and methods");
   }
-  if (check(TokenType::ASYNC)) {
+  if (check(TokenType::ASYNC) && !asyncStartsLambda()) {
     return parseAsyncFunctionDeclaration();
   }
   if (check(TokenType::FUNC)) {
@@ -2237,10 +2265,6 @@ auto Parser::parseFunctionDeclaration(bool methodIsPrivate, bool declaresInherit
   }
 
   if (isAsync) {
-    if (inClass || inEnum) {
-      error(previous(), "`async func` is only supported for top-level named functions");
-      return nullptr;
-    }
     if (externFunc) {
       error(previous(), "`async func extern` is not supported");
       return nullptr;
@@ -2562,13 +2586,14 @@ auto Parser::parseClass() -> std::unique_ptr<Statement> {
   inClass = true;
   while (!checkAny<TokenType::RIGHT_BRACE, TokenType::EOF_TOKEN>()) {
     try {
-      if (checkAny<TokenType::PRIVATE, TokenType::OVERLOAD, TokenType::STATIC, TokenType::LET,
-                   TokenType::VAR, TokenType::FUNC>()) {
+      if (checkAny<TokenType::PRIVATE, TokenType::OVERLOAD, TokenType::STATIC, TokenType::ASYNC,
+                   TokenType::LET, TokenType::VAR, TokenType::FUNC>()) {
         bool memberPrivate = false;
         bool inheritanceOverload = false;
         bool memberStatic = false;
+        bool memberAsync = false;
         while (check(TokenType::PRIVATE) || check(TokenType::OVERLOAD) ||
-               check(TokenType::STATIC)) {
+               check(TokenType::STATIC) || check(TokenType::ASYNC)) {
           if (advanceIfMatchAny<TokenType::PRIVATE>()) {
             if (memberPrivate) {
               error(previous(), "Duplicate `private`");
@@ -2579,6 +2604,11 @@ auto Parser::parseClass() -> std::unique_ptr<Statement> {
               error(previous(), "Duplicate `static`");
             }
             memberStatic = true;
+          } else if (advanceIfMatchAny<TokenType::ASYNC>()) {
+            if (memberAsync) {
+              error(previous(), "Duplicate `async`");
+            }
+            memberAsync = true;
           } else {
             if (inheritanceOverload) {
               error(peek(), "Duplicate `overload`");
@@ -2594,6 +2624,9 @@ auto Parser::parseClass() -> std::unique_ptr<Statement> {
           if (inheritanceOverload) {
             error(peek(), "`overload` is not valid on class fields");
           }
+          if (memberAsync) {
+            error(peek(), "`async` is not valid on class fields");
+          }
           // Class fields reuse parseVarDecl; do not inherit `export` from `export class …`.
           bool const savedExported = isExported;
           isExported = false;
@@ -2606,14 +2639,15 @@ auto Parser::parseClass() -> std::unique_ptr<Statement> {
             std::ignore = stmt.release();
             fields.push_back(std::unique_ptr<VarDecl>(varDecl));
           }
-        } else if (checkAny<TokenType::FUNC>()) {
+        } else if (checkAny<TokenType::ASYNC, TokenType::FUNC>()) {
           // Class methods reuse parseFunctionDeclaration; do not inherit `export` from `export
           // class …`.
           bool const savedExported = isExported;
           isExported = false;
           auto restoreExported =
               llvm::make_scope_exit([this, savedExported] { isExported = savedExported; });
-          auto stmt = parseFunctionDeclaration(memberPrivate, inheritanceOverload, memberStatic);
+          auto stmt = parseFunctionDeclaration(memberPrivate, inheritanceOverload, memberStatic,
+                                               memberAsync);
           auto* funcDecl = dynamic_cast<FuncDecl*>(stmt.get());
           if (funcDecl != nullptr) {
             endLoc = funcDecl->getEnd();
@@ -2621,7 +2655,7 @@ auto Parser::parseClass() -> std::unique_ptr<Statement> {
             methods.push_back(std::unique_ptr<FuncDecl>(funcDecl));
           }
         } else {
-          error(peek(), "Expected field or method after `private` / `overload` / `static`");
+          error(peek(), "Expected field or method after `private` / `overload` / `static` / `async`");
         }
       } else if (check(TokenType::NEWLINE)) {
         consume(TokenType::NEWLINE);
@@ -2653,8 +2687,20 @@ auto Parser::parseClass() -> std::unique_ptr<Statement> {
 auto Parser::parseTraitMethodDeclaration() -> std::unique_ptr<FuncDecl> {
   auto loc = peek()->span;
   bool methodStatic = false;
-  if (advanceIfMatchAny<TokenType::STATIC>()) {
-    methodStatic = true;
+  bool methodAsync = false;
+  while (check(TokenType::STATIC) || check(TokenType::ASYNC)) {
+    if (advanceIfMatchAny<TokenType::STATIC>()) {
+      if (methodStatic) {
+        error(previous(), "Duplicate `static`");
+      }
+      methodStatic = true;
+    } else {
+      consume(TokenType::ASYNC);
+      if (methodAsync) {
+        error(previous(), "Duplicate `async`");
+      }
+      methodAsync = true;
+    }
   }
   consume(TokenType::FUNC);
   if (inClass) {
@@ -2691,7 +2737,7 @@ auto Parser::parseTraitMethodDeclaration() -> std::unique_ptr<FuncDecl> {
   return std::make_unique<FuncDecl>(llvm::SMRange{loc.Start, funcEndLoc}, functionName,
                                     functionNameSpan, llvm::SMRange{},
                                     std::vector<GenericParamDecl>{}, std::move(returnType),
-                                    std::move(parameters), std::move(body), false, false, false,
+                                    std::move(parameters), std::move(body), methodAsync, false, false,
                                     false, false, methodStatic);
 }
 
@@ -2714,12 +2760,12 @@ auto Parser::parseTrait() -> std::unique_ptr<Statement> {
       break;
     }
     try {
-      if (check(TokenType::STATIC) || check(TokenType::FUNC)) {
+      if (check(TokenType::STATIC) || check(TokenType::ASYNC) || check(TokenType::FUNC)) {
         auto req = parseTraitMethodDeclaration();
         endLoc = req->getEnd();
         requirements.push_back(std::move(req));
       } else {
-        error(peek(), "Expected 'func' or 'static func' in trait body");
+        error(peek(), "Expected 'func', 'async func', 'static func', or 'static async func' in trait body");
       }
     } catch (const ParserError& err) {
       if (diagnosticsOut == nullptr) {
@@ -2759,12 +2805,24 @@ auto Parser::parseEnum() -> std::unique_ptr<Statement> {
       if (checkAny<TokenType::RIGHT_BRACE, TokenType::EOF_TOKEN>()) {
         break;
       }
-      if (check(TokenType::STATIC) || check(TokenType::FUNC)) {
+      if (check(TokenType::STATIC) || check(TokenType::ASYNC) || check(TokenType::FUNC)) {
         bool methodStatic = false;
-        if (advanceIfMatchAny<TokenType::STATIC>()) {
-          methodStatic = true;
+        bool methodAsync = false;
+        while (check(TokenType::STATIC) || check(TokenType::ASYNC)) {
+          if (advanceIfMatchAny<TokenType::STATIC>()) {
+            if (methodStatic) {
+              error(previous(), "Duplicate `static`");
+            }
+            methodStatic = true;
+          } else {
+            consume(TokenType::ASYNC);
+            if (methodAsync) {
+              error(previous(), "Duplicate `async`");
+            }
+            methodAsync = true;
+          }
         }
-        auto stmt = parseFunctionDeclaration(false, false, methodStatic);
+        auto stmt = parseFunctionDeclaration(false, false, methodStatic, methodAsync);
         auto* funcDecl = dynamic_cast<FuncDecl*>(stmt.get());
         if (funcDecl == nullptr) {
           error(peek(), "Expected enum method");

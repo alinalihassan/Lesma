@@ -1,0 +1,23 @@
+enum MaybeInt {
+  None
+  Some(int)
+
+  async func valueOr(defaultValue: int) -> int {
+    return match self {
+      Some(value) => value
+      None => defaultValue
+    }
+  }
+
+  static async func some_plus_one(value: int) -> MaybeInt {
+    return MaybeInt.Some(value + 1)
+  }
+}
+
+let some = await MaybeInt.some_plus_one(3)
+if await some.valueOr(0) != 4 {
+  exit(1)
+}
+if await MaybeInt.None.valueOr(7) != 7 {
+  exit(2)
+}

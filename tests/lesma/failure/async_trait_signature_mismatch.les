@@ -1,0 +1,13 @@
+trait AsyncNeed {
+  async func compute() -> int
+}
+
+class Bad impl AsyncNeed {
+  func new() {
+    var _ = 0
+  }
+
+  func compute() -> int {
+    return 1
+  }
+}

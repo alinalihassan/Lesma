@@ -1,0 +1,35 @@
+trait AsyncWorker {
+  async func compute(value: int) -> int
+
+  async func decorated(value: int) -> int {
+    let base = await self.compute(value)
+    return base + 1
+  }
+
+  static async func scale(value: int) -> int
+}
+
+class Worker impl AsyncWorker {
+  func new() {
+    var _ = 0
+  }
+
+  async func compute(value: int) -> int {
+    return value * 2
+  }
+
+  static async func scale(value: int) -> int {
+    return value * 3
+  }
+}
+
+let worker = Worker()
+if await worker.compute(4) != 8 {
+  exit(1)
+}
+if await worker.decorated(4) != 9 {
+  exit(2)
+}
+if await Worker.scale(4) != 12 {
+  exit(3)
+}

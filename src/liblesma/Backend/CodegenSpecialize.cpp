@@ -1051,7 +1051,9 @@ auto Codegen::specializeLambda(const LambdaExpr* node, const std::vector<lesma::
     concreteParamTypes.push_back(paramT);
   }
   Type* returnType = nullptr;
-  if (node->getReturnType() != nullptr) {
+  if (node->getIsAsync()) {
+    returnType = substituteTypeForSpecializationEnv(templateSym->getType()->getReturnType(), env);
+  } else if (node->getReturnType() != nullptr) {
     node->getReturnType()->accept(*this);
     returnType = wrapNominalReturnAsPointer(result->getType());
   } else {
@@ -1083,6 +1085,9 @@ auto Codegen::specializeLambda(const LambdaExpr* node, const std::vector<lesma::
   auto* llvmFuncType = FunctionType::get(llvmReturnType, paramLLVMTypes, false);
   auto* llvmFunc =
       Function::Create(llvmFuncType, Function::PrivateLinkage, mangledName, *theModule);
+  if (node->getIsAsync()) {
+    llvmFunc->addFnAttr(llvm::Attribute::PresplitCoroutine);
+  }
   typePtr->setLlvmType(llvmFuncType);
   func->setLlvmValue(llvmFunc);
   func->setBodyScope(templateSym->getBodyScope());

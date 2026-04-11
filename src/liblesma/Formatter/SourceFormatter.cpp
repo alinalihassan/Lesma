@@ -1310,8 +1310,13 @@ private:
   }
 
   [[nodiscard]] auto formatLambda(const LambdaExpr* node) -> Doc {
-    std::vector<Doc> parts{docText("func"), formatGenericParams(node->getGenericParamDecls()),
-                           formatParameters(node->getParameters(), false)};
+    std::vector<Doc> parts;
+    if (node->getIsAsync()) {
+      parts.push_back(docText("async "));
+    }
+    parts.push_back(docText("func"));
+    parts.push_back(formatGenericParams(node->getGenericParamDecls()));
+    parts.push_back(formatParameters(node->getParameters(), false));
     if (node->getReturnType() != nullptr && !isVoidType(node->getReturnType())) {
       parts.push_back(docText(" -> "));
       parts.push_back(formatType(node->getReturnType()));
