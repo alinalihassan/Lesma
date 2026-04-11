@@ -1,25 +1,25 @@
 from json import Json
 
 let badParse = Json.parse("{\"name\": true,}")
-if match badParse {
+if (match badParse {
   Result.Err(err) => err.str().contains("byte")
   Result.Ok(_) => false
-} == false {
+}) == false {
   exit(1)
 }
 
 let badRoot = Json.parse("true")
-if match badRoot {
+if (match badRoot {
   Result.Err(err) => err.str() == "JSON root is not an object or array"
   Result.Ok(_) => false
-} == false {
+}) == false {
   exit(2)
 }
 
 let goodArray = Json.parse("[1, 2, 3]")
-if match goodArray {
+if (match goodArray {
   Result.Ok(_) => true
   Result.Err(_) => false
-} == false {
+}) == false {
   exit(3)
 }
