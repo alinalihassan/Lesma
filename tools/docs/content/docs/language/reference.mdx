@@ -63,7 +63,7 @@ Common prelude items include: **`print`**, **`input`**, **`exit`**, **`range`**,
 
 Some list and string behavior lowers to **compiler intrinsics** that are not part of the everyday language surface. Prefer **`list`** and **`str`** APIs in normal code.
 
-**Async runtime model:** calling an async function, method, or lambda produces an internal task value. `await expr` drains that task to completion on the current thread and yields its payload inside async callables and at top level. `async func extern` is not supported.
+**Async runtime model:** calling an async function, method, or lambda produces an internal task value. That task wrapper is compiler-internal: source signatures still name only the payload type. `await expr` drains the task to completion on the current thread and yields its payload inside async callables and at top level. `async func extern` is not supported.
 
 ## Imports
 

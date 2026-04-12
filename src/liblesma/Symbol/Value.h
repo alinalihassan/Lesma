@@ -91,6 +91,7 @@ public:
         closureSlotOuter(other.closureSlotOuter), storesFuncValuePair(other.storesFuncValuePair),
         originLambdaExpr(other.originLambdaExpr), arcOwnedValue(other.arcOwnedValue),
         closureCalleeUsesEnvParameter(other.closureCalleeUsesEnvParameter),
+        lambdaCallable(other.lambdaCallable), asyncCallable(other.asyncCallable),
         staticMethod(other.staticMethod) {}
 
   ~Value() = default;
@@ -121,6 +122,8 @@ public:
       originLambdaExpr = other.originLambdaExpr;
       arcOwnedValue = other.arcOwnedValue;
       closureCalleeUsesEnvParameter = other.closureCalleeUsesEnvParameter;
+      lambdaCallable = other.lambdaCallable;
+      asyncCallable = other.asyncCallable;
       staticMethod = other.staticMethod;
     }
     return *this;
@@ -214,6 +217,12 @@ public:
   }
   auto setClosureCalleeUsesEnvParameter(bool v) -> void { closureCalleeUsesEnvParameter = v; }
 
+  [[nodiscard]] auto isLambdaCallable() const -> bool { return lambdaCallable; }
+  auto setLambdaCallable(bool v) -> void { lambdaCallable = v; }
+
+  [[nodiscard]] auto isAsyncCallable() const -> bool { return asyncCallable; }
+  auto setAsyncCallable(bool v) -> void { asyncCallable = v; }
+
   [[nodiscard]] auto isStaticMethod() const -> bool { return staticMethod; }
   auto setStaticMethod(bool v) -> void { staticMethod = v; }
 
@@ -265,6 +274,8 @@ private:
   const LambdaExpr* originLambdaExpr = nullptr;
   bool arcOwnedValue = false;
   bool closureCalleeUsesEnvParameter = false;
+  bool lambdaCallable = false;
+  bool asyncCallable = false;
   bool staticMethod = false;
 };
 } // namespace lesma

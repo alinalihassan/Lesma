@@ -229,6 +229,23 @@ class Codegen final : public ASTVisitor {
                                  UnionNarrowingStableKeyEq>>
       unionNarrowVariantStack;
 
+  struct AsyncCodegenStateSnapshot {
+    llvm::Value* coroHandle = nullptr;
+    llvm::Value* promisePtr = nullptr;
+    llvm::BasicBlock* returnBlock = nullptr;
+    lesma::Type* returnPayloadType = nullptr;
+  };
+
+  struct AsyncCoroutineBlocks {
+    llvm::BasicBlock* suspendBlock = nullptr;
+    llvm::BasicBlock* resumeBlock = nullptr;
+    llvm::BasicBlock* cleanupBlock = nullptr;
+    llvm::BasicBlock* trapBlock = nullptr;
+    llvm::BasicBlock* dynAllocBlock = nullptr;
+    llvm::BasicBlock* coroBeginBlock = nullptr;
+    llvm::Value* coroId = nullptr;
+  };
+
   /** Pushes a non-empty narrow map onto \c unionNarrowVariantStack in the ctor and pops in the
    * dtor so the stack stays balanced if nested codegen throws (e.g. \c CodegenError). */
   struct UnionNarrowingScope {
@@ -544,6 +561,17 @@ protected:
   [[nodiscard]] auto getAsyncTaskPayloadType(lesma::Type* type) const -> lesma::Type*;
   [[nodiscard]] auto getOrCreateAsyncPromiseLlvmType(lesma::Type* payloadType)
       -> llvm::StructType*;
+  [[nodiscard]] auto saveAsyncCodegenState() const -> AsyncCodegenStateSnapshot;
+  auto restoreAsyncCodegenState(const AsyncCodegenStateSnapshot& state) -> void;
+  auto resetAsyncCodegenState() -> void;
+  auto initializeAsyncCoroutine(llvm::Function* f, lesma::Type* callableReturnType,
+                                llvm::SMRange span, llvm::StringRef callableKind)
+      -> AsyncCoroutineBlocks;
+  auto emitCurrentAsyncReadyFlag(lesma::Type* payloadType, bool isReady, llvm::StringRef name) -> void;
+  auto emitCurrentAsyncReturnValue(llvm::SMRange span, std::unique_ptr<lesma::Value>& value,
+                                   llvm::StringRef missingValueMessage) -> void;
+  auto emitImplicitAsyncVoidCompletion() -> void;
+  auto finalizeAsyncCoroutine(llvm::Function* f, const AsyncCoroutineBlocks& blocks) -> void;
   auto getCoroutineIntrinsic(llvm::Intrinsic::ID id,
                              llvm::ArrayRef<llvm::Type*> overloadTypes = {}) -> llvm::FunctionCallee;
   auto emitAsyncTaskPromisePointer(llvm::Value* taskHandle, lesma::Type* taskType, bool fromCaller)

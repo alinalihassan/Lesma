@@ -3705,16 +3705,16 @@ auto Typechecker::wrapReturnTypeIfNominal(Type* returnType) -> Type* {
 
 auto Typechecker::getOrCreateAsyncTaskType(Type* payloadType) -> Type* {
   Type* wrappedPayloadType = wrapReturnTypeIfNominal(payloadType);
-  std::string payloadName = wrappedPayloadType != nullptr ? wrappedPayloadType->toString() : "void";
-  if (auto it = asyncTaskTypes.find(payloadName); it != asyncTaskTypes.end()) {
+  if (auto it = asyncTaskTypes.find(wrappedPayloadType); it != asyncTaskTypes.end()) {
     return it->second;
   }
   auto taskType = std::make_unique<Type>(BaseType::TY_CLASS);
+  std::string payloadName = wrappedPayloadType != nullptr ? wrappedPayloadType->toString() : "void";
   taskType->setDisplayName(fmt::format("Task<{}>", payloadName));
   taskType->setBuiltinTask(true);
   taskType->setTaskPayloadType(wrappedPayloadType);
   Type* taskTypePtr = cacheType(std::move(taskType));
-  asyncTaskTypes.emplace(payloadName, taskTypePtr);
+  asyncTaskTypes.emplace(wrappedPayloadType, taskTypePtr);
   return taskTypePtr;
 }
 
@@ -5940,6 +5940,7 @@ auto Typechecker::visit(const FuncDecl* node) -> void {
       declaredFunc->setDeclarationSpan(node->getNameSpan());
       declaredFunc->setDeclarationFilePath(mainFilePath);
       declaredFunc->setStaticMethod(node->getIsStatic());
+      declaredFunc->setAsyncCallable(node->getIsAsync());
       insertScope->insertSymbol(std::move(declaredFunc));
       funcSymbol = insertScope->lookupFunction(node->getName(), paramTypes,
                                                FunctionLookupKind::OVERLOAD_IDENTITY, nullptr,
@@ -5960,6 +5961,7 @@ auto Typechecker::visit(const FuncDecl* node) -> void {
                                                                          : currentEnumType);
       }
       funcSymbol->setStaticMethod(node->getIsStatic());
+      funcSymbol->setAsyncCallable(node->getIsAsync());
       funcSymbol->setDeclarationSpan(node->getNameSpan());
       funcSymbol->setDeclarationFilePath(mainFilePath);
       // Set resolvedSymbol for existing symbol (this exact overload)
@@ -6905,6 +6907,9 @@ auto Typechecker::visit(const LambdaExpr* node) -> void {
   lambdaSymbol->setDeclarationKind(ValueDeclarationKind::FUNCTION);
   lambdaSymbol->setDeclarationSpan(node->getSpan());
   lambdaSymbol->setDeclarationFilePath(mainFilePath);
+  lambdaSymbol->setOriginLambdaExpr(node);
+  lambdaSymbol->setLambdaCallable(true);
+  lambdaSymbol->setAsyncCallable(node->getIsAsync());
   SymbolTable* lambdaBodyScope = scope->createChildBlock("lambda");
   lambdaSymbol->setBodyScope(lambdaBodyScope);
   lambdaSymbol->clearClosureCaptureOuters();
@@ -7845,10 +7850,7 @@ auto Typechecker::visit(const BlockExpr* node) -> void {
 
 auto Typechecker::visit(const UnaryOp* node) -> void {
   if (node->getOperator() == TokenType::AWAIT) {
-    Type* enclosingAsyncPayload =
-        currentFunction != nullptr ? unwrapAsyncTaskType(currentFunction->getType()->getReturnType())
-                                   : nullptr;
-    if (currentFunction != nullptr && enclosingAsyncPayload == nullptr) {
+    if (currentFunction != nullptr && !currentFunction->isAsyncCallable()) {
       throw TypeCheckError(node->getSpan(),
                            "`await` is only allowed inside async functions or at top level");
     }
@@ -8412,7 +8414,7 @@ auto Typechecker::visit(const Literal* node) -> void {
         }
       }
     }
-    if (currentFunction != nullptr && currentFunction->getName().starts_with("__lambda_")) {
+    if (currentFunction != nullptr && currentFunction->isLambdaCallable()) {
       SymbolTable* foundScope = nullptr;
       for (SymbolTable* s = scope; s != nullptr && foundScope == nullptr; s = s->getParent()) {
         for (Value* candidate : s->getSymbols()) {
@@ -8631,6 +8633,7 @@ auto Typechecker::registerTraitDefaultMethodSymbol(SymbolTable* insertScope, Typ
   declaredFunc->setExported(false);
   declaredFunc->setDeclarationSpan(req->getNameSpan());
   declaredFunc->setDeclarationFilePath(mainFilePath);
+  declaredFunc->setAsyncCallable(req->getIsAsync());
   insertScope->insertSymbol(std::move(declaredFunc));
   Value* funcSymbol = insertScope->lookupFunction(req->getName(), lookupArgs,
                                                   FunctionLookupKind::OVERLOAD_IDENTITY);

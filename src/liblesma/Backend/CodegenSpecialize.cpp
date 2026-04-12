@@ -114,6 +114,10 @@ auto Codegen::isTypeFullyConcrete(Type* t) const -> bool {
       }
       break;
     case BaseType::TY_CLASS:
+      if (cur->isBuiltinTask()) {
+        isConcrete = self(self, cur->getTaskPayloadType());
+        break;
+      }
       if (auto envIt = specializedClassTypeEnvs.find(cur);
           envIt != specializedClassTypeEnvs.end()) {
         for (const auto& [name, boundType] : envIt->second) {

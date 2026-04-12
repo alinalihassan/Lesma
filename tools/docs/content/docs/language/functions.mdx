@@ -32,6 +32,8 @@ Calling an async function produces an internal task value. You can:
 - use `await taskExpr` inside async methods and async lambdas
 - use top-level `await taskExpr` from module code
 
+The hidden `Task<...>` wrapper is compiler-internal, not a source-level type you write in function signatures. In Lesma source, async callables still spell the payload return type and the compiler inserts the task wrapper behind the scenes.
+
 ```les
 async func add_pair(a: int, b: int) -> int {
     let left = await add_one(a)
@@ -146,6 +148,8 @@ let total = await inc(41)
 ```
 
 Calling an async lambda produces the same internal task value as any other async callable, so consume its result with `await`.
+
+Like named async functions, generic async lambdas still declare and infer their payload type normally; the internal task wrapper remains an implementation detail.
 
 ### Passing lambdas to other functions
 

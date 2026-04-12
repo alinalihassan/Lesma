@@ -98,8 +98,8 @@ class Typechecker final : public ASTVisitor {
   std::unordered_map<Type*, std::unordered_map<std::string, Type*>> specializedTraitExistentialEnv;
   /** Imported types materialized into this typechecker's cache so they outlive imported scopes. */
   std::unordered_map<Type*, Type*> importedTypeCopies;
-  /** Canonical compiler-internal task wrapper types keyed by payload display name. */
-  std::unordered_map<std::string, Type*> asyncTaskTypes;
+  /** Canonical compiler-internal task wrapper types keyed by normalized payload type. */
+  std::unordered_map<Type*, Type*> asyncTaskTypes;
   /** Guards recursive imported nominal materialization while trying canonical reuse. */
   std::unordered_set<Type*> importedTypeMaterializationInProgress;
   std::vector<Type*> expectedTypes;

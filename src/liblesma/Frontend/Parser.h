@@ -164,6 +164,13 @@ private:
     std::vector<std::unique_ptr<Parameter>> parameters;
     bool varargs = false;
   };
+
+  struct MethodModifierParseResult {
+    bool isPrivate = false;
+    bool declaresInheritanceOverload = false;
+    bool isStatic = false;
+    bool isAsync = false;
+  };
   /// Parses `(` … `)` contents (caller consumes `(` before and `)` after). When
   /// `allowVarargsEllipsis` is true, `...` is accepted as a trailing varargs marker.
   auto parseParameterList(bool allowVarargsEllipsis) -> ParameterListParseResult;
@@ -183,6 +190,7 @@ private:
   auto parseTrait() -> std::unique_ptr<Statement>;
   auto parseGenericParamList() -> std::vector<GenericParamDecl>;
   auto parseIgnoredTypeArgList() -> void;
+  auto parseMethodModifiers(bool allowPrivate, bool allowOverload) -> MethodModifierParseResult;
   auto parseTraitMethodDeclaration() -> std::unique_ptr<FuncDecl>;
   auto parseEnum() -> std::unique_ptr<Statement>;
   auto parseStatement(bool isTopLevel) -> std::unique_ptr<Statement>;
