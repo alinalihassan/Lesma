@@ -1385,8 +1385,8 @@ auto lesma::parseFileForFormatting(const std::filesystem::path& path)
     auto lexer = std::make_unique<Lexer>(sourceMgr, nullptr, filePath);
     lexer->scanAll();
 
-    auto parser =
-        std::make_unique<Parser>(lexer->getTokens(), nullptr, sourceMgr, mainBufferId, filePath);
+    auto parser = std::make_unique<Parser>(lexer->getTokens(), nullptr, sourceMgr, mainBufferId,
+                                           filePath, true);
     parser->parse();
     return FormattingParseResult{
         .sourceMgr = std::move(sourceMgr),
@@ -1428,8 +1428,8 @@ auto lesma::parseSourceForFormatting(std::string source, std::string logicalPath
     auto lexer = std::make_unique<Lexer>(sourceMgr, nullptr, logicalPath);
     lexer->scanAll();
 
-    auto parser =
-        std::make_unique<Parser>(lexer->getTokens(), nullptr, sourceMgr, mainBufferId, logicalPath);
+    auto parser = std::make_unique<Parser>(lexer->getTokens(), nullptr, sourceMgr, mainBufferId,
+                                           logicalPath, true);
     parser->parse();
     return FormattingParseResult{
         .sourceMgr = std::move(sourceMgr),

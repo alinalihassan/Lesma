@@ -31,11 +31,13 @@ public:
                   std::vector<AnalysisDiagnostic>* diagnosticSink = nullptr,
                   std::shared_ptr<llvm::SourceMgr> diagnosticSpanSrcMgr = nullptr,
                   unsigned diagnosticSpanBufferId = 0,
-                  std::string diagnosticSpanDisplayPath = {})
+                  std::string diagnosticSpanDisplayPath = {},
+                  bool attachTriviaEnabled = false)
       : tokens(std::move(tokens)), diagnosticsOut(diagnosticSink),
         diagnosticSpanSrcMgr(std::move(diagnosticSpanSrcMgr)),
         diagnosticSpanBufferId(diagnosticSpanBufferId),
-        diagnosticSpanDisplayPath(std::move(diagnosticSpanDisplayPath)) {}
+        diagnosticSpanDisplayPath(std::move(diagnosticSpanDisplayPath)),
+        attachTriviaEnabled(attachTriviaEnabled) {}
   ~Parser() = default;
 
   Parser(const Parser&) = delete;
@@ -147,6 +149,7 @@ private:
   std::shared_ptr<llvm::SourceMgr> diagnosticSpanSrcMgr;
   unsigned diagnosticSpanBufferId = 0;
   std::string diagnosticSpanDisplayPath;
+  bool attachTriviaEnabled = false;
 
   auto pushParserDiagnostic(llvm::SMRange span, std::string message) -> void;
 

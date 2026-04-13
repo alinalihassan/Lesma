@@ -2917,7 +2917,7 @@ auto Parser::parseCompound() -> std::unique_ptr<Compound> {
 }
 
 auto Parser::attachTrivia() -> void {
-  if (diagnosticSpanSrcMgr == nullptr || tree == nullptr) {
+  if (!attachTriviaEnabled || diagnosticSpanSrcMgr == nullptr || tree == nullptr) {
     return;
   }
   TriviaAttacher attacher(diagnosticSpanSrcMgr.get(), tokens);
