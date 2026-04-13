@@ -328,6 +328,8 @@ protected:
   auto initializeModule() -> std::unique_ptr<Module>;
   auto initializeJit() -> std::unique_ptr<LLLazyJIT>;
   auto initializeTopLevel() -> llvm::Function*;
+  [[nodiscard]] static auto statementRequiresModuleInit(const Statement* stmt) -> bool;
+  [[nodiscard]] auto moduleNeedsJitInit() const -> bool;
 
   auto initializeDebugMetadata() -> void;
   auto finalizeDebugMetadata() -> void;
