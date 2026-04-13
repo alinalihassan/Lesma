@@ -54,6 +54,19 @@ private:
   llvm::SourceMgr* srcMgr = nullptr;
   const std::vector<Token*>& tokens;
 
+  [[nodiscard]] auto triviaBoundaryLine(llvm::SMLoc loc) const -> unsigned {
+    unsigned const line = lineOf(srcMgr, loc);
+    if (tokens.empty()) {
+      return line;
+    }
+    Token const* lastToken = tokens.back();
+    if (lastToken != nullptr && lastToken->type == TokenType::EOF_TOKEN &&
+        lastToken->getEnd().getPointer() == loc.getPointer()) {
+      return line + 1U;
+    }
+    return line;
+  }
+
   [[nodiscard]] auto commentTokensBetween(unsigned previousEndLine, unsigned currentStartLine) const
       -> std::vector<Token*> {
     std::vector<Token*> out;
@@ -231,8 +244,8 @@ private:
     if (container == nullptr) {
       return;
     }
-    LeadingTriviaBlock tail =
-        collectLeadingTrivia(previousEndLine, lineOf(srcMgr, container->getEnd()));
+    LeadingTriviaBlock tail = collectLeadingTrivia(previousEndLine,
+                                                   triviaBoundaryLine(container->getEnd()));
     container->setExtraBlankLinesBeforeTrailingDetachedComments(tail.extraBlankLinesBefore);
     container->setTrailingDetachedComments(std::move(tail.comments));
   }
@@ -2499,14 +2512,16 @@ auto Parser::parseImport() -> std::unique_ptr<Statement> {
   if (!selectiveImport) {
     std::string alias = getBasename(token->lexeme);
     llvm::SMRange aliasSpan = token->type == TokenType::IDENTIFIER ? token->span : llvm::SMRange();
+    Token const* statementEndToken = token;
     if (advanceIfMatchAny<TokenType::AS>()) {
       Token const* aliasToken = consume(TokenType::IDENTIFIER);
       alias = aliasToken->lexeme;
       aliasSpan = aliasToken->span;
+      statementEndToken = aliasToken;
     }
 
-    auto* endToken = consumeNewline();
-    auto endLoc = endToken->getEnd();
+    consumeNewline();
+    auto endLoc = statementEndToken->getEnd();
     return std::make_unique<Import>(llvm::SMRange{loc.Start, endLoc}, filepath, alias, aliasSpan,
                                     token->type == TokenType::IDENTIFIER, true, false,
                                     std::vector<ImportedNameBinding>{});
@@ -2515,7 +2530,8 @@ auto Parser::parseImport() -> std::unique_ptr<Statement> {
   consume(TokenType::IMPORT);
 
   if (advanceIfMatchAny<TokenType::STAR>()) {
-    auto* endToken = consumeNewline();
+    Token const* endToken = previous();
+    consumeNewline();
     auto endLoc = endToken->getEnd();
     return std::make_unique<Import>(llvm::SMRange{loc.Start, endLoc}, filepath, std::string{},
                                     llvm::SMRange(), token->type == TokenType::IDENTIFIER, true,
@@ -2523,16 +2539,19 @@ auto Parser::parseImport() -> std::unique_ptr<Statement> {
   }
 
   std::vector<ImportedNameBinding> importedNames;
+  Token const* statementEndToken = nullptr;
 
   while (true) {
     Token const* identToken = consume(TokenType::IDENTIFIER);
     auto ident = identToken->lexeme;
     auto alias = ident;
     llvm::SMRange aliasSpan = identToken->span;
+    Token const* bindingEndToken = identToken;
     if (advanceIfMatchAny<TokenType::AS>()) {
       Token const* aliasToken = consume(TokenType::IDENTIFIER);
       alias = aliasToken->lexeme;
       aliasSpan = aliasToken->span;
+      bindingEndToken = aliasToken;
     }
 
     importedNames.push_back(ImportedNameBinding{
@@ -2541,14 +2560,15 @@ auto Parser::parseImport() -> std::unique_ptr<Statement> {
         .nameSpan = identToken->span,
         .aliasSpan = aliasSpan,
     });
+    statementEndToken = bindingEndToken;
 
     if (!advanceIfMatchAny<TokenType::COMMA>()) {
       break;
     }
   }
 
-  auto* endToken = consumeNewline();
-  auto endLoc = endToken->getEnd();
+  consumeNewline();
+  auto endLoc = statementEndToken != nullptr ? statementEndToken->getEnd() : token->getEnd();
   return std::make_unique<Import>(llvm::SMRange{loc.Start, endLoc}, filepath, std::string{},
                                   llvm::SMRange(), token->type == TokenType::IDENTIFIER, false,
                                   true, importedNames);
