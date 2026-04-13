@@ -664,6 +664,14 @@ protected:
   auto getOrCreateArcDebugReportFunction() -> llvm::Function*;
   auto getOrCreateArcDebugCleanupBeginFunction() -> llvm::Function*;
   auto getOrCreateArcDebugCleanupStepFunction() -> llvm::Function*;
+  auto getOrCreateAsyncRuntimeInitFunction() -> llvm::FunctionCallee;
+  auto getOrCreateAsyncRuntimeShutdownFunction() -> llvm::FunctionCallee;
+  auto getOrCreateAsyncRuntimeRegisterTaskFunction() -> llvm::FunctionCallee;
+  auto getOrCreateAsyncRuntimeStartTaskFunction() -> llvm::FunctionCallee;
+  auto getOrCreateAsyncRuntimeWaitTaskFunction() -> llvm::FunctionCallee;
+  auto getOrCreateAsyncRuntimeReleaseTaskFunction() -> llvm::FunctionCallee;
+  auto getOrCreateAsyncResumeHelperFunction() -> llvm::Function*;
+  auto getOrCreateAsyncDoneHelperFunction() -> llvm::Function*;
   auto emitArcDebugDelta(std::int64_t delta, llvm::Value* payloadPtr,
                          std::string_view traceMessagePrefix) -> void;
   auto emitArcDebugTraceCounts(std::string_view traceMessagePrefix, llvm::Value* payloadPtr,

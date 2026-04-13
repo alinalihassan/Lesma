@@ -51,8 +51,8 @@ if total != 7 {
 ### Current runtime model
 
 The current async implementation is intentionally small:
-- `await` drains the task to completion on the current thread, including at top level
-- there is no scheduler, parallel execution, or background progress yet
+- `await` waits on the async runtime instead of locally draining the coroutine
+- top-level `await` runs against the same runtime
 - awaiting a task consumes that task handle
 
 ### Current limitations

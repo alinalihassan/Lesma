@@ -64,6 +64,7 @@
 #include <lld/Common/Driver.h>
 
 #include "liblesma/AST/AST.h"
+#include "liblesma/Runtime/AsyncRuntime.h"
 
 #ifdef __APPLE__
 LLD_HAS_DRIVER(macho)
@@ -81,6 +82,10 @@ LLD_HAS_DRIVER(elf)
 using namespace lesma;
 using namespace llvm;
 using namespace llvm::orc;
+
+#ifndef LESMA_ASYNC_RUNTIME_LIBRARY_FILE
+#define LESMA_ASYNC_RUNTIME_LIBRARY_FILE ""
+#endif
 
 namespace {
 
@@ -408,6 +413,9 @@ auto Codegen::initializeTopLevel() -> llvm::Function* {
 
   auto* entry = BasicBlock::Create(theModule->getContext(), "entry", f);
   builder->SetInsertPoint(entry);
+  if (isMain) {
+    builder->CreateCall(getOrCreateAsyncRuntimeInitFunction(), {builder->getInt64(0)});
+  }
 
   if (emitDebugInfo) {
     SMRange span;
@@ -562,7 +570,21 @@ void Codegen::linkObjectFileWithLld(const std::string& objFilename) {
   args.push_back("11.0");  // sdk version
   args.push_back("-L");
   args.push_back("/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/lib");
+  if (std::string_view{LESMA_ASYNC_RUNTIME_LIBRARY_FILE}.size() > 0U) {
+    args.push_back(LESMA_ASYNC_RUNTIME_LIBRARY_FILE);
+    args.push_back("-lc++");
+  }
   args.push_back("-lSystem");
+#elif defined(_WIN32)
+  if (std::string_view{LESMA_ASYNC_RUNTIME_LIBRARY_FILE}.size() > 0U) {
+    args.push_back(LESMA_ASYNC_RUNTIME_LIBRARY_FILE);
+  }
+#else
+  if (std::string_view{LESMA_ASYNC_RUNTIME_LIBRARY_FILE}.size() > 0U) {
+    args.push_back(LESMA_ASYNC_RUNTIME_LIBRARY_FILE);
+    args.push_back("-lstdc++");
+    args.push_back("-lpthread");
+  }
 #endif
 
   // Run the LLD linker using lldMain
@@ -596,15 +618,18 @@ auto Codegen::linkObjectFile(const std::string& objFilename) -> void {
 }
 
 auto Codegen::prepareJit() -> void {
+  lesma_async_runtime_init(0);
   llvm::Error addModuleErr =
       theJit->addIRModule(ThreadSafeModule(std::move(theModule), *theContext));
   if (addModuleErr) {
+    lesma_async_runtime_shutdown();
     // Concatenate: LLVM error text may contain characters that break fmt::format placeholders.
     throw CodegenError({}, std::string("JIT addIRModule failed: ") +
                                llvmErrorToString(std::move(addModuleErr)));
   }
   Expected<ExecutorAddr> mainFuncOrErr = theJit->lookup(topLevelFunc->getName());
   if (!mainFuncOrErr) {
+    lesma_async_runtime_shutdown();
     throw CodegenError({}, std::string("Couldn't find top-level function '") +
                                topLevelFunc->getName().str() +
                                "': " + llvmErrorToString(mainFuncOrErr.takeError()));
@@ -615,6 +640,7 @@ auto Codegen::prepareJit() -> void {
     for (const std::string& sym : *pendingJitModuleInits) {
       Expected<ExecutorAddr> initAddr = theJit->lookup(sym);
       if (!initAddr) {
+        lesma_async_runtime_shutdown();
         throw CodegenError({}, std::string("JIT could not resolve module initializer ") + sym +
                                    ": " + llvmErrorToString(initAddr.takeError()));
       }
@@ -630,7 +656,14 @@ auto Codegen::executeJit() -> int {
     throw CodegenError({}, "Main function address not found, did you prepare JIT?\n");
   }
 
-  return mainFuncAddress();
+  try {
+    int const exitCode = mainFuncAddress();
+    lesma_async_runtime_shutdown();
+    return exitCode;
+  } catch (...) {
+    lesma_async_runtime_shutdown();
+    throw;
+  }
 }
 
 auto Codegen::run() -> void {
@@ -811,6 +844,7 @@ auto Codegen::run() -> void {
     if (emitArcDebug) {
       builder->CreateCall(getOrCreateArcDebugReportFunction());
     }
+    builder->CreateCall(getOrCreateAsyncRuntimeShutdownFunction());
   }
   builder->CreateRet(ConstantInt::getSigned(builder->getInt64Ty(), 0));
   popArcOwnedSlotFrame(false);

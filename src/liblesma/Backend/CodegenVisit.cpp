@@ -718,10 +718,22 @@ auto Codegen::getFuncValuePairLlvmType() -> llvm::StructType* {
 }
 
 auto Codegen::isAsyncTaskType(lesma::Type* type) const -> bool {
-  return type != nullptr && type->is(BaseType::TY_CLASS) && type->isBuiltinTask();
+  if (type == nullptr) {
+    return false;
+  }
+  if (type->is(BaseType::TY_PTR) && type->getElementType() != nullptr) {
+    return isAsyncTaskType(type->getElementType());
+  }
+  return type->is(BaseType::TY_CLASS) && type->isBuiltinTask();
 }
 
 auto Codegen::getAsyncTaskPayloadType(lesma::Type* type) const -> lesma::Type* {
+  if (type == nullptr) {
+    return nullptr;
+  }
+  if (type->is(BaseType::TY_PTR) && type->getElementType() != nullptr) {
+    return getAsyncTaskPayloadType(type->getElementType());
+  }
   return isAsyncTaskType(type) ? type->getTaskPayloadType() : nullptr;
 }
 
@@ -820,6 +832,12 @@ auto Codegen::initializeAsyncCoroutine(llvm::Function* f, lesma::Type* callableR
   currentAsyncCoroHandle =
       builder->CreateCall(coroBeginFn, {blocks.coroId, coroMemPhi}, "async.coro.handle");
   emitCurrentAsyncReadyFlag(currentAsyncReturnPayloadType, false, "async.promise.ready.ptr");
+  llvm::Value* resumeHelper =
+      builder->CreateBitCast(getOrCreateAsyncResumeHelperFunction(), builder->getPtrTy());
+  llvm::Value* doneHelper =
+      builder->CreateBitCast(getOrCreateAsyncDoneHelperFunction(), builder->getPtrTy());
+  builder->CreateCall(getOrCreateAsyncRuntimeRegisterTaskFunction(),
+                      {currentAsyncCoroHandle, resumeHelper, doneHelper});
 
   auto initialSuspendFn = getCoroutineIntrinsic(llvm::Intrinsic::coro_suspend);
   llvm::Value* initialSuspend =
@@ -952,10 +970,9 @@ auto Codegen::emitDrainAsyncTask(llvm::SMRange span, std::unique_ptr<lesma::Valu
   if (taskValue == nullptr) {
     throw CodegenError(span, "Expected async task value");
   }
-  // The current runtime model is synchronous drain-to-completion: `await` resumes the coroutine in
-  // a local loop until `coro.done`, then optionally destroys the task handle before returning the
-  // payload to the caller.
+  llvm::Value* consumedTaskSlot = nullptr;
   if (taskValue->getCategory() == ValueCategory::ADDRESSABLE_STORAGE) {
+    consumedTaskSlot = taskValue->getLlvmValue();
     taskValue = materializeSymbolValue(taskValue.get());
   }
   lesma::Type* taskType = taskValue->getType();
@@ -965,27 +982,14 @@ auto Codegen::emitDrainAsyncTask(llvm::SMRange span, std::unique_ptr<lesma::Valu
   }
 
   llvm::Value* taskHandle = taskValue->getLlvmValue();
-  llvm::Function* parentFunction = builder->GetInsertBlock()->getParent();
-  auto* loopBlock = llvm::BasicBlock::Create(theModule->getContext(), "task.run.loop", parentFunction);
-  auto* resumeBlock =
-      llvm::BasicBlock::Create(theModule->getContext(), "task.run.resume", parentFunction);
-  auto* doneBlock = llvm::BasicBlock::Create(theModule->getContext(), "task.run.done", parentFunction);
-  builder->CreateBr(loopBlock);
-
-  auto coroDoneFn = getCoroutineIntrinsic(llvm::Intrinsic::coro_done);
-  auto coroResumeFn = getCoroutineIntrinsic(llvm::Intrinsic::coro_resume);
-
-  builder->SetInsertPoint(loopBlock);
-  llvm::Value* done = builder->CreateCall(coroDoneFn, {taskHandle}, "task.done");
-  builder->CreateCondBr(done, doneBlock, resumeBlock);
-
-  builder->SetInsertPoint(resumeBlock);
-  builder->CreateCall(coroResumeFn, {taskHandle});
-  builder->CreateBr(loopBlock);
-
-  builder->SetInsertPoint(doneBlock);
+  builder->CreateCall(getOrCreateAsyncRuntimeStartTaskFunction(), {taskHandle});
+  builder->CreateCall(getOrCreateAsyncRuntimeWaitTaskFunction(), {taskHandle});
   if (payloadType->is(BaseType::TY_VOID)) {
     if (destroyTask) {
+      if (consumedTaskSlot != nullptr) {
+        builder->CreateStore(llvm::ConstantPointerNull::get(builder->getPtrTy()), consumedTaskSlot);
+      }
+      builder->CreateCall(getOrCreateAsyncRuntimeReleaseTaskFunction(), {taskHandle});
       auto coroDestroyFn = getCoroutineIntrinsic(llvm::Intrinsic::coro_destroy);
       builder->CreateCall(coroDestroyFn, {taskHandle});
     }
@@ -1005,6 +1009,10 @@ auto Codegen::emitDrainAsyncTask(llvm::SMRange span, std::unique_ptr<lesma::Valu
     if (TypeUtils::containsArcManagedValue(payloadType)) {
       emitRetainLoadedValue(payloadType, payloadValue, payloadStoresFuncValuePair);
     }
+    if (consumedTaskSlot != nullptr) {
+      builder->CreateStore(llvm::ConstantPointerNull::get(builder->getPtrTy()), consumedTaskSlot);
+    }
+    builder->CreateCall(getOrCreateAsyncRuntimeReleaseTaskFunction(), {taskHandle});
     auto coroDestroyFn = getCoroutineIntrinsic(llvm::Intrinsic::coro_destroy);
     builder->CreateCall(coroDestroyFn, {taskHandle});
   }

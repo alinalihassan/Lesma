@@ -859,6 +859,79 @@ auto Codegen::emitExit(int code) -> void {
   builder->CreateCall(exitFn, {builder->getInt64(code)});
 }
 
+auto Codegen::getOrCreateAsyncRuntimeInitFunction() -> llvm::FunctionCallee {
+  return theModule->getOrInsertFunction(
+      std::string{codegen::runtime::ASYNC_RUNTIME_INIT},
+      llvm::FunctionType::get(builder->getVoidTy(), {builder->getInt64Ty()}, false));
+}
+
+auto Codegen::getOrCreateAsyncRuntimeShutdownFunction() -> llvm::FunctionCallee {
+  return theModule->getOrInsertFunction(
+      std::string{codegen::runtime::ASYNC_RUNTIME_SHUTDOWN},
+      llvm::FunctionType::get(builder->getVoidTy(), {}, false));
+}
+
+auto Codegen::getOrCreateAsyncRuntimeRegisterTaskFunction() -> llvm::FunctionCallee {
+  return theModule->getOrInsertFunction(
+      std::string{codegen::runtime::ASYNC_RUNTIME_REGISTER_TASK},
+      llvm::FunctionType::get(builder->getVoidTy(),
+                              {builder->getPtrTy(), builder->getPtrTy(), builder->getPtrTy()}, false));
+}
+
+auto Codegen::getOrCreateAsyncRuntimeStartTaskFunction() -> llvm::FunctionCallee {
+  return theModule->getOrInsertFunction(
+      std::string{codegen::runtime::ASYNC_RUNTIME_START_TASK},
+      llvm::FunctionType::get(builder->getVoidTy(), {builder->getPtrTy()}, false));
+}
+
+auto Codegen::getOrCreateAsyncRuntimeWaitTaskFunction() -> llvm::FunctionCallee {
+  return theModule->getOrInsertFunction(
+      std::string{codegen::runtime::ASYNC_RUNTIME_WAIT_TASK},
+      llvm::FunctionType::get(builder->getVoidTy(), {builder->getPtrTy()}, false));
+}
+
+auto Codegen::getOrCreateAsyncRuntimeReleaseTaskFunction() -> llvm::FunctionCallee {
+  return theModule->getOrInsertFunction(
+      std::string{codegen::runtime::ASYNC_RUNTIME_RELEASE_TASK},
+      llvm::FunctionType::get(builder->getVoidTy(), {builder->getPtrTy()}, false));
+}
+
+auto Codegen::getOrCreateAsyncResumeHelperFunction() -> llvm::Function* {
+  constexpr std::string_view name = "__lesma_async_resume_helper";
+  auto* fn = theModule->getFunction(std::string{name});
+  if (fn != nullptr) {
+    return fn;
+  }
+  auto* fnTy = llvm::FunctionType::get(builder->getVoidTy(), {builder->getPtrTy()}, false);
+  fn = llvm::Function::Create(fnTy, llvm::Function::PrivateLinkage, std::string{name}, *theModule);
+  auto savedIp = builder->saveIP();
+  auto* entry = llvm::BasicBlock::Create(theModule->getContext(), "entry", fn);
+  builder->SetInsertPoint(entry);
+  auto coroResumeFn = getCoroutineIntrinsic(llvm::Intrinsic::coro_resume);
+  builder->CreateCall(coroResumeFn, {fn->getArg(0U)});
+  builder->CreateRetVoid();
+  builder->restoreIP(savedIp);
+  return fn;
+}
+
+auto Codegen::getOrCreateAsyncDoneHelperFunction() -> llvm::Function* {
+  constexpr std::string_view name = "__lesma_async_done_helper";
+  auto* fn = theModule->getFunction(std::string{name});
+  if (fn != nullptr) {
+    return fn;
+  }
+  auto* fnTy = llvm::FunctionType::get(builder->getInt1Ty(), {builder->getPtrTy()}, false);
+  fn = llvm::Function::Create(fnTy, llvm::Function::PrivateLinkage, std::string{name}, *theModule);
+  auto savedIp = builder->saveIP();
+  auto* entry = llvm::BasicBlock::Create(theModule->getContext(), "entry", fn);
+  builder->SetInsertPoint(entry);
+  auto coroDoneFn = getCoroutineIntrinsic(llvm::Intrinsic::coro_done);
+  llvm::Value* done = builder->CreateCall(coroDoneFn, {fn->getArg(0U)}, "async.done");
+  builder->CreateRet(done);
+  builder->restoreIP(savedIp);
+  return fn;
+}
+
 auto Codegen::getOrCreateArcDebugDeltaFunction() -> llvm::Function* {
   if (arcDebugDeltaFn != nullptr) {
     return arcDebugDeltaFn;

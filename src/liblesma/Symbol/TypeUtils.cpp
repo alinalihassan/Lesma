@@ -99,6 +99,13 @@ auto isArcReferenceType(Type const* t) -> bool {
   if (t == nullptr) {
     return false;
   }
+  if (t->is(BaseType::TY_CLASS) && t->isBuiltinTask()) {
+    return false;
+  }
+  if (t->is(BaseType::TY_PTR) && t->getElementType() != nullptr &&
+      t->getElementType()->is(BaseType::TY_CLASS) && t->getElementType()->isBuiltinTask()) {
+    return false;
+  }
   if (t->is(BaseType::TY_CLASS) || t->is(BaseType::TY_ARRAY)) {
     return true;
   }
