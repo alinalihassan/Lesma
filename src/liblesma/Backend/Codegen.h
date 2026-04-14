@@ -672,6 +672,7 @@ protected:
   auto getOrCreateAsyncRuntimeReleaseTaskFunction() -> llvm::FunctionCallee;
   auto getOrCreateAsyncResumeHelperFunction() -> llvm::Function*;
   auto getOrCreateAsyncDoneHelperFunction() -> llvm::Function*;
+  auto getOrCreateAsyncDestroyHelperFunction() -> llvm::Function*;
   auto finalizeCallableResult(std::unique_ptr<lesma::Value> value) -> std::unique_ptr<lesma::Value>;
   auto emitArcDebugDelta(std::int64_t delta, llvm::Value* payloadPtr,
                          std::string_view traceMessagePrefix) -> void;

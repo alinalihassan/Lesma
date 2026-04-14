@@ -31,33 +31,50 @@ public:
 
   auto shutdown() -> void {
     std::vector<std::thread> threadsToJoin;
+    std::vector<std::pair<void*, LesmaAsyncDestroyFn>> tasksToDestroy;
     {
-      std::lock_guard<std::mutex> lock(mutex);
+      std::unique_lock<std::mutex> lock(mutex);
       if (initDepth > 0U) {
         initDepth--;
       }
       if (initDepth > 0U) {
         return;
       }
+      if (!tasks.empty()) {
+        startWorkersLocked();
+        for (auto& [taskHandle, record] : tasks) {
+          enqueueTaskLocked(taskHandle, record);
+        }
+        cv.wait(lock, [this]() { return allTasksCompletedLocked(); });
+      }
       if (workers.empty()) {
         return;
       }
       stopping = true;
       threadsToJoin.swap(workers);
-      runnableTasks.clear();
       cv.notify_all();
+      for (const auto& [taskHandle, record] : tasks) {
+        tasksToDestroy.emplace_back(taskHandle, record.destroyFn);
+      }
     }
     for (auto& worker : threadsToJoin) {
       if (worker.joinable()) {
         worker.join();
       }
     }
+    for (const auto& [taskHandle, destroyFn] : tasksToDestroy) {
+      if (destroyFn != nullptr) {
+        destroyFn(taskHandle);
+      }
+    }
     std::lock_guard<std::mutex> lock(mutex);
     tasks.clear();
+    runnableTasks.clear();
     stopping = false;
   }
 
-  auto registerTask(void* taskHandle, LesmaAsyncResumeFn resumeFn, LesmaAsyncDoneFn doneFn) -> void {
+  auto registerTask(void* taskHandle, LesmaAsyncResumeFn resumeFn, LesmaAsyncDoneFn doneFn,
+                    LesmaAsyncDestroyFn destroyFn) -> void {
     if (taskHandle == nullptr) {
       return;
     }
@@ -66,6 +83,7 @@ public:
     TaskRecord& record = tasks[taskHandle];
     record.resumeFn = resumeFn;
     record.doneFn = doneFn;
+    record.destroyFn = destroyFn;
     record.started = false;
     record.running = false;
     record.completed = false;
@@ -118,6 +136,7 @@ private:
   struct TaskRecord {
     LesmaAsyncResumeFn resumeFn = nullptr;
     LesmaAsyncDoneFn doneFn = nullptr;
+    LesmaAsyncDestroyFn destroyFn = nullptr;
     bool started = false;
     bool running = false;
     bool completed = false;
@@ -198,6 +217,10 @@ private:
     it->second.completed = completed;
   }
 
+  auto allTasksCompletedLocked() const -> bool {
+    return std::ranges::all_of(tasks, [](const auto& entry) { return entry.second.completed; });
+  }
+
   auto forceShutdown() -> void {
     {
       std::lock_guard<std::mutex> lock(mutex);
@@ -260,9 +283,9 @@ void lesma_async_runtime_shutdown() {
 }
 
 void lesma_async_runtime_register_task(void* taskHandle, LesmaAsyncResumeFn resumeFn,
-                                       LesmaAsyncDoneFn doneFn) {
+                                       LesmaAsyncDoneFn doneFn, LesmaAsyncDestroyFn destroyFn) {
   try {
-    lesma::runtime::AsyncRuntime::instance().registerTask(taskHandle, resumeFn, doneFn);
+    lesma::runtime::AsyncRuntime::instance().registerTask(taskHandle, resumeFn, doneFn, destroyFn);
   } catch (...) {
     std::abort();
   }

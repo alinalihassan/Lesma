@@ -875,7 +875,9 @@ auto Codegen::getOrCreateAsyncRuntimeRegisterTaskFunction() -> llvm::FunctionCal
   return theModule->getOrInsertFunction(
       std::string{codegen::runtime::ASYNC_RUNTIME_REGISTER_TASK},
       llvm::FunctionType::get(builder->getVoidTy(),
-                              {builder->getPtrTy(), builder->getPtrTy(), builder->getPtrTy()}, false));
+                              {builder->getPtrTy(), builder->getPtrTy(), builder->getPtrTy(),
+                               builder->getPtrTy()},
+                              false));
 }
 
 auto Codegen::getOrCreateAsyncRuntimeStartTaskFunction() -> llvm::FunctionCallee {
@@ -928,6 +930,24 @@ auto Codegen::getOrCreateAsyncDoneHelperFunction() -> llvm::Function* {
   auto coroDoneFn = getCoroutineIntrinsic(llvm::Intrinsic::coro_done);
   llvm::Value* done = builder->CreateCall(coroDoneFn, {fn->getArg(0U)}, "async.done");
   builder->CreateRet(done);
+  builder->restoreIP(savedIp);
+  return fn;
+}
+
+auto Codegen::getOrCreateAsyncDestroyHelperFunction() -> llvm::Function* {
+  constexpr std::string_view name = "__lesma_async_destroy_helper";
+  auto* fn = theModule->getFunction(std::string{name});
+  if (fn != nullptr) {
+    return fn;
+  }
+  auto* fnTy = llvm::FunctionType::get(builder->getVoidTy(), {builder->getPtrTy()}, false);
+  fn = llvm::Function::Create(fnTy, llvm::Function::PrivateLinkage, std::string{name}, *theModule);
+  auto savedIp = builder->saveIP();
+  auto* entry = llvm::BasicBlock::Create(theModule->getContext(), "entry", fn);
+  builder->SetInsertPoint(entry);
+  auto coroDestroyFn = getCoroutineIntrinsic(llvm::Intrinsic::coro_destroy);
+  builder->CreateCall(coroDestroyFn, {fn->getArg(0U)});
+  builder->CreateRetVoid();
   builder->restoreIP(savedIp);
   return fn;
 }

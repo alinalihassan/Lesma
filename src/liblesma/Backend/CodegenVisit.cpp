@@ -350,6 +350,13 @@ auto Codegen::defineFunction(lesma::Value* value, const FuncDecl* node, Value* c
 
   llvm::DIFile* declFile = moduleDiFile;
   unsigned declLine = 1U;
+  struct AsyncRetainedParam {
+    llvm::Value* slot;
+    llvm::Value* value;
+    lesma::Type* type;
+    bool storesFuncValuePair;
+  };
+  std::vector<AsyncRetainedParam> asyncRetainedParams;
   if (node->getSpan().isValid() && node->getSpan().Start.isValid()) {
     unsigned const bid = sourceManager->FindBufferContainingLoc(node->getSpan().Start);
     if (bid != 0U) {
@@ -391,6 +398,12 @@ auto Codegen::defineFunction(lesma::Value* value, const FuncDecl* node, Value* c
     llvm::Instruction* storeParam = builder->CreateStore(param, ptr);
     emitParameterDebugDeclare(f, ptr, paramName, static_cast<unsigned>(fieldIndex + 1), declFile,
                               declLine, param->getType(), storeParam);
+    if (node->getIsAsync() && field->type != nullptr &&
+        TypeUtils::containsArcManagedValue(field->type)) {
+      asyncRetainedParams.push_back({ptr, param, field->type,
+                                     existingParam != nullptr &&
+                                         existingParam->getStoresFuncValuePair()});
+    }
 
     if (existingParam != nullptr && existingParam->getLlvmValue() == nullptr) {
       existingParam->setType(field->type);
@@ -409,6 +422,10 @@ auto Codegen::defineFunction(lesma::Value* value, const FuncDecl* node, Value* c
   if (node->getIsAsync()) {
     asyncBlocks = initializeAsyncCoroutine(f, value->getType()->getReturnType(), node->getSpan(),
                                            "function");
+    for (const auto& retained : asyncRetainedParams) {
+      emitRetainLoadedValue(retained.type, retained.value, retained.storesFuncValuePair);
+      registerArcOwnedSlot(retained.slot, retained.type, retained.storesFuncValuePair);
+    }
   }
 
   // Vtable pointer is set at the allocation site (`ClassName(...)` / malloc) for the concrete
@@ -847,8 +864,10 @@ auto Codegen::initializeAsyncCoroutine(llvm::Function* f, lesma::Type* callableR
       builder->CreateBitCast(getOrCreateAsyncResumeHelperFunction(), builder->getPtrTy());
   llvm::Value* doneHelper =
       builder->CreateBitCast(getOrCreateAsyncDoneHelperFunction(), builder->getPtrTy());
+  llvm::Value* destroyHelper =
+      builder->CreateBitCast(getOrCreateAsyncDestroyHelperFunction(), builder->getPtrTy());
   builder->CreateCall(getOrCreateAsyncRuntimeRegisterTaskFunction(),
-                      {currentAsyncCoroHandle, resumeHelper, doneHelper});
+                      {currentAsyncCoroHandle, resumeHelper, doneHelper, destroyHelper});
 
   auto initialSuspendFn = getCoroutineIntrinsic(llvm::Intrinsic::coro_suspend);
   llvm::Value* initialSuspend =
@@ -4609,6 +4628,10 @@ auto Codegen::visit(const LambdaExpr* node) -> void {
       llvm::AllocaInst* capAlloca =
           createAllocaInEntry(parentFct, loaded->getType(), outer->getName() + ".cap");
       builder->CreateStore(loaded, capAlloca);
+      if (node->getIsAsync() && TypeUtils::containsArcManagedValue(outerTy)) {
+        emitRetainLoadedValue(outerTy, loaded, outer->getStoresFuncValuePair());
+        registerArcOwnedSlot(capAlloca, outerTy, outer->getStoresFuncValuePair());
+      }
       shadow->setLlvmValue(capAlloca);
       shadow->setCategory(ValueCategory::ADDRESSABLE_STORAGE);
     }
@@ -4624,6 +4647,13 @@ auto Codegen::visit(const LambdaExpr* node) -> void {
     llvm::Function* parentFct = builder->GetInsertBlock()->getParent();
     llvm::AllocaInst* alloca = createAllocaInEntry(parentFct, arg->getType(), field->name);
     builder->CreateStore(arg, alloca);
+    if (node->getIsAsync() && field->type != nullptr &&
+        TypeUtils::containsArcManagedValue(field->type)) {
+      emitRetainLoadedValue(field->type, arg,
+                            paramSymbol != nullptr && paramSymbol->getStoresFuncValuePair());
+      registerArcOwnedSlot(alloca, field->type,
+                           paramSymbol != nullptr && paramSymbol->getStoresFuncValuePair());
+    }
     paramSymbol->setLlvmValue(alloca);
   }
 
