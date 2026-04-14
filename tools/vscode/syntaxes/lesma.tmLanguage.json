@@ -44,7 +44,7 @@
         },
         {
           "name": "keyword.control.lesma",
-          "match": "\\b(if|else|match|while|for|in|break|continue|return|defer|let|var|operator)\\b"
+          "match": "\\b(if|else|match|while|for|in|break|continue|return|defer|let|var|operator|await)\\b"
         },
         {
           "name": "keyword.module.lesma",
@@ -52,7 +52,7 @@
         },
         {
           "name": "storage.modifier.static.lesma",
-          "match": "\\bstatic\\b"
+          "match": "\\b(static|async)\\b"
         },
         {
           "name": "keyword.other.lesma",

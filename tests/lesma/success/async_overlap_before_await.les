@@ -1,0 +1,32 @@
+from time import sleep
+
+async func write_after(path: str, delay: float, text: str) -> str {
+  sleep(delay)
+  file.write(path.cstr(), text)
+  return text
+}
+
+let pathA: str = "tests/lesma/success/async_overlap_before_await_a.tmp"
+let pathB: str = "tests/lesma/success/async_overlap_before_await_b.tmp"
+defer file(pathA.cstr()).delete()
+defer file(pathB.cstr()).delete()
+
+let first = write_after(pathA, 0.10, "A")
+let second = write_after(pathB, 0.10, "B")
+
+sleep(0.16)
+
+let textA = file(pathA.cstr()).text()
+let textB = file(pathB.cstr()).text()
+if textA is null or textA as str != "A" {
+  exit(1)
+}
+if textB is null or textB as str != "B" {
+  exit(2)
+}
+if await first != "A" {
+  exit(3)
+}
+if await second != "B" {
+  exit(4)
+}

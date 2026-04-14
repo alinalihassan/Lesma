@@ -1,0 +1,21 @@
+from time import sleep
+
+async func write_after(path: str, delay: float, text: str) -> str {
+  sleep(delay)
+  file.write(path.cstr(), text)
+  return text
+}
+
+let path: str = "tests/lesma/success/async_eager_start.tmp"
+defer file(path.cstr()).delete()
+
+let task = write_after(path, 0.08, "done")
+sleep(0.14)
+
+let contents = file(path.cstr()).text()
+if contents is null or contents as str != "done" {
+  exit(1)
+}
+if await task != "done" {
+  exit(2)
+}

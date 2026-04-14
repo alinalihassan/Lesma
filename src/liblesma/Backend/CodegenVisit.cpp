@@ -737,6 +737,17 @@ auto Codegen::getAsyncTaskPayloadType(lesma::Type* type) const -> lesma::Type* {
   return isAsyncTaskType(type) ? type->getTaskPayloadType() : nullptr;
 }
 
+auto Codegen::finalizeCallableResult(std::unique_ptr<lesma::Value> value)
+    -> std::unique_ptr<lesma::Value> {
+  if (value == nullptr || value->getType() == nullptr || value->getLlvmValue() == nullptr) {
+    return value;
+  }
+  if (getAsyncTaskPayloadType(value->getType()) != nullptr) {
+    builder->CreateCall(getOrCreateAsyncRuntimeStartTaskFunction(), {value->getLlvmValue()});
+  }
+  return value;
+}
+
 auto Codegen::getOrCreateAsyncPromiseLlvmType(lesma::Type* payloadType) -> llvm::StructType* {
   if (auto it = asyncPromiseTypes.find(payloadType); it != asyncPromiseTypes.end()) {
     return it->second;
@@ -982,7 +993,6 @@ auto Codegen::emitDrainAsyncTask(llvm::SMRange span, std::unique_ptr<lesma::Valu
   }
 
   llvm::Value* taskHandle = taskValue->getLlvmValue();
-  builder->CreateCall(getOrCreateAsyncRuntimeStartTaskFunction(), {taskHandle});
   builder->CreateCall(getOrCreateAsyncRuntimeWaitTaskFunction(), {taskHandle});
   if (payloadType->is(BaseType::TY_VOID)) {
     if (destroyTask) {
@@ -5678,7 +5688,7 @@ void Codegen::lowerDotOpSuperMethodCall(const DotOp* node) {
     auto* calleeFn = llvm::cast<llvm::Function>(resolved->getLlvmValue());
     llvm::Value* callResult = builder->CreateCall(calleeFn, finalParams);
     currentGenericTypes = std::move(savedGenerics);
-    result = std::make_unique<Value>("", returnTy, callResult);
+    result = finalizeCallableResult(std::make_unique<Value>("", returnTy, callResult));
     if (returnTy != nullptr && TypeUtils::containsArcManagedValue(returnTy)) {
       result->setArcOwnedValue(true);
     }
@@ -8585,7 +8595,7 @@ auto Codegen::callNamedFunction(
 
   selfSymbol = selfSymbolTmp;
   Type* retLesma = callableLesmaType->getReturnType();
-  auto callResult = std::make_unique<Value>("", retLesma, callInst);
+  auto callResult = finalizeCallableResult(std::make_unique<Value>("", retLesma, callInst));
   if (retLesma != nullptr && retLesma->is(BaseType::TY_FUNCTION)) {
     callResult->setStoresFuncValuePair(true);
     callResult->setCategory(ValueCategory::DIRECT_VALUE);
@@ -9257,7 +9267,7 @@ auto Codegen::callMethodByName(llvm::SMRange span, lesma::Value* receiver,
         callResult = builder->CreateCall(directFn, finalParams);
       }
       currentGenericTypes = std::move(savedGenerics);
-      return std::make_unique<Value>("", returnTy, callResult);
+      return finalizeCallableResult(std::make_unique<Value>("", returnTy, callResult));
     } catch (...) {
       currentGenericTypes = std::move(savedGenerics);
       throw;

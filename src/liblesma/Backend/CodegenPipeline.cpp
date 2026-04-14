@@ -413,10 +413,6 @@ auto Codegen::initializeTopLevel() -> llvm::Function* {
 
   auto* entry = BasicBlock::Create(theModule->getContext(), "entry", f);
   builder->SetInsertPoint(entry);
-  if (isMain) {
-    builder->CreateCall(getOrCreateAsyncRuntimeInitFunction(), {builder->getInt64(0)});
-  }
-
   if (emitDebugInfo) {
     SMRange span;
     if (parser != nullptr && parser->getAst() != nullptr) {
@@ -618,7 +614,6 @@ auto Codegen::linkObjectFile(const std::string& objFilename) -> void {
 }
 
 auto Codegen::prepareJit() -> void {
-  lesma_async_runtime_init(0);
   llvm::Error addModuleErr =
       theJit->addIRModule(ThreadSafeModule(std::move(theModule), *theContext));
   if (addModuleErr) {

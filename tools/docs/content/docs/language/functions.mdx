@@ -51,6 +51,7 @@ if total != 7 {
 ### Current runtime model
 
 The current async implementation is intentionally small:
+- calling an async function starts that task on the runtime immediately
 - `await` waits on the async runtime instead of locally draining the coroutine
 - top-level `await` runs against the same runtime
 - awaiting a task consumes that task handle
