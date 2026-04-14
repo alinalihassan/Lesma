@@ -20,26 +20,11 @@ public:
     return runtime;
   }
 
-  auto init(std::uint64_t requestedWorkerCount) -> void {
-    std::lock_guard<std::mutex> lock(mutex);
-    if (requestedWorkerCount > 0U) {
-      configuredWorkerCount = resolveWorkerCount(requestedWorkerCount);
-    }
-    initDepth++;
-    startWorkersLocked();
-  }
-
   auto shutdown() -> void {
     std::vector<std::thread> threadsToJoin;
     std::vector<std::pair<void*, LesmaAsyncDestroyFn>> tasksToDestroy;
     {
       std::unique_lock<std::mutex> lock(mutex);
-      if (initDepth > 0U) {
-        initDepth--;
-      }
-      if (initDepth > 0U) {
-        return;
-      }
       if (!tasks.empty()) {
         startWorkersLocked();
         for (auto& [taskHandle, record] : tasks) {
@@ -177,8 +162,6 @@ private:
   std::unordered_map<void*, TaskRecord> tasks;
   std::deque<void*> runnableTasks;
   std::vector<std::thread> workers;
-  size_t configuredWorkerCount = 0U;
-  size_t initDepth = 0U;
   bool stopping = false;
 
   AsyncRuntime() = default;
@@ -191,10 +174,7 @@ private:
 
   static auto isWorkerThread() -> bool { return workerThreadFlag(); }
 
-  static auto resolveWorkerCount(std::uint64_t requestedWorkerCount) -> size_t {
-    if (requestedWorkerCount > 0U) {
-      return static_cast<size_t>(requestedWorkerCount);
-    }
+  static auto resolveWorkerCount() -> size_t {
     unsigned const detected = std::thread::hardware_concurrency();
     size_t const fallbackCount = detected == 0U ? 4U : static_cast<size_t>(detected) * 2U;
     return std::max<size_t>(4U, fallbackCount);
@@ -205,8 +185,7 @@ private:
       return;
     }
     stopping = false;
-    size_t const workerCount =
-        configuredWorkerCount == 0U ? resolveWorkerCount(0) : configuredWorkerCount;
+    size_t const workerCount = resolveWorkerCount();
     workers.reserve(workerCount);
     for (size_t index = 0; index < workerCount; ++index) {
       workers.emplace_back([this]() { workerLoop(); });
@@ -260,10 +239,9 @@ private:
   auto forceShutdown() -> void {
     {
       std::lock_guard<std::mutex> lock(mutex);
-      if (initDepth == 0U && workers.empty()) {
+      if (tasks.empty() && workers.empty()) {
         return;
       }
-      initDepth = 1U;
     }
     shutdown();
   }
@@ -307,14 +285,6 @@ private:
 } // namespace lesma::runtime
 
 extern "C" {
-
-void lesma_async_runtime_init(std::uint64_t workerCount) {
-  try {
-    lesma::runtime::AsyncRuntime::instance().init(workerCount);
-  } catch (...) {
-    std::abort();
-  }
-}
 
 void lesma_async_runtime_shutdown() {
   try {

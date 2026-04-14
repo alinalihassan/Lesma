@@ -668,7 +668,6 @@ protected:
   auto getOrCreateArcDebugReportFunction() -> llvm::Function*;
   auto getOrCreateArcDebugCleanupBeginFunction() -> llvm::Function*;
   auto getOrCreateArcDebugCleanupStepFunction() -> llvm::Function*;
-  auto getOrCreateAsyncRuntimeInitFunction() -> llvm::FunctionCallee;
   auto getOrCreateAsyncRuntimeShutdownFunction() -> llvm::FunctionCallee;
   auto getOrCreateAsyncRuntimeRegisterTaskFunction() -> llvm::FunctionCallee;
   auto getOrCreateAsyncRuntimeStartTaskFunction() -> llvm::FunctionCallee;

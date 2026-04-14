@@ -8,7 +8,6 @@ using LesmaAsyncDestroyFn = void (*)(void*);
 
 extern "C" {
 
-void lesma_async_runtime_init(std::uint64_t workerCount);
 void lesma_async_runtime_shutdown();
 void lesma_async_runtime_register_task(void* taskHandle, LesmaAsyncResumeFn resumeFn,
                                        LesmaAsyncDoneFn doneFn, LesmaAsyncDestroyFn destroyFn);

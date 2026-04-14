@@ -927,12 +927,6 @@ auto Codegen::emitExit(int code) -> void {
   builder->CreateCall(exitFn, {builder->getInt64(code)});
 }
 
-auto Codegen::getOrCreateAsyncRuntimeInitFunction() -> llvm::FunctionCallee {
-  return theModule->getOrInsertFunction(
-      std::string{codegen::runtime::ASYNC_RUNTIME_INIT},
-      llvm::FunctionType::get(builder->getVoidTy(), {builder->getInt64Ty()}, false));
-}
-
 auto Codegen::getOrCreateAsyncRuntimeShutdownFunction() -> llvm::FunctionCallee {
   return theModule->getOrInsertFunction(
       std::string{codegen::runtime::ASYNC_RUNTIME_SHUTDOWN},

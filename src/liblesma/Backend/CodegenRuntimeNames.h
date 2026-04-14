@@ -15,7 +15,6 @@ inline constexpr std::string_view MEMCPY = "memcpy";
 inline constexpr std::string_view STRLEN = "strlen";
 inline constexpr std::string_view STRSTR = "strstr";
 inline constexpr std::string_view EXIT = "exit";
-inline constexpr std::string_view ASYNC_RUNTIME_INIT = "lesma_async_runtime_init";
 inline constexpr std::string_view ASYNC_RUNTIME_SHUTDOWN = "lesma_async_runtime_shutdown";
 inline constexpr std::string_view ASYNC_RUNTIME_REGISTER_TASK = "lesma_async_runtime_register_task";
 inline constexpr std::string_view ASYNC_RUNTIME_START_TASK = "lesma_async_runtime_start_task";
