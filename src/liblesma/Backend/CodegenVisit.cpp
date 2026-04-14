@@ -1032,7 +1032,9 @@ auto Codegen::emitDrainAsyncTask(llvm::SMRange span, std::unique_ptr<lesma::Valu
   lesma::Type* taskType = taskValue->getType();
   lesma::Type* payloadType = getAsyncTaskPayloadType(taskType);
   if (payloadType == nullptr || taskValue->getLlvmValue() == nullptr) {
-    throw CodegenError(span, "Expected async task value");
+    throw CodegenError(span, "Expected async task value, got type {} with {} LLVM value",
+                       taskType != nullptr ? taskType->toString() : "<null>",
+                       taskValue->getLlvmValue() != nullptr ? "a" : "no");
   }
 
   llvm::Value* taskHandle = taskValue->getLlvmValue();
