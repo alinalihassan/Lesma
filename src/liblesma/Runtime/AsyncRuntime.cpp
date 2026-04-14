@@ -129,7 +129,7 @@ public:
       lock.unlock();
       bool const completed = runClaimedTask(runnableTaskHandle, resumeFn, doneFn);
       lock.lock();
-      markTaskFinishedLocked(runnableTaskHandle, completed);
+      finishClaimedTaskLocked(runnableTaskHandle, completed);
       cv.notify_all();
     }
   }
@@ -232,6 +232,18 @@ private:
     it->second.completed = completed;
   }
 
+  auto finishClaimedTaskLocked(void* taskHandle, bool completed) -> void {
+    markTaskFinishedLocked(taskHandle, completed);
+    if (completed) {
+      return;
+    }
+    auto it = tasks.find(taskHandle);
+    if (it == tasks.end()) {
+      return;
+    }
+    enqueueTaskLocked(taskHandle, it->second);
+  }
+
   auto allTasksCompletedLocked() const -> bool {
     return std::ranges::all_of(tasks, [](const auto& entry) { return entry.second.completed; });
   }
@@ -275,7 +287,7 @@ private:
 
       {
         std::lock_guard<std::mutex> lock(mutex);
-        markTaskFinishedLocked(taskHandle, completed);
+        finishClaimedTaskLocked(taskHandle, completed);
       }
       cv.notify_all();
     }
