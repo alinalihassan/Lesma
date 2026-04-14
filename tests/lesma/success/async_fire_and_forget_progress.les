@@ -1,0 +1,35 @@
+from time import sleep
+
+async func write_after(path: str, delay: float, text: str) {
+  sleep(delay)
+  file.write(path.cstr(), text)
+}
+
+let pathA: str = "tests/lesma/success/async_fire_and_forget_progress_a.tmp"
+let pathB: str = "tests/lesma/success/async_fire_and_forget_progress_b.tmp"
+defer file(pathA.cstr()).delete()
+defer file(pathB.cstr()).delete()
+
+write_after(pathA, 0.02, "A")
+write_after(pathB, 0.02, "B")
+
+var sawA = false
+var sawB = false
+for _ in range(100) {
+  let textA = file(pathA.cstr()).text()
+  if textA is not null and textA as str == "A" {
+    sawA = true
+  }
+  let textB = file(pathB.cstr()).text()
+  if textB is not null and textB as str == "B" {
+    sawB = true
+  }
+  if sawA and sawB {
+    break
+  }
+  sleep(0.005)
+}
+
+if not sawA or not sawB {
+  exit(1)
+}
