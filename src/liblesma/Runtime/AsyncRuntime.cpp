@@ -69,7 +69,6 @@ public:
     record.resumeFn = resumeFn;
     record.doneFn = doneFn;
     record.destroyFn = destroyFn;
-    record.started = false;
     record.running = false;
     record.completed = false;
     record.queued = false;
@@ -151,7 +150,6 @@ private:
     LesmaAsyncResumeFn resumeFn = nullptr;
     LesmaAsyncDoneFn doneFn = nullptr;
     LesmaAsyncDestroyFn destroyFn = nullptr;
-    bool started = false;
     bool running = false;
     bool completed = false;
     bool queued = false;
@@ -196,7 +194,6 @@ private:
     if (record.completed || record.running || record.queued || record.resumeFn == nullptr) {
       return;
     }
-    record.started = true;
     record.queued = true;
     runnableTasks.push_back(taskHandle);
     cv.notify_one();
