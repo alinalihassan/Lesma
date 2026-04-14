@@ -972,6 +972,32 @@ auto Codegen::finalizeAsyncCoroutine(llvm::Function* f, const AsyncCoroutineBloc
   finalSwitch->addCase(llvm::ConstantInt::get(builder->getInt8Ty(), 1), blocks.cleanupBlock);
 
   builder->SetInsertPoint(blocks.cleanupBlock);
+  if (currentAsyncReturnPayloadType != nullptr &&
+      !currentAsyncReturnPayloadType->is(BaseType::TY_VOID) &&
+      TypeUtils::containsArcManagedValue(currentAsyncReturnPayloadType)) {
+    auto* promiseTy = getOrCreateAsyncPromiseLlvmType(currentAsyncReturnPayloadType);
+    llvm::Value* readyPtr =
+        builder->CreateStructGEP(promiseTy, currentAsyncPromisePtr, 0, "async.cleanup.ready.ptr");
+    llvm::Value* ready =
+        builder->CreateLoad(builder->getInt1Ty(), readyPtr, "async.cleanup.ready");
+    auto* releaseBlock =
+        llvm::BasicBlock::Create(theModule->getContext(), "async.cleanup.arc.release", f);
+    auto* cleanupArcDoneBlock =
+        llvm::BasicBlock::Create(theModule->getContext(), "async.cleanup.arc.done", f);
+    builder->CreateCondBr(ready, releaseBlock, cleanupArcDoneBlock);
+
+    builder->SetInsertPoint(releaseBlock);
+    llvm::Value* payloadPtr = builder->CreateStructGEP(
+        promiseTy, currentAsyncPromisePtr, 1, "async.cleanup.payload.ptr");
+    llvm::Value* payloadValue = builder->CreateLoad(
+        getStoredAggregateFieldLlvmType(currentAsyncReturnPayloadType), payloadPtr,
+        "async.cleanup.payload");
+    emitReleaseLoadedValue(currentAsyncReturnPayloadType, payloadValue,
+                           currentAsyncReturnPayloadType->is(BaseType::TY_FUNCTION));
+    builder->CreateBr(cleanupArcDoneBlock);
+
+    builder->SetInsertPoint(cleanupArcDoneBlock);
+  }
   auto coroFreeFn = getCoroutineIntrinsic(llvm::Intrinsic::coro_free);
   llvm::Value* freeMem =
       builder->CreateCall(coroFreeFn, {blocks.coroId, currentAsyncCoroHandle}, "async.coro.free");
