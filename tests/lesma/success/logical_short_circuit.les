@@ -1,0 +1,12 @@
+func explode() -> bool {
+  exit(99)
+  return true
+}
+
+if false and explode() {
+  exit(1)
+}
+
+if not (true or explode()) {
+  exit(2)
+}

@@ -236,6 +236,7 @@ public:
 class TypeExpr : public Expression {
   std::string name;
   TokenType type;
+  bool asyncFunctionType = false;
   mutable Value* resolvedSymbol = nullptr;
 
   // Pointer fields
@@ -261,6 +262,11 @@ public:
            std::vector<std::unique_ptr<TypeExpr>> params, std::unique_ptr<TypeExpr> ret)
       : Expression(loc), name(std::move(name)), type(type), elementType(nullptr),
         params(std::move(params)), ret(std::move(ret)) {}
+  TypeExpr(llvm::SMRange loc, std::string name, TokenType type,
+           std::vector<std::unique_ptr<TypeExpr>> params, std::unique_ptr<TypeExpr> ret,
+           bool asyncFunctionType)
+      : Expression(loc), name(std::move(name)), type(type), asyncFunctionType(asyncFunctionType),
+        elementType(nullptr), params(std::move(params)), ret(std::move(ret)) {}
   /** Tuple type `(T1, T2, ...)` / `(T,)`: same `params` as function types, `ret` is null. */
   static auto makeTupleType(llvm::SMRange loc, std::string displayName,
                             std::vector<std::unique_ptr<TypeExpr>> elements)
@@ -313,6 +319,7 @@ public:
     return result;
   }
   [[nodiscard]] [[maybe_unused]] auto getReturnType() const -> TypeExpr* { return ret.get(); }
+  [[nodiscard]] auto isAsyncFunctionType() const -> bool { return asyncFunctionType; }
 
   auto toString(llvm::SourceMgr* /*srcMgr*/, const std::string& /*prefix*/, bool /*isTail*/) const
       -> std::string override {

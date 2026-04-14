@@ -409,9 +409,15 @@ auto Codegen::defineFunction(lesma::Value* value, const FuncDecl* node, Value* c
       existingParam->setType(field->type);
       existingParam->setLlvmValue(ptr);
       existingParam->setCategory(ValueCategory::ADDRESSABLE_STORAGE);
+      if (field->type != nullptr && field->type->is(BaseType::TY_FUNCTION)) {
+        existingParam->setStoresFuncValuePair(true);
+      }
     } else {
       auto symbol = std::make_unique<Value>(field->name, field->type, ptr);
       symbol->setCategory(ValueCategory::ADDRESSABLE_STORAGE);
+      if (field->type != nullptr && field->type->is(BaseType::TY_FUNCTION)) {
+        symbol->setStoresFuncValuePair(true);
+      }
       scope->insertSymbol(std::move(symbol));
     }
 
@@ -420,12 +426,12 @@ auto Codegen::defineFunction(lesma::Value* value, const FuncDecl* node, Value* c
 
   std::optional<AsyncCoroutineBlocks> asyncBlocks;
   if (node->getIsAsync()) {
-    asyncBlocks = initializeAsyncCoroutine(f, value->getType()->getReturnType(), node->getSpan(),
-                                           "function");
     for (const auto& retained : asyncRetainedParams) {
       emitRetainLoadedValue(retained.type, retained.value, retained.storesFuncValuePair);
       registerArcOwnedSlot(retained.slot, retained.type, retained.storesFuncValuePair);
     }
+    asyncBlocks = initializeAsyncCoroutine(f, value->getType()->getReturnType(), node->getSpan(),
+                                           "function");
   }
 
   // Vtable pointer is set at the allocation site (`ClassName(...)` / malloc) for the concrete
@@ -744,6 +750,21 @@ auto Codegen::isAsyncTaskType(lesma::Type* type) const -> bool {
   return type->is(BaseType::TY_CLASS) && type->isBuiltinTask();
 }
 
+auto Codegen::getOrCreateAsyncTaskType(lesma::Type* payloadType) -> lesma::Type* {
+  lesma::Type* wrappedPayloadType = wrapNominalReturnAsPointer(payloadType);
+  if (auto it = asyncTaskTypes.find(wrappedPayloadType); it != asyncTaskTypes.end()) {
+    return it->second;
+  }
+  auto taskType = std::make_unique<Type>(BaseType::TY_CLASS);
+  std::string payloadName = wrappedPayloadType != nullptr ? wrappedPayloadType->toString() : "void";
+  taskType->setDisplayName("Task<" + payloadName + ">");
+  taskType->setBuiltinTask(true);
+  taskType->setTaskPayloadType(wrappedPayloadType);
+  lesma::Type* taskTypePtr = cacheType(std::move(taskType));
+  asyncTaskTypes.emplace(wrappedPayloadType, taskTypePtr);
+  return taskTypePtr;
+}
+
 auto Codegen::getAsyncTaskPayloadType(lesma::Type* type) const -> lesma::Type* {
   if (type == nullptr) {
     return nullptr;
@@ -843,6 +864,10 @@ auto Codegen::initializeAsyncCoroutine(llvm::Function* f, lesma::Type* callableR
                           "async.coro.id");
   auto coroAllocFn = getCoroutineIntrinsic(llvm::Intrinsic::coro_alloc);
   llvm::Value* needsDynAlloc = builder->CreateCall(coroAllocFn, {blocks.coroId}, "async.need.alloc");
+  llvm::BasicBlock* entry = builder->GetInsertBlock();
+  if (entry == nullptr) {
+    throw CodegenError(span, "Internal error: async {} has no active entry block", callableKind.str());
+  }
   builder->CreateCondBr(needsDynAlloc, blocks.dynAllocBlock, blocks.coroBeginBlock);
 
   builder->SetInsertPoint(blocks.dynAllocBlock);
@@ -851,7 +876,6 @@ auto Codegen::initializeAsyncCoroutine(llvm::Function* f, lesma::Type* callableR
   llvm::Value* coroMem = emitMalloc(coroSize, "async.coro.mem");
   builder->CreateBr(blocks.coroBeginBlock);
 
-  llvm::BasicBlock* entry = &f->getEntryBlock();
   builder->SetInsertPoint(blocks.coroBeginBlock);
   auto* coroMemPhi = builder->CreatePHI(builder->getPtrTy(), 2, "async.coro.alloc");
   coroMemPhi->addIncoming(nullPtr, entry);
@@ -2918,7 +2942,8 @@ auto Codegen::declareSynthesizedClassConstructor(const Class* astNode, lesma::Ty
   std::vector<llvm::Type*> paramLLVMTypes;
   paramLLVMTypes.reserve(paramTypes.size());
   for (auto* pt : paramTypes) {
-    paramLLVMTypes.push_back(pt->getLlvmType());
+    paramLLVMTypes.push_back(pt->is(BaseType::TY_FUNCTION) ? getFuncValuePairLlvmType()
+                                                           : pt->getLlvmType());
   }
   llvm::FunctionType* llvmFnTy = FunctionType::get(builder->getVoidTy(), paramLLVMTypes, false);
   Function* f = Function::Create(llvmFnTy, linkage, mangledName, *theModule);
@@ -2947,6 +2972,9 @@ auto Codegen::declareSynthesizedClassConstructor(const Class* astNode, lesma::Ty
       auto ps = std::make_unique<Value>(v->getIdentifier()->getValue(), paramTypes[1U + reqIdx]);
       ps->setCategory(ValueCategory::ADDRESSABLE_STORAGE);
       ps->setDeclarationKind(ValueDeclarationKind::PARAMETER);
+      if (paramTypes[1U + reqIdx] != nullptr && paramTypes[1U + reqIdx]->is(BaseType::TY_FUNCTION)) {
+        ps->setStoresFuncValuePair(true);
+      }
       bodyScope->insertSymbol(std::move(ps));
       reqIdx++;
     }
@@ -3359,7 +3387,8 @@ auto Codegen::visit(const FuncDecl* node) -> void {
     lesma::Type* paramType = typeResult->getType();
     getOrCreateLlvmType(paramType);
     paramTypes.push_back(paramType);
-    paramLLVMTypes.push_back(paramType->getLlvmType());
+    paramLLVMTypes.push_back(paramType->is(BaseType::TY_FUNCTION) ? getFuncValuePairLlvmType()
+                                                                  : paramType->getLlvmType());
     fields.push_back(std::make_unique<Field>(param->name, paramType, std::move(defaultValResult)));
   }
 
@@ -3576,7 +3605,8 @@ auto Codegen::visit(const ExternFuncDecl* node) -> void {
     lesma::Type* paramType = typeResult->getType();
     getOrCreateLlvmType(paramType);
     paramTypes.push_back(paramType);
-    paramLLVMTypes.push_back(paramType->getLlvmType());
+    paramLLVMTypes.push_back(paramType->is(BaseType::TY_FUNCTION) ? getFuncValuePairLlvmType()
+                                                                  : paramType->getLlvmType());
     fields.push_back(std::make_unique<Field>(param->name, paramType, std::move(defaultValResult)));
   }
 
@@ -3603,8 +3633,10 @@ auto Codegen::visit(const ExternFuncDecl* node) -> void {
   if (theModule->getFunction(node->getName()) != nullptr) {
     f = theModule->getFunction(node->getName());
   } else {
-    llvm::Type* llvmReturnType =
-        retType->is(BaseType::TY_CLASS) ? builder->getPtrTy() : retType->getLlvmType();
+    llvm::Type* llvmReturnType = retType->is(BaseType::TY_FUNCTION)
+                                     ? getFuncValuePairLlvmType()
+                                 : retType->is(BaseType::TY_CLASS) ? builder->getPtrTy()
+                                                                   : retType->getLlvmType();
     FunctionType* ft = FunctionType::get(llvmReturnType, paramLLVMTypes, node->getVarArgs());
     f = llvm::cast<Function>(theModule->getOrInsertFunction(node->getName(), ft).getCallee());
     if (node->isExported()) {
@@ -3819,16 +3851,17 @@ auto Codegen::visit(const Assignment* node) -> void {
   }
 
   node->getRightHandSide()->accept(*this);
-  if (lhs->getStoresFuncValuePair() && result != nullptr && result->getStoresFuncValuePair()) {
+  lesma::Type* directStoreType = isPtr ? lhs->getType()->getElementType() : lhs->getType();
+  if (directStoreType != nullptr && directStoreType->is(BaseType::TY_FUNCTION) && result != nullptr) {
     llvm::StructType* pt = getFuncValuePairLlvmType();
     llvm::Value* rhsAgg = result->getLlvmValue();
     if (rhsAgg->getType()->isPointerTy()) {
       rhsAgg = builder->CreateLoad(pt, rhsAgg, "fnval.assign");
     }
     if (!result->getArcOwnedValue()) {
-      emitRetainLoadedValue(lhs->getType(), rhsAgg, true);
+      emitRetainLoadedValue(directStoreType, rhsAgg, true);
     }
-    emitReleaseLoadedValue(lhs->getType(),
+    emitReleaseLoadedValue(directStoreType,
                            builder->CreateLoad(pt, lhs->getLlvmValue(), "fnval.old"), true);
     builder->CreateStore(rhsAgg, lhs->getLlvmValue());
     lhs->setClosureCalleeUsesEnvParameter(result->getClosureCalleeUsesEnvParameter());
@@ -3839,8 +3872,8 @@ auto Codegen::visit(const Assignment* node) -> void {
   switch (node->getOperator()) {
   case TokenType::EQUAL: {
     auto value = cast(node->getSpan(), result.get(),
-                      isPtr ? lhs->getType()->getElementType() : lhs->getType());
-    lesma::Type* storeType = isPtr ? lhs->getType()->getElementType() : lhs->getType();
+                     directStoreType);
+    lesma::Type* storeType = directStoreType;
     if (!value->getArcOwnedValue() && TypeUtils::containsArcManagedValue(storeType)) {
       emitRetainLoadedValue(storeType, value->getLlvmValue(), lhs->getStoresFuncValuePair());
     }
@@ -4439,10 +4472,13 @@ auto Codegen::declareOrDefineSyntheticEnumMethod(lesma::Type* enumType, const En
   paramLLVMTypes.reserve(functionFields.size());
   for (Field* field : functionFields) {
     getOrCreateLlvmType(field->type);
-    paramLLVMTypes.push_back(field->type->getLlvmType());
+    paramLLVMTypes.push_back(field->type->is(BaseType::TY_FUNCTION) ? getFuncValuePairLlvmType()
+                                                                    : field->type->getLlvmType());
   }
-  llvm::Type* llvmReturnType =
-      returnType->is(BaseType::TY_PTR) ? builder->getPtrTy() : returnType->getLlvmType();
+  llvm::Type* llvmReturnType = returnType->is(BaseType::TY_FUNCTION)
+                                   ? getFuncValuePairLlvmType()
+                               : returnType->is(BaseType::TY_PTR) ? builder->getPtrTy()
+                                                                  : returnType->getLlvmType();
   std::string mangledName =
       getMangledName(astNode->getSpan(), name, lookupParamTypes, selfSymbol != nullptr);
   llvm::FunctionType* functionType = FunctionType::get(llvmReturnType, paramLLVMTypes, false);
@@ -4556,7 +4592,8 @@ auto Codegen::visit(const LambdaExpr* node) -> void {
   }
   for (Field* field : fields) {
     getOrCreateLlvmType(field->type);
-    paramLLVMTypes.push_back(field->type->getLlvmType());
+    paramLLVMTypes.push_back(field->type->is(BaseType::TY_FUNCTION) ? getFuncValuePairLlvmType()
+                                                                    : field->type->getLlvmType());
   }
   Type* retType = fnType->getReturnType();
   if (retType == nullptr) {
@@ -4564,7 +4601,9 @@ auto Codegen::visit(const LambdaExpr* node) -> void {
     fnType->setReturnType(retType);
   }
   getOrCreateLlvmType(retType);
-  llvm::Type* llvmReturnType = retType->is(BaseType::TY_CLASS) || retType->is(BaseType::TY_PTR)
+  llvm::Type* llvmReturnType = retType->is(BaseType::TY_FUNCTION)
+                                   ? getFuncValuePairLlvmType()
+                               : retType->is(BaseType::TY_CLASS) || retType->is(BaseType::TY_PTR)
                                    ? builder->getPtrTy()
                                    : retType->getLlvmType();
   std::string const lambdaName = resolved->getName();
@@ -4594,16 +4633,18 @@ auto Codegen::visit(const LambdaExpr* node) -> void {
   builder->SetInsertPoint(entry);
   setDebugLoc(node->getSpan());
 
-  std::optional<AsyncCoroutineBlocks> asyncBlocks;
-  if (node->getIsAsync()) {
-    asyncBlocks = initializeAsyncCoroutine(f, resolved->getType()->getReturnType(), node->getSpan(),
-                                           "lambda");
-  }
-
   unsigned argIdx = 0U;
   if (!caps.empty()) {
     llvm::Argument* envArg = f->getArg(argIdx++);
     envArg->setName("__env");
+    if (node->getIsAsync()) {
+      llvm::Function* parentFct = builder->GetInsertBlock()->getParent();
+      llvm::AllocaInst* envAlloca = createAllocaInEntry(parentFct, envArg->getType(), "__env.arc");
+      builder->CreateStore(envArg, envAlloca);
+      // Detached async lambdas can outlive the caller that created the closure env.
+      emitArcRetain(envArg);
+      registerRawArcOwnedSlot(envAlloca);
+    }
     llvm::Value* typedEnv = builder->CreateBitCast(
         envArg, llvm::PointerType::get(envStructTy->getContext(), 0U), "env.ptr");
     SymbolTable* body = resolved->getBodyScope() != nullptr
@@ -4655,6 +4696,15 @@ auto Codegen::visit(const LambdaExpr* node) -> void {
                            paramSymbol != nullptr && paramSymbol->getStoresFuncValuePair());
     }
     paramSymbol->setLlvmValue(alloca);
+    if (field->type != nullptr && field->type->is(BaseType::TY_FUNCTION)) {
+      paramSymbol->setStoresFuncValuePair(true);
+    }
+  }
+
+  std::optional<AsyncCoroutineBlocks> asyncBlocks;
+  if (node->getIsAsync()) {
+    asyncBlocks = initializeAsyncCoroutine(f, resolved->getType()->getReturnType(), node->getSpan(),
+                                           "lambda");
   }
 
   if (node->isExpressionBody()) {
@@ -4870,6 +4920,64 @@ auto Codegen::visit(const BinaryOp* node) -> void {
           leftPayload->getClosureCalleeUsesEnvParameter() ||
           (right != nullptr && right->getClosureCalleeUsesEnvParameter()));
     }
+    return;
+  }
+  if (node->getOperator() == TokenType::AND || node->getOperator() == TokenType::OR) {
+    if (left == nullptr || left->getType() == nullptr || !left->getType()->is(BaseType::TY_BOOL)) {
+      throw CodegenError(node->getSpan(), "Cannot use non-boolean left operand for {}",
+                         node->getOperator() == TokenType::AND ? "and" : "or");
+    }
+    if (left->getCategory() == ValueCategory::ADDRESSABLE_STORAGE) {
+      left = materializeSymbolValue(left.get());
+    }
+    if (left == nullptr || left->getLlvmValue() == nullptr) {
+      throw CodegenError(node->getSpan(), "Logical {} left operand has no LLVM value",
+                         node->getOperator() == TokenType::AND ? "and" : "or");
+    }
+
+    llvm::Function* parentFunction = builder->GetInsertBlock()->getParent();
+    auto* evalRightBlock =
+        llvm::BasicBlock::Create(theModule->getContext(), "logic.rhs", parentFunction);
+    auto* shortCircuitBlock =
+        llvm::BasicBlock::Create(theModule->getContext(), "logic.short", parentFunction);
+    auto* mergeBlock =
+        llvm::BasicBlock::Create(theModule->getContext(), "logic.merge", parentFunction);
+
+    if (node->getOperator() == TokenType::AND) {
+      builder->CreateCondBr(left->getLlvmValue(), evalRightBlock, shortCircuitBlock);
+    } else {
+      builder->CreateCondBr(left->getLlvmValue(), shortCircuitBlock, evalRightBlock);
+    }
+
+    builder->SetInsertPoint(evalRightBlock);
+    node->getRight()->accept(*this);
+    auto right = std::move(result);
+    if (right == nullptr || right->getType() == nullptr || !right->getType()->is(BaseType::TY_BOOL)) {
+      throw CodegenError(node->getSpan(), "Cannot use non-boolean right operand for {}",
+                         node->getOperator() == TokenType::AND ? "and" : "or");
+    }
+    if (right->getCategory() == ValueCategory::ADDRESSABLE_STORAGE) {
+      right = materializeSymbolValue(right.get());
+    }
+    if (right == nullptr || right->getLlvmValue() == nullptr) {
+      throw CodegenError(node->getSpan(), "Logical {} right operand has no LLVM value",
+                         node->getOperator() == TokenType::AND ? "and" : "or");
+    }
+    llvm::BasicBlock* rightIncoming = builder->GetInsertBlock();
+    builder->CreateBr(mergeBlock);
+
+    builder->SetInsertPoint(shortCircuitBlock);
+    llvm::BasicBlock* shortIncoming = builder->GetInsertBlock();
+    builder->CreateBr(mergeBlock);
+
+    builder->SetInsertPoint(mergeBlock);
+    auto* phi = builder->CreatePHI(builder->getInt1Ty(), 2U, "logic.result");
+    phi->addIncoming(right->getLlvmValue(), rightIncoming);
+    phi->addIncoming(node->getOperator() == TokenType::AND ? builder->getFalse()
+                                                           : builder->getTrue(),
+                     shortIncoming);
+    result = std::make_unique<Value>(
+        "", cacheType(std::make_unique<Type>(BaseType::TY_BOOL, builder->getInt1Ty())), phi);
     return;
   }
   node->getRight()->accept(*this);
@@ -5567,16 +5675,24 @@ auto Codegen::emitClassInstanceDataField(Value* classStructSym, llvm::Value* obj
     lesma::Type* ptrToField =
         cacheType(std::make_unique<Type>(BaseType::TY_PTR, builder->getPtrTy(), type));
     auto out = std::make_unique<Value>("", ptrToField, ptr);
-    if (type->is(BaseType::TY_FUNCTION) && dataField != nullptr &&
-        dataField->getDeclarationSymbol() != nullptr &&
-        dataField->getDeclarationSymbol()->getStoresFuncValuePair()) {
+    if (type->is(BaseType::TY_FUNCTION)) {
       out->setStoresFuncValuePair(true);
-      out->setClosureCalleeUsesEnvParameter(
-          dataField->getDeclarationSymbol()->getClosureCalleeUsesEnvParameter());
+      if (dataField != nullptr && dataField->getDeclarationSymbol() != nullptr) {
+        out->setClosureCalleeUsesEnvParameter(
+            dataField->getDeclarationSymbol()->getClosureCalleeUsesEnvParameter());
+      }
     }
     return out;
   }
-  return std::make_unique<Value>("", type, loadStoredAggregateFieldValue(ptr, type));
+  auto out = std::make_unique<Value>("", type, loadStoredAggregateFieldValue(ptr, type));
+  if (type->is(BaseType::TY_FUNCTION)) {
+    out->setStoresFuncValuePair(true);
+    if (dataField != nullptr && dataField->getDeclarationSymbol() != nullptr) {
+      out->setClosureCalleeUsesEnvParameter(
+          dataField->getDeclarationSymbol()->getClosureCalleeUsesEnvParameter());
+    }
+  }
+  return out;
 }
 
 void Codegen::emitClassStaticMethodCall(const DotOp* node, Type* classTy, const FuncCall* method) {
@@ -7921,6 +8037,10 @@ auto Codegen::appendCallableArgument(lesma::Value* arg, std::vector<lesma::Type*
   lesma::Type* const originalLesmaType = arg->getType();
   lesma::Type* argType = originalLesmaType;
   llvm::Value* llvmArg = arg->getLlvmValue();
+  if (originalLesmaType != nullptr && originalLesmaType->is(BaseType::TY_FUNCTION) &&
+      arg->getStoresFuncValuePair() && llvmArg != nullptr && llvmArg->getType()->isPointerTy()) {
+    llvmArg = builder->CreateLoad(getFuncValuePairLlvmType(), llvmArg, "call.arg.fn");
+  }
   if (originalLesmaType != nullptr && originalLesmaType->is(BaseType::TY_CLASS)) {
     lesma::Type* ptrType = nullptr;
     for (auto& t : typeCache) {

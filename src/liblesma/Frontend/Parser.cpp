@@ -851,12 +851,19 @@ auto Parser::parseTypePrimary() -> std::unique_ptr<TypeExpr> {
     return wrapOptionalType(
         std::make_unique<TypeExpr>(type->span, std::move(displayName), type->type));
   }
-  if (check(TokenType::FUNC)) {
+  if (check(TokenType::ASYNC) || check(TokenType::FUNC)) {
+    Token* const startToken = peek();
+    bool const isAsyncFuncType = check(TokenType::ASYNC);
+    if (isAsyncFuncType) {
+      advance();
+      type = peek();
+      consume(TokenType::FUNC);
+    } else {
+      advance();
+    }
     std::vector<std::unique_ptr<TypeExpr>> params;
     std::unique_ptr<TypeExpr> ret;
-    std::string lexeme = type->lexeme + " (";
-
-    advance();
+    std::string lexeme = isAsyncFuncType ? "async func (" : type->lexeme + " (";
     consume(TokenType::LEFT_PAREN);
     while (true) {
       while (check(TokenType::NEWLINE)) {
@@ -891,9 +898,9 @@ auto Parser::parseTypePrimary() -> std::unique_ptr<TypeExpr> {
     // Function types are nominal (like classes): values are function pointers in LLVM, but the
     // type is written `func(...)` without a leading `*`. `*func(...)` is still accepted and lowers
     // to the same type.
-    return wrapOptionalType(
-        std::make_unique<TypeExpr>(llvm::SMRange{type->getStart(), ret->getEnd()}, lexeme,
-                                   TokenType::FUNC_TYPE, std::move(params), std::move(ret)));
+    return wrapOptionalType(std::make_unique<TypeExpr>(
+        llvm::SMRange{startToken->getStart(), ret->getEnd()}, lexeme, TokenType::FUNC_TYPE,
+        std::move(params), std::move(ret), isAsyncFuncType));
   }
 
   if (check(TokenType::IDENTIFIER)) {
@@ -1002,7 +1009,13 @@ auto Parser::parseTypePrimaryAt(unsigned long& off, unsigned short& pendingTypeA
     return true;
   }
 
-  if (check(TokenType::FUNC, off)) {
+  if (check(TokenType::ASYNC, off) || check(TokenType::FUNC, off)) {
+    if (check(TokenType::ASYNC, off)) {
+      off++;
+      if (!canPeek(off) || peek(off)->type != TokenType::FUNC) {
+        return false;
+      }
+    }
     off++;
 
     if (!canPeek(off) || peek(off)->type != TokenType::LEFT_PAREN) {
@@ -1010,17 +1023,18 @@ auto Parser::parseTypePrimaryAt(unsigned long& off, unsigned short& pendingTypeA
     }
     off++;
 
-    if (!parseTypeAt(off, pendingTypeArgClosers)) {
-      return false;
-    }
-
-    while (canPeek(off) && peek(off)->type == TokenType::COMMA) {
-      off++;
+    if (canPeek(off) && peek(off)->type != TokenType::RIGHT_PAREN) {
       if (!parseTypeAt(off, pendingTypeArgClosers)) {
         return false;
       }
-    }
 
+      while (canPeek(off) && peek(off)->type == TokenType::COMMA) {
+        off++;
+        if (!parseTypeAt(off, pendingTypeArgClosers)) {
+          return false;
+        }
+      }
+    }
     if (!canPeek(off) || peek(off)->type != TokenType::RIGHT_PAREN) {
       return false;
     }

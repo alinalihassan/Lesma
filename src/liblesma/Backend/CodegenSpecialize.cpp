@@ -933,7 +933,8 @@ auto Codegen::specializeFunction(
   std::vector<llvm::Type*> paramLLVMTypes;
   for (auto* t : concreteParamTypes) {
     getOrCreateLlvmType(t);
-    paramLLVMTypes.push_back(t->getLlvmType());
+    paramLLVMTypes.push_back(t->is(BaseType::TY_FUNCTION) ? getFuncValuePairLlvmType()
+                                                          : t->getLlvmType());
   }
   getOrCreateLlvmType(returnType);
   auto funcType =
@@ -959,7 +960,9 @@ auto Codegen::specializeFunction(
   func->setExported(node->isExported());
   auto linkage = node->isExported() ? Function::ExternalLinkage : Function::PrivateLinkage;
   llvm::Type* llvmReturnType = nullptr;
-  if (returnType->is(BaseType::TY_PTR) || returnType->is(BaseType::TY_CLASS)) {
+  if (returnType->is(BaseType::TY_FUNCTION)) {
+    llvmReturnType = getFuncValuePairLlvmType();
+  } else if (returnType->is(BaseType::TY_PTR) || returnType->is(BaseType::TY_CLASS)) {
     llvmReturnType = builder->getPtrTy();
   } else {
     llvmReturnType = returnType->getLlvmType();
@@ -1066,7 +1069,8 @@ auto Codegen::specializeLambda(const LambdaExpr* node, const std::vector<lesma::
   std::vector<llvm::Type*> paramLLVMTypes;
   for (auto* t : concreteParamTypes) {
     getOrCreateLlvmType(t);
-    paramLLVMTypes.push_back(t->getLlvmType());
+    paramLLVMTypes.push_back(t->is(BaseType::TY_FUNCTION) ? getFuncValuePairLlvmType()
+                                                          : t->getLlvmType());
   }
   getOrCreateLlvmType(returnType);
   auto funcType =
@@ -1081,7 +1085,9 @@ auto Codegen::specializeLambda(const LambdaExpr* node, const std::vector<lesma::
   func->setDeclarationKind(ValueDeclarationKind::FUNCTION);
   func->setMangledName(mangledName);
   llvm::Type* llvmReturnType = nullptr;
-  if (returnType->is(BaseType::TY_PTR) || returnType->is(BaseType::TY_CLASS)) {
+  if (returnType->is(BaseType::TY_FUNCTION)) {
+    llvmReturnType = getFuncValuePairLlvmType();
+  } else if (returnType->is(BaseType::TY_PTR) || returnType->is(BaseType::TY_CLASS)) {
     llvmReturnType = builder->getPtrTy();
   } else {
     llvmReturnType = returnType->getLlvmType();

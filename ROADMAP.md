@@ -25,8 +25,7 @@
 - [x] Automatic Reference Counting (no cycles detection yet)
 - [x] Add optional types
 - [x] Enums v2 (in type unions, enums with methods, traits and associated values)
-- [x] Async/await with LLVM coroutines (top-level await, methods, and lambdas; single-threaded drain-to-completion)
-- [ ] Cooperative or multithreaded async runtime
+- [x] Async/await with LLVM coroutines (top-level await, methods, and lambdas; multithreaded async runtime)
 - [ ] Try catch and Errors
 - [x] Formatter
 

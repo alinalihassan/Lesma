@@ -1,0 +1,19 @@
+class CallbackHolder {
+  var callback: func() -> int
+
+  func new(callback: func() -> int) {
+    self.callback = callback
+  }
+}
+
+func make_holder(base: int) -> CallbackHolder {
+  let callback = func() -> int => base + 1
+  return CallbackHolder(callback)
+}
+
+let holder = make_holder(41)
+let callback = holder.callback
+
+if callback() != 42 {
+  exit(1)
+}

@@ -201,12 +201,13 @@ auto Codegen::emitArcRetain(llvm::Value* payloadPtr) -> void {
   auto* headerPtr = builder->CreateBitCast(raw, llvm::PointerType::get(headerTy->getContext(), 0U),
                                            "arc.retain.header");
   auto* refSlot = builder->CreateStructGEP(headerTy, headerPtr, 0U);
-  auto* refCount = builder->CreateLoad(builder->getInt64Ty(), refSlot, "arc.retain.count");
+  auto* refCount =
+      builder->CreateAtomicRMW(llvm::AtomicRMWInst::Add, refSlot, builder->getInt64(1),
+                               llvm::MaybeAlign(8U), llvm::AtomicOrdering::SequentiallyConsistent);
   if (emitArcDebug) {
     emitArcDebugValidateRefcount(refCount, "[arc] retain on zero-count object\n");
   }
   auto* next = builder->CreateAdd(refCount, builder->getInt64(1), "arc.retain.next");
-  builder->CreateStore(next, refSlot);
   emitArcDebugTraceCounts("[arc] retain", payloadPtr, refCount, next);
   builder->CreateBr(doneBlock);
 
@@ -226,12 +227,13 @@ auto Codegen::emitArcRelease(llvm::Value* payloadPtr) -> void {
                                            "arc.release.header");
   auto* refSlot = builder->CreateStructGEP(headerTy, headerPtr, 0U);
   auto* destroySlot = builder->CreateStructGEP(headerTy, headerPtr, 1U);
-  auto* refCount = builder->CreateLoad(builder->getInt64Ty(), refSlot, "arc.release.count");
+  auto* refCount =
+      builder->CreateAtomicRMW(llvm::AtomicRMWInst::Sub, refSlot, builder->getInt64(1),
+                               llvm::MaybeAlign(8U), llvm::AtomicOrdering::SequentiallyConsistent);
   if (emitArcDebug) {
     emitArcDebugValidateRefcount(refCount, "[arc] release on zero-count object\n");
   }
   auto* next = builder->CreateSub(refCount, builder->getInt64(1), "arc.release.next");
-  builder->CreateStore(next, refSlot);
   emitArcDebugTraceCounts("[arc] release", payloadPtr, refCount, next);
 
   llvm::Function* parentFn = builder->GetInsertBlock()->getParent();
@@ -262,7 +264,8 @@ auto Codegen::emitArcReleaseNullable(llvm::Value* payloadPtr) -> void {
   builder->SetInsertPoint(doneBlock);
 }
 
-auto Codegen::emitRetainLoadedValue(lesma::Type* type, llvm::Value* value, bool storesFuncValuePair)
+auto Codegen::emitRetainLoadedValue(lesma::Type* type, llvm::Value* value,
+                                    bool /*storesFuncValuePair*/)
     -> void {
   if (type == nullptr || value == nullptr) {
     return;
@@ -278,7 +281,7 @@ auto Codegen::emitRetainLoadedValue(lesma::Type* type, llvm::Value* value, bool 
     }
     return;
   case BaseType::TY_FUNCTION:
-    if (!storesFuncValuePair || !value->getType()->isStructTy()) {
+    if (!value->getType()->isStructTy()) {
       return;
     }
     emitArcRetain(builder->CreateExtractValue(value, {1U}, "arc.fn.env"));
@@ -345,7 +348,7 @@ auto Codegen::emitRetainLoadedValue(lesma::Type* type, llvm::Value* value, bool 
 }
 
 auto Codegen::emitReleaseLoadedValue(lesma::Type* type, llvm::Value* value,
-                                     bool storesFuncValuePair) -> void {
+                                     bool /*storesFuncValuePair*/) -> void {
   if (type == nullptr || value == nullptr) {
     return;
   }
@@ -360,7 +363,7 @@ auto Codegen::emitReleaseLoadedValue(lesma::Type* type, llvm::Value* value,
     }
     return;
   case BaseType::TY_FUNCTION:
-    if (!storesFuncValuePair || !value->getType()->isStructTy()) {
+    if (!value->getType()->isStructTy()) {
       return;
     }
     emitArcReleaseNullable(builder->CreateExtractValue(value, {1U}, "arc.fn.env"));
@@ -498,8 +501,14 @@ auto Codegen::emitForEachUnionMemberWithTagDispatch(
 }
 
 auto Codegen::emitReleaseTrackedSlot(const ArcTrackedSlot& tracked) -> void {
-  if (tracked.slot == nullptr || tracked.type == nullptr ||
-      !TypeUtils::containsArcManagedValue(tracked.type)) {
+  if (tracked.slot == nullptr) {
+    return;
+  }
+  if (tracked.rawArcPayload) {
+    emitArcReleaseNullable(builder->CreateLoad(builder->getPtrTy(), tracked.slot, "arc.raw.release"));
+    return;
+  }
+  if (tracked.type == nullptr || !TypeUtils::containsArcManagedValue(tracked.type)) {
     return;
   }
   if (llvm::Function* releaseFn = getOrCreateArcStorageReleaseFunction(tracked.type);
@@ -546,7 +555,20 @@ auto Codegen::registerArcOwnedSlot(llvm::Value* slot, lesma::Type* type, bool st
       return;
     }
   }
-  frame.push_back(ArcTrackedSlot{slot, type, storesFuncValuePair});
+  frame.push_back(ArcTrackedSlot{slot, type, storesFuncValuePair, false});
+}
+
+auto Codegen::registerRawArcOwnedSlot(llvm::Value* slot) -> void {
+  if (slot == nullptr || arcOwnedSlotFrames.empty()) {
+    return;
+  }
+  auto& frame = arcOwnedSlotFrames.back();
+  for (const ArcTrackedSlot& tracked : frame) {
+    if (tracked.slot == slot) {
+      return;
+    }
+  }
+  frame.push_back(ArcTrackedSlot{slot, nullptr, false, true});
 }
 
 auto Codegen::emitReleaseCurrentArcOwnedSlots() -> void {

@@ -830,6 +830,7 @@ auto Codegen::run() -> void {
   emitReleaseCurrentArcOwnedSlots();
   llvm::Function* cleanupFn = getOrCreateModuleCleanupFunction();
   if (isMain) {
+    builder->CreateCall(getOrCreateAsyncRuntimeShutdownFunction());
     if (isJit) {
       emitCallPendingJitModuleFinis();
     }
@@ -839,7 +840,6 @@ auto Codegen::run() -> void {
     if (emitArcDebug) {
       builder->CreateCall(getOrCreateArcDebugReportFunction());
     }
-    builder->CreateCall(getOrCreateAsyncRuntimeShutdownFunction());
   }
   builder->CreateRet(ConstantInt::getSigned(builder->getInt64Ty(), 0));
   popArcOwnedSlotFrame(false);

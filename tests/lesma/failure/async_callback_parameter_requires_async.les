@@ -1,0 +1,9 @@
+func accepts_async_callback(callback: async func(int) -> int) {
+  var _ = callback
+}
+
+func add_one(value: int) -> int {
+  return value + 1
+}
+
+accepts_async_callback(add_one)

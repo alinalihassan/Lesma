@@ -1,0 +1,34 @@
+from time import sleep
+
+func launch_writer(path: str, text: str) {
+  let writer = async func() {
+    sleep(0.02)
+    file.write(path.cstr(), text)
+  }
+  writer()
+}
+
+let path: str = "tests/lesma/success/async_fire_and_forget_captured_values.tmp"
+defer file(path.cstr()).delete()
+
+launch_writer(path, "captured")
+
+var contents: str? = null
+for _ in range(100) {
+  contents = file(path.cstr()).text()
+  if contents is not null {
+    let text = contents as str
+    if text == "captured" {
+      break
+    }
+  }
+  sleep(0.005)
+}
+
+if contents is null {
+  exit(1)
+}
+
+if contents as str != "captured" {
+  exit(2)
+}

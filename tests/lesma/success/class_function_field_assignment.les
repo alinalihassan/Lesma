@@ -1,9 +1,11 @@
 func accepts(callback: func(int)) {
-  var seen = 1
+  callback(7)
 }
 
 func printer(value: int) {
-  print(value)
+  if value != 7 {
+    exit(2)
+  }
 }
 
 class CallbackHolder {

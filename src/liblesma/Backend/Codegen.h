@@ -96,6 +96,7 @@ struct ArcTrackedSlot {
   llvm::Value* slot = nullptr;
   lesma::Type* type = nullptr;
   bool storesFuncValuePair = false;
+  bool rawArcPayload = false;
 };
 
 struct ModuleArcTrackedRoot {
@@ -139,6 +140,7 @@ class Codegen final : public ASTVisitor {
   llvm::Value* currentAsyncPromisePtr = nullptr;
   llvm::BasicBlock* currentAsyncReturnBlock = nullptr;
   lesma::Type* currentAsyncReturnPayloadType = nullptr;
+  std::unordered_map<lesma::Type*, lesma::Type*> asyncTaskTypes;
   std::unordered_map<lesma::Type*, llvm::StructType*> asyncPromiseTypes;
 
   std::vector<std::string> objectFiles;
@@ -559,6 +561,7 @@ protected:
       -> lesma::Value*;
   auto defineLambdaFunction(lesma::Value* value, const LambdaExpr* node) -> void;
   [[nodiscard]] auto getFuncValuePairLlvmType() -> llvm::StructType*;
+  auto getOrCreateAsyncTaskType(lesma::Type* payloadType) -> lesma::Type*;
   [[nodiscard]] auto isAsyncTaskType(lesma::Type* type) const -> bool;
   [[nodiscard]] auto getAsyncTaskPayloadType(lesma::Type* type) const -> lesma::Type*;
   [[nodiscard]] auto getOrCreateAsyncPromiseLlvmType(lesma::Type* payloadType)
@@ -629,6 +632,7 @@ protected:
   auto popArcOwnedSlotFrame(bool emitCleanup) -> void;
   auto registerArcOwnedSlot(llvm::Value* slot, lesma::Type* type, bool storesFuncValuePair = false)
       -> void;
+  auto registerRawArcOwnedSlot(llvm::Value* slot) -> void;
   auto emitReleaseCurrentArcOwnedSlots() -> void;
   auto registerModuleArcRoot(llvm::GlobalVariable* slot, lesma::Type* type,
                              const std::string& debugName, bool storesFuncValuePair = false)

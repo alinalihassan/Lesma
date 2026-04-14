@@ -2035,6 +2035,9 @@ auto Typechecker::tryResolveNonCustomTypeExpr(const TypeExpr* node) -> Type* {
   case TokenType::FUNC_TYPE: {
     node->getReturnType()->accept(*this);
     Type* retType = wrapReturnTypeIfNominal(result->getType());
+    if (node->isAsyncFunctionType()) {
+      retType = getOrCreateAsyncTaskType(retType);
+    }
     std::vector<std::unique_ptr<Field>> fields;
     for (TypeExpr* param : node->getParams()) {
       param->accept(*this);
