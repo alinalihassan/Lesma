@@ -49,7 +49,8 @@ auto initializeParser(std::unique_ptr<Lexer> lexer,
                       const std::shared_ptr<SourceMgr>& srcMgr = nullptr)
     -> std::unique_ptr<Parser> {
   auto curParser = srcMgr != nullptr ? std::make_unique<Parser>(lexer->getTokens(), nullptr, srcMgr,
-                                                                srcMgr->getNumBuffers(), "test.les")
+                                                                srcMgr->getNumBuffers(), "test.les",
+                                                                true)
                                      : std::make_unique<Parser>(lexer->getTokens());
   curParser->parse();
 
@@ -283,7 +284,7 @@ let out = echo(Box(1))
 exit(out.value)
 )");
 
-  EXPECT_NE(moduleText.find("arc.retain.count"), std::string::npos);
+  EXPECT_NE(moduleText.find("atomicrmw add"), std::string::npos);
   EXPECT_NE(moduleText.find("ret ptr"), std::string::npos);
 }
 
@@ -994,9 +995,10 @@ TEST(FormatterTests, DriverFormatsDirectoriesBestEffortWhenSomeFilesDoNotParse) 
 }
 
 TEST(FormatterTests, ParserAttachesStatementTriviaAndNormalizedBlankLines) {
-  auto srcMgr = initializeSrcMgr("// file comment\nlet x = 1 // trailing\n\n// step\nlet y = 2\n");
-  auto lexer = initializeLexer(srcMgr);
-  auto parser = initializeParser(std::move(lexer), srcMgr);
+  auto parsed = parseSourceForFormatting(
+      "// file comment\nlet x = 1 // trailing\n\n// step\nlet y = 2\n", "trivia_test.les");
+  ASSERT_TRUE(parsed.has_value()) << parsed.error().message;
+  auto& parser = parsed->parser;
 
   std::vector<Statement*> const children = parser->getAst()->getChildren();
   ASSERT_EQ(children.size(), 2U);

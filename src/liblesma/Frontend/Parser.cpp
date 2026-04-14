@@ -77,7 +77,7 @@ private:
       unsigned const tokenStartLine = lineOf(srcMgr, token->span);
       unsigned const tokenEndLine = lineOf(srcMgr, token->span, true);
       if (tokenStartLine > previousEndLine && tokenStartLine < currentStartLine &&
-          tokenEndLine < currentStartLine) {
+          tokenEndLine <= currentStartLine) {
         out.push_back(token);
       }
     }
