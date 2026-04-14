@@ -381,6 +381,28 @@ exit(reader())
   EXPECT_NE(moduleText.find("arc.env.slot"), std::string::npos);
 }
 
+TEST(CodegenIRTests, AsyncManagedReturnReleasesPromisePayloadDuringCleanup) {
+  std::string const moduleText = buildModuleText(R"(class Box {
+  var value: int
+
+  func new(value: int) {
+    self.value = value
+  }
+}
+
+async func make_box(value: int) -> Box {
+  return Box(value)
+}
+
+let box = await make_box(7)
+exit(box.value)
+)");
+
+  EXPECT_NE(moduleText.find("async.cleanup.ready"), std::string::npos);
+  EXPECT_NE(moduleText.find("async.cleanup.payload"), std::string::npos);
+  EXPECT_NE(moduleText.find("async.cleanup.arc.release"), std::string::npos);
+}
+
 TEST(CodegenIRTests, OptionalReplacementEmitsReleaseOfPreviousValue) {
   std::string const moduleText = buildModuleText(R"(class Box {
   var value: int
