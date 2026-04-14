@@ -114,10 +114,39 @@ public:
       return;
     }
     enqueueTaskLocked(taskHandle, it->second);
-    cv.wait(lock, [&]() {
-      auto it = tasks.find(taskHandle);
-      return it == tasks.end() || it->second.completed;
-    });
+    if (!isWorkerThread()) {
+      cv.wait(lock, [&]() {
+        auto it = tasks.find(taskHandle);
+        return it == tasks.end() || it->second.completed;
+      });
+      return;
+    }
+    // Worker threads must not park here: nested awaits would otherwise consume the pool and leave
+    // no thread available to resume the awaited tasks. Instead, keep draining queued work until the
+    // awaited task completes.
+    while (true) {
+      auto awaitedIt = tasks.find(taskHandle);
+      if (awaitedIt == tasks.end() || awaitedIt->second.completed) {
+        return;
+      }
+
+      void* runnableTaskHandle = nullptr;
+      LesmaAsyncResumeFn resumeFn = nullptr;
+      LesmaAsyncDoneFn doneFn = nullptr;
+      if (!claimRunnableTaskLocked(runnableTaskHandle, resumeFn, doneFn)) {
+        cv.wait(lock, [&]() {
+          auto it = tasks.find(taskHandle);
+          return it == tasks.end() || it->second.completed || !runnableTasks.empty();
+        });
+        continue;
+      }
+
+      lock.unlock();
+      bool const completed = runClaimedTask(runnableTaskHandle, resumeFn, doneFn);
+      lock.lock();
+      markTaskFinishedLocked(runnableTaskHandle, completed);
+      cv.notify_all();
+    }
   }
 
   auto releaseTask(void* taskHandle) -> void {
@@ -154,6 +183,13 @@ private:
 
   AsyncRuntime() = default;
   ~AsyncRuntime() { forceShutdown(); }
+
+  static auto workerThreadFlag() -> bool& {
+    static thread_local bool isWorker = false;
+    return isWorker;
+  }
+
+  static auto isWorkerThread() -> bool { return workerThreadFlag(); }
 
   static auto resolveWorkerCount(std::uint64_t requestedWorkerCount) -> size_t {
     if (requestedWorkerCount > 0U) {
@@ -232,7 +268,16 @@ private:
     shutdown();
   }
 
+  static auto runClaimedTask(void* taskHandle, LesmaAsyncResumeFn resumeFn, LesmaAsyncDoneFn doneFn)
+      -> bool {
+    if (resumeFn != nullptr) {
+      resumeFn(taskHandle);
+    }
+    return doneFn == nullptr || doneFn(taskHandle);
+  }
+
   auto workerLoop() -> void {
+    workerThreadFlag() = true;
     while (true) {
       void* taskHandle = nullptr;
       LesmaAsyncResumeFn resumeFn = nullptr;
@@ -248,10 +293,7 @@ private:
         }
       }
 
-      if (resumeFn != nullptr) {
-        resumeFn(taskHandle);
-      }
-      bool const completed = doneFn == nullptr || doneFn(taskHandle);
+      bool const completed = runClaimedTask(taskHandle, resumeFn, doneFn);
 
       {
         std::lock_guard<std::mutex> lock(mutex);
