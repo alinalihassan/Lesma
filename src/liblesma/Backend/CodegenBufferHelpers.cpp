@@ -201,15 +201,38 @@ auto Codegen::emitArcRetain(llvm::Value* payloadPtr) -> void {
   auto* headerPtr = builder->CreateBitCast(raw, llvm::PointerType::get(headerTy->getContext(), 0U),
                                            "arc.retain.header");
   auto* refSlot = builder->CreateStructGEP(headerTy, headerPtr, 0U);
-  auto* refCount =
-      builder->CreateAtomicRMW(llvm::AtomicRMWInst::Add, refSlot, builder->getInt64(1),
-                               llvm::MaybeAlign(8U), llvm::AtomicOrdering::SequentiallyConsistent);
-  if (emitArcDebug) {
+  if (!emitArcDebug) {
+    auto* refCount =
+        builder->CreateAtomicRMW(llvm::AtomicRMWInst::Add, refSlot, builder->getInt64(1),
+                                 llvm::MaybeAlign(8U),
+                                 llvm::AtomicOrdering::SequentiallyConsistent);
+    auto* next = builder->CreateAdd(refCount, builder->getInt64(1), "arc.retain.next");
+    emitArcDebugTraceCounts("[arc] retain", payloadPtr, refCount, next);
+    builder->CreateBr(doneBlock);
+  } else {
+    auto* retryBlock =
+        llvm::BasicBlock::Create(theModule->getContext(), "arc.retain.retry", parentFn);
+    auto* commitBlock =
+        llvm::BasicBlock::Create(theModule->getContext(), "arc.retain.commit", parentFn);
+    builder->CreateBr(retryBlock);
+
+    builder->SetInsertPoint(retryBlock);
+    auto* refCount = builder->CreateLoad(builder->getInt64Ty(), refSlot, "arc.retain.count");
+    llvm::cast<llvm::LoadInst>(refCount)->setAtomic(llvm::AtomicOrdering::SequentiallyConsistent);
+    llvm::cast<llvm::LoadInst>(refCount)->setAlignment(llvm::Align(8U));
     emitArcDebugValidateRefcount(refCount, "[arc] retain on zero-count object\n");
+    auto* next = builder->CreateAdd(refCount, builder->getInt64(1), "arc.retain.next");
+    auto* exchanged = builder->CreateAtomicCmpXchg(
+        refSlot, refCount, next, llvm::MaybeAlign(8U), llvm::AtomicOrdering::SequentiallyConsistent,
+        llvm::AtomicOrdering::SequentiallyConsistent);
+    exchanged->setWeak(false);
+    builder->CreateCondBr(builder->CreateExtractValue(exchanged, {1U}, "arc.retain.exchanged"),
+                          commitBlock, retryBlock);
+
+    builder->SetInsertPoint(commitBlock);
+    emitArcDebugTraceCounts("[arc] retain", payloadPtr, refCount, next);
+    builder->CreateBr(doneBlock);
   }
-  auto* next = builder->CreateAdd(refCount, builder->getInt64(1), "arc.retain.next");
-  emitArcDebugTraceCounts("[arc] retain", payloadPtr, refCount, next);
-  builder->CreateBr(doneBlock);
 
   builder->SetInsertPoint(doneBlock);
 }
@@ -227,20 +250,43 @@ auto Codegen::emitArcRelease(llvm::Value* payloadPtr) -> void {
                                            "arc.release.header");
   auto* refSlot = builder->CreateStructGEP(headerTy, headerPtr, 0U);
   auto* destroySlot = builder->CreateStructGEP(headerTy, headerPtr, 1U);
-  auto* refCount =
-      builder->CreateAtomicRMW(llvm::AtomicRMWInst::Sub, refSlot, builder->getInt64(1),
-                               llvm::MaybeAlign(8U), llvm::AtomicOrdering::SequentiallyConsistent);
-  if (emitArcDebug) {
-    emitArcDebugValidateRefcount(refCount, "[arc] release on zero-count object\n");
-  }
-  auto* next = builder->CreateSub(refCount, builder->getInt64(1), "arc.release.next");
-  emitArcDebugTraceCounts("[arc] release", payloadPtr, refCount, next);
-
   llvm::Function* parentFn = builder->GetInsertBlock()->getParent();
   auto* destroyBlock =
       llvm::BasicBlock::Create(theModule->getContext(), "arc.release.destroy", parentFn);
   auto* doneBlock = llvm::BasicBlock::Create(theModule->getContext(), "arc.release.done", parentFn);
-  builder->CreateCondBr(builder->CreateICmpEQ(next, builder->getInt64(0)), destroyBlock, doneBlock);
+  if (!emitArcDebug) {
+    auto* refCount =
+        builder->CreateAtomicRMW(llvm::AtomicRMWInst::Sub, refSlot, builder->getInt64(1),
+                                 llvm::MaybeAlign(8U),
+                                 llvm::AtomicOrdering::SequentiallyConsistent);
+    auto* next = builder->CreateSub(refCount, builder->getInt64(1), "arc.release.next");
+    emitArcDebugTraceCounts("[arc] release", payloadPtr, refCount, next);
+    builder->CreateCondBr(builder->CreateICmpEQ(next, builder->getInt64(0)), destroyBlock, doneBlock);
+  } else {
+    auto* retryBlock =
+        llvm::BasicBlock::Create(theModule->getContext(), "arc.release.retry", parentFn);
+    auto* commitBlock =
+        llvm::BasicBlock::Create(theModule->getContext(), "arc.release.commit", parentFn);
+    builder->CreateBr(retryBlock);
+
+    builder->SetInsertPoint(retryBlock);
+    auto* refCount = builder->CreateLoad(builder->getInt64Ty(), refSlot, "arc.release.count");
+    llvm::cast<llvm::LoadInst>(refCount)->setAtomic(llvm::AtomicOrdering::SequentiallyConsistent);
+    llvm::cast<llvm::LoadInst>(refCount)->setAlignment(llvm::Align(8U));
+    emitArcDebugValidateRefcount(refCount, "[arc] release on zero-count object\n");
+    auto* next = builder->CreateSub(refCount, builder->getInt64(1), "arc.release.next");
+    auto* exchanged = builder->CreateAtomicCmpXchg(
+        refSlot, refCount, next, llvm::MaybeAlign(8U), llvm::AtomicOrdering::SequentiallyConsistent,
+        llvm::AtomicOrdering::SequentiallyConsistent);
+    exchanged->setWeak(false);
+    builder->CreateCondBr(builder->CreateExtractValue(exchanged, {1U}, "arc.release.exchanged"),
+                          commitBlock, retryBlock);
+
+    builder->SetInsertPoint(commitBlock);
+    emitArcDebugTraceCounts("[arc] release", payloadPtr, refCount, next);
+    builder->CreateCondBr(builder->CreateICmpEQ(next, builder->getInt64(0)), destroyBlock,
+                          doneBlock);
+  }
 
   builder->SetInsertPoint(destroyBlock);
   auto* destroyPtr = builder->CreateLoad(builder->getPtrTy(), destroySlot, "arc.release.destroyfn");
