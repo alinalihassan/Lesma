@@ -468,6 +468,16 @@ auto Codegen::optimize(OptimizationLevel opt) -> void {
   llvm::ModuleAnalysisManager mam;
 
   llvm::PassBuilder pb(&*targetMachine);
+  pb.registerPipelineStartEPCallback([](llvm::ModulePassManager& mpm, llvm::OptimizationLevel) {
+    mpm.addPass(llvm::CoroEarlyPass());
+  });
+  pb.registerCGSCCOptimizerLateEPCallback(
+      [](llvm::CGSCCPassManager& cgpm, llvm::OptimizationLevel level) {
+        cgpm.addPass(llvm::CoroSplitPass(level != llvm::OptimizationLevel::O0));
+      });
+  pb.registerOptimizerLastEPCallback([](llvm::ModulePassManager& mpm, llvm::OptimizationLevel) {
+    mpm.addPass(llvm::CoroCleanupPass());
+  });
 
   pb.registerModuleAnalyses(mam);
   pb.registerCGSCCAnalyses(cgam);
@@ -492,18 +502,10 @@ auto Codegen::optimize(OptimizationLevel opt) -> void {
   fpm.addPass(llvm::LoopVectorizePass());
   fpm.addPass(llvm::createFunctionToLoopPassAdaptor(std::move(lpm)));
 
-  // Add custom passes to CGSCCPassManager
-  llvm::CGSCCPassManager cgpm;
-  cgpm.addPass(llvm::InlinerPass());
-  cgpm.addPass(llvm::CoroSplitPass(opt != OptimizationLevel::O0));
-
   // Add custom pass managers to ModulePassManager
   llvm::ModulePassManager mpm =
       pb.buildModuleOptimizationPipeline(opt, ThinOrFullLTOPhase::FullLTOPreLink);
-  mpm.addPass(llvm::CoroEarlyPass());
-  mpm.addPass(llvm::createModuleToPostOrderCGSCCPassAdaptor(std::move(cgpm)));
   mpm.addPass(llvm::createModuleToFunctionPassAdaptor(std::move(fpm)));
-  mpm.addPass(llvm::CoroCleanupPass());
   mpm.addPass(llvm::StripDeadPrototypesPass());
   mpm.addPass(llvm::GlobalDCEPass());
 
