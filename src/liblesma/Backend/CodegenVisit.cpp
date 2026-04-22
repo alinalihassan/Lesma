@@ -9445,7 +9445,16 @@ auto Codegen::callMethodByName(llvm::SMRange span, lesma::Value* receiver,
         callResult = builder->CreateCall(directFn, finalParams);
       }
       currentGenericTypes = std::move(savedGenerics);
-      return finalizeCallableResult(std::make_unique<Value>("", returnTy, callResult));
+      auto directCallResult =
+          finalizeCallableResult(std::make_unique<Value>("", returnTy, callResult));
+      if (returnTy != nullptr && returnTy->is(BaseType::TY_FUNCTION)) {
+        directCallResult->setStoresFuncValuePair(true);
+        directCallResult->setCategory(ValueCategory::DIRECT_VALUE);
+      }
+      if (returnTy != nullptr && TypeUtils::containsArcManagedValue(returnTy)) {
+        directCallResult->setArcOwnedValue(true);
+      }
+      return directCallResult;
     } catch (...) {
       currentGenericTypes = std::move(savedGenerics);
       throw;

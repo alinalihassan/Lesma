@@ -475,9 +475,10 @@ auto Codegen::optimize(OptimizationLevel opt) -> void {
       [](llvm::CGSCCPassManager& cgpm, llvm::OptimizationLevel level) {
         cgpm.addPass(llvm::CoroSplitPass(level != llvm::OptimizationLevel::O0));
       });
-  pb.registerOptimizerLastEPCallback([](llvm::ModulePassManager& mpm, llvm::OptimizationLevel) {
-    mpm.addPass(llvm::CoroCleanupPass());
-  });
+  pb.registerOptimizerLastEPCallback(
+      [](llvm::ModulePassManager& mpm, llvm::OptimizationLevel, llvm::ThinOrFullLTOPhase) {
+        mpm.addPass(llvm::CoroCleanupPass());
+      });
 
   pb.registerModuleAnalyses(mam);
   pb.registerCGSCCAnalyses(cgam);
