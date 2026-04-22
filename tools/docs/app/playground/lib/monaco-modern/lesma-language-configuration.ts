@@ -23,5 +23,14 @@ export function applyLesmaLanguageConfiguration(monaco: MonacoApi): void {
       { open: '"', close: '"' },
       { open: "'", close: "'" },
     ],
+    onEnterRules: [
+      {
+        beforeText: /.*\{\s*$/,
+        afterText: /^\s*\}/,
+        action: {
+          indentAction: monaco.languages.IndentAction.IndentOutdent,
+        },
+      },
+    ],
   })
 }

@@ -154,6 +154,12 @@ auto cast(llvm::SMRange span, Value* val, Type* type, llvm::IRBuilder<>* builder
     }
   }
 
+  if (val->getType()->is(BaseType::TY_FUNCTION) && type->is(BaseType::TY_FUNCTION)) {
+    auto out = std::make_unique<Value>(*val);
+    out->setType(type);
+    return out;
+  }
+
   if (val->getType()->is(BaseType::TY_TUPLE) && type->is(BaseType::TY_TUPLE)) {
     std::vector<Field*> const fromFields = val->getType()->getFields();
     std::vector<Field*> const toFields = type->getFields();

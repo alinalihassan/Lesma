@@ -132,7 +132,9 @@ auto formatExpression(const Expression* expr, int parentPrecedence) -> Doc;
   }
 }
 
-[[nodiscard]] auto unaryNeedsSpace(TokenType type) -> bool { return type == TokenType::NOT; }
+[[nodiscard]] auto unaryNeedsSpace(TokenType type) -> bool {
+  return type == TokenType::NOT || type == TokenType::AWAIT;
+}
 
 [[nodiscard]] auto isVoidType(const TypeExpr* type) -> bool {
   return type != nullptr && type->getType() == TokenType::VOID_TYPE;
@@ -1030,6 +1032,9 @@ private:
     if (node->getIsStatic()) {
       parts.push_back(docText("static "));
     }
+    if (node->getIsAsync()) {
+      parts.push_back(docText("async "));
+    }
     parts.push_back(docText("func "));
     parts.push_back(formatFunctionName(node->getName(), node->getOverloadGlyphSpan().isValid()));
     parts.push_back(formatGenericParams(node->getGenericParamDecls()));
@@ -1228,7 +1233,12 @@ private:
                                   formatType(isOp->getRight()));
     } else if (auto const* unary = dynamic_cast<const UnaryOp*>(expr); unary != nullptr) {
       int const currentPrecedence = precedence(expr);
-      std::string const op = std::string(operatorSpelling(unary->getOperator()));
+      std::string op;
+      if (unary->getOperator() == TokenType::AWAIT) {
+        op = "await";
+      } else {
+        op = std::string(operatorSpelling(unary->getOperator()));
+      }
       result = docs({docText(op),
                      unaryNeedsSpace(unary->getOperator()) ? docText(" ") : lesma::pretty::nil(),
                      formatExpression(unary->getExpression(), currentPrecedence)});
@@ -1300,8 +1310,13 @@ private:
   }
 
   [[nodiscard]] auto formatLambda(const LambdaExpr* node) -> Doc {
-    std::vector<Doc> parts{docText("func"), formatGenericParams(node->getGenericParamDecls()),
-                           formatParameters(node->getParameters(), false)};
+    std::vector<Doc> parts;
+    if (node->getIsAsync()) {
+      parts.push_back(docText("async "));
+    }
+    parts.push_back(docText("func"));
+    parts.push_back(formatGenericParams(node->getGenericParamDecls()));
+    parts.push_back(formatParameters(node->getParameters(), false));
     if (node->getReturnType() != nullptr && !isVoidType(node->getReturnType())) {
       parts.push_back(docText(" -> "));
       parts.push_back(formatType(node->getReturnType()));
@@ -1370,8 +1385,8 @@ auto lesma::parseFileForFormatting(const std::filesystem::path& path)
     auto lexer = std::make_unique<Lexer>(sourceMgr, nullptr, filePath);
     lexer->scanAll();
 
-    auto parser =
-        std::make_unique<Parser>(lexer->getTokens(), nullptr, sourceMgr, mainBufferId, filePath);
+    auto parser = std::make_unique<Parser>(lexer->getTokens(), nullptr, sourceMgr, mainBufferId,
+                                           filePath, true);
     parser->parse();
     return FormattingParseResult{
         .sourceMgr = std::move(sourceMgr),
@@ -1413,8 +1428,8 @@ auto lesma::parseSourceForFormatting(std::string source, std::string logicalPath
     auto lexer = std::make_unique<Lexer>(sourceMgr, nullptr, logicalPath);
     lexer->scanAll();
 
-    auto parser =
-        std::make_unique<Parser>(lexer->getTokens(), nullptr, sourceMgr, mainBufferId, logicalPath);
+    auto parser = std::make_unique<Parser>(lexer->getTokens(), nullptr, sourceMgr, mainBufferId,
+                                           logicalPath, true);
     parser->parse();
     return FormattingParseResult{
         .sourceMgr = std::move(sourceMgr),

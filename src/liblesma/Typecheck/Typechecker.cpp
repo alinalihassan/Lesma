@@ -2035,6 +2035,9 @@ auto Typechecker::tryResolveNonCustomTypeExpr(const TypeExpr* node) -> Type* {
   case TokenType::FUNC_TYPE: {
     node->getReturnType()->accept(*this);
     Type* retType = wrapReturnTypeIfNominal(result->getType());
+    if (node->isAsyncFunctionType()) {
+      retType = getOrCreateAsyncTaskType(retType);
+    }
     std::vector<std::unique_ptr<Field>> fields;
     for (TypeExpr* param : node->getParams()) {
       param->accept(*this);
@@ -2520,6 +2523,10 @@ auto Typechecker::substituteInType(Type* t, const std::unordered_map<std::string
     u->setDeclarationSpan(t->getDeclarationSpan());
     u->setDeclarationFilePath(t->getDeclarationFilePath());
     return cacheType(std::move(u));
+  }
+  if (t->isBuiltinTask()) {
+    Type* payloadType = substituteInType(t->getTaskPayloadType(), env, active);
+    return getOrCreateAsyncTaskType(payloadType);
   }
   if (t->is(BaseType::TY_CLASS)) {
     Type* classTemplate = t;
@@ -3697,6 +3704,28 @@ auto Typechecker::wrapReturnTypeIfNominal(Type* returnType) -> Type* {
     return cacheType(std::make_unique<Type>(BaseType::TY_PTR, nullptr, returnType));
   }
   return returnType;
+}
+
+auto Typechecker::getOrCreateAsyncTaskType(Type* payloadType) -> Type* {
+  Type* wrappedPayloadType = wrapReturnTypeIfNominal(payloadType);
+  if (auto it = asyncTaskTypes.find(wrappedPayloadType); it != asyncTaskTypes.end()) {
+    return it->second;
+  }
+  auto taskType = std::make_unique<Type>(BaseType::TY_CLASS);
+  std::string payloadName = wrappedPayloadType != nullptr ? wrappedPayloadType->toString() : "void";
+  taskType->setDisplayName(fmt::format("Task<{}>", payloadName));
+  taskType->setBuiltinTask(true);
+  taskType->setTaskPayloadType(wrappedPayloadType);
+  Type* taskTypePtr = cacheType(std::move(taskType));
+  asyncTaskTypes.emplace(wrappedPayloadType, taskTypePtr);
+  return taskTypePtr;
+}
+
+auto Typechecker::unwrapAsyncTaskType(Type* type) const -> Type* {
+  if (type == nullptr || !type->is(BaseType::TY_CLASS) || !type->isBuiltinTask()) {
+    return nullptr;
+  }
+  return type->getTaskPayloadType();
 }
 
 auto Typechecker::resolveType(const TypeExpr* node) -> Type* {
@@ -5824,7 +5853,9 @@ auto Typechecker::visit(const FuncDecl* node) -> void {
     throw TypeCheckError(node->getNameSpan(), "Constructor `new` cannot be declared `static`");
   }
   node->getReturnType()->accept(*this);
-  Type* returnType = wrapReturnTypeIfNominal(result->getType());
+  Type* sourceReturnType = wrapReturnTypeIfNominal(result->getType());
+  Type* returnType =
+      node->getIsAsync() ? getOrCreateAsyncTaskType(sourceReturnType) : sourceReturnType;
   std::vector<std::unique_ptr<Field>> paramFields;
   std::vector<Type*> paramTypes;
   if (currentClassType != nullptr && !node->getIsStatic()) {
@@ -5912,6 +5943,7 @@ auto Typechecker::visit(const FuncDecl* node) -> void {
       declaredFunc->setDeclarationSpan(node->getNameSpan());
       declaredFunc->setDeclarationFilePath(mainFilePath);
       declaredFunc->setStaticMethod(node->getIsStatic());
+      declaredFunc->setAsyncCallable(node->getIsAsync());
       insertScope->insertSymbol(std::move(declaredFunc));
       funcSymbol = insertScope->lookupFunction(node->getName(), paramTypes,
                                                FunctionLookupKind::OVERLOAD_IDENTITY, nullptr,
@@ -5932,6 +5964,7 @@ auto Typechecker::visit(const FuncDecl* node) -> void {
                                                                          : currentEnumType);
       }
       funcSymbol->setStaticMethod(node->getIsStatic());
+      funcSymbol->setAsyncCallable(node->getIsAsync());
       funcSymbol->setDeclarationSpan(node->getNameSpan());
       funcSymbol->setDeclarationFilePath(mainFilePath);
       // Set resolvedSymbol for existing symbol (this exact overload)
@@ -5986,6 +6019,9 @@ auto Typechecker::visit(const FuncDecl* node) -> void {
     checkUnusedBindingsInScope(scope);
     currentGenericParamTraitBounds = std::move(savedTraitBounds);
     Type* funcReturnType = currentFunction->getType()->getReturnType();
+    if (Type* asyncPayloadType = unwrapAsyncTaskType(funcReturnType); asyncPayloadType != nullptr) {
+      funcReturnType = asyncPayloadType;
+    }
     if (node->getBody() != nullptr && funcReturnType != nullptr &&
         !funcReturnType->is(BaseType::TY_VOID) && !blockAlwaysReturns(node->getBody())) {
       throw TypeCheckError(node->getSpan(), "Non-void function may reach end without returning");
@@ -6388,6 +6424,9 @@ auto Typechecker::visit(const Return* node) -> void {
     throw TypeCheckError(node->getSpan(), "Return not allowed outside function");
   }
   Type* expected = currentFunction->getType()->getReturnType();
+  if (Type* asyncPayloadType = unwrapAsyncTaskType(expected); asyncPayloadType != nullptr) {
+    expected = asyncPayloadType;
+  }
   if (node->getValue() == nullptr) {
     if (expected == nullptr || !expected->is(BaseType::TY_VOID)) {
       throw TypeCheckError(node->getSpan(), "Return type does not match: expected {}, got void",
@@ -6842,15 +6881,17 @@ auto Typechecker::visit(const LambdaExpr* node) -> void {
     paramFields.push_back(std::make_unique<Field>(param->name, paramType));
   }
 
-  Type* returnType = nullptr;
+  Type* sourceReturnType = nullptr;
   if (node->getReturnType() != nullptr) {
     node->getReturnType()->accept(*this);
-    returnType = wrapReturnTypeIfNominal(result->getType());
+    sourceReturnType = wrapReturnTypeIfNominal(result->getType());
   }
 
   auto funcType = std::make_unique<Type>(BaseType::TY_FUNCTION, nullptr, std::move(paramFields));
-  if (returnType != nullptr) {
-    funcType->setReturnType(returnType);
+  Type* functionReturnType =
+      node->getIsAsync() ? getOrCreateAsyncTaskType(sourceReturnType) : sourceReturnType;
+  if (functionReturnType != nullptr) {
+    funcType->setReturnType(functionReturnType);
   }
   Type* funcTypePtr = cacheType(std::move(funcType));
   funcTypePtr->setGenericParams(node->getGenericParams());
@@ -6869,6 +6910,9 @@ auto Typechecker::visit(const LambdaExpr* node) -> void {
   lambdaSymbol->setDeclarationKind(ValueDeclarationKind::FUNCTION);
   lambdaSymbol->setDeclarationSpan(node->getSpan());
   lambdaSymbol->setDeclarationFilePath(mainFilePath);
+  lambdaSymbol->setOriginLambdaExpr(node);
+  lambdaSymbol->setLambdaCallable(true);
+  lambdaSymbol->setAsyncCallable(node->getIsAsync());
   SymbolTable* lambdaBodyScope = scope->createChildBlock("lambda");
   lambdaSymbol->setBodyScope(lambdaBodyScope);
   lambdaSymbol->clearClosureCaptureOuters();
@@ -6906,26 +6950,32 @@ auto Typechecker::visit(const LambdaExpr* node) -> void {
     currentGenericParamTraitBounds[p.name] = p.traitBounds;
   }
   if (node->isExpressionBody()) {
-    if (returnType != nullptr) {
-      visitExprWithExpectedType(node->getExpressionBody(), returnType);
+    if (sourceReturnType != nullptr) {
+      visitExprWithExpectedType(node->getExpressionBody(), sourceReturnType);
     } else {
       node->getExpressionBody()->accept(*this);
-      returnType = wrapReturnTypeIfNominal(result->getType());
-      lambdaSymbolPtr->getType()->setReturnType(returnType);
+      sourceReturnType = wrapReturnTypeIfNominal(result->getType());
+      functionReturnType =
+          node->getIsAsync() ? getOrCreateAsyncTaskType(sourceReturnType) : sourceReturnType;
+      lambdaSymbolPtr->getType()->setReturnType(functionReturnType);
     }
   } else if (!declarationPass && node->getBlockBody() != nullptr) {
-    if (returnType == nullptr) {
-      returnType = cacheType(std::make_unique<Type>(BaseType::TY_VOID));
-      lambdaSymbolPtr->getType()->setReturnType(returnType);
+    if (sourceReturnType == nullptr) {
+      sourceReturnType = cacheType(std::make_unique<Type>(BaseType::TY_VOID));
+      functionReturnType =
+          node->getIsAsync() ? getOrCreateAsyncTaskType(sourceReturnType) : sourceReturnType;
+      lambdaSymbolPtr->getType()->setReturnType(functionReturnType);
     }
     node->getBlockBody()->accept(*this);
-    if (returnType != nullptr && !returnType->is(BaseType::TY_VOID) &&
+    if (sourceReturnType != nullptr && !sourceReturnType->is(BaseType::TY_VOID) &&
         !blockAlwaysReturns(node->getBlockBody())) {
       throw TypeCheckError(node->getSpan(), "Non-void lambda may reach end without returning");
     }
-  } else if (returnType == nullptr) {
-    returnType = cacheType(std::make_unique<Type>(BaseType::TY_VOID));
-    lambdaSymbolPtr->getType()->setReturnType(returnType);
+  } else if (sourceReturnType == nullptr) {
+    sourceReturnType = cacheType(std::make_unique<Type>(BaseType::TY_VOID));
+    functionReturnType =
+        node->getIsAsync() ? getOrCreateAsyncTaskType(sourceReturnType) : sourceReturnType;
+    lambdaSymbolPtr->getType()->setReturnType(functionReturnType);
   }
 
   currentGenericParamTraitBounds = std::move(savedTraitBounds);
@@ -7802,6 +7852,19 @@ auto Typechecker::visit(const BlockExpr* node) -> void {
 }
 
 auto Typechecker::visit(const UnaryOp* node) -> void {
+  if (node->getOperator() == TokenType::AWAIT) {
+    if (currentFunction != nullptr && !currentFunction->isAsyncCallable()) {
+      throw TypeCheckError(node->getSpan(),
+                           "`await` is only allowed inside async functions or at top level");
+    }
+    node->getExpression()->accept(*this);
+    Type* payloadType = unwrapAsyncTaskType(result != nullptr ? result->getType() : nullptr);
+    if (payloadType == nullptr) {
+      throw TypeCheckError(node->getSpan(), "`await` expects an async task value");
+    }
+    result = std::make_unique<Value>(payloadType);
+    return;
+  }
   node->getExpression()->accept(*this);
   Type* operand = result->getType();
   auto tryOverload = [this, node, operand]() -> Type* {
@@ -8354,7 +8417,7 @@ auto Typechecker::visit(const Literal* node) -> void {
         }
       }
     }
-    if (currentFunction != nullptr && currentFunction->getName().starts_with("__lambda_")) {
+    if (currentFunction != nullptr && currentFunction->isLambdaCallable()) {
       SymbolTable* foundScope = nullptr;
       for (SymbolTable* s = scope; s != nullptr && foundScope == nullptr; s = s->getParent()) {
         for (Value* candidate : s->getSymbols()) {
@@ -8550,6 +8613,9 @@ auto Typechecker::buildMethodFunctionType(FuncDecl* decl, Type* classType) -> Ty
   }
   decl->getReturnType()->accept(*this);
   Type* returnType = wrapReturnTypeIfNominal(result->getType());
+  if (decl->getIsAsync()) {
+    returnType = getOrCreateAsyncTaskType(returnType);
+  }
   auto funcType = std::make_unique<Type>(BaseType::TY_FUNCTION, nullptr, std::move(paramFields));
   funcType->setReturnType(returnType);
   return cacheType(std::move(funcType));
@@ -8570,6 +8636,7 @@ auto Typechecker::registerTraitDefaultMethodSymbol(SymbolTable* insertScope, Typ
   declaredFunc->setExported(false);
   declaredFunc->setDeclarationSpan(req->getNameSpan());
   declaredFunc->setDeclarationFilePath(mainFilePath);
+  declaredFunc->setAsyncCallable(req->getIsAsync());
   insertScope->insertSymbol(std::move(declaredFunc));
   Value* funcSymbol = insertScope->lookupFunction(req->getName(), lookupArgs,
                                                   FunctionLookupKind::OVERLOAD_IDENTITY);

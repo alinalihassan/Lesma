@@ -36,5 +36,14 @@
         ["[", "]"],
         ["{", "}"],
         ["<", ">"]
+    ],
+    "onEnterRules": [
+        {
+            "beforeText": ".*\\{\\s*$",
+            "afterText": "^\\s*\\}",
+            "action": {
+                "indent": "indentOutdent"
+            }
+        }
     ]
 }

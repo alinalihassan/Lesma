@@ -114,6 +114,10 @@ auto Codegen::isTypeFullyConcrete(Type* t) const -> bool {
       }
       break;
     case BaseType::TY_CLASS:
+      if (cur->isBuiltinTask()) {
+        isConcrete = self(self, cur->getTaskPayloadType());
+        break;
+      }
       if (auto envIt = specializedClassTypeEnvs.find(cur);
           envIt != specializedClassTypeEnvs.end()) {
         for (const auto& [name, boundType] : envIt->second) {
@@ -435,6 +439,15 @@ auto Codegen::substituteTypeForSpecializationEnv(Type* t,
     u->setDeclarationSpan(t->getDeclarationSpan());
     u->setDeclarationFilePath(t->getDeclarationFilePath());
     return cacheType(std::move(u));
+  }
+  if (t->isBuiltinTask()) {
+    Type* payloadType = substituteTypeForSpecializationEnv(t->getTaskPayloadType(), env, active);
+    auto taskType = std::make_unique<Type>(BaseType::TY_CLASS);
+    std::string payloadName = payloadType != nullptr ? payloadType->toString() : "void";
+    taskType->setDisplayName("Task<" + payloadName + ">");
+    taskType->setBuiltinTask(true);
+    taskType->setTaskPayloadType(payloadType);
+    return cacheType(std::move(taskType));
   }
   if (t->isOneOf({BaseType::TY_CLASS, BaseType::TY_ENUM})) {
     Type* nominalTemplate = t;
@@ -910,12 +923,18 @@ auto Codegen::specializeFunction(
     fields.push_back(std::make_unique<Field>(param->name, paramT));
     concreteParamTypes.push_back(paramT);
   }
-  node->getReturnType()->accept(*this);
-  Type* returnType = wrapNominalReturnAsPointer(result->getType());
+  Type* returnType = nullptr;
+  if (node->getIsAsync()) {
+    returnType = substituteTypeForSpecializationEnv(templateSym->getType()->getReturnType(), env);
+  } else {
+    node->getReturnType()->accept(*this);
+    returnType = wrapNominalReturnAsPointer(result->getType());
+  }
   std::vector<llvm::Type*> paramLLVMTypes;
   for (auto* t : concreteParamTypes) {
     getOrCreateLlvmType(t);
-    paramLLVMTypes.push_back(t->getLlvmType());
+    paramLLVMTypes.push_back(t->is(BaseType::TY_FUNCTION) ? getFuncValuePairLlvmType()
+                                                          : t->getLlvmType());
   }
   getOrCreateLlvmType(returnType);
   auto funcType =
@@ -941,13 +960,18 @@ auto Codegen::specializeFunction(
   func->setExported(node->isExported());
   auto linkage = node->isExported() ? Function::ExternalLinkage : Function::PrivateLinkage;
   llvm::Type* llvmReturnType = nullptr;
-  if (returnType->is(BaseType::TY_PTR) || returnType->is(BaseType::TY_CLASS)) {
+  if (returnType->is(BaseType::TY_FUNCTION)) {
+    llvmReturnType = getFuncValuePairLlvmType();
+  } else if (returnType->is(BaseType::TY_PTR) || returnType->is(BaseType::TY_CLASS)) {
     llvmReturnType = builder->getPtrTy();
   } else {
     llvmReturnType = returnType->getLlvmType();
   }
   auto* llvmFuncType = FunctionType::get(llvmReturnType, paramLLVMTypes, node->getVarArgs());
   auto* llvmFunc = Function::Create(llvmFuncType, linkage, mangledName, *theModule);
+  if (node->getIsAsync()) {
+    llvmFunc->addFnAttr(llvm::Attribute::PresplitCoroutine);
+  }
   attachFunctionDebugInfo(llvmFunc, node->getName(), mangledName, node->getSpan(), linkage, false);
   typePtr->setLlvmType(llvmFuncType);
   func->setLlvmValue(llvmFunc);
@@ -1034,7 +1058,9 @@ auto Codegen::specializeLambda(const LambdaExpr* node, const std::vector<lesma::
     concreteParamTypes.push_back(paramT);
   }
   Type* returnType = nullptr;
-  if (node->getReturnType() != nullptr) {
+  if (node->getIsAsync()) {
+    returnType = substituteTypeForSpecializationEnv(templateSym->getType()->getReturnType(), env);
+  } else if (node->getReturnType() != nullptr) {
     node->getReturnType()->accept(*this);
     returnType = wrapNominalReturnAsPointer(result->getType());
   } else {
@@ -1043,7 +1069,8 @@ auto Codegen::specializeLambda(const LambdaExpr* node, const std::vector<lesma::
   std::vector<llvm::Type*> paramLLVMTypes;
   for (auto* t : concreteParamTypes) {
     getOrCreateLlvmType(t);
-    paramLLVMTypes.push_back(t->getLlvmType());
+    paramLLVMTypes.push_back(t->is(BaseType::TY_FUNCTION) ? getFuncValuePairLlvmType()
+                                                          : t->getLlvmType());
   }
   getOrCreateLlvmType(returnType);
   auto funcType =
@@ -1058,7 +1085,9 @@ auto Codegen::specializeLambda(const LambdaExpr* node, const std::vector<lesma::
   func->setDeclarationKind(ValueDeclarationKind::FUNCTION);
   func->setMangledName(mangledName);
   llvm::Type* llvmReturnType = nullptr;
-  if (returnType->is(BaseType::TY_PTR) || returnType->is(BaseType::TY_CLASS)) {
+  if (returnType->is(BaseType::TY_FUNCTION)) {
+    llvmReturnType = getFuncValuePairLlvmType();
+  } else if (returnType->is(BaseType::TY_PTR) || returnType->is(BaseType::TY_CLASS)) {
     llvmReturnType = builder->getPtrTy();
   } else {
     llvmReturnType = returnType->getLlvmType();
@@ -1066,6 +1095,9 @@ auto Codegen::specializeLambda(const LambdaExpr* node, const std::vector<lesma::
   auto* llvmFuncType = FunctionType::get(llvmReturnType, paramLLVMTypes, false);
   auto* llvmFunc =
       Function::Create(llvmFuncType, Function::PrivateLinkage, mangledName, *theModule);
+  if (node->getIsAsync()) {
+    llvmFunc->addFnAttr(llvm::Attribute::PresplitCoroutine);
+  }
   typePtr->setLlvmType(llvmFuncType);
   func->setLlvmValue(llvmFunc);
   func->setBodyScope(templateSym->getBodyScope());

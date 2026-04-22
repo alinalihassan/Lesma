@@ -1,0 +1,39 @@
+let inc = async func(x: int) => x + 1
+if await inc(4) != 5 {
+  exit(1)
+}
+
+async func add_one(value: int) -> int {
+  return value + 1
+}
+
+let product = async func(lhs: int, rhs: int) -> int {
+  let left = await add_one(lhs)
+  return left * rhs
+}
+if await product(3, 4) != 16 {
+  exit(2)
+}
+
+async func read_captured(seed: int) -> int {
+  var base = seed
+  let reader = async func() -> int => base + 1
+  base = seed + 10
+  return await reader()
+}
+
+async func read_captured_block(seed: int) -> int {
+  var base = seed
+  let reader = async func() -> int {
+    return base + 2
+  }
+  base = seed + 10
+  return await reader()
+}
+
+if await read_captured(7) != 8 {
+  exit(3)
+}
+if await read_captured_block(7) != 9 {
+  exit(4)
+}

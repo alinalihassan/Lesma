@@ -1,0 +1,37 @@
+class Base {
+  var value: int
+
+  func new(value: int) {
+    self.value = value
+  }
+
+  async func total() -> int {
+    return self.value
+  }
+}
+
+class Child : Base {
+  func new(value: int) {
+    super.new(self, value)
+  }
+
+  private async func offset(delta: int) -> int {
+    return self.value + delta
+  }
+
+  overload async func total() -> int {
+    return await self.offset(5)
+  }
+
+  static async func twice(value: int) -> int {
+    return value * 2
+  }
+}
+
+let child = Child(7)
+if await child.total() != 12 {
+  exit(1)
+}
+if await Child.twice(6) != 12 {
+  exit(2)
+}

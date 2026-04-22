@@ -1140,6 +1140,12 @@ auto resolveMethodReturnType(const lesma::FuncCall* call, const lesma::Expressio
 auto resolveExpressionTypeAtOffset(const lesma::Expression* expr, lesma::Compound* ast,
                                    lesma::SymbolTable* root, llvm::SourceMgr* srcMgr,
                                    unsigned bufferId, unsigned targetOffset) -> lesma::Type* {
+  auto unwrapAsyncTaskType = [](lesma::Type* type) -> lesma::Type* {
+    if (type == nullptr || !type->is(lesma::BaseType::TY_CLASS) || !type->isBuiltinTask()) {
+      return nullptr;
+    }
+    return type->getTaskPayloadType();
+  };
   if (expr == nullptr || root == nullptr) {
     return nullptr;
   }
@@ -1243,6 +1249,8 @@ auto resolveExpressionTypeAtOffset(const lesma::Expression* expr, lesma::Compoun
       return nullptr;
     }
     switch (unary->getOperator()) {
+    case lesma::TokenType::AWAIT:
+      return unwrapAsyncTaskType(operand);
     case lesma::TokenType::MINUS:
       if (operand->isOneOf(
               {lesma::BaseType::TY_INT, lesma::BaseType::TY_FLOAT, lesma::BaseType::TY_FLOAT32}) ||

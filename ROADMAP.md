@@ -25,9 +25,18 @@
 - [x] Automatic Reference Counting (no cycles detection yet)
 - [x] Add optional types
 - [x] Enums v2 (in type unions, enums with methods, traits and associated values)
-- [ ] Multithreading with LLVM coroutines (async await)
+- [x] Async/await with LLVM coroutines (top-level await, methods, and lambdas; multithreaded async runtime)
 - [ ] Try catch and Errors
 - [x] Formatter
+
+## Bugs
+- [x] When entering newline with curly braces, it should put the ending newline on a separate line
+- [ ] We should be able to write "!" to force an optional to be unwrapped, and it would panic/exit with message if it's null
+- [x] Importing JSON module takes 400ms, must be from too much LLVM IR
+- [ ] Start working on LSP and formatter test suite
+- [x] Start figuring out how to profile compiler
+- [ ] Move optionals off of null unions sugar and use Option<T> instead, or maybe use both?
+- [x] Formatting a file with just an imports and comments deletes some of the comments below it
 
 ## LSP
 - [ ] rename + prepareRename

@@ -201,14 +201,38 @@ auto Codegen::emitArcRetain(llvm::Value* payloadPtr) -> void {
   auto* headerPtr = builder->CreateBitCast(raw, llvm::PointerType::get(headerTy->getContext(), 0U),
                                            "arc.retain.header");
   auto* refSlot = builder->CreateStructGEP(headerTy, headerPtr, 0U);
-  auto* refCount = builder->CreateLoad(builder->getInt64Ty(), refSlot, "arc.retain.count");
-  if (emitArcDebug) {
+  if (!emitArcDebug) {
+    auto* refCount =
+        builder->CreateAtomicRMW(llvm::AtomicRMWInst::Add, refSlot, builder->getInt64(1),
+                                 llvm::MaybeAlign(8U),
+                                 llvm::AtomicOrdering::SequentiallyConsistent);
+    auto* next = builder->CreateAdd(refCount, builder->getInt64(1), "arc.retain.next");
+    emitArcDebugTraceCounts("[arc] retain", payloadPtr, refCount, next);
+    builder->CreateBr(doneBlock);
+  } else {
+    auto* retryBlock =
+        llvm::BasicBlock::Create(theModule->getContext(), "arc.retain.retry", parentFn);
+    auto* commitBlock =
+        llvm::BasicBlock::Create(theModule->getContext(), "arc.retain.commit", parentFn);
+    builder->CreateBr(retryBlock);
+
+    builder->SetInsertPoint(retryBlock);
+    auto* refCount = builder->CreateLoad(builder->getInt64Ty(), refSlot, "arc.retain.count");
+    llvm::cast<llvm::LoadInst>(refCount)->setAtomic(llvm::AtomicOrdering::SequentiallyConsistent);
+    llvm::cast<llvm::LoadInst>(refCount)->setAlignment(llvm::Align(8U));
     emitArcDebugValidateRefcount(refCount, "[arc] retain on zero-count object\n");
+    auto* next = builder->CreateAdd(refCount, builder->getInt64(1), "arc.retain.next");
+    auto* exchanged = builder->CreateAtomicCmpXchg(
+        refSlot, refCount, next, llvm::MaybeAlign(8U), llvm::AtomicOrdering::SequentiallyConsistent,
+        llvm::AtomicOrdering::SequentiallyConsistent);
+    exchanged->setWeak(false);
+    builder->CreateCondBr(builder->CreateExtractValue(exchanged, {1U}, "arc.retain.exchanged"),
+                          commitBlock, retryBlock);
+
+    builder->SetInsertPoint(commitBlock);
+    emitArcDebugTraceCounts("[arc] retain", payloadPtr, refCount, next);
+    builder->CreateBr(doneBlock);
   }
-  auto* next = builder->CreateAdd(refCount, builder->getInt64(1), "arc.retain.next");
-  builder->CreateStore(next, refSlot);
-  emitArcDebugTraceCounts("[arc] retain", payloadPtr, refCount, next);
-  builder->CreateBr(doneBlock);
 
   builder->SetInsertPoint(doneBlock);
 }
@@ -226,19 +250,43 @@ auto Codegen::emitArcRelease(llvm::Value* payloadPtr) -> void {
                                            "arc.release.header");
   auto* refSlot = builder->CreateStructGEP(headerTy, headerPtr, 0U);
   auto* destroySlot = builder->CreateStructGEP(headerTy, headerPtr, 1U);
-  auto* refCount = builder->CreateLoad(builder->getInt64Ty(), refSlot, "arc.release.count");
-  if (emitArcDebug) {
-    emitArcDebugValidateRefcount(refCount, "[arc] release on zero-count object\n");
-  }
-  auto* next = builder->CreateSub(refCount, builder->getInt64(1), "arc.release.next");
-  builder->CreateStore(next, refSlot);
-  emitArcDebugTraceCounts("[arc] release", payloadPtr, refCount, next);
-
   llvm::Function* parentFn = builder->GetInsertBlock()->getParent();
   auto* destroyBlock =
       llvm::BasicBlock::Create(theModule->getContext(), "arc.release.destroy", parentFn);
   auto* doneBlock = llvm::BasicBlock::Create(theModule->getContext(), "arc.release.done", parentFn);
-  builder->CreateCondBr(builder->CreateICmpEQ(next, builder->getInt64(0)), destroyBlock, doneBlock);
+  if (!emitArcDebug) {
+    auto* refCount =
+        builder->CreateAtomicRMW(llvm::AtomicRMWInst::Sub, refSlot, builder->getInt64(1),
+                                 llvm::MaybeAlign(8U),
+                                 llvm::AtomicOrdering::SequentiallyConsistent);
+    auto* next = builder->CreateSub(refCount, builder->getInt64(1), "arc.release.next");
+    emitArcDebugTraceCounts("[arc] release", payloadPtr, refCount, next);
+    builder->CreateCondBr(builder->CreateICmpEQ(next, builder->getInt64(0)), destroyBlock, doneBlock);
+  } else {
+    auto* retryBlock =
+        llvm::BasicBlock::Create(theModule->getContext(), "arc.release.retry", parentFn);
+    auto* commitBlock =
+        llvm::BasicBlock::Create(theModule->getContext(), "arc.release.commit", parentFn);
+    builder->CreateBr(retryBlock);
+
+    builder->SetInsertPoint(retryBlock);
+    auto* refCount = builder->CreateLoad(builder->getInt64Ty(), refSlot, "arc.release.count");
+    llvm::cast<llvm::LoadInst>(refCount)->setAtomic(llvm::AtomicOrdering::SequentiallyConsistent);
+    llvm::cast<llvm::LoadInst>(refCount)->setAlignment(llvm::Align(8U));
+    emitArcDebugValidateRefcount(refCount, "[arc] release on zero-count object\n");
+    auto* next = builder->CreateSub(refCount, builder->getInt64(1), "arc.release.next");
+    auto* exchanged = builder->CreateAtomicCmpXchg(
+        refSlot, refCount, next, llvm::MaybeAlign(8U), llvm::AtomicOrdering::SequentiallyConsistent,
+        llvm::AtomicOrdering::SequentiallyConsistent);
+    exchanged->setWeak(false);
+    builder->CreateCondBr(builder->CreateExtractValue(exchanged, {1U}, "arc.release.exchanged"),
+                          commitBlock, retryBlock);
+
+    builder->SetInsertPoint(commitBlock);
+    emitArcDebugTraceCounts("[arc] release", payloadPtr, refCount, next);
+    builder->CreateCondBr(builder->CreateICmpEQ(next, builder->getInt64(0)), destroyBlock,
+                          doneBlock);
+  }
 
   builder->SetInsertPoint(destroyBlock);
   auto* destroyPtr = builder->CreateLoad(builder->getPtrTy(), destroySlot, "arc.release.destroyfn");
@@ -262,7 +310,8 @@ auto Codegen::emitArcReleaseNullable(llvm::Value* payloadPtr) -> void {
   builder->SetInsertPoint(doneBlock);
 }
 
-auto Codegen::emitRetainLoadedValue(lesma::Type* type, llvm::Value* value, bool storesFuncValuePair)
+auto Codegen::emitRetainLoadedValue(lesma::Type* type, llvm::Value* value,
+                                    bool /*storesFuncValuePair*/)
     -> void {
   if (type == nullptr || value == nullptr) {
     return;
@@ -278,7 +327,7 @@ auto Codegen::emitRetainLoadedValue(lesma::Type* type, llvm::Value* value, bool 
     }
     return;
   case BaseType::TY_FUNCTION:
-    if (!storesFuncValuePair || !value->getType()->isStructTy()) {
+    if (!value->getType()->isStructTy()) {
       return;
     }
     emitArcRetain(builder->CreateExtractValue(value, {1U}, "arc.fn.env"));
@@ -345,7 +394,7 @@ auto Codegen::emitRetainLoadedValue(lesma::Type* type, llvm::Value* value, bool 
 }
 
 auto Codegen::emitReleaseLoadedValue(lesma::Type* type, llvm::Value* value,
-                                     bool storesFuncValuePair) -> void {
+                                     bool /*storesFuncValuePair*/) -> void {
   if (type == nullptr || value == nullptr) {
     return;
   }
@@ -360,7 +409,7 @@ auto Codegen::emitReleaseLoadedValue(lesma::Type* type, llvm::Value* value,
     }
     return;
   case BaseType::TY_FUNCTION:
-    if (!storesFuncValuePair || !value->getType()->isStructTy()) {
+    if (!value->getType()->isStructTy()) {
       return;
     }
     emitArcReleaseNullable(builder->CreateExtractValue(value, {1U}, "arc.fn.env"));
@@ -498,8 +547,14 @@ auto Codegen::emitForEachUnionMemberWithTagDispatch(
 }
 
 auto Codegen::emitReleaseTrackedSlot(const ArcTrackedSlot& tracked) -> void {
-  if (tracked.slot == nullptr || tracked.type == nullptr ||
-      !TypeUtils::containsArcManagedValue(tracked.type)) {
+  if (tracked.slot == nullptr) {
+    return;
+  }
+  if (tracked.rawArcPayload) {
+    emitArcReleaseNullable(builder->CreateLoad(builder->getPtrTy(), tracked.slot, "arc.raw.release"));
+    return;
+  }
+  if (tracked.type == nullptr || !TypeUtils::containsArcManagedValue(tracked.type)) {
     return;
   }
   if (llvm::Function* releaseFn = getOrCreateArcStorageReleaseFunction(tracked.type);
@@ -546,7 +601,20 @@ auto Codegen::registerArcOwnedSlot(llvm::Value* slot, lesma::Type* type, bool st
       return;
     }
   }
-  frame.push_back(ArcTrackedSlot{slot, type, storesFuncValuePair});
+  frame.push_back(ArcTrackedSlot{slot, type, storesFuncValuePair, false});
+}
+
+auto Codegen::registerRawArcOwnedSlot(llvm::Value* slot) -> void {
+  if (slot == nullptr || arcOwnedSlotFrames.empty()) {
+    return;
+  }
+  auto& frame = arcOwnedSlotFrames.back();
+  for (const ArcTrackedSlot& tracked : frame) {
+    if (tracked.slot == slot) {
+      return;
+    }
+  }
+  frame.push_back(ArcTrackedSlot{slot, nullptr, false, true});
 }
 
 auto Codegen::emitReleaseCurrentArcOwnedSlots() -> void {
@@ -857,6 +925,93 @@ auto Codegen::emitExit(int code) -> void {
       std::string{codegen::runtime::EXIT},
       llvm::FunctionType::get(builder->getVoidTy(), {builder->getInt64Ty()}, false));
   builder->CreateCall(exitFn, {builder->getInt64(code)});
+}
+
+auto Codegen::getOrCreateAsyncRuntimeShutdownFunction() -> llvm::FunctionCallee {
+  return theModule->getOrInsertFunction(
+      std::string{codegen::runtime::ASYNC_RUNTIME_SHUTDOWN},
+      llvm::FunctionType::get(builder->getVoidTy(), {}, false));
+}
+
+auto Codegen::getOrCreateAsyncRuntimeRegisterTaskFunction() -> llvm::FunctionCallee {
+  return theModule->getOrInsertFunction(
+      std::string{codegen::runtime::ASYNC_RUNTIME_REGISTER_TASK},
+      llvm::FunctionType::get(builder->getVoidTy(),
+                              {builder->getPtrTy(), builder->getPtrTy(), builder->getPtrTy(),
+                               builder->getPtrTy()},
+                              false));
+}
+
+auto Codegen::getOrCreateAsyncRuntimeStartTaskFunction() -> llvm::FunctionCallee {
+  return theModule->getOrInsertFunction(
+      std::string{codegen::runtime::ASYNC_RUNTIME_START_TASK},
+      llvm::FunctionType::get(builder->getVoidTy(), {builder->getPtrTy()}, false));
+}
+
+auto Codegen::getOrCreateAsyncRuntimeWaitTaskFunction() -> llvm::FunctionCallee {
+  return theModule->getOrInsertFunction(
+      std::string{codegen::runtime::ASYNC_RUNTIME_WAIT_TASK},
+      llvm::FunctionType::get(builder->getVoidTy(), {builder->getPtrTy()}, false));
+}
+
+auto Codegen::getOrCreateAsyncRuntimeReleaseTaskFunction() -> llvm::FunctionCallee {
+  return theModule->getOrInsertFunction(
+      std::string{codegen::runtime::ASYNC_RUNTIME_RELEASE_TASK},
+      llvm::FunctionType::get(builder->getVoidTy(), {builder->getPtrTy()}, false));
+}
+
+auto Codegen::getOrCreateAsyncResumeHelperFunction() -> llvm::Function* {
+  constexpr std::string_view name = "__lesma_async_resume_helper";
+  auto* fn = theModule->getFunction(std::string{name});
+  if (fn != nullptr) {
+    return fn;
+  }
+  auto* fnTy = llvm::FunctionType::get(builder->getVoidTy(), {builder->getPtrTy()}, false);
+  fn = llvm::Function::Create(fnTy, llvm::Function::PrivateLinkage, std::string{name}, *theModule);
+  auto savedIp = builder->saveIP();
+  auto* entry = llvm::BasicBlock::Create(theModule->getContext(), "entry", fn);
+  builder->SetInsertPoint(entry);
+  auto coroResumeFn = getCoroutineIntrinsic(llvm::Intrinsic::coro_resume);
+  builder->CreateCall(coroResumeFn, {fn->getArg(0U)});
+  builder->CreateRetVoid();
+  builder->restoreIP(savedIp);
+  return fn;
+}
+
+auto Codegen::getOrCreateAsyncDoneHelperFunction() -> llvm::Function* {
+  constexpr std::string_view name = "__lesma_async_done_helper";
+  auto* fn = theModule->getFunction(std::string{name});
+  if (fn != nullptr) {
+    return fn;
+  }
+  auto* fnTy = llvm::FunctionType::get(builder->getInt1Ty(), {builder->getPtrTy()}, false);
+  fn = llvm::Function::Create(fnTy, llvm::Function::PrivateLinkage, std::string{name}, *theModule);
+  auto savedIp = builder->saveIP();
+  auto* entry = llvm::BasicBlock::Create(theModule->getContext(), "entry", fn);
+  builder->SetInsertPoint(entry);
+  auto coroDoneFn = getCoroutineIntrinsic(llvm::Intrinsic::coro_done);
+  llvm::Value* done = builder->CreateCall(coroDoneFn, {fn->getArg(0U)}, "async.done");
+  builder->CreateRet(done);
+  builder->restoreIP(savedIp);
+  return fn;
+}
+
+auto Codegen::getOrCreateAsyncDestroyHelperFunction() -> llvm::Function* {
+  constexpr std::string_view name = "__lesma_async_destroy_helper";
+  auto* fn = theModule->getFunction(std::string{name});
+  if (fn != nullptr) {
+    return fn;
+  }
+  auto* fnTy = llvm::FunctionType::get(builder->getVoidTy(), {builder->getPtrTy()}, false);
+  fn = llvm::Function::Create(fnTy, llvm::Function::PrivateLinkage, std::string{name}, *theModule);
+  auto savedIp = builder->saveIP();
+  auto* entry = llvm::BasicBlock::Create(theModule->getContext(), "entry", fn);
+  builder->SetInsertPoint(entry);
+  auto coroDestroyFn = getCoroutineIntrinsic(llvm::Intrinsic::coro_destroy);
+  builder->CreateCall(coroDestroyFn, {fn->getArg(0U)});
+  builder->CreateRetVoid();
+  builder->restoreIP(savedIp);
+  return fn;
 }
 
 auto Codegen::getOrCreateArcDebugDeltaFunction() -> llvm::Function* {

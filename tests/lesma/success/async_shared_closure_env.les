@@ -1,0 +1,28 @@
+from time import sleep
+
+async func run_shared_reader(shared: str) {
+  let reader = async func(delay: float) -> str {
+    sleep(delay)
+    return shared
+  }
+
+  let first = reader(0.02)
+  let second = reader(0.02)
+  let third = reader(0.02)
+  let fourth = reader(0.02)
+
+  if await first != "shared payload" {
+    exit(1)
+  }
+  if await second != "shared payload" {
+    exit(2)
+  }
+  if await third != "shared payload" {
+    exit(3)
+  }
+  if await fourth != "shared payload" {
+    exit(4)
+  }
+}
+
+await run_shared_reader("shared payload")

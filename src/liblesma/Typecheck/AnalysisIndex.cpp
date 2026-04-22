@@ -221,6 +221,14 @@ auto resolvedTypeForExpr(const Expression* expr) -> Type* {
   if (auto const* castOp = dynamic_cast<const CastOp*>(expr)) {
     return resolvedTypeForExpr(castOp->getType());
   }
+  if (auto const* unary = dynamic_cast<const UnaryOp*>(expr)) {
+    if (unary->getOperator() == TokenType::AWAIT) {
+      Type* taskType = resolvedTypeForExpr(unary->getExpression());
+      if (taskType != nullptr && taskType->isBuiltinTask()) {
+        return taskType->getTaskPayloadType();
+      }
+    }
+  }
   if (auto const* dot = dynamic_cast<const DotOp*>(expr)) {
     Type* baseType = resolvedTypeForExpr(dot->getLeft());
     if (baseType == nullptr) {

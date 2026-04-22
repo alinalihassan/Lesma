@@ -1,0 +1,14 @@
+let id = async func<T>(value: T) => value
+if await id(42) != 42 {
+  exit(1)
+}
+if await id(true) != true {
+  exit(2)
+}
+
+let keep = async func<T>(value: T) -> T {
+  return value
+}
+if await keep(21) != 21 {
+  exit(3)
+}

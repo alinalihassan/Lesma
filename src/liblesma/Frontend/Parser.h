@@ -31,11 +31,13 @@ public:
                   std::vector<AnalysisDiagnostic>* diagnosticSink = nullptr,
                   std::shared_ptr<llvm::SourceMgr> diagnosticSpanSrcMgr = nullptr,
                   unsigned diagnosticSpanBufferId = 0,
-                  std::string diagnosticSpanDisplayPath = {})
+                  std::string diagnosticSpanDisplayPath = {},
+                  bool attachTriviaEnabled = false)
       : tokens(std::move(tokens)), diagnosticsOut(diagnosticSink),
         diagnosticSpanSrcMgr(std::move(diagnosticSpanSrcMgr)),
         diagnosticSpanBufferId(diagnosticSpanBufferId),
-        diagnosticSpanDisplayPath(std::move(diagnosticSpanDisplayPath)) {}
+        diagnosticSpanDisplayPath(std::move(diagnosticSpanDisplayPath)),
+        attachTriviaEnabled(attachTriviaEnabled) {}
   ~Parser() = default;
 
   Parser(const Parser&) = delete;
@@ -147,6 +149,7 @@ private:
   std::shared_ptr<llvm::SourceMgr> diagnosticSpanSrcMgr;
   unsigned diagnosticSpanBufferId = 0;
   std::string diagnosticSpanDisplayPath;
+  bool attachTriviaEnabled = false;
 
   auto pushParserDiagnostic(llvm::SMRange span, std::string message) -> void;
 
@@ -164,12 +167,24 @@ private:
     std::vector<std::unique_ptr<Parameter>> parameters;
     bool varargs = false;
   };
+
+  struct MethodModifierParseResult {
+    bool isPrivate = false;
+    bool declaresInheritanceOverload = false;
+    bool isStatic = false;
+    bool isAsync = false;
+  };
   /// Parses `(` … `)` contents (caller consumes `(` before and `)` after). When
   /// `allowVarargsEllipsis` is true, `...` is accepted as a trailing varargs marker.
   auto parseParameterList(bool allowVarargsEllipsis) -> ParameterListParseResult;
 
+  [[nodiscard]] auto asyncStartsLambda() -> bool;
+  auto parseAsyncFunctionDeclaration(bool methodIsPrivate = false,
+                                     bool declaresInheritanceOverload = false,
+                                     bool methodIsStatic = false) -> std::unique_ptr<Statement>;
   auto parseFunctionDeclaration(bool methodIsPrivate = false,
-                                bool declaresInheritanceOverload = false, bool methodIsStatic = false)
+                                bool declaresInheritanceOverload = false, bool methodIsStatic = false,
+                                bool isAsync = false)
       -> std::unique_ptr<Statement>;
   auto parseExport() -> std::unique_ptr<Statement>;
   auto parseImport() -> std::unique_ptr<Statement>;
@@ -178,6 +193,7 @@ private:
   auto parseTrait() -> std::unique_ptr<Statement>;
   auto parseGenericParamList() -> std::vector<GenericParamDecl>;
   auto parseIgnoredTypeArgList() -> void;
+  auto parseMethodModifiers(bool allowPrivate, bool allowOverload) -> MethodModifierParseResult;
   auto parseTraitMethodDeclaration() -> std::unique_ptr<FuncDecl>;
   auto parseEnum() -> std::unique_ptr<Statement>;
   auto parseStatement(bool isTopLevel) -> std::unique_ptr<Statement>;
@@ -222,7 +238,7 @@ private:
   auto parseMatchPattern() -> MatchPattern;
   auto parseBlockExpr() -> std::unique_ptr<Expression>;
   auto parseStringInterpolation() -> std::unique_ptr<Expression>;
-  auto parseLambda() -> std::unique_ptr<Expression>;
+  auto parseLambda(bool isAsync = false) -> std::unique_ptr<Expression>;
   auto parseFunctionCall() -> std::unique_ptr<Expression>;
   auto parseListLiteral() -> std::unique_ptr<Expression>;
   auto parseDictLiteral() -> std::unique_ptr<Expression>;

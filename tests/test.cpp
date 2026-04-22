@@ -49,7 +49,8 @@ auto initializeParser(std::unique_ptr<Lexer> lexer,
                       const std::shared_ptr<SourceMgr>& srcMgr = nullptr)
     -> std::unique_ptr<Parser> {
   auto curParser = srcMgr != nullptr ? std::make_unique<Parser>(lexer->getTokens(), nullptr, srcMgr,
-                                                                srcMgr->getNumBuffers(), "test.les")
+                                                                srcMgr->getNumBuffers(), "test.les",
+                                                                true)
                                      : std::make_unique<Parser>(lexer->getTokens());
   curParser->parse();
 
@@ -283,7 +284,7 @@ let out = echo(Box(1))
 exit(out.value)
 )");
 
-  EXPECT_NE(moduleText.find("arc.retain.count"), std::string::npos);
+  EXPECT_NE(moduleText.find("atomicrmw add"), std::string::npos);
   EXPECT_NE(moduleText.find("ret ptr"), std::string::npos);
 }
 
@@ -378,6 +379,28 @@ exit(reader())
   EXPECT_NE(moduleText.find("__lesma_arc_destroy_env___lambda_0"), std::string::npos);
   EXPECT_NE(moduleText.find("cap.slot"), std::string::npos);
   EXPECT_NE(moduleText.find("arc.env.slot"), std::string::npos);
+}
+
+TEST(CodegenIRTests, AsyncManagedReturnReleasesPromisePayloadDuringCleanup) {
+  std::string const moduleText = buildModuleText(R"(class Box {
+  var value: int
+
+  func new(value: int) {
+    self.value = value
+  }
+}
+
+async func make_box(value: int) -> Box {
+  return Box(value)
+}
+
+let box = await make_box(7)
+exit(box.value)
+)");
+
+  EXPECT_NE(moduleText.find("async.cleanup.ready"), std::string::npos);
+  EXPECT_NE(moduleText.find("async.cleanup.payload"), std::string::npos);
+  EXPECT_NE(moduleText.find("async.cleanup.arc.release"), std::string::npos);
 }
 
 TEST(CodegenIRTests, OptionalReplacementEmitsReleaseOfPreviousValue) {
@@ -994,9 +1017,10 @@ TEST(FormatterTests, DriverFormatsDirectoriesBestEffortWhenSomeFilesDoNotParse) 
 }
 
 TEST(FormatterTests, ParserAttachesStatementTriviaAndNormalizedBlankLines) {
-  auto srcMgr = initializeSrcMgr("// file comment\nlet x = 1 // trailing\n\n// step\nlet y = 2\n");
-  auto lexer = initializeLexer(srcMgr);
-  auto parser = initializeParser(std::move(lexer), srcMgr);
+  auto parsed = parseSourceForFormatting(
+      "// file comment\nlet x = 1 // trailing\n\n// step\nlet y = 2\n", "trivia_test.les");
+  ASSERT_TRUE(parsed.has_value()) << parsed.error().message;
+  auto& parser = parsed->parser;
 
   std::vector<Statement*> const children = parser->getAst()->getChildren();
   ASSERT_EQ(children.size(), 2U);
@@ -1102,6 +1126,40 @@ TEST(FormatterTests, FormatSourcePreservesAddressOfUnaryOperator) {
   ASSERT_TRUE(formatted.has_value()) << formatted.error().message;
   EXPECT_NE(formatted->find("&x"), std::string::npos);
   EXPECT_EQ(formatted->find("?x"), std::string::npos);
+}
+
+TEST(FormatterTests, FormatSourcePreservesAwaitUnaryOperator) {
+  auto formatted = formatSource(
+      "async func work(value: int) -> int {\nreturn await next(value)\n}\n", "await_test.les", 100);
+  ASSERT_TRUE(formatted.has_value()) << formatted.error().message;
+  EXPECT_NE(formatted->find("await next(value)"), std::string::npos);
+  EXPECT_EQ(formatted->find("?next(value)"), std::string::npos);
+}
+
+TEST(FormatterTests, FormatSourcePreservesAsyncLambdaSyntax) {
+  auto formatted = formatSource("let read = async func(x: int) -> int => await next(x)\n"
+                                "let run = async func(x: int) -> int {\n"
+                                "return await next(x)\n"
+                                "}\n",
+                                "async_lambda_test.les", 100);
+  ASSERT_TRUE(formatted.has_value()) << formatted.error().message;
+  EXPECT_NE(formatted->find("async func(x: int) -> int => await next(x)"), std::string::npos);
+  EXPECT_NE(formatted->find("let run = async func(x: int) -> int {\n"), std::string::npos);
+}
+
+TEST(FormatterTests, FormatSourcePreservesAsyncMethodModifiers) {
+  auto formatted = formatSource("class Worker {\n"
+                                "private async func add(delta: int) -> int {\n"
+                                "return delta\n"
+                                "}\n"
+                                "static async func twice(value: int) -> int {\n"
+                                "return value * 2\n"
+                                "}\n"
+                                "}\n",
+                                "async_method_test.les", 100);
+  ASSERT_TRUE(formatted.has_value()) << formatted.error().message;
+  EXPECT_NE(formatted->find("private async func add(delta: int) -> int"), std::string::npos);
+  EXPECT_NE(formatted->find("static async func twice(value: int) -> int"), std::string::npos);
 }
 
 TEST(FormatterTests, FormatSourcePreservesBitwisePipeOperator) {

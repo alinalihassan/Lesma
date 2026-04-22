@@ -236,6 +236,7 @@ public:
 class TypeExpr : public Expression {
   std::string name;
   TokenType type;
+  bool asyncFunctionType = false;
   mutable Value* resolvedSymbol = nullptr;
 
   // Pointer fields
@@ -261,6 +262,11 @@ public:
            std::vector<std::unique_ptr<TypeExpr>> params, std::unique_ptr<TypeExpr> ret)
       : Expression(loc), name(std::move(name)), type(type), elementType(nullptr),
         params(std::move(params)), ret(std::move(ret)) {}
+  TypeExpr(llvm::SMRange loc, std::string name, TokenType type,
+           std::vector<std::unique_ptr<TypeExpr>> params, std::unique_ptr<TypeExpr> ret,
+           bool asyncFunctionType)
+      : Expression(loc), name(std::move(name)), type(type), asyncFunctionType(asyncFunctionType),
+        elementType(nullptr), params(std::move(params)), ret(std::move(ret)) {}
   /** Tuple type `(T1, T2, ...)` / `(T,)`: same `params` as function types, `ret` is null. */
   static auto makeTupleType(llvm::SMRange loc, std::string displayName,
                             std::vector<std::unique_ptr<TypeExpr>> elements)
@@ -313,6 +319,7 @@ public:
     return result;
   }
   [[nodiscard]] [[maybe_unused]] auto getReturnType() const -> TypeExpr* { return ret.get(); }
+  [[nodiscard]] auto isAsyncFunctionType() const -> bool { return asyncFunctionType; }
 
   auto toString(llvm::SourceMgr* /*srcMgr*/, const std::string& /*prefix*/, bool /*isTail*/) const
       -> std::string override {
@@ -745,6 +752,7 @@ class FuncDecl : public Statement {
   std::unique_ptr<TypeExpr> returnType;
   std::vector<std::unique_ptr<Parameter>> parameters;
   std::unique_ptr<Compound> body;
+  bool isAsync;
   bool varargs;
   bool exported;
   /** Class body only: method is visible only inside methods of the declaring class. */
@@ -761,12 +769,13 @@ public:
   FuncDecl(llvm::SMRange loc, std::string name, llvm::SMRange nameSpan,
            llvm::SMRange overloadGlyphSpan, std::vector<GenericParamDecl> genericParams,
            std::unique_ptr<TypeExpr> returnType, std::vector<std::unique_ptr<Parameter>> parameters,
-           std::unique_ptr<Compound> body, bool varargs, bool exported, bool methodPrivate = false,
-           bool inheritanceOverload = false, bool methodStatic = false)
+           std::unique_ptr<Compound> body, bool isAsync, bool varargs, bool exported,
+           bool methodPrivate = false, bool inheritanceOverload = false,
+           bool methodStatic = false)
       : Statement(loc), name(std::move(name)), nameSpan(nameSpan),
         overloadGlyphSpan(overloadGlyphSpan), genericParams(std::move(genericParams)),
         returnType(std::move(returnType)), parameters(std::move(parameters)), body(std::move(body)),
-        varargs(varargs), exported(exported), isPrivate(methodPrivate),
+        isAsync(isAsync), varargs(varargs), exported(exported), isPrivate(methodPrivate),
         declaresOverload(inheritanceOverload), isStatic(methodStatic) {}
   void accept(ASTVisitor& visitor) const override { visitor.visit(this); }
 
@@ -791,6 +800,7 @@ public:
   [[nodiscard]] [[maybe_unused]] auto getReturnType() const -> TypeExpr* {
     return returnType.get();
   }
+  [[nodiscard]] auto getIsAsync() const -> bool { return isAsync; }
   [[nodiscard]] [[maybe_unused]] auto getParameters() const -> std::vector<Parameter*> {
     std::vector<Parameter*> result;
     result.reserve(parameters.size());
@@ -813,11 +823,12 @@ public:
 
   auto toString(llvm::SourceMgr* srcMgr, const std::string& prefix, bool isTail) const
       -> std::string override {
-    auto ret = fmt::format("{}{}FuncDecl[Line({}-{}):Col({}-{})]: {}(", prefix,
+    auto ret = fmt::format("{}{}FuncDecl[Line({}-{}):Col({}-{})]: {}{}(", prefix,
                            isTail ? "└──" : "├──", srcMgr->getLineAndColumn(getStart()).first,
                            srcMgr->getLineAndColumn(getEnd()).first,
                            srcMgr->getLineAndColumn(getStart()).second,
-                           srcMgr->getLineAndColumn(getEnd()).second, name);
+                           srcMgr->getLineAndColumn(getEnd()).second, isAsync ? "async " : "",
+                           name);
     for (const auto& param : parameters) {
       ret += param->name + ": " +
              (param->type != nullptr ? param->type->toString(srcMgr, prefix, isTail) : "?") +
@@ -1016,16 +1027,17 @@ class LambdaExpr : public Expression {
   std::unique_ptr<TypeExpr> returnType;
   std::unique_ptr<Expression> expressionBody;
   std::unique_ptr<Compound> blockBody;
+  bool isAsync;
   mutable Value* resolvedSymbol = nullptr;
 
 public:
   LambdaExpr(llvm::SMRange loc, std::vector<GenericParamDecl> genericParams,
              std::vector<std::unique_ptr<Parameter>> parameters,
              std::unique_ptr<TypeExpr> returnType, std::unique_ptr<Expression> expressionBody,
-             std::unique_ptr<Compound> blockBody)
+             std::unique_ptr<Compound> blockBody, bool isAsync)
       : Expression(loc), genericParams(std::move(genericParams)), parameters(std::move(parameters)),
         returnType(std::move(returnType)), expressionBody(std::move(expressionBody)),
-        blockBody(std::move(blockBody)) {}
+        blockBody(std::move(blockBody)), isAsync(isAsync) {}
   void accept(ASTVisitor& visitor) const override { visitor.visit(this); }
 
   [[nodiscard]] auto getGenericParamDecls() const -> const std::vector<GenericParamDecl>& {
@@ -1049,6 +1061,7 @@ public:
     return result;
   }
   [[nodiscard]] auto getReturnType() const -> TypeExpr* { return returnType.get(); }
+  [[nodiscard]] auto getIsAsync() const -> bool { return isAsync; }
   [[nodiscard]] auto isExpressionBody() const -> bool { return expressionBody != nullptr; }
   [[nodiscard]] auto getExpressionBody() const -> Expression* { return expressionBody.get(); }
   [[nodiscard]] auto getBlockBody() const -> Compound* { return blockBody.get(); }
@@ -1058,9 +1071,10 @@ public:
   auto toString(llvm::SourceMgr* srcMgr, const std::string& prefix, bool isTail) const
       -> std::string override {
     std::string ret = fmt::format(
-        "{}{}LambdaExpr[Line({}-{}):Col({}-{})]: func(", prefix, isTail ? "└──" : "├──",
+        "{}{}LambdaExpr[Line({}-{}):Col({}-{})]: {}func(", prefix, isTail ? "└──" : "├──",
         srcMgr->getLineAndColumn(getStart()).first, srcMgr->getLineAndColumn(getEnd()).first,
-        srcMgr->getLineAndColumn(getStart()).second, srcMgr->getLineAndColumn(getEnd()).second);
+        srcMgr->getLineAndColumn(getStart()).second, srcMgr->getLineAndColumn(getEnd()).second,
+        isAsync ? "async " : "");
     for (size_t i = 0; i < parameters.size(); ++i) {
       Parameter* p = parameters[i].get();
       ret +=

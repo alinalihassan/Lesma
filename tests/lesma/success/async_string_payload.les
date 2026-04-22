@@ -1,0 +1,15 @@
+async func label(value: int) -> str {
+  return "${value}"
+}
+
+async func pair_label(a: int, b: int) -> str {
+  let left = await label(a)
+  let right = await label(b)
+  return "${left}:${right}"
+}
+
+let pair = await pair_label(2, 5)
+
+if pair != "2:5" {
+  exit(1)
+}

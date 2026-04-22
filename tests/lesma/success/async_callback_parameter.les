@@ -1,0 +1,16 @@
+async func apply_async(callback: async func(int) -> int, value: int) -> int {
+  return await callback(value)
+}
+
+async func add_one(value: int) -> int {
+  return value + 1
+}
+
+if await apply_async(add_one, 4) != 5 {
+  exit(1)
+}
+
+let double: async func(int) -> int = async func(value: int) -> int => value * 2
+if await apply_async(double, 6) != 12 {
+  exit(2)
+}

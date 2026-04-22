@@ -54,6 +54,7 @@ endif ()
 # External dependencies
 find_package(fmt CONFIG REQUIRED)
 find_package(nameof CONFIG REQUIRED)
+find_package(Threads REQUIRED)
 find_path(PLF_NANOTIMER_INCLUDE_DIRS "plf_nanotimer.h")
 
 # Directories
@@ -120,6 +121,7 @@ set(COMMON_SOURCES
   src/liblesma/Common/Utils.cpp
   src/liblesma/Common/ExportDiscovery.cpp
   src/liblesma/Common/IntegerLiteralParse.cpp
+  src/liblesma/Runtime/AsyncRuntime.cpp
   src/liblesma/Formatter/PrettyDoc.cpp
   src/liblesma/Formatter/SourceFormatter.cpp
   src/liblesma/Frontend/Lexer.cpp
@@ -146,7 +148,7 @@ set(COMMON_SOURCES
 file(COPY ${STDLIB_DIR} DESTINATION $ENV{HOME}/.lesma/)
 
 # Libraries required for the compiler itself
-set(COMMON_LIBS ${LLVM_LIBS} ${LLD_LIBS} fmt::fmt nameof::nameof)
+set(COMMON_LIBS ${LLVM_LIBS} ${LLD_LIBS} fmt::fmt nameof::nameof Threads::Threads)
 set(COMMON_INCLUDE ${PLF_NANOTIMER_INCLUDE_DIRS})
 
 # Lesma Library
@@ -154,6 +156,13 @@ set(COMMON_INCLUDE ${PLF_NANOTIMER_INCLUDE_DIRS})
 ## Create Library
 add_library(${LIB_NAME} ${COMMON_SOURCES})
 target_link_libraries(${LIB_NAME} ${COMMON_LIBS})
+add_library(lesma_async_runtime STATIC src/liblesma/Runtime/AsyncRuntime.cpp)
+target_link_libraries(lesma_async_runtime PRIVATE Threads::Threads)
+target_include_directories(lesma_async_runtime PUBLIC
+  "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/src>"
+  "$<INSTALL_INTERFACE:$<INSTALL_PREFIX>/${CMAKE_INSTALL_INCLUDEDIR}>")
+target_compile_definitions(${LIB_NAME} PRIVATE
+  LESMA_ASYNC_RUNTIME_LIBRARY_FILE="$<TARGET_FILE:lesma_async_runtime>")
 
 target_include_directories(${LIB_NAME} PUBLIC
   "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/src>"

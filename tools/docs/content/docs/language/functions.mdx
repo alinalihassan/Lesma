@@ -17,6 +17,50 @@ func add(a: int, b: int) -> int {
 }
 ```
 
+## Async functions
+
+Use `async func` for named async functions, methods, trait methods, and lambdas. The source-level return type stays the payload type:
+
+```les
+async func add_one(value: int) -> int {
+    return value + 1
+}
+```
+
+Calling an async function produces an internal task value. You can:
+- use `await taskExpr` inside another `async func`
+- use `await taskExpr` inside async methods and async lambdas
+- use top-level `await taskExpr` from module code
+
+The hidden `Task<...>` wrapper is compiler-internal, not a source-level type you write in function signatures. In Lesma source, async callables still spell the payload return type and the compiler inserts the task wrapper behind the scenes.
+
+```les
+async func add_pair(a: int, b: int) -> int {
+    let left = await add_one(a)
+    let right = await add_one(b)
+    return left + right
+}
+
+let total = await add_pair(2, 3)
+
+if total != 7 {
+    exit(1)
+}
+```
+
+### Current runtime model
+
+The current async implementation is intentionally small:
+- calling an async function starts that task on the runtime immediately
+- `await` waits on the async runtime instead of locally draining the coroutine
+- top-level `await` runs against the same runtime
+- awaiting a task consumes that task handle
+
+### Current limitations
+
+- `async func extern` is still unsupported
+- `await` is only valid inside an async callable body or at top level
+
 ## Calls
 
 Call with parentheses and comma-separated arguments. Calls can nest:
@@ -90,6 +134,24 @@ let producer = func() -> int {
 
 `return` inside the block returns from the **lambda**, not from an enclosing function.
 
+### Async lambdas
+
+Lambdas also support `async` in both body forms:
+
+```les
+let inc = async func(x: int) => x + 1
+
+let twice = async func(x: int) -> int {
+    return x * 2
+}
+
+let total = await inc(41)
+```
+
+Calling an async lambda produces the same internal task value as any other async callable, so consume its result with `await`.
+
+Like named async functions, generic async lambdas still declare and infer their payload type normally; the internal task wrapper remains an implementation detail.
+
 ### Passing lambdas to other functions
 
 Anywhere a value of type `func(...)` is expected, you can pass a lambda or a named function with a matching signature:
@@ -107,9 +169,8 @@ if apply(triple, 5) != 15 {
 
 ### Limitations (current language)
 
-- **No closures yet:** a lambda may use its **own parameters** and names from **module / import** scope. It **cannot** read or mutate **locals** or **parameters** of an enclosing function (capturing is rejected by the type checker).
 - **No parameter defaults** on lambdas (each parameter needs an explicit type; use a named `func` if you need defaults).
-- **No generic lambdas** (`func<T>(...)`) in this form; use a named generic function instead.
+- Lambdas follow the current capture rules; generic lambdas that capture outer variables are not supported yet.
 - **`let f = func(...) => f(...)`** does not work: the initializer does not see `f` yet (same as other `let` bindings).
 
 ## Next steps

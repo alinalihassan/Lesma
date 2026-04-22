@@ -14,7 +14,7 @@ Reserved identifiers come from the compiler’s keyword table (everything below 
 
 **Control flow:** `if`, `else` (and **`else if`** as two tokens), `match`, `while`, `for`, `break`, `continue`, `return`, `defer` (deferred statements run when the enclosing function or module finishes, **LIFO**—last `defer` first—before the `return` value is evaluated). Example with C **`fopen`/`fclose`**: [Control flow → Defer](/docs/language/control-flow#defer).
 
-**Bindings and declarations:** `let`, `var`, `func` (named functions, **`func(...)`** function types, and **`func(`**…**`) =>`** / **`func(`**…**`) {`** … **`}`** [lambdas](/docs/language/functions#lambdas)), `class`, `enum`, `trait`, `impl`, `type`.
+**Bindings and declarations:** `let`, `var`, `func`, `async` (`async func` for async functions, methods, and lambdas), `class`, `enum`, `trait`, `impl`, `type`. `func` also appears in function types and **`func(`**…**`) =>`** / **`func(`**…**`) {`** … **`}`** [lambdas](/docs/language/functions#lambdas).
 
 **Class and enum members:** `private` (field, method, or constructor visible only in the class that declares it), `static` (member belongs to the type rather than an instance), `overload` (mark a method that **replaces** a superclass method with the same name; without `overload`, reusing the name is an error). See [Classes → Private and overload](/docs/language/classes#private-and-overload).
 
@@ -26,7 +26,7 @@ Reserved identifiers come from the compiler’s keyword table (everything below 
 
 **Optional types:** postfix **`?`** in type position is shorthand for **`T | null`**.
 
-**Expressions:** `and`, `or`, `not`, `in`, `is`, **`is not`** (after `is`), `as`, `??`, **`=>`** (lambda expression body after `func(...)`), `operator`, `super`. **`this`** is reserved; ordinary methods and operators use **`self`** for the receiver ([Classes](/docs/language/classes)).
+**Expressions:** `and`, `or`, `not`, `await`, `in`, `is`, **`is not`** (after `is`), `as`, `??`, **`=>`** (lambda expression body after `func(...)`), `operator`, `super`. **`this`** is reserved; ordinary methods and operators use **`self`** for the receiver ([Classes](/docs/language/classes)).
 
 **User names:** Any other identifier spelling is yours. Types like **`str`** come from the prelude, not the keyword list.
 
@@ -37,7 +37,7 @@ From tight binding to loose (see `Parser.cpp`):
 | Level | Operators |
 | --- | --- |
 | Postfix | **`.`** (member), **`[]`** (subscript). A call **`f(args)`** parses with the callee, then postfix can follow. |
-| Unary | **`-`**, **`!`**, **`not`**, **`*`**, **`&`** (prefix; chains inward). |
+| Unary | **`-`**, **`!`**, **`not`**, **`await`**, **`*`**, **`&`** (prefix; chains inward). |
 | Cast | **`as`** (chains left-to-right). |
 | Power | **`**`** |
 | Multiplicative | **`*`**, **`/`**, **`%`** |
@@ -62,6 +62,8 @@ Common prelude items include: **`print`**, **`input`**, **`exit`**, **`range`**,
 **`range`:** **`range(stop)`** is **`range(1, stop, 1)`** (default start is **1**). Two- and three-argument forms use an **exclusive** stop and optional step; **step 0** yields no iterations.
 
 Some list and string behavior lowers to **compiler intrinsics** that are not part of the everyday language surface. Prefer **`list`** and **`str`** APIs in normal code.
+
+**Async runtime model:** calling an async function, method, or lambda produces an internal task value and starts that task on the runtime immediately. That task wrapper is compiler-internal: source signatures still name only the payload type. `await expr` waits for task completion on the runtime and yields its payload inside async callables and at top level. `async func extern` is not supported.
 
 ## Imports
 

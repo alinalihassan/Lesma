@@ -47,6 +47,10 @@
 #include <llvm/Transforms/IPO/GlobalDCE.h>
 #include <llvm/Transforms/IPO/Inliner.h>
 #include <llvm/Transforms/IPO/StripDeadPrototypes.h>
+#include <llvm/Transforms/Coroutines/CoroCleanup.h>
+#include <llvm/Transforms/Coroutines/CoroEarly.h>
+#include <llvm/Transforms/Coroutines/CoroElide.h>
+#include <llvm/Transforms/Coroutines/CoroSplit.h>
 #include <llvm/Transforms/Scalar/ADCE.h>
 #include <llvm/Transforms/Scalar/DeadStoreElimination.h>
 #include <llvm/Transforms/Scalar/GVN.h>
@@ -60,6 +64,7 @@
 #include <lld/Common/Driver.h>
 
 #include "liblesma/AST/AST.h"
+#include "liblesma/Runtime/AsyncRuntime.h"
 
 #ifdef __APPLE__
 LLD_HAS_DRIVER(macho)
@@ -77,6 +82,10 @@ LLD_HAS_DRIVER(elf)
 using namespace lesma;
 using namespace llvm;
 using namespace llvm::orc;
+
+#ifndef LESMA_ASYNC_RUNTIME_LIBRARY_FILE
+#define LESMA_ASYNC_RUNTIME_LIBRARY_FILE ""
+#endif
 
 namespace {
 
@@ -404,7 +413,6 @@ auto Codegen::initializeTopLevel() -> llvm::Function* {
 
   auto* entry = BasicBlock::Create(theModule->getContext(), "entry", f);
   builder->SetInsertPoint(entry);
-
   if (emitDebugInfo) {
     SMRange span;
     if (parser != nullptr && parser->getAst() != nullptr) {
@@ -435,9 +443,20 @@ auto Codegen::optimize(OptimizationLevel opt) -> void {
     // Strip unused function declarations (e.g. bulk-imported stdlib symbols that are never
     // called) so -O0 IR dumps and object codegen are not dominated by dead declares.
     llvm::PassBuilder pb(&*targetMachine);
+    llvm::LoopAnalysisManager lam;
+    llvm::FunctionAnalysisManager fam;
+    llvm::CGSCCAnalysisManager cgam;
     llvm::ModuleAnalysisManager mam;
+    pb.registerCGSCCAnalyses(cgam);
+    pb.registerFunctionAnalyses(fam);
+    pb.registerLoopAnalyses(lam);
     pb.registerModuleAnalyses(mam);
+    pb.crossRegisterProxies(lam, fam, cgam, mam);
     llvm::ModulePassManager mpm;
+    mpm.addPass(llvm::CoroEarlyPass());
+    mpm.addPass(llvm::createModuleToPostOrderCGSCCPassAdaptor(llvm::CoroSplitPass(false)));
+    mpm.addPass(llvm::createModuleToFunctionPassAdaptor(llvm::CoroElidePass()));
+    mpm.addPass(llvm::CoroCleanupPass());
     mpm.addPass(llvm::StripDeadPrototypesPass());
     mpm.run(*theModule, mam);
     return;
@@ -449,6 +468,17 @@ auto Codegen::optimize(OptimizationLevel opt) -> void {
   llvm::ModuleAnalysisManager mam;
 
   llvm::PassBuilder pb(&*targetMachine);
+  pb.registerPipelineStartEPCallback([](llvm::ModulePassManager& mpm, llvm::OptimizationLevel) {
+    mpm.addPass(llvm::CoroEarlyPass());
+  });
+  pb.registerCGSCCOptimizerLateEPCallback(
+      [](llvm::CGSCCPassManager& cgpm, llvm::OptimizationLevel level) {
+        cgpm.addPass(llvm::CoroSplitPass(level != llvm::OptimizationLevel::O0));
+      });
+  pb.registerOptimizerLastEPCallback(
+      [](llvm::ModulePassManager& mpm, llvm::OptimizationLevel, llvm::ThinOrFullLTOPhase) {
+        mpm.addPass(llvm::CoroCleanupPass());
+      });
 
   pb.registerModuleAnalyses(mam);
   pb.registerCGSCCAnalyses(cgam);
@@ -462,6 +492,7 @@ auto Codegen::optimize(OptimizationLevel opt) -> void {
 
   // Add custom passes to FunctionPassManager
   llvm::FunctionPassManager fpm;
+  fpm.addPass(llvm::CoroElidePass());
   // Split promotable aggregate allocas, then mem2reg: reduces stack traffic and dead lifetime slots
   // left after inlining (e.g. unused this/arg spill allocas in inlined callees).
   fpm.addPass(llvm::SROAPass(llvm::SROAOptions::ModifyCFG));
@@ -472,14 +503,9 @@ auto Codegen::optimize(OptimizationLevel opt) -> void {
   fpm.addPass(llvm::LoopVectorizePass());
   fpm.addPass(llvm::createFunctionToLoopPassAdaptor(std::move(lpm)));
 
-  // Add custom passes to CGSCCPassManager
-  llvm::CGSCCPassManager cgpm;
-  cgpm.addPass(llvm::InlinerPass());
-
   // Add custom pass managers to ModulePassManager
   llvm::ModulePassManager mpm =
       pb.buildModuleOptimizationPipeline(opt, ThinOrFullLTOPhase::FullLTOPreLink);
-  mpm.addPass(llvm::createModuleToPostOrderCGSCCPassAdaptor(std::move(cgpm)));
   mpm.addPass(llvm::createModuleToFunctionPassAdaptor(std::move(fpm)));
   mpm.addPass(llvm::StripDeadPrototypesPass());
   mpm.addPass(llvm::GlobalDCEPass());
@@ -543,7 +569,21 @@ void Codegen::linkObjectFileWithLld(const std::string& objFilename) {
   args.push_back("11.0");  // sdk version
   args.push_back("-L");
   args.push_back("/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/lib");
+  if (std::string_view{LESMA_ASYNC_RUNTIME_LIBRARY_FILE}.size() > 0U) {
+    args.push_back(LESMA_ASYNC_RUNTIME_LIBRARY_FILE);
+    args.push_back("-lc++");
+  }
   args.push_back("-lSystem");
+#elif defined(_WIN32)
+  if (std::string_view{LESMA_ASYNC_RUNTIME_LIBRARY_FILE}.size() > 0U) {
+    args.push_back(LESMA_ASYNC_RUNTIME_LIBRARY_FILE);
+  }
+#else
+  if (std::string_view{LESMA_ASYNC_RUNTIME_LIBRARY_FILE}.size() > 0U) {
+    args.push_back(LESMA_ASYNC_RUNTIME_LIBRARY_FILE);
+    args.push_back("-lstdc++");
+    args.push_back("-lpthread");
+  }
 #endif
 
   // Run the LLD linker using lldMain
@@ -580,12 +620,14 @@ auto Codegen::prepareJit() -> void {
   llvm::Error addModuleErr =
       theJit->addIRModule(ThreadSafeModule(std::move(theModule), *theContext));
   if (addModuleErr) {
+    lesma_async_runtime_shutdown();
     // Concatenate: LLVM error text may contain characters that break fmt::format placeholders.
     throw CodegenError({}, std::string("JIT addIRModule failed: ") +
                                llvmErrorToString(std::move(addModuleErr)));
   }
   Expected<ExecutorAddr> mainFuncOrErr = theJit->lookup(topLevelFunc->getName());
   if (!mainFuncOrErr) {
+    lesma_async_runtime_shutdown();
     throw CodegenError({}, std::string("Couldn't find top-level function '") +
                                topLevelFunc->getName().str() +
                                "': " + llvmErrorToString(mainFuncOrErr.takeError()));
@@ -596,6 +638,7 @@ auto Codegen::prepareJit() -> void {
     for (const std::string& sym : *pendingJitModuleInits) {
       Expected<ExecutorAddr> initAddr = theJit->lookup(sym);
       if (!initAddr) {
+        lesma_async_runtime_shutdown();
         throw CodegenError({}, std::string("JIT could not resolve module initializer ") + sym +
                                    ": " + llvmErrorToString(initAddr.takeError()));
       }
@@ -611,7 +654,14 @@ auto Codegen::executeJit() -> int {
     throw CodegenError({}, "Main function address not found, did you prepare JIT?\n");
   }
 
-  return mainFuncAddress();
+  try {
+    int const exitCode = mainFuncAddress();
+    lesma_async_runtime_shutdown();
+    return exitCode;
+  } catch (...) {
+    lesma_async_runtime_shutdown();
+    throw;
+  }
 }
 
 auto Codegen::run() -> void {
@@ -783,6 +833,7 @@ auto Codegen::run() -> void {
   emitReleaseCurrentArcOwnedSlots();
   llvm::Function* cleanupFn = getOrCreateModuleCleanupFunction();
   if (isMain) {
+    builder->CreateCall(getOrCreateAsyncRuntimeShutdownFunction());
     if (isJit) {
       emitCallPendingJitModuleFinis();
     }

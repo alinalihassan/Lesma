@@ -103,6 +103,8 @@ enum class TokenType : std::uint8_t {
   ENUM,
   ELSE,
   ELSE_IF,
+  ASYNC,
+  AWAIT,
   FALSE_,
   FOR,
   FUNC,

@@ -1,0 +1,25 @@
+from time import sleep
+
+async func write_after(path: str, delay: float, text: str) -> str {
+  sleep(delay)
+  file.write(path.cstr(), text)
+  return text
+}
+
+let path: str = "tests/lesma/success/async_await_sync_point.tmp"
+defer file(path.cstr()).delete()
+
+let task = write_after(path, 0.10, "ready")
+if file(path.cstr()).text() is not null {
+  exit(1)
+}
+
+let result = await task
+if result != "ready" {
+  exit(2)
+}
+
+let contents = file(path.cstr()).text()
+if contents is null or contents as str != "ready" {
+  exit(3)
+}

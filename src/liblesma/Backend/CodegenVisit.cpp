@@ -332,6 +332,8 @@ auto Codegen::defineFunction(lesma::Value* value, const FuncDecl* node, Value* c
     return nullptr;
   };
   currentFunction = value;
+  AsyncCodegenStateSnapshot savedAsyncState = saveAsyncCodegenState();
+  resetAsyncCodegenState();
   deferStack.emplace();
   pushDeferBaseline();
   pushArcOwnedSlotFrame();
@@ -348,6 +350,13 @@ auto Codegen::defineFunction(lesma::Value* value, const FuncDecl* node, Value* c
 
   llvm::DIFile* declFile = moduleDiFile;
   unsigned declLine = 1U;
+  struct AsyncRetainedParam {
+    llvm::Value* slot;
+    llvm::Value* value;
+    lesma::Type* type;
+    bool storesFuncValuePair;
+  };
+  std::vector<AsyncRetainedParam> asyncRetainedParams;
   if (node->getSpan().isValid() && node->getSpan().Start.isValid()) {
     unsigned const bid = sourceManager->FindBufferContainingLoc(node->getSpan().Start);
     if (bid != 0U) {
@@ -389,18 +398,40 @@ auto Codegen::defineFunction(lesma::Value* value, const FuncDecl* node, Value* c
     llvm::Instruction* storeParam = builder->CreateStore(param, ptr);
     emitParameterDebugDeclare(f, ptr, paramName, static_cast<unsigned>(fieldIndex + 1), declFile,
                               declLine, param->getType(), storeParam);
+    if (node->getIsAsync() && field->type != nullptr &&
+        TypeUtils::containsArcManagedValue(field->type)) {
+      asyncRetainedParams.push_back({ptr, param, field->type,
+                                     existingParam != nullptr &&
+                                         existingParam->getStoresFuncValuePair()});
+    }
 
     if (existingParam != nullptr && existingParam->getLlvmValue() == nullptr) {
       existingParam->setType(field->type);
       existingParam->setLlvmValue(ptr);
       existingParam->setCategory(ValueCategory::ADDRESSABLE_STORAGE);
+      if (field->type != nullptr && field->type->is(BaseType::TY_FUNCTION)) {
+        existingParam->setStoresFuncValuePair(true);
+      }
     } else {
       auto symbol = std::make_unique<Value>(field->name, field->type, ptr);
       symbol->setCategory(ValueCategory::ADDRESSABLE_STORAGE);
+      if (field->type != nullptr && field->type->is(BaseType::TY_FUNCTION)) {
+        symbol->setStoresFuncValuePair(true);
+      }
       scope->insertSymbol(std::move(symbol));
     }
 
     fieldIndex++;
+  }
+
+  std::optional<AsyncCoroutineBlocks> asyncBlocks;
+  if (node->getIsAsync()) {
+    for (const auto& retained : asyncRetainedParams) {
+      emitRetainLoadedValue(retained.type, retained.value, retained.storesFuncValuePair);
+      registerArcOwnedSlot(retained.slot, retained.type, retained.storesFuncValuePair);
+    }
+    asyncBlocks = initializeAsyncCoroutine(f, value->getType()->getReturnType(), node->getSpan(),
+                                           "function");
   }
 
   // Vtable pointer is set at the allocation site (`ClassName(...)` / malloc) for the concrete
@@ -409,8 +440,30 @@ auto Codegen::defineFunction(lesma::Value* value, const FuncDecl* node, Value* c
 
   node->getBody()->accept(*this);
 
-  if (llvm::BasicBlock* cur = builder->GetInsertBlock();
-      cur != nullptr && cur->getTerminator() == nullptr && cur->empty()) {
+  auto instrs = deferStack.top();
+  deferStack.pop();
+  deferBaselineStack.pop();
+
+  if (!isReturn) {
+    runDeferredStatements(instrs);
+  }
+
+  if (node->getIsAsync()) {
+    if (llvm::BasicBlock* cur = builder->GetInsertBlock();
+        cur != nullptr && cur->getTerminator() == nullptr) {
+      if (currentAsyncReturnPayloadType != nullptr &&
+          currentAsyncReturnPayloadType->is(BaseType::TY_VOID)) {
+        emitImplicitAsyncVoidCompletion();
+      } else if (cur->empty()) {
+        builder->CreateUnreachable();
+      } else {
+        throw CodegenError(node->getSpan(), "Function {} does not always return a result",
+                           node->getName());
+      }
+    }
+    finalizeAsyncCoroutine(f, *asyncBlocks);
+  } else if (llvm::BasicBlock* cur = builder->GetInsertBlock();
+             cur != nullptr && cur->getTerminator() == nullptr && cur->empty()) {
     lesma::Type* rt = value->getType()->getReturnType();
     if (rt != nullptr && rt->is(BaseType::TY_VOID)) {
       emitReleaseCurrentArcOwnedSlots();
@@ -418,14 +471,6 @@ auto Codegen::defineFunction(lesma::Value* value, const FuncDecl* node, Value* c
     } else {
       builder->CreateUnreachable();
     }
-  }
-
-  auto instrs = deferStack.top();
-  deferStack.pop();
-  deferBaselineStack.pop();
-
-  if (!isReturn) {
-    runDeferredStatements(instrs);
   }
 
   // Check for well-formness of all BBs. In particular, look for
@@ -463,6 +508,7 @@ auto Codegen::defineFunction(lesma::Value* value, const FuncDecl* node, Value* c
   popArcOwnedSlotFrame(false);
 
   currentFunction = nullptr;
+  restoreAsyncCodegenState(savedAsyncState);
 
   // Reset Insert Point to Top Level
   builder->SetInsertPoint(&topLevelFunc->back());
@@ -482,7 +528,36 @@ auto Codegen::remapCodegenTemplateBodyScope(SymbolTable* t) const -> SymbolTable
 
 auto Codegen::defineLambdaFunction(lesma::Value* value, const LambdaExpr* node) -> void {
   SymbolTable* savedScope = scope;
+  auto savedGenerics = currentGenericTypes;
+  Value* savedCurrentFunction = currentFunction;
   scope = value->getBodyScope();
+  if (scope != nullptr && specializationEnvs.contains(value)) {
+    currentGenericTypes = specializationEnvs.at(value);
+    std::unordered_map<SymbolTable*, SymbolTable*> clonedScopeMap;
+    auto clonedRoot = scope->cloneSubtreeForCodegen(savedScope, clonedScopeMap);
+    clonedRoot->remapValueBodyScopesForCodegenClone(clonedScopeMap);
+    scope = savedScope->attachClonedChild(value->getName() + ".specialized", std::move(clonedRoot));
+    codegenTemplateBodyScopeRemap = std::move(clonedScopeMap);
+    for (const auto& [genericName, genericType] : currentGenericTypes) {
+      if (genericType == nullptr) {
+        continue;
+      }
+      bool alreadySeeded = false;
+      for (auto* symbol : scope->getSymbols()) {
+        if (symbol != nullptr && symbol->getName() == genericName) {
+          symbol->setType(genericType);
+          alreadySeeded = true;
+          break;
+        }
+      }
+      if (!alreadySeeded) {
+        auto typeSymbol = std::make_unique<Value>(genericName, genericType);
+        typeSymbol->setCategory(ValueCategory::TYPE_SYMBOL);
+        typeSymbol->setDeclarationKind(ValueDeclarationKind::TYPE_PARAMETER);
+        scope->insertSymbol(std::move(typeSymbol));
+      }
+    }
+  }
   if (scope != nullptr) {
     scope = remapCodegenTemplateBodyScope(scope);
   }
@@ -498,6 +573,8 @@ auto Codegen::defineLambdaFunction(lesma::Value* value, const LambdaExpr* node) 
     return nullptr;
   };
   currentFunction = value;
+  AsyncCodegenStateSnapshot savedAsyncState = saveAsyncCodegenState();
+  resetAsyncCodegenState();
   deferStack.emplace();
   pushDeferBaseline();
   pushArcOwnedSlotFrame();
@@ -560,12 +637,20 @@ auto Codegen::defineLambdaFunction(lesma::Value* value, const LambdaExpr* node) 
     fieldIndex++;
   }
 
+  std::optional<AsyncCoroutineBlocks> asyncBlocks;
+  if (node->getIsAsync()) {
+    asyncBlocks = initializeAsyncCoroutine(f, value->getType()->getReturnType(), node->getSpan(),
+                                           "lambda");
+  }
+
   if (node->isExpressionBody()) {
     node->getExpressionBody()->accept(*this);
     llvm::Value* rv = result != nullptr ? result->getLlvmValue() : nullptr;
     Type* rt = value->getType()->getReturnType();
     flushDeferredFramesForReturn();
-    if (rt != nullptr && rt->is(BaseType::TY_VOID)) {
+    if (node->getIsAsync()) {
+      emitCurrentAsyncReturnValue(node->getSpan(), result, "Async lambda body did not produce a value");
+    } else if (rt != nullptr && rt->is(BaseType::TY_VOID)) {
       emitReleaseCurrentArcOwnedSlots();
       builder->CreateRetVoid();
     } else {
@@ -582,7 +667,11 @@ auto Codegen::defineLambdaFunction(lesma::Value* value, const LambdaExpr* node) 
     node->getBlockBody()->accept(*this);
     if (builder->GetInsertBlock()->getTerminator() == nullptr) {
       Type* rt = value->getType()->getReturnType();
-      if (rt != nullptr && rt->is(BaseType::TY_VOID)) {
+      if (node->getIsAsync() && currentAsyncReturnPayloadType != nullptr &&
+          currentAsyncReturnPayloadType->is(BaseType::TY_VOID)) {
+        flushDeferredFramesForReturn();
+        emitImplicitAsyncVoidCompletion();
+      } else if (rt != nullptr && rt->is(BaseType::TY_VOID)) {
         flushDeferredFramesForReturn();
         emitReleaseCurrentArcOwnedSlots();
         builder->CreateRetVoid();
@@ -590,6 +679,21 @@ auto Codegen::defineLambdaFunction(lesma::Value* value, const LambdaExpr* node) 
         throw CodegenError(node->getSpan(), "Non-void lambda may reach end without returning");
       }
     }
+  }
+
+  if (node->getIsAsync()) {
+    if (llvm::BasicBlock* cur = builder->GetInsertBlock();
+        cur != nullptr && cur->getTerminator() == nullptr) {
+      if (currentAsyncReturnPayloadType != nullptr &&
+          currentAsyncReturnPayloadType->is(BaseType::TY_VOID)) {
+        emitImplicitAsyncVoidCompletion();
+      } else if (cur->empty()) {
+        builder->CreateUnreachable();
+      } else {
+        throw CodegenError(node->getSpan(), "Lambda does not always return a result");
+      }
+    }
+    finalizeAsyncCoroutine(f, *asyncBlocks);
   }
 
   deferStack.pop();
@@ -617,8 +721,11 @@ auto Codegen::defineLambdaFunction(lesma::Value* value, const LambdaExpr* node) 
     throw CodegenError(node->getSpan(), "Invalid specialized lambda\n{}", verifyOutput);
   }
 
+  codegenTemplateBodyScopeRemap.clear();
   scope = savedScope;
-  currentFunction = nullptr;
+  currentGenericTypes = std::move(savedGenerics);
+  currentFunction = savedCurrentFunction;
+  restoreAsyncCodegenState(savedAsyncState);
   builder->SetInsertPoint(&topLevelFunc->back());
   builder->SetCurrentDebugLocation(llvm::DebugLoc());
 }
@@ -631,6 +738,373 @@ auto Codegen::getFuncValuePairLlvmType() -> llvm::StructType* {
         "lesma.funcval");
   }
   return funcValuePairLlvmType;
+}
+
+auto Codegen::isAsyncTaskType(lesma::Type* type) const -> bool {
+  if (type == nullptr) {
+    return false;
+  }
+  if (type->is(BaseType::TY_PTR) && type->getElementType() != nullptr) {
+    return isAsyncTaskType(type->getElementType());
+  }
+  return type->is(BaseType::TY_CLASS) && type->isBuiltinTask();
+}
+
+auto Codegen::getOrCreateAsyncTaskType(lesma::Type* payloadType) -> lesma::Type* {
+  lesma::Type* wrappedPayloadType = wrapNominalReturnAsPointer(payloadType);
+  if (auto it = asyncTaskTypes.find(wrappedPayloadType); it != asyncTaskTypes.end()) {
+    return it->second;
+  }
+  auto taskType = std::make_unique<Type>(BaseType::TY_CLASS);
+  std::string payloadName = wrappedPayloadType != nullptr ? wrappedPayloadType->toString() : "void";
+  taskType->setDisplayName("Task<" + payloadName + ">");
+  taskType->setBuiltinTask(true);
+  taskType->setTaskPayloadType(wrappedPayloadType);
+  lesma::Type* taskTypePtr = cacheType(std::move(taskType));
+  asyncTaskTypes.emplace(wrappedPayloadType, taskTypePtr);
+  return taskTypePtr;
+}
+
+auto Codegen::getAsyncTaskPayloadType(lesma::Type* type) const -> lesma::Type* {
+  if (type == nullptr) {
+    return nullptr;
+  }
+  if (type->is(BaseType::TY_PTR) && type->getElementType() != nullptr) {
+    return getAsyncTaskPayloadType(type->getElementType());
+  }
+  return isAsyncTaskType(type) ? type->getTaskPayloadType() : nullptr;
+}
+
+auto Codegen::finalizeCallableResult(std::unique_ptr<lesma::Value> value)
+    -> std::unique_ptr<lesma::Value> {
+  if (value == nullptr || value->getType() == nullptr || value->getLlvmValue() == nullptr) {
+    return value;
+  }
+  if (getAsyncTaskPayloadType(value->getType()) != nullptr) {
+    builder->CreateCall(getOrCreateAsyncRuntimeStartTaskFunction(), {value->getLlvmValue()});
+  }
+  return value;
+}
+
+auto Codegen::getOrCreateAsyncPromiseLlvmType(lesma::Type* payloadType) -> llvm::StructType* {
+  if (auto it = asyncPromiseTypes.find(payloadType); it != asyncPromiseTypes.end()) {
+    return it->second;
+  }
+  std::vector<llvm::Type*> elementTypes = {builder->getInt1Ty()};
+  std::string payloadName = "void";
+  if (payloadType != nullptr && !payloadType->is(BaseType::TY_VOID)) {
+    elementTypes.push_back(getStoredAggregateFieldLlvmType(payloadType));
+    payloadName = MangleUtils::getTypeMangledName({}, payloadType);
+  }
+  auto* promiseType = llvm::StructType::create(
+      theModule->getContext(), elementTypes, "lesma.async.promise." + payloadName, false);
+  asyncPromiseTypes[payloadType] = promiseType;
+  return promiseType;
+}
+
+auto Codegen::saveAsyncCodegenState() const -> AsyncCodegenStateSnapshot {
+  return AsyncCodegenStateSnapshot{
+      .coroHandle = currentAsyncCoroHandle,
+      .promisePtr = currentAsyncPromisePtr,
+      .returnBlock = currentAsyncReturnBlock,
+      .returnPayloadType = currentAsyncReturnPayloadType,
+  };
+}
+
+auto Codegen::restoreAsyncCodegenState(const AsyncCodegenStateSnapshot& state) -> void {
+  currentAsyncCoroHandle = state.coroHandle;
+  currentAsyncPromisePtr = state.promisePtr;
+  currentAsyncReturnBlock = state.returnBlock;
+  currentAsyncReturnPayloadType = state.returnPayloadType;
+}
+
+auto Codegen::resetAsyncCodegenState() -> void {
+  currentAsyncCoroHandle = nullptr;
+  currentAsyncPromisePtr = nullptr;
+  currentAsyncReturnBlock = nullptr;
+  currentAsyncReturnPayloadType = nullptr;
+}
+
+auto Codegen::getCoroutineIntrinsic(llvm::Intrinsic::ID id,
+                                    llvm::ArrayRef<llvm::Type*> overloadTypes)
+    -> llvm::FunctionCallee {
+  llvm::FunctionCallee callee =
+      llvm::Intrinsic::getOrInsertDeclaration(theModule.get(), id, overloadTypes);
+  if (auto* fn = llvm::dyn_cast<llvm::Function>(callee.getCallee())) {
+    fn->setAttributes(llvm::AttributeList());
+  }
+  return callee;
+}
+
+auto Codegen::initializeAsyncCoroutine(llvm::Function* f, lesma::Type* callableReturnType,
+                                       llvm::SMRange span, llvm::StringRef callableKind)
+    -> AsyncCoroutineBlocks {
+  currentAsyncReturnPayloadType = getAsyncTaskPayloadType(callableReturnType);
+  if (currentAsyncReturnPayloadType == nullptr) {
+    throw CodegenError(span, "Async {} is missing an internal task return type",
+                       callableKind.str());
+  }
+  auto* promiseTy = getOrCreateAsyncPromiseLlvmType(currentAsyncReturnPayloadType);
+  AsyncCoroutineBlocks blocks{
+      .suspendBlock = llvm::BasicBlock::Create(theModule->getContext(), "async.suspend", f),
+      .resumeBlock = llvm::BasicBlock::Create(theModule->getContext(), "async.resume", f),
+      .cleanupBlock = llvm::BasicBlock::Create(theModule->getContext(), "async.cleanup", f),
+      .trapBlock = llvm::BasicBlock::Create(theModule->getContext(), "async.trap", f),
+      .dynAllocBlock = llvm::BasicBlock::Create(theModule->getContext(), "async.dyn.alloc", f),
+      .coroBeginBlock = llvm::BasicBlock::Create(theModule->getContext(), "async.coro.begin", f),
+  };
+  currentAsyncReturnBlock = llvm::BasicBlock::Create(theModule->getContext(), "async.final", f);
+  currentAsyncPromisePtr = createAllocaInEntry(f, promiseTy, "async.promise");
+  auto* nullPtr = llvm::ConstantPointerNull::get(builder->getPtrTy());
+  auto coroIdFn = getCoroutineIntrinsic(llvm::Intrinsic::coro_id);
+  blocks.coroId =
+      builder->CreateCall(coroIdFn,
+                          {llvm::ConstantInt::get(builder->getInt32Ty(), 0), currentAsyncPromisePtr,
+                           nullPtr, nullPtr},
+                          "async.coro.id");
+  auto coroAllocFn = getCoroutineIntrinsic(llvm::Intrinsic::coro_alloc);
+  llvm::Value* needsDynAlloc = builder->CreateCall(coroAllocFn, {blocks.coroId}, "async.need.alloc");
+  llvm::BasicBlock* entry = builder->GetInsertBlock();
+  if (entry == nullptr) {
+    throw CodegenError(span, "Internal error: async {} has no active entry block", callableKind.str());
+  }
+  builder->CreateCondBr(needsDynAlloc, blocks.dynAllocBlock, blocks.coroBeginBlock);
+
+  builder->SetInsertPoint(blocks.dynAllocBlock);
+  auto coroSizeFn = getCoroutineIntrinsic(llvm::Intrinsic::coro_size, {builder->getInt64Ty()});
+  llvm::Value* coroSize = builder->CreateCall(coroSizeFn, {}, "async.coro.size");
+  llvm::Value* coroMem = emitMalloc(coroSize, "async.coro.mem");
+  builder->CreateBr(blocks.coroBeginBlock);
+
+  builder->SetInsertPoint(blocks.coroBeginBlock);
+  auto* coroMemPhi = builder->CreatePHI(builder->getPtrTy(), 2, "async.coro.alloc");
+  coroMemPhi->addIncoming(nullPtr, entry);
+  coroMemPhi->addIncoming(coroMem, blocks.dynAllocBlock);
+  auto coroBeginFn = getCoroutineIntrinsic(llvm::Intrinsic::coro_begin);
+  currentAsyncCoroHandle =
+      builder->CreateCall(coroBeginFn, {blocks.coroId, coroMemPhi}, "async.coro.handle");
+  emitCurrentAsyncReadyFlag(currentAsyncReturnPayloadType, false, "async.promise.ready.ptr");
+  llvm::Value* resumeHelper =
+      builder->CreateBitCast(getOrCreateAsyncResumeHelperFunction(), builder->getPtrTy());
+  llvm::Value* doneHelper =
+      builder->CreateBitCast(getOrCreateAsyncDoneHelperFunction(), builder->getPtrTy());
+  llvm::Value* destroyHelper =
+      builder->CreateBitCast(getOrCreateAsyncDestroyHelperFunction(), builder->getPtrTy());
+  builder->CreateCall(getOrCreateAsyncRuntimeRegisterTaskFunction(),
+                      {currentAsyncCoroHandle, resumeHelper, doneHelper, destroyHelper});
+
+  auto initialSuspendFn = getCoroutineIntrinsic(llvm::Intrinsic::coro_suspend);
+  llvm::Value* initialSuspend =
+      builder->CreateCall(initialSuspendFn,
+                          {llvm::ConstantTokenNone::get(theModule->getContext()),
+                           llvm::ConstantInt::getFalse(builder->getInt1Ty())},
+                          "async.initial.suspend");
+  auto* initialSwitch = builder->CreateSwitch(initialSuspend, blocks.suspendBlock, 2);
+  initialSwitch->addCase(llvm::ConstantInt::get(builder->getInt8Ty(), 0), blocks.resumeBlock);
+  initialSwitch->addCase(llvm::ConstantInt::get(builder->getInt8Ty(), 1), blocks.cleanupBlock);
+  builder->SetInsertPoint(blocks.resumeBlock);
+  return blocks;
+}
+
+auto Codegen::emitCurrentAsyncReadyFlag(lesma::Type* payloadType, bool isReady,
+                                        llvm::StringRef name) -> void {
+  auto* promiseTy = getOrCreateAsyncPromiseLlvmType(payloadType);
+  llvm::Value* readyPtr = builder->CreateStructGEP(promiseTy, currentAsyncPromisePtr, 0, name);
+  builder->CreateStore(llvm::ConstantInt::get(builder->getInt1Ty(), isReady), readyPtr);
+}
+
+auto Codegen::emitCurrentAsyncReturnValue(llvm::SMRange span, std::unique_ptr<lesma::Value>& value,
+                                          llvm::StringRef missingValueMessage) -> void {
+  if (currentAsyncReturnPayloadType == nullptr || currentAsyncPromisePtr == nullptr ||
+      currentAsyncReturnBlock == nullptr) {
+    throw CodegenError(span, "Internal error: async return outside initialized coroutine");
+  }
+  emitCurrentAsyncReadyFlag(currentAsyncReturnPayloadType, true, "async.promise.ready.ptr");
+  if (currentAsyncReturnPayloadType->is(BaseType::TY_VOID)) {
+    emitReleaseCurrentArcOwnedSlots();
+    builder->CreateBr(currentAsyncReturnBlock);
+    return;
+  }
+  if (value == nullptr || value->getType() == nullptr) {
+    throw CodegenError(span, std::string(missingValueMessage));
+  }
+  if (!value->getType()->isEqual(currentAsyncReturnPayloadType)) {
+    value = cast(span, value.get(), currentAsyncReturnPayloadType);
+  }
+  llvm::Value* payloadValue = value->getLlvmValue();
+  bool storesFuncValuePair = value->getStoresFuncValuePair();
+  if (storesFuncValuePair && payloadValue != nullptr && payloadValue->getType()->isPointerTy()) {
+    payloadValue = builder->CreateLoad(getFuncValuePairLlvmType(), payloadValue, "async.ret.fn");
+  }
+  if (payloadValue == nullptr) {
+    throw CodegenError(span, "Async return value has no LLVM payload");
+  }
+  if (!value->getArcOwnedValue() && TypeUtils::containsArcManagedValue(currentAsyncReturnPayloadType)) {
+    emitRetainLoadedValue(currentAsyncReturnPayloadType, payloadValue, storesFuncValuePair);
+  }
+  auto* promiseTy = getOrCreateAsyncPromiseLlvmType(currentAsyncReturnPayloadType);
+  llvm::Value* payloadPtr =
+      builder->CreateStructGEP(promiseTy, currentAsyncPromisePtr, 1, "async.promise.payload.ptr");
+  builder->CreateStore(payloadValue, payloadPtr);
+  emitReleaseCurrentArcOwnedSlots();
+  builder->CreateBr(currentAsyncReturnBlock);
+}
+
+auto Codegen::emitImplicitAsyncVoidCompletion() -> void {
+  if (currentAsyncReturnPayloadType == nullptr || !currentAsyncReturnPayloadType->is(BaseType::TY_VOID)) {
+    return;
+  }
+  emitCurrentAsyncReadyFlag(currentAsyncReturnPayloadType, true, "async.promise.ready");
+  emitReleaseCurrentArcOwnedSlots();
+  builder->CreateBr(currentAsyncReturnBlock);
+}
+
+auto Codegen::finalizeAsyncCoroutine(llvm::Function* f, const AsyncCoroutineBlocks& blocks) -> void {
+  builder->SetInsertPoint(currentAsyncReturnBlock);
+  auto finalSuspendFn = getCoroutineIntrinsic(llvm::Intrinsic::coro_suspend);
+  llvm::Value* finalSuspend =
+      builder->CreateCall(finalSuspendFn,
+                          {llvm::ConstantTokenNone::get(theModule->getContext()),
+                           llvm::ConstantInt::getTrue(builder->getInt1Ty())},
+                          "async.final.suspend");
+  auto* finalSwitch = builder->CreateSwitch(finalSuspend, blocks.suspendBlock, 2);
+  finalSwitch->addCase(llvm::ConstantInt::get(builder->getInt8Ty(), 0), blocks.trapBlock);
+  finalSwitch->addCase(llvm::ConstantInt::get(builder->getInt8Ty(), 1), blocks.cleanupBlock);
+
+  builder->SetInsertPoint(blocks.cleanupBlock);
+  if (currentAsyncReturnPayloadType != nullptr &&
+      !currentAsyncReturnPayloadType->is(BaseType::TY_VOID) &&
+      TypeUtils::containsArcManagedValue(currentAsyncReturnPayloadType)) {
+    auto* promiseTy = getOrCreateAsyncPromiseLlvmType(currentAsyncReturnPayloadType);
+    llvm::Value* readyPtr =
+        builder->CreateStructGEP(promiseTy, currentAsyncPromisePtr, 0, "async.cleanup.ready.ptr");
+    llvm::Value* ready =
+        builder->CreateLoad(builder->getInt1Ty(), readyPtr, "async.cleanup.ready");
+    auto* releaseBlock =
+        llvm::BasicBlock::Create(theModule->getContext(), "async.cleanup.arc.release", f);
+    auto* cleanupArcDoneBlock =
+        llvm::BasicBlock::Create(theModule->getContext(), "async.cleanup.arc.done", f);
+    builder->CreateCondBr(ready, releaseBlock, cleanupArcDoneBlock);
+
+    builder->SetInsertPoint(releaseBlock);
+    llvm::Value* payloadPtr = builder->CreateStructGEP(
+        promiseTy, currentAsyncPromisePtr, 1, "async.cleanup.payload.ptr");
+    llvm::Value* payloadValue = builder->CreateLoad(
+        getStoredAggregateFieldLlvmType(currentAsyncReturnPayloadType), payloadPtr,
+        "async.cleanup.payload");
+    emitReleaseLoadedValue(currentAsyncReturnPayloadType, payloadValue,
+                           currentAsyncReturnPayloadType->is(BaseType::TY_FUNCTION));
+    builder->CreateBr(cleanupArcDoneBlock);
+
+    builder->SetInsertPoint(cleanupArcDoneBlock);
+  }
+  auto coroFreeFn = getCoroutineIntrinsic(llvm::Intrinsic::coro_free);
+  llvm::Value* freeMem =
+      builder->CreateCall(coroFreeFn, {blocks.coroId, currentAsyncCoroHandle}, "async.coro.free");
+  llvm::Value* hasFreeMem =
+      builder->CreateICmpNE(freeMem, llvm::ConstantPointerNull::get(builder->getPtrTy()));
+  auto* freeBlock = llvm::BasicBlock::Create(theModule->getContext(), "async.free.mem", f);
+  auto* cleanupDoneBlock =
+      llvm::BasicBlock::Create(theModule->getContext(), "async.cleanup.done", f);
+  builder->CreateCondBr(hasFreeMem, freeBlock, cleanupDoneBlock);
+
+  builder->SetInsertPoint(freeBlock);
+  emitFree(freeMem);
+  builder->CreateBr(cleanupDoneBlock);
+
+  builder->SetInsertPoint(cleanupDoneBlock);
+  builder->CreateBr(blocks.suspendBlock);
+
+  builder->SetInsertPoint(blocks.trapBlock);
+  auto* trapFn = llvm::Intrinsic::getOrInsertDeclaration(theModule.get(), llvm::Intrinsic::trap, {});
+  builder->CreateCall(trapFn, {});
+  builder->CreateUnreachable();
+
+  builder->SetInsertPoint(blocks.suspendBlock);
+  auto coroEndFn = getCoroutineIntrinsic(llvm::Intrinsic::coro_end);
+  builder->CreateCall(coroEndFn,
+                      {currentAsyncCoroHandle, llvm::ConstantInt::getFalse(builder->getInt1Ty()),
+                       llvm::ConstantTokenNone::get(theModule->getContext())});
+  builder->CreateRet(currentAsyncCoroHandle);
+}
+
+auto Codegen::emitAsyncTaskPromisePointer(llvm::Value* taskHandle, lesma::Type* taskType,
+                                          bool fromCaller) -> llvm::Value* {
+  lesma::Type* payloadType = getAsyncTaskPayloadType(taskType);
+  if (payloadType == nullptr) {
+    throw CodegenError({}, "Expected async task handle");
+  }
+  auto* promiseTy = getOrCreateAsyncPromiseLlvmType(payloadType);
+  auto promiseFn = getCoroutineIntrinsic(llvm::Intrinsic::coro_promise);
+  unsigned const align = theModule->getDataLayout().getABITypeAlign(promiseTy).value();
+  llvm::Value* rawPtr =
+      builder->CreateCall(promiseFn,
+                          {taskHandle, llvm::ConstantInt::get(builder->getInt32Ty(), align),
+                           llvm::ConstantInt::get(builder->getInt1Ty(), fromCaller)},
+                          "task.promise.raw");
+  return builder->CreateBitCast(rawPtr, builder->getPtrTy(), "task.promise");
+}
+
+auto Codegen::emitDrainAsyncTask(llvm::SMRange span, std::unique_ptr<lesma::Value> taskValue,
+                                 bool destroyTask) -> std::unique_ptr<lesma::Value> {
+  if (taskValue == nullptr) {
+    throw CodegenError(span, "Expected async task value");
+  }
+  llvm::Value* consumedTaskSlot = nullptr;
+  if (taskValue->getCategory() == ValueCategory::ADDRESSABLE_STORAGE) {
+    consumedTaskSlot = taskValue->getLlvmValue();
+    taskValue = materializeSymbolValue(taskValue.get());
+  }
+  lesma::Type* taskType = taskValue->getType();
+  lesma::Type* payloadType = getAsyncTaskPayloadType(taskType);
+  if (payloadType == nullptr || taskValue->getLlvmValue() == nullptr) {
+    throw CodegenError(span, "Expected async task value, got type {} with {} LLVM value",
+                       taskType != nullptr ? taskType->toString() : "<null>",
+                       taskValue->getLlvmValue() != nullptr ? "a" : "no");
+  }
+
+  llvm::Value* taskHandle = taskValue->getLlvmValue();
+  builder->CreateCall(getOrCreateAsyncRuntimeWaitTaskFunction(), {taskHandle});
+  if (payloadType->is(BaseType::TY_VOID)) {
+    if (destroyTask) {
+      if (consumedTaskSlot != nullptr) {
+        builder->CreateStore(llvm::ConstantPointerNull::get(builder->getPtrTy()), consumedTaskSlot);
+      }
+      builder->CreateCall(getOrCreateAsyncRuntimeReleaseTaskFunction(), {taskHandle});
+      auto coroDestroyFn = getCoroutineIntrinsic(llvm::Intrinsic::coro_destroy);
+      builder->CreateCall(coroDestroyFn, {taskHandle});
+    }
+    return std::make_unique<Value>("",
+                                   cacheType(std::make_unique<Type>(BaseType::TY_VOID,
+                                                                    builder->getVoidTy())),
+                                   nullptr);
+  }
+
+  auto* promiseTy = getOrCreateAsyncPromiseLlvmType(payloadType);
+  llvm::Value* promisePtr = emitAsyncTaskPromisePointer(taskHandle, taskType, false);
+  llvm::Value* payloadPtr = builder->CreateStructGEP(promiseTy, promisePtr, 1, "task.payload.ptr");
+  llvm::Value* payloadValue =
+      builder->CreateLoad(getStoredAggregateFieldLlvmType(payloadType), payloadPtr, "task.payload");
+  bool const payloadStoresFuncValuePair = payloadType->is(BaseType::TY_FUNCTION);
+  if (destroyTask) {
+    if (TypeUtils::containsArcManagedValue(payloadType)) {
+      emitRetainLoadedValue(payloadType, payloadValue, payloadStoresFuncValuePair);
+    }
+    if (consumedTaskSlot != nullptr) {
+      builder->CreateStore(llvm::ConstantPointerNull::get(builder->getPtrTy()), consumedTaskSlot);
+    }
+    builder->CreateCall(getOrCreateAsyncRuntimeReleaseTaskFunction(), {taskHandle});
+    auto coroDestroyFn = getCoroutineIntrinsic(llvm::Intrinsic::coro_destroy);
+    builder->CreateCall(coroDestroyFn, {taskHandle});
+  }
+  auto out = std::make_unique<Value>("", payloadType, payloadValue);
+  if (payloadStoresFuncValuePair) {
+    out->setStoresFuncValuePair(true);
+  }
+  if (destroyTask && TypeUtils::containsArcManagedValue(payloadType)) {
+    out->setArcOwnedValue(true);
+  }
+  return out;
 }
 
 auto Codegen::visit(const Statement* node) -> void {
@@ -662,6 +1136,9 @@ namespace {
     return typeContainsUnboundGenericImpl(type->getElementType(), active);
   }
   if (type->is(BaseType::TY_CLASS)) {
+    if (type->isBuiltinTask()) {
+      return typeContainsUnboundGenericImpl(type->getTaskPayloadType(), active);
+    }
     if (active.contains(type)) {
       return false;
     }
@@ -2493,7 +2970,8 @@ auto Codegen::declareSynthesizedClassConstructor(const Class* astNode, lesma::Ty
   std::vector<llvm::Type*> paramLLVMTypes;
   paramLLVMTypes.reserve(paramTypes.size());
   for (auto* pt : paramTypes) {
-    paramLLVMTypes.push_back(pt->getLlvmType());
+    paramLLVMTypes.push_back(pt->is(BaseType::TY_FUNCTION) ? getFuncValuePairLlvmType()
+                                                           : pt->getLlvmType());
   }
   llvm::FunctionType* llvmFnTy = FunctionType::get(builder->getVoidTy(), paramLLVMTypes, false);
   Function* f = Function::Create(llvmFnTy, linkage, mangledName, *theModule);
@@ -2522,6 +3000,9 @@ auto Codegen::declareSynthesizedClassConstructor(const Class* astNode, lesma::Ty
       auto ps = std::make_unique<Value>(v->getIdentifier()->getValue(), paramTypes[1U + reqIdx]);
       ps->setCategory(ValueCategory::ADDRESSABLE_STORAGE);
       ps->setDeclarationKind(ValueDeclarationKind::PARAMETER);
+      if (paramTypes[1U + reqIdx] != nullptr && paramTypes[1U + reqIdx]->is(BaseType::TY_FUNCTION)) {
+        ps->setStoresFuncValuePair(true);
+      }
       bodyScope->insertSymbol(std::move(ps));
       reqIdx++;
     }
@@ -2934,12 +3415,19 @@ auto Codegen::visit(const FuncDecl* node) -> void {
     lesma::Type* paramType = typeResult->getType();
     getOrCreateLlvmType(paramType);
     paramTypes.push_back(paramType);
-    paramLLVMTypes.push_back(paramType->getLlvmType());
+    paramLLVMTypes.push_back(paramType->is(BaseType::TY_FUNCTION) ? getFuncValuePairLlvmType()
+                                                                  : paramType->getLlvmType());
     fields.push_back(std::make_unique<Field>(param->name, paramType, std::move(defaultValResult)));
   }
 
-  node->getReturnType()->accept(*this);
-  lesma::Type* returnType = wrapNominalReturnAsPointer(result->getType());
+  lesma::Type* returnType = nullptr;
+  if (node->getIsAsync() && node->getResolvedSymbol() != nullptr &&
+      node->getResolvedSymbol()->getType() != nullptr) {
+    returnType = node->getResolvedSymbol()->getType()->getReturnType();
+  } else {
+    node->getReturnType()->accept(*this);
+    returnType = wrapNominalReturnAsPointer(result->getType());
+  }
   getOrCreateLlvmType(returnType);
 
   lesma::Value* existingFunc =
@@ -3028,6 +3516,9 @@ auto Codegen::visit(const FuncDecl* node) -> void {
   llvm::FunctionType* funcType =
       FunctionType::get(llvmReturnType, paramLLVMTypes, node->getVarArgs());
   Function* f = Function::Create(funcType, linkage, mangledName, *theModule);
+  if (node->getIsAsync()) {
+    f->addFnAttr(llvm::Attribute::PresplitCoroutine);
+  }
   attachFunctionDebugInfo(f, node->getName(), mangledName, node->getSpan(), linkage, false);
   auto loweredType = std::make_unique<Type>(BaseType::TY_FUNCTION, funcType, std::move(fields));
   loweredType->setReturnType(returnType);
@@ -3142,7 +3633,8 @@ auto Codegen::visit(const ExternFuncDecl* node) -> void {
     lesma::Type* paramType = typeResult->getType();
     getOrCreateLlvmType(paramType);
     paramTypes.push_back(paramType);
-    paramLLVMTypes.push_back(paramType->getLlvmType());
+    paramLLVMTypes.push_back(paramType->is(BaseType::TY_FUNCTION) ? getFuncValuePairLlvmType()
+                                                                  : paramType->getLlvmType());
     fields.push_back(std::make_unique<Field>(param->name, paramType, std::move(defaultValResult)));
   }
 
@@ -3169,8 +3661,10 @@ auto Codegen::visit(const ExternFuncDecl* node) -> void {
   if (theModule->getFunction(node->getName()) != nullptr) {
     f = theModule->getFunction(node->getName());
   } else {
-    llvm::Type* llvmReturnType =
-        retType->is(BaseType::TY_CLASS) ? builder->getPtrTy() : retType->getLlvmType();
+    llvm::Type* llvmReturnType = retType->is(BaseType::TY_FUNCTION)
+                                     ? getFuncValuePairLlvmType()
+                                 : retType->is(BaseType::TY_CLASS) ? builder->getPtrTy()
+                                                                   : retType->getLlvmType();
     FunctionType* ft = FunctionType::get(llvmReturnType, paramLLVMTypes, node->getVarArgs());
     f = llvm::cast<Function>(theModule->getOrInsertFunction(node->getName(), ft).getCallee());
     if (node->isExported()) {
@@ -3385,16 +3879,17 @@ auto Codegen::visit(const Assignment* node) -> void {
   }
 
   node->getRightHandSide()->accept(*this);
-  if (lhs->getStoresFuncValuePair() && result != nullptr && result->getStoresFuncValuePair()) {
+  lesma::Type* directStoreType = isPtr ? lhs->getType()->getElementType() : lhs->getType();
+  if (directStoreType != nullptr && directStoreType->is(BaseType::TY_FUNCTION) && result != nullptr) {
     llvm::StructType* pt = getFuncValuePairLlvmType();
     llvm::Value* rhsAgg = result->getLlvmValue();
     if (rhsAgg->getType()->isPointerTy()) {
       rhsAgg = builder->CreateLoad(pt, rhsAgg, "fnval.assign");
     }
     if (!result->getArcOwnedValue()) {
-      emitRetainLoadedValue(lhs->getType(), rhsAgg, true);
+      emitRetainLoadedValue(directStoreType, rhsAgg, true);
     }
-    emitReleaseLoadedValue(lhs->getType(),
+    emitReleaseLoadedValue(directStoreType,
                            builder->CreateLoad(pt, lhs->getLlvmValue(), "fnval.old"), true);
     builder->CreateStore(rhsAgg, lhs->getLlvmValue());
     lhs->setClosureCalleeUsesEnvParameter(result->getClosureCalleeUsesEnvParameter());
@@ -3405,8 +3900,8 @@ auto Codegen::visit(const Assignment* node) -> void {
   switch (node->getOperator()) {
   case TokenType::EQUAL: {
     auto value = cast(node->getSpan(), result.get(),
-                      isPtr ? lhs->getType()->getElementType() : lhs->getType());
-    lesma::Type* storeType = isPtr ? lhs->getType()->getElementType() : lhs->getType();
+                     directStoreType);
+    lesma::Type* storeType = directStoreType;
     if (!value->getArcOwnedValue() && TypeUtils::containsArcManagedValue(storeType)) {
       emitRetainLoadedValue(storeType, value->getLlvmValue(), lhs->getStoresFuncValuePair());
     }
@@ -3478,6 +3973,24 @@ auto Codegen::visit(const Return* node) -> void {
   flushDeferredFramesForReturn();
 
   isReturn = true;
+
+  if (lesma::Type* asyncPayloadType = getAsyncTaskPayloadType(currentFunction->getType()->getReturnType());
+      asyncPayloadType != nullptr) {
+    if (node->getValue() == nullptr) {
+      if (!asyncPayloadType->is(BaseType::TY_VOID)) {
+        throw CodegenError(node->getSpan(),
+                           "Return type does not match the function return type, expected {}, "
+                           "actual void",
+                           asyncPayloadType->toString());
+      }
+      emitImplicitAsyncVoidCompletion();
+      return;
+    }
+
+    node->getValue()->accept(*this);
+    emitCurrentAsyncReturnValue(node->getSpan(), result, "Async return did not produce a value");
+    return;
+  }
 
   if (node->getValue() == nullptr) {
     if (currentFunction->getType()->getReturnType()->is(BaseType::TY_VOID)) {
@@ -3987,10 +4500,13 @@ auto Codegen::declareOrDefineSyntheticEnumMethod(lesma::Type* enumType, const En
   paramLLVMTypes.reserve(functionFields.size());
   for (Field* field : functionFields) {
     getOrCreateLlvmType(field->type);
-    paramLLVMTypes.push_back(field->type->getLlvmType());
+    paramLLVMTypes.push_back(field->type->is(BaseType::TY_FUNCTION) ? getFuncValuePairLlvmType()
+                                                                    : field->type->getLlvmType());
   }
-  llvm::Type* llvmReturnType =
-      returnType->is(BaseType::TY_PTR) ? builder->getPtrTy() : returnType->getLlvmType();
+  llvm::Type* llvmReturnType = returnType->is(BaseType::TY_FUNCTION)
+                                   ? getFuncValuePairLlvmType()
+                               : returnType->is(BaseType::TY_PTR) ? builder->getPtrTy()
+                                                                  : returnType->getLlvmType();
   std::string mangledName =
       getMangledName(astNode->getSpan(), name, lookupParamTypes, selfSymbol != nullptr);
   llvm::FunctionType* functionType = FunctionType::get(llvmReturnType, paramLLVMTypes, false);
@@ -4104,7 +4620,8 @@ auto Codegen::visit(const LambdaExpr* node) -> void {
   }
   for (Field* field : fields) {
     getOrCreateLlvmType(field->type);
-    paramLLVMTypes.push_back(field->type->getLlvmType());
+    paramLLVMTypes.push_back(field->type->is(BaseType::TY_FUNCTION) ? getFuncValuePairLlvmType()
+                                                                    : field->type->getLlvmType());
   }
   Type* retType = fnType->getReturnType();
   if (retType == nullptr) {
@@ -4112,13 +4629,18 @@ auto Codegen::visit(const LambdaExpr* node) -> void {
     fnType->setReturnType(retType);
   }
   getOrCreateLlvmType(retType);
-  llvm::Type* llvmReturnType = retType->is(BaseType::TY_CLASS) || retType->is(BaseType::TY_PTR)
+  llvm::Type* llvmReturnType = retType->is(BaseType::TY_FUNCTION)
+                                   ? getFuncValuePairLlvmType()
+                               : retType->is(BaseType::TY_CLASS) || retType->is(BaseType::TY_PTR)
                                    ? builder->getPtrTy()
                                    : retType->getLlvmType();
   std::string const lambdaName = resolved->getName();
   llvm::FunctionType* llvmFnType = FunctionType::get(llvmReturnType, paramLLVMTypes, false);
   Function* f =
       Function::Create(llvmFnType, llvm::GlobalValue::PrivateLinkage, lambdaName, *theModule);
+  if (node->getIsAsync()) {
+    f->addFnAttr(llvm::Attribute::PresplitCoroutine);
+  }
   resolved->setLlvmValue(f);
   resolved->setMangledName(lambdaName);
   resolved->setClosureCalleeUsesEnvParameter(!caps.empty());
@@ -4126,10 +4648,12 @@ auto Codegen::visit(const LambdaExpr* node) -> void {
   llvm::BasicBlock* resumeBlock = builder->GetInsertBlock();
   SymbolTable* savedScope = scope;
   Value* savedCurrentFunction = currentFunction;
+  AsyncCodegenStateSnapshot savedAsyncState = saveAsyncCodegenState();
   scope = resolved->getBodyScope() != nullptr
               ? remapCodegenTemplateBodyScope(resolved->getBodyScope())
               : savedScope;
   currentFunction = resolved;
+  resetAsyncCodegenState();
   deferStack.emplace();
   pushDeferBaseline();
   pushArcOwnedSlotFrame();
@@ -4141,6 +4665,14 @@ auto Codegen::visit(const LambdaExpr* node) -> void {
   if (!caps.empty()) {
     llvm::Argument* envArg = f->getArg(argIdx++);
     envArg->setName("__env");
+    if (node->getIsAsync()) {
+      llvm::Function* parentFct = builder->GetInsertBlock()->getParent();
+      llvm::AllocaInst* envAlloca = createAllocaInEntry(parentFct, envArg->getType(), "__env.arc");
+      builder->CreateStore(envArg, envAlloca);
+      // Detached async lambdas can outlive the caller that created the closure env.
+      emitArcRetain(envArg);
+      registerRawArcOwnedSlot(envAlloca);
+    }
     llvm::Value* typedEnv = builder->CreateBitCast(
         envArg, llvm::PointerType::get(envStructTy->getContext(), 0U), "env.ptr");
     SymbolTable* body = resolved->getBodyScope() != nullptr
@@ -4165,6 +4697,10 @@ auto Codegen::visit(const LambdaExpr* node) -> void {
       llvm::AllocaInst* capAlloca =
           createAllocaInEntry(parentFct, loaded->getType(), outer->getName() + ".cap");
       builder->CreateStore(loaded, capAlloca);
+      if (node->getIsAsync() && TypeUtils::containsArcManagedValue(outerTy)) {
+        emitRetainLoadedValue(outerTy, loaded, outer->getStoresFuncValuePair());
+        registerArcOwnedSlot(capAlloca, outerTy, outer->getStoresFuncValuePair());
+      }
       shadow->setLlvmValue(capAlloca);
       shadow->setCategory(ValueCategory::ADDRESSABLE_STORAGE);
     }
@@ -4180,14 +4716,33 @@ auto Codegen::visit(const LambdaExpr* node) -> void {
     llvm::Function* parentFct = builder->GetInsertBlock()->getParent();
     llvm::AllocaInst* alloca = createAllocaInEntry(parentFct, arg->getType(), field->name);
     builder->CreateStore(arg, alloca);
+    if (node->getIsAsync() && field->type != nullptr &&
+        TypeUtils::containsArcManagedValue(field->type)) {
+      emitRetainLoadedValue(field->type, arg,
+                            paramSymbol != nullptr && paramSymbol->getStoresFuncValuePair());
+      registerArcOwnedSlot(alloca, field->type,
+                           paramSymbol != nullptr && paramSymbol->getStoresFuncValuePair());
+    }
     paramSymbol->setLlvmValue(alloca);
+    if (field->type != nullptr && field->type->is(BaseType::TY_FUNCTION)) {
+      paramSymbol->setStoresFuncValuePair(true);
+    }
+  }
+
+  std::optional<AsyncCoroutineBlocks> asyncBlocks;
+  if (node->getIsAsync()) {
+    asyncBlocks = initializeAsyncCoroutine(f, resolved->getType()->getReturnType(), node->getSpan(),
+                                           "lambda");
   }
 
   if (node->isExpressionBody()) {
     node->getExpressionBody()->accept(*this);
     llvm::Value* rv = result != nullptr ? result->getLlvmValue() : nullptr;
     flushDeferredFramesForReturn();
-    if (retType->is(BaseType::TY_VOID)) {
+    if (node->getIsAsync()) {
+      emitCurrentAsyncReturnValue(node->getSpan(), result,
+                                  "Async lambda expression body did not produce a value");
+    } else if (retType->is(BaseType::TY_VOID)) {
       emitReleaseCurrentArcOwnedSlots();
       builder->CreateRetVoid();
     } else {
@@ -4204,13 +4759,31 @@ auto Codegen::visit(const LambdaExpr* node) -> void {
     node->getBlockBody()->accept(*this);
     if (builder->GetInsertBlock()->getTerminator() == nullptr) {
       flushDeferredFramesForReturn();
-      if (retType->is(BaseType::TY_VOID)) {
+      if (node->getIsAsync() && currentAsyncReturnPayloadType != nullptr &&
+          currentAsyncReturnPayloadType->is(BaseType::TY_VOID)) {
+        emitImplicitAsyncVoidCompletion();
+      } else if (retType->is(BaseType::TY_VOID)) {
         emitReleaseCurrentArcOwnedSlots();
         builder->CreateRetVoid();
       } else {
         throw CodegenError(node->getSpan(), "Non-void lambda may reach end without returning");
       }
     }
+  }
+
+  if (node->getIsAsync()) {
+    if (llvm::BasicBlock* cur = builder->GetInsertBlock();
+        cur != nullptr && cur->getTerminator() == nullptr) {
+      if (currentAsyncReturnPayloadType != nullptr &&
+          currentAsyncReturnPayloadType->is(BaseType::TY_VOID)) {
+        emitImplicitAsyncVoidCompletion();
+      } else if (cur->empty()) {
+        builder->CreateUnreachable();
+      } else {
+        throw CodegenError(node->getSpan(), "Lambda does not always return a result");
+      }
+    }
+    finalizeAsyncCoroutine(f, *asyncBlocks);
   }
 
   std::string verifyOutput;
@@ -4220,6 +4793,7 @@ auto Codegen::visit(const LambdaExpr* node) -> void {
   }
   scope = savedScope;
   currentFunction = savedCurrentFunction;
+  restoreAsyncCodegenState(savedAsyncState);
   deferStack.pop();
   deferBaselineStack.pop();
   popArcOwnedSlotFrame(false);
@@ -4374,6 +4948,64 @@ auto Codegen::visit(const BinaryOp* node) -> void {
           leftPayload->getClosureCalleeUsesEnvParameter() ||
           (right != nullptr && right->getClosureCalleeUsesEnvParameter()));
     }
+    return;
+  }
+  if (node->getOperator() == TokenType::AND || node->getOperator() == TokenType::OR) {
+    if (left == nullptr || left->getType() == nullptr || !left->getType()->is(BaseType::TY_BOOL)) {
+      throw CodegenError(node->getSpan(), "Cannot use non-boolean left operand for {}",
+                         node->getOperator() == TokenType::AND ? "and" : "or");
+    }
+    if (left->getCategory() == ValueCategory::ADDRESSABLE_STORAGE) {
+      left = materializeSymbolValue(left.get());
+    }
+    if (left == nullptr || left->getLlvmValue() == nullptr) {
+      throw CodegenError(node->getSpan(), "Logical {} left operand has no LLVM value",
+                         node->getOperator() == TokenType::AND ? "and" : "or");
+    }
+
+    llvm::Function* parentFunction = builder->GetInsertBlock()->getParent();
+    auto* evalRightBlock =
+        llvm::BasicBlock::Create(theModule->getContext(), "logic.rhs", parentFunction);
+    auto* shortCircuitBlock =
+        llvm::BasicBlock::Create(theModule->getContext(), "logic.short", parentFunction);
+    auto* mergeBlock =
+        llvm::BasicBlock::Create(theModule->getContext(), "logic.merge", parentFunction);
+
+    if (node->getOperator() == TokenType::AND) {
+      builder->CreateCondBr(left->getLlvmValue(), evalRightBlock, shortCircuitBlock);
+    } else {
+      builder->CreateCondBr(left->getLlvmValue(), shortCircuitBlock, evalRightBlock);
+    }
+
+    builder->SetInsertPoint(evalRightBlock);
+    node->getRight()->accept(*this);
+    auto right = std::move(result);
+    if (right == nullptr || right->getType() == nullptr || !right->getType()->is(BaseType::TY_BOOL)) {
+      throw CodegenError(node->getSpan(), "Cannot use non-boolean right operand for {}",
+                         node->getOperator() == TokenType::AND ? "and" : "or");
+    }
+    if (right->getCategory() == ValueCategory::ADDRESSABLE_STORAGE) {
+      right = materializeSymbolValue(right.get());
+    }
+    if (right == nullptr || right->getLlvmValue() == nullptr) {
+      throw CodegenError(node->getSpan(), "Logical {} right operand has no LLVM value",
+                         node->getOperator() == TokenType::AND ? "and" : "or");
+    }
+    llvm::BasicBlock* rightIncoming = builder->GetInsertBlock();
+    builder->CreateBr(mergeBlock);
+
+    builder->SetInsertPoint(shortCircuitBlock);
+    llvm::BasicBlock* shortIncoming = builder->GetInsertBlock();
+    builder->CreateBr(mergeBlock);
+
+    builder->SetInsertPoint(mergeBlock);
+    auto* phi = builder->CreatePHI(builder->getInt1Ty(), 2U, "logic.result");
+    phi->addIncoming(right->getLlvmValue(), rightIncoming);
+    phi->addIncoming(node->getOperator() == TokenType::AND ? builder->getFalse()
+                                                           : builder->getTrue(),
+                     shortIncoming);
+    result = std::make_unique<Value>(
+        "", cacheType(std::make_unique<Type>(BaseType::TY_BOOL, builder->getInt1Ty())), phi);
     return;
   }
   node->getRight()->accept(*this);
@@ -5071,16 +5703,24 @@ auto Codegen::emitClassInstanceDataField(Value* classStructSym, llvm::Value* obj
     lesma::Type* ptrToField =
         cacheType(std::make_unique<Type>(BaseType::TY_PTR, builder->getPtrTy(), type));
     auto out = std::make_unique<Value>("", ptrToField, ptr);
-    if (type->is(BaseType::TY_FUNCTION) && dataField != nullptr &&
-        dataField->getDeclarationSymbol() != nullptr &&
-        dataField->getDeclarationSymbol()->getStoresFuncValuePair()) {
+    if (type->is(BaseType::TY_FUNCTION)) {
       out->setStoresFuncValuePair(true);
-      out->setClosureCalleeUsesEnvParameter(
-          dataField->getDeclarationSymbol()->getClosureCalleeUsesEnvParameter());
+      if (dataField != nullptr && dataField->getDeclarationSymbol() != nullptr) {
+        out->setClosureCalleeUsesEnvParameter(
+            dataField->getDeclarationSymbol()->getClosureCalleeUsesEnvParameter());
+      }
     }
     return out;
   }
-  return std::make_unique<Value>("", type, loadStoredAggregateFieldValue(ptr, type));
+  auto out = std::make_unique<Value>("", type, loadStoredAggregateFieldValue(ptr, type));
+  if (type->is(BaseType::TY_FUNCTION)) {
+    out->setStoresFuncValuePair(true);
+    if (dataField != nullptr && dataField->getDeclarationSymbol() != nullptr) {
+      out->setClosureCalleeUsesEnvParameter(
+          dataField->getDeclarationSymbol()->getClosureCalleeUsesEnvParameter());
+    }
+  }
+  return out;
 }
 
 void Codegen::emitClassStaticMethodCall(const DotOp* node, Type* classTy, const FuncCall* method) {
@@ -5222,7 +5862,7 @@ void Codegen::lowerDotOpSuperMethodCall(const DotOp* node) {
     auto* calleeFn = llvm::cast<llvm::Function>(resolved->getLlvmValue());
     llvm::Value* callResult = builder->CreateCall(calleeFn, finalParams);
     currentGenericTypes = std::move(savedGenerics);
-    result = std::make_unique<Value>("", returnTy, callResult);
+    result = finalizeCallableResult(std::make_unique<Value>("", returnTy, callResult));
     if (returnTy != nullptr && TypeUtils::containsArcManagedValue(returnTy)) {
       result->setArcOwnedValue(true);
     }
@@ -6192,6 +6832,11 @@ auto Codegen::visit(const BlockExpr* node) -> void {
 }
 
 auto Codegen::visit(const UnaryOp* node) -> void {
+  if (node->getOperator() == TokenType::AWAIT) {
+    node->getExpression()->accept(*this);
+    result = emitDrainAsyncTask(node->getSpan(), std::move(result), true);
+    return;
+  }
   setDebugLoc(node->getSpan());
   node->getExpression()->accept(*this);
   auto operand = std::move(result);
@@ -7420,6 +8065,10 @@ auto Codegen::appendCallableArgument(lesma::Value* arg, std::vector<lesma::Type*
   lesma::Type* const originalLesmaType = arg->getType();
   lesma::Type* argType = originalLesmaType;
   llvm::Value* llvmArg = arg->getLlvmValue();
+  if (originalLesmaType != nullptr && originalLesmaType->is(BaseType::TY_FUNCTION) &&
+      arg->getStoresFuncValuePair() && llvmArg != nullptr && llvmArg->getType()->isPointerTy()) {
+    llvmArg = builder->CreateLoad(getFuncValuePairLlvmType(), llvmArg, "call.arg.fn");
+  }
   if (originalLesmaType != nullptr && originalLesmaType->is(BaseType::TY_CLASS)) {
     lesma::Type* ptrType = nullptr;
     for (auto& t : typeCache) {
@@ -7835,8 +8484,11 @@ auto Codegen::callNamedFunction(
     }
   }
 
+  const LambdaExpr* originLambda = symbol->getOriginLambdaExpr();
+  Value* originLambdaSymbol = originLambda != nullptr ? originLambda->getResolvedSymbol() : nullptr;
   const bool genericLambdaNeedsSpecialize =
-      symbol->getOriginLambdaExpr() != nullptr && !symbol->getType()->getGenericParams().empty();
+      originLambdaSymbol != nullptr && originLambdaSymbol->getType() != nullptr &&
+      !originLambdaSymbol->getType()->getGenericParams().empty();
   if (symbol->getLlvmValue() == nullptr || genericLambdaNeedsSpecialize) {
     const FuncDecl* templateDecl = nullptr;
     if (selfSymbol != nullptr) {
@@ -7866,8 +8518,8 @@ auto Codegen::callNamedFunction(
       auto bindingEnv = buildFunctionSpecializationEnv(templateDecl, genericNames);
       symbol = specializeFunction(templateDecl, localParamTypes, genericNames, explicitTypeArgs,
                                   bindingEnv.empty() ? nullptr : &bindingEnv);
-    } else if (symbol->getOriginLambdaExpr() != nullptr) {
-      const LambdaExpr* lamNode = symbol->getOriginLambdaExpr();
+    } else if (originLambda != nullptr) {
+      const LambdaExpr* lamNode = originLambda;
       Value* lamSym = lamNode->getResolvedSymbol();
       if (lamSym != nullptr && lamSym->getType() != nullptr &&
           !lamSym->getType()->getGenericParams().empty()) {
@@ -7907,6 +8559,12 @@ auto Codegen::callNamedFunction(
       callableLesmaType =
           substituteTypeForSpecializationEnv(callableLesmaType, currentGenericTypes);
     }
+  }
+  if (typecheckCalleeFallback != nullptr && typecheckCalleeFallback->getType() != nullptr &&
+      typecheckCalleeFallback->getType()->is(BaseType::TY_FUNCTION) &&
+      !typeContainsUnboundGeneric(typecheckCalleeFallback->getType()) &&
+      (callableLesmaType == nullptr || typeContainsUnboundGeneric(callableLesmaType))) {
+    callableLesmaType = typecheckCalleeFallback->getType();
   }
 
   if (callableLesmaType == nullptr ||
@@ -8115,7 +8773,7 @@ auto Codegen::callNamedFunction(
 
   selfSymbol = selfSymbolTmp;
   Type* retLesma = callableLesmaType->getReturnType();
-  auto callResult = std::make_unique<Value>("", retLesma, callInst);
+  auto callResult = finalizeCallableResult(std::make_unique<Value>("", retLesma, callInst));
   if (retLesma != nullptr && retLesma->is(BaseType::TY_FUNCTION)) {
     callResult->setStoresFuncValuePair(true);
     callResult->setCategory(ValueCategory::DIRECT_VALUE);
@@ -8787,7 +9445,16 @@ auto Codegen::callMethodByName(llvm::SMRange span, lesma::Value* receiver,
         callResult = builder->CreateCall(directFn, finalParams);
       }
       currentGenericTypes = std::move(savedGenerics);
-      return std::make_unique<Value>("", returnTy, callResult);
+      auto directCallResult =
+          finalizeCallableResult(std::make_unique<Value>("", returnTy, callResult));
+      if (returnTy != nullptr && returnTy->is(BaseType::TY_FUNCTION)) {
+        directCallResult->setStoresFuncValuePair(true);
+        directCallResult->setCategory(ValueCategory::DIRECT_VALUE);
+      }
+      if (returnTy != nullptr && TypeUtils::containsArcManagedValue(returnTy)) {
+        directCallResult->setArcOwnedValue(true);
+      }
+      return directCallResult;
     } catch (...) {
       currentGenericTypes = std::move(savedGenerics);
       throw;

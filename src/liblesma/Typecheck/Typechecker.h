@@ -98,6 +98,8 @@ class Typechecker final : public ASTVisitor {
   std::unordered_map<Type*, std::unordered_map<std::string, Type*>> specializedTraitExistentialEnv;
   /** Imported types materialized into this typechecker's cache so they outlive imported scopes. */
   std::unordered_map<Type*, Type*> importedTypeCopies;
+  /** Canonical compiler-internal task wrapper types keyed by normalized payload type. */
+  std::unordered_map<Type*, Type*> asyncTaskTypes;
   /** Guards recursive imported nominal materialization while trying canonical reuse. */
   std::unordered_set<Type*> importedTypeMaterializationInProgress;
   std::vector<Type*> expectedTypes;
@@ -293,6 +295,8 @@ class Typechecker final : public ASTVisitor {
   auto narrowUnionByExcludingMembers(Type* unionTy, const std::vector<Type*>& toExclude) -> Type*;
   [[nodiscard]] auto functionTypesMatchForTraitImpl(Type* actualFn, Type* expectedFn) -> bool;
   [[nodiscard]] auto wrapReturnTypeIfNominal(Type* returnType) -> Type*;
+  auto getOrCreateAsyncTaskType(Type* payloadType) -> Type*;
+  [[nodiscard]] auto unwrapAsyncTaskType(Type* type) const -> Type*;
   /** Result type of a binary operator (arithmetic, comparison, logical). Throws on unsupported op.
    */
   auto typecheckBinaryOpResult(TokenType op, Type* leftTy, Type* rightTy, llvm::SMRange span)

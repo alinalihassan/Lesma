@@ -96,6 +96,7 @@ struct ArcTrackedSlot {
   llvm::Value* slot = nullptr;
   lesma::Type* type = nullptr;
   bool storesFuncValuePair = false;
+  bool rawArcPayload = false;
 };
 
 struct ModuleArcTrackedRoot {
@@ -135,6 +136,12 @@ class Codegen final : public ASTVisitor {
   /** \c deferStack.size() after \c deferStack.emplace() for the current module/callable unit. */
   std::stack<size_t> deferBaselineStack;
   lesma::Value* currentFunction = nullptr;
+  llvm::Value* currentAsyncCoroHandle = nullptr;
+  llvm::Value* currentAsyncPromisePtr = nullptr;
+  llvm::BasicBlock* currentAsyncReturnBlock = nullptr;
+  lesma::Type* currentAsyncReturnPayloadType = nullptr;
+  std::unordered_map<lesma::Type*, lesma::Type*> asyncTaskTypes;
+  std::unordered_map<lesma::Type*, llvm::StructType*> asyncPromiseTypes;
 
   std::vector<std::string> objectFiles;
   std::shared_ptr<std::vector<std::string>> importedModules;
@@ -224,6 +231,23 @@ class Codegen final : public ASTVisitor {
                                  UnionNarrowingStableKeyEq>>
       unionNarrowVariantStack;
 
+  struct AsyncCodegenStateSnapshot {
+    llvm::Value* coroHandle = nullptr;
+    llvm::Value* promisePtr = nullptr;
+    llvm::BasicBlock* returnBlock = nullptr;
+    lesma::Type* returnPayloadType = nullptr;
+  };
+
+  struct AsyncCoroutineBlocks {
+    llvm::BasicBlock* suspendBlock = nullptr;
+    llvm::BasicBlock* resumeBlock = nullptr;
+    llvm::BasicBlock* cleanupBlock = nullptr;
+    llvm::BasicBlock* trapBlock = nullptr;
+    llvm::BasicBlock* dynAllocBlock = nullptr;
+    llvm::BasicBlock* coroBeginBlock = nullptr;
+    llvm::Value* coroId = nullptr;
+  };
+
   /** Pushes a non-empty narrow map onto \c unionNarrowVariantStack in the ctor and pops in the
    * dtor so the stack stays balanced if nested codegen throws (e.g. \c CodegenError). */
   struct UnionNarrowingScope {
@@ -306,6 +330,8 @@ protected:
   auto initializeModule() -> std::unique_ptr<Module>;
   auto initializeJit() -> std::unique_ptr<LLLazyJIT>;
   auto initializeTopLevel() -> llvm::Function*;
+  [[nodiscard]] static auto statementRequiresModuleInit(const Statement* stmt) -> bool;
+  [[nodiscard]] auto moduleNeedsJitInit() const -> bool;
 
   auto initializeDebugMetadata() -> void;
   auto finalizeDebugMetadata() -> void;
@@ -535,6 +561,28 @@ protected:
       -> lesma::Value*;
   auto defineLambdaFunction(lesma::Value* value, const LambdaExpr* node) -> void;
   [[nodiscard]] auto getFuncValuePairLlvmType() -> llvm::StructType*;
+  auto getOrCreateAsyncTaskType(lesma::Type* payloadType) -> lesma::Type*;
+  [[nodiscard]] auto isAsyncTaskType(lesma::Type* type) const -> bool;
+  [[nodiscard]] auto getAsyncTaskPayloadType(lesma::Type* type) const -> lesma::Type*;
+  [[nodiscard]] auto getOrCreateAsyncPromiseLlvmType(lesma::Type* payloadType)
+      -> llvm::StructType*;
+  [[nodiscard]] auto saveAsyncCodegenState() const -> AsyncCodegenStateSnapshot;
+  auto restoreAsyncCodegenState(const AsyncCodegenStateSnapshot& state) -> void;
+  auto resetAsyncCodegenState() -> void;
+  auto initializeAsyncCoroutine(llvm::Function* f, lesma::Type* callableReturnType,
+                                llvm::SMRange span, llvm::StringRef callableKind)
+      -> AsyncCoroutineBlocks;
+  auto emitCurrentAsyncReadyFlag(lesma::Type* payloadType, bool isReady, llvm::StringRef name) -> void;
+  auto emitCurrentAsyncReturnValue(llvm::SMRange span, std::unique_ptr<lesma::Value>& value,
+                                   llvm::StringRef missingValueMessage) -> void;
+  auto emitImplicitAsyncVoidCompletion() -> void;
+  auto finalizeAsyncCoroutine(llvm::Function* f, const AsyncCoroutineBlocks& blocks) -> void;
+  auto getCoroutineIntrinsic(llvm::Intrinsic::ID id,
+                             llvm::ArrayRef<llvm::Type*> overloadTypes = {}) -> llvm::FunctionCallee;
+  auto emitAsyncTaskPromisePointer(llvm::Value* taskHandle, lesma::Type* taskType, bool fromCaller)
+      -> llvm::Value*;
+  auto emitDrainAsyncTask(llvm::SMRange span, std::unique_ptr<lesma::Value> taskValue,
+                          bool destroyTask) -> std::unique_ptr<lesma::Value>;
   auto
   specializeClass(const Class* node, const std::vector<lesma::Type*>& constructorArgTypes,
                   const std::vector<lesma::Type*>& explicitTypeArgs = {},
@@ -584,6 +632,7 @@ protected:
   auto popArcOwnedSlotFrame(bool emitCleanup) -> void;
   auto registerArcOwnedSlot(llvm::Value* slot, lesma::Type* type, bool storesFuncValuePair = false)
       -> void;
+  auto registerRawArcOwnedSlot(llvm::Value* slot) -> void;
   auto emitReleaseCurrentArcOwnedSlots() -> void;
   auto registerModuleArcRoot(llvm::GlobalVariable* slot, lesma::Type* type,
                              const std::string& debugName, bool storesFuncValuePair = false)
@@ -619,6 +668,15 @@ protected:
   auto getOrCreateArcDebugReportFunction() -> llvm::Function*;
   auto getOrCreateArcDebugCleanupBeginFunction() -> llvm::Function*;
   auto getOrCreateArcDebugCleanupStepFunction() -> llvm::Function*;
+  auto getOrCreateAsyncRuntimeShutdownFunction() -> llvm::FunctionCallee;
+  auto getOrCreateAsyncRuntimeRegisterTaskFunction() -> llvm::FunctionCallee;
+  auto getOrCreateAsyncRuntimeStartTaskFunction() -> llvm::FunctionCallee;
+  auto getOrCreateAsyncRuntimeWaitTaskFunction() -> llvm::FunctionCallee;
+  auto getOrCreateAsyncRuntimeReleaseTaskFunction() -> llvm::FunctionCallee;
+  auto getOrCreateAsyncResumeHelperFunction() -> llvm::Function*;
+  auto getOrCreateAsyncDoneHelperFunction() -> llvm::Function*;
+  auto getOrCreateAsyncDestroyHelperFunction() -> llvm::Function*;
+  auto finalizeCallableResult(std::unique_ptr<lesma::Value> value) -> std::unique_ptr<lesma::Value>;
   auto emitArcDebugDelta(std::int64_t delta, llvm::Value* payloadPtr,
                          std::string_view traceMessagePrefix) -> void;
   auto emitArcDebugTraceCounts(std::string_view traceMessagePrefix, llvm::Value* payloadPtr,

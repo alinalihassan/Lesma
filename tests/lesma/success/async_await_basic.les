@@ -1,0 +1,15 @@
+async func add_one(value: int) -> int {
+  return value + 1
+}
+
+async func add_pair(a: int, b: int) -> int {
+  let left = await add_one(a)
+  let right = await add_one(b)
+  return left + right
+}
+
+let total = await add_pair(2, 3)
+
+if total != 7 {
+  exit(1)
+}

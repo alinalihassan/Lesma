@@ -28,6 +28,14 @@ export function getIndentDedentConfiguration(): LanguageConfiguration {
             { open: "'", close: "'" },
         ],
         onEnterRules: [
+            // split auto-closed braces onto separate lines
+            {
+                beforeText: /.*\{\s*$/,
+                afterText: /^\s*\}/,
+                action: {
+                    indentAction: IndentAction.IndentOutdent,
+                },
+            },
             // multi-line separator
             {
                 beforeText: verboseRegExp(`

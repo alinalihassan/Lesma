@@ -126,6 +126,10 @@ auto Codegen::visit(const TypeExpr* node) -> void {
   } else if (node->getType() == TokenType::FUNC_TYPE) {
     node->getReturnType()->accept(*this);
     auto retType = std::move(result);
+    lesma::Type* loweredReturnType = retType->getType();
+    if (node->isAsyncFunctionType()) {
+      loweredReturnType = getOrCreateAsyncTaskType(loweredReturnType);
+    }
     std::vector<std::unique_ptr<Field>> fields;
     std::vector<lesma::Type*> paramTypes;
     std::vector<llvm::Type*> paramLLVMTypes;
@@ -141,7 +145,7 @@ auto Codegen::visit(const TypeExpr* node) -> void {
     // fields
     auto funcType =
         std::make_unique<Type>(BaseType::TY_FUNCTION, builder->getPtrTy(), std::move(fields));
-    funcType->setReturnType(retType->getType());
+    funcType->setReturnType(loweredReturnType);
     result = std::make_unique<Value>(cacheType(std::move(funcType)));
   } else if (node->getType() == TokenType::TUPLE_TYPE) {
     std::vector<std::unique_ptr<Field>> fields;
@@ -666,6 +670,9 @@ auto Codegen::getStoredAggregateFieldLlvmType(lesma::Type* fieldType) -> llvm::T
     return nullptr;
   }
   getOrCreateLlvmType(fieldType);
+  if (fieldType->is(BaseType::TY_FUNCTION)) {
+    return getFuncValuePairLlvmType();
+  }
   if (fieldType->is(BaseType::TY_TRAIT_EXISTENTIAL)) {
     return fieldType->getLlvmType();
   }

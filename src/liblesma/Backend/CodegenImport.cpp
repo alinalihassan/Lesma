@@ -71,6 +71,27 @@ auto Codegen::typecheckModule(const Compound* ast, const std::string& modulePath
           std::move(takenImportedModules)};
 }
 
+auto Codegen::statementRequiresModuleInit(const Statement* stmt) -> bool {
+  if (stmt == nullptr) {
+    return false;
+  }
+  return !dynamic_cast<const Import*>(stmt) && !dynamic_cast<const TypeAlias*>(stmt) &&
+         !dynamic_cast<const FuncDecl*>(stmt) && !dynamic_cast<const TraitDecl*>(stmt) &&
+         !dynamic_cast<const Enum*>(stmt) && !dynamic_cast<const Class*>(stmt);
+}
+
+auto Codegen::moduleNeedsJitInit() const -> bool {
+  if (parser == nullptr || parser->getAst() == nullptr) {
+    return false;
+  }
+  for (Statement* stmt : parser->getAst()->getChildren()) {
+    if (statementRequiresModuleInit(stmt)) {
+      return true;
+    }
+  }
+  return false;
+}
+
 auto Codegen::isImported(const std::vector<ImportedNameBinding>& importedNames,
                          const std::string& importName) const -> bool {
   return std::ranges::any_of(importedNames, [&importName](const ImportedNameBinding& binding) {
@@ -409,7 +430,8 @@ auto Codegen::compileModule(llvm::SMRange span, const std::string& filepath, boo
       if (isJit) {
         codegen->verifyIrModuleOrThrow(fmt::format("import {}", filepath));
         if (llvm::Function* importMain = codegen->theModule->getFunction("main");
-            importMain != nullptr && importMain->hasInternalLinkage()) {
+            importMain != nullptr && importMain->hasInternalLinkage() &&
+            codegen->moduleNeedsJitInit()) {
           jitModuleInitSymbol = MangleUtils::getImportedModuleInitSymbolName(canonicalPath);
           importMain->setName(jitModuleInitSymbol);
           importMain->setLinkage(llvm::GlobalValue::ExternalLinkage);
@@ -423,14 +445,14 @@ auto Codegen::compileModule(llvm::SMRange span, const std::string& filepath, boo
         } else {
           jitModuleFiniSymbol.clear();
         }
+        // Imported modules run optimize(O0) (no-op). For JIT, promote PrivateLinkage so Mach-O
+        // JITLink can resolve symbols across ORC modules at -O0 (see prepareJit / addIRModule).
         for (llvm::Function& fn : *codegen->theModule) {
           if (fn.hasPrivateLinkage()) {
             fn.setLinkage(llvm::GlobalValue::ExternalLinkage);
             fn.setVisibility(llvm::GlobalValue::HiddenVisibility);
           }
         }
-        // Do not promote private GlobalVariables (string literals, etc.): Mach-O JITLink reports
-        // "Unexpected definitions" for anonymous ___unnamed_* symbols when they become external.
         llvm::Error jitErr =
             theJit->addIRModule(ThreadSafeModule(std::move(codegen->theModule), *theContext));
         if (jitErr) {
